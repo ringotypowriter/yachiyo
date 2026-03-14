@@ -25,7 +25,7 @@ Yachiyo 是一个桌面端的 AI Chat / Agent Shell。
 - 表面上是一个体验好的聊天客户端
 - 内部上是一个有状态的本地服务系统
 - 协议层从一开始就按事件流来设计
-- 后续可以逐步注入 harness、plugin、coding agent、project context
+- 前后端之间当前通过 Electron IPC 维持事件流，未来如有需要再抽象成可替换传输层
 
 所以现在不要把它理解成一个已经定死实现细节的后端平台，而应该理解成：
 
@@ -41,7 +41,7 @@ Electron App
   ├─ Renderer (React UI)
   ├─ Main Process
   └─ Local Yachiyo Server
-       ├─ WebSocket Gateway
+       ├─ IPC Gateway
        ├─ Orchestrator
        ├─ Model Runtime
        ├─ Harness Runtime

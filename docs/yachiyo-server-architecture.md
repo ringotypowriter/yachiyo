@@ -11,7 +11,7 @@ Yachiyo 后端不是传统 chat API，也不是一套先验写死的 memory syst
 - 以 `Harness` 作为执行单元
 - 以 `Hook / Plugin` 作为扩展机制
 - 用 `AI SDK` 驱动模型运行时
-- 通过 `WebSocket` 向前端持续推送事件
+- 通过 Electron IPC Gateway 向前端持续推送事件
 
 一句话：
 
