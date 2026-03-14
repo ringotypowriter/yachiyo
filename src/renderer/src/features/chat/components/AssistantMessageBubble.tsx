@@ -1,3 +1,4 @@
+import type React from 'react'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
 import type { Message } from '@renderer/app/types'
 
@@ -5,7 +6,9 @@ interface AssistantMessageBubbleProps {
   message: Message
 }
 
-export function AssistantMessageBubble({ message }: AssistantMessageBubbleProps) {
+export function AssistantMessageBubble({
+  message
+}: AssistantMessageBubbleProps): React.JSX.Element {
   const isStreaming = message.status === 'streaming'
 
   return (

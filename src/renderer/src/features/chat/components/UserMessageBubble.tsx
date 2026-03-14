@@ -1,10 +1,11 @@
+import type React from 'react'
 import type { Message } from '@renderer/app/types'
 
 interface UserMessageBubbleProps {
   message: Message
 }
 
-export function UserMessageBubble({ message }: UserMessageBubbleProps) {
+export function UserMessageBubble({ message }: UserMessageBubbleProps): React.JSX.Element {
   return (
     <div className="flex justify-end px-6 py-1">
       <div

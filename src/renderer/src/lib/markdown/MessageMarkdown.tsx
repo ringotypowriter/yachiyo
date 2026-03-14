@@ -1,3 +1,4 @@
+import type React from 'react'
 import { Streamdown } from 'streamdown'
 import { MarkdownErrorBoundary } from './MarkdownErrorBoundary'
 
@@ -6,7 +7,10 @@ interface MessageMarkdownProps {
   isStreaming?: boolean
 }
 
-export function MessageMarkdown({ content, isStreaming = false }: MessageMarkdownProps) {
+export function MessageMarkdown({
+  content,
+  isStreaming = false
+}: MessageMarkdownProps): React.JSX.Element {
   return (
     <MarkdownErrorBoundary fallback={content}>
       <div className="streamdown-content message-selectable">

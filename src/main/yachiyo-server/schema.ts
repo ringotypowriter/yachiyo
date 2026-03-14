@@ -8,7 +8,7 @@ export const threadsTable = sqliteTable('threads', {
   preview: text('preview'),
   archivedAt: text('archived_at'),
   updatedAt: text('updated_at').notNull(),
-  createdAt: text('created_at').notNull(),
+  createdAt: text('created_at').notNull()
 })
 
 export const messagesTable = sqliteTable('messages', {
@@ -19,7 +19,7 @@ export const messagesTable = sqliteTable('messages', {
   role: text('role').$type<MessageRecord['role']>().notNull(),
   content: text('content').notNull(),
   status: text('status').$type<MessageRecord['status']>().notNull(),
-  createdAt: text('created_at').notNull(),
+  createdAt: text('created_at').notNull()
 })
 
 export const runsTable = sqliteTable('runs', {
@@ -30,5 +30,5 @@ export const runsTable = sqliteTable('runs', {
   status: text('status').notNull(),
   error: text('error'),
   createdAt: text('created_at').notNull(),
-  completedAt: text('completed_at'),
+  completedAt: text('completed_at')
 })

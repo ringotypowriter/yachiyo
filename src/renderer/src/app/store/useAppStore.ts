@@ -6,7 +6,7 @@ import type {
   ProviderSettings,
   RunStatus,
   Thread,
-  YachiyoServerEvent,
+  YachiyoServerEvent
 } from '../types'
 
 interface PendingAssistantMessage {
@@ -44,7 +44,7 @@ export const DEFAULT_SETTINGS: ProviderSettings = {
   provider: 'anthropic',
   model: '',
   apiKey: '',
-  baseUrl: '',
+  baseUrl: ''
 }
 
 function sortThreads(threads: Thread[]): Thread[] {
@@ -63,7 +63,7 @@ function upsertMessage(messages: Message[], message: Message): Message[] {
 function finalizePendingMessage(
   messages: Message[],
   pending: PendingAssistantMessage | undefined,
-  status: Message['status'],
+  status: Message['status']
 ): Message[] {
   if (!pending) return messages
 
@@ -103,22 +103,24 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         return {
           activeThreadId:
-            state.activeThreadId === event.threadId ? threads[0]?.id ?? null : state.activeThreadId,
+            state.activeThreadId === event.threadId
+              ? (threads[0]?.id ?? null)
+              : state.activeThreadId,
           messages,
-          threads,
+          threads
         }
       }
 
       if (event.type === 'thread.created' || event.type === 'thread.updated') {
         return {
-          threads: upsertThread(state.threads, event.thread),
+          threads: upsertThread(state.threads, event.thread)
         }
       }
 
       if (event.type === 'settings.updated') {
         return {
           lastError: null,
-          settings: event.settings ?? state.settings ?? DEFAULT_SETTINGS,
+          settings: event.settings ?? state.settings ?? DEFAULT_SETTINGS
         }
       }
 
@@ -126,7 +128,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         return {
           activeRunId: event.runId,
           lastError: null,
-          runStatus: 'running',
+          runStatus: 'running'
         }
       }
 
@@ -137,22 +139,22 @@ export const useAppStore = create<AppState>((set, get) => ({
           role: 'assistant',
           content: '',
           status: 'streaming',
-          createdAt: event.timestamp,
+          createdAt: event.timestamp
         }
         const nextThreadMessages = upsertMessage(state.messages[event.threadId] ?? [], nextMessage)
 
         return {
           messages: {
             ...state.messages,
-            [event.threadId]: nextThreadMessages,
+            [event.threadId]: nextThreadMessages
           },
           pendingAssistantMessages: {
             ...state.pendingAssistantMessages,
             [event.runId]: {
               messageId: event.messageId,
-              threadId: event.threadId,
-            },
-          },
+              threadId: event.threadId
+            }
+          }
         }
       }
 
@@ -164,16 +166,16 @@ export const useAppStore = create<AppState>((set, get) => ({
           message.id === pending.messageId
             ? {
                 ...message,
-                content: message.content + event.delta,
+                content: message.content + event.delta
               }
-            : message,
+            : message
         )
 
         return {
           messages: {
             ...state.messages,
-            [event.threadId]: nextThreadMessages,
-          },
+            [event.threadId]: nextThreadMessages
+          }
         }
       }
 
@@ -184,9 +186,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         return {
           messages: {
             ...state.messages,
-            [event.threadId]: upsertMessage(state.messages[event.threadId] ?? [], event.message),
+            [event.threadId]: upsertMessage(state.messages[event.threadId] ?? [], event.message)
           },
-          pendingAssistantMessages,
+          pendingAssistantMessages
         }
       }
 
@@ -197,7 +199,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         return {
           activeRunId: state.activeRunId === event.runId ? null : state.activeRunId,
           pendingAssistantMessages,
-          runStatus: 'idle',
+          runStatus: 'idle'
         }
       }
 
@@ -215,12 +217,12 @@ export const useAppStore = create<AppState>((set, get) => ({
                 [pending.threadId]: finalizePendingMessage(
                   state.messages[pending.threadId] ?? [],
                   pending,
-                  'failed',
-                ),
+                  'failed'
+                )
               }
             : state.messages,
           pendingAssistantMessages,
-          runStatus: 'failed',
+          runStatus: 'failed'
         }
       }
 
@@ -237,12 +239,12 @@ export const useAppStore = create<AppState>((set, get) => ({
                 [pending.threadId]: finalizePendingMessage(
                   state.messages[pending.threadId] ?? [],
                   pending,
-                  'failed',
-                ),
+                  'failed'
+                )
               }
             : state.messages,
           pendingAssistantMessages,
-          runStatus: 'cancelled',
+          runStatus: 'cancelled'
         }
       }
 
@@ -262,9 +264,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       activeThreadId: thread.id,
       messages: {
         ...state.messages,
-        [thread.id]: state.messages[thread.id] ?? [],
+        [thread.id]: state.messages[thread.id] ?? []
       },
-      threads: upsertThread(state.threads, thread),
+      threads: upsertThread(state.threads, thread)
     }))
   },
 
@@ -276,7 +278,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     bootstrapPromise = (async () => {
       set({
         connectionStatus: 'connecting',
-        isBootstrapping: true,
+        isBootstrapping: true
       })
 
       if (!unsubscribeFromServer) {
@@ -295,7 +297,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           lastError: null,
           messages: payload.messagesByThread,
           settings: payload.settings ?? state.settings ?? DEFAULT_SETTINGS,
-          threads: sortThreads(payload.threads),
+          threads: sortThreads(payload.threads)
         }))
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to bootstrap Yachiyo.'
@@ -303,7 +305,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           connectionStatus: 'disconnected',
           isBootstrapping: false,
           lastError: message,
-          runStatus: 'failed',
+          runStatus: 'failed'
         })
         throw error
       }
@@ -328,9 +330,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeThreadId: thread.id,
         messages: {
           ...state.messages,
-          [thread.id]: state.messages[thread.id] ?? [],
+          [thread.id]: state.messages[thread.id] ?? []
         },
-        threads: upsertThread(state.threads, thread),
+        threads: upsertThread(state.threads, thread)
       }))
       threadId = thread.id
     }
@@ -338,7 +340,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const accepted = await window.api.yachiyo.sendChat({
         content: trimmed,
-        threadId,
+        threadId
       })
 
       set((state) => ({
@@ -349,21 +351,21 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...state.messages,
           [accepted.thread.id]: upsertMessage(
             state.messages[accepted.thread.id] ?? [],
-            accepted.userMessage,
-          ),
+            accepted.userMessage
+          )
         },
-        threads: upsertThread(state.threads, accepted.thread),
+        threads: upsertThread(state.threads, accepted.thread)
       }))
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to send the message.'
       set({
         lastError: message,
-        runStatus: 'failed',
+        runStatus: 'failed'
       })
     }
   },
 
   setActiveThread: (id) => set({ activeThreadId: id }),
 
-  setComposerValue: (value) => set({ composerValue: value }),
+  setComposerValue: (value) => set({ composerValue: value })
 }))

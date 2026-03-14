@@ -1,3 +1,4 @@
+import type React from 'react'
 import { useEffect, useRef } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { UserMessageBubble } from './UserMessageBubble'
@@ -10,8 +11,8 @@ interface MessageTimelineProps {
 
 const EMPTY: Message[] = []
 
-export function MessageTimeline({ threadId }: MessageTimelineProps) {
-  const messages = useAppStore((s) => (threadId ? s.messages[threadId] ?? EMPTY : EMPTY))
+export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.Element {
+  const messages = useAppStore((s) => (threadId ? (s.messages[threadId] ?? EMPTY) : EMPTY))
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -31,7 +32,9 @@ export function MessageTimeline({ threadId }: MessageTimelineProps) {
   if (messages.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-sm" style={{ color: '#aaa' }}>No messages yet</p>
+        <p className="text-sm" style={{ color: '#aaa' }}>
+          No messages yet
+        </p>
       </div>
     )
   }
@@ -43,7 +46,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps) {
           <UserMessageBubble key={msg.id} message={msg} />
         ) : (
           <AssistantMessageBubble key={msg.id} message={msg} />
-        ),
+        )
       )}
       <div ref={bottomRef} />
     </div>

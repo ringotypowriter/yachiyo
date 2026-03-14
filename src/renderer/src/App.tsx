@@ -1,14 +1,5 @@
-import { useEffect, useState } from 'react'
-import {
-  Archive,
-  Check,
-  PanelLeft,
-  PencilLine,
-  Search,
-  Settings,
-  SquarePen,
-  X,
-} from 'lucide-react'
+import { useState } from 'react'
+import { Archive, Check, PanelLeft, PencilLine, Search, Settings, SquarePen, X } from 'lucide-react'
 import type { Message } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ThreadList } from '@renderer/features/threads/components/ThreadList'
@@ -18,7 +9,7 @@ import { RunStatusStrip } from '@renderer/features/runs/components/RunStatusStri
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
-function Sidebar() {
+function Sidebar(): React.JSX.Element {
   const createNewThread = useAppStore((s) => s.createNewThread)
 
   return (
@@ -32,10 +23,16 @@ function Sidebar() {
         style={{ height: '52px', paddingLeft: '80px', paddingRight: '12px' }}
       >
         <div className="flex items-center gap-1 no-drag ml-auto">
-          <button className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity" style={{ color: '#1c1c1e' }}>
+          <button
+            className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
+            style={{ color: '#1c1c1e' }}
+          >
             <PanelLeft size={16} strokeWidth={1.5} />
           </button>
-          <button className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity" style={{ color: '#1c1c1e' }}>
+          <button
+            className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
+            style={{ color: '#1c1c1e' }}
+          >
             <Search size={15} strokeWidth={1.5} />
           </button>
           <button
@@ -70,10 +67,12 @@ function Sidebar() {
 
 const EMPTY: Message[] = []
 
-function MainPanel() {
+function MainPanel(): React.JSX.Element {
   const archiveThread = useAppStore((s) => s.archiveThread)
   const activeThreadId = useAppStore((s) => s.activeThreadId)
-  const messages = useAppStore((s) => (activeThreadId ? s.messages[activeThreadId] ?? EMPTY : EMPTY))
+  const messages = useAppStore((s) =>
+    activeThreadId ? (s.messages[activeThreadId] ?? EMPTY) : EMPTY
+  )
   const renameThread = useAppStore((s) => s.renameThread)
   const runStatus = useAppStore((s) => s.runStatus)
   const threads = useAppStore((s) => s.threads)
@@ -81,33 +80,29 @@ function MainPanel() {
   const isBootstrapping = useAppStore((s) => s.isBootstrapping)
   const messageCount = messages.length
   const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null
+  const [editingTitleFor, setEditingTitleFor] = useState<string | null>(null)
   const [draftTitle, setDraftTitle] = useState('')
-  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const isEditingTitle = editingTitleFor === activeThread?.id
 
-  useEffect(() => {
-    setDraftTitle(activeThread?.title ?? '')
-    setIsEditingTitle(false)
-  }, [activeThread?.id, activeThread?.title])
-
-  async function commitTitleRename() {
+  async function commitTitleRename(): Promise<void> {
     if (!activeThread) return
 
     const title = draftTitle.trim()
     if (!title || title === activeThread.title) {
       setDraftTitle(activeThread.title)
-      setIsEditingTitle(false)
+      setEditingTitleFor(null)
       return
     }
 
     try {
       await renameThread(activeThread.id, title)
-      setIsEditingTitle(false)
+      setEditingTitleFor(null)
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'Failed to rename the thread.')
     }
   }
 
-  async function handleArchiveThread() {
+  async function handleArchiveThread(): Promise<void> {
     if (!activeThread) return
     if (!window.confirm(`Archive "${activeThread.title}"?`)) return
 
@@ -119,10 +114,7 @@ function MainPanel() {
   }
 
   return (
-    <div
-      className="flex flex-col flex-1 h-full min-w-0"
-      style={{ background: '#f5f4f0' }}
-    >
+    <div className="flex flex-col flex-1 h-full min-w-0" style={{ background: '#f5f4f0' }}>
       {/* Header */}
       <div
         className="flex items-center justify-between shrink-0 drag-region px-5"
@@ -144,7 +136,7 @@ function MainPanel() {
 
                   if (event.key === 'Escape') {
                     setDraftTitle(activeThread.title)
-                    setIsEditingTitle(false)
+                    setEditingTitleFor(null)
                   }
                 }}
                 className="h-8 rounded-md border px-2 text-sm font-semibold outline-none"
@@ -152,7 +144,7 @@ function MainPanel() {
                   background: 'rgba(255,255,255,0.88)',
                   borderColor: 'rgba(0,0,0,0.08)',
                   color: '#1c1c1e',
-                  letterSpacing: '-0.2px',
+                  letterSpacing: '-0.2px'
                 }}
               />
               <button
@@ -168,7 +160,7 @@ function MainPanel() {
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => {
                   setDraftTitle(activeThread.title)
-                  setIsEditingTitle(false)
+                  setEditingTitleFor(null)
                 }}
                 className="rounded-md p-1 no-drag transition-opacity opacity-70 hover:opacity-100"
                 style={{ color: '#8e8e93' }}
@@ -198,13 +190,16 @@ function MainPanel() {
           {activeThread ? (
             <>
               <button
-                onClick={() => setIsEditingTitle(true)}
+                onClick={() => {
+                  setDraftTitle(activeThread.title)
+                  setEditingTitleFor(activeThread.id)
+                }}
                 disabled={isEditingTitle}
                 className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-opacity disabled:opacity-40"
                 style={{
                   background: 'rgba(255,255,255,0.72)',
                   border: '1px solid rgba(0,0,0,0.08)',
-                  color: '#5b5a57',
+                  color: '#5b5a57'
                 }}
                 title="Rename thread"
               >
@@ -218,7 +213,7 @@ function MainPanel() {
                 style={{
                   background: 'rgba(255,255,255,0.72)',
                   border: '1px solid rgba(0,0,0,0.08)',
-                  color: '#7b3f39',
+                  color: '#7b3f39'
                 }}
                 title="Archive thread"
               >
@@ -235,7 +230,7 @@ function MainPanel() {
               width: '26px',
               height: '26px',
               background: 'rgba(255,255,255,0.52)',
-              border: '1px solid rgba(0,0,0,0.05)',
+              border: '1px solid rgba(0,0,0,0.05)'
             }}
           >
             <span
@@ -246,7 +241,7 @@ function MainPanel() {
                 background:
                   connectionStatus === 'connected'
                     ? 'rgba(78, 131, 102, 0.78)'
-                    : 'rgba(182, 92, 84, 0.76)',
+                    : 'rgba(182, 92, 84, 0.76)'
               }}
             />
           </span>
@@ -271,7 +266,17 @@ function App(): React.JSX.Element {
   return (
     <div className="flex h-full overflow-hidden">
       {/* Divider */}
-      <div style={{ width: '1px', background: 'rgba(0,0,0,0.08)', position: 'absolute', left: '260px', top: 0, bottom: 0, zIndex: 1 }} />
+      <div
+        style={{
+          width: '1px',
+          background: 'rgba(0,0,0,0.08)',
+          position: 'absolute',
+          left: '260px',
+          top: 0,
+          bottom: 0,
+          zIndex: 1
+        }}
+      />
       <Sidebar />
       <MainPanel />
     </div>

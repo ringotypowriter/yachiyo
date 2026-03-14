@@ -12,15 +12,15 @@ async function withServer(
     server: YachiyoServer
     completeRun: (runId: string) => Promise<void>
     waitForEvent: (type: string) => Promise<unknown>
-  }) => Promise<void>,
-) {
+  }) => Promise<void>
+): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-test-'))
   const dbPath = join(root, 'yachiyo.sqlite')
   const settingsPath = join(root, 'config.toml')
 
   const waiters = new Map<string, Array<(value: unknown) => void>>()
   const seenEvents = new Map<string, unknown[]>()
-  const settle = (type: string, value: unknown) => {
+  const settle = (type: string, value: unknown): void => {
     const seen = seenEvents.get(type) ?? []
     seen.push(value)
     seenEvents.set(type, seen)
@@ -54,7 +54,7 @@ async function withServer(
         if (request.messages.at(-1)?.content.includes('cancel me')) {
           yield 'Partial'
           await new Promise((_, reject) => {
-            const abort = () => {
+            const abort = (): void => {
               const error = new Error('Aborted')
               error.name = 'AbortError'
               reject(error)
@@ -72,8 +72,8 @@ async function withServer(
 
         yield 'Hello'
         yield ' world'
-      },
-    }),
+      }
+    })
   })
 
   const unsubscribe = server.subscribe((event) => {
@@ -88,7 +88,7 @@ async function withServer(
           new Promise<void>((resolve, reject) => {
             const completed = takeSeenEvent<{ runId: string }>(
               'run.completed',
-              (event) => event.runId === runId,
+              (event) => event.runId === runId
             )
             if (completed) {
               resolve()
@@ -97,7 +97,7 @@ async function withServer(
 
             const failed = takeSeenEvent<{ runId: string; error: string }>(
               'run.failed',
-              (event) => event.runId === runId,
+              (event) => event.runId === runId
             )
             if (failed) {
               reject(new Error(failed.error))
@@ -121,7 +121,7 @@ async function withServer(
           new Promise<void>((resolve) => {
             const cancelled = takeSeenEvent<{ runId: string }>(
               'run.cancelled',
-              (event) => event.runId === runId,
+              (event) => event.runId === runId
             )
             if (cancelled) {
               resolve()
@@ -134,7 +134,7 @@ async function withServer(
               if (payload.runId === runId) resolve()
             })
             waiters.set('run.cancelled', cancelledQueue)
-          }),
+          })
         ]),
       waitForEvent: (type) =>
         new Promise((resolve) => {
@@ -147,7 +147,7 @@ async function withServer(
           const queue = waiters.get(type) ?? []
           queue.push(resolve)
           waiters.set(type, queue)
-        }),
+        })
     })
   } finally {
     unsubscribe()
@@ -165,14 +165,14 @@ test('YachiyoServer streams a reply and persists the completed thread state', as
       baseUrl: 'https://api.openai.com/v1',
       modelList: {
         enabled: ['gpt-5'],
-        disabled: [],
-      },
+        disabled: []
+      }
     })
 
     const thread = await server.createThread()
     const accepted = await server.sendChat({
       threadId: thread.id,
-      content: 'Plan the MVP',
+      content: 'Plan the MVP'
     })
 
     await completeRun(accepted.runId)
@@ -199,14 +199,14 @@ test('YachiyoServer cancels an active run without persisting partial assistant o
       baseUrl: '',
       modelList: {
         enabled: ['claude-opus-4-6'],
-        disabled: [],
-      },
+        disabled: []
+      }
     })
 
     const thread = await server.createThread()
     const accepted = await server.sendChat({
       threadId: thread.id,
-      content: 'Please cancel me halfway. cancel me',
+      content: 'Please cancel me halfway. cancel me'
     })
 
     await waitForEvent('message.delta')
@@ -229,7 +229,7 @@ test('YachiyoServer renames and archives threads', async () => {
 
     const renamed = await server.renameThread({
       threadId: first.id,
-      title: 'Pinned plan',
+      title: 'Pinned plan'
     })
 
     assert.equal(renamed.title, 'Pinned plan')
@@ -253,15 +253,17 @@ test('YachiyoServer manages provider config and active model state', async () =>
       baseUrl: 'https://api.openai.com/v1',
       modelList: {
         enabled: ['gpt-5', 'gpt-4.1'],
-        disabled: ['o3-mini'],
-      },
+        disabled: ['o3-mini']
+      }
     })
 
     const updatedEvent = waitForEvent('settings.updated')
 
     const event = (await updatedEvent) as {
       settings: { providerName: string; provider: string; model: string }
-      config: { providers: Array<{ name: string; modelList: { enabled: string[]; disabled: string[] } }> }
+      config: {
+        providers: Array<{ name: string; modelList: { enabled: string[]; disabled: string[] } }>
+      }
     }
 
     assert.equal(event.settings.providerName, 'work')
@@ -272,7 +274,7 @@ test('YachiyoServer manages provider config and active model state', async () =>
 
     await server.disableProviderModel({
       name: 'work',
-      model: 'gpt-5',
+      model: 'gpt-5'
     })
 
     const config = await server.getConfig()

@@ -1,6 +1,7 @@
+import type React from 'react'
 import { DEFAULT_SETTINGS, useAppStore } from '@renderer/app/store/useAppStore'
 
-export function RunStatusStrip() {
+export function RunStatusStrip(): React.JSX.Element | null {
   const connectionStatus = useAppStore((s) => s.connectionStatus)
   const lastError = useAppStore((s) => s.lastError)
   const runStatus = useAppStore((s) => s.runStatus)
@@ -65,7 +66,7 @@ export function RunStatusStrip() {
             style={{
               background: '#8e8e93',
               animationDelay: `${i * 0.15}s`,
-              animationDuration: '0.8s',
+              animationDuration: '0.8s'
             }}
           />
         ))}

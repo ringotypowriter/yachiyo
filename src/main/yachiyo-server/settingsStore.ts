@@ -5,11 +5,11 @@ import type {
   ProviderConfig,
   ProviderKind,
   ProviderSettings,
-  SettingsConfig,
+  SettingsConfig
 } from '../../shared/yachiyo/protocol'
 
 export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
-  providers: [],
+  providers: []
 }
 
 function normalizeString(value: unknown, fallback: string): string {
@@ -26,10 +26,7 @@ function normalizeStringList(value: unknown): string[] {
   return [...new Set(value.map((item) => normalizeString(item, '')).filter(Boolean))]
 }
 
-function normalizeProviderConfig(
-  value: unknown,
-  fallback?: ProviderConfig,
-): ProviderConfig | null {
+function normalizeProviderConfig(value: unknown, fallback?: ProviderConfig): ProviderConfig | null {
   const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
   const name = normalizeString(input['name'], fallback?.name ?? '')
 
@@ -40,12 +37,12 @@ function normalizeProviderConfig(
   const enabled = normalizeStringList(
     input['modelList'] && typeof input['modelList'] === 'object'
       ? (input['modelList'] as Record<string, unknown>)['enabled']
-      : undefined,
+      : undefined
   )
   const disabled = normalizeStringList(
     input['modelList'] && typeof input['modelList'] === 'object'
       ? (input['modelList'] as Record<string, unknown>)['disabled']
-      : undefined,
+      : undefined
   ).filter((model) => !enabled.includes(model))
 
   return {
@@ -55,13 +52,17 @@ function normalizeProviderConfig(
     baseUrl: normalizeString(input['baseUrl'], fallback?.baseUrl ?? ''),
     modelList: {
       enabled,
-      disabled,
-    },
+      disabled
+    }
   }
 }
 
 function resolvePrimaryProvider(config: SettingsConfig): ProviderConfig | null {
-  return config.providers.find((provider) => provider.modelList.enabled.length > 0) ?? config.providers[0] ?? null
+  return (
+    config.providers.find((provider) => provider.modelList.enabled.length > 0) ??
+    config.providers[0] ??
+    null
+  )
 }
 
 function resolvePrimaryModel(provider: ProviderConfig | null): string {
@@ -87,7 +88,7 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
   })
 
   return {
-    providers: hasProviders ? providers : DEFAULT_SETTINGS_CONFIG.providers,
+    providers: hasProviders ? providers : DEFAULT_SETTINGS_CONFIG.providers
   }
 }
 
@@ -116,7 +117,9 @@ function parseTomlString(value: string): string {
 
 function parseTomlStringArray(value: string): string[] {
   const parsed = JSON.parse(value)
-  return Array.isArray(parsed) ? parsed.map((item) => normalizeString(item, '')).filter(Boolean) : []
+  return Array.isArray(parsed)
+    ? parsed.map((item) => normalizeString(item, '')).filter(Boolean)
+    : []
 }
 
 export function parseSettingsToml(raw: string): SettingsConfig {
@@ -151,8 +154,9 @@ export function parseSettingsToml(raw: string): SettingsConfig {
     }
 
     const [, key, rawValue] = match
-    const value =
-      rawValue.trim().startsWith('[') ? parseTomlStringArray(rawValue.trim()) : parseTomlString(rawValue.trim())
+    const value = rawValue.trim().startsWith('[')
+      ? parseTomlStringArray(rawValue.trim())
+      : parseTomlString(rawValue.trim())
 
     if (section === 'root') {
       root[key] = value
@@ -181,7 +185,7 @@ export function parseSettingsToml(raw: string): SettingsConfig {
 
   return normalizeSettingsConfig({
     ...root,
-    providers,
+    providers
   })
 }
 
@@ -207,7 +211,7 @@ export function stringifySettingsToml(config: SettingsConfig): string {
       '',
       '[providers.modelList]',
       `enabled = ${stringifyTomlStringArray(provider.modelList.enabled)}`,
-      `disabled = ${stringifyTomlStringArray(provider.modelList.disabled)}`,
+      `disabled = ${stringifyTomlStringArray(provider.modelList.disabled)}`
     )
   }
 
@@ -223,7 +227,7 @@ export function toProviderSettings(config: SettingsConfig): ProviderSettings {
     provider: provider?.type ?? 'anthropic',
     model,
     apiKey: provider?.apiKey ?? '',
-    baseUrl: provider?.baseUrl ?? '',
+    baseUrl: provider?.baseUrl ?? ''
   }
 }
 
@@ -245,6 +249,6 @@ export function createSettingsStore(settingsPath: string): SettingsStore {
     },
     write(settings) {
       writeFileSync(settingsPath, stringifySettingsToml(normalizeSettingsConfig(settings)), 'utf8')
-    },
+    }
   }
 }

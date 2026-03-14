@@ -1,8 +1,9 @@
+import type React from 'react'
 import { useRef, useCallback } from 'react'
 import { Paperclip, Wrench, ChevronDown, SendHorizonal, Square, CircleCheck } from 'lucide-react'
 import { DEFAULT_SETTINGS, useAppStore } from '@renderer/app/store/useAppStore'
 
-export function Composer() {
+export function Composer(): React.JSX.Element {
   const composerValue = useAppStore((s) => s.composerValue)
   const connectionStatus = useAppStore((s) => s.connectionStatus)
   const settings = useAppStore((s) => s.settings ?? DEFAULT_SETTINGS)
@@ -27,7 +28,7 @@ export function Composer() {
         if (canSend) void sendMessage(composerValue)
       }
     },
-    [canSend, composerValue, sendMessage],
+    [canSend, composerValue, sendMessage]
   )
 
   const handleInput = useCallback(
@@ -38,14 +39,11 @@ export function Composer() {
       el.style.height = 'auto'
       el.style.height = Math.min(el.scrollHeight, 160) + 'px'
     },
-    [setComposerValue],
+    [setComposerValue]
   )
 
   return (
-    <div
-      className="flex flex-col"
-      style={{ borderTop: '1px solid rgba(0,0,0,0.08)' }}
-    >
+    <div className="flex flex-col" style={{ borderTop: '1px solid rgba(0,0,0,0.08)' }}>
       {/* Textarea row */}
       <div className="px-4 pt-3 pb-1">
         <textarea
@@ -64,7 +62,7 @@ export function Composer() {
             color: '#1c1c1e',
             minHeight: '22px',
             maxHeight: '160px',
-            overflow: 'hidden',
+            overflow: 'hidden'
           }}
         />
       </div>
@@ -100,7 +98,8 @@ export function Composer() {
           style={{ color: '#1c1c1e' }}
         >
           <CircleCheck size={12} strokeWidth={1.5} color="#8e8e93" />
-          {settings.provider === 'openai' ? 'OpenAI' : 'Anthropic'} – {settings.model || 'Configure provider'}
+          {settings.provider === 'openai' ? 'OpenAI' : 'Anthropic'} –{' '}
+          {settings.model || 'Configure provider'}
           <ChevronDown size={10} strokeWidth={1.5} color="#8e8e93" />
         </button>
 
@@ -122,7 +121,7 @@ export function Composer() {
               className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
               style={{
                 background: canSend ? '#4a7876' : 'rgba(0,0,0,0.08)',
-                cursor: canSend ? 'pointer' : 'default',
+                cursor: canSend ? 'pointer' : 'default'
               }}
               title="Send"
             >

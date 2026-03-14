@@ -4,7 +4,7 @@ import type {
   ProviderConfig,
   ProviderSettings,
   SettingsConfig,
-  YachiyoServerEvent,
+  YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
 
 const api = {
@@ -18,31 +18,29 @@ const api = {
       ipcRenderer.invoke('yachiyo:rename-thread', input),
     sendChat: (input: { threadId: string; content: string }) =>
       ipcRenderer.invoke('yachiyo:send-chat', input),
-    cancelRun: (input: { runId: string }) =>
-      ipcRenderer.invoke('yachiyo:cancel-run', input),
+    cancelRun: (input: { runId: string }) => ipcRenderer.invoke('yachiyo:cancel-run', input),
     getConfig: () => ipcRenderer.invoke('yachiyo:get-config'),
     getSettings: () => ipcRenderer.invoke('yachiyo:get-settings'),
     saveConfig: (input: SettingsConfig) => ipcRenderer.invoke('yachiyo:save-config', input),
     saveSettings: (input: Partial<ProviderSettings>) =>
       ipcRenderer.invoke('yachiyo:save-settings', input),
-    upsertProvider: (input: ProviderConfig) =>
-      ipcRenderer.invoke('yachiyo:upsert-provider', input),
+    upsertProvider: (input: ProviderConfig) => ipcRenderer.invoke('yachiyo:upsert-provider', input),
     removeProvider: (input: { name: string }) =>
       ipcRenderer.invoke('yachiyo:remove-provider', input),
     enableProviderModel: (input: { name: string; model: string }) =>
       ipcRenderer.invoke('yachiyo:enable-provider-model', input),
     disableProviderModel: (input: { name: string; model: string }) =>
       ipcRenderer.invoke('yachiyo:disable-provider-model', input),
-    subscribe: (listener: (event: YachiyoServerEvent) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, payload: YachiyoServerEvent) => {
+    subscribe: (listener: (event: YachiyoServerEvent) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: YachiyoServerEvent): void => {
         listener(payload)
       }
       ipcRenderer.on('yachiyo:event', handler)
       return () => {
         ipcRenderer.off('yachiyo:event', handler)
       }
-    },
-  },
+    }
+  }
 }
 
 if (process.contextIsolated) {

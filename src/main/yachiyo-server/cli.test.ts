@@ -31,9 +31,9 @@ test('CLI manages file-based TOML settings and thread commands', async () => {
         baseUrl: 'https://api.openai.com/v1',
         modelList: {
           enabled: ['gpt-5', 'gpt-4.1'],
-          disabled: ['o3-mini'],
-        },
-      }),
+          disabled: ['o3-mini']
+        }
+      })
     ])
 
     const provider = JSON.parse(upserted.stdout)
@@ -47,7 +47,7 @@ test('CLI manages file-based TOML settings and thread commands', async () => {
       '--db',
       dbPath,
       '--settings',
-      settingsPath,
+      settingsPath
     ])
 
     const payload = JSON.parse(bootstrapped.stdout)
@@ -64,7 +64,7 @@ test('CLI manages file-based TOML settings and thread commands', async () => {
       '--db',
       dbPath,
       '--settings',
-      settingsPath,
+      settingsPath
     ])
 
     const settings = JSON.parse(config.stdout)
@@ -82,8 +82,8 @@ test('CLI manages file-based TOML settings and thread commands', async () => {
       '--json',
       JSON.stringify({
         name: 'work',
-        model: 'gpt-5',
-      }),
+        model: 'gpt-5'
+      })
     ])
 
     const afterDisable = await execFileAsync(process.execPath, [
@@ -93,7 +93,7 @@ test('CLI manages file-based TOML settings and thread commands', async () => {
       '--db',
       dbPath,
       '--settings',
-      settingsPath,
+      settingsPath
     ])
 
     const disabledConfig = JSON.parse(afterDisable.stdout)
@@ -111,7 +111,7 @@ test('CLI manages file-based TOML settings and thread commands', async () => {
       '--db',
       dbPath,
       '--settings',
-      settingsPath,
+      settingsPath
     ])
 
     const thread = JSON.parse(created.stdout)
@@ -127,8 +127,8 @@ test('CLI manages file-based TOML settings and thread commands', async () => {
       '--json',
       JSON.stringify({
         threadId: thread.id,
-        title: 'Inbox',
-      }),
+        title: 'Inbox'
+      })
     ])
 
     const renamedThread = JSON.parse(renamed.stdout)
@@ -144,8 +144,8 @@ test('CLI manages file-based TOML settings and thread commands', async () => {
       settingsPath,
       '--json',
       JSON.stringify({
-        threadId: thread.id,
-      }),
+        threadId: thread.id
+      })
     ])
 
     const afterArchive = await execFileAsync(process.execPath, [
@@ -155,7 +155,7 @@ test('CLI manages file-based TOML settings and thread commands', async () => {
       '--db',
       dbPath,
       '--settings',
-      settingsPath,
+      settingsPath
     ])
 
     const archivedPayload = JSON.parse(afterArchive.stdout)

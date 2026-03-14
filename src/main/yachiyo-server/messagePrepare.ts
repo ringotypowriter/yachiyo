@@ -16,10 +16,10 @@ export function prepareModelMessages(input: MessagePrepareInput): ModelMessage[]
 }
 
 export function prepareAiSdkMessages(
-  messages: ModelStreamRequest['messages'],
+  messages: ModelStreamRequest['messages']
 ): AiSdkModelMessage[] {
   return removeEmptyMessages(messages).map((message) => ({
     role: message.role,
-    content: message.content,
+    content: message.content
   }))
 }

@@ -78,8 +78,8 @@ app.whenReady().then(() => {
       backgroundColor: '#f0efeb',
       webPreferences: {
         preload: join(__dirname, '../preload/index.js'),
-        sandbox: false,
-      },
+        sandbox: false
+      }
     })
     settingsWindow.webContents.setWindowOpenHandler((details) => {
       shell.openExternal(details.url)
@@ -90,9 +90,7 @@ app.whenReady().then(() => {
       settingsWindow = null
     })
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-      settingsWindow.loadURL(
-        `${process.env['ELECTRON_RENDERER_URL']}/settings/index.html`,
-      )
+      settingsWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/settings/index.html`)
     } else {
       settingsWindow.loadFile(join(__dirname, '../renderer/settings/index.html'))
     }

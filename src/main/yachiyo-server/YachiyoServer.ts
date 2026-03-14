@@ -23,7 +23,7 @@ import type {
   ThreadCreatedEvent,
   ThreadRecord,
   ThreadUpdatedEvent,
-  YachiyoServerEvent,
+  YachiyoServerEvent
 } from '../../shared/yachiyo/protocol'
 import { createYachiyoDatabase, type YachiyoDatabase } from './database.ts'
 import { prepareModelMessages } from './messagePrepare.ts'
@@ -67,7 +67,7 @@ function toThreadRecord(row: {
     id: row.id,
     preview: row.preview,
     title: row.title,
-    updatedAt: row.updatedAt,
+    updatedAt: row.updatedAt
   }
 }
 
@@ -81,16 +81,16 @@ function upsertProvider(config: SettingsConfig, provider: ProviderConfig): Setti
     modelList: {
       enabled: mergeUnique(provider.modelList.enabled),
       disabled: mergeUnique(provider.modelList.disabled).filter(
-        (model) => !provider.modelList.enabled.includes(model),
-      ),
-    },
+        (model) => !provider.modelList.enabled.includes(model)
+      )
+    }
   }
   const currentIndex = config.providers.findIndex((entry) => entry.name === provider.name)
 
   if (currentIndex === -1) {
     return {
       ...config,
-      providers: [...config.providers, nextProvider],
+      providers: [...config.providers, nextProvider]
     }
   }
 
@@ -99,13 +99,13 @@ function upsertProvider(config: SettingsConfig, provider: ProviderConfig): Setti
 
   return {
     ...config,
-    providers,
+    providers
   }
 }
 
 function updateProviderModels(
   config: SettingsConfig,
-  input: { name: string; model: string; enabled: boolean },
+  input: { name: string; model: string; enabled: boolean }
 ): SettingsConfig {
   const name = input.name.trim()
   const model = input.model.trim()
@@ -123,8 +123,8 @@ function updateProviderModels(
         : provider.modelList.enabled.filter((entry) => entry !== model),
       disabled: input.enabled
         ? provider.modelList.disabled.filter((entry) => entry !== model)
-        : mergeUnique([model, ...provider.modelList.disabled]),
-    },
+        : mergeUnique([model, ...provider.modelList.disabled])
+    }
   }
 
   return upsertProvider(config, nextProvider)
@@ -173,7 +173,7 @@ export class YachiyoServer {
         id: threadsTable.id,
         preview: threadsTable.preview,
         title: threadsTable.title,
-        updatedAt: threadsTable.updatedAt,
+        updatedAt: threadsTable.updatedAt
       })
       .from(threadsTable)
       .where(isNull(threadsTable.archivedAt))
@@ -192,7 +192,7 @@ export class YachiyoServer {
               id: messagesTable.id,
               role: messagesTable.role,
               status: messagesTable.status,
-              threadId: messagesTable.threadId,
+              threadId: messagesTable.threadId
             })
             .from(messagesTable)
             .where(inArray(messagesTable.threadId, threadIds))
@@ -208,7 +208,7 @@ export class YachiyoServer {
       threads,
       messagesByThread,
       config: this.readConfig(),
-      settings: this.readSettings(),
+      settings: this.readSettings()
     }
   }
 
@@ -245,23 +245,25 @@ export class YachiyoServer {
       modelList: {
         enabled: mergeUnique([
           ...(existing?.modelList.enabled ?? []),
-          input.model?.trim() ?? currentSettings.model,
+          input.model?.trim() ?? currentSettings.model
         ]),
         disabled: (existing?.modelList.disabled ?? []).filter(
-          (model) => model !== (input.model?.trim() ?? currentSettings.model),
-        ),
-      },
+          (model) => model !== (input.model?.trim() ?? currentSettings.model)
+        )
+      }
     }
 
     const baseConfig = upsertProvider(current, nextProvider)
-    const prioritizedProvider = baseConfig.providers.find((provider) => provider.name === providerName)
+    const prioritizedProvider = baseConfig.providers.find(
+      (provider) => provider.name === providerName
+    )
     const nextConfig = this.persistConfig({
       providers: prioritizedProvider
         ? [
             prioritizedProvider,
-            ...baseConfig.providers.filter((provider) => provider.name !== providerName),
+            ...baseConfig.providers.filter((provider) => provider.name !== providerName)
           ]
-        : baseConfig.providers,
+        : baseConfig.providers
     })
 
     return toProviderSettings(nextConfig)
@@ -287,7 +289,7 @@ export class YachiyoServer {
 
     return this.persistConfig({
       ...current,
-      providers,
+      providers
     })
   }
 
@@ -295,8 +297,8 @@ export class YachiyoServer {
     return this.persistConfig(
       updateProviderModels(this.readConfig(), {
         ...input,
-        enabled: true,
-      }),
+        enabled: true
+      })
     )
   }
 
@@ -304,8 +306,8 @@ export class YachiyoServer {
     return this.persistConfig(
       updateProviderModels(this.readConfig(), {
         ...input,
-        enabled: false,
-      }),
+        enabled: false
+      })
     )
   }
 
@@ -314,7 +316,7 @@ export class YachiyoServer {
     const thread: ThreadRecord = {
       id: this.createId(),
       title: DEFAULT_THREAD_TITLE,
-      updatedAt: timestamp,
+      updatedAt: timestamp
     }
 
     this.db
@@ -325,14 +327,14 @@ export class YachiyoServer {
         id: thread.id,
         preview: null,
         title: thread.title,
-        updatedAt: thread.updatedAt,
+        updatedAt: thread.updatedAt
       })
       .run()
 
     this.emit<ThreadCreatedEvent>({
       type: 'thread.created',
       threadId: thread.id,
-      thread,
+      thread
     })
 
     return thread
@@ -348,14 +350,14 @@ export class YachiyoServer {
     const updatedThread: ThreadRecord = {
       ...thread,
       title,
-      updatedAt: this.timestamp(),
+      updatedAt: this.timestamp()
     }
 
     this.db
       .update(threadsTable)
       .set({
         title: updatedThread.title,
-        updatedAt: updatedThread.updatedAt,
+        updatedAt: updatedThread.updatedAt
       })
       .where(eq(threadsTable.id, thread.id))
       .run()
@@ -363,7 +365,7 @@ export class YachiyoServer {
     this.emit<ThreadUpdatedEvent>({
       type: 'thread.updated',
       threadId: updatedThread.id,
-      thread: updatedThread,
+      thread: updatedThread
     })
 
     return updatedThread
@@ -380,14 +382,14 @@ export class YachiyoServer {
       .update(threadsTable)
       .set({
         archivedAt: timestamp,
-        updatedAt: timestamp,
+        updatedAt: timestamp
       })
       .where(eq(threadsTable.id, thread.id))
       .run()
 
     this.emit<ThreadArchivedEvent>({
       type: 'thread.archived',
-      threadId: thread.id,
+      threadId: thread.id
     })
   }
 
@@ -410,57 +412,53 @@ export class YachiyoServer {
         role: 'user',
         content,
         status: 'completed',
-        createdAt: timestamp,
+        createdAt: timestamp
       }
 
-      tx.insert(messagesTable)
-        .values(userMessage)
-        .run()
+      tx.insert(messagesTable).values(userMessage).run()
 
       const updatedThread: ThreadRecord = {
         ...thread,
         title: thread.title === DEFAULT_THREAD_TITLE ? content.slice(0, 60) : thread.title,
-        updatedAt: timestamp,
+        updatedAt: timestamp
       }
 
-      tx
-        .update(threadsTable)
+      tx.update(threadsTable)
         .set({
           title: updatedThread.title,
-          updatedAt: updatedThread.updatedAt,
+          updatedAt: updatedThread.updatedAt
         })
         .where(eq(threadsTable.id, updatedThread.id))
         .run()
 
       const runId = this.createId()
-      tx
-        .insert(runsTable)
+      tx.insert(runsTable)
         .values({
           completedAt: null,
           createdAt: timestamp,
           error: null,
           id: runId,
           status: 'running',
-          threadId: thread.id,
+          threadId: thread.id
         })
         .run()
 
       return {
         runId,
         thread: updatedThread,
-        userMessage,
+        userMessage
       }
     })
 
     this.emit<ThreadUpdatedEvent>({
       type: 'thread.updated',
       threadId: accepted.thread.id,
-      thread: accepted.thread,
+      thread: accepted.thread
     })
     this.emit<RunCreatedEvent>({
       type: 'run.created',
       threadId: accepted.thread.id,
-      runId: accepted.runId,
+      runId: accepted.runId
     })
 
     const abortController = new AbortController()
@@ -469,7 +467,7 @@ export class YachiyoServer {
     void this.executeRun({
       runId: accepted.runId,
       thread: accepted.thread,
-      abortController,
+      abortController
     })
 
     return accepted
@@ -494,25 +492,25 @@ export class YachiyoServer {
       threadId: input.thread.id,
       runId: input.runId,
       harnessId,
-      name: DEFAULT_HARNESS_NAME,
+      name: DEFAULT_HARNESS_NAME
     })
     this.emit<MessageStartedEvent>({
       type: 'message.started',
       threadId: input.thread.id,
       runId: input.runId,
-      messageId,
+      messageId
     })
 
     try {
       const runtime = this.createModelRuntime()
       const messages = prepareModelMessages({
-        history: this.loadThreadHistory(input.thread.id),
+        history: this.loadThreadHistory(input.thread.id)
       })
 
       for await (const delta of runtime.streamReply({
         messages,
         settings,
-        signal: input.abortController.signal,
+        signal: input.abortController.signal
       })) {
         if (!delta) continue
         buffer += delta
@@ -521,7 +519,7 @@ export class YachiyoServer {
           threadId: input.thread.id,
           runId: input.runId,
           messageId,
-          delta,
+          delta
         })
       }
 
@@ -532,28 +530,24 @@ export class YachiyoServer {
         role: 'assistant',
         content: buffer,
         status: 'completed',
-        createdAt: timestamp,
+        createdAt: timestamp
       }
 
       this.db.transaction((tx) => {
-        tx.insert(messagesTable)
-          .values(assistantMessage)
-          .run()
+        tx.insert(messagesTable).values(assistantMessage).run()
 
-        tx
-          .update(threadsTable)
+        tx.update(threadsTable)
           .set({
             preview: assistantMessage.content.slice(0, 240),
-            updatedAt: timestamp,
+            updatedAt: timestamp
           })
           .where(eq(threadsTable.id, input.thread.id))
           .run()
 
-        tx
-          .update(runsTable)
+        tx.update(runsTable)
           .set({
             completedAt: timestamp,
-            status: 'completed',
+            status: 'completed'
           })
           .where(eq(runsTable.id, input.runId))
           .run()
@@ -563,7 +557,7 @@ export class YachiyoServer {
         type: 'message.completed',
         threadId: input.thread.id,
         runId: input.runId,
-        message: assistantMessage,
+        message: assistantMessage
       })
       this.emit<ThreadUpdatedEvent>({
         type: 'thread.updated',
@@ -571,8 +565,8 @@ export class YachiyoServer {
         thread: {
           ...input.thread,
           preview: assistantMessage.content.slice(0, 240),
-          updatedAt: timestamp,
-        },
+          updatedAt: timestamp
+        }
       })
       this.emit<HarnessFinishedEvent>({
         type: 'harness.finished',
@@ -580,12 +574,12 @@ export class YachiyoServer {
         runId: input.runId,
         harnessId,
         name: DEFAULT_HARNESS_NAME,
-        status: 'completed',
+        status: 'completed'
       })
       this.emit<RunCompletedEvent>({
         type: 'run.completed',
         threadId: input.thread.id,
-        runId: input.runId,
+        runId: input.runId
       })
     } catch (error) {
       if (input.abortController.signal.aborted || isAbortError(error)) {
@@ -594,7 +588,7 @@ export class YachiyoServer {
           .update(runsTable)
           .set({
             completedAt: timestamp,
-            status: 'cancelled',
+            status: 'cancelled'
           })
           .where(eq(runsTable.id, input.runId))
           .run()
@@ -605,12 +599,12 @@ export class YachiyoServer {
           runId: input.runId,
           harnessId,
           name: DEFAULT_HARNESS_NAME,
-          status: 'cancelled',
+          status: 'cancelled'
         })
         this.emit<RunCancelledEvent>({
           type: 'run.cancelled',
           threadId: input.thread.id,
-          runId: input.runId,
+          runId: input.runId
         })
       } else {
         const message = error instanceof Error ? error.message : 'Unknown model runtime error'
@@ -620,7 +614,7 @@ export class YachiyoServer {
           .set({
             completedAt: timestamp,
             error: message,
-            status: 'failed',
+            status: 'failed'
           })
           .where(eq(runsTable.id, input.runId))
           .run()
@@ -632,13 +626,13 @@ export class YachiyoServer {
           harnessId,
           name: DEFAULT_HARNESS_NAME,
           status: 'failed',
-          error: message,
+          error: message
         })
         this.emit<RunFailedEvent>({
           type: 'run.failed',
           threadId: input.thread.id,
           runId: input.runId,
-          error: message,
+          error: message
         })
       }
     } finally {
@@ -647,11 +641,11 @@ export class YachiyoServer {
     }
   }
 
-  private loadThreadHistory(threadId: string) {
+  private loadThreadHistory(threadId: string): { content: string; role: string }[] {
     return this.db
       .select({
         content: messagesTable.content,
-        role: messagesTable.role,
+        role: messagesTable.role
       })
       .from(messagesTable)
       .where(eq(messagesTable.threadId, threadId))
@@ -673,7 +667,7 @@ export class YachiyoServer {
     this.emit<SettingsUpdatedEvent>({
       type: 'settings.updated',
       config,
-      settings: toProviderSettings(config),
+      settings: toProviderSettings(config)
     })
     return config
   }
@@ -684,7 +678,7 @@ export class YachiyoServer {
         id: threadsTable.id,
         preview: threadsTable.preview,
         title: threadsTable.title,
-        updatedAt: threadsTable.updatedAt,
+        updatedAt: threadsTable.updatedAt
       })
       .from(threadsTable)
       .where(and(eq(threadsTable.id, threadId), isNull(threadsTable.archivedAt)))
@@ -702,12 +696,12 @@ export class YachiyoServer {
   }
 
   private emit<TEvent extends YachiyoServerEvent>(
-    event: Omit<TEvent, 'eventId' | 'timestamp'>,
+    event: Omit<TEvent, 'eventId' | 'timestamp'>
   ): void {
     const completeEvent = {
       eventId: this.createId(),
       timestamp: this.timestamp(),
-      ...event,
+      ...event
     } as TEvent
 
     for (const listener of this.listeners) {

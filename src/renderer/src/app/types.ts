@@ -4,5 +4,5 @@ export type {
   ProviderSettings,
   RunStatus,
   ThreadRecord as Thread,
-  YachiyoServerEvent,
+  YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol'

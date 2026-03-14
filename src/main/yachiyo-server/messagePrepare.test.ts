@@ -9,14 +9,14 @@ test('message prepare prepends the system prompt and drops empty messages', () =
     history: [
       { role: 'user', content: '   ' },
       { role: 'assistant', content: 'Previous answer' },
-      { role: 'user', content: 'What is next?' },
-    ],
+      { role: 'user', content: 'What is next?' }
+    ]
   })
 
   assert.deepEqual(prepared, [
     { role: 'system', content: SYSTEM_PROMPT },
     { role: 'assistant', content: 'Previous answer' },
-    { role: 'user', content: 'What is next?' },
+    { role: 'user', content: 'What is next?' }
   ])
 })
 
@@ -24,11 +24,11 @@ test('message prepare converts prepared messages into AI SDK messages', () => {
   const prepared = prepareAiSdkMessages([
     { role: 'system', content: 'You are concise.' },
     { role: 'assistant', content: '' },
-    { role: 'user', content: 'Say hello' },
+    { role: 'user', content: 'Say hello' }
   ])
 
   assert.deepEqual(prepared, [
     { role: 'system', content: 'You are concise.' },
-    { role: 'user', content: 'Say hello' },
+    { role: 'user', content: 'Say hello' }
   ])
 })

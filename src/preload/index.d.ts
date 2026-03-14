@@ -6,7 +6,7 @@ import type {
   ProviderSettings,
   SettingsConfig,
   ThreadRecord,
-  YachiyoServerEvent,
+  YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
 
 declare global {

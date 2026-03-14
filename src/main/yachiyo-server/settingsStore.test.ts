@@ -7,7 +7,7 @@ import test from 'node:test'
 import {
   DEFAULT_SETTINGS_CONFIG,
   createSettingsStore,
-  toProviderSettings,
+  toProviderSettings
 } from './settingsStore.ts'
 
 test('settings store persists multi-provider config as TOML', async () => {
@@ -25,8 +25,8 @@ test('settings store persists multi-provider config as TOML', async () => {
           baseUrl: 'https://openrouter.example/v1',
           modelList: {
             enabled: ['gpt-5', 'gpt-4.1'],
-            disabled: ['o3-mini'],
-          },
+            disabled: ['o3-mini']
+          }
         },
         {
           name: 'backup',
@@ -35,10 +35,10 @@ test('settings store persists multi-provider config as TOML', async () => {
           baseUrl: '',
           modelList: {
             enabled: ['claude-opus-4-6'],
-            disabled: [],
-          },
-        },
-      ],
+            disabled: []
+          }
+        }
+      ]
     }
 
     store.write(config)
@@ -75,8 +75,8 @@ test('toProviderSettings resolves the active provider snapshot', () => {
         baseUrl: 'https://api.openai.com/v1',
         modelList: {
           enabled: [],
-          disabled: [],
-        },
+          disabled: []
+        }
       },
       {
         name: 'backup',
@@ -85,10 +85,10 @@ test('toProviderSettings resolves the active provider snapshot', () => {
         baseUrl: '',
         modelList: {
           enabled: ['claude-opus-4-6'],
-          disabled: ['claude-sonnet-4-5'],
-        },
-      },
-    ],
+          disabled: ['claude-sonnet-4-5']
+        }
+      }
+    ]
   })
 
   assert.equal(snapshot.providerName, 'backup')

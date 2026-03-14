@@ -12,7 +12,10 @@ export type YachiyoDatabase = BetterSQLite3Database<typeof schema>
 
 const MIGRATIONS_DIR = fileURLToPath(new URL('./drizzle', import.meta.url))
 
-export function createYachiyoDatabase(dbPath: string) {
+export function createYachiyoDatabase(dbPath: string): {
+  client: BetterSqlite3.Database
+  db: YachiyoDatabase
+} {
   mkdirSync(dirname(dbPath), { recursive: true })
 
   const client = new BetterSqlite3(dbPath)

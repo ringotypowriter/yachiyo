@@ -23,7 +23,7 @@ function cleanBaseUrl(baseUrl: string, fallback: string): string {
   return (baseUrl.trim() || fallback).replace(/\/+$/, '')
 }
 
-function assertConfigured(settings: ProviderSettings) {
+function assertConfigured(settings: ProviderSettings): void {
   if (!settings.apiKey.trim()) {
     throw new Error('No API key configured. Open Settings and add a provider key first.')
   }
@@ -35,30 +35,28 @@ function assertConfigured(settings: ProviderSettings) {
 
 function createLanguageModel(
   settings: ProviderSettings,
-  dependencies: Required<AiSdkRuntimeDependencies>,
+  dependencies: Required<AiSdkRuntimeDependencies>
 ): LanguageModel {
   if (settings.provider === 'openai') {
     const provider = dependencies.createOpenAIProvider({
       apiKey: settings.apiKey,
-      baseURL: cleanBaseUrl(settings.baseUrl, DEFAULT_OPENAI_BASE_URL),
+      baseURL: cleanBaseUrl(settings.baseUrl, DEFAULT_OPENAI_BASE_URL)
     })
     return provider.chat(settings.model)
   }
 
   const provider = dependencies.createAnthropicProvider({
     apiKey: settings.apiKey,
-    baseURL: cleanBaseUrl(settings.baseUrl, DEFAULT_ANTHROPIC_BASE_URL),
+    baseURL: cleanBaseUrl(settings.baseUrl, DEFAULT_ANTHROPIC_BASE_URL)
   })
   return provider(settings.model)
 }
 
-export function createAiSdkModelRuntime(
-  dependencies: AiSdkRuntimeDependencies = {},
-): ModelRuntime {
+export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies = {}): ModelRuntime {
   const resolvedDependencies: Required<AiSdkRuntimeDependencies> = {
     createAnthropicProvider: dependencies.createAnthropicProvider ?? createAnthropic,
     createOpenAIProvider: dependencies.createOpenAIProvider ?? createOpenAI,
-    streamTextImpl: dependencies.streamTextImpl ?? streamText,
+    streamTextImpl: dependencies.streamTextImpl ?? streamText
   }
 
   return {
@@ -68,7 +66,7 @@ export function createAiSdkModelRuntime(
       const result = resolvedDependencies.streamTextImpl({
         abortSignal: request.signal,
         messages: prepareAiSdkMessages(request.messages),
-        model: createLanguageModel(request.settings, resolvedDependencies),
+        model: createLanguageModel(request.settings, resolvedDependencies)
       })
 
       for await (const textPart of result.textStream) {
@@ -76,6 +74,6 @@ export function createAiSdkModelRuntime(
           yield textPart
         }
       }
-    },
+    }
   }
 }

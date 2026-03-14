@@ -1,6 +1,10 @@
 import { argv } from 'node:process'
 
-import type { ProviderConfig, ProviderSettings, SettingsConfig } from '../../shared/yachiyo/protocol'
+import type {
+  ProviderConfig,
+  ProviderSettings,
+  SettingsConfig
+} from '../../shared/yachiyo/protocol'
 import { resolveYachiyoDbPath, resolveYachiyoSettingsPath } from './paths.ts'
 import { YachiyoServer } from './YachiyoServer.ts'
 
@@ -12,7 +16,7 @@ function readFlag(name: string): string | undefined {
   return index >= 0 ? argv[index + 1] : undefined
 }
 
-function outputJson(value: unknown) {
+function outputJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
 }
 
@@ -21,7 +25,7 @@ function readJsonFlag<T>(name: string): T {
   return raw ? (JSON.parse(raw) as T) : ({} as T)
 }
 
-async function main() {
+async function main(): Promise<void> {
   const command = argv[2]
   const dbPath = readFlag('--db') ?? resolveYachiyoDbPath()
   const settingsPath = readFlag('--settings') ?? resolveYachiyoSettingsPath()
@@ -66,14 +70,14 @@ async function main() {
 
     if (command === 'settings.provider.model.enable') {
       outputJson(
-        await server.enableProviderModel(readJsonFlag<{ name: string; model: string }>('--json')),
+        await server.enableProviderModel(readJsonFlag<{ name: string; model: string }>('--json'))
       )
       return
     }
 
     if (command === 'settings.provider.model.disable') {
       outputJson(
-        await server.disableProviderModel(readJsonFlag<{ name: string; model: string }>('--json')),
+        await server.disableProviderModel(readJsonFlag<{ name: string; model: string }>('--json'))
       )
       return
     }
@@ -85,7 +89,7 @@ async function main() {
 
     if (command === 'thread.rename') {
       outputJson(
-        await server.renameThread(readJsonFlag<{ threadId: string; title: string }>('--json')),
+        await server.renameThread(readJsonFlag<{ threadId: string; title: string }>('--json'))
       )
       return
     }

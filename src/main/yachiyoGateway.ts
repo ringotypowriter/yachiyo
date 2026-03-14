@@ -4,7 +4,7 @@ import type {
   ProviderConfig,
   ProviderSettings,
   SettingsConfig,
-  YachiyoServerEvent,
+  YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
 import { resolveYachiyoDbPath, resolveYachiyoSettingsPath } from './yachiyo-server/paths.ts'
 import { YachiyoServer } from './yachiyo-server/YachiyoServer.ts'
@@ -24,12 +24,12 @@ const IPC_CHANNELS = {
   saveConfig: 'yachiyo:save-config',
   saveSettings: 'yachiyo:save-settings',
   sendChat: 'yachiyo:send-chat',
-  upsertProvider: 'yachiyo:upsert-provider',
+  upsertProvider: 'yachiyo:upsert-provider'
 } as const
 
 let server: YachiyoServer | null = null
 
-function broadcast(event: YachiyoServerEvent) {
+function broadcast(event: YachiyoServerEvent): void {
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) {
       window.webContents.send(IPC_CHANNELS.event, event)
@@ -39,8 +39,8 @@ function broadcast(event: YachiyoServerEvent) {
 
 function handle<Args extends unknown[], Result>(
   channel: string,
-  listener: (...args: Args) => Result | Promise<Result>,
-) {
+  listener: (...args: Args) => Result | Promise<Result>
+): void {
   ipcMain.removeHandler(channel)
   ipcMain.handle(channel, async (_event, ...args: Args) => listener(...args))
 }
@@ -52,35 +52,33 @@ export function registerYachiyoGateway(): YachiyoServer {
 
   server = new YachiyoServer({
     dbPath: resolveYachiyoDbPath(),
-    settingsPath: resolveYachiyoSettingsPath(),
+    settingsPath: resolveYachiyoSettingsPath()
   })
   server.subscribe(broadcast)
 
   handle(IPC_CHANNELS.bootstrap, () => server!.bootstrap())
   handle(IPC_CHANNELS.createThread, () => server!.createThread())
   handle(IPC_CHANNELS.renameThread, (input: { threadId: string; title: string }) =>
-    server!.renameThread(input),
+    server!.renameThread(input)
   )
-  handle(IPC_CHANNELS.archiveThread, (input: { threadId: string }) =>
-    server!.archiveThread(input),
-  )
+  handle(IPC_CHANNELS.archiveThread, (input: { threadId: string }) => server!.archiveThread(input))
   handle(IPC_CHANNELS.sendChat, (input: { threadId: string; content: string }) =>
-    server!.sendChat(input),
+    server!.sendChat(input)
   )
   handle(IPC_CHANNELS.cancelRun, (input: { runId: string }) => server!.cancelRun(input))
   handle(IPC_CHANNELS.getConfig, () => server!.getConfig())
   handle(IPC_CHANNELS.getSettings, () => server!.getSettings())
   handle(IPC_CHANNELS.saveConfig, (input: SettingsConfig) => server!.saveConfig(input))
   handle(IPC_CHANNELS.saveSettings, (input: Partial<ProviderSettings>) =>
-    server!.saveSettings(input),
+    server!.saveSettings(input)
   )
   handle(IPC_CHANNELS.upsertProvider, (input: ProviderConfig) => server!.upsertProvider(input))
   handle(IPC_CHANNELS.removeProvider, (input: { name: string }) => server!.removeProvider(input))
   handle(IPC_CHANNELS.enableProviderModel, (input: { name: string; model: string }) =>
-    server!.enableProviderModel(input),
+    server!.enableProviderModel(input)
   )
   handle(IPC_CHANNELS.disableProviderModel, (input: { name: string; model: string }) =>
-    server!.disableProviderModel(input),
+    server!.disableProviderModel(input)
   )
 
   app.once('before-quit', () => {

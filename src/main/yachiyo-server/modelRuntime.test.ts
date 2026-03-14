@@ -15,7 +15,7 @@ test('createAiSdkModelRuntime uses AI SDK streaming with the OpenAI provider', a
         chat: (modelId: string) => {
           selectedModel = { modelId, provider: 'openai' }
           return { modelId, provider: 'openai' } as never
-        },
+        }
       } as never
     },
     createAnthropicProvider: () => {
@@ -24,15 +24,15 @@ test('createAiSdkModelRuntime uses AI SDK streaming with the OpenAI provider', a
     streamTextImpl: ((input: { abortSignal?: AbortSignal; messages: unknown }) => {
       call = {
         abortSignal: input.abortSignal,
-        messages: input.messages,
+        messages: input.messages
       }
       return {
         textStream: (async function* () {
           yield 'Hel'
           yield 'lo'
-        })(),
+        })()
       }
-    }) as never,
+    }) as never
   })
 
   const controller = new AbortController()
@@ -41,16 +41,16 @@ test('createAiSdkModelRuntime uses AI SDK streaming with the OpenAI provider', a
   for await (const chunk of runtime.streamReply({
     messages: [
       { role: 'system', content: 'You are concise.' },
-      { role: 'user', content: 'Say hello' },
+      { role: 'user', content: 'Say hello' }
     ],
     settings: {
       providerName: 'work',
       provider: 'openai',
       model: 'gpt-5',
       apiKey: 'sk-test',
-      baseUrl: '',
+      baseUrl: ''
     },
-    signal: controller.signal,
+    signal: controller.signal
   })) {
     chunks.push(chunk)
   }
@@ -58,11 +58,11 @@ test('createAiSdkModelRuntime uses AI SDK streaming with the OpenAI provider', a
   assert.deepEqual(chunks, ['Hel', 'lo'])
   assert.deepEqual(openAiOptions, {
     apiKey: 'sk-test',
-    baseURL: 'https://api.openai.com/v1',
+    baseURL: 'https://api.openai.com/v1'
   })
   assert.deepEqual(selectedModel, {
     provider: 'openai',
-    modelId: 'gpt-5',
+    modelId: 'gpt-5'
   })
   const streamCall = call as { abortSignal?: AbortSignal; messages: unknown } | null
   if (streamCall === null) {

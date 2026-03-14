@@ -60,7 +60,7 @@ function initSubTabs(): Record<string, string> {
   return map
 }
 
-function inputStyle() {
+function inputStyle(): React.CSSProperties {
   return {
     background: 'rgba(255,255,255,0.76)',
     border: '1px solid rgba(0,0,0,0.12)',
@@ -170,7 +170,7 @@ function Field({
   label: string
   children: React.ReactNode
   hint?: string
-}) {
+}): React.ReactNode {
   return (
     <label className="flex flex-col gap-1.5">
       <span className="text-sm font-medium" style={{ color: '#1c1c1e' }}>
@@ -186,7 +186,7 @@ function Field({
   )
 }
 
-function PlaceholderPane({ label }: { label?: string }) {
+function PlaceholderPane({ label }: { label?: string }): React.ReactNode {
   return (
     <div className="flex-1 overflow-y-auto flex items-center justify-center">
       <div className="flex flex-col items-center gap-2.5" style={{ opacity: 0.4 }}>
@@ -223,11 +223,11 @@ function ProvidersPane({
   selectedProviderName: string
   onSelectProvider: (name: string) => void
   onChange: (next: SettingsConfig) => void
-}) {
+}): React.ReactNode {
   const selectedProvider =
     draft.providers.find((provider) => provider.name === selectedProviderName) ?? null
 
-  const handleProviderChange = (update: (provider: ProviderConfig) => ProviderConfig) => {
+  const handleProviderChange = (update: (provider: ProviderConfig) => ProviderConfig): void => {
     if (!selectedProvider) {
       return
     }
@@ -237,7 +237,7 @@ function ProvidersPane({
     onSelectProvider(next.nextSelectedName)
   }
 
-  const handleAddProvider = () => {
+  const handleAddProvider = (): void => {
     const provider = createProvider(draft.providers.map((entry) => entry.name))
     onChange({
       ...draft,
@@ -246,7 +246,7 @@ function ProvidersPane({
     onSelectProvider(provider.name)
   }
 
-  const handleRemoveProvider = () => {
+  const handleRemoveProvider = (): void => {
     if (!selectedProvider) {
       return
     }
@@ -502,7 +502,7 @@ function ProvidersPane({
   )
 }
 
-function SettingsApp() {
+function SettingsApp(): React.ReactNode {
   const [activeTab, setActiveTab] = useState<TabId>('providers')
   const [activeSubTab, setActiveSubTab] = useState(initSubTabs)
   const [savedConfig, setSavedConfig] = useState<SettingsConfig | null>(null)
@@ -558,7 +558,7 @@ function SettingsApp() {
   const validationError = validateConfig(draft)
   const isDirty = JSON.stringify(savedConfig) !== JSON.stringify(draft)
 
-  const handleSave = async () => {
+  const handleSave = async (): Promise<void> => {
     if (!draft || saving || validationError) {
       return
     }
