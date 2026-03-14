@@ -44,7 +44,11 @@ function Sidebar() {
 
       {/* Bottom settings */}
       <div className="shrink-0 px-3 py-3 no-drag">
-        <button className="p-1.5 rounded-md opacity-40 hover:opacity-70 transition-opacity" style={{ color: '#1c1c1e' }}>
+        <button
+          onClick={() => window.api.openSettings()}
+          className="p-1.5 rounded-md opacity-40 hover:opacity-70 transition-opacity"
+          style={{ color: '#1c1c1e' }}
+        >
           <Settings size={16} strokeWidth={1.5} />
         </button>
       </div>

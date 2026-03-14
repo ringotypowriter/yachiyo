@@ -3,6 +3,8 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
+let settingsWindow: BrowserWindow | null = null
+
 function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
@@ -55,6 +57,42 @@ app.whenReady().then(() => {
 
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
+
+  ipcMain.on('open-settings', () => {
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.focus()
+      return
+    }
+    settingsWindow = new BrowserWindow({
+      width: 820,
+      height: 580,
+      resizable: false,
+      minimizable: false,
+      show: false,
+      titleBarStyle: 'hiddenInset',
+      trafficLightPosition: { x: 16, y: 18 },
+      backgroundColor: '#f0efeb',
+      webPreferences: {
+        preload: join(__dirname, '../preload/index.js'),
+        sandbox: false,
+      },
+    })
+    settingsWindow.webContents.setWindowOpenHandler((details) => {
+      shell.openExternal(details.url)
+      return { action: 'deny' }
+    })
+    settingsWindow.on('ready-to-show', () => settingsWindow?.show())
+    settingsWindow.on('closed', () => {
+      settingsWindow = null
+    })
+    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+      settingsWindow.loadURL(
+        `${process.env['ELECTRON_RENDERER_URL']}/settings/index.html`,
+      )
+    } else {
+      settingsWindow.loadFile(join(__dirname, '../renderer/settings/index.html'))
+    }
+  })
 
   createWindow()
 
