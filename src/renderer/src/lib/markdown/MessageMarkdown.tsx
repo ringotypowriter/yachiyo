@@ -1,0 +1,24 @@
+import { Streamdown } from 'streamdown'
+import { MarkdownErrorBoundary } from './MarkdownErrorBoundary'
+
+interface MessageMarkdownProps {
+  content: string
+  isStreaming?: boolean
+}
+
+export function MessageMarkdown({ content, isStreaming = false }: MessageMarkdownProps) {
+  return (
+    <MarkdownErrorBoundary fallback={content}>
+      <div className="streamdown-content message-selectable">
+        <Streamdown
+          isAnimating={isStreaming}
+          animated={isStreaming}
+          caret={isStreaming ? 'block' : undefined}
+          mode={isStreaming ? 'streaming' : 'static'}
+        >
+          {content}
+        </Streamdown>
+      </div>
+    </MarkdownErrorBoundary>
+  )
+}

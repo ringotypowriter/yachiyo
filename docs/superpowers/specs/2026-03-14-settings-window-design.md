@@ -24,8 +24,12 @@ A second Electron BrowserWindow that opens when the user clicks the Settings but
 | `minimizable` | `false` |
 | `frame` | default (macOS native) |
 | Background color | `#f0efeb` |
+| `webPreferences.preload` | `join(__dirname, '../preload/index.js')` |
+| `webPreferences.sandbox` | `false` |
 
 The window is opened exactly once per click — if already open, focus it instead of creating a duplicate.
+
+> **Note:** macOS only for this milestone. Non-macOS behavior is not in scope.
 
 ---
 
@@ -38,18 +42,41 @@ ipcRenderer.send('open-settings')
 
 **Preload (`src/preload/index.ts`):** Exposes `openSettings()` via `contextBridge`.
 
-**Main process (`src/main/index.ts`):** Listens for `open-settings` IPC, manages a `settingsWindow` reference:
+**Main process (`src/main/index.ts`):** `settingsWindow` is declared at **module scope** (outside `app.whenReady()`). `ipcMain.on` is registered inside `app.whenReady()`.
+
 ```ts
+// module scope
 let settingsWindow: BrowserWindow | null = null
 
+// inside app.whenReady():
 ipcMain.on('open-settings', () => {
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.focus()
     return
   }
-  settingsWindow = new BrowserWindow({ /* see §2 */ })
+  settingsWindow = new BrowserWindow({
+    width: 820, height: 580,
+    resizable: false, minimizable: false,
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 16, y: 18 },
+    backgroundColor: '#f0efeb',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+    },
+  })
+  settingsWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
   settingsWindow.on('closed', () => { settingsWindow = null })
-  // load settings.html
+
+  // Dev: Vite serves settings entry at /settings/index.html
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    settingsWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/settings/index.html`)
+  } else {
+    settingsWindow.loadFile(join(__dirname, '../renderer/settings/index.html'))
+  }
 })
 ```
 
@@ -61,7 +88,7 @@ ipcMain.on('open-settings', () => {
 
 ```
 src/renderer/settings/
-  index.html
+  index.html     ← <script type="module" src="./main.tsx"></script>
   main.tsx       ← React root
   App.tsx        ← SettingsApp shell
 ```
@@ -147,8 +174,9 @@ type TabId = 'general' | 'providers' | 'chat' | 'memory' | 'ui' | 'about'
 | File | Action |
 |---|---|
 | `electron.vite.config.ts` | Add second renderer input |
-| `src/main/index.ts` | Add `ipcMain.on('open-settings', ...)` handler |
+| `src/main/index.ts` | Add `settingsWindow` ref + `ipcMain.on('open-settings', ...)` handler |
 | `src/preload/index.ts` | Expose `openSettings` via contextBridge |
+| `src/preload/index.d.ts` | Add `openSettings: () => void` to `window.api` type |
 | `src/renderer/settings/index.html` | New |
 | `src/renderer/settings/main.tsx` | New |
 | `src/renderer/settings/App.tsx` | New — full settings shell |
