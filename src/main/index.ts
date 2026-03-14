@@ -2,8 +2,12 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { resolveYachiyoDataDir } from './yachiyo-server/paths'
+import { registerYachiyoGateway } from './yachiyoGateway'
 
 let settingsWindow: BrowserWindow | null = null
+
+app.setPath('userData', resolveYachiyoDataDir())
 
 function createWindow(): void {
   // Create the browser window.
@@ -57,6 +61,7 @@ app.whenReady().then(() => {
 
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
+  registerYachiyoGateway()
 
   ipcMain.on('open-settings', () => {
     if (settingsWindow && !settingsWindow.isDestroyed()) {
