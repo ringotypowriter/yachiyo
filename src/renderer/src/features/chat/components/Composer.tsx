@@ -1,22 +1,30 @@
 import { useRef, useCallback } from 'react'
 import { Paperclip, Wrench, ChevronDown, SendHorizonal, Square, CircleCheck } from 'lucide-react'
-import { useAppStore } from '@renderer/app/store/useAppStore'
+import { DEFAULT_SETTINGS, useAppStore } from '@renderer/app/store/useAppStore'
 
 export function Composer() {
   const composerValue = useAppStore((s) => s.composerValue)
+  const connectionStatus = useAppStore((s) => s.connectionStatus)
+  const settings = useAppStore((s) => s.settings ?? DEFAULT_SETTINGS)
   const runStatus = useAppStore((s) => s.runStatus)
+  const cancelActiveRun = useAppStore((s) => s.cancelActiveRun)
   const setComposerValue = useAppStore((s) => s.setComposerValue)
   const sendMessage = useAppStore((s) => s.sendMessage)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const isRunning = runStatus === 'running'
-  const canSend = composerValue.trim().length > 0 && !isRunning
+  const isConfigured = settings.apiKey.trim().length > 0 && settings.model.trim().length > 0
+  const canSend =
+    composerValue.trim().length > 0 &&
+    !isRunning &&
+    isConfigured &&
+    connectionStatus === 'connected'
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
-        if (canSend) sendMessage(composerValue)
+        if (canSend) void sendMessage(composerValue)
       }
     },
     [canSend, composerValue, sendMessage],
@@ -45,7 +53,11 @@ export function Composer() {
           value={composerValue}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
-          placeholder="Type a message..."
+          placeholder={
+            isConfigured
+              ? 'Type a message...'
+              : 'Open Settings and configure a provider before chatting.'
+          }
           rows={1}
           className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed placeholder:text-gray-400 message-selectable"
           style={{
@@ -88,7 +100,7 @@ export function Composer() {
           style={{ color: '#1c1c1e' }}
         >
           <CircleCheck size={12} strokeWidth={1.5} color="#8e8e93" />
-          Anthropic – claude-opus-4-5
+          {settings.provider === 'openai' ? 'OpenAI' : 'Anthropic'} – {settings.model || 'Configure provider'}
           <ChevronDown size={10} strokeWidth={1.5} color="#8e8e93" />
         </button>
 
@@ -96,6 +108,7 @@ export function Composer() {
         <div className="ml-auto">
           {isRunning ? (
             <button
+              onClick={() => void cancelActiveRun()}
               className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
               style={{ background: '#4a7876' }}
               title="Stop"
@@ -104,7 +117,7 @@ export function Composer() {
             </button>
           ) : (
             <button
-              onClick={() => canSend && sendMessage(composerValue)}
+              onClick={() => canSend && void sendMessage(composerValue)}
               disabled={!canSend}
               className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
               style={{

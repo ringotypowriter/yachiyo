@@ -5,18 +5,28 @@ import { AssistantMessageBubble } from './AssistantMessageBubble'
 import type { Message } from '@renderer/app/types'
 
 interface MessageTimelineProps {
-  threadId: string
+  threadId: string | null
 }
 
 const EMPTY: Message[] = []
 
 export function MessageTimeline({ threadId }: MessageTimelineProps) {
-  const messages = useAppStore((s) => s.messages[threadId] ?? EMPTY)
+  const messages = useAppStore((s) => (threadId ? s.messages[threadId] ?? EMPTY : EMPTY))
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  if (!threadId) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <p className="text-sm" style={{ color: '#8a8680' }}>
+          Start a new thread or type below to create one automatically.
+        </p>
+      </div>
+    )
+  }
 
   if (messages.length === 0) {
     return (
