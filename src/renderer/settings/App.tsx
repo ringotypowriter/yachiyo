@@ -32,11 +32,8 @@ function SettingsApp() {
         className="flex flex-col shrink-0"
         style={{ width: '210px', background: '#e8e6e1', borderRight: '1px solid rgba(0,0,0,0.08)' }}
       >
-        {/* Traffic-lights drag region */}
-        <div className="drag-region shrink-0" style={{ height: '52px' }} />
-
         {/* Settings title */}
-        <div className="shrink-0 px-4 pb-3">
+        <div className="drag-region shrink-0 flex items-center px-4" style={{ height: '52px' }}>
           <span className="font-bold text-lg" style={{ color: '#1c1c1e', letterSpacing: '-0.3px' }}>
             Settings
           </span>

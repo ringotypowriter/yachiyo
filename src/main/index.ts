@@ -69,8 +69,7 @@ app.whenReady().then(() => {
       resizable: false,
       minimizable: false,
       show: false,
-      titleBarStyle: 'hiddenInset',
-      trafficLightPosition: { x: 16, y: 18 },
+      frame: false,
       backgroundColor: '#f0efeb',
       webPreferences: {
         preload: join(__dirname, '../preload/index.js'),
