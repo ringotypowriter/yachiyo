@@ -641,7 +641,7 @@ export class YachiyoServer {
     }
   }
 
-  private loadThreadHistory(threadId: string): { content: string; role: string }[] {
+  private loadThreadHistory(threadId: string): Array<Pick<MessageRecord, 'content' | 'role'>> {
     return this.db
       .select({
         content: messagesTable.content,
