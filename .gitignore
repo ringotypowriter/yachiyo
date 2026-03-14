@@ -5,3 +5,4 @@ out
 .eslintcache
 *.log*
 .alma-snapshots
+.pnpm-store

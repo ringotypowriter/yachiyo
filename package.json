@@ -6,8 +6,19 @@
   "author": "example.com",
   "homepage": "https://electron-vite.org",
   "scripts": {
+    "db:check": "drizzle-kit check --config drizzle.config.ts",
+    "db:drop": "drizzle-kit drop --config drizzle.config.ts",
+    "db:export": "drizzle-kit export --config drizzle.config.ts",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:introspect": "drizzle-kit introspect --config drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
+    "db:pull": "drizzle-kit pull --config drizzle.config.ts",
+    "db:push": "drizzle-kit push --config drizzle.config.ts",
+    "db:studio": "drizzle-kit studio --config drizzle.config.ts",
+    "db:up": "drizzle-kit up --config drizzle.config.ts",
     "format": "prettier --write .",
     "lint": "eslint --cache .",
+    "test:server": "node --experimental-strip-types --test src/main/yachiyo-server/**/*.test.ts",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
@@ -21,9 +32,16 @@
     "build:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.58",
+    "@ai-sdk/openai": "^3.0.41",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@tanstack/react-query": "^5.90.21",
+    "@types/better-sqlite3": "^7.6.13",
+    "ai": "^6.0.116",
+    "better-sqlite3": "^12.8.0",
+    "drizzle-kit": "^0.31.9",
+    "drizzle-orm": "^0.45.1",
     "lucide-react": "^0.577.0",
     "streamdown": "^2.4.0",
     "zustand": "^5.0.11"
@@ -53,8 +71,12 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "better-sqlite3",
       "electron",
       "esbuild"
+    ],
+    "ignoredBuiltDependencies": [
+      "electron-winstaller"
     ]
   }
 }
