@@ -1,5 +1,17 @@
 import { useEffect, useState } from 'react'
-import { Brain, Cpu, Info, MessageSquare, Monitor, Plus, Settings2, Trash2 } from 'lucide-react'
+import {
+  Brain,
+  Cpu,
+  Info,
+  Loader2,
+  MessageSquare,
+  Monitor,
+  Plus,
+  RefreshCw,
+  Settings2,
+  Trash2,
+  X
+} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { ProviderConfig, ProviderKind, SettingsConfig } from '../../shared/yachiyo/protocol'
 
@@ -68,35 +80,15 @@ function inputStyle(): React.CSSProperties {
   }
 }
 
-function normalizeLines(value: string): string[] {
-  return [
-    ...new Set(
-      value
-        .split(/[\n,]/u)
-        .map((item) => item.trim())
-        .filter(Boolean)
-    )
-  ]
-}
-
-function formatLines(values: string[]): string {
-  return values.join('\n')
-}
-
 function sanitizeProvider(provider: ProviderConfig): ProviderConfig {
-  const enabled = normalizeLines(provider.modelList.enabled.join('\n'))
-  const disabled = normalizeLines(provider.modelList.disabled.join('\n')).filter(
-    (model) => !enabled.includes(model)
-  )
-
   return {
     ...provider,
     name: provider.name.trim(),
     apiKey: provider.apiKey.trim(),
     baseUrl: provider.baseUrl.trim(),
     modelList: {
-      enabled,
-      disabled
+      enabled: [...new Set(provider.modelList.enabled.filter(Boolean))],
+      disabled: [...new Set(provider.modelList.disabled.filter(Boolean))]
     }
   }
 }
@@ -164,12 +156,10 @@ function validateConfig(config: SettingsConfig | null): string | null {
 
 function Field({
   label,
-  children,
-  hint
+  children
 }: {
   label: string
   children: React.ReactNode
-  hint?: string
 }): React.ReactNode {
   return (
     <label className="flex flex-col gap-1.5">
@@ -177,11 +167,6 @@ function Field({
         {label}
       </span>
       {children}
-      {hint ? (
-        <span className="text-xs" style={{ color: '#8e8e93' }}>
-          {hint}
-        </span>
-      ) : null}
     </label>
   )
 }
@@ -209,6 +194,253 @@ function PlaceholderPane({ label }: { label?: string }): React.ReactNode {
           {label ?? 'Content coming soon'}
         </span>
       </div>
+    </div>
+  )
+}
+
+function ModelToggle({
+  model,
+  enabled,
+  onToggle,
+  onRemove
+}: {
+  model: string
+  enabled: boolean
+  onToggle: () => void
+  onRemove: () => void
+}): React.ReactNode {
+  return (
+    <div
+      className="flex items-center justify-between px-3 py-2 rounded-lg transition-colors"
+      style={{ background: enabled ? 'rgba(204,125,94,0.06)' : 'transparent' }}
+    >
+      <span className="text-sm truncate mr-3" style={{ color: '#2D2D2B' }}>
+        {model}
+      </span>
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          onClick={onRemove}
+          className="p-0.5 rounded opacity-0 hover:opacity-100 group-hover:opacity-40 transition-opacity"
+          title="Remove model"
+        >
+          <X size={12} strokeWidth={1.5} color="#8e8e93" />
+        </button>
+        <button
+          onClick={onToggle}
+          className="relative w-9 h-5 rounded-full transition-colors"
+          style={{ background: enabled ? '#CC7D5E' : 'rgba(0,0,0,0.12)' }}
+        >
+          <span
+            className="absolute top-0.5 rounded-full bg-white transition-all"
+            style={{
+              width: 16,
+              height: 16,
+              left: enabled ? 19 : 2,
+              boxShadow: '0 1px 3px rgba(0,0,0,0.15)'
+            }}
+          />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ModelListSection({
+  provider,
+  onProviderChange
+}: {
+  provider: ProviderConfig
+  onProviderChange: (update: (p: ProviderConfig) => ProviderConfig) => void
+}): React.ReactNode {
+  const [fetching, setFetching] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+  const [manualInput, setManualInput] = useState('')
+
+  const allModels = [...provider.modelList.enabled, ...provider.modelList.disabled]
+
+  const handleFetch = async (): Promise<void> => {
+    setFetching(true)
+    setFetchError(null)
+    try {
+      const models = await window.api.yachiyo.fetchProviderModels(provider)
+      if (models.length === 0) return
+
+      onProviderChange((p) => {
+        const existing = new Set([...p.modelList.enabled, ...p.modelList.disabled])
+        const newModels = models.filter((m) => !existing.has(m))
+        return {
+          ...p,
+          modelList: {
+            ...p.modelList,
+            disabled: [...p.modelList.disabled, ...newModels]
+          }
+        }
+      })
+    } catch (error) {
+      setFetchError(error instanceof Error ? error.message : 'Failed to fetch models')
+    } finally {
+      setFetching(false)
+    }
+  }
+
+  const handleToggle = (model: string): void => {
+    onProviderChange((p) => {
+      const isEnabled = p.modelList.enabled.includes(model)
+      return {
+        ...p,
+        modelList: isEnabled
+          ? {
+              enabled: p.modelList.enabled.filter((m) => m !== model),
+              disabled: [...p.modelList.disabled, model]
+            }
+          : {
+              enabled: [...p.modelList.enabled, model],
+              disabled: p.modelList.disabled.filter((m) => m !== model)
+            }
+      }
+    })
+  }
+
+  const handleRemoveModel = (model: string): void => {
+    onProviderChange((p) => ({
+      ...p,
+      modelList: {
+        enabled: p.modelList.enabled.filter((m) => m !== model),
+        disabled: p.modelList.disabled.filter((m) => m !== model)
+      }
+    }))
+  }
+
+  const handleAddManual = (): void => {
+    const model = manualInput.trim()
+    if (!model || allModels.includes(model)) {
+      setManualInput('')
+      return
+    }
+
+    onProviderChange((p) => ({
+      ...p,
+      modelList: {
+        ...p.modelList,
+        disabled: [...p.modelList.disabled, model]
+      }
+    }))
+    setManualInput('')
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium" style={{ color: '#2D2D2B' }}>
+          Models
+        </span>
+        <button
+          onClick={() => void handleFetch()}
+          disabled={fetching || !provider.apiKey.trim()}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-opacity disabled:opacity-40"
+          style={{
+            background: 'rgba(204,125,94,0.1)',
+            color: '#CC7D5E'
+          }}
+          title={!provider.apiKey.trim() ? 'Add an API key first' : 'Fetch available models'}
+        >
+          {fetching ? (
+            <Loader2 size={12} strokeWidth={2} className="animate-spin" />
+          ) : (
+            <RefreshCw size={12} strokeWidth={2} />
+          )}
+          {fetching ? 'Fetching...' : 'Fetch'}
+        </button>
+      </div>
+
+      <div
+        className="rounded-2xl overflow-hidden"
+        style={{
+          border: '1px solid rgba(0,0,0,0.08)',
+          background: 'rgba(255,255,255,0.5)'
+        }}
+      >
+        {allModels.length === 0 ? (
+          <div className="px-4 py-6 text-center">
+            <span className="text-sm" style={{ color: '#8e8e93' }}>
+              No models yet. Fetch from API or add manually.
+            </span>
+          </div>
+        ) : (
+          <div className="divide-y" style={{ borderColor: 'rgba(0,0,0,0.05)' }}>
+            {provider.modelList.enabled.map((model) => (
+              <div key={model} className="group">
+                <ModelToggle
+                  model={model}
+                  enabled
+                  onToggle={() => handleToggle(model)}
+                  onRemove={() => handleRemoveModel(model)}
+                />
+              </div>
+            ))}
+            {provider.modelList.disabled.map((model) => (
+              <div key={model} className="group">
+                <ModelToggle
+                  model={model}
+                  enabled={false}
+                  onToggle={() => handleToggle(model)}
+                  onRemove={() => handleRemoveModel(model)}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Manual add */}
+        <div
+          className="flex items-center gap-2 px-3 py-2"
+          style={{ borderTop: '1px solid rgba(0,0,0,0.06)' }}
+        >
+          <input
+            value={manualInput}
+            onChange={(e) => setManualInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                handleAddManual()
+              }
+            }}
+            className="flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400"
+            style={{ color: '#2D2D2B' }}
+            placeholder="Add model name..."
+          />
+          <button
+            onClick={handleAddManual}
+            disabled={!manualInput.trim()}
+            className="p-1 rounded-md transition-opacity disabled:opacity-30"
+            title="Add model"
+          >
+            <Plus size={14} strokeWidth={2} color="#CC7D5E" />
+          </button>
+        </div>
+      </div>
+
+      {allModels.length > 0 ? (
+        <div className="text-xs" style={{ color: '#8e8e93' }}>
+          {provider.modelList.enabled.length} enabled, {provider.modelList.disabled.length} disabled
+        </div>
+      ) : null}
+
+      {fetchError ? (
+        <div
+          className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs"
+          style={{ background: 'rgba(183,81,62,0.08)', color: '#8f4132' }}
+        >
+          <span className="shrink-0">Fetch failed:</span>
+          <span className="truncate">{fetchError}</span>
+          <button
+            onClick={() => setFetchError(null)}
+            className="shrink-0 p-0.5 rounded hover:bg-black/5"
+          >
+            <X size={12} strokeWidth={1.5} />
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -316,7 +548,7 @@ function ProvidersPane({
                   </div>
                 </div>
                 <div className="mt-3 text-xs" style={{ color: '#6b6a66' }}>
-                  {provider.modelList.enabled.length} visible models
+                  {provider.modelList.enabled.length} enabled
                 </div>
               </button>
             )
@@ -328,18 +560,11 @@ function ProvidersPane({
         {selectedProvider ? (
           <div className="max-w-3xl space-y-6">
             <div className="flex items-start justify-between gap-4">
-              <div>
-                <div
-                  className="text-2xl font-semibold"
-                  style={{ color: '#2D2D2B', letterSpacing: '-0.4px' }}
-                >
-                  {selectedProvider.name}
-                </div>
-                <div className="mt-1 text-sm" style={{ color: '#8e8e93' }}>
-                  {selectedProvider.type === 'anthropic'
-                    ? 'Anthropic-compatible endpoint'
-                    : 'OpenAI-compatible endpoint'}
-                </div>
+              <div
+                className="text-2xl font-semibold"
+                style={{ color: '#2D2D2B', letterSpacing: '-0.4px' }}
+              >
+                {selectedProvider.name}
               </div>
 
               <button
@@ -353,7 +578,7 @@ function ProvidersPane({
             </div>
 
             <div className="grid grid-cols-2 gap-5">
-              <Field label="Name" hint="Unique key used to identify this provider in config.">
+              <Field label="Name">
                 <input
                   value={selectedProvider.name}
                   onChange={(event) =>
@@ -368,7 +593,7 @@ function ProvidersPane({
                 />
               </Field>
 
-              <Field label="Type" hint="Chooses the runtime adapter for this provider.">
+              <Field label="Type">
                 <select
                   value={selectedProvider.type}
                   onChange={(event) =>
@@ -386,7 +611,7 @@ function ProvidersPane({
               </Field>
 
               <div className="col-span-2">
-                <Field label="API Key" hint="Stored locally in the TOML config file.">
+                <Field label="API Key">
                   <input
                     type="password"
                     value={selectedProvider.apiKey}
@@ -404,10 +629,7 @@ function ProvidersPane({
               </div>
 
               <div className="col-span-2">
-                <Field
-                  label="Base URL"
-                  hint="Leave blank for the official endpoint. Set this only for a custom gateway."
-                >
+                <Field label="Base URL">
                   <input
                     value={selectedProvider.baseUrl}
                     onChange={(event) =>
@@ -426,76 +648,15 @@ function ProvidersPane({
                   />
                 </Field>
               </div>
-
-              <Field
-                label="Enabled Models"
-                hint="These models are exposed to the external model picker."
-              >
-                <textarea
-                  value={formatLines(selectedProvider.modelList.enabled)}
-                  onChange={(event) =>
-                    handleProviderChange((provider) => ({
-                      ...provider,
-                      modelList: {
-                        ...provider.modelList,
-                        enabled: normalizeLines(event.target.value)
-                      }
-                    }))
-                  }
-                  className="min-h-44 w-full rounded-2xl px-3 py-3 text-sm outline-none resize-y"
-                  style={inputStyle()}
-                  placeholder={
-                    selectedProvider.type === 'anthropic'
-                      ? 'claude-opus-4-6\nclaude-sonnet-4-5'
-                      : 'gpt-5\ngpt-4.1'
-                  }
-                />
-              </Field>
-
-              <Field
-                label="Disabled Models"
-                hint="Kept in config, but hidden from the external picker."
-              >
-                <textarea
-                  value={formatLines(selectedProvider.modelList.disabled)}
-                  onChange={(event) =>
-                    handleProviderChange((provider) => ({
-                      ...provider,
-                      modelList: {
-                        ...provider.modelList,
-                        disabled: normalizeLines(event.target.value)
-                      }
-                    }))
-                  }
-                  className="min-h-44 w-full rounded-2xl px-3 py-3 text-sm outline-none resize-y"
-                  style={inputStyle()}
-                  placeholder={
-                    selectedProvider.type === 'anthropic'
-                      ? 'claude-3-5-haiku-latest'
-                      : 'o3-mini\ngpt-4o-mini'
-                  }
-                />
-              </Field>
             </div>
 
-            <div
-              className="rounded-2xl px-4 py-3"
-              style={{
-                background: 'rgba(204,125,94,0.08)',
-                border: '1px solid rgba(204,125,94,0.14)'
-              }}
-            >
-              <div className="text-sm font-medium" style={{ color: '#7A5038' }}>
-                Model picker behavior
-              </div>
-              <div className="mt-1 text-sm" style={{ color: '#8B6650' }}>
-                Only models from the enabled list are visible in the external picker. Disabled
-                models remain in config for later reuse.
-              </div>
-            </div>
+            <ModelListSection
+              provider={selectedProvider}
+              onProviderChange={handleProviderChange}
+            />
           </div>
         ) : (
-          <PlaceholderPane label="Add your first provider to start wiring model access." />
+          <PlaceholderPane label="Add your first provider to get started." />
         )}
       </div>
     </div>

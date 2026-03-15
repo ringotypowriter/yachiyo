@@ -1,17 +1,23 @@
 import type React from 'react'
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useState, useEffect } from 'react'
 import { Paperclip, Wrench, ChevronDown, SendHorizonal, Square, CircleCheck } from 'lucide-react'
 import { DEFAULT_SETTINGS, useAppStore } from '@renderer/app/store/useAppStore'
+import { ModelSelectorPopup } from './ModelSelectorPopup'
 
 export function Composer(): React.JSX.Element {
   const composerValue = useAppStore((s) => s.composerValue)
   const connectionStatus = useAppStore((s) => s.connectionStatus)
   const settings = useAppStore((s) => s.settings ?? DEFAULT_SETTINGS)
+  const config = useAppStore((s) => s.config)
   const runStatus = useAppStore((s) => s.runStatus)
   const cancelActiveRun = useAppStore((s) => s.cancelActiveRun)
   const setComposerValue = useAppStore((s) => s.setComposerValue)
   const sendMessage = useAppStore((s) => s.sendMessage)
+  const selectModel = useAppStore((s) => s.selectModel)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const selectorRef = useRef<HTMLDivElement>(null)
+
+  const [selectorOpen, setSelectorOpen] = useState(false)
 
   const isRunning = runStatus === 'running'
   const isConfigured = settings.apiKey.trim().length > 0 && settings.model.trim().length > 0
@@ -20,6 +26,18 @@ export function Composer(): React.JSX.Element {
     !isRunning &&
     isConfigured &&
     connectionStatus === 'connected'
+
+  // Close popup on outside click
+  useEffect(() => {
+    if (!selectorOpen) return
+    const handler = (e: MouseEvent): void => {
+      if (selectorRef.current && !selectorRef.current.contains(e.target as Node)) {
+        setSelectorOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [selectorOpen])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -41,6 +59,10 @@ export function Composer(): React.JSX.Element {
     },
     [setComposerValue]
   )
+
+  const providerLabel = settings.providerName || (settings.provider === 'openai' ? 'OpenAI' : 'Anthropic')
+  const modelLabel = settings.model || 'Configure provider'
+  const hasModels = config !== null && config.providers.some((p) => p.modelList.enabled.length > 0)
 
   return (
     <div className="flex flex-col" style={{ borderTop: '1px solid rgba(0,0,0,0.08)' }}>
@@ -93,15 +115,42 @@ export function Composer(): React.JSX.Element {
         </button>
 
         {/* Model selector */}
-        <button
-          className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium opacity-60 hover:opacity-90 transition-opacity ml-0.5"
-          style={{ color: '#2D2D2B' }}
-        >
-          <CircleCheck size={12} strokeWidth={1.5} color="#8e8e93" />
-          {settings.provider === 'openai' ? 'OpenAI' : 'Anthropic'} –{' '}
-          {settings.model || 'Configure provider'}
-          <ChevronDown size={10} strokeWidth={1.5} color="#8e8e93" />
-        </button>
+        <div ref={selectorRef} style={{ position: 'relative' }}>
+          <button
+            onClick={() => hasModels && setSelectorOpen((o) => !o)}
+            className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity ml-0.5"
+            style={{
+              color: '#2D2D2B',
+              opacity: selectorOpen ? 1 : 0.6,
+              cursor: hasModels ? 'pointer' : 'default'
+            }}
+            title={hasModels ? 'Switch model' : 'Add models in Settings → Providers'}
+          >
+            <CircleCheck size={12} strokeWidth={1.5} color={isConfigured ? '#5CAD8A' : '#8e8e93'} />
+            {providerLabel} – {modelLabel}
+            {hasModels && (
+              <ChevronDown
+                size={10}
+                strokeWidth={1.5}
+                color="#8e8e93"
+                style={{
+                  transform: selectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.15s ease'
+                }}
+              />
+            )}
+          </button>
+
+          {selectorOpen && config && (
+            <ModelSelectorPopup
+              config={config}
+              currentProviderName={settings.providerName}
+              currentModel={settings.model}
+              onSelect={(providerName, model) => void selectModel(providerName, model)}
+              onClose={() => setSelectorOpen(false)}
+            />
+          )}
+        </div>
 
         {/* Send / Stop */}
         <div className="ml-auto">

@@ -5,6 +5,7 @@ import type {
   Message,
   ProviderSettings,
   RunStatus,
+  SettingsConfig,
   Thread,
   YachiyoServerEvent
 } from '../types'
@@ -19,6 +20,7 @@ interface AppState {
   activeThreadId: string | null
   archiveThread: (threadId: string) => Promise<void>
   composerValue: string
+  config: SettingsConfig | null
   connectionStatus: ConnectionStatus
   initialized: boolean
   isBootstrapping: boolean
@@ -34,6 +36,7 @@ interface AppState {
   cancelActiveRun: () => Promise<void>
   createNewThread: () => Promise<void>
   initialize: () => Promise<void>
+  selectModel: (providerName: string, model: string) => Promise<void>
   sendMessage: (content: string) => Promise<void>
   setActiveThread: (id: string) => void
   setComposerValue: (value: string) => void
@@ -84,6 +87,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     await window.api.yachiyo.archiveThread({ threadId })
   },
   composerValue: '',
+  config: null,
   connectionStatus: 'connecting',
   initialized: false,
   isBootstrapping: false,
@@ -119,6 +123,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       if (event.type === 'settings.updated') {
         return {
+          config: event.config ?? state.config,
           lastError: null,
           settings: event.settings ?? state.settings ?? DEFAULT_SETTINGS
         }
@@ -291,6 +296,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         const payload = await window.api.yachiyo.bootstrap()
         set((state) => ({
           activeThreadId: state.activeThreadId ?? payload.threads[0]?.id ?? null,
+          config: payload.config ?? state.config,
           connectionStatus: 'connected',
           initialized: true,
           isBootstrapping: false,
@@ -316,6 +322,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   renameThread: async (threadId, title) => {
     await window.api.yachiyo.renameThread({ threadId, title })
+  },
+
+  selectModel: async (providerName, model) => {
+    await window.api.yachiyo.saveSettings({ providerName, model })
   },
 
   sendMessage: async (content) => {

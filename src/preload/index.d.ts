@@ -29,6 +29,7 @@ declare global {
         removeProvider: (input: { name: string }) => Promise<SettingsConfig>
         enableProviderModel: (input: { name: string; model: string }) => Promise<SettingsConfig>
         disableProviderModel: (input: { name: string; model: string }) => Promise<SettingsConfig>
+        fetchProviderModels: (input: ProviderConfig) => Promise<string[]>
         subscribe: (listener: (event: YachiyoServerEvent) => void) => () => void
       }
     }

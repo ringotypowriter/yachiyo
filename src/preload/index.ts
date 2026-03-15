@@ -31,6 +31,8 @@ const api = {
       ipcRenderer.invoke('yachiyo:enable-provider-model', input),
     disableProviderModel: (input: { name: string; model: string }) =>
       ipcRenderer.invoke('yachiyo:disable-provider-model', input),
+    fetchProviderModels: (input: ProviderConfig) =>
+      ipcRenderer.invoke('yachiyo:fetch-provider-models', input),
     subscribe: (listener: (event: YachiyoServerEvent) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, payload: YachiyoServerEvent): void => {
         listener(payload)
