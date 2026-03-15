@@ -7,7 +7,7 @@ import type {
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
 import { resolveYachiyoDbPath, resolveYachiyoSettingsPath } from './yachiyo-server/paths.ts'
-import { YachiyoServer } from './yachiyo-server/YachiyoServer.ts'
+import { createSqliteYachiyoServer, type YachiyoServer } from './yachiyo-server/YachiyoServer.ts'
 
 const IPC_CHANNELS = {
   archiveThread: 'yachiyo:archive-thread',
@@ -50,7 +50,7 @@ export function registerYachiyoGateway(): YachiyoServer {
     return server
   }
 
-  server = new YachiyoServer({
+  server = createSqliteYachiyoServer({
     dbPath: resolveYachiyoDbPath(),
     settingsPath: resolveYachiyoSettingsPath()
   })

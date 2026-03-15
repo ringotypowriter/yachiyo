@@ -1,6 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import type { Database as BetterSqlite3Database } from 'better-sqlite3'
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
 
 import type {
   BootstrapPayload,
@@ -25,12 +23,12 @@ import type {
   ThreadUpdatedEvent,
   YachiyoServerEvent
 } from '../../shared/yachiyo/protocol'
-import { createYachiyoDatabase, type YachiyoDatabase } from './database.ts'
+import { createSqliteYachiyoStorage } from './database.ts'
 import { prepareModelMessages } from './messagePrepare.ts'
 import { createAiSdkModelRuntime } from './modelRuntime.ts'
 import { resolveYachiyoSettingsPath } from './paths.ts'
-import { messagesTable, runsTable, threadsTable } from './schema.ts'
 import { createSettingsStore, type SettingsStore, toProviderSettings } from './settingsStore.ts'
+import type { YachiyoStorage } from './storage.ts'
 import type { ModelRuntime } from './types.ts'
 
 const DEFAULT_THREAD_TITLE = 'New Chat'
@@ -42,33 +40,19 @@ interface RunState {
 }
 
 export interface YachiyoServerOptions {
-  dbPath: string
+  storage: YachiyoStorage
   settingsPath?: string
   now?: () => Date
   createId?: () => string
   createModelRuntime?: () => ModelRuntime
 }
 
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
+export interface SqliteYachiyoServerOptions extends Omit<YachiyoServerOptions, 'storage'> {
+  dbPath: string
 }
 
-function toThreadRecord(row: {
-  id: string
-  preview: string | null
-  title: string
-  updatedAt: string
-}): ThreadRecord {
-  if (row.preview === null) {
-    return { id: row.id, title: row.title, updatedAt: row.updatedAt }
-  }
-
-  return {
-    id: row.id,
-    preview: row.preview,
-    title: row.title,
-    updatedAt: row.updatedAt
-  }
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
 }
 
 function mergeUnique(values: string[]): string[] {
@@ -131,8 +115,7 @@ function updateProviderModels(
 }
 
 export class YachiyoServer {
-  private readonly client: BetterSqlite3Database
-  private readonly db: YachiyoDatabase
+  private readonly storage: YachiyoStorage
   private readonly settingsStore: SettingsStore
   private readonly now: () => Date
   private readonly createId: () => string
@@ -142,9 +125,7 @@ export class YachiyoServer {
   private readonly activeRunByThread = new Map<string, string>()
 
   constructor(options: YachiyoServerOptions) {
-    const { client, db } = createYachiyoDatabase(options.dbPath)
-    this.client = client
-    this.db = db
+    this.storage = options.storage
     this.settingsStore = createSettingsStore(options.settingsPath ?? resolveYachiyoSettingsPath())
     this.now = options.now ?? (() => new Date())
     this.createId = options.createId ?? randomUUID
@@ -164,45 +145,11 @@ export class YachiyoServer {
     }
     this.activeRuns.clear()
     this.activeRunByThread.clear()
-    this.client.close()
+    this.storage.close()
   }
 
   async bootstrap(): Promise<BootstrapPayload> {
-    const threads = this.db
-      .select({
-        id: threadsTable.id,
-        preview: threadsTable.preview,
-        title: threadsTable.title,
-        updatedAt: threadsTable.updatedAt
-      })
-      .from(threadsTable)
-      .where(isNull(threadsTable.archivedAt))
-      .orderBy(desc(threadsTable.updatedAt))
-      .all()
-      .map(toThreadRecord)
-
-    const threadIds = threads.map((thread) => thread.id)
-    const messages =
-      threadIds.length === 0
-        ? []
-        : this.db
-            .select({
-              content: messagesTable.content,
-              createdAt: messagesTable.createdAt,
-              id: messagesTable.id,
-              role: messagesTable.role,
-              status: messagesTable.status,
-              threadId: messagesTable.threadId
-            })
-            .from(messagesTable)
-            .where(inArray(messagesTable.threadId, threadIds))
-            .orderBy(asc(messagesTable.createdAt))
-            .all()
-
-    const messagesByThread = Object.groupBy(messages, (message) => message.threadId) as Record<
-      string,
-      MessageRecord[]
-    >
+    const { threads, messagesByThread } = this.storage.bootstrap()
 
     return {
       threads,
@@ -319,17 +266,10 @@ export class YachiyoServer {
       updatedAt: timestamp
     }
 
-    this.db
-      .insert(threadsTable)
-      .values({
-        archivedAt: null,
-        createdAt: timestamp,
-        id: thread.id,
-        preview: null,
-        title: thread.title,
-        updatedAt: thread.updatedAt
-      })
-      .run()
+    this.storage.createThread({
+      thread,
+      createdAt: timestamp
+    })
 
     this.emit<ThreadCreatedEvent>({
       type: 'thread.created',
@@ -353,14 +293,11 @@ export class YachiyoServer {
       updatedAt: this.timestamp()
     }
 
-    this.db
-      .update(threadsTable)
-      .set({
-        title: updatedThread.title,
-        updatedAt: updatedThread.updatedAt
-      })
-      .where(eq(threadsTable.id, thread.id))
-      .run()
+    this.storage.renameThread({
+      threadId: thread.id,
+      title: updatedThread.title,
+      updatedAt: updatedThread.updatedAt
+    })
 
     this.emit<ThreadUpdatedEvent>({
       type: 'thread.updated',
@@ -378,14 +315,11 @@ export class YachiyoServer {
     }
     const timestamp = this.timestamp()
 
-    this.db
-      .update(threadsTable)
-      .set({
-        archivedAt: timestamp,
-        updatedAt: timestamp
-      })
-      .where(eq(threadsTable.id, thread.id))
-      .run()
+    this.storage.archiveThread({
+      threadId: thread.id,
+      archivedAt: timestamp,
+      updatedAt: timestamp
+    })
 
     this.emit<ThreadArchivedEvent>({
       type: 'thread.archived',
@@ -404,50 +338,32 @@ export class YachiyoServer {
       throw new Error('This thread already has an active run.')
     }
 
-    const accepted = this.db.transaction((tx) => {
-      const timestamp = this.timestamp()
-      const userMessage: MessageRecord = {
-        id: this.createId(),
-        threadId: thread.id,
-        role: 'user',
-        content,
-        status: 'completed',
-        createdAt: timestamp
-      }
+    const timestamp = this.timestamp()
+    const userMessage: MessageRecord = {
+      id: this.createId(),
+      threadId: thread.id,
+      role: 'user',
+      content,
+      status: 'completed',
+      createdAt: timestamp
+    }
+    const updatedThread: ThreadRecord = {
+      ...thread,
+      title: thread.title === DEFAULT_THREAD_TITLE ? content.slice(0, 60) : thread.title,
+      updatedAt: timestamp
+    }
+    const accepted = {
+      runId: this.createId(),
+      thread: updatedThread,
+      userMessage
+    }
 
-      tx.insert(messagesTable).values(userMessage).run()
-
-      const updatedThread: ThreadRecord = {
-        ...thread,
-        title: thread.title === DEFAULT_THREAD_TITLE ? content.slice(0, 60) : thread.title,
-        updatedAt: timestamp
-      }
-
-      tx.update(threadsTable)
-        .set({
-          title: updatedThread.title,
-          updatedAt: updatedThread.updatedAt
-        })
-        .where(eq(threadsTable.id, updatedThread.id))
-        .run()
-
-      const runId = this.createId()
-      tx.insert(runsTable)
-        .values({
-          completedAt: null,
-          createdAt: timestamp,
-          error: null,
-          id: runId,
-          status: 'running',
-          threadId: thread.id
-        })
-        .run()
-
-      return {
-        runId,
-        thread: updatedThread,
-        userMessage
-      }
+    this.storage.startRun({
+      runId: accepted.runId,
+      thread,
+      updatedThread,
+      userMessage,
+      createdAt: timestamp
     })
 
     this.emit<ThreadUpdatedEvent>({
@@ -533,24 +449,12 @@ export class YachiyoServer {
         createdAt: timestamp
       }
 
-      this.db.transaction((tx) => {
-        tx.insert(messagesTable).values(assistantMessage).run()
-
-        tx.update(threadsTable)
-          .set({
-            preview: assistantMessage.content.slice(0, 240),
-            updatedAt: timestamp
-          })
-          .where(eq(threadsTable.id, input.thread.id))
-          .run()
-
-        tx.update(runsTable)
-          .set({
-            completedAt: timestamp,
-            status: 'completed'
-          })
-          .where(eq(runsTable.id, input.runId))
-          .run()
+      this.storage.completeRun({
+        runId: input.runId,
+        threadId: input.thread.id,
+        assistantMessage,
+        preview: assistantMessage.content.slice(0, 240),
+        updatedAt: timestamp
       })
 
       this.emit<MessageCompletedEvent>({
@@ -584,14 +488,10 @@ export class YachiyoServer {
     } catch (error) {
       if (input.abortController.signal.aborted || isAbortError(error)) {
         const timestamp = this.timestamp()
-        this.db
-          .update(runsTable)
-          .set({
-            completedAt: timestamp,
-            status: 'cancelled'
-          })
-          .where(eq(runsTable.id, input.runId))
-          .run()
+        this.storage.cancelRun({
+          runId: input.runId,
+          completedAt: timestamp
+        })
 
         this.emit<HarnessFinishedEvent>({
           type: 'harness.finished',
@@ -609,15 +509,11 @@ export class YachiyoServer {
       } else {
         const message = error instanceof Error ? error.message : 'Unknown model runtime error'
         const timestamp = this.timestamp()
-        this.db
-          .update(runsTable)
-          .set({
-            completedAt: timestamp,
-            error: message,
-            status: 'failed'
-          })
-          .where(eq(runsTable.id, input.runId))
-          .run()
+        this.storage.failRun({
+          runId: input.runId,
+          completedAt: timestamp,
+          error: message
+        })
 
         this.emit<HarnessFinishedEvent>({
           type: 'harness.finished',
@@ -642,15 +538,7 @@ export class YachiyoServer {
   }
 
   private loadThreadHistory(threadId: string): Array<Pick<MessageRecord, 'content' | 'role'>> {
-    return this.db
-      .select({
-        content: messagesTable.content,
-        role: messagesTable.role
-      })
-      .from(messagesTable)
-      .where(eq(messagesTable.threadId, threadId))
-      .orderBy(asc(messagesTable.createdAt))
-      .all()
+    return this.storage.listThreadHistory(threadId)
   }
 
   private readSettings(): ProviderSettings {
@@ -673,22 +561,13 @@ export class YachiyoServer {
   }
 
   private requireThread(threadId: string): ThreadRecord {
-    const thread = this.db
-      .select({
-        id: threadsTable.id,
-        preview: threadsTable.preview,
-        title: threadsTable.title,
-        updatedAt: threadsTable.updatedAt
-      })
-      .from(threadsTable)
-      .where(and(eq(threadsTable.id, threadId), isNull(threadsTable.archivedAt)))
-      .get()
+    const thread = this.storage.getThread(threadId)
 
     if (!thread) {
       throw new Error(`Unknown thread: ${threadId}`)
     }
 
-    return toThreadRecord(thread)
+    return thread
   }
 
   private timestamp(): string {
@@ -708,4 +587,11 @@ export class YachiyoServer {
       listener(completeEvent)
     }
   }
+}
+
+export function createSqliteYachiyoServer(options: SqliteYachiyoServerOptions): YachiyoServer {
+  return new YachiyoServer({
+    ...options,
+    storage: createSqliteYachiyoStorage(options.dbPath)
+  })
 }

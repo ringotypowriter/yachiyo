@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import test from 'node:test'
 
 import { YachiyoServer } from './YachiyoServer.ts'
+import { createInMemoryYachiyoStorage } from './memoryStorage.ts'
 import type { ModelStreamRequest } from './types.ts'
 
 async function withServer(
@@ -15,8 +16,8 @@ async function withServer(
   }) => Promise<void>
 ): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-test-'))
-  const dbPath = join(root, 'yachiyo.sqlite')
   const settingsPath = join(root, 'config.toml')
+  const storage = createInMemoryYachiyoStorage()
 
   const waiters = new Map<string, Array<(value: unknown) => void>>()
   const seenEvents = new Map<string, unknown[]>()
@@ -47,7 +48,7 @@ async function withServer(
   }
 
   const server = new YachiyoServer({
-    dbPath,
+    storage,
     settingsPath,
     createModelRuntime: () => ({
       async *streamReply(request: ModelStreamRequest) {

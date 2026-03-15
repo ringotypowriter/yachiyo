@@ -28,7 +28,9 @@ Your shell `node -v` will show `22.22.1`, but `process.versions.modules` becomes
 $ pnpm install
 ```
 
-If a native module mismatch appears, rebuild Electron native dependencies explicitly:
+Install no longer forces an Electron native rebuild. Ordinary Node-side tests avoid loading `better-sqlite3`, so they can run without touching native sqlite artifacts.
+
+If a native module mismatch appears, or before running Electron/native sqlite paths, rebuild Electron native dependencies explicitly:
 
 ```bash
 $ pnpm run native:rebuild
@@ -40,6 +42,22 @@ This command verifies `better-sqlite3` inside Electron itself, then falls back t
 
 ```bash
 $ pnpm dev
+```
+
+`pnpm dev` and `pnpm start` still rebuild Electron native dependencies first, so the app keeps using sqlite through the Electron ABI path.
+
+### Tests
+
+Ordinary server tests run against the in-memory storage adapter and do not load `better-sqlite3`:
+
+```bash
+$ pnpm run test:server
+```
+
+Native sqlite integration tests are opt-in and run through Electron's Node runtime after an explicit rebuild:
+
+```bash
+$ pnpm run test:server:native
 ```
 
 ### Build

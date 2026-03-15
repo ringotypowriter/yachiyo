@@ -2,22 +2,40 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import test from 'node:test'
 
-const execFileAsync = promisify(execFile)
+import { runCli } from './cli.ts'
+import { createInMemoryYachiyoStorage } from './memoryStorage.ts'
+import { YachiyoServer } from './YachiyoServer.ts'
 
-test('CLI manages file-based TOML settings and thread commands', async () => {
+test('CLI manages file-based TOML settings and thread commands without sqlite native deps', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-test-'))
   const dbPath = join(root, 'cli.sqlite')
   const settingsPath = join(root, 'config.toml')
-  const cliPath = new URL('./cli.ts', import.meta.url)
+  const storage = createInMemoryYachiyoStorage()
+
+  const runCommand = async (args: string[]): Promise<unknown> => {
+    let stdout = ''
+
+    await runCli(args, {
+      stdout: {
+        write(chunk) {
+          stdout += String(chunk)
+          return true
+        }
+      },
+      createServer: ({ settingsPath: currentSettingsPath }) =>
+        new YachiyoServer({
+          storage,
+          settingsPath: currentSettingsPath
+        })
+    })
+
+    return JSON.parse(stdout)
+  }
 
   try {
-    const upserted = await execFileAsync(process.execPath, [
-      '--experimental-strip-types',
-      cliPath.pathname,
+    const provider = await runCommand([
       'settings.provider.upsert',
       '--db',
       dbPath,
@@ -36,44 +54,25 @@ test('CLI manages file-based TOML settings and thread commands', async () => {
       })
     ])
 
-    const provider = JSON.parse(upserted.stdout)
-    assert.equal(provider.name, 'work')
-    assert.equal(provider.type, 'openai')
+    assert.equal((provider as { name: string }).name, 'work')
+    assert.equal((provider as { type: string }).type, 'openai')
 
-    const bootstrapped = await execFileAsync(process.execPath, [
-      '--experimental-strip-types',
-      cliPath.pathname,
-      'bootstrap',
-      '--db',
-      dbPath,
-      '--settings',
-      settingsPath
-    ])
+    const payload = await runCommand(['bootstrap', '--db', dbPath, '--settings', settingsPath])
+    assert.deepEqual((payload as { threads: unknown[] }).threads, [])
+    assert.equal((payload as { config: { providers: unknown[] } }).config.providers.length, 1)
+    assert.equal((payload as { settings: { providerName: string } }).settings.providerName, 'work')
+    assert.equal((payload as { settings: { provider: string } }).settings.provider, 'openai')
+    assert.equal((payload as { settings: { model: string } }).settings.model, 'gpt-5')
 
-    const payload = JSON.parse(bootstrapped.stdout)
-    assert.deepEqual(payload.threads, [])
-    assert.equal(payload.config.providers.length, 1)
-    assert.equal(payload.settings.providerName, 'work')
-    assert.equal(payload.settings.provider, 'openai')
-    assert.equal(payload.settings.model, 'gpt-5')
+    const config = await runCommand(['settings.get', '--db', dbPath, '--settings', settingsPath])
+    assert.equal((config as { providers: unknown[] }).providers.length, 1)
+    assert.deepEqual(
+      (config as { providers: Array<{ modelList: { disabled: string[] } }> }).providers[0]?.modelList
+        .disabled,
+      ['o3-mini']
+    )
 
-    const config = await execFileAsync(process.execPath, [
-      '--experimental-strip-types',
-      cliPath.pathname,
-      'settings.get',
-      '--db',
-      dbPath,
-      '--settings',
-      settingsPath
-    ])
-
-    const settings = JSON.parse(config.stdout)
-    assert.equal(settings.providers.length, 1)
-    assert.deepEqual(settings.providers[0]?.modelList.disabled, ['o3-mini'])
-
-    await execFileAsync(process.execPath, [
-      '--experimental-strip-types',
-      cliPath.pathname,
+    await runCommand([
       'settings.provider.model.disable',
       '--db',
       dbPath,
@@ -86,39 +85,24 @@ test('CLI manages file-based TOML settings and thread commands', async () => {
       })
     ])
 
-    const afterDisable = await execFileAsync(process.execPath, [
-      '--experimental-strip-types',
-      cliPath.pathname,
-      'settings.get',
-      '--db',
-      dbPath,
-      '--settings',
-      settingsPath
-    ])
-
-    const disabledConfig = JSON.parse(afterDisable.stdout)
-    assert.deepEqual(disabledConfig.providers[0]?.modelList.enabled, ['gpt-4.1'])
-    assert.deepEqual(disabledConfig.providers[0]?.modelList.disabled, ['gpt-5', 'o3-mini'])
+    const disabledConfig = await runCommand(['settings.get', '--db', dbPath, '--settings', settingsPath])
+    assert.deepEqual(
+      (disabledConfig as { providers: Array<{ modelList: { enabled: string[] } }> }).providers[0]
+        ?.modelList.enabled,
+      ['gpt-4.1']
+    )
+    assert.deepEqual(
+      (disabledConfig as { providers: Array<{ modelList: { disabled: string[] } }> }).providers[0]
+        ?.modelList.disabled,
+      ['gpt-5', 'o3-mini']
+    )
 
     const toml = await readFile(settingsPath, 'utf8')
     assert.match(toml, /\[\[providers\]\]/)
     assert.match(toml, /name = "work"/)
 
-    const created = await execFileAsync(process.execPath, [
-      '--experimental-strip-types',
-      cliPath.pathname,
-      'thread.create',
-      '--db',
-      dbPath,
-      '--settings',
-      settingsPath
-    ])
-
-    const thread = JSON.parse(created.stdout)
-
-    const renamed = await execFileAsync(process.execPath, [
-      '--experimental-strip-types',
-      cliPath.pathname,
+    const thread = await runCommand(['thread.create', '--db', dbPath, '--settings', settingsPath])
+    const renamedThread = await runCommand([
       'thread.rename',
       '--db',
       dbPath,
@@ -126,17 +110,14 @@ test('CLI manages file-based TOML settings and thread commands', async () => {
       settingsPath,
       '--json',
       JSON.stringify({
-        threadId: thread.id,
+        threadId: (thread as { id: string }).id,
         title: 'Inbox'
       })
     ])
 
-    const renamedThread = JSON.parse(renamed.stdout)
-    assert.equal(renamedThread.title, 'Inbox')
+    assert.equal((renamedThread as { title: string }).title, 'Inbox')
 
-    await execFileAsync(process.execPath, [
-      '--experimental-strip-types',
-      cliPath.pathname,
+    await runCommand([
       'thread.archive',
       '--db',
       dbPath,
@@ -144,22 +125,12 @@ test('CLI manages file-based TOML settings and thread commands', async () => {
       settingsPath,
       '--json',
       JSON.stringify({
-        threadId: thread.id
+        threadId: (thread as { id: string }).id
       })
     ])
 
-    const afterArchive = await execFileAsync(process.execPath, [
-      '--experimental-strip-types',
-      cliPath.pathname,
-      'bootstrap',
-      '--db',
-      dbPath,
-      '--settings',
-      settingsPath
-    ])
-
-    const archivedPayload = JSON.parse(afterArchive.stdout)
-    assert.deepEqual(archivedPayload.threads, [])
+    const archivedPayload = await runCommand(['bootstrap', '--db', dbPath, '--settings', settingsPath])
+    assert.deepEqual((archivedPayload as { threads: unknown[] }).threads, [])
   } finally {
     await rm(root, { recursive: true, force: true })
   }
