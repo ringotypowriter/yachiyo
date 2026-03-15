@@ -28,7 +28,7 @@ function ThreadListItem({
     >
       <span
         className="block text-sm truncate font-medium"
-        style={{ color: isActive ? '#1c1c1e' : '#3a3a3c' }}
+        style={{ color: isActive ? '#2D2D2B' : '#3a3a3c' }}
       >
         {thread.title}
       </span>

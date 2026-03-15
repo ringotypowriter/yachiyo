@@ -64,7 +64,7 @@ function inputStyle(): React.CSSProperties {
   return {
     background: 'rgba(255,255,255,0.76)',
     border: '1px solid rgba(0,0,0,0.12)',
-    color: '#1c1c1e'
+    color: '#2D2D2B'
   }
 }
 
@@ -173,7 +173,7 @@ function Field({
 }): React.ReactNode {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-sm font-medium" style={{ color: '#1c1c1e' }}>
+      <span className="text-sm font-medium" style={{ color: '#2D2D2B' }}>
         {label}
       </span>
       {children}
@@ -263,11 +263,11 @@ function ProvidersPane({
     <div className="flex flex-1 min-h-0">
       <div
         className="shrink-0 flex flex-col"
-        style={{ width: 250, borderRight: '1px solid rgba(0,0,0,0.06)', background: '#efede7' }}
+        style={{ width: 250, borderRight: '1px solid rgba(0,0,0,0.06)', background: '#EFEEE9' }}
       >
         <div className="flex items-center justify-between px-5 py-4">
           <div>
-            <div className="text-sm font-semibold" style={{ color: '#1c1c1e' }}>
+            <div className="text-sm font-semibold" style={{ color: '#2D2D2B' }}>
               Providers
             </div>
             <div className="text-xs" style={{ color: '#8e8e93' }}>
@@ -277,7 +277,7 @@ function ProvidersPane({
           <button
             onClick={handleAddProvider}
             className="flex items-center gap-1 rounded-full px-2.5 py-1.5 text-xs font-medium"
-            style={{ background: '#4a7876', color: '#fff' }}
+            style={{ background: '#CC7D5E', color: '#fff' }}
           >
             <Plus size={12} strokeWidth={2} />
             Add
@@ -307,7 +307,7 @@ function ProvidersPane({
                 <div className="min-w-0">
                   <div
                     className="truncate text-sm font-semibold"
-                    style={{ color: '#1c1c1e', letterSpacing: '-0.2px' }}
+                    style={{ color: '#2D2D2B', letterSpacing: '-0.2px' }}
                   >
                     {provider.name}
                   </div>
@@ -331,7 +331,7 @@ function ProvidersPane({
               <div>
                 <div
                   className="text-2xl font-semibold"
-                  style={{ color: '#1c1c1e', letterSpacing: '-0.4px' }}
+                  style={{ color: '#2D2D2B', letterSpacing: '-0.4px' }}
                 >
                   {selectedProvider.name}
                 </div>
@@ -481,14 +481,14 @@ function ProvidersPane({
             <div
               className="rounded-2xl px-4 py-3"
               style={{
-                background: 'rgba(74,120,118,0.08)',
-                border: '1px solid rgba(74,120,118,0.14)'
+                background: 'rgba(204,125,94,0.08)',
+                border: '1px solid rgba(204,125,94,0.14)'
               }}
             >
-              <div className="text-sm font-medium" style={{ color: '#264f4e' }}>
+              <div className="text-sm font-medium" style={{ color: '#7A5038' }}>
                 Model picker behavior
               </div>
-              <div className="mt-1 text-sm" style={{ color: '#466563' }}>
+              <div className="mt-1 text-sm" style={{ color: '#8B6650' }}>
                 Only models from the enabled list are visible in the external picker. Disabled
                 models remain in config for later reuse.
               </div>
@@ -615,10 +615,10 @@ function SettingsApp(): React.ReactNode {
     <div className="flex h-full overflow-hidden">
       <div
         className="flex flex-col shrink-0"
-        style={{ width: '210px', background: '#e8e6e1', borderRight: '1px solid rgba(0,0,0,0.08)' }}
+        style={{ width: '210px', background: '#E8E7E3', borderRight: '1px solid rgba(0,0,0,0.08)' }}
       >
         <div className="drag-region shrink-0 flex items-center px-4" style={{ height: '52px' }}>
-          <span className="font-bold text-lg" style={{ color: '#1c1c1e', letterSpacing: '-0.3px' }}>
+          <span className="font-bold text-lg" style={{ color: '#2D2D2B', letterSpacing: '-0.3px' }}>
             Settings
           </span>
         </div>
@@ -633,7 +633,7 @@ function SettingsApp(): React.ReactNode {
                 activeTab === id
                   ? {
                       background: 'rgba(255,255,255,0.75)',
-                      color: '#1c1c1e',
+                      color: '#2D2D2B',
                       fontWeight: 500,
                       boxShadow: '0 1px 3px rgba(0,0,0,0.08)'
                     }
@@ -651,15 +651,15 @@ function SettingsApp(): React.ReactNode {
         </nav>
       </div>
 
-      <div className="flex flex-col flex-1 min-w-0" style={{ background: '#f5f4f0' }}>
+      <div className="flex flex-col flex-1 min-w-0" style={{ background: '#F9F9F7' }}>
         <div
           className="shrink-0 flex items-center gap-2.5 drag-region"
           style={{ height: '52px', padding: '0 28px', borderBottom: '1px solid rgba(0,0,0,0.07)' }}
         >
-          <ActiveIcon size={20} strokeWidth={1.5} style={{ color: '#1c1c1e', opacity: 0.75 }} />
+          <ActiveIcon size={20} strokeWidth={1.5} style={{ color: '#2D2D2B', opacity: 0.75 }} />
           <span
             className="font-semibold text-xl"
-            style={{ color: '#1c1c1e', letterSpacing: '-0.3px' }}
+            style={{ color: '#2D2D2B', letterSpacing: '-0.3px' }}
           >
             {active.label}
           </span>
@@ -679,13 +679,13 @@ function SettingsApp(): React.ReactNode {
                     setActiveSubTab((current) => ({ ...current, [active.id]: subTab.id }))
                   }
                   className="relative px-3 py-2.5 text-sm font-medium transition-colors"
-                  style={{ color: isActive ? '#1c1c1e' : '#8e8e93' }}
+                  style={{ color: isActive ? '#2D2D2B' : '#8e8e93' }}
                 >
                   {subTab.label}
                   {isActive ? (
                     <span
                       className="absolute bottom-0 left-3 right-3"
-                      style={{ height: 2, background: '#1c1c1e', borderRadius: 1 }}
+                      style={{ height: 2, background: '#2D2D2B', borderRadius: 1 }}
                     />
                   ) : null}
                 </button>
@@ -721,7 +721,7 @@ function SettingsApp(): React.ReactNode {
               style={{
                 background: 'rgba(255,255,255,0.8)',
                 border: '1px solid rgba(0,0,0,0.15)',
-                color: '#1c1c1e',
+                color: '#2D2D2B',
                 cursor: 'pointer'
               }}
             >
@@ -735,7 +735,7 @@ function SettingsApp(): React.ReactNode {
                 background:
                   !isDirty || saving || loading || !draft || validationError
                     ? '#8e8e93'
-                    : '#4a7876',
+                    : '#CC7D5E',
                 color: '#fff',
                 opacity: !isDirty || saving || loading || !draft || validationError ? 0.4 : 1,
                 border: '1px solid transparent',

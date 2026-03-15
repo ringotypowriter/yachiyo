@@ -21,7 +21,7 @@ export class MarkdownErrorBoundary extends Component<Props, State> {
       return (
         <p
           className="text-sm leading-relaxed whitespace-pre-wrap message-selectable"
-          style={{ color: '#1c1c1e' }}
+          style={{ color: '#2D2D2B' }}
         >
           {this.props.fallback}
         </p>

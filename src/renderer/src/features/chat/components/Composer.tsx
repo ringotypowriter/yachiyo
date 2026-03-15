@@ -59,7 +59,7 @@ export function Composer(): React.JSX.Element {
           rows={1}
           className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed placeholder:text-gray-400 message-selectable"
           style={{
-            color: '#1c1c1e',
+            color: '#2D2D2B',
             minHeight: '22px',
             maxHeight: '160px',
             overflow: 'hidden'
@@ -86,7 +86,7 @@ export function Composer(): React.JSX.Element {
           {/* Badge */}
           <span
             className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center"
-            style={{ fontSize: '8px', background: '#4a7876' }}
+            style={{ fontSize: '8px', background: '#CC7D5E' }}
           >
             2
           </span>
@@ -95,7 +95,7 @@ export function Composer(): React.JSX.Element {
         {/* Model selector */}
         <button
           className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium opacity-60 hover:opacity-90 transition-opacity ml-0.5"
-          style={{ color: '#1c1c1e' }}
+          style={{ color: '#2D2D2B' }}
         >
           <CircleCheck size={12} strokeWidth={1.5} color="#8e8e93" />
           {settings.provider === 'openai' ? 'OpenAI' : 'Anthropic'} –{' '}
@@ -109,7 +109,7 @@ export function Composer(): React.JSX.Element {
             <button
               onClick={() => void cancelActiveRun()}
               className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
-              style={{ background: '#4a7876' }}
+              style={{ background: '#CC7D5E' }}
               title="Stop"
             >
               <Square size={10} fill="white" strokeWidth={0} />
@@ -120,7 +120,7 @@ export function Composer(): React.JSX.Element {
               disabled={!canSend}
               className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
               style={{
-                background: canSend ? '#4a7876' : 'rgba(0,0,0,0.08)',
+                background: canSend ? '#CC7D5E' : 'rgba(0,0,0,0.08)',
                 cursor: canSend ? 'pointer' : 'default'
               }}
               title="Send"

@@ -15,7 +15,7 @@ function Sidebar(): React.JSX.Element {
   return (
     <div
       className="flex flex-col h-full shrink-0"
-      style={{ width: '260px', background: '#eeede9' }}
+      style={{ width: '260px', background: '#F0EFEB' }}
     >
       {/* Top bar — traffic lights zone + icons */}
       <div
@@ -25,20 +25,20 @@ function Sidebar(): React.JSX.Element {
         <div className="flex items-center gap-1 no-drag ml-auto">
           <button
             className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
-            style={{ color: '#1c1c1e' }}
+            style={{ color: '#2D2D2B' }}
           >
             <PanelLeft size={16} strokeWidth={1.5} />
           </button>
           <button
             className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
-            style={{ color: '#1c1c1e' }}
+            style={{ color: '#2D2D2B' }}
           >
             <Search size={15} strokeWidth={1.5} />
           </button>
           <button
             onClick={createNewThread}
             className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
-            style={{ color: '#1c1c1e' }}
+            style={{ color: '#2D2D2B' }}
             title="New chat"
           >
             <SquarePen size={15} strokeWidth={1.5} />
@@ -54,7 +54,7 @@ function Sidebar(): React.JSX.Element {
         <button
           onClick={() => window.api.openSettings()}
           className="p-1.5 rounded-md opacity-40 hover:opacity-70 transition-opacity"
-          style={{ color: '#1c1c1e' }}
+          style={{ color: '#2D2D2B' }}
         >
           <Settings size={16} strokeWidth={1.5} />
         </button>
@@ -114,7 +114,7 @@ function MainPanel(): React.JSX.Element {
   }
 
   return (
-    <div className="flex flex-col flex-1 h-full min-w-0" style={{ background: '#f5f4f0' }}>
+    <div className="flex flex-col flex-1 h-full min-w-0" style={{ background: '#F9F9F7' }}>
       {/* Header */}
       <div
         className="flex items-center justify-between shrink-0 drag-region px-5"
@@ -143,7 +143,7 @@ function MainPanel(): React.JSX.Element {
                 style={{
                   background: 'rgba(255,255,255,0.88)',
                   borderColor: 'rgba(0,0,0,0.08)',
-                  color: '#1c1c1e',
+                  color: '#2D2D2B',
                   letterSpacing: '-0.2px'
                 }}
               />
@@ -151,7 +151,7 @@ function MainPanel(): React.JSX.Element {
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => void commitTitleRename()}
                 className="rounded-md p-1 no-drag transition-opacity opacity-70 hover:opacity-100"
-                style={{ color: '#2e6664' }}
+                style={{ color: '#B56A4A' }}
                 title="Save title"
               >
                 <Check size={14} strokeWidth={1.8} />
@@ -172,7 +172,7 @@ function MainPanel(): React.JSX.Element {
           ) : (
             <span
               className="text-sm font-semibold truncate"
-              style={{ color: '#1c1c1e', letterSpacing: '-0.2px' }}
+              style={{ color: '#2D2D2B', letterSpacing: '-0.2px' }}
             >
               {activeThread?.title ?? 'Start a conversation'}
             </span>

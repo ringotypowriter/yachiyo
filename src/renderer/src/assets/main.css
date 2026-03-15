@@ -15,8 +15,8 @@ html, body, #root {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
-  background: #eeede9;
-  color: #1c1c1e;
+  background: #F0EFEB;
+  color: #2D2D2B;
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
@@ -54,7 +54,7 @@ body {
 .streamdown-content {
   font-size: 14px;
   line-height: 1.6;
-  color: #1c1c1e;
+  color: #2D2D2B;
 }
 
 .streamdown-content p {
