@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/explicit-function-return-type */
+
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -7,10 +9,12 @@ const rootDir = process.cwd()
 const packageJsonPath = resolve(rootDir, 'package.json')
 const electronBinPath = resolve(rootDir, 'node_modules/.bin/electron')
 const pnpmBin = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
-const electronVersion = JSON.parse(readFileSync(packageJsonPath, 'utf8')).devDependencies.electron
-  ?.replace(/^[^\d]*/, '')
+const electronVersion = JSON.parse(
+  readFileSync(packageJsonPath, 'utf8')
+).devDependencies.electron?.replace(/^[^\d]*/, '')
 
-function runCommand(command, args, env = {}) {
+/** @type {(command: string, args: string[], env?: NodeJS.ProcessEnv) => import('node:child_process').SpawnSyncReturns<string>} */
+const runCommand = (command, args, env = {}) => {
   const result = spawnSync(command, args, {
     cwd: rootDir,
     encoding: 'utf8',
@@ -31,29 +35,36 @@ function runCommand(command, args, env = {}) {
   return result
 }
 
-function verifyBetterSqlite3() {
-  return runCommand(
-    electronBinPath,
-    [
-      '-e',
+/** @type {() => boolean} */
+const verifyBetterSqlite3 = () => {
+  return (
+    runCommand(
+      electronBinPath,
       [
-        'try {',
-        "  require('better-sqlite3')",
-        "  console.log('native dependency check: better-sqlite3 ok')",
-        '} catch (error) {',
-        "  console.error(error instanceof Error ? error.stack : String(error))",
-        '  process.exit(1)',
-        '}'
-      ].join('\n')
-    ],
-    {
-      ELECTRON_RUN_AS_NODE: '1'
-    }
-  ).status === 0
+        '-e',
+        [
+          'try {',
+          "  require('better-sqlite3')",
+          "  console.log('native dependency check: better-sqlite3 ok')",
+          '} catch (error) {',
+          '  console.error(error instanceof Error ? error.stack : String(error))',
+          '  process.exit(1)',
+          '}'
+        ].join('\n')
+      ],
+      {
+        ELECTRON_RUN_AS_NODE: '1'
+      }
+    ).status === 0
+  )
 }
 
-function printAbiContext() {
-  runCommand(process.execPath, ['-p', "'host node=' + process.version + ' modules=' + process.versions.modules"])
+/** @type {() => void} */
+const printAbiContext = () => {
+  runCommand(process.execPath, [
+    '-p',
+    "'host node=' + process.version + ' modules=' + process.versions.modules"
+  ])
   runCommand(
     electronBinPath,
     [
@@ -85,18 +96,16 @@ if (!electronVersion) {
   process.exit(1)
 }
 
-console.log(`electron-builder rebuild did not fix it; forcing better-sqlite3 rebuild for Electron ${electronVersion}`)
-
-const rebuildResult = runCommand(
-  pnpmBin,
-  ['rebuild', 'better-sqlite3'],
-  {
-    npm_config_runtime: 'electron',
-    npm_config_target: electronVersion,
-    npm_config_disturl: 'https://electronjs.org/headers',
-    npm_config_build_from_source: 'true'
-  }
+console.log(
+  `electron-builder rebuild did not fix it; forcing better-sqlite3 rebuild for Electron ${electronVersion}`
 )
+
+const rebuildResult = runCommand(pnpmBin, ['rebuild', 'better-sqlite3'], {
+  npm_config_runtime: 'electron',
+  npm_config_target: electronVersion,
+  npm_config_disturl: 'https://electronjs.org/headers',
+  npm_config_build_from_source: 'true'
+})
 
 if (rebuildResult.status === 0 && verifyBetterSqlite3()) {
   process.exit(0)

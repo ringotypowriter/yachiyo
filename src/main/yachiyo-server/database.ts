@@ -4,12 +4,14 @@ import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
 import type { MessageRecord } from '../../shared/yachiyo/protocol'
 import * as schema from './schema.ts'
 import { messagesTable, runsTable, threadsTable } from './schema.ts'
 import {
   groupMessagesByThread,
+  toMessageRecord,
   toThreadRecord,
   type CompleteRunInput,
   type StartRunInput,
@@ -19,33 +21,39 @@ import {
 const MIGRATIONS_DIR = fileURLToPath(new URL('./drizzle', import.meta.url))
 const require = createRequire(import.meta.url)
 
-function loadSqliteRuntime() {
+type SqliteDb = BetterSQLite3Database<typeof schema>
+
+interface BetterSqlite3Client {
+  close(): void
+  pragma(sql: string): void
+}
+
+type BetterSqlite3Constructor = new (path: string) => BetterSqlite3Client
+
+type BetterSqlite3Module = {
+  default?: BetterSqlite3Constructor
+}
+
+interface SqliteRuntime {
+  BetterSqlite3: BetterSqlite3Constructor
+  drizzle: (client: BetterSqlite3Client, options: { schema: typeof schema }) => SqliteDb
+  migrate: (db: SqliteDb, options: { migrationsFolder: string }) => void
+}
+
+function loadSqliteRuntime(): SqliteRuntime {
   const BetterSqlite3Module = require('better-sqlite3') as
-    | {
-        default?: new (path: string) => {
-          close(): void
-          pragma(sql: string): void
-        }
-      }
-    | (new (path: string) => {
-        close(): void
-        pragma(sql: string): void
-      })
-  const drizzleModule = require('drizzle-orm/better-sqlite3') as {
-    drizzle: (client: unknown, options: { schema: typeof import('./schema.ts') }) => {
-      select: (...args: unknown[]) => any
-      insert: (...args: unknown[]) => any
-      update: (...args: unknown[]) => any
-      transaction: <T>(callback: (tx: any) => T) => T
-    }
-  }
-  const migratorModule = require('drizzle-orm/better-sqlite3/migrator') as {
-    migrate: (db: unknown, options: { migrationsFolder: string }) => void
-  }
-  const BetterSqlite3 = ((BetterSqlite3Module as { default?: unknown }).default ??
-    BetterSqlite3Module) as new (path: string) => {
-    close(): void
-    pragma(sql: string): void
+    | BetterSqlite3Constructor
+    | BetterSqlite3Module
+  const drizzleModule = require('drizzle-orm/better-sqlite3') as Pick<SqliteRuntime, 'drizzle'>
+  const migratorModule = require('drizzle-orm/better-sqlite3/migrator') as Pick<
+    SqliteRuntime,
+    'migrate'
+  >
+  const BetterSqlite3 =
+    typeof BetterSqlite3Module === 'function' ? BetterSqlite3Module : BetterSqlite3Module.default
+
+  if (!BetterSqlite3) {
+    throw new Error('Failed to load better-sqlite3 runtime')
   }
 
   return {
@@ -94,6 +102,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                 content: messagesTable.content,
                 createdAt: messagesTable.createdAt,
                 id: messagesTable.id,
+                modelId: messagesTable.modelId,
+                providerName: messagesTable.providerName,
                 role: messagesTable.role,
                 status: messagesTable.status,
                 threadId: messagesTable.threadId
@@ -102,6 +112,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
               .where(inArray(messagesTable.threadId, threadIds))
               .orderBy(asc(messagesTable.createdAt))
               .all()
+              .map(toMessageRecord)
 
       return {
         threads,

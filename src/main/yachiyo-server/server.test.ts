@@ -186,6 +186,8 @@ test('YachiyoServer streams a reply and persists the completed thread state', as
     assert.equal(messages[0]?.content, 'Plan the MVP')
     assert.equal(messages[1]?.role, 'assistant')
     assert.equal(messages[1]?.content, 'Hello world')
+    assert.equal(messages[1]?.modelId, 'gpt-5')
+    assert.equal(messages[1]?.providerName, 'work')
     assert.equal(bootstrap.threads[0]?.title, 'Plan the MVP')
     assert.equal(bootstrap.threads[0]?.preview, 'Hello world')
   })

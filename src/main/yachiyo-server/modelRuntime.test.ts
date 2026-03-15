@@ -6,17 +6,15 @@ import { createAiSdkModelRuntime } from './modelRuntime.ts'
 test('createAiSdkModelRuntime uses AI SDK streaming with the OpenAI responses provider', async () => {
   let openAiOptions: { apiKey?: string; baseURL?: string } | undefined
   let selectedModel: { provider: string; modelId: string } | null = null
-  let call:
-    | {
-        abortSignal?: AbortSignal
-        messages: unknown
-        providerOptions?: {
-          openai?: {
-            reasoningEffort?: string
-          }
-        }
+  let call: {
+    abortSignal?: AbortSignal
+    messages: unknown
+    providerOptions?: {
+      openai?: {
+        reasoningEffort?: string
       }
-    | null = null
+    }
+  } | null = null
 
   const runtime = createAiSdkModelRuntime({
     createOpenAIProvider: (options) => {
@@ -83,17 +81,15 @@ test('createAiSdkModelRuntime uses AI SDK streaming with the OpenAI responses pr
     provider: 'openai.responses',
     modelId: 'gpt-5'
   })
-  const streamCall = call as
-    | {
-        abortSignal?: AbortSignal
-        messages: unknown
-        providerOptions?: {
-          openai?: {
-            reasoningEffort?: string
-          }
-        }
+  const streamCall = call as {
+    abortSignal?: AbortSignal
+    messages: unknown
+    providerOptions?: {
+      openai?: {
+        reasoningEffort?: string
       }
-    | null
+    }
+  } | null
   if (streamCall === null) {
     assert.fail('Expected streamText to be called.')
   }
@@ -108,20 +104,18 @@ test('createAiSdkModelRuntime uses AI SDK streaming with the OpenAI responses pr
 test('createAiSdkModelRuntime uses AI SDK streaming with Anthropic thinking enabled', async () => {
   let anthropicOptions: { apiKey?: string; baseURL?: string } | undefined
   let selectedModel: { provider: string; modelId: string } | null = null
-  let call:
-    | {
-        abortSignal?: AbortSignal
-        messages: unknown
-        providerOptions?: {
-          anthropic?: {
-            thinking?: {
-              type?: string
-              budgetTokens?: number
-            }
-          }
+  let call: {
+    abortSignal?: AbortSignal
+    messages: unknown
+    providerOptions?: {
+      anthropic?: {
+        thinking?: {
+          type?: string
+          budgetTokens?: number
         }
       }
-    | null = null
+    }
+  } | null = null
 
   const runtime = createAiSdkModelRuntime({
     createOpenAIProvider: () => {
@@ -188,20 +182,18 @@ test('createAiSdkModelRuntime uses AI SDK streaming with Anthropic thinking enab
     provider: 'anthropic',
     modelId: 'claude-sonnet-4-5'
   })
-  const streamCall = call as
-    | {
-        abortSignal?: AbortSignal
-        messages: unknown
-        providerOptions?: {
-          anthropic?: {
-            thinking?: {
-              type?: string
-              budgetTokens?: number
-            }
-          }
+  const streamCall = call as {
+    abortSignal?: AbortSignal
+    messages: unknown
+    providerOptions?: {
+      anthropic?: {
+        thinking?: {
+          type?: string
+          budgetTokens?: number
         }
       }
-    | null
+    }
+  } | null
   if (streamCall === null) {
     assert.fail('Expected streamText to be called.')
   }

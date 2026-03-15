@@ -67,8 +67,8 @@ test('CLI manages file-based TOML settings and thread commands without sqlite na
     const config = await runCommand(['settings.get', '--db', dbPath, '--settings', settingsPath])
     assert.equal((config as { providers: unknown[] }).providers.length, 1)
     assert.deepEqual(
-      (config as { providers: Array<{ modelList: { disabled: string[] } }> }).providers[0]?.modelList
-        .disabled,
+      (config as { providers: Array<{ modelList: { disabled: string[] } }> }).providers[0]
+        ?.modelList.disabled,
       ['o3-mini']
     )
 
@@ -85,7 +85,13 @@ test('CLI manages file-based TOML settings and thread commands without sqlite na
       })
     ])
 
-    const disabledConfig = await runCommand(['settings.get', '--db', dbPath, '--settings', settingsPath])
+    const disabledConfig = await runCommand([
+      'settings.get',
+      '--db',
+      dbPath,
+      '--settings',
+      settingsPath
+    ])
     assert.deepEqual(
       (disabledConfig as { providers: Array<{ modelList: { enabled: string[] } }> }).providers[0]
         ?.modelList.enabled,
@@ -129,7 +135,13 @@ test('CLI manages file-based TOML settings and thread commands without sqlite na
       })
     ])
 
-    const archivedPayload = await runCommand(['bootstrap', '--db', dbPath, '--settings', settingsPath])
+    const archivedPayload = await runCommand([
+      'bootstrap',
+      '--db',
+      dbPath,
+      '--settings',
+      settingsPath
+    ])
     assert.deepEqual((archivedPayload as { threads: unknown[] }).threads, [])
   } finally {
     await rm(root, { recursive: true, force: true })

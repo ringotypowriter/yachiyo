@@ -78,14 +78,19 @@ export async function runCli(
     }
 
     if (command === 'settings.provider.remove') {
-      outputJson(stdout, await server.removeProvider(readJsonFlag<{ name: string }>(args, '--json')))
+      outputJson(
+        stdout,
+        await server.removeProvider(readJsonFlag<{ name: string }>(args, '--json'))
+      )
       return
     }
 
     if (command === 'settings.provider.model.enable') {
       outputJson(
         stdout,
-        await server.enableProviderModel(readJsonFlag<{ name: string; model: string }>(args, '--json'))
+        await server.enableProviderModel(
+          readJsonFlag<{ name: string; model: string }>(args, '--json')
+        )
       )
       return
     }

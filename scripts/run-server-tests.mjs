@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/explicit-function-return-type */
+
 import { spawnSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -6,7 +8,8 @@ import process from 'node:process'
 const rootDir = process.cwd()
 const testsDir = resolve(rootDir, 'src/main/yachiyo-server')
 
-function collectTestFiles(directory) {
+/** @type {(directory: string) => string[]} */
+const collectTestFiles = (directory) => {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const fullPath = join(directory, entry.name)
 

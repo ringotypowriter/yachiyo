@@ -458,7 +458,9 @@ export class YachiyoServer {
         role: 'assistant',
         content: buffer,
         status: 'completed',
-        createdAt: timestamp
+        createdAt: timestamp,
+        modelId: settings.model,
+        providerName: settings.providerName
       }
 
       this.storage.completeRun({

@@ -15,19 +15,33 @@ interface PendingAssistantMessage {
   threadId: string
 }
 
+export interface HarnessRecord {
+  id: string
+  runId: string
+  threadId: string
+  name: string
+  status: 'running' | 'completed' | 'failed' | 'cancelled'
+  startedAt: string
+  finishedAt?: string
+  error?: string
+}
+
 interface AppState {
   activeRunId: string | null
+  activeRunThreadId: string | null
   activeThreadId: string | null
   archiveThread: (threadId: string) => Promise<void>
   composerValue: string
   config: SettingsConfig | null
   connectionStatus: ConnectionStatus
+  harnessEvents: Record<string, HarnessRecord[]>
   initialized: boolean
   isBootstrapping: boolean
   lastError: string | null
   messages: Record<string, Message[]>
   pendingAssistantMessages: Record<string, PendingAssistantMessage>
   renameThread: (threadId: string, title: string) => Promise<void>
+  runPhase: 'idle' | 'preparing' | 'streaming'
   runStatus: RunStatus
   settings: ProviderSettings
   threads: Thread[]
@@ -66,13 +80,14 @@ function upsertMessage(messages: Message[], message: Message): Message[] {
 function finalizePendingMessage(
   messages: Message[],
   pending: PendingAssistantMessage | undefined,
-  status: Message['status']
+  status: Message['status'],
+  options: { preserveEmpty?: boolean } = {}
 ): Message[] {
   if (!pending) return messages
 
   return messages.flatMap((message) => {
     if (message.id !== pending.messageId) return [message]
-    if (!message.content.trim()) return []
+    if (!message.content.trim() && !options.preserveEmpty) return []
     return [{ ...message, status }]
   })
 }
@@ -82,6 +97,7 @@ let unsubscribeFromServer: (() => void) | null = null
 
 export const useAppStore = create<AppState>((set, get) => ({
   activeRunId: null,
+  activeRunThreadId: null,
   activeThreadId: null,
   archiveThread: async (threadId) => {
     await window.api.yachiyo.archiveThread({ threadId })
@@ -89,11 +105,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   composerValue: '',
   config: null,
   connectionStatus: 'connecting',
+  harnessEvents: {},
   initialized: false,
   isBootstrapping: false,
   lastError: null,
   messages: {},
   pendingAssistantMessages: {},
+  runPhase: 'idle',
   runStatus: 'idle',
   settings: DEFAULT_SETTINGS,
   threads: [],
@@ -104,12 +122,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         const threads = state.threads.filter((thread) => thread.id !== event.threadId)
         const messages = { ...state.messages }
         delete messages[event.threadId]
+        const harnessEvents = { ...state.harnessEvents }
+        delete harnessEvents[event.threadId]
 
         return {
           activeThreadId:
             state.activeThreadId === event.threadId
               ? (threads[0]?.id ?? null)
               : state.activeThreadId,
+          harnessEvents,
           messages,
           threads
         }
@@ -132,7 +153,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (event.type === 'run.created') {
         return {
           activeRunId: event.runId,
+          activeRunThreadId: event.threadId,
           lastError: null,
+          runPhase: 'preparing',
           runStatus: 'running'
         }
       }
@@ -180,7 +203,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           messages: {
             ...state.messages,
             [event.threadId]: nextThreadMessages
-          }
+          },
+          runPhase: 'streaming'
         }
       }
 
@@ -203,7 +227,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         return {
           activeRunId: state.activeRunId === event.runId ? null : state.activeRunId,
+          activeRunThreadId: state.activeRunId === event.runId ? null : state.activeRunThreadId,
           pendingAssistantMessages,
+          runPhase: 'idle',
           runStatus: 'idle'
         }
       }
@@ -215,6 +241,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         return {
           activeRunId: state.activeRunId === event.runId ? null : state.activeRunId,
+          activeRunThreadId: state.activeRunId === event.runId ? null : state.activeRunThreadId,
           lastError: event.error,
           messages: pending
             ? {
@@ -227,6 +254,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               }
             : state.messages,
           pendingAssistantMessages,
+          runPhase: 'idle',
           runStatus: 'failed'
         }
       }
@@ -238,19 +266,48 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         return {
           activeRunId: state.activeRunId === event.runId ? null : state.activeRunId,
+          activeRunThreadId: state.activeRunId === event.runId ? null : state.activeRunThreadId,
           messages: pending
             ? {
                 ...state.messages,
                 [pending.threadId]: finalizePendingMessage(
                   state.messages[pending.threadId] ?? [],
                   pending,
-                  'failed'
+                  'stopped',
+                  { preserveEmpty: true }
                 )
               }
             : state.messages,
           pendingAssistantMessages,
+          runPhase: 'idle',
           runStatus: 'cancelled'
         }
+      }
+
+      if (event.type === 'harness.started') {
+        const record: HarnessRecord = {
+          id: event.harnessId,
+          runId: event.runId,
+          threadId: event.threadId,
+          name: event.name,
+          status: 'running',
+          startedAt: event.timestamp
+        }
+        const existing = state.harnessEvents[event.threadId] ?? []
+        const next = [...existing.filter((h) => h.id !== record.id), record].sort((a, b) =>
+          a.startedAt.localeCompare(b.startedAt)
+        )
+        return { harnessEvents: { ...state.harnessEvents, [event.threadId]: next } }
+      }
+
+      if (event.type === 'harness.finished') {
+        const existing = state.harnessEvents[event.threadId] ?? []
+        const next = existing.map((h) =>
+          h.id === event.harnessId
+            ? { ...h, status: event.status, finishedAt: event.timestamp, error: event.error }
+            : h
+        )
+        return { harnessEvents: { ...state.harnessEvents, [event.threadId]: next } }
       }
 
       return {}
@@ -311,6 +368,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           connectionStatus: 'disconnected',
           isBootstrapping: false,
           lastError: message,
+          runPhase: 'idle',
           runStatus: 'failed'
         })
         throw error
@@ -325,6 +383,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   selectModel: async (providerName, model) => {
+    if (get().runPhase !== 'idle' || get().runStatus === 'running') {
+      return
+    }
+
     await window.api.yachiyo.saveSettings({ providerName, model })
   },
 

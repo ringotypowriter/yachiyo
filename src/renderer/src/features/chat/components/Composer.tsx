@@ -9,6 +9,7 @@ export function Composer(): React.JSX.Element {
   const connectionStatus = useAppStore((s) => s.connectionStatus)
   const settings = useAppStore((s) => s.settings ?? DEFAULT_SETTINGS)
   const config = useAppStore((s) => s.config)
+  const runPhase = useAppStore((s) => s.runPhase)
   const runStatus = useAppStore((s) => s.runStatus)
   const cancelActiveRun = useAppStore((s) => s.cancelActiveRun)
   const setComposerValue = useAppStore((s) => s.setComposerValue)
@@ -20,6 +21,7 @@ export function Composer(): React.JSX.Element {
   const [selectorOpen, setSelectorOpen] = useState(false)
 
   const isRunning = runStatus === 'running'
+  const isModelSelectorLocked = runPhase === 'preparing' || runPhase === 'streaming'
   const isConfigured = settings.apiKey.trim().length > 0 && settings.model.trim().length > 0
   const canSend =
     composerValue.trim().length > 0 &&
@@ -43,7 +45,10 @@ export function Composer(): React.JSX.Element {
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
-        if (canSend) void sendMessage(composerValue)
+        if (canSend) {
+          setSelectorOpen(false)
+          void sendMessage(composerValue)
+        }
       }
     },
     [canSend, composerValue, sendMessage]
@@ -60,7 +65,8 @@ export function Composer(): React.JSX.Element {
     [setComposerValue]
   )
 
-  const providerLabel = settings.providerName || (settings.provider === 'openai' ? 'OpenAI' : 'Anthropic')
+  const providerLabel =
+    settings.providerName || (settings.provider === 'openai' ? 'OpenAI' : 'Anthropic')
   const modelLabel = settings.model || 'Configure provider'
   const hasModels = config !== null && config.providers.some((p) => p.modelList.enabled.length > 0)
 
@@ -117,14 +123,20 @@ export function Composer(): React.JSX.Element {
         {/* Model selector */}
         <div ref={selectorRef} style={{ position: 'relative' }}>
           <button
-            onClick={() => hasModels && setSelectorOpen((o) => !o)}
+            onClick={() => hasModels && !isModelSelectorLocked && setSelectorOpen((o) => !o)}
             className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity ml-0.5"
             style={{
               color: '#2D2D2B',
               opacity: selectorOpen ? 1 : 0.6,
-              cursor: hasModels ? 'pointer' : 'default'
+              cursor: hasModels && !isModelSelectorLocked ? 'pointer' : 'default'
             }}
-            title={hasModels ? 'Switch model' : 'Add models in Settings → Providers'}
+            title={
+              isModelSelectorLocked
+                ? 'Works on next run'
+                : hasModels
+                  ? 'Switch model'
+                  : 'Add models in Settings → Providers'
+            }
           >
             <CircleCheck size={12} strokeWidth={1.5} color={isConfigured ? '#5CAD8A' : '#8e8e93'} />
             {providerLabel} – {modelLabel}
@@ -141,7 +153,7 @@ export function Composer(): React.JSX.Element {
             )}
           </button>
 
-          {selectorOpen && config && (
+          {selectorOpen && config && !isModelSelectorLocked && (
             <ModelSelectorPopup
               config={config}
               currentProviderName={settings.providerName}
@@ -165,7 +177,11 @@ export function Composer(): React.JSX.Element {
             </button>
           ) : (
             <button
-              onClick={() => canSend && void sendMessage(composerValue)}
+              onClick={() => {
+                if (!canSend) return
+                setSelectorOpen(false)
+                void sendMessage(composerValue)
+              }}
               disabled={!canSend}
               className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
               style={{

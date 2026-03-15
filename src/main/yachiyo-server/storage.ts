@@ -9,6 +9,17 @@ export interface StoredThreadRow {
   createdAt: string
 }
 
+export interface StoredMessageRow {
+  id: string
+  threadId: string
+  role: MessageRecord['role']
+  content: string
+  status: MessageRecord['status']
+  createdAt: string
+  modelId: string | null
+  providerName: string | null
+}
+
 export interface BootstrapState {
   threads: ThreadRecord[]
   messagesByThread: Record<string, MessageRecord[]>
@@ -44,7 +55,9 @@ export interface YachiyoStorage {
   listThreadHistory(threadId: string): Array<Pick<MessageRecord, 'content' | 'role'>>
 }
 
-export function toThreadRecord(row: Pick<StoredThreadRow, 'id' | 'preview' | 'title' | 'updatedAt'>): ThreadRecord {
+export function toThreadRecord(
+  row: Pick<StoredThreadRow, 'id' | 'preview' | 'title' | 'updatedAt'>
+): ThreadRecord {
   if (row.preview === null) {
     return {
       id: row.id,
@@ -58,6 +71,19 @@ export function toThreadRecord(row: Pick<StoredThreadRow, 'id' | 'preview' | 'ti
     preview: row.preview,
     title: row.title,
     updatedAt: row.updatedAt
+  }
+}
+
+export function toMessageRecord(row: StoredMessageRow): MessageRecord {
+  return {
+    id: row.id,
+    threadId: row.threadId,
+    role: row.role,
+    content: row.content,
+    status: row.status,
+    createdAt: row.createdAt,
+    ...(row.modelId === null ? {} : { modelId: row.modelId }),
+    ...(row.providerName === null ? {} : { providerName: row.providerName })
   }
 }
 

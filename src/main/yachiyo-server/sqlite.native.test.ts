@@ -7,7 +7,6 @@ import test from 'node:test'
 
 import { createSqliteYachiyoStorage } from './database.ts'
 import { createSqliteYachiyoServer } from './YachiyoServer.ts'
-import type { ModelStreamRequest } from './types.ts'
 
 const require = createRequire(import.meta.url)
 const BetterSqlite3 = require('better-sqlite3') as
@@ -25,15 +24,23 @@ const BetterSqlite3 = require('better-sqlite3') as
         all(): Array<{ name: string }>
       }
     })
-const SqliteDatabase = ((BetterSqlite3 as { default?: unknown }).default ??
-  BetterSqlite3) as new (path: string) => {
+const SqliteDatabase = ((BetterSqlite3 as { default?: unknown }).default ?? BetterSqlite3) as new (
+  path: string
+) => {
   close(): void
   prepare(sql: string): {
     all(): Array<{ name: string }>
   }
 }
 
-function createRunCompletionTracker(server: ReturnType<typeof createSqliteYachiyoServer>) {
+interface RunCompletionTracker {
+  wait(runId: string): Promise<void>
+  close(): void
+}
+
+function createRunCompletionTracker(
+  server: ReturnType<typeof createSqliteYachiyoServer>
+): RunCompletionTracker {
   const seen = new Map<string, { status: 'completed' } | { status: 'failed'; error: string }>()
   const waiters = new Map<
     string,
@@ -110,6 +117,18 @@ test('sqlite storage initializes migrations on disk', async () => {
     assert.ok(tables.includes('messages'))
     assert.ok(tables.includes('runs'))
     assert.ok(tables.includes('threads'))
+    assert.ok(
+      db
+        .prepare('PRAGMA table_info(messages)')
+        .all()
+        .some((row) => row.name === 'model_id')
+    )
+    assert.ok(
+      db
+        .prepare('PRAGMA table_info(messages)')
+        .all()
+        .some((row) => row.name === 'provider_name')
+    )
 
     db.close()
   } finally {
@@ -130,7 +149,7 @@ test('sqlite-backed server persists state across reopen', async () => {
       dbPath,
       settingsPath,
       createModelRuntime: () => ({
-        async *streamReply(_request: ModelStreamRequest) {
+        async *streamReply() {
           await Promise.resolve()
           yield 'Hello from sqlite'
         }
@@ -173,6 +192,8 @@ test('sqlite-backed server persists state across reopen', async () => {
     assert.equal(bootstrap.messagesByThread[thread.id]?.length, 2)
     assert.equal(bootstrap.messagesByThread[thread.id]?.[0]?.role, 'user')
     assert.equal(bootstrap.messagesByThread[thread.id]?.[1]?.content, 'Hello from sqlite')
+    assert.equal(bootstrap.messagesByThread[thread.id]?.[1]?.modelId, 'gpt-5')
+    assert.equal(bootstrap.messagesByThread[thread.id]?.[1]?.providerName, 'native')
 
     await reopened.close()
     reopened = null

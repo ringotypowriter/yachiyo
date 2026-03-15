@@ -122,3 +122,45 @@ body {
   margin: 0.5em 0;
   color: #666;
 }
+
+/* Message bubble footer */
+.message-footer {
+  font-size: 11px;
+  color: #8e8e93;
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+
+.message-bubble-group:hover .message-footer {
+  opacity: 1;
+}
+
+.message-footer--always-visible {
+  opacity: 1 !important;
+}
+
+/* Preparing bubble dots */
+@keyframes yachiyo-preparing-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+/* Generating dot in streaming footer */
+@keyframes yachiyo-generating-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* Streaming caret blink */
+@keyframes yachiyo-caret-blink {
+  0%, 100% { opacity: 0; }
+  25%, 75% { opacity: 1; }
+}
+
+.sd-caret-host *:last-child::after {
+  animation: yachiyo-caret-blink 1.1s ease-in-out infinite;
+  color: #CC7D5E;
+  font-size: 0.55em;
+  vertical-align: middle;
+  margin-left: 1px;
+}

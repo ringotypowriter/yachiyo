@@ -19,7 +19,9 @@ export const messagesTable = sqliteTable('messages', {
   role: text('role').$type<MessageRecord['role']>().notNull(),
   content: text('content').notNull(),
   status: text('status').$type<MessageRecord['status']>().notNull(),
-  createdAt: text('created_at').notNull()
+  createdAt: text('created_at').notNull(),
+  modelId: text('model_id'),
+  providerName: text('provider_name')
 })
 
 export const runsTable = sqliteTable('runs', {

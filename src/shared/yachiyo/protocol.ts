@@ -1,5 +1,5 @@
 export type MessageRole = 'user' | 'assistant'
-export type MessageStatus = 'completed' | 'streaming' | 'failed'
+export type MessageStatus = 'completed' | 'streaming' | 'failed' | 'stopped'
 export type RunStatus = 'idle' | 'running' | 'completed' | 'failed' | 'cancelled'
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected'
 export type ProviderKind = 'openai' | 'anthropic'
@@ -18,6 +18,8 @@ export interface MessageRecord {
   content: string
   status: MessageStatus
   createdAt: string
+  modelId?: string
+  providerName?: string
 }
 
 export interface ProviderModelList {

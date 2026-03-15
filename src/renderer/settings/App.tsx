@@ -154,13 +154,7 @@ function validateConfig(config: SettingsConfig | null): string | null {
   return null
 }
 
-function Field({
-  label,
-  children
-}: {
-  label: string
-  children: React.ReactNode
-}): React.ReactNode {
+function Field({ label, children }: { label: string; children: React.ReactNode }): React.ReactNode {
   return (
     <label className="flex flex-col gap-1.5">
       <span className="text-sm font-medium" style={{ color: '#2D2D2B' }}>
@@ -650,10 +644,7 @@ function ProvidersPane({
               </div>
             </div>
 
-            <ModelListSection
-              provider={selectedProvider}
-              onProviderChange={handleProviderChange}
-            />
+            <ModelListSection provider={selectedProvider} onProviderChange={handleProviderChange} />
           </div>
         ) : (
           <PlaceholderPane label="Add your first provider to get started." />

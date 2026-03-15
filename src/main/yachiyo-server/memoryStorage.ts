@@ -34,7 +34,9 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     [...items].sort((left, right) => left.createdAt.localeCompare(right.createdAt))
 
   return {
-    close() {},
+    close() {
+      // In-memory storage does not hold external resources.
+    },
 
     bootstrap() {
       const activeThreads = [...threads.values()]
