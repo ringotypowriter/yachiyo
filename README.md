@@ -12,11 +12,29 @@ An Electron application with React and TypeScript
 
 ## Project Setup
 
+### Runtime
+
+```bash
+$ nvm use
+```
+
+This project is pinned to Node `22.22.1` via `.nvmrc` and `.node-version`.
+Electron `39.8.2` embeds Node `22.22.1`, and its native module ABI is `140`.
+Your shell `node -v` will show `22.22.1`, but `process.versions.modules` becomes `140` only inside Electron.
+
 ### Install
 
 ```bash
 $ pnpm install
 ```
+
+If a native module mismatch appears, rebuild Electron native dependencies explicitly:
+
+```bash
+$ pnpm run native:rebuild
+```
+
+This command verifies `better-sqlite3` inside Electron itself, then falls back to a forced Electron-target rebuild if a normal rebuild still leaves the wrong ABI in place.
 
 ### Development
 
