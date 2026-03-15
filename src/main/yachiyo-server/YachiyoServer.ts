@@ -25,7 +25,7 @@ import type {
 } from '../../shared/yachiyo/protocol'
 import { createSqliteYachiyoStorage } from './database.ts'
 import { prepareModelMessages } from './messagePrepare.ts'
-import { createAiSdkModelRuntime } from './modelRuntime.ts'
+import { createAiSdkModelRuntime, fetchModels } from './modelRuntime.ts'
 import { resolveYachiyoSettingsPath } from './paths.ts'
 import { createSettingsStore, type SettingsStore, toProviderSettings } from './settingsStore.ts'
 import type { YachiyoStorage } from './storage.ts'
@@ -256,6 +256,18 @@ export class YachiyoServer {
         enabled: false
       })
     )
+  }
+
+  async fetchProviderModels(input: ProviderConfig): Promise<string[]> {
+    console.log('[fetchProviderModels] called with:', {
+      name: input.name,
+      type: input.type,
+      baseUrl: input.baseUrl || '(default)',
+      hasApiKey: Boolean(input.apiKey?.trim())
+    })
+    const models = await fetchModels(input)
+    console.log('[fetchProviderModels] result:', models.length, 'models', models.slice(0, 5))
+    return models
   }
 
   async createThread(): Promise<ThreadRecord> {

@@ -8,6 +8,8 @@ import type { ModelRuntime } from './types.ts'
 
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1'
+const DEFAULT_OPENAI_REASONING_EFFORT = 'medium'
+const DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS = 1024
 
 type OpenAIProviderFactory = typeof createOpenAI
 type AnthropicProviderFactory = typeof createAnthropic
@@ -42,7 +44,7 @@ function createLanguageModel(
       apiKey: settings.apiKey,
       baseURL: cleanBaseUrl(settings.baseUrl, DEFAULT_OPENAI_BASE_URL)
     })
-    return provider.chat(settings.model)
+    return provider.responses(settings.model)
   }
 
   const provider = dependencies.createAnthropicProvider({
@@ -50,6 +52,80 @@ function createLanguageModel(
     baseURL: cleanBaseUrl(settings.baseUrl, DEFAULT_ANTHROPIC_BASE_URL)
   })
   return provider(settings.model)
+}
+
+function createProviderOptions(settings: ProviderSettings):
+  | {
+      openai: {
+        reasoningEffort: string
+      }
+    }
+  | {
+      anthropic: {
+        thinking: {
+          type: 'enabled'
+          budgetTokens: number
+        }
+      }
+    } {
+  if (settings.provider === 'openai') {
+    return {
+      openai: {
+        reasoningEffort: DEFAULT_OPENAI_REASONING_EFFORT
+      }
+    }
+  }
+
+  return {
+    anthropic: {
+      thinking: {
+        type: 'enabled',
+        budgetTokens: DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS
+      }
+    }
+  }
+}
+
+interface ModelsResponseItem {
+  id: string
+}
+
+export async function fetchModels(provider: ProviderConfig): Promise<string[]> {
+  const fallbackBase =
+    provider.type === 'anthropic' ? DEFAULT_ANTHROPIC_BASE_URL : DEFAULT_OPENAI_BASE_URL
+  const baseUrl = cleanBaseUrl(provider.baseUrl, fallbackBase)
+
+  if (!provider.apiKey.trim()) {
+    throw new Error('API key is required')
+  }
+
+  if (provider.type === 'anthropic') {
+    const url = `${baseUrl}/models?limit=100`
+    console.log('[fetchModels] fetching anthropic:', url)
+    const response = await fetch(url, {
+      headers: {
+        'x-api-key': provider.apiKey,
+        'anthropic-version': '2023-06-01'
+      }
+    })
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`)
+    }
+    const body = (await response.json()) as { data: ModelsResponseItem[] }
+    return (body.data ?? []).map((m) => m.id).sort()
+  }
+
+  // OpenAI-compatible
+  const url = `${baseUrl}/models`
+  console.log('[fetchModels] fetching openai:', url)
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${provider.apiKey}` }
+  })
+  if (!response.ok) {
+    throw new Error(`${response.status} ${response.statusText}`)
+  }
+  const body = (await response.json()) as { data: ModelsResponseItem[] }
+  return (body.data ?? []).map((m) => m.id).sort()
 }
 
 export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies = {}): ModelRuntime {
@@ -66,7 +142,8 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
       const result = resolvedDependencies.streamTextImpl({
         abortSignal: request.signal,
         messages: prepareAiSdkMessages(request.messages),
-        model: createLanguageModel(request.settings, resolvedDependencies)
+        model: createLanguageModel(request.settings, resolvedDependencies),
+        providerOptions: createProviderOptions(request.settings)
       })
 
       for await (const textPart of result.textStream) {

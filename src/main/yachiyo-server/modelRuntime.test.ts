@@ -3,28 +3,47 @@ import test from 'node:test'
 
 import { createAiSdkModelRuntime } from './modelRuntime.ts'
 
-test('createAiSdkModelRuntime uses AI SDK streaming with the OpenAI provider', async () => {
+test('createAiSdkModelRuntime uses AI SDK streaming with the OpenAI responses provider', async () => {
   let openAiOptions: { apiKey?: string; baseURL?: string } | undefined
   let selectedModel: { provider: string; modelId: string } | null = null
-  let call: { abortSignal?: AbortSignal; messages: unknown } | null = null
+  let call:
+    | {
+        abortSignal?: AbortSignal
+        messages: unknown
+        providerOptions?: {
+          openai?: {
+            reasoningEffort?: string
+          }
+        }
+      }
+    | null = null
 
   const runtime = createAiSdkModelRuntime({
     createOpenAIProvider: (options) => {
       openAiOptions = options
       return {
-        chat: (modelId: string) => {
-          selectedModel = { modelId, provider: 'openai' }
-          return { modelId, provider: 'openai' } as never
+        responses: (modelId: string) => {
+          selectedModel = { modelId, provider: 'openai.responses' }
+          return { modelId, provider: 'openai.responses' } as never
         }
       } as never
     },
     createAnthropicProvider: () => {
       throw new Error('Anthropic should not be used in this test.')
     },
-    streamTextImpl: ((input: { abortSignal?: AbortSignal; messages: unknown }) => {
+    streamTextImpl: ((input: {
+      abortSignal?: AbortSignal
+      messages: unknown
+      providerOptions?: {
+        openai?: {
+          reasoningEffort?: string
+        }
+      }
+    }) => {
       call = {
         abortSignal: input.abortSignal,
-        messages: input.messages
+        messages: input.messages,
+        providerOptions: input.providerOptions
       }
       return {
         textStream: (async function* () {
@@ -61,12 +80,138 @@ test('createAiSdkModelRuntime uses AI SDK streaming with the OpenAI provider', a
     baseURL: 'https://api.openai.com/v1'
   })
   assert.deepEqual(selectedModel, {
-    provider: 'openai',
+    provider: 'openai.responses',
     modelId: 'gpt-5'
   })
-  const streamCall = call as { abortSignal?: AbortSignal; messages: unknown } | null
+  const streamCall = call as
+    | {
+        abortSignal?: AbortSignal
+        messages: unknown
+        providerOptions?: {
+          openai?: {
+            reasoningEffort?: string
+          }
+        }
+      }
+    | null
   if (streamCall === null) {
     assert.fail('Expected streamText to be called.')
   }
   assert.equal(streamCall.abortSignal, controller.signal)
+  assert.deepEqual(streamCall.providerOptions, {
+    openai: {
+      reasoningEffort: 'medium'
+    }
+  })
+})
+
+test('createAiSdkModelRuntime uses AI SDK streaming with Anthropic thinking enabled', async () => {
+  let anthropicOptions: { apiKey?: string; baseURL?: string } | undefined
+  let selectedModel: { provider: string; modelId: string } | null = null
+  let call:
+    | {
+        abortSignal?: AbortSignal
+        messages: unknown
+        providerOptions?: {
+          anthropic?: {
+            thinking?: {
+              type?: string
+              budgetTokens?: number
+            }
+          }
+        }
+      }
+    | null = null
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () => {
+      throw new Error('OpenAI should not be used in this test.')
+    },
+    createAnthropicProvider: (options) => {
+      anthropicOptions = options
+      return ((modelId: string) => {
+        selectedModel = { modelId, provider: 'anthropic' }
+        return { modelId, provider: 'anthropic' } as never
+      }) as never
+    },
+    streamTextImpl: ((input: {
+      abortSignal?: AbortSignal
+      messages: unknown
+      providerOptions?: {
+        anthropic?: {
+          thinking?: {
+            type?: string
+            budgetTokens?: number
+          }
+        }
+      }
+    }) => {
+      call = {
+        abortSignal: input.abortSignal,
+        messages: input.messages,
+        providerOptions: input.providerOptions
+      }
+      return {
+        textStream: (async function* () {
+          yield 'Hi'
+        })()
+      }
+    }) as never
+  })
+
+  const controller = new AbortController()
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [
+      { role: 'system', content: 'You are concise.' },
+      { role: 'user', content: 'Say hi' }
+    ],
+    settings: {
+      providerName: 'claude',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      apiKey: 'sk-ant-test',
+      baseUrl: ''
+    },
+    signal: controller.signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['Hi'])
+  assert.deepEqual(anthropicOptions, {
+    apiKey: 'sk-ant-test',
+    baseURL: 'https://api.anthropic.com/v1'
+  })
+  assert.deepEqual(selectedModel, {
+    provider: 'anthropic',
+    modelId: 'claude-sonnet-4-5'
+  })
+  const streamCall = call as
+    | {
+        abortSignal?: AbortSignal
+        messages: unknown
+        providerOptions?: {
+          anthropic?: {
+            thinking?: {
+              type?: string
+              budgetTokens?: number
+            }
+          }
+        }
+      }
+    | null
+  if (streamCall === null) {
+    assert.fail('Expected streamText to be called.')
+  }
+  assert.equal(streamCall.abortSignal, controller.signal)
+  assert.deepEqual(streamCall.providerOptions, {
+    anthropic: {
+      thinking: {
+        type: 'enabled',
+        budgetTokens: 1024
+      }
+    }
+  })
 })

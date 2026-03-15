@@ -69,8 +69,8 @@ app.whenReady().then(() => {
       return
     }
     settingsWindow = new BrowserWindow({
-      width: 820,
-      height: 580,
+      width: 1000,
+      height: 660,
       resizable: false,
       minimizable: false,
       show: false,

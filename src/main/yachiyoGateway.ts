@@ -12,6 +12,7 @@ import { createSqliteYachiyoServer, type YachiyoServer } from './yachiyo-server/
 const IPC_CHANNELS = {
   archiveThread: 'yachiyo:archive-thread',
   disableProviderModel: 'yachiyo:disable-provider-model',
+  fetchProviderModels: 'yachiyo:fetch-provider-models',
   bootstrap: 'yachiyo:bootstrap',
   cancelRun: 'yachiyo:cancel-run',
   createThread: 'yachiyo:create-thread',
@@ -79,6 +80,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handle(IPC_CHANNELS.disableProviderModel, (input: { name: string; model: string }) =>
     server!.disableProviderModel(input)
+  )
+  handle(IPC_CHANNELS.fetchProviderModels, (input: ProviderConfig) =>
+    server!.fetchProviderModels(input)
   )
 
   app.once('before-quit', () => {
