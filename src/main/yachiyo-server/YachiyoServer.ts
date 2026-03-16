@@ -20,12 +20,19 @@ import type {
   SettingsUpdatedEvent,
   ThreadArchivedEvent,
   ThreadCreatedEvent,
+  MessageImageRecord,
   ThreadRecord,
   ThreadSnapshot,
   ThreadStateReplacedEvent,
   ThreadUpdatedEvent,
   YachiyoServerEvent
 } from '../../shared/yachiyo/protocol'
+import {
+  extractBase64DataUrlPayload,
+  hasMessagePayload,
+  normalizeMessageImages,
+  summarizeMessageInput
+} from '../../shared/yachiyo/messageContent.ts'
 import {
   collectDescendantIds,
   collectMessagePath,
@@ -69,6 +76,19 @@ function isAbortError(error: unknown): boolean {
 
 function mergeUnique(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+}
+
+function assertSupportedImages(images: MessageImageRecord[]): void {
+  for (const image of images) {
+    if (!image.mediaType.startsWith('image/')) {
+      throw new Error('Only image inputs are supported right now.')
+    }
+
+    const parsedImage = extractBase64DataUrlPayload(image.dataUrl)
+    if (!parsedImage || !parsedImage.mediaType.startsWith('image/')) {
+      throw new Error('Image input is not ready to send yet.')
+    }
+  }
 }
 
 function upsertProvider(config: SettingsConfig, provider: ProviderConfig): SettingsConfig {
@@ -348,11 +368,18 @@ export class YachiyoServer {
     })
   }
 
-  async sendChat(input: { threadId: string; content: string }): Promise<ChatAccepted> {
+  async sendChat(input: {
+    threadId: string
+    content: string
+    images?: MessageImageRecord[]
+  }): Promise<ChatAccepted> {
     const content = input.content.trim()
-    if (!content) {
+    const images = normalizeMessageImages(input.images)
+
+    if (!hasMessagePayload({ content, images })) {
       throw new Error('Cannot send an empty message.')
     }
+    assertSupportedImages(images)
 
     const thread = this.requireThread(input.threadId)
     if (this.activeRunByThread.has(thread.id)) {
@@ -360,19 +387,25 @@ export class YachiyoServer {
     }
 
     const timestamp = this.timestamp()
+    const messageSummary = summarizeMessageInput({ content, images })
     const userMessage: MessageRecord = {
       id: this.createId(),
       threadId: thread.id,
       ...(thread.headMessageId ? { parentMessageId: thread.headMessageId } : {}),
       role: 'user',
       content,
+      ...(images.length > 0 ? { images } : {}),
       status: 'completed',
       createdAt: timestamp
     }
     const updatedThread: ThreadRecord = {
       ...thread,
       headMessageId: userMessage.id,
-      title: thread.title === DEFAULT_THREAD_TITLE ? content.slice(0, 60) : thread.title,
+      ...(messageSummary ? { preview: messageSummary.slice(0, 240) } : {}),
+      title:
+        thread.title === DEFAULT_THREAD_TITLE
+          ? (messageSummary || DEFAULT_THREAD_TITLE).slice(0, 60)
+          : thread.title,
       updatedAt: timestamp
     }
     const accepted = {
@@ -414,17 +447,14 @@ export class YachiyoServer {
 
   async retryMessage(input: {
     threadId: string
-    assistantMessageId: string
+    messageId: string
   }): Promise<RetryAccepted> {
     const thread = this.requireThread(input.threadId)
     if (this.activeRunByThread.has(thread.id)) {
       throw new Error('This thread already has an active run.')
     }
 
-    const { requestMessage, sourceAssistantMessage } = this.resolveRetryRequest(
-      thread.id,
-      input.assistantMessageId
-    )
+    const { requestMessage, sourceAssistantMessage } = this.resolveRetryRequest(thread, input.messageId)
     const timestamp = this.timestamp()
     const updatedThread: ThreadRecord = {
       ...thread,
@@ -434,7 +464,7 @@ export class YachiyoServer {
       runId: this.createId(),
       thread: updatedThread,
       requestMessageId: requestMessage.id,
-      sourceAssistantMessageId: sourceAssistantMessage.id
+      ...(sourceAssistantMessage ? { sourceAssistantMessageId: sourceAssistantMessage.id } : {})
     }
 
     this.storage.startRun({
@@ -476,20 +506,24 @@ export class YachiyoServer {
       throw new Error('Cannot switch reply branches while this thread is running.')
     }
 
-    const { sourceAssistantMessage } = this.resolveRetryRequest(thread.id, input.assistantMessageId)
+    const { sourceAssistantMessage } = this.resolveRetryRequest(thread, input.assistantMessageId)
+    if (!sourceAssistantMessage) {
+      throw new Error('This message cannot be used as a reply branch.')
+    }
     const messages = this.loadThreadMessages(thread.id)
     const nextHeadMessageId =
       pickLatestLeafId(messages, sourceAssistantMessage.id) ?? sourceAssistantMessage.id
     const previewSource = messages.find((message) => message.id === nextHeadMessageId)
+    const preview = previewSource ? summarizeMessageInput(previewSource) : ''
     const timestamp = this.timestamp()
     const updatedThread: ThreadRecord = {
       ...thread,
       updatedAt: timestamp,
       headMessageId: nextHeadMessageId,
-      ...(previewSource?.content ? { preview: previewSource.content.slice(0, 240) } : {})
+      ...(preview ? { preview: preview.slice(0, 240) } : {})
     }
 
-    if (!previewSource?.content) {
+    if (!preview) {
       delete updatedThread.preview
     }
 
@@ -532,13 +566,14 @@ export class YachiyoServer {
       }
     })
     const previewSource = clonedMessages.at(-1)
+    const preview = previewSource ? summarizeMessageInput(previewSource) : ''
     const branchThread: ThreadRecord = {
       id: threadId,
       title: this.deriveBranchTitle(thread, branchPoint),
       updatedAt: timestamp,
       branchFromThreadId: thread.id,
       branchFromMessageId: branchPoint.id,
-      ...(previewSource?.content ? { preview: previewSource.content.slice(0, 240) } : {}),
+      ...(preview ? { preview: preview.slice(0, 240) } : {}),
       ...(previewSource ? { headMessageId: previewSource.id } : {})
     }
 
@@ -591,19 +626,20 @@ export class YachiyoServer {
     const previewSource = nextHeadMessageId
       ? remainingMessages.find((message) => message.id === nextHeadMessageId)
       : undefined
+    const preview = previewSource ? summarizeMessageInput(previewSource) : ''
     const updatedThread: ThreadRecord = {
       ...thread,
       title: remainingMessages.length === 0 ? DEFAULT_THREAD_TITLE : thread.title,
       updatedAt: timestamp,
       ...(nextHeadMessageId ? { headMessageId: nextHeadMessageId } : {}),
-      ...(previewSource?.content ? { preview: previewSource.content.slice(0, 240) } : {})
+      ...(preview ? { preview: preview.slice(0, 240) } : {})
     }
 
     if (!nextHeadMessageId) {
       delete updatedThread.headMessageId
     }
 
-    if (!previewSource?.content) {
+    if (!preview) {
       delete updatedThread.preview
     }
 
@@ -814,27 +850,37 @@ export class YachiyoServer {
   private loadRunHistory(
     threadId: string,
     requestMessageId: string
-  ): Array<Pick<MessageRecord, 'content' | 'role'>> {
+  ): Array<Pick<MessageRecord, 'content' | 'images' | 'role'>> {
     return collectMessagePath(this.loadThreadMessages(threadId), requestMessageId).map(
-      ({ content, role }) => ({
+      ({ content, images, role }) => ({
         content,
+        ...(images ? { images } : {}),
         role
       })
     )
   }
 
   private resolveRetryRequest(
-    threadId: string,
-    assistantMessageId: string
-  ): { requestMessage: MessageRecord; sourceAssistantMessage: MessageRecord } {
-    const messages = this.loadThreadMessages(threadId)
-    const target = messages.find((message) => message.id === assistantMessageId)
+    thread: ThreadRecord,
+    messageId: string
+  ): { requestMessage: MessageRecord; sourceAssistantMessage?: MessageRecord } {
+    const messages = this.loadThreadMessages(thread.id)
+    const target = messages.find((message) => message.id === messageId)
 
     if (!target) {
-      throw new Error(`Unknown message: ${assistantMessageId}`)
+      throw new Error(`Unknown message: ${messageId}`)
     }
 
-    if (target.role !== 'assistant' || !target.parentMessageId) {
+    if (target.role === 'user') {
+      const sourceAssistantMessage = this.resolveActiveAssistantForRequest(thread, messages, target.id)
+
+      return {
+        requestMessage: target,
+        ...(sourceAssistantMessage ? { sourceAssistantMessage } : {})
+      }
+    }
+
+    if (!target.parentMessageId) {
       throw new Error('This message cannot be retried.')
     }
 
@@ -849,12 +895,40 @@ export class YachiyoServer {
     }
   }
 
+  private resolveActiveAssistantForRequest(
+    thread: ThreadRecord,
+    messages: MessageRecord[],
+    requestMessageId: string
+  ): MessageRecord | undefined {
+    const activePath =
+      thread.headMessageId && messages.some((message) => message.id === thread.headMessageId)
+        ? collectMessagePath(messages, thread.headMessageId)
+        : []
+    const requestIndex = activePath.findIndex((message) => message.id === requestMessageId)
+    const pathAssistant = requestIndex >= 0 ? activePath[requestIndex + 1] : undefined
+
+    if (
+      pathAssistant?.role === 'assistant' &&
+      pathAssistant.parentMessageId === requestMessageId
+    ) {
+      return pathAssistant
+    }
+
+    return messages
+      .filter(
+        (message): message is MessageRecord =>
+          message.role === 'assistant' && message.parentMessageId === requestMessageId
+      )
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .at(-1)
+  }
+
   private deriveBranchTitle(thread: ThreadRecord, branchPoint: MessageRecord): string {
     if (thread.title !== DEFAULT_THREAD_TITLE) {
       return thread.title
     }
 
-    const titleSource = branchPoint.content.trim()
+    const titleSource = summarizeMessageInput(branchPoint)
     return titleSource ? titleSource.slice(0, 60) : DEFAULT_THREAD_TITLE
   }
 

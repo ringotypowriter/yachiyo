@@ -1,9 +1,8 @@
+import type { ModelMessage as AiSdkModelMessage } from 'ai'
+
 import type { ProviderSettings } from '../../shared/yachiyo/protocol'
 
-export interface ModelMessage {
-  role: 'system' | 'user' | 'assistant'
-  content: string
-}
+export type ModelMessage = AiSdkModelMessage
 
 export interface ModelStreamRequest {
   messages: ModelMessage[]

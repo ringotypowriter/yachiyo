@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 
 import type {
+  MessageImageRecord,
   ProviderConfig,
   ProviderSettings,
   SettingsConfig,
@@ -70,10 +71,12 @@ export function registerYachiyoGateway(): YachiyoServer {
     server!.renameThread(input)
   )
   handle(IPC_CHANNELS.archiveThread, (input: { threadId: string }) => server!.archiveThread(input))
-  handle(IPC_CHANNELS.sendChat, (input: { threadId: string; content: string }) =>
+  handle(
+    IPC_CHANNELS.sendChat,
+    (input: { threadId: string; content: string; images?: MessageImageRecord[] }) =>
     server!.sendChat(input)
   )
-  handle(IPC_CHANNELS.retryMessage, (input: { threadId: string; assistantMessageId: string }) =>
+  handle(IPC_CHANNELS.retryMessage, (input: { threadId: string; messageId: string }) =>
     server!.retryMessage(input)
   )
   handle(IPC_CHANNELS.selectReplyBranch, (input: { threadId: string; assistantMessageId: string }) =>

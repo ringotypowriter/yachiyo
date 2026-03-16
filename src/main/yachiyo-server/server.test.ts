@@ -12,18 +12,47 @@ async function withServer(
   fn: (input: {
     server: YachiyoServer
     completeRun: (runId: string) => Promise<void>
+    modelRequests: ModelStreamRequest[]
     waitForEvent: (type: string) => Promise<unknown>
   }) => Promise<void>,
   options: {
+    createModelRuntime?: () => {
+      streamReply(request: ModelStreamRequest): AsyncIterable<string>
+    }
     now?: () => Date
   } = {}
 ): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-test-'))
   const settingsPath = join(root, 'config.toml')
   const storage = createInMemoryYachiyoStorage()
+  const modelRequests: ModelStreamRequest[] = []
 
-  const waiters = new Map<string, Array<(value: unknown) => void>>()
+  const waiters = new Map<string, Array<{ id: number; handle: (value: unknown) => boolean }>>()
   const seenEvents = new Map<string, unknown[]>()
+  let nextWaiterId = 0
+
+  const enqueueWaiter = (type: string, handle: (value: unknown) => boolean): (() => void) => {
+    const queue = waiters.get(type) ?? []
+    const waiter = { id: nextWaiterId++, handle }
+    queue.push(waiter)
+    waiters.set(type, queue)
+
+    return () => {
+      const currentQueue = waiters.get(type)
+      if (!currentQueue) {
+        return
+      }
+
+      const nextQueue = currentQueue.filter((entry) => entry.id !== waiter.id)
+      if (nextQueue.length === 0) {
+        waiters.delete(type)
+        return
+      }
+
+      waiters.set(type, nextQueue)
+    }
+  }
+
   const settle = (type: string, value: unknown): void => {
     const seen = seenEvents.get(type) ?? []
     seen.push(value)
@@ -31,8 +60,20 @@ async function withServer(
 
     const queue = waiters.get(type)
     if (!queue || queue.length === 0) return
-    const next = queue.shift()
-    next?.(value)
+
+    for (const waiter of [...queue]) {
+      if (!waiter.handle(value)) {
+        continue
+      }
+
+      const nextQueue = (waiters.get(type) ?? []).filter((entry) => entry.id !== waiter.id)
+      if (nextQueue.length === 0) {
+        waiters.delete(type)
+      } else {
+        waiters.set(type, nextQueue)
+      }
+      return
+    }
   }
 
   const takeSeenEvent = <T>(type: string, predicate: (value: T) => boolean): T | undefined => {
@@ -54,31 +95,44 @@ async function withServer(
     storage,
     settingsPath,
     now: options.now,
-    createModelRuntime: () => ({
-      async *streamReply(request: ModelStreamRequest) {
-        if (request.messages.at(-1)?.content.includes('cancel me')) {
-          yield 'Partial'
-          await new Promise((_, reject) => {
-            const abort = (): void => {
-              const error = new Error('Aborted')
-              error.name = 'AbortError'
-              reject(error)
-            }
+    createModelRuntime:
+      options.createModelRuntime ??
+      (() => ({
+        async *streamReply(request: ModelStreamRequest) {
+          modelRequests.push(request)
 
-            if (request.signal.aborted) {
-              abort()
-              return
-            }
+          const lastMessage = request.messages.at(-1)
+          const lastMessageText =
+            typeof lastMessage?.content === 'string'
+              ? lastMessage.content
+              : lastMessage?.content
+                  .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
+                  .map((part) => part.text)
+                  .join('') ?? ''
 
-            request.signal.addEventListener('abort', abort, { once: true })
-          })
-          return
+          if (lastMessageText.includes('cancel me')) {
+            yield 'Partial'
+            await new Promise((_, reject) => {
+              const abort = (): void => {
+                const error = new Error('Aborted')
+                error.name = 'AbortError'
+                reject(error)
+              }
+
+              if (request.signal.aborted) {
+                abort()
+                return
+              }
+
+              request.signal.addEventListener('abort', abort, { once: true })
+            })
+            return
+          }
+
+          yield 'Hello'
+          yield ' world'
         }
-
-        yield 'Hello'
-        yield ' world'
-      }
-    })
+      }))
   })
 
   const unsubscribe = server.subscribe((event) => {
@@ -89,58 +143,82 @@ async function withServer(
     await fn({
       server,
       completeRun: (runId) =>
-        Promise.race([
-          new Promise<void>((resolve, reject) => {
-            const completed = takeSeenEvent<{ runId: string }>(
-              'run.completed',
-              (event) => event.runId === runId
-            )
-            if (completed) {
-              resolve()
-              return
+        new Promise<void>((resolve, reject) => {
+          const completed = takeSeenEvent<{ runId: string }>(
+            'run.completed',
+            (event) => event.runId === runId
+          )
+          if (completed) {
+            resolve()
+            return
+          }
+
+          const failed = takeSeenEvent<{ runId: string; error: string }>(
+            'run.failed',
+            (event) => event.runId === runId
+          )
+          if (failed) {
+            reject(new Error(failed.error))
+            return
+          }
+
+          const cancelled = takeSeenEvent<{ runId: string }>(
+            'run.cancelled',
+            (event) => event.runId === runId
+          )
+          if (cancelled) {
+            resolve()
+            return
+          }
+
+          const cleanups: Array<() => void> = []
+          let settled = false
+
+          const finalize = (fn: () => void): boolean => {
+            if (settled) {
+              return true
             }
 
-            const failed = takeSeenEvent<{ runId: string; error: string }>(
-              'run.failed',
-              (event) => event.runId === runId
-            )
-            if (failed) {
-              reject(new Error(failed.error))
-              return
+            settled = true
+            for (const cleanup of cleanups) {
+              cleanup()
             }
+            fn()
+            return true
+          }
 
-            const completedQueue = waiters.get('run.completed') ?? []
-            completedQueue.push((event) => {
+          cleanups.push(
+            enqueueWaiter('run.completed', (event) => {
               const payload = event as { runId: string }
-              if (payload.runId === runId) resolve()
-            })
-            waiters.set('run.completed', completedQueue)
+              if (payload.runId !== runId) {
+                return false
+              }
 
-            const failedQueue = waiters.get('run.failed') ?? []
-            failedQueue.push((event) => {
+              return finalize(resolve)
+            })
+          )
+          cleanups.push(
+            enqueueWaiter('run.failed', (event) => {
               const payload = event as { runId: string; error: string }
-              if (payload.runId === runId) reject(new Error(payload.error))
-            })
-            waiters.set('run.failed', failedQueue)
-          }),
-          new Promise<void>((resolve) => {
-            const cancelled = takeSeenEvent<{ runId: string }>(
-              'run.cancelled',
-              (event) => event.runId === runId
-            )
-            if (cancelled) {
-              resolve()
-              return
-            }
+              if (payload.runId !== runId) {
+                return false
+              }
 
-            const cancelledQueue = waiters.get('run.cancelled') ?? []
-            cancelledQueue.push((event) => {
-              const payload = event as { runId: string }
-              if (payload.runId === runId) resolve()
+              return finalize(() => reject(new Error(payload.error)))
             })
-            waiters.set('run.cancelled', cancelledQueue)
-          })
-        ]),
+          )
+          cleanups.push(
+            enqueueWaiter('run.cancelled', (event) => {
+              const payload = event as { runId: string }
+              if (payload.runId !== runId) {
+                return false
+              }
+
+              return finalize(resolve)
+            })
+          )
+        }),
+      modelRequests,
       waitForEvent: (type) =>
         new Promise((resolve) => {
           const seen = seenEvents.get(type)
@@ -149,9 +227,10 @@ async function withServer(
             return
           }
 
-          const queue = waiters.get(type) ?? []
-          queue.push(resolve)
-          waiters.set(type, queue)
+          enqueueWaiter(type, (event) => {
+            resolve(event)
+            return true
+          })
         })
     })
   } finally {
@@ -194,6 +273,58 @@ test('YachiyoServer streams a reply and persists the completed thread state', as
     assert.equal(messages[1]?.providerName, 'work')
     assert.equal(bootstrap.threads[0]?.title, 'Plan the MVP')
     assert.equal(bootstrap.threads[0]?.preview, 'Hello world')
+  })
+})
+
+test('YachiyoServer accepts image-first user input and forwards it as multimodal content', async () => {
+  await withServer(async ({ server, completeRun, modelRequests }) => {
+    await server.upsertProvider({
+      name: 'vision',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    })
+
+    const thread = await server.createThread()
+    const accepted = await server.sendChat({
+      threadId: thread.id,
+      content: '',
+      images: [
+        {
+          dataUrl: 'data:image/png;base64,AAAA',
+          mediaType: 'image/png',
+          filename: 'whiteboard.png'
+        }
+      ]
+    })
+
+    await completeRun(accepted.runId)
+
+    const bootstrap = await server.bootstrap()
+    const messages = bootstrap.messagesByThread[thread.id] ?? []
+
+    assert.equal(accepted.thread.title, 'Shared an image')
+    assert.deepEqual(messages[0]?.images, [
+      {
+        dataUrl: 'data:image/png;base64,AAAA',
+        mediaType: 'image/png',
+        filename: 'whiteboard.png'
+      }
+    ])
+    assert.deepEqual(modelRequests[0]?.messages.at(-1), {
+      role: 'user',
+      content: [
+        {
+          type: 'image',
+          image: 'AAAA',
+          mediaType: 'image/png'
+        }
+      ]
+    })
   })
 })
 
@@ -293,7 +424,7 @@ test('YachiyoServer keeps retry replies as sibling assistant branches and preser
 
     const retryRun = await server.retryMessage({
       threadId: thread.id,
-      assistantMessageId: firstAssistant!.id
+      messageId: firstAssistant!.id
     })
     await completeRun(retryRun.runId)
 
@@ -374,7 +505,7 @@ test('YachiyoServer can switch the active thread branch between sibling replies'
 
     const retryRun = await server.retryMessage({
       threadId: thread.id,
-      assistantMessageId: firstAssistant!.id
+      messageId: firstAssistant!.id
     })
     await completeRun(retryRun.runId)
 
@@ -451,7 +582,7 @@ test('YachiyoServer deletes a user request anchor together with every attached r
 
     const retryRun = await server.retryMessage({
       threadId: thread.id,
-      assistantMessageId: assistantMessage!.id
+      messageId: assistantMessage!.id
     })
     await completeRun(retryRun.runId)
 
@@ -511,4 +642,82 @@ test('YachiyoServer manages provider config and active model state', async () =>
     assert.equal(snapshot.model, 'gpt-4.1')
     assert.equal(snapshot.apiKey, 'sk-openai')
   })
+})
+
+test('YachiyoServer can retry directly from a user request that has no assistant reply yet', async () => {
+  let attempt = 0
+
+  await withServer(
+    async ({ server, completeRun, waitForEvent }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Please cancel me halfway.'
+      })
+
+      await waitForEvent('message.delta')
+      await server.cancelRun({ runId: accepted.runId })
+      await completeRun(accepted.runId)
+
+      let bootstrap = await server.bootstrap()
+      const [userMessage] = bootstrap.messagesByThread[thread.id] ?? []
+
+      assert.equal(bootstrap.messagesByThread[thread.id]?.length, 1)
+      assert.equal(userMessage?.role, 'user')
+
+      const retried = await server.retryMessage({
+        threadId: thread.id,
+        messageId: userMessage!.id
+      })
+      await completeRun(retried.runId)
+
+      bootstrap = await server.bootstrap()
+      const assistantReply = (bootstrap.messagesByThread[thread.id] ?? []).find(
+        (message) => message.parentMessageId === userMessage?.id && message.role === 'assistant'
+      )
+
+      assert.equal(retried.requestMessageId, userMessage?.id)
+      assert.equal(retried.sourceAssistantMessageId, undefined)
+      assert.equal(assistantReply?.content, 'Hello world')
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          if (attempt === 0) {
+            attempt += 1
+            yield 'Partial'
+            await new Promise((_, reject) => {
+              const abort = (): void => {
+                const error = new Error('Aborted')
+                error.name = 'AbortError'
+                reject(error)
+              }
+
+              if (request.signal.aborted) {
+                abort()
+                return
+              }
+
+              request.signal.addEventListener('abort', abort, { once: true })
+            })
+            return
+          }
+
+          yield 'Hello'
+          yield ' world'
+        }
+      })
+    }
+  )
 })

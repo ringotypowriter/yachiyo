@@ -6,3 +6,7 @@ export function canRetryAssistantMessage(input: {
 }): boolean {
   return input.messageStatus !== 'streaming' && !input.threadHasActiveRun
 }
+
+export function canRetryUserMessage(input: { threadHasActiveRun: boolean }): boolean {
+  return !input.threadHasActiveRun
+}

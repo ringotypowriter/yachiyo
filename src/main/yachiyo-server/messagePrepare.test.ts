@@ -32,3 +32,58 @@ test('message prepare converts prepared messages into AI SDK messages', () => {
     { role: 'user', content: 'Say hello' }
   ])
 })
+
+test('message prepare keeps image input close to the user text payload', () => {
+  const prepared = prepareModelMessages({
+    history: [
+      {
+        role: 'user',
+        content: 'Look at this',
+        images: [
+          {
+            dataUrl: 'data:image/png;base64,AAAA',
+            mediaType: 'image/png',
+            filename: 'cat.png'
+          }
+        ]
+      },
+      { role: 'assistant', content: 'Nice.' },
+      {
+        role: 'user',
+        content: '',
+        images: [
+          {
+            dataUrl: 'data:image/jpeg;base64,BBBB',
+            mediaType: 'image/jpeg'
+          }
+        ]
+      }
+    ]
+  })
+
+  assert.deepEqual(prepared, [
+    { role: 'system', content: SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Look at this' },
+        {
+          type: 'image',
+          image: 'AAAA',
+          mediaType: 'image/png'
+        }
+      ]
+    },
+    { role: 'assistant', content: 'Nice.' },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'image',
+          image: 'BBBB',
+          mediaType: 'image/jpeg'
+        }
+      ]
+    }
+  ])
+})

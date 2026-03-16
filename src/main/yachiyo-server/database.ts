@@ -10,6 +10,7 @@ import * as schema from './schema.ts'
 import { messagesTable, runsTable, threadsTable } from './schema.ts'
 import {
   groupMessagesByThread,
+  serializeMessageImages,
   toMessageRecord,
   toThreadRecord,
   type CompleteRunInput,
@@ -106,6 +107,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                 content: messagesTable.content,
                 createdAt: messagesTable.createdAt,
                 id: messagesTable.id,
+                images: messagesTable.images,
                 modelId: messagesTable.modelId,
                 parentMessageId: messagesTable.parentMessageId,
                 providerName: messagesTable.providerName,
@@ -160,7 +162,14 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           .run()
 
         if (messages && messages.length > 0) {
-          tx.insert(messagesTable).values(messages).run()
+          tx.insert(messagesTable)
+            .values(
+              messages.map((message) => ({
+                ...message,
+                images: serializeMessageImages(message.images)
+              }))
+            )
+            .run()
         }
       })
     },
@@ -209,7 +218,12 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     }: StartRunInput) {
       db.transaction((tx) => {
         if (userMessage) {
-          tx.insert(messagesTable).values(userMessage).run()
+          tx.insert(messagesTable)
+            .values({
+              ...userMessage,
+              images: serializeMessageImages(userMessage.images)
+            })
+            .run()
         }
 
         tx.update(threadsTable)
@@ -238,7 +252,12 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
     completeRun({ runId, updatedThread, assistantMessage }: CompleteRunInput) {
       db.transaction((tx) => {
-        tx.insert(messagesTable).values(assistantMessage).run()
+        tx.insert(messagesTable)
+          .values({
+            ...assistantMessage,
+            images: serializeMessageImages(assistantMessage.images)
+          })
+          .run()
 
         tx.update(threadsTable)
           .set({
@@ -287,6 +306,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           content: messagesTable.content,
           createdAt: messagesTable.createdAt,
           id: messagesTable.id,
+          images: messagesTable.images,
           modelId: messagesTable.modelId,
           parentMessageId: messagesTable.parentMessageId,
           providerName: messagesTable.providerName,

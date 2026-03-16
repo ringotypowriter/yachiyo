@@ -24,6 +24,7 @@ export const messagesTable = sqliteTable('messages', {
   }),
   role: text('role').$type<MessageRecord['role']>().notNull(),
   content: text('content').notNull(),
+  images: text('images'),
   status: text('status').$type<MessageRecord['status']>().notNull(),
   createdAt: text('created_at').notNull(),
   modelId: text('model_id'),

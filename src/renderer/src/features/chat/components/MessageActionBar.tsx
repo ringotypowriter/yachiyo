@@ -36,7 +36,6 @@ function ActionButton({
       style={{
         color: success ? '#4f8a6b' : danger ? '#9b4638' : '#6d6962'
       }}
-      title={label}
       type="button"
     >
       <span className="message-action-button__icon">{icon}</span>
@@ -53,6 +52,7 @@ export function MessageActionBar({
   onDelete
 }: MessageActionBarProps): React.JSX.Element {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const canCopy = content.trim().length > 0
 
   useEffect(() => {
     if (copyState === 'idle') {
@@ -83,18 +83,20 @@ export function MessageActionBar({
       role="toolbar"
       aria-label="Message actions"
     >
-      <ActionButton
-        icon={
-          copyState === 'copied' ? (
-            <Check size={12} strokeWidth={2} />
-          ) : (
-            <Copy size={12} strokeWidth={1.7} />
-          )
-        }
-        label={copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : 'Copy'}
-        success={copyState === 'copied'}
-        onClick={handleCopy}
-      />
+      {canCopy ? (
+        <ActionButton
+          icon={
+            copyState === 'copied' ? (
+              <Check size={12} strokeWidth={2} />
+            ) : (
+              <Copy size={12} strokeWidth={1.7} />
+            )
+          }
+          label={copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : 'Copy'}
+          success={copyState === 'copied'}
+          onClick={handleCopy}
+        />
+      ) : null}
       {onRetry ? (
         <ActionButton
           icon={<RotateCcw size={12} strokeWidth={1.7} />}

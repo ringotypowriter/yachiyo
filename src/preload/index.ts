@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
+  MessageImageRecord,
   ProviderConfig,
   ProviderSettings,
   SettingsConfig,
@@ -20,9 +21,9 @@ const api = {
       ipcRenderer.invoke('yachiyo:delete-message', input),
     renameThread: (input: { threadId: string; title: string }) =>
       ipcRenderer.invoke('yachiyo:rename-thread', input),
-    sendChat: (input: { threadId: string; content: string }) =>
+    sendChat: (input: { threadId: string; content: string; images?: MessageImageRecord[] }) =>
       ipcRenderer.invoke('yachiyo:send-chat', input),
-    retryMessage: (input: { threadId: string; assistantMessageId: string }) =>
+    retryMessage: (input: { threadId: string; messageId: string }) =>
       ipcRenderer.invoke('yachiyo:retry-message', input),
     selectReplyBranch: (input: { threadId: string; assistantMessageId: string }) =>
       ipcRenderer.invoke('yachiyo:select-reply-branch', input),

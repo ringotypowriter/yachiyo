@@ -2,6 +2,7 @@ import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
   BootstrapPayload,
   ChatAccepted,
+  MessageImageRecord,
   ProviderConfig,
   ProviderSettings,
   RetryAccepted,
@@ -23,10 +24,14 @@ declare global {
         createThread: () => Promise<ThreadRecord>
         deleteMessage: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>
         renameThread: (input: { threadId: string; title: string }) => Promise<ThreadRecord>
-        sendChat: (input: { threadId: string; content: string }) => Promise<ChatAccepted>
+        sendChat: (input: {
+          threadId: string
+          content: string
+          images?: MessageImageRecord[]
+        }) => Promise<ChatAccepted>
         retryMessage: (input: {
           threadId: string
-          assistantMessageId: string
+          messageId: string
         }) => Promise<RetryAccepted>
         selectReplyBranch: (input: {
           threadId: string

@@ -1,4 +1,5 @@
-import type { MessageRecord, ThreadRecord } from '../../shared/yachiyo/protocol'
+import type { MessageImageRecord, MessageRecord, ThreadRecord } from '../../shared/yachiyo/protocol'
+import { normalizeMessageImages } from '../../shared/yachiyo/messageContent.ts'
 
 export interface StoredThreadRow {
   id: string
@@ -18,6 +19,7 @@ export interface StoredMessageRow {
   parentMessageId: string | null
   role: MessageRecord['role']
   content: string
+  images: string | null
   status: MessageRecord['status']
   createdAt: string
   modelId: string | null
@@ -108,16 +110,38 @@ export function toThreadRecord(
 }
 
 export function toMessageRecord(row: StoredMessageRow): MessageRecord {
+  const images = parseMessageImages(row.images)
+
   return {
     id: row.id,
     threadId: row.threadId,
     ...(row.parentMessageId === null ? {} : { parentMessageId: row.parentMessageId }),
     role: row.role,
     content: row.content,
+    ...(images ? { images } : {}),
     status: row.status,
     createdAt: row.createdAt,
     ...(row.modelId === null ? {} : { modelId: row.modelId }),
     ...(row.providerName === null ? {} : { providerName: row.providerName })
+  }
+}
+
+export function serializeMessageImages(images?: MessageImageRecord[]): string | null {
+  const normalized = normalizeMessageImages(images)
+  return normalized.length > 0 ? JSON.stringify(normalized) : null
+}
+
+export function parseMessageImages(images: string | null): MessageImageRecord[] | undefined {
+  if (!images) {
+    return undefined
+  }
+
+  try {
+    const parsed = JSON.parse(images) as MessageImageRecord[]
+    const normalized = normalizeMessageImages(parsed)
+    return normalized.length > 0 ? normalized : undefined
+  } catch {
+    return undefined
   }
 }
 

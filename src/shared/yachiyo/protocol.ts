@@ -4,6 +4,12 @@ export type RunStatus = 'idle' | 'running' | 'completed' | 'failed' | 'cancelled
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected'
 export type ProviderKind = 'openai' | 'anthropic'
 
+export interface MessageImageRecord {
+  dataUrl: string
+  mediaType: string
+  filename?: string
+}
+
 export interface ThreadRecord {
   id: string
   title: string
@@ -20,6 +26,7 @@ export interface MessageRecord {
   parentMessageId?: string
   role: MessageRole
   content: string
+  images?: MessageImageRecord[]
   status: MessageStatus
   createdAt: string
   modelId?: string
@@ -68,7 +75,7 @@ export interface RetryAccepted {
   runId: string
   thread: ThreadRecord
   requestMessageId: string
-  sourceAssistantMessageId: string
+  sourceAssistantMessageId?: string
 }
 
 export interface ThreadSnapshot {

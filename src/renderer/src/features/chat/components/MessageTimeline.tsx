@@ -88,11 +88,14 @@ function ThreadConversationGroup({
     group.activeBranchIndex >= 0 && group.activeBranchIndex < responseCount - 1
       ? group.assistantBranches[group.activeBranchIndex + 1]
       : null
+  const retryTargetMessageId = activeBranch?.message.id ?? group.userMessage.id
 
   return (
     <div className="flex flex-col gap-2" data-thread-id={threadId}>
       <UserMessageBubble
         message={group.userMessage}
+        threadHasActiveRun={threadHasActiveRun}
+        onRetry={() => onRetry(retryTargetMessageId)}
         onCreateBranch={() => onCreateBranch(group.userMessage.id)}
         onDelete={() => onDelete(group.userMessage.id)}
       />
@@ -177,7 +180,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     try {
       await retryMessage(messageId)
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to retry this response.')
+      window.alert(error instanceof Error ? error.message : 'Failed to retry this message.')
     }
   }
 

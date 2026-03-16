@@ -3,12 +3,17 @@ import { create } from 'zustand'
 import type {
   ConnectionStatus,
   Message,
+  MessageImageRecord,
   ProviderSettings,
   RunStatus,
   SettingsConfig,
   Thread,
   YachiyoServerEvent
-} from '../types'
+} from '../types.ts'
+import {
+  hasMessagePayload,
+  normalizeMessageImages
+} from '../../../../shared/yachiyo/messageContent.ts'
 
 interface PendingAssistantMessage {
   messageId: string
@@ -27,20 +32,37 @@ export interface HarnessRecord {
   error?: string
 }
 
+export interface ComposerImageDraft extends MessageImageRecord {
+  id: string
+  status: 'loading' | 'ready' | 'failed'
+  error?: string
+}
+
+export interface ComposerDraft {
+  text: string
+  images: ComposerImageDraft[]
+}
+
+export const EMPTY_COMPOSER_DRAFT: ComposerDraft = {
+  text: '',
+  images: []
+}
+
 interface AppState {
   activeRunId: string | null
   activeRequestMessageId: string | null
   activeRunThreadId: string | null
   activeThreadId: string | null
   archiveThread: (threadId: string) => Promise<void>
+  composerDrafts: Record<string, ComposerDraft>
   createBranch: (messageId: string) => Promise<void>
-  composerValue: string
   config: SettingsConfig | null
   connectionStatus: ConnectionStatus
   harnessEvents: Record<string, HarnessRecord[]>
   initialized: boolean
   isBootstrapping: boolean
   lastError: string | null
+  removeComposerImage: (imageId: string, threadId?: string | null) => void
   deleteMessage: (messageId: string) => Promise<void>
   messages: Record<string, Message[]>
   pendingAssistantMessages: Record<string, PendingAssistantMessage>
@@ -57,9 +79,10 @@ interface AppState {
   createNewThread: () => Promise<void>
   initialize: () => Promise<void>
   selectModel: (providerName: string, model: string) => Promise<void>
-  sendMessage: (content: string) => Promise<void>
+  sendMessage: () => Promise<void>
   setActiveThread: (id: string) => void
   setComposerValue: (value: string) => void
+  upsertComposerImage: (image: ComposerImageDraft, threadId?: string | null) => void
 }
 
 export const DEFAULT_SETTINGS: ProviderSettings = {
@@ -81,6 +104,92 @@ function upsertThread(threads: Thread[], thread: Thread): Thread[] {
 function upsertMessage(messages: Message[], message: Message): Message[] {
   const next = [...messages.filter((item) => item.id !== message.id), message]
   return next.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+}
+
+const NEW_THREAD_DRAFT_KEY = '__new__'
+
+function getComposerDraftKey(threadId: string | null): string {
+  return threadId ?? NEW_THREAD_DRAFT_KEY
+}
+
+function getComposerDraft(
+  state: Pick<AppState, 'activeThreadId' | 'composerDrafts'>
+): ComposerDraft {
+  return state.composerDrafts[getComposerDraftKey(state.activeThreadId)] ?? EMPTY_COMPOSER_DRAFT
+}
+
+function isComposerDraftEmpty(draft: ComposerDraft): boolean {
+  return draft.text.trim().length === 0 && draft.images.length === 0
+}
+
+function upsertComposerDraft(
+  drafts: Record<string, ComposerDraft>,
+  draftKey: string,
+  draft: ComposerDraft
+): Record<string, ComposerDraft> {
+  if (isComposerDraftEmpty(draft)) {
+    const next = { ...drafts }
+    delete next[draftKey]
+    return next
+  }
+
+  return {
+    ...drafts,
+    [draftKey]: draft
+  }
+}
+
+function updateComposerDraft(
+  drafts: Record<string, ComposerDraft>,
+  draftKey: string,
+  updater: (draft: ComposerDraft) => ComposerDraft
+): Record<string, ComposerDraft> {
+  return upsertComposerDraft(
+    drafts,
+    draftKey,
+    updater(drafts[draftKey] ?? EMPTY_COMPOSER_DRAFT)
+  )
+}
+
+function moveComposerDraft(
+  drafts: Record<string, ComposerDraft>,
+  fromDraftKey: string,
+  toDraftKey: string
+): Record<string, ComposerDraft> {
+  if (fromDraftKey === toDraftKey) {
+    return drafts
+  }
+
+  const current = drafts[fromDraftKey]
+  if (!current) {
+    return drafts
+  }
+
+  const next = { ...drafts }
+  delete next[fromDraftKey]
+  next[toDraftKey] = current
+  return next
+}
+
+function removeComposerDraft(
+  drafts: Record<string, ComposerDraft>,
+  threadId: string | null
+): Record<string, ComposerDraft> {
+  const next = { ...drafts }
+  delete next[getComposerDraftKey(threadId)]
+  return next
+}
+
+function toReadyMessageImages(images: ComposerImageDraft[]): MessageImageRecord[] {
+  return normalizeMessageImages(
+    images
+      .filter((image) => image.status === 'ready')
+      .map((image) => ({
+        dataUrl: image.dataUrl,
+        mediaType: image.mediaType,
+        ...(image.filename ? { filename: image.filename } : {})
+      }))
+  )
 }
 
 function finalizePendingMessage(
@@ -136,13 +245,24 @@ export const useAppStore = create<AppState>((set, get) => ({
       throw error
     }
   },
-  composerValue: '',
+  composerDrafts: {},
   config: null,
   connectionStatus: 'connecting',
   harnessEvents: {},
   initialized: false,
   isBootstrapping: false,
   lastError: null,
+  removeComposerImage: (imageId, threadId) =>
+    set((state) => {
+      const draftKey = getComposerDraftKey(threadId ?? state.activeThreadId)
+
+      return {
+        composerDrafts: updateComposerDraft(state.composerDrafts, draftKey, (draft) => ({
+          ...draft,
+          images: draft.images.filter((image) => image.id !== imageId)
+        }))
+      }
+    }),
   messages: {},
   pendingAssistantMessages: {},
   deleteMessage: async (messageId) => {
@@ -190,6 +310,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             state.activeThreadId === event.threadId
               ? (threads[0]?.id ?? null)
               : state.activeThreadId,
+          composerDrafts: removeComposerDraft(state.composerDrafts, event.threadId),
           harnessEvents,
           messages,
           threads
@@ -407,6 +528,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const thread = await window.api.yachiyo.createThread()
     set((state) => ({
       activeThreadId: thread.id,
+      composerDrafts: removeComposerDraft(state.composerDrafts, null),
       messages: {
         ...state.messages,
         [thread.id]: state.messages[thread.id] ?? []
@@ -472,7 +594,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     try {
-      await window.api.yachiyo.retryMessage({ threadId, assistantMessageId: messageId })
+      await window.api.yachiyo.retryMessage({ threadId, messageId })
       set({ lastError: null })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to retry this response.'
@@ -505,16 +627,30 @@ export const useAppStore = create<AppState>((set, get) => ({
     await window.api.yachiyo.saveSettings({ providerName, model })
   },
 
-  sendMessage: async (content) => {
-    const trimmed = content.trim()
-    if (!trimmed) return
+  sendMessage: async () => {
+    const currentState = get()
+    const draft = getComposerDraft(currentState)
+    const trimmed = draft.text.trim()
+    const images = toReadyMessageImages(draft.images)
 
-    let threadId = get().activeThreadId
+    if (
+      draft.images.some((image) => image.status === 'loading' || image.status === 'failed') ||
+      !hasMessagePayload({ content: trimmed, images })
+    ) {
+      return
+    }
+
+    let threadId = currentState.activeThreadId
 
     if (!threadId) {
       const thread = await window.api.yachiyo.createThread()
       set((state) => ({
         activeThreadId: thread.id,
+        composerDrafts: moveComposerDraft(
+          state.composerDrafts,
+          getComposerDraftKey(null),
+          getComposerDraftKey(thread.id)
+        ),
         messages: {
           ...state.messages,
           [thread.id]: state.messages[thread.id] ?? []
@@ -527,12 +663,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const accepted = await window.api.yachiyo.sendChat({
         content: trimmed,
+        ...(images.length > 0 ? { images } : {}),
         threadId
       })
 
       set((state) => ({
         activeThreadId: accepted.thread.id,
-        composerValue: '',
+        composerDrafts: removeComposerDraft(state.composerDrafts, accepted.thread.id),
         lastError: null,
         messages: {
           ...state.messages,
@@ -546,6 +683,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to send the message.'
       set({
+        activeThreadId: threadId,
         lastError: message,
         runStatus: 'failed'
       })
@@ -554,5 +692,38 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setActiveThread: (id) => set({ activeThreadId: id }),
 
-  setComposerValue: (value) => set({ composerValue: value })
+  setComposerValue: (value) =>
+    set((state) => {
+      const draftKey = getComposerDraftKey(state.activeThreadId)
+
+      return {
+        composerDrafts: updateComposerDraft(state.composerDrafts, draftKey, (draft) => ({
+          ...draft,
+          text: value
+        }))
+      }
+    }),
+
+  upsertComposerImage: (image, threadId) =>
+    set((state) => {
+      const draftKey = getComposerDraftKey(threadId ?? state.activeThreadId)
+      const currentDraft = state.composerDrafts[draftKey] ?? EMPTY_COMPOSER_DRAFT
+      const existingIndex = currentDraft.images.findIndex((entry) => entry.id === image.id)
+
+      if (existingIndex === -1 && image.status !== 'loading') {
+        return state
+      }
+
+      const images =
+        existingIndex === -1
+          ? [...currentDraft.images, image]
+          : currentDraft.images.map((entry, index) => (index === existingIndex ? image : entry))
+
+      return {
+        composerDrafts: updateComposerDraft(state.composerDrafts, draftKey, (draft) => ({
+          ...draft,
+          images
+        }))
+      }
+    })
 }))

@@ -151,6 +151,136 @@ body {
   position: relative;
 }
 
+.user-message-images {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+}
+
+.user-message-images__item {
+  overflow: hidden;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.user-message-images__media {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+}
+
+.composer-image-strip {
+  display: flex;
+  gap: 10px;
+  padding: 12px 16px 2px;
+  overflow-x: auto;
+}
+
+.composer-image-card {
+  position: relative;
+  flex: 0 0 124px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.composer-image-card__remove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(38, 38, 36, 0.72);
+  color: white;
+  cursor: pointer;
+}
+
+.composer-image-card__frame {
+  overflow: hidden;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(248, 245, 239, 0.92), rgba(240, 235, 226, 0.86));
+  min-height: 90px;
+}
+
+.composer-image-card__media {
+  display: block;
+  width: 100%;
+  height: 90px;
+  object-fit: cover;
+}
+
+.composer-image-card__placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 90px;
+  color: rgba(126, 121, 114, 0.9);
+}
+
+.composer-image-card__spinner {
+  animation: yachiyo-composer-spin 1.1s linear infinite;
+}
+
+.composer-image-card__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.composer-image-card__name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #343331;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer-image-card__status {
+  font-size: 10px;
+  color: #7f7a73;
+}
+
+.composer-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.composer-status--muted {
+  color: #8e8e93;
+}
+
+.composer-status--ready {
+  color: #4f8a6b;
+}
+
+.composer-status--error {
+  color: #b53a2f;
+}
+
+.composer-status__dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.72;
+}
+
 .assistant-message-bubble {
   position: relative;
   padding: 0;
@@ -306,6 +436,11 @@ body {
 @keyframes yachiyo-generating-pulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 1; }
+}
+
+@keyframes yachiyo-composer-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* Streaming caret blink */

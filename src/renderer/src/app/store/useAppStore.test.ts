@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { DEFAULT_SETTINGS, useAppStore } from './useAppStore'
+import { DEFAULT_SETTINGS, useAppStore } from './useAppStore.ts'
 
 const TIMESTAMP = '2026-03-15T00:00:00.000Z'
+const READY_SETTINGS = {
+  ...DEFAULT_SETTINGS,
+  apiKey: 'sk-test',
+  model: 'gpt-5',
+  providerName: 'work'
+}
 
 function resetStore(): void {
   useAppStore.setState({
@@ -11,7 +17,7 @@ function resetStore(): void {
     activeRequestMessageId: null,
     activeRunThreadId: null,
     activeThreadId: null,
-    composerValue: '',
+    composerDrafts: {},
     config: null,
     connectionStatus: 'connected',
     harnessEvents: {},
@@ -27,15 +33,13 @@ function resetStore(): void {
   })
 }
 
-function withWindowApiMock(
-  saveSettings: (input: { providerName?: string; model?: string }) => Promise<unknown>
-): () => void {
+type YachiyoApiMock = Partial<Window['api']['yachiyo']>
+
+function withWindowApiMock(mock: YachiyoApiMock): () => void {
   const globalScope = globalThis as typeof globalThis & {
     window?: {
       api: {
-        yachiyo: {
-          saveSettings: typeof saveSettings
-        }
+        yachiyo: YachiyoApiMock
       }
     }
   }
@@ -44,9 +48,7 @@ function withWindowApiMock(
   Object.defineProperty(globalScope, 'window', {
     value: {
       api: {
-        yachiyo: {
-          saveSettings
-        }
+        yachiyo: mock
       }
     },
     configurable: true,
@@ -236,16 +238,18 @@ test('selectModel ignores changes while a run is active', async () => {
   resetStore()
 
   const calls: Array<{ providerName: string; model: string }> = []
-  const restoreWindow = withWindowApiMock(async (input) => {
-    calls.push({
-      providerName: input.providerName ?? '',
-      model: input.model ?? ''
-    })
+  const restoreWindow = withWindowApiMock({
+    saveSettings: async (input) => {
+      calls.push({
+        providerName: input.providerName ?? '',
+        model: input.model ?? ''
+      })
 
-    return {
-      ...DEFAULT_SETTINGS,
-      providerName: input.providerName ?? '',
-      model: input.model ?? ''
+      return {
+        ...DEFAULT_SETTINGS,
+        providerName: input.providerName ?? '',
+        model: input.model ?? ''
+      }
     }
   })
 
@@ -268,4 +272,224 @@ test('selectModel ignores changes while a run is active', async () => {
   } finally {
     restoreWindow()
   }
+})
+
+test('sendMessage restores per-thread drafts and clears only the sent thread on success', async () => {
+  resetStore()
+
+  const calls: Array<{ content: string; threadId: string }> = []
+  const restoreWindow = withWindowApiMock({
+    sendChat: async (input) => {
+      calls.push({
+        content: input.content,
+        threadId: input.threadId
+      })
+
+      return {
+        runId: 'run-1',
+        thread: {
+          id: input.threadId,
+          title: 'Thread one',
+          updatedAt: TIMESTAMP
+        },
+        userMessage: {
+          id: 'user-1',
+          threadId: input.threadId,
+          role: 'user',
+          content: input.content,
+          status: 'completed',
+          createdAt: TIMESTAMP
+        }
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      composerDrafts: {
+        'thread-1': {
+          text: 'Alpha',
+          images: []
+        },
+        'thread-2': {
+          text: 'Bravo',
+          images: []
+        }
+      },
+      messages: {
+        'thread-1': [],
+        'thread-2': []
+      },
+      settings: READY_SETTINGS,
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Thread one',
+          updatedAt: TIMESTAMP
+        },
+        {
+          id: 'thread-2',
+          title: 'Thread two',
+          updatedAt: TIMESTAMP
+        }
+      ]
+    })
+
+    await useAppStore.getState().sendMessage()
+
+    let state = useAppStore.getState()
+    assert.deepEqual(calls, [
+      {
+        content: 'Alpha',
+        threadId: 'thread-1'
+      }
+    ])
+    assert.equal(state.composerDrafts['thread-1'], undefined)
+    assert.equal(state.composerDrafts['thread-2']?.text, 'Bravo')
+    assert.equal(state.messages['thread-1']?.[0]?.content, 'Alpha')
+
+    state.setActiveThread('thread-2')
+    state = useAppStore.getState()
+    assert.equal(state.composerDrafts['thread-2']?.text, 'Bravo')
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('createBranch switches to a blank draft in the destination thread', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    createBranch: async (input) => ({
+      thread: {
+        id: 'thread-2',
+        title: 'Branched',
+        updatedAt: TIMESTAMP,
+        branchFromThreadId: input.threadId,
+        branchFromMessageId: input.messageId
+      },
+      messages: []
+    })
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      composerDrafts: {
+        'thread-1': {
+          text: 'Keep me here',
+          images: []
+        }
+      },
+      messages: {
+        'thread-1': []
+      },
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Original',
+          updatedAt: TIMESTAMP
+        }
+      ]
+    })
+
+    await useAppStore.getState().createBranch('message-1')
+
+    const state = useAppStore.getState()
+    assert.equal(state.activeThreadId, 'thread-2')
+    assert.equal(state.composerDrafts['thread-1']?.text, 'Keep me here')
+    assert.equal(state.composerDrafts['thread-2'], undefined)
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('sendMessage keeps draft text and images when the first send fails after auto-creating a thread', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    createThread: async () => ({
+      id: 'thread-1',
+      title: 'New Chat',
+      updatedAt: TIMESTAMP
+    }),
+    sendChat: async () => {
+      throw new Error('Provider offline')
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      composerDrafts: {
+        __new__: {
+          text: 'Keep this draft',
+          images: [
+            {
+              id: 'image-1',
+              status: 'ready',
+              dataUrl: 'data:image/png;base64,AAAA',
+              mediaType: 'image/png',
+              filename: 'diagram.png'
+            }
+          ]
+        }
+      },
+      settings: READY_SETTINGS
+    })
+
+    await useAppStore.getState().sendMessage()
+
+    const state = useAppStore.getState()
+    assert.equal(state.activeThreadId, 'thread-1')
+    assert.equal(state.lastError, 'Provider offline')
+    assert.equal(state.composerDrafts.__new__, undefined)
+    assert.equal(state.composerDrafts['thread-1']?.text, 'Keep this draft')
+    assert.equal(state.composerDrafts['thread-1']?.images[0]?.filename, 'diagram.png')
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('upsertComposerImage ignores late async updates after the placeholder was removed or cleared', () => {
+  resetStore()
+
+  useAppStore.getState().upsertComposerImage({
+    id: 'image-1',
+    status: 'loading',
+    dataUrl: '',
+    mediaType: 'image/png',
+    filename: 'large.png'
+  })
+  useAppStore.getState().removeComposerImage('image-1')
+  useAppStore.getState().upsertComposerImage({
+    id: 'image-1',
+    status: 'ready',
+    dataUrl: 'data:image/png;base64,AAAA',
+    mediaType: 'image/png',
+    filename: 'large.png'
+  })
+
+  let state = useAppStore.getState()
+  assert.equal(state.composerDrafts.__new__, undefined)
+
+  useAppStore.getState().upsertComposerImage({
+    id: 'image-2',
+    status: 'loading',
+    dataUrl: '',
+    mediaType: 'image/png',
+    filename: 'slow.png'
+  })
+  useAppStore.setState({ composerDrafts: {} })
+  useAppStore.getState().upsertComposerImage({
+    id: 'image-2',
+    status: 'failed',
+    dataUrl: '',
+    mediaType: 'image/png',
+    filename: 'slow.png',
+    error: 'Unable to prepare this image.'
+  })
+
+  state = useAppStore.getState()
+  assert.deepEqual(state.composerDrafts, {})
 })

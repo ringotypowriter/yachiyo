@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { canRetryAssistantMessage } from './messageActionState.ts'
+import { canRetryAssistantMessage, canRetryUserMessage } from './messageActionState.ts'
 
 test('canRetryAssistantMessage disables retry while the thread already has an active run', () => {
   assert.equal(
@@ -25,6 +25,22 @@ test('canRetryAssistantMessage disables retry for streaming replies and enables 
   assert.equal(
     canRetryAssistantMessage({
       messageStatus: 'completed',
+      threadHasActiveRun: false
+    }),
+    true
+  )
+})
+
+test('canRetryUserMessage only depends on whether the thread is already running', () => {
+  assert.equal(
+    canRetryUserMessage({
+      threadHasActiveRun: true
+    }),
+    false
+  )
+
+  assert.equal(
+    canRetryUserMessage({
       threadHasActiveRun: false
     }),
     true

@@ -1,18 +1,45 @@
 import type React from 'react'
 import type { Message } from '@renderer/app/types'
+import { canRetryUserMessage } from '../lib/messageActionState'
 import { MessageActionBar } from './MessageActionBar'
+
+function UserMessageImages({ message }: { message: Message }): React.JSX.Element | null {
+  if (!message.images || message.images.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="user-message-images">
+      {message.images.map((image, index) => (
+        <div key={`${image.filename ?? 'image'}-${index}`} className="user-message-images__item">
+          <img
+            className="user-message-images__media"
+            src={image.dataUrl}
+            alt={image.filename ?? `Image ${index + 1}`}
+          />
+        </div>
+      ))}
+    </div>
+  )
+}
 
 interface UserMessageBubbleProps {
   message: Message
+  threadHasActiveRun?: boolean
+  onRetry?: () => Promise<void> | void
   onCreateBranch: () => Promise<void> | void
   onDelete: () => Promise<void> | void
 }
 
 export function UserMessageBubble({
   message,
+  threadHasActiveRun = false,
+  onRetry,
   onCreateBranch,
   onDelete
 }: UserMessageBubbleProps): React.JSX.Element {
+  const canRetry = canRetryUserMessage({ threadHasActiveRun })
+
   return (
     <div className="flex justify-end px-6 py-1">
       <div className="max-w-[68%] message-card-shell">
@@ -20,11 +47,20 @@ export function UserMessageBubble({
           className="rounded-[18px] px-4 py-2.5 message-selectable"
           style={{ background: '#CC7D5E', color: '#fff' }}
         >
-          <p className="text-sm leading-relaxed whitespace-pre-wrap m-0">{message.content}</p>
+          <UserMessageImages message={message} />
+          {message.content ? (
+            <p
+              className={`text-sm leading-relaxed whitespace-pre-wrap m-0${message.images?.length ? ' mt-3' : ''}`}
+            >
+              {message.content}
+            </p>
+          ) : null}
         </div>
         <div className="mt-2 flex justify-end">
           <MessageActionBar
             content={message.content}
+            canRetry={canRetry}
+            onRetry={onRetry}
             onCreateBranch={onCreateBranch}
             onDelete={onDelete}
           />
