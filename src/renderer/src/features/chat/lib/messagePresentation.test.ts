@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildMessagePresentation } from './messagePresentation.ts'
+import { buildMessagePresentation } from './messagePresentation'
 
 const BASE_MESSAGE = {
   id: 'message-1',
@@ -32,7 +32,7 @@ test('buildMessagePresentation hides an empty streaming placeholder until the fi
   assert.deepEqual(startedStreaming.footer, { kind: 'streaming' })
 })
 
-test('buildMessagePresentation prefers the persisted provider name for completed model chips', () => {
+test('buildMessagePresentation keeps completed replies free of footer metadata', () => {
   const completed = buildMessagePresentation({
     ...BASE_MESSAGE,
     content: 'Hello',
@@ -43,9 +43,5 @@ test('buildMessagePresentation prefers the persisted provider name for completed
 
   assert.equal(completed.showContent, true)
   assert.equal(completed.showBubble, true)
-  assert.deepEqual(completed.footer, {
-    kind: 'model-chip',
-    provider: 'work',
-    model: 'GPT-5'
-  })
+  assert.equal(completed.footer, null)
 })

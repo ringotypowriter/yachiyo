@@ -1,9 +1,7 @@
 import type { Message } from '@renderer/app/types'
-import { formatStoredModelChip } from '../../../lib/model/modelLabel.ts'
 
 export type MessageFooter =
   | { kind: 'streaming' }
-  | { kind: 'model-chip'; provider: string; model: string }
   | { kind: 'failed' }
   | { kind: 'stopped' }
 
@@ -17,7 +15,7 @@ export interface MessagePresentation {
 }
 
 export function buildMessagePresentation(message: Message): MessagePresentation {
-  const { status, modelId, content, providerName } = message
+  const { status, content } = message
 
   const showContent = Boolean(content)
   const showBubble = showContent || status === 'stopped'
@@ -30,9 +28,6 @@ export function buildMessagePresentation(message: Message): MessagePresentation 
     footer = { kind: 'failed' }
   } else if (status === 'stopped') {
     footer = { kind: 'stopped' }
-  } else if (status === 'completed' && modelId) {
-    const chip = formatStoredModelChip(modelId, providerName)
-    footer = { kind: 'model-chip', ...chip }
   }
 
   return { showContent, showBubble, footer }

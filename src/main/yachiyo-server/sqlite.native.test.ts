@@ -129,6 +129,36 @@ test('sqlite storage initializes migrations on disk', async () => {
         .all()
         .some((row) => row.name === 'provider_name')
     )
+    assert.ok(
+      db
+        .prepare('PRAGMA table_info(messages)')
+        .all()
+        .some((row) => row.name === 'parent_message_id')
+    )
+    assert.ok(
+      db
+        .prepare('PRAGMA table_info(threads)')
+        .all()
+        .some((row) => row.name === 'head_message_id')
+    )
+    assert.ok(
+      db
+        .prepare('PRAGMA table_info(threads)')
+        .all()
+        .some((row) => row.name === 'branch_from_thread_id')
+    )
+    assert.ok(
+      db
+        .prepare('PRAGMA table_info(threads)')
+        .all()
+        .some((row) => row.name === 'branch_from_message_id')
+    )
+    assert.ok(
+      db
+        .prepare('PRAGMA table_info(runs)')
+        .all()
+        .some((row) => row.name === 'request_message_id')
+    )
 
     db.close()
   } finally {
@@ -189,8 +219,13 @@ test('sqlite-backed server persists state across reopen', async () => {
     assert.equal(bootstrap.threads.length, 1)
     assert.equal(bootstrap.threads[0]?.title, 'Persist this thread')
     assert.equal(bootstrap.threads[0]?.preview, 'Hello from sqlite')
+    assert.equal(bootstrap.threads[0]?.headMessageId, bootstrap.messagesByThread[thread.id]?.[1]?.id)
     assert.equal(bootstrap.messagesByThread[thread.id]?.length, 2)
     assert.equal(bootstrap.messagesByThread[thread.id]?.[0]?.role, 'user')
+    assert.equal(
+      bootstrap.messagesByThread[thread.id]?.[1]?.parentMessageId,
+      bootstrap.messagesByThread[thread.id]?.[0]?.id
+    )
     assert.equal(bootstrap.messagesByThread[thread.id]?.[1]?.content, 'Hello from sqlite')
     assert.equal(bootstrap.messagesByThread[thread.id]?.[1]?.modelId, 'gpt-5')
     assert.equal(bootstrap.messagesByThread[thread.id]?.[1]?.providerName, 'native')

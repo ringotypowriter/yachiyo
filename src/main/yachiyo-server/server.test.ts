@@ -13,7 +13,10 @@ async function withServer(
     server: YachiyoServer
     completeRun: (runId: string) => Promise<void>
     waitForEvent: (type: string) => Promise<unknown>
-  }) => Promise<void>
+  }) => Promise<void>,
+  options: {
+    now?: () => Date
+  } = {}
 ): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-test-'))
   const settingsPath = join(root, 'config.toml')
@@ -50,6 +53,7 @@ async function withServer(
   const server = new YachiyoServer({
     storage,
     settingsPath,
+    now: options.now,
     createModelRuntime: () => ({
       async *streamReply(request: ModelStreamRequest) {
         if (request.messages.at(-1)?.content.includes('cancel me')) {
@@ -244,6 +248,223 @@ test('YachiyoServer renames and archives threads', async () => {
     assert.equal(bootstrap.threads.length, 1)
     assert.equal(bootstrap.threads[0]?.id, first.id)
     assert.equal(bootstrap.threads[0]?.title, 'Pinned plan')
+  })
+})
+
+test('YachiyoServer keeps retry replies as sibling assistant branches and preserves them across branch/delete operations', async () => {
+  await withServer(async ({ server, completeRun }) => {
+    await server.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    })
+
+    const thread = await server.createThread()
+
+    const firstRun = await server.sendChat({
+      threadId: thread.id,
+      content: 'First question'
+    })
+    await completeRun(firstRun.runId)
+
+    let bootstrap = await server.bootstrap()
+    const [firstUser, firstAssistant] = bootstrap.messagesByThread[thread.id] ?? []
+
+    assert.equal(firstUser?.role, 'user')
+    assert.equal(firstAssistant?.role, 'assistant')
+    assert.equal(firstAssistant?.parentMessageId, firstUser?.id)
+
+    const secondRun = await server.sendChat({
+      threadId: thread.id,
+      content: 'Second question'
+    })
+    await completeRun(secondRun.runId)
+
+    bootstrap = await server.bootstrap()
+    const [, , secondUser, secondAssistant] = bootstrap.messagesByThread[thread.id] ?? []
+
+    assert.equal(secondUser?.parentMessageId, firstAssistant?.id)
+    assert.equal(secondAssistant?.parentMessageId, secondUser?.id)
+
+    const retryRun = await server.retryMessage({
+      threadId: thread.id,
+      assistantMessageId: firstAssistant!.id
+    })
+    await completeRun(retryRun.runId)
+
+    bootstrap = await server.bootstrap()
+    const retriedAssistant = (bootstrap.messagesByThread[thread.id] ?? []).find(
+      (message) => message.id !== firstAssistant?.id && message.parentMessageId === firstUser?.id
+    )
+
+    assert.equal(bootstrap.threads.length, 1)
+    assert.equal(retriedAssistant?.role, 'assistant')
+    assert.equal(retriedAssistant?.parentMessageId, firstUser?.id)
+    assert.equal(
+      bootstrap.threads[0]?.headMessageId,
+      retriedAssistant?.id,
+      'historical retry should replace the current thread head with the new reply branch'
+    )
+
+    const branched = await server.createBranch({
+      threadId: thread.id,
+      messageId: retriedAssistant!.id
+    })
+
+    assert.equal(branched.thread.branchFromThreadId, thread.id)
+    assert.equal(branched.thread.branchFromMessageId, retriedAssistant?.id)
+    assert.equal(branched.thread.headMessageId, branched.messages[1]?.id)
+    assert.equal(branched.messages.length, 2)
+    assert.equal(branched.messages[0]?.role, 'user')
+    assert.equal(branched.messages[1]?.role, 'assistant')
+    assert.equal(branched.messages[1]?.parentMessageId, branched.messages[0]?.id)
+
+    const deleted = await server.deleteMessageFromHere({
+      threadId: thread.id,
+      messageId: firstAssistant!.id
+    })
+
+    assert.deepEqual(
+      deleted.messages.map((message) => message.id),
+      [firstUser!.id, retriedAssistant!.id]
+    )
+    assert.equal(deleted.thread.headMessageId, retriedAssistant?.id)
+    assert.equal(deleted.messages[1]?.parentMessageId, firstUser?.id)
+  })
+})
+
+test('YachiyoServer can switch the active thread branch between sibling replies', async () => {
+  let tick = 0
+  await withServer(async ({ server, completeRun }) => {
+    await server.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    })
+
+    const thread = await server.createThread()
+
+    const firstRun = await server.sendChat({
+      threadId: thread.id,
+      content: 'First question'
+    })
+    await completeRun(firstRun.runId)
+
+    let bootstrap = await server.bootstrap()
+    const [firstUser, firstAssistant] = bootstrap.messagesByThread[thread.id] ?? []
+
+    const secondRun = await server.sendChat({
+      threadId: thread.id,
+      content: 'Second question'
+    })
+    await completeRun(secondRun.runId)
+
+    bootstrap = await server.bootstrap()
+    const [, , secondUser, secondAssistant] = bootstrap.messagesByThread[thread.id] ?? []
+
+    const retryRun = await server.retryMessage({
+      threadId: thread.id,
+      assistantMessageId: firstAssistant!.id
+    })
+    await completeRun(retryRun.runId)
+
+    bootstrap = await server.bootstrap()
+    const retriedAssistant = (bootstrap.messagesByThread[thread.id] ?? []).find(
+      (message) => message.id !== firstAssistant?.id && message.parentMessageId === firstUser?.id
+    )
+    const updatedAtBeforeSwitch = bootstrap.threads[0]?.updatedAt
+
+    assert.equal(bootstrap.threads[0]?.headMessageId, retriedAssistant?.id)
+
+    const followUpRun = await server.sendChat({
+      threadId: thread.id,
+      content: 'Follow up on the retry'
+    })
+    await completeRun(followUpRun.runId)
+
+    bootstrap = await server.bootstrap()
+    const retryFollowUpUser = (bootstrap.messagesByThread[thread.id] ?? []).find(
+      (message) => message.content === 'Follow up on the retry'
+    )
+    const retryFollowUpAssistant = (bootstrap.messagesByThread[thread.id] ?? []).find(
+      (message) => message.parentMessageId === retryFollowUpUser?.id && message.role === 'assistant'
+    )
+
+    assert.equal(retryFollowUpUser?.parentMessageId, retriedAssistant?.id)
+    assert.equal(bootstrap.threads[0]?.headMessageId, retryFollowUpAssistant?.id)
+
+    const switchedBack = await server.selectReplyBranch({
+      threadId: thread.id,
+      assistantMessageId: firstAssistant!.id
+    })
+
+    assert.equal(switchedBack.headMessageId, secondAssistant?.id)
+    assert.equal(switchedBack.preview, secondAssistant?.content)
+    assert.notEqual(switchedBack.updatedAt, updatedAtBeforeSwitch)
+
+    const switchedAgain = await server.selectReplyBranch({
+      threadId: thread.id,
+      assistantMessageId: retriedAssistant!.id
+    })
+
+    assert.equal(secondUser?.parentMessageId, firstAssistant?.id)
+    assert.equal(switchedAgain.headMessageId, retryFollowUpAssistant?.id)
+    assert.equal(switchedAgain.preview, retryFollowUpAssistant?.content)
+    assert.ok(switchedAgain.updatedAt > switchedBack.updatedAt)
+  }, {
+    now: () => new Date(Date.UTC(2026, 2, 15, 0, 0, tick++))
+  })
+})
+
+test('YachiyoServer deletes a user request anchor together with every attached response branch', async () => {
+  await withServer(async ({ server, completeRun }) => {
+    await server.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    })
+
+    const thread = await server.createThread()
+    const accepted = await server.sendChat({
+      threadId: thread.id,
+      content: 'First question'
+    })
+    await completeRun(accepted.runId)
+
+    let bootstrap = await server.bootstrap()
+    const [userMessage, assistantMessage] = bootstrap.messagesByThread[thread.id] ?? []
+
+    const retryRun = await server.retryMessage({
+      threadId: thread.id,
+      assistantMessageId: assistantMessage!.id
+    })
+    await completeRun(retryRun.runId)
+
+    bootstrap = await server.bootstrap()
+    assert.equal((bootstrap.messagesByThread[thread.id] ?? []).length, 3)
+
+    const nextDelete = await server.deleteMessageFromHere({
+      threadId: thread.id,
+      messageId: userMessage!.id
+    })
+
+    assert.deepEqual(nextDelete.messages, [])
+    assert.equal(nextDelete.thread.headMessageId, undefined)
   })
 })
 

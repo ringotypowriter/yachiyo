@@ -13,11 +13,19 @@ const api = {
     archiveThread: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:archive-thread', input),
     bootstrap: () => ipcRenderer.invoke('yachiyo:bootstrap'),
+    createBranch: (input: { threadId: string; messageId: string }) =>
+      ipcRenderer.invoke('yachiyo:create-branch', input),
     createThread: () => ipcRenderer.invoke('yachiyo:create-thread'),
+    deleteMessage: (input: { threadId: string; messageId: string }) =>
+      ipcRenderer.invoke('yachiyo:delete-message', input),
     renameThread: (input: { threadId: string; title: string }) =>
       ipcRenderer.invoke('yachiyo:rename-thread', input),
     sendChat: (input: { threadId: string; content: string }) =>
       ipcRenderer.invoke('yachiyo:send-chat', input),
+    retryMessage: (input: { threadId: string; assistantMessageId: string }) =>
+      ipcRenderer.invoke('yachiyo:retry-message', input),
+    selectReplyBranch: (input: { threadId: string; assistantMessageId: string }) =>
+      ipcRenderer.invoke('yachiyo:select-reply-branch', input),
     cancelRun: (input: { runId: string }) => ipcRenderer.invoke('yachiyo:cancel-run', input),
     getConfig: () => ipcRenderer.invoke('yachiyo:get-config'),
     getSettings: () => ipcRenderer.invoke('yachiyo:get-settings'),

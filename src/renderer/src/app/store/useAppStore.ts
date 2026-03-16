@@ -13,6 +13,7 @@ import type {
 interface PendingAssistantMessage {
   messageId: string
   threadId: string
+  parentMessageId: string
 }
 
 export interface HarnessRecord {
@@ -28,9 +29,11 @@ export interface HarnessRecord {
 
 interface AppState {
   activeRunId: string | null
+  activeRequestMessageId: string | null
   activeRunThreadId: string | null
   activeThreadId: string | null
   archiveThread: (threadId: string) => Promise<void>
+  createBranch: (messageId: string) => Promise<void>
   composerValue: string
   config: SettingsConfig | null
   connectionStatus: ConnectionStatus
@@ -38,9 +41,12 @@ interface AppState {
   initialized: boolean
   isBootstrapping: boolean
   lastError: string | null
+  deleteMessage: (messageId: string) => Promise<void>
   messages: Record<string, Message[]>
   pendingAssistantMessages: Record<string, PendingAssistantMessage>
   renameThread: (threadId: string, title: string) => Promise<void>
+  retryMessage: (messageId: string) => Promise<void>
+  selectReplyBranch: (messageId: string) => Promise<void>
   runPhase: 'idle' | 'preparing' | 'streaming'
   runStatus: RunStatus
   settings: ProviderSettings
@@ -97,10 +103,38 @@ let unsubscribeFromServer: (() => void) | null = null
 
 export const useAppStore = create<AppState>((set, get) => ({
   activeRunId: null,
+  activeRequestMessageId: null,
   activeRunThreadId: null,
   activeThreadId: null,
   archiveThread: async (threadId) => {
     await window.api.yachiyo.archiveThread({ threadId })
+  },
+  createBranch: async (messageId) => {
+    const threadId = get().activeThreadId
+    if (!threadId) {
+      return
+    }
+
+    try {
+      const snapshot = await window.api.yachiyo.createBranch({ threadId, messageId })
+      set((state) => ({
+        activeThreadId: snapshot.thread.id,
+        harnessEvents: {
+          ...state.harnessEvents,
+          [snapshot.thread.id]: []
+        },
+        lastError: null,
+        messages: {
+          ...state.messages,
+          [snapshot.thread.id]: snapshot.messages
+        },
+        threads: upsertThread(state.threads, snapshot.thread)
+      }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to create a branch.'
+      set({ lastError: message })
+      throw error
+    }
   },
   composerValue: '',
   config: null,
@@ -111,6 +145,32 @@ export const useAppStore = create<AppState>((set, get) => ({
   lastError: null,
   messages: {},
   pendingAssistantMessages: {},
+  deleteMessage: async (messageId) => {
+    const threadId = get().activeThreadId
+    if (!threadId) {
+      return
+    }
+
+    try {
+      const snapshot = await window.api.yachiyo.deleteMessage({ threadId, messageId })
+      set((state) => ({
+        harnessEvents: {
+          ...state.harnessEvents,
+          [threadId]: []
+        },
+        lastError: null,
+        messages: {
+          ...state.messages,
+          [threadId]: snapshot.messages
+        },
+        threads: upsertThread(state.threads, snapshot.thread)
+      }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to delete this message.'
+      set({ lastError: message })
+      throw error
+    }
+  },
   runPhase: 'idle',
   runStatus: 'idle',
   settings: DEFAULT_SETTINGS,
@@ -142,6 +202,20 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
 
+      if (event.type === 'thread.state.replaced') {
+        return {
+          harnessEvents: {
+            ...state.harnessEvents,
+            [event.threadId]: []
+          },
+          messages: {
+            ...state.messages,
+            [event.threadId]: event.messages
+          },
+          threads: upsertThread(state.threads, event.thread)
+        }
+      }
+
       if (event.type === 'settings.updated') {
         return {
           config: event.config ?? state.config,
@@ -153,6 +227,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (event.type === 'run.created') {
         return {
           activeRunId: event.runId,
+          activeRequestMessageId: event.requestMessageId,
           activeRunThreadId: event.threadId,
           lastError: null,
           runPhase: 'preparing',
@@ -164,6 +239,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         const nextMessage: Message = {
           id: event.messageId,
           threadId: event.threadId,
+          parentMessageId: event.parentMessageId,
           role: 'assistant',
           content: '',
           status: 'streaming',
@@ -180,6 +256,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             ...state.pendingAssistantMessages,
             [event.runId]: {
               messageId: event.messageId,
+              parentMessageId: event.parentMessageId,
               threadId: event.threadId
             }
           }
@@ -227,6 +304,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         return {
           activeRunId: state.activeRunId === event.runId ? null : state.activeRunId,
+          activeRequestMessageId:
+            state.activeRunId === event.runId ? null : state.activeRequestMessageId,
           activeRunThreadId: state.activeRunId === event.runId ? null : state.activeRunThreadId,
           pendingAssistantMessages,
           runPhase: 'idle',
@@ -241,6 +320,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         return {
           activeRunId: state.activeRunId === event.runId ? null : state.activeRunId,
+          activeRequestMessageId:
+            state.activeRunId === event.runId ? null : state.activeRequestMessageId,
           activeRunThreadId: state.activeRunId === event.runId ? null : state.activeRunThreadId,
           lastError: event.error,
           messages: pending
@@ -266,6 +347,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         return {
           activeRunId: state.activeRunId === event.runId ? null : state.activeRunId,
+          activeRequestMessageId:
+            state.activeRunId === event.runId ? null : state.activeRequestMessageId,
           activeRunThreadId: state.activeRunId === event.runId ? null : state.activeRunThreadId,
           messages: pending
             ? {
@@ -380,6 +463,38 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   renameThread: async (threadId, title) => {
     await window.api.yachiyo.renameThread({ threadId, title })
+  },
+
+  retryMessage: async (messageId) => {
+    const threadId = get().activeThreadId
+    if (!threadId) {
+      return
+    }
+
+    try {
+      await window.api.yachiyo.retryMessage({ threadId, assistantMessageId: messageId })
+      set({ lastError: null })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to retry this response.'
+      set({ lastError: message })
+      throw error
+    }
+  },
+
+  selectReplyBranch: async (messageId) => {
+    const threadId = get().activeThreadId
+    if (!threadId) {
+      return
+    }
+
+    try {
+      await window.api.yachiyo.selectReplyBranch({ threadId, assistantMessageId: messageId })
+      set({ lastError: null })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to switch reply branches.'
+      set({ lastError: message })
+      throw error
+    }
   },
 
   selectModel: async (providerName, model) => {

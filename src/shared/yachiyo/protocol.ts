@@ -9,11 +9,15 @@ export interface ThreadRecord {
   title: string
   updatedAt: string
   preview?: string
+  headMessageId?: string
+  branchFromThreadId?: string
+  branchFromMessageId?: string
 }
 
 export interface MessageRecord {
   id: string
   threadId: string
+  parentMessageId?: string
   role: MessageRole
   content: string
   status: MessageStatus
@@ -60,6 +64,18 @@ export interface ChatAccepted {
   userMessage: MessageRecord
 }
 
+export interface RetryAccepted {
+  runId: string
+  thread: ThreadRecord
+  requestMessageId: string
+  sourceAssistantMessageId: string
+}
+
+export interface ThreadSnapshot {
+  thread: ThreadRecord
+  messages: MessageRecord[]
+}
+
 interface BaseEvent {
   eventId: string
   timestamp: string
@@ -84,12 +100,19 @@ export interface ThreadUpdatedEvent extends ThreadEvent {
   thread: ThreadRecord
 }
 
+export interface ThreadStateReplacedEvent extends ThreadEvent {
+  type: 'thread.state.replaced'
+  thread: ThreadRecord
+  messages: MessageRecord[]
+}
+
 export interface ThreadArchivedEvent extends ThreadEvent {
   type: 'thread.archived'
 }
 
 export interface RunCreatedEvent extends RunEvent {
   type: 'run.created'
+  requestMessageId: string
 }
 
 export interface RunCompletedEvent extends RunEvent {
@@ -108,6 +131,7 @@ export interface RunCancelledEvent extends RunEvent {
 export interface MessageStartedEvent extends RunEvent {
   type: 'message.started'
   messageId: string
+  parentMessageId: string
 }
 
 export interface MessageDeltaEvent extends RunEvent {
@@ -144,6 +168,7 @@ export interface SettingsUpdatedEvent extends BaseEvent {
 export type YachiyoServerEvent =
   | ThreadCreatedEvent
   | ThreadUpdatedEvent
+  | ThreadStateReplacedEvent
   | ThreadArchivedEvent
   | RunCreatedEvent
   | RunCompletedEvent

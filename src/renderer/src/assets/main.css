@@ -2,6 +2,14 @@
 @source "../../../../node_modules/streamdown/dist/*.js";
 @import "streamdown/styles.css";
 
+:root {
+  --yachiyo-font-ui: "Avenir Next", "Helvetica Neue", "Segoe UI", sans-serif;
+  --yachiyo-font-display: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+  --yachiyo-ink: #2d2d2b;
+  --yachiyo-accent: #cc7d5e;
+  --yachiyo-paper: #f9f5ef;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
 }
@@ -14,9 +22,9 @@ html, body, #root {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--yachiyo-font-ui);
   background: #F0EFEB;
-  color: #2D2D2B;
+  color: var(--yachiyo-ink);
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
@@ -137,6 +145,155 @@ body {
 
 .message-footer--always-visible {
   opacity: 1 !important;
+}
+
+.message-card-shell {
+  position: relative;
+}
+
+.assistant-message-bubble {
+  position: relative;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.assistant-message-bubble__branch-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 7px;
+  color: rgba(124, 107, 91, 0.88);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.assistant-message-bubble__branch-nav-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.assistant-message-bubble__branch-nav-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: rgba(109, 105, 98, 0.82);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+.assistant-message-bubble__branch-nav-button:hover:not(:disabled) {
+  color: rgba(45, 45, 43, 0.9);
+  transform: translateY(-1px);
+}
+
+.assistant-message-bubble__branch-nav-button:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.assistant-message-bubble__branch-nav::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(204, 125, 94, 0.55);
+}
+
+.assistant-message-bubble__footer-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.message-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  opacity: 0;
+  transform: translateY(2px);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+
+.message-actions--start {
+  justify-content: flex-start;
+}
+
+.message-card-shell:hover .message-actions,
+.message-card-shell:focus-within .message-actions,
+.message-bubble-group:hover .message-actions,
+.message-bubble-group:focus-within .message-actions {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.message-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  opacity: 0.58;
+  transition:
+    color 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+.message-action-button:hover {
+  transform: translateY(-1px);
+  opacity: 1;
+}
+
+.message-action-button:disabled {
+  opacity: 0.22;
+  cursor: default;
+}
+
+.message-action-button:disabled:hover {
+  transform: none;
+}
+
+.message-action-button__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.message-response-cluster {
+  position: relative;
+  margin-left: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.message-response-cluster__preparing {
+  margin-left: 0;
 }
 
 /* Preparing bubble dots */

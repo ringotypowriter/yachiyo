@@ -11,6 +11,7 @@ import type {
   MessageStartedEvent,
   ProviderConfig,
   ProviderSettings,
+  RetryAccepted,
   RunCreatedEvent,
   RunCancelledEvent,
   RunCompletedEvent,
@@ -20,9 +21,18 @@ import type {
   ThreadArchivedEvent,
   ThreadCreatedEvent,
   ThreadRecord,
+  ThreadSnapshot,
+  ThreadStateReplacedEvent,
   ThreadUpdatedEvent,
   YachiyoServerEvent
 } from '../../shared/yachiyo/protocol'
+import {
+  collectDescendantIds,
+  collectMessagePath,
+  pickLatestLeafId,
+  pickReplacementHeadId,
+  sortMessagesByCreatedAt
+} from '../../shared/yachiyo/threadTree.ts'
 import { createSqliteYachiyoStorage } from './database.ts'
 import { prepareModelMessages } from './messagePrepare.ts'
 import { createAiSdkModelRuntime, fetchModels } from './modelRuntime.ts'
@@ -36,7 +46,9 @@ const DEFAULT_HARNESS_NAME = 'default.reply'
 
 interface RunState {
   threadId: string
+  requestMessageId: string
   abortController: AbortController
+  updateHeadOnComplete: boolean
 }
 
 export interface YachiyoServerOptions {
@@ -278,10 +290,7 @@ export class YachiyoServer {
       updatedAt: timestamp
     }
 
-    this.storage.createThread({
-      thread,
-      createdAt: timestamp
-    })
+    this.storage.createThread({ thread, createdAt: timestamp })
 
     this.emit<ThreadCreatedEvent>({
       type: 'thread.created',
@@ -354,6 +363,7 @@ export class YachiyoServer {
     const userMessage: MessageRecord = {
       id: this.createId(),
       threadId: thread.id,
+      ...(thread.headMessageId ? { parentMessageId: thread.headMessageId } : {}),
       role: 'user',
       content,
       status: 'completed',
@@ -361,6 +371,7 @@ export class YachiyoServer {
     }
     const updatedThread: ThreadRecord = {
       ...thread,
+      headMessageId: userMessage.id,
       title: thread.title === DEFAULT_THREAD_TITLE ? content.slice(0, 60) : thread.title,
       updatedAt: timestamp
     }
@@ -372,6 +383,7 @@ export class YachiyoServer {
 
     this.storage.startRun({
       runId: accepted.runId,
+      requestMessageId: userMessage.id,
       thread,
       updatedThread,
       userMessage,
@@ -386,29 +398,266 @@ export class YachiyoServer {
     this.emit<RunCreatedEvent>({
       type: 'run.created',
       threadId: accepted.thread.id,
-      runId: accepted.runId
+      runId: accepted.runId,
+      requestMessageId: userMessage.id
     })
 
-    const abortController = new AbortController()
-    this.activeRuns.set(accepted.runId, { threadId: accepted.thread.id, abortController })
-    this.activeRunByThread.set(accepted.thread.id, accepted.runId)
-    void this.executeRun({
+    this.startActiveRun({
       runId: accepted.runId,
       thread: accepted.thread,
-      abortController
+      requestMessageId: userMessage.id,
+      updateHeadOnComplete: true
     })
 
     return accepted
+  }
+
+  async retryMessage(input: {
+    threadId: string
+    assistantMessageId: string
+  }): Promise<RetryAccepted> {
+    const thread = this.requireThread(input.threadId)
+    if (this.activeRunByThread.has(thread.id)) {
+      throw new Error('This thread already has an active run.')
+    }
+
+    const { requestMessage, sourceAssistantMessage } = this.resolveRetryRequest(
+      thread.id,
+      input.assistantMessageId
+    )
+    const timestamp = this.timestamp()
+    const updatedThread: ThreadRecord = {
+      ...thread,
+      updatedAt: timestamp
+    }
+    const accepted: RetryAccepted = {
+      runId: this.createId(),
+      thread: updatedThread,
+      requestMessageId: requestMessage.id,
+      sourceAssistantMessageId: sourceAssistantMessage.id
+    }
+
+    this.storage.startRun({
+      runId: accepted.runId,
+      requestMessageId: requestMessage.id,
+      thread,
+      updatedThread,
+      createdAt: timestamp
+    })
+
+    this.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: accepted.thread.id,
+      thread: accepted.thread
+    })
+    this.emit<RunCreatedEvent>({
+      type: 'run.created',
+      threadId: accepted.thread.id,
+      runId: accepted.runId,
+      requestMessageId: requestMessage.id
+    })
+
+    this.startActiveRun({
+      runId: accepted.runId,
+      thread: accepted.thread,
+      requestMessageId: requestMessage.id,
+      updateHeadOnComplete: true
+    })
+
+    return accepted
+  }
+
+  async selectReplyBranch(input: {
+    threadId: string
+    assistantMessageId: string
+  }): Promise<ThreadRecord> {
+    const thread = this.requireThread(input.threadId)
+    if (this.activeRunByThread.has(thread.id)) {
+      throw new Error('Cannot switch reply branches while this thread is running.')
+    }
+
+    const { sourceAssistantMessage } = this.resolveRetryRequest(thread.id, input.assistantMessageId)
+    const messages = this.loadThreadMessages(thread.id)
+    const nextHeadMessageId =
+      pickLatestLeafId(messages, sourceAssistantMessage.id) ?? sourceAssistantMessage.id
+    const previewSource = messages.find((message) => message.id === nextHeadMessageId)
+    const timestamp = this.timestamp()
+    const updatedThread: ThreadRecord = {
+      ...thread,
+      updatedAt: timestamp,
+      headMessageId: nextHeadMessageId,
+      ...(previewSource?.content ? { preview: previewSource.content.slice(0, 240) } : {})
+    }
+
+    if (!previewSource?.content) {
+      delete updatedThread.preview
+    }
+
+    this.storage.updateThread(updatedThread)
+    this.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: updatedThread.id,
+      thread: updatedThread
+    })
+
+    return updatedThread
+  }
+
+  async createBranch(input: { threadId: string; messageId: string }): Promise<ThreadSnapshot> {
+    const thread = this.requireThread(input.threadId)
+    if (this.activeRunByThread.has(thread.id)) {
+      throw new Error('Cannot branch a thread with an active run.')
+    }
+
+    const messages = this.loadThreadMessages(thread.id)
+    const branchPoint = messages.find((message) => message.id === input.messageId)
+
+    if (!branchPoint) {
+      throw new Error(`Unknown message: ${input.messageId}`)
+    }
+
+    const path = collectMessagePath(messages, branchPoint.id)
+    const timestamp = this.timestamp()
+    const threadId = this.createId()
+    const idMap = new Map<string, string>()
+    const clonedMessages = path.map((message) => {
+      const clonedId = this.createId()
+      idMap.set(message.id, clonedId)
+
+      return {
+        ...message,
+        id: clonedId,
+        threadId,
+        ...(message.parentMessageId ? { parentMessageId: idMap.get(message.parentMessageId)! } : {})
+      }
+    })
+    const previewSource = clonedMessages.at(-1)
+    const branchThread: ThreadRecord = {
+      id: threadId,
+      title: this.deriveBranchTitle(thread, branchPoint),
+      updatedAt: timestamp,
+      branchFromThreadId: thread.id,
+      branchFromMessageId: branchPoint.id,
+      ...(previewSource?.content ? { preview: previewSource.content.slice(0, 240) } : {}),
+      ...(previewSource ? { headMessageId: previewSource.id } : {})
+    }
+
+    this.storage.createThread({
+      thread: branchThread,
+      createdAt: timestamp,
+      messages: clonedMessages
+    })
+
+    this.emit<ThreadCreatedEvent>({
+      type: 'thread.created',
+      threadId: branchThread.id,
+      thread: branchThread
+    })
+    this.emit<ThreadStateReplacedEvent>({
+      type: 'thread.state.replaced',
+      threadId: branchThread.id,
+      thread: branchThread,
+      messages: clonedMessages
+    })
+
+    return {
+      thread: branchThread,
+      messages: clonedMessages
+    }
+  }
+
+  async deleteMessageFromHere(input: {
+    threadId: string
+    messageId: string
+  }): Promise<ThreadSnapshot> {
+    const thread = this.requireThread(input.threadId)
+    if (this.activeRunByThread.has(thread.id)) {
+      throw new Error('Cannot edit history while this thread is running.')
+    }
+
+    const messages = this.loadThreadMessages(thread.id)
+    const targetMessage = messages.find((message) => message.id === input.messageId)
+
+    if (!targetMessage) {
+      throw new Error(`Unknown message: ${input.messageId}`)
+    }
+
+    const deletedIds = collectDescendantIds(messages, targetMessage.id)
+    const remainingMessages = sortMessagesByCreatedAt(
+      messages.filter((message) => !deletedIds.has(message.id))
+    )
+    const timestamp = this.timestamp()
+    const nextHeadMessageId = pickReplacementHeadId(messages, remainingMessages, thread.headMessageId)
+    const previewSource = nextHeadMessageId
+      ? remainingMessages.find((message) => message.id === nextHeadMessageId)
+      : undefined
+    const updatedThread: ThreadRecord = {
+      ...thread,
+      title: remainingMessages.length === 0 ? DEFAULT_THREAD_TITLE : thread.title,
+      updatedAt: timestamp,
+      ...(nextHeadMessageId ? { headMessageId: nextHeadMessageId } : {}),
+      ...(previewSource?.content ? { preview: previewSource.content.slice(0, 240) } : {})
+    }
+
+    if (!nextHeadMessageId) {
+      delete updatedThread.headMessageId
+    }
+
+    if (!previewSource?.content) {
+      delete updatedThread.preview
+    }
+
+    this.storage.deleteMessages({
+      thread: updatedThread,
+      messageIds: [...deletedIds]
+    })
+
+    this.emit<ThreadStateReplacedEvent>({
+      type: 'thread.state.replaced',
+      threadId: updatedThread.id,
+      thread: updatedThread,
+      messages: remainingMessages
+    })
+
+    return {
+      thread: updatedThread,
+      messages: remainingMessages
+    }
   }
 
   async cancelRun(input: { runId: string }): Promise<void> {
     this.activeRuns.get(input.runId)?.abortController.abort()
   }
 
+  private startActiveRun(input: {
+    runId: string
+    thread: ThreadRecord
+    requestMessageId: string
+    updateHeadOnComplete: boolean
+  }): void {
+    const abortController = new AbortController()
+    this.activeRuns.set(input.runId, {
+      threadId: input.thread.id,
+      requestMessageId: input.requestMessageId,
+      abortController,
+      updateHeadOnComplete: input.updateHeadOnComplete
+    })
+    this.activeRunByThread.set(input.thread.id, input.runId)
+    void this.executeRun({
+      abortController,
+      requestMessageId: input.requestMessageId,
+      runId: input.runId,
+      thread: input.thread,
+      updateHeadOnComplete: input.updateHeadOnComplete
+    })
+  }
+
   private async executeRun(input: {
     runId: string
     thread: ThreadRecord
+    requestMessageId: string
     abortController: AbortController
+    updateHeadOnComplete: boolean
   }): Promise<void> {
     const settings = this.readSettings()
     const harnessId = this.createId()
@@ -426,13 +675,14 @@ export class YachiyoServer {
       type: 'message.started',
       threadId: input.thread.id,
       runId: input.runId,
-      messageId
+      messageId,
+      parentMessageId: input.requestMessageId
     })
 
     try {
       const runtime = this.createModelRuntime()
       const messages = prepareModelMessages({
-        history: this.loadThreadHistory(input.thread.id)
+        history: this.loadRunHistory(input.thread.id, input.requestMessageId)
       })
 
       for await (const delta of runtime.streamReply({
@@ -455,6 +705,7 @@ export class YachiyoServer {
       const assistantMessage: MessageRecord = {
         id: messageId,
         threadId: input.thread.id,
+        parentMessageId: input.requestMessageId,
         role: 'assistant',
         content: buffer,
         status: 'completed',
@@ -463,13 +714,22 @@ export class YachiyoServer {
         providerName: settings.providerName
       }
 
-      this.storage.completeRun({
-        runId: input.runId,
-        threadId: input.thread.id,
-        assistantMessage,
-        preview: assistantMessage.content.slice(0, 240),
-        updatedAt: timestamp
-      })
+      const updatedThread: ThreadRecord = {
+        ...input.thread,
+        updatedAt: timestamp,
+        ...(input.updateHeadOnComplete
+          ? { preview: assistantMessage.content.slice(0, 240) }
+          : input.thread.preview
+            ? { preview: input.thread.preview }
+            : {}),
+        ...(input.updateHeadOnComplete
+          ? { headMessageId: assistantMessage.id }
+          : input.thread.headMessageId
+            ? { headMessageId: input.thread.headMessageId }
+            : {})
+      }
+
+      this.storage.completeRun({ runId: input.runId, updatedThread, assistantMessage })
 
       this.emit<MessageCompletedEvent>({
         type: 'message.completed',
@@ -480,11 +740,7 @@ export class YachiyoServer {
       this.emit<ThreadUpdatedEvent>({
         type: 'thread.updated',
         threadId: input.thread.id,
-        thread: {
-          ...input.thread,
-          preview: assistantMessage.content.slice(0, 240),
-          updatedAt: timestamp
-        }
+        thread: updatedThread
       })
       this.emit<HarnessFinishedEvent>({
         type: 'harness.finished',
@@ -551,8 +807,55 @@ export class YachiyoServer {
     }
   }
 
-  private loadThreadHistory(threadId: string): Array<Pick<MessageRecord, 'content' | 'role'>> {
-    return this.storage.listThreadHistory(threadId)
+  private loadThreadMessages(threadId: string): MessageRecord[] {
+    return this.storage.listThreadMessages(threadId)
+  }
+
+  private loadRunHistory(
+    threadId: string,
+    requestMessageId: string
+  ): Array<Pick<MessageRecord, 'content' | 'role'>> {
+    return collectMessagePath(this.loadThreadMessages(threadId), requestMessageId).map(
+      ({ content, role }) => ({
+        content,
+        role
+      })
+    )
+  }
+
+  private resolveRetryRequest(
+    threadId: string,
+    assistantMessageId: string
+  ): { requestMessage: MessageRecord; sourceAssistantMessage: MessageRecord } {
+    const messages = this.loadThreadMessages(threadId)
+    const target = messages.find((message) => message.id === assistantMessageId)
+
+    if (!target) {
+      throw new Error(`Unknown message: ${assistantMessageId}`)
+    }
+
+    if (target.role !== 'assistant' || !target.parentMessageId) {
+      throw new Error('This message cannot be retried.')
+    }
+
+    const requestMessage = messages.find((message) => message.id === target.parentMessageId)
+    if (!requestMessage || requestMessage.role !== 'user') {
+      throw new Error('This message cannot be retried.')
+    }
+
+    return {
+      requestMessage,
+      sourceAssistantMessage: target
+    }
+  }
+
+  private deriveBranchTitle(thread: ThreadRecord, branchPoint: MessageRecord): string {
+    if (thread.title !== DEFAULT_THREAD_TITLE) {
+      return thread.title
+    }
+
+    const titleSource = branchPoint.content.trim()
+    return titleSource ? titleSource.slice(0, 60) : DEFAULT_THREAD_TITLE
   }
 
   private readSettings(): ProviderSettings {

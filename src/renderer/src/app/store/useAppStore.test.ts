@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { DEFAULT_SETTINGS, useAppStore } from './useAppStore.ts'
+import { DEFAULT_SETTINGS, useAppStore } from './useAppStore'
 
 const TIMESTAMP = '2026-03-15T00:00:00.000Z'
 
 function resetStore(): void {
   useAppStore.setState({
     activeRunId: null,
+    activeRequestMessageId: null,
     activeRunThreadId: null,
     activeThreadId: null,
     composerValue: '',
@@ -54,7 +55,7 @@ function withWindowApiMock(
 
   return () => {
     if (originalWindow === undefined) {
-      delete globalScope.window
+      Reflect.deleteProperty(globalScope, 'window')
       return
     }
 
@@ -74,7 +75,8 @@ test('applyServerEvent keeps a stopped placeholder when a run is cancelled befor
     eventId: 'event-run-created',
     timestamp: TIMESTAMP,
     threadId: 'thread-1',
-    runId: 'run-1'
+    runId: 'run-1',
+    requestMessageId: 'user-1'
   })
   useAppStore.getState().applyServerEvent({
     type: 'message.started',
@@ -82,7 +84,8 @@ test('applyServerEvent keeps a stopped placeholder when a run is cancelled befor
     timestamp: TIMESTAMP,
     threadId: 'thread-1',
     runId: 'run-1',
-    messageId: 'message-1'
+    messageId: 'message-1',
+    parentMessageId: 'user-1'
   })
   useAppStore.getState().applyServerEvent({
     type: 'run.cancelled',
@@ -95,6 +98,7 @@ test('applyServerEvent keeps a stopped placeholder when a run is cancelled befor
   const state = useAppStore.getState()
 
   assert.equal(state.activeRunId, null)
+  assert.equal(state.activeRequestMessageId, null)
   assert.equal(state.activeRunThreadId, null)
   assert.equal(state.runPhase, 'idle')
   assert.equal(state.runStatus, 'cancelled')
@@ -104,6 +108,7 @@ test('applyServerEvent keeps a stopped placeholder when a run is cancelled befor
       id: 'message-1',
       threadId: 'thread-1',
       role: 'assistant',
+      parentMessageId: 'user-1',
       content: '',
       status: 'stopped',
       createdAt: TIMESTAMP
@@ -119,11 +124,13 @@ test('applyServerEvent stays in preparing until the first token arrives', () => 
     eventId: 'event-run-created',
     timestamp: TIMESTAMP,
     threadId: 'thread-1',
-    runId: 'run-1'
+    runId: 'run-1',
+    requestMessageId: 'user-1'
   })
 
   let state = useAppStore.getState()
   assert.equal(state.activeRunId, 'run-1')
+  assert.equal(state.activeRequestMessageId, 'user-1')
   assert.equal(state.activeRunThreadId, 'thread-1')
   assert.equal(state.runPhase, 'preparing')
 
@@ -133,11 +140,13 @@ test('applyServerEvent stays in preparing until the first token arrives', () => 
     timestamp: TIMESTAMP,
     threadId: 'thread-1',
     runId: 'run-1',
-    messageId: 'message-1'
+    messageId: 'message-1',
+    parentMessageId: 'user-1'
   })
 
   state = useAppStore.getState()
   assert.equal(state.runPhase, 'preparing')
+  assert.equal(state.messages['thread-1']?.[0]?.parentMessageId, 'user-1')
   assert.equal(state.messages['thread-1']?.[0]?.status, 'streaming')
   assert.equal(state.messages['thread-1']?.[0]?.content, '')
 
@@ -154,6 +163,73 @@ test('applyServerEvent stays in preparing until the first token arrives', () => 
   state = useAppStore.getState()
   assert.equal(state.runPhase, 'streaming')
   assert.equal(state.messages['thread-1']?.[0]?.content, 'H')
+})
+
+test('applyServerEvent replaces a thread snapshot after branch-aware history edits', () => {
+  resetStore()
+
+  useAppStore.setState({
+    activeThreadId: 'thread-1',
+    messages: {
+      'thread-1': [
+        {
+          id: 'assistant-old',
+          threadId: 'thread-1',
+          role: 'assistant',
+          parentMessageId: 'user-1',
+          content: 'Outdated',
+          status: 'completed',
+          createdAt: TIMESTAMP
+        }
+      ]
+    },
+    threads: [
+      {
+        id: 'thread-1',
+        title: 'Thread',
+        updatedAt: TIMESTAMP
+      }
+    ]
+  })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'thread.state.replaced',
+    eventId: 'event-thread-state-replaced',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-retry'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'Question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-retry',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Retry reply',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      }
+    ]
+  })
+
+  const state = useAppStore.getState()
+
+  assert.equal(state.threads[0]?.headMessageId, 'assistant-retry')
+  assert.equal(state.messages['thread-1']?.length, 2)
+  assert.equal(state.messages['thread-1']?.[1]?.parentMessageId, 'user-1')
+  assert.equal(state.messages['thread-1']?.[1]?.content, 'Retry reply')
 })
 
 test('selectModel ignores changes while a run is active', async () => {

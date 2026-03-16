@@ -11,6 +11,7 @@ import {
 interface StoredRunRow {
   id: string
   threadId: string
+  requestMessageId: string | null
   status: 'running' | 'completed' | 'cancelled' | 'failed'
   error: string | null
   createdAt: string
@@ -59,15 +60,19 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       return thread ? toThreadRecord(thread) : undefined
     },
 
-    createThread({ thread, createdAt }) {
+    createThread({ thread, createdAt, messages: initialMessages = [] }) {
       threads.set(thread.id, {
         id: thread.id,
         title: thread.title,
         preview: thread.preview ?? null,
+        branchFromThreadId: thread.branchFromThreadId ?? null,
+        branchFromMessageId: thread.branchFromMessageId ?? null,
         archivedAt: null,
+        headMessageId: thread.headMessageId ?? null,
         updatedAt: thread.updatedAt,
         createdAt
       })
+      messages.push(...initialMessages)
     },
 
     renameThread({ threadId, title, updatedAt }) {
@@ -90,7 +95,21 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       thread.updatedAt = updatedAt
     },
 
-    startRun({ runId, thread, updatedThread, userMessage, createdAt }: StartRunInput) {
+    updateThread(nextThread) {
+      const storedThread = threads.get(nextThread.id)
+      if (!storedThread || storedThread.archivedAt !== null) {
+        return
+      }
+
+      storedThread.branchFromThreadId = nextThread.branchFromThreadId ?? null
+      storedThread.branchFromMessageId = nextThread.branchFromMessageId ?? null
+      storedThread.headMessageId = nextThread.headMessageId ?? null
+      storedThread.preview = nextThread.preview ?? null
+      storedThread.title = nextThread.title
+      storedThread.updatedAt = nextThread.updatedAt
+    },
+
+    startRun({ runId, thread, updatedThread, requestMessageId, userMessage, createdAt }: StartRunInput) {
       const storedThread = threads.get(thread.id)
       if (!storedThread) {
         return
@@ -98,9 +117,13 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
       storedThread.title = updatedThread.title
       storedThread.updatedAt = updatedThread.updatedAt
-      messages.push(userMessage)
+      storedThread.headMessageId = updatedThread.headMessageId ?? null
+      if (userMessage) {
+        messages.push(userMessage)
+      }
       runs.set(runId, {
         id: runId,
+        requestMessageId,
         threadId: thread.id,
         status: 'running',
         error: null,
@@ -109,20 +132,21 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       })
     },
 
-    completeRun({ runId, threadId, assistantMessage, preview, updatedAt }: CompleteRunInput) {
-      const thread = threads.get(threadId)
+    completeRun({ runId, updatedThread, assistantMessage }: CompleteRunInput) {
+      const thread = threads.get(updatedThread.id)
       const run = runs.get(runId)
 
       messages.push(assistantMessage)
 
       if (thread) {
-        thread.preview = preview
-        thread.updatedAt = updatedAt
+        thread.headMessageId = updatedThread.headMessageId ?? null
+        thread.preview = updatedThread.preview ?? null
+        thread.updatedAt = updatedThread.updatedAt
       }
 
       if (run) {
         run.status = 'completed'
-        run.completedAt = updatedAt
+        run.completedAt = updatedThread.updatedAt
       }
     },
 
@@ -147,10 +171,28 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       run.completedAt = completedAt
     },
 
-    listThreadHistory(threadId) {
+    listThreadMessages(threadId) {
       return sortByCreatedAt(messages)
         .filter((message) => message.threadId === threadId)
-        .map(({ content, role }) => ({ content, role }))
+    },
+
+    deleteMessages({ thread, messageIds }) {
+      const deletedIds = new Set(messageIds)
+      const nextMessages = messages.filter((message) => !deletedIds.has(message.id))
+      messages.length = 0
+      messages.push(...nextMessages)
+
+      const storedThread = threads.get(thread.id)
+      if (!storedThread) {
+        return
+      }
+
+      storedThread.branchFromThreadId = thread.branchFromThreadId ?? null
+      storedThread.branchFromMessageId = thread.branchFromMessageId ?? null
+      storedThread.headMessageId = thread.headMessageId ?? null
+      storedThread.preview = thread.preview ?? null
+      storedThread.title = thread.title
+      storedThread.updatedAt = thread.updatedAt
     }
   }
 }

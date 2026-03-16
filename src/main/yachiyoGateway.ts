@@ -15,15 +15,19 @@ const IPC_CHANNELS = {
   fetchProviderModels: 'yachiyo:fetch-provider-models',
   bootstrap: 'yachiyo:bootstrap',
   cancelRun: 'yachiyo:cancel-run',
+  createBranch: 'yachiyo:create-branch',
   createThread: 'yachiyo:create-thread',
+  deleteMessage: 'yachiyo:delete-message',
   enableProviderModel: 'yachiyo:enable-provider-model',
   event: 'yachiyo:event',
   getConfig: 'yachiyo:get-config',
   getSettings: 'yachiyo:get-settings',
   renameThread: 'yachiyo:rename-thread',
   removeProvider: 'yachiyo:remove-provider',
+  retryMessage: 'yachiyo:retry-message',
   saveConfig: 'yachiyo:save-config',
   saveSettings: 'yachiyo:save-settings',
+  selectReplyBranch: 'yachiyo:select-reply-branch',
   sendChat: 'yachiyo:send-chat',
   upsertProvider: 'yachiyo:upsert-provider'
 } as const
@@ -59,12 +63,24 @@ export function registerYachiyoGateway(): YachiyoServer {
 
   handle(IPC_CHANNELS.bootstrap, () => server!.bootstrap())
   handle(IPC_CHANNELS.createThread, () => server!.createThread())
+  handle(IPC_CHANNELS.createBranch, (input: { threadId: string; messageId: string }) =>
+    server!.createBranch(input)
+  )
   handle(IPC_CHANNELS.renameThread, (input: { threadId: string; title: string }) =>
     server!.renameThread(input)
   )
   handle(IPC_CHANNELS.archiveThread, (input: { threadId: string }) => server!.archiveThread(input))
   handle(IPC_CHANNELS.sendChat, (input: { threadId: string; content: string }) =>
     server!.sendChat(input)
+  )
+  handle(IPC_CHANNELS.retryMessage, (input: { threadId: string; assistantMessageId: string }) =>
+    server!.retryMessage(input)
+  )
+  handle(IPC_CHANNELS.selectReplyBranch, (input: { threadId: string; assistantMessageId: string }) =>
+    server!.selectReplyBranch(input)
+  )
+  handle(IPC_CHANNELS.deleteMessage, (input: { threadId: string; messageId: string }) =>
+    server!.deleteMessageFromHere(input)
   )
   handle(IPC_CHANNELS.cancelRun, (input: { runId: string }) => server!.cancelRun(input))
   handle(IPC_CHANNELS.getConfig, () => server!.getConfig())

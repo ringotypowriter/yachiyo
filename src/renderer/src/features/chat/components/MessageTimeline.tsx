@@ -2,11 +2,12 @@ import type React from 'react'
 import { useEffect, useRef } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { HarnessRecord } from '@renderer/app/store/useAppStore'
+import type { Message } from '@renderer/app/types'
+import { buildMessageGroups } from '../lib/messageThreadPresentation'
 import { UserMessageBubble } from './UserMessageBubble'
 import { AssistantMessageBubble } from './AssistantMessageBubble'
 import { PreparingBubble } from './PreparingBubble'
 import { RunEventRow } from './RunEventRow'
-import type { Message } from '@renderer/app/types'
 
 interface MessageTimelineProps {
   threadId: string | null
@@ -15,42 +16,191 @@ interface MessageTimelineProps {
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_HARNESSES: HarnessRecord[] = []
 
-// default.reply is implicit in the message bubble — don't show a separate row for it
 const DEFAULT_HARNESS = 'default.reply'
 
 type TimelineItem =
-  | { kind: 'message'; key: string; time: string; data: Message }
+  | ReturnType<typeof buildConversationTimeline>[number]
   | { kind: 'harness'; key: string; time: string; data: HarnessRecord }
 
-function buildTimeline(messages: Message[], harnesses: HarnessRecord[]): TimelineItem[] {
+function buildConversationTimeline(groups: ReturnType<typeof buildMessageGroups>) {
+  return groups.map((group) => ({
+    kind: 'group' as const,
+    key: group.userMessage.id,
+    time: group.userMessage.createdAt,
+    data: group
+  }))
+}
+
+function buildTimeline(
+  groups: ReturnType<typeof buildMessageGroups>,
+  harnesses: HarnessRecord[]
+): TimelineItem[] {
   const items: TimelineItem[] = [
-    ...messages.map((m) => ({ kind: 'message' as const, key: m.id, time: m.createdAt, data: m })),
+    ...buildConversationTimeline(groups),
     ...harnesses
-      .filter((h) => h.name !== DEFAULT_HARNESS)
-      .map((h) => ({ kind: 'harness' as const, key: h.id, time: h.startedAt, data: h }))
+      .filter((harness) => harness.name !== DEFAULT_HARNESS)
+      .map((harness) => ({
+        kind: 'harness' as const,
+        key: harness.id,
+        time: harness.startedAt,
+        data: harness
+      }))
   ]
-  return items.sort((a, b) => a.time.localeCompare(b.time))
+
+  return items.sort((left, right) => left.time.localeCompare(right.time))
+}
+
+function confirmDelete(message: Message): boolean {
+  if (message.role === 'user') {
+    return window.confirm(
+      'Delete this request and every attached response branch after it in the current thread?'
+    )
+  }
+
+  return window.confirm(
+    'Delete this response branch and everything that continues from it in the current thread? Sibling responses will stay.'
+  )
+}
+
+function ThreadConversationGroup({
+  threadId,
+  group,
+  threadHasActiveRun,
+  onCreateBranch,
+  onRetry,
+  onSelectReplyBranch,
+  onDelete
+}: {
+  threadId: string
+  group: ReturnType<typeof buildMessageGroups>[number]
+  threadHasActiveRun: boolean
+  onCreateBranch: (messageId: string) => Promise<void>
+  onRetry: (messageId: string) => Promise<void>
+  onSelectReplyBranch: (messageId: string) => Promise<void>
+  onDelete: (messageId: string) => Promise<void>
+}): React.JSX.Element {
+  const responseCount = group.assistantBranches.length
+  const activeBranch =
+    group.activeBranchIndex >= 0 ? group.assistantBranches[group.activeBranchIndex] : null
+  const previousBranch =
+    group.activeBranchIndex > 0 ? group.assistantBranches[group.activeBranchIndex - 1] : null
+  const nextBranch =
+    group.activeBranchIndex >= 0 && group.activeBranchIndex < responseCount - 1
+      ? group.assistantBranches[group.activeBranchIndex + 1]
+      : null
+
+  return (
+    <div className="flex flex-col gap-2" data-thread-id={threadId}>
+      <UserMessageBubble
+        message={group.userMessage}
+        onCreateBranch={() => onCreateBranch(group.userMessage.id)}
+        onDelete={() => onDelete(group.userMessage.id)}
+      />
+
+      {responseCount > 0 || group.showPreparing ? (
+        <div className="message-response-cluster">
+          {activeBranch ? (
+            <AssistantMessageBubble
+              key={activeBranch.message.id}
+              message={activeBranch.message}
+              replyCount={responseCount}
+              canSelectPreviousReply={!threadHasActiveRun && Boolean(previousBranch)}
+              canSelectNextReply={!threadHasActiveRun && Boolean(nextBranch)}
+              threadHasActiveRun={threadHasActiveRun}
+              onRetry={() => onRetry(activeBranch.message.id)}
+              onSelectPreviousReply={
+                previousBranch
+                  ? () => onSelectReplyBranch(previousBranch.message.id)
+                  : undefined
+              }
+              onSelectNextReply={
+                nextBranch ? () => onSelectReplyBranch(nextBranch.message.id) : undefined
+              }
+              onCreateBranch={() => onCreateBranch(activeBranch.message.id)}
+              onDelete={() => onDelete(activeBranch.message.id)}
+            />
+          ) : null}
+
+          {group.showPreparing ? (
+            <div className="message-response-cluster__preparing">
+              <PreparingBubble />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.Element {
-  const messages = useAppStore((s) =>
-    threadId ? (s.messages[threadId] ?? EMPTY_MESSAGES) : EMPTY_MESSAGES
+  const thread = useAppStore((state) =>
+    threadId ? state.threads.find((entry) => entry.id === threadId) ?? null : null
   )
-  const harnessEvents = useAppStore((s) =>
-    threadId ? (s.harnessEvents[threadId] ?? EMPTY_HARNESSES) : EMPTY_HARNESSES
+  const messages = useAppStore((state) =>
+    threadId ? (state.messages[threadId] ?? EMPTY_MESSAGES) : EMPTY_MESSAGES
   )
-  const activeRunThreadId = useAppStore((s) => s.activeRunThreadId)
-  const runPhase = useAppStore((s) => s.runPhase)
+  const harnessEvents = useAppStore((state) =>
+    threadId ? (state.harnessEvents[threadId] ?? EMPTY_HARNESSES) : EMPTY_HARNESSES
+  )
+  const activeRunThreadId = useAppStore((state) => state.activeRunThreadId)
+  const activeRequestMessageId = useAppStore((state) => state.activeRequestMessageId)
+  const createBranch = useAppStore((state) => state.createBranch)
+  const deleteMessage = useAppStore((state) => state.deleteMessage)
+  const retryMessage = useAppStore((state) => state.retryMessage)
+  const selectReplyBranch = useAppStore((state) => state.selectReplyBranch)
+  const runPhase = useAppStore((state) => state.runPhase)
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  const showPreparingBubble =
-    runPhase === 'preparing' && threadId !== null && activeRunThreadId === threadId
-
-  const timeline = buildTimeline(messages, harnessEvents)
+  const messageGroups = thread
+    ? buildMessageGroups({
+        thread,
+        messages,
+        runPhase,
+        activeRequestMessageId: activeRunThreadId === threadId ? activeRequestMessageId : null
+      })
+    : []
+  const timeline = buildTimeline(messageGroups, harnessEvents)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, harnessEvents, showPreparingBubble])
+  }, [activeRequestMessageId, harnessEvents, messages, runPhase])
+
+  async function handleCreateBranch(messageId: string): Promise<void> {
+    try {
+      await createBranch(messageId)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to create a branch.')
+    }
+  }
+
+  async function handleRetry(messageId: string): Promise<void> {
+    try {
+      await retryMessage(messageId)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to retry this response.')
+    }
+  }
+
+  async function handleDelete(messageId: string): Promise<void> {
+    const target = messages.find((message) => message.id === messageId)
+    if (!target || !confirmDelete(target)) {
+      return
+    }
+
+    try {
+      await deleteMessage(messageId)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to delete this message.')
+    }
+  }
+
+  async function handleSelectReplyBranch(messageId: string): Promise<void> {
+    try {
+      await selectReplyBranch(messageId)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to switch reply branches.')
+    }
+  }
 
   if (!threadId) {
     return (
@@ -62,7 +212,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     )
   }
 
-  if (timeline.length === 0 && !showPreparingBubble) {
+  if (timeline.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <p className="text-sm" style={{ color: '#aaa' }}>
@@ -78,14 +228,20 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
         if (item.kind === 'harness') {
           return <RunEventRow key={item.key} harness={item.data} />
         }
-        const msg = item.data
-        return msg.role === 'user' ? (
-          <UserMessageBubble key={item.key} message={msg} />
-        ) : (
-          <AssistantMessageBubble key={item.key} message={msg} />
+
+        return (
+          <ThreadConversationGroup
+            key={item.key}
+            threadId={threadId}
+            group={item.data}
+            threadHasActiveRun={activeRunThreadId === threadId}
+            onCreateBranch={handleCreateBranch}
+            onRetry={handleRetry}
+            onSelectReplyBranch={handleSelectReplyBranch}
+            onDelete={handleDelete}
+          />
         )
       })}
-      {showPreparingBubble && <PreparingBubble />}
       <div ref={bottomRef} />
     </div>
   )

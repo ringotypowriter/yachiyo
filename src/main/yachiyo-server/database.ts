@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url'
 import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
-import type { MessageRecord } from '../../shared/yachiyo/protocol'
 import * as schema from './schema.ts'
 import { messagesTable, runsTable, threadsTable } from './schema.ts'
 import {
@@ -14,6 +13,8 @@ import {
   toMessageRecord,
   toThreadRecord,
   type CompleteRunInput,
+  type CreateThreadInput,
+  type DeleteMessagesInput,
   type StartRunInput,
   type YachiyoStorage
 } from './storage.ts'
@@ -82,6 +83,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     bootstrap() {
       const threads = db
         .select({
+          branchFromMessageId: threadsTable.branchFromMessageId,
+          branchFromThreadId: threadsTable.branchFromThreadId,
+          headMessageId: threadsTable.headMessageId,
           id: threadsTable.id,
           preview: threadsTable.preview,
           title: threadsTable.title,
@@ -103,6 +107,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                 createdAt: messagesTable.createdAt,
                 id: messagesTable.id,
                 modelId: messagesTable.modelId,
+                parentMessageId: messagesTable.parentMessageId,
                 providerName: messagesTable.providerName,
                 role: messagesTable.role,
                 status: messagesTable.status,
@@ -123,6 +128,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     getThread(threadId) {
       const thread = db
         .select({
+          branchFromMessageId: threadsTable.branchFromMessageId,
+          branchFromThreadId: threadsTable.branchFromThreadId,
+          headMessageId: threadsTable.headMessageId,
           id: threadsTable.id,
           preview: threadsTable.preview,
           title: threadsTable.title,
@@ -135,17 +143,26 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       return thread ? toThreadRecord(thread) : undefined
     },
 
-    createThread({ thread, createdAt }) {
-      db.insert(threadsTable)
-        .values({
-          archivedAt: null,
-          createdAt,
-          id: thread.id,
-          preview: thread.preview ?? null,
-          title: thread.title,
-          updatedAt: thread.updatedAt
-        })
-        .run()
+    createThread({ thread, createdAt, messages }: CreateThreadInput) {
+      db.transaction((tx) => {
+        tx.insert(threadsTable)
+          .values({
+            archivedAt: null,
+            branchFromMessageId: thread.branchFromMessageId ?? null,
+            branchFromThreadId: thread.branchFromThreadId ?? null,
+            createdAt,
+            headMessageId: thread.headMessageId ?? null,
+            id: thread.id,
+            preview: thread.preview ?? null,
+            title: thread.title,
+            updatedAt: thread.updatedAt
+          })
+          .run()
+
+        if (messages && messages.length > 0) {
+          tx.insert(messagesTable).values(messages).run()
+        }
+      })
     },
 
     renameThread({ threadId, title, updatedAt }) {
@@ -168,12 +185,37 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .run()
     },
 
-    startRun({ runId, thread, updatedThread, userMessage, createdAt }: StartRunInput) {
+    updateThread(thread) {
+      db.update(threadsTable)
+        .set({
+          branchFromMessageId: thread.branchFromMessageId ?? null,
+          branchFromThreadId: thread.branchFromThreadId ?? null,
+          headMessageId: thread.headMessageId ?? null,
+          preview: thread.preview ?? null,
+          title: thread.title,
+          updatedAt: thread.updatedAt
+        })
+        .where(eq(threadsTable.id, thread.id))
+        .run()
+    },
+
+    startRun({
+      runId,
+      thread,
+      updatedThread,
+      requestMessageId,
+      userMessage,
+      createdAt
+    }: StartRunInput) {
       db.transaction((tx) => {
-        tx.insert(messagesTable).values(userMessage).run()
+        if (userMessage) {
+          tx.insert(messagesTable).values(userMessage).run()
+        }
 
         tx.update(threadsTable)
           .set({
+            headMessageId: updatedThread.headMessageId ?? null,
+            preview: updatedThread.preview ?? null,
             title: updatedThread.title,
             updatedAt: updatedThread.updatedAt
           })
@@ -186,6 +228,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             createdAt,
             error: null,
             id: runId,
+            requestMessageId,
             status: 'running',
             threadId: thread.id
           })
@@ -193,21 +236,23 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       })
     },
 
-    completeRun({ runId, threadId, assistantMessage, preview, updatedAt }: CompleteRunInput) {
+    completeRun({ runId, updatedThread, assistantMessage }: CompleteRunInput) {
       db.transaction((tx) => {
         tx.insert(messagesTable).values(assistantMessage).run()
 
         tx.update(threadsTable)
           .set({
-            preview,
-            updatedAt
+            headMessageId: updatedThread.headMessageId ?? null,
+            preview: updatedThread.preview ?? null,
+            title: updatedThread.title,
+            updatedAt: updatedThread.updatedAt
           })
-          .where(eq(threadsTable.id, threadId))
+          .where(eq(threadsTable.id, updatedThread.id))
           .run()
 
         tx.update(runsTable)
           .set({
-            completedAt: updatedAt,
+            completedAt: updatedThread.updatedAt,
             status: 'completed'
           })
           .where(eq(runsTable.id, runId))
@@ -236,16 +281,42 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .run()
     },
 
-    listThreadHistory(threadId) {
+    listThreadMessages(threadId) {
       return db
         .select({
           content: messagesTable.content,
-          role: messagesTable.role
+          createdAt: messagesTable.createdAt,
+          id: messagesTable.id,
+          modelId: messagesTable.modelId,
+          parentMessageId: messagesTable.parentMessageId,
+          providerName: messagesTable.providerName,
+          role: messagesTable.role,
+          status: messagesTable.status,
+          threadId: messagesTable.threadId
         })
         .from(messagesTable)
         .where(eq(messagesTable.threadId, threadId))
         .orderBy(asc(messagesTable.createdAt))
-        .all() as Array<Pick<MessageRecord, 'content' | 'role'>>
+        .all()
+        .map(toMessageRecord)
+    },
+
+    deleteMessages({ thread, messageIds }: DeleteMessagesInput) {
+      db.transaction((tx) => {
+        if (messageIds.length > 0) {
+          tx.delete(messagesTable).where(inArray(messagesTable.id, messageIds)).run()
+        }
+
+        tx.update(threadsTable)
+          .set({
+            headMessageId: thread.headMessageId ?? null,
+            preview: thread.preview ?? null,
+            title: thread.title,
+            updatedAt: thread.updatedAt
+          })
+          .where(eq(threadsTable.id, thread.id))
+          .run()
+      })
     }
   }
 }

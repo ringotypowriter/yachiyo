@@ -1,0 +1,103 @@
+import type { Message, Thread } from '@renderer/app/types'
+import {
+  buildMessageTreeMaps,
+  collectMessagePath,
+  sortMessagesByCreatedAt
+} from '../../../../../shared/yachiyo/threadTree.ts'
+
+export interface MessageGroupBranch {
+  message: Message
+  isActive: boolean
+  label?: string
+}
+
+export interface MessageGroup {
+  userMessage: Message
+  assistantBranches: MessageGroupBranch[]
+  activeBranchIndex: number
+  showPreparing: boolean
+}
+
+function truncatePathAtRequest(path: Message[], requestMessageId: string | null): Message[] {
+  if (!requestMessageId) {
+    return path
+  }
+
+  const endIndex = path.findIndex((message) => message.id === requestMessageId)
+  return endIndex >= 0 ? path.slice(0, endIndex + 1) : path
+}
+
+export function buildMessageGroups(input: {
+  thread: Thread
+  messages: Message[]
+  runPhase: 'idle' | 'preparing' | 'streaming'
+  activeRequestMessageId: string | null
+}): MessageGroup[] {
+  const messages = sortMessagesByCreatedAt(input.messages)
+  const maps = buildMessageTreeMaps(messages)
+  const resolvedHeadMessageId =
+    input.thread.headMessageId && maps.byId.has(input.thread.headMessageId)
+      ? input.thread.headMessageId
+      : messages.at(-1)?.id
+
+  if (!resolvedHeadMessageId) {
+    return []
+  }
+
+  const fullPath = collectMessagePath(messages, resolvedHeadMessageId)
+  const visiblePath =
+    input.runPhase === 'idle'
+      ? fullPath
+      : truncatePathAtRequest(fullPath, input.activeRequestMessageId)
+  const activeAssistantIdsByRequest = new Map<string, string>()
+
+  for (let index = 0; index < fullPath.length - 1; index += 1) {
+    const current = fullPath[index]
+    const next = fullPath[index + 1]
+
+    if (
+      current?.role === 'user' &&
+      next?.role === 'assistant' &&
+      next.parentMessageId === current.id
+    ) {
+      activeAssistantIdsByRequest.set(current.id, next.id)
+    }
+  }
+
+  return visiblePath
+    .filter((message): message is Message => message.role === 'user')
+    .map((userMessage) => {
+      const assistantMessages = (maps.childrenByParent.get(userMessage.id) ?? []).filter(
+        (message): message is Message => message.role === 'assistant'
+      )
+      const activeAssistantIdFromPath = activeAssistantIdsByRequest.get(userMessage.id)
+      const activeAssistantFromPath = assistantMessages.find(
+        (message) => message.id === activeAssistantIdFromPath
+      )
+      const newestAssistant = assistantMessages.at(-1)
+      const shouldPreferNewestAssistant =
+        input.runPhase === 'streaming' &&
+        input.activeRequestMessageId === userMessage.id &&
+        newestAssistant &&
+        newestAssistant.id !== activeAssistantIdFromPath &&
+        (!activeAssistantFromPath ||
+          newestAssistant.createdAt.localeCompare(activeAssistantFromPath.createdAt) >= 0)
+      const selectedAssistantId = shouldPreferNewestAssistant
+        ? newestAssistant?.id
+        : activeAssistantIdFromPath ?? newestAssistant?.id
+      const activeBranchIndex = assistantMessages.findIndex(
+        (message) => message.id === selectedAssistantId
+      )
+
+      return {
+        userMessage,
+        assistantBranches: assistantMessages.map((message, index) => ({
+          message,
+          isActive: index === activeBranchIndex
+        })),
+        activeBranchIndex,
+        showPreparing:
+          input.runPhase === 'preparing' && input.activeRequestMessageId === userMessage.id
+      }
+    })
+}
