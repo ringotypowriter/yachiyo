@@ -18,6 +18,7 @@ import {
   type ComposerImageDraft
 } from '@renderer/app/store/useAppStore'
 import { getComposerActionState } from '@renderer/features/chat/lib/composerActionState'
+import { shouldSendOnComposerEnter } from '@renderer/features/chat/lib/composerEnterBehavior'
 import { ModelSelectorPopup } from './ModelSelectorPopup'
 
 const NEW_THREAD_DRAFT_KEY = '__new__'
@@ -124,6 +125,7 @@ export function Composer(): React.JSX.Element {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [selectorOpen, setSelectorOpen] = useState(false)
+  const [isComposing, setIsComposing] = useState(false)
 
   const composerValue = composerDraft.text
   const draftImages = composerDraft.images
@@ -277,7 +279,14 @@ export function Composer(): React.JSX.Element {
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.key === 'Enter' && !event.shiftKey) {
+      if (
+        shouldSendOnComposerEnter({
+          key: event.key,
+          shiftKey: event.shiftKey,
+          isComposing: isComposing || event.nativeEvent.isComposing,
+          keyCode: event.nativeEvent.keyCode
+        })
+      ) {
         event.preventDefault()
         if (canSend) {
           setSelectorOpen(false)
@@ -285,7 +294,7 @@ export function Composer(): React.JSX.Element {
         }
       }
     },
-    [canSend, sendMessage]
+    [canSend, isComposing, sendMessage]
   )
 
   const handlePaste = useCallback(
@@ -329,6 +338,8 @@ export function Composer(): React.JSX.Element {
           ref={textareaRef}
           value={composerValue}
           onChange={handleInput}
+          onCompositionStart={() => setIsComposing(true)}
+          onCompositionEnd={() => setIsComposing(false)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder={
