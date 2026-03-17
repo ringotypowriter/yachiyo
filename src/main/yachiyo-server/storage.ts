@@ -1,6 +1,7 @@
 import type {
   MessageImageRecord,
   MessageRecord,
+  RunRecord,
   ThreadRecord,
   ToolCallName,
   ToolCallRecord,
@@ -37,6 +38,7 @@ export interface BootstrapState {
   threads: ThreadRecord[]
   messagesByThread: Record<string, MessageRecord[]>
   toolCallsByThread: Record<string, ToolCallRecord[]>
+  latestRunsByThread: Record<string, RunRecord>
 }
 
 export interface StartRunInput {
@@ -79,9 +81,21 @@ export interface StoredToolCallRow {
   finishedAt: string | null
 }
 
+export interface StoredRunRow {
+  id: string
+  threadId: string
+  requestMessageId: string | null
+  assistantMessageId: string | null
+  status: RunRecord['status']
+  error: string | null
+  createdAt: string
+  completedAt: string | null
+}
+
 export interface YachiyoStorage {
   close(): void
   bootstrap(): BootstrapState
+  recoverInterruptedRuns(input: { finishedAt: string; error: string }): void
   getThread(threadId: string): ThreadRecord | undefined
   createThread(input: CreateThreadInput): void
   renameThread(input: { threadId: string; title: string; updatedAt: string }): void
@@ -165,6 +179,17 @@ export function toToolCallRecord(row: StoredToolCallRow): ToolCallRecord {
   }
 }
 
+export function toRunRecord(row: StoredRunRow): RunRecord {
+  return {
+    ...(row.completedAt === null ? {} : { completedAt: row.completedAt }),
+    ...(row.error === null ? {} : { error: row.error }),
+    createdAt: row.createdAt,
+    id: row.id,
+    status: row.status,
+    threadId: row.threadId
+  }
+}
+
 export function serializeMessageImages(images?: MessageImageRecord[]): string | null {
   const normalized = normalizeMessageImages(images)
   return normalized.length > 0 ? JSON.stringify(normalized) : null
@@ -195,4 +220,16 @@ export function groupToolCallsByThread(
     string,
     ToolCallRecord[]
   >
+}
+
+export function groupLatestRunsByThread(runs: RunRecord[]): Record<string, RunRecord> {
+  const latestRunsByThread: Record<string, RunRecord> = {}
+
+  for (const run of runs) {
+    if (!(run.threadId in latestRunsByThread)) {
+      latestRunsByThread[run.threadId] = run
+    }
+  }
+
+  return latestRunsByThread
 }

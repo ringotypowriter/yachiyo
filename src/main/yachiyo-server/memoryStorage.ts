@@ -1,26 +1,18 @@
 import type { MessageRecord, ToolCallRecord } from '../../shared/yachiyo/protocol'
 import {
+  groupLatestRunsByThread,
   groupToolCallsByThread,
   groupMessagesByThread,
+  toRunRecord,
   toToolCallRecord,
   toThreadRecord,
   type CompleteRunInput,
   type StartRunInput,
+  type StoredRunRow,
   type StoredToolCallRow,
   type StoredThreadRow,
   type YachiyoStorage
 } from './storage.ts'
-
-interface StoredRunRow {
-  id: string
-  threadId: string
-  requestMessageId: string | null
-  assistantMessageId: string | null
-  status: 'running' | 'completed' | 'cancelled' | 'failed'
-  error: string | null
-  createdAt: string
-  completedAt: string | null
-}
 
 export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const threads = new Map<string, StoredThreadRow>()
@@ -56,7 +48,15 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         messages.filter((message) => threadIds.has(message.threadId))
       )
 
+      const latestRunsByThread = groupLatestRunsByThread(
+        [...runs.values()]
+          .filter((run) => threadIds.has(run.threadId))
+          .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+          .map(toRunRecord)
+      )
+
       return {
+        latestRunsByThread,
         threads: activeThreads.map(toThreadRecord),
         messagesByThread: groupMessagesByThread(activeMessages),
         toolCallsByThread: groupToolCallsByThread(
@@ -66,6 +66,38 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
               .map(toToolCallRecord)
           )
         )
+      }
+    },
+
+    recoverInterruptedRuns({ error, finishedAt }) {
+      const interruptedRunIds = [...runs.values()]
+        .filter((run) => run.status === 'running')
+        .map((run) => run.id)
+
+      if (interruptedRunIds.length === 0) {
+        return
+      }
+
+      for (const runId of interruptedRunIds) {
+        const run = runs.get(runId)
+        if (!run) {
+          continue
+        }
+
+        run.status = 'failed'
+        run.error = error
+        run.completedAt = finishedAt
+      }
+
+      for (const toolCall of toolCalls.values()) {
+        if (toolCall.status !== 'running' || !interruptedRunIds.includes(toolCall.runId)) {
+          continue
+        }
+
+        toolCall.status = 'failed'
+        toolCall.error = error
+        toolCall.outputSummary = error
+        toolCall.finishedAt = finishedAt
       }
     },
 

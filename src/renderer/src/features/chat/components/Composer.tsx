@@ -17,6 +17,7 @@ import {
   useAppStore,
   type ComposerImageDraft
 } from '@renderer/app/store/useAppStore'
+import { getComposerActionState } from '@renderer/features/chat/lib/composerActionState'
 import { ModelSelectorPopup } from './ModelSelectorPopup'
 
 const NEW_THREAD_DRAFT_KEY = '__new__'
@@ -108,9 +109,9 @@ export function Composer(): React.JSX.Element {
   )
   const connectionStatus = useAppStore((s) => s.connectionStatus)
   const settings = useAppStore((s) => s.settings ?? DEFAULT_SETTINGS)
+  const activeRunId = useAppStore((s) => s.activeRunId)
   const config = useAppStore((s) => s.config)
   const runPhase = useAppStore((s) => s.runPhase)
-  const runStatus = useAppStore((s) => s.runStatus)
   const cancelActiveRun = useAppStore((s) => s.cancelActiveRun)
   const removeComposerImage = useAppStore((s) => s.removeComposerImage)
   const sendMessage = useAppStore((s) => s.sendMessage)
@@ -131,16 +132,17 @@ export function Composer(): React.JSX.Element {
   const hasFailedImages = draftImages.some((image) => image.status === 'failed')
   const hasPayload = composerValue.trim().length > 0 || readyImageCount > 0
   const canAddImages = draftImages.length < MAX_COMPOSER_IMAGES
-  const isRunning = runStatus === 'running'
+  const hasActiveRun = activeRunId !== null
   const isModelSelectorLocked = runPhase === 'preparing' || runPhase === 'streaming'
   const isConfigured = settings.apiKey.trim().length > 0 && settings.model.trim().length > 0
-  const canSend =
-    hasPayload &&
-    !isRunning &&
-    !hasLoadingImages &&
-    !hasFailedImages &&
-    isConfigured &&
-    connectionStatus === 'connected'
+  const { canSend, showStopButton } = getComposerActionState({
+    connectionStatus,
+    hasActiveRun,
+    hasFailedImages,
+    hasLoadingImages,
+    hasPayload,
+    isConfigured
+  })
 
   const composerStatus = (() => {
     if (connectionStatus !== 'connected') {
@@ -157,10 +159,10 @@ export function Composer(): React.JSX.Element {
       }
     }
 
-    if (isRunning) {
+    if (hasActiveRun) {
       return {
         tone: 'muted' as const,
-        text: 'Wait for the current reply to finish.'
+        text: 'A reply is still running. Stop it or wait for it to finish.'
       }
     }
 
@@ -435,36 +437,41 @@ export function Composer(): React.JSX.Element {
           ) : null}
         </div>
 
-        <div className="ml-auto">
-          {isRunning ? (
+        <div className="ml-auto flex items-center gap-2">
+          {showStopButton ? (
             <button
               type="button"
               onClick={() => void cancelActiveRun()}
               className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
-              style={{ background: '#CC7D5E' }}
-              aria-label="Stop"
-            >
-              <Square size={10} fill="white" strokeWidth={0} />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                if (!canSend) return
-                setSelectorOpen(false)
-                void sendMessage()
-              }}
-              disabled={!canSend}
-              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
               style={{
-                background: canSend ? '#CC7D5E' : 'rgba(0,0,0,0.08)',
-                cursor: canSend ? 'pointer' : 'default'
+                background: 'rgba(204,125,94,0.14)',
+                border: '1px solid rgba(204,125,94,0.28)'
               }}
-              aria-label="Send"
+              aria-label="Stop generation"
+              title="Stop generation"
             >
-              <SendHorizonal size={14} strokeWidth={1.8} color={canSend ? 'white' : '#aaa'} />
+              <Square size={10} fill="#CC7D5E" strokeWidth={0} />
             </button>
-          )}
+          ) : null}
+
+          <button
+            type="button"
+            onClick={() => {
+              if (!canSend) return
+              setSelectorOpen(false)
+              void sendMessage()
+            }}
+            disabled={!canSend}
+            className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
+            style={{
+              background: canSend ? '#CC7D5E' : 'rgba(0,0,0,0.08)',
+              cursor: canSend ? 'pointer' : 'default'
+            }}
+            aria-label="Send"
+            title="Send"
+          >
+            <SendHorizonal size={14} strokeWidth={1.8} color={canSend ? 'white' : '#aaa'} />
+          </button>
         </div>
       </div>
     </div>

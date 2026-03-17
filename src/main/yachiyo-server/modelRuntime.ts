@@ -15,6 +15,24 @@ type OpenAIProviderFactory = typeof createOpenAI
 type AnthropicProviderFactory = typeof createAnthropic
 type StreamTextImplementation = typeof streamText
 
+type OpenAiRuntimeProviderOptions = {
+  openai: {
+    reasoningEffort: string
+    store: false
+  }
+}
+
+type AnthropicRuntimeProviderOptions = {
+  anthropic: {
+    thinking: {
+      type: 'enabled'
+      budgetTokens: number
+    }
+  }
+}
+
+type RuntimeProviderOptions = OpenAiRuntimeProviderOptions | AnthropicRuntimeProviderOptions
+
 export interface AiSdkRuntimeDependencies {
   createAnthropicProvider?: AnthropicProviderFactory
   createOpenAIProvider?: OpenAIProviderFactory
@@ -54,24 +72,14 @@ function createLanguageModel(
   return provider(settings.model)
 }
 
-function createProviderOptions(settings: ProviderSettings):
-  | {
-      openai: {
-        reasoningEffort: string
-      }
-    }
-  | {
-      anthropic: {
-        thinking: {
-          type: 'enabled'
-          budgetTokens: number
-        }
-      }
-    } {
+function createProviderOptions(settings: ProviderSettings): RuntimeProviderOptions {
   if (settings.provider === 'openai') {
     return {
       openai: {
-        reasoningEffort: DEFAULT_OPENAI_REASONING_EFFORT
+        reasoningEffort: DEFAULT_OPENAI_REASONING_EFFORT,
+        // Keep tool-call context inline for proxy compatibility instead of
+        // depending on provider-side item storage across tool steps.
+        store: false
       }
     }
   }

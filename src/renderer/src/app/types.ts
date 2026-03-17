@@ -3,6 +3,7 @@ export type {
   MessageRecord as Message,
   MessageImageRecord,
   ProviderSettings,
+  RunRecord,
   RunStatus,
   SettingsConfig,
   ThreadRecord as Thread,

@@ -5,6 +5,7 @@ import type {
   Message,
   MessageImageRecord,
   ProviderSettings,
+  RunRecord,
   RunStatus,
   SettingsConfig,
   Thread,
@@ -63,6 +64,7 @@ interface AppState {
   initialized: boolean
   isBootstrapping: boolean
   lastError: string | null
+  latestRunsByThread: Record<string, RunRecord>
   removeComposerImage: (imageId: string, threadId?: string | null) => void
   deleteMessage: (messageId: string) => Promise<void>
   messages: Record<string, Message[]>
@@ -111,6 +113,16 @@ function upsertMessage(messages: Message[], message: Message): Message[] {
 function upsertToolCall(toolCalls: ToolCall[], toolCall: ToolCall): ToolCall[] {
   const next = [...toolCalls.filter((item) => item.id !== toolCall.id), toolCall]
   return next.sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+}
+
+function upsertLatestRun(
+  latestRunsByThread: Record<string, RunRecord>,
+  run: RunRecord
+): Record<string, RunRecord> {
+  return {
+    ...latestRunsByThread,
+    [run.threadId]: run
+  }
 }
 
 const NEW_THREAD_DRAFT_KEY = '__new__'
@@ -259,6 +271,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   initialized: false,
   isBootstrapping: false,
   lastError: null,
+  latestRunsByThread: {},
   removeComposerImage: (imageId, threadId) =>
     set((state) => {
       const draftKey = getComposerDraftKey(threadId ?? state.activeThreadId)
@@ -316,6 +329,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete messages[event.threadId]
         const harnessEvents = { ...state.harnessEvents }
         delete harnessEvents[event.threadId]
+        const latestRunsByThread = { ...state.latestRunsByThread }
+        delete latestRunsByThread[event.threadId]
         const toolCalls = { ...state.toolCalls }
         delete toolCalls[event.threadId]
 
@@ -326,6 +341,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               : state.activeThreadId,
           composerDrafts: removeComposerDraft(state.composerDrafts, event.threadId),
           harnessEvents,
+          latestRunsByThread,
           messages,
           toolCalls,
           threads
@@ -370,6 +386,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           activeRequestMessageId: event.requestMessageId,
           activeRunThreadId: event.threadId,
           lastError: null,
+          latestRunsByThread: upsertLatestRun(state.latestRunsByThread, {
+            id: event.runId,
+            threadId: event.threadId,
+            status: 'running',
+            createdAt: event.timestamp
+          }),
           runPhase: 'preparing',
           runStatus: 'running'
         }
@@ -456,6 +478,16 @@ export const useAppStore = create<AppState>((set, get) => ({
           activeRequestMessageId:
             state.activeRunId === event.runId ? null : state.activeRequestMessageId,
           activeRunThreadId: state.activeRunId === event.runId ? null : state.activeRunThreadId,
+          latestRunsByThread: upsertLatestRun(state.latestRunsByThread, {
+            id: event.runId,
+            threadId: event.threadId,
+            status: 'completed',
+            createdAt:
+              state.latestRunsByThread[event.threadId]?.id === event.runId
+                ? state.latestRunsByThread[event.threadId]!.createdAt
+                : event.timestamp,
+            completedAt: event.timestamp
+          }),
           pendingAssistantMessages,
           runPhase: 'idle',
           runStatus: 'idle'
@@ -473,6 +505,17 @@ export const useAppStore = create<AppState>((set, get) => ({
             state.activeRunId === event.runId ? null : state.activeRequestMessageId,
           activeRunThreadId: state.activeRunId === event.runId ? null : state.activeRunThreadId,
           lastError: event.error,
+          latestRunsByThread: upsertLatestRun(state.latestRunsByThread, {
+            id: event.runId,
+            threadId: event.threadId,
+            status: 'failed',
+            error: event.error,
+            createdAt:
+              state.latestRunsByThread[event.threadId]?.id === event.runId
+                ? state.latestRunsByThread[event.threadId]!.createdAt
+                : event.timestamp,
+            completedAt: event.timestamp
+          }),
           messages: pending
             ? {
                 ...state.messages,
@@ -499,6 +542,16 @@ export const useAppStore = create<AppState>((set, get) => ({
           activeRequestMessageId:
             state.activeRunId === event.runId ? null : state.activeRequestMessageId,
           activeRunThreadId: state.activeRunId === event.runId ? null : state.activeRunThreadId,
+          latestRunsByThread: upsertLatestRun(state.latestRunsByThread, {
+            id: event.runId,
+            threadId: event.threadId,
+            status: 'cancelled',
+            createdAt:
+              state.latestRunsByThread[event.threadId]?.id === event.runId
+                ? state.latestRunsByThread[event.threadId]!.createdAt
+                : event.timestamp,
+            completedAt: event.timestamp
+          }),
           messages: pending
             ? {
                 ...state.messages,
@@ -595,6 +648,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           initialized: true,
           isBootstrapping: false,
           lastError: null,
+          latestRunsByThread: payload.latestRunsByThread,
           messages: payload.messagesByThread,
           settings: payload.settings ?? state.settings ?? DEFAULT_SETTINGS,
           threads: sortThreads(payload.threads),
@@ -627,8 +681,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     try {
-      await window.api.yachiyo.retryMessage({ threadId, messageId })
-      set({ lastError: null })
+      const accepted = await window.api.yachiyo.retryMessage({ threadId, messageId })
+      set((state) => ({
+        activeRunId: accepted.runId,
+        activeRequestMessageId: accepted.requestMessageId,
+        activeRunThreadId: accepted.thread.id,
+        activeThreadId: accepted.thread.id,
+        lastError: null,
+        runPhase: 'preparing',
+        runStatus: 'running',
+        threads: upsertThread(state.threads, accepted.thread)
+      }))
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to retry this response.'
       set({ lastError: message })
@@ -705,6 +768,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       })
 
       set((state) => ({
+        activeRunId: accepted.runId,
+        activeRequestMessageId: accepted.userMessage.id,
+        activeRunThreadId: accepted.thread.id,
         activeThreadId: accepted.thread.id,
         composerDrafts: removeComposerDraft(state.composerDrafts, accepted.thread.id),
         lastError: null,
@@ -715,6 +781,8 @@ export const useAppStore = create<AppState>((set, get) => ({
             accepted.userMessage
           )
         },
+        runPhase: 'preparing',
+        runStatus: 'running',
         threads: upsertThread(state.threads, accepted.thread)
       }))
     } catch (error) {

@@ -12,6 +12,7 @@ test('createAiSdkModelRuntime uses AI SDK streaming with the OpenAI responses pr
     providerOptions?: {
       openai?: {
         reasoningEffort?: string
+        store?: boolean
       }
     }
   } | null = null
@@ -35,6 +36,7 @@ test('createAiSdkModelRuntime uses AI SDK streaming with the OpenAI responses pr
       providerOptions?: {
         openai?: {
           reasoningEffort?: string
+          store?: boolean
         }
       }
     }) => {
@@ -87,6 +89,7 @@ test('createAiSdkModelRuntime uses AI SDK streaming with the OpenAI responses pr
     providerOptions?: {
       openai?: {
         reasoningEffort?: string
+        store?: boolean
       }
     }
   } | null
@@ -96,7 +99,8 @@ test('createAiSdkModelRuntime uses AI SDK streaming with the OpenAI responses pr
   assert.equal(streamCall.abortSignal, controller.signal)
   assert.deepEqual(streamCall.providerOptions, {
     openai: {
-      reasoningEffort: 'medium'
+      reasoningEffort: 'medium',
+      store: false
     }
   })
 })

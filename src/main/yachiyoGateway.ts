@@ -34,6 +34,31 @@ const IPC_CHANNELS = {
 } as const
 
 let server: YachiyoServer | null = null
+let fatalRunRecoveryRegistered = false
+
+function toFatalRunError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  const trimmed = message.trim()
+  return trimmed
+    ? `Fatal main-process error interrupted the run: ${trimmed}`
+    : 'Fatal main-process error interrupted the run.'
+}
+
+function registerFatalRunRecovery(): void {
+  if (fatalRunRecoveryRegistered) {
+    return
+  }
+
+  process.on('uncaughtExceptionMonitor', (error) => {
+    try {
+      server?.recoverInterruptedRuns(toFatalRunError(error))
+    } catch (recoveryError) {
+      console.error('[yachiyo] failed to persist interrupted runs after a fatal error', recoveryError)
+    }
+  })
+
+  fatalRunRecoveryRegistered = true
+}
 
 function broadcast(event: YachiyoServerEvent): void {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -60,6 +85,7 @@ export function registerYachiyoGateway(): YachiyoServer {
     dbPath: resolveYachiyoDbPath(),
     settingsPath: resolveYachiyoSettingsPath()
   })
+  registerFatalRunRecovery()
   server.subscribe(broadcast)
 
   handle(IPC_CHANNELS.bootstrap, () => server!.bootstrap())

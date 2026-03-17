@@ -550,6 +550,143 @@ test('YachiyoServer cancels an active run without persisting partial assistant o
   })
 })
 
+test('YachiyoServer bootstrap recovers interrupted runs and marks running tool calls as failed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-recover-test-'))
+  const settingsPath = join(root, 'config.toml')
+  const storage = createInMemoryYachiyoStorage()
+  const createdAt = '2026-03-16T09:00:00.000Z'
+  const interruptedAt = '2026-03-17T09:30:00.000Z'
+
+  storage.createThread({
+    thread: {
+      id: 'thread-1',
+      title: 'Interrupted thread',
+      updatedAt: createdAt,
+      headMessageId: 'user-1'
+    },
+    createdAt,
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'Do the thing',
+        status: 'completed',
+        createdAt
+      }
+    ]
+  })
+  storage.startRun({
+    runId: 'run-1',
+    thread: {
+      id: 'thread-1',
+      title: 'Interrupted thread',
+      updatedAt: createdAt,
+      headMessageId: 'user-1'
+    },
+    updatedThread: {
+      id: 'thread-1',
+      title: 'Interrupted thread',
+      updatedAt: createdAt,
+      headMessageId: 'user-1'
+    },
+    requestMessageId: 'user-1',
+    createdAt
+  })
+  storage.createToolCall({
+    id: 'tool-1',
+    runId: 'run-1',
+    threadId: 'thread-1',
+    toolName: 'bash',
+    status: 'running',
+    inputSummary: 'pwd',
+    startedAt: createdAt
+  })
+
+  const server = new YachiyoServer({
+    storage,
+    settingsPath,
+    now: () => new Date(interruptedAt)
+  })
+
+  try {
+    const bootstrap = await server.bootstrap()
+
+    assert.deepEqual(bootstrap.latestRunsByThread['thread-1'], {
+      id: 'run-1',
+      threadId: 'thread-1',
+      status: 'failed',
+      error: 'Run interrupted before completion.',
+      createdAt,
+      completedAt: interruptedAt
+    })
+    assert.equal(bootstrap.toolCallsByThread['thread-1']?.[0]?.status, 'failed')
+    assert.equal(
+      bootstrap.toolCallsByThread['thread-1']?.[0]?.outputSummary,
+      'Run interrupted before completion.'
+    )
+  } finally {
+    await server.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('YachiyoServer close waits for active runs to persist a terminal status', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-close-test-'))
+  const settingsPath = join(root, 'config.toml')
+  const storage = createInMemoryYachiyoStorage()
+  const server = new YachiyoServer({
+    storage,
+    settingsPath,
+    createModelRuntime: () => ({
+      async *streamReply(request: ModelStreamRequest) {
+        await new Promise((_, reject) => {
+          const abort = (): void => {
+            const error = new Error('Aborted')
+            error.name = 'AbortError'
+            reject(error)
+          }
+
+          if (request.signal.aborted) {
+            abort()
+            return
+          }
+
+          request.signal.addEventListener('abort', abort, { once: true })
+        })
+
+        yield 'unreachable'
+      }
+    })
+  })
+
+  try {
+    await server.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    })
+
+    const thread = await server.createThread()
+    await server.sendChat({
+      threadId: thread.id,
+      content: 'Close while running'
+    })
+
+    await server.close()
+
+    const bootstrap = storage.bootstrap()
+    assert.equal(bootstrap.latestRunsByThread[thread.id]?.status, 'cancelled')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('YachiyoServer renames and archives threads', async () => {
   await withServer(async ({ server }) => {
     const first = await server.createThread()

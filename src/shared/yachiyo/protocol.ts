@@ -78,8 +78,18 @@ export interface BootstrapPayload {
   threads: ThreadRecord[]
   messagesByThread: Record<string, MessageRecord[]>
   toolCallsByThread: Record<string, ToolCallRecord[]>
+  latestRunsByThread: Record<string, RunRecord>
   config: SettingsConfig
   settings: ProviderSettings
+}
+
+export interface RunRecord {
+  id: string
+  threadId: string
+  status: Exclude<RunStatus, 'idle'>
+  error?: string
+  createdAt: string
+  completedAt?: string
 }
 
 export interface ChatAccepted {

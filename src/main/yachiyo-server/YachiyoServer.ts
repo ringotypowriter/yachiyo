@@ -63,6 +63,8 @@ import type { ModelRuntime } from './types.ts'
 
 const DEFAULT_THREAD_TITLE = 'New Chat'
 const DEFAULT_HARNESS_NAME = 'default.reply'
+const INTERRUPTED_RUN_ERROR = 'Run interrupted before completion.'
+const SHUTDOWN_RUN_ERROR = 'Application shut down before the run completed.'
 
 interface RunState {
   threadId: string
@@ -175,6 +177,7 @@ export class YachiyoServer {
   private readonly listeners = new Set<(event: YachiyoServerEvent) => void>()
   private readonly activeRuns = new Map<string, RunState>()
   private readonly activeRunByThread = new Map<string, string>()
+  private readonly activeRunTasks = new Map<string, Promise<void>>()
 
   constructor(options: YachiyoServerOptions) {
     this.storage = options.storage
@@ -197,18 +200,36 @@ export class YachiyoServer {
     for (const state of this.activeRuns.values()) {
       state.abortController.abort()
     }
+
+    if (this.activeRunTasks.size > 0) {
+      await Promise.allSettled(this.activeRunTasks.values())
+    }
+
+    this.recoverInterruptedRuns(SHUTDOWN_RUN_ERROR)
     this.activeRuns.clear()
     this.activeRunByThread.clear()
+    this.activeRunTasks.clear()
     this.storage.close()
   }
 
+  recoverInterruptedRuns(error: string = INTERRUPTED_RUN_ERROR): void {
+    this.storage.recoverInterruptedRuns({
+      error,
+      finishedAt: this.timestamp()
+    })
+  }
+
   async bootstrap(): Promise<BootstrapPayload> {
-    const { threads, messagesByThread, toolCallsByThread } = this.storage.bootstrap()
+    this.recoverInterruptedRuns()
+
+    const { threads, messagesByThread, toolCallsByThread, latestRunsByThread } =
+      this.storage.bootstrap()
 
     return {
       threads,
       messagesByThread,
       toolCallsByThread,
+      latestRunsByThread,
       config: this.readConfig(),
       settings: this.readSettings()
     }
@@ -712,13 +733,15 @@ export class YachiyoServer {
       updateHeadOnComplete: input.updateHeadOnComplete
     })
     this.activeRunByThread.set(input.thread.id, input.runId)
-    void this.executeRun({
+    const runTask = this.executeRun({
       abortController,
       requestMessageId: input.requestMessageId,
       runId: input.runId,
       thread: input.thread,
       updateHeadOnComplete: input.updateHeadOnComplete
     })
+    this.activeRunTasks.set(input.runId, runTask)
+    void runTask
   }
 
   private async executeRun(input: {
@@ -959,6 +982,7 @@ export class YachiyoServer {
     } finally {
       this.activeRuns.delete(input.runId)
       this.activeRunByThread.delete(input.thread.id)
+      this.activeRunTasks.delete(input.runId)
     }
   }
 

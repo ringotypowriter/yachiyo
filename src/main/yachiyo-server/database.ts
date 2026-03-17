@@ -9,10 +9,12 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import * as schema from './schema.ts'
 import { messagesTable, runsTable, threadsTable, toolCallsTable } from './schema.ts'
 import {
+  groupLatestRunsByThread,
   groupToolCallsByThread,
   groupMessagesByThread,
   serializeMessageImages,
   toMessageRecord,
+  toRunRecord,
   toToolCallRecord,
   toThreadRecord,
   type CompleteRunInput,
@@ -144,12 +146,71 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
               .orderBy(asc(toolCallsTable.startedAt))
               .all()
               .map(toToolCallRecord)
+      const latestRunsByThread =
+        threadIds.length === 0
+          ? {}
+          : groupLatestRunsByThread(
+              db
+                .select({
+                  assistantMessageId: runsTable.assistantMessageId,
+                  completedAt: runsTable.completedAt,
+                  createdAt: runsTable.createdAt,
+                  error: runsTable.error,
+                  id: runsTable.id,
+                  requestMessageId: runsTable.requestMessageId,
+                  status: runsTable.status,
+                  threadId: runsTable.threadId
+                })
+                .from(runsTable)
+                .where(inArray(runsTable.threadId, threadIds))
+                .orderBy(desc(runsTable.createdAt))
+                .all()
+                .map(toRunRecord)
+            )
 
       return {
+        latestRunsByThread,
         threads,
         messagesByThread: groupMessagesByThread(messages),
         toolCallsByThread: groupToolCallsByThread(toolCalls)
       }
+    },
+
+    recoverInterruptedRuns({ error, finishedAt }) {
+      const interruptedRuns = db
+        .select({
+          id: runsTable.id
+        })
+        .from(runsTable)
+        .where(eq(runsTable.status, 'running'))
+        .all()
+
+      if (interruptedRuns.length === 0) {
+        return
+      }
+
+      const interruptedRunIds = interruptedRuns.map((run) => run.id)
+
+      db.transaction((tx) => {
+        tx.update(runsTable)
+          .set({
+            completedAt: finishedAt,
+            error,
+            status: 'failed'
+          })
+          .where(inArray(runsTable.id, interruptedRunIds))
+          .run()
+
+        tx.update(toolCallsTable)
+          .set({
+            error,
+            finishedAt,
+            outputSummary: error,
+            status: 'failed'
+          })
+          .where(and(inArray(toolCallsTable.runId, interruptedRunIds), eq(toolCallsTable.status, 'running')))
+          .run()
+      })
     },
 
     getThread(threadId) {

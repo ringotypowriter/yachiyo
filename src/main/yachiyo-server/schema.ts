@@ -1,6 +1,6 @@
 import { sqliteTable, text, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
 
-import type { MessageRecord, ToolCallRecord } from '../../shared/yachiyo/protocol'
+import type { MessageRecord, RunRecord, ToolCallRecord } from '../../shared/yachiyo/protocol'
 
 export const threadsTable = sqliteTable('threads', {
   id: text('id').primaryKey(),
@@ -42,7 +42,7 @@ export const runsTable = sqliteTable('runs', {
   assistantMessageId: text('assistant_message_id').references(() => messagesTable.id, {
     onDelete: 'set null'
   }),
-  status: text('status').notNull(),
+  status: text('status').$type<RunRecord['status']>().notNull(),
   error: text('error'),
   createdAt: text('created_at').notNull(),
   completedAt: text('completed_at')

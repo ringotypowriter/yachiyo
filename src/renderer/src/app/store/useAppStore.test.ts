@@ -24,6 +24,7 @@ function resetStore(): void {
     initialized: false,
     isBootstrapping: false,
     lastError: null,
+    latestRunsByThread: {},
     messages: {},
     pendingAssistantMessages: {},
     runPhase: 'idle',
@@ -427,10 +428,79 @@ test('sendMessage restores per-thread drafts and clears only the sent thread on 
     assert.equal(state.composerDrafts['thread-1'], undefined)
     assert.equal(state.composerDrafts['thread-2']?.text, 'Bravo')
     assert.equal(state.messages['thread-1']?.[0]?.content, 'Alpha')
+    assert.equal(state.activeRunId, 'run-1')
+    assert.equal(state.activeRequestMessageId, 'user-1')
+    assert.equal(state.activeRunThreadId, 'thread-1')
+    assert.equal(state.runPhase, 'preparing')
+    assert.equal(state.runStatus, 'running')
 
     state.setActiveThread('thread-2')
     state = useAppStore.getState()
     assert.equal(state.composerDrafts['thread-2']?.text, 'Bravo')
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('retryMessage marks the accepted run as active immediately', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    retryMessage: async (input) => ({
+      runId: 'run-retry-1',
+      thread: {
+        id: input.threadId,
+        title: 'Thread one',
+        updatedAt: TIMESTAMP
+      },
+      requestMessageId: 'user-1',
+      sourceAssistantMessageId: input.messageId
+    })
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      messages: {
+        'thread-1': [
+          {
+            id: 'user-1',
+            threadId: 'thread-1',
+            role: 'user',
+            content: 'Alpha',
+            status: 'completed',
+            createdAt: TIMESTAMP
+          },
+          {
+            id: 'assistant-1',
+            threadId: 'thread-1',
+            parentMessageId: 'user-1',
+            role: 'assistant',
+            content: 'Bravo',
+            status: 'completed',
+            createdAt: TIMESTAMP
+          }
+        ]
+      },
+      settings: READY_SETTINGS,
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Thread one',
+          updatedAt: TIMESTAMP
+        }
+      ]
+    })
+
+    await useAppStore.getState().retryMessage('assistant-1')
+
+    const state = useAppStore.getState()
+    assert.equal(state.activeRunId, 'run-retry-1')
+    assert.equal(state.activeRequestMessageId, 'user-1')
+    assert.equal(state.activeRunThreadId, 'thread-1')
+    assert.equal(state.runPhase, 'preparing')
+    assert.equal(state.runStatus, 'running')
+    assert.equal(state.lastError, null)
   } finally {
     restoreWindow()
   }
