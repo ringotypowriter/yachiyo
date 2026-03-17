@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import { DEFAULT_ENABLED_TOOL_NAMES } from '../../../../shared/yachiyo/protocol.ts'
 import { DEFAULT_SETTINGS, useAppStore } from './useAppStore.ts'
 
 const TIMESTAMP = '2026-03-15T00:00:00.000Z'
@@ -20,6 +21,7 @@ function resetStore(): void {
     composerDrafts: {},
     config: null,
     connectionStatus: 'connected',
+    enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
     harnessEvents: {},
     initialized: false,
     isBootstrapping: false,
@@ -354,14 +356,67 @@ test('selectModel ignores changes while a run is active', async () => {
   }
 })
 
+test('setEnabledTools persists one shared tool preference across thread switches', async () => {
+  resetStore()
+
+  const calls: string[][] = []
+  const restoreWindow = withWindowApiMock({
+    saveToolPreferences: async (input) => {
+      const enabledTools = input.enabledTools ?? []
+      calls.push(enabledTools)
+
+      return {
+        enabledTools,
+        providers: []
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      config: {
+        enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+        providers: []
+      },
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Thread one',
+          updatedAt: TIMESTAMP
+        },
+        {
+          id: 'thread-2',
+          title: 'Thread two',
+          updatedAt: TIMESTAMP
+        }
+      ]
+    })
+
+    await useAppStore.getState().setEnabledTools(['read', 'bash'])
+
+    let state = useAppStore.getState()
+    assert.deepEqual(calls, [['read', 'bash']])
+    assert.deepEqual(state.enabledTools, ['read', 'bash'])
+
+    state.setActiveThread('thread-2')
+    state = useAppStore.getState()
+    assert.equal(state.activeThreadId, 'thread-2')
+    assert.deepEqual(state.enabledTools, ['read', 'bash'])
+  } finally {
+    restoreWindow()
+  }
+})
+
 test('sendMessage restores per-thread drafts and clears only the sent thread on success', async () => {
   resetStore()
 
-  const calls: Array<{ content: string; threadId: string }> = []
+  const calls: Array<{ content: string; enabledTools?: string[]; threadId: string }> = []
   const restoreWindow = withWindowApiMock({
     sendChat: async (input) => {
       calls.push({
         content: input.content,
+        enabledTools: input.enabledTools,
         threadId: input.threadId
       })
 
@@ -401,6 +456,7 @@ test('sendMessage restores per-thread drafts and clears only the sent thread on 
         'thread-1': [],
         'thread-2': []
       },
+      enabledTools: ['read', 'bash'],
       settings: READY_SETTINGS,
       threads: [
         {
@@ -422,6 +478,7 @@ test('sendMessage restores per-thread drafts and clears only the sent thread on 
     assert.deepEqual(calls, [
       {
         content: 'Alpha',
+        enabledTools: ['read', 'bash'],
         threadId: 'thread-1'
       }
     ])
@@ -445,17 +502,26 @@ test('sendMessage restores per-thread drafts and clears only the sent thread on 
 test('retryMessage marks the accepted run as active immediately', async () => {
   resetStore()
 
+  const calls: Array<{ enabledTools?: string[]; messageId: string; threadId: string }> = []
   const restoreWindow = withWindowApiMock({
-    retryMessage: async (input) => ({
-      runId: 'run-retry-1',
-      thread: {
-        id: input.threadId,
-        title: 'Thread one',
-        updatedAt: TIMESTAMP
-      },
-      requestMessageId: 'user-1',
-      sourceAssistantMessageId: input.messageId
-    })
+    retryMessage: async (input) => {
+      calls.push({
+        enabledTools: input.enabledTools,
+        messageId: input.messageId,
+        threadId: input.threadId
+      })
+
+      return {
+        runId: 'run-retry-1',
+        thread: {
+          id: input.threadId,
+          title: 'Thread one',
+          updatedAt: TIMESTAMP
+        },
+        requestMessageId: 'user-1',
+        sourceAssistantMessageId: input.messageId
+      }
+    }
   })
 
   try {
@@ -482,6 +548,7 @@ test('retryMessage marks the accepted run as active immediately', async () => {
           }
         ]
       },
+      enabledTools: ['read', 'edit'],
       settings: READY_SETTINGS,
       threads: [
         {
@@ -495,6 +562,13 @@ test('retryMessage marks the accepted run as active immediately', async () => {
     await useAppStore.getState().retryMessage('assistant-1')
 
     const state = useAppStore.getState()
+    assert.deepEqual(calls, [
+      {
+        enabledTools: ['read', 'edit'],
+        messageId: 'assistant-1',
+        threadId: 'thread-1'
+      }
+    ])
     assert.equal(state.activeRunId, 'run-retry-1')
     assert.equal(state.activeRequestMessageId, 'user-1')
     assert.equal(state.activeRunThreadId, 'thread-1')

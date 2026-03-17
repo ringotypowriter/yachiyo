@@ -3,8 +3,41 @@ export type MessageStatus = 'completed' | 'streaming' | 'failed' | 'stopped'
 export type RunStatus = 'idle' | 'running' | 'completed' | 'failed' | 'cancelled'
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected'
 export type ProviderKind = 'openai' | 'anthropic'
-export type ToolCallName = 'read' | 'write' | 'edit' | 'bash'
+export const CORE_TOOL_NAMES = ['read', 'write', 'edit', 'bash'] as const
+export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
 export type ToolCallStatus = 'running' | 'completed' | 'failed'
+
+const coreToolNameSet = new Set<string>(CORE_TOOL_NAMES)
+
+export const DEFAULT_ENABLED_TOOL_NAMES = [...CORE_TOOL_NAMES] as ToolCallName[]
+
+export function normalizeEnabledTools(
+  value: unknown,
+  fallback: readonly ToolCallName[] = DEFAULT_ENABLED_TOOL_NAMES
+): ToolCallName[] {
+  if (!Array.isArray(value)) {
+    return [...fallback]
+  }
+
+  const enabledTools: ToolCallName[] = []
+  const seen = new Set<ToolCallName>()
+
+  for (const item of value) {
+    if (typeof item !== 'string' || !coreToolNameSet.has(item)) {
+      continue
+    }
+
+    const toolName = item as ToolCallName
+    if (seen.has(toolName)) {
+      continue
+    }
+
+    seen.add(toolName)
+    enabledTools.push(toolName)
+  }
+
+  return enabledTools
+}
 
 export interface ReadToolCallDetails {
   path: string
@@ -110,6 +143,7 @@ export interface ProviderConfig {
 
 export interface SettingsConfig {
   providers: ProviderConfig[]
+  enabledTools?: ToolCallName[]
 }
 
 export interface ProviderSettings {
@@ -142,6 +176,23 @@ export interface ChatAccepted {
   runId: string
   thread: ThreadRecord
   userMessage: MessageRecord
+}
+
+export interface ToolPreferencesInput {
+  enabledTools?: ToolCallName[]
+}
+
+export interface SendChatInput {
+  threadId: string
+  content: string
+  images?: MessageImageRecord[]
+  enabledTools?: ToolCallName[]
+}
+
+export interface RetryInput {
+  threadId: string
+  messageId: string
+  enabledTools?: ToolCallName[]
 }
 
 export interface RetryAccepted {

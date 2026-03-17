@@ -1,34 +1,40 @@
 import { randomUUID } from 'node:crypto'
 
-import type {
-  BootstrapPayload,
-  ChatAccepted,
-  HarnessFinishedEvent,
-  HarnessStartedEvent,
-  MessageCompletedEvent,
-  MessageDeltaEvent,
-  MessageRecord,
-  MessageStartedEvent,
-  ProviderConfig,
-  ProviderSettings,
-  RetryAccepted,
-  RunCreatedEvent,
-  RunCancelledEvent,
-  RunCompletedEvent,
-  RunFailedEvent,
-  SettingsConfig,
-  SettingsUpdatedEvent,
-  ThreadArchivedEvent,
-  ThreadCreatedEvent,
-  MessageImageRecord,
-  ThreadRecord,
-  ThreadSnapshot,
-  ThreadStateReplacedEvent,
-  ToolCallRecord,
-  ToolCallUpdatedEvent,
-  ThreadUpdatedEvent,
-  YachiyoServerEvent
-} from '../../../shared/yachiyo/protocol'
+import {
+  DEFAULT_ENABLED_TOOL_NAMES,
+  normalizeEnabledTools,
+  type BootstrapPayload,
+  type ChatAccepted,
+  type HarnessFinishedEvent,
+  type HarnessStartedEvent,
+  type MessageCompletedEvent,
+  type MessageDeltaEvent,
+  type MessageRecord,
+  type MessageStartedEvent,
+  type ProviderConfig,
+  type ProviderSettings,
+  type RetryAccepted,
+  type RetryInput,
+  type RunCreatedEvent,
+  type RunCancelledEvent,
+  type RunCompletedEvent,
+  type RunFailedEvent,
+  type SendChatInput,
+  type SettingsConfig,
+  type SettingsUpdatedEvent,
+  type ThreadArchivedEvent,
+  type ThreadCreatedEvent,
+  type MessageImageRecord,
+  type ThreadRecord,
+  type ThreadSnapshot,
+  type ThreadStateReplacedEvent,
+  type ToolCallName,
+  type ToolCallRecord,
+  type ToolCallUpdatedEvent,
+  type ThreadUpdatedEvent,
+  type ToolPreferencesInput,
+  type YachiyoServerEvent
+} from '../../../shared/yachiyo/protocol.ts'
 import {
   extractBase64DataUrlPayload,
   hasMessagePayload,
@@ -44,6 +50,11 @@ import {
 } from '../../../shared/yachiyo/threadTree.ts'
 import { resolveYachiyoSettingsPath } from '../config/paths.ts'
 import { prepareModelMessages } from '../runtime/messagePrepare.ts'
+import {
+  buildToolAvailabilityReminderSection,
+  formatQueryReminder,
+  prependQueryReminderToLatestUserMessage
+} from '../runtime/queryReminder.ts'
 import { createAiSdkModelRuntime, fetchModels } from '../runtime/modelRuntime.ts'
 import type { ModelRuntime } from '../runtime/types.ts'
 import {
@@ -104,6 +115,13 @@ function assertSupportedImages(images: MessageImageRecord[]): void {
       throw new Error('Image input is not ready to send yet.')
     }
   }
+}
+
+function resolveEnabledTools(
+  value: unknown,
+  fallback: readonly ToolCallName[] = DEFAULT_ENABLED_TOOL_NAMES
+): ToolCallName[] {
+  return normalizeEnabledTools(value, fallback)
 }
 
 function upsertProvider(config: SettingsConfig, provider: ProviderConfig): SettingsConfig {
@@ -176,6 +194,7 @@ export class YachiyoServer {
   private readonly activeRuns = new Map<string, RunState>()
   private readonly activeRunByThread = new Map<string, string>()
   private readonly activeRunTasks = new Map<string, Promise<void>>()
+  private lastRunEnabledTools: ToolCallName[]
 
   constructor(options: YachiyoServerOptions) {
     this.storage = options.storage
@@ -185,6 +204,7 @@ export class YachiyoServer {
     this.createModelRuntime = options.createModelRuntime ?? (() => createAiSdkModelRuntime())
     this.ensureThreadWorkspace = options.ensureThreadWorkspace ?? defaultEnsureThreadWorkspace
     this.cloneThreadWorkspace = options.cloneThreadWorkspace ?? defaultCloneThreadWorkspace
+    this.lastRunEnabledTools = resolveEnabledTools(this.readConfig().enabledTools)
   }
 
   subscribe(listener: (event: YachiyoServerEvent) => void): () => void {
@@ -288,6 +308,14 @@ export class YachiyoServer {
     })
 
     return toProviderSettings(nextConfig)
+  }
+
+  async saveToolPreferences(input: ToolPreferencesInput): Promise<SettingsConfig> {
+    const current = this.readConfig()
+    return this.persistConfig({
+      ...current,
+      enabledTools: resolveEnabledTools(input.enabledTools, current.enabledTools)
+    })
   }
 
   async upsertProvider(input: ProviderConfig): Promise<ProviderConfig> {
@@ -411,13 +439,10 @@ export class YachiyoServer {
     })
   }
 
-  async sendChat(input: {
-    threadId: string
-    content: string
-    images?: MessageImageRecord[]
-  }): Promise<ChatAccepted> {
+  async sendChat(input: SendChatInput): Promise<ChatAccepted> {
     const content = input.content.trim()
     const images = normalizeMessageImages(input.images)
+    const enabledTools = resolveEnabledTools(input.enabledTools, this.readConfig().enabledTools)
 
     if (!hasMessagePayload({ content, images })) {
       throw new Error('Cannot send an empty message.')
@@ -479,6 +504,7 @@ export class YachiyoServer {
     })
 
     this.startActiveRun({
+      enabledTools,
       runId: accepted.runId,
       thread: accepted.thread,
       requestMessageId: userMessage.id,
@@ -488,11 +514,13 @@ export class YachiyoServer {
     return accepted
   }
 
-  async retryMessage(input: { threadId: string; messageId: string }): Promise<RetryAccepted> {
+  async retryMessage(input: RetryInput): Promise<RetryAccepted> {
     const thread = this.requireThread(input.threadId)
     if (this.activeRunByThread.has(thread.id)) {
       throw new Error('This thread already has an active run.')
     }
+
+    const enabledTools = resolveEnabledTools(input.enabledTools, this.readConfig().enabledTools)
 
     const { requestMessage, sourceAssistantMessage } = this.resolveRetryRequest(
       thread,
@@ -531,6 +559,7 @@ export class YachiyoServer {
     })
 
     this.startActiveRun({
+      enabledTools,
       runId: accepted.runId,
       thread: accepted.thread,
       requestMessageId: requestMessage.id,
@@ -718,6 +747,7 @@ export class YachiyoServer {
   }
 
   private startActiveRun(input: {
+    enabledTools: ToolCallName[]
     runId: string
     thread: ThreadRecord
     requestMessageId: string
@@ -733,6 +763,7 @@ export class YachiyoServer {
     this.activeRunByThread.set(input.thread.id, input.runId)
     const runTask = this.executeRun({
       abortController,
+      enabledTools: input.enabledTools,
       requestMessageId: input.requestMessageId,
       runId: input.runId,
       thread: input.thread,
@@ -743,6 +774,7 @@ export class YachiyoServer {
   }
 
   private async executeRun(input: {
+    enabledTools: ToolCallName[]
     runId: string
     thread: ThreadRecord
     requestMessageId: string
@@ -773,16 +805,33 @@ export class YachiyoServer {
     try {
       const workspacePath = await this.ensureThreadWorkspace(input.thread.id)
       const runtime = this.createModelRuntime()
+      const hiddenQueryReminder = formatQueryReminder(
+        [
+          buildToolAvailabilityReminderSection({
+            previousEnabledTools: this.lastRunEnabledTools,
+            enabledTools: input.enabledTools
+          })
+        ].flatMap((section) => (section ? [section] : []))
+      )
+      const history = prependQueryReminderToLatestUserMessage(
+        this.loadRunHistory(input.thread.id, input.requestMessageId),
+        hiddenQueryReminder
+      )
       const messages = prepareModelMessages({
-        history: this.loadRunHistory(input.thread.id, input.requestMessageId),
-        agentInstructions: this.buildAgentInstructions(workspacePath)
+        history,
+        agentInstructions: this.buildAgentInstructions(workspacePath, input.enabledTools)
       })
+      const tools = createAgentToolSet({
+        enabledTools: input.enabledTools,
+        workspacePath
+      })
+      this.lastRunEnabledTools = [...input.enabledTools]
 
       for await (const delta of runtime.streamReply({
         messages,
         settings,
         signal: input.abortController.signal,
-        tools: createAgentToolSet({ workspacePath }),
+        ...(tools ? { tools } : {}),
         onToolCallStart: (event) => {
           const toolCall: ToolCallRecord = {
             id: event.toolCall.toolCallId,
@@ -1106,15 +1155,32 @@ export class YachiyoServer {
     return titleSource ? titleSource.slice(0, 60) : DEFAULT_THREAD_TITLE
   }
 
-  private buildAgentInstructions(workspacePath: string): string {
-    return [
+  private buildAgentInstructions(workspacePath: string, enabledTools: ToolCallName[]): string {
+    const instructions = [
       'You are operating as a tool-using local agent.',
       'Default execution mode is YOLO: use tools directly for normal local work instead of asking for per-step confirmation.',
       `The current thread workspace is ${workspacePath}.`,
-      'Relative paths should resolve from that workspace unless you intentionally use an absolute path.',
-      'Available tools: read, write, edit, bash.',
-      'Use bash for shell commands, and use read/write/edit for direct file work when that is clearer.'
-    ].join('\n')
+      'Relative paths should resolve from that workspace unless you intentionally use an absolute path.'
+    ]
+
+    if (enabledTools.length === 0) {
+      instructions.push('No tools are available for this run. Respond without tool calls.')
+      return instructions.join('\n')
+    }
+
+    instructions.push(`Available tools: ${enabledTools.join(', ')}.`)
+
+    if (enabledTools.includes('bash')) {
+      instructions.push('Use bash for shell commands when shell execution is the clearest path.')
+    }
+
+    if (enabledTools.some((toolName) => toolName !== 'bash')) {
+      instructions.push(
+        'Use read, write, or edit for direct file work when that is clearer than shell commands.'
+      )
+    }
+
+    return instructions.join('\n')
   }
 
   private finishPendingToolCalls(

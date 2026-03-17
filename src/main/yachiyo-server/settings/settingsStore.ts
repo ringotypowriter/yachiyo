@@ -1,15 +1,18 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-import type {
-  ProviderConfig,
-  ProviderKind,
-  ProviderSettings,
-  SettingsConfig
-} from '../../../shared/yachiyo/protocol'
+import {
+  DEFAULT_ENABLED_TOOL_NAMES,
+  normalizeEnabledTools,
+  type ProviderConfig,
+  type ProviderKind,
+  type ProviderSettings,
+  type SettingsConfig
+} from '../../../shared/yachiyo/protocol.ts'
 
 export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
-  providers: []
+  providers: [],
+  enabledTools: DEFAULT_ENABLED_TOOL_NAMES
 }
 
 function normalizeString(value: unknown, fallback: string): string {
@@ -88,6 +91,10 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
   })
 
   return {
+    enabledTools: normalizeEnabledTools(
+      input['enabledTools'],
+      DEFAULT_SETTINGS_CONFIG.enabledTools
+    ),
     providers: hasProviders ? providers : DEFAULT_SETTINGS_CONFIG.providers
   }
 }
@@ -198,7 +205,11 @@ function stringifyTomlStringArray(values: string[]): string {
 }
 
 export function stringifySettingsToml(config: SettingsConfig): string {
-  const lines: string[] = []
+  const lines: string[] = [
+    `enabledTools = ${stringifyTomlStringArray(
+      normalizeEnabledTools(config.enabledTools, DEFAULT_SETTINGS_CONFIG.enabledTools)
+    )}`
+  ]
 
   for (const provider of config.providers) {
     lines.push(

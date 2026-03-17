@@ -1,10 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
-  MessageImageRecord,
   ProviderConfig,
   ProviderSettings,
+  RetryInput,
   SettingsConfig,
+  SendChatInput,
+  ToolPreferencesInput,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
 
@@ -21,10 +23,10 @@ const api = {
       ipcRenderer.invoke('yachiyo:delete-message', input),
     renameThread: (input: { threadId: string; title: string }) =>
       ipcRenderer.invoke('yachiyo:rename-thread', input),
-    sendChat: (input: { threadId: string; content: string; images?: MessageImageRecord[] }) =>
-      ipcRenderer.invoke('yachiyo:send-chat', input),
-    retryMessage: (input: { threadId: string; messageId: string }) =>
-      ipcRenderer.invoke('yachiyo:retry-message', input),
+    saveToolPreferences: (input: ToolPreferencesInput) =>
+      ipcRenderer.invoke('yachiyo:save-tool-preferences', input),
+    sendChat: (input: SendChatInput) => ipcRenderer.invoke('yachiyo:send-chat', input),
+    retryMessage: (input: RetryInput) => ipcRenderer.invoke('yachiyo:retry-message', input),
     selectReplyBranch: (input: { threadId: string; assistantMessageId: string }) =>
       ipcRenderer.invoke('yachiyo:select-reply-branch', input),
     cancelRun: (input: { runId: string }) => ipcRenderer.invoke('yachiyo:cancel-run', input),

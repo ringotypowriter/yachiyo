@@ -10,6 +10,7 @@ export type {
   RunStatus,
   SettingsConfig,
   ThreadRecord as Thread,
+  ToolCallName,
   ToolCallRecord as ToolCall,
   ToolCallDetailsSnapshot,
   WriteToolCallDetails,

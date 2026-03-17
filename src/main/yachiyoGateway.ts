@@ -1,10 +1,12 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 
 import type {
-  MessageImageRecord,
   ProviderConfig,
   ProviderSettings,
+  RetryInput,
   SettingsConfig,
+  SendChatInput,
+  ToolPreferencesInput,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
 import {
@@ -31,6 +33,7 @@ const IPC_CHANNELS = {
   retryMessage: 'yachiyo:retry-message',
   saveConfig: 'yachiyo:save-config',
   saveSettings: 'yachiyo:save-settings',
+  saveToolPreferences: 'yachiyo:save-tool-preferences',
   selectReplyBranch: 'yachiyo:select-reply-branch',
   sendChat: 'yachiyo:send-chat',
   upsertProvider: 'yachiyo:upsert-provider'
@@ -103,14 +106,11 @@ export function registerYachiyoGateway(): YachiyoServer {
     server!.renameThread(input)
   )
   handle(IPC_CHANNELS.archiveThread, (input: { threadId: string }) => server!.archiveThread(input))
-  handle(
-    IPC_CHANNELS.sendChat,
-    (input: { threadId: string; content: string; images?: MessageImageRecord[] }) =>
-      server!.sendChat(input)
+  handle(IPC_CHANNELS.saveToolPreferences, (input: ToolPreferencesInput) =>
+    server!.saveToolPreferences(input)
   )
-  handle(IPC_CHANNELS.retryMessage, (input: { threadId: string; messageId: string }) =>
-    server!.retryMessage(input)
-  )
+  handle(IPC_CHANNELS.sendChat, (input: SendChatInput) => server!.sendChat(input))
+  handle(IPC_CHANNELS.retryMessage, (input: RetryInput) => server!.retryMessage(input))
   handle(
     IPC_CHANNELS.selectReplyBranch,
     (input: { threadId: string; assistantMessageId: string }) => server!.selectReplyBranch(input)

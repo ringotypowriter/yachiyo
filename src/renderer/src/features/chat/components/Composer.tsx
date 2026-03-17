@@ -19,7 +19,9 @@ import {
 } from '@renderer/app/store/useAppStore'
 import { getComposerActionState } from '@renderer/features/chat/lib/composerActionState'
 import { shouldSendOnComposerEnter } from '@renderer/features/chat/lib/composerEnterBehavior'
+import { CORE_TOOL_NAMES } from '../../../../../shared/yachiyo/protocol.ts'
 import { ModelSelectorPopup } from './ModelSelectorPopup'
+import { ToolSelectorPopup } from './ToolSelectorPopup'
 
 const NEW_THREAD_DRAFT_KEY = '__new__'
 const MAX_COMPOSER_IMAGES = 4
@@ -114,17 +116,21 @@ export function Composer(): React.JSX.Element {
   const config = useAppStore((s) => s.config)
   const runPhase = useAppStore((s) => s.runPhase)
   const cancelActiveRun = useAppStore((s) => s.cancelActiveRun)
+  const enabledTools = useAppStore((s) => s.enabledTools)
   const removeComposerImage = useAppStore((s) => s.removeComposerImage)
   const sendMessage = useAppStore((s) => s.sendMessage)
   const selectModel = useAppStore((s) => s.selectModel)
   const setComposerValue = useAppStore((s) => s.setComposerValue)
+  const toggleEnabledTool = useAppStore((s) => s.toggleEnabledTool)
   const upsertComposerImage = useAppStore((s) => s.upsertComposerImage)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const selectorRef = useRef<HTMLDivElement>(null)
+  const modelSelectorRef = useRef<HTMLDivElement>(null)
+  const toolSelectorRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [selectorOpen, setSelectorOpen] = useState(false)
+  const [modelSelectorOpen, setModelSelectorOpen] = useState(false)
+  const [toolSelectorOpen, setToolSelectorOpen] = useState(false)
   const [isComposing, setIsComposing] = useState(false)
 
   const composerValue = composerDraft.text
@@ -137,6 +143,7 @@ export function Composer(): React.JSX.Element {
   const hasActiveRun = activeRunId !== null
   const isModelSelectorLocked = runPhase === 'preparing' || runPhase === 'streaming'
   const isConfigured = settings.apiKey.trim().length > 0 && settings.model.trim().length > 0
+  const disabledToolCount = CORE_TOOL_NAMES.length - enabledTools.length
   const { canSend, showStopButton } = getComposerActionState({
     connectionStatus,
     hasActiveRun,
@@ -205,15 +212,25 @@ export function Composer(): React.JSX.Element {
   }, [activeThreadId])
 
   useEffect(() => {
-    if (!selectorOpen) return
+    if (!modelSelectorOpen && !toolSelectorOpen) return
     const handler = (event: MouseEvent): void => {
-      if (selectorRef.current && !selectorRef.current.contains(event.target as Node)) {
-        setSelectorOpen(false)
+      const target = event.target as Node
+      const clickedInsideModelSelector =
+        modelSelectorRef.current && modelSelectorRef.current.contains(target)
+      const clickedInsideToolSelector =
+        toolSelectorRef.current && toolSelectorRef.current.contains(target)
+
+      if (!clickedInsideModelSelector) {
+        setModelSelectorOpen(false)
+      }
+
+      if (!clickedInsideToolSelector) {
+        setToolSelectorOpen(false)
       }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [selectorOpen])
+  }, [modelSelectorOpen, toolSelectorOpen])
 
   const queueImageFiles = useCallback(
     async (files: File[]) => {
@@ -289,7 +306,8 @@ export function Composer(): React.JSX.Element {
       ) {
         event.preventDefault()
         if (canSend) {
-          setSelectorOpen(false)
+          setModelSelectorOpen(false)
+          setToolSelectorOpen(false)
           void sendMessage()
         }
       }
@@ -396,27 +414,57 @@ export function Composer(): React.JSX.Element {
           <Paperclip size={16} strokeWidth={1.5} color="#8e8e93" />
         </button>
 
-        <button
-          type="button"
-          className="relative p-1.5 rounded-lg opacity-50 hover:opacity-80 transition-opacity"
-          aria-label="Tools"
-        >
-          <Wrench size={16} strokeWidth={1.5} color="#8e8e93" />
-          <span
-            className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center"
-            style={{ fontSize: '8px', background: '#CC7D5E' }}
-          >
-            2
-          </span>
-        </button>
-
-        <div ref={selectorRef} style={{ position: 'relative' }}>
+        <div ref={toolSelectorRef} style={{ position: 'relative' }}>
           <button
-            onClick={() => hasModels && !isModelSelectorLocked && setSelectorOpen((open) => !open)}
+            type="button"
+            onClick={() => {
+              setModelSelectorOpen(false)
+              setToolSelectorOpen((open) => !open)
+            }}
+            className="relative p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity"
+            aria-label="Tools"
+            aria-expanded={toolSelectorOpen}
+            aria-haspopup="menu"
+          >
+            <Wrench
+              size={16}
+              strokeWidth={1.5}
+              color={disabledToolCount > 0 ? '#CC7D5E' : '#8e8e93'}
+            />
+            {disabledToolCount > 0 ? (
+              <span
+                className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center"
+                style={{ fontSize: '8px', background: '#CC7D5E' }}
+              >
+                {disabledToolCount}
+              </span>
+            ) : null}
+          </button>
+
+          {toolSelectorOpen ? (
+            <ToolSelectorPopup
+              enabledTools={enabledTools}
+              hasActiveRun={hasActiveRun}
+              onToggle={(toolName) => void toggleEnabledTool(toolName)}
+              onClose={() => setToolSelectorOpen(false)}
+            />
+          ) : null}
+        </div>
+
+        <div ref={modelSelectorRef} style={{ position: 'relative' }}>
+          <button
+            onClick={() => {
+              if (!hasModels || isModelSelectorLocked) {
+                return
+              }
+
+              setToolSelectorOpen(false)
+              setModelSelectorOpen((open) => !open)
+            }}
             className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity ml-0.5"
             style={{
               color: '#2D2D2B',
-              opacity: selectorOpen ? 1 : 0.6,
+              opacity: modelSelectorOpen ? 1 : 0.6,
               cursor: hasModels && !isModelSelectorLocked ? 'pointer' : 'default'
             }}
             aria-label="Model selection"
@@ -430,20 +478,20 @@ export function Composer(): React.JSX.Element {
                 strokeWidth={1.5}
                 color="#8e8e93"
                 style={{
-                  transform: selectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transform: modelSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
                   transition: 'transform 0.15s ease'
                 }}
               />
             ) : null}
           </button>
 
-          {selectorOpen && config && !isModelSelectorLocked ? (
+          {modelSelectorOpen && config && !isModelSelectorLocked ? (
             <ModelSelectorPopup
               config={config}
               currentProviderName={settings.providerName}
               currentModel={settings.model}
               onSelect={(providerName, model) => void selectModel(providerName, model)}
-              onClose={() => setSelectorOpen(false)}
+              onClose={() => setModelSelectorOpen(false)}
             />
           ) : null}
         </div>
@@ -469,7 +517,8 @@ export function Composer(): React.JSX.Element {
             type="button"
             onClick={() => {
               if (!canSend) return
-              setSelectorOpen(false)
+              setModelSelectorOpen(false)
+              setToolSelectorOpen(false)
               void sendMessage()
             }}
             disabled={!canSend}

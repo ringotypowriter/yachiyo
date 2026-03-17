@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 
+import { DEFAULT_ENABLED_TOOL_NAMES } from '../../../shared/yachiyo/protocol.ts'
 import {
   DEFAULT_SETTINGS_CONFIG,
   createSettingsStore,
@@ -16,7 +17,8 @@ test('settings store persists multi-provider config as TOML', async () => {
   const store = createSettingsStore(settingsPath)
 
   try {
-    const config = {
+    const config: Parameters<typeof store.write>[0] = {
+      enabledTools: ['read', 'bash'],
       providers: [
         {
           name: 'work',
@@ -46,6 +48,7 @@ test('settings store persists multi-provider config as TOML', async () => {
     assert.deepEqual(store.read(), config)
 
     const toml = await readFile(settingsPath, 'utf8')
+    assert.match(toml, /enabledTools = \["read","bash"\]/)
     assert.match(toml, /\[\[providers\]\]/)
     assert.match(toml, /\[providers\.modelList\]/)
   } finally {
@@ -67,6 +70,7 @@ test('settings store returns the default config when the file is missing', async
 
 test('toProviderSettings resolves the active provider snapshot', () => {
   const snapshot = toProviderSettings({
+    enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
     providers: [
       {
         name: 'work',

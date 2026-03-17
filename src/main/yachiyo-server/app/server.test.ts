@@ -320,6 +320,78 @@ test('YachiyoServer streams a reply and persists the completed thread state', as
   })
 })
 
+test('YachiyoServer snapshots the enabled tool subset and prepends hidden reminder context after tool changes', async () => {
+  await withServer(async ({ server, completeRun, modelRequests }) => {
+    await server.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    })
+
+    const thread = await server.createThread()
+
+    const firstRun = await server.sendChat({
+      threadId: thread.id,
+      content: 'Default tool run',
+      enabledTools: ['read', 'write', 'edit', 'bash']
+    })
+    await completeRun(firstRun.runId)
+
+    const secondRun = await server.sendChat({
+      threadId: thread.id,
+      content: 'Use only read and bash',
+      enabledTools: ['read', 'bash']
+    })
+    await completeRun(secondRun.runId)
+
+    const thirdRun = await server.sendChat({
+      threadId: thread.id,
+      content: 'Turn write back on',
+      enabledTools: ['read', 'write', 'bash']
+    })
+    await completeRun(thirdRun.runId)
+
+    assert.deepEqual(Object.keys(modelRequests[0]?.tools ?? {}), ['read', 'write', 'edit', 'bash'])
+    assert.equal(modelRequests[0]?.messages.at(-1)?.content, 'Default tool run')
+
+    assert.deepEqual(Object.keys(modelRequests[1]?.tools ?? {}), ['read', 'bash'])
+    assert.equal(
+      modelRequests[1]?.messages.at(-1)?.content,
+      [
+        '<reminder>',
+        'Tool availability changed for this turn:',
+        '- Disabled: write, edit.',
+        '</reminder>',
+        '',
+        'Use only read and bash'
+      ].join('\n')
+    )
+
+    assert.deepEqual(Object.keys(modelRequests[2]?.tools ?? {}), ['read', 'write', 'bash'])
+    assert.equal(
+      modelRequests[2]?.messages.at(-1)?.content,
+      [
+        '<reminder>',
+        'Tool availability changed for this turn:',
+        '- Enabled: write.',
+        '</reminder>',
+        '',
+        'Turn write back on'
+      ].join('\n')
+    )
+
+    const bootstrap = await server.bootstrap()
+    const messages = bootstrap.messagesByThread[thread.id] ?? []
+    assert.equal(messages[2]?.content, 'Use only read and bash')
+    assert.equal(messages[4]?.content, 'Turn write back on')
+  })
+})
+
 test('YachiyoServer fails runs cleanly when thread workspace initialization fails', async () => {
   let workspaceInitializationAttempts = 0
 
@@ -1212,6 +1284,26 @@ test('YachiyoServer manages provider config and active model state', async () =>
     assert.equal(snapshot.provider, 'openai')
     assert.equal(snapshot.model, 'gpt-4.1')
     assert.equal(snapshot.apiKey, 'sk-openai')
+  })
+})
+
+test('YachiyoServer persists shared tool preferences in app settings', async () => {
+  await withServer(async ({ server, waitForEvent }) => {
+    const updatedEvent = waitForEvent('settings.updated')
+
+    const config = await server.saveToolPreferences({
+      enabledTools: ['read', 'edit']
+    })
+
+    const event = (await updatedEvent) as {
+      config: { enabledTools?: string[] }
+      settings: { providerName: string }
+    }
+
+    assert.deepEqual(config.enabledTools, ['read', 'edit'])
+    assert.deepEqual(event.config.enabledTools, ['read', 'edit'])
+    assert.equal(event.settings.providerName, '')
+    assert.deepEqual((await server.bootstrap()).config.enabledTools, ['read', 'edit'])
   })
 })
 

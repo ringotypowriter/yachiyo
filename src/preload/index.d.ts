@@ -2,13 +2,15 @@ import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
   BootstrapPayload,
   ChatAccepted,
-  MessageImageRecord,
   ProviderConfig,
   ProviderSettings,
+  RetryInput,
   RetryAccepted,
   SettingsConfig,
+  SendChatInput,
   ThreadSnapshot,
   ThreadRecord,
+  ToolPreferencesInput,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
 
@@ -24,12 +26,9 @@ declare global {
         createThread: () => Promise<ThreadRecord>
         deleteMessage: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>
         renameThread: (input: { threadId: string; title: string }) => Promise<ThreadRecord>
-        sendChat: (input: {
-          threadId: string
-          content: string
-          images?: MessageImageRecord[]
-        }) => Promise<ChatAccepted>
-        retryMessage: (input: { threadId: string; messageId: string }) => Promise<RetryAccepted>
+        saveToolPreferences: (input: ToolPreferencesInput) => Promise<SettingsConfig>
+        sendChat: (input: SendChatInput) => Promise<ChatAccepted>
+        retryMessage: (input: RetryInput) => Promise<RetryAccepted>
         selectReplyBranch: (input: {
           threadId: string
           assistantMessageId: string

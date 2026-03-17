@@ -8,15 +8,17 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { tool, type ToolSet } from 'ai'
 import { z } from 'zod'
 
-import type {
-  BashToolCallDetails,
-  EditToolCallDetails,
-  ReadToolCallDetails,
-  ToolCallDetailsSnapshot,
-  ToolCallName,
-  ToolCallStatus,
-  WriteToolCallDetails
-} from '../../../shared/yachiyo/protocol'
+import {
+  DEFAULT_ENABLED_TOOL_NAMES,
+  normalizeEnabledTools,
+  type BashToolCallDetails,
+  type EditToolCallDetails,
+  type ReadToolCallDetails,
+  type ToolCallDetailsSnapshot,
+  type ToolCallName,
+  type ToolCallStatus,
+  type WriteToolCallDetails
+} from '../../../shared/yachiyo/protocol.ts'
 
 const DEFAULT_READ_LIMIT = 200
 const MAX_READ_LIMIT = 500
@@ -55,6 +57,7 @@ type EditToolInput = z.infer<typeof editToolInputSchema>
 type BashToolInput = z.infer<typeof bashToolInputSchema>
 
 interface AgentToolContext {
+  enabledTools?: ToolCallName[]
   workspacePath: string
 }
 
@@ -1052,29 +1055,43 @@ function toModelOutput(output: AgentToolOutput):
   }
 }
 
-export function createAgentToolSet(context: AgentToolContext): ToolSet {
+export function createAgentToolSet(context: AgentToolContext): ToolSet | undefined {
   const workspaceHint = `Relative paths resolve from ${context.workspacePath}.`
+  const enabledTools = new Set(
+    normalizeEnabledTools(context.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
+  )
 
-  return {
-    read: tool({
+  const tools: ToolSet = {}
+
+  if (enabledTools.has('read')) {
+    tools.read = tool({
       description: `Read a text file from the current thread workspace or an absolute path. ${workspaceHint} Use offset as a 0-based line continuation cursor.`,
       inputSchema: readToolInputSchema,
       toModelOutput: ({ output }) => toModelOutput(output),
       execute: (input) => runReadTool(input, context)
-    }),
-    write: tool({
+    })
+  }
+
+  if (enabledTools.has('write')) {
+    tools.write = tool({
       description: `Write a text file in the current thread workspace or at an absolute path. ${workspaceHint} Parent directories are created automatically and existing files are overwritten.`,
       inputSchema: writeToolInputSchema,
       toModelOutput: ({ output }) => toModelOutput(output),
       execute: (input) => runWriteTool(input, context)
-    }),
-    edit: tool({
+    })
+  }
+
+  if (enabledTools.has('edit')) {
+    tools.edit = tool({
       description: `Edit an existing text file with a targeted oldText -> newText replacement. ${workspaceHint} The edit fails when oldText is missing or ambiguous.`,
       inputSchema: editToolInputSchema,
       toModelOutput: ({ output }) => toModelOutput(output),
       execute: (input) => runEditTool(input, context)
-    }),
-    bash: tool({
+    })
+  }
+
+  if (enabledTools.has('bash')) {
+    tools.bash = tool({
       description: `Run a shell command with cwd set to ${context.workspacePath}. Use timeout in seconds. A minimal hard guard blocks obviously catastrophic destructive commands such as rm -rf /.`,
       inputSchema: bashToolInputSchema,
       toModelOutput: ({ output }) => toModelOutput(output),
@@ -1085,4 +1102,6 @@ export function createAgentToolSet(context: AgentToolContext): ToolSet {
         })
     })
   }
+
+  return Object.keys(tools).length > 0 ? tools : undefined
 }

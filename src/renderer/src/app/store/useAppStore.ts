@@ -9,6 +9,7 @@ import type {
   RunStatus,
   SettingsConfig,
   Thread,
+  ToolCallName,
   ToolCall,
   YachiyoServerEvent
 } from '../types.ts'
@@ -16,6 +17,10 @@ import {
   hasMessagePayload,
   normalizeMessageImages
 } from '../../../../shared/yachiyo/messageContent.ts'
+import {
+  DEFAULT_ENABLED_TOOL_NAMES,
+  normalizeEnabledTools
+} from '../../../../shared/yachiyo/protocol.ts'
 
 interface PendingAssistantMessage {
   messageId: string
@@ -60,6 +65,7 @@ interface AppState {
   createBranch: (messageId: string) => Promise<void>
   config: SettingsConfig | null
   connectionStatus: ConnectionStatus
+  enabledTools: ToolCallName[]
   harnessEvents: Record<string, HarnessRecord[]>
   initialized: boolean
   isBootstrapping: boolean
@@ -84,8 +90,10 @@ interface AppState {
   initialize: () => Promise<void>
   selectModel: (providerName: string, model: string) => Promise<void>
   sendMessage: () => Promise<void>
+  setEnabledTools: (enabledTools: ToolCallName[]) => Promise<void>
   setActiveThread: (id: string) => void
   setComposerValue: (value: string) => void
+  toggleEnabledTool: (toolName: ToolCallName) => Promise<void>
   upsertComposerImage: (image: ComposerImageDraft, threadId?: string | null) => void
 }
 
@@ -95,6 +103,21 @@ export const DEFAULT_SETTINGS: ProviderSettings = {
   model: '',
   apiKey: '',
   baseUrl: ''
+}
+
+function areEnabledToolsEqual(left: ToolCallName[], right: ToolCallName[]): boolean {
+  return left.length === right.length && left.every((toolName, index) => toolName === right[index])
+}
+
+function toggleEnabledTools(enabledTools: ToolCallName[], toolName: ToolCallName): ToolCallName[] {
+  if (enabledTools.includes(toolName)) {
+    return enabledTools.filter((currentToolName) => currentToolName !== toolName)
+  }
+
+  const nextEnabledTools = new Set([...enabledTools, toolName])
+  return DEFAULT_ENABLED_TOOL_NAMES.filter((currentToolName) =>
+    nextEnabledTools.has(currentToolName)
+  )
 }
 
 function sortThreads(threads: Thread[]): Thread[] {
@@ -267,6 +290,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   composerDrafts: {},
   config: null,
   connectionStatus: 'connecting',
+  enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
   harnessEvents: {},
   initialized: false,
   isBootstrapping: false,
@@ -375,6 +399,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (event.type === 'settings.updated') {
         return {
           config: event.config ?? state.config,
+          enabledTools: normalizeEnabledTools(event.config?.enabledTools, state.enabledTools),
           lastError: null,
           settings: event.settings ?? state.settings ?? DEFAULT_SETTINGS
         }
@@ -645,6 +670,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           activeThreadId: state.activeThreadId ?? payload.threads[0]?.id ?? null,
           config: payload.config ?? state.config,
           connectionStatus: 'connected',
+          enabledTools: normalizeEnabledTools(payload.config?.enabledTools, state.enabledTools),
           initialized: true,
           isBootstrapping: false,
           lastError: null,
@@ -675,13 +701,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   retryMessage: async (messageId) => {
-    const threadId = get().activeThreadId
+    const { activeThreadId: threadId, enabledTools } = get()
     if (!threadId) {
       return
     }
 
     try {
-      const accepted = await window.api.yachiyo.retryMessage({ threadId, messageId })
+      const accepted = await window.api.yachiyo.retryMessage({ threadId, messageId, enabledTools })
       set((state) => ({
         activeRunId: accepted.runId,
         activeRequestMessageId: accepted.requestMessageId,
@@ -728,6 +754,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const draft = getComposerDraft(currentState)
     const trimmed = draft.text.trim()
     const images = toReadyMessageImages(draft.images)
+    const enabledTools = currentState.enabledTools
 
     if (
       draft.images.some((image) => image.status === 'loading' || image.status === 'failed') ||
@@ -763,6 +790,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const accepted = await window.api.yachiyo.sendChat({
         content: trimmed,
+        enabledTools,
         ...(images.length > 0 ? { images } : {}),
         threadId
       })
@@ -795,6 +823,42 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  setEnabledTools: async (enabledTools) => {
+    const previousEnabledTools = get().enabledTools
+    const nextEnabledTools = normalizeEnabledTools(enabledTools, previousEnabledTools)
+
+    if (areEnabledToolsEqual(previousEnabledTools, nextEnabledTools)) {
+      return
+    }
+
+    set((state) => ({
+      config: state.config ? { ...state.config, enabledTools: nextEnabledTools } : state.config,
+      enabledTools: nextEnabledTools,
+      lastError: null
+    }))
+
+    try {
+      const config = await window.api.yachiyo.saveToolPreferences({
+        enabledTools: nextEnabledTools
+      })
+      set({
+        config,
+        enabledTools: normalizeEnabledTools(config.enabledTools, nextEnabledTools),
+        lastError: null
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to update tool availability.'
+      set((state) => ({
+        config: state.config
+          ? { ...state.config, enabledTools: previousEnabledTools }
+          : state.config,
+        enabledTools: previousEnabledTools,
+        lastError: message
+      }))
+      throw error
+    }
+  },
+
   setActiveThread: (id) => set({ activeThreadId: id }),
 
   setComposerValue: (value) =>
@@ -808,6 +872,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         }))
       }
     }),
+
+  toggleEnabledTool: async (toolName) => {
+    await get().setEnabledTools(toggleEnabledTools(get().enabledTools, toolName))
+  },
 
   upsertComposerImage: (image, threadId) =>
     set((state) => {
