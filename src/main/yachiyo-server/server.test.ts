@@ -407,7 +407,10 @@ test('YachiyoServer creates a per-thread workspace and persists completed tool c
       assert.equal(toolCalls[0]?.outputSummary, 'exit 0')
 
       const requestMessageId = bootstrap.messagesByThread[thread.id]?.[0]?.id
+      const assistantMessageId = bootstrap.messagesByThread[thread.id]?.[1]?.id
       assert.equal(typeof requestMessageId, 'string')
+      assert.equal(toolCalls[0]?.requestMessageId, requestMessageId)
+      assert.equal(toolCalls[0]?.assistantMessageId, assistantMessageId)
 
       const deleted = await server.deleteMessageFromHere({
         threadId: thread.id,
@@ -621,6 +624,8 @@ test('YachiyoServer bootstrap recovers interrupted runs and marks running tool c
       completedAt: interruptedAt
     })
     assert.equal(bootstrap.toolCallsByThread['thread-1']?.[0]?.status, 'failed')
+    assert.equal(bootstrap.toolCallsByThread['thread-1']?.[0]?.requestMessageId, 'user-1')
+    assert.equal(bootstrap.toolCallsByThread['thread-1']?.[0]?.assistantMessageId, undefined)
     assert.equal(
       bootstrap.toolCallsByThread['thread-1']?.[0]?.outputSummary,
       'Run interrupted before completion.'

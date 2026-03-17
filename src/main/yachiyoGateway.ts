@@ -53,7 +53,10 @@ function registerFatalRunRecovery(): void {
     try {
       server?.recoverInterruptedRuns(toFatalRunError(error))
     } catch (recoveryError) {
-      console.error('[yachiyo] failed to persist interrupted runs after a fatal error', recoveryError)
+      console.error(
+        '[yachiyo] failed to persist interrupted runs after a fatal error',
+        recoveryError
+      )
     }
   })
 

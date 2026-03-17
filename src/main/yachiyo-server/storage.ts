@@ -81,6 +81,11 @@ export interface StoredToolCallRow {
   finishedAt: string | null
 }
 
+interface StoredToolCallRunRefs {
+  requestMessageId?: string | null
+  assistantMessageId?: string | null
+}
+
 export interface StoredRunRow {
   id: string
   threadId: string
@@ -163,14 +168,20 @@ export function toMessageRecord(row: StoredMessageRow): MessageRecord {
   }
 }
 
-export function toToolCallRecord(row: StoredToolCallRow): ToolCallRecord {
+export function toToolCallRecord(row: StoredToolCallRow & StoredToolCallRunRefs): ToolCallRecord {
   return {
+    ...(row.assistantMessageId === null || row.assistantMessageId === undefined
+      ? {}
+      : { assistantMessageId: row.assistantMessageId }),
     ...(row.cwd === null ? {} : { cwd: row.cwd }),
     ...(row.error === null ? {} : { error: row.error }),
     ...(row.finishedAt === null ? {} : { finishedAt: row.finishedAt }),
     ...(row.outputSummary === null ? {} : { outputSummary: row.outputSummary }),
     id: row.id,
     inputSummary: row.inputSummary,
+    ...(row.requestMessageId === null || row.requestMessageId === undefined
+      ? {}
+      : { requestMessageId: row.requestMessageId }),
     runId: row.runId,
     startedAt: row.startedAt,
     status: row.status,

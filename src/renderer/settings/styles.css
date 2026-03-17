@@ -1,10 +1,14 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   margin: 0;
   padding: 0;
@@ -14,7 +18,7 @@ html, body, #root {
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
   background: #f0efeb;
-  color: #2D2D2B;
+  color: #2d2d2b;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

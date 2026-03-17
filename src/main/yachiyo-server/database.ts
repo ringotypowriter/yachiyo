@@ -129,12 +129,14 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           ? []
           : db
               .select({
+                assistantMessageId: runsTable.assistantMessageId,
                 cwd: toolCallsTable.cwd,
                 error: toolCallsTable.error,
                 finishedAt: toolCallsTable.finishedAt,
                 id: toolCallsTable.id,
                 inputSummary: toolCallsTable.inputSummary,
                 outputSummary: toolCallsTable.outputSummary,
+                requestMessageId: runsTable.requestMessageId,
                 runId: toolCallsTable.runId,
                 startedAt: toolCallsTable.startedAt,
                 status: toolCallsTable.status,
@@ -142,6 +144,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                 toolName: toolCallsTable.toolName
               })
               .from(toolCallsTable)
+              .innerJoin(runsTable, eq(toolCallsTable.runId, runsTable.id))
               .where(inArray(toolCallsTable.threadId, threadIds))
               .orderBy(asc(toolCallsTable.startedAt))
               .all()
@@ -208,7 +211,12 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             outputSummary: error,
             status: 'failed'
           })
-          .where(and(inArray(toolCallsTable.runId, interruptedRunIds), eq(toolCallsTable.status, 'running')))
+          .where(
+            and(
+              inArray(toolCallsTable.runId, interruptedRunIds),
+              eq(toolCallsTable.status, 'running')
+            )
+          )
           .run()
       })
     },
@@ -412,12 +420,14 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     listThreadToolCalls(threadId) {
       return db
         .select({
+          assistantMessageId: runsTable.assistantMessageId,
           cwd: toolCallsTable.cwd,
           error: toolCallsTable.error,
           finishedAt: toolCallsTable.finishedAt,
           id: toolCallsTable.id,
           inputSummary: toolCallsTable.inputSummary,
           outputSummary: toolCallsTable.outputSummary,
+          requestMessageId: runsTable.requestMessageId,
           runId: toolCallsTable.runId,
           startedAt: toolCallsTable.startedAt,
           status: toolCallsTable.status,
@@ -425,6 +435,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           toolName: toolCallsTable.toolName
         })
         .from(toolCallsTable)
+        .innerJoin(runsTable, eq(toolCallsTable.runId, runsTable.id))
         .where(eq(toolCallsTable.threadId, threadId))
         .orderBy(asc(toolCallsTable.startedAt))
         .all()

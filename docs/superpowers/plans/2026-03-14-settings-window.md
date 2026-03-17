@@ -12,17 +12,17 @@
 
 ## File Map
 
-| File | Action | Responsibility |
-|---|---|---|
-| `electron.vite.config.ts` | Modify | Add `build.rollupOptions.input` with two entries |
-| `src/preload/index.ts` | Modify | Add `openSettings` to the `api` object |
-| `src/preload/index.d.ts` | Modify | Type `window.api` as `{ openSettings: () => void }` |
-| `src/main/index.ts` | Modify | Add module-scope `settingsWindow` ref + `ipcMain.on('open-settings')` |
-| `src/renderer/settings/index.html` | Create | HTML entry point for settings renderer |
-| `src/renderer/settings/styles.css` | Create | Tailwind import + base reset + drag-region classes |
-| `src/renderer/settings/main.tsx` | Create | React DOM root for settings |
-| `src/renderer/settings/App.tsx` | Create | Full settings shell: sidebar nav + content area + footer |
-| `src/renderer/src/App.tsx` | Modify | Wire Settings button `onClick` to `window.api.openSettings()` |
+| File                               | Action | Responsibility                                                        |
+| ---------------------------------- | ------ | --------------------------------------------------------------------- |
+| `electron.vite.config.ts`          | Modify | Add `build.rollupOptions.input` with two entries                      |
+| `src/preload/index.ts`             | Modify | Add `openSettings` to the `api` object                                |
+| `src/preload/index.d.ts`           | Modify | Type `window.api` as `{ openSettings: () => void }`                   |
+| `src/main/index.ts`                | Modify | Add module-scope `settingsWindow` ref + `ipcMain.on('open-settings')` |
+| `src/renderer/settings/index.html` | Create | HTML entry point for settings renderer                                |
+| `src/renderer/settings/styles.css` | Create | Tailwind import + base reset + drag-region classes                    |
+| `src/renderer/settings/main.tsx`   | Create | React DOM root for settings                                           |
+| `src/renderer/settings/App.tsx`    | Create | Full settings shell: sidebar nav + content area + footer              |
+| `src/renderer/src/App.tsx`         | Modify | Wire Settings button `onClick` to `window.api.openSettings()`         |
 
 ---
 
@@ -31,6 +31,7 @@
 ### Task 1: electron-vite multi-input config
 
 **Files:**
+
 - Modify: `electron.vite.config.ts`
 
 - [ ] **Step 1: Add multi-input to renderer config**
@@ -51,17 +52,17 @@ export default defineConfig({
       rollupOptions: {
         input: {
           main: resolve('src/renderer/index.html'),
-          settings: resolve('src/renderer/settings/index.html'),
-        },
-      },
+          settings: resolve('src/renderer/settings/index.html')
+        }
+      }
     },
     resolve: {
       alias: {
-        '@renderer': resolve('src/renderer/src'),
-      },
+        '@renderer': resolve('src/renderer/src')
+      }
     },
-    plugins: [react(), tailwindcss()],
-  },
+    plugins: [react(), tailwindcss()]
+  }
 })
 ```
 
@@ -78,6 +79,7 @@ Expected: zero errors (settings/index.html doesn't exist yet so this is just che
 ### Task 2: Preload — expose openSettings
 
 **Files:**
+
 - Modify: `src/preload/index.ts`
 - Modify: `src/preload/index.d.ts`
 
@@ -90,7 +92,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 const api = {
-  openSettings: () => ipcRenderer.send('open-settings'),
+  openSettings: () => ipcRenderer.send('open-settings')
 }
 
 if (process.contextIsolated) {
@@ -145,6 +147,7 @@ git commit -m "feat: add multi-input vite config and expose openSettings IPC"
 ### Task 3: Main process — settings window handler
 
 **Files:**
+
 - Modify: `src/main/index.ts`
 
 - [ ] **Step 1: Add module-scope `settingsWindow` ref**
@@ -176,8 +179,8 @@ ipcMain.on('open-settings', () => {
     backgroundColor: '#f0efeb',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
-    },
+      sandbox: false
+    }
   })
   settingsWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
@@ -188,9 +191,7 @@ ipcMain.on('open-settings', () => {
     settingsWindow = null
   })
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    settingsWindow.loadURL(
-      `${process.env['ELECTRON_RENDERER_URL']}/settings/index.html`,
-    )
+    settingsWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/settings/index.html`)
   } else {
     settingsWindow.loadFile(join(__dirname, '../renderer/settings/index.html'))
   }
@@ -219,6 +220,7 @@ git commit -m "feat: add settings BrowserWindow IPC handler"
 ### Task 4: Settings renderer files
 
 **Files:**
+
 - Create: `src/renderer/settings/index.html`
 - Create: `src/renderer/settings/styles.css`
 - Create: `src/renderer/settings/main.tsx`
@@ -247,13 +249,17 @@ git commit -m "feat: add settings BrowserWindow IPC handler"
 - [ ] **Step 2: Create `src/renderer/settings/styles.css`**
 
 ```css
-@import "tailwindcss";
+@import 'tailwindcss';
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   margin: 0;
   padding: 0;
@@ -288,7 +294,7 @@ import SettingsApp from './App'
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <SettingsApp />
-  </React.StrictMode>,
+  </React.StrictMode>
 )
 ```
 
@@ -308,12 +314,12 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
-  { id: 'general',   label: 'General',        icon: Settings2     },
-  { id: 'providers', label: 'Providers',       icon: Cpu           },
-  { id: 'chat',      label: 'Chat',            icon: MessageSquare },
-  { id: 'memory',    label: 'Memory',          icon: Brain         },
-  { id: 'ui',        label: 'User Interface',  icon: Monitor       },
-  { id: 'about',     label: 'About',           icon: Info          },
+  { id: 'general', label: 'General', icon: Settings2 },
+  { id: 'providers', label: 'Providers', icon: Cpu },
+  { id: 'chat', label: 'Chat', icon: MessageSquare },
+  { id: 'memory', label: 'Memory', icon: Brain },
+  { id: 'ui', label: 'User Interface', icon: Monitor },
+  { id: 'about', label: 'About', icon: Info }
 ]
 
 function SettingsApp() {
@@ -352,7 +358,7 @@ function SettingsApp() {
                       background: 'rgba(255,255,255,0.75)',
                       color: '#1c1c1e',
                       fontWeight: 500,
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.08)'
                     }
                   : { color: '#3a3a3c' }
               }
@@ -424,7 +430,7 @@ function SettingsApp() {
                 background: 'rgba(255,255,255,0.8)',
                 border: '1px solid rgba(0,0,0,0.15)',
                 color: '#1c1c1e',
-                cursor: 'pointer',
+                cursor: 'pointer'
               }}
             >
               Close
@@ -437,7 +443,7 @@ function SettingsApp() {
                 color: '#fff',
                 opacity: 0.4,
                 border: '1px solid transparent',
-                cursor: 'not-allowed',
+                cursor: 'not-allowed'
               }}
             >
               Save
@@ -472,6 +478,7 @@ git commit -m "feat: add settings renderer entry — shell with 6 tabs and empty
 ### Task 5: Wire Settings button in main App
 
 **Files:**
+
 - Modify: `src/renderer/src/App.tsx`
 
 - [ ] **Step 1: Add `onClick` to the Settings button**

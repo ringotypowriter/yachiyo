@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildMessageGroups } from './messageThreadPresentation.ts'
+import {
+  buildMessageGroups,
+  getVisibleToolCallsForGroup,
+  partitionToolCallsForGroups
+} from './messageThreadPresentation.ts'
 
 const TIMESTAMP = '2026-03-15T00:00:00.000Z'
 
@@ -242,5 +246,267 @@ test('buildMessageGroups treats the newest assistant branch as active while a re
       { id: 'assistant-1', isActive: false },
       { id: 'assistant-retry', isActive: true }
     ]
+  )
+})
+
+test('getVisibleToolCallsForGroup keeps tool calls with the active branch and hides inactive completed branches', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-1'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'First question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-1',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'First answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'assistant-2',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Retry answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:02.000Z'
+      }
+    ],
+    runPhase: 'idle',
+    activeRequestMessageId: null
+  })
+
+  const toolCalls = getVisibleToolCallsForGroup({
+    group: group!,
+    toolCalls: [
+      {
+        id: 'tool-branchless',
+        runId: 'run-branchless',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'failed',
+        inputSummary: 'draft.txt',
+        requestMessageId: 'user-1',
+        startedAt: '2026-03-15T00:00:00.500Z'
+      },
+      {
+        id: 'tool-active',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'write',
+        status: 'completed',
+        inputSummary: 'answer.txt',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-1',
+        startedAt: '2026-03-15T00:00:01.500Z'
+      },
+      {
+        id: 'tool-hidden',
+        runId: 'run-2',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'completed',
+        inputSummary: 'pwd',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-2',
+        startedAt: '2026-03-15T00:00:02.500Z'
+      },
+      {
+        id: 'tool-other-request',
+        runId: 'run-3',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'notes.txt',
+        requestMessageId: 'user-2',
+        startedAt: '2026-03-15T00:00:03.000Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    toolCalls.map((toolCall) => toolCall.id),
+    ['tool-branchless', 'tool-active']
+  )
+})
+
+test('getVisibleToolCallsForGroup keeps failed branch tool calls visible even when an older reply stays active', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-1'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'First question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-1',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'First answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'assistant-failed',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: '',
+        status: 'failed',
+        createdAt: '2026-03-15T00:00:02.000Z'
+      }
+    ],
+    runPhase: 'idle',
+    activeRequestMessageId: null
+  })
+
+  const toolCalls = getVisibleToolCallsForGroup({
+    group: group!,
+    toolCalls: [
+      {
+        id: 'tool-failed-1',
+        runId: 'run-failed',
+        threadId: 'thread-1',
+        toolName: 'write',
+        status: 'failed',
+        inputSummary: 'try.txt',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-failed',
+        startedAt: '2026-03-15T00:00:02.100Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    toolCalls.map((toolCall) => toolCall.id),
+    ['tool-failed-1']
+  )
+})
+
+test('partitionToolCallsForGroups hides anchored tool calls that belong to hidden downstream requests', () => {
+  const groups = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-retry'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'First question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-1',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'First answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'user-2',
+        threadId: 'thread-1',
+        role: 'user',
+        parentMessageId: 'assistant-1',
+        content: 'Second question',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:02.000Z'
+      },
+      {
+        id: 'assistant-2',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-2',
+        content: 'Second answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:03.000Z'
+      },
+      {
+        id: 'assistant-retry',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Retry answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:04.000Z'
+      }
+    ],
+    runPhase: 'idle',
+    activeRequestMessageId: null
+  })
+
+  const { inlineToolCalls, orphanToolCalls } = partitionToolCallsForGroups({
+    groups,
+    toolCalls: [
+      {
+        id: 'tool-visible',
+        runId: 'run-visible',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'a.txt',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-retry',
+        startedAt: '2026-03-15T00:00:04.100Z'
+      },
+      {
+        id: 'tool-hidden',
+        runId: 'run-hidden',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'completed',
+        inputSummary: 'pwd',
+        requestMessageId: 'user-2',
+        assistantMessageId: 'assistant-2',
+        startedAt: '2026-03-15T00:00:03.100Z'
+      },
+      {
+        id: 'tool-legacy',
+        runId: 'run-legacy',
+        threadId: 'thread-1',
+        toolName: 'write',
+        status: 'failed',
+        inputSummary: 'try.txt',
+        startedAt: '2026-03-15T00:00:05.000Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    inlineToolCalls.map((toolCall) => toolCall.id),
+    ['tool-visible']
+  )
+  assert.deepEqual(
+    orphanToolCalls.map((toolCall) => toolCall.id),
+    ['tool-legacy']
   )
 })

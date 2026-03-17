@@ -3,7 +3,11 @@ import { useEffect, useRef } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { HarnessRecord } from '@renderer/app/store/useAppStore'
 import type { Message, ToolCall } from '@renderer/app/types'
-import { buildMessageGroups } from '../lib/messageThreadPresentation'
+import {
+  buildMessageGroups,
+  getVisibleToolCallsForGroup,
+  partitionToolCallsForGroups
+} from '../lib/messageThreadPresentation'
 import { UserMessageBubble } from './UserMessageBubble'
 import { AssistantMessageBubble } from './AssistantMessageBubble'
 import { PreparingBubble } from './PreparingBubble'
@@ -39,11 +43,11 @@ function buildConversationTimeline(
 function buildTimeline(
   groups: ReturnType<typeof buildMessageGroups>,
   harnesses: HarnessRecord[],
-  toolCalls: ToolCall[]
+  orphanToolCalls: ToolCall[]
 ): TimelineItem[] {
   const items: TimelineItem[] = [
     ...buildConversationTimeline(groups),
-    ...toolCalls.map((toolCall) => ({
+    ...orphanToolCalls.map((toolCall) => ({
       kind: 'tool' as const,
       key: toolCall.id,
       time: toolCall.startedAt,
@@ -77,6 +81,7 @@ function confirmDelete(message: Message): boolean {
 function ThreadConversationGroup({
   threadId,
   group,
+  toolCalls,
   threadHasActiveRun,
   onCreateBranch,
   onRetry,
@@ -85,6 +90,7 @@ function ThreadConversationGroup({
 }: {
   threadId: string
   group: ReturnType<typeof buildMessageGroups>[number]
+  toolCalls: ToolCall[]
   threadHasActiveRun: boolean
   onCreateBranch: (messageId: string) => Promise<void>
   onRetry: (messageId: string) => Promise<void>
@@ -101,6 +107,7 @@ function ThreadConversationGroup({
       ? group.assistantBranches[group.activeBranchIndex + 1]
       : null
   const retryTargetMessageId = activeBranch?.message.id ?? group.userMessage.id
+  const visibleToolCalls = getVisibleToolCallsForGroup({ group, toolCalls })
 
   return (
     <div className="flex flex-col gap-2" data-thread-id={threadId}>
@@ -111,6 +118,10 @@ function ThreadConversationGroup({
         onCreateBranch={() => onCreateBranch(group.userMessage.id)}
         onDelete={() => onDelete(group.userMessage.id)}
       />
+
+      {visibleToolCalls.map((toolCall) => (
+        <ToolCallRow key={toolCall.id} toolCall={toolCall} />
+      ))}
 
       {responseCount > 0 || group.showPreparing ? (
         <div className="message-response-cluster">
@@ -175,7 +186,11 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
         activeRequestMessageId: activeRunThreadId === threadId ? activeRequestMessageId : null
       })
     : []
-  const timeline = buildTimeline(messageGroups, harnessEvents, toolCalls)
+  const { inlineToolCalls, orphanToolCalls } = partitionToolCallsForGroups({
+    groups: messageGroups,
+    toolCalls
+  })
+  const timeline = buildTimeline(messageGroups, harnessEvents, orphanToolCalls)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -254,6 +269,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
             key={item.key}
             threadId={threadId}
             group={item.data}
+            toolCalls={inlineToolCalls}
             threadHasActiveRun={activeRunThreadId === threadId}
             onCreateBranch={handleCreateBranch}
             onRetry={handleRetry}

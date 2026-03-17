@@ -32,6 +32,15 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     [...items].sort((left, right) => left.createdAt.localeCompare(right.createdAt))
   const sortToolCalls = (items: ToolCallRecord[]): ToolCallRecord[] =>
     [...items].sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+  const toToolCallRecordWithRun = (row: StoredToolCallRow): ToolCallRecord => {
+    const run = runs.get(row.runId)
+
+    return toToolCallRecord({
+      ...row,
+      assistantMessageId: run?.assistantMessageId ?? null,
+      requestMessageId: run?.requestMessageId ?? null
+    })
+  }
 
   return {
     close() {
@@ -63,7 +72,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
           sortToolCalls(
             [...toolCalls.values()]
               .filter((toolCall) => threadIds.has(toolCall.threadId))
-              .map(toToolCallRecord)
+              .map(toToolCallRecordWithRun)
           )
         )
       }
@@ -231,7 +240,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     },
 
     listThreadToolCalls(threadId) {
-      return sortToolCalls([...toolCalls.values()].map(toToolCallRecord)).filter(
+      return sortToolCalls([...toolCalls.values()].map(toToolCallRecordWithRun)).filter(
         (toolCall) => toolCall.threadId === threadId
       )
     },

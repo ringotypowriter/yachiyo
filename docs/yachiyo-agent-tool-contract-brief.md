@@ -112,7 +112,7 @@ Move toward pi semantics:
 - must reject zero-match and ambiguous multi-match cases
 - details should include at least:
   - unified diff
-n  - first changed line if practical
+    n - first changed line if practical
 
 Do not keep `replaceAll` as the main interaction model unless there is a very strong reason.
 

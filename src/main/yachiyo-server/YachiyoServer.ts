@@ -790,6 +790,8 @@ export class YachiyoServer {
             id: event.toolCall.toolCallId,
             runId: input.runId,
             threadId: input.thread.id,
+            requestMessageId: input.requestMessageId,
+            assistantMessageId: messageId,
             toolName: event.toolCall.toolName as ToolCallRecord['toolName'],
             status: 'running',
             inputSummary: summarizeToolInput(
@@ -834,6 +836,8 @@ export class YachiyoServer {
                 id: event.toolCall.toolCallId,
                 runId: input.runId,
                 threadId: input.thread.id,
+                requestMessageId: input.requestMessageId,
+                assistantMessageId: messageId,
                 toolName,
                 status: event.success ? getToolResultStatus(event.output) : 'failed',
                 inputSummary: summarizeToolInput(toolName, event.toolCall.input),

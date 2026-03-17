@@ -14,18 +14,18 @@ A second Electron BrowserWindow that opens when the user clicks the Settings but
 
 ## 2. Window Properties
 
-| Property | Value |
-|---|---|
-| Width | 820px |
-| Height | 580px |
-| `titleBarStyle` | `hiddenInset` |
-| `trafficLightPosition` | `{ x: 16, y: 18 }` |
-| `resizable` | `false` |
-| `minimizable` | `false` |
-| `frame` | default (macOS native) |
-| Background color | `#f0efeb` |
+| Property                 | Value                                    |
+| ------------------------ | ---------------------------------------- |
+| Width                    | 820px                                    |
+| Height                   | 580px                                    |
+| `titleBarStyle`          | `hiddenInset`                            |
+| `trafficLightPosition`   | `{ x: 16, y: 18 }`                       |
+| `resizable`              | `false`                                  |
+| `minimizable`            | `false`                                  |
+| `frame`                  | default (macOS native)                   |
+| Background color         | `#f0efeb`                                |
 | `webPreferences.preload` | `join(__dirname, '../preload/index.js')` |
-| `webPreferences.sandbox` | `false` |
+| `webPreferences.sandbox` | `false`                                  |
 
 The window is opened exactly once per click — if already open, focus it instead of creating a duplicate.
 
@@ -36,6 +36,7 @@ The window is opened exactly once per click — if already open, focus it instea
 ## 3. How It Opens
 
 **Main window (renderer):** The Settings button (`<Settings>` icon in sidebar footer) calls:
+
 ```ts
 ipcRenderer.send('open-settings')
 ```
@@ -55,21 +56,25 @@ ipcMain.on('open-settings', () => {
     return
   }
   settingsWindow = new BrowserWindow({
-    width: 820, height: 580,
-    resizable: false, minimizable: false,
+    width: 820,
+    height: 580,
+    resizable: false,
+    minimizable: false,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 18 },
     backgroundColor: '#f0efeb',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
-    },
+      sandbox: false
+    }
   })
   settingsWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
-  settingsWindow.on('closed', () => { settingsWindow = null })
+  settingsWindow.on('closed', () => {
+    settingsWindow = null
+  })
 
   // Dev: Vite serves settings entry at /settings/index.html
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -96,6 +101,7 @@ src/renderer/settings/
 ### electron-vite config change
 
 Add a second `input` to the renderer config in `electron.vite.config.ts`:
+
 ```ts
 renderer: {
   input: {
@@ -139,14 +145,14 @@ renderer: {
 
 **Nav tabs and icons:**
 
-| Tab | Lucide icon |
-|---|---|
-| General | `Settings2` |
-| Providers | `Cpu` |
-| Chat | `MessageSquare` |
-| Memory | `Brain` |
-| User Interface | `Monitor` |
-| About | `Info` |
+| Tab            | Lucide icon     |
+| -------------- | --------------- |
+| General        | `Settings2`     |
+| Providers      | `Cpu`           |
+| Chat           | `MessageSquare` |
+| Memory         | `Brain`         |
+| User Interface | `Monitor`       |
+| About          | `Info`          |
 
 ### 5.2 Content Area
 
@@ -171,16 +177,16 @@ type TabId = 'general' | 'providers' | 'chat' | 'memory' | 'ui' | 'about'
 
 ## 7. Files Changed / Created
 
-| File | Action |
-|---|---|
-| `electron.vite.config.ts` | Add second renderer input |
-| `src/main/index.ts` | Add `settingsWindow` ref + `ipcMain.on('open-settings', ...)` handler |
-| `src/preload/index.ts` | Expose `openSettings` via contextBridge |
-| `src/preload/index.d.ts` | Add `openSettings: () => void` to `window.api` type |
-| `src/renderer/settings/index.html` | New |
-| `src/renderer/settings/main.tsx` | New |
-| `src/renderer/settings/App.tsx` | New — full settings shell |
-| `src/renderer/src/App.tsx` | Wire Settings button to `window.api.openSettings()` |
+| File                               | Action                                                                |
+| ---------------------------------- | --------------------------------------------------------------------- |
+| `electron.vite.config.ts`          | Add second renderer input                                             |
+| `src/main/index.ts`                | Add `settingsWindow` ref + `ipcMain.on('open-settings', ...)` handler |
+| `src/preload/index.ts`             | Expose `openSettings` via contextBridge                               |
+| `src/preload/index.d.ts`           | Add `openSettings: () => void` to `window.api` type                   |
+| `src/renderer/settings/index.html` | New                                                                   |
+| `src/renderer/settings/main.tsx`   | New                                                                   |
+| `src/renderer/settings/App.tsx`    | New — full settings shell                                             |
+| `src/renderer/src/App.tsx`         | Wire Settings button to `window.api.openSettings()`                   |
 
 ---
 

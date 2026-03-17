@@ -6,3 +6,4 @@ out
 *.log*
 .alma-snapshots
 .pnpm-store
+.claude/settings.local.json

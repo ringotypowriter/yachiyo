@@ -39,6 +39,8 @@ export interface ToolCallRecord {
   id: string
   runId: string
   threadId: string
+  requestMessageId?: string
+  assistantMessageId?: string
   toolName: ToolCallName
   status: ToolCallStatus
   inputSummary: string

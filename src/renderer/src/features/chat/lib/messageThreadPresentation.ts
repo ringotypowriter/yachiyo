@@ -1,4 +1,4 @@
-import type { Message, Thread } from '@renderer/app/types'
+import type { Message, Thread, ToolCall } from '@renderer/app/types'
 import {
   buildMessageTreeMaps,
   collectMessagePath,
@@ -16,6 +16,43 @@ export interface MessageGroup {
   assistantBranches: MessageGroupBranch[]
   activeBranchIndex: number
   showPreparing: boolean
+}
+
+export function getVisibleToolCallsForGroup(input: {
+  group: MessageGroup
+  toolCalls: ToolCall[]
+}): ToolCall[] {
+  const requestMessageId = input.group.userMessage.id
+  const visibleAssistantIds = new Set(
+    input.group.assistantBranches
+      .filter((branch) => branch.isActive || branch.message.status !== 'completed')
+      .map((branch) => branch.message.id)
+  )
+
+  return input.toolCalls
+    .filter((toolCall) => {
+      if (toolCall.requestMessageId !== requestMessageId) {
+        return false
+      }
+
+      return !toolCall.assistantMessageId || visibleAssistantIds.has(toolCall.assistantMessageId)
+    })
+    .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+}
+
+export function partitionToolCallsForGroups(input: {
+  groups: MessageGroup[]
+  toolCalls: ToolCall[]
+}): { inlineToolCalls: ToolCall[]; orphanToolCalls: ToolCall[] } {
+  const visibleRequestIds = new Set(input.groups.map((group) => group.userMessage.id))
+
+  return {
+    inlineToolCalls: input.toolCalls.filter(
+      (toolCall) => toolCall.requestMessageId && visibleRequestIds.has(toolCall.requestMessageId)
+    ),
+    // Only legacy tool records without request anchors fall back to top-level rendering.
+    orphanToolCalls: input.toolCalls.filter((toolCall) => !toolCall.requestMessageId)
+  }
 }
 
 function truncatePathAtRequest(path: Message[], requestMessageId: string | null): Message[] {
