@@ -1,0 +1,418 @@
+import type {
+  HarnessFinishedEvent,
+  HarnessStartedEvent,
+  MessageCompletedEvent,
+  MessageDeltaEvent,
+  MessageRecord,
+  MessageStartedEvent,
+  ProviderSettings,
+  RunCancelledEvent,
+  RunCompletedEvent,
+  RunFailedEvent,
+  ThreadRecord,
+  ThreadUpdatedEvent,
+  ToolCallName,
+  ToolCallRecord,
+  ToolCallUpdatedEvent
+} from '../../../../shared/yachiyo/protocol.ts'
+import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
+import { prepareModelMessages } from '../../runtime/messagePrepare.ts'
+import {
+  buildToolAvailabilityReminderSection,
+  formatQueryReminder,
+  prependQueryReminderToLatestUserMessage
+} from '../../runtime/queryReminder.ts'
+import type { ModelRuntime } from '../../runtime/types.ts'
+import type { YachiyoStorage } from '../../storage/storage.ts'
+import {
+  createAgentToolSet,
+  normalizeToolResult,
+  summarizeToolInput
+} from '../../tools/agentTools.ts'
+import {
+  DEFAULT_HARNESS_NAME,
+  type CreateId,
+  type EmitServerEvent,
+  type Timestamp
+} from './shared.ts'
+
+export interface ExecuteRunInput {
+  enabledTools: ToolCallName[]
+  runId: string
+  thread: ThreadRecord
+  requestMessageId: string
+  abortController: AbortController
+  updateHeadOnComplete: boolean
+  previousEnabledTools: ToolCallName[]
+}
+
+export interface RunExecutionDeps {
+  storage: YachiyoStorage
+  createId: CreateId
+  timestamp: Timestamp
+  emit: EmitServerEvent
+  createModelRuntime: () => ModelRuntime
+  ensureThreadWorkspace: (threadId: string) => Promise<string>
+  readSettings: () => ProviderSettings
+  loadThreadMessages: (threadId: string) => MessageRecord[]
+  onEnabledToolsUsed: (enabledTools: ToolCallName[]) => void
+  onSettled: () => void
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
+}
+
+function buildAgentInstructions(workspacePath: string, enabledTools: ToolCallName[]): string {
+  const instructions = [
+    'You are operating as a tool-using local agent.',
+    'Default execution mode is YOLO: use tools directly for normal local work instead of asking for per-step confirmation.',
+    `The current thread workspace is ${workspacePath}.`,
+    'Relative paths should resolve from that workspace unless you intentionally use an absolute path.'
+  ]
+
+  if (enabledTools.length === 0) {
+    instructions.push('No tools are available for this run. Respond without tool calls.')
+    return instructions.join('\n')
+  }
+
+  instructions.push(`Available tools: ${enabledTools.join(', ')}.`)
+
+  if (enabledTools.includes('bash')) {
+    instructions.push('Use bash for shell commands when shell execution is the clearest path.')
+  }
+
+  if (enabledTools.some((toolName) => toolName !== 'bash')) {
+    instructions.push(
+      'Use read, write, or edit for direct file work when that is clearer than shell commands.'
+    )
+  }
+
+  return instructions.join('\n')
+}
+
+function loadRunHistory(
+  loadThreadMessages: RunExecutionDeps['loadThreadMessages'],
+  threadId: string,
+  requestMessageId: string
+): Array<Pick<MessageRecord, 'content' | 'images' | 'role'>> {
+  return collectMessagePath(loadThreadMessages(threadId), requestMessageId).map(
+    ({ content, images, role }) => ({
+      content,
+      ...(images ? { images } : {}),
+      role
+    })
+  )
+}
+
+function finishPendingToolCalls(
+  deps: Pick<RunExecutionDeps, 'emit' | 'storage'>,
+  toolCalls: Map<string, ToolCallRecord>,
+  input: { threadId: string; runId: string; finishedAt: string; error: string }
+): void {
+  for (const current of toolCalls.values()) {
+    if (current.status !== 'running') {
+      continue
+    }
+
+    const nextToolCall: ToolCallRecord = {
+      ...current,
+      status: 'failed',
+      outputSummary: input.error,
+      error: input.error,
+      finishedAt: input.finishedAt
+    }
+
+    toolCalls.set(nextToolCall.id, nextToolCall)
+    deps.storage.updateToolCall(nextToolCall)
+    deps.emit<ToolCallUpdatedEvent>({
+      type: 'tool.updated',
+      threadId: input.threadId,
+      runId: input.runId,
+      toolCall: nextToolCall
+    })
+  }
+}
+
+export async function executeServerRun(
+  deps: RunExecutionDeps,
+  input: ExecuteRunInput
+): Promise<void> {
+  const settings = deps.readSettings()
+  const harnessId = deps.createId()
+  const messageId = deps.createId()
+  const toolCalls = new Map<string, ToolCallRecord>()
+  let buffer = ''
+
+  deps.emit<HarnessStartedEvent>({
+    type: 'harness.started',
+    threadId: input.thread.id,
+    runId: input.runId,
+    harnessId,
+    name: DEFAULT_HARNESS_NAME
+  })
+  deps.emit<MessageStartedEvent>({
+    type: 'message.started',
+    threadId: input.thread.id,
+    runId: input.runId,
+    messageId,
+    parentMessageId: input.requestMessageId
+  })
+
+  try {
+    const workspacePath = await deps.ensureThreadWorkspace(input.thread.id)
+    const runtime = deps.createModelRuntime()
+    const hiddenQueryReminder = formatQueryReminder(
+      [
+        buildToolAvailabilityReminderSection({
+          previousEnabledTools: input.previousEnabledTools,
+          enabledTools: input.enabledTools
+        })
+      ].flatMap((section) => (section ? [section] : []))
+    )
+    const history = prependQueryReminderToLatestUserMessage(
+      loadRunHistory(deps.loadThreadMessages, input.thread.id, input.requestMessageId),
+      hiddenQueryReminder
+    )
+    const messages = prepareModelMessages({
+      history,
+      agentInstructions: buildAgentInstructions(workspacePath, input.enabledTools)
+    })
+    const tools = createAgentToolSet({
+      enabledTools: input.enabledTools,
+      workspacePath
+    })
+    deps.onEnabledToolsUsed(input.enabledTools)
+
+    for await (const delta of runtime.streamReply({
+      messages,
+      settings,
+      signal: input.abortController.signal,
+      ...(tools ? { tools } : {}),
+      onToolCallStart: (event) => {
+        const toolCall: ToolCallRecord = {
+          id: event.toolCall.toolCallId,
+          runId: input.runId,
+          threadId: input.thread.id,
+          requestMessageId: input.requestMessageId,
+          assistantMessageId: messageId,
+          toolName: event.toolCall.toolName as ToolCallRecord['toolName'],
+          status: 'running',
+          inputSummary: summarizeToolInput(
+            event.toolCall.toolName as ToolCallRecord['toolName'],
+            event.toolCall.input
+          ),
+          startedAt: deps.timestamp()
+        }
+
+        toolCalls.set(toolCall.id, toolCall)
+        deps.storage.createToolCall(toolCall)
+        deps.emit<ToolCallUpdatedEvent>({
+          type: 'tool.updated',
+          threadId: input.thread.id,
+          runId: input.runId,
+          toolCall
+        })
+      },
+      onToolCallUpdate: (event) => {
+        const startedToolCall = toolCalls.get(event.toolCall.toolCallId)
+        if (!startedToolCall) {
+          return
+        }
+
+        const toolName = event.toolCall.toolName as ToolCallRecord['toolName']
+        const normalized = normalizeToolResult(toolName, event.output, { phase: 'update' })
+        const toolCall: ToolCallRecord = {
+          ...startedToolCall,
+          status: 'running',
+          ...(normalized.outputSummary ? { outputSummary: normalized.outputSummary } : {}),
+          ...(normalized.cwd ? { cwd: normalized.cwd } : {}),
+          ...(normalized.details ? { details: normalized.details } : {})
+        }
+
+        toolCalls.set(toolCall.id, toolCall)
+        deps.storage.updateToolCall(toolCall)
+        deps.emit<ToolCallUpdatedEvent>({
+          type: 'tool.updated',
+          threadId: input.thread.id,
+          runId: input.runId,
+          toolCall
+        })
+      },
+      onToolCallFinish: (event) => {
+        const startedToolCall = toolCalls.get(event.toolCall.toolCallId)
+        const toolName = event.toolCall.toolName as ToolCallRecord['toolName']
+        const finishedAt = deps.timestamp()
+        const normalized = event.success ? normalizeToolResult(toolName, event.output) : undefined
+        const errorMessage =
+          normalized?.error ??
+          (event.success || event.error === undefined
+            ? undefined
+            : event.error instanceof Error
+              ? event.error.message
+              : String(event.error))
+        const toolCall: ToolCallRecord = startedToolCall
+          ? {
+              ...startedToolCall,
+              status: normalized?.status ?? 'failed',
+              outputSummary: normalized?.outputSummary ?? errorMessage,
+              ...(normalized?.cwd ? { cwd: normalized.cwd } : {}),
+              ...(normalized?.details ? { details: normalized.details } : {}),
+              ...(errorMessage ? { error: errorMessage } : {}),
+              finishedAt
+            }
+          : {
+              id: event.toolCall.toolCallId,
+              runId: input.runId,
+              threadId: input.thread.id,
+              requestMessageId: input.requestMessageId,
+              assistantMessageId: messageId,
+              toolName,
+              status: normalized?.status ?? 'failed',
+              inputSummary: summarizeToolInput(toolName, event.toolCall.input),
+              outputSummary: normalized?.outputSummary ?? errorMessage,
+              ...(normalized?.cwd ? { cwd: normalized.cwd } : {}),
+              ...(normalized?.details ? { details: normalized.details } : {}),
+              ...(errorMessage ? { error: errorMessage } : {}),
+              startedAt: finishedAt,
+              finishedAt
+            }
+
+        toolCalls.set(toolCall.id, toolCall)
+        deps.storage.updateToolCall(toolCall)
+        deps.emit<ToolCallUpdatedEvent>({
+          type: 'tool.updated',
+          threadId: input.thread.id,
+          runId: input.runId,
+          toolCall
+        })
+      }
+    })) {
+      if (!delta) continue
+      buffer += delta
+      deps.emit<MessageDeltaEvent>({
+        type: 'message.delta',
+        threadId: input.thread.id,
+        runId: input.runId,
+        messageId,
+        delta
+      })
+    }
+
+    const timestamp = deps.timestamp()
+    const assistantMessage: MessageRecord = {
+      id: messageId,
+      threadId: input.thread.id,
+      parentMessageId: input.requestMessageId,
+      role: 'assistant',
+      content: buffer,
+      status: 'completed',
+      createdAt: timestamp,
+      modelId: settings.model,
+      providerName: settings.providerName
+    }
+
+    const updatedThread: ThreadRecord = {
+      ...input.thread,
+      updatedAt: timestamp,
+      ...(input.updateHeadOnComplete
+        ? { preview: assistantMessage.content.slice(0, 240) }
+        : input.thread.preview
+          ? { preview: input.thread.preview }
+          : {}),
+      ...(input.updateHeadOnComplete
+        ? { headMessageId: assistantMessage.id }
+        : input.thread.headMessageId
+          ? { headMessageId: input.thread.headMessageId }
+          : {})
+    }
+
+    deps.storage.completeRun({ runId: input.runId, updatedThread, assistantMessage })
+
+    deps.emit<MessageCompletedEvent>({
+      type: 'message.completed',
+      threadId: input.thread.id,
+      runId: input.runId,
+      message: assistantMessage
+    })
+    deps.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: input.thread.id,
+      thread: updatedThread
+    })
+    deps.emit<HarnessFinishedEvent>({
+      type: 'harness.finished',
+      threadId: input.thread.id,
+      runId: input.runId,
+      harnessId,
+      name: DEFAULT_HARNESS_NAME,
+      status: 'completed'
+    })
+    deps.emit<RunCompletedEvent>({
+      type: 'run.completed',
+      threadId: input.thread.id,
+      runId: input.runId
+    })
+  } catch (error) {
+    if (input.abortController.signal.aborted || isAbortError(error)) {
+      const timestamp = deps.timestamp()
+      finishPendingToolCalls(deps, toolCalls, {
+        error: 'Run cancelled before the tool call finished.',
+        finishedAt: timestamp,
+        runId: input.runId,
+        threadId: input.thread.id
+      })
+      deps.storage.cancelRun({
+        runId: input.runId,
+        completedAt: timestamp
+      })
+
+      deps.emit<HarnessFinishedEvent>({
+        type: 'harness.finished',
+        threadId: input.thread.id,
+        runId: input.runId,
+        harnessId,
+        name: DEFAULT_HARNESS_NAME,
+        status: 'cancelled'
+      })
+      deps.emit<RunCancelledEvent>({
+        type: 'run.cancelled',
+        threadId: input.thread.id,
+        runId: input.runId
+      })
+      return
+    }
+
+    const message = error instanceof Error ? error.message : 'Unknown model runtime error'
+    const timestamp = deps.timestamp()
+    finishPendingToolCalls(deps, toolCalls, {
+      error: message,
+      finishedAt: timestamp,
+      runId: input.runId,
+      threadId: input.thread.id
+    })
+    deps.storage.failRun({
+      runId: input.runId,
+      completedAt: timestamp,
+      error: message
+    })
+
+    deps.emit<HarnessFinishedEvent>({
+      type: 'harness.finished',
+      threadId: input.thread.id,
+      runId: input.runId,
+      harnessId,
+      name: DEFAULT_HARNESS_NAME,
+      status: 'failed',
+      error: message
+    })
+    deps.emit<RunFailedEvent>({
+      type: 'run.failed',
+      threadId: input.thread.id,
+      runId: input.runId,
+      error: message
+    })
+  } finally {
+    deps.onSettled()
+  }
+}

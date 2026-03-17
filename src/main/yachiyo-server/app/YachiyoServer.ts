@@ -1,86 +1,32 @@
 import { randomUUID } from 'node:crypto'
 
-import {
-  DEFAULT_ENABLED_TOOL_NAMES,
-  normalizeEnabledTools,
-  type BootstrapPayload,
-  type ChatAccepted,
-  type HarnessFinishedEvent,
-  type HarnessStartedEvent,
-  type MessageCompletedEvent,
-  type MessageDeltaEvent,
-  type MessageRecord,
-  type MessageStartedEvent,
-  type ProviderConfig,
-  type ProviderSettings,
-  type RetryAccepted,
-  type RetryInput,
-  type RunCreatedEvent,
-  type RunCancelledEvent,
-  type RunCompletedEvent,
-  type RunFailedEvent,
-  type SendChatInput,
-  type SettingsConfig,
-  type SettingsUpdatedEvent,
-  type ThreadArchivedEvent,
-  type ThreadCreatedEvent,
-  type MessageImageRecord,
-  type ThreadRecord,
-  type ThreadSnapshot,
-  type ThreadStateReplacedEvent,
-  type ToolCallName,
-  type ToolCallRecord,
-  type ToolCallUpdatedEvent,
-  type ThreadUpdatedEvent,
-  type ToolPreferencesInput,
-  type YachiyoServerEvent
+import type {
+  BootstrapPayload,
+  ChatAccepted,
+  ProviderConfig,
+  ProviderSettings,
+  RetryAccepted,
+  RetryInput,
+  SendChatInput,
+  SettingsConfig,
+  ThreadRecord,
+  ThreadSnapshot,
+  ToolPreferencesInput,
+  YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol.ts'
-import {
-  extractBase64DataUrlPayload,
-  hasMessagePayload,
-  normalizeMessageImages,
-  summarizeMessageInput
-} from '../../../shared/yachiyo/messageContent.ts'
-import {
-  collectDescendantIds,
-  collectMessagePath,
-  pickLatestLeafId,
-  pickReplacementHeadId,
-  sortMessagesByCreatedAt
-} from '../../../shared/yachiyo/threadTree.ts'
 import { resolveYachiyoSettingsPath } from '../config/paths.ts'
-import { prepareModelMessages } from '../runtime/messagePrepare.ts'
-import {
-  buildToolAvailabilityReminderSection,
-  formatQueryReminder,
-  prependQueryReminderToLatestUserMessage
-} from '../runtime/queryReminder.ts'
-import { createAiSdkModelRuntime, fetchModels } from '../runtime/modelRuntime.ts'
+import { createAiSdkModelRuntime } from '../runtime/modelRuntime.ts'
 import type { ModelRuntime } from '../runtime/types.ts'
-import {
-  createSettingsStore,
-  type SettingsStore,
-  toProviderSettings
-} from '../settings/settingsStore.ts'
+import { createSettingsStore } from '../settings/settingsStore.ts'
 import { createSqliteYachiyoStorage } from '../storage/sqlite/database.ts'
 import type { YachiyoStorage } from '../storage/storage.ts'
 import {
   cloneThreadWorkspace as defaultCloneThreadWorkspace,
   ensureThreadWorkspace as defaultEnsureThreadWorkspace
 } from '../threads/threadWorkspace.ts'
-import { createAgentToolSet, normalizeToolResult, summarizeToolInput } from '../tools/agentTools.ts'
-
-const DEFAULT_THREAD_TITLE = 'New Chat'
-const DEFAULT_HARNESS_NAME = 'default.reply'
-const INTERRUPTED_RUN_ERROR = 'Run interrupted before completion.'
-const SHUTDOWN_RUN_ERROR = 'Application shut down before the run completed.'
-
-interface RunState {
-  threadId: string
-  requestMessageId: string
-  abortController: AbortController
-  updateHeadOnComplete: boolean
-}
+import { YachiyoServerConfigDomain } from './domain/configDomain.ts'
+import { YachiyoServerRunDomain } from './domain/runDomain.ts'
+import { YachiyoServerThreadDomain } from './domain/threadDomain.ts'
 
 export interface YachiyoServerOptions {
   storage: YachiyoStorage
@@ -96,115 +42,51 @@ export interface SqliteYachiyoServerOptions extends Omit<YachiyoServerOptions, '
   dbPath: string
 }
 
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
-}
-
-function mergeUnique(values: string[]): string[] {
-  return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
-}
-
-function assertSupportedImages(images: MessageImageRecord[]): void {
-  for (const image of images) {
-    if (!image.mediaType.startsWith('image/')) {
-      throw new Error('Only image inputs are supported right now.')
-    }
-
-    const parsedImage = extractBase64DataUrlPayload(image.dataUrl)
-    if (!parsedImage || !parsedImage.mediaType.startsWith('image/')) {
-      throw new Error('Image input is not ready to send yet.')
-    }
-  }
-}
-
-function resolveEnabledTools(
-  value: unknown,
-  fallback: readonly ToolCallName[] = DEFAULT_ENABLED_TOOL_NAMES
-): ToolCallName[] {
-  return normalizeEnabledTools(value, fallback)
-}
-
-function upsertProvider(config: SettingsConfig, provider: ProviderConfig): SettingsConfig {
-  const nextProvider = {
-    ...provider,
-    modelList: {
-      enabled: mergeUnique(provider.modelList.enabled),
-      disabled: mergeUnique(provider.modelList.disabled).filter(
-        (model) => !provider.modelList.enabled.includes(model)
-      )
-    }
-  }
-  const currentIndex = config.providers.findIndex((entry) => entry.name === provider.name)
-
-  if (currentIndex === -1) {
-    return {
-      ...config,
-      providers: [...config.providers, nextProvider]
-    }
-  }
-
-  const providers = [...config.providers]
-  providers[currentIndex] = nextProvider
-
-  return {
-    ...config,
-    providers
-  }
-}
-
-function updateProviderModels(
-  config: SettingsConfig,
-  input: { name: string; model: string; enabled: boolean }
-): SettingsConfig {
-  const name = input.name.trim()
-  const model = input.model.trim()
-  const provider = config.providers.find((entry) => entry.name === name)
-
-  if (!provider) {
-    throw new Error(`Unknown provider: ${name}`)
-  }
-
-  const nextProvider: ProviderConfig = {
-    ...provider,
-    modelList: {
-      enabled: input.enabled
-        ? mergeUnique([...provider.modelList.enabled, model])
-        : provider.modelList.enabled.filter((entry) => entry !== model),
-      disabled: input.enabled
-        ? provider.modelList.disabled.filter((entry) => entry !== model)
-        : mergeUnique([model, ...provider.modelList.disabled])
-    }
-  }
-
-  return upsertProvider(config, nextProvider)
-}
-
 export class YachiyoServer {
   private readonly storage: YachiyoStorage
-  private readonly settingsStore: SettingsStore
   private readonly now: () => Date
   private readonly createId: () => string
-  private readonly createModelRuntime: () => ModelRuntime
-  private readonly ensureThreadWorkspace: (threadId: string) => Promise<string>
-  private readonly cloneThreadWorkspace: (
-    sourceThreadId: string,
-    targetThreadId: string
-  ) => Promise<string>
   private readonly listeners = new Set<(event: YachiyoServerEvent) => void>()
-  private readonly activeRuns = new Map<string, RunState>()
-  private readonly activeRunByThread = new Map<string, string>()
-  private readonly activeRunTasks = new Map<string, Promise<void>>()
-  private lastRunEnabledTools: ToolCallName[]
+  private readonly configDomain: YachiyoServerConfigDomain
+  private readonly runDomain: YachiyoServerRunDomain
+  private readonly threadDomain: YachiyoServerThreadDomain
 
   constructor(options: YachiyoServerOptions) {
     this.storage = options.storage
-    this.settingsStore = createSettingsStore(options.settingsPath ?? resolveYachiyoSettingsPath())
     this.now = options.now ?? (() => new Date())
     this.createId = options.createId ?? randomUUID
-    this.createModelRuntime = options.createModelRuntime ?? (() => createAiSdkModelRuntime())
-    this.ensureThreadWorkspace = options.ensureThreadWorkspace ?? defaultEnsureThreadWorkspace
-    this.cloneThreadWorkspace = options.cloneThreadWorkspace ?? defaultCloneThreadWorkspace
-    this.lastRunEnabledTools = resolveEnabledTools(this.readConfig().enabledTools)
+
+    const settingsStore = createSettingsStore(options.settingsPath ?? resolveYachiyoSettingsPath())
+    const createModelRuntime = options.createModelRuntime ?? (() => createAiSdkModelRuntime())
+    const ensureThreadWorkspace = options.ensureThreadWorkspace ?? defaultEnsureThreadWorkspace
+    const cloneThreadWorkspace = options.cloneThreadWorkspace ?? defaultCloneThreadWorkspace
+
+    this.configDomain = new YachiyoServerConfigDomain({
+      settingsStore,
+      emit: this.emit.bind(this)
+    })
+    this.runDomain = new YachiyoServerRunDomain({
+      storage: this.storage,
+      createId: this.createId,
+      timestamp: this.timestamp.bind(this),
+      emit: this.emit.bind(this),
+      createModelRuntime,
+      ensureThreadWorkspace,
+      readConfig: () => this.configDomain.readConfig(),
+      readSettings: () => this.configDomain.readSettings(),
+      requireThread: this.requireThread.bind(this),
+      loadThreadMessages: (threadId) => this.storage.listThreadMessages(threadId)
+    })
+    this.threadDomain = new YachiyoServerThreadDomain({
+      storage: this.storage,
+      createId: this.createId,
+      timestamp: this.timestamp.bind(this),
+      emit: this.emit.bind(this),
+      ensureThreadWorkspace,
+      cloneThreadWorkspace,
+      requireThread: this.requireThread.bind(this),
+      isThreadRunning: (threadId) => this.runDomain.hasActiveThread(threadId)
+    })
   }
 
   subscribe(listener: (event: YachiyoServerEvent) => void): () => void {
@@ -215,26 +97,12 @@ export class YachiyoServer {
   }
 
   async close(): Promise<void> {
-    for (const state of this.activeRuns.values()) {
-      state.abortController.abort()
-    }
-
-    if (this.activeRunTasks.size > 0) {
-      await Promise.allSettled(this.activeRunTasks.values())
-    }
-
-    this.recoverInterruptedRuns(SHUTDOWN_RUN_ERROR)
-    this.activeRuns.clear()
-    this.activeRunByThread.clear()
-    this.activeRunTasks.clear()
+    await this.runDomain.close()
     this.storage.close()
   }
 
-  recoverInterruptedRuns(error: string = INTERRUPTED_RUN_ERROR): void {
-    this.storage.recoverInterruptedRuns({
-      error,
-      finishedAt: this.timestamp()
-    })
+  recoverInterruptedRuns(error?: string): void {
+    this.runDomain.recoverInterruptedRuns(error)
   }
 
   async bootstrap(): Promise<BootstrapPayload> {
@@ -248,986 +116,91 @@ export class YachiyoServer {
       messagesByThread,
       toolCallsByThread,
       latestRunsByThread,
-      config: this.readConfig(),
-      settings: this.readSettings()
+      config: this.configDomain.readConfig(),
+      settings: this.configDomain.readSettings()
     }
   }
 
   async getConfig(): Promise<SettingsConfig> {
-    return this.readConfig()
+    return this.configDomain.getConfig()
   }
 
   async saveConfig(input: SettingsConfig): Promise<SettingsConfig> {
-    return this.persistConfig(input)
+    return this.configDomain.saveConfig(input)
   }
 
   async getSettings(): Promise<ProviderSettings> {
-    return this.readSettings()
+    return this.configDomain.getSettings()
   }
 
   async saveSettings(input: Partial<ProviderSettings>): Promise<ProviderSettings> {
-    const current = this.readConfig()
-    const currentSettings = this.readSettings()
-    const providerName =
-      input.providerName?.trim() ||
-      currentSettings.providerName ||
-      input.provider?.trim() ||
-      'provider'
-
-    const existing =
-      current.providers.find((provider) => provider.name === providerName) ??
-      current.providers.find((provider) => provider.type === input.provider)
-
-    const nextProvider: ProviderConfig = {
-      name: providerName,
-      type: input.provider ?? existing?.type ?? currentSettings.provider,
-      apiKey: input.apiKey?.trim() ?? existing?.apiKey ?? currentSettings.apiKey,
-      baseUrl: input.baseUrl?.trim() ?? existing?.baseUrl ?? currentSettings.baseUrl,
-      modelList: {
-        enabled: mergeUnique([
-          ...(existing?.modelList.enabled ?? []),
-          input.model?.trim() ?? currentSettings.model
-        ]),
-        disabled: (existing?.modelList.disabled ?? []).filter(
-          (model) => model !== (input.model?.trim() ?? currentSettings.model)
-        )
-      }
-    }
-
-    const baseConfig = upsertProvider(current, nextProvider)
-    const prioritizedProvider = baseConfig.providers.find(
-      (provider) => provider.name === providerName
-    )
-    const nextConfig = this.persistConfig({
-      providers: prioritizedProvider
-        ? [
-            prioritizedProvider,
-            ...baseConfig.providers.filter((provider) => provider.name !== providerName)
-          ]
-        : baseConfig.providers
-    })
-
-    return toProviderSettings(nextConfig)
+    return this.configDomain.saveSettings(input)
   }
 
   async saveToolPreferences(input: ToolPreferencesInput): Promise<SettingsConfig> {
-    const current = this.readConfig()
-    return this.persistConfig({
-      ...current,
-      enabledTools: resolveEnabledTools(input.enabledTools, current.enabledTools)
-    })
+    return this.configDomain.saveToolPreferences(input)
   }
 
   async upsertProvider(input: ProviderConfig): Promise<ProviderConfig> {
-    const nextConfig = this.persistConfig(upsertProvider(this.readConfig(), input))
-    const provider = nextConfig.providers.find((entry) => entry.name === input.name)
-    if (!provider) {
-      throw new Error(`Unknown provider: ${input.name}`)
-    }
-    return provider
+    return this.configDomain.upsertProvider(input)
   }
 
   async removeProvider(input: { name: string }): Promise<SettingsConfig> {
-    const name = input.name.trim()
-    const current = this.readConfig()
-    const providers = current.providers.filter((provider) => provider.name !== name)
-
-    if (providers.length === current.providers.length) {
-      throw new Error(`Unknown provider: ${name}`)
-    }
-
-    return this.persistConfig({
-      ...current,
-      providers
-    })
+    return this.configDomain.removeProvider(input)
   }
 
   async enableProviderModel(input: { name: string; model: string }): Promise<SettingsConfig> {
-    return this.persistConfig(
-      updateProviderModels(this.readConfig(), {
-        ...input,
-        enabled: true
-      })
-    )
+    return this.configDomain.enableProviderModel(input)
   }
 
   async disableProviderModel(input: { name: string; model: string }): Promise<SettingsConfig> {
-    return this.persistConfig(
-      updateProviderModels(this.readConfig(), {
-        ...input,
-        enabled: false
-      })
-    )
+    return this.configDomain.disableProviderModel(input)
   }
 
   async fetchProviderModels(input: ProviderConfig): Promise<string[]> {
-    console.log('[fetchProviderModels] called with:', {
-      name: input.name,
-      type: input.type,
-      baseUrl: input.baseUrl || '(default)',
-      hasApiKey: Boolean(input.apiKey?.trim())
-    })
-    const models = await fetchModels(input)
-    console.log('[fetchProviderModels] result:', models.length, 'models', models.slice(0, 5))
-    return models
+    return this.configDomain.fetchProviderModels(input)
   }
 
   async createThread(): Promise<ThreadRecord> {
-    const timestamp = this.timestamp()
-    const thread: ThreadRecord = {
-      id: this.createId(),
-      title: DEFAULT_THREAD_TITLE,
-      updatedAt: timestamp
-    }
-
-    await this.ensureThreadWorkspace(thread.id)
-    this.storage.createThread({ thread, createdAt: timestamp })
-
-    this.emit<ThreadCreatedEvent>({
-      type: 'thread.created',
-      threadId: thread.id,
-      thread
-    })
-
-    return thread
+    return this.threadDomain.createThread()
   }
 
   async renameThread(input: { threadId: string; title: string }): Promise<ThreadRecord> {
-    const title = input.title.trim()
-    if (!title) {
-      throw new Error('Thread title cannot be empty.')
-    }
-
-    const thread = this.requireThread(input.threadId)
-    const updatedThread: ThreadRecord = {
-      ...thread,
-      title,
-      updatedAt: this.timestamp()
-    }
-
-    this.storage.renameThread({
-      threadId: thread.id,
-      title: updatedThread.title,
-      updatedAt: updatedThread.updatedAt
-    })
-
-    this.emit<ThreadUpdatedEvent>({
-      type: 'thread.updated',
-      threadId: updatedThread.id,
-      thread: updatedThread
-    })
-
-    return updatedThread
+    return this.threadDomain.renameThread(input)
   }
 
   async archiveThread(input: { threadId: string }): Promise<void> {
-    const thread = this.requireThread(input.threadId)
-    if (this.activeRunByThread.has(thread.id)) {
-      throw new Error('Cannot archive a thread with an active run.')
-    }
-    const timestamp = this.timestamp()
-
-    this.storage.archiveThread({
-      threadId: thread.id,
-      archivedAt: timestamp,
-      updatedAt: timestamp
-    })
-
-    this.emit<ThreadArchivedEvent>({
-      type: 'thread.archived',
-      threadId: thread.id
-    })
+    this.threadDomain.archiveThread(input)
   }
 
   async sendChat(input: SendChatInput): Promise<ChatAccepted> {
-    const content = input.content.trim()
-    const images = normalizeMessageImages(input.images)
-    const enabledTools = resolveEnabledTools(input.enabledTools, this.readConfig().enabledTools)
-
-    if (!hasMessagePayload({ content, images })) {
-      throw new Error('Cannot send an empty message.')
-    }
-    assertSupportedImages(images)
-
-    const thread = this.requireThread(input.threadId)
-    if (this.activeRunByThread.has(thread.id)) {
-      throw new Error('This thread already has an active run.')
-    }
-
-    const timestamp = this.timestamp()
-    const messageSummary = summarizeMessageInput({ content, images })
-    const userMessage: MessageRecord = {
-      id: this.createId(),
-      threadId: thread.id,
-      ...(thread.headMessageId ? { parentMessageId: thread.headMessageId } : {}),
-      role: 'user',
-      content,
-      ...(images.length > 0 ? { images } : {}),
-      status: 'completed',
-      createdAt: timestamp
-    }
-    const updatedThread: ThreadRecord = {
-      ...thread,
-      headMessageId: userMessage.id,
-      ...(messageSummary ? { preview: messageSummary.slice(0, 240) } : {}),
-      title:
-        thread.title === DEFAULT_THREAD_TITLE
-          ? (messageSummary || DEFAULT_THREAD_TITLE).slice(0, 60)
-          : thread.title,
-      updatedAt: timestamp
-    }
-    const accepted = {
-      runId: this.createId(),
-      thread: updatedThread,
-      userMessage
-    }
-
-    this.storage.startRun({
-      runId: accepted.runId,
-      requestMessageId: userMessage.id,
-      thread,
-      updatedThread,
-      userMessage,
-      createdAt: timestamp
-    })
-
-    this.emit<ThreadUpdatedEvent>({
-      type: 'thread.updated',
-      threadId: accepted.thread.id,
-      thread: accepted.thread
-    })
-    this.emit<RunCreatedEvent>({
-      type: 'run.created',
-      threadId: accepted.thread.id,
-      runId: accepted.runId,
-      requestMessageId: userMessage.id
-    })
-
-    this.startActiveRun({
-      enabledTools,
-      runId: accepted.runId,
-      thread: accepted.thread,
-      requestMessageId: userMessage.id,
-      updateHeadOnComplete: true
-    })
-
-    return accepted
+    return this.runDomain.sendChat(input)
   }
 
   async retryMessage(input: RetryInput): Promise<RetryAccepted> {
-    const thread = this.requireThread(input.threadId)
-    if (this.activeRunByThread.has(thread.id)) {
-      throw new Error('This thread already has an active run.')
-    }
-
-    const enabledTools = resolveEnabledTools(input.enabledTools, this.readConfig().enabledTools)
-
-    const { requestMessage, sourceAssistantMessage } = this.resolveRetryRequest(
-      thread,
-      input.messageId
-    )
-    const timestamp = this.timestamp()
-    const updatedThread: ThreadRecord = {
-      ...thread,
-      updatedAt: timestamp
-    }
-    const accepted: RetryAccepted = {
-      runId: this.createId(),
-      thread: updatedThread,
-      requestMessageId: requestMessage.id,
-      ...(sourceAssistantMessage ? { sourceAssistantMessageId: sourceAssistantMessage.id } : {})
-    }
-
-    this.storage.startRun({
-      runId: accepted.runId,
-      requestMessageId: requestMessage.id,
-      thread,
-      updatedThread,
-      createdAt: timestamp
-    })
-
-    this.emit<ThreadUpdatedEvent>({
-      type: 'thread.updated',
-      threadId: accepted.thread.id,
-      thread: accepted.thread
-    })
-    this.emit<RunCreatedEvent>({
-      type: 'run.created',
-      threadId: accepted.thread.id,
-      runId: accepted.runId,
-      requestMessageId: requestMessage.id
-    })
-
-    this.startActiveRun({
-      enabledTools,
-      runId: accepted.runId,
-      thread: accepted.thread,
-      requestMessageId: requestMessage.id,
-      updateHeadOnComplete: true
-    })
-
-    return accepted
+    return this.runDomain.retryMessage(input)
   }
 
   async selectReplyBranch(input: {
     threadId: string
     assistantMessageId: string
   }): Promise<ThreadRecord> {
-    const thread = this.requireThread(input.threadId)
-    if (this.activeRunByThread.has(thread.id)) {
-      throw new Error('Cannot switch reply branches while this thread is running.')
-    }
-
-    const { sourceAssistantMessage } = this.resolveRetryRequest(thread, input.assistantMessageId)
-    if (!sourceAssistantMessage) {
-      throw new Error('This message cannot be used as a reply branch.')
-    }
-    const messages = this.loadThreadMessages(thread.id)
-    const nextHeadMessageId =
-      pickLatestLeafId(messages, sourceAssistantMessage.id) ?? sourceAssistantMessage.id
-    const previewSource = messages.find((message) => message.id === nextHeadMessageId)
-    const preview = previewSource ? summarizeMessageInput(previewSource) : ''
-    const timestamp = this.timestamp()
-    const updatedThread: ThreadRecord = {
-      ...thread,
-      updatedAt: timestamp,
-      headMessageId: nextHeadMessageId,
-      ...(preview ? { preview: preview.slice(0, 240) } : {})
-    }
-
-    if (!preview) {
-      delete updatedThread.preview
-    }
-
-    this.storage.updateThread(updatedThread)
-    this.emit<ThreadUpdatedEvent>({
-      type: 'thread.updated',
-      threadId: updatedThread.id,
-      thread: updatedThread
-    })
-
-    return updatedThread
+    return this.threadDomain.selectReplyBranch(input)
   }
 
   async createBranch(input: { threadId: string; messageId: string }): Promise<ThreadSnapshot> {
-    const thread = this.requireThread(input.threadId)
-    if (this.activeRunByThread.has(thread.id)) {
-      throw new Error('Cannot branch a thread with an active run.')
-    }
-
-    const messages = this.loadThreadMessages(thread.id)
-    const branchPoint = messages.find((message) => message.id === input.messageId)
-
-    if (!branchPoint) {
-      throw new Error(`Unknown message: ${input.messageId}`)
-    }
-
-    const path = collectMessagePath(messages, branchPoint.id)
-    const timestamp = this.timestamp()
-    const threadId = this.createId()
-    const idMap = new Map<string, string>()
-    const clonedMessages = path.map((message) => {
-      const clonedId = this.createId()
-      idMap.set(message.id, clonedId)
-
-      return {
-        ...message,
-        id: clonedId,
-        threadId,
-        ...(message.parentMessageId ? { parentMessageId: idMap.get(message.parentMessageId)! } : {})
-      }
-    })
-    const previewSource = clonedMessages.at(-1)
-    const preview = previewSource ? summarizeMessageInput(previewSource) : ''
-    const branchThread: ThreadRecord = {
-      id: threadId,
-      title: this.deriveBranchTitle(thread, branchPoint),
-      updatedAt: timestamp,
-      branchFromThreadId: thread.id,
-      branchFromMessageId: branchPoint.id,
-      ...(preview ? { preview: preview.slice(0, 240) } : {}),
-      ...(previewSource ? { headMessageId: previewSource.id } : {})
-    }
-
-    await this.cloneThreadWorkspace(thread.id, branchThread.id)
-    this.storage.createThread({
-      thread: branchThread,
-      createdAt: timestamp,
-      messages: clonedMessages
-    })
-
-    this.emit<ThreadCreatedEvent>({
-      type: 'thread.created',
-      threadId: branchThread.id,
-      thread: branchThread
-    })
-    this.emit<ThreadStateReplacedEvent>({
-      type: 'thread.state.replaced',
-      threadId: branchThread.id,
-      thread: branchThread,
-      messages: clonedMessages,
-      toolCalls: []
-    })
-
-    return {
-      thread: branchThread,
-      messages: clonedMessages,
-      toolCalls: []
-    }
+    return this.threadDomain.createBranch(input)
   }
 
   async deleteMessageFromHere(input: {
     threadId: string
     messageId: string
   }): Promise<ThreadSnapshot> {
-    const thread = this.requireThread(input.threadId)
-    if (this.activeRunByThread.has(thread.id)) {
-      throw new Error('Cannot edit history while this thread is running.')
-    }
-
-    const messages = this.loadThreadMessages(thread.id)
-    const targetMessage = messages.find((message) => message.id === input.messageId)
-
-    if (!targetMessage) {
-      throw new Error(`Unknown message: ${input.messageId}`)
-    }
-
-    const deletedIds = collectDescendantIds(messages, targetMessage.id)
-    const remainingMessages = sortMessagesByCreatedAt(
-      messages.filter((message) => !deletedIds.has(message.id))
-    )
-    const timestamp = this.timestamp()
-    const nextHeadMessageId = pickReplacementHeadId(
-      messages,
-      remainingMessages,
-      thread.headMessageId
-    )
-    const previewSource = nextHeadMessageId
-      ? remainingMessages.find((message) => message.id === nextHeadMessageId)
-      : undefined
-    const preview = previewSource ? summarizeMessageInput(previewSource) : ''
-    const updatedThread: ThreadRecord = {
-      ...thread,
-      title: remainingMessages.length === 0 ? DEFAULT_THREAD_TITLE : thread.title,
-      updatedAt: timestamp,
-      ...(nextHeadMessageId ? { headMessageId: nextHeadMessageId } : {}),
-      ...(preview ? { preview: preview.slice(0, 240) } : {})
-    }
-
-    if (!nextHeadMessageId) {
-      delete updatedThread.headMessageId
-    }
-
-    if (!preview) {
-      delete updatedThread.preview
-    }
-
-    this.storage.deleteMessages({
-      thread: updatedThread,
-      messageIds: [...deletedIds]
-    })
-
-    this.emit<ThreadStateReplacedEvent>({
-      type: 'thread.state.replaced',
-      threadId: updatedThread.id,
-      thread: updatedThread,
-      messages: remainingMessages,
-      toolCalls: this.loadThreadToolCalls(updatedThread.id)
-    })
-
-    return {
-      thread: updatedThread,
-      messages: remainingMessages,
-      toolCalls: this.loadThreadToolCalls(updatedThread.id)
-    }
+    return this.threadDomain.deleteMessageFromHere(input)
   }
 
   async cancelRun(input: { runId: string }): Promise<void> {
-    this.activeRuns.get(input.runId)?.abortController.abort()
-  }
-
-  private startActiveRun(input: {
-    enabledTools: ToolCallName[]
-    runId: string
-    thread: ThreadRecord
-    requestMessageId: string
-    updateHeadOnComplete: boolean
-  }): void {
-    const abortController = new AbortController()
-    this.activeRuns.set(input.runId, {
-      threadId: input.thread.id,
-      requestMessageId: input.requestMessageId,
-      abortController,
-      updateHeadOnComplete: input.updateHeadOnComplete
-    })
-    this.activeRunByThread.set(input.thread.id, input.runId)
-    const runTask = this.executeRun({
-      abortController,
-      enabledTools: input.enabledTools,
-      requestMessageId: input.requestMessageId,
-      runId: input.runId,
-      thread: input.thread,
-      updateHeadOnComplete: input.updateHeadOnComplete
-    })
-    this.activeRunTasks.set(input.runId, runTask)
-    void runTask
-  }
-
-  private async executeRun(input: {
-    enabledTools: ToolCallName[]
-    runId: string
-    thread: ThreadRecord
-    requestMessageId: string
-    abortController: AbortController
-    updateHeadOnComplete: boolean
-  }): Promise<void> {
-    const settings = this.readSettings()
-    const harnessId = this.createId()
-    const messageId = this.createId()
-    const toolCalls = new Map<string, ToolCallRecord>()
-    let buffer = ''
-
-    this.emit<HarnessStartedEvent>({
-      type: 'harness.started',
-      threadId: input.thread.id,
-      runId: input.runId,
-      harnessId,
-      name: DEFAULT_HARNESS_NAME
-    })
-    this.emit<MessageStartedEvent>({
-      type: 'message.started',
-      threadId: input.thread.id,
-      runId: input.runId,
-      messageId,
-      parentMessageId: input.requestMessageId
-    })
-
-    try {
-      const workspacePath = await this.ensureThreadWorkspace(input.thread.id)
-      const runtime = this.createModelRuntime()
-      const hiddenQueryReminder = formatQueryReminder(
-        [
-          buildToolAvailabilityReminderSection({
-            previousEnabledTools: this.lastRunEnabledTools,
-            enabledTools: input.enabledTools
-          })
-        ].flatMap((section) => (section ? [section] : []))
-      )
-      const history = prependQueryReminderToLatestUserMessage(
-        this.loadRunHistory(input.thread.id, input.requestMessageId),
-        hiddenQueryReminder
-      )
-      const messages = prepareModelMessages({
-        history,
-        agentInstructions: this.buildAgentInstructions(workspacePath, input.enabledTools)
-      })
-      const tools = createAgentToolSet({
-        enabledTools: input.enabledTools,
-        workspacePath
-      })
-      this.lastRunEnabledTools = [...input.enabledTools]
-
-      for await (const delta of runtime.streamReply({
-        messages,
-        settings,
-        signal: input.abortController.signal,
-        ...(tools ? { tools } : {}),
-        onToolCallStart: (event) => {
-          const toolCall: ToolCallRecord = {
-            id: event.toolCall.toolCallId,
-            runId: input.runId,
-            threadId: input.thread.id,
-            requestMessageId: input.requestMessageId,
-            assistantMessageId: messageId,
-            toolName: event.toolCall.toolName as ToolCallRecord['toolName'],
-            status: 'running',
-            inputSummary: summarizeToolInput(
-              event.toolCall.toolName as ToolCallRecord['toolName'],
-              event.toolCall.input
-            ),
-            startedAt: this.timestamp()
-          }
-
-          toolCalls.set(toolCall.id, toolCall)
-          this.storage.createToolCall(toolCall)
-          this.emit<ToolCallUpdatedEvent>({
-            type: 'tool.updated',
-            threadId: input.thread.id,
-            runId: input.runId,
-            toolCall
-          })
-        },
-        onToolCallUpdate: (event) => {
-          const startedToolCall = toolCalls.get(event.toolCall.toolCallId)
-          if (!startedToolCall) {
-            return
-          }
-
-          const toolName = event.toolCall.toolName as ToolCallRecord['toolName']
-          const normalized = normalizeToolResult(toolName, event.output, { phase: 'update' })
-          const toolCall: ToolCallRecord = {
-            ...startedToolCall,
-            status: 'running',
-            ...(normalized.outputSummary ? { outputSummary: normalized.outputSummary } : {}),
-            ...(normalized.cwd ? { cwd: normalized.cwd } : {}),
-            ...(normalized.details ? { details: normalized.details } : {})
-          }
-
-          toolCalls.set(toolCall.id, toolCall)
-          this.storage.updateToolCall(toolCall)
-          this.emit<ToolCallUpdatedEvent>({
-            type: 'tool.updated',
-            threadId: input.thread.id,
-            runId: input.runId,
-            toolCall
-          })
-        },
-        onToolCallFinish: (event) => {
-          const startedToolCall = toolCalls.get(event.toolCall.toolCallId)
-          const toolName = event.toolCall.toolName as ToolCallRecord['toolName']
-          const finishedAt = this.timestamp()
-          const normalized = event.success ? normalizeToolResult(toolName, event.output) : undefined
-          const errorMessage =
-            normalized?.error ??
-            (event.success || event.error === undefined
-              ? undefined
-              : event.error instanceof Error
-                ? event.error.message
-                : String(event.error))
-          const toolCall: ToolCallRecord = startedToolCall
-            ? {
-                ...startedToolCall,
-                status: normalized?.status ?? 'failed',
-                outputSummary: normalized?.outputSummary ?? errorMessage,
-                ...(normalized?.cwd ? { cwd: normalized.cwd } : {}),
-                ...(normalized?.details ? { details: normalized.details } : {}),
-                ...(errorMessage ? { error: errorMessage } : {}),
-                finishedAt
-              }
-            : {
-                id: event.toolCall.toolCallId,
-                runId: input.runId,
-                threadId: input.thread.id,
-                requestMessageId: input.requestMessageId,
-                assistantMessageId: messageId,
-                toolName,
-                status: normalized?.status ?? 'failed',
-                inputSummary: summarizeToolInput(toolName, event.toolCall.input),
-                outputSummary: normalized?.outputSummary ?? errorMessage,
-                ...(normalized?.cwd ? { cwd: normalized.cwd } : {}),
-                ...(normalized?.details ? { details: normalized.details } : {}),
-                ...(errorMessage ? { error: errorMessage } : {}),
-                startedAt: finishedAt,
-                finishedAt
-              }
-
-          toolCalls.set(toolCall.id, toolCall)
-          this.storage.updateToolCall(toolCall)
-          this.emit<ToolCallUpdatedEvent>({
-            type: 'tool.updated',
-            threadId: input.thread.id,
-            runId: input.runId,
-            toolCall
-          })
-        }
-      })) {
-        if (!delta) continue
-        buffer += delta
-        this.emit<MessageDeltaEvent>({
-          type: 'message.delta',
-          threadId: input.thread.id,
-          runId: input.runId,
-          messageId,
-          delta
-        })
-      }
-
-      const timestamp = this.timestamp()
-      const assistantMessage: MessageRecord = {
-        id: messageId,
-        threadId: input.thread.id,
-        parentMessageId: input.requestMessageId,
-        role: 'assistant',
-        content: buffer,
-        status: 'completed',
-        createdAt: timestamp,
-        modelId: settings.model,
-        providerName: settings.providerName
-      }
-
-      const updatedThread: ThreadRecord = {
-        ...input.thread,
-        updatedAt: timestamp,
-        ...(input.updateHeadOnComplete
-          ? { preview: assistantMessage.content.slice(0, 240) }
-          : input.thread.preview
-            ? { preview: input.thread.preview }
-            : {}),
-        ...(input.updateHeadOnComplete
-          ? { headMessageId: assistantMessage.id }
-          : input.thread.headMessageId
-            ? { headMessageId: input.thread.headMessageId }
-            : {})
-      }
-
-      this.storage.completeRun({ runId: input.runId, updatedThread, assistantMessage })
-
-      this.emit<MessageCompletedEvent>({
-        type: 'message.completed',
-        threadId: input.thread.id,
-        runId: input.runId,
-        message: assistantMessage
-      })
-      this.emit<ThreadUpdatedEvent>({
-        type: 'thread.updated',
-        threadId: input.thread.id,
-        thread: updatedThread
-      })
-      this.emit<HarnessFinishedEvent>({
-        type: 'harness.finished',
-        threadId: input.thread.id,
-        runId: input.runId,
-        harnessId,
-        name: DEFAULT_HARNESS_NAME,
-        status: 'completed'
-      })
-      this.emit<RunCompletedEvent>({
-        type: 'run.completed',
-        threadId: input.thread.id,
-        runId: input.runId
-      })
-    } catch (error) {
-      if (input.abortController.signal.aborted || isAbortError(error)) {
-        const timestamp = this.timestamp()
-        this.finishPendingToolCalls(toolCalls, {
-          error: 'Run cancelled before the tool call finished.',
-          finishedAt: timestamp,
-          runId: input.runId,
-          threadId: input.thread.id
-        })
-        this.storage.cancelRun({
-          runId: input.runId,
-          completedAt: timestamp
-        })
-
-        this.emit<HarnessFinishedEvent>({
-          type: 'harness.finished',
-          threadId: input.thread.id,
-          runId: input.runId,
-          harnessId,
-          name: DEFAULT_HARNESS_NAME,
-          status: 'cancelled'
-        })
-        this.emit<RunCancelledEvent>({
-          type: 'run.cancelled',
-          threadId: input.thread.id,
-          runId: input.runId
-        })
-      } else {
-        const message = error instanceof Error ? error.message : 'Unknown model runtime error'
-        const timestamp = this.timestamp()
-        this.finishPendingToolCalls(toolCalls, {
-          error: message,
-          finishedAt: timestamp,
-          runId: input.runId,
-          threadId: input.thread.id
-        })
-        this.storage.failRun({
-          runId: input.runId,
-          completedAt: timestamp,
-          error: message
-        })
-
-        this.emit<HarnessFinishedEvent>({
-          type: 'harness.finished',
-          threadId: input.thread.id,
-          runId: input.runId,
-          harnessId,
-          name: DEFAULT_HARNESS_NAME,
-          status: 'failed',
-          error: message
-        })
-        this.emit<RunFailedEvent>({
-          type: 'run.failed',
-          threadId: input.thread.id,
-          runId: input.runId,
-          error: message
-        })
-      }
-    } finally {
-      this.activeRuns.delete(input.runId)
-      this.activeRunByThread.delete(input.thread.id)
-      this.activeRunTasks.delete(input.runId)
-    }
-  }
-
-  private loadThreadMessages(threadId: string): MessageRecord[] {
-    return this.storage.listThreadMessages(threadId)
-  }
-
-  private loadThreadToolCalls(threadId: string): ToolCallRecord[] {
-    return this.storage.listThreadToolCalls(threadId)
-  }
-
-  private loadRunHistory(
-    threadId: string,
-    requestMessageId: string
-  ): Array<Pick<MessageRecord, 'content' | 'images' | 'role'>> {
-    return collectMessagePath(this.loadThreadMessages(threadId), requestMessageId).map(
-      ({ content, images, role }) => ({
-        content,
-        ...(images ? { images } : {}),
-        role
-      })
-    )
-  }
-
-  private resolveRetryRequest(
-    thread: ThreadRecord,
-    messageId: string
-  ): { requestMessage: MessageRecord; sourceAssistantMessage?: MessageRecord } {
-    const messages = this.loadThreadMessages(thread.id)
-    const target = messages.find((message) => message.id === messageId)
-
-    if (!target) {
-      throw new Error(`Unknown message: ${messageId}`)
-    }
-
-    if (target.role === 'user') {
-      const sourceAssistantMessage = this.resolveActiveAssistantForRequest(
-        thread,
-        messages,
-        target.id
-      )
-
-      return {
-        requestMessage: target,
-        ...(sourceAssistantMessage ? { sourceAssistantMessage } : {})
-      }
-    }
-
-    if (!target.parentMessageId) {
-      throw new Error('This message cannot be retried.')
-    }
-
-    const requestMessage = messages.find((message) => message.id === target.parentMessageId)
-    if (!requestMessage || requestMessage.role !== 'user') {
-      throw new Error('This message cannot be retried.')
-    }
-
-    return {
-      requestMessage,
-      sourceAssistantMessage: target
-    }
-  }
-
-  private resolveActiveAssistantForRequest(
-    thread: ThreadRecord,
-    messages: MessageRecord[],
-    requestMessageId: string
-  ): MessageRecord | undefined {
-    const activePath =
-      thread.headMessageId && messages.some((message) => message.id === thread.headMessageId)
-        ? collectMessagePath(messages, thread.headMessageId)
-        : []
-    const requestIndex = activePath.findIndex((message) => message.id === requestMessageId)
-    const pathAssistant = requestIndex >= 0 ? activePath[requestIndex + 1] : undefined
-
-    if (pathAssistant?.role === 'assistant' && pathAssistant.parentMessageId === requestMessageId) {
-      return pathAssistant
-    }
-
-    return messages
-      .filter(
-        (message): message is MessageRecord =>
-          message.role === 'assistant' && message.parentMessageId === requestMessageId
-      )
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-      .at(-1)
-  }
-
-  private deriveBranchTitle(thread: ThreadRecord, branchPoint: MessageRecord): string {
-    if (thread.title !== DEFAULT_THREAD_TITLE) {
-      return thread.title
-    }
-
-    const titleSource = summarizeMessageInput(branchPoint)
-    return titleSource ? titleSource.slice(0, 60) : DEFAULT_THREAD_TITLE
-  }
-
-  private buildAgentInstructions(workspacePath: string, enabledTools: ToolCallName[]): string {
-    const instructions = [
-      'You are operating as a tool-using local agent.',
-      'Default execution mode is YOLO: use tools directly for normal local work instead of asking for per-step confirmation.',
-      `The current thread workspace is ${workspacePath}.`,
-      'Relative paths should resolve from that workspace unless you intentionally use an absolute path.'
-    ]
-
-    if (enabledTools.length === 0) {
-      instructions.push('No tools are available for this run. Respond without tool calls.')
-      return instructions.join('\n')
-    }
-
-    instructions.push(`Available tools: ${enabledTools.join(', ')}.`)
-
-    if (enabledTools.includes('bash')) {
-      instructions.push('Use bash for shell commands when shell execution is the clearest path.')
-    }
-
-    if (enabledTools.some((toolName) => toolName !== 'bash')) {
-      instructions.push(
-        'Use read, write, or edit for direct file work when that is clearer than shell commands.'
-      )
-    }
-
-    return instructions.join('\n')
-  }
-
-  private finishPendingToolCalls(
-    toolCalls: Map<string, ToolCallRecord>,
-    input: { threadId: string; runId: string; finishedAt: string; error: string }
-  ): void {
-    for (const current of toolCalls.values()) {
-      if (current.status !== 'running') {
-        continue
-      }
-
-      const nextToolCall: ToolCallRecord = {
-        ...current,
-        status: 'failed',
-        outputSummary: input.error,
-        error: input.error,
-        finishedAt: input.finishedAt
-      }
-
-      toolCalls.set(nextToolCall.id, nextToolCall)
-      this.storage.updateToolCall(nextToolCall)
-      this.emit<ToolCallUpdatedEvent>({
-        type: 'tool.updated',
-        threadId: input.threadId,
-        runId: input.runId,
-        toolCall: nextToolCall
-      })
-    }
-  }
-
-  private readSettings(): ProviderSettings {
-    return toProviderSettings(this.readConfig())
-  }
-
-  private readConfig(): SettingsConfig {
-    return this.settingsStore.read()
-  }
-
-  private persistConfig(input: SettingsConfig): SettingsConfig {
-    this.settingsStore.write(input)
-    const config = this.readConfig()
-    this.emit<SettingsUpdatedEvent>({
-      type: 'settings.updated',
-      config,
-      settings: toProviderSettings(config)
-    })
-    return config
+    this.runDomain.cancelRun(input)
   }
 
   private requireThread(threadId: string): ThreadRecord {
