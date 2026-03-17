@@ -23,7 +23,7 @@ import {
   type DeleteMessagesInput,
   type StartRunInput,
   type YachiyoStorage
-} from './storage.ts'
+} from '../storage.ts'
 
 const MIGRATIONS_DIR = fileURLToPath(new URL('./drizzle', import.meta.url))
 const require = createRequire(import.meta.url)

@@ -2,7 +2,7 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import { stepCountIs, streamText, type LanguageModel } from 'ai'
 
-import type { ProviderConfig, ProviderSettings } from '../../shared/yachiyo/protocol'
+import type { ProviderConfig, ProviderSettings } from '../../../shared/yachiyo/protocol'
 import { prepareAiSdkMessages } from './messagePrepare.ts'
 import type { ModelRuntime } from './types.ts'
 

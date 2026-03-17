@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import test from 'node:test'
 
 import { createSqliteYachiyoStorage } from './database.ts'
-import { createSqliteYachiyoServer } from './YachiyoServer.ts'
+import { createSqliteYachiyoServer } from '../../app/YachiyoServer.ts'
 
 const require = createRequire(import.meta.url)
 const BetterSqlite3 = require('better-sqlite3') as

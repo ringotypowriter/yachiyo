@@ -7,8 +7,11 @@ import type {
   SettingsConfig,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
-import { resolveYachiyoDbPath, resolveYachiyoSettingsPath } from './yachiyo-server/paths.ts'
-import { createSqliteYachiyoServer, type YachiyoServer } from './yachiyo-server/YachiyoServer.ts'
+import {
+  createSqliteYachiyoServer,
+  type YachiyoServer
+} from './yachiyo-server/app/YachiyoServer.ts'
+import { resolveYachiyoDbPath, resolveYachiyoSettingsPath } from './yachiyo-server/config/paths.ts'
 
 const IPC_CHANNELS = {
   archiveThread: 'yachiyo:archive-thread',

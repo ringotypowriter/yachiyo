@@ -2,7 +2,7 @@
 
 ## Goal
 
-Refactor the current coarse tool layer in `src/main/yachiyo-server/agentTools.ts` to follow the real `pi-mono` design more closely.
+Refactor the current coarse tool layer in `src/main/yachiyo-server/tools/agentTools.ts` to follow the real `pi-mono` design more closely.
 
 The target is not just "four tools exist".
 The target is:
@@ -16,9 +16,9 @@ The target is:
 
 ## Files To Rework
 
-- `src/main/yachiyo-server/agentTools.ts`
-- `src/main/yachiyo-server/YachiyoServer.ts`
-- `src/main/yachiyo-server/modelRuntime.ts`
+- `src/main/yachiyo-server/tools/agentTools.ts`
+- `src/main/yachiyo-server/app/YachiyoServer.ts`
+- `src/main/yachiyo-server/runtime/modelRuntime.ts`
 - `src/shared/yachiyo/protocol.ts`
 
 ## Product Constraints

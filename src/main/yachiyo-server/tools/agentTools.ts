@@ -16,7 +16,7 @@ import type {
   ToolCallName,
   ToolCallStatus,
   WriteToolCallDetails
-} from '../../shared/yachiyo/protocol'
+} from '../../../shared/yachiyo/protocol'
 
 const DEFAULT_READ_LIMIT = 200
 const MAX_READ_LIMIT = 500

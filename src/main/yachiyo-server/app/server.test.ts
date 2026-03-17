@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os'
 import test from 'node:test'
 
 import { YachiyoServer } from './YachiyoServer.ts'
-import { createInMemoryYachiyoStorage } from './memoryStorage.ts'
-import type { ModelStreamRequest } from './types.ts'
+import type { ModelStreamRequest } from '../runtime/types.ts'
+import { createInMemoryYachiyoStorage } from '../storage/memoryStorage.ts'
 
 async function withServer(
   fn: (input: {

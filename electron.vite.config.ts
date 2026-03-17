@@ -8,7 +8,7 @@ function copyDrizzleMigrations(): { name: string; closeBundle: () => void } {
   return {
     name: 'copy-drizzle-migrations',
     closeBundle() {
-      const src = resolve('src/main/yachiyo-server/drizzle')
+      const src = resolve('src/main/yachiyo-server/storage/sqlite/drizzle')
       const dest = resolve('out/main/drizzle')
       mkdirSync(dest, { recursive: true })
       cpSync(src, dest, { recursive: true })

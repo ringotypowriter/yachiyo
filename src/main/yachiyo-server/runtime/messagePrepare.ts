@@ -2,11 +2,11 @@ import type { ModelMessage as AiSdkModelMessage } from 'ai'
 
 import { SYSTEM_PROMPT } from './prompt.ts'
 import type { ModelMessage, ModelStreamRequest } from './types.ts'
-import type { MessageImageRecord } from '../../shared/yachiyo/protocol'
+import type { MessageImageRecord } from '../../../shared/yachiyo/protocol'
 import {
   extractBase64DataUrlPayload,
   normalizeMessageImages
-} from '../../shared/yachiyo/messageContent.ts'
+} from '../../../shared/yachiyo/messageContent.ts'
 
 interface MessagePrepareInput {
   history: Array<{ role: 'user' | 'assistant'; content: string; images?: MessageImageRecord[] }>

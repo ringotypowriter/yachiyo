@@ -1,6 +1,6 @@
 import { sqliteTable, text, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
 
-import type { MessageRecord, RunRecord, ToolCallRecord } from '../../shared/yachiyo/protocol'
+import type { MessageRecord, RunRecord, ToolCallRecord } from '../../../../shared/yachiyo/protocol'
 
 export const threadsTable = sqliteTable('threads', {
   id: text('id').primaryKey(),

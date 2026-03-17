@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import test from 'node:test'
 
 import { runCli } from './cli.ts'
-import { createInMemoryYachiyoStorage } from './memoryStorage.ts'
+import { createInMemoryYachiyoStorage } from '../storage/memoryStorage.ts'
 import { YachiyoServer } from './YachiyoServer.ts'
 
 test('CLI manages file-based TOML settings and thread commands without sqlite native deps', async () => {

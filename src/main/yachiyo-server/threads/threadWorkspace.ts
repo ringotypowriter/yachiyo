@@ -1,6 +1,6 @@
 import { access, cp, mkdir } from 'node:fs/promises'
 
-import { resolveThreadWorkspacePath } from './paths.ts'
+import { resolveThreadWorkspacePath } from '../config/paths.ts'
 
 export async function ensureThreadWorkspace(threadId: string): Promise<string> {
   const workspacePath = resolveThreadWorkspacePath(threadId)

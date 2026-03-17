@@ -7,8 +7,8 @@ import type {
   ToolCallName,
   ToolCallRecord,
   ToolCallStatus
-} from '../../shared/yachiyo/protocol'
-import { normalizeMessageImages } from '../../shared/yachiyo/messageContent.ts'
+} from '../../../shared/yachiyo/protocol'
+import { normalizeMessageImages } from '../../../shared/yachiyo/messageContent.ts'
 
 export interface StoredThreadRow {
   id: string

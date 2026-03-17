@@ -18,7 +18,7 @@ This is a technical contract brief for Codex.
 
 ## Current Situation
 
-Yachiyo already has a first pass of the four tools in `src/main/yachiyo-server/agentTools.ts` and the shared protocol already knows about:
+Yachiyo already has a first pass of the four tools in `src/main/yachiyo-server/tools/agentTools.ts` and the shared protocol already knows about:
 
 - `read`
 - `write`
@@ -27,10 +27,10 @@ Yachiyo already has a first pass of the four tools in `src/main/yachiyo-server/a
 
 Relevant files already in place:
 
-- `src/main/yachiyo-server/agentTools.ts`
+- `src/main/yachiyo-server/tools/agentTools.ts`
 - `src/shared/yachiyo/protocol.ts`
-- `src/main/yachiyo-server/YachiyoServer.ts`
-- `src/main/yachiyo-server/modelRuntime.ts`
+- `src/main/yachiyo-server/app/YachiyoServer.ts`
+- `src/main/yachiyo-server/runtime/modelRuntime.ts`
 
 But the current version is still rough compared with real `pi-mono`:
 
@@ -373,7 +373,7 @@ In particular:
 
 ## AI SDK Integration
 
-Yachiyo currently exposes tools through AI SDK `tool(...)` definitions in `src/main/yachiyo-server/agentTools.ts`.
+Yachiyo currently exposes tools through AI SDK `tool(...)` definitions in `src/main/yachiyo-server/tools/agentTools.ts`.
 That is fine.
 Do not replace AI SDK just to imitate pi-agent-core.
 
@@ -418,4 +418,4 @@ When done, the result should be:
 - their results use a stronger internal contract
 - `bash` uses `timeout` in seconds and keeps the YOLO + minimal guard model
 - tool persistence and timeline summaries derive from structured result data instead of rough ad hoc blobs
-- `src/main/yachiyo-server/agentTools.ts` becomes noticeably cleaner and less coarse
+- `src/main/yachiyo-server/tools/agentTools.ts` becomes noticeably cleaner and less coarse

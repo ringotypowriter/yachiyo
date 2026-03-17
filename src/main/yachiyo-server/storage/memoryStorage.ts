@@ -1,4 +1,4 @@
-import type { MessageRecord, ToolCallRecord } from '../../shared/yachiyo/protocol'
+import type { MessageRecord, ToolCallRecord } from '../../../shared/yachiyo/protocol'
 import {
   groupLatestRunsByThread,
   groupToolCallsByThread,

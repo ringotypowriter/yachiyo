@@ -28,32 +28,36 @@ import type {
   ToolCallUpdatedEvent,
   ThreadUpdatedEvent,
   YachiyoServerEvent
-} from '../../shared/yachiyo/protocol'
+} from '../../../shared/yachiyo/protocol'
 import {
   extractBase64DataUrlPayload,
   hasMessagePayload,
   normalizeMessageImages,
   summarizeMessageInput
-} from '../../shared/yachiyo/messageContent.ts'
+} from '../../../shared/yachiyo/messageContent.ts'
 import {
   collectDescendantIds,
   collectMessagePath,
   pickLatestLeafId,
   pickReplacementHeadId,
   sortMessagesByCreatedAt
-} from '../../shared/yachiyo/threadTree.ts'
-import { createSqliteYachiyoStorage } from './database.ts'
-import { createAgentToolSet, normalizeToolResult, summarizeToolInput } from './agentTools.ts'
-import { prepareModelMessages } from './messagePrepare.ts'
-import { createAiSdkModelRuntime, fetchModels } from './modelRuntime.ts'
-import { resolveYachiyoSettingsPath } from './paths.ts'
-import { createSettingsStore, type SettingsStore, toProviderSettings } from './settingsStore.ts'
+} from '../../../shared/yachiyo/threadTree.ts'
+import { resolveYachiyoSettingsPath } from '../config/paths.ts'
+import { prepareModelMessages } from '../runtime/messagePrepare.ts'
+import { createAiSdkModelRuntime, fetchModels } from '../runtime/modelRuntime.ts'
+import type { ModelRuntime } from '../runtime/types.ts'
+import {
+  createSettingsStore,
+  type SettingsStore,
+  toProviderSettings
+} from '../settings/settingsStore.ts'
+import { createSqliteYachiyoStorage } from '../storage/sqlite/database.ts'
+import type { YachiyoStorage } from '../storage/storage.ts'
 import {
   cloneThreadWorkspace as defaultCloneThreadWorkspace,
   ensureThreadWorkspace as defaultEnsureThreadWorkspace
-} from './threadWorkspace.ts'
-import type { YachiyoStorage } from './storage.ts'
-import type { ModelRuntime } from './types.ts'
+} from '../threads/threadWorkspace.ts'
+import { createAgentToolSet, normalizeToolResult, summarizeToolInput } from '../tools/agentTools.ts'
 
 const DEFAULT_THREAD_TITLE = 'New Chat'
 const DEFAULT_HARNESS_NAME = 'default.reply'

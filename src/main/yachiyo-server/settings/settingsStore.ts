@@ -6,7 +6,7 @@ import type {
   ProviderKind,
   ProviderSettings,
   SettingsConfig
-} from '../../shared/yachiyo/protocol'
+} from '../../../shared/yachiyo/protocol'
 
 export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   providers: []

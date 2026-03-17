@@ -4,8 +4,8 @@ import type {
   ProviderConfig,
   ProviderSettings,
   SettingsConfig
-} from '../../shared/yachiyo/protocol'
-import { resolveYachiyoDbPath, resolveYachiyoSettingsPath } from './paths.ts'
+} from '../../../shared/yachiyo/protocol'
+import { resolveYachiyoDbPath, resolveYachiyoSettingsPath } from '../config/paths.ts'
 import { createSqliteYachiyoServer, type YachiyoServer } from './YachiyoServer.ts'
 
 const USAGE =
