@@ -130,7 +130,10 @@ export function pickReplacementHeadId(
   remainingMessages: MessageRecord[],
   previousHeadMessageId?: string
 ): string | undefined {
-  if (previousHeadMessageId && remainingMessages.some((message) => message.id === previousHeadMessageId)) {
+  if (
+    previousHeadMessageId &&
+    remainingMessages.some((message) => message.id === previousHeadMessageId)
+  ) {
     return previousHeadMessageId
   }
 

@@ -29,10 +29,7 @@ declare global {
           content: string
           images?: MessageImageRecord[]
         }) => Promise<ChatAccepted>
-        retryMessage: (input: {
-          threadId: string
-          messageId: string
-        }) => Promise<RetryAccepted>
+        retryMessage: (input: { threadId: string; messageId: string }) => Promise<RetryAccepted>
         selectReplyBranch: (input: {
           threadId: string
           assistantMessageId: string

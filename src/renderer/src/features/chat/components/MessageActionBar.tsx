@@ -92,7 +92,9 @@ export function MessageActionBar({
               <Copy size={12} strokeWidth={1.7} />
             )
           }
-          label={copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : 'Copy'}
+          label={
+            copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : 'Copy'
+          }
           success={copyState === 'copied'}
           onClick={handleCopy}
         />

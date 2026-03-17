@@ -3,15 +3,26 @@ import test from 'node:test'
 
 import { copyTextWithFallback } from './copyTextWithFallback.ts'
 
-function createDocumentMock() {
+function createDocumentMock(): {
+  document: Document
+  operations: string[]
+  textarea: {
+    value: string
+    style: Record<string, string>
+    setAttribute(name: string, value: string): void
+    select(): void
+  }
+} {
   const operations: string[] = []
   const textarea = {
     value: '',
     style: {} as Record<string, string>,
-    setAttribute(_name: string, _value: string) {
+    setAttribute(name: string, value: string): void {
+      void name
+      void value
       operations.push('readonly')
     },
-    select() {
+    select(): void {
       operations.push('select')
     }
   }

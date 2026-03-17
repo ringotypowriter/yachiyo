@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
@@ -14,11 +14,21 @@ async function withServer(
     completeRun: (runId: string) => Promise<void>
     modelRequests: ModelStreamRequest[]
     waitForEvent: (type: string) => Promise<unknown>
+    workspacePathForThread: (threadId: string) => string
   }) => Promise<void>,
   options: {
     createModelRuntime?: () => {
       streamReply(request: ModelStreamRequest): AsyncIterable<string>
     }
+    ensureThreadWorkspace?: (
+      threadId: string,
+      workspacePathForThread: (threadId: string) => string
+    ) => Promise<string>
+    cloneThreadWorkspace?: (
+      sourceThreadId: string,
+      targetThreadId: string,
+      workspacePathForThread: (threadId: string) => string
+    ) => Promise<string>
     now?: () => Date
   } = {}
 ): Promise<void> {
@@ -26,6 +36,8 @@ async function withServer(
   const settingsPath = join(root, 'config.toml')
   const storage = createInMemoryYachiyoStorage()
   const modelRequests: ModelStreamRequest[] = []
+  const workspacePathForThread = (threadId: string): string =>
+    join(root, '.yachiyo', 'temp-workspace', threadId)
 
   const waiters = new Map<string, Array<{ id: number; handle: (value: unknown) => boolean }>>()
   const seenEvents = new Map<string, unknown[]>()
@@ -95,6 +107,37 @@ async function withServer(
     storage,
     settingsPath,
     now: options.now,
+    ensureThreadWorkspace:
+      (options.ensureThreadWorkspace
+        ? (threadId) => options.ensureThreadWorkspace!(threadId, workspacePathForThread)
+        : undefined) ??
+      (async (threadId) => {
+        const workspacePath = workspacePathForThread(threadId)
+        await mkdir(workspacePath, { recursive: true })
+        return workspacePath
+      }),
+    cloneThreadWorkspace:
+      (options.cloneThreadWorkspace
+        ? (sourceThreadId, targetThreadId) =>
+            options.cloneThreadWorkspace!(sourceThreadId, targetThreadId, workspacePathForThread)
+        : undefined) ??
+      (async (sourceThreadId, targetThreadId) => {
+        const sourceWorkspacePath = workspacePathForThread(sourceThreadId)
+        const targetWorkspacePath = workspacePathForThread(targetThreadId)
+        const sourceExists = await access(sourceWorkspacePath).then(
+          () => true,
+          () => false
+        )
+        if (!sourceExists) {
+          await mkdir(targetWorkspacePath, { recursive: true })
+          return targetWorkspacePath
+        }
+        await cp(sourceWorkspacePath, targetWorkspacePath, {
+          recursive: true,
+          force: true
+        })
+        return targetWorkspacePath
+      }),
     createModelRuntime:
       options.createModelRuntime ??
       (() => ({
@@ -105,10 +148,10 @@ async function withServer(
           const lastMessageText =
             typeof lastMessage?.content === 'string'
               ? lastMessage.content
-              : lastMessage?.content
+              : (lastMessage?.content
                   .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
                   .map((part) => part.text)
-                  .join('') ?? ''
+                  .join('') ?? '')
 
           if (lastMessageText.includes('cancel me')) {
             yield 'Partial'
@@ -142,6 +185,7 @@ async function withServer(
   try {
     await fn({
       server,
+      workspacePathForThread,
       completeRun: (runId) =>
         new Promise<void>((resolve, reject) => {
           const completed = takeSeenEvent<{ runId: string }>(
@@ -274,6 +318,152 @@ test('YachiyoServer streams a reply and persists the completed thread state', as
     assert.equal(bootstrap.threads[0]?.title, 'Plan the MVP')
     assert.equal(bootstrap.threads[0]?.preview, 'Hello world')
   })
+})
+
+test('YachiyoServer fails runs cleanly when thread workspace initialization fails', async () => {
+  let workspaceInitializationAttempts = 0
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const firstRun = await server.sendChat({
+        threadId: thread.id,
+        content: 'This run should fail before the model starts.'
+      })
+
+      await assert.rejects(completeRun(firstRun.runId), /Workspace unavailable/)
+
+      const secondRun = await server.sendChat({
+        threadId: thread.id,
+        content: 'This thread should not stay wedged as running.'
+      })
+
+      await assert.rejects(completeRun(secondRun.runId), /Workspace unavailable/)
+
+      const bootstrap = await server.bootstrap()
+      assert.equal(bootstrap.messagesByThread[thread.id]?.length, 2)
+    },
+    {
+      ensureThreadWorkspace: async (threadId, workspacePathForThread) => {
+        workspaceInitializationAttempts += 1
+        const workspacePath = workspacePathForThread(threadId)
+        if (workspaceInitializationAttempts === 1) {
+          await mkdir(workspacePath, { recursive: true })
+          return workspacePath
+        }
+
+        throw new Error('Workspace unavailable')
+      }
+    }
+  )
+})
+
+test('YachiyoServer creates a per-thread workspace and persists completed tool calls', async () => {
+  let toolWorkspacePath = ''
+
+  await withServer(
+    async ({ server, completeRun, workspacePathForThread }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      toolWorkspacePath = workspacePathForThread(thread.id)
+      await access(toolWorkspacePath)
+
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'List the workspace files.'
+      })
+
+      await completeRun(accepted.runId)
+
+      const bootstrap = await server.bootstrap()
+      const toolCalls = bootstrap.toolCallsByThread[thread.id] ?? []
+
+      assert.equal(toolCalls.length, 1)
+      assert.equal(toolCalls[0]?.toolName, 'bash')
+      assert.equal(toolCalls[0]?.status, 'completed')
+      assert.equal(toolCalls[0]?.cwd, toolWorkspacePath)
+      assert.equal(toolCalls[0]?.inputSummary, 'pwd && ls')
+      assert.equal(toolCalls[0]?.outputSummary, 'exit 0')
+
+      const requestMessageId = bootstrap.messagesByThread[thread.id]?.[0]?.id
+      assert.equal(typeof requestMessageId, 'string')
+
+      const deleted = await server.deleteMessageFromHere({
+        threadId: thread.id,
+        messageId: requestMessageId as string
+      })
+
+      assert.deepEqual(deleted.toolCalls, [])
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          request.onToolCallStart?.({
+            abortSignal: request.signal,
+            experimental_context: undefined,
+            functionId: undefined,
+            messages: request.messages,
+            metadata: undefined,
+            model: undefined,
+            stepNumber: 0,
+            toolCall: {
+              input: { command: 'pwd && ls' },
+              toolCallId: 'tool-bash-1',
+              toolName: 'bash'
+            }
+          } as never)
+
+          request.onToolCallFinish?.({
+            abortSignal: request.signal,
+            durationMs: 3,
+            experimental_context: undefined,
+            functionId: undefined,
+            messages: request.messages,
+            metadata: undefined,
+            model: undefined,
+            stepNumber: 0,
+            success: true,
+            output: {
+              ok: true,
+              command: 'pwd && ls',
+              cwd: toolWorkspacePath,
+              exitCode: 0,
+              stdout: `${toolWorkspacePath}\n`,
+              stderr: ''
+            },
+            toolCall: {
+              input: { command: 'pwd && ls' },
+              toolCallId: 'tool-bash-1',
+              toolName: 'bash'
+            }
+          } as never)
+
+          yield 'Done'
+        }
+      })
+    }
+  )
 })
 
 test('YachiyoServer accepts image-first user input and forwards it as multimodal content', async () => {
@@ -469,9 +659,119 @@ test('YachiyoServer keeps retry replies as sibling assistant branches and preser
   })
 })
 
-test('YachiyoServer can switch the active thread branch between sibling replies', async () => {
-  let tick = 0
-  await withServer(async ({ server, completeRun }) => {
+test('YachiyoServer removes tool activity for a deleted assistant-only branch without touching sibling retries', async () => {
+  let runAttempt = 0
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const firstRun = await server.sendChat({
+        threadId: thread.id,
+        content: 'First question'
+      })
+      await completeRun(firstRun.runId)
+
+      let bootstrap = await server.bootstrap()
+      const [firstUser, firstAssistant] = bootstrap.messagesByThread[thread.id] ?? []
+
+      const retryRun = await server.retryMessage({
+        threadId: thread.id,
+        messageId: firstAssistant!.id
+      })
+      await completeRun(retryRun.runId)
+
+      bootstrap = await server.bootstrap()
+      const retriedAssistant = (bootstrap.messagesByThread[thread.id] ?? []).find(
+        (message) => message.id !== firstAssistant?.id && message.parentMessageId === firstUser?.id
+      )
+      const toolCallsBeforeDelete = bootstrap.toolCallsByThread[thread.id] ?? []
+
+      assert.deepEqual(
+        toolCallsBeforeDelete.map((toolCall) => toolCall.id),
+        ['tool-1', 'tool-2']
+      )
+
+      const deleted = await server.deleteMessageFromHere({
+        threadId: thread.id,
+        messageId: firstAssistant!.id
+      })
+
+      assert.deepEqual(
+        deleted.messages.map((message) => message.id),
+        [firstUser!.id, retriedAssistant!.id]
+      )
+      assert.deepEqual(
+        deleted.toolCalls.map((toolCall) => toolCall.id),
+        ['tool-2']
+      )
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          runAttempt += 1
+          const toolCallId = `tool-${runAttempt}`
+          request.onToolCallStart?.({
+            abortSignal: request.signal,
+            experimental_context: undefined,
+            functionId: undefined,
+            messages: request.messages,
+            metadata: undefined,
+            model: undefined,
+            stepNumber: 0,
+            toolCall: {
+              input: { path: `notes-${runAttempt}.txt` },
+              toolCallId,
+              toolName: 'read'
+            }
+          } as never)
+          request.onToolCallFinish?.({
+            abortSignal: request.signal,
+            durationMs: 1,
+            experimental_context: undefined,
+            functionId: undefined,
+            messages: request.messages,
+            metadata: undefined,
+            model: undefined,
+            stepNumber: 0,
+            success: true,
+            output: {
+              ok: true,
+              path: `/tmp/notes-${runAttempt}.txt`,
+              workspacePath: '/tmp',
+              startLine: 1,
+              endLine: 1,
+              totalLines: 1,
+              totalChars: 5,
+              truncated: false,
+              content: 'hello'
+            },
+            toolCall: {
+              input: { path: `notes-${runAttempt}.txt` },
+              toolCallId,
+              toolName: 'read'
+            }
+          } as never)
+
+          yield `Answer ${runAttempt}`
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer copies the source workspace when creating a branch thread', async () => {
+  await withServer(async ({ server, completeRun, workspacePathForThread }) => {
     await server.upsertProvider({
       name: 'work',
       type: 'openai',
@@ -484,77 +784,120 @@ test('YachiyoServer can switch the active thread branch between sibling replies'
     })
 
     const thread = await server.createThread()
-
-    const firstRun = await server.sendChat({
+    const accepted = await server.sendChat({
       threadId: thread.id,
-      content: 'First question'
+      content: 'Branch this thread'
     })
-    await completeRun(firstRun.runId)
+    await completeRun(accepted.runId)
 
-    let bootstrap = await server.bootstrap()
-    const [firstUser, firstAssistant] = bootstrap.messagesByThread[thread.id] ?? []
+    const bootstrap = await server.bootstrap()
+    const assistantMessage = bootstrap.messagesByThread[thread.id]?.[1]
+    const sourceWorkspacePath = workspacePathForThread(thread.id)
+    const nestedDirectoryPath = join(sourceWorkspacePath, 'nested')
+    const sourceFilePath = join(nestedDirectoryPath, 'notes.txt')
+    await mkdir(nestedDirectoryPath, { recursive: true })
+    await writeFile(sourceFilePath, 'workspace snapshot', 'utf8')
 
-    const secondRun = await server.sendChat({
+    const branch = await server.createBranch({
       threadId: thread.id,
-      content: 'Second question'
-    })
-    await completeRun(secondRun.runId)
-
-    bootstrap = await server.bootstrap()
-    const [, , secondUser, secondAssistant] = bootstrap.messagesByThread[thread.id] ?? []
-
-    const retryRun = await server.retryMessage({
-      threadId: thread.id,
-      messageId: firstAssistant!.id
-    })
-    await completeRun(retryRun.runId)
-
-    bootstrap = await server.bootstrap()
-    const retriedAssistant = (bootstrap.messagesByThread[thread.id] ?? []).find(
-      (message) => message.id !== firstAssistant?.id && message.parentMessageId === firstUser?.id
-    )
-    const updatedAtBeforeSwitch = bootstrap.threads[0]?.updatedAt
-
-    assert.equal(bootstrap.threads[0]?.headMessageId, retriedAssistant?.id)
-
-    const followUpRun = await server.sendChat({
-      threadId: thread.id,
-      content: 'Follow up on the retry'
-    })
-    await completeRun(followUpRun.runId)
-
-    bootstrap = await server.bootstrap()
-    const retryFollowUpUser = (bootstrap.messagesByThread[thread.id] ?? []).find(
-      (message) => message.content === 'Follow up on the retry'
-    )
-    const retryFollowUpAssistant = (bootstrap.messagesByThread[thread.id] ?? []).find(
-      (message) => message.parentMessageId === retryFollowUpUser?.id && message.role === 'assistant'
-    )
-
-    assert.equal(retryFollowUpUser?.parentMessageId, retriedAssistant?.id)
-    assert.equal(bootstrap.threads[0]?.headMessageId, retryFollowUpAssistant?.id)
-
-    const switchedBack = await server.selectReplyBranch({
-      threadId: thread.id,
-      assistantMessageId: firstAssistant!.id
+      messageId: assistantMessage!.id
     })
 
-    assert.equal(switchedBack.headMessageId, secondAssistant?.id)
-    assert.equal(switchedBack.preview, secondAssistant?.content)
-    assert.notEqual(switchedBack.updatedAt, updatedAtBeforeSwitch)
-
-    const switchedAgain = await server.selectReplyBranch({
-      threadId: thread.id,
-      assistantMessageId: retriedAssistant!.id
-    })
-
-    assert.equal(secondUser?.parentMessageId, firstAssistant?.id)
-    assert.equal(switchedAgain.headMessageId, retryFollowUpAssistant?.id)
-    assert.equal(switchedAgain.preview, retryFollowUpAssistant?.content)
-    assert.ok(switchedAgain.updatedAt > switchedBack.updatedAt)
-  }, {
-    now: () => new Date(Date.UTC(2026, 2, 15, 0, 0, tick++))
+    const branchFilePath = join(workspacePathForThread(branch.thread.id), 'nested', 'notes.txt')
+    assert.equal(await readFile(branchFilePath, 'utf8'), 'workspace snapshot')
   })
+})
+
+test('YachiyoServer can switch the active thread branch between sibling replies', async () => {
+  let tick = 0
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+
+      const firstRun = await server.sendChat({
+        threadId: thread.id,
+        content: 'First question'
+      })
+      await completeRun(firstRun.runId)
+
+      let bootstrap = await server.bootstrap()
+      const [firstUser, firstAssistant] = bootstrap.messagesByThread[thread.id] ?? []
+
+      const secondRun = await server.sendChat({
+        threadId: thread.id,
+        content: 'Second question'
+      })
+      await completeRun(secondRun.runId)
+
+      bootstrap = await server.bootstrap()
+      const [, , secondUser, secondAssistant] = bootstrap.messagesByThread[thread.id] ?? []
+
+      const retryRun = await server.retryMessage({
+        threadId: thread.id,
+        messageId: firstAssistant!.id
+      })
+      await completeRun(retryRun.runId)
+
+      bootstrap = await server.bootstrap()
+      const retriedAssistant = (bootstrap.messagesByThread[thread.id] ?? []).find(
+        (message) => message.id !== firstAssistant?.id && message.parentMessageId === firstUser?.id
+      )
+      const updatedAtBeforeSwitch = bootstrap.threads[0]?.updatedAt
+
+      assert.equal(bootstrap.threads[0]?.headMessageId, retriedAssistant?.id)
+
+      const followUpRun = await server.sendChat({
+        threadId: thread.id,
+        content: 'Follow up on the retry'
+      })
+      await completeRun(followUpRun.runId)
+
+      bootstrap = await server.bootstrap()
+      const retryFollowUpUser = (bootstrap.messagesByThread[thread.id] ?? []).find(
+        (message) => message.content === 'Follow up on the retry'
+      )
+      const retryFollowUpAssistant = (bootstrap.messagesByThread[thread.id] ?? []).find(
+        (message) =>
+          message.parentMessageId === retryFollowUpUser?.id && message.role === 'assistant'
+      )
+
+      assert.equal(retryFollowUpUser?.parentMessageId, retriedAssistant?.id)
+      assert.equal(bootstrap.threads[0]?.headMessageId, retryFollowUpAssistant?.id)
+
+      const switchedBack = await server.selectReplyBranch({
+        threadId: thread.id,
+        assistantMessageId: firstAssistant!.id
+      })
+
+      assert.equal(switchedBack.headMessageId, secondAssistant?.id)
+      assert.equal(switchedBack.preview, secondAssistant?.content)
+      assert.notEqual(switchedBack.updatedAt, updatedAtBeforeSwitch)
+
+      const switchedAgain = await server.selectReplyBranch({
+        threadId: thread.id,
+        assistantMessageId: retriedAssistant!.id
+      })
+
+      assert.equal(secondUser?.parentMessageId, firstAssistant?.id)
+      assert.equal(switchedAgain.headMessageId, retryFollowUpAssistant?.id)
+      assert.equal(switchedAgain.preview, retryFollowUpAssistant?.content)
+      assert.ok(switchedAgain.updatedAt > switchedBack.updatedAt)
+    },
+    {
+      now: () => new Date(Date.UTC(2026, 2, 15, 0, 0, tick++))
+    }
+  )
 })
 
 test('YachiyoServer deletes a user request anchor together with every attached response branch', async () => {

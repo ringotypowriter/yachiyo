@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
@@ -27,7 +27,12 @@ test('CLI manages file-based TOML settings and thread commands without sqlite na
       createServer: ({ settingsPath: currentSettingsPath }) =>
         new YachiyoServer({
           storage,
-          settingsPath: currentSettingsPath
+          settingsPath: currentSettingsPath,
+          ensureThreadWorkspace: async (threadId) => {
+            const workspacePath = join(root, '.yachiyo', 'temp-workspace', threadId)
+            await mkdir(workspacePath, { recursive: true })
+            return workspacePath
+          }
         })
     })
 

@@ -207,3 +207,72 @@ test('createAiSdkModelRuntime uses AI SDK streaming with Anthropic thinking enab
     }
   })
 })
+
+test('createAiSdkModelRuntime forwards tools and tool callbacks into the AI SDK tool loop', async () => {
+  let call: {
+    experimental_onToolCallFinish?: unknown
+    experimental_onToolCallStart?: unknown
+    stopWhen?: unknown
+    tools?: unknown
+  } | null = null
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => ({ modelId: 'gpt-5', provider: 'openai.responses' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: ((input: {
+      experimental_onToolCallFinish?: unknown
+      experimental_onToolCallStart?: unknown
+      stopWhen?: unknown
+      tools?: unknown
+    }) => {
+      call = input
+      return {
+        textStream: (async function* () {
+          yield 'ok'
+        })()
+      }
+    }) as never
+  })
+
+  const tools = { read: { description: 'read a file' } }
+  const onToolCallStart = (): void => undefined
+  const onToolCallFinish = (): void => undefined
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'List the workspace files.' }],
+    settings: {
+      providerName: 'work',
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal,
+    tools: tools as never,
+    onToolCallStart: onToolCallStart as never,
+    onToolCallFinish: onToolCallFinish as never
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
+  if (call === null) {
+    assert.fail('Expected streamText to be called.')
+  }
+  const streamCall = call as {
+    experimental_onToolCallFinish?: unknown
+    experimental_onToolCallStart?: unknown
+    stopWhen?: unknown
+    tools?: unknown
+  }
+  assert.equal(streamCall.tools, tools)
+  assert.equal(streamCall.experimental_onToolCallStart, onToolCallStart)
+  assert.equal(streamCall.experimental_onToolCallFinish, onToolCallFinish)
+  assert.equal(typeof streamCall.stopWhen, 'function')
+})

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -117,6 +117,7 @@ test('sqlite storage initializes migrations on disk', async () => {
     assert.ok(tables.includes('messages'))
     assert.ok(tables.includes('runs'))
     assert.ok(tables.includes('threads'))
+    assert.ok(tables.includes('tool_calls'))
     assert.ok(
       db
         .prepare('PRAGMA table_info(messages)')
@@ -165,6 +166,12 @@ test('sqlite storage initializes migrations on disk', async () => {
         .all()
         .some((row) => row.name === 'request_message_id')
     )
+    assert.ok(
+      db
+        .prepare('PRAGMA table_info(runs)')
+        .all()
+        .some((row) => row.name === 'assistant_message_id')
+    )
 
     db.close()
   } finally {
@@ -179,11 +186,17 @@ test('sqlite-backed server persists state across reopen', async () => {
   let server: ReturnType<typeof createSqliteYachiyoServer> | null = null
   let reopened: ReturnType<typeof createSqliteYachiyoServer> | null = null
   let runTracker: ReturnType<typeof createRunCompletionTracker> | null = null
+  const ensureThreadWorkspace = async (threadId: string): Promise<string> => {
+    const workspacePath = join(root, '.yachiyo', 'temp-workspace', threadId)
+    await mkdir(workspacePath, { recursive: true })
+    return workspacePath
+  }
 
   try {
     server = createSqliteYachiyoServer({
       dbPath,
       settingsPath,
+      ensureThreadWorkspace,
       createModelRuntime: () => ({
         async *streamReply() {
           await Promise.resolve()
@@ -218,14 +231,18 @@ test('sqlite-backed server persists state across reopen', async () => {
 
     reopened = createSqliteYachiyoServer({
       dbPath,
-      settingsPath
+      settingsPath,
+      ensureThreadWorkspace
     })
     const bootstrap = await reopened.bootstrap()
 
     assert.equal(bootstrap.threads.length, 1)
     assert.equal(bootstrap.threads[0]?.title, 'Persist this thread')
     assert.equal(bootstrap.threads[0]?.preview, 'Hello from sqlite')
-    assert.equal(bootstrap.threads[0]?.headMessageId, bootstrap.messagesByThread[thread.id]?.[1]?.id)
+    assert.equal(
+      bootstrap.threads[0]?.headMessageId,
+      bootstrap.messagesByThread[thread.id]?.[1]?.id
+    )
     assert.equal(bootstrap.messagesByThread[thread.id]?.length, 2)
     assert.equal(bootstrap.messagesByThread[thread.id]?.[0]?.role, 'user')
     assert.equal(

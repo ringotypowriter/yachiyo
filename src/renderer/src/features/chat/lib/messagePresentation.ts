@@ -1,9 +1,6 @@
 import type { Message } from '@renderer/app/types'
 
-export type MessageFooter =
-  | { kind: 'streaming' }
-  | { kind: 'failed' }
-  | { kind: 'stopped' }
+export type MessageFooter = { kind: 'streaming' } | { kind: 'failed' } | { kind: 'stopped' }
 
 export interface MessagePresentation {
   /** Whether the markdown content block should render */

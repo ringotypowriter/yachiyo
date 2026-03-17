@@ -3,6 +3,8 @@ export type MessageStatus = 'completed' | 'streaming' | 'failed' | 'stopped'
 export type RunStatus = 'idle' | 'running' | 'completed' | 'failed' | 'cancelled'
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected'
 export type ProviderKind = 'openai' | 'anthropic'
+export type ToolCallName = 'read' | 'write' | 'edit' | 'bash'
+export type ToolCallStatus = 'running' | 'completed' | 'failed'
 
 export interface MessageImageRecord {
   dataUrl: string
@@ -33,6 +35,20 @@ export interface MessageRecord {
   providerName?: string
 }
 
+export interface ToolCallRecord {
+  id: string
+  runId: string
+  threadId: string
+  toolName: ToolCallName
+  status: ToolCallStatus
+  inputSummary: string
+  outputSummary?: string
+  cwd?: string
+  error?: string
+  startedAt: string
+  finishedAt?: string
+}
+
 export interface ProviderModelList {
   enabled: string[]
   disabled: string[]
@@ -61,6 +77,7 @@ export interface ProviderSettings {
 export interface BootstrapPayload {
   threads: ThreadRecord[]
   messagesByThread: Record<string, MessageRecord[]>
+  toolCallsByThread: Record<string, ToolCallRecord[]>
   config: SettingsConfig
   settings: ProviderSettings
 }
@@ -81,6 +98,7 @@ export interface RetryAccepted {
 export interface ThreadSnapshot {
   thread: ThreadRecord
   messages: MessageRecord[]
+  toolCalls: ToolCallRecord[]
 }
 
 interface BaseEvent {
@@ -111,6 +129,7 @@ export interface ThreadStateReplacedEvent extends ThreadEvent {
   type: 'thread.state.replaced'
   thread: ThreadRecord
   messages: MessageRecord[]
+  toolCalls: ToolCallRecord[]
 }
 
 export interface ThreadArchivedEvent extends ThreadEvent {
@@ -152,6 +171,11 @@ export interface MessageCompletedEvent extends RunEvent {
   message: MessageRecord
 }
 
+export interface ToolCallUpdatedEvent extends RunEvent {
+  type: 'tool.updated'
+  toolCall: ToolCallRecord
+}
+
 export interface HarnessStartedEvent extends RunEvent {
   type: 'harness.started'
   harnessId: string
@@ -184,6 +208,7 @@ export type YachiyoServerEvent =
   | MessageStartedEvent
   | MessageDeltaEvent
   | MessageCompletedEvent
+  | ToolCallUpdatedEvent
   | HarnessStartedEvent
   | HarnessFinishedEvent
   | SettingsUpdatedEvent

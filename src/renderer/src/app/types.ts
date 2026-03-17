@@ -6,5 +6,6 @@ export type {
   RunStatus,
   SettingsConfig,
   ThreadRecord as Thread,
+  ToolCallRecord as ToolCall,
   YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol.ts'

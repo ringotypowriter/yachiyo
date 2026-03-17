@@ -1,4 +1,9 @@
-import type { ModelMessage as AiSdkModelMessage } from 'ai'
+import type {
+  GenerateTextOnToolCallFinishCallback,
+  GenerateTextOnToolCallStartCallback,
+  ModelMessage as AiSdkModelMessage,
+  ToolSet
+} from 'ai'
 
 import type { ProviderSettings } from '../../shared/yachiyo/protocol'
 
@@ -8,6 +13,9 @@ export interface ModelStreamRequest {
   messages: ModelMessage[]
   settings: ProviderSettings
   signal: AbortSignal
+  tools?: ToolSet
+  onToolCallStart?: GenerateTextOnToolCallStartCallback<ToolSet>
+  onToolCallFinish?: GenerateTextOnToolCallFinishCallback<ToolSet>
 }
 
 export interface ModelRuntime {

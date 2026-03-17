@@ -29,7 +29,8 @@ function resetStore(): void {
     runPhase: 'idle',
     runStatus: 'idle',
     settings: DEFAULT_SETTINGS,
-    threads: []
+    threads: [],
+    toolCalls: {}
   })
 }
 
@@ -185,6 +186,21 @@ test('applyServerEvent replaces a thread snapshot after branch-aware history edi
         }
       ]
     },
+    toolCalls: {
+      'thread-1': [
+        {
+          id: 'tool-old',
+          runId: 'run-1',
+          threadId: 'thread-1',
+          toolName: 'read',
+          status: 'completed',
+          inputSummary: 'old.txt',
+          outputSummary: 'lines 1-10',
+          startedAt: TIMESTAMP,
+          finishedAt: TIMESTAMP
+        }
+      ]
+    },
     threads: [
       {
         id: 'thread-1',
@@ -223,6 +239,20 @@ test('applyServerEvent replaces a thread snapshot after branch-aware history edi
         status: 'completed',
         createdAt: '2026-03-15T00:00:01.000Z'
       }
+    ],
+    toolCalls: [
+      {
+        id: 'tool-new',
+        runId: 'run-2',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'completed',
+        inputSummary: 'pwd && ls',
+        outputSummary: 'exit 0',
+        cwd: '/tmp/thread-1',
+        startedAt: '2026-03-15T00:00:01.000Z',
+        finishedAt: '2026-03-15T00:00:02.000Z'
+      }
     ]
   })
 
@@ -232,6 +262,55 @@ test('applyServerEvent replaces a thread snapshot after branch-aware history edi
   assert.equal(state.messages['thread-1']?.length, 2)
   assert.equal(state.messages['thread-1']?.[1]?.parentMessageId, 'user-1')
   assert.equal(state.messages['thread-1']?.[1]?.content, 'Retry reply')
+  assert.equal(state.toolCalls['thread-1']?.length, 1)
+  assert.equal(state.toolCalls['thread-1']?.[0]?.toolName, 'bash')
+  assert.equal(state.toolCalls['thread-1']?.[0]?.cwd, '/tmp/thread-1')
+})
+
+test('applyServerEvent upserts live tool activity for the current thread', () => {
+  resetStore()
+
+  useAppStore.getState().applyServerEvent({
+    type: 'tool.updated',
+    eventId: 'event-tool-started',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    toolCall: {
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'bash',
+      status: 'running',
+      inputSummary: 'pwd && ls',
+      startedAt: TIMESTAMP
+    }
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'tool.updated',
+    eventId: 'event-tool-finished',
+    timestamp: '2026-03-15T00:00:01.000Z',
+    threadId: 'thread-1',
+    runId: 'run-1',
+    toolCall: {
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'bash',
+      status: 'completed',
+      inputSummary: 'pwd && ls',
+      outputSummary: 'exit 0',
+      cwd: '/tmp/thread-1',
+      startedAt: TIMESTAMP,
+      finishedAt: '2026-03-15T00:00:01.000Z'
+    }
+  })
+
+  const state = useAppStore.getState()
+
+  assert.equal(state.toolCalls['thread-1']?.length, 1)
+  assert.equal(state.toolCalls['thread-1']?.[0]?.status, 'completed')
+  assert.equal(state.toolCalls['thread-1']?.[0]?.cwd, '/tmp/thread-1')
 })
 
 test('selectModel ignores changes while a run is active', async () => {
@@ -369,7 +448,8 @@ test('createBranch switches to a blank draft in the destination thread', async (
         branchFromThreadId: input.threadId,
         branchFromMessageId: input.messageId
       },
-      messages: []
+      messages: [],
+      toolCalls: []
     })
   })
 

@@ -23,7 +23,10 @@ const NEW_THREAD_DRAFT_KEY = '__new__'
 const MAX_COMPOSER_IMAGES = 4
 
 function createDraftImageId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `image-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `image-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  )
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -216,36 +219,47 @@ export function Composer(): React.JSX.Element {
           (useAppStore.getState().composerDrafts[activeThreadId ?? NEW_THREAD_DRAFT_KEY]?.images
             .length ?? 0)
       )
-      const imageFiles = files.filter((file) => file.type.startsWith('image/')).slice(0, remainingSlots)
+      const imageFiles = files
+        .filter((file) => file.type.startsWith('image/'))
+        .slice(0, remainingSlots)
 
       for (const file of imageFiles) {
         const imageId = createDraftImageId()
-        upsertComposerImage({
-          id: imageId,
-          status: 'loading',
-          dataUrl: '',
-          mediaType: file.type || 'image/*',
-          filename: file.name
-        }, activeThreadId)
+        upsertComposerImage(
+          {
+            id: imageId,
+            status: 'loading',
+            dataUrl: '',
+            mediaType: file.type || 'image/*',
+            filename: file.name
+          },
+          activeThreadId
+        )
 
         try {
           const dataUrl = await readFileAsDataUrl(file)
-          upsertComposerImage({
-            id: imageId,
-            status: 'ready',
-            dataUrl,
-            mediaType: file.type || 'image/*',
-            filename: file.name
-          }, activeThreadId)
+          upsertComposerImage(
+            {
+              id: imageId,
+              status: 'ready',
+              dataUrl,
+              mediaType: file.type || 'image/*',
+              filename: file.name
+            },
+            activeThreadId
+          )
         } catch (error) {
-          upsertComposerImage({
-            id: imageId,
-            status: 'failed',
-            dataUrl: '',
-            mediaType: file.type || 'image/*',
-            filename: file.name,
-            error: error instanceof Error ? error.message : 'Unable to prepare this image.'
-          }, activeThreadId)
+          upsertComposerImage(
+            {
+              id: imageId,
+              status: 'failed',
+              dataUrl: '',
+              mediaType: file.type || 'image/*',
+              filename: file.name,
+              error: error instanceof Error ? error.message : 'Unable to prepare this image.'
+            },
+            activeThreadId
+          )
         }
       }
     },
@@ -291,7 +305,8 @@ export function Composer(): React.JSX.Element {
   const providerLabel =
     settings.providerName || (settings.provider === 'openai' ? 'OpenAI' : 'Anthropic')
   const modelLabel = settings.model || 'Configure provider'
-  const hasModels = config !== null && config.providers.some((provider) => provider.modelList.enabled.length > 0)
+  const hasModels =
+    config !== null && config.providers.some((provider) => provider.modelList.enabled.length > 0)
 
   return (
     <div className="flex flex-col" style={{ borderTop: '1px solid rgba(0,0,0,0.08)' }}>

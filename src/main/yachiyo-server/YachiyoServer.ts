@@ -24,6 +24,8 @@ import type {
   ThreadRecord,
   ThreadSnapshot,
   ThreadStateReplacedEvent,
+  ToolCallRecord,
+  ToolCallUpdatedEvent,
   ThreadUpdatedEvent,
   YachiyoServerEvent
 } from '../../shared/yachiyo/protocol'
@@ -41,10 +43,21 @@ import {
   sortMessagesByCreatedAt
 } from '../../shared/yachiyo/threadTree.ts'
 import { createSqliteYachiyoStorage } from './database.ts'
+import {
+  createAgentToolSet,
+  extractToolCwd,
+  getToolResultStatus,
+  summarizeToolInput,
+  summarizeToolOutput
+} from './agentTools.ts'
 import { prepareModelMessages } from './messagePrepare.ts'
 import { createAiSdkModelRuntime, fetchModels } from './modelRuntime.ts'
 import { resolveYachiyoSettingsPath } from './paths.ts'
 import { createSettingsStore, type SettingsStore, toProviderSettings } from './settingsStore.ts'
+import {
+  cloneThreadWorkspace as defaultCloneThreadWorkspace,
+  ensureThreadWorkspace as defaultEnsureThreadWorkspace
+} from './threadWorkspace.ts'
 import type { YachiyoStorage } from './storage.ts'
 import type { ModelRuntime } from './types.ts'
 
@@ -64,6 +77,8 @@ export interface YachiyoServerOptions {
   now?: () => Date
   createId?: () => string
   createModelRuntime?: () => ModelRuntime
+  ensureThreadWorkspace?: (threadId: string) => Promise<string>
+  cloneThreadWorkspace?: (sourceThreadId: string, targetThreadId: string) => Promise<string>
 }
 
 export interface SqliteYachiyoServerOptions extends Omit<YachiyoServerOptions, 'storage'> {
@@ -152,6 +167,11 @@ export class YachiyoServer {
   private readonly now: () => Date
   private readonly createId: () => string
   private readonly createModelRuntime: () => ModelRuntime
+  private readonly ensureThreadWorkspace: (threadId: string) => Promise<string>
+  private readonly cloneThreadWorkspace: (
+    sourceThreadId: string,
+    targetThreadId: string
+  ) => Promise<string>
   private readonly listeners = new Set<(event: YachiyoServerEvent) => void>()
   private readonly activeRuns = new Map<string, RunState>()
   private readonly activeRunByThread = new Map<string, string>()
@@ -162,6 +182,8 @@ export class YachiyoServer {
     this.now = options.now ?? (() => new Date())
     this.createId = options.createId ?? randomUUID
     this.createModelRuntime = options.createModelRuntime ?? (() => createAiSdkModelRuntime())
+    this.ensureThreadWorkspace = options.ensureThreadWorkspace ?? defaultEnsureThreadWorkspace
+    this.cloneThreadWorkspace = options.cloneThreadWorkspace ?? defaultCloneThreadWorkspace
   }
 
   subscribe(listener: (event: YachiyoServerEvent) => void): () => void {
@@ -181,11 +203,12 @@ export class YachiyoServer {
   }
 
   async bootstrap(): Promise<BootstrapPayload> {
-    const { threads, messagesByThread } = this.storage.bootstrap()
+    const { threads, messagesByThread, toolCallsByThread } = this.storage.bootstrap()
 
     return {
       threads,
       messagesByThread,
+      toolCallsByThread,
       config: this.readConfig(),
       settings: this.readSettings()
     }
@@ -310,6 +333,7 @@ export class YachiyoServer {
       updatedAt: timestamp
     }
 
+    await this.ensureThreadWorkspace(thread.id)
     this.storage.createThread({ thread, createdAt: timestamp })
 
     this.emit<ThreadCreatedEvent>({
@@ -445,16 +469,16 @@ export class YachiyoServer {
     return accepted
   }
 
-  async retryMessage(input: {
-    threadId: string
-    messageId: string
-  }): Promise<RetryAccepted> {
+  async retryMessage(input: { threadId: string; messageId: string }): Promise<RetryAccepted> {
     const thread = this.requireThread(input.threadId)
     if (this.activeRunByThread.has(thread.id)) {
       throw new Error('This thread already has an active run.')
     }
 
-    const { requestMessage, sourceAssistantMessage } = this.resolveRetryRequest(thread, input.messageId)
+    const { requestMessage, sourceAssistantMessage } = this.resolveRetryRequest(
+      thread,
+      input.messageId
+    )
     const timestamp = this.timestamp()
     const updatedThread: ThreadRecord = {
       ...thread,
@@ -577,6 +601,7 @@ export class YachiyoServer {
       ...(previewSource ? { headMessageId: previewSource.id } : {})
     }
 
+    await this.cloneThreadWorkspace(thread.id, branchThread.id)
     this.storage.createThread({
       thread: branchThread,
       createdAt: timestamp,
@@ -592,12 +617,14 @@ export class YachiyoServer {
       type: 'thread.state.replaced',
       threadId: branchThread.id,
       thread: branchThread,
-      messages: clonedMessages
+      messages: clonedMessages,
+      toolCalls: []
     })
 
     return {
       thread: branchThread,
-      messages: clonedMessages
+      messages: clonedMessages,
+      toolCalls: []
     }
   }
 
@@ -622,7 +649,11 @@ export class YachiyoServer {
       messages.filter((message) => !deletedIds.has(message.id))
     )
     const timestamp = this.timestamp()
-    const nextHeadMessageId = pickReplacementHeadId(messages, remainingMessages, thread.headMessageId)
+    const nextHeadMessageId = pickReplacementHeadId(
+      messages,
+      remainingMessages,
+      thread.headMessageId
+    )
     const previewSource = nextHeadMessageId
       ? remainingMessages.find((message) => message.id === nextHeadMessageId)
       : undefined
@@ -652,12 +683,14 @@ export class YachiyoServer {
       type: 'thread.state.replaced',
       threadId: updatedThread.id,
       thread: updatedThread,
-      messages: remainingMessages
+      messages: remainingMessages,
+      toolCalls: this.loadThreadToolCalls(updatedThread.id)
     })
 
     return {
       thread: updatedThread,
-      messages: remainingMessages
+      messages: remainingMessages,
+      toolCalls: this.loadThreadToolCalls(updatedThread.id)
     }
   }
 
@@ -698,6 +731,7 @@ export class YachiyoServer {
     const settings = this.readSettings()
     const harnessId = this.createId()
     const messageId = this.createId()
+    const toolCalls = new Map<string, ToolCallRecord>()
     let buffer = ''
 
     this.emit<HarnessStartedEvent>({
@@ -716,15 +750,88 @@ export class YachiyoServer {
     })
 
     try {
+      const workspacePath = await this.ensureThreadWorkspace(input.thread.id)
       const runtime = this.createModelRuntime()
       const messages = prepareModelMessages({
-        history: this.loadRunHistory(input.thread.id, input.requestMessageId)
+        history: this.loadRunHistory(input.thread.id, input.requestMessageId),
+        agentInstructions: this.buildAgentInstructions(workspacePath)
       })
 
       for await (const delta of runtime.streamReply({
         messages,
         settings,
-        signal: input.abortController.signal
+        signal: input.abortController.signal,
+        tools: createAgentToolSet({ workspacePath }),
+        onToolCallStart: (event) => {
+          const toolCall: ToolCallRecord = {
+            id: event.toolCall.toolCallId,
+            runId: input.runId,
+            threadId: input.thread.id,
+            toolName: event.toolCall.toolName as ToolCallRecord['toolName'],
+            status: 'running',
+            inputSummary: summarizeToolInput(
+              event.toolCall.toolName as ToolCallRecord['toolName'],
+              event.toolCall.input
+            ),
+            startedAt: this.timestamp()
+          }
+
+          toolCalls.set(toolCall.id, toolCall)
+          this.storage.createToolCall(toolCall)
+          this.emit<ToolCallUpdatedEvent>({
+            type: 'tool.updated',
+            threadId: input.thread.id,
+            runId: input.runId,
+            toolCall
+          })
+        },
+        onToolCallFinish: (event) => {
+          const startedToolCall = toolCalls.get(event.toolCall.toolCallId)
+          const toolName = event.toolCall.toolName as ToolCallRecord['toolName']
+          const finishedAt = this.timestamp()
+          const errorMessage =
+            event.success || event.error === undefined
+              ? undefined
+              : event.error instanceof Error
+                ? event.error.message
+                : String(event.error)
+          const cwd = event.success ? extractToolCwd(toolName, event.output) : undefined
+          const toolCall: ToolCallRecord = startedToolCall
+            ? {
+                ...startedToolCall,
+                status: event.success ? getToolResultStatus(event.output) : 'failed',
+                outputSummary: event.success
+                  ? summarizeToolOutput(toolName, event.output)
+                  : errorMessage,
+                ...(cwd ? { cwd } : {}),
+                ...(errorMessage ? { error: errorMessage } : {}),
+                finishedAt
+              }
+            : {
+                id: event.toolCall.toolCallId,
+                runId: input.runId,
+                threadId: input.thread.id,
+                toolName,
+                status: event.success ? getToolResultStatus(event.output) : 'failed',
+                inputSummary: summarizeToolInput(toolName, event.toolCall.input),
+                outputSummary: event.success
+                  ? summarizeToolOutput(toolName, event.output)
+                  : errorMessage,
+                ...(cwd ? { cwd } : {}),
+                ...(errorMessage ? { error: errorMessage } : {}),
+                startedAt: finishedAt,
+                finishedAt
+              }
+
+          toolCalls.set(toolCall.id, toolCall)
+          this.storage.updateToolCall(toolCall)
+          this.emit<ToolCallUpdatedEvent>({
+            type: 'tool.updated',
+            threadId: input.thread.id,
+            runId: input.runId,
+            toolCall
+          })
+        }
       })) {
         if (!delta) continue
         buffer += delta
@@ -794,6 +901,12 @@ export class YachiyoServer {
     } catch (error) {
       if (input.abortController.signal.aborted || isAbortError(error)) {
         const timestamp = this.timestamp()
+        this.finishPendingToolCalls(toolCalls, {
+          error: 'Run cancelled before the tool call finished.',
+          finishedAt: timestamp,
+          runId: input.runId,
+          threadId: input.thread.id
+        })
         this.storage.cancelRun({
           runId: input.runId,
           completedAt: timestamp
@@ -815,6 +928,12 @@ export class YachiyoServer {
       } else {
         const message = error instanceof Error ? error.message : 'Unknown model runtime error'
         const timestamp = this.timestamp()
+        this.finishPendingToolCalls(toolCalls, {
+          error: message,
+          finishedAt: timestamp,
+          runId: input.runId,
+          threadId: input.thread.id
+        })
         this.storage.failRun({
           runId: input.runId,
           completedAt: timestamp,
@@ -847,6 +966,10 @@ export class YachiyoServer {
     return this.storage.listThreadMessages(threadId)
   }
 
+  private loadThreadToolCalls(threadId: string): ToolCallRecord[] {
+    return this.storage.listThreadToolCalls(threadId)
+  }
+
   private loadRunHistory(
     threadId: string,
     requestMessageId: string
@@ -872,7 +995,11 @@ export class YachiyoServer {
     }
 
     if (target.role === 'user') {
-      const sourceAssistantMessage = this.resolveActiveAssistantForRequest(thread, messages, target.id)
+      const sourceAssistantMessage = this.resolveActiveAssistantForRequest(
+        thread,
+        messages,
+        target.id
+      )
 
       return {
         requestMessage: target,
@@ -907,10 +1034,7 @@ export class YachiyoServer {
     const requestIndex = activePath.findIndex((message) => message.id === requestMessageId)
     const pathAssistant = requestIndex >= 0 ? activePath[requestIndex + 1] : undefined
 
-    if (
-      pathAssistant?.role === 'assistant' &&
-      pathAssistant.parentMessageId === requestMessageId
-    ) {
+    if (pathAssistant?.role === 'assistant' && pathAssistant.parentMessageId === requestMessageId) {
       return pathAssistant
     }
 
@@ -930,6 +1054,45 @@ export class YachiyoServer {
 
     const titleSource = summarizeMessageInput(branchPoint)
     return titleSource ? titleSource.slice(0, 60) : DEFAULT_THREAD_TITLE
+  }
+
+  private buildAgentInstructions(workspacePath: string): string {
+    return [
+      'You are operating as a tool-using local agent.',
+      'Default execution mode is YOLO: use tools directly for normal local work instead of asking for per-step confirmation.',
+      `The current thread workspace is ${workspacePath}.`,
+      'Relative paths should resolve from that workspace unless you intentionally use an absolute path.',
+      'Available tools: read, write, edit, bash.',
+      'Use bash for shell commands, and use read/write/edit for direct file work when that is clearer.'
+    ].join('\n')
+  }
+
+  private finishPendingToolCalls(
+    toolCalls: Map<string, ToolCallRecord>,
+    input: { threadId: string; runId: string; finishedAt: string; error: string }
+  ): void {
+    for (const current of toolCalls.values()) {
+      if (current.status !== 'running') {
+        continue
+      }
+
+      const nextToolCall: ToolCallRecord = {
+        ...current,
+        status: 'failed',
+        outputSummary: input.error,
+        error: input.error,
+        finishedAt: input.finishedAt
+      }
+
+      toolCalls.set(nextToolCall.id, nextToolCall)
+      this.storage.updateToolCall(nextToolCall)
+      this.emit<ToolCallUpdatedEvent>({
+        type: 'tool.updated',
+        threadId: input.threadId,
+        runId: input.runId,
+        toolCall: nextToolCall
+      })
+    }
   }
 
   private readSettings(): ProviderSettings {

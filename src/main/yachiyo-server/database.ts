@@ -3,15 +3,17 @@ import { createRequire } from 'node:module'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
 import * as schema from './schema.ts'
-import { messagesTable, runsTable, threadsTable } from './schema.ts'
+import { messagesTable, runsTable, threadsTable, toolCallsTable } from './schema.ts'
 import {
+  groupToolCallsByThread,
   groupMessagesByThread,
   serializeMessageImages,
   toMessageRecord,
+  toToolCallRecord,
   toThreadRecord,
   type CompleteRunInput,
   type CreateThreadInput,
@@ -120,10 +122,33 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
               .orderBy(asc(messagesTable.createdAt))
               .all()
               .map(toMessageRecord)
+      const toolCalls =
+        threadIds.length === 0
+          ? []
+          : db
+              .select({
+                cwd: toolCallsTable.cwd,
+                error: toolCallsTable.error,
+                finishedAt: toolCallsTable.finishedAt,
+                id: toolCallsTable.id,
+                inputSummary: toolCallsTable.inputSummary,
+                outputSummary: toolCallsTable.outputSummary,
+                runId: toolCallsTable.runId,
+                startedAt: toolCallsTable.startedAt,
+                status: toolCallsTable.status,
+                threadId: toolCallsTable.threadId,
+                toolName: toolCallsTable.toolName
+              })
+              .from(toolCallsTable)
+              .where(inArray(toolCallsTable.threadId, threadIds))
+              .orderBy(asc(toolCallsTable.startedAt))
+              .all()
+              .map(toToolCallRecord)
 
       return {
         threads,
-        messagesByThread: groupMessagesByThread(messages)
+        messagesByThread: groupMessagesByThread(messages),
+        toolCallsByThread: groupToolCallsByThread(toolCalls)
       }
     },
 
@@ -238,6 +263,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
         tx.insert(runsTable)
           .values({
+            assistantMessageId: null,
             completedAt: null,
             createdAt,
             error: null,
@@ -271,6 +297,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
         tx.update(runsTable)
           .set({
+            assistantMessageId: assistantMessage.id,
             completedAt: updatedThread.updatedAt,
             status: 'completed'
           })
@@ -321,9 +348,95 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .map(toMessageRecord)
     },
 
+    listThreadToolCalls(threadId) {
+      return db
+        .select({
+          cwd: toolCallsTable.cwd,
+          error: toolCallsTable.error,
+          finishedAt: toolCallsTable.finishedAt,
+          id: toolCallsTable.id,
+          inputSummary: toolCallsTable.inputSummary,
+          outputSummary: toolCallsTable.outputSummary,
+          runId: toolCallsTable.runId,
+          startedAt: toolCallsTable.startedAt,
+          status: toolCallsTable.status,
+          threadId: toolCallsTable.threadId,
+          toolName: toolCallsTable.toolName
+        })
+        .from(toolCallsTable)
+        .where(eq(toolCallsTable.threadId, threadId))
+        .orderBy(asc(toolCallsTable.startedAt))
+        .all()
+        .map(toToolCallRecord)
+    },
+
+    createToolCall(toolCall) {
+      db.insert(toolCallsTable)
+        .values({
+          cwd: toolCall.cwd ?? null,
+          error: toolCall.error ?? null,
+          finishedAt: toolCall.finishedAt ?? null,
+          id: toolCall.id,
+          inputSummary: toolCall.inputSummary,
+          outputSummary: toolCall.outputSummary ?? null,
+          runId: toolCall.runId,
+          startedAt: toolCall.startedAt,
+          status: toolCall.status,
+          threadId: toolCall.threadId,
+          toolName: toolCall.toolName
+        })
+        .run()
+    },
+
+    updateToolCall(toolCall) {
+      db.update(toolCallsTable)
+        .set({
+          cwd: toolCall.cwd ?? null,
+          error: toolCall.error ?? null,
+          finishedAt: toolCall.finishedAt ?? null,
+          inputSummary: toolCall.inputSummary,
+          outputSummary: toolCall.outputSummary ?? null,
+          status: toolCall.status
+        })
+        .where(eq(toolCallsTable.id, toolCall.id))
+        .run()
+    },
+
     deleteMessages({ thread, messageIds }: DeleteMessagesInput) {
       db.transaction((tx) => {
         if (messageIds.length > 0) {
+          const runsToDelete = tx
+            .select({
+              id: runsTable.id
+            })
+            .from(runsTable)
+            .where(
+              or(
+                inArray(runsTable.requestMessageId, messageIds),
+                inArray(runsTable.assistantMessageId, messageIds)
+              )
+            )
+            .all()
+
+          if (runsToDelete.length > 0) {
+            tx.delete(toolCallsTable)
+              .where(
+                inArray(
+                  toolCallsTable.runId,
+                  runsToDelete.map((run) => run.id)
+                )
+              )
+              .run()
+            tx.delete(runsTable)
+              .where(
+                inArray(
+                  runsTable.id,
+                  runsToDelete.map((run) => run.id)
+                )
+              )
+              .run()
+          }
+
           tx.delete(messagesTable).where(inArray(messagesTable.id, messageIds)).run()
         }
 

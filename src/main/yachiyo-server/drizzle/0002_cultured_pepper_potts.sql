@@ -1,0 +1,1 @@
+ALTER TABLE `runs` ADD `assistant_message_id` text REFERENCES messages(id);

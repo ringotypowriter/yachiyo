@@ -2,12 +2,13 @@ import type React from 'react'
 import { useEffect, useRef } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { HarnessRecord } from '@renderer/app/store/useAppStore'
-import type { Message } from '@renderer/app/types'
+import type { Message, ToolCall } from '@renderer/app/types'
 import { buildMessageGroups } from '../lib/messageThreadPresentation'
 import { UserMessageBubble } from './UserMessageBubble'
 import { AssistantMessageBubble } from './AssistantMessageBubble'
 import { PreparingBubble } from './PreparingBubble'
 import { RunEventRow } from './RunEventRow'
+import { ToolCallRow } from './ToolCallRow'
 
 interface MessageTimelineProps {
   threadId: string | null
@@ -15,14 +16,18 @@ interface MessageTimelineProps {
 
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_HARNESSES: HarnessRecord[] = []
+const EMPTY_TOOL_CALLS: ToolCall[] = []
 
 const DEFAULT_HARNESS = 'default.reply'
 
 type TimelineItem =
   | ReturnType<typeof buildConversationTimeline>[number]
   | { kind: 'harness'; key: string; time: string; data: HarnessRecord }
+  | { kind: 'tool'; key: string; time: string; data: ToolCall }
 
-function buildConversationTimeline(groups: ReturnType<typeof buildMessageGroups>) {
+function buildConversationTimeline(
+  groups: ReturnType<typeof buildMessageGroups>
+): Array<{ kind: 'group'; key: string; time: string; data: (typeof groups)[number] }> {
   return groups.map((group) => ({
     kind: 'group' as const,
     key: group.userMessage.id,
@@ -33,10 +38,17 @@ function buildConversationTimeline(groups: ReturnType<typeof buildMessageGroups>
 
 function buildTimeline(
   groups: ReturnType<typeof buildMessageGroups>,
-  harnesses: HarnessRecord[]
+  harnesses: HarnessRecord[],
+  toolCalls: ToolCall[]
 ): TimelineItem[] {
   const items: TimelineItem[] = [
     ...buildConversationTimeline(groups),
+    ...toolCalls.map((toolCall) => ({
+      kind: 'tool' as const,
+      key: toolCall.id,
+      time: toolCall.startedAt,
+      data: toolCall
+    })),
     ...harnesses
       .filter((harness) => harness.name !== DEFAULT_HARNESS)
       .map((harness) => ({
@@ -112,9 +124,7 @@ function ThreadConversationGroup({
               threadHasActiveRun={threadHasActiveRun}
               onRetry={() => onRetry(activeBranch.message.id)}
               onSelectPreviousReply={
-                previousBranch
-                  ? () => onSelectReplyBranch(previousBranch.message.id)
-                  : undefined
+                previousBranch ? () => onSelectReplyBranch(previousBranch.message.id) : undefined
               }
               onSelectNextReply={
                 nextBranch ? () => onSelectReplyBranch(nextBranch.message.id) : undefined
@@ -137,13 +147,16 @@ function ThreadConversationGroup({
 
 export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.Element {
   const thread = useAppStore((state) =>
-    threadId ? state.threads.find((entry) => entry.id === threadId) ?? null : null
+    threadId ? (state.threads.find((entry) => entry.id === threadId) ?? null) : null
   )
   const messages = useAppStore((state) =>
     threadId ? (state.messages[threadId] ?? EMPTY_MESSAGES) : EMPTY_MESSAGES
   )
   const harnessEvents = useAppStore((state) =>
     threadId ? (state.harnessEvents[threadId] ?? EMPTY_HARNESSES) : EMPTY_HARNESSES
+  )
+  const toolCalls = useAppStore((state) =>
+    threadId ? (state.toolCalls[threadId] ?? EMPTY_TOOL_CALLS) : EMPTY_TOOL_CALLS
   )
   const activeRunThreadId = useAppStore((state) => state.activeRunThreadId)
   const activeRequestMessageId = useAppStore((state) => state.activeRequestMessageId)
@@ -162,11 +175,11 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
         activeRequestMessageId: activeRunThreadId === threadId ? activeRequestMessageId : null
       })
     : []
-  const timeline = buildTimeline(messageGroups, harnessEvents)
+  const timeline = buildTimeline(messageGroups, harnessEvents, toolCalls)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [activeRequestMessageId, harnessEvents, messages, runPhase])
+  }, [activeRequestMessageId, harnessEvents, messages, runPhase, toolCalls])
 
   async function handleCreateBranch(messageId: string): Promise<void> {
     try {
@@ -230,6 +243,10 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
       {timeline.map((item) => {
         if (item.kind === 'harness') {
           return <RunEventRow key={item.key} harness={item.data} />
+        }
+
+        if (item.kind === 'tool') {
+          return <ToolCallRow key={item.key} toolCall={item.data} />
         }
 
         return (

@@ -74,13 +74,14 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(
     IPC_CHANNELS.sendChat,
     (input: { threadId: string; content: string; images?: MessageImageRecord[] }) =>
-    server!.sendChat(input)
+      server!.sendChat(input)
   )
   handle(IPC_CHANNELS.retryMessage, (input: { threadId: string; messageId: string }) =>
     server!.retryMessage(input)
   )
-  handle(IPC_CHANNELS.selectReplyBranch, (input: { threadId: string; assistantMessageId: string }) =>
-    server!.selectReplyBranch(input)
+  handle(
+    IPC_CHANNELS.selectReplyBranch,
+    (input: { threadId: string; assistantMessageId: string }) => server!.selectReplyBranch(input)
   )
   handle(IPC_CHANNELS.deleteMessage, (input: { threadId: string; messageId: string }) =>
     server!.deleteMessageFromHere(input)

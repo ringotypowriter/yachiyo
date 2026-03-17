@@ -1,6 +1,6 @@
 import { sqliteTable, text, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
 
-import type { MessageRecord } from '../../shared/yachiyo/protocol'
+import type { MessageRecord, ToolCallRecord } from '../../shared/yachiyo/protocol'
 
 export const threadsTable = sqliteTable('threads', {
   id: text('id').primaryKey(),
@@ -39,8 +39,29 @@ export const runsTable = sqliteTable('runs', {
   requestMessageId: text('request_message_id').references(() => messagesTable.id, {
     onDelete: 'set null'
   }),
+  assistantMessageId: text('assistant_message_id').references(() => messagesTable.id, {
+    onDelete: 'set null'
+  }),
   status: text('status').notNull(),
   error: text('error'),
   createdAt: text('created_at').notNull(),
   completedAt: text('completed_at')
+})
+
+export const toolCallsTable = sqliteTable('tool_calls', {
+  id: text('id').primaryKey(),
+  runId: text('run_id')
+    .notNull()
+    .references(() => runsTable.id, { onDelete: 'cascade' }),
+  threadId: text('thread_id')
+    .notNull()
+    .references(() => threadsTable.id, { onDelete: 'cascade' }),
+  toolName: text('tool_name').$type<ToolCallRecord['toolName']>().notNull(),
+  status: text('status').$type<ToolCallRecord['status']>().notNull(),
+  inputSummary: text('input_summary').notNull(),
+  outputSummary: text('output_summary'),
+  cwd: text('cwd'),
+  error: text('error'),
+  startedAt: text('started_at').notNull(),
+  finishedAt: text('finished_at')
 })

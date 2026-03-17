@@ -1,9 +1,12 @@
-import type { MessageRecord } from '../../shared/yachiyo/protocol'
+import type { MessageRecord, ToolCallRecord } from '../../shared/yachiyo/protocol'
 import {
+  groupToolCallsByThread,
   groupMessagesByThread,
+  toToolCallRecord,
   toThreadRecord,
   type CompleteRunInput,
   type StartRunInput,
+  type StoredToolCallRow,
   type StoredThreadRow,
   type YachiyoStorage
 } from './storage.ts'
@@ -12,6 +15,7 @@ interface StoredRunRow {
   id: string
   threadId: string
   requestMessageId: string | null
+  assistantMessageId: string | null
   status: 'running' | 'completed' | 'cancelled' | 'failed'
   error: string | null
   createdAt: string
@@ -22,6 +26,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const threads = new Map<string, StoredThreadRow>()
   const messages: MessageRecord[] = []
   const runs = new Map<string, StoredRunRow>()
+  const toolCalls = new Map<string, StoredToolCallRow>()
 
   const readThread = (threadId: string): StoredThreadRow | undefined => {
     const thread = threads.get(threadId)
@@ -33,6 +38,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
   const sortByCreatedAt = <T extends { createdAt: string }>(items: T[]): T[] =>
     [...items].sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+  const sortToolCalls = (items: ToolCallRecord[]): ToolCallRecord[] =>
+    [...items].sort((left, right) => left.startedAt.localeCompare(right.startedAt))
 
   return {
     close() {
@@ -51,7 +58,14 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
       return {
         threads: activeThreads.map(toThreadRecord),
-        messagesByThread: groupMessagesByThread(activeMessages)
+        messagesByThread: groupMessagesByThread(activeMessages),
+        toolCallsByThread: groupToolCallsByThread(
+          sortToolCalls(
+            [...toolCalls.values()]
+              .filter((toolCall) => threadIds.has(toolCall.threadId))
+              .map(toToolCallRecord)
+          )
+        )
       }
     },
 
@@ -109,7 +123,14 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       storedThread.updatedAt = nextThread.updatedAt
     },
 
-    startRun({ runId, thread, updatedThread, requestMessageId, userMessage, createdAt }: StartRunInput) {
+    startRun({
+      runId,
+      thread,
+      updatedThread,
+      requestMessageId,
+      userMessage,
+      createdAt
+    }: StartRunInput) {
       const storedThread = threads.get(thread.id)
       if (!storedThread) {
         return
@@ -124,6 +145,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       runs.set(runId, {
         id: runId,
         requestMessageId,
+        assistantMessageId: null,
         threadId: thread.id,
         status: 'running',
         error: null,
@@ -145,6 +167,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
 
       if (run) {
+        run.assistantMessageId = assistantMessage.id
         run.status = 'completed'
         run.completedAt = updatedThread.updatedAt
       }
@@ -172,8 +195,49 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     },
 
     listThreadMessages(threadId) {
-      return sortByCreatedAt(messages)
-        .filter((message) => message.threadId === threadId)
+      return sortByCreatedAt(messages).filter((message) => message.threadId === threadId)
+    },
+
+    listThreadToolCalls(threadId) {
+      return sortToolCalls([...toolCalls.values()].map(toToolCallRecord)).filter(
+        (toolCall) => toolCall.threadId === threadId
+      )
+    },
+
+    createToolCall(toolCall) {
+      toolCalls.set(toolCall.id, {
+        cwd: toolCall.cwd ?? null,
+        error: toolCall.error ?? null,
+        finishedAt: toolCall.finishedAt ?? null,
+        id: toolCall.id,
+        inputSummary: toolCall.inputSummary,
+        outputSummary: toolCall.outputSummary ?? null,
+        runId: toolCall.runId,
+        startedAt: toolCall.startedAt,
+        status: toolCall.status,
+        threadId: toolCall.threadId,
+        toolName: toolCall.toolName
+      })
+    },
+
+    updateToolCall(toolCall) {
+      if (!toolCalls.has(toolCall.id)) {
+        return
+      }
+
+      toolCalls.set(toolCall.id, {
+        cwd: toolCall.cwd ?? null,
+        error: toolCall.error ?? null,
+        finishedAt: toolCall.finishedAt ?? null,
+        id: toolCall.id,
+        inputSummary: toolCall.inputSummary,
+        outputSummary: toolCall.outputSummary ?? null,
+        runId: toolCall.runId,
+        startedAt: toolCall.startedAt,
+        status: toolCall.status,
+        threadId: toolCall.threadId,
+        toolName: toolCall.toolName
+      })
     },
 
     deleteMessages({ thread, messageIds }) {
@@ -181,6 +245,26 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       const nextMessages = messages.filter((message) => !deletedIds.has(message.id))
       messages.length = 0
       messages.push(...nextMessages)
+
+      const deletedRunIds = new Set(
+        [...runs.values()]
+          .filter(
+            (run) =>
+              (run.requestMessageId && deletedIds.has(run.requestMessageId)) ||
+              (run.assistantMessageId && deletedIds.has(run.assistantMessageId))
+          )
+          .map((run) => run.id)
+      )
+
+      for (const runId of deletedRunIds) {
+        runs.delete(runId)
+      }
+
+      for (const toolCall of [...toolCalls.values()]) {
+        if (deletedRunIds.has(toolCall.runId)) {
+          toolCalls.delete(toolCall.id)
+        }
+      }
 
       const storedThread = threads.get(thread.id)
       if (!storedThread) {

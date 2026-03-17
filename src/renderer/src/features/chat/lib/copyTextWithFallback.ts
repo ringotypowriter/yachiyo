@@ -18,8 +18,7 @@ function copyWithLegacyCommand(content: string, document: Document | undefined):
 
   try {
     textarea.select()
-    const copied =
-      typeof document.execCommand === 'function' ? document.execCommand('copy') : false
+    const copied = typeof document.execCommand === 'function' ? document.execCommand('copy') : false
 
     if (!copied) {
       throw new Error('Copy command was rejected.')

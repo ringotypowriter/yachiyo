@@ -8,6 +8,7 @@ import type {
   RunStatus,
   SettingsConfig,
   Thread,
+  ToolCall,
   YachiyoServerEvent
 } from '../types.ts'
 import {
@@ -73,6 +74,7 @@ interface AppState {
   runStatus: RunStatus
   settings: ProviderSettings
   threads: Thread[]
+  toolCalls: Record<string, ToolCall[]>
 
   applyServerEvent: (event: YachiyoServerEvent) => void
   cancelActiveRun: () => Promise<void>
@@ -104,6 +106,11 @@ function upsertThread(threads: Thread[], thread: Thread): Thread[] {
 function upsertMessage(messages: Message[], message: Message): Message[] {
   const next = [...messages.filter((item) => item.id !== message.id), message]
   return next.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+}
+
+function upsertToolCall(toolCalls: ToolCall[], toolCall: ToolCall): ToolCall[] {
+  const next = [...toolCalls.filter((item) => item.id !== toolCall.id), toolCall]
+  return next.sort((left, right) => left.startedAt.localeCompare(right.startedAt))
 }
 
 const NEW_THREAD_DRAFT_KEY = '__new__'
@@ -144,11 +151,7 @@ function updateComposerDraft(
   draftKey: string,
   updater: (draft: ComposerDraft) => ComposerDraft
 ): Record<string, ComposerDraft> {
-  return upsertComposerDraft(
-    drafts,
-    draftKey,
-    updater(drafts[draftKey] ?? EMPTY_COMPOSER_DRAFT)
-  )
+  return upsertComposerDraft(drafts, draftKey, updater(drafts[draftKey] ?? EMPTY_COMPOSER_DRAFT))
 }
 
 function moveComposerDraft(
@@ -237,6 +240,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...state.messages,
           [snapshot.thread.id]: snapshot.messages
         },
+        toolCalls: {
+          ...state.toolCalls,
+          [snapshot.thread.id]: snapshot.toolCalls
+        },
         threads: upsertThread(state.threads, snapshot.thread)
       }))
     } catch (error) {
@@ -283,6 +290,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...state.messages,
           [threadId]: snapshot.messages
         },
+        toolCalls: {
+          ...state.toolCalls,
+          [threadId]: snapshot.toolCalls
+        },
         threads: upsertThread(state.threads, snapshot.thread)
       }))
     } catch (error) {
@@ -295,6 +306,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   runStatus: 'idle',
   settings: DEFAULT_SETTINGS,
   threads: [],
+  toolCalls: {},
 
   applyServerEvent: (event) => {
     set((state) => {
@@ -304,6 +316,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete messages[event.threadId]
         const harnessEvents = { ...state.harnessEvents }
         delete harnessEvents[event.threadId]
+        const toolCalls = { ...state.toolCalls }
+        delete toolCalls[event.threadId]
 
         return {
           activeThreadId:
@@ -313,6 +327,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           composerDrafts: removeComposerDraft(state.composerDrafts, event.threadId),
           harnessEvents,
           messages,
+          toolCalls,
           threads
         }
       }
@@ -332,6 +347,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           messages: {
             ...state.messages,
             [event.threadId]: event.messages
+          },
+          toolCalls: {
+            ...state.toolCalls,
+            [event.threadId]: event.toolCalls
           },
           threads: upsertThread(state.threads, event.thread)
         }
@@ -416,6 +435,15 @@ export const useAppStore = create<AppState>((set, get) => ({
             [event.threadId]: upsertMessage(state.messages[event.threadId] ?? [], event.message)
           },
           pendingAssistantMessages
+        }
+      }
+
+      if (event.type === 'tool.updated') {
+        return {
+          toolCalls: {
+            ...state.toolCalls,
+            [event.threadId]: upsertToolCall(state.toolCalls[event.threadId] ?? [], event.toolCall)
+          }
         }
       }
 
@@ -533,6 +561,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         ...state.messages,
         [thread.id]: state.messages[thread.id] ?? []
       },
+      toolCalls: {
+        ...state.toolCalls,
+        [thread.id]: state.toolCalls[thread.id] ?? []
+      },
       threads: upsertThread(state.threads, thread)
     }))
   },
@@ -565,7 +597,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           lastError: null,
           messages: payload.messagesByThread,
           settings: payload.settings ?? state.settings ?? DEFAULT_SETTINGS,
-          threads: sortThreads(payload.threads)
+          threads: sortThreads(payload.threads),
+          toolCalls: payload.toolCallsByThread
         }))
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to bootstrap Yachiyo.'
@@ -654,6 +687,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         messages: {
           ...state.messages,
           [thread.id]: state.messages[thread.id] ?? []
+        },
+        toolCalls: {
+          ...state.toolCalls,
+          [thread.id]: state.toolCalls[thread.id] ?? []
         },
         threads: upsertThread(state.threads, thread)
       }))

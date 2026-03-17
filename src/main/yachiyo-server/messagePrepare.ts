@@ -10,6 +10,7 @@ import {
 
 interface MessagePrepareInput {
   history: Array<{ role: 'user' | 'assistant'; content: string; images?: MessageImageRecord[] }>
+  agentInstructions?: string
 }
 
 function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
@@ -56,6 +57,9 @@ function toModelMessage(message: MessagePrepareInput['history'][number]): ModelM
 export function prepareModelMessages(input: MessagePrepareInput): ModelMessage[] {
   return removeEmptyMessages([
     { role: 'system', content: SYSTEM_PROMPT },
+    ...(input.agentInstructions
+      ? [{ role: 'system' as const, content: input.agentInstructions }]
+      : []),
     ...input.history.map(toModelMessage)
   ])
 }

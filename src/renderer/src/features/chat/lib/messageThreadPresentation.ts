@@ -84,7 +84,7 @@ export function buildMessageGroups(input: {
           newestAssistant.createdAt.localeCompare(activeAssistantFromPath.createdAt) >= 0)
       const selectedAssistantId = shouldPreferNewestAssistant
         ? newestAssistant?.id
-        : activeAssistantIdFromPath ?? newestAssistant?.id
+        : (activeAssistantIdFromPath ?? newestAssistant?.id)
       const activeBranchIndex = assistantMessages.findIndex(
         (message) => message.id === selectedAssistantId
       )

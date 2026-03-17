@@ -1,6 +1,6 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
-import { streamText, type LanguageModel } from 'ai'
+import { stepCountIs, streamText, type LanguageModel } from 'ai'
 
 import type { ProviderConfig, ProviderSettings } from '../../shared/yachiyo/protocol'
 import { prepareAiSdkMessages } from './messagePrepare.ts'
@@ -143,7 +143,14 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
         abortSignal: request.signal,
         messages: prepareAiSdkMessages(request.messages),
         model: createLanguageModel(request.settings, resolvedDependencies),
-        providerOptions: createProviderOptions(request.settings)
+        providerOptions: createProviderOptions(request.settings),
+        ...(request.tools ? { tools: request.tools, stopWhen: stepCountIs(20) } : {}),
+        ...(request.onToolCallStart
+          ? { experimental_onToolCallStart: request.onToolCallStart }
+          : {}),
+        ...(request.onToolCallFinish
+          ? { experimental_onToolCallFinish: request.onToolCallFinish }
+          : {})
       })
 
       for await (const textPart of result.textStream) {

@@ -1,4 +1,11 @@
-import type { MessageImageRecord, MessageRecord, ThreadRecord } from '../../shared/yachiyo/protocol'
+import type {
+  MessageImageRecord,
+  MessageRecord,
+  ThreadRecord,
+  ToolCallName,
+  ToolCallRecord,
+  ToolCallStatus
+} from '../../shared/yachiyo/protocol'
 import { normalizeMessageImages } from '../../shared/yachiyo/messageContent.ts'
 
 export interface StoredThreadRow {
@@ -29,6 +36,7 @@ export interface StoredMessageRow {
 export interface BootstrapState {
   threads: ThreadRecord[]
   messagesByThread: Record<string, MessageRecord[]>
+  toolCallsByThread: Record<string, ToolCallRecord[]>
 }
 
 export interface StartRunInput {
@@ -57,6 +65,20 @@ export interface DeleteMessagesInput {
   messageIds: string[]
 }
 
+export interface StoredToolCallRow {
+  id: string
+  runId: string
+  threadId: string
+  toolName: ToolCallName
+  status: ToolCallStatus
+  inputSummary: string
+  outputSummary: string | null
+  cwd: string | null
+  error: string | null
+  startedAt: string
+  finishedAt: string | null
+}
+
 export interface YachiyoStorage {
   close(): void
   bootstrap(): BootstrapState
@@ -70,6 +92,9 @@ export interface YachiyoStorage {
   cancelRun(input: { runId: string; completedAt: string }): void
   failRun(input: { runId: string; completedAt: string; error: string }): void
   listThreadMessages(threadId: string): MessageRecord[]
+  listThreadToolCalls(threadId: string): ToolCallRecord[]
+  createToolCall(toolCall: ToolCallRecord): void
+  updateToolCall(toolCall: ToolCallRecord): void
   deleteMessages(input: DeleteMessagesInput): void
 }
 
@@ -87,9 +112,7 @@ export function toThreadRecord(
 ): ThreadRecord {
   if (row.preview === null) {
     return {
-      ...(row.branchFromMessageId === null
-        ? {}
-        : { branchFromMessageId: row.branchFromMessageId }),
+      ...(row.branchFromMessageId === null ? {} : { branchFromMessageId: row.branchFromMessageId }),
       ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
       ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
       id: row.id,
@@ -126,6 +149,22 @@ export function toMessageRecord(row: StoredMessageRow): MessageRecord {
   }
 }
 
+export function toToolCallRecord(row: StoredToolCallRow): ToolCallRecord {
+  return {
+    ...(row.cwd === null ? {} : { cwd: row.cwd }),
+    ...(row.error === null ? {} : { error: row.error }),
+    ...(row.finishedAt === null ? {} : { finishedAt: row.finishedAt }),
+    ...(row.outputSummary === null ? {} : { outputSummary: row.outputSummary }),
+    id: row.id,
+    inputSummary: row.inputSummary,
+    runId: row.runId,
+    startedAt: row.startedAt,
+    status: row.status,
+    threadId: row.threadId,
+    toolName: row.toolName
+  }
+}
+
 export function serializeMessageImages(images?: MessageImageRecord[]): string | null {
   const normalized = normalizeMessageImages(images)
   return normalized.length > 0 ? JSON.stringify(normalized) : null
@@ -147,4 +186,13 @@ export function parseMessageImages(images: string | null): MessageImageRecord[] 
 
 export function groupMessagesByThread(messages: MessageRecord[]): Record<string, MessageRecord[]> {
   return Object.groupBy(messages, (message) => message.threadId) as Record<string, MessageRecord[]>
+}
+
+export function groupToolCallsByThread(
+  toolCalls: ToolCallRecord[]
+): Record<string, ToolCallRecord[]> {
+  return Object.groupBy(toolCalls, (toolCall) => toolCall.threadId) as Record<
+    string,
+    ToolCallRecord[]
+  >
 }
