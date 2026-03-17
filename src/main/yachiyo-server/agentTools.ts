@@ -809,7 +809,11 @@ export async function* streamBashTool(
     return spillStream
   }
 
-  const appendChunk = (streamName: 'stdout' | 'stderr', chunk: string, emitUpdate: boolean): void => {
+  const appendChunk = (
+    streamName: 'stdout' | 'stderr',
+    chunk: string,
+    emitUpdate: boolean
+  ): void => {
     sawStreamChunks = true
 
     if (!spillStarted) {
