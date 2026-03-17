@@ -43,13 +43,7 @@ import {
   sortMessagesByCreatedAt
 } from '../../shared/yachiyo/threadTree.ts'
 import { createSqliteYachiyoStorage } from './database.ts'
-import {
-  createAgentToolSet,
-  extractToolCwd,
-  getToolResultStatus,
-  summarizeToolInput,
-  summarizeToolOutput
-} from './agentTools.ts'
+import { createAgentToolSet, normalizeToolResult, summarizeToolInput } from './agentTools.ts'
 import { prepareModelMessages } from './messagePrepare.ts'
 import { createAiSdkModelRuntime, fetchModels } from './modelRuntime.ts'
 import { resolveYachiyoSettingsPath } from './paths.ts'
@@ -810,25 +804,50 @@ export class YachiyoServer {
             toolCall
           })
         },
+        onToolCallUpdate: (event) => {
+          const startedToolCall = toolCalls.get(event.toolCall.toolCallId)
+          if (!startedToolCall) {
+            return
+          }
+
+          const toolName = event.toolCall.toolName as ToolCallRecord['toolName']
+          const normalized = normalizeToolResult(toolName, event.output, { phase: 'update' })
+          const toolCall: ToolCallRecord = {
+            ...startedToolCall,
+            status: 'running',
+            ...(normalized.outputSummary ? { outputSummary: normalized.outputSummary } : {}),
+            ...(normalized.cwd ? { cwd: normalized.cwd } : {}),
+            ...(normalized.details ? { details: normalized.details } : {})
+          }
+
+          toolCalls.set(toolCall.id, toolCall)
+          this.storage.updateToolCall(toolCall)
+          this.emit<ToolCallUpdatedEvent>({
+            type: 'tool.updated',
+            threadId: input.thread.id,
+            runId: input.runId,
+            toolCall
+          })
+        },
         onToolCallFinish: (event) => {
           const startedToolCall = toolCalls.get(event.toolCall.toolCallId)
           const toolName = event.toolCall.toolName as ToolCallRecord['toolName']
           const finishedAt = this.timestamp()
+          const normalized = event.success ? normalizeToolResult(toolName, event.output) : undefined
           const errorMessage =
-            event.success || event.error === undefined
+            normalized?.error ??
+            (event.success || event.error === undefined
               ? undefined
               : event.error instanceof Error
                 ? event.error.message
-                : String(event.error)
-          const cwd = event.success ? extractToolCwd(toolName, event.output) : undefined
+                : String(event.error))
           const toolCall: ToolCallRecord = startedToolCall
             ? {
                 ...startedToolCall,
-                status: event.success ? getToolResultStatus(event.output) : 'failed',
-                outputSummary: event.success
-                  ? summarizeToolOutput(toolName, event.output)
-                  : errorMessage,
-                ...(cwd ? { cwd } : {}),
+                status: normalized?.status ?? 'failed',
+                outputSummary: normalized?.outputSummary ?? errorMessage,
+                ...(normalized?.cwd ? { cwd: normalized.cwd } : {}),
+                ...(normalized?.details ? { details: normalized.details } : {}),
                 ...(errorMessage ? { error: errorMessage } : {}),
                 finishedAt
               }
@@ -839,12 +858,11 @@ export class YachiyoServer {
                 requestMessageId: input.requestMessageId,
                 assistantMessageId: messageId,
                 toolName,
-                status: event.success ? getToolResultStatus(event.output) : 'failed',
+                status: normalized?.status ?? 'failed',
                 inputSummary: summarizeToolInput(toolName, event.toolCall.input),
-                outputSummary: event.success
-                  ? summarizeToolOutput(toolName, event.output)
-                  : errorMessage,
-                ...(cwd ? { cwd } : {}),
+                outputSummary: normalized?.outputSummary ?? errorMessage,
+                ...(normalized?.cwd ? { cwd: normalized.cwd } : {}),
+                ...(normalized?.details ? { details: normalized.details } : {}),
                 ...(errorMessage ? { error: errorMessage } : {}),
                 startedAt: finishedAt,
                 finishedAt

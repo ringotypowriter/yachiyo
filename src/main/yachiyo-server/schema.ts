@@ -62,6 +62,7 @@ export const toolCallsTable = sqliteTable('tool_calls', {
   outputSummary: text('output_summary'),
   cwd: text('cwd'),
   error: text('error'),
+  details: text('details'),
   startedAt: text('started_at').notNull(),
   finishedAt: text('finished_at')
 })

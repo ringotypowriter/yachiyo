@@ -161,6 +161,42 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
           : {})
       })
 
+      if ('fullStream' in result && result.fullStream) {
+        for await (const part of result.fullStream as AsyncIterable<{
+          input?: unknown
+          output?: unknown
+          preliminary?: boolean
+          text?: string
+          toolCallId?: string
+          toolName?: string
+          type: string
+        }>) {
+          if (part.type === 'text-delta' && part.text) {
+            yield part.text
+            continue
+          }
+
+          if (
+            part.type === 'tool-result' &&
+            part.preliminary &&
+            request.onToolCallUpdate &&
+            typeof part.toolCallId === 'string' &&
+            typeof part.toolName === 'string'
+          ) {
+            request.onToolCallUpdate({
+              output: part.output,
+              toolCall: {
+                input: part.input,
+                toolCallId: part.toolCallId,
+                toolName: part.toolName
+              }
+            })
+          }
+        }
+
+        return
+      }
+
       for await (const textPart of result.textStream) {
         if (textPart) {
           yield textPart

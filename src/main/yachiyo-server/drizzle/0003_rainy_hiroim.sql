@@ -1,0 +1,1 @@
+ALTER TABLE `tool_calls` ADD `details` text;

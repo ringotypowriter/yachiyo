@@ -369,11 +369,11 @@ test('YachiyoServer fails runs cleanly when thread workspace initialization fail
   )
 })
 
-test('YachiyoServer creates a per-thread workspace and persists completed tool calls', async () => {
+test('YachiyoServer creates a per-thread workspace, persists structured tool details, and updates the same tool call through its lifecycle', async () => {
   let toolWorkspacePath = ''
 
   await withServer(
-    async ({ server, completeRun, workspacePathForThread }) => {
+    async ({ server, completeRun, waitForEvent, workspacePathForThread }) => {
       await server.upsertProvider({
         name: 'work',
         type: 'openai',
@@ -394,10 +394,57 @@ test('YachiyoServer creates a per-thread workspace and persists completed tool c
         content: 'List the workspace files.'
       })
 
+      const startedToolEvent = (await waitForEvent('tool.updated')) as {
+        toolCall: {
+          id: string
+          status: string
+          details?: unknown
+          outputSummary?: string
+        }
+      }
+      const updatedToolEvent = (await waitForEvent('tool.updated')) as {
+        toolCall: {
+          id: string
+          status: string
+          details?: {
+            command?: string
+            cwd?: string
+            stderr?: string
+            stdout?: string
+          }
+          outputSummary?: string
+        }
+      }
+      const laterToolEvent = (await waitForEvent('tool.updated')) as {
+        toolCall: {
+          id: string
+          status: string
+          details?: {
+            command?: string
+            cwd?: string
+            stderr?: string
+            stdout?: string
+          }
+          outputSummary?: string
+        }
+      }
+      const streamingToolEvent =
+        updatedToolEvent.toolCall.outputSummary === 'streaming output'
+          ? updatedToolEvent
+          : laterToolEvent
+
       await completeRun(accepted.runId)
 
       const bootstrap = await server.bootstrap()
       const toolCalls = bootstrap.toolCallsByThread[thread.id] ?? []
+
+      assert.equal(startedToolEvent.toolCall.status, 'running')
+      assert.equal(startedToolEvent.toolCall.details, undefined)
+      assert.equal(streamingToolEvent.toolCall.id, startedToolEvent.toolCall.id)
+      assert.equal(streamingToolEvent.toolCall.status, 'running')
+      assert.equal(streamingToolEvent.toolCall.details?.cwd, toolWorkspacePath)
+      assert.equal(streamingToolEvent.toolCall.details?.stdout, `${toolWorkspacePath}\n`)
+      assert.equal(streamingToolEvent.toolCall.outputSummary, 'streaming output')
 
       assert.equal(toolCalls.length, 1)
       assert.equal(toolCalls[0]?.toolName, 'bash')
@@ -405,6 +452,13 @@ test('YachiyoServer creates a per-thread workspace and persists completed tool c
       assert.equal(toolCalls[0]?.cwd, toolWorkspacePath)
       assert.equal(toolCalls[0]?.inputSummary, 'pwd && ls')
       assert.equal(toolCalls[0]?.outputSummary, 'exit 0')
+      assert.deepEqual(toolCalls[0]?.details, {
+        command: 'pwd && ls',
+        cwd: toolWorkspacePath,
+        exitCode: 0,
+        stderr: '',
+        stdout: `${toolWorkspacePath}\n`
+      })
 
       const requestMessageId = bootstrap.messagesByThread[thread.id]?.[0]?.id
       const assistantMessageId = bootstrap.messagesByThread[thread.id]?.[1]?.id
@@ -437,6 +491,26 @@ test('YachiyoServer creates a per-thread workspace and persists completed tool c
             }
           } as never)
 
+          request.onToolCallUpdate?.({
+            output: {
+              content: [{ type: 'text', text: `${toolWorkspacePath}\n` }],
+              details: {
+                command: 'pwd && ls',
+                cwd: toolWorkspacePath,
+                stderr: '',
+                stdout: `${toolWorkspacePath}\n`
+              },
+              metadata: {
+                cwd: toolWorkspacePath
+              }
+            },
+            toolCall: {
+              input: { command: 'pwd && ls' },
+              toolCallId: 'tool-bash-1',
+              toolName: 'bash'
+            }
+          } as never)
+
           request.onToolCallFinish?.({
             abortSignal: request.signal,
             durationMs: 3,
@@ -448,12 +522,18 @@ test('YachiyoServer creates a per-thread workspace and persists completed tool c
             stepNumber: 0,
             success: true,
             output: {
-              ok: true,
-              command: 'pwd && ls',
-              cwd: toolWorkspacePath,
-              exitCode: 0,
-              stdout: `${toolWorkspacePath}\n`,
-              stderr: ''
+              content: [{ type: 'text', text: `${toolWorkspacePath}\n` }],
+              details: {
+                command: 'pwd && ls',
+                cwd: toolWorkspacePath,
+                exitCode: 0,
+                stderr: '',
+                stdout: `${toolWorkspacePath}\n`
+              },
+              metadata: {
+                cwd: toolWorkspacePath,
+                exitCode: 0
+              }
             },
             toolCall: {
               input: { command: 'pwd && ls' },
@@ -643,6 +723,11 @@ test('YachiyoServer close waits for active runs to persist a terminal status', a
   const server = new YachiyoServer({
     storage,
     settingsPath,
+    ensureThreadWorkspace: async (threadId) => {
+      const workspacePath = join(root, '.yachiyo', 'temp-workspace', threadId)
+      await mkdir(workspacePath, { recursive: true })
+      return workspacePath
+    },
     createModelRuntime: () => ({
       async *streamReply(request: ModelStreamRequest) {
         await new Promise((_, reject) => {
@@ -888,15 +973,16 @@ test('YachiyoServer removes tool activity for a deleted assistant-only branch wi
             stepNumber: 0,
             success: true,
             output: {
-              ok: true,
-              path: `/tmp/notes-${runAttempt}.txt`,
-              workspacePath: '/tmp',
-              startLine: 1,
-              endLine: 1,
-              totalLines: 1,
-              totalChars: 5,
-              truncated: false,
-              content: 'hello'
+              content: [{ type: 'text', text: 'hello' }],
+              details: {
+                endLine: 1,
+                path: `/tmp/notes-${runAttempt}.txt`,
+                startLine: 1,
+                totalBytes: 5,
+                totalLines: 1,
+                truncated: false
+              },
+              metadata: {}
             },
             toolCall: {
               input: { path: `notes-${runAttempt}.txt` },

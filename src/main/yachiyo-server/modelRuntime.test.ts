@@ -280,3 +280,98 @@ test('createAiSdkModelRuntime forwards tools and tool callbacks into the AI SDK 
   assert.equal(streamCall.experimental_onToolCallFinish, onToolCallFinish)
   assert.equal(typeof streamCall.stopWhen, 'function')
 })
+
+test('createAiSdkModelRuntime forwards preliminary tool results through onToolCallUpdate', async () => {
+  const updates: Array<{
+    output: unknown
+    toolCall: {
+      input: unknown
+      toolCallId: string
+      toolName: string
+    }
+  }> = []
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => ({ modelId: 'gpt-5', provider: 'openai.responses' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: (() => ({
+      fullStream: (async function* () {
+        yield { type: 'text-delta', id: 'text-1', text: 'He' }
+        yield {
+          type: 'tool-result',
+          toolCallId: 'tool-bash-1',
+          toolName: 'bash',
+          input: { command: 'pwd' },
+          output: {
+            content: [{ type: 'text', text: '/tmp/workspace\n' }],
+            details: {
+              command: 'pwd',
+              cwd: '/tmp/workspace',
+              stderr: '',
+              stdout: '/tmp/workspace\n'
+            },
+            metadata: {
+              cwd: '/tmp/workspace'
+            }
+          },
+          preliminary: true
+        }
+        yield { type: 'text-delta', id: 'text-1', text: 'llo' }
+      })()
+    })) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'List the workspace files.' }],
+    settings: {
+      providerName: 'work',
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal,
+    onToolCallUpdate: (event) => {
+      updates.push({
+        output: event.output,
+        toolCall: {
+          input: event.toolCall.input,
+          toolCallId: event.toolCall.toolCallId,
+          toolName: event.toolCall.toolName
+        }
+      })
+    }
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['He', 'llo'])
+  assert.deepEqual(updates, [
+    {
+      output: {
+        content: [{ type: 'text', text: '/tmp/workspace\n' }],
+        details: {
+          command: 'pwd',
+          cwd: '/tmp/workspace',
+          stderr: '',
+          stdout: '/tmp/workspace\n'
+        },
+        metadata: {
+          cwd: '/tmp/workspace'
+        }
+      },
+      toolCall: {
+        input: { command: 'pwd' },
+        toolCallId: 'tool-bash-1',
+        toolName: 'bash'
+      }
+    }
+  ])
+})

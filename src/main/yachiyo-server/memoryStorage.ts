@@ -3,6 +3,7 @@ import {
   groupLatestRunsByThread,
   groupToolCallsByThread,
   groupMessagesByThread,
+  serializeToolCallDetails,
   toRunRecord,
   toToolCallRecord,
   toThreadRecord,
@@ -248,6 +249,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     createToolCall(toolCall) {
       toolCalls.set(toolCall.id, {
         cwd: toolCall.cwd ?? null,
+        details: serializeToolCallDetails(toolCall.details),
         error: toolCall.error ?? null,
         finishedAt: toolCall.finishedAt ?? null,
         id: toolCall.id,
@@ -268,6 +270,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
       toolCalls.set(toolCall.id, {
         cwd: toolCall.cwd ?? null,
+        details: serializeToolCallDetails(toolCall.details),
         error: toolCall.error ?? null,
         finishedAt: toolCall.finishedAt ?? null,
         id: toolCall.id,

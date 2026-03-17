@@ -13,6 +13,7 @@ import {
   groupToolCallsByThread,
   groupMessagesByThread,
   serializeMessageImages,
+  serializeToolCallDetails,
   toMessageRecord,
   toRunRecord,
   toToolCallRecord,
@@ -131,6 +132,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
               .select({
                 assistantMessageId: runsTable.assistantMessageId,
                 cwd: toolCallsTable.cwd,
+                details: toolCallsTable.details,
                 error: toolCallsTable.error,
                 finishedAt: toolCallsTable.finishedAt,
                 id: toolCallsTable.id,
@@ -422,6 +424,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .select({
           assistantMessageId: runsTable.assistantMessageId,
           cwd: toolCallsTable.cwd,
+          details: toolCallsTable.details,
           error: toolCallsTable.error,
           finishedAt: toolCallsTable.finishedAt,
           id: toolCallsTable.id,
@@ -446,6 +449,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       db.insert(toolCallsTable)
         .values({
           cwd: toolCall.cwd ?? null,
+          details: serializeToolCallDetails(toolCall.details),
           error: toolCall.error ?? null,
           finishedAt: toolCall.finishedAt ?? null,
           id: toolCall.id,
@@ -464,6 +468,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       db.update(toolCallsTable)
         .set({
           cwd: toolCall.cwd ?? null,
+          details: serializeToolCallDetails(toolCall.details),
           error: toolCall.error ?? null,
           finishedAt: toolCall.finishedAt ?? null,
           inputSummary: toolCall.inputSummary,

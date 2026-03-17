@@ -3,6 +3,7 @@ import type {
   MessageRecord,
   RunRecord,
   ThreadRecord,
+  ToolCallDetailsSnapshot,
   ToolCallName,
   ToolCallRecord,
   ToolCallStatus
@@ -77,6 +78,7 @@ export interface StoredToolCallRow {
   outputSummary: string | null
   cwd: string | null
   error: string | null
+  details: string | null
   startedAt: string
   finishedAt: string | null
 }
@@ -169,11 +171,14 @@ export function toMessageRecord(row: StoredMessageRow): MessageRecord {
 }
 
 export function toToolCallRecord(row: StoredToolCallRow & StoredToolCallRunRefs): ToolCallRecord {
+  const details = parseToolCallDetails(row.details)
+
   return {
     ...(row.assistantMessageId === null || row.assistantMessageId === undefined
       ? {}
       : { assistantMessageId: row.assistantMessageId }),
     ...(row.cwd === null ? {} : { cwd: row.cwd }),
+    ...(details ? { details } : {}),
     ...(row.error === null ? {} : { error: row.error }),
     ...(row.finishedAt === null ? {} : { finishedAt: row.finishedAt }),
     ...(row.outputSummary === null ? {} : { outputSummary: row.outputSummary }),
@@ -187,6 +192,22 @@ export function toToolCallRecord(row: StoredToolCallRow & StoredToolCallRunRefs)
     status: row.status,
     threadId: row.threadId,
     toolName: row.toolName
+  }
+}
+
+export function serializeToolCallDetails(details?: ToolCallDetailsSnapshot): string | null {
+  return details ? JSON.stringify(details) : null
+}
+
+export function parseToolCallDetails(details: string | null): ToolCallDetailsSnapshot | undefined {
+  if (!details) {
+    return undefined
+  }
+
+  try {
+    return JSON.parse(details) as ToolCallDetailsSnapshot
+  } catch {
+    return undefined
   }
 }
 

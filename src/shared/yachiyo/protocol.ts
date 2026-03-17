@@ -6,6 +6,49 @@ export type ProviderKind = 'openai' | 'anthropic'
 export type ToolCallName = 'read' | 'write' | 'edit' | 'bash'
 export type ToolCallStatus = 'running' | 'completed' | 'failed'
 
+export interface ReadToolCallDetails {
+  path: string
+  startLine: number
+  endLine: number
+  totalLines: number
+  totalBytes: number
+  truncated: boolean
+  nextOffset?: number
+  remainingLines?: number
+}
+
+export interface WriteToolCallDetails {
+  path: string
+  bytesWritten: number
+  created: boolean
+  overwritten: boolean
+}
+
+export interface EditToolCallDetails {
+  path: string
+  replacements: number
+  diff?: string
+  firstChangedLine?: number
+}
+
+export interface BashToolCallDetails {
+  command: string
+  cwd: string
+  exitCode?: number
+  stdout: string
+  stderr: string
+  truncated?: boolean
+  timedOut?: boolean
+  blocked?: boolean
+  outputFilePath?: string
+}
+
+export type ToolCallDetailsSnapshot =
+  | ReadToolCallDetails
+  | WriteToolCallDetails
+  | EditToolCallDetails
+  | BashToolCallDetails
+
 export interface MessageImageRecord {
   dataUrl: string
   mediaType: string
@@ -47,6 +90,7 @@ export interface ToolCallRecord {
   outputSummary?: string
   cwd?: string
   error?: string
+  details?: ToolCallDetailsSnapshot
   startedAt: string
   finishedAt?: string
 }
