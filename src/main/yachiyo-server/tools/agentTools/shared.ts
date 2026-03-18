@@ -1,0 +1,193 @@
+import { access } from 'node:fs/promises'
+import { isAbsolute, resolve } from 'node:path'
+
+import { z } from 'zod'
+
+import type {
+  BashToolCallDetails,
+  EditToolCallDetails,
+  ReadToolCallDetails,
+  ToolCallDetailsSnapshot,
+  ToolCallName,
+  WriteToolCallDetails
+} from '../../../../shared/yachiyo/protocol.ts'
+
+export const DEFAULT_READ_LIMIT = 200
+export const MAX_READ_LIMIT = 500
+export const DEFAULT_READ_MAX_BYTES = 16_000
+
+export const DEFAULT_BASH_TIMEOUT_SECONDS = 30
+export const MAX_BASH_TIMEOUT_SECONDS = 120
+export const MAX_BASH_MODEL_OUTPUT_CHARS = 20_000
+export const MAX_BASH_DETAILS_OUTPUT_CHARS = 8_000
+
+export const readToolInputSchema = z.object({
+  path: z.string().min(1),
+  offset: z.number().int().min(0).optional(),
+  limit: z.number().int().min(1).max(MAX_READ_LIMIT).optional()
+})
+
+export const writeToolInputSchema = z.object({
+  path: z.string().min(1),
+  content: z.string()
+})
+
+export const editToolInputSchema = z.object({
+  path: z.string().min(1),
+  oldText: z.string().min(1),
+  newText: z.string()
+})
+
+export const bashToolInputSchema = z.object({
+  command: z.string().min(1),
+  timeout: z.number().int().min(1).max(MAX_BASH_TIMEOUT_SECONDS).optional()
+})
+
+export type ReadToolInput = z.infer<typeof readToolInputSchema>
+export type WriteToolInput = z.infer<typeof writeToolInputSchema>
+export type EditToolInput = z.infer<typeof editToolInputSchema>
+export type BashToolInput = z.infer<typeof bashToolInputSchema>
+
+export interface AgentToolContext {
+  enabledTools?: ToolCallName[]
+  workspacePath: string
+}
+
+export interface ToolContentBlock {
+  type: 'text'
+  text: string
+}
+
+export interface AgentToolMetadata {
+  cwd?: string
+  exitCode?: number
+  blocked?: boolean
+  timedOut?: boolean
+  truncated?: boolean
+  outputFilePath?: string
+}
+
+export interface AgentToolResult<TDetails extends ToolCallDetailsSnapshot> {
+  content: ToolContentBlock[]
+  details: TDetails
+  metadata: AgentToolMetadata
+  error?: string
+}
+
+export type ReadToolOutput = AgentToolResult<ReadToolCallDetails>
+export type WriteToolOutput = AgentToolResult<WriteToolCallDetails>
+export type EditToolOutput = AgentToolResult<EditToolCallDetails>
+export type BashToolOutput = AgentToolResult<BashToolCallDetails>
+
+export type AgentToolOutput = ReadToolOutput | WriteToolOutput | EditToolOutput | BashToolOutput
+
+export interface BashRunnerInput {
+  command: string
+  cwd: string
+  timeoutSeconds: number
+  abortSignal?: AbortSignal
+  onStdout?: (chunk: string) => void
+  onStderr?: (chunk: string) => void
+}
+
+export interface BashRunnerResult {
+  stdout: string
+  stderr: string
+  exitCode: number
+  timedOut?: boolean
+}
+
+export type BashRunner = (input: BashRunnerInput) => Promise<BashRunnerResult>
+
+export function resolveToolPath(workspacePath: string, targetPath: string): string {
+  return isAbsolute(targetPath) ? resolve(targetPath) : resolve(workspacePath, targetPath)
+}
+
+export function hasAccess(path: string): Promise<boolean> {
+  return access(path).then(
+    () => true,
+    () => false
+  )
+}
+
+export function countOccurrences(haystack: string, needle: string): number {
+  let count = 0
+  let index = 0
+
+  while (true) {
+    const nextIndex = haystack.indexOf(needle, index)
+    if (nextIndex === -1) {
+      return count
+    }
+
+    count += 1
+    index = nextIndex + needle.length
+  }
+}
+
+export function countNewlines(value: string): number {
+  return value.length === 0 ? 0 : (value.match(/\n/g) ?? []).length
+}
+
+export function textContent(text: string): ToolContentBlock[] {
+  return text.length === 0 ? [] : [{ type: 'text', text }]
+}
+
+export function flattenToolContent(content: ToolContentBlock[]): string {
+  return content
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text)
+    .join('')
+}
+
+export function truncateUtf8ByBytes(value: string, maxBytes: number): string {
+  const bytes = Buffer.from(value, 'utf8')
+
+  if (bytes.length <= maxBytes) {
+    return value
+  }
+
+  return Buffer.from(bytes.subarray(0, maxBytes)).toString('utf8')
+}
+
+export function takeTail(value: string, maxChars: number): { text: string; truncated: boolean } {
+  if (value.length <= maxChars) {
+    return {
+      text: value,
+      truncated: false
+    }
+  }
+
+  return {
+    text: value.slice(-maxChars),
+    truncated: true
+  }
+}
+
+export function truncateForDetails(value: string): { text: string; truncated: boolean } {
+  return takeTail(value, MAX_BASH_DETAILS_OUTPUT_CHARS)
+}
+
+export function toToolModelOutput(output: unknown):
+  | {
+      type: 'content'
+      value: ToolContentBlock[]
+    }
+  | {
+      type: 'error-text'
+      value: string
+    } {
+  const typedOutput = output as AgentToolOutput
+
+  if (typedOutput.error) {
+    return {
+      type: 'error-text',
+      value: flattenToolContent(typedOutput.content) || typedOutput.error
+    }
+  }
+
+  return {
+    type: 'content',
+    value: typedOutput.content
+  }
+}

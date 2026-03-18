@@ -20,6 +20,8 @@ Use the pinned toolchain: `nvm use` and `pnpm install`.
 
 Follow `.editorconfig` and Prettier: 2-space indentation, LF endings, single quotes, no semicolons, and `printWidth: 100`. Prefer small focused modules and feature-local code. Use `PascalCase` for React components (`MessageTimeline.tsx`), `camelCase` for utilities (`messagePrepare.ts`), and colocate shared types near the feature that owns them unless they cross process boundaries.
 
+- Add explicit return types to exported functions. Do not rely on inference for public helpers, tool factories, or other exported module APIs.
+
 ## Testing Guidelines
 
 This repo uses `node:test`. Keep tests next to the code they verify using `*.test.ts`; reserve `*.native.test.ts` for Electron/sqlite coverage only. Default tests should prefer in-memory storage so they stay fast and do not depend on native modules. Add or update tests for new CLI commands, storage behavior, protocol changes, and state transformation helpers.
