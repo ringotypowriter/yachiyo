@@ -75,7 +75,8 @@ export class YachiyoServer {
       readConfig: () => this.configDomain.readConfig(),
       readSettings: () => this.configDomain.readSettings(),
       requireThread: this.requireThread.bind(this),
-      loadThreadMessages: (threadId) => this.storage.listThreadMessages(threadId)
+      loadThreadMessages: (threadId) => this.storage.listThreadMessages(threadId),
+      loadThreadToolCalls: (threadId) => this.storage.listThreadToolCalls(threadId)
     })
     this.threadDomain = new YachiyoServerThreadDomain({
       storage: this.storage,
@@ -107,9 +108,12 @@ export class YachiyoServer {
 
   async bootstrap(): Promise<BootstrapPayload> {
     this.recoverInterruptedRuns()
+    const recoveredQueuedFollowUps = this.runDomain.prepareRecoveredQueuedFollowUps()
 
     const { threads, messagesByThread, toolCallsByThread, latestRunsByThread } =
       this.storage.bootstrap()
+
+    this.runDomain.scheduleRecoveredQueuedFollowUps(recoveredQueuedFollowUps)
 
     return {
       threads,

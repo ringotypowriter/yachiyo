@@ -1,0 +1,1 @@
+ALTER TABLE `threads` ADD `queued_follow_up_enabled_tools` text;

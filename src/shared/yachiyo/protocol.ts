@@ -3,6 +3,8 @@ export type MessageStatus = 'completed' | 'streaming' | 'failed' | 'stopped'
 export type RunStatus = 'idle' | 'running' | 'completed' | 'failed' | 'cancelled'
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected'
 export type ProviderKind = 'openai' | 'anthropic'
+export type ActiveRunEnterBehavior = 'enter-steers' | 'enter-queues-follow-up'
+export type SendChatMode = 'normal' | 'steer' | 'follow-up'
 export const CORE_TOOL_NAMES = ['read', 'write', 'edit', 'bash'] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
 export type ToolCallStatus = 'running' | 'completed' | 'failed'
@@ -10,6 +12,7 @@ export type ToolCallStatus = 'running' | 'completed' | 'failed'
 const coreToolNameSet = new Set<string>(CORE_TOOL_NAMES)
 
 export const DEFAULT_ENABLED_TOOL_NAMES = [...CORE_TOOL_NAMES] as ToolCallName[]
+export const DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR: ActiveRunEnterBehavior = 'enter-steers'
 
 export function normalizeEnabledTools(
   value: unknown,
@@ -37,6 +40,13 @@ export function normalizeEnabledTools(
   }
 
   return enabledTools
+}
+
+export function normalizeActiveRunEnterBehavior(
+  value: unknown,
+  fallback: ActiveRunEnterBehavior = DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
+): ActiveRunEnterBehavior {
+  return value === 'enter-queues-follow-up' || value === 'enter-steers' ? value : fallback
 }
 
 export interface ReadToolCallDetails {
@@ -94,6 +104,8 @@ export interface ThreadRecord {
   updatedAt: string
   preview?: string
   headMessageId?: string
+  queuedFollowUpMessageId?: string
+  queuedFollowUpEnabledTools?: ToolCallName[]
   branchFromThreadId?: string
   branchFromMessageId?: string
 }
@@ -141,9 +153,14 @@ export interface ProviderConfig {
   modelList: ProviderModelList
 }
 
+export interface ChatConfig {
+  activeRunEnterBehavior?: ActiveRunEnterBehavior
+}
+
 export interface SettingsConfig {
   providers: ProviderConfig[]
   enabledTools?: ToolCallName[]
+  chat?: ChatConfig
 }
 
 export interface ProviderSettings {
@@ -173,9 +190,11 @@ export interface RunRecord {
 }
 
 export interface ChatAccepted {
-  runId: string
+  kind: 'run-started' | 'active-run-steer' | 'active-run-follow-up'
   thread: ThreadRecord
   userMessage: MessageRecord
+  runId: string
+  replacedMessageId?: string
 }
 
 export interface ToolPreferencesInput {
@@ -187,6 +206,7 @@ export interface SendChatInput {
   content: string
   images?: MessageImageRecord[]
   enabledTools?: ToolCallName[]
+  mode?: SendChatMode
 }
 
 export interface RetryInput {

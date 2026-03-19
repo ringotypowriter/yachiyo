@@ -3,7 +3,7 @@ import test from 'node:test'
 
 import { getComposerActionState } from './composerActionState.ts'
 
-test('getComposerActionState shows the stop button whenever a run is active', () => {
+test('getComposerActionState shows the stop button whenever a run is active and still allows sends when the payload is ready', () => {
   assert.deepEqual(
     getComposerActionState({
       connectionStatus: 'connected',
@@ -14,7 +14,7 @@ test('getComposerActionState shows the stop button whenever a run is active', ()
       isConfigured: true
     }),
     {
-      canSend: false,
+      canSend: true,
       showStopButton: true
     }
   )

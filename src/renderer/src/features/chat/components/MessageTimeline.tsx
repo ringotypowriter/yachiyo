@@ -26,6 +26,7 @@ const DEFAULT_HARNESS = 'default.reply'
 
 type TimelineItem =
   | ReturnType<typeof buildConversationTimeline>[number]
+  | { kind: 'queued-follow-up'; key: string; time: string; data: Message }
   | { kind: 'harness'; key: string; time: string; data: HarnessRecord }
   | { kind: 'tool'; key: string; time: string; data: ToolCall }
 
@@ -43,10 +44,21 @@ function buildConversationTimeline(
 function buildTimeline(
   groups: ReturnType<typeof buildMessageGroups>,
   harnesses: HarnessRecord[],
-  orphanToolCalls: ToolCall[]
+  orphanToolCalls: ToolCall[],
+  queuedFollowUpMessage: Message | null
 ): TimelineItem[] {
   const items: TimelineItem[] = [
     ...buildConversationTimeline(groups),
+    ...(queuedFollowUpMessage
+      ? [
+          {
+            kind: 'queued-follow-up' as const,
+            key: queuedFollowUpMessage.id,
+            time: queuedFollowUpMessage.createdAt,
+            data: queuedFollowUpMessage
+          }
+        ]
+      : []),
     ...orphanToolCalls.map((toolCall) => ({
       kind: 'tool' as const,
       key: toolCall.id,
@@ -186,11 +198,21 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
         activeRequestMessageId: activeRunThreadId === threadId ? activeRequestMessageId : null
       })
     : []
+  const queuedFollowUpMessage =
+    thread?.queuedFollowUpMessageId &&
+    messages.some((message) => message.id === thread.queuedFollowUpMessageId)
+      ? (messages.find((message) => message.id === thread.queuedFollowUpMessageId) ?? null)
+      : null
   const { inlineToolCalls, orphanToolCalls } = partitionToolCallsForGroups({
     groups: messageGroups,
     toolCalls
   })
-  const timeline = buildTimeline(messageGroups, harnessEvents, orphanToolCalls)
+  const timeline = buildTimeline(
+    messageGroups,
+    harnessEvents,
+    orphanToolCalls,
+    queuedFollowUpMessage
+  )
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -258,6 +280,20 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
       {timeline.map((item) => {
         if (item.kind === 'harness') {
           return <RunEventRow key={item.key} harness={item.data} />
+        }
+
+        if (item.kind === 'queued-follow-up') {
+          return (
+            <UserMessageBubble
+              key={item.key}
+              label="Queued follow-up"
+              message={item.data}
+              threadHasActiveRun={activeRunThreadId === threadId}
+              onRetry={() => handleRetry(item.data.id)}
+              onCreateBranch={() => handleCreateBranch(item.data.id)}
+              onDelete={() => handleDelete(item.data.id)}
+            />
+          )
         }
 
         if (item.kind === 'tool') {

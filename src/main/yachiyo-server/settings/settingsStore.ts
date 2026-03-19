@@ -2,7 +2,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 import {
+  DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
   DEFAULT_ENABLED_TOOL_NAMES,
+  normalizeActiveRunEnterBehavior,
   normalizeEnabledTools,
   type ProviderConfig,
   type ProviderKind,
@@ -12,7 +14,10 @@ import {
 
 export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   providers: [],
-  enabledTools: DEFAULT_ENABLED_TOOL_NAMES
+  enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+  chat: {
+    activeRunEnterBehavior: DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
+  }
 }
 
 function normalizeString(value: unknown, fallback: string): string {
@@ -95,6 +100,14 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
       input['enabledTools'],
       DEFAULT_SETTINGS_CONFIG.enabledTools
     ),
+    chat: {
+      activeRunEnterBehavior: normalizeActiveRunEnterBehavior(
+        input['chat'] && typeof input['chat'] === 'object'
+          ? (input['chat'] as Record<string, unknown>)['activeRunEnterBehavior']
+          : undefined,
+        DEFAULT_SETTINGS_CONFIG.chat?.activeRunEnterBehavior
+      )
+    },
     providers: hasProviders ? providers : DEFAULT_SETTINGS_CONFIG.providers
   }
 }
@@ -133,11 +146,17 @@ export function parseSettingsToml(raw: string): SettingsConfig {
   const root: Record<string, unknown> = {}
   const providers: Array<Record<string, unknown>> = []
   let currentProvider: Record<string, unknown> | null = null
-  let section: 'root' | 'provider' | 'provider.modelList' = 'root'
+  let section: 'root' | 'chat' | 'provider' | 'provider.modelList' = 'root'
 
   for (const rawLine of raw.split(/\r?\n/u)) {
     const line = stripTomlComment(rawLine).trim()
     if (!line) continue
+
+    if (line === '[chat]') {
+      root['chat'] = root['chat'] ?? {}
+      section = 'chat'
+      continue
+    }
 
     if (line === '[[providers]]') {
       currentProvider = {}
@@ -167,6 +186,20 @@ export function parseSettingsToml(raw: string): SettingsConfig {
 
     if (section === 'root') {
       root[key] = value
+      continue
+    }
+
+    if (section === 'chat') {
+      const chat =
+        root['chat'] && typeof root['chat'] === 'object'
+          ? (root['chat'] as Record<string, unknown>)
+          : null
+
+      if (!chat) {
+        throw new Error(`Chat settings are not initialized for ${key}.`)
+      }
+
+      chat[key] = value
       continue
     }
 
@@ -208,6 +241,14 @@ export function stringifySettingsToml(config: SettingsConfig): string {
   const lines: string[] = [
     `enabledTools = ${stringifyTomlStringArray(
       normalizeEnabledTools(config.enabledTools, DEFAULT_SETTINGS_CONFIG.enabledTools)
+    )}`,
+    '',
+    '[chat]',
+    `activeRunEnterBehavior = ${stringifyTomlString(
+      normalizeActiveRunEnterBehavior(
+        config.chat?.activeRunEnterBehavior,
+        DEFAULT_SETTINGS_CONFIG.chat?.activeRunEnterBehavior
+      )
     )}`
   ]
 

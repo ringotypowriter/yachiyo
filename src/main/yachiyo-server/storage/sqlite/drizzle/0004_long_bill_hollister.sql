@@ -1,0 +1,1 @@
+ALTER TABLE `threads` ADD `queued_follow_up_message_id` text;

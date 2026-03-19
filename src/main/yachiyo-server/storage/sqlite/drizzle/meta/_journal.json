@@ -29,6 +29,20 @@
       "when": 1773733715724,
       "tag": "0003_rainy_hiroim",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1773892989412,
+      "tag": "0004_long_bill_hollister",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1773907329656,
+      "tag": "0005_fantastic_star_brand",
+      "breakpoints": true
     }
   ]
 }

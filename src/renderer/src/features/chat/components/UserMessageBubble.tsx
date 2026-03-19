@@ -24,6 +24,7 @@ function UserMessageImages({ message }: { message: Message }): React.JSX.Element
 }
 
 interface UserMessageBubbleProps {
+  label?: string
   message: Message
   threadHasActiveRun?: boolean
   onRetry?: () => Promise<void> | void
@@ -32,6 +33,7 @@ interface UserMessageBubbleProps {
 }
 
 export function UserMessageBubble({
+  label,
   message,
   threadHasActiveRun = false,
   onRetry,
@@ -47,6 +49,14 @@ export function UserMessageBubble({
           className="rounded-[18px] px-4 py-2.5 message-selectable"
           style={{ background: '#CC7D5E', color: '#fff' }}
         >
+          {label ? (
+            <div
+              className="mb-2 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium"
+              style={{ background: 'rgba(255,255,255,0.2)' }}
+            >
+              {label}
+            </div>
+          ) : null}
           <UserMessageImages message={message} />
           {message.content ? (
             <p

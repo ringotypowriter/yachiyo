@@ -323,6 +323,12 @@ export class YachiyoServerThreadDomain {
       ...thread,
       title: remainingMessages.length === 0 ? DEFAULT_THREAD_TITLE : thread.title,
       updatedAt: timestamp,
+      ...(thread.queuedFollowUpMessageId && !deletedIds.has(thread.queuedFollowUpMessageId)
+        ? {
+            queuedFollowUpEnabledTools: thread.queuedFollowUpEnabledTools,
+            queuedFollowUpMessageId: thread.queuedFollowUpMessageId
+          }
+        : {}),
       ...(nextHeadMessageId ? { headMessageId: nextHeadMessageId } : {}),
       ...(preview ? { preview: preview.slice(0, 240) } : {})
     }
@@ -333,6 +339,11 @@ export class YachiyoServerThreadDomain {
 
     if (!preview) {
       delete updatedThread.preview
+    }
+
+    if (thread.queuedFollowUpMessageId && deletedIds.has(thread.queuedFollowUpMessageId)) {
+      delete updatedThread.queuedFollowUpEnabledTools
+      delete updatedThread.queuedFollowUpMessageId
     }
 
     this.deps.storage.deleteMessages({

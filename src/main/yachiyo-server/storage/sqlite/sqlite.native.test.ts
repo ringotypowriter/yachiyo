@@ -162,6 +162,12 @@ test('sqlite storage initializes migrations on disk', async () => {
     )
     assert.ok(
       db
+        .prepare('PRAGMA table_info(threads)')
+        .all()
+        .some((row) => row.name === 'queued_follow_up_message_id')
+    )
+    assert.ok(
+      db
         .prepare('PRAGMA table_info(runs)')
         .all()
         .some((row) => row.name === 'request_message_id')

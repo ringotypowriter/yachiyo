@@ -8,6 +8,7 @@ import type {
   ToolCallRecord,
   ToolCallStatus
 } from '../../../shared/yachiyo/protocol'
+import { normalizeEnabledTools } from '../../../shared/yachiyo/protocol.ts'
 import { normalizeMessageImages } from '../../../shared/yachiyo/messageContent.ts'
 
 export interface StoredThreadRow {
@@ -16,6 +17,8 @@ export interface StoredThreadRow {
   preview: string | null
   branchFromThreadId: string | null
   branchFromMessageId: string | null
+  queuedFollowUpMessageId: string | null
+  queuedFollowUpEnabledTools: string | null
   archivedAt: string | null
   updatedAt: string
   createdAt: string
@@ -68,6 +71,13 @@ export interface DeleteMessagesInput {
   messageIds: string[]
 }
 
+export interface SaveThreadMessageInput {
+  thread: ThreadRecord
+  updatedThread: ThreadRecord
+  message: MessageRecord
+  replacedMessageId?: string
+}
+
 export interface StoredToolCallRow {
   id: string
   runId: string
@@ -108,11 +118,13 @@ export interface YachiyoStorage {
   renameThread(input: { threadId: string; title: string; updatedAt: string }): void
   archiveThread(input: { threadId: string; archivedAt: string; updatedAt: string }): void
   updateThread(thread: ThreadRecord): void
+  saveThreadMessage(input: SaveThreadMessageInput): void
   startRun(input: StartRunInput): void
   completeRun(input: CompleteRunInput): void
   cancelRun(input: { runId: string; completedAt: string }): void
   failRun(input: { runId: string; completedAt: string; error: string }): void
   listThreadMessages(threadId: string): MessageRecord[]
+  updateMessage(message: MessageRecord): void
   listThreadToolCalls(threadId: string): ToolCallRecord[]
   createToolCall(toolCall: ToolCallRecord): void
   updateToolCall(toolCall: ToolCallRecord): void
@@ -127,15 +139,23 @@ export function toThreadRecord(
     | 'headMessageId'
     | 'id'
     | 'preview'
+    | 'queuedFollowUpEnabledTools'
+    | 'queuedFollowUpMessageId'
     | 'title'
     | 'updatedAt'
   >
 ): ThreadRecord {
+  const queuedFollowUpEnabledTools = parseEnabledTools(row.queuedFollowUpEnabledTools)
+
   if (row.preview === null) {
     return {
       ...(row.branchFromMessageId === null ? {} : { branchFromMessageId: row.branchFromMessageId }),
       ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
       ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
+      ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
+      ...(row.queuedFollowUpMessageId === null
+        ? {}
+        : { queuedFollowUpMessageId: row.queuedFollowUpMessageId }),
       id: row.id,
       title: row.title,
       updatedAt: row.updatedAt
@@ -146,6 +166,10 @@ export function toThreadRecord(
     ...(row.branchFromMessageId === null ? {} : { branchFromMessageId: row.branchFromMessageId }),
     ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
     ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
+    ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
+    ...(row.queuedFollowUpMessageId === null
+      ? {}
+      : { queuedFollowUpMessageId: row.queuedFollowUpMessageId }),
     id: row.id,
     preview: row.preview,
     title: row.title,
@@ -199,6 +223,10 @@ export function serializeToolCallDetails(details?: ToolCallDetailsSnapshot): str
   return details ? JSON.stringify(details) : null
 }
 
+export function serializeEnabledTools(enabledTools?: readonly ToolCallName[]): string | null {
+  return enabledTools ? JSON.stringify(normalizeEnabledTools(enabledTools)) : null
+}
+
 export function parseToolCallDetails(details: string | null): ToolCallDetailsSnapshot | undefined {
   if (!details) {
     return undefined
@@ -206,6 +234,18 @@ export function parseToolCallDetails(details: string | null): ToolCallDetailsSna
 
   try {
     return JSON.parse(details) as ToolCallDetailsSnapshot
+  } catch {
+    return undefined
+  }
+}
+
+function parseEnabledTools(value: string | null): ToolCallName[] | undefined {
+  if (value === null) {
+    return undefined
+  }
+
+  try {
+    return normalizeEnabledTools(JSON.parse(value))
   } catch {
     return undefined
   }

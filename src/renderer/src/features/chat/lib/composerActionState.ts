@@ -14,7 +14,6 @@ export function getComposerActionState(input: {
   const showStopButton = input.hasActiveRun
   const canSend =
     input.hasPayload &&
-    !input.hasActiveRun &&
     !input.hasLoadingImages &&
     !input.hasFailedImages &&
     input.isConfigured &&

@@ -13,7 +13,12 @@ import {
   X
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import type { ProviderConfig, ProviderKind, SettingsConfig } from '../../shared/yachiyo/protocol'
+import type {
+  ActiveRunEnterBehavior,
+  ProviderConfig,
+  ProviderKind,
+  SettingsConfig
+} from '../../shared/yachiyo/protocol'
 
 type TabId = 'general' | 'providers' | 'chat' | 'memory' | 'ui' | 'about'
 
@@ -654,6 +659,98 @@ function ProvidersPane({
   )
 }
 
+function ChatPane({
+  draft,
+  onChange
+}: {
+  draft: SettingsConfig
+  onChange: (next: SettingsConfig) => void
+}): React.ReactNode {
+  const activeRunEnterBehavior = draft.chat?.activeRunEnterBehavior ?? 'enter-steers'
+  const options: Array<{
+    description: string
+    helper: string
+    value: ActiveRunEnterBehavior
+  }> = [
+    {
+      value: 'enter-steers',
+      description: 'Enter steers, Alt+Enter queues follow-up',
+      helper: 'Fastest steering path while a reply is still running.'
+    },
+    {
+      value: 'enter-queues-follow-up',
+      description: 'Alt+Enter steers, Enter queues follow-up',
+      helper: 'Protect plain Enter from accidental steering during long replies.'
+    }
+  ]
+
+  return (
+    <div className="flex-1 overflow-y-auto px-7 py-6">
+      <div className="max-w-3xl space-y-6">
+        <div className="space-y-1">
+          <h2
+            className="text-2xl font-semibold"
+            style={{ color: '#2D2D2B', letterSpacing: '-0.4px' }}
+          >
+            When a reply is still running
+          </h2>
+          <p className="text-sm leading-6" style={{ color: '#6b6a66' }}>
+            Choose what plain Enter does while a thread already has an active run. Shift+Enter
+            always inserts a newline.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          {options.map((option) => {
+            const isSelected = option.value === activeRunEnterBehavior
+
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() =>
+                  onChange({
+                    ...draft,
+                    chat: {
+                      activeRunEnterBehavior: option.value
+                    }
+                  })
+                }
+                className="w-full rounded-2xl px-5 py-4 text-left transition-all"
+                style={{
+                  background: isSelected ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.58)',
+                  border: isSelected
+                    ? '1px solid rgba(204,125,94,0.26)'
+                    : '1px solid rgba(0,0,0,0.08)',
+                  boxShadow: isSelected ? '0 10px 24px rgba(0,0,0,0.08)' : 'none'
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <span
+                    className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full"
+                    style={{
+                      border: isSelected ? '5px solid #CC7D5E' : '1px solid rgba(0,0,0,0.18)',
+                      background: '#fff'
+                    }}
+                  />
+                  <div className="space-y-1">
+                    <div className="text-sm font-semibold" style={{ color: '#2D2D2B' }}>
+                      {option.description}
+                    </div>
+                    <div className="text-sm leading-6" style={{ color: '#6b6a66' }}>
+                      {option.helper}
+                    </div>
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SettingsApp(): React.ReactNode {
   const [activeTab, setActiveTab] = useState<TabId>('providers')
   const [activeSubTab, setActiveSubTab] = useState(initSubTabs)
@@ -759,7 +856,7 @@ function SettingsApp(): React.ReactNode {
         />
       )
     } else if (activeTab === 'chat') {
-      body = <PlaceholderPane label="Chat settings coming soon." />
+      body = <ChatPane draft={draft} onChange={setDraft} />
     }
   }
 

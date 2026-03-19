@@ -18,8 +18,11 @@ import {
   type ComposerImageDraft
 } from '@renderer/app/store/useAppStore'
 import { getComposerActionState } from '@renderer/features/chat/lib/composerActionState'
-import { shouldSendOnComposerEnter } from '@renderer/features/chat/lib/composerEnterBehavior'
-import { CORE_TOOL_NAMES } from '../../../../../shared/yachiyo/protocol.ts'
+import { resolveComposerEnterAction } from '@renderer/features/chat/lib/composerEnterBehavior'
+import {
+  CORE_TOOL_NAMES,
+  DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
+} from '../../../../../shared/yachiyo/protocol.ts'
 import { ModelSelectorPopup } from './ModelSelectorPopup'
 import { ToolSelectorPopup } from './ToolSelectorPopup'
 
@@ -152,6 +155,17 @@ export function Composer(): React.JSX.Element {
     hasPayload,
     isConfigured
   })
+  const activeRunEnterBehavior =
+    config?.chat?.activeRunEnterBehavior ?? DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
+  const primarySendMode = hasActiveRun
+    ? activeRunEnterBehavior === 'enter-steers'
+      ? 'steer'
+      : 'follow-up'
+    : 'normal'
+  const activeRunHint =
+    activeRunEnterBehavior === 'enter-steers'
+      ? 'Enter to steer, Option+Enter to queue follow-up.'
+      : 'Option+Enter to steer, Enter to queue follow-up.'
 
   const composerStatus = (() => {
     if (connectionStatus !== 'connected') {
@@ -168,13 +182,6 @@ export function Composer(): React.JSX.Element {
       }
     }
 
-    if (hasActiveRun) {
-      return {
-        tone: 'muted' as const,
-        text: 'A reply is still running. Stop it or wait for it to finish.'
-      }
-    }
-
     if (hasLoadingImages) {
       return {
         tone: 'muted' as const,
@@ -186,6 +193,13 @@ export function Composer(): React.JSX.Element {
       return {
         tone: 'error' as const,
         text: 'This image could not be prepared.'
+      }
+    }
+
+    if (hasActiveRun) {
+      return {
+        tone: 'muted' as const,
+        text: activeRunHint
       }
     }
 
@@ -296,23 +310,30 @@ export function Composer(): React.JSX.Element {
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (
-        shouldSendOnComposerEnter({
+      const action = resolveComposerEnterAction({
+        activeRunEnterBehavior,
+        event: {
           key: event.key,
+          altKey: event.altKey,
           shiftKey: event.shiftKey,
           isComposing: isComposing || event.nativeEvent.isComposing,
           keyCode: event.nativeEvent.keyCode
-        })
-      ) {
-        event.preventDefault()
-        if (canSend) {
-          setModelSelectorOpen(false)
-          setToolSelectorOpen(false)
-          void sendMessage()
-        }
+        },
+        hasActiveRun
+      })
+
+      if (!action) {
+        return
+      }
+
+      event.preventDefault()
+      if (canSend) {
+        setModelSelectorOpen(false)
+        setToolSelectorOpen(false)
+        void sendMessage(action === 'send' ? 'normal' : action)
       }
     },
-    [canSend, isComposing, sendMessage]
+    [activeRunEnterBehavior, canSend, hasActiveRun, isComposing, sendMessage]
   )
 
   const handlePaste = useCallback(
@@ -519,7 +540,7 @@ export function Composer(): React.JSX.Element {
               if (!canSend) return
               setModelSelectorOpen(false)
               setToolSelectorOpen(false)
-              void sendMessage()
+              void sendMessage(primarySendMode)
             }}
             disabled={!canSend}
             className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
@@ -527,8 +548,20 @@ export function Composer(): React.JSX.Element {
               background: canSend ? '#CC7D5E' : 'rgba(0,0,0,0.08)',
               cursor: canSend ? 'pointer' : 'default'
             }}
-            aria-label="Send"
-            title="Send"
+            aria-label={
+              primarySendMode === 'steer'
+                ? 'Steer reply'
+                : primarySendMode === 'follow-up'
+                  ? 'Queue follow-up'
+                  : 'Send'
+            }
+            title={
+              primarySendMode === 'steer'
+                ? 'Steer reply'
+                : primarySendMode === 'follow-up'
+                  ? 'Queue follow-up'
+                  : 'Send'
+            }
           >
             <SendHorizonal size={14} strokeWidth={1.8} color={canSend ? 'white' : '#aaa'} />
           </button>

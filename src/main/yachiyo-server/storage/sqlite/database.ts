@@ -12,6 +12,7 @@ import {
   groupLatestRunsByThread,
   groupToolCallsByThread,
   groupMessagesByThread,
+  serializeEnabledTools,
   serializeMessageImages,
   serializeToolCallDetails,
   toMessageRecord,
@@ -94,6 +95,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           headMessageId: threadsTable.headMessageId,
           id: threadsTable.id,
           preview: threadsTable.preview,
+          queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
+          queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt
         })
@@ -231,6 +234,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           headMessageId: threadsTable.headMessageId,
           id: threadsTable.id,
           preview: threadsTable.preview,
+          queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
+          queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt
         })
@@ -252,6 +257,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             headMessageId: thread.headMessageId ?? null,
             id: thread.id,
             preview: thread.preview ?? null,
+            queuedFollowUpEnabledTools: serializeEnabledTools(thread.queuedFollowUpEnabledTools),
+            queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
             title: thread.title,
             updatedAt: thread.updatedAt
           })
@@ -297,11 +304,44 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           branchFromThreadId: thread.branchFromThreadId ?? null,
           headMessageId: thread.headMessageId ?? null,
           preview: thread.preview ?? null,
+          queuedFollowUpEnabledTools: serializeEnabledTools(thread.queuedFollowUpEnabledTools),
+          queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
           title: thread.title,
           updatedAt: thread.updatedAt
         })
         .where(eq(threadsTable.id, thread.id))
         .run()
+    },
+
+    saveThreadMessage({ thread, updatedThread, message, replacedMessageId }) {
+      db.transaction((tx) => {
+        if (replacedMessageId) {
+          tx.delete(messagesTable).where(eq(messagesTable.id, replacedMessageId)).run()
+        }
+
+        tx.insert(messagesTable)
+          .values({
+            ...message,
+            images: serializeMessageImages(message.images)
+          })
+          .run()
+
+        tx.update(threadsTable)
+          .set({
+            branchFromMessageId: updatedThread.branchFromMessageId ?? null,
+            branchFromThreadId: updatedThread.branchFromThreadId ?? null,
+            headMessageId: updatedThread.headMessageId ?? null,
+            preview: updatedThread.preview ?? null,
+            queuedFollowUpEnabledTools: serializeEnabledTools(
+              updatedThread.queuedFollowUpEnabledTools
+            ),
+            queuedFollowUpMessageId: updatedThread.queuedFollowUpMessageId ?? null,
+            title: updatedThread.title,
+            updatedAt: updatedThread.updatedAt
+          })
+          .where(eq(threadsTable.id, thread.id))
+          .run()
+      })
     },
 
     startRun({
@@ -326,6 +366,10 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           .set({
             headMessageId: updatedThread.headMessageId ?? null,
             preview: updatedThread.preview ?? null,
+            queuedFollowUpEnabledTools: serializeEnabledTools(
+              updatedThread.queuedFollowUpEnabledTools
+            ),
+            queuedFollowUpMessageId: updatedThread.queuedFollowUpMessageId ?? null,
             title: updatedThread.title,
             updatedAt: updatedThread.updatedAt
           })
@@ -360,6 +404,10 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           .set({
             headMessageId: updatedThread.headMessageId ?? null,
             preview: updatedThread.preview ?? null,
+            queuedFollowUpEnabledTools: serializeEnabledTools(
+              updatedThread.queuedFollowUpEnabledTools
+            ),
+            queuedFollowUpMessageId: updatedThread.queuedFollowUpMessageId ?? null,
             title: updatedThread.title,
             updatedAt: updatedThread.updatedAt
           })
@@ -417,6 +465,21 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .orderBy(asc(messagesTable.createdAt))
         .all()
         .map(toMessageRecord)
+    },
+
+    updateMessage(message) {
+      db.update(messagesTable)
+        .set({
+          content: message.content,
+          images: serializeMessageImages(message.images),
+          modelId: message.modelId ?? null,
+          parentMessageId: message.parentMessageId ?? null,
+          providerName: message.providerName ?? null,
+          role: message.role,
+          status: message.status
+        })
+        .where(eq(messagesTable.id, message.id))
+        .run()
     },
 
     listThreadToolCalls(threadId) {
@@ -521,6 +584,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           .set({
             headMessageId: thread.headMessageId ?? null,
             preview: thread.preview ?? null,
+            queuedFollowUpEnabledTools: serializeEnabledTools(thread.queuedFollowUpEnabledTools),
+            queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
             title: thread.title,
             updatedAt: thread.updatedAt
           })

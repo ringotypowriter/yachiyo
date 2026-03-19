@@ -249,6 +249,55 @@ test('buildMessageGroups treats the newest assistant branch as active while a re
   )
 })
 
+test('buildMessageGroups keeps a steer user visible while an active run restarts on a consecutive user path', () => {
+  const groups = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: '2026-03-15T00:00:02.000Z',
+      headMessageId: 'user-steer'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'Original request',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'user-steer',
+        threadId: 'thread-1',
+        role: 'user',
+        parentMessageId: 'user-1',
+        content: 'Use the screenshot instead',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      }
+    ],
+    runPhase: 'preparing',
+    activeRequestMessageId: 'user-steer'
+  })
+
+  assert.deepEqual(
+    groups.map((group) => ({
+      userMessageId: group.userMessage.id,
+      showPreparing: group.showPreparing
+    })),
+    [
+      {
+        userMessageId: 'user-1',
+        showPreparing: false
+      },
+      {
+        userMessageId: 'user-steer',
+        showPreparing: true
+      }
+    ]
+  )
+})
+
 test('getVisibleToolCallsForGroup keeps tool calls with the active branch and hides inactive completed branches', () => {
   const [group] = buildMessageGroups({
     thread: {

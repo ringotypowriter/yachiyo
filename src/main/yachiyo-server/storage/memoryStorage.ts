@@ -42,6 +42,21 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       requestMessageId: run?.requestMessageId ?? null
     })
   }
+  const applyThreadSnapshot = (
+    storedThread: StoredThreadRow,
+    nextThread: ReturnType<typeof toThreadRecord>
+  ): void => {
+    storedThread.branchFromThreadId = nextThread.branchFromThreadId ?? null
+    storedThread.branchFromMessageId = nextThread.branchFromMessageId ?? null
+    storedThread.headMessageId = nextThread.headMessageId ?? null
+    storedThread.preview = nextThread.preview ?? null
+    storedThread.queuedFollowUpEnabledTools = nextThread.queuedFollowUpEnabledTools
+      ? JSON.stringify(nextThread.queuedFollowUpEnabledTools)
+      : null
+    storedThread.queuedFollowUpMessageId = nextThread.queuedFollowUpMessageId ?? null
+    storedThread.title = nextThread.title
+    storedThread.updatedAt = nextThread.updatedAt
+  }
 
   return {
     close() {
@@ -123,6 +138,10 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         preview: thread.preview ?? null,
         branchFromThreadId: thread.branchFromThreadId ?? null,
         branchFromMessageId: thread.branchFromMessageId ?? null,
+        queuedFollowUpEnabledTools: thread.queuedFollowUpEnabledTools
+          ? JSON.stringify(thread.queuedFollowUpEnabledTools)
+          : null,
+        queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
         archivedAt: null,
         headMessageId: thread.headMessageId ?? null,
         updatedAt: thread.updatedAt,
@@ -157,12 +176,23 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         return
       }
 
-      storedThread.branchFromThreadId = nextThread.branchFromThreadId ?? null
-      storedThread.branchFromMessageId = nextThread.branchFromMessageId ?? null
-      storedThread.headMessageId = nextThread.headMessageId ?? null
-      storedThread.preview = nextThread.preview ?? null
-      storedThread.title = nextThread.title
-      storedThread.updatedAt = nextThread.updatedAt
+      applyThreadSnapshot(storedThread, nextThread)
+    },
+
+    saveThreadMessage({ thread, updatedThread, message, replacedMessageId }) {
+      const storedThread = threads.get(thread.id)
+      if (!storedThread || storedThread.archivedAt !== null) {
+        return
+      }
+
+      if (replacedMessageId) {
+        const nextMessages = messages.filter((current) => current.id !== replacedMessageId)
+        messages.length = 0
+        messages.push(...nextMessages)
+      }
+
+      messages.push(message)
+      applyThreadSnapshot(storedThread, updatedThread)
     },
 
     startRun({
@@ -181,6 +211,11 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       storedThread.title = updatedThread.title
       storedThread.updatedAt = updatedThread.updatedAt
       storedThread.headMessageId = updatedThread.headMessageId ?? null
+      storedThread.preview = updatedThread.preview ?? null
+      storedThread.queuedFollowUpEnabledTools = updatedThread.queuedFollowUpEnabledTools
+        ? JSON.stringify(updatedThread.queuedFollowUpEnabledTools)
+        : null
+      storedThread.queuedFollowUpMessageId = updatedThread.queuedFollowUpMessageId ?? null
       if (userMessage) {
         messages.push(userMessage)
       }
@@ -203,9 +238,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       messages.push(assistantMessage)
 
       if (thread) {
-        thread.headMessageId = updatedThread.headMessageId ?? null
-        thread.preview = updatedThread.preview ?? null
-        thread.updatedAt = updatedThread.updatedAt
+        applyThreadSnapshot(thread, updatedThread)
       }
 
       if (run) {
@@ -238,6 +271,15 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
     listThreadMessages(threadId) {
       return sortByCreatedAt(messages).filter((message) => message.threadId === threadId)
+    },
+
+    updateMessage(message) {
+      const currentIndex = messages.findIndex((current) => current.id === message.id)
+      if (currentIndex < 0) {
+        return
+      }
+
+      messages[currentIndex] = message
     },
 
     listThreadToolCalls(threadId) {
@@ -315,12 +357,12 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         return
       }
 
-      storedThread.branchFromThreadId = thread.branchFromThreadId ?? null
-      storedThread.branchFromMessageId = thread.branchFromMessageId ?? null
-      storedThread.headMessageId = thread.headMessageId ?? null
-      storedThread.preview = thread.preview ?? null
-      storedThread.title = thread.title
-      storedThread.updatedAt = thread.updatedAt
+      if (deletedIds.has(storedThread.queuedFollowUpMessageId ?? '')) {
+        storedThread.queuedFollowUpEnabledTools = null
+        storedThread.queuedFollowUpMessageId = null
+      }
+
+      applyThreadSnapshot(storedThread, thread)
     }
   }
 }

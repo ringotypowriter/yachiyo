@@ -46,6 +46,17 @@ export interface ExecuteRunInput {
   previousEnabledTools: ToolCallName[]
 }
 
+export interface RestartRunReason {
+  type: 'restart'
+  nextRequestMessageId: string
+}
+
+export type ExecuteRunResult =
+  | { kind: 'completed' }
+  | { kind: 'failed' }
+  | { kind: 'cancelled' }
+  | { kind: 'restarted'; nextRequestMessageId: string }
+
 export interface RunExecutionDeps {
   storage: YachiyoStorage
   createId: CreateId
@@ -53,14 +64,34 @@ export interface RunExecutionDeps {
   emit: EmitServerEvent
   createModelRuntime: () => ModelRuntime
   ensureThreadWorkspace: (threadId: string) => Promise<string>
+  readThread: (threadId: string) => ThreadRecord
   readSettings: () => ProviderSettings
   loadThreadMessages: (threadId: string) => MessageRecord[]
   onEnabledToolsUsed: (enabledTools: ToolCallName[]) => void
-  onSettled: () => void
+  onTerminalState?: () => void
 }
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError'
+}
+
+function isRestartRunReason(value: unknown): value is RestartRunReason {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    (value as { type?: unknown }).type === 'restart' &&
+    typeof (value as { nextRequestMessageId?: unknown }).nextRequestMessageId === 'string'
+  )
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (!signal.aborted) {
+    return
+  }
+
+  const error = new Error('Aborted')
+  error.name = 'AbortError'
+  throw error
 }
 
 function buildAgentInstructions(workspacePath: string, enabledTools: ToolCallName[]): string {
@@ -137,7 +168,7 @@ function finishPendingToolCalls(
 export async function executeServerRun(
   deps: RunExecutionDeps,
   input: ExecuteRunInput
-): Promise<void> {
+): Promise<ExecuteRunResult> {
   const settings = deps.readSettings()
   const harnessId = deps.createId()
   const messageId = deps.createId()
@@ -288,6 +319,8 @@ export async function executeServerRun(
         })
       }
     })) {
+      throwIfAborted(input.abortController.signal)
+
       if (!delta) continue
       buffer += delta
       deps.emit<MessageDeltaEvent>({
@@ -298,6 +331,8 @@ export async function executeServerRun(
         delta
       })
     }
+
+    throwIfAborted(input.abortController.signal)
 
     const timestamp = deps.timestamp()
     const assistantMessage: MessageRecord = {
@@ -311,23 +346,25 @@ export async function executeServerRun(
       modelId: settings.model,
       providerName: settings.providerName
     }
+    const currentThread = deps.readThread(input.thread.id)
 
     const updatedThread: ThreadRecord = {
-      ...input.thread,
+      ...currentThread,
       updatedAt: timestamp,
       ...(input.updateHeadOnComplete
         ? { preview: assistantMessage.content.slice(0, 240) }
-        : input.thread.preview
-          ? { preview: input.thread.preview }
+        : currentThread.preview
+          ? { preview: currentThread.preview }
           : {}),
       ...(input.updateHeadOnComplete
         ? { headMessageId: assistantMessage.id }
-        : input.thread.headMessageId
-          ? { headMessageId: input.thread.headMessageId }
+        : currentThread.headMessageId
+          ? { headMessageId: currentThread.headMessageId }
           : {})
     }
 
     deps.storage.completeRun({ runId: input.runId, updatedThread, assistantMessage })
+    deps.onTerminalState?.()
 
     deps.emit<MessageCompletedEvent>({
       type: 'message.completed',
@@ -353,19 +390,40 @@ export async function executeServerRun(
       threadId: input.thread.id,
       runId: input.runId
     })
+    return { kind: 'completed' }
   } catch (error) {
     if (input.abortController.signal.aborted || isAbortError(error)) {
+      const restartReason = input.abortController.signal.reason
       const timestamp = deps.timestamp()
       finishPendingToolCalls(deps, toolCalls, {
-        error: 'Run cancelled before the tool call finished.',
+        error: isRestartRunReason(restartReason)
+          ? 'Superseded by a steer message before the tool call finished.'
+          : 'Run cancelled before the tool call finished.',
         finishedAt: timestamp,
         runId: input.runId,
         threadId: input.thread.id
       })
+
+      if (isRestartRunReason(restartReason)) {
+        deps.emit<HarnessFinishedEvent>({
+          type: 'harness.finished',
+          threadId: input.thread.id,
+          runId: input.runId,
+          harnessId,
+          name: DEFAULT_HARNESS_NAME,
+          status: 'cancelled'
+        })
+        return {
+          kind: 'restarted',
+          nextRequestMessageId: restartReason.nextRequestMessageId
+        }
+      }
+
       deps.storage.cancelRun({
         runId: input.runId,
         completedAt: timestamp
       })
+      deps.onTerminalState?.()
 
       deps.emit<HarnessFinishedEvent>({
         type: 'harness.finished',
@@ -380,7 +438,7 @@ export async function executeServerRun(
         threadId: input.thread.id,
         runId: input.runId
       })
-      return
+      return { kind: 'cancelled' }
     }
 
     const message = error instanceof Error ? error.message : 'Unknown model runtime error'
@@ -396,6 +454,7 @@ export async function executeServerRun(
       completedAt: timestamp,
       error: message
     })
+    deps.onTerminalState?.()
 
     deps.emit<HarnessFinishedEvent>({
       type: 'harness.finished',
@@ -412,7 +471,6 @@ export async function executeServerRun(
       runId: input.runId,
       error: message
     })
-  } finally {
-    deps.onSettled()
+    return { kind: 'failed' }
   }
 }

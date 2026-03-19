@@ -270,6 +270,134 @@ test('applyServerEvent replaces a thread snapshot after branch-aware history edi
   assert.equal(state.toolCalls['thread-1']?.[0]?.cwd, '/tmp/thread-1')
 })
 
+test('applyServerEvent retargets the active request when an active thread head moves to a steer user', () => {
+  resetStore()
+
+  useAppStore.setState({
+    activeRunId: 'run-1',
+    activeRequestMessageId: 'user-1',
+    activeRunThreadId: 'thread-1',
+    messages: {
+      'thread-1': [
+        {
+          id: 'user-1',
+          threadId: 'thread-1',
+          role: 'user',
+          content: 'Original request',
+          status: 'completed',
+          createdAt: TIMESTAMP
+        },
+        {
+          id: 'user-steer',
+          threadId: 'thread-1',
+          parentMessageId: 'user-1',
+          role: 'user',
+          content: 'Use the screenshot instead',
+          status: 'completed',
+          createdAt: '2026-03-15T00:00:01.000Z'
+        }
+      ]
+    },
+    threads: [
+      {
+        id: 'thread-1',
+        title: 'Thread',
+        updatedAt: TIMESTAMP,
+        headMessageId: 'user-1'
+      }
+    ]
+  })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'thread.updated',
+    eventId: 'event-thread-updated',
+    timestamp: '2026-03-15T00:00:01.000Z',
+    threadId: 'thread-1',
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: '2026-03-15T00:00:01.000Z',
+      headMessageId: 'user-steer'
+    }
+  })
+
+  const state = useAppStore.getState()
+
+  assert.equal(state.activeRequestMessageId, 'user-steer')
+  assert.equal(state.threads[0]?.headMessageId, 'user-steer')
+})
+
+test('applyServerEvent keeps the steer request visible after thread replacement during an active run', () => {
+  resetStore()
+
+  useAppStore.setState({
+    activeRunId: 'run-1',
+    activeRequestMessageId: 'user-1',
+    activeRunThreadId: 'thread-1',
+    messages: {
+      'thread-1': [
+        {
+          id: 'user-1',
+          threadId: 'thread-1',
+          role: 'user',
+          content: 'Original request',
+          status: 'completed',
+          createdAt: TIMESTAMP
+        }
+      ]
+    },
+    threads: [
+      {
+        id: 'thread-1',
+        title: 'Thread',
+        updatedAt: TIMESTAMP,
+        headMessageId: 'user-1'
+      }
+    ]
+  })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'thread.state.replaced',
+    eventId: 'event-thread-state-replaced-steer',
+    timestamp: '2026-03-15T00:00:02.000Z',
+    threadId: 'thread-1',
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: '2026-03-15T00:00:02.000Z',
+      headMessageId: 'user-steer'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'Original request',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'user-steer',
+        threadId: 'thread-1',
+        parentMessageId: 'user-1',
+        role: 'user',
+        content: 'Use the screenshot instead',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      }
+    ],
+    toolCalls: []
+  })
+
+  const state = useAppStore.getState()
+
+  assert.equal(state.activeRequestMessageId, 'user-steer')
+  assert.deepEqual(
+    state.messages['thread-1']?.map((message) => message.id),
+    ['user-1', 'user-steer']
+  )
+})
+
 test('applyServerEvent upserts live tool activity for the current thread', () => {
   resetStore()
 
@@ -421,6 +549,7 @@ test('sendMessage restores per-thread drafts and clears only the sent thread on 
       })
 
       return {
+        kind: 'run-started',
         runId: 'run-1',
         thread: {
           id: input.threadId,
@@ -494,6 +623,234 @@ test('sendMessage restores per-thread drafts and clears only the sent thread on 
     state.setActiveThread('thread-2')
     state = useAppStore.getState()
     assert.equal(state.composerDrafts['thread-2']?.text, 'Bravo')
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('sendMessage routes active-run steer through the ordinary message path with images', async () => {
+  resetStore()
+
+  const calls: Array<{
+    content: string
+    enabledTools?: string[]
+    images?: Array<{ dataUrl: string; filename?: string; mediaType: string }>
+    mode?: string
+    threadId: string
+  }> = []
+  const restoreWindow = withWindowApiMock({
+    sendChat: async (input) => {
+      calls.push({
+        content: input.content,
+        enabledTools: input.enabledTools,
+        images: input.images,
+        mode: input.mode,
+        threadId: input.threadId
+      })
+
+      return {
+        kind: 'active-run-steer',
+        runId: 'run-1',
+        thread: {
+          id: input.threadId,
+          title: 'Thread one',
+          updatedAt: TIMESTAMP,
+          headMessageId: 'user-steer'
+        },
+        userMessage: {
+          id: 'user-steer',
+          threadId: input.threadId,
+          parentMessageId: 'user-1',
+          role: 'user',
+          content: input.content,
+          images: input.images,
+          status: 'completed',
+          createdAt: TIMESTAMP
+        }
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeRunId: 'run-1',
+      activeRequestMessageId: 'user-1',
+      activeRunThreadId: 'thread-1',
+      activeThreadId: 'thread-1',
+      composerDrafts: {
+        'thread-1': {
+          text: 'Use the screenshot',
+          images: [
+            {
+              id: 'draft-image-1',
+              status: 'ready',
+              dataUrl: 'data:image/png;base64,AAAA',
+              mediaType: 'image/png',
+              filename: 'diagram.png'
+            }
+          ]
+        }
+      },
+      enabledTools: ['read', 'bash'],
+      messages: {
+        'thread-1': [
+          {
+            id: 'user-1',
+            threadId: 'thread-1',
+            role: 'user',
+            content: 'Original request',
+            status: 'completed',
+            createdAt: TIMESTAMP
+          }
+        ]
+      },
+      settings: READY_SETTINGS,
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Thread one',
+          updatedAt: TIMESTAMP,
+          headMessageId: 'user-1'
+        }
+      ]
+    })
+
+    await useAppStore.getState().sendMessage('steer')
+
+    const state = useAppStore.getState()
+
+    assert.deepEqual(calls, [
+      {
+        content: 'Use the screenshot',
+        enabledTools: ['read', 'bash'],
+        images: [
+          {
+            dataUrl: 'data:image/png;base64,AAAA',
+            mediaType: 'image/png',
+            filename: 'diagram.png'
+          }
+        ],
+        mode: 'steer',
+        threadId: 'thread-1'
+      }
+    ])
+    assert.equal(state.activeRunId, 'run-1')
+    assert.equal(state.activeRequestMessageId, 'user-steer')
+    assert.equal(state.activeRunThreadId, 'thread-1')
+    assert.equal(state.composerDrafts['thread-1'], undefined)
+    assert.equal(state.messages['thread-1']?.length, 2)
+    assert.deepEqual(state.messages['thread-1']?.[1]?.images, [
+      {
+        dataUrl: 'data:image/png;base64,AAAA',
+        mediaType: 'image/png',
+        filename: 'diagram.png'
+      }
+    ])
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('sendMessage replaces the queued follow-up for an active run', async () => {
+  resetStore()
+
+  const calls: Array<{ content: string; mode?: string; threadId: string }> = []
+  const restoreWindow = withWindowApiMock({
+    sendChat: async (input) => {
+      calls.push({
+        content: input.content,
+        mode: input.mode,
+        threadId: input.threadId
+      })
+
+      return {
+        kind: 'active-run-follow-up',
+        runId: 'run-1',
+        thread: {
+          id: input.threadId,
+          title: 'Thread one',
+          updatedAt: TIMESTAMP,
+          headMessageId: 'user-1',
+          queuedFollowUpMessageId: 'user-follow-up-2'
+        },
+        replacedMessageId: 'user-follow-up-1',
+        userMessage: {
+          id: 'user-follow-up-2',
+          threadId: input.threadId,
+          parentMessageId: 'user-1',
+          role: 'user',
+          content: input.content,
+          status: 'completed',
+          createdAt: TIMESTAMP
+        }
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeRunId: 'run-1',
+      activeRequestMessageId: 'user-1',
+      activeRunThreadId: 'thread-1',
+      activeThreadId: 'thread-1',
+      composerDrafts: {
+        'thread-1': {
+          text: 'Second queued follow-up',
+          images: []
+        }
+      },
+      messages: {
+        'thread-1': [
+          {
+            id: 'user-1',
+            threadId: 'thread-1',
+            role: 'user',
+            content: 'Original request',
+            status: 'completed',
+            createdAt: '2026-03-15T00:00:00.000Z'
+          },
+          {
+            id: 'user-follow-up-1',
+            threadId: 'thread-1',
+            parentMessageId: 'user-1',
+            role: 'user',
+            content: 'First queued follow-up',
+            status: 'completed',
+            createdAt: '2026-03-15T00:00:01.000Z'
+          }
+        ]
+      },
+      settings: READY_SETTINGS,
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Thread one',
+          updatedAt: TIMESTAMP,
+          headMessageId: 'user-1',
+          queuedFollowUpMessageId: 'user-follow-up-1'
+        }
+      ]
+    })
+
+    await useAppStore.getState().sendMessage('follow-up')
+
+    const state = useAppStore.getState()
+
+    assert.deepEqual(calls, [
+      {
+        content: 'Second queued follow-up',
+        mode: 'follow-up',
+        threadId: 'thread-1'
+      }
+    ])
+    assert.equal(state.activeRunId, 'run-1')
+    assert.equal(state.activeRequestMessageId, 'user-1')
+    assert.equal(state.composerDrafts['thread-1'], undefined)
+    assert.deepEqual(
+      state.messages['thread-1']?.map((message) => message.id),
+      ['user-1', 'user-follow-up-2']
+    )
+    assert.equal(state.threads[0]?.queuedFollowUpMessageId, 'user-follow-up-2')
   } finally {
     restoreWindow()
   }

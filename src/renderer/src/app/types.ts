@@ -1,4 +1,5 @@
 export type {
+  ActiveRunEnterBehavior,
   BashToolCallDetails,
   ConnectionStatus,
   EditToolCallDetails,
@@ -8,6 +9,7 @@ export type {
   ReadToolCallDetails,
   RunRecord,
   RunStatus,
+  SendChatMode,
   SettingsConfig,
   ThreadRecord as Thread,
   ToolCallName,

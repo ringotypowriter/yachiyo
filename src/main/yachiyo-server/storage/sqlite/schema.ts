@@ -9,6 +9,8 @@ export const threadsTable = sqliteTable('threads', {
   branchFromThreadId: text('branch_from_thread_id'),
   branchFromMessageId: text('branch_from_message_id'),
   headMessageId: text('head_message_id'),
+  queuedFollowUpMessageId: text('queued_follow_up_message_id'),
+  queuedFollowUpEnabledTools: text('queued_follow_up_enabled_tools'),
   archivedAt: text('archived_at'),
   updatedAt: text('updated_at').notNull(),
   createdAt: text('created_at').notNull()

@@ -7,6 +7,7 @@ import test from 'node:test'
 import { YachiyoServer } from './YachiyoServer.ts'
 import type { ModelStreamRequest } from '../runtime/types.ts'
 import { createInMemoryYachiyoStorage } from '../storage/memoryStorage.ts'
+import type { YachiyoServerEvent } from '../../../shared/yachiyo/protocol.ts'
 
 async function withServer(
   fn: (input: {
@@ -66,12 +67,13 @@ async function withServer(
   }
 
   const settle = (type: string, value: unknown): void => {
-    const seen = seenEvents.get(type) ?? []
-    seen.push(value)
-    seenEvents.set(type, seen)
-
     const queue = waiters.get(type)
-    if (!queue || queue.length === 0) return
+    if (!queue || queue.length === 0) {
+      const seen = seenEvents.get(type) ?? []
+      seen.push(value)
+      seenEvents.set(type, seen)
+      return
+    }
 
     for (const waiter of [...queue]) {
       if (!waiter.handle(value)) {
@@ -86,6 +88,10 @@ async function withServer(
       }
       return
     }
+
+    const seen = seenEvents.get(type) ?? []
+    seen.push(value)
+    seenEvents.set(type, seen)
   }
 
   const takeSeenEvent = <T>(type: string, predicate: (value: T) => boolean): T | undefined => {
@@ -281,6 +287,81 @@ async function withServer(
     unsubscribe()
     await server.close()
     await rm(root, { recursive: true, force: true })
+  }
+}
+
+function createServerEventWaiter(server: YachiyoServer): {
+  close: () => void
+  waitForEvent: <TType extends YachiyoServerEvent['type']>(
+    type: TType,
+    predicate?: (event: Extract<YachiyoServerEvent, { type: TType }>) => boolean
+  ) => Promise<Extract<YachiyoServerEvent, { type: TType }>>
+} {
+  const seenEvents = new Map<string, unknown[]>()
+  const waiters = new Map<
+    string,
+    Array<{
+      id: number
+      predicate: (event: unknown) => boolean
+      resolve: (event: unknown) => void
+    }>
+  >()
+  let nextWaiterId = 0
+
+  const unsubscribe = server.subscribe((event) => {
+    const queue = waiters.get(event.type)
+    if (!queue || queue.length === 0) {
+      const seen = seenEvents.get(event.type) ?? []
+      seen.push(event)
+      seenEvents.set(event.type, seen)
+      return
+    }
+
+    for (const waiter of [...queue]) {
+      if (!waiter.predicate(event)) {
+        continue
+      }
+
+      const nextQueue = (waiters.get(event.type) ?? []).filter((entry) => entry.id !== waiter.id)
+      if (nextQueue.length === 0) {
+        waiters.delete(event.type)
+      } else {
+        waiters.set(event.type, nextQueue)
+      }
+      waiter.resolve(event)
+      return
+    }
+
+    const seen = seenEvents.get(event.type) ?? []
+    seen.push(event)
+    seenEvents.set(event.type, seen)
+  })
+
+  return {
+    close: unsubscribe,
+    waitForEvent: <TType extends YachiyoServerEvent['type']>(
+      type: TType,
+      predicate: (event: Extract<YachiyoServerEvent, { type: TType }>) => boolean = () => true
+    ): Promise<Extract<YachiyoServerEvent, { type: TType }>> => {
+      const seen = seenEvents.get(type) ?? []
+      const index = seen.findIndex((event) =>
+        predicate(event as Extract<YachiyoServerEvent, { type: TType }>)
+      )
+      if (index >= 0) {
+        const [event] = seen.splice(index, 1)
+        return Promise.resolve(event as Extract<YachiyoServerEvent, { type: TType }>)
+      }
+
+      return new Promise((resolve) => {
+        const queue = waiters.get(type) ?? []
+        queue.push({
+          id: nextWaiterId++,
+          predicate: (event) => predicate(event as Extract<YachiyoServerEvent, { type: TType }>),
+          resolve: (event) => resolve(event as Extract<YachiyoServerEvent, { type: TType }>)
+        })
+        waiters.set(type, queue)
+      })
+    }
   }
 }
 
@@ -673,6 +754,191 @@ test('YachiyoServer accepts image-first user input and forwards it as multimodal
   })
 })
 
+test('YachiyoServer accepts active-run steer as an ordinary message and forwards steer images', async () => {
+  const requests: ModelStreamRequest[] = []
+  let attempt = 0
+
+  await withServer(
+    async ({ server, completeRun, waitForEvent }) => {
+      await server.upsertProvider({
+        name: 'vision',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Start with the code path'
+      })
+
+      await waitForEvent('message.delta')
+
+      const steerAccepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Use the screenshot instead',
+        images: [
+          {
+            dataUrl: 'data:image/png;base64,BBBB',
+            mediaType: 'image/png',
+            filename: 'screenshot.png'
+          }
+        ],
+        mode: 'steer'
+      })
+
+      await completeRun(accepted.runId)
+
+      const bootstrap = await server.bootstrap()
+      const messages = bootstrap.messagesByThread[thread.id] ?? []
+
+      assert.equal(steerAccepted.kind, 'active-run-steer')
+      assert.equal(steerAccepted.runId, accepted.runId)
+      assert.equal(messages.length, 3)
+      assert.equal(messages[0]?.content, 'Start with the code path')
+      assert.equal(messages[1]?.content, 'Use the screenshot instead')
+      assert.deepEqual(messages[1]?.images, [
+        {
+          dataUrl: 'data:image/png;base64,BBBB',
+          mediaType: 'image/png',
+          filename: 'screenshot.png'
+        }
+      ])
+      assert.equal(messages[2]?.role, 'assistant')
+      assert.equal(messages[2]?.parentMessageId, steerAccepted.userMessage.id)
+      assert.deepEqual(requests[1]?.messages.at(-1), {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: 'Use the screenshot instead'
+          },
+          {
+            type: 'image',
+            image: 'BBBB',
+            mediaType: 'image/png'
+          }
+        ]
+      })
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          if (attempt === 0) {
+            attempt += 1
+            yield 'Partial'
+            await new Promise((_, reject) => {
+              const abort = (): void => {
+                const error = new Error('Aborted')
+                error.name = 'AbortError'
+                reject(error)
+              }
+
+              if (request.signal.aborted) {
+                abort()
+                return
+              }
+
+              request.signal.addEventListener('abort', abort, { once: true })
+            })
+            return
+          }
+
+          yield 'Steered'
+          yield ' reply'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer restarts on steer even when the runtime returns normally after abort was requested', async () => {
+  const requests: ModelStreamRequest[] = []
+  let attempt = 0
+  let releaseFirstRun: (() => void) | null = null
+  let markFirstRunReady: (() => void) | null = null
+  const firstRunReady = new Promise<void>((resolve) => {
+    markFirstRunReady = resolve
+  })
+
+  await withServer(
+    async ({ server, completeRun, waitForEvent }) => {
+      await server.upsertProvider({
+        name: 'vision',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Start with the code path'
+      })
+
+      await waitForEvent('message.started')
+      await firstRunReady
+
+      const steerAccepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Use the screenshot instead',
+        mode: 'steer'
+      })
+
+      releaseFirstRun?.()
+      await completeRun(accepted.runId)
+
+      const bootstrap = await server.bootstrap()
+      const messages = bootstrap.messagesByThread[thread.id] ?? []
+
+      assert.equal(steerAccepted.kind, 'active-run-steer')
+      assert.equal(steerAccepted.runId, accepted.runId)
+      assert.equal(messages.length, 3)
+      assert.equal(messages[0]?.content, 'Start with the code path')
+      assert.equal(messages[1]?.content, 'Use the screenshot instead')
+      assert.equal(messages[2]?.role, 'assistant')
+      assert.equal(messages[2]?.content, 'Steered reply')
+      assert.equal(messages[2]?.parentMessageId, steerAccepted.userMessage.id)
+      assert.deepEqual(
+        requests.map((request) => request.messages.at(-1)?.content),
+        ['Start with the code path', 'Use the screenshot instead']
+      )
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          if (attempt === 0) {
+            attempt += 1
+            await new Promise<void>((resolve) => {
+              releaseFirstRun = resolve
+              markFirstRunReady?.()
+              markFirstRunReady = null
+            })
+            yield 'Old reply that should be dropped'
+            return
+          }
+
+          yield 'Steered'
+          yield ' reply'
+        }
+      })
+    }
+  )
+})
+
 test('YachiyoServer cancels an active run without persisting partial assistant output', async () => {
   await withServer(async ({ server, completeRun, waitForEvent }) => {
     await server.upsertProvider({
@@ -703,6 +969,183 @@ test('YachiyoServer cancels an active run without persisting partial assistant o
     assert.equal(messages[0]?.role, 'user')
     assert.equal(messages[0]?.content, 'Please cancel me halfway. cancel me')
   })
+})
+
+test('YachiyoServer replaces the queued follow-up for an active run and starts the replacement next', async () => {
+  const requests: ModelStreamRequest[] = []
+  let releaseFirstRun: (() => void) | null = null
+
+  await withServer(
+    async ({ server, completeRun, waitForEvent }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const firstRun = await server.sendChat({
+        threadId: thread.id,
+        content: 'First question'
+      })
+      const createdRun = (await waitForEvent('run.created')) as { runId: string }
+
+      assert.equal(createdRun.runId, firstRun.runId)
+      await waitForEvent('message.delta')
+
+      const firstQueued = await server.sendChat({
+        threadId: thread.id,
+        content: 'First queued follow-up',
+        mode: 'follow-up'
+      })
+      const replacement = await server.sendChat({
+        threadId: thread.id,
+        content: 'Second queued follow-up',
+        mode: 'follow-up'
+      })
+
+      assert.equal(firstQueued.kind, 'active-run-follow-up')
+      assert.equal(replacement.kind, 'active-run-follow-up')
+      assert.equal(replacement.replacedMessageId, firstQueued.userMessage.id)
+      assert.equal(replacement.thread.queuedFollowUpMessageId, replacement.userMessage.id)
+
+      releaseFirstRun?.()
+      await completeRun(firstRun.runId)
+      const followUpRunCreated = (await waitForEvent('run.created')) as { runId: string }
+      await completeRun(followUpRunCreated.runId)
+
+      const bootstrap = await server.bootstrap()
+
+      assert.equal(bootstrap.threads[0]?.queuedFollowUpMessageId, undefined)
+      assert.deepEqual(
+        (bootstrap.messagesByThread[thread.id] ?? []).map((message) => message.content),
+        ['First question', 'Second queued follow-up', 'Hello world', 'Queued follow-up reply']
+      )
+      assert.equal(requests[1]?.messages.at(-1)?.content, 'Second queued follow-up')
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          if (requests.length === 1) {
+            yield 'Hello'
+            await new Promise<void>((resolve) => {
+              releaseFirstRun = resolve
+            })
+            yield ' world'
+            return
+          }
+
+          yield 'Queued follow-up reply'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer emits a replacement snapshot when a queued follow-up is reparented onto the completed reply branch', async () => {
+  let releaseRetryRun: (() => void) | null = null
+  let requestCount = 0
+
+  await withServer(
+    async ({ server, completeRun, waitForEvent }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const firstRun = await server.sendChat({
+        threadId: thread.id,
+        content: 'First question'
+      })
+      const firstCreated = (await waitForEvent('run.created')) as { runId: string }
+
+      assert.equal(firstCreated.runId, firstRun.runId)
+      await waitForEvent('message.delta')
+      await completeRun(firstRun.runId)
+
+      const firstBootstrap = await server.bootstrap()
+      const firstUserMessage = (firstBootstrap.messagesByThread[thread.id] ?? []).find(
+        (message) => message.role === 'user'
+      )
+
+      assert.ok(firstUserMessage)
+
+      const retryAccepted = await server.retryMessage({
+        threadId: thread.id,
+        messageId: firstUserMessage.id
+      })
+      const retryCreated = (await waitForEvent('run.created')) as { runId: string }
+
+      assert.equal(retryCreated.runId, retryAccepted.runId)
+      await waitForEvent('message.delta')
+
+      const queuedFollowUp = await server.sendChat({
+        threadId: thread.id,
+        content: 'Follow the retry branch',
+        mode: 'follow-up'
+      })
+
+      assert.equal(queuedFollowUp.userMessage.parentMessageId, firstUserMessage.id)
+
+      const replacementEventPromise = waitForEvent('thread.state.replaced') as Promise<
+        Extract<YachiyoServerEvent, { type: 'thread.state.replaced' }>
+      >
+
+      releaseRetryRun?.()
+      await completeRun(retryAccepted.runId)
+
+      const replacementEvent = await replacementEventPromise
+      const reparentedQueuedMessage = replacementEvent.messages.find(
+        (message) => message.id === queuedFollowUp.userMessage.id
+      )
+      const retryAssistantMessage = replacementEvent.messages.find(
+        (message) => message.role === 'assistant' && message.content === 'Retry reply'
+      )
+
+      assert.ok(retryAssistantMessage)
+      assert.equal(reparentedQueuedMessage?.parentMessageId, retryAssistantMessage.id)
+
+      const followUpRunCreated = (await waitForEvent('run.created')) as { runId: string }
+      await completeRun(followUpRunCreated.runId)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply() {
+          if (requestCount === 0) {
+            requestCount += 1
+            yield 'First reply'
+            return
+          }
+
+          if (requestCount === 1) {
+            requestCount += 1
+            yield 'Retry'
+            await new Promise<void>((resolve) => {
+              releaseRetryRun = resolve
+            })
+            yield ' reply'
+            return
+          }
+
+          yield 'Queued reply'
+        }
+      })
+    }
+  )
 })
 
 test('YachiyoServer bootstrap recovers interrupted runs and marks running tool calls as failed', async () => {
@@ -784,6 +1227,304 @@ test('YachiyoServer bootstrap recovers interrupted runs and marks running tool c
     )
   } finally {
     await server.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queued tool override', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-queued-recover-test-'))
+  const settingsPath = join(root, 'config.toml')
+  const storage = createInMemoryYachiyoStorage()
+  const workspacePathForThread = (threadId: string): string =>
+    join(root, '.yachiyo', 'temp-workspace', threadId)
+
+  const firstServer = new YachiyoServer({
+    storage,
+    settingsPath,
+    ensureThreadWorkspace: async (threadId) => {
+      const workspacePath = workspacePathForThread(threadId)
+      await mkdir(workspacePath, { recursive: true })
+      return workspacePath
+    },
+    createModelRuntime: () => ({
+      async *streamReply(request: ModelStreamRequest) {
+        yield 'Hello'
+        await new Promise((_, reject) => {
+          const abort = (): void => {
+            const error = new Error('Aborted')
+            error.name = 'AbortError'
+            reject(error)
+          }
+
+          if (request.signal.aborted) {
+            abort()
+            return
+          }
+
+          request.signal.addEventListener('abort', abort, { once: true })
+        })
+      }
+    })
+  })
+  const firstWaiter = createServerEventWaiter(firstServer)
+  let firstServerClosed = false
+
+  try {
+    await firstServer.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    })
+
+    const thread = await firstServer.createThread()
+    await firstServer.sendChat({
+      threadId: thread.id,
+      content: 'First question'
+    })
+    await firstWaiter.waitForEvent('message.delta')
+
+    const queuedFollowUp = await firstServer.sendChat({
+      threadId: thread.id,
+      content: 'Recovered queued follow-up',
+      enabledTools: ['read'],
+      mode: 'follow-up'
+    })
+    await firstServer.saveToolPreferences({ enabledTools: ['bash'] })
+
+    await firstServer.close()
+    firstServerClosed = true
+    firstWaiter.close()
+
+    const resumedRequests: ModelStreamRequest[] = []
+    const resumedServer = new YachiyoServer({
+      storage,
+      settingsPath,
+      ensureThreadWorkspace: async (threadId) => {
+        const workspacePath = workspacePathForThread(threadId)
+        await mkdir(workspacePath, { recursive: true })
+        return workspacePath
+      },
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          resumedRequests.push(request)
+          yield 'Recovered'
+          yield ' reply'
+        }
+      })
+    })
+    const resumedWaiter = createServerEventWaiter(resumedServer)
+
+    try {
+      const bootstrap = await resumedServer.bootstrap()
+      const bootstrappedThread = bootstrap.threads.find((entry) => entry.id === thread.id)
+
+      assert.equal(bootstrappedThread?.queuedFollowUpMessageId, queuedFollowUp.userMessage.id)
+      assert.deepEqual(bootstrappedThread?.queuedFollowUpEnabledTools, ['read'])
+      assert.match(
+        bootstrap.latestRunsByThread[thread.id]?.status ?? '',
+        /^(cancelled|failed)$/,
+        'bootstrap should preserve the prior run terminal state before the queued follow-up resumes'
+      )
+
+      const replacementEvent = await resumedWaiter.waitForEvent(
+        'thread.state.replaced',
+        (event) => event.threadId === thread.id
+      )
+      const resumedRunCreated = await resumedWaiter.waitForEvent(
+        'run.created',
+        (event) =>
+          event.threadId === thread.id && event.requestMessageId === queuedFollowUp.userMessage.id
+      )
+      await resumedWaiter.waitForEvent(
+        'run.completed',
+        (event) => event.runId === resumedRunCreated.runId
+      )
+
+      assert.equal(replacementEvent.thread.headMessageId, queuedFollowUp.userMessage.id)
+      assert.equal(replacementEvent.thread.queuedFollowUpMessageId, undefined)
+      const recoveredBootstrap = await resumedServer.bootstrap()
+
+      assert.deepEqual(
+        (recoveredBootstrap.messagesByThread[thread.id] ?? []).map((message) => message.content),
+        ['First question', 'Recovered queued follow-up', 'Recovered reply']
+      )
+      assert.match(
+        String(resumedRequests[0]?.messages.at(-1)?.content ?? ''),
+        /Recovered queued follow-up/
+      )
+      assert.deepEqual(Object.keys(resumedRequests[0]?.tools ?? {}).sort(), ['read'])
+    } finally {
+      resumedWaiter.close()
+      await resumedServer.close()
+    }
+  } finally {
+    if (!firstServerClosed) {
+      firstWaiter.close()
+      await firstServer.close()
+    }
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('YachiyoServer keeps a recovered queued follow-up pending when a new run starts immediately after bootstrap', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-queued-race-test-'))
+  const settingsPath = join(root, 'config.toml')
+  const storage = createInMemoryYachiyoStorage()
+  const workspacePathForThread = (threadId: string): string =>
+    join(root, '.yachiyo', 'temp-workspace', threadId)
+
+  const firstServer = new YachiyoServer({
+    storage,
+    settingsPath,
+    ensureThreadWorkspace: async (threadId) => {
+      const workspacePath = workspacePathForThread(threadId)
+      await mkdir(workspacePath, { recursive: true })
+      return workspacePath
+    },
+    createModelRuntime: () => ({
+      async *streamReply(request: ModelStreamRequest) {
+        yield 'Hello'
+        await new Promise((_, reject) => {
+          const abort = (): void => {
+            const error = new Error('Aborted')
+            error.name = 'AbortError'
+            reject(error)
+          }
+
+          if (request.signal.aborted) {
+            abort()
+            return
+          }
+
+          request.signal.addEventListener('abort', abort, { once: true })
+        })
+      }
+    })
+  })
+  const firstWaiter = createServerEventWaiter(firstServer)
+  let firstServerClosed = false
+
+  try {
+    await firstServer.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    })
+    await firstServer.saveToolPreferences({ enabledTools: ['bash'] })
+
+    const thread = await firstServer.createThread()
+    await firstServer.sendChat({
+      threadId: thread.id,
+      content: 'First question'
+    })
+    await firstWaiter.waitForEvent('message.delta')
+
+    const queuedFollowUp = await firstServer.sendChat({
+      threadId: thread.id,
+      content: 'Recovered queued follow-up',
+      enabledTools: ['read'],
+      mode: 'follow-up'
+    })
+
+    await firstServer.close()
+    firstServerClosed = true
+    firstWaiter.close()
+
+    const resumedRequests: Array<{ content: unknown; toolNames: string[] }> = []
+    const resumedServer = new YachiyoServer({
+      storage,
+      settingsPath,
+      ensureThreadWorkspace: async (threadId) => {
+        const workspacePath = workspacePathForThread(threadId)
+        await mkdir(workspacePath, { recursive: true })
+        return workspacePath
+      },
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          resumedRequests.push({
+            content: request.messages.at(-1)?.content,
+            toolNames: Object.keys(request.tools ?? {}).sort()
+          })
+
+          if (resumedRequests.length === 1) {
+            yield 'Immediate'
+            yield ' reply'
+            return
+          }
+
+          yield 'Recovered'
+          yield ' reply'
+        }
+      })
+    })
+    const resumedWaiter = createServerEventWaiter(resumedServer)
+
+    try {
+      const bootstrap = await resumedServer.bootstrap()
+      const bootstrappedThread = bootstrap.threads.find((entry) => entry.id === thread.id)
+
+      assert.equal(bootstrappedThread?.queuedFollowUpMessageId, queuedFollowUp.userMessage.id)
+      assert.deepEqual(bootstrappedThread?.queuedFollowUpEnabledTools, ['read'])
+
+      const immediateAccepted = await resumedServer.sendChat({
+        threadId: thread.id,
+        content: 'Immediate question'
+      })
+
+      await resumedWaiter.waitForEvent(
+        'run.created',
+        (event) => event.runId === immediateAccepted.runId
+      )
+      await resumedWaiter.waitForEvent(
+        'run.completed',
+        (event) => event.runId === immediateAccepted.runId
+      )
+
+      const recoveredRunCreated = await resumedWaiter.waitForEvent(
+        'run.created',
+        (event) => event.requestMessageId === queuedFollowUp.userMessage.id
+      )
+      await resumedWaiter.waitForEvent(
+        'run.completed',
+        (event) => event.runId === recoveredRunCreated.runId
+      )
+
+      const recoveredBootstrap = await resumedServer.bootstrap()
+      const queuedMessage = (recoveredBootstrap.messagesByThread[thread.id] ?? []).find(
+        (message) => message.id === queuedFollowUp.userMessage.id
+      )
+      const immediateAssistantMessage = (recoveredBootstrap.messagesByThread[thread.id] ?? []).find(
+        (message) => message.role === 'assistant' && message.content === 'Immediate reply'
+      )
+
+      assert.equal(
+        recoveredBootstrap.threads.find((entry) => entry.id === thread.id)?.queuedFollowUpMessageId,
+        undefined
+      )
+      assert.equal(queuedMessage?.parentMessageId, immediateAssistantMessage?.id)
+      assert.equal(resumedRequests[0]?.content, 'Immediate question')
+      assert.deepEqual(resumedRequests[0]?.toolNames, ['bash'])
+      assert.match(String(resumedRequests[1]?.content ?? ''), /Recovered queued follow-up/)
+      assert.deepEqual(resumedRequests[1]?.toolNames, ['read'])
+    } finally {
+      resumedWaiter.close()
+      await resumedServer.close()
+    }
+  } finally {
+    if (!firstServerClosed) {
+      firstWaiter.close()
+      await firstServer.close()
+    }
     await rm(root, { recursive: true, force: true })
   }
 })
@@ -1304,6 +2045,33 @@ test('YachiyoServer persists shared tool preferences in app settings', async () 
     assert.deepEqual(event.config.enabledTools, ['read', 'edit'])
     assert.equal(event.settings.providerName, '')
     assert.deepEqual((await server.bootstrap()).config.enabledTools, ['read', 'edit'])
+  })
+})
+
+test('YachiyoServer persists the active-run input behavior in shared app settings', async () => {
+  await withServer(async ({ server, waitForEvent }) => {
+    const updatedEvent = waitForEvent('settings.updated')
+
+    const config = await server.saveConfig({
+      enabledTools: ['read', 'write', 'edit', 'bash'],
+      chat: {
+        activeRunEnterBehavior: 'enter-queues-follow-up'
+      },
+      providers: []
+    })
+
+    const event = (await updatedEvent) as {
+      config: {
+        chat?: { activeRunEnterBehavior?: string }
+      }
+    }
+
+    assert.equal(config.chat?.activeRunEnterBehavior, 'enter-queues-follow-up')
+    assert.equal(event.config.chat?.activeRunEnterBehavior, 'enter-queues-follow-up')
+    assert.equal(
+      (await server.bootstrap()).config.chat?.activeRunEnterBehavior,
+      'enter-queues-follow-up'
+    )
   })
 })
 

@@ -7,6 +7,7 @@ import type {
   ProviderSettings,
   RunRecord,
   RunStatus,
+  SendChatMode,
   SettingsConfig,
   Thread,
   ToolCallName,
@@ -21,6 +22,7 @@ import {
   DEFAULT_ENABLED_TOOL_NAMES,
   normalizeEnabledTools
 } from '../../../../shared/yachiyo/protocol.ts'
+import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 
 interface PendingAssistantMessage {
   messageId: string
@@ -89,7 +91,7 @@ interface AppState {
   createNewThread: () => Promise<void>
   initialize: () => Promise<void>
   selectModel: (providerName: string, model: string) => Promise<void>
-  sendMessage: () => Promise<void>
+  sendMessage: (mode?: SendChatMode) => Promise<void>
   setEnabledTools: (enabledTools: ToolCallName[]) => Promise<void>
   setActiveThread: (id: string) => void
   setComposerValue: (value: string) => void
@@ -131,6 +133,18 @@ function upsertThread(threads: Thread[], thread: Thread): Thread[] {
 function upsertMessage(messages: Message[], message: Message): Message[] {
   const next = [...messages.filter((item) => item.id !== message.id), message]
   return next.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+}
+
+function replaceMessage(
+  messages: Message[],
+  message: Message,
+  replacedMessageId?: string
+): Message[] {
+  const next = replacedMessageId
+    ? messages.filter((item) => item.id !== replacedMessageId)
+    : messages
+
+  return upsertMessage(next, message)
 }
 
 function upsertToolCall(toolCalls: ToolCall[], toolCall: ToolCall): ToolCall[] {
@@ -243,6 +257,29 @@ function finalizePendingMessage(
     if (!message.content.trim() && !options.preserveEmpty) return []
     return [{ ...message, status }]
   })
+}
+
+function resolveActiveRequestMessageId(
+  thread: Pick<Thread, 'headMessageId'>,
+  messages: Message[],
+  fallback: string | null
+): string | null {
+  const targetMessageId =
+    thread.headMessageId && messages.some((message) => message.id === thread.headMessageId)
+      ? thread.headMessageId
+      : fallback && messages.some((message) => message.id === fallback)
+        ? fallback
+        : null
+
+  if (!targetMessageId) {
+    return fallback
+  }
+
+  const activeRequestMessage = [...collectMessagePath(messages, targetMessageId)]
+    .reverse()
+    .find((message) => message.role === 'user')
+
+  return activeRequestMessage?.id ?? fallback
 }
 
 let bootstrapPromise: Promise<void> | null = null
@@ -373,13 +410,33 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       if (event.type === 'thread.created' || event.type === 'thread.updated') {
+        const nextActiveRequestMessageId =
+          state.activeRunThreadId === event.threadId
+            ? resolveActiveRequestMessageId(
+                event.thread,
+                state.messages[event.threadId] ?? [],
+                state.activeRequestMessageId
+              )
+            : state.activeRequestMessageId
+
         return {
+          activeRequestMessageId: nextActiveRequestMessageId,
           threads: upsertThread(state.threads, event.thread)
         }
       }
 
       if (event.type === 'thread.state.replaced') {
+        const nextActiveRequestMessageId =
+          state.activeRunThreadId === event.threadId
+            ? resolveActiveRequestMessageId(
+                event.thread,
+                event.messages,
+                state.activeRequestMessageId
+              )
+            : state.activeRequestMessageId
+
         return {
+          activeRequestMessageId: nextActiveRequestMessageId,
           harnessEvents: {
             ...state.harnessEvents,
             [event.threadId]: []
@@ -749,7 +806,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     await window.api.yachiyo.saveSettings({ providerName, model })
   },
 
-  sendMessage: async () => {
+  sendMessage: async (mode = 'normal') => {
     const currentState = get()
     const draft = getComposerDraft(currentState)
     const trimmed = draft.text.trim()
@@ -764,6 +821,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     let threadId = currentState.activeThreadId
+
+    if (!threadId && mode !== 'normal') {
+      return
+    }
 
     if (!threadId) {
       const thread = await window.api.yachiyo.createThread()
@@ -792,25 +853,42 @@ export const useAppStore = create<AppState>((set, get) => ({
         content: trimmed,
         enabledTools,
         ...(images.length > 0 ? { images } : {}),
+        ...(mode !== 'normal' ? { mode } : {}),
         threadId
       })
 
+      const acceptedKind =
+        accepted.kind ??
+        (mode === 'follow-up'
+          ? 'active-run-follow-up'
+          : currentState.activeRunId
+            ? 'active-run-steer'
+            : 'run-started')
+
       set((state) => ({
-        activeRunId: accepted.runId,
-        activeRequestMessageId: accepted.userMessage.id,
-        activeRunThreadId: accepted.thread.id,
+        activeRunId:
+          acceptedKind === 'active-run-follow-up'
+            ? state.activeRunId
+            : (accepted.runId ?? state.activeRunId),
+        activeRequestMessageId:
+          acceptedKind === 'active-run-follow-up'
+            ? state.activeRequestMessageId
+            : accepted.userMessage.id,
+        activeRunThreadId:
+          acceptedKind === 'active-run-follow-up' ? state.activeRunThreadId : accepted.thread.id,
         activeThreadId: accepted.thread.id,
         composerDrafts: removeComposerDraft(state.composerDrafts, accepted.thread.id),
         lastError: null,
         messages: {
           ...state.messages,
-          [accepted.thread.id]: upsertMessage(
+          [accepted.thread.id]: replaceMessage(
             state.messages[accepted.thread.id] ?? [],
-            accepted.userMessage
+            accepted.userMessage,
+            accepted.replacedMessageId
           )
         },
-        runPhase: 'preparing',
-        runStatus: 'running',
+        runPhase: acceptedKind === 'active-run-follow-up' ? state.runPhase : 'preparing',
+        runStatus: acceptedKind === 'active-run-follow-up' ? state.runStatus : 'running',
         threads: upsertThread(state.threads, accepted.thread)
       }))
     } catch (error) {
