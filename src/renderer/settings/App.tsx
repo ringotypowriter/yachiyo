@@ -707,8 +707,8 @@ function GeneralPane({
             Window layout
           </h2>
           <p className="text-sm leading-6" style={{ color: '#6b6a66' }}>
-            Choose how the main window should open by default. The sidebar toggle in chat will
-            keep this preference in sync.
+            Choose how the main window should open by default. The sidebar toggle in chat will keep
+            this preference in sync.
           </p>
         </div>
 
