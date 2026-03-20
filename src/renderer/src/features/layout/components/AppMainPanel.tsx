@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { Archive, Check, PanelLeft, PencilLine, X } from 'lucide-react'
 import type { Message } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { Composer } from '@renderer/features/chat/components/Composer'
+import { AppMainPanelHeader } from '@renderer/features/layout/components/AppMainPanelHeader'
 import { MessageTimeline } from '@renderer/features/chat/components/MessageTimeline'
 import { RunStatusStrip } from '@renderer/features/runs/components/RunStatusStrip'
 
@@ -39,6 +39,20 @@ export function AppMainPanel({
   const [draftTitle, setDraftTitle] = useState('')
   const isEditingTitle = editingTitleFor === activeThread?.id
 
+  function handleStartRename(): void {
+    if (!activeThread) {
+      return
+    }
+
+    setDraftTitle(activeThread.title)
+    setEditingTitleFor(activeThread.id)
+  }
+
+  function handleCancelRename(): void {
+    setDraftTitle(activeThread?.title ?? '')
+    setEditingTitleFor(null)
+  }
+
   async function commitTitleRename(): Promise<void> {
     if (!activeThread) return
 
@@ -70,156 +84,25 @@ export function AppMainPanel({
 
   return (
     <div className="flex flex-col flex-1 h-full min-w-0" style={{ background: '#F9F9F7' }}>
-      <div
-        className="flex items-center justify-between shrink-0 drag-region"
-        style={{
-          height: '52px',
-          paddingLeft: `${headerPaddingLeft}px`,
-          paddingRight: '20px',
-          borderBottom: '1px solid rgba(0,0,0,0.06)'
-        }}
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          {showSidebarToggle ? (
-            <button
-              disabled={isSidebarToggleDisabled}
-              onClick={onToggleSidebar}
-              className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity no-drag shrink-0 disabled:opacity-30"
-              style={{ color: '#2D2D2B' }}
-              title={toggleSidebarTitle}
-              aria-label={toggleSidebarTitle}
-            >
-              <PanelLeft size={16} strokeWidth={1.5} />
-            </button>
-          ) : null}
-          <div className="flex flex-col min-w-0">
-            {activeThread && isEditingTitle ? (
-              <div className="no-drag flex items-center gap-1">
-                <input
-                  autoFocus
-                  value={draftTitle}
-                  onChange={(event) => setDraftTitle(event.target.value)}
-                  onBlur={() => void commitTitleRename()}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault()
-                      void commitTitleRename()
-                    }
-
-                    if (event.key === 'Escape') {
-                      setDraftTitle(activeThread.title)
-                      setEditingTitleFor(null)
-                    }
-                  }}
-                  className="h-8 rounded-md border px-2 text-sm font-semibold outline-none"
-                  style={{
-                    background: 'rgba(255,255,255,0.88)',
-                    borderColor: 'rgba(0,0,0,0.08)',
-                    color: '#2D2D2B',
-                    letterSpacing: '-0.2px'
-                  }}
-                />
-                <button
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => void commitTitleRename()}
-                  className="rounded-md p-1 no-drag transition-opacity opacity-70 hover:opacity-100"
-                  style={{ color: '#B56A4A' }}
-                  title="Save title"
-                >
-                  <Check size={14} strokeWidth={1.8} />
-                </button>
-                <button
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    setDraftTitle(activeThread.title)
-                    setEditingTitleFor(null)
-                  }}
-                  className="rounded-md p-1 no-drag transition-opacity opacity-70 hover:opacity-100"
-                  style={{ color: '#8e8e93' }}
-                  title="Cancel rename"
-                >
-                  <X size={14} strokeWidth={1.8} />
-                </button>
-              </div>
-            ) : (
-              <span
-                className="text-sm font-semibold truncate"
-                style={{ color: '#2D2D2B', letterSpacing: '-0.2px' }}
-              >
-                {activeThread?.title ?? 'Start a conversation'}
-              </span>
-            )}
-            <span className="text-xs font-medium" style={{ color: '#8e8e93' }}>
-              {isBootstrapping
-                ? 'Loading local workspace...'
-                : messageCount > 0
-                  ? `${messageCount} message${messageCount !== 1 ? 's' : ''}`
-                  : 'No messages yet'}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 no-drag">
-          {activeThread ? (
-            <>
-              <button
-                onClick={() => {
-                  setDraftTitle(activeThread.title)
-                  setEditingTitleFor(activeThread.id)
-                }}
-                disabled={isEditingTitle}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-opacity disabled:opacity-40"
-                style={{
-                  background: 'rgba(255,255,255,0.72)',
-                  border: '1px solid rgba(0,0,0,0.08)',
-                  color: '#5b5a57'
-                }}
-                title="Rename thread"
-              >
-                <PencilLine size={12} strokeWidth={1.7} />
-                Rename
-              </button>
-              <button
-                onClick={() => void handleArchiveThread()}
-                disabled={runStatus === 'running'}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-opacity disabled:opacity-40"
-                style={{
-                  background: 'rgba(255,255,255,0.72)',
-                  border: '1px solid rgba(0,0,0,0.08)',
-                  color: '#7b3f39'
-                }}
-                title="Archive thread"
-              >
-                <Archive size={12} strokeWidth={1.7} />
-                Archive
-              </button>
-            </>
-          ) : null}
-          <span
-            className="flex items-center justify-center rounded-full"
-            title={connectionStatus === 'connected' ? 'Server ready' : 'Server offline'}
-            aria-label={connectionStatus === 'connected' ? 'Server ready' : 'Server offline'}
-            style={{
-              width: '26px',
-              height: '26px',
-              background: 'rgba(255,255,255,0.52)',
-              border: '1px solid rgba(0,0,0,0.05)'
-            }}
-          >
-            <span
-              className="rounded-full"
-              style={{
-                width: '8px',
-                height: '8px',
-                background:
-                  connectionStatus === 'connected'
-                    ? 'rgba(78, 131, 102, 0.78)'
-                    : 'rgba(182, 92, 84, 0.76)'
-              }}
-            />
-          </span>
-        </div>
-      </div>
+      <AppMainPanelHeader
+        activeThread={activeThread}
+        connectionStatus={connectionStatus}
+        draftTitle={draftTitle}
+        headerPaddingLeft={headerPaddingLeft}
+        isArchiveDisabled={runStatus === 'running'}
+        isBootstrapping={isBootstrapping}
+        isEditingTitle={isEditingTitle}
+        isSidebarToggleDisabled={isSidebarToggleDisabled}
+        messageCount={messageCount}
+        onArchiveThread={handleArchiveThread}
+        onCancelRename={handleCancelRename}
+        onCommitRename={commitTitleRename}
+        onDraftTitleChange={(nextTitle) => setDraftTitle(nextTitle)}
+        onStartRename={handleStartRename}
+        onToggleSidebar={onToggleSidebar}
+        showSidebarToggle={showSidebarToggle}
+        toggleSidebarTitle={toggleSidebarTitle}
+      />
 
       <MessageTimeline key={activeThreadId ?? 'empty'} threadId={activeThreadId} />
       <RunStatusStrip />
