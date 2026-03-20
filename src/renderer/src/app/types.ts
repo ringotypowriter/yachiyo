@@ -10,6 +10,7 @@ export type {
   RunRecord,
   RunStatus,
   SendChatMode,
+  SidebarVisibility,
   SettingsConfig,
   ThreadRecord as Thread,
   ToolCallName,

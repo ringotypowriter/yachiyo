@@ -5,6 +5,7 @@ import {
   Info,
   Loader2,
   MessageSquare,
+  PanelLeft,
   Monitor,
   Plus,
   RefreshCw,
@@ -13,10 +14,12 @@ import {
   X
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { DEFAULT_SIDEBAR_VISIBILITY } from '../../shared/yachiyo/protocol'
 import type {
   ActiveRunEnterBehavior,
   ProviderConfig,
   ProviderKind,
+  SidebarVisibility,
   SettingsConfig
 } from '../../shared/yachiyo/protocol'
 
@@ -659,6 +662,118 @@ function ProvidersPane({
   )
 }
 
+function GeneralPane({
+  activeSubTab,
+  draft,
+  onChange
+}: {
+  activeSubTab: string
+  draft: SettingsConfig
+  onChange: (next: SettingsConfig) => void
+}): React.ReactNode {
+  if (activeSubTab !== 'appearance') {
+    return <PlaceholderPane label="Language settings coming soon." />
+  }
+
+  const sidebarVisibility = draft.general?.sidebarVisibility ?? DEFAULT_SIDEBAR_VISIBILITY
+  const options: Array<{
+    description: string
+    helper: string
+    icon: typeof PanelLeft
+    value: SidebarVisibility
+  }> = [
+    {
+      value: 'expanded',
+      description: 'Show the sidebar when the app opens',
+      helper: 'Keeps the thread list visible immediately after launch.',
+      icon: PanelLeft
+    },
+    {
+      value: 'collapsed',
+      description: 'Start with the sidebar hidden',
+      helper: 'Leaves more room for chat and keeps an expand button in the title bar.',
+      icon: PanelLeft
+    }
+  ]
+
+  return (
+    <div className="flex-1 overflow-y-auto px-7 py-6">
+      <div className="max-w-3xl space-y-6">
+        <div className="space-y-1">
+          <h2
+            className="text-2xl font-semibold"
+            style={{ color: '#2D2D2B', letterSpacing: '-0.4px' }}
+          >
+            Window layout
+          </h2>
+          <p className="text-sm leading-6" style={{ color: '#6b6a66' }}>
+            Choose how the main window should open by default. The sidebar toggle in chat will
+            keep this preference in sync.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          {options.map((option) => {
+            const isSelected = option.value === sidebarVisibility
+            const Icon = option.icon
+
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() =>
+                  onChange({
+                    ...draft,
+                    general: {
+                      ...draft.general,
+                      sidebarVisibility: option.value
+                    }
+                  })
+                }
+                className="w-full rounded-2xl px-5 py-4 text-left transition-all"
+                style={{
+                  background: isSelected ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.58)',
+                  border: isSelected
+                    ? '1px solid rgba(204,125,94,0.26)'
+                    : '1px solid rgba(0,0,0,0.08)',
+                  boxShadow: isSelected ? '0 10px 24px rgba(0,0,0,0.08)' : 'none'
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <span
+                    className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+                    style={{
+                      background: isSelected ? 'rgba(204,125,94,0.12)' : 'rgba(0,0,0,0.05)',
+                      color: isSelected ? '#B56A4A' : '#6b6a66'
+                    }}
+                  >
+                    <Icon size={16} strokeWidth={1.7} />
+                  </span>
+                  <div className="space-y-1">
+                    <div className="text-sm font-semibold" style={{ color: '#2D2D2B' }}>
+                      {option.description}
+                    </div>
+                    <div className="text-sm leading-6" style={{ color: '#6b6a66' }}>
+                      {option.helper}
+                    </div>
+                  </div>
+                  <span
+                    className="ml-auto mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full"
+                    style={{
+                      border: isSelected ? '5px solid #CC7D5E' : '1px solid rgba(0,0,0,0.18)',
+                      background: '#fff'
+                    }}
+                  />
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ChatPane({
   draft,
   onChange
@@ -846,7 +961,15 @@ function SettingsApp(): React.ReactNode {
       </div>
     )
   } else if (draft) {
-    if (activeTab === 'providers') {
+    if (activeTab === 'general') {
+      body = (
+        <GeneralPane
+          activeSubTab={activeSubTab.general ?? 'appearance'}
+          draft={draft}
+          onChange={setDraft}
+        />
+      )
+    } else if (activeTab === 'providers') {
       body = (
         <ProvidersPane
           draft={draft}

@@ -2075,6 +2075,33 @@ test('YachiyoServer persists the active-run input behavior in shared app setting
   })
 })
 
+test('YachiyoServer persists sidebar visibility in shared app settings', async () => {
+  await withServer(async ({ server, waitForEvent }) => {
+    const updatedEvent = waitForEvent('settings.updated')
+
+    const config = await server.saveConfig({
+      enabledTools: ['read', 'write', 'edit', 'bash'],
+      general: {
+        sidebarVisibility: 'collapsed'
+      },
+      chat: {
+        activeRunEnterBehavior: 'enter-steers'
+      },
+      providers: []
+    })
+
+    const event = (await updatedEvent) as {
+      config: {
+        general?: { sidebarVisibility?: string }
+      }
+    }
+
+    assert.equal(config.general?.sidebarVisibility, 'collapsed')
+    assert.equal(event.config.general?.sidebarVisibility, 'collapsed')
+    assert.equal((await server.bootstrap()).config.general?.sidebarVisibility, 'collapsed')
+  })
+})
+
 test('YachiyoServer can retry directly from a user request that has no assistant reply yet', async () => {
   let attempt = 0
 

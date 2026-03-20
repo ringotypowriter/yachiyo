@@ -4,8 +4,10 @@ import { dirname } from 'node:path'
 import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
   DEFAULT_ENABLED_TOOL_NAMES,
+  DEFAULT_SIDEBAR_VISIBILITY,
   normalizeActiveRunEnterBehavior,
   normalizeEnabledTools,
+  normalizeSidebarVisibility,
   type ProviderConfig,
   type ProviderKind,
   type ProviderSettings,
@@ -15,6 +17,9 @@ import {
 export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   providers: [],
   enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+  general: {
+    sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY
+  },
   chat: {
     activeRunEnterBehavior: DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
   }
@@ -100,6 +105,14 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
       input['enabledTools'],
       DEFAULT_SETTINGS_CONFIG.enabledTools
     ),
+    general: {
+      sidebarVisibility: normalizeSidebarVisibility(
+        input['general'] && typeof input['general'] === 'object'
+          ? (input['general'] as Record<string, unknown>)['sidebarVisibility']
+          : undefined,
+        DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility
+      )
+    },
     chat: {
       activeRunEnterBehavior: normalizeActiveRunEnterBehavior(
         input['chat'] && typeof input['chat'] === 'object'
@@ -146,11 +159,17 @@ export function parseSettingsToml(raw: string): SettingsConfig {
   const root: Record<string, unknown> = {}
   const providers: Array<Record<string, unknown>> = []
   let currentProvider: Record<string, unknown> | null = null
-  let section: 'root' | 'chat' | 'provider' | 'provider.modelList' = 'root'
+  let section: 'root' | 'general' | 'chat' | 'provider' | 'provider.modelList' = 'root'
 
   for (const rawLine of raw.split(/\r?\n/u)) {
     const line = stripTomlComment(rawLine).trim()
     if (!line) continue
+
+    if (line === '[general]') {
+      root['general'] = root['general'] ?? {}
+      section = 'general'
+      continue
+    }
 
     if (line === '[chat]') {
       root['chat'] = root['chat'] ?? {}
@@ -186,6 +205,20 @@ export function parseSettingsToml(raw: string): SettingsConfig {
 
     if (section === 'root') {
       root[key] = value
+      continue
+    }
+
+    if (section === 'general') {
+      const general =
+        root['general'] && typeof root['general'] === 'object'
+          ? (root['general'] as Record<string, unknown>)
+          : null
+
+      if (!general) {
+        throw new Error(`General settings are not initialized for ${key}.`)
+      }
+
+      general[key] = value
       continue
     }
 
@@ -241,6 +274,14 @@ export function stringifySettingsToml(config: SettingsConfig): string {
   const lines: string[] = [
     `enabledTools = ${stringifyTomlStringArray(
       normalizeEnabledTools(config.enabledTools, DEFAULT_SETTINGS_CONFIG.enabledTools)
+    )}`,
+    '',
+    '[general]',
+    `sidebarVisibility = ${stringifyTomlString(
+      normalizeSidebarVisibility(
+        config.general?.sidebarVisibility,
+        DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility
+      )
     )}`,
     '',
     '[chat]',

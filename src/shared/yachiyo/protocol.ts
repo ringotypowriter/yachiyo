@@ -4,6 +4,7 @@ export type RunStatus = 'idle' | 'running' | 'completed' | 'failed' | 'cancelled
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected'
 export type ProviderKind = 'openai' | 'anthropic'
 export type ActiveRunEnterBehavior = 'enter-steers' | 'enter-queues-follow-up'
+export type SidebarVisibility = 'expanded' | 'collapsed'
 export type SendChatMode = 'normal' | 'steer' | 'follow-up'
 export const CORE_TOOL_NAMES = ['read', 'write', 'edit', 'bash'] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
@@ -13,6 +14,7 @@ const coreToolNameSet = new Set<string>(CORE_TOOL_NAMES)
 
 export const DEFAULT_ENABLED_TOOL_NAMES = [...CORE_TOOL_NAMES] as ToolCallName[]
 export const DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR: ActiveRunEnterBehavior = 'enter-steers'
+export const DEFAULT_SIDEBAR_VISIBILITY: SidebarVisibility = 'expanded'
 
 export function normalizeEnabledTools(
   value: unknown,
@@ -47,6 +49,13 @@ export function normalizeActiveRunEnterBehavior(
   fallback: ActiveRunEnterBehavior = DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
 ): ActiveRunEnterBehavior {
   return value === 'enter-queues-follow-up' || value === 'enter-steers' ? value : fallback
+}
+
+export function normalizeSidebarVisibility(
+  value: unknown,
+  fallback: SidebarVisibility = DEFAULT_SIDEBAR_VISIBILITY
+): SidebarVisibility {
+  return value === 'collapsed' || value === 'expanded' ? value : fallback
 }
 
 export interface ReadToolCallDetails {
@@ -157,9 +166,14 @@ export interface ChatConfig {
   activeRunEnterBehavior?: ActiveRunEnterBehavior
 }
 
+export interface GeneralConfig {
+  sidebarVisibility?: SidebarVisibility
+}
+
 export interface SettingsConfig {
   providers: ProviderConfig[]
   enabledTools?: ToolCallName[]
+  general?: GeneralConfig
   chat?: ChatConfig
 }
 

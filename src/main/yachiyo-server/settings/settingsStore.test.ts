@@ -4,7 +4,10 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 
-import { DEFAULT_ENABLED_TOOL_NAMES } from '../../../shared/yachiyo/protocol.ts'
+import {
+  DEFAULT_ENABLED_TOOL_NAMES,
+  DEFAULT_SIDEBAR_VISIBILITY
+} from '../../../shared/yachiyo/protocol.ts'
 import {
   DEFAULT_SETTINGS_CONFIG,
   createSettingsStore,
@@ -20,6 +23,9 @@ test('settings store persists multi-provider config as TOML', async () => {
   try {
     const config: Parameters<typeof store.write>[0] = {
       enabledTools: ['read', 'bash'],
+      general: {
+        sidebarVisibility: 'collapsed'
+      },
       chat: {
         activeRunEnterBehavior: 'enter-queues-follow-up'
       },
@@ -53,6 +59,8 @@ test('settings store persists multi-provider config as TOML', async () => {
 
     const toml = await readFile(settingsPath, 'utf8')
     assert.match(toml, /enabledTools = \["read","bash"\]/)
+    assert.match(toml, /\[general\]/)
+    assert.match(toml, /sidebarVisibility = "collapsed"/)
     assert.match(toml, /activeRunEnterBehavior = "enter-queues-follow-up"/)
     assert.match(toml, /\[\[providers\]\]/)
     assert.match(toml, /\[providers\.modelList\]/)
@@ -123,6 +131,24 @@ test('normalizeSettingsConfig falls back to the default active-run input behavio
     }).chat,
     {
       activeRunEnterBehavior: 'enter-steers'
+    }
+  )
+})
+
+test('normalizeSettingsConfig falls back to the default sidebar visibility', () => {
+  assert.deepEqual(normalizeSettingsConfig({ providers: [] }).general, {
+    sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY
+  })
+
+  assert.deepEqual(
+    normalizeSettingsConfig({
+      general: {
+        sidebarVisibility: 'not-a-real-sidebar-state'
+      },
+      providers: []
+    }).general,
+    {
+      sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY
     }
   )
 })
