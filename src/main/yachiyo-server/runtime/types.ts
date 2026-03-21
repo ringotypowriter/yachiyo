@@ -18,10 +18,13 @@ export interface ModelToolCallUpdateEvent {
   output: unknown
 }
 
+export type ModelProviderOptionsMode = 'default' | 'auxiliary'
+
 export interface ModelStreamRequest {
   messages: ModelMessage[]
   settings: ProviderSettings
   signal: AbortSignal
+  providerOptionsMode?: ModelProviderOptionsMode
   tools?: ToolSet
   onToolCallStart?: GenerateTextOnToolCallStartCallback<ToolSet>
   onToolCallFinish?: GenerateTextOnToolCallFinishCallback<ToolSet>

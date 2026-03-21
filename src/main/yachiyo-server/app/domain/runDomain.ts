@@ -18,10 +18,16 @@ import {
   normalizeMessageImages,
   summarizeMessageInput
 } from '../../../../shared/yachiyo/messageContent.ts'
+import type { AuxiliaryGenerationService } from '../../runtime/auxiliaryGeneration.ts'
 import type { ModelRuntime } from '../../runtime/types.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import { assertSupportedImages, resolveEnabledTools } from './configDomain.ts'
 import { executeServerRun, type RestartRunReason, type ExecuteRunResult } from './runExecution.ts'
+import {
+  buildThreadTitleGenerationMessages,
+  deriveThreadTitleFallback,
+  sanitizeGeneratedThreadTitle
+} from './threadTitle.ts'
 import { resolveRetryRequest } from './threadDomain.ts'
 import {
   DEFAULT_THREAD_TITLE,
@@ -53,6 +59,7 @@ interface RunDomainDeps {
   createId: CreateId
   timestamp: Timestamp
   emit: EmitServerEvent
+  auxiliaryGeneration: AuxiliaryGenerationService
   createModelRuntime: () => ModelRuntime
   ensureThreadWorkspace: (threadId: string) => Promise<string>
   readConfig: () => SettingsConfig
@@ -84,6 +91,8 @@ export class YachiyoServerRunDomain {
   private readonly activeRuns = new Map<string, RunState>()
   private readonly activeRunByThread = new Map<string, string>()
   private readonly activeRunTasks = new Map<string, Promise<void>>()
+  private readonly backgroundTitleTasks = new Set<Promise<void>>()
+  private readonly backgroundTitleTaskControllers = new Set<AbortController>()
   private lastRunEnabledTools: ToolCallName[]
   private isClosing = false
 
@@ -102,15 +111,23 @@ export class YachiyoServerRunDomain {
     for (const state of this.activeRuns.values()) {
       state.abortController.abort()
     }
+    for (const controller of this.backgroundTitleTaskControllers.values()) {
+      controller.abort()
+    }
 
     if (this.activeRunTasks.size > 0) {
       await Promise.allSettled(this.activeRunTasks.values())
+    }
+    if (this.backgroundTitleTasks.size > 0) {
+      await Promise.allSettled(this.backgroundTitleTasks)
     }
 
     this.recoverInterruptedRuns(SHUTDOWN_RUN_ERROR)
     this.activeRuns.clear()
     this.activeRunByThread.clear()
     this.activeRunTasks.clear()
+    this.backgroundTitleTaskControllers.clear()
+    this.backgroundTitleTasks.clear()
   }
 
   recoverInterruptedRuns(error: string = INTERRUPTED_RUN_ERROR): void {
@@ -260,6 +277,13 @@ export class YachiyoServerRunDomain {
       content: input.content,
       images: input.images
     })
+    const fallbackTitle =
+      input.thread.title === DEFAULT_THREAD_TITLE
+        ? deriveThreadTitleFallback({
+            content: input.content,
+            ...(input.images ? { images: input.images } : {})
+          }) || DEFAULT_THREAD_TITLE
+        : null
     const userMessage = this.createUserMessage({
       content: input.content,
       images: input.images,
@@ -271,10 +295,7 @@ export class YachiyoServerRunDomain {
       ...input.thread,
       headMessageId: userMessage.id,
       ...(messageSummary ? { preview: messageSummary.slice(0, 240) } : {}),
-      title:
-        input.thread.title === DEFAULT_THREAD_TITLE
-          ? (messageSummary || DEFAULT_THREAD_TITLE).slice(0, 60)
-          : input.thread.title,
+      title: fallbackTitle ?? input.thread.title,
       updatedAt: timestamp
     }
     const accepted: ChatAccepted = {
@@ -304,6 +325,15 @@ export class YachiyoServerRunDomain {
       runId: accepted.runId,
       requestMessageId: userMessage.id
     })
+
+    if (fallbackTitle && fallbackTitle !== DEFAULT_THREAD_TITLE && input.content) {
+      this.scheduleThreadTitleGeneration({
+        fallbackTitle,
+        query: input.content,
+        runId: accepted.runId,
+        threadId: accepted.thread.id
+      })
+    }
 
     this.startActiveRun({
       enabledTools: input.enabledTools,
@@ -536,6 +566,209 @@ export class YachiyoServerRunDomain {
     }
   }
 
+  private scheduleThreadTitleGeneration(input: {
+    fallbackTitle: string
+    query: string
+    runId: string
+    threadId: string
+  }): void {
+    this.logThreadTitleDebug({
+      phase: 'queued',
+      runId: input.runId,
+      threadId: input.threadId,
+      message: 'Queued parallel title generation from the initial user message.'
+    })
+
+    const abortController = new AbortController()
+    this.backgroundTitleTaskControllers.add(abortController)
+    const task: Promise<void> | undefined = (async (): Promise<void> => {
+      try {
+        await this.refineThreadTitle({
+          fallbackTitle: input.fallbackTitle,
+          query: input.query,
+          runId: input.runId,
+          signal: abortController.signal,
+          threadId: input.threadId
+        })
+      } catch {
+        // Auxiliary title refinement must never break the primary thread flow.
+      } finally {
+        this.backgroundTitleTaskControllers.delete(abortController)
+        if (task) {
+          this.backgroundTitleTasks.delete(task)
+        }
+      }
+    })()
+
+    this.backgroundTitleTasks.add(task)
+    void task
+  }
+
+  private async refineThreadTitle(input: {
+    fallbackTitle: string
+    query: string
+    runId: string
+    signal: AbortSignal
+    threadId: string
+  }): Promise<void> {
+    const thread = this.deps.requireThread(input.threadId)
+    if (thread.title !== input.fallbackTitle) {
+      this.logThreadTitleDebug({
+        phase: 'skipped',
+        runId: input.runId,
+        threadId: input.threadId,
+        message: 'Skipped title generation because the thread title already changed.',
+        detail: 'title-mismatch-before-start'
+      })
+      return
+    }
+
+    if (!input.query.trim()) {
+      this.logThreadTitleDebug({
+        phase: 'skipped',
+        runId: input.runId,
+        threadId: input.threadId,
+        message: 'Skipped title generation because the initial user query was empty.',
+        detail: 'empty-query'
+      })
+      return
+    }
+
+    this.logThreadTitleDebug({
+      phase: 'started',
+      runId: input.runId,
+      threadId: input.threadId,
+      message: 'Started title generation in parallel with the main run.'
+    })
+
+    const result = await this.deps.auxiliaryGeneration.generateText({
+      messages: buildThreadTitleGenerationMessages(input.query),
+      signal: input.signal
+    })
+
+    if (result.status === 'unavailable') {
+      this.logThreadTitleDebug({
+        phase: 'skipped',
+        runId: input.runId,
+        threadId: input.threadId,
+        message: 'Skipped title generation because the tool model was unavailable.',
+        detail: result.reason
+      })
+      return
+    }
+
+    if (result.status === 'failed') {
+      this.logThreadTitleDebug({
+        phase: 'failed',
+        runId: input.runId,
+        threadId: input.threadId,
+        message: 'Title generation failed.',
+        detail: result.error
+      })
+      return
+    }
+
+    this.logThreadTitleDebug({
+      phase: 'raw-output',
+      runId: input.runId,
+      threadId: input.threadId,
+      message: 'Received raw title-model output.',
+      detail: formatThreadTitleDebugValue(result.text)
+    })
+
+    const title = sanitizeGeneratedThreadTitle(result.text)
+    this.logThreadTitleDebug({
+      phase: 'sanitized-output',
+      runId: input.runId,
+      threadId: input.threadId,
+      message: 'Computed sanitized title candidate.',
+      detail: formatThreadTitleDebugValue(title ?? '')
+    })
+
+    if (!title) {
+      this.logThreadTitleDebug({
+        phase: 'skipped',
+        runId: input.runId,
+        threadId: input.threadId,
+        message: 'Skipped title update because the generated title was empty after sanitization.',
+        detail: 'empty-generated-title'
+      })
+      return
+    }
+
+    if (title === input.fallbackTitle) {
+      this.logThreadTitleDebug({
+        phase: 'skipped',
+        runId: input.runId,
+        threadId: input.threadId,
+        message: 'Skipped title update because the generated title matched the fallback title.',
+        detail: 'same-as-fallback'
+      })
+      return
+    }
+
+    const latestThread = this.deps.requireThread(input.threadId)
+    if (latestThread.title !== input.fallbackTitle) {
+      this.logThreadTitleDebug({
+        phase: 'skipped',
+        runId: input.runId,
+        threadId: input.threadId,
+        message:
+          'Skipped title update because the thread title changed while generation was running.',
+        detail: 'title-mismatch-after-generation'
+      })
+      return
+    }
+
+    const updatedThread: ThreadRecord = {
+      ...latestThread,
+      title,
+      updatedAt: this.deps.timestamp()
+    }
+
+    this.deps.storage.renameThread({
+      threadId: latestThread.id,
+      title,
+      updatedAt: updatedThread.updatedAt
+    })
+    this.deps.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: updatedThread.id,
+      thread: updatedThread
+    })
+    this.logThreadTitleDebug({
+      phase: 'succeeded',
+      runId: input.runId,
+      threadId: input.threadId,
+      message: 'Updated the thread title from the tool-model result.',
+      detail: title
+    })
+  }
+
+  private logThreadTitleDebug(input: {
+    phase:
+      | 'queued'
+      | 'started'
+      | 'raw-output'
+      | 'sanitized-output'
+      | 'succeeded'
+      | 'skipped'
+      | 'failed'
+    runId: string
+    threadId: string
+    message: string
+    detail?: string
+  }): void {
+    console.debug(
+      '[yachiyo][thread-title]',
+      `phase=${input.phase}`,
+      `threadId=${input.threadId}`,
+      `runId=${input.runId}`,
+      input.message,
+      ...(input.detail ? [`detail=${input.detail}`] : [])
+    )
+  }
+
   private startQueuedFollowUpIfPresent(threadId: string): void {
     const prepared = this.prepareQueuedFollowUpStart(threadId)
     if (!prepared) {
@@ -663,4 +896,9 @@ export class YachiyoServerRunDomain {
       toolCalls
     })
   }
+}
+
+function formatThreadTitleDebugValue(value: string): string {
+  const serialized = JSON.stringify(value)
+  return serialized.length <= 240 ? serialized : `${serialized.slice(0, 237)}...`
 }

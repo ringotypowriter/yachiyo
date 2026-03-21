@@ -212,6 +212,200 @@ test('createAiSdkModelRuntime uses AI SDK streaming with Anthropic thinking enab
   })
 })
 
+test('createAiSdkModelRuntime omits OpenAI reasoningEffort for auxiliary generation', async () => {
+  let providerOptions:
+    | {
+        openai?: {
+          reasoningEffort?: string
+          store?: boolean
+        }
+      }
+    | undefined
+  let selectedModel: { provider: string; modelId: string } | null = null
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => {
+          throw new Error('Responses API should not be used for auxiliary generation.')
+        },
+        chat: (modelId: string) => {
+          selectedModel = { modelId, provider: 'openai.chat' }
+          return { modelId, provider: 'openai.chat' }
+        }
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: ((input: {
+      providerOptions?: {
+        openai?: {
+          reasoningEffort?: string
+          store?: boolean
+        }
+      }
+    }) => {
+      providerOptions = input.providerOptions
+      return {
+        textStream: (async function* () {
+          yield 'title'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Plan the MVP' }],
+    providerOptionsMode: 'auxiliary',
+    settings: {
+      providerName: 'work',
+      provider: 'openai',
+      model: 'gpt-5-mini',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['title'])
+  assert.deepEqual(selectedModel, {
+    provider: 'openai.chat',
+    modelId: 'gpt-5-mini'
+  })
+  assert.deepEqual(providerOptions, {
+    openai: {
+      store: false
+    }
+  })
+})
+
+test('createAiSdkModelRuntime omits OpenAI reasoningEffort for non-reasoning models', async () => {
+  let providerOptions:
+    | {
+        openai?: {
+          reasoningEffort?: string
+          store?: boolean
+        }
+      }
+    | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => ({ modelId: 'qwen3.5-flash', provider: 'openai.responses' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: ((input: {
+      providerOptions?: {
+        openai?: {
+          reasoningEffort?: string
+          store?: boolean
+        }
+      }
+    }) => {
+      providerOptions = input.providerOptions
+      return {
+        textStream: (async function* () {
+          yield 'ok'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Say hi' }],
+    settings: {
+      providerName: 'work',
+      provider: 'openai',
+      model: 'qwen3.5-flash',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
+  assert.deepEqual(providerOptions, {
+    openai: {
+      store: false
+    }
+  })
+})
+
+test('createAiSdkModelRuntime disables Anthropic thinking for auxiliary generation', async () => {
+  let providerOptions:
+    | {
+        anthropic?: {
+          thinking?: {
+            type?: string
+            budgetTokens?: number
+          }
+        }
+      }
+    | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () => {
+      throw new Error('OpenAI should not be used in this test.')
+    },
+    createAnthropicProvider: () =>
+      (() => ({ modelId: 'claude-sonnet-4-5', provider: 'anthropic' })) as never,
+    streamTextImpl: ((input: {
+      providerOptions?: {
+        anthropic?: {
+          thinking?: {
+            type?: string
+            budgetTokens?: number
+          }
+        }
+      }
+    }) => {
+      providerOptions = input.providerOptions
+      return {
+        textStream: (async function* () {
+          yield 'title'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Plan the MVP' }],
+    providerOptionsMode: 'auxiliary',
+    settings: {
+      providerName: 'claude',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      apiKey: 'sk-ant-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['title'])
+  assert.deepEqual(providerOptions, {
+    anthropic: {
+      thinking: {
+        type: 'disabled'
+      }
+    }
+  })
+})
+
 test('createAiSdkModelRuntime forwards tools and tool callbacks into the AI SDK tool loop', async () => {
   let call: {
     experimental_onToolCallFinish?: unknown

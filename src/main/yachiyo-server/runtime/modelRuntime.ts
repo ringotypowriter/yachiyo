@@ -4,7 +4,7 @@ import { stepCountIs, streamText, type LanguageModel } from 'ai'
 
 import type { ProviderConfig, ProviderSettings } from '../../../shared/yachiyo/protocol'
 import { prepareAiSdkMessages } from './messagePrepare.ts'
-import type { ModelRuntime } from './types.ts'
+import type { ModelProviderOptionsMode, ModelRuntime } from './types.ts'
 
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1'
@@ -17,7 +17,7 @@ type StreamTextImplementation = typeof streamText
 
 type OpenAiRuntimeProviderOptions = {
   openai: {
-    reasoningEffort: string
+    reasoningEffort?: string
     store: false
   }
 }
@@ -25,8 +25,8 @@ type OpenAiRuntimeProviderOptions = {
 type AnthropicRuntimeProviderOptions = {
   anthropic: {
     thinking: {
-      type: 'enabled'
-      budgetTokens: number
+      type: 'enabled' | 'disabled'
+      budgetTokens?: number
     }
   }
 }
@@ -55,14 +55,15 @@ function assertConfigured(settings: ProviderSettings): void {
 
 function createLanguageModel(
   settings: ProviderSettings,
-  dependencies: Required<AiSdkRuntimeDependencies>
+  dependencies: Required<AiSdkRuntimeDependencies>,
+  mode: ModelProviderOptionsMode = 'default'
 ): LanguageModel {
   if (settings.provider === 'openai') {
     const provider = dependencies.createOpenAIProvider({
       apiKey: settings.apiKey,
       baseURL: cleanBaseUrl(settings.baseUrl, DEFAULT_OPENAI_BASE_URL)
     })
-    return provider.responses(settings.model)
+    return mode === 'auxiliary' ? provider.chat(settings.model) : provider.responses(settings.model)
   }
 
   const provider = dependencies.createAnthropicProvider({
@@ -72,13 +73,21 @@ function createLanguageModel(
   return provider(settings.model)
 }
 
-function createProviderOptions(settings: ProviderSettings): RuntimeProviderOptions {
+function createProviderOptions(
+  settings: ProviderSettings,
+  mode: ModelProviderOptionsMode = 'default'
+): RuntimeProviderOptions {
   if (settings.provider === 'openai') {
+    const reasoningEffort =
+      mode === 'default' && supportsOpenAIReasoningEffort(settings.model)
+        ? DEFAULT_OPENAI_REASONING_EFFORT
+        : undefined
+
     return {
       openai: {
-        reasoningEffort: DEFAULT_OPENAI_REASONING_EFFORT,
         // Keep tool-call context inline for proxy compatibility instead of
         // depending on provider-side item storage across tool steps.
+        ...(reasoningEffort ? { reasoningEffort } : {}),
         store: false
       }
     }
@@ -87,11 +96,26 @@ function createProviderOptions(settings: ProviderSettings): RuntimeProviderOptio
   return {
     anthropic: {
       thinking: {
-        type: 'enabled',
-        budgetTokens: DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS
+        ...(mode === 'auxiliary'
+          ? { type: 'disabled' as const }
+          : {
+              type: 'enabled' as const,
+              budgetTokens: DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS
+            })
       }
     }
   }
+}
+
+function supportsOpenAIReasoningEffort(modelId: string): boolean {
+  const normalized = modelId.trim().toLowerCase()
+
+  return (
+    normalized.startsWith('gpt-5') ||
+    normalized.startsWith('o1') ||
+    normalized.startsWith('o3') ||
+    normalized.startsWith('o4')
+  )
 }
 
 interface ModelsResponseItem {
@@ -150,8 +174,15 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
       const result = resolvedDependencies.streamTextImpl({
         abortSignal: request.signal,
         messages: prepareAiSdkMessages(request.messages),
-        model: createLanguageModel(request.settings, resolvedDependencies),
-        providerOptions: createProviderOptions(request.settings),
+        model: createLanguageModel(
+          request.settings,
+          resolvedDependencies,
+          request.providerOptionsMode ?? 'default'
+        ),
+        providerOptions: createProviderOptions(
+          request.settings,
+          request.providerOptionsMode ?? 'default'
+        ),
         ...(request.tools ? { tools: request.tools, stopWhen: stepCountIs(20) } : {}),
         ...(request.onToolCallStart
           ? { experimental_onToolCallStart: request.onToolCallStart }

@@ -6,6 +6,7 @@ export type ProviderKind = 'openai' | 'anthropic'
 export type ActiveRunEnterBehavior = 'enter-steers' | 'enter-queues-follow-up'
 export type SidebarVisibility = 'expanded' | 'collapsed'
 export type SendChatMode = 'normal' | 'steer' | 'follow-up'
+export type ToolModelMode = 'disabled' | 'custom'
 export const CORE_TOOL_NAMES = ['read', 'write', 'edit', 'bash'] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
 export type ToolCallStatus = 'running' | 'completed' | 'failed'
@@ -15,6 +16,7 @@ const coreToolNameSet = new Set<string>(CORE_TOOL_NAMES)
 export const DEFAULT_ENABLED_TOOL_NAMES = [...CORE_TOOL_NAMES] as ToolCallName[]
 export const DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR: ActiveRunEnterBehavior = 'enter-steers'
 export const DEFAULT_SIDEBAR_VISIBILITY: SidebarVisibility = 'expanded'
+export const DEFAULT_TOOL_MODEL_MODE: ToolModelMode = 'disabled'
 
 export function normalizeEnabledTools(
   value: unknown,
@@ -56,6 +58,13 @@ export function normalizeSidebarVisibility(
   fallback: SidebarVisibility = DEFAULT_SIDEBAR_VISIBILITY
 ): SidebarVisibility {
   return value === 'collapsed' || value === 'expanded' ? value : fallback
+}
+
+export function normalizeToolModelMode(
+  value: unknown,
+  fallback: ToolModelMode = DEFAULT_TOOL_MODEL_MODE
+): ToolModelMode {
+  return value === 'disabled' || value === 'custom' ? value : fallback
 }
 
 export interface ReadToolCallDetails {
@@ -155,6 +164,7 @@ export interface ProviderModelList {
 }
 
 export interface ProviderConfig {
+  id?: string
   name: string
   type: ProviderKind
   apiKey: string
@@ -170,11 +180,19 @@ export interface GeneralConfig {
   sidebarVisibility?: SidebarVisibility
 }
 
+export interface ToolModelConfig {
+  mode?: ToolModelMode
+  providerId?: string
+  providerName?: string
+  model?: string
+}
+
 export interface SettingsConfig {
   providers: ProviderConfig[]
   enabledTools?: ToolCallName[]
   general?: GeneralConfig
   chat?: ChatConfig
+  toolModel?: ToolModelConfig
 }
 
 export interface ProviderSettings {

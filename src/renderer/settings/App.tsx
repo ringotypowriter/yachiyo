@@ -20,8 +20,21 @@ import type {
   ProviderConfig,
   ProviderKind,
   SidebarVisibility,
-  SettingsConfig
+  SettingsConfig,
+  ToolModelConfig,
+  ToolModelMode
 } from '../../shared/yachiyo/protocol'
+import {
+  createDisabledToolModelConfig,
+  createProviderConfig,
+  getProviderModels,
+  getToolModelConfig,
+  providerMatchesReference,
+  resolveToolModelProvider,
+  sanitizeProviderConfig,
+  syncToolModelWithProvider,
+  toolModelTargetsProvider
+} from '../../shared/yachiyo/providerConfig'
 
 type TabId = 'general' | 'providers' | 'chat' | 'memory' | 'ui' | 'about'
 
@@ -88,60 +101,37 @@ function inputStyle(): React.CSSProperties {
   }
 }
 
-function sanitizeProvider(provider: ProviderConfig): ProviderConfig {
-  return {
-    ...provider,
-    name: provider.name.trim(),
-    apiKey: provider.apiKey.trim(),
-    baseUrl: provider.baseUrl.trim(),
-    modelList: {
-      enabled: [...new Set(provider.modelList.enabled.filter(Boolean))],
-      disabled: [...new Set(provider.modelList.disabled.filter(Boolean))]
-    }
-  }
-}
-
-function createProvider(existingNames: string[]): ProviderConfig {
-  let index = existingNames.length + 1
-  let candidate = `provider-${index}`
-
-  while (existingNames.includes(candidate)) {
-    index += 1
-    candidate = `provider-${index}`
-  }
-
-  return {
-    name: candidate,
-    type: 'openai',
-    apiKey: '',
-    baseUrl: '',
-    modelList: {
-      enabled: [],
-      disabled: []
-    }
-  }
-}
-
 function withSelectedProvider(
   config: SettingsConfig,
-  selectedProviderName: string,
+  selectedProviderId: string,
   update: (provider: ProviderConfig) => ProviderConfig
-): { config: SettingsConfig; nextSelectedName: string } {
-  const current = config.providers.find((provider) => provider.name === selectedProviderName)
+): { config: SettingsConfig; nextSelectedId: string } {
+  const current =
+    config.providers.find((provider) =>
+      providerMatchesReference(provider, { id: selectedProviderId })
+    ) ?? null
   if (!current) {
-    return { config, nextSelectedName: selectedProviderName }
+    return { config, nextSelectedId: selectedProviderId }
   }
 
-  const nextProvider = sanitizeProvider(update(current))
+  const nextProvider = sanitizeProviderConfig(update(current))
+  const toolModel = getToolModelConfig(config)
+  const toolModelTargetsCurrentProvider =
+    toolModel.mode === 'custom' && toolModelTargetsProvider(toolModel, current)
 
   return {
     config: {
       ...config,
+      ...(toolModelTargetsCurrentProvider
+        ? {
+            toolModel: syncToolModelWithProvider(toolModel, nextProvider)
+          }
+        : {}),
       providers: config.providers.map((provider) =>
-        provider.name === selectedProviderName ? nextProvider : provider
+        providerMatchesReference(provider, { id: current.id }) ? nextProvider : provider
       )
     },
-    nextSelectedName: nextProvider.name
+    nextSelectedId: nextProvider.id ?? selectedProviderId
   }
 }
 
@@ -157,6 +147,21 @@ function validateConfig(config: SettingsConfig | null): string | null {
 
   if (new Set(names).size !== names.length) {
     return 'Provider names must be unique.'
+  }
+
+  const toolModel = getToolModelConfig(config)
+  if (toolModel.mode === 'custom') {
+    if (!toolModel.providerId.trim() && !toolModel.providerName.trim()) {
+      return 'Choose a provider for the tool model.'
+    }
+
+    if (!resolveToolModelProvider(config, toolModel)) {
+      return 'The tool model provider must exist.'
+    }
+
+    if (!toolModel.model.trim()) {
+      return 'Choose a model for the tool model.'
+    }
   }
 
   return null
@@ -449,35 +454,35 @@ function ModelListSection({
 
 function ProvidersPane({
   draft,
-  selectedProviderName,
+  selectedProviderId,
   onSelectProvider,
   onChange
 }: {
   draft: SettingsConfig
-  selectedProviderName: string
-  onSelectProvider: (name: string) => void
+  selectedProviderId: string
+  onSelectProvider: (id: string) => void
   onChange: (next: SettingsConfig) => void
 }): React.ReactNode {
   const selectedProvider =
-    draft.providers.find((provider) => provider.name === selectedProviderName) ?? null
+    draft.providers.find((provider) => provider.id === selectedProviderId) ?? null
 
   const handleProviderChange = (update: (provider: ProviderConfig) => ProviderConfig): void => {
     if (!selectedProvider) {
       return
     }
 
-    const next = withSelectedProvider(draft, selectedProvider.name, update)
+    const next = withSelectedProvider(draft, selectedProvider.id ?? '', update)
     onChange(next.config)
-    onSelectProvider(next.nextSelectedName)
+    onSelectProvider(next.nextSelectedId)
   }
 
   const handleAddProvider = (): void => {
-    const provider = createProvider(draft.providers.map((entry) => entry.name))
+    const provider = createProviderConfig(draft.providers.map((entry) => entry.name))
     onChange({
       ...draft,
       providers: [...draft.providers, provider]
     })
-    onSelectProvider(provider.name)
+    onSelectProvider(provider.id ?? '')
   }
 
   const handleRemoveProvider = (): void => {
@@ -485,12 +490,18 @@ function ProvidersPane({
       return
     }
 
-    const providers = draft.providers.filter((provider) => provider.name !== selectedProvider.name)
+    const toolModel = getToolModelConfig(draft)
+    const providers = draft.providers.filter((provider) => provider.id !== selectedProvider.id)
     onChange({
       ...draft,
+      ...(toolModel.mode === 'custom' && toolModelTargetsProvider(toolModel, selectedProvider)
+        ? {
+            toolModel: createDisabledToolModelConfig()
+          }
+        : {}),
       providers
     })
-    onSelectProvider(providers[0]?.name ?? '')
+    onSelectProvider(providers[0]?.id ?? '')
   }
 
   return (
@@ -520,12 +531,12 @@ function ProvidersPane({
 
         <div className="flex-1 overflow-y-auto px-3 pb-4">
           {draft.providers.map((provider) => {
-            const isSelected = provider.name === selectedProviderName
+            const isSelected = provider.id === selectedProviderId
 
             return (
               <button
-                key={provider.name}
-                onClick={() => onSelectProvider(provider.name)}
+                key={provider.id}
+                onClick={() => onSelectProvider(provider.id ?? '')}
                 className="mb-2 w-full rounded-2xl px-3 py-3 text-left transition-all"
                 style={
                   isSelected
@@ -782,6 +793,9 @@ function ChatPane({
   onChange: (next: SettingsConfig) => void
 }): React.ReactNode {
   const activeRunEnterBehavior = draft.chat?.activeRunEnterBehavior ?? 'enter-steers'
+  const toolModel = getToolModelConfig(draft)
+  const selectedToolProvider = resolveToolModelProvider(draft, toolModel)
+  const selectedToolProviderModels = getProviderModels(selectedToolProvider)
   const options: Array<{
     description: string
     helper: string
@@ -798,10 +812,56 @@ function ChatPane({
       helper: 'Protect plain Enter from accidental steering during long replies.'
     }
   ]
+  const toolModelOptions: Array<{
+    description: string
+    helper: string
+    value: ToolModelMode
+  }> = [
+    {
+      value: 'disabled',
+      description: 'Keep tool-model tasks on fallback heuristics',
+      helper: 'Thread titles and other auxiliary tasks will stay on the safe non-model path.'
+    },
+    {
+      value: 'custom',
+      description: 'Use a separate provider/model',
+      helper: 'Pick a different model for small generation tasks like thread titles.'
+    }
+  ]
+
+  const updateToolModel = (nextToolModel: Partial<Required<ToolModelConfig>>): void => {
+    onChange({
+      ...draft,
+      toolModel: {
+        ...toolModel,
+        ...nextToolModel
+      }
+    })
+  }
+
+  const handleToolModelModeChange = (mode: ToolModelMode): void => {
+    if (mode === 'custom') {
+      const provider = selectedToolProvider ?? draft.providers[0] ?? null
+      updateToolModel({
+        mode,
+        providerId: provider?.id ?? '',
+        providerName: provider?.name ?? '',
+        model: toolModel.model || getProviderModels(provider)[0] || ''
+      })
+      return
+    }
+
+    updateToolModel({
+      mode,
+      providerId: '',
+      providerName: '',
+      model: ''
+    })
+  }
 
   return (
     <div className="flex-1 overflow-y-auto px-7 py-6">
-      <div className="max-w-3xl space-y-6">
+      <div className="max-w-3xl space-y-10">
         <div className="space-y-1">
           <h2
             className="text-2xl font-semibold"
@@ -861,6 +921,119 @@ function ChatPane({
             )
           })}
         </div>
+
+        <div className="space-y-1">
+          <h2
+            className="text-2xl font-semibold"
+            style={{ color: '#2D2D2B', letterSpacing: '-0.4px' }}
+          >
+            Tool model
+          </h2>
+          <p className="text-sm leading-6" style={{ color: '#6b6a66' }}>
+            Auxiliary generation tasks use this app-level model. The first consumer is thread title
+            generation, and Yachiyo falls back safely if the tool model is unavailable.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          {toolModelOptions.map((option) => {
+            const isSelected = option.value === toolModel.mode
+
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => handleToolModelModeChange(option.value)}
+                className="w-full rounded-2xl px-5 py-4 text-left transition-all"
+                style={{
+                  background: isSelected ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.58)',
+                  border: isSelected
+                    ? '1px solid rgba(204,125,94,0.26)'
+                    : '1px solid rgba(0,0,0,0.08)',
+                  boxShadow: isSelected ? '0 10px 24px rgba(0,0,0,0.08)' : 'none'
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <span
+                    className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full"
+                    style={{
+                      border: isSelected ? '5px solid #CC7D5E' : '1px solid rgba(0,0,0,0.18)',
+                      background: '#fff'
+                    }}
+                  />
+                  <div className="space-y-1">
+                    <div className="text-sm font-semibold" style={{ color: '#2D2D2B' }}>
+                      {option.description}
+                    </div>
+                    <div className="text-sm leading-6" style={{ color: '#6b6a66' }}>
+                      {option.helper}
+                    </div>
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+
+        {toolModel.mode === 'custom' ? (
+          <div
+            className="rounded-3xl p-5 space-y-4"
+            style={{
+              background: 'rgba(255,255,255,0.72)',
+              border: '1px solid rgba(0,0,0,0.08)'
+            }}
+          >
+            <div className="grid grid-cols-2 gap-5">
+              <Field label="Provider">
+                <select
+                  value={toolModel.providerId}
+                  onChange={(event) => {
+                    const provider =
+                      draft.providers.find((entry) => entry.id === event.target.value) ?? null
+                    updateToolModel({
+                      providerId: provider?.id ?? '',
+                      providerName: provider?.name ?? '',
+                      model: getProviderModels(provider)[0] || ''
+                    })
+                  }}
+                  className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                  style={inputStyle()}
+                >
+                  <option value="">Choose a provider</option>
+                  {draft.providers.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Model">
+                <select
+                  value={toolModel.model}
+                  onChange={(event) => updateToolModel({ model: event.target.value })}
+                  className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                  style={inputStyle()}
+                  disabled={!selectedToolProvider}
+                >
+                  <option value="">
+                    {selectedToolProvider ? 'Choose a model' : 'Choose a provider first'}
+                  </option>
+                  {selectedToolProviderModels.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+
+            <p className="text-xs leading-5" style={{ color: '#8e8e93' }}>
+              Any configured provider can back the tool model. It does not change the main
+              conversation model selection.
+            </p>
+          </div>
+        ) : null}
       </div>
     </div>
   )
@@ -871,7 +1044,7 @@ function SettingsApp(): React.ReactNode {
   const [activeSubTab, setActiveSubTab] = useState(initSubTabs)
   const [savedConfig, setSavedConfig] = useState<SettingsConfig | null>(null)
   const [draft, setDraft] = useState<SettingsConfig | null>(null)
-  const [selectedProviderName, setSelectedProviderName] = useState('')
+  const [selectedProviderId, setSelectedProviderId] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -888,7 +1061,7 @@ function SettingsApp(): React.ReactNode {
 
         setSavedConfig(config)
         setDraft(config)
-        setSelectedProviderName(config.providers[0]?.name || '')
+        setSelectedProviderId(config.providers[0]?.id ?? '')
         setLoading(false)
       })
       .catch((reason) => {
@@ -910,12 +1083,12 @@ function SettingsApp(): React.ReactNode {
       return
     }
 
-    if (draft.providers.some((provider) => provider.name === selectedProviderName)) {
+    if (draft.providers.some((provider) => provider.id === selectedProviderId)) {
       return
     }
 
-    setSelectedProviderName(draft.providers[0]?.name || '')
-  }, [draft, selectedProviderName])
+    setSelectedProviderId(draft.providers[0]?.id ?? '')
+  }, [draft, selectedProviderId])
 
   const active = TABS.find((tab) => tab.id === activeTab)!
   const ActiveIcon = active.icon
@@ -934,7 +1107,11 @@ function SettingsApp(): React.ReactNode {
       const next = await window.api.yachiyo.saveConfig(draft)
       setSavedConfig(next)
       setDraft(next)
-      setSelectedProviderName(next.providers[0]?.name || '')
+      setSelectedProviderId((current) =>
+        next.providers.some((provider) => provider.id === current)
+          ? current
+          : (next.providers[0]?.id ?? '')
+      )
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Failed to save settings.')
     } finally {
@@ -973,8 +1150,8 @@ function SettingsApp(): React.ReactNode {
       body = (
         <ProvidersPane
           draft={draft}
-          selectedProviderName={selectedProviderName}
-          onSelectProvider={setSelectedProviderName}
+          selectedProviderId={selectedProviderId}
+          onSelectProvider={setSelectedProviderId}
           onChange={setDraft}
         />
       )

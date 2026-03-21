@@ -9,9 +9,18 @@ import {
   type ToolCallName,
   type ToolPreferencesInput
 } from '../../../../shared/yachiyo/protocol.ts'
+import {
+  createProviderId,
+  providerMatchesReference,
+  sanitizeProviderConfig
+} from '../../../../shared/yachiyo/providerConfig.ts'
 import { extractBase64DataUrlPayload } from '../../../../shared/yachiyo/messageContent.ts'
 import { fetchModels } from '../../runtime/modelRuntime.ts'
-import { toProviderSettings, type SettingsStore } from '../../settings/settingsStore.ts'
+import {
+  toProviderSettings,
+  toToolModelSettings,
+  type SettingsStore
+} from '../../settings/settingsStore.ts'
 import type { EmitServerEvent } from './shared.ts'
 
 function mergeUnique(values: string[]): string[] {
@@ -39,7 +48,7 @@ export function resolveEnabledTools(
 }
 
 function upsertProviderConfig(config: SettingsConfig, provider: ProviderConfig): SettingsConfig {
-  const nextProvider = {
+  const nextProvider = sanitizeProviderConfig({
     ...provider,
     modelList: {
       enabled: mergeUnique(provider.modelList.enabled),
@@ -47,8 +56,17 @@ function upsertProviderConfig(config: SettingsConfig, provider: ProviderConfig):
         (model) => !provider.modelList.enabled.includes(model)
       )
     }
-  }
-  const currentIndex = config.providers.findIndex((entry) => entry.name === provider.name)
+  })
+  const currentIndex = config.providers.findIndex((entry) =>
+    providerMatchesReference(
+      entry,
+      provider.id?.trim()
+        ? { id: nextProvider.id }
+        : {
+            name: nextProvider.name
+          }
+    )
+  )
 
   if (currentIndex === -1) {
     return {
@@ -128,6 +146,7 @@ export class YachiyoServerConfigDomain {
       current.providers.find((provider) => provider.type === input.provider)
 
     const nextProvider: ProviderConfig = {
+      id: existing?.id ?? createProviderId(),
       name: providerName,
       type: input.provider ?? existing?.type ?? currentSettings.provider,
       apiKey: input.apiKey?.trim() ?? existing?.apiKey ?? currentSettings.apiKey,
@@ -169,7 +188,16 @@ export class YachiyoServerConfigDomain {
 
   upsertProvider(input: ProviderConfig): ProviderConfig {
     const nextConfig = this.persistConfig(upsertProviderConfig(this.readConfig(), input))
-    const provider = nextConfig.providers.find((entry) => entry.name === input.name)
+    const provider = nextConfig.providers.find((entry) =>
+      providerMatchesReference(
+        entry,
+        input.id?.trim()
+          ? { id: input.id }
+          : {
+              name: input.name
+            }
+      )
+    )
     if (!provider) {
       throw new Error(`Unknown provider: ${input.name}`)
     }
@@ -223,6 +251,10 @@ export class YachiyoServerConfigDomain {
 
   readSettings(): ProviderSettings {
     return toProviderSettings(this.readConfig())
+  }
+
+  readToolModelSettings(): ProviderSettings | null {
+    return toToolModelSettings(this.readConfig())
   }
 
   readConfig(): SettingsConfig {

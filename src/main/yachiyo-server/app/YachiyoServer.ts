@@ -15,6 +15,7 @@ import type {
   YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol.ts'
 import { resolveYachiyoSettingsPath } from '../config/paths.ts'
+import { createAuxiliaryGenerationService } from '../runtime/auxiliaryGeneration.ts'
 import { createAiSdkModelRuntime } from '../runtime/modelRuntime.ts'
 import type { ModelRuntime } from '../runtime/types.ts'
 import { createSettingsStore } from '../settings/settingsStore.ts'
@@ -65,11 +66,16 @@ export class YachiyoServer {
       settingsStore,
       emit: this.emit.bind(this)
     })
+    const auxiliaryGeneration = createAuxiliaryGenerationService({
+      createModelRuntime,
+      readToolModelSettings: () => this.configDomain.readToolModelSettings()
+    })
     this.runDomain = new YachiyoServerRunDomain({
       storage: this.storage,
       createId: this.createId,
       timestamp: this.timestamp.bind(this),
       emit: this.emit.bind(this),
+      auxiliaryGeneration,
       createModelRuntime,
       ensureThreadWorkspace,
       readConfig: () => this.configDomain.readConfig(),

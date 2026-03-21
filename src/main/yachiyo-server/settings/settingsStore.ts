@@ -5,14 +5,24 @@ import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
   DEFAULT_ENABLED_TOOL_NAMES,
   DEFAULT_SIDEBAR_VISIBILITY,
+  DEFAULT_TOOL_MODEL_MODE,
   normalizeActiveRunEnterBehavior,
   normalizeEnabledTools,
   normalizeSidebarVisibility,
+  normalizeToolModelMode,
   type ProviderConfig,
   type ProviderKind,
   type ProviderSettings,
-  type SettingsConfig
+  type SettingsConfig,
+  type ToolModelConfig
 } from '../../../shared/yachiyo/protocol.ts'
+import {
+  createDisabledToolModelConfig,
+  ensureProviderId,
+  syncToolModelWithProvider,
+  resolveToolModelProvider,
+  sanitizeProviderConfig
+} from '../../../shared/yachiyo/providerConfig.ts'
 
 export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   providers: [],
@@ -22,6 +32,12 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   },
   chat: {
     activeRunEnterBehavior: DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
+  },
+  toolModel: {
+    mode: DEFAULT_TOOL_MODEL_MODE,
+    providerId: '',
+    providerName: '',
+    model: ''
   }
 }
 
@@ -58,7 +74,8 @@ function normalizeProviderConfig(value: unknown, fallback?: ProviderConfig): Pro
       : undefined
   ).filter((model) => !enabled.includes(model))
 
-  return {
+  return sanitizeProviderConfig({
+    id: ensureProviderId(normalizeString(input['id'], fallback?.id ?? '')),
     name,
     type: normalizeProviderType(input['type'], fallback?.type ?? 'anthropic'),
     apiKey: normalizeString(input['apiKey'], fallback?.apiKey ?? ''),
@@ -67,6 +84,20 @@ function normalizeProviderConfig(value: unknown, fallback?: ProviderConfig): Pro
       enabled,
       disabled
     }
+  })
+}
+
+function normalizeToolModelConfig(
+  value: unknown,
+  fallback: ToolModelConfig = DEFAULT_SETTINGS_CONFIG.toolModel ?? {}
+): ToolModelConfig {
+  const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+
+  return {
+    mode: normalizeToolModelMode(input['mode'], fallback.mode ?? DEFAULT_TOOL_MODEL_MODE),
+    providerId: normalizeString(input['providerId'], fallback.providerId ?? ''),
+    providerName: normalizeString(input['providerName'], fallback.providerName ?? ''),
+    model: normalizeString(input['model'], fallback.model ?? '')
   }
 }
 
@@ -86,19 +117,40 @@ function resolvePrimaryModel(provider: ProviderConfig | null): string {
   return provider.modelList.enabled[0] ?? ''
 }
 
+function toResolvedProviderSettings(
+  provider: ProviderConfig | null,
+  model: string
+): ProviderSettings | null {
+  if (!provider) {
+    return null
+  }
+
+  return {
+    providerName: provider.name,
+    provider: provider.type,
+    model,
+    apiKey: provider.apiKey,
+    baseUrl: provider.baseUrl
+  }
+}
+
 export function normalizeSettingsConfig(value: unknown): SettingsConfig {
   const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
   const hasProviders = Array.isArray(input['providers'])
   const rawProviders = hasProviders ? (input['providers'] as unknown[]) : []
-  const seen = new Set<string>()
+  const seenIds = new Set<string>()
+  const seenNames = new Set<string>()
   const providers = rawProviders.flatMap((item) => {
     const provider = normalizeProviderConfig(item)
-    if (!provider || seen.has(provider.name)) {
+    if (!provider || seenIds.has(provider.id ?? '') || seenNames.has(provider.name)) {
       return []
     }
-    seen.add(provider.name)
+    seenIds.add(provider.id ?? '')
+    seenNames.add(provider.name)
     return [provider]
   })
+  const toolModel = normalizeToolModelConfig(input['toolModel'])
+  const resolvedToolProvider = resolveToolModelProvider({ providers }, toolModel)
 
   return {
     enabledTools: normalizeEnabledTools(
@@ -121,6 +173,12 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
         DEFAULT_SETTINGS_CONFIG.chat?.activeRunEnterBehavior
       )
     },
+    toolModel:
+      toolModel.mode === 'custom'
+        ? resolvedToolProvider
+          ? syncToolModelWithProvider(toolModel, resolvedToolProvider)
+          : createDisabledToolModelConfig()
+        : toolModel,
     providers: hasProviders ? providers : DEFAULT_SETTINGS_CONFIG.providers
   }
 }
@@ -159,7 +217,8 @@ export function parseSettingsToml(raw: string): SettingsConfig {
   const root: Record<string, unknown> = {}
   const providers: Array<Record<string, unknown>> = []
   let currentProvider: Record<string, unknown> | null = null
-  let section: 'root' | 'general' | 'chat' | 'provider' | 'provider.modelList' = 'root'
+  let section: 'root' | 'general' | 'chat' | 'toolModel' | 'provider' | 'provider.modelList' =
+    'root'
 
   for (const rawLine of raw.split(/\r?\n/u)) {
     const line = stripTomlComment(rawLine).trim()
@@ -174,6 +233,12 @@ export function parseSettingsToml(raw: string): SettingsConfig {
     if (line === '[chat]') {
       root['chat'] = root['chat'] ?? {}
       section = 'chat'
+      continue
+    }
+
+    if (line === '[toolModel]') {
+      root['toolModel'] = root['toolModel'] ?? {}
+      section = 'toolModel'
       continue
     }
 
@@ -236,6 +301,20 @@ export function parseSettingsToml(raw: string): SettingsConfig {
       continue
     }
 
+    if (section === 'toolModel') {
+      const toolModel =
+        root['toolModel'] && typeof root['toolModel'] === 'object'
+          ? (root['toolModel'] as Record<string, unknown>)
+          : null
+
+      if (!toolModel) {
+        throw new Error(`Tool model settings are not initialized for ${key}.`)
+      }
+
+      toolModel[key] = value
+      continue
+    }
+
     if (section === 'provider') {
       if (!currentProvider) {
         throw new Error(`Provider entry is not initialized for ${key}.`)
@@ -271,15 +350,17 @@ function stringifyTomlStringArray(values: string[]): string {
 }
 
 export function stringifySettingsToml(config: SettingsConfig): string {
+  const normalized = normalizeSettingsConfig(config)
+  const toolModel = normalizeToolModelConfig(normalized.toolModel)
   const lines: string[] = [
     `enabledTools = ${stringifyTomlStringArray(
-      normalizeEnabledTools(config.enabledTools, DEFAULT_SETTINGS_CONFIG.enabledTools)
+      normalizeEnabledTools(normalized.enabledTools, DEFAULT_SETTINGS_CONFIG.enabledTools)
     )}`,
     '',
     '[general]',
     `sidebarVisibility = ${stringifyTomlString(
       normalizeSidebarVisibility(
-        config.general?.sidebarVisibility,
+        normalized.general?.sidebarVisibility,
         DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility
       )
     )}`,
@@ -287,16 +368,23 @@ export function stringifySettingsToml(config: SettingsConfig): string {
     '[chat]',
     `activeRunEnterBehavior = ${stringifyTomlString(
       normalizeActiveRunEnterBehavior(
-        config.chat?.activeRunEnterBehavior,
+        normalized.chat?.activeRunEnterBehavior,
         DEFAULT_SETTINGS_CONFIG.chat?.activeRunEnterBehavior
       )
-    )}`
+    )}`,
+    '',
+    '[toolModel]',
+    `mode = ${stringifyTomlString(toolModel.mode ?? DEFAULT_TOOL_MODEL_MODE)}`,
+    `providerId = ${stringifyTomlString(toolModel.providerId ?? '')}`,
+    `providerName = ${stringifyTomlString(toolModel.providerName ?? '')}`,
+    `model = ${stringifyTomlString(toolModel.model ?? '')}`
   ]
 
-  for (const provider of config.providers) {
+  for (const provider of normalized.providers) {
     lines.push(
       '',
       '[[providers]]',
+      `id = ${stringifyTomlString(ensureProviderId(provider.id))}`,
       `name = ${stringifyTomlString(provider.name)}`,
       `type = ${stringifyTomlString(provider.type)}`,
       `apiKey = ${stringifyTomlString(provider.apiKey)}`,
@@ -315,13 +403,27 @@ export function toProviderSettings(config: SettingsConfig): ProviderSettings {
   const provider = resolvePrimaryProvider(config)
   const model = resolvePrimaryModel(provider)
 
-  return {
-    providerName: provider?.name ?? '',
-    provider: provider?.type ?? 'anthropic',
-    model,
-    apiKey: provider?.apiKey ?? '',
-    baseUrl: provider?.baseUrl ?? ''
+  return (
+    toResolvedProviderSettings(provider, model) ?? {
+      providerName: '',
+      provider: 'anthropic',
+      model: '',
+      apiKey: '',
+      baseUrl: ''
+    }
+  )
+}
+
+export function toToolModelSettings(config: SettingsConfig): ProviderSettings | null {
+  const normalizedConfig = normalizeSettingsConfig(config)
+  const toolModel = normalizeToolModelConfig(normalizedConfig.toolModel)
+
+  if (toolModel.mode === 'disabled') {
+    return null
   }
+
+  const provider = resolveToolModelProvider(normalizedConfig, toolModel)
+  return toResolvedProviderSettings(provider, toolModel.model ?? '')
 }
 
 export interface SettingsStore {

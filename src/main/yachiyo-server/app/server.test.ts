@@ -366,7 +366,7 @@ function createServerEventWaiter(server: YachiyoServer): {
 }
 
 test('YachiyoServer streams a reply and persists the completed thread state', async () => {
-  await withServer(async ({ server, completeRun }) => {
+  await withServer(async ({ server, completeRun, modelRequests }) => {
     await server.upsertProvider({
       name: 'work',
       type: 'openai',
@@ -398,7 +398,186 @@ test('YachiyoServer streams a reply and persists the completed thread state', as
     assert.equal(messages[1]?.providerName, 'work')
     assert.equal(bootstrap.threads[0]?.title, 'Plan the MVP')
     assert.equal(bootstrap.threads[0]?.preview, 'Hello world')
+    assert.equal(modelRequests.length, 1)
   })
+})
+
+test('YachiyoServer can refine the fallback thread title with the configured tool model', async () => {
+  const requests: ModelStreamRequest[] = []
+  let releaseMainRun: (() => void) | null = null
+  const mainRunGate = new Promise<void>((resolve) => {
+    releaseMainRun = resolve
+  })
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: ['gpt-5-mini']
+        }
+      })
+
+      await server.saveConfig({
+        ...(await server.getConfig()),
+        toolModel: {
+          mode: 'custom',
+          providerName: 'work',
+          model: 'gpt-5-mini'
+        }
+      })
+
+      const waiter = createServerEventWaiter(server)
+
+      try {
+        const thread = await server.createThread()
+        const titleUpdatedEvent = waiter.waitForEvent(
+          'thread.updated',
+          (event) => event.threadId === thread.id && event.thread.title === 'MVP execution plan'
+        )
+
+        const accepted = await server.sendChat({
+          threadId: thread.id,
+          content: 'Plan the MVP'
+        })
+
+        const titleUpdate = await Promise.race([
+          titleUpdatedEvent,
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Timed out waiting for title update')), 1000)
+          })
+        ])
+
+        releaseMainRun?.()
+        await completeRun(accepted.runId)
+        const bootstrap = await server.bootstrap()
+        const auxiliaryRequest = requests.find(
+          (request) => request.providerOptionsMode === 'auxiliary'
+        )
+        const mainRequest = requests.find((request) => request.providerOptionsMode !== 'auxiliary')
+
+        assert.equal(titleUpdate.thread.title, 'MVP execution plan')
+        assert.equal(bootstrap.threads[0]?.title, 'MVP execution plan')
+        assert.equal(requests.length, 2)
+        assert.equal(mainRequest?.settings.model, 'gpt-5')
+        assert.equal(auxiliaryRequest?.settings.model, 'gpt-5-mini')
+        assert.equal(auxiliaryRequest?.providerOptionsMode, 'auxiliary')
+        assert.equal(auxiliaryRequest?.messages.length, 1)
+        assert.match(
+          typeof auxiliaryRequest?.messages[0]?.content === 'string'
+            ? auxiliaryRequest.messages[0].content
+            : '',
+          /User query:/u
+        )
+        assert.match(
+          typeof auxiliaryRequest?.messages[0]?.content === 'string'
+            ? auxiliaryRequest.messages[0].content
+            : '',
+          /Use the same language as the user query\./u
+        )
+        assert.match(
+          typeof auxiliaryRequest?.messages[0]?.content === 'string'
+            ? auxiliaryRequest.messages[0].content
+            : '',
+          /Do not repeat the user query verbatim\./u
+        )
+        assert.match(
+          typeof auxiliaryRequest?.messages[0]?.content === 'string'
+            ? auxiliaryRequest.messages[0].content
+            : '',
+          /Examples:/u
+        )
+        assert.doesNotMatch(
+          typeof auxiliaryRequest?.messages[0]?.content === 'string'
+            ? auxiliaryRequest.messages[0].content
+            : '',
+          /Conversation:/u
+        )
+      } finally {
+        waiter.close()
+      }
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          if (request.providerOptionsMode === 'auxiliary') {
+            yield 'MVP execution plan'
+            return
+          }
+
+          await mainRunGate
+          yield 'Hello'
+          yield ' world'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer keeps the simple fallback title when tool-model title generation fails', async () => {
+  const requests: ModelStreamRequest[] = []
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: ['gpt-5-mini']
+        }
+      })
+
+      await server.saveConfig({
+        ...(await server.getConfig()),
+        toolModel: {
+          mode: 'custom',
+          providerName: 'work',
+          model: 'gpt-5-mini'
+        }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Plan the MVP'
+      })
+
+      await completeRun(accepted.runId)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      const bootstrap = await server.bootstrap()
+      const auxiliaryRequest = requests.find(
+        (request) => request.providerOptionsMode === 'auxiliary'
+      )
+      assert.equal(bootstrap.threads[0]?.title, 'Plan the MVP')
+      assert.equal(requests.length, 2)
+      assert.equal(auxiliaryRequest?.settings.model, 'gpt-5-mini')
+      assert.equal(auxiliaryRequest?.providerOptionsMode, 'auxiliary')
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          if (request.providerOptionsMode === 'auxiliary') {
+            throw new Error('Tool model unavailable')
+          }
+
+          yield 'Hello'
+          yield ' world'
+        }
+      })
+    }
+  )
 })
 
 test('YachiyoServer snapshots the enabled tool subset and prepends hidden reminder context after tool changes', async () => {
@@ -2025,6 +2204,34 @@ test('YachiyoServer manages provider config and active model state', async () =>
     assert.equal(snapshot.provider, 'openai')
     assert.equal(snapshot.model, 'gpt-4.1')
     assert.equal(snapshot.apiKey, 'sk-openai')
+  })
+})
+
+test('YachiyoServer updates an existing provider by id when the name changes', async () => {
+  await withServer(async ({ server }) => {
+    const provider = await server.upsertProvider({
+      id: 'provider-work',
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-openai',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    })
+
+    await server.upsertProvider({
+      ...provider,
+      name: 'work-renamed'
+    })
+
+    const config = await server.getConfig()
+
+    assert.equal(config.providers.length, 1)
+    assert.equal(config.providers[0]?.id, 'provider-work')
+    assert.equal(config.providers[0]?.name, 'work-renamed')
+    assert.equal(config.providers[0]?.apiKey, 'sk-openai')
   })
 })
 
