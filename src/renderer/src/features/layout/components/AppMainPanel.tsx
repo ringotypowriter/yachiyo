@@ -82,6 +82,16 @@ export function AppMainPanel({
     }
   }
 
+  async function handleOpenThreadWorkspace(): Promise<void> {
+    if (!activeThread) return
+
+    try {
+      await window.api.yachiyo.openThreadWorkspace({ threadId: activeThread.id })
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to open the workspace.')
+    }
+  }
+
   return (
     <div className="flex flex-col flex-1 h-full min-w-0" style={{ background: '#F9F9F7' }}>
       <AppMainPanelHeader
@@ -98,6 +108,7 @@ export function AppMainPanel({
         onCancelRename={handleCancelRename}
         onCommitRename={commitTitleRename}
         onDraftTitleChange={(nextTitle) => setDraftTitle(nextTitle)}
+        onOpenThreadWorkspace={handleOpenThreadWorkspace}
         onStartRename={handleStartRename}
         onToggleSidebar={onToggleSidebar}
         showSidebarToggle={showSidebarToggle}

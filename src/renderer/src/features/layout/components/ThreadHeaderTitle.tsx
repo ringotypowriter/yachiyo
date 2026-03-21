@@ -1,4 +1,4 @@
-import { Check, X } from 'lucide-react'
+import { Check, FolderOpen, X } from 'lucide-react'
 import type { Thread } from '@renderer/app/types'
 
 export interface ThreadHeaderTitleProps {
@@ -10,6 +10,7 @@ export interface ThreadHeaderTitleProps {
   onCancelRename: () => void
   onCommitRename: () => Promise<void>
   onDraftTitleChange: (nextTitle: string) => void
+  onOpenThreadWorkspace: () => Promise<void>
 }
 
 function resolveThreadSubtitle(isBootstrapping: boolean, messageCount: number): string {
@@ -32,7 +33,8 @@ export function ThreadHeaderTitle({
   messageCount,
   onCancelRename,
   onCommitRename,
-  onDraftTitleChange
+  onDraftTitleChange,
+  onOpenThreadWorkspace
 }: ThreadHeaderTitleProps): React.JSX.Element {
   const subtitle = resolveThreadSubtitle(isBootstrapping, messageCount)
 
@@ -83,12 +85,25 @@ export function ThreadHeaderTitle({
           </button>
         </div>
       ) : (
-        <span
-          className="text-sm font-semibold truncate"
-          style={{ color: '#2D2D2B', letterSpacing: '-0.2px' }}
-        >
-          {activeThread?.title ?? 'Start a conversation'}
-        </span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span
+            className="text-sm font-semibold truncate"
+            style={{ color: '#2D2D2B', letterSpacing: '-0.2px' }}
+          >
+            {activeThread?.title ?? 'Start a conversation'}
+          </span>
+          {activeThread ? (
+            <button
+              onClick={() => void onOpenThreadWorkspace()}
+              className="no-drag shrink-0 rounded-md p-1 transition-opacity opacity-55 hover:opacity-100"
+              style={{ color: '#5b5a57' }}
+              title="Open workspace in Finder"
+              aria-label="Open workspace in Finder"
+            >
+              <FolderOpen size={14} strokeWidth={1.7} />
+            </button>
+          ) : null}
+        </div>
       )}
       <span className="text-xs font-medium" style={{ color: '#8e8e93' }}>
         {subtitle}

@@ -15,6 +15,7 @@ import {
   type YachiyoServer
 } from './yachiyo-server/app/YachiyoServer.ts'
 import { resolveYachiyoDbPath, resolveYachiyoSettingsPath } from './yachiyo-server/config/paths.ts'
+import { openThreadWorkspace } from './openThreadWorkspace.ts'
 
 const IPC_CHANNELS = {
   archiveThread: 'yachiyo:archive-thread',
@@ -33,6 +34,7 @@ const IPC_CHANNELS = {
   renameThread: 'yachiyo:rename-thread',
   removeProvider: 'yachiyo:remove-provider',
   listWebSearchBrowserImportSources: 'yachiyo:list-web-search-browser-import-sources',
+  openThreadWorkspace: 'yachiyo:open-thread-workspace',
   retryMessage: 'yachiyo:retry-message',
   saveConfig: 'yachiyo:save-config',
   saveSettings: 'yachiyo:save-settings',
@@ -109,6 +111,9 @@ export function registerYachiyoGateway(): YachiyoServer {
     server!.renameThread(input)
   )
   handle(IPC_CHANNELS.archiveThread, (input: { threadId: string }) => server!.archiveThread(input))
+  handle(IPC_CHANNELS.openThreadWorkspace, (input: { threadId: string }) =>
+    openThreadWorkspace(input.threadId)
+  )
   handle(IPC_CHANNELS.saveToolPreferences, (input: ToolPreferencesInput) =>
     server!.saveToolPreferences(input)
   )

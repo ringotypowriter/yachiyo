@@ -27,6 +27,7 @@ declare global {
         createBranch: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>
         createThread: () => Promise<ThreadRecord>
         deleteMessage: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>
+        openThreadWorkspace: (input: { threadId: string }) => Promise<void>
         renameThread: (input: { threadId: string; title: string }) => Promise<ThreadRecord>
         saveToolPreferences: (input: ToolPreferencesInput) => Promise<SettingsConfig>
         sendChat: (input: SendChatInput) => Promise<ChatAccepted>

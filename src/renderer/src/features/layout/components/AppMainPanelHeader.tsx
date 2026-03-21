@@ -17,6 +17,7 @@ export interface AppMainPanelHeaderProps {
   onCancelRename: () => void
   onCommitRename: () => Promise<void>
   onDraftTitleChange: (nextTitle: string) => void
+  onOpenThreadWorkspace: () => Promise<void>
   onStartRename: () => void
   onToggleSidebar: () => void
   showSidebarToggle: boolean
@@ -37,6 +38,7 @@ export function AppMainPanelHeader({
   onCancelRename,
   onCommitRename,
   onDraftTitleChange,
+  onOpenThreadWorkspace,
   onStartRename,
   onToggleSidebar,
   showSidebarToggle,
@@ -74,6 +76,7 @@ export function AppMainPanelHeader({
           onCancelRename={onCancelRename}
           onCommitRename={onCommitRename}
           onDraftTitleChange={onDraftTitleChange}
+          onOpenThreadWorkspace={onOpenThreadWorkspace}
         />
       </div>
 

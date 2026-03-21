@@ -22,6 +22,8 @@ const api = {
     createThread: () => ipcRenderer.invoke('yachiyo:create-thread'),
     deleteMessage: (input: { threadId: string; messageId: string }) =>
       ipcRenderer.invoke('yachiyo:delete-message', input),
+    openThreadWorkspace: (input: { threadId: string }) =>
+      ipcRenderer.invoke('yachiyo:open-thread-workspace', input),
     renameThread: (input: { threadId: string; title: string }) =>
       ipcRenderer.invoke('yachiyo:rename-thread', input),
     saveToolPreferences: (input: ToolPreferencesInput) =>
