@@ -1,4 +1,4 @@
-import { access, cp, mkdir } from 'node:fs/promises'
+import { access, cp, mkdir, rm } from 'node:fs/promises'
 
 import { resolveThreadWorkspacePath } from '../config/paths.ts'
 
@@ -33,4 +33,11 @@ export async function cloneThreadWorkspace(
   })
 
   return targetWorkspacePath
+}
+
+export async function deleteThreadWorkspace(threadId: string): Promise<void> {
+  await rm(resolveThreadWorkspacePath(threadId), {
+    force: true,
+    recursive: true
+  })
 }

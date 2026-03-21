@@ -2,7 +2,9 @@ import type {
   MessageRecord,
   ThreadArchivedEvent,
   ThreadCreatedEvent,
+  ThreadDeletedEvent,
   ThreadRecord,
+  ThreadRestoredEvent,
   ThreadSnapshot,
   ThreadStateReplacedEvent,
   ThreadUpdatedEvent,
@@ -31,6 +33,7 @@ interface ThreadDomainDeps {
   emit: EmitServerEvent
   ensureThreadWorkspace: (threadId: string) => Promise<string>
   cloneThreadWorkspace: (sourceThreadId: string, targetThreadId: string) => Promise<string>
+  deleteThreadWorkspace: (threadId: string) => Promise<void>
   requireThread: (threadId: string) => ThreadRecord
   isThreadRunning: (threadId: string) => boolean
 }
@@ -170,6 +173,11 @@ export class YachiyoServerThreadDomain {
       throw new Error('Cannot archive a thread with an active run.')
     }
     const timestamp = this.deps.timestamp()
+    const archivedThread: ThreadRecord = {
+      ...thread,
+      archivedAt: timestamp,
+      updatedAt: timestamp
+    }
 
     this.deps.storage.archiveThread({
       threadId: thread.id,
@@ -179,6 +187,51 @@ export class YachiyoServerThreadDomain {
 
     this.deps.emit<ThreadArchivedEvent>({
       type: 'thread.archived',
+      threadId: thread.id,
+      thread: archivedThread
+    })
+  }
+
+  restoreThread(input: { threadId: string }): ThreadRecord {
+    const thread = this.requireArchivedThread(input.threadId)
+    const timestamp = this.deps.timestamp()
+    const restoredThread: ThreadRecord = {
+      ...thread,
+      updatedAt: timestamp
+    }
+    delete restoredThread.archivedAt
+
+    this.deps.storage.restoreThread({
+      threadId: thread.id,
+      updatedAt: timestamp
+    })
+
+    this.deps.emit<ThreadRestoredEvent>({
+      type: 'thread.restored',
+      threadId: restoredThread.id,
+      thread: restoredThread
+    })
+
+    return restoredThread
+  }
+
+  async deleteThread(input: { threadId: string }): Promise<void> {
+    const activeThread = this.deps.storage.getThread(input.threadId)
+    const archivedThread = this.deps.storage.getArchivedThread(input.threadId)
+    const thread = activeThread ?? archivedThread
+
+    if (!thread) {
+      throw new Error(`Unknown thread: ${input.threadId}`)
+    }
+
+    if (this.deps.isThreadRunning(thread.id)) {
+      throw new Error('Cannot delete a thread with an active run.')
+    }
+
+    await this.deps.deleteThreadWorkspace(thread.id)
+    this.deps.storage.deleteThread({ threadId: thread.id })
+    this.deps.emit<ThreadDeletedEvent>({
+      type: 'thread.deleted',
       threadId: thread.id
     })
   }
@@ -373,5 +426,14 @@ export class YachiyoServerThreadDomain {
 
   private loadThreadToolCalls(threadId: string): ToolCallRecord[] {
     return this.deps.storage.listThreadToolCalls(threadId)
+  }
+
+  private requireArchivedThread(threadId: string): ThreadRecord {
+    const thread = this.deps.storage.getArchivedThread(threadId)
+    if (!thread) {
+      throw new Error(`Unknown archived thread: ${threadId}`)
+    }
+
+    return thread
   }
 }

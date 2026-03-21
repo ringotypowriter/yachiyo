@@ -28,6 +28,13 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     }
     return thread
   }
+  const readArchivedThread = (threadId: string): StoredThreadRow | undefined => {
+    const thread = threads.get(threadId)
+    if (!thread || thread.archivedAt === null) {
+      return undefined
+    }
+    return thread
+  }
 
   const sortByCreatedAt = <T extends { createdAt: string }>(items: T[]): T[] =>
     [...items].sort((left, right) => left.createdAt.localeCompare(right.createdAt))
@@ -64,15 +71,20 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     },
 
     bootstrap() {
-      const activeThreads = [...threads.values()]
-        .filter((thread) => thread.archivedAt === null)
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-
-      const threadIds = new Set(activeThreads.map((thread) => thread.id))
-      const activeMessages = sortByCreatedAt(
+      const sortedThreads = [...threads.values()].sort((left, right) =>
+        right.updatedAt.localeCompare(left.updatedAt)
+      )
+      const activeThreads = sortedThreads.filter((thread) => thread.archivedAt === null)
+      const archivedThreads = sortedThreads.filter((thread) => thread.archivedAt !== null)
+      const threadIds = new Set(sortedThreads.map((thread) => thread.id))
+      const allMessages = sortByCreatedAt(
         messages.filter((message) => threadIds.has(message.threadId))
       )
-
+      const allToolCalls = sortToolCalls(
+        [...toolCalls.values()]
+          .filter((toolCall) => threadIds.has(toolCall.threadId))
+          .map(toToolCallRecordWithRun)
+      )
       const latestRunsByThread = groupLatestRunsByThread(
         [...runs.values()]
           .filter((run) => threadIds.has(run.threadId))
@@ -81,16 +93,11 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       )
 
       return {
+        archivedThreads: archivedThreads.map(toThreadRecord),
         latestRunsByThread,
         threads: activeThreads.map(toThreadRecord),
-        messagesByThread: groupMessagesByThread(activeMessages),
-        toolCallsByThread: groupToolCallsByThread(
-          sortToolCalls(
-            [...toolCalls.values()]
-              .filter((toolCall) => threadIds.has(toolCall.threadId))
-              .map(toToolCallRecordWithRun)
-          )
-        )
+        messagesByThread: groupMessagesByThread(allMessages),
+        toolCallsByThread: groupToolCallsByThread(allToolCalls)
       }
     },
 
@@ -131,6 +138,11 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       return thread ? toThreadRecord(thread) : undefined
     },
 
+    getArchivedThread(threadId) {
+      const thread = readArchivedThread(threadId)
+      return thread ? toThreadRecord(thread) : undefined
+    },
+
     createThread({ thread, createdAt, messages: initialMessages = [] }) {
       threads.set(thread.id, {
         id: thread.id,
@@ -168,6 +180,37 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
       thread.archivedAt = archivedAt
       thread.updatedAt = updatedAt
+    },
+
+    restoreThread({ threadId, updatedAt }) {
+      const thread = readArchivedThread(threadId)
+      if (!thread) {
+        return
+      }
+
+      thread.archivedAt = null
+      thread.updatedAt = updatedAt
+    },
+
+    deleteThread({ threadId }) {
+      threads.delete(threadId)
+
+      const nextMessages = messages.filter((message) => message.threadId !== threadId)
+      messages.length = 0
+      messages.push(...nextMessages)
+
+      const deletedRunIds = new Set(
+        [...runs.values()].filter((run) => run.threadId === threadId).map((run) => run.id)
+      )
+      for (const runId of deletedRunIds) {
+        runs.delete(runId)
+      }
+
+      for (const [toolCallId, toolCall] of toolCalls.entries()) {
+        if (toolCall.threadId === threadId || deletedRunIds.has(toolCall.runId)) {
+          toolCalls.delete(toolCallId)
+        }
+      }
     },
 
     updateThread(nextThread) {

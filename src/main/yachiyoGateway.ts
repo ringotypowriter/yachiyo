@@ -19,6 +19,7 @@ import { openThreadWorkspace } from './openThreadWorkspace.ts'
 
 const IPC_CHANNELS = {
   archiveThread: 'yachiyo:archive-thread',
+  deleteThread: 'yachiyo:delete-thread',
   disableProviderModel: 'yachiyo:disable-provider-model',
   fetchProviderModels: 'yachiyo:fetch-provider-models',
   importWebSearchBrowserSession: 'yachiyo:import-web-search-browser-session',
@@ -35,6 +36,7 @@ const IPC_CHANNELS = {
   removeProvider: 'yachiyo:remove-provider',
   listWebSearchBrowserImportSources: 'yachiyo:list-web-search-browser-import-sources',
   openThreadWorkspace: 'yachiyo:open-thread-workspace',
+  restoreThread: 'yachiyo:restore-thread',
   retryMessage: 'yachiyo:retry-message',
   saveConfig: 'yachiyo:save-config',
   saveSettings: 'yachiyo:save-settings',
@@ -111,9 +113,11 @@ export function registerYachiyoGateway(): YachiyoServer {
     server!.renameThread(input)
   )
   handle(IPC_CHANNELS.archiveThread, (input: { threadId: string }) => server!.archiveThread(input))
+  handle(IPC_CHANNELS.deleteThread, (input: { threadId: string }) => server!.deleteThread(input))
   handle(IPC_CHANNELS.openThreadWorkspace, (input: { threadId: string }) =>
     openThreadWorkspace(input.threadId)
   )
+  handle(IPC_CHANNELS.restoreThread, (input: { threadId: string }) => server!.restoreThread(input))
   handle(IPC_CHANNELS.saveToolPreferences, (input: ToolPreferencesInput) =>
     server!.saveToolPreferences(input)
   )

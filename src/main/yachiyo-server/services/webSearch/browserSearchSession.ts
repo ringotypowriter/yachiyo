@@ -18,10 +18,7 @@ const CHROME_REQUIRED_COPY_ENTRIES = [
   'WebStorage'
 ] as const
 
-const CHROME_OPTIONAL_COPY_ENTRIES = [
-  'QuotaManager',
-  'QuotaManager-journal',
-] as const
+const CHROME_OPTIONAL_COPY_ENTRIES = ['QuotaManager', 'QuotaManager-journal'] as const
 
 export interface BrowserSearchPage {
   evaluate<TResult>(script: string): Promise<TResult>

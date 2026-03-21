@@ -20,12 +20,16 @@ const api = {
     createBranch: (input: { threadId: string; messageId: string }) =>
       ipcRenderer.invoke('yachiyo:create-branch', input),
     createThread: () => ipcRenderer.invoke('yachiyo:create-thread'),
+    deleteThread: (input: { threadId: string }) =>
+      ipcRenderer.invoke('yachiyo:delete-thread', input),
     deleteMessage: (input: { threadId: string; messageId: string }) =>
       ipcRenderer.invoke('yachiyo:delete-message', input),
     openThreadWorkspace: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:open-thread-workspace', input),
     renameThread: (input: { threadId: string; title: string }) =>
       ipcRenderer.invoke('yachiyo:rename-thread', input),
+    restoreThread: (input: { threadId: string }) =>
+      ipcRenderer.invoke('yachiyo:restore-thread', input),
     saveToolPreferences: (input: ToolPreferencesInput) =>
       ipcRenderer.invoke('yachiyo:save-tool-preferences', input),
     sendChat: (input: SendChatInput) => ipcRenderer.invoke('yachiyo:send-chat', input),

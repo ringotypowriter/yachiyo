@@ -39,6 +39,7 @@ import { createSqliteYachiyoStorage } from '../storage/sqlite/database.ts'
 import type { YachiyoStorage } from '../storage/storage.ts'
 import {
   cloneThreadWorkspace as defaultCloneThreadWorkspace,
+  deleteThreadWorkspace as defaultDeleteThreadWorkspace,
   ensureThreadWorkspace as defaultEnsureThreadWorkspace
 } from '../threads/threadWorkspace.ts'
 import { YachiyoServerConfigDomain } from './domain/configDomain.ts'
@@ -53,6 +54,7 @@ export interface YachiyoServerOptions {
   createModelRuntime?: () => ModelRuntime
   ensureThreadWorkspace?: (threadId: string) => Promise<string>
   cloneThreadWorkspace?: (sourceThreadId: string, targetThreadId: string) => Promise<string>
+  deleteThreadWorkspace?: (threadId: string) => Promise<void>
 }
 
 export interface SqliteYachiyoServerOptions extends Omit<YachiyoServerOptions, 'storage'> {
@@ -93,6 +95,7 @@ export class YachiyoServer {
     const createModelRuntime = options.createModelRuntime ?? (() => createAiSdkModelRuntime())
     const ensureThreadWorkspace = options.ensureThreadWorkspace ?? defaultEnsureThreadWorkspace
     const cloneThreadWorkspace = options.cloneThreadWorkspace ?? defaultCloneThreadWorkspace
+    const deleteThreadWorkspace = options.deleteThreadWorkspace ?? defaultDeleteThreadWorkspace
     this.browserSearchSession = new BrowserSearchSession({
       pageFactory: createElectronBrowserSearchPageFactory({
         log: YachiyoServer.logBrowserSearchDiagnostic
@@ -152,6 +155,7 @@ export class YachiyoServer {
       emit: this.emit.bind(this),
       ensureThreadWorkspace,
       cloneThreadWorkspace,
+      deleteThreadWorkspace,
       requireThread: this.requireThread.bind(this),
       isThreadRunning: (threadId) => this.runDomain.hasActiveThread(threadId)
     })
@@ -177,13 +181,14 @@ export class YachiyoServer {
     this.recoverInterruptedRuns()
     const recoveredQueuedFollowUps = this.runDomain.prepareRecoveredQueuedFollowUps()
 
-    const { threads, messagesByThread, toolCallsByThread, latestRunsByThread } =
+    const { archivedThreads, threads, messagesByThread, toolCallsByThread, latestRunsByThread } =
       this.storage.bootstrap()
 
     this.runDomain.scheduleRecoveredQueuedFollowUps(recoveredQueuedFollowUps)
 
     return {
       threads,
+      archivedThreads,
       messagesByThread,
       toolCallsByThread,
       latestRunsByThread,
@@ -252,6 +257,14 @@ export class YachiyoServer {
 
   async archiveThread(input: { threadId: string }): Promise<void> {
     this.threadDomain.archiveThread(input)
+  }
+
+  async restoreThread(input: { threadId: string }): Promise<ThreadRecord> {
+    return this.threadDomain.restoreThread(input)
+  }
+
+  async deleteThread(input: { threadId: string }): Promise<void> {
+    await this.threadDomain.deleteThread(input)
   }
 
   async sendChat(input: SendChatInput): Promise<ChatAccepted> {

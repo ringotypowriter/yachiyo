@@ -14,10 +14,12 @@ const READY_SETTINGS = {
 
 function resetStore(): void {
   useAppStore.setState({
+    activeArchivedThreadId: null,
     activeRunId: null,
     activeRequestMessageId: null,
     activeRunThreadId: null,
     activeThreadId: null,
+    archivedThreads: [],
     composerDrafts: {},
     config: null,
     connectionStatus: 'connected',
@@ -32,6 +34,7 @@ function resetStore(): void {
     runPhase: 'idle',
     runStatus: 'idle',
     settings: DEFAULT_SETTINGS,
+    threadListMode: 'active',
     threads: [],
     toolCalls: {}
   })
@@ -268,6 +271,90 @@ test('applyServerEvent replaces a thread snapshot after branch-aware history edi
   assert.equal(state.toolCalls['thread-1']?.length, 1)
   assert.equal(state.toolCalls['thread-1']?.[0]?.toolName, 'bash')
   assert.equal(state.toolCalls['thread-1']?.[0]?.cwd, '/tmp/thread-1')
+})
+
+test('applyServerEvent moves archived threads between active and archived collections', () => {
+  resetStore()
+
+  useAppStore.setState({
+    activeThreadId: 'thread-1',
+    threads: [
+      {
+        id: 'thread-1',
+        title: 'Thread one',
+        updatedAt: TIMESTAMP
+      },
+      {
+        id: 'thread-2',
+        title: 'Thread two',
+        updatedAt: '2026-03-15T00:00:01.000Z'
+      }
+    ]
+  })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'thread.archived',
+    eventId: 'event-thread-archived',
+    timestamp: '2026-03-15T00:00:02.000Z',
+    threadId: 'thread-1',
+    thread: {
+      id: 'thread-1',
+      title: 'Thread one',
+      updatedAt: '2026-03-15T00:00:02.000Z',
+      archivedAt: '2026-03-15T00:00:02.000Z'
+    }
+  })
+
+  let state = useAppStore.getState()
+  assert.deepEqual(
+    state.threads.map((thread) => thread.id),
+    ['thread-2']
+  )
+  assert.deepEqual(
+    state.archivedThreads.map((thread) => thread.id),
+    ['thread-1']
+  )
+  assert.equal(state.activeThreadId, 'thread-2')
+
+  useAppStore.setState({
+    threadListMode: 'archived',
+    activeArchivedThreadId: 'thread-1'
+  })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'thread.restored',
+    eventId: 'event-thread-restored',
+    timestamp: '2026-03-15T00:00:03.000Z',
+    threadId: 'thread-1',
+    thread: {
+      id: 'thread-1',
+      title: 'Thread one',
+      updatedAt: '2026-03-15T00:00:03.000Z'
+    }
+  })
+
+  state = useAppStore.getState()
+  assert.deepEqual(
+    state.threads.map((thread) => thread.id),
+    ['thread-1', 'thread-2']
+  )
+  assert.deepEqual(state.archivedThreads, [])
+  assert.equal(state.activeThreadId, 'thread-1')
+  assert.equal(state.threadListMode, 'active')
+
+  useAppStore.getState().applyServerEvent({
+    type: 'thread.deleted',
+    eventId: 'event-thread-deleted',
+    timestamp: '2026-03-15T00:00:04.000Z',
+    threadId: 'thread-1'
+  })
+
+  state = useAppStore.getState()
+  assert.deepEqual(
+    state.threads.map((thread) => thread.id),
+    ['thread-2']
+  )
+  assert.equal(state.activeThreadId, 'thread-2')
 })
 
 test('applyServerEvent retargets the active request when an active thread head moves to a steer user', () => {

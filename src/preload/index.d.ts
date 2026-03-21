@@ -26,9 +26,11 @@ declare global {
         bootstrap: () => Promise<BootstrapPayload>
         createBranch: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>
         createThread: () => Promise<ThreadRecord>
+        deleteThread: (input: { threadId: string }) => Promise<void>
         deleteMessage: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>
         openThreadWorkspace: (input: { threadId: string }) => Promise<void>
         renameThread: (input: { threadId: string; title: string }) => Promise<ThreadRecord>
+        restoreThread: (input: { threadId: string }) => Promise<ThreadRecord>
         saveToolPreferences: (input: ToolPreferencesInput) => Promise<SettingsConfig>
         sendChat: (input: SendChatInput) => Promise<ChatAccepted>
         retryMessage: (input: RetryInput) => Promise<RetryAccepted>

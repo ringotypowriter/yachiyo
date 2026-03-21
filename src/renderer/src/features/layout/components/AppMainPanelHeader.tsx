@@ -1,24 +1,17 @@
 import { PanelLeft } from 'lucide-react'
-import type { ConnectionStatus, Thread } from '@renderer/app/types'
+import type { Thread } from '@renderer/app/types'
 import { ThreadHeaderActions } from '@renderer/features/layout/components/ThreadHeaderActions'
 import { ThreadHeaderTitle } from '@renderer/features/layout/components/ThreadHeaderTitle'
+import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 
 export interface AppMainPanelHeaderProps {
   activeThread: Thread | null
-  connectionStatus: ConnectionStatus
-  draftTitle: string
   headerPaddingLeft: number
-  isArchiveDisabled: boolean
   isBootstrapping: boolean
-  isEditingTitle: boolean
   isSidebarToggleDisabled: boolean
   messageCount: number
-  onArchiveThread: () => Promise<void>
-  onCancelRename: () => void
-  onCommitRename: () => Promise<void>
-  onDraftTitleChange: (nextTitle: string) => void
   onOpenThreadWorkspace: () => Promise<void>
-  onStartRename: () => void
+  onSelectThreadOperation: (operationKey: ThreadContextOperationKey) => void
   onToggleSidebar: () => void
   showSidebarToggle: boolean
   toggleSidebarTitle: string
@@ -26,20 +19,12 @@ export interface AppMainPanelHeaderProps {
 
 export function AppMainPanelHeader({
   activeThread,
-  connectionStatus,
-  draftTitle,
   headerPaddingLeft,
-  isArchiveDisabled,
   isBootstrapping,
-  isEditingTitle,
   isSidebarToggleDisabled,
   messageCount,
-  onArchiveThread,
-  onCancelRename,
-  onCommitRename,
-  onDraftTitleChange,
   onOpenThreadWorkspace,
-  onStartRename,
+  onSelectThreadOperation,
   onToggleSidebar,
   showSidebarToggle,
   toggleSidebarTitle
@@ -69,24 +54,16 @@ export function AppMainPanelHeader({
         ) : null}
         <ThreadHeaderTitle
           activeThread={activeThread}
-          draftTitle={draftTitle}
           isBootstrapping={isBootstrapping}
-          isEditing={isEditingTitle}
           messageCount={messageCount}
-          onCancelRename={onCancelRename}
-          onCommitRename={onCommitRename}
-          onDraftTitleChange={onDraftTitleChange}
           onOpenThreadWorkspace={onOpenThreadWorkspace}
         />
       </div>
 
       <ThreadHeaderActions
         activeThread={activeThread}
-        connectionStatus={connectionStatus}
-        isArchiveDisabled={isArchiveDisabled}
-        isEditingTitle={isEditingTitle}
-        onArchiveThread={onArchiveThread}
-        onStartRename={onStartRename}
+        isRenameDisabled={false}
+        onSelectOperation={onSelectThreadOperation}
       />
     </div>
   )

@@ -40,6 +40,7 @@ export interface StoredMessageRow {
 
 export interface BootstrapState {
   threads: ThreadRecord[]
+  archivedThreads: ThreadRecord[]
   messagesByThread: Record<string, MessageRecord[]>
   toolCallsByThread: Record<string, ToolCallRecord[]>
   latestRunsByThread: Record<string, RunRecord>
@@ -114,9 +115,12 @@ export interface YachiyoStorage {
   bootstrap(): BootstrapState
   recoverInterruptedRuns(input: { finishedAt: string; error: string }): void
   getThread(threadId: string): ThreadRecord | undefined
+  getArchivedThread(threadId: string): ThreadRecord | undefined
   createThread(input: CreateThreadInput): void
   renameThread(input: { threadId: string; title: string; updatedAt: string }): void
   archiveThread(input: { threadId: string; archivedAt: string; updatedAt: string }): void
+  restoreThread(input: { threadId: string; updatedAt: string }): void
+  deleteThread(input: { threadId: string }): void
   updateThread(thread: ThreadRecord): void
   saveThreadMessage(input: SaveThreadMessageInput): void
   startRun(input: StartRunInput): void
@@ -136,6 +140,7 @@ export function toThreadRecord(
     StoredThreadRow,
     | 'branchFromMessageId'
     | 'branchFromThreadId'
+    | 'archivedAt'
     | 'headMessageId'
     | 'id'
     | 'preview'
@@ -149,6 +154,7 @@ export function toThreadRecord(
 
   if (row.preview === null) {
     return {
+      ...(row.archivedAt === null ? {} : { archivedAt: row.archivedAt }),
       ...(row.branchFromMessageId === null ? {} : { branchFromMessageId: row.branchFromMessageId }),
       ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
       ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
@@ -163,6 +169,7 @@ export function toThreadRecord(
   }
 
   return {
+    ...(row.archivedAt === null ? {} : { archivedAt: row.archivedAt }),
     ...(row.branchFromMessageId === null ? {} : { branchFromMessageId: row.branchFromMessageId }),
     ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
     ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),

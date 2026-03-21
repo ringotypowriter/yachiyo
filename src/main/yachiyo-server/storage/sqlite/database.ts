@@ -88,8 +88,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     },
 
     bootstrap() {
-      const threads = db
+      const allThreads = db
         .select({
+          archivedAt: threadsTable.archivedAt,
           branchFromMessageId: threadsTable.branchFromMessageId,
           branchFromThreadId: threadsTable.branchFromThreadId,
           headMessageId: threadsTable.headMessageId,
@@ -101,12 +102,13 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           updatedAt: threadsTable.updatedAt
         })
         .from(threadsTable)
-        .where(isNull(threadsTable.archivedAt))
         .orderBy(desc(threadsTable.updatedAt))
         .all()
+      const threads = allThreads.filter((thread) => thread.archivedAt === null).map(toThreadRecord)
+      const archivedThreads = allThreads
+        .filter((thread) => thread.archivedAt !== null)
         .map(toThreadRecord)
-
-      const threadIds = threads.map((thread) => thread.id)
+      const threadIds = allThreads.map((thread) => thread.id)
       const messages =
         threadIds.length === 0
           ? []
@@ -177,6 +179,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             )
 
       return {
+        archivedThreads,
         latestRunsByThread,
         threads,
         messagesByThread: groupMessagesByThread(messages),
@@ -229,6 +232,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     getThread(threadId) {
       const thread = db
         .select({
+          archivedAt: threadsTable.archivedAt,
           branchFromMessageId: threadsTable.branchFromMessageId,
           branchFromThreadId: threadsTable.branchFromThreadId,
           headMessageId: threadsTable.headMessageId,
@@ -244,6 +248,31 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .get()
 
       return thread ? toThreadRecord(thread) : undefined
+    },
+
+    getArchivedThread(threadId) {
+      const thread = db
+        .select({
+          archivedAt: threadsTable.archivedAt,
+          branchFromMessageId: threadsTable.branchFromMessageId,
+          branchFromThreadId: threadsTable.branchFromThreadId,
+          headMessageId: threadsTable.headMessageId,
+          id: threadsTable.id,
+          preview: threadsTable.preview,
+          queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
+          queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
+          title: threadsTable.title,
+          updatedAt: threadsTable.updatedAt
+        })
+        .from(threadsTable)
+        .where(eq(threadsTable.id, threadId))
+        .get()
+
+      if (!thread || thread.archivedAt === null) {
+        return undefined
+      }
+
+      return toThreadRecord(thread)
     },
 
     createThread({ thread, createdAt, messages }: CreateThreadInput) {
@@ -295,6 +324,20 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         })
         .where(eq(threadsTable.id, threadId))
         .run()
+    },
+
+    restoreThread({ threadId, updatedAt }) {
+      db.update(threadsTable)
+        .set({
+          archivedAt: null,
+          updatedAt
+        })
+        .where(eq(threadsTable.id, threadId))
+        .run()
+    },
+
+    deleteThread({ threadId }) {
+      db.delete(threadsTable).where(eq(threadsTable.id, threadId)).run()
     },
 
     updateThread(thread) {

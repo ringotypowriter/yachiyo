@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import type { Message } from '@renderer/app/types'
+import type { Message, Thread } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { Composer } from '@renderer/features/chat/components/Composer'
-import { AppMainPanelHeader } from '@renderer/features/layout/components/AppMainPanelHeader'
 import { MessageTimeline } from '@renderer/features/chat/components/MessageTimeline'
+import { ArchivedThreadsPage } from '@renderer/features/layout/components/ArchivedThreadsPage'
+import { AppMainPanelHeader } from '@renderer/features/layout/components/AppMainPanelHeader'
 import { RunStatusStrip } from '@renderer/features/runs/components/RunStatusStrip'
+import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 
 const EMPTY: Message[] = []
 
@@ -24,61 +26,73 @@ export function AppMainPanel({
   toggleSidebarTitle
 }: AppMainPanelProps): React.JSX.Element {
   const archiveThread = useAppStore((s) => s.archiveThread)
+  const archivedThreads = useAppStore((s) => s.archivedThreads)
+  const activeArchivedThreadId = useAppStore((s) => s.activeArchivedThreadId)
   const activeThreadId = useAppStore((s) => s.activeThreadId)
+  const deleteThread = useAppStore((s) => s.deleteThread)
   const messages = useAppStore((s) =>
     activeThreadId ? (s.messages[activeThreadId] ?? EMPTY) : EMPTY
   )
   const renameThread = useAppStore((s) => s.renameThread)
-  const runStatus = useAppStore((s) => s.runStatus)
+  const restoreThread = useAppStore((s) => s.restoreThread)
+  const threadListMode = useAppStore((s) => s.threadListMode)
   const threads = useAppStore((s) => s.threads)
-  const connectionStatus = useAppStore((s) => s.connectionStatus)
   const isBootstrapping = useAppStore((s) => s.isBootstrapping)
   const messageCount = messages.length
   const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null
-  const [editingTitleFor, setEditingTitleFor] = useState<string | null>(null)
-  const [draftTitle, setDraftTitle] = useState('')
-  const isEditingTitle = editingTitleFor === activeThread?.id
+  const activeArchivedThread =
+    archivedThreads.find((thread) => thread.id === activeArchivedThreadId) ?? null
+  const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null)
 
-  function handleStartRename(): void {
-    if (!activeThread) {
+  async function handleRenameThread(thread: Thread): Promise<void> {
+    if (renamingThreadId === thread.id) {
       return
     }
 
-    setDraftTitle(activeThread.title)
-    setEditingTitleFor(activeThread.id)
-  }
-
-  function handleCancelRename(): void {
-    setDraftTitle(activeThread?.title ?? '')
-    setEditingTitleFor(null)
-  }
-
-  async function commitTitleRename(): Promise<void> {
-    if (!activeThread) return
-
-    const title = draftTitle.trim()
-    if (!title || title === activeThread.title) {
-      setDraftTitle(activeThread.title)
-      setEditingTitleFor(null)
-      return
-    }
-
+    setRenamingThreadId(thread.id)
     try {
-      await renameThread(activeThread.id, title)
-      setEditingTitleFor(null)
+      const nextTitle = window.prompt('Rename thread', thread.title)?.trim()
+      if (!nextTitle || nextTitle === thread.title) {
+        return
+      }
+
+      await renameThread(thread.id, nextTitle)
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'Failed to rename the thread.')
+    } finally {
+      setRenamingThreadId(null)
     }
   }
 
-  async function handleArchiveThread(): Promise<void> {
-    if (!activeThread) return
-    if (!window.confirm(`Archive "${activeThread.title}"?`)) return
+  async function handleArchiveThread(thread: Thread): Promise<void> {
+    if (!window.confirm(`Archive "${thread.title}"?`)) {
+      return
+    }
 
     try {
-      await archiveThread(activeThread.id)
+      await archiveThread(thread.id)
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'Failed to archive the thread.')
+    }
+  }
+
+  async function handleDeleteThread(thread: Thread): Promise<void> {
+    if (!window.confirm(`Delete "${thread.title}" permanently?`)) {
+      return
+    }
+
+    try {
+      await deleteThread(thread.id)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to delete the thread.')
+    }
+  }
+
+  async function handleRestoreThread(thread: Thread): Promise<void> {
+    try {
+      await restoreThread(thread.id)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to restore the thread.')
     }
   }
 
@@ -92,24 +106,66 @@ export function AppMainPanel({
     }
   }
 
+  function handleSelectThreadOperation(operationKey: ThreadContextOperationKey): void {
+    if (!activeThread) {
+      return
+    }
+
+    if (operationKey === 'rename') {
+      void handleRenameThread(activeThread)
+      return
+    }
+
+    if (operationKey === 'archive') {
+      void handleArchiveThread(activeThread)
+      return
+    }
+
+    if (operationKey === 'delete') {
+      void handleDeleteThread(activeThread)
+    }
+  }
+
+  if (threadListMode === 'archived') {
+    return (
+      <div className="flex flex-col flex-1 h-full min-w-0" style={{ background: '#F9F9F7' }}>
+        <div
+          className="flex items-center shrink-0 drag-region"
+          style={{
+            height: '52px',
+            paddingLeft: `${headerPaddingLeft}px`,
+            paddingRight: '20px',
+            borderBottom: '1px solid rgba(0,0,0,0.06)'
+          }}
+        >
+          <div className="min-w-0">
+            <div className="text-sm font-semibold" style={{ color: '#2D2D2B' }}>
+              Archived
+            </div>
+            <div className="text-xs font-medium" style={{ color: '#8e8e93' }}>
+              {archivedThreads.length} thread{archivedThreads.length !== 1 ? 's' : ''}
+            </div>
+          </div>
+        </div>
+        <ArchivedThreadsPage
+          activeThread={activeArchivedThread}
+          onDeleteThread={handleDeleteThread}
+          onRestoreThread={handleRestoreThread}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col flex-1 h-full min-w-0" style={{ background: '#F9F9F7' }}>
       <AppMainPanelHeader
         activeThread={activeThread}
-        connectionStatus={connectionStatus}
-        draftTitle={draftTitle}
         headerPaddingLeft={headerPaddingLeft}
-        isArchiveDisabled={runStatus === 'running'}
         isBootstrapping={isBootstrapping}
-        isEditingTitle={isEditingTitle}
         isSidebarToggleDisabled={isSidebarToggleDisabled}
         messageCount={messageCount}
-        onArchiveThread={handleArchiveThread}
-        onCancelRename={handleCancelRename}
-        onCommitRename={commitTitleRename}
-        onDraftTitleChange={(nextTitle) => setDraftTitle(nextTitle)}
         onOpenThreadWorkspace={handleOpenThreadWorkspace}
-        onStartRename={handleStartRename}
+        onSelectThreadOperation={handleSelectThreadOperation}
         onToggleSidebar={onToggleSidebar}
         showSidebarToggle={showSidebarToggle}
         toggleSidebarTitle={toggleSidebarTitle}

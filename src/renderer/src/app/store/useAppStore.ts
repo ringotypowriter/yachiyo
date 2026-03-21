@@ -58,15 +58,18 @@ export const EMPTY_COMPOSER_DRAFT: ComposerDraft = {
 }
 
 interface AppState {
+  activeArchivedThreadId: string | null
   activeRunId: string | null
   activeRequestMessageId: string | null
   activeRunThreadId: string | null
   activeThreadId: string | null
+  archivedThreads: Thread[]
   archiveThread: (threadId: string) => Promise<void>
   composerDrafts: Record<string, ComposerDraft>
   createBranch: (messageId: string) => Promise<void>
   config: SettingsConfig | null
   connectionStatus: ConnectionStatus
+  deleteThread: (threadId: string) => Promise<void>
   enabledTools: ToolCallName[]
   harnessEvents: Record<string, HarnessRecord[]>
   initialized: boolean
@@ -78,12 +81,14 @@ interface AppState {
   messages: Record<string, Message[]>
   pendingAssistantMessages: Record<string, PendingAssistantMessage>
   renameThread: (threadId: string, title: string) => Promise<void>
+  restoreThread: (threadId: string) => Promise<void>
   retryMessage: (messageId: string) => Promise<void>
   selectReplyBranch: (messageId: string) => Promise<void>
   runPhase: 'idle' | 'preparing' | 'streaming'
   runStatus: RunStatus
   settings: ProviderSettings
   threads: Thread[]
+  threadListMode: 'active' | 'archived'
   toolCalls: Record<string, ToolCall[]>
 
   applyServerEvent: (event: YachiyoServerEvent) => void
@@ -94,7 +99,9 @@ interface AppState {
   sendMessage: (mode?: SendChatMode) => Promise<void>
   setEnabledTools: (enabledTools: ToolCallName[]) => Promise<void>
   setActiveThread: (id: string) => void
+  setActiveArchivedThread: (id: string) => void
   setComposerValue: (value: string) => void
+  setThreadListMode: (mode: 'active' | 'archived') => void
   toggleEnabledTool: (toolName: ToolCallName) => Promise<void>
   upsertComposerImage: (image: ComposerImageDraft, threadId?: string | null) => void
 }
@@ -128,6 +135,10 @@ function sortThreads(threads: Thread[]): Thread[] {
 
 function upsertThread(threads: Thread[], thread: Thread): Thread[] {
   return sortThreads([thread, ...threads.filter((item) => item.id !== thread.id)])
+}
+
+function removeThread(threads: Thread[], threadId: string): Thread[] {
+  return threads.filter((thread) => thread.id !== threadId)
 }
 
 function upsertMessage(messages: Message[], message: Message): Message[] {
@@ -286,12 +297,21 @@ let bootstrapPromise: Promise<void> | null = null
 let unsubscribeFromServer: (() => void) | null = null
 
 export const useAppStore = create<AppState>((set, get) => ({
+  activeArchivedThreadId: null,
   activeRunId: null,
   activeRequestMessageId: null,
   activeRunThreadId: null,
   activeThreadId: null,
+  archivedThreads: [],
   archiveThread: async (threadId) => {
-    await window.api.yachiyo.archiveThread({ threadId })
+    try {
+      await window.api.yachiyo.archiveThread({ threadId })
+      set({ lastError: null })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to archive this thread.'
+      set({ lastError: message })
+      throw error
+    }
   },
   createBranch: async (messageId) => {
     const threadId = get().activeThreadId
@@ -303,6 +323,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const snapshot = await window.api.yachiyo.createBranch({ threadId, messageId })
       set((state) => ({
         activeThreadId: snapshot.thread.id,
+        threadListMode: 'active',
         harnessEvents: {
           ...state.harnessEvents,
           [snapshot.thread.id]: []
@@ -327,6 +348,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   composerDrafts: {},
   config: null,
   connectionStatus: 'connecting',
+  deleteThread: async (threadId) => {
+    try {
+      await window.api.yachiyo.deleteThread({ threadId })
+      set({ lastError: null })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to delete this thread.'
+      set({ lastError: message })
+      throw error
+    }
+  },
   enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
   harnessEvents: {},
   initialized: false,
@@ -346,6 +377,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
   messages: {},
   pendingAssistantMessages: {},
+  restoreThread: async (threadId) => {
+    try {
+      await window.api.yachiyo.restoreThread({ threadId })
+      set({ lastError: null })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to restore this thread.'
+      set({ lastError: message })
+      throw error
+    }
+  },
   deleteMessage: async (messageId) => {
     const threadId = get().activeThreadId
     if (!threadId) {
@@ -380,12 +421,47 @@ export const useAppStore = create<AppState>((set, get) => ({
   runStatus: 'idle',
   settings: DEFAULT_SETTINGS,
   threads: [],
+  threadListMode: 'active',
   toolCalls: {},
 
   applyServerEvent: (event) => {
     set((state) => {
       if (event.type === 'thread.archived') {
-        const threads = state.threads.filter((thread) => thread.id !== event.threadId)
+        const threads = removeThread(state.threads, event.threadId)
+        const archivedThreads = upsertThread(state.archivedThreads, event.thread)
+        return {
+          activeThreadId:
+            state.activeThreadId === event.threadId
+              ? (threads[0]?.id ?? null)
+              : state.activeThreadId,
+          activeArchivedThreadId:
+            state.activeArchivedThreadId === event.threadId
+              ? event.threadId
+              : (state.activeArchivedThreadId ?? event.threadId),
+          archivedThreads,
+          composerDrafts: removeComposerDraft(state.composerDrafts, event.threadId),
+          threads
+        }
+      }
+
+      if (event.type === 'thread.restored') {
+        const archivedThreads = removeThread(state.archivedThreads, event.threadId)
+        const threads = upsertThread(state.threads, event.thread)
+        return {
+          activeArchivedThreadId:
+            state.activeArchivedThreadId === event.threadId
+              ? (archivedThreads[0]?.id ?? null)
+              : state.activeArchivedThreadId,
+          activeThreadId: event.thread.id,
+          archivedThreads,
+          threadListMode: 'active',
+          threads
+        }
+      }
+
+      if (event.type === 'thread.deleted') {
+        const threads = removeThread(state.threads, event.threadId)
+        const archivedThreads = removeThread(state.archivedThreads, event.threadId)
         const messages = { ...state.messages }
         delete messages[event.threadId]
         const harnessEvents = { ...state.harnessEvents }
@@ -396,10 +472,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete toolCalls[event.threadId]
 
         return {
+          activeArchivedThreadId:
+            state.activeArchivedThreadId === event.threadId
+              ? (archivedThreads[0]?.id ?? null)
+              : state.activeArchivedThreadId,
           activeThreadId:
             state.activeThreadId === event.threadId
               ? (threads[0]?.id ?? null)
               : state.activeThreadId,
+          archivedThreads,
           composerDrafts: removeComposerDraft(state.composerDrafts, event.threadId),
           harnessEvents,
           latestRunsByThread,
@@ -421,6 +502,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         return {
           activeRequestMessageId: nextActiveRequestMessageId,
+          archivedThreads: removeThread(state.archivedThreads, event.threadId),
           threads: upsertThread(state.threads, event.thread)
         }
       }
@@ -437,6 +519,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         return {
           activeRequestMessageId: nextActiveRequestMessageId,
+          archivedThreads: removeThread(state.archivedThreads, event.threadId),
           harnessEvents: {
             ...state.harnessEvents,
             [event.threadId]: []
@@ -690,8 +773,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   createNewThread: async () => {
     const thread = await window.api.yachiyo.createThread()
     set((state) => ({
+      activeArchivedThreadId: state.activeArchivedThreadId,
       activeThreadId: thread.id,
       composerDrafts: removeComposerDraft(state.composerDrafts, null),
+      threadListMode: 'active',
       messages: {
         ...state.messages,
         [thread.id]: state.messages[thread.id] ?? []
@@ -725,6 +810,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         const payload = await window.api.yachiyo.bootstrap()
         set((state) => ({
           activeThreadId: state.activeThreadId ?? payload.threads[0]?.id ?? null,
+          activeArchivedThreadId:
+            state.activeArchivedThreadId ?? payload.archivedThreads[0]?.id ?? null,
+          archivedThreads: sortThreads(payload.archivedThreads),
           config: payload.config ?? state.config,
           connectionStatus: 'connected',
           enabledTools: normalizeEnabledTools(payload.config?.enabledTools, state.enabledTools),
@@ -773,6 +861,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         lastError: null,
         runPhase: 'preparing',
         runStatus: 'running',
+        threadListMode: 'active',
         threads: upsertThread(state.threads, accepted.thread)
       }))
     } catch (error) {
@@ -830,6 +919,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const thread = await window.api.yachiyo.createThread()
       set((state) => ({
         activeThreadId: thread.id,
+        threadListMode: 'active',
         composerDrafts: moveComposerDraft(
           state.composerDrafts,
           getComposerDraftKey(null),
@@ -877,6 +967,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeRunThreadId:
           acceptedKind === 'active-run-follow-up' ? state.activeRunThreadId : accepted.thread.id,
         activeThreadId: accepted.thread.id,
+        archivedThreads: removeThread(state.archivedThreads, accepted.thread.id),
         composerDrafts: removeComposerDraft(state.composerDrafts, accepted.thread.id),
         lastError: null,
         messages: {
@@ -889,6 +980,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
         runPhase: acceptedKind === 'active-run-follow-up' ? state.runPhase : 'preparing',
         runStatus: acceptedKind === 'active-run-follow-up' ? state.runStatus : 'running',
+        threadListMode: 'active',
         threads: upsertThread(state.threads, accepted.thread)
       }))
     } catch (error) {
@@ -937,7 +1029,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  setActiveThread: (id) => set({ activeThreadId: id }),
+  setActiveThread: (id) => set({ activeThreadId: id, threadListMode: 'active' }),
+
+  setActiveArchivedThread: (id) => set({ activeArchivedThreadId: id, threadListMode: 'archived' }),
+
+  setThreadListMode: (mode) =>
+    set((state) => ({
+      activeArchivedThreadId:
+        mode === 'archived'
+          ? (state.activeArchivedThreadId ?? state.archivedThreads[0]?.id ?? null)
+          : state.activeArchivedThreadId,
+      activeThreadId:
+        mode === 'active'
+          ? (state.activeThreadId ?? state.threads[0]?.id ?? null)
+          : state.activeThreadId,
+      threadListMode: mode
+    })),
 
   setComposerValue: (value) =>
     set((state) => {

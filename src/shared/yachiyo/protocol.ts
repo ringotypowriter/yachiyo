@@ -186,6 +186,7 @@ export interface MessageImageRecord {
 }
 
 export interface ThreadRecord {
+  archivedAt?: string
   id: string
   title: string
   updatedAt: string
@@ -293,6 +294,7 @@ export interface ProviderSettings {
 
 export interface BootstrapPayload {
   threads: ThreadRecord[]
+  archivedThreads: ThreadRecord[]
   messagesByThread: Record<string, MessageRecord[]>
   toolCallsByThread: Record<string, ToolCallRecord[]>
   latestRunsByThread: Record<string, RunRecord>
@@ -393,6 +395,16 @@ export interface ThreadStateReplacedEvent extends ThreadEvent {
 
 export interface ThreadArchivedEvent extends ThreadEvent {
   type: 'thread.archived'
+  thread: ThreadRecord
+}
+
+export interface ThreadRestoredEvent extends ThreadEvent {
+  type: 'thread.restored'
+  thread: ThreadRecord
+}
+
+export interface ThreadDeletedEvent extends ThreadEvent {
+  type: 'thread.deleted'
 }
 
 export interface RunCreatedEvent extends RunEvent {
@@ -460,6 +472,8 @@ export type YachiyoServerEvent =
   | ThreadUpdatedEvent
   | ThreadStateReplacedEvent
   | ThreadArchivedEvent
+  | ThreadRestoredEvent
+  | ThreadDeletedEvent
   | RunCreatedEvent
   | RunCompletedEvent
   | RunFailedEvent

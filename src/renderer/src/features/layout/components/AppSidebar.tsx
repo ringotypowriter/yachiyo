@@ -1,5 +1,6 @@
-import { PanelLeft, Search, Settings, SquarePen } from 'lucide-react'
+import { Archive, PanelLeft, Search, Settings, SquarePen } from 'lucide-react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
+import { ConnectionStatusIndicator } from '@renderer/features/layout/components/ConnectionStatusIndicator'
 import { ThreadList } from '@renderer/features/threads/components/ThreadList'
 import { TRAFFIC_LIGHTS_SAFE_ZONE } from '@renderer/lib/sidebarLayout'
 
@@ -18,7 +19,10 @@ export function AppSidebar({
   sidebarWidth,
   toggleTitle
 }: AppSidebarProps): React.JSX.Element {
+  const connectionStatus = useAppStore((s) => s.connectionStatus)
   const createNewThread = useAppStore((s) => s.createNewThread)
+  const setThreadListMode = useAppStore((s) => s.setThreadListMode)
+  const threadListMode = useAppStore((s) => s.threadListMode)
 
   return (
     <div
@@ -70,13 +74,37 @@ export function AppSidebar({
       <ThreadList />
 
       <div className="shrink-0 px-3 py-3 no-drag">
-        <button
-          onClick={() => window.api.openSettings()}
-          className="p-1.5 rounded-md opacity-40 hover:opacity-70 transition-opacity"
-          style={{ color: '#2D2D2B' }}
-        >
-          <Settings size={16} strokeWidth={1.5} />
-        </button>
+        <div className="flex items-center">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => window.api.openSettings()}
+              className="p-1.5 rounded-md opacity-40 hover:opacity-70 transition-opacity"
+              style={{ color: '#2D2D2B' }}
+              title="Settings"
+              aria-label="Settings"
+            >
+              <Settings size={16} strokeWidth={1.5} />
+            </button>
+            <button
+              onClick={() =>
+                setThreadListMode(threadListMode === 'archived' ? 'active' : 'archived')
+              }
+              className="p-1.5 rounded-md transition-opacity"
+              style={{
+                color: threadListMode === 'archived' ? '#8E3E35' : '#2D2D2B',
+                opacity: threadListMode === 'archived' ? 0.9 : 0.4
+              }}
+              title={threadListMode === 'archived' ? 'Show active chats' : 'Show archived chats'}
+              aria-label={
+                threadListMode === 'archived' ? 'Show active chats' : 'Show archived chats'
+              }
+            >
+              <Archive size={16} strokeWidth={1.5} />
+            </button>
+          </div>
+          <div className="flex-1" />
+          <ConnectionStatusIndicator connectionStatus={connectionStatus} />
+        </div>
       </div>
     </div>
   )

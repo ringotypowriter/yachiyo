@@ -30,6 +30,10 @@ async function withServer(
       targetThreadId: string,
       workspacePathForThread: (threadId: string) => string
     ) => Promise<string>
+    deleteThreadWorkspace?: (
+      threadId: string,
+      workspacePathForThread: (threadId: string) => string
+    ) => Promise<void>
     now?: () => Date
   } = {}
 ): Promise<void> {
@@ -143,6 +147,13 @@ async function withServer(
           force: true
         })
         return targetWorkspacePath
+      }),
+    deleteThreadWorkspace:
+      (options.deleteThreadWorkspace
+        ? (threadId) => options.deleteThreadWorkspace!(threadId, workspacePathForThread)
+        : undefined) ??
+      (async (threadId) => {
+        await rm(workspacePathForThread(threadId), { recursive: true, force: true })
       }),
     createModelRuntime:
       options.createModelRuntime ??
@@ -1794,6 +1805,48 @@ test('YachiyoServer renames and archives threads', async () => {
     assert.equal(bootstrap.threads.length, 1)
     assert.equal(bootstrap.threads[0]?.id, first.id)
     assert.equal(bootstrap.threads[0]?.title, 'Pinned plan')
+    assert.equal(bootstrap.archivedThreads[0]?.id, second.id)
+  })
+})
+
+test('YachiyoServer restores and deletes archived threads', async () => {
+  await withServer(async ({ server, workspacePathForThread }) => {
+    const first = await server.createThread()
+    const second = await server.createThread()
+    await writeFile(join(workspacePathForThread(second.id), 'notes.txt'), 'keep me', 'utf8')
+
+    await server.archiveThread({ threadId: second.id })
+
+    let bootstrap = await server.bootstrap()
+    assert.deepEqual(
+      bootstrap.threads.map((thread) => thread.id),
+      [first.id]
+    )
+    assert.deepEqual(
+      bootstrap.archivedThreads.map((thread) => thread.id),
+      [second.id]
+    )
+
+    const restored = await server.restoreThread({ threadId: second.id })
+    assert.equal(restored.id, second.id)
+    assert.equal(restored.archivedAt, undefined)
+
+    bootstrap = await server.bootstrap()
+    assert.deepEqual(
+      bootstrap.threads.map((thread) => thread.id).sort(),
+      [first.id, second.id].sort()
+    )
+    assert.deepEqual(bootstrap.archivedThreads, [])
+
+    await server.deleteThread({ threadId: second.id })
+
+    bootstrap = await server.bootstrap()
+    assert.deepEqual(
+      bootstrap.threads.map((thread) => thread.id),
+      [first.id]
+    )
+    assert.deepEqual(bootstrap.archivedThreads, [])
+    await assert.rejects(access(workspacePathForThread(second.id)))
   })
 })
 
