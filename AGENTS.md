@@ -22,6 +22,29 @@ Follow `.editorconfig` and Prettier: 2-space indentation, LF endings, single quo
 
 - Add explicit return types to exported functions. Do not rely on inference for public helpers, tool factories, or other exported module APIs.
 
+## UI Hierarchy & Settings Design Rules
+
+- All UI must stay within 4 information layers maximum. If a screen reads like realm -> section -> subsection -> card -> item -> helper text, it is already too deep.
+- Settings pages must be flatter than normal product surfaces. A single settings panel may contain only:
+  - 1 large realm/category label
+  - the concrete setting item(s)
+    This means a maximum of 2 layers inside one panel.
+- Do not restate the same meaning across realm label, title, subtitle, item label, helper text, and pill. If two adjacent lines communicate the same thing, delete one.
+- Do not use decorative pills/chips as a substitute for hierarchy. Chips are allowed only for real state, status, or compact metadata; never for repeating explanatory copy.
+- Choose controls by semantics, not by appearance:
+  - Use `switch` for true on/off preferences.
+  - Use a compact mode toggle only for small binary mode switches.
+  - Use radio choices only when explicit comparison between multiple mutually exclusive options is necessary.
+  - Use dropdowns/selectors for “choose one from many”, including “disabled” as one option when appropriate.
+- If the app already has a canonical control for a meaningfully identical interaction, reuse or adapt that control instead of inventing a second settings-only version.
+- For model selection UX, do not dump every known model into the picker. Show only explicitly enabled/selectable models unless the product requirement says otherwise.
+- For overlays inside settings or other scrollable panels, do not leave popups trapped in local stacking/scroll contexts. Use proper floating-layer behavior so the selector reads as an overlay, not as content embedded inside the page.
+- Default toward fewer words. Prefer label + short consequence over label + explanation + repeated explanation.
+- A setting row should usually answer only two questions:
+  - What does this control change?
+  - What happens when it is on or off?
+    Anything beyond that should be justified, not automatic.
+
 ## Testing Guidelines
 
 This repo uses `node:test`. Keep tests next to the code they verify using `*.test.ts`; reserve `*.native.test.ts` for Electron/sqlite coverage only. Default tests should prefer in-memory storage so they stay fast and do not depend on native modules. Add or update tests for new CLI commands, storage behavior, protocol changes, and state transformation helpers.

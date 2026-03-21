@@ -1,7 +1,9 @@
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Check, Search } from 'lucide-react'
 import type { SettingsConfig } from '@renderer/app/types'
+import { resolveModelSelectorState } from '../lib/modelSelectorState'
 
 function ModelOption({
   model,
@@ -58,17 +60,35 @@ function ModelOption({
 }
 
 export function ModelSelectorPopup({
+  align = 'left',
+  anchorRect,
   config,
+  containerRef,
   currentProviderName,
   currentModel,
+  leadingOption,
   onSelect,
-  onClose
+  onClose,
+  placement = 'top',
+  portal = false,
+  width = 300
 }: {
+  align?: 'left' | 'right'
+  anchorRect?: DOMRect | null
   config: SettingsConfig
+  containerRef?: React.RefObject<HTMLDivElement | null>
   currentProviderName: string
   currentModel: string
+  leadingOption?: {
+    isSelected: boolean
+    label: string
+    onSelect: () => void
+  }
   onSelect: (providerName: string, model: string) => void
   onClose: () => void
+  placement?: 'bottom' | 'top'
+  portal?: boolean
+  width?: number
 }): React.ReactNode {
   const [query, setQuery] = useState('')
   const [visible, setVisible] = useState(false)
@@ -87,24 +107,45 @@ export function ModelSelectorPopup({
     return () => document.removeEventListener('keydown', handler)
   }, [onClose])
 
-  const q = query.toLowerCase()
-  const filtered = config.providers
-    .map((provider) => ({
-      name: provider.name,
-      type: provider.type,
-      models: provider.modelList.enabled.filter(
-        (m) => !q || m.toLowerCase().includes(q) || provider.name.toLowerCase().includes(q)
-      )
-    }))
-    .filter((p) => p.models.length > 0)
+  const selectorState = resolveModelSelectorState({
+    config,
+    hasLeadingOption: leadingOption != null,
+    query
+  })
 
-  return (
+  const popupWidth = Math.min(width, window.innerWidth - 24)
+  const popupLeft = anchorRect
+    ? Math.max(
+        12,
+        Math.min(
+          align === 'right' ? anchorRect.right - popupWidth : anchorRect.left,
+          window.innerWidth - popupWidth - 12
+        )
+      )
+    : 0
+
+  const popupStyle: React.CSSProperties =
+    portal && anchorRect
+      ? {
+          position: 'fixed',
+          ...(placement === 'top'
+            ? { bottom: window.innerHeight - anchorRect.top + 8 }
+            : { top: anchorRect.bottom + 8 }),
+          left: popupLeft,
+          width: popupWidth
+        }
+      : {
+          position: 'absolute',
+          ...(placement === 'top' ? { bottom: 'calc(100% + 8px)' } : { top: 'calc(100% + 8px)' }),
+          left: 0,
+          width
+        }
+
+  const popup = (
     <div
+      ref={containerRef}
       style={{
-        position: 'absolute',
-        bottom: 'calc(100% + 8px)',
-        left: 0,
-        width: 300,
+        ...popupStyle,
         maxHeight: 360,
         background: 'rgba(248,247,245,0.97)',
         backdropFilter: 'blur(24px)',
@@ -151,7 +192,20 @@ export function ModelSelectorPopup({
 
       {/* List */}
       <div style={{ overflowY: 'auto', flex: 1, paddingBottom: 6 }}>
-        {filtered.length === 0 ? (
+        {selectorState.showLeadingOption && leadingOption ? (
+          <div style={{ paddingTop: 4 }}>
+            <ModelOption
+              model={leadingOption.label}
+              isSelected={leadingOption.isSelected}
+              onSelect={() => {
+                leadingOption.onSelect()
+                onClose()
+              }}
+            />
+          </div>
+        ) : null}
+
+        {selectorState.showEmptyState ? (
           <div
             style={{
               padding: '24px 14px',
@@ -163,7 +217,7 @@ export function ModelSelectorPopup({
             No models found
           </div>
         ) : (
-          filtered.map((provider) => (
+          selectorState.providers.map((provider) => (
             <div key={provider.name}>
               <div
                 style={{
@@ -194,4 +248,10 @@ export function ModelSelectorPopup({
       </div>
     </div>
   )
+
+  if (portal && anchorRect) {
+    return createPortal(popup, document.body)
+  }
+
+  return popup
 }
