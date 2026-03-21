@@ -7,6 +7,7 @@ import {
   type ToolCallName,
   type ToolCallStatus
 } from '../../../shared/yachiyo/protocol.ts'
+import type { WebSearchService } from '../services/webSearch/webSearchService.ts'
 
 import { createTool as createBashTool } from './agentTools/bashTool.ts'
 import { createTool as createEditTool } from './agentTools/editTool.ts'
@@ -19,9 +20,11 @@ import {
   type EditToolOutput,
   type ReadToolOutput,
   type WebReadToolOutput,
+  type WebSearchToolOutput,
   type WriteToolOutput
 } from './agentTools/shared.ts'
 import { createTool as createWebReadTool } from './agentTools/webReadTool.ts'
+import { createTool as createWebSearchTool } from './agentTools/webSearchTool.ts'
 import { createTool as createWriteTool } from './agentTools/writeTool.ts'
 
 export type {
@@ -33,6 +36,7 @@ export type {
   ReadToolOutput,
   ToolContentBlock,
   WebReadToolOutput,
+  WebSearchToolOutput,
   WriteToolOutput
 } from './agentTools/shared.ts'
 
@@ -45,7 +49,12 @@ export {
 export { createTool as createEditTool, runEditTool } from './agentTools/editTool.ts'
 export { createTool as createReadTool, runReadTool } from './agentTools/readTool.ts'
 export { createTool as createWebReadTool, runWebReadTool } from './agentTools/webReadTool.ts'
+export { createTool as createWebSearchTool, runWebSearchTool } from './agentTools/webSearchTool.ts'
 export { createTool as createWriteTool, runWriteTool } from './agentTools/writeTool.ts'
+
+export interface AgentToolDependencies {
+  webSearchService?: WebSearchService
+}
 
 function isToolFailure(output: unknown): output is AgentToolOutput {
   return typeof output === 'object' && output !== null && 'error' in output
@@ -65,6 +74,13 @@ export function summarizeToolInput(toolName: ToolCallName, input: unknown): stri
   if (toolName === 'webRead') {
     const url = typeof input === 'object' && input !== null && 'url' in input ? input.url : ''
     return typeof url === 'string' && url.trim().length > 0 ? takeTail(url, 160).text : toolName
+  }
+
+  if (toolName === 'webSearch') {
+    const query = typeof input === 'object' && input !== null && 'query' in input ? input.query : ''
+    return typeof query === 'string' && query.trim().length > 0
+      ? takeTail(query, 160).text
+      : toolName
   }
 
   const path = typeof input === 'object' && input !== null && 'path' in input ? input.path : ''
@@ -113,6 +129,12 @@ export function summarizeToolOutput(
     return details.truncated ? `${summary} (truncated)` : summary
   }
 
+  if (toolName === 'webSearch') {
+    const details = (output as WebSearchToolOutput).details
+    const summary = `found ${details.resultCount} result${details.resultCount === 1 ? '' : 's'}`
+    return details.failureCode ? `search failed (${details.failureCode})` : summary
+  }
+
   if (phase === 'update') {
     return 'streaming output'
   }
@@ -145,7 +167,10 @@ export function normalizeToolResult(
   }
 }
 
-export function createAgentToolSet(context: AgentToolContext): ToolSet | undefined {
+export function createAgentToolSet(
+  context: AgentToolContext,
+  dependencies: AgentToolDependencies = {}
+): ToolSet | undefined {
   const enabledTools = new Set(
     normalizeEnabledTools(context.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
   )
@@ -170,6 +195,12 @@ export function createAgentToolSet(context: AgentToolContext): ToolSet | undefin
 
   if (enabledTools.has('webRead')) {
     tools.webRead = createWebReadTool(context)
+  }
+
+  if (enabledTools.has('webSearch') && dependencies.webSearchService) {
+    tools.webSearch = createWebSearchTool(context, {
+      webSearchService: dependencies.webSearchService
+    })
   }
 
   return Object.keys(tools).length > 0 ? tools : undefined

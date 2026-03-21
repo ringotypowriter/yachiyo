@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type {
   BootstrapPayload,
   ChatAccepted,
+  ImportWebSearchBrowserSessionInput,
   ProviderConfig,
   ProviderSettings,
   RetryAccepted,
@@ -12,12 +13,24 @@ import type {
   ThreadRecord,
   ThreadSnapshot,
   ToolPreferencesInput,
+  WebSearchBrowserImportSource,
   YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol.ts'
-import { resolveYachiyoSettingsPath } from '../config/paths.ts'
+import {
+  resolveYachiyoSettingsPath,
+  resolveYachiyoWebSearchBrowserSessionPath
+} from '../config/paths.ts'
 import { createAuxiliaryGenerationService } from '../runtime/auxiliaryGeneration.ts'
 import { createAiSdkModelRuntime } from '../runtime/modelRuntime.ts'
 import type { ModelRuntime } from '../runtime/types.ts'
+import {
+  BrowserSearchSession,
+  createBrowserSearchSessionImportService,
+  resolveGoogleChromeDataPath
+} from '../services/webSearch/browserSearchSession.ts'
+import { createElectronBrowserSearchPageFactory } from '../services/webSearch/electronBrowserSearchSession.ts'
+import { createGoogleBrowserWebSearchProvider } from '../services/webSearch/providers/googleBrowserWebSearchProvider.ts'
+import { createWebSearchService } from '../services/webSearch/webSearchService.ts'
 import { createSettingsStore } from '../settings/settingsStore.ts'
 import { createSqliteYachiyoStorage } from '../storage/sqlite/database.ts'
 import type { YachiyoStorage } from '../storage/storage.ts'
@@ -51,6 +64,7 @@ export class YachiyoServer {
   private readonly configDomain: YachiyoServerConfigDomain
   private readonly runDomain: YachiyoServerRunDomain
   private readonly threadDomain: YachiyoServerThreadDomain
+  private readonly browserSearchSession: BrowserSearchSession
 
   constructor(options: YachiyoServerOptions) {
     this.storage = options.storage
@@ -61,10 +75,34 @@ export class YachiyoServer {
     const createModelRuntime = options.createModelRuntime ?? (() => createAiSdkModelRuntime())
     const ensureThreadWorkspace = options.ensureThreadWorkspace ?? defaultEnsureThreadWorkspace
     const cloneThreadWorkspace = options.cloneThreadWorkspace ?? defaultCloneThreadWorkspace
+    this.browserSearchSession = new BrowserSearchSession({
+      pageFactory: createElectronBrowserSearchPageFactory(),
+      profilePath: resolveYachiyoWebSearchBrowserSessionPath()
+    })
+    const webSearchImportService = createBrowserSearchSessionImportService({
+      chromeDataPath: resolveGoogleChromeDataPath()
+    })
+    const webSearchService = createWebSearchService({
+      providers: [
+        createGoogleBrowserWebSearchProvider({
+          browserSession: this.browserSearchSession
+        })
+      ],
+      readConfig: () => this.configDomain.readConfig()
+    })
 
     this.configDomain = new YachiyoServerConfigDomain({
       settingsStore,
-      emit: this.emit.bind(this)
+      emit: this.emit.bind(this),
+      webSearchDeps: {
+        listBrowserImportSources: () => webSearchImportService.listSources(),
+        importBrowserSession: (input) =>
+          webSearchImportService.importSession({
+            profilePath: this.browserSearchSession.profilePath,
+            sourceBrowser: input.sourceBrowser,
+            sourceProfileName: input.sourceProfileName
+          })
+      }
     })
     const auxiliaryGeneration = createAuxiliaryGenerationService({
       createModelRuntime,
@@ -78,6 +116,7 @@ export class YachiyoServer {
       auxiliaryGeneration,
       createModelRuntime,
       ensureThreadWorkspace,
+      webSearchService,
       readConfig: () => this.configDomain.readConfig(),
       readSettings: () => this.configDomain.readSettings(),
       requireThread: this.requireThread.bind(this),
@@ -169,6 +208,16 @@ export class YachiyoServer {
 
   async fetchProviderModels(input: ProviderConfig): Promise<string[]> {
     return this.configDomain.fetchProviderModels(input)
+  }
+
+  async listWebSearchBrowserImportSources(): Promise<WebSearchBrowserImportSource[]> {
+    return this.configDomain.listWebSearchBrowserImportSources()
+  }
+
+  async importWebSearchBrowserSession(
+    input: ImportWebSearchBrowserSessionInput
+  ): Promise<SettingsConfig> {
+    return this.configDomain.importWebSearchBrowserSession(input)
   }
 
   async createThread(): Promise<ThreadRecord> {

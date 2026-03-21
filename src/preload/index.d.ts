@@ -2,6 +2,7 @@ import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
   BootstrapPayload,
   ChatAccepted,
+  ImportWebSearchBrowserSessionInput,
   ProviderConfig,
   ProviderSettings,
   RetryInput,
@@ -11,6 +12,7 @@ import type {
   ThreadSnapshot,
   ThreadRecord,
   ToolPreferencesInput,
+  WebSearchBrowserImportSource,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
 
@@ -43,6 +45,10 @@ declare global {
         enableProviderModel: (input: { name: string; model: string }) => Promise<SettingsConfig>
         disableProviderModel: (input: { name: string; model: string }) => Promise<SettingsConfig>
         fetchProviderModels: (input: ProviderConfig) => Promise<string[]>
+        listWebSearchBrowserImportSources: () => Promise<WebSearchBrowserImportSource[]>
+        importWebSearchBrowserSession: (
+          input: ImportWebSearchBrowserSessionInput
+        ) => Promise<SettingsConfig>
         subscribe: (listener: (event: YachiyoServerEvent) => void) => () => void
       }
     }

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 
 import type {
+  ImportWebSearchBrowserSessionInput,
   ProviderConfig,
   ProviderSettings,
   RetryInput,
@@ -19,6 +20,7 @@ const IPC_CHANNELS = {
   archiveThread: 'yachiyo:archive-thread',
   disableProviderModel: 'yachiyo:disable-provider-model',
   fetchProviderModels: 'yachiyo:fetch-provider-models',
+  importWebSearchBrowserSession: 'yachiyo:import-web-search-browser-session',
   bootstrap: 'yachiyo:bootstrap',
   cancelRun: 'yachiyo:cancel-run',
   createBranch: 'yachiyo:create-branch',
@@ -30,6 +32,7 @@ const IPC_CHANNELS = {
   getSettings: 'yachiyo:get-settings',
   renameThread: 'yachiyo:rename-thread',
   removeProvider: 'yachiyo:remove-provider',
+  listWebSearchBrowserImportSources: 'yachiyo:list-web-search-browser-import-sources',
   retryMessage: 'yachiyo:retry-message',
   saveConfig: 'yachiyo:save-config',
   saveSettings: 'yachiyo:save-settings',
@@ -135,6 +138,12 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handle(IPC_CHANNELS.fetchProviderModels, (input: ProviderConfig) =>
     server!.fetchProviderModels(input)
+  )
+  handle(IPC_CHANNELS.listWebSearchBrowserImportSources, () =>
+    server!.listWebSearchBrowserImportSources()
+  )
+  handle(IPC_CHANNELS.importWebSearchBrowserSession, (input: ImportWebSearchBrowserSessionInput) =>
+    server!.importWebSearchBrowserSession(input)
   )
 
   app.once('before-quit', () => {

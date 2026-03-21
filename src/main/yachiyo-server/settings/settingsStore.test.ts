@@ -37,6 +37,19 @@ test('settings store persists multi-provider config as TOML', async () => {
         providerName: 'backup',
         model: 'claude-opus-4-6'
       },
+      webSearch: {
+        defaultProvider: 'google-browser',
+        browserSession: {
+          sourceBrowser: 'google-chrome',
+          sourceProfileName: 'Default',
+          importedAt: '2026-03-21T12:00:00.000Z',
+          lastImportError: ''
+        },
+        exa: {
+          apiKey: 'exa-key',
+          baseUrl: 'https://api.exa.ai'
+        }
+      },
       providers: [
         {
           id: 'provider-work',
@@ -77,6 +90,12 @@ test('settings store persists multi-provider config as TOML', async () => {
     assert.match(toml, /providerId = "provider-backup"/)
     assert.match(toml, /providerName = "backup"/)
     assert.match(toml, /model = "claude-opus-4-6"/)
+    assert.match(toml, /\[webSearch\]/)
+    assert.match(toml, /defaultProvider = "google-browser"/)
+    assert.match(toml, /\[webSearch\.browserSession\]/)
+    assert.match(toml, /sourceProfileName = "Default"/)
+    assert.match(toml, /\[webSearch\.exa\]/)
+    assert.match(toml, /apiKey = "exa-key"/)
     assert.match(toml, /\[\[providers\]\]/)
     assert.match(toml, /id = "provider-work"/)
     assert.match(toml, /\[providers\.modelList\]/)
@@ -236,6 +255,26 @@ test('normalizeSettingsConfig falls back to the default tool model mode', () => 
       model: 'gpt-5-mini'
     }
   )
+})
+
+test('normalizeSettingsConfig fills webSearch defaults and preserves imported browser session metadata', () => {
+  const normalized = normalizeSettingsConfig({
+    providers: [],
+    webSearch: {
+      defaultProvider: 'google-browser',
+      browserSession: {
+        sourceBrowser: 'google-chrome',
+        sourceProfileName: 'Profile 3',
+        importedAt: '2026-03-21T12:00:00.000Z'
+      }
+    }
+  })
+
+  assert.equal(normalized.webSearch?.defaultProvider, 'google-browser')
+  assert.equal(normalized.webSearch?.browserSession?.sourceBrowser, 'google-chrome')
+  assert.equal(normalized.webSearch?.browserSession?.sourceProfileName, 'Profile 3')
+  assert.equal(normalized.webSearch?.browserSession?.importedAt, '2026-03-21T12:00:00.000Z')
+  assert.equal(normalized.webSearch?.exa?.apiKey, '')
 })
 
 test('normalizeSettingsConfig assigns ids to legacy providers without ids', () => {

@@ -30,6 +30,10 @@ const TOOL_COPY: Record<
   webRead: {
     label: 'webRead',
     description: 'Read static web pages as clean content'
+  },
+  webSearch: {
+    label: 'webSearch',
+    description: 'Search the web and return normalized results'
   }
 }
 

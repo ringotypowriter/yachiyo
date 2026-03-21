@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
+  ImportWebSearchBrowserSessionInput,
   ProviderConfig,
   ProviderSettings,
   RetryInput,
@@ -44,6 +45,10 @@ const api = {
       ipcRenderer.invoke('yachiyo:disable-provider-model', input),
     fetchProviderModels: (input: ProviderConfig) =>
       ipcRenderer.invoke('yachiyo:fetch-provider-models', input),
+    listWebSearchBrowserImportSources: () =>
+      ipcRenderer.invoke('yachiyo:list-web-search-browser-import-sources'),
+    importWebSearchBrowserSession: (input: ImportWebSearchBrowserSessionInput) =>
+      ipcRenderer.invoke('yachiyo:import-web-search-browser-session', input),
     subscribe: (listener: (event: YachiyoServerEvent) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, payload: YachiyoServerEvent): void => {
         listener(payload)

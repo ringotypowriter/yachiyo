@@ -10,6 +10,7 @@ import {
   runEditTool,
   runReadTool,
   runWebReadTool,
+  runWebSearchTool,
   runWriteTool,
   summarizeToolInput,
   summarizeToolOutput,
@@ -343,4 +344,51 @@ test('runWebReadTool rejects filenames outside the workspace', async () => {
     assert.equal(result.details.savedFilePath, undefined)
     assert.equal(result.details.content, '')
   })
+})
+
+test('runWebSearchTool maps provider-neutral search results into structured details and summaries', async () => {
+  const result = await runWebSearchTool(
+    {
+      query: 'yachiyo electron search',
+      limit: 2
+    },
+    {
+      webSearchService: {
+        search: async () => ({
+          provider: 'google-browser',
+          query: 'yachiyo electron search',
+          searchUrl: 'https://www.google.com/search?q=yachiyo+electron+search',
+          finalUrl: 'https://www.google.com/search?q=yachiyo+electron+search',
+          results: [
+            {
+              rank: 1,
+              title: 'Yachiyo Repo',
+              url: 'https://example.com/yachiyo',
+              snippet: 'Search result snippet.'
+            },
+            {
+              rank: 2,
+              title: 'Electron Search Notes',
+              url: 'https://example.com/notes'
+            }
+          ]
+        })
+      }
+    }
+  )
+
+  assert.equal(result.error, undefined)
+  assert.equal(result.details.provider, 'google-browser')
+  assert.equal(result.details.resultCount, 2)
+  assert.equal(
+    summarizeToolInput('webSearch', { query: 'yachiyo electron search' }),
+    'yachiyo electron search'
+  )
+  assert.equal(summarizeToolOutput('webSearch', result), 'found 2 results')
+
+  const normalized = normalizeToolResult('webSearch', result)
+  assert.equal(normalized.status, 'completed')
+  assert.equal(normalized.outputSummary, 'found 2 results')
+  assert.match(flattenToolContent(result.content), /1\. Yachiyo Repo/)
+  assert.match(flattenToolContent(result.content), /Snippet: Search result snippet\./)
 })

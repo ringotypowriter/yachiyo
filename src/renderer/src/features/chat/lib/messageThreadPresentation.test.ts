@@ -121,6 +121,7 @@ test('buildMessageGroups shows a preparing slot on the retried historical reques
   assert.equal(groups.length, 1)
   assert.equal(groups[0]?.showPreparing, true)
   assert.equal(groups[0]?.activeBranchIndex, 0)
+  assert.equal(groups[0]?.hideActiveBranchWhilePreparing, true)
 })
 
 test('buildMessageGroups hides downstream messages while a historical retry is preparing', () => {
@@ -175,6 +176,7 @@ test('buildMessageGroups hides downstream messages while a historical retry is p
   assert.equal(groups.length, 1)
   assert.equal(groups[0]?.userMessage.id, 'user-1')
   assert.equal(groups[0]?.showPreparing, true)
+  assert.equal(groups[0]?.hideActiveBranchWhilePreparing, true)
 })
 
 test('buildMessageGroups treats the newest assistant branch as active while a retry is streaming', () => {
@@ -282,16 +284,16 @@ test('buildMessageGroups keeps a steer user visible while an active run restarts
 
   assert.deepEqual(
     groups.map((group) => ({
-      userMessageId: group.userMessage.id,
+      hideActiveBranchWhilePreparing: group.hideActiveBranchWhilePreparing,
       showPreparing: group.showPreparing
     })),
     [
       {
-        userMessageId: 'user-1',
+        hideActiveBranchWhilePreparing: false,
         showPreparing: false
       },
       {
-        userMessageId: 'user-steer',
+        hideActiveBranchWhilePreparing: false,
         showPreparing: true
       }
     ]

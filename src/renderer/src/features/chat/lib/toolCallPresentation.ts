@@ -4,6 +4,7 @@ import type {
   ReadToolCallDetails,
   ToolCall,
   WebReadToolCallDetails,
+  WebSearchToolCallDetails,
   WriteToolCallDetails
 } from '../../../app/types.ts'
 
@@ -247,6 +248,33 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     pushField(fields, 'failure code', details.failureCode)
     pushCodeBlock(codeBlocks, 'description', details.description)
     pushOutputHead(codeBlocks, 'content', details.content)
+
+    return { fields, codeBlocks }
+  }
+
+  if (toolCall.toolName === 'webSearch') {
+    const details = toolCall.details as WebSearchToolCallDetails | undefined
+    if (!details) {
+      return { fields, codeBlocks }
+    }
+
+    pushField(fields, 'provider', details.provider)
+    pushField(fields, 'query', details.query)
+    pushField(fields, 'search url', details.searchUrl)
+    pushField(fields, 'loaded url', details.finalUrl)
+    pushField(fields, 'results', details.resultCount)
+    pushField(fields, 'failure code', details.failureCode)
+    pushCodeBlock(
+      codeBlocks,
+      'results',
+      details.results
+        .map((result) =>
+          [`${result.rank}. ${result.title}`, result.url, result.snippet ?? '']
+            .filter(Boolean)
+            .join('\n')
+        )
+        .join('\n\n')
+    )
 
     return { fields, codeBlocks }
   }

@@ -1,13 +1,16 @@
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
+  type ImportWebSearchBrowserSessionInput,
   normalizeEnabledTools,
-  type MessageImageRecord,
-  type ProviderConfig,
-  type ProviderSettings,
   type SettingsConfig,
   type SettingsUpdatedEvent,
   type ToolCallName,
-  type ToolPreferencesInput
+  type ToolPreferencesInput,
+  type WebSearchBrowserImportSource,
+  type WebSearchConfig,
+  type MessageImageRecord,
+  type ProviderConfig,
+  type ProviderSettings
 } from '../../../../shared/yachiyo/protocol.ts'
 import {
   createProviderId,
@@ -22,6 +25,13 @@ import {
   type SettingsStore
 } from '../../settings/settingsStore.ts'
 import type { EmitServerEvent } from './shared.ts'
+
+export interface WebSearchSettingsDeps {
+  importBrowserSession?: (
+    input: ImportWebSearchBrowserSessionInput
+  ) => Promise<{ importedAt: string; sourceBrowser: 'google-chrome'; sourceProfileName: string }>
+  listBrowserImportSources?: () => Promise<WebSearchBrowserImportSource[]>
+}
 
 function mergeUnique(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
@@ -114,10 +124,16 @@ function updateProviderModels(
 export class YachiyoServerConfigDomain {
   private readonly settingsStore: SettingsStore
   private readonly emit: EmitServerEvent
+  private readonly webSearchDeps: WebSearchSettingsDeps
 
-  constructor(input: { settingsStore: SettingsStore; emit: EmitServerEvent }) {
+  constructor(input: {
+    settingsStore: SettingsStore
+    emit: EmitServerEvent
+    webSearchDeps?: WebSearchSettingsDeps
+  }) {
     this.settingsStore = input.settingsStore
     this.emit = input.emit
+    this.webSearchDeps = input.webSearchDeps ?? {}
   }
 
   getConfig(): SettingsConfig {
@@ -183,6 +199,36 @@ export class YachiyoServerConfigDomain {
     return this.persistConfig({
       ...current,
       enabledTools: resolveEnabledTools(input.enabledTools, current.enabledTools)
+    })
+  }
+
+  async listWebSearchBrowserImportSources(): Promise<WebSearchBrowserImportSource[]> {
+    return this.webSearchDeps.listBrowserImportSources?.() ?? []
+  }
+
+  async importWebSearchBrowserSession(
+    input: ImportWebSearchBrowserSessionInput
+  ): Promise<SettingsConfig> {
+    if (!this.webSearchDeps.importBrowserSession) {
+      throw new Error('Browser-backed web search session import is not configured.')
+    }
+
+    const imported = await this.webSearchDeps.importBrowserSession(input)
+    const current = this.readConfig()
+    const nextWebSearch: WebSearchConfig = {
+      ...current.webSearch,
+      browserSession: {
+        ...current.webSearch?.browserSession,
+        sourceBrowser: imported.sourceBrowser,
+        sourceProfileName: imported.sourceProfileName,
+        importedAt: imported.importedAt,
+        lastImportError: ''
+      }
+    }
+
+    return this.persistConfig({
+      ...current,
+      webSearch: nextWebSearch
     })
   }
 

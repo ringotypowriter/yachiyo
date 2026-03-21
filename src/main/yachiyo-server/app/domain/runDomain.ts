@@ -19,6 +19,7 @@ import {
   summarizeMessageInput
 } from '../../../../shared/yachiyo/messageContent.ts'
 import type { AuxiliaryGenerationService } from '../../runtime/auxiliaryGeneration.ts'
+import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
 import type { ModelRuntime } from '../../runtime/types.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import { assertSupportedImages, resolveEnabledTools } from './configDomain.ts'
@@ -62,6 +63,7 @@ interface RunDomainDeps {
   auxiliaryGeneration: AuxiliaryGenerationService
   createModelRuntime: () => ModelRuntime
   ensureThreadWorkspace: (threadId: string) => Promise<string>
+  webSearchService?: WebSearchService
   readConfig: () => SettingsConfig
   readSettings: () => ProviderSettings
   requireThread: (threadId: string) => ThreadRecord
@@ -93,12 +95,12 @@ export class YachiyoServerRunDomain {
   private readonly activeRunTasks = new Map<string, Promise<void>>()
   private readonly backgroundTitleTasks = new Set<Promise<void>>()
   private readonly backgroundTitleTaskControllers = new Set<AbortController>()
-  private lastRunEnabledTools: ToolCallName[]
+  private lastRunEnabledTools: ToolCallName[] | null
   private isClosing = false
 
   constructor(deps: RunDomainDeps) {
     this.deps = deps
-    this.lastRunEnabledTools = resolveEnabledTools(this.deps.readConfig().enabledTools)
+    this.lastRunEnabledTools = null
   }
 
   hasActiveThread(threadId: string): boolean {
@@ -518,7 +520,9 @@ export class YachiyoServerRunDomain {
             emit: this.deps.emit,
             createModelRuntime: this.deps.createModelRuntime,
             ensureThreadWorkspace: this.deps.ensureThreadWorkspace,
+            webSearchService: this.deps.webSearchService,
             readThread: this.deps.requireThread,
+            readConfig: this.deps.readConfig,
             readSettings: this.deps.readSettings,
             loadThreadMessages: this.deps.loadThreadMessages,
             onEnabledToolsUsed: (enabledTools) => {

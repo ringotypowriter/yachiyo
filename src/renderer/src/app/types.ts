@@ -16,6 +16,8 @@ export type {
   ToolCallName,
   ToolCallRecord as ToolCall,
   ToolCallDetailsSnapshot,
+  WebSearchBrowserImportSource,
+  WebSearchToolCallDetails,
   WriteToolCallDetails,
   WebReadToolCallDetails,
   YachiyoServerEvent

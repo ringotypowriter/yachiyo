@@ -137,7 +137,7 @@ function ThreadConversationGroup({
 
       {responseCount > 0 || group.showPreparing ? (
         <div className="message-response-cluster">
-          {activeBranch ? (
+          {!group.hideActiveBranchWhilePreparing && activeBranch ? (
             <AssistantMessageBubble
               key={activeBranch.message.id}
               message={activeBranch.message}

@@ -9,6 +9,7 @@ import type {
   RunCancelledEvent,
   RunCompletedEvent,
   RunFailedEvent,
+  SettingsConfig,
   ThreadRecord,
   ThreadUpdatedEvent,
   ToolCallName,
@@ -23,6 +24,7 @@ import {
   prependQueryReminderToLatestUserMessage
 } from '../../runtime/queryReminder.ts'
 import type { ModelRuntime } from '../../runtime/types.ts'
+import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import {
   createAgentToolSet,
@@ -43,7 +45,7 @@ export interface ExecuteRunInput {
   requestMessageId: string
   abortController: AbortController
   updateHeadOnComplete: boolean
-  previousEnabledTools: ToolCallName[]
+  previousEnabledTools: ToolCallName[] | null
 }
 
 export interface RestartRunReason {
@@ -64,7 +66,9 @@ export interface RunExecutionDeps {
   emit: EmitServerEvent
   createModelRuntime: () => ModelRuntime
   ensureThreadWorkspace: (threadId: string) => Promise<string>
+  webSearchService?: WebSearchService
   readThread: (threadId: string) => ThreadRecord
+  readConfig: () => SettingsConfig
   readSettings: () => ProviderSettings
   loadThreadMessages: (threadId: string) => MessageRecord[]
   onEnabledToolsUsed: (enabledTools: ToolCallName[]) => void
@@ -126,6 +130,12 @@ function buildAgentInstructions(workspacePath: string, enabledTools: ToolCallNam
   if (enabledTools.includes('webRead')) {
     instructions.push(
       'Use webRead for static HTTP(S) pages when you need readable extracted content. It is not a browser automation or JS-rendering tool.'
+    )
+  }
+
+  if (enabledTools.includes('webSearch')) {
+    instructions.push(
+      'Use webSearch for general search results across the web. It returns normalized search hits, not arbitrary browser automation.'
     )
   }
 
@@ -205,10 +215,14 @@ export async function executeServerRun(
     const runtime = deps.createModelRuntime()
     const hiddenQueryReminder = formatQueryReminder(
       [
-        buildToolAvailabilityReminderSection({
-          previousEnabledTools: input.previousEnabledTools,
-          enabledTools: input.enabledTools
-        })
+        ...(input.previousEnabledTools
+          ? [
+              buildToolAvailabilityReminderSection({
+                previousEnabledTools: input.previousEnabledTools,
+                enabledTools: input.enabledTools
+              })
+            ]
+          : [])
       ].flatMap((section) => (section ? [section] : []))
     )
     const history = prependQueryReminderToLatestUserMessage(
@@ -219,10 +233,15 @@ export async function executeServerRun(
       history,
       agentInstructions: buildAgentInstructions(workspacePath, input.enabledTools)
     })
-    const tools = createAgentToolSet({
-      enabledTools: input.enabledTools,
-      workspacePath
-    })
+    const tools = createAgentToolSet(
+      {
+        enabledTools: input.enabledTools,
+        workspacePath
+      },
+      {
+        webSearchService: deps.webSearchService
+      }
+    )
     deps.onEnabledToolsUsed(input.enabledTools)
 
     for await (const delta of runtime.streamReply({

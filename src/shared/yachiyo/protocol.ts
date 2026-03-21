@@ -9,6 +9,8 @@ export type SendChatMode = 'normal' | 'steer' | 'follow-up'
 export type ToolModelMode = 'disabled' | 'custom'
 export type WebReadContentFormat = 'markdown' | 'html'
 export type WebReadExtractor = 'defuddle' | 'linkedom-fallback' | 'none'
+export type WebSearchProviderId = 'google-browser' | 'exa'
+export type BrowserSearchImportSourceId = 'google-chrome'
 export type WebReadFailureCode =
   | 'invalid-url'
   | 'unsupported-protocol'
@@ -22,9 +24,18 @@ export type WebReadFailureCode =
   | 'extraction-failed'
   | 'empty-content'
   | 'write-failed'
+export type WebSearchFailureCode =
+  | 'invalid-query'
+  | 'unsupported-provider'
+  | 'timeout'
+  | 'load-failed'
+  | 'extraction-failed'
+  | 'provider-failed'
+  | 'aborted'
 export const DEFAULT_WEB_READ_CONTENT_FORMAT: WebReadContentFormat = 'markdown'
 
-export const CORE_TOOL_NAMES = ['read', 'write', 'edit', 'bash', 'webRead'] as const
+export const DEFAULT_WEB_SEARCH_PROVIDER: WebSearchProviderId = 'google-browser'
+export const CORE_TOOL_NAMES = ['read', 'write', 'edit', 'bash', 'webRead', 'webSearch'] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
 export type ToolCallStatus = 'running' | 'completed' | 'failed'
 
@@ -143,12 +154,30 @@ export interface WebReadToolCallDetails {
   failureCode?: WebReadFailureCode
 }
 
+export interface WebSearchResultItem {
+  title: string
+  url: string
+  snippet?: string
+  rank: number
+}
+
+export interface WebSearchToolCallDetails {
+  provider: string
+  query: string
+  searchUrl?: string
+  finalUrl?: string
+  results: WebSearchResultItem[]
+  resultCount: number
+  failureCode?: WebSearchFailureCode
+}
+
 export type ToolCallDetailsSnapshot =
   | ReadToolCallDetails
   | WriteToolCallDetails
   | EditToolCallDetails
   | BashToolCallDetails
   | WebReadToolCallDetails
+  | WebSearchToolCallDetails
 
 export interface MessageImageRecord {
   dataUrl: string
@@ -227,12 +256,31 @@ export interface ToolModelConfig {
   model?: string
 }
 
+export interface BrowserBackedWebSearchSessionConfig {
+  sourceBrowser?: BrowserSearchImportSourceId
+  sourceProfileName?: string
+  importedAt?: string
+  lastImportError?: string
+}
+
+export interface ExaWebSearchConfig {
+  apiKey?: string
+  baseUrl?: string
+}
+
+export interface WebSearchConfig {
+  defaultProvider?: WebSearchProviderId
+  browserSession?: BrowserBackedWebSearchSessionConfig
+  exa?: ExaWebSearchConfig
+}
+
 export interface SettingsConfig {
   providers: ProviderConfig[]
   enabledTools?: ToolCallName[]
   general?: GeneralConfig
   chat?: ChatConfig
   toolModel?: ToolModelConfig
+  webSearch?: WebSearchConfig
 }
 
 export interface ProviderSettings {
@@ -271,6 +319,18 @@ export interface ChatAccepted {
 
 export interface ToolPreferencesInput {
   enabledTools?: ToolCallName[]
+}
+
+export interface WebSearchBrowserImportSource {
+  browserId: BrowserSearchImportSourceId
+  browserName: string
+  profileName: string
+  profilePath: string
+}
+
+export interface ImportWebSearchBrowserSessionInput {
+  sourceBrowser: BrowserSearchImportSourceId
+  sourceProfileName: string
 }
 
 export interface SendChatInput {

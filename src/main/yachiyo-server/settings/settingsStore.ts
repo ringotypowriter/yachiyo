@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 import {
+  DEFAULT_WEB_SEARCH_PROVIDER,
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
   DEFAULT_ENABLED_TOOL_NAMES,
   DEFAULT_SIDEBAR_VISIBILITY,
@@ -10,11 +11,15 @@ import {
   normalizeEnabledTools,
   normalizeSidebarVisibility,
   normalizeToolModelMode,
+  type BrowserBackedWebSearchSessionConfig,
+  type ExaWebSearchConfig,
   type ProviderConfig,
   type ProviderKind,
   type ProviderSettings,
   type SettingsConfig,
-  type ToolModelConfig
+  type ToolModelConfig,
+  type WebSearchConfig,
+  type WebSearchProviderId
 } from '../../../shared/yachiyo/protocol.ts'
 import {
   createDisabledToolModelConfig,
@@ -38,6 +43,19 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
     providerId: '',
     providerName: '',
     model: ''
+  },
+  webSearch: {
+    defaultProvider: DEFAULT_WEB_SEARCH_PROVIDER,
+    browserSession: {
+      sourceBrowser: undefined,
+      sourceProfileName: '',
+      importedAt: '',
+      lastImportError: ''
+    },
+    exa: {
+      apiKey: '',
+      baseUrl: ''
+    }
   }
 }
 
@@ -47,6 +65,13 @@ function normalizeString(value: unknown, fallback: string): string {
 
 function normalizeProviderType(value: unknown, fallback: ProviderKind): ProviderKind {
   return value === 'openai' || value === 'anthropic' ? value : fallback
+}
+
+function normalizeWebSearchProviderId(
+  value: unknown,
+  fallback: WebSearchProviderId = DEFAULT_WEB_SEARCH_PROVIDER
+): WebSearchProviderId {
+  return value === 'google-browser' || value === 'exa' ? value : fallback
 }
 
 function normalizeStringList(value: unknown): string[] {
@@ -98,6 +123,53 @@ function normalizeToolModelConfig(
     providerId: normalizeString(input['providerId'], fallback.providerId ?? ''),
     providerName: normalizeString(input['providerName'], fallback.providerName ?? ''),
     model: normalizeString(input['model'], fallback.model ?? '')
+  }
+}
+
+function normalizeBrowserSessionConfig(
+  value: unknown,
+  fallback: BrowserBackedWebSearchSessionConfig = DEFAULT_SETTINGS_CONFIG.webSearch
+    ?.browserSession ?? {}
+): BrowserBackedWebSearchSessionConfig {
+  const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+
+  return {
+    sourceBrowser:
+      input['sourceBrowser'] === 'google-chrome' ? 'google-chrome' : fallback.sourceBrowser,
+    sourceProfileName: normalizeString(
+      input['sourceProfileName'],
+      fallback.sourceProfileName ?? ''
+    ),
+    importedAt: normalizeString(input['importedAt'], fallback.importedAt ?? ''),
+    lastImportError: normalizeString(input['lastImportError'], fallback.lastImportError ?? '')
+  }
+}
+
+function normalizeExaWebSearchConfig(
+  value: unknown,
+  fallback: ExaWebSearchConfig = DEFAULT_SETTINGS_CONFIG.webSearch?.exa ?? {}
+): ExaWebSearchConfig {
+  const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+
+  return {
+    apiKey: normalizeString(input['apiKey'], fallback.apiKey ?? ''),
+    baseUrl: normalizeString(input['baseUrl'], fallback.baseUrl ?? '')
+  }
+}
+
+function normalizeWebSearchConfig(
+  value: unknown,
+  fallback: WebSearchConfig = DEFAULT_SETTINGS_CONFIG.webSearch ?? {}
+): WebSearchConfig {
+  const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+
+  return {
+    defaultProvider: normalizeWebSearchProviderId(
+      input['defaultProvider'],
+      fallback.defaultProvider ?? DEFAULT_WEB_SEARCH_PROVIDER
+    ),
+    browserSession: normalizeBrowserSessionConfig(input['browserSession'], fallback.browserSession),
+    exa: normalizeExaWebSearchConfig(input['exa'], fallback.exa)
   }
 }
 
@@ -179,6 +251,7 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
           ? syncToolModelWithProvider(toolModel, resolvedToolProvider)
           : createDisabledToolModelConfig()
         : toolModel,
+    webSearch: normalizeWebSearchConfig(input['webSearch']),
     providers: hasProviders ? providers : DEFAULT_SETTINGS_CONFIG.providers
   }
 }
@@ -217,8 +290,16 @@ export function parseSettingsToml(raw: string): SettingsConfig {
   const root: Record<string, unknown> = {}
   const providers: Array<Record<string, unknown>> = []
   let currentProvider: Record<string, unknown> | null = null
-  let section: 'root' | 'general' | 'chat' | 'toolModel' | 'provider' | 'provider.modelList' =
-    'root'
+  let section:
+    | 'root'
+    | 'general'
+    | 'chat'
+    | 'toolModel'
+    | 'webSearch'
+    | 'webSearch.browserSession'
+    | 'webSearch.exa'
+    | 'provider'
+    | 'provider.modelList' = 'root'
 
   for (const rawLine of raw.split(/\r?\n/u)) {
     const line = stripTomlComment(rawLine).trim()
@@ -239,6 +320,38 @@ export function parseSettingsToml(raw: string): SettingsConfig {
     if (line === '[toolModel]') {
       root['toolModel'] = root['toolModel'] ?? {}
       section = 'toolModel'
+      continue
+    }
+
+    if (line === '[webSearch]') {
+      root['webSearch'] = root['webSearch'] ?? {}
+      section = 'webSearch'
+      continue
+    }
+
+    if (line === '[webSearch.browserSession]') {
+      const webSearch =
+        root['webSearch'] && typeof root['webSearch'] === 'object'
+          ? (root['webSearch'] as Record<string, unknown>)
+          : null
+      if (!webSearch) {
+        throw new Error('Encountered [webSearch.browserSession] before [webSearch].')
+      }
+      webSearch['browserSession'] = webSearch['browserSession'] ?? {}
+      section = 'webSearch.browserSession'
+      continue
+    }
+
+    if (line === '[webSearch.exa]') {
+      const webSearch =
+        root['webSearch'] && typeof root['webSearch'] === 'object'
+          ? (root['webSearch'] as Record<string, unknown>)
+          : null
+      if (!webSearch) {
+        throw new Error('Encountered [webSearch.exa] before [webSearch].')
+      }
+      webSearch['exa'] = webSearch['exa'] ?? {}
+      section = 'webSearch.exa'
       continue
     }
 
@@ -315,6 +428,41 @@ export function parseSettingsToml(raw: string): SettingsConfig {
       continue
     }
 
+    if (section === 'webSearch') {
+      const webSearch =
+        root['webSearch'] && typeof root['webSearch'] === 'object'
+          ? (root['webSearch'] as Record<string, unknown>)
+          : null
+      if (!webSearch) {
+        throw new Error(`Web search settings are not initialized for ${key}.`)
+      }
+      webSearch[key] = value
+      continue
+    }
+
+    if (section === 'webSearch.browserSession' || section === 'webSearch.exa') {
+      const webSearch =
+        root['webSearch'] && typeof root['webSearch'] === 'object'
+          ? (root['webSearch'] as Record<string, unknown>)
+          : null
+      const nested =
+        webSearch &&
+        typeof webSearch[section === 'webSearch.browserSession' ? 'browserSession' : 'exa'] ===
+          'object'
+          ? (webSearch[section === 'webSearch.browserSession' ? 'browserSession' : 'exa'] as Record<
+              string,
+              unknown
+            >)
+          : null
+
+      if (!nested) {
+        throw new Error(`Web search nested settings are not initialized for ${key}.`)
+      }
+
+      nested[key] = value
+      continue
+    }
+
     if (section === 'provider') {
       if (!currentProvider) {
         throw new Error(`Provider entry is not initialized for ${key}.`)
@@ -377,7 +525,26 @@ export function stringifySettingsToml(config: SettingsConfig): string {
     `mode = ${stringifyTomlString(toolModel.mode ?? DEFAULT_TOOL_MODEL_MODE)}`,
     `providerId = ${stringifyTomlString(toolModel.providerId ?? '')}`,
     `providerName = ${stringifyTomlString(toolModel.providerName ?? '')}`,
-    `model = ${stringifyTomlString(toolModel.model ?? '')}`
+    `model = ${stringifyTomlString(toolModel.model ?? '')}`,
+    '',
+    '[webSearch]',
+    `defaultProvider = ${stringifyTomlString(
+      normalizeWebSearchProviderId(normalized.webSearch?.defaultProvider)
+    )}`,
+    '',
+    '[webSearch.browserSession]',
+    `sourceBrowser = ${stringifyTomlString(normalized.webSearch?.browserSession?.sourceBrowser ?? '')}`,
+    `sourceProfileName = ${stringifyTomlString(
+      normalized.webSearch?.browserSession?.sourceProfileName ?? ''
+    )}`,
+    `importedAt = ${stringifyTomlString(normalized.webSearch?.browserSession?.importedAt ?? '')}`,
+    `lastImportError = ${stringifyTomlString(
+      normalized.webSearch?.browserSession?.lastImportError ?? ''
+    )}`,
+    '',
+    '[webSearch.exa]',
+    `apiKey = ${stringifyTomlString(normalized.webSearch?.exa?.apiKey ?? '')}`,
+    `baseUrl = ${stringifyTomlString(normalized.webSearch?.exa?.baseUrl ?? '')}`
   ]
 
   for (const provider of normalized.providers) {

@@ -15,6 +15,7 @@ export interface MessageGroup {
   userMessage: Message
   assistantBranches: MessageGroupBranch[]
   activeBranchIndex: number
+  hideActiveBranchWhilePreparing: boolean
   showPreparing: boolean
 }
 
@@ -133,6 +134,10 @@ export function buildMessageGroups(input: {
           isActive: index === activeBranchIndex
         })),
         activeBranchIndex,
+        hideActiveBranchWhilePreparing:
+          input.runPhase === 'preparing' &&
+          input.activeRequestMessageId === userMessage.id &&
+          assistantMessages.length > 0,
         showPreparing:
           input.runPhase === 'preparing' && input.activeRequestMessageId === userMessage.id
       }

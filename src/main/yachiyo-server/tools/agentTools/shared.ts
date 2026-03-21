@@ -10,6 +10,7 @@ import type {
   ToolCallDetailsSnapshot,
   ToolCallName,
   WebReadToolCallDetails,
+  WebSearchToolCallDetails,
   WriteToolCallDetails
 } from '../../../../shared/yachiyo/protocol.ts'
 import { DEFAULT_WEB_READ_CONTENT_FORMAT } from '../../../../shared/yachiyo/protocol.ts'
@@ -23,6 +24,8 @@ export const MAX_BASH_TIMEOUT_SECONDS = 120
 export const MAX_BASH_MODEL_OUTPUT_CHARS = 20_000
 export const MAX_BASH_DETAILS_OUTPUT_CHARS = 8_000
 export const DEFAULT_WEB_READ_FORMAT = DEFAULT_WEB_READ_CONTENT_FORMAT
+export const DEFAULT_WEB_SEARCH_LIMIT = 5
+export const MAX_WEB_SEARCH_LIMIT = 10
 
 export const readToolInputSchema = z.object({
   path: z.string().min(1),
@@ -52,11 +55,17 @@ export const webReadToolInputSchema = z.object({
   filename: z.string().min(1).optional()
 })
 
+export const webSearchToolInputSchema = z.object({
+  query: z.string().min(1),
+  limit: z.number().int().min(1).max(MAX_WEB_SEARCH_LIMIT).optional()
+})
+
 export type ReadToolInput = z.infer<typeof readToolInputSchema>
 export type WriteToolInput = z.infer<typeof writeToolInputSchema>
 export type EditToolInput = z.infer<typeof editToolInputSchema>
 export type BashToolInput = z.infer<typeof bashToolInputSchema>
 export type WebReadToolInput = z.infer<typeof webReadToolInputSchema>
+export type WebSearchToolInput = z.infer<typeof webSearchToolInputSchema>
 
 export interface AgentToolContext {
   enabledTools?: ToolCallName[]
@@ -89,6 +98,7 @@ export type WriteToolOutput = AgentToolResult<WriteToolCallDetails>
 export type EditToolOutput = AgentToolResult<EditToolCallDetails>
 export type BashToolOutput = AgentToolResult<BashToolCallDetails>
 export type WebReadToolOutput = AgentToolResult<WebReadToolCallDetails>
+export type WebSearchToolOutput = AgentToolResult<WebSearchToolCallDetails>
 
 export type AgentToolOutput =
   | ReadToolOutput
@@ -96,6 +106,7 @@ export type AgentToolOutput =
   | EditToolOutput
   | BashToolOutput
   | WebReadToolOutput
+  | WebSearchToolOutput
 
 export interface BashRunnerInput {
   command: string
