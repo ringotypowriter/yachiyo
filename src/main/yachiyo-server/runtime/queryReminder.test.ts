@@ -39,13 +39,13 @@ test('formatQueryReminder wraps multiple sections into one extensible reminder b
 test('buildToolAvailabilityReminderSection only emits changed tools', () => {
   assert.deepEqual(
     buildToolAvailabilityReminderSection({
-      previousEnabledTools: ['read', 'write', 'edit', 'bash'],
+      previousEnabledTools: ['read', 'write', 'edit', 'bash', 'webRead'],
       enabledTools: ['read', 'bash']
     }),
     {
       key: 'tool-availability',
       title: 'Tool availability changed for this turn',
-      lines: ['Disabled: write, edit.']
+      lines: ['Disabled: write, edit, webRead.']
     }
   )
 

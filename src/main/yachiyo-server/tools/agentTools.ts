@@ -18,8 +18,10 @@ import {
   type BashToolOutput,
   type EditToolOutput,
   type ReadToolOutput,
+  type WebReadToolOutput,
   type WriteToolOutput
 } from './agentTools/shared.ts'
+import { createTool as createWebReadTool } from './agentTools/webReadTool.ts'
 import { createTool as createWriteTool } from './agentTools/writeTool.ts'
 
 export type {
@@ -30,6 +32,7 @@ export type {
   EditToolOutput,
   ReadToolOutput,
   ToolContentBlock,
+  WebReadToolOutput,
   WriteToolOutput
 } from './agentTools/shared.ts'
 
@@ -41,6 +44,7 @@ export {
 } from './agentTools/bashTool.ts'
 export { createTool as createEditTool, runEditTool } from './agentTools/editTool.ts'
 export { createTool as createReadTool, runReadTool } from './agentTools/readTool.ts'
+export { createTool as createWebReadTool, runWebReadTool } from './agentTools/webReadTool.ts'
 export { createTool as createWriteTool, runWriteTool } from './agentTools/writeTool.ts'
 
 function isToolFailure(output: unknown): output is AgentToolOutput {
@@ -56,6 +60,11 @@ export function summarizeToolInput(toolName: ToolCallName, input: unknown): stri
     const command =
       typeof input === 'object' && input !== null && 'command' in input ? input.command : ''
     return typeof command === 'string' ? takeTail(command, 160).text : toolName
+  }
+
+  if (toolName === 'webRead') {
+    const url = typeof input === 'object' && input !== null && 'url' in input ? input.url : ''
+    return typeof url === 'string' && url.trim().length > 0 ? takeTail(url, 160).text : toolName
   }
 
   const path = typeof input === 'object' && input !== null && 'path' in input ? input.path : ''
@@ -92,6 +101,16 @@ export function summarizeToolOutput(
     return details.firstChangedLine === undefined
       ? `replaced ${details.replacements} occurrence${details.replacements === 1 ? '' : 's'}`
       : `replaced ${details.replacements} occurrence${details.replacements === 1 ? '' : 's'} at line ${details.firstChangedLine}`
+  }
+
+  if (toolName === 'webRead') {
+    const details = (output as WebReadToolOutput).details
+    if (details.savedFileName || details.savedFilePath) {
+      return `saved to ${details.savedFileName ?? details.savedFilePath}`
+    }
+
+    const summary = details.title?.trim() ? `read "${details.title}"` : 'read web page'
+    return details.truncated ? `${summary} (truncated)` : summary
   }
 
   if (phase === 'update') {
@@ -147,6 +166,10 @@ export function createAgentToolSet(context: AgentToolContext): ToolSet | undefin
 
   if (enabledTools.has('bash')) {
     tools.bash = createBashTool(context)
+  }
+
+  if (enabledTools.has('webRead')) {
+    tools.webRead = createWebReadTool(context)
   }
 
   return Object.keys(tools).length > 0 ? tools : undefined

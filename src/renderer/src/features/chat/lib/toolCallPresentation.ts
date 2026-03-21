@@ -3,6 +3,7 @@ import type {
   EditToolCallDetails,
   ReadToolCallDetails,
   ToolCall,
+  WebReadToolCallDetails,
   WriteToolCallDetails
 } from '../../../app/types.ts'
 
@@ -97,6 +98,31 @@ function takeTextTail(
   return { text, truncated }
 }
 
+function takeTextHead(
+  value: string,
+  options: { maxLines?: number; maxChars?: number } = {}
+): { text: string; truncated: boolean } {
+  const trimmedValue = value.trim()
+  if (!trimmedValue) {
+    return { text: '', truncated: false }
+  }
+
+  const maxLines = options.maxLines ?? OUTPUT_TAIL_MAX_LINES
+  const maxChars = options.maxChars ?? OUTPUT_TAIL_MAX_CHARS
+
+  const lines = trimmedValue.split(/\r?\n/)
+  const lineHead = lines.slice(0, maxLines)
+  let text = lineHead.join('\n')
+  let truncated = lineHead.length !== lines.length
+
+  if (text.length > maxChars) {
+    text = text.slice(0, maxChars).trimEnd()
+    truncated = true
+  }
+
+  return { text, truncated }
+}
+
 function pushOutputTail(
   codeBlocks: ToolCallDetailCodeBlock[],
   label: string,
@@ -109,6 +135,20 @@ function pushOutputTail(
   }
 
   pushCodeBlock(codeBlocks, tail.truncated ? `${label} tail` : label, tail.text, tone)
+}
+
+function pushOutputHead(
+  codeBlocks: ToolCallDetailCodeBlock[],
+  label: string,
+  value: string,
+  tone?: ToolCallDetailTone
+): void {
+  const head = takeTextHead(value)
+  if (!head.text) {
+    return
+  }
+
+  pushCodeBlock(codeBlocks, head.truncated ? `${label} excerpt` : label, head.text, tone)
 }
 
 export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDetailsPresentation {
@@ -183,6 +223,32 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
       toolCall.status === 'failed' || details.blocked ? 'danger' : undefined
     )
     pushOutputTail(codeBlocks, 'stdout', details.stdout)
+  }
+
+  if (toolCall.toolName === 'webRead') {
+    const details = toolCall.details as WebReadToolCallDetails | undefined
+    if (!details) {
+      return { fields, codeBlocks }
+    }
+
+    pushField(fields, 'final url', details.finalUrl)
+    pushField(fields, 'http status', details.httpStatus)
+    pushField(fields, 'content type', details.contentType)
+    pushField(fields, 'extractor', details.extractor)
+    pushField(fields, 'title', details.title)
+    pushField(fields, 'author', details.author)
+    pushField(fields, 'site name', details.siteName)
+    pushField(fields, 'published', details.publishedTime)
+    pushField(fields, 'format', details.contentFormat)
+    pushField(fields, 'truncated', toYesNo(details.truncated))
+    pushField(fields, 'original chars', details.originalContentChars)
+    pushField(fields, 'saved file', details.savedFilePath)
+    pushField(fields, 'saved bytes', details.savedBytes)
+    pushField(fields, 'failure code', details.failureCode)
+    pushCodeBlock(codeBlocks, 'description', details.description)
+    pushOutputHead(codeBlocks, 'content', details.content)
+
+    return { fields, codeBlocks }
   }
 
   return { fields, codeBlocks }

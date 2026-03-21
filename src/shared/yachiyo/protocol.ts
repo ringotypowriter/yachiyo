@@ -7,7 +7,24 @@ export type ActiveRunEnterBehavior = 'enter-steers' | 'enter-queues-follow-up'
 export type SidebarVisibility = 'expanded' | 'collapsed'
 export type SendChatMode = 'normal' | 'steer' | 'follow-up'
 export type ToolModelMode = 'disabled' | 'custom'
-export const CORE_TOOL_NAMES = ['read', 'write', 'edit', 'bash'] as const
+export type WebReadContentFormat = 'markdown' | 'html'
+export type WebReadExtractor = 'defuddle' | 'linkedom-fallback' | 'none'
+export type WebReadFailureCode =
+  | 'invalid-url'
+  | 'unsupported-protocol'
+  | 'invalid-filename'
+  | 'fetch-failed'
+  | 'timeout'
+  | 'http-error'
+  | 'unsupported-content-type'
+  | 'response-too-large'
+  | 'empty-body'
+  | 'extraction-failed'
+  | 'empty-content'
+  | 'write-failed'
+export const DEFAULT_WEB_READ_CONTENT_FORMAT: WebReadContentFormat = 'markdown'
+
+export const CORE_TOOL_NAMES = ['read', 'write', 'edit', 'bash', 'webRead'] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
 export type ToolCallStatus = 'running' | 'completed' | 'failed'
 
@@ -104,11 +121,34 @@ export interface BashToolCallDetails {
   outputFilePath?: string
 }
 
+export interface WebReadToolCallDetails {
+  requestedUrl: string
+  finalUrl?: string
+  httpStatus?: number
+  contentType?: string
+  extractor: WebReadExtractor
+  title?: string
+  author?: string
+  siteName?: string
+  publishedTime?: string
+  description?: string
+  content: string
+  contentFormat: WebReadContentFormat
+  contentChars: number
+  truncated: boolean
+  originalContentChars?: number
+  savedFileName?: string
+  savedFilePath?: string
+  savedBytes?: number
+  failureCode?: WebReadFailureCode
+}
+
 export type ToolCallDetailsSnapshot =
   | ReadToolCallDetails
   | WriteToolCallDetails
   | EditToolCallDetails
   | BashToolCallDetails
+  | WebReadToolCallDetails
 
 export interface MessageImageRecord {
   dataUrl: string

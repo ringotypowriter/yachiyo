@@ -26,6 +26,10 @@ const TOOL_COPY: Record<
   bash: {
     label: 'bash',
     description: 'Run shell commands in the workspace'
+  },
+  webRead: {
+    label: 'webRead',
+    description: 'Read static web pages as clean content'
   }
 }
 

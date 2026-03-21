@@ -113,9 +113,19 @@ function buildAgentInstructions(workspacePath: string, enabledTools: ToolCallNam
     instructions.push('Use bash for shell commands when shell execution is the clearest path.')
   }
 
-  if (enabledTools.some((toolName) => toolName !== 'bash')) {
+  if (
+    enabledTools.some(
+      (toolName) => toolName === 'read' || toolName === 'write' || toolName === 'edit'
+    )
+  ) {
     instructions.push(
       'Use read, write, or edit for direct file work when that is clearer than shell commands.'
+    )
+  }
+
+  if (enabledTools.includes('webRead')) {
+    instructions.push(
+      'Use webRead for static HTTP(S) pages when you need readable extracted content. It is not a browser automation or JS-rendering tool.'
     )
   }
 

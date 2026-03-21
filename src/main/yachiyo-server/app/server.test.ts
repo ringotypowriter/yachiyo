@@ -598,7 +598,7 @@ test('YachiyoServer snapshots the enabled tool subset and prepends hidden remind
     const firstRun = await server.sendChat({
       threadId: thread.id,
       content: 'Default tool run',
-      enabledTools: ['read', 'write', 'edit', 'bash']
+      enabledTools: ['read', 'write', 'edit', 'bash', 'webRead']
     })
     await completeRun(firstRun.runId)
 
@@ -616,7 +616,13 @@ test('YachiyoServer snapshots the enabled tool subset and prepends hidden remind
     })
     await completeRun(thirdRun.runId)
 
-    assert.deepEqual(Object.keys(modelRequests[0]?.tools ?? {}), ['read', 'write', 'edit', 'bash'])
+    assert.deepEqual(Object.keys(modelRequests[0]?.tools ?? {}), [
+      'read',
+      'write',
+      'edit',
+      'bash',
+      'webRead'
+    ])
     assert.equal(modelRequests[0]?.messages.at(-1)?.content, 'Default tool run')
 
     assert.deepEqual(Object.keys(modelRequests[1]?.tools ?? {}), ['read', 'bash'])
@@ -625,7 +631,7 @@ test('YachiyoServer snapshots the enabled tool subset and prepends hidden remind
       [
         '<reminder>',
         'Tool availability changed for this turn:',
-        '- Disabled: write, edit.',
+        '- Disabled: write, edit, webRead.',
         '</reminder>',
         '',
         'Use only read and bash'
@@ -2260,7 +2266,7 @@ test('YachiyoServer persists the active-run input behavior in shared app setting
     const updatedEvent = waitForEvent('settings.updated')
 
     const config = await server.saveConfig({
-      enabledTools: ['read', 'write', 'edit', 'bash'],
+      enabledTools: ['read', 'write', 'edit', 'bash', 'webRead'],
       chat: {
         activeRunEnterBehavior: 'enter-queues-follow-up'
       },
@@ -2287,7 +2293,7 @@ test('YachiyoServer persists sidebar visibility in shared app settings', async (
     const updatedEvent = waitForEvent('settings.updated')
 
     const config = await server.saveConfig({
-      enabledTools: ['read', 'write', 'edit', 'bash'],
+      enabledTools: ['read', 'write', 'edit', 'bash', 'webRead'],
       general: {
         sidebarVisibility: 'collapsed'
       },

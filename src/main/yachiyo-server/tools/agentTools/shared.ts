@@ -1,5 +1,5 @@
 import { access } from 'node:fs/promises'
-import { isAbsolute, resolve } from 'node:path'
+import { isAbsolute, relative, resolve } from 'node:path'
 
 import { z } from 'zod'
 
@@ -9,8 +9,10 @@ import type {
   ReadToolCallDetails,
   ToolCallDetailsSnapshot,
   ToolCallName,
+  WebReadToolCallDetails,
   WriteToolCallDetails
 } from '../../../../shared/yachiyo/protocol.ts'
+import { DEFAULT_WEB_READ_CONTENT_FORMAT } from '../../../../shared/yachiyo/protocol.ts'
 
 export const DEFAULT_READ_LIMIT = 200
 export const MAX_READ_LIMIT = 500
@@ -20,6 +22,7 @@ export const DEFAULT_BASH_TIMEOUT_SECONDS = 30
 export const MAX_BASH_TIMEOUT_SECONDS = 120
 export const MAX_BASH_MODEL_OUTPUT_CHARS = 20_000
 export const MAX_BASH_DETAILS_OUTPUT_CHARS = 8_000
+export const DEFAULT_WEB_READ_FORMAT = DEFAULT_WEB_READ_CONTENT_FORMAT
 
 export const readToolInputSchema = z.object({
   path: z.string().min(1),
@@ -43,10 +46,17 @@ export const bashToolInputSchema = z.object({
   timeout: z.number().int().min(1).max(MAX_BASH_TIMEOUT_SECONDS).optional()
 })
 
+export const webReadToolInputSchema = z.object({
+  url: z.string().min(1),
+  format: z.enum(['markdown', 'html']).optional(),
+  filename: z.string().min(1).optional()
+})
+
 export type ReadToolInput = z.infer<typeof readToolInputSchema>
 export type WriteToolInput = z.infer<typeof writeToolInputSchema>
 export type EditToolInput = z.infer<typeof editToolInputSchema>
 export type BashToolInput = z.infer<typeof bashToolInputSchema>
+export type WebReadToolInput = z.infer<typeof webReadToolInputSchema>
 
 export interface AgentToolContext {
   enabledTools?: ToolCallName[]
@@ -78,8 +88,14 @@ export type ReadToolOutput = AgentToolResult<ReadToolCallDetails>
 export type WriteToolOutput = AgentToolResult<WriteToolCallDetails>
 export type EditToolOutput = AgentToolResult<EditToolCallDetails>
 export type BashToolOutput = AgentToolResult<BashToolCallDetails>
+export type WebReadToolOutput = AgentToolResult<WebReadToolCallDetails>
 
-export type AgentToolOutput = ReadToolOutput | WriteToolOutput | EditToolOutput | BashToolOutput
+export type AgentToolOutput =
+  | ReadToolOutput
+  | WriteToolOutput
+  | EditToolOutput
+  | BashToolOutput
+  | WebReadToolOutput
 
 export interface BashRunnerInput {
   command: string
@@ -101,6 +117,24 @@ export type BashRunner = (input: BashRunnerInput) => Promise<BashRunnerResult>
 
 export function resolveToolPath(workspacePath: string, targetPath: string): string {
   return isAbsolute(targetPath) ? resolve(targetPath) : resolve(workspacePath, targetPath)
+}
+
+export function resolvePathWithinWorkspace(
+  workspacePath: string,
+  targetPath: string
+): string | undefined {
+  const resolvedWorkspacePath = resolve(workspacePath)
+  const resolvedTargetPath = resolve(resolvedWorkspacePath, targetPath)
+  const workspaceRelativePath = relative(resolvedWorkspacePath, resolvedTargetPath)
+
+  if (
+    workspaceRelativePath === '' ||
+    (!workspaceRelativePath.startsWith('..') && !isAbsolute(workspaceRelativePath))
+  ) {
+    return resolvedTargetPath
+  }
+
+  return undefined
 }
 
 export function hasAccess(path: string): Promise<boolean> {

@@ -112,3 +112,111 @@ test('buildToolCallDetailsPresentation exposes bash metadata, tails, and explici
     }
   ])
 })
+
+test('buildToolCallDetailsPresentation exposes webRead metadata and markdown excerpts', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'webRead',
+    inputSummary: 'https://example.com/article',
+    details: {
+      requestedUrl: 'https://example.com/article',
+      finalUrl: 'https://example.com/final-article',
+      httpStatus: 200,
+      contentType: 'text/html; charset=utf-8',
+      extractor: 'defuddle',
+      title: 'Example article',
+      author: 'A. Writer',
+      siteName: 'Example Site',
+      publishedTime: '2026-03-21T00:00:00.000Z',
+      description: 'Short summary.',
+      content: '# Example article\n\nFirst paragraph.\n\nSecond paragraph.\n\nThird paragraph.',
+      contentFormat: 'markdown',
+      contentChars: 70,
+      truncated: true,
+      originalContentChars: 150
+    }
+  })
+
+  assert.deepEqual(presentation.fields, [
+    { label: 'final url', value: 'https://example.com/final-article' },
+    { label: 'http status', value: '200' },
+    { label: 'content type', value: 'text/html; charset=utf-8' },
+    { label: 'extractor', value: 'defuddle' },
+    { label: 'title', value: 'Example article' },
+    { label: 'author', value: 'A. Writer' },
+    { label: 'site name', value: 'Example Site' },
+    { label: 'published', value: '2026-03-21T00:00:00.000Z' },
+    { label: 'format', value: 'markdown' },
+    { label: 'truncated', value: 'yes' },
+    { label: 'original chars', value: '150' }
+  ])
+  assert.deepEqual(presentation.codeBlocks, [
+    { label: 'description', value: 'Short summary.' },
+    {
+      label: 'content',
+      value: '# Example article\n\nFirst paragraph.\n\nSecond paragraph.\n\nThird paragraph.'
+    }
+  ])
+})
+
+test('buildToolCallDetailsPresentation exposes webRead saved-file metadata without content excerpts', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'webRead',
+    inputSummary: 'https://example.com/article',
+    details: {
+      requestedUrl: 'https://example.com/article',
+      finalUrl: 'https://example.com/final-article',
+      httpStatus: 200,
+      contentType: 'text/html; charset=utf-8',
+      extractor: 'defuddle',
+      title: 'Example article',
+      content: '',
+      contentFormat: 'markdown',
+      contentChars: 40000,
+      truncated: false,
+      savedFilePath: '/tmp/thread-1/captures/example.md',
+      savedBytes: 40000
+    }
+  })
+
+  assert.deepEqual(presentation.fields, [
+    { label: 'final url', value: 'https://example.com/final-article' },
+    { label: 'http status', value: '200' },
+    { label: 'content type', value: 'text/html; charset=utf-8' },
+    { label: 'extractor', value: 'defuddle' },
+    { label: 'title', value: 'Example article' },
+    { label: 'format', value: 'markdown' },
+    { label: 'truncated', value: 'no' },
+    { label: 'saved file', value: '/tmp/thread-1/captures/example.md' },
+    { label: 'saved bytes', value: '40000' }
+  ])
+  assert.deepEqual(presentation.codeBlocks, [])
+})
+
+test('buildToolCallDetailsPresentation exposes webRead html excerpts', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'webRead',
+    inputSummary: 'https://example.com/article',
+    details: {
+      requestedUrl: 'https://example.com/article',
+      finalUrl: 'https://example.com/final-article',
+      httpStatus: 200,
+      contentType: 'text/html; charset=utf-8',
+      extractor: 'defuddle',
+      title: 'Example article',
+      content: '<article><p>First paragraph.</p><p>Second paragraph.</p></article>',
+      contentFormat: 'html',
+      contentChars: 64,
+      truncated: false
+    }
+  })
+
+  assert.deepEqual(presentation.codeBlocks, [
+    {
+      label: 'content',
+      value: '<article><p>First paragraph.</p><p>Second paragraph.</p></article>'
+    }
+  ])
+})

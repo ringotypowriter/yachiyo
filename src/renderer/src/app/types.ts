@@ -17,5 +17,6 @@ export type {
   ToolCallRecord as ToolCall,
   ToolCallDetailsSnapshot,
   WriteToolCallDetails,
+  WebReadToolCallDetails,
   YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol.ts'

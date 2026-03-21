@@ -5,10 +5,14 @@ import { tmpdir } from 'node:os'
 import test from 'node:test'
 
 import {
+  normalizeToolResult,
   runBashTool,
   runEditTool,
   runReadTool,
+  runWebReadTool,
   runWriteTool,
+  summarizeToolInput,
+  summarizeToolOutput,
   streamBashTool
 } from './agentTools.ts'
 
@@ -208,5 +212,135 @@ test('runBashTool maps timeout failures into structured metadata', async () => {
     assert.equal(result.details.timedOut, true)
     assert.equal(result.details.exitCode, 124)
     assert.match(flattenToolContent(result.content), /timed out/i)
+  })
+})
+
+test('runWebReadTool maps service results into structured details and summaries', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const response = new Response('<html><body><article>stub</article></body></html>', {
+      status: 200,
+      headers: {
+        'content-type': 'text/html; charset=utf-8'
+      }
+    })
+
+    Object.defineProperty(response, 'url', {
+      configurable: true,
+      value: 'https://example.com/final-article'
+    })
+
+    const result = await runWebReadTool(
+      {
+        url: 'https://example.com/article'
+      },
+      { workspacePath },
+      {
+        fetchImpl: async () => response,
+        extractReadableContent: async () => ({
+          extractor: 'defuddle',
+          title: 'Example article',
+          author: 'A. Writer',
+          siteName: 'Example Site',
+          publishedTime: '2026-03-21',
+          description: 'Short summary.',
+          content: 'First paragraph.\n\nSecond paragraph.'
+        })
+      }
+    )
+
+    assert.equal(result.error, undefined)
+    assert.equal(result.details.requestedUrl, 'https://example.com/article')
+    assert.equal(result.details.finalUrl, 'https://example.com/final-article')
+    assert.equal(result.details.httpStatus, 200)
+    assert.equal(result.details.extractor, 'defuddle')
+    assert.equal(result.details.contentFormat, 'markdown')
+    assert.equal(
+      summarizeToolInput('webRead', {
+        url: 'https://example.com/article'
+      }),
+      'https://example.com/article'
+    )
+    assert.equal(summarizeToolOutput('webRead', result), 'read "Example article"')
+
+    const normalized = normalizeToolResult('webRead', result)
+    assert.equal(normalized.status, 'completed')
+    assert.equal(normalized.outputSummary, 'read "Example article"')
+    assert.equal(
+      normalized.details && 'extractor' in normalized.details
+        ? normalized.details.extractor
+        : undefined,
+      'defuddle'
+    )
+    assert.match(flattenToolContent(result.content), /Title: Example article/)
+    assert.match(flattenToolContent(result.content), /First paragraph\./)
+  })
+})
+
+test('runWebReadTool saves extracted content to a workspace file when filename is provided', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const longContent = `${'A'.repeat(40_000)}\n\nSecond paragraph.`
+    const response = new Response('<html><body><article>stub</article></body></html>', {
+      status: 200,
+      headers: {
+        'content-type': 'text/html; charset=utf-8'
+      }
+    })
+
+    Object.defineProperty(response, 'url', {
+      configurable: true,
+      value: 'https://example.com/final-article'
+    })
+
+    const result = await runWebReadTool(
+      {
+        url: 'https://example.com/article',
+        filename: 'captures/example.md'
+      },
+      { workspacePath },
+      {
+        fetchImpl: async () => response,
+        extractReadableContent: async () => ({
+          extractor: 'defuddle',
+          title: 'Example article',
+          description: 'Short summary.',
+          content: longContent
+        })
+      }
+    )
+
+    const savedPath = join(workspacePath, 'captures/example.md')
+
+    assert.equal(result.error, undefined)
+    assert.equal(result.details.savedFilePath, savedPath)
+    assert.equal(result.details.savedBytes, Buffer.byteLength(longContent, 'utf8'))
+    assert.equal(result.details.content, '')
+    assert.equal(result.details.truncated, false)
+    assert.equal(result.details.contentChars, longContent.length)
+    assert.equal(await readFile(savedPath, 'utf8'), longContent)
+    assert.equal(summarizeToolOutput('webRead', result), 'saved to captures/example.md')
+    assert.match(flattenToolContent(result.content), /Saved readable content to/)
+    assert.doesNotMatch(flattenToolContent(result.content), /Second paragraph\./)
+  })
+})
+
+test('runWebReadTool rejects filenames outside the workspace', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const result = await runWebReadTool(
+      {
+        url: 'https://example.com/article',
+        filename: '../escape.md'
+      },
+      { workspacePath },
+      {
+        fetchImpl: async () => {
+          throw new Error('fetch should not be called')
+        }
+      }
+    )
+
+    assert.equal(result.error, 'filename must stay within the current workspace.')
+    assert.equal(result.details.failureCode, 'invalid-filename')
+    assert.equal(result.details.savedFilePath, undefined)
+    assert.equal(result.details.content, '')
   })
 })
