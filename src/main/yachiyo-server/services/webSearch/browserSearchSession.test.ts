@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
@@ -46,6 +46,67 @@ test('BrowserSearchSession reuses a persistent profile path while bounding page 
   assert.deepEqual(calls, ['create:/tmp/yachiyo-browser-session', 'dispose'])
 })
 
+test('BrowserSearchSession serializes page access and exclusive profile operations', async () => {
+  const calls: string[] = []
+  let releaseFirstTask: (() => void) | undefined
+  const firstTaskComplete = new Promise<void>((resolve) => {
+    releaseFirstTask = resolve
+  })
+
+  const session = new BrowserSearchSession({
+    profilePath: '/tmp/yachiyo-browser-session',
+    pageFactory: {
+      async createPage(profilePath) {
+        calls.push(`create:${profilePath}`)
+        return {
+          async loadURL() {
+            return undefined
+          },
+          async waitForFunction() {
+            return undefined
+          },
+          async evaluate<TResult>() {
+            return 'ok' as TResult
+          },
+          getURL() {
+            return 'https://example.com'
+          }
+        }
+      },
+      async disposePage() {
+        calls.push('dispose')
+      }
+    }
+  })
+
+  const first = session.withPage(async () => {
+    calls.push('task:first:start')
+    await firstTaskComplete
+    calls.push('task:first:end')
+    return 'first'
+  })
+
+  const second = session.withExclusiveAccess(async () => {
+    calls.push('task:exclusive')
+    return 'exclusive'
+  })
+
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(calls, ['create:/tmp/yachiyo-browser-session', 'task:first:start'])
+
+  releaseFirstTask?.()
+
+  assert.equal(await first, 'first')
+  assert.equal(await second, 'exclusive')
+  assert.deepEqual(calls, [
+    'create:/tmp/yachiyo-browser-session',
+    'task:first:start',
+    'task:first:end',
+    'dispose',
+    'task:exclusive'
+  ])
+})
+
 test('copyBrowserProfileSessionData copies browser session storage into the dedicated target profile', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-browser-session-copy-'))
   const sourceProfilePath = join(root, 'chrome', 'Default')
@@ -53,10 +114,50 @@ test('copyBrowserProfileSessionData copies browser session storage into the dedi
 
   try {
     await mkdir(join(sourceProfilePath, 'Local Storage'), { recursive: true })
+    await mkdir(join(sourceProfilePath, 'IndexedDB'), { recursive: true })
     await writeFile(join(sourceProfilePath, 'Cookies'), 'cookie-db', 'utf8')
+    await writeFile(join(sourceProfilePath, 'QuotaManager'), 'quota-db', 'utf8')
     await writeFile(join(sourceProfilePath, 'Local Storage', 'leveldb.txt'), 'local', 'utf8')
 
     await copyBrowserProfileSessionData(sourceProfilePath, targetProfilePath)
+
+    assert.equal(await readFile(join(targetProfilePath, 'Cookies'), 'utf8'), 'cookie-db')
+    assert.equal(await readFile(join(targetProfilePath, 'QuotaManager'), 'utf8'), 'quota-db')
+    assert.equal(
+      await readFile(join(targetProfilePath, 'Local Storage', 'leveldb.txt'), 'utf8'),
+      'local'
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('copyBrowserProfileSessionData ignores locked optional quota files', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-browser-session-copy-'))
+  const sourceProfilePath = join(root, 'chrome', 'Default')
+  const targetProfilePath = join(root, 'target')
+  try {
+    await mkdir(join(sourceProfilePath, 'Local Storage'), { recursive: true })
+    await writeFile(join(sourceProfilePath, 'Cookies'), 'cookie-db', 'utf8')
+    await writeFile(join(sourceProfilePath, 'QuotaManager'), 'quota-db', 'utf8')
+    await writeFile(join(sourceProfilePath, 'Local Storage', 'leveldb.txt'), 'local', 'utf8')
+
+    const copy = async (sourcePath: string, targetPath: string): Promise<void> => {
+      if (sourcePath.endsWith('/QuotaManager')) {
+        const error = new Error('file is locked') as Error & { code?: string }
+        error.code = 'EBUSY'
+        throw error
+      }
+
+      await cp(sourcePath, targetPath, {
+        dereference: false,
+        errorOnExist: false,
+        force: true,
+        recursive: true
+      })
+    }
+
+    await copyBrowserProfileSessionData(sourceProfilePath, targetProfilePath, copy)
 
     assert.equal(await readFile(join(targetProfilePath, 'Cookies'), 'utf8'), 'cookie-db')
     assert.equal(

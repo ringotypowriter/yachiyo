@@ -28,7 +28,10 @@ import {
   createBrowserSearchSessionImportService,
   resolveGoogleChromeDataPath
 } from '../services/webSearch/browserSearchSession.ts'
-import { createElectronBrowserSearchPageFactory } from '../services/webSearch/electronBrowserSearchSession.ts'
+import {
+  createElectronBrowserSearchPageFactory,
+  type BrowserSearchDiagnosticEvent
+} from '../services/webSearch/electronBrowserSearchSession.ts'
 import { createGoogleBrowserWebSearchProvider } from '../services/webSearch/providers/googleBrowserWebSearchProvider.ts'
 import { createWebSearchService } from '../services/webSearch/webSearchService.ts'
 import { createSettingsStore } from '../settings/settingsStore.ts'
@@ -66,6 +69,21 @@ export class YachiyoServer {
   private readonly threadDomain: YachiyoServerThreadDomain
   private readonly browserSearchSession: BrowserSearchSession
 
+  private static logBrowserSearchDiagnostic(event: BrowserSearchDiagnosticEvent): void {
+    const details = {
+      profilePath: event.profilePath,
+      ...(event.url ? { url: event.url } : {}),
+      ...(event.code !== undefined ? { code: String(event.code) } : {}),
+      ...(event.details ?? {})
+    }
+    const suffix = Object.entries(details)
+      .filter(([, value]) => value !== undefined && value !== '')
+      .map(([key, value]) => `${key}=${String(value)}`)
+      .join(' ')
+
+    console.warn(`[web-search] ${event.event}${suffix ? ` ${suffix}` : ''}`)
+  }
+
   constructor(options: YachiyoServerOptions) {
     this.storage = options.storage
     this.now = options.now ?? (() => new Date())
@@ -76,7 +94,9 @@ export class YachiyoServer {
     const ensureThreadWorkspace = options.ensureThreadWorkspace ?? defaultEnsureThreadWorkspace
     const cloneThreadWorkspace = options.cloneThreadWorkspace ?? defaultCloneThreadWorkspace
     this.browserSearchSession = new BrowserSearchSession({
-      pageFactory: createElectronBrowserSearchPageFactory(),
+      pageFactory: createElectronBrowserSearchPageFactory({
+        log: YachiyoServer.logBrowserSearchDiagnostic
+      }),
       profilePath: resolveYachiyoWebSearchBrowserSessionPath()
     })
     const webSearchImportService = createBrowserSearchSessionImportService({
@@ -97,11 +117,13 @@ export class YachiyoServer {
       webSearchDeps: {
         listBrowserImportSources: () => webSearchImportService.listSources(),
         importBrowserSession: (input) =>
-          webSearchImportService.importSession({
-            profilePath: this.browserSearchSession.profilePath,
-            sourceBrowser: input.sourceBrowser,
-            sourceProfileName: input.sourceProfileName
-          })
+          this.browserSearchSession.withExclusiveAccess(async () =>
+            webSearchImportService.importSession({
+              profilePath: this.browserSearchSession.profilePath,
+              sourceBrowser: input.sourceBrowser,
+              sourceProfileName: input.sourceProfileName
+            })
+          )
       }
     })
     const auxiliaryGeneration = createAuxiliaryGenerationService({

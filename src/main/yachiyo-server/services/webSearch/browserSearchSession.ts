@@ -7,7 +7,7 @@ import type {
   WebSearchBrowserImportSource
 } from '../../../../shared/yachiyo/protocol.ts'
 
-const CHROME_COPY_ENTRIES = [
+const CHROME_REQUIRED_COPY_ENTRIES = [
   'Cookies',
   'Cookies-journal',
   'Network',
@@ -16,6 +16,11 @@ const CHROME_COPY_ENTRIES = [
   'IndexedDB',
   'Shared Storage',
   'WebStorage'
+] as const
+
+const CHROME_OPTIONAL_COPY_ENTRIES = [
+  'QuotaManager',
+  'QuotaManager-journal',
 ] as const
 
 export interface BrowserSearchPage {
@@ -54,30 +59,53 @@ export class BrowserSearchSession {
   readonly profilePath: string
 
   private readonly pageFactory: BrowserSearchPageFactory
+  private accessQueue: Promise<void> = Promise.resolve()
 
   constructor(input: { pageFactory: BrowserSearchPageFactory; profilePath: string }) {
     this.profilePath = input.profilePath
     this.pageFactory = input.pageFactory
   }
 
-  async withPage<TResult>(task: (page: BrowserSearchPage) => Promise<TResult>): Promise<TResult> {
-    const page = await this.pageFactory.createPage(this.profilePath)
+  async withExclusiveAccess<TResult>(task: () => Promise<TResult>): Promise<TResult> {
+    return this.runExclusive(task)
+  }
 
+  async withPage<TResult>(task: (page: BrowserSearchPage) => Promise<TResult>): Promise<TResult> {
+    return this.runExclusive(async () => {
+      const page = await this.pageFactory.createPage(this.profilePath)
+
+      try {
+        return await task(page)
+      } finally {
+        await this.pageFactory.disposePage(page)
+      }
+    })
+  }
+
+  private async runExclusive<TResult>(task: () => Promise<TResult>): Promise<TResult> {
+    const previous = this.accessQueue
+    let release: (() => void) | undefined
+    this.accessQueue = new Promise<void>((resolve) => {
+      release = resolve
+    })
+
+    await previous
     try {
-      return await task(page)
+      return await task()
     } finally {
-      await this.pageFactory.disposePage(page)
+      release?.()
     }
   }
 }
 
-async function copyIfExists(sourcePath: string, targetPath: string): Promise<void> {
-  await cp(sourcePath, targetPath, {
-    dereference: false,
-    errorOnExist: false,
-    force: true,
-    recursive: true
-  }).catch((error: unknown) => {
+type CopyEntry = (sourcePath: string, targetPath: string) => Promise<void>
+
+async function copyIfExistsWith(
+  copy: CopyEntry,
+  sourcePath: string,
+  targetPath: string
+): Promise<void> {
+  await copy(sourcePath, targetPath).catch((error: unknown) => {
     const code =
       typeof error === 'object' && error !== null ? (error as { code?: string }).code : ''
     if (code !== 'ENOENT') {
@@ -86,15 +114,46 @@ async function copyIfExists(sourcePath: string, targetPath: string): Promise<voi
   })
 }
 
+async function copyEntry(sourcePath: string, targetPath: string): Promise<void> {
+  await cp(sourcePath, targetPath, {
+    dereference: false,
+    errorOnExist: false,
+    force: true,
+    recursive: true
+  })
+}
+
+async function copyIfAvailableWith(
+  copy: CopyEntry,
+  sourcePath: string,
+  targetPath: string
+): Promise<void> {
+  await copyIfExistsWith(copy, sourcePath, targetPath).catch((error: unknown) => {
+    const code =
+      typeof error === 'object' && error !== null ? (error as { code?: string }).code : ''
+
+    if (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES') {
+      return
+    }
+
+    throw error
+  })
+}
+
 export async function copyBrowserProfileSessionData(
   sourceProfilePath: string,
-  targetProfilePath: string
+  targetProfilePath: string,
+  copy = copyEntry
 ): Promise<void> {
   await rm(targetProfilePath, { force: true, recursive: true })
   await mkdir(targetProfilePath, { recursive: true })
 
-  for (const entry of CHROME_COPY_ENTRIES) {
-    await copyIfExists(join(sourceProfilePath, entry), join(targetProfilePath, entry))
+  for (const entry of CHROME_REQUIRED_COPY_ENTRIES) {
+    await copyIfExistsWith(copy, join(sourceProfilePath, entry), join(targetProfilePath, entry))
+  }
+
+  for (const entry of CHROME_OPTIONAL_COPY_ENTRIES) {
+    await copyIfAvailableWith(copy, join(sourceProfilePath, entry), join(targetProfilePath, entry))
   }
 }
 
@@ -117,11 +176,13 @@ export async function listGoogleChromeImportSources(input: {
   }))
 }
 
-export function resolveGoogleChromeDataPath(input: {
-  env?: NodeJS.ProcessEnv
-  homeDir?: string
-  platform?: NodeJS.Platform
-} = {}): string {
+export function resolveGoogleChromeDataPath(
+  input: {
+    env?: NodeJS.ProcessEnv
+    homeDir?: string
+    platform?: NodeJS.Platform
+  } = {}
+): string {
   const env = input.env ?? process.env
   const platform = input.platform ?? process.platform
   const homeDir = input.homeDir ?? homedir()

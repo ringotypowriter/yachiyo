@@ -5,6 +5,18 @@ import type { BrowserSearchPage, BrowserSearchPageFactory } from './browserSearc
 const DEFAULT_WAIT_POLL_INTERVAL_MS = 100
 const { BrowserWindow, session } = electron
 
+export interface BrowserSearchDiagnosticEvent {
+  code?: number
+  details?: Record<string, string | number | boolean | undefined>
+  event: string
+  profilePath: string
+  url?: string
+}
+
+export interface ElectronBrowserSearchPageFactoryOptions {
+  log?: (event: BrowserSearchDiagnosticEvent) => void
+}
+
 class ElectronBrowserSearchPage implements BrowserSearchPage {
   private readonly window: InstanceType<typeof BrowserWindow>
 
@@ -58,7 +70,9 @@ class ElectronBrowserSearchPage implements BrowserSearchPage {
   }
 }
 
-export function createElectronBrowserSearchPageFactory(): BrowserSearchPageFactory {
+export function createElectronBrowserSearchPageFactory(
+  input: ElectronBrowserSearchPageFactoryOptions = {}
+): BrowserSearchPageFactory {
   return {
     async createPage(profilePath) {
       const browserSession = session.fromPath(profilePath, { cache: true })
@@ -74,6 +88,32 @@ export function createElectronBrowserSearchPageFactory(): BrowserSearchPageFacto
       })
 
       window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+      window.webContents.on(
+        'did-fail-load',
+        (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+          input.log?.({
+            event: 'did-fail-load',
+            profilePath,
+            url: validatedURL,
+            code: errorCode,
+            details: {
+              errorDescription,
+              isMainFrame
+            }
+          })
+        }
+      )
+      window.webContents.on('render-process-gone', (_event, details) => {
+        input.log?.({
+          event: 'render-process-gone',
+          profilePath,
+          url: window.webContents.getURL(),
+          details: {
+            reason: details.reason,
+            exitCode: details.exitCode
+          }
+        })
+      })
 
       return new ElectronBrowserSearchPage(window)
     },
