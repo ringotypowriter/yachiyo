@@ -18,6 +18,12 @@ function copyDrizzleMigrations(): { name: string; closeBundle: () => void } {
 
 export default defineConfig({
   main: {
+    build: {
+      externalizeDeps: false,
+      rollupOptions: {
+        external: ['better-sqlite3']
+      }
+    },
     plugins: [copyDrizzleMigrations()]
   },
   preload: {},
