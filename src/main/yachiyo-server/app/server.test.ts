@@ -7,7 +7,17 @@ import test from 'node:test'
 import { YachiyoServer } from './YachiyoServer.ts'
 import type { ModelStreamRequest } from '../runtime/types.ts'
 import { createInMemoryYachiyoStorage } from '../storage/memoryStorage.ts'
-import type { YachiyoServerEvent } from '../../../shared/yachiyo/protocol.ts'
+import type {
+  ChatAccepted,
+  ChatAcceptedWithUserMessage,
+  YachiyoServerEvent
+} from '../../../shared/yachiyo/protocol.ts'
+
+function assertAcceptedHasUserMessage(
+  accepted: ChatAccepted
+): asserts accepted is ChatAcceptedWithUserMessage {
+  assert.ok('userMessage' in accepted)
+}
 
 async function withServer(
   fn: (input: {
@@ -742,6 +752,7 @@ test('YachiyoServer creates a per-thread workspace, persists structured tool det
         threadId: thread.id,
         content: 'List the workspace files.'
       })
+      assertAcceptedHasUserMessage(accepted)
 
       const startedToolEvent = (await waitForEvent('tool.updated')) as {
         toolCall: {
@@ -1135,6 +1146,737 @@ test('YachiyoServer restarts on steer even when the runtime returns normally aft
   )
 })
 
+test('YachiyoServer delays steer restart until the running tool call finishes', async () => {
+  const requests: ModelStreamRequest[] = []
+  let attempt = 0
+  let firstRequest: ModelStreamRequest | null = null
+  const toolStatuses: string[] = []
+  let releaseToolExecution: (() => void) | null = null
+  let markToolExecutionStarted: (() => void) | null = null
+  const toolExecutionStarted = new Promise<void>((resolve) => {
+    markToolExecutionStarted = resolve
+  })
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      const unsubscribe = server.subscribe((event) => {
+        if (event.type !== 'tool.updated') {
+          return
+        }
+
+        if (event.runId !== acceptedRunId) {
+          return
+        }
+
+        toolStatuses.push(event.toolCall.status)
+      })
+      let acceptedRunId = ''
+
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'List the workspace files.'
+      })
+      assertAcceptedHasUserMessage(accepted)
+      acceptedRunId = accepted.runId
+
+      await toolExecutionStarted
+
+      const steerAccepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Actually summarize the result instead',
+        mode: 'steer'
+      })
+      const beforeRelease = await server.bootstrap()
+
+      assert.equal(steerAccepted.kind, 'active-run-steer-pending')
+      assert.equal(firstRequest?.signal.aborted, false)
+      assert.equal(requests.length, 1)
+      assert.equal((beforeRelease.messagesByThread[thread.id] ?? []).length, 1)
+
+      releaseToolExecution?.()
+      await completeRun(accepted.runId)
+
+      const bootstrap = await server.bootstrap()
+      const messages = bootstrap.messagesByThread[thread.id] ?? []
+      const toolCalls = bootstrap.toolCallsByThread[thread.id] ?? []
+
+      assert.equal(firstRequest?.signal.aborted, true)
+      assert.equal(requests.length, 2)
+      assert.deepEqual(requests[1]?.messages.at(-1), {
+        role: 'user',
+        content: 'Actually summarize the result instead'
+      })
+      assert.equal(toolCalls.length, 1)
+      assert.equal(toolCalls[0]?.status, 'completed')
+      assert.equal(toolCalls[0]?.outputSummary, 'exit 0')
+      assert.equal(toolCalls[0]?.error, undefined)
+      assert.deepEqual(toolStatuses, ['running', 'completed'])
+      assert.equal(messages.length, 3)
+      assert.equal(messages[1]?.content, 'Actually summarize the result instead')
+      assert.equal(messages[1]?.parentMessageId, accepted.userMessage.id)
+      assert.equal(messages[2]?.content, 'Steered reply')
+      assert.equal(messages[2]?.parentMessageId, messages[1]?.id)
+      unsubscribe()
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          if (attempt === 0) {
+            attempt += 1
+            firstRequest = request
+
+            request.onToolCallStart?.({
+              abortSignal: request.signal,
+              experimental_context: undefined,
+              functionId: undefined,
+              messages: request.messages,
+              metadata: undefined,
+              model: undefined,
+              stepNumber: 0,
+              toolCall: {
+                input: { command: 'pwd' },
+                toolCallId: 'tool-bash-1',
+                toolName: 'bash'
+              }
+            } as never)
+            markToolExecutionStarted?.()
+            markToolExecutionStarted = null
+
+            await new Promise<void>((resolve) => {
+              releaseToolExecution = resolve
+            })
+
+            request.onToolCallFinish?.({
+              abortSignal: request.signal,
+              durationMs: 3,
+              experimental_context: undefined,
+              functionId: undefined,
+              messages: request.messages,
+              metadata: undefined,
+              model: undefined,
+              stepNumber: 0,
+              success: true,
+              output: {
+                content: [{ type: 'text', text: '/tmp/workspace\n' }],
+                details: {
+                  command: 'pwd',
+                  cwd: '/tmp/workspace',
+                  exitCode: 0,
+                  stderr: '',
+                  stdout: '/tmp/workspace\n'
+                },
+                metadata: {
+                  cwd: '/tmp/workspace',
+                  exitCode: 0
+                }
+              },
+              toolCall: {
+                input: { command: 'pwd' },
+                toolCallId: 'tool-bash-1',
+                toolName: 'bash'
+              }
+            } as never)
+
+            await new Promise((_, reject) => {
+              const abort = (): void => {
+                const error = new Error('Aborted')
+                error.name = 'AbortError'
+                reject(error)
+              }
+
+              if (request.signal.aborted) {
+                abort()
+                return
+              }
+
+              request.signal.addEventListener('abort', abort, { once: true })
+            })
+            return
+          }
+
+          yield 'Steered'
+          yield ' reply'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer ignores late tool updates after a tool call has already finished', async () => {
+  const toolStatuses: string[] = []
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'List the workspace files.'
+      })
+      assertAcceptedHasUserMessage(accepted)
+
+      const unsubscribe = server.subscribe((event) => {
+        if (event.type !== 'tool.updated' || event.runId !== accepted.runId) {
+          return
+        }
+
+        toolStatuses.push(event.toolCall.status)
+      })
+
+      await completeRun(accepted.runId)
+      unsubscribe()
+
+      const bootstrap = await server.bootstrap()
+      const toolCalls = bootstrap.toolCallsByThread[thread.id] ?? []
+
+      assert.equal(toolCalls.length, 1)
+      assert.equal(toolCalls[0]?.status, 'completed')
+      assert.equal(toolCalls[0]?.outputSummary, 'exit 0')
+      assert.equal(typeof toolCalls[0]?.finishedAt, 'string')
+      assert.deepEqual(toolStatuses, ['running', 'completed'])
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          request.onToolCallStart?.({
+            abortSignal: request.signal,
+            experimental_context: undefined,
+            functionId: undefined,
+            messages: request.messages,
+            metadata: undefined,
+            model: undefined,
+            stepNumber: 0,
+            toolCall: {
+              input: { command: 'pwd' },
+              toolCallId: 'tool-bash-1',
+              toolName: 'bash'
+            }
+          } as never)
+
+          request.onToolCallFinish?.({
+            abortSignal: request.signal,
+            durationMs: 3,
+            experimental_context: undefined,
+            functionId: undefined,
+            messages: request.messages,
+            metadata: undefined,
+            model: undefined,
+            stepNumber: 0,
+            success: true,
+            output: {
+              content: [{ type: 'text', text: '/tmp/workspace\n' }],
+              details: {
+                command: 'pwd',
+                cwd: '/tmp/workspace',
+                exitCode: 0,
+                stderr: '',
+                stdout: '/tmp/workspace\n'
+              },
+              metadata: {
+                cwd: '/tmp/workspace',
+                exitCode: 0
+              }
+            },
+            toolCall: {
+              input: { command: 'pwd' },
+              toolCallId: 'tool-bash-1',
+              toolName: 'bash'
+            }
+          } as never)
+
+          request.onToolCallUpdate?.({
+            output: {
+              content: [{ type: 'text', text: '/tmp/workspace\n' }],
+              details: {
+                command: 'pwd',
+                cwd: '/tmp/workspace',
+                stderr: '',
+                stdout: '/tmp/workspace\n'
+              },
+              metadata: {
+                cwd: '/tmp/workspace'
+              }
+            },
+            toolCall: {
+              input: { command: 'pwd' },
+              toolCallId: 'tool-bash-1',
+              toolName: 'bash'
+            }
+          } as never)
+
+          yield 'Done'
+        }
+      }),
+      now: (() => {
+        let tick = 0
+        return () => new Date(`2026-03-15T00:00:${String(tick++).padStart(2, '0')}.000Z`)
+      })()
+    }
+  )
+})
+
+test('YachiyoServer persists tool finishes that arrive without a prior tool start event', async () => {
+  const toolStatuses: string[] = []
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'List the workspace files.'
+      })
+      assertAcceptedHasUserMessage(accepted)
+
+      const unsubscribe = server.subscribe((event) => {
+        if (event.type !== 'tool.updated' || event.runId !== accepted.runId) {
+          return
+        }
+
+        toolStatuses.push(event.toolCall.status)
+      })
+
+      await completeRun(accepted.runId)
+      unsubscribe()
+
+      const bootstrap = await server.bootstrap()
+      const toolCalls = bootstrap.toolCallsByThread[thread.id] ?? []
+
+      assert.equal(toolCalls.length, 1)
+      assert.equal(toolCalls[0]?.status, 'completed')
+      assert.equal(toolCalls[0]?.toolName, 'bash')
+      assert.equal(toolCalls[0]?.inputSummary, 'pwd')
+      assert.equal(toolCalls[0]?.outputSummary, 'exit 0')
+      assert.equal(toolCalls[0]?.requestMessageId, accepted.userMessage.id)
+      assert.equal(typeof toolCalls[0]?.assistantMessageId, 'string')
+      assert.deepEqual(toolStatuses, ['completed'])
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          request.onToolCallFinish?.({
+            abortSignal: request.signal,
+            durationMs: 3,
+            experimental_context: undefined,
+            functionId: undefined,
+            messages: request.messages,
+            metadata: undefined,
+            model: undefined,
+            stepNumber: 0,
+            success: true,
+            output: {
+              content: [{ type: 'text', text: '/tmp/workspace\n' }],
+              details: {
+                command: 'pwd',
+                cwd: '/tmp/workspace',
+                exitCode: 0,
+                stderr: '',
+                stdout: '/tmp/workspace\n'
+              },
+              metadata: {
+                cwd: '/tmp/workspace',
+                exitCode: 0
+              }
+            },
+            toolCall: {
+              input: { command: 'pwd' },
+              toolCallId: 'tool-bash-1',
+              toolName: 'bash'
+            }
+          } as never)
+
+          yield 'Done'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer emits thread.state.replaced with the steer message when a pending steer fires after the tool finishes', async () => {
+  const requests: ModelStreamRequest[] = []
+  let attempt = 0
+  let releaseToolExecution: (() => void) | null = null
+  let markToolExecutionStarted: (() => void) | null = null
+  const toolExecutionStarted = new Promise<void>((resolve) => {
+    markToolExecutionStarted = resolve
+  })
+
+  await withServer(
+    async ({ server, completeRun, waitForEvent }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'List the workspace files.'
+      })
+      assertAcceptedHasUserMessage(accepted)
+
+      await toolExecutionStarted
+
+      const steerAccepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Actually summarize the result instead',
+        mode: 'steer'
+      })
+
+      assert.equal(steerAccepted.kind, 'active-run-steer-pending')
+
+      releaseToolExecution?.()
+
+      const stateReplaced = (await waitForEvent('thread.state.replaced')) as {
+        threadId: string
+        thread: { headMessageId?: string }
+        messages: Array<{ id: string; role: string; content: string }>
+        toolCalls: Array<{ status: string; requestMessageId?: string }>
+      }
+
+      assert.equal(stateReplaced.threadId, thread.id)
+      assert.equal(stateReplaced.messages.length, 2)
+      assert.equal(stateReplaced.messages[0]?.role, 'user')
+      assert.equal(stateReplaced.messages[0]?.content, 'List the workspace files.')
+      assert.equal(stateReplaced.messages[1]?.role, 'user')
+      assert.equal(stateReplaced.messages[1]?.content, 'Actually summarize the result instead')
+      assert.equal(stateReplaced.toolCalls.length, 1)
+      assert.equal(stateReplaced.toolCalls[0]?.status, 'completed')
+      assert.equal(stateReplaced.toolCalls[0]?.requestMessageId, stateReplaced.messages[0]?.id)
+
+      await completeRun(accepted.runId)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          if (attempt === 0) {
+            attempt += 1
+
+            request.onToolCallStart?.({
+              abortSignal: request.signal,
+              experimental_context: undefined,
+              functionId: undefined,
+              messages: request.messages,
+              metadata: undefined,
+              model: undefined,
+              stepNumber: 0,
+              toolCall: {
+                input: { command: 'pwd' },
+                toolCallId: 'tool-bash-1',
+                toolName: 'bash'
+              }
+            } as never)
+
+            markToolExecutionStarted?.()
+            markToolExecutionStarted = null
+
+            await new Promise<void>((resolve) => {
+              releaseToolExecution = resolve
+            })
+
+            request.onToolCallFinish?.({
+              abortSignal: request.signal,
+              durationMs: 3,
+              experimental_context: undefined,
+              functionId: undefined,
+              messages: request.messages,
+              metadata: undefined,
+              model: undefined,
+              stepNumber: 0,
+              success: true,
+              output: {
+                content: [{ type: 'text', text: '/tmp/workspace\n' }],
+                details: {
+                  command: 'pwd',
+                  cwd: '/tmp/workspace',
+                  exitCode: 0,
+                  stderr: '',
+                  stdout: '/tmp/workspace\n'
+                },
+                metadata: {
+                  cwd: '/tmp/workspace',
+                  exitCode: 0
+                }
+              },
+              toolCall: {
+                input: { command: 'pwd' },
+                toolCallId: 'tool-bash-1',
+                toolName: 'bash'
+              }
+            } as never)
+
+            await new Promise((_, reject) => {
+              const abort = (): void => {
+                const error = new Error('Aborted')
+                error.name = 'AbortError'
+                reject(error)
+              }
+
+              if (request.signal.aborted) {
+                abort()
+                return
+              }
+
+              request.signal.addEventListener('abort', abort, { once: true })
+            })
+            return
+          }
+
+          yield 'Steered'
+          yield ' reply'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer does not fire a deferred steer point while a later chained tool is already running', async () => {
+  const requests: ModelStreamRequest[] = []
+  let attempt = 0
+  let releaseFirstTool: (() => void) | null = null
+  let releaseSecondTool: (() => void) | null = null
+  let markFirstToolStarted: (() => void) | null = null
+  let markSecondToolStarted: (() => void) | null = null
+  const firstToolStarted = new Promise<void>((resolve) => {
+    markFirstToolStarted = resolve
+  })
+  const secondToolStarted = new Promise<void>((resolve) => {
+    markSecondToolStarted = resolve
+  })
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'List the workspace files.'
+      })
+      assertAcceptedHasUserMessage(accepted)
+
+      await firstToolStarted
+
+      const steerAccepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Actually summarize the result instead',
+        mode: 'steer'
+      })
+
+      assert.equal(steerAccepted.kind, 'active-run-steer-pending')
+
+      releaseFirstTool?.()
+      await secondToolStarted
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      assert.equal(requests.length, 1)
+      assert.equal(requests[0]?.signal.aborted, false)
+
+      releaseSecondTool?.()
+      await completeRun(accepted.runId)
+
+      const bootstrap = await server.bootstrap()
+      const toolCalls = bootstrap.toolCallsByThread[thread.id] ?? []
+
+      assert.equal(requests.length, 2)
+      assert.equal(toolCalls.length, 2)
+      assert.deepEqual(
+        toolCalls.map((toolCall) => toolCall.status),
+        ['completed', 'completed']
+      )
+      assert.deepEqual(requests[1]?.messages.at(-1), {
+        role: 'user',
+        content: 'Actually summarize the result instead'
+      })
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          if (attempt === 0) {
+            attempt += 1
+
+            request.onToolCallStart?.({
+              abortSignal: request.signal,
+              experimental_context: undefined,
+              functionId: undefined,
+              messages: request.messages,
+              metadata: undefined,
+              model: undefined,
+              stepNumber: 0,
+              toolCall: {
+                input: { command: 'pwd' },
+                toolCallId: 'tool-bash-1',
+                toolName: 'bash'
+              }
+            } as never)
+            markFirstToolStarted?.()
+            markFirstToolStarted = null
+
+            await new Promise<void>((resolve) => {
+              releaseFirstTool = resolve
+            })
+
+            request.onToolCallFinish?.({
+              abortSignal: request.signal,
+              durationMs: 3,
+              experimental_context: undefined,
+              functionId: undefined,
+              messages: request.messages,
+              metadata: undefined,
+              model: undefined,
+              stepNumber: 0,
+              success: true,
+              output: {
+                content: [{ type: 'text', text: '/tmp/workspace\n' }],
+                details: {
+                  command: 'pwd',
+                  cwd: '/tmp/workspace',
+                  exitCode: 0,
+                  stderr: '',
+                  stdout: '/tmp/workspace\n'
+                },
+                metadata: {
+                  cwd: '/tmp/workspace',
+                  exitCode: 0
+                }
+              },
+              toolCall: {
+                input: { command: 'pwd' },
+                toolCallId: 'tool-bash-1',
+                toolName: 'bash'
+              }
+            } as never)
+
+            request.onToolCallStart?.({
+              abortSignal: request.signal,
+              experimental_context: undefined,
+              functionId: undefined,
+              messages: request.messages,
+              metadata: undefined,
+              model: undefined,
+              stepNumber: 1,
+              toolCall: {
+                input: { command: 'ls' },
+                toolCallId: 'tool-bash-2',
+                toolName: 'bash'
+              }
+            } as never)
+            markSecondToolStarted?.()
+            markSecondToolStarted = null
+
+            await new Promise<void>((resolve) => {
+              releaseSecondTool = resolve
+            })
+
+            request.onToolCallFinish?.({
+              abortSignal: request.signal,
+              durationMs: 3,
+              experimental_context: undefined,
+              functionId: undefined,
+              messages: request.messages,
+              metadata: undefined,
+              model: undefined,
+              stepNumber: 1,
+              success: true,
+              output: {
+                content: [{ type: 'text', text: 'file.txt\n' }],
+                details: {
+                  command: 'ls',
+                  cwd: '/tmp/workspace',
+                  exitCode: 0,
+                  stderr: '',
+                  stdout: 'file.txt\n'
+                },
+                metadata: {
+                  cwd: '/tmp/workspace',
+                  exitCode: 0
+                }
+              },
+              toolCall: {
+                input: { command: 'ls' },
+                toolCallId: 'tool-bash-2',
+                toolName: 'bash'
+              }
+            } as never)
+
+            await new Promise((_, reject) => {
+              const abort = (): void => {
+                const error = new Error('Aborted')
+                error.name = 'AbortError'
+                reject(error)
+              }
+
+              if (request.signal.aborted) {
+                abort()
+                return
+              }
+
+              request.signal.addEventListener('abort', abort, { once: true })
+            })
+            return
+          }
+
+          yield 'Steered'
+          yield ' reply'
+        }
+      })
+    }
+  )
+})
+
 test('YachiyoServer cancels an active run without persisting partial assistant output', async () => {
   await withServer(async ({ server, completeRun, waitForEvent }) => {
     await server.upsertProvider({
@@ -1294,6 +2036,7 @@ test('YachiyoServer emits a replacement snapshot when a queued follow-up is repa
         content: 'Follow the retry branch',
         mode: 'follow-up'
       })
+      assertAcceptedHasUserMessage(queuedFollowUp)
 
       assert.equal(queuedFollowUp.userMessage.parentMessageId, firstUserMessage.id)
 
@@ -1391,6 +2134,7 @@ test('YachiyoServer bootstrap recovers interrupted runs and marks running tool c
     id: 'tool-1',
     runId: 'run-1',
     threadId: 'thread-1',
+    requestMessageId: 'user-1',
     toolName: 'bash',
     status: 'running',
     inputSummary: 'pwd',
@@ -1490,6 +2234,7 @@ test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queu
       enabledTools: ['read'],
       mode: 'follow-up'
     })
+    assertAcceptedHasUserMessage(queuedFollowUp)
     await firstServer.saveToolPreferences({ enabledTools: ['bash'] })
 
     await firstServer.close()
@@ -1631,6 +2376,7 @@ test('YachiyoServer keeps a recovered queued follow-up pending when a new run st
       enabledTools: ['read'],
       mode: 'follow-up'
     })
+    assertAcceptedHasUserMessage(queuedFollowUp)
 
     await firstServer.close()
     firstServerClosed = true
@@ -1676,6 +2422,7 @@ test('YachiyoServer keeps a recovered queued follow-up pending when a new run st
         threadId: thread.id,
         content: 'Immediate question'
       })
+      assertAcceptedHasUserMessage(immediateAccepted)
 
       await resumedWaiter.waitForEvent(
         'run.created',

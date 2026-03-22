@@ -348,13 +348,21 @@ export interface RunRecord {
   completedAt?: string
 }
 
-export interface ChatAccepted {
+export interface ChatAcceptedWithUserMessage {
   kind: 'run-started' | 'active-run-steer' | 'active-run-follow-up'
   thread: ThreadRecord
   userMessage: MessageRecord
   runId: string
   replacedMessageId?: string
 }
+
+export interface ChatAcceptedPendingSteer {
+  kind: 'active-run-steer-pending'
+  thread: ThreadRecord
+  runId: string
+}
+
+export type ChatAccepted = ChatAcceptedWithUserMessage | ChatAcceptedPendingSteer
 
 export interface ToolPreferencesInput {
   enabledTools?: ToolCallName[]

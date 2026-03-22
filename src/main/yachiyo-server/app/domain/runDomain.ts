@@ -45,6 +45,12 @@ interface RunState {
   requestMessageId: string
   abortController: AbortController
   pendingSteerMessageId?: string
+  pendingSteerInput?: {
+    content: string
+    images: MessageRecord['images']
+    timestamp: string
+  }
+  executionPhase: 'generating' | 'tool-running'
   updateHeadOnComplete: boolean
 }
 
@@ -361,29 +367,26 @@ export class YachiyoServerRunDomain {
       throw new Error('This thread no longer has an active run.')
     }
 
-    const timestamp = this.deps.timestamp()
-    const userMessage = this.createUserMessage({
-      content: input.content,
-      images: input.images,
-      parentMessageId: activeRun.pendingSteerMessageId ?? activeRun.requestMessageId,
-      threadId: input.thread.id,
-      timestamp
-    })
-    const updatedThread: ThreadRecord = {
-      ...input.thread,
-      headMessageId: userMessage.id,
-      updatedAt: timestamp
+    if (activeRun.executionPhase === 'tool-running') {
+      activeRun.pendingSteerInput = {
+        content: input.content,
+        images: input.images,
+        timestamp: this.deps.timestamp()
+      }
+
+      return {
+        kind: 'active-run-steer-pending',
+        runId: input.activeRunId,
+        thread: input.thread
+      }
     }
 
-    this.deps.storage.saveThreadMessage({
+    const { updatedThread, userMessage } = this.persistSteerMessage({
+      content: input.content,
+      images: input.images,
+      runState: activeRun,
       thread: input.thread,
-      updatedThread,
-      message: userMessage
-    })
-    this.deps.emit<ThreadUpdatedEvent>({
-      type: 'thread.updated',
-      threadId: updatedThread.id,
-      thread: updatedThread
+      timestamp: this.deps.timestamp()
     })
 
     activeRun.pendingSteerMessageId = userMessage.id
@@ -465,6 +468,43 @@ export class YachiyoServerRunDomain {
     }
   }
 
+  private persistSteerMessage(input: {
+    content: string
+    images: MessageRecord['images']
+    runState: RunState
+    thread: ThreadRecord
+    timestamp: string
+  }): { updatedThread: ThreadRecord; userMessage: MessageRecord } {
+    const userMessage = this.createUserMessage({
+      content: input.content,
+      images: input.images,
+      parentMessageId: input.runState.pendingSteerMessageId ?? input.runState.requestMessageId,
+      threadId: input.thread.id,
+      timestamp: input.timestamp
+    })
+    const updatedThread: ThreadRecord = {
+      ...input.thread,
+      headMessageId: userMessage.id,
+      updatedAt: input.timestamp
+    }
+
+    this.deps.storage.saveThreadMessage({
+      thread: input.thread,
+      updatedThread,
+      message: userMessage
+    })
+    this.deps.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: updatedThread.id,
+      thread: updatedThread
+    })
+
+    return {
+      updatedThread,
+      userMessage
+    }
+  }
+
   private startActiveRun(input: {
     enabledTools: ToolCallName[]
     runId: string
@@ -476,6 +516,7 @@ export class YachiyoServerRunDomain {
       threadId: input.thread.id,
       requestMessageId: input.requestMessageId,
       abortController: new AbortController(),
+      executionPhase: 'generating',
       updateHeadOnComplete: input.updateHeadOnComplete
     })
     this.activeRunByThread.set(input.thread.id, input.runId)
@@ -531,6 +572,39 @@ export class YachiyoServerRunDomain {
             onEnabledToolsUsed: (enabledTools) => {
               this.lastRunEnabledTools = [...enabledTools]
             },
+            onExecutionPhaseChange: (phase) => {
+              const currentRun = this.activeRuns.get(input.runId)
+              if (!currentRun) {
+                return
+              }
+
+              currentRun.executionPhase = phase
+            },
+            onSafeToSteerAfterTool: () => {
+              const currentRun = this.activeRuns.get(input.runId)
+              if (!currentRun?.pendingSteerInput) {
+                return
+              }
+
+              const currentThread = this.deps.requireThread(input.thread.id)
+              const { userMessage } = this.persistSteerMessage({
+                content: currentRun.pendingSteerInput.content,
+                images: currentRun.pendingSteerInput.images,
+                runState: currentRun,
+                thread: currentThread,
+                timestamp: currentRun.pendingSteerInput.timestamp
+              })
+
+              // Push the full thread state so the frontend receives the new steer user
+              // message in its messages array. thread.updated alone does not carry message
+              // data, which would leave the steer message missing from the client tree and
+              // break group / tool-call visibility until the next bootstrap.
+              this.emitThreadStateReplaced(input.thread.id)
+
+              currentRun.pendingSteerInput = undefined
+              currentRun.pendingSteerMessageId = userMessage.id
+              currentRun.abortController.abort(toRestartRunReason(userMessage.id))
+            },
             onTerminalState: () => {
               this.activeRuns.delete(input.runId)
               this.activeRunByThread.delete(input.thread.id)
@@ -557,6 +631,8 @@ export class YachiyoServerRunDomain {
         const nextRequestMessageId = activeRun.pendingSteerMessageId ?? result.nextRequestMessageId
 
         activeRun.pendingSteerMessageId = undefined
+        activeRun.pendingSteerInput = undefined
+        activeRun.executionPhase = 'generating'
         activeRun.requestMessageId = nextRequestMessageId
         currentRequestMessageId = nextRequestMessageId
         currentThread = this.deps.requireThread(input.thread.id)

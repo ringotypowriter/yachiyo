@@ -135,7 +135,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           ? []
           : db
               .select({
-                assistantMessageId: runsTable.assistantMessageId,
+                assistantMessageId: toolCallsTable.assistantMessageId,
                 cwd: toolCallsTable.cwd,
                 details: toolCallsTable.details,
                 error: toolCallsTable.error,
@@ -143,7 +143,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                 id: toolCallsTable.id,
                 inputSummary: toolCallsTable.inputSummary,
                 outputSummary: toolCallsTable.outputSummary,
-                requestMessageId: runsTable.requestMessageId,
+                requestMessageId: toolCallsTable.requestMessageId,
                 runId: toolCallsTable.runId,
                 startedAt: toolCallsTable.startedAt,
                 status: toolCallsTable.status,
@@ -151,7 +151,6 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                 toolName: toolCallsTable.toolName
               })
               .from(toolCallsTable)
-              .innerJoin(runsTable, eq(toolCallsTable.runId, runsTable.id))
               .where(inArray(toolCallsTable.threadId, threadIds))
               .orderBy(asc(toolCallsTable.startedAt))
               .all()
@@ -465,6 +464,13 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           })
           .where(eq(runsTable.id, runId))
           .run()
+
+        tx.update(toolCallsTable)
+          .set({
+            assistantMessageId: assistantMessage.id
+          })
+          .where(eq(toolCallsTable.runId, runId))
+          .run()
       })
     },
 
@@ -528,7 +534,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     listThreadToolCalls(threadId) {
       return db
         .select({
-          assistantMessageId: runsTable.assistantMessageId,
+          assistantMessageId: toolCallsTable.assistantMessageId,
           cwd: toolCallsTable.cwd,
           details: toolCallsTable.details,
           error: toolCallsTable.error,
@@ -536,7 +542,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           id: toolCallsTable.id,
           inputSummary: toolCallsTable.inputSummary,
           outputSummary: toolCallsTable.outputSummary,
-          requestMessageId: runsTable.requestMessageId,
+          requestMessageId: toolCallsTable.requestMessageId,
           runId: toolCallsTable.runId,
           startedAt: toolCallsTable.startedAt,
           status: toolCallsTable.status,
@@ -544,7 +550,6 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           toolName: toolCallsTable.toolName
         })
         .from(toolCallsTable)
-        .innerJoin(runsTable, eq(toolCallsTable.runId, runsTable.id))
         .where(eq(toolCallsTable.threadId, threadId))
         .orderBy(asc(toolCallsTable.startedAt))
         .all()
@@ -554,6 +559,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     createToolCall(toolCall) {
       db.insert(toolCallsTable)
         .values({
+          assistantMessageId: toolCall.assistantMessageId ?? null,
           cwd: toolCall.cwd ?? null,
           details: serializeToolCallDetails(toolCall.details),
           error: toolCall.error ?? null,
@@ -561,6 +567,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           id: toolCall.id,
           inputSummary: toolCall.inputSummary,
           outputSummary: toolCall.outputSummary ?? null,
+          requestMessageId: toolCall.requestMessageId ?? null,
           runId: toolCall.runId,
           startedAt: toolCall.startedAt,
           status: toolCall.status,
@@ -573,12 +580,14 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     updateToolCall(toolCall) {
       db.update(toolCallsTable)
         .set({
+          assistantMessageId: toolCall.assistantMessageId ?? null,
           cwd: toolCall.cwd ?? null,
           details: serializeToolCallDetails(toolCall.details),
           error: toolCall.error ?? null,
           finishedAt: toolCall.finishedAt ?? null,
           inputSummary: toolCall.inputSummary,
           outputSummary: toolCall.outputSummary ?? null,
+          requestMessageId: toolCall.requestMessageId ?? null,
           status: toolCall.status
         })
         .where(eq(toolCallsTable.id, toolCall.id))

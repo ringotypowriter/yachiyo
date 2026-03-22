@@ -26,6 +26,7 @@ function UserMessageImages({ message }: { message: Message }): React.JSX.Element
 interface UserMessageBubbleProps {
   label?: string
   message: Message
+  pending?: boolean
   threadHasActiveRun?: boolean
   onRetry?: () => Promise<void> | void
   onCreateBranch: () => Promise<void> | void
@@ -35,6 +36,7 @@ interface UserMessageBubbleProps {
 export function UserMessageBubble({
   label,
   message,
+  pending = false,
   threadHasActiveRun = false,
   onRetry,
   onCreateBranch,
@@ -66,15 +68,17 @@ export function UserMessageBubble({
             </p>
           ) : null}
         </div>
-        <div className="mt-2 flex justify-end">
-          <MessageActionBar
-            content={message.content}
-            canRetry={canRetry}
-            onRetry={onRetry}
-            onCreateBranch={onCreateBranch}
-            onDelete={onDelete}
-          />
-        </div>
+        {!pending ? (
+          <div className="mt-2 flex justify-end">
+            <MessageActionBar
+              content={message.content}
+              canRetry={canRetry}
+              onRetry={onRetry}
+              onCreateBranch={onCreateBranch}
+              onDelete={onDelete}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   )

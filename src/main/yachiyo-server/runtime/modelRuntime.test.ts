@@ -439,7 +439,10 @@ test('createAiSdkModelRuntime forwards tools and tool callbacks into the AI SDK 
 
   const tools = { read: { description: 'read a file' } }
   const onToolCallStart = (): void => undefined
-  const onToolCallFinish = (): void => undefined
+  let finishCalls = 0
+  const onToolCallFinish = (): void => {
+    finishCalls += 1
+  }
   const chunks: string[] = []
 
   for await (const chunk of runtime.streamReply({
@@ -471,7 +474,27 @@ test('createAiSdkModelRuntime forwards tools and tool callbacks into the AI SDK 
   }
   assert.equal(streamCall.tools, tools)
   assert.equal(streamCall.experimental_onToolCallStart, onToolCallStart)
-  assert.equal(streamCall.experimental_onToolCallFinish, onToolCallFinish)
+  assert.equal(typeof streamCall.experimental_onToolCallFinish, 'function')
+  ;(streamCall.experimental_onToolCallFinish as (event: unknown) => void)({
+    abortSignal: undefined,
+    durationMs: 0,
+    experimental_context: undefined,
+    functionId: undefined,
+    metadata: undefined,
+    model: undefined,
+    messages: [],
+    stepNumber: undefined,
+    success: true,
+    output: { ok: true },
+    toolCall: {
+      type: 'tool-call',
+      dynamic: true,
+      toolCallId: 'tool-test-1',
+      toolName: 'bash',
+      input: { command: 'pwd' }
+    }
+  } as never)
+  assert.equal(finishCalls, 1)
   assert.equal(typeof streamCall.stopWhen, 'function')
 })
 
@@ -497,10 +520,14 @@ test('createAiSdkModelRuntime forwards preliminary tool results through onToolCa
       fullStream: (async function* () {
         yield { type: 'text-delta', id: 'text-1', text: 'He' }
         yield {
-          type: 'tool-result',
+          type: 'tool-input-available',
           toolCallId: 'tool-bash-1',
           toolName: 'bash',
-          input: { command: 'pwd' },
+          input: { command: 'pwd' }
+        }
+        yield {
+          type: 'tool-output-available',
+          toolCallId: 'tool-bash-1',
           output: {
             content: [{ type: 'text', text: '/tmp/workspace\n' }],
             details: {
@@ -561,6 +588,156 @@ test('createAiSdkModelRuntime forwards preliminary tool results through onToolCa
           cwd: '/tmp/workspace'
         }
       },
+      toolCall: {
+        input: { command: 'pwd' },
+        toolCallId: 'tool-bash-1',
+        toolName: 'bash'
+      }
+    }
+  ])
+})
+
+test('createAiSdkModelRuntime forwards final tool results through onToolCallFinish when using fullStream', async () => {
+  const updates: Array<{
+    output: unknown
+    toolCall: {
+      input: unknown
+      toolCallId: string
+      toolName: string
+    }
+  }> = []
+  const finishes: Array<{
+    success: boolean
+    output?: unknown
+    toolCall: {
+      input: unknown
+      toolCallId: string
+      toolName: string
+    }
+  }> = []
+
+  const finalOutput = {
+    content: [{ type: 'text', text: '/tmp/workspace\n' }],
+    details: {
+      command: 'pwd',
+      cwd: '/tmp/workspace',
+      exitCode: 0,
+      stderr: '',
+      stdout: '/tmp/workspace\n'
+    },
+    metadata: {
+      cwd: '/tmp/workspace',
+      exitCode: 0
+    }
+  }
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => ({ modelId: 'gpt-5', provider: 'openai.responses' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: (() => ({
+      fullStream: (async function* () {
+        yield { type: 'text-delta', id: 'text-1', text: 'He' }
+        yield {
+          type: 'tool-input-available',
+          toolCallId: 'tool-bash-1',
+          toolName: 'bash',
+          input: { command: 'pwd' }
+        }
+        yield {
+          type: 'tool-output-available',
+          toolCallId: 'tool-bash-1',
+          output: {
+            content: [{ type: 'text', text: '/tmp/workspace\n' }],
+            details: {
+              command: 'pwd',
+              cwd: '/tmp/workspace',
+              stderr: '',
+              stdout: '/tmp/workspace\n'
+            },
+            metadata: {
+              cwd: '/tmp/workspace'
+            }
+          },
+          preliminary: true
+        }
+        yield {
+          type: 'tool-output-available',
+          toolCallId: 'tool-bash-1',
+          output: finalOutput
+        }
+        yield { type: 'text-delta', id: 'text-1', text: 'llo' }
+      })()
+    })) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'List the workspace files.' }],
+    settings: {
+      providerName: 'work',
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal,
+    onToolCallUpdate: (event) => {
+      updates.push({
+        output: event.output,
+        toolCall: {
+          input: event.toolCall.input,
+          toolCallId: event.toolCall.toolCallId,
+          toolName: event.toolCall.toolName
+        }
+      })
+    },
+    onToolCallFinish: (event) => {
+      finishes.push({
+        success: event.success,
+        ...(event.success ? { output: event.output } : {}),
+        toolCall: {
+          input: event.toolCall.input,
+          toolCallId: event.toolCall.toolCallId,
+          toolName: event.toolCall.toolName
+        }
+      })
+    }
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['He', 'llo'])
+  assert.deepEqual(updates, [
+    {
+      output: {
+        content: [{ type: 'text', text: '/tmp/workspace\n' }],
+        details: {
+          command: 'pwd',
+          cwd: '/tmp/workspace',
+          stderr: '',
+          stdout: '/tmp/workspace\n'
+        },
+        metadata: {
+          cwd: '/tmp/workspace'
+        }
+      },
+      toolCall: {
+        input: { command: 'pwd' },
+        toolCallId: 'tool-bash-1',
+        toolName: 'bash'
+      }
+    }
+  ])
+  assert.deepEqual(finishes, [
+    {
+      success: true,
+      output: finalOutput,
       toolCall: {
         input: { command: 'pwd' },
         toolCallId: 'tool-bash-1',

@@ -74,6 +74,8 @@ export interface RunExecutionDeps {
   readSettings: () => ProviderSettings
   loadThreadMessages: (threadId: string) => MessageRecord[]
   onEnabledToolsUsed: (enabledTools: ToolCallName[]) => void
+  onExecutionPhaseChange?: (phase: 'generating' | 'tool-running') => void
+  onSafeToSteerAfterTool?: () => void
   onTerminalState?: () => void
 }
 
@@ -204,7 +206,44 @@ export async function executeServerRun(
   const harnessId = deps.createId()
   const messageId = deps.createId()
   const toolCalls = new Map<string, ToolCallRecord>()
+  const runningToolCallIds = new Set<string>()
   let buffer = ''
+  let executionPhase: 'generating' | 'tool-running' = 'generating'
+  let awaitingSafeSteerPointAfterTool = false
+  let safeSteerTimer: ReturnType<typeof setTimeout> | null = null
+
+  const clearSafeSteerTimer = (): void => {
+    if (!safeSteerTimer) {
+      return
+    }
+
+    clearTimeout(safeSteerTimer)
+    safeSteerTimer = null
+  }
+
+  const cancelPendingSafeSteerPointAfterTool = (): void => {
+    awaitingSafeSteerPointAfterTool = false
+    clearSafeSteerTimer()
+  }
+
+  const flushSafeSteerPointAfterTool = (): void => {
+    if (!awaitingSafeSteerPointAfterTool) {
+      return
+    }
+
+    awaitingSafeSteerPointAfterTool = false
+    clearSafeSteerTimer()
+    deps.onSafeToSteerAfterTool?.()
+  }
+
+  const setExecutionPhase = (phase: 'generating' | 'tool-running'): void => {
+    if (executionPhase === phase) {
+      return
+    }
+
+    executionPhase = phase
+    deps.onExecutionPhaseChange?.(phase)
+  }
 
   deps.emit<HarnessStartedEvent>({
     type: 'harness.started',
@@ -262,12 +301,15 @@ export async function executeServerRun(
       signal: input.abortController.signal,
       ...(tools ? { tools } : {}),
       onToolCallStart: (event) => {
+        cancelPendingSafeSteerPointAfterTool()
+        runningToolCallIds.add(event.toolCall.toolCallId)
+        setExecutionPhase('tool-running')
+
         const toolCall: ToolCallRecord = {
           id: event.toolCall.toolCallId,
           runId: input.runId,
           threadId: input.thread.id,
           requestMessageId: input.requestMessageId,
-          assistantMessageId: messageId,
           toolName: event.toolCall.toolName as ToolCallRecord['toolName'],
           status: 'running',
           inputSummary: summarizeToolInput(
@@ -292,6 +334,10 @@ export async function executeServerRun(
           return
         }
 
+        if (startedToolCall.status !== 'running') {
+          return
+        }
+
         const toolName = event.toolCall.toolName as ToolCallRecord['toolName']
         const normalized = normalizeToolResult(toolName, event.output, { phase: 'update' })
         const toolCall: ToolCallRecord = {
@@ -312,54 +358,83 @@ export async function executeServerRun(
         })
       },
       onToolCallFinish: (event) => {
-        const startedToolCall = toolCalls.get(event.toolCall.toolCallId)
-        const toolName = event.toolCall.toolName as ToolCallRecord['toolName']
-        const finishedAt = deps.timestamp()
-        const normalized = event.success ? normalizeToolResult(toolName, event.output) : undefined
-        const errorMessage =
-          normalized?.error ??
-          (event.success || event.error === undefined
-            ? undefined
-            : event.error instanceof Error
-              ? event.error.message
-              : String(event.error))
-        const toolCall: ToolCallRecord = startedToolCall
-          ? {
-              ...startedToolCall,
-              status: normalized?.status ?? 'failed',
-              outputSummary: normalized?.outputSummary ?? errorMessage,
-              ...(normalized?.cwd ? { cwd: normalized.cwd } : {}),
-              ...(normalized?.details ? { details: normalized.details } : {}),
-              ...(errorMessage ? { error: errorMessage } : {}),
-              finishedAt
-            }
-          : {
-              id: event.toolCall.toolCallId,
-              runId: input.runId,
-              threadId: input.thread.id,
-              requestMessageId: input.requestMessageId,
-              assistantMessageId: messageId,
-              toolName,
-              status: normalized?.status ?? 'failed',
-              inputSummary: summarizeToolInput(toolName, event.toolCall.input),
-              outputSummary: normalized?.outputSummary ?? errorMessage,
-              ...(normalized?.cwd ? { cwd: normalized.cwd } : {}),
-              ...(normalized?.details ? { details: normalized.details } : {}),
-              ...(errorMessage ? { error: errorMessage } : {}),
-              startedAt: finishedAt,
-              finishedAt
-            }
+        try {
+          const startedToolCall = toolCalls.get(event.toolCall.toolCallId)
+          const toolName = event.toolCall.toolName as ToolCallRecord['toolName']
+          const finishedAt = deps.timestamp()
+          const normalized = event.success ? normalizeToolResult(toolName, event.output) : undefined
+          const errorMessage =
+            normalized?.error ??
+            (event.success || event.error === undefined
+              ? undefined
+              : event.error instanceof Error
+                ? event.error.message
+                : String(event.error))
+          const toolCall: ToolCallRecord = startedToolCall
+            ? {
+                ...startedToolCall,
+                status: normalized?.status ?? 'failed',
+                outputSummary: normalized?.outputSummary ?? errorMessage,
+                ...(normalized?.cwd ? { cwd: normalized.cwd } : {}),
+                ...(normalized?.details ? { details: normalized.details } : {}),
+                ...(errorMessage ? { error: errorMessage } : {}),
+                finishedAt
+              }
+            : {
+                id: event.toolCall.toolCallId,
+                runId: input.runId,
+                threadId: input.thread.id,
+                requestMessageId: input.requestMessageId,
+                toolName,
+                status: normalized?.status ?? 'failed',
+                inputSummary: summarizeToolInput(toolName, event.toolCall.input),
+                outputSummary: normalized?.outputSummary ?? errorMessage,
+                ...(normalized?.cwd ? { cwd: normalized.cwd } : {}),
+                ...(normalized?.details ? { details: normalized.details } : {}),
+                ...(errorMessage ? { error: errorMessage } : {}),
+                startedAt: finishedAt,
+                finishedAt
+              }
 
-        toolCalls.set(toolCall.id, toolCall)
-        deps.storage.updateToolCall(toolCall)
-        deps.emit<ToolCallUpdatedEvent>({
-          type: 'tool.updated',
-          threadId: input.thread.id,
-          runId: input.runId,
-          toolCall
-        })
+          toolCalls.set(toolCall.id, toolCall)
+          if (startedToolCall) {
+            deps.storage.updateToolCall(toolCall)
+          } else {
+            deps.storage.createToolCall(toolCall)
+          }
+          deps.emit<ToolCallUpdatedEvent>({
+            type: 'tool.updated',
+            threadId: input.thread.id,
+            runId: input.runId,
+            toolCall
+          })
+
+          runningToolCallIds.delete(event.toolCall.toolCallId)
+          if (runningToolCallIds.size === 0) {
+            awaitingSafeSteerPointAfterTool = true
+            setExecutionPhase('generating')
+            if (!safeSteerTimer) {
+              safeSteerTimer = setTimeout(() => {
+                safeSteerTimer = null
+                flushSafeSteerPointAfterTool()
+              }, 0)
+            }
+          }
+        } catch (error) {
+          console.error('[yachiyo][tool-finish] failed to persist terminal tool state', {
+            error: error instanceof Error ? error.message : String(error),
+            runId: input.runId,
+            success: event.success,
+            threadId: input.thread.id,
+            toolCallId: event.toolCall.toolCallId,
+            toolName: event.toolCall.toolName
+          })
+          throw error
+        }
       }
     })) {
+      flushSafeSteerPointAfterTool()
+
       throwIfAborted(input.abortController.signal)
 
       if (!delta) continue
@@ -372,6 +447,8 @@ export async function executeServerRun(
         delta
       })
     }
+
+    flushSafeSteerPointAfterTool()
 
     throwIfAborted(input.abortController.signal)
 
@@ -433,17 +510,11 @@ export async function executeServerRun(
     })
     return { kind: 'completed' }
   } catch (error) {
+    clearSafeSteerTimer()
+
     if (input.abortController.signal.aborted || isAbortError(error)) {
       const restartReason = input.abortController.signal.reason
       const timestamp = deps.timestamp()
-      finishPendingToolCalls(deps, toolCalls, {
-        error: isRestartRunReason(restartReason)
-          ? 'Superseded by a steer message before the tool call finished.'
-          : 'Run cancelled before the tool call finished.',
-        finishedAt: timestamp,
-        runId: input.runId,
-        threadId: input.thread.id
-      })
 
       if (isRestartRunReason(restartReason)) {
         deps.emit<HarnessFinishedEvent>({
@@ -459,6 +530,13 @@ export async function executeServerRun(
           nextRequestMessageId: restartReason.nextRequestMessageId
         }
       }
+
+      finishPendingToolCalls(deps, toolCalls, {
+        error: 'Run cancelled before the tool call finished.',
+        finishedAt: timestamp,
+        runId: input.runId,
+        threadId: input.thread.id
+      })
 
       deps.storage.cancelRun({
         runId: input.runId,

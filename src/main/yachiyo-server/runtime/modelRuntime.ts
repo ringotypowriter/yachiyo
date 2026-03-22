@@ -171,6 +171,27 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
     async *streamReply(request) {
       assertConfigured(request.settings)
 
+      const finishedToolCallIds = new Set<string>()
+      const toolCallContextById = new Map<string, { input: unknown; toolName: string }>()
+      const toolCallFinishCallback = request.onToolCallFinish
+      const emitToolCallFinish = toolCallFinishCallback
+        ? (event: Parameters<NonNullable<typeof toolCallFinishCallback>>[0]) => {
+            const toolCallId = event.toolCall.toolCallId
+            if (finishedToolCallIds.has(toolCallId)) {
+              return
+            }
+
+            finishedToolCallIds.add(toolCallId)
+
+            try {
+              return toolCallFinishCallback(event)
+            } catch (error) {
+              finishedToolCallIds.delete(toolCallId)
+              throw error
+            }
+          }
+        : undefined
+
       const result = resolvedDependencies.streamTextImpl({
         abortSignal: request.signal,
         messages: prepareAiSdkMessages(request.messages),
@@ -187,15 +208,16 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
         ...(request.onToolCallStart
           ? { experimental_onToolCallStart: request.onToolCallStart }
           : {}),
-        ...(request.onToolCallFinish
-          ? { experimental_onToolCallFinish: request.onToolCallFinish }
-          : {})
+        ...(emitToolCallFinish ? { experimental_onToolCallFinish: emitToolCallFinish } : {})
       })
 
       if ('fullStream' in result && result.fullStream) {
         for await (const part of result.fullStream as AsyncIterable<{
+          errorText?: string
           input?: unknown
+          inputTextDelta?: string
           output?: unknown
+          error?: unknown
           preliminary?: boolean
           text?: string
           toolCallId?: string
@@ -208,20 +230,120 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
           }
 
           if (
-            part.type === 'tool-result' &&
-            part.preliminary &&
-            request.onToolCallUpdate &&
+            part.type === 'tool-input-available' &&
             typeof part.toolCallId === 'string' &&
             typeof part.toolName === 'string'
           ) {
+            toolCallContextById.set(part.toolCallId, {
+              input: part.input,
+              toolName: part.toolName
+            })
+            continue
+          }
+
+          if (part.type === 'tool-input-error' && typeof part.toolCallId === 'string') {
+            toolCallContextById.delete(part.toolCallId)
+            continue
+          }
+
+          if (
+            (part.type === 'tool-output-available' || part.type === 'tool-result') &&
+            part.preliminary === true &&
+            request.onToolCallUpdate &&
+            typeof part.toolCallId === 'string'
+          ) {
+            const toolCallContext =
+              (typeof part.toolName === 'string'
+                ? { input: part.input, toolName: part.toolName }
+                : undefined) ?? toolCallContextById.get(part.toolCallId)
+
+            if (!toolCallContext) {
+              continue
+            }
+
             request.onToolCallUpdate({
               output: part.output,
               toolCall: {
-                input: part.input,
+                input: toolCallContext.input,
                 toolCallId: part.toolCallId,
-                toolName: part.toolName
+                toolName: toolCallContext.toolName
               }
             })
+            continue
+          }
+
+          if (
+            (part.type === 'tool-output-available' || part.type === 'tool-result') &&
+            part.preliminary !== true &&
+            emitToolCallFinish &&
+            typeof part.toolCallId === 'string'
+          ) {
+            const toolCallContext =
+              (typeof part.toolName === 'string'
+                ? { input: part.input, toolName: part.toolName }
+                : undefined) ?? toolCallContextById.get(part.toolCallId)
+
+            if (!toolCallContext) {
+              continue
+            }
+
+            emitToolCallFinish({
+              abortSignal: request.signal,
+              durationMs: 0,
+              experimental_context: undefined,
+              functionId: undefined,
+              metadata: undefined,
+              model: undefined,
+              messages: request.messages,
+              stepNumber: undefined,
+              success: true,
+              output: part.output,
+              toolCall: {
+                type: 'tool-call',
+                dynamic: true,
+                toolCallId: part.toolCallId,
+                toolName: toolCallContext.toolName,
+                input: toolCallContext.input
+              }
+            })
+            toolCallContextById.delete(part.toolCallId)
+            continue
+          }
+
+          if (
+            (part.type === 'tool-output-error' || part.type === 'tool-error') &&
+            emitToolCallFinish &&
+            typeof part.toolCallId === 'string'
+          ) {
+            const toolCallContext =
+              (typeof part.toolName === 'string'
+                ? { input: part.input, toolName: part.toolName }
+                : undefined) ?? toolCallContextById.get(part.toolCallId)
+
+            if (!toolCallContext) {
+              continue
+            }
+
+            emitToolCallFinish({
+              abortSignal: request.signal,
+              durationMs: 0,
+              experimental_context: undefined,
+              functionId: undefined,
+              metadata: undefined,
+              model: undefined,
+              messages: request.messages,
+              stepNumber: undefined,
+              success: false,
+              error: part.error ?? part.errorText,
+              toolCall: {
+                type: 'tool-call',
+                dynamic: true,
+                toolCallId: part.toolCallId,
+                toolName: toolCallContext.toolName,
+                input: toolCallContext.input
+              }
+            })
+            toolCallContextById.delete(part.toolCallId)
           }
         }
 

@@ -54,6 +54,14 @@ function summarizeCombinedBashOutput(value: string): string {
   return value
 }
 
+function toAbortError(reason: unknown, fallbackMessage: string): Error {
+  const message =
+    reason instanceof Error ? reason.message : typeof reason === 'string' ? reason : fallbackMessage
+  const error = new Error(message)
+  error.name = 'AbortError'
+  return error
+}
+
 function buildBashContent(input: {
   combinedOutput: string
   error?: string
@@ -255,15 +263,16 @@ const defaultBashRunner: BashRunner = async ({
   let stdout = ''
   let stderr = ''
   let timedOut = false
+  let terminatedByAbort = false
   const shouldBufferStdout = onStdout === undefined
   const shouldBufferStderr = onStderr === undefined
 
   const onAbort = (): void => {
-    const error =
-      abortSignal?.reason instanceof Error
-        ? abortSignal.reason
-        : new Error('Tool execution aborted.')
-    error.name = 'AbortError'
+    if (child.exitCode !== null || child.signalCode !== null) {
+      return
+    }
+
+    terminatedByAbort = true
     child.kill('SIGTERM')
   }
 
@@ -298,14 +307,9 @@ const defaultBashRunner: BashRunner = async ({
   try {
     const exitCode = await new Promise<number>((resolve, reject) => {
       child.once('error', reject)
-      child.once('close', (code) => {
-        if (abortSignal?.aborted) {
-          const error =
-            abortSignal.reason instanceof Error
-              ? abortSignal.reason
-              : new Error('Tool execution aborted.')
-          error.name = 'AbortError'
-          reject(error)
+      child.once('close', (code, signal) => {
+        if (terminatedByAbort && signal) {
+          reject(toAbortError(abortSignal?.reason, 'Tool execution aborted.'))
           return
         }
 

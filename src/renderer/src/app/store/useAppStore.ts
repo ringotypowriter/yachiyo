@@ -30,6 +30,12 @@ interface PendingAssistantMessage {
   parentMessageId: string
 }
 
+interface PendingSteerMessage {
+  content: string
+  createdAt: string
+  images?: MessageImageRecord[]
+}
+
 export interface HarnessRecord {
   id: string
   runId: string
@@ -80,6 +86,7 @@ interface AppState {
   deleteMessage: (messageId: string) => Promise<void>
   messages: Record<string, Message[]>
   pendingAssistantMessages: Record<string, PendingAssistantMessage>
+  pendingSteerMessages: Record<string, PendingSteerMessage>
   renameThread: (threadId: string, title: string) => Promise<void>
   restoreThread: (threadId: string) => Promise<void>
   retryMessage: (messageId: string) => Promise<void>
@@ -243,6 +250,15 @@ function removeComposerDraft(
   return next
 }
 
+function removePendingSteerMessage(
+  pendingSteerMessages: Record<string, PendingSteerMessage>,
+  threadId: string
+): Record<string, PendingSteerMessage> {
+  const next = { ...pendingSteerMessages }
+  delete next[threadId]
+  return next
+}
+
 function toReadyMessageImages(images: ComposerImageDraft[]): MessageImageRecord[] {
   return normalizeMessageImages(
     images
@@ -377,6 +393,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
   messages: {},
   pendingAssistantMessages: {},
+  pendingSteerMessages: {},
   restoreThread: async (threadId) => {
     try {
       await window.api.yachiyo.restoreThread({ threadId })
@@ -485,6 +502,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           harnessEvents,
           latestRunsByThread,
           messages,
+          pendingSteerMessages: removePendingSteerMessage(
+            state.pendingSteerMessages,
+            event.threadId
+          ),
           toolCalls,
           threads
         }
@@ -499,10 +520,18 @@ export const useAppStore = create<AppState>((set, get) => ({
                 state.activeRequestMessageId
               )
             : state.activeRequestMessageId
+        const shouldClearPendingSteer =
+          Boolean(state.pendingSteerMessages[event.threadId]) &&
+          state.activeRunThreadId === event.threadId &&
+          Boolean(event.thread.headMessageId) &&
+          event.thread.headMessageId !== state.activeRequestMessageId
 
         return {
           activeRequestMessageId: nextActiveRequestMessageId,
           archivedThreads: removeThread(state.archivedThreads, event.threadId),
+          pendingSteerMessages: shouldClearPendingSteer
+            ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
+            : state.pendingSteerMessages,
           threads: upsertThread(state.threads, event.thread)
         }
       }
@@ -528,6 +557,10 @@ export const useAppStore = create<AppState>((set, get) => ({
             ...state.messages,
             [event.threadId]: event.messages
           },
+          pendingSteerMessages: removePendingSteerMessage(
+            state.pendingSteerMessages,
+            event.threadId
+          ),
           toolCalls: {
             ...state.toolCalls,
             [event.threadId]: event.toolCalls
@@ -654,6 +687,10 @@ export const useAppStore = create<AppState>((set, get) => ({
             completedAt: event.timestamp
           }),
           pendingAssistantMessages,
+          pendingSteerMessages:
+            state.activeRunThreadId === event.threadId
+              ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
+              : state.pendingSteerMessages,
           runPhase: 'idle',
           runStatus: 'idle'
         }
@@ -692,6 +729,10 @@ export const useAppStore = create<AppState>((set, get) => ({
               }
             : state.messages,
           pendingAssistantMessages,
+          pendingSteerMessages:
+            state.activeRunThreadId === event.threadId
+              ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
+              : state.pendingSteerMessages,
           runPhase: 'idle',
           runStatus: 'failed'
         }
@@ -729,6 +770,10 @@ export const useAppStore = create<AppState>((set, get) => ({
               }
             : state.messages,
           pendingAssistantMessages,
+          pendingSteerMessages:
+            state.activeRunThreadId === event.threadId
+              ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
+              : state.pendingSteerMessages,
           runPhase: 'idle',
           runStatus: 'cancelled'
         }
@@ -954,6 +999,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           : currentState.activeRunId
             ? 'active-run-steer'
             : 'run-started')
+      const acceptedUserMessage = 'userMessage' in accepted ? accepted.userMessage : null
+      const acceptedReplacedMessageId =
+        'replacedMessageId' in accepted ? accepted.replacedMessageId : undefined
 
       set((state) => ({
         activeRunId:
@@ -961,9 +1009,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             ? state.activeRunId
             : (accepted.runId ?? state.activeRunId),
         activeRequestMessageId:
-          acceptedKind === 'active-run-follow-up'
+          acceptedKind === 'active-run-follow-up' || acceptedKind === 'active-run-steer-pending'
             ? state.activeRequestMessageId
-            : accepted.userMessage.id,
+            : (acceptedUserMessage?.id ?? state.activeRequestMessageId),
         activeRunThreadId:
           acceptedKind === 'active-run-follow-up' ? state.activeRunThreadId : accepted.thread.id,
         activeThreadId: accepted.thread.id,
@@ -972,14 +1020,36 @@ export const useAppStore = create<AppState>((set, get) => ({
         lastError: null,
         messages: {
           ...state.messages,
-          [accepted.thread.id]: replaceMessage(
-            state.messages[accepted.thread.id] ?? [],
-            accepted.userMessage,
-            accepted.replacedMessageId
-          )
+          [accepted.thread.id]:
+            acceptedKind === 'active-run-steer-pending'
+              ? (state.messages[accepted.thread.id] ?? [])
+              : replaceMessage(
+                  state.messages[accepted.thread.id] ?? [],
+                  acceptedUserMessage as Message,
+                  acceptedReplacedMessageId
+                )
         },
-        runPhase: acceptedKind === 'active-run-follow-up' ? state.runPhase : 'preparing',
-        runStatus: acceptedKind === 'active-run-follow-up' ? state.runStatus : 'running',
+        pendingSteerMessages:
+          acceptedKind === 'active-run-steer-pending'
+            ? {
+                ...state.pendingSteerMessages,
+                [accepted.thread.id]: {
+                  content: trimmed,
+                  createdAt: new Date().toISOString(),
+                  ...(images.length > 0 ? { images } : {})
+                }
+              }
+            : acceptedKind === 'active-run-steer'
+              ? removePendingSteerMessage(state.pendingSteerMessages, accepted.thread.id)
+              : state.pendingSteerMessages,
+        runPhase:
+          acceptedKind === 'active-run-follow-up' || acceptedKind === 'active-run-steer-pending'
+            ? state.runPhase
+            : 'preparing',
+        runStatus:
+          acceptedKind === 'active-run-follow-up' || acceptedKind === 'active-run-steer-pending'
+            ? state.runStatus
+            : 'running',
         threadListMode: 'active',
         threads: upsertThread(state.threads, accepted.thread)
       }))

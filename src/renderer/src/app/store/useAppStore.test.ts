@@ -31,6 +31,7 @@ function resetStore(): void {
     latestRunsByThread: {},
     messages: {},
     pendingAssistantMessages: {},
+    pendingSteerMessages: {},
     runPhase: 'idle',
     runStatus: 'idle',
     settings: DEFAULT_SETTINGS,
@@ -833,6 +834,109 @@ test('sendMessage routes active-run steer through the ordinary message path with
         filename: 'diagram.png'
       }
     ])
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('sendMessage keeps a tool-waiting steer as a temporary pending marker until it is truly sent', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    sendChat: async (input) => ({
+      kind: 'active-run-steer-pending',
+      runId: 'run-1',
+      thread: {
+        id: input.threadId,
+        title: 'Thread one',
+        updatedAt: TIMESTAMP,
+        headMessageId: 'user-1'
+      }
+    })
+  })
+
+  try {
+    useAppStore.setState({
+      activeRunId: 'run-1',
+      activeRequestMessageId: 'user-1',
+      activeRunThreadId: 'thread-1',
+      activeThreadId: 'thread-1',
+      composerDrafts: {
+        'thread-1': {
+          text: 'Wait for the tool result first',
+          images: []
+        }
+      },
+      messages: {
+        'thread-1': [
+          {
+            id: 'user-1',
+            threadId: 'thread-1',
+            role: 'user',
+            content: 'Original request',
+            status: 'completed',
+            createdAt: TIMESTAMP
+          }
+        ]
+      },
+      settings: READY_SETTINGS,
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Thread one',
+          updatedAt: TIMESTAMP,
+          headMessageId: 'user-1'
+        }
+      ]
+    })
+
+    await useAppStore.getState().sendMessage('steer')
+
+    let state = useAppStore.getState()
+    assert.equal(state.messages['thread-1']?.length, 1)
+    assert.equal(state.activeRequestMessageId, 'user-1')
+    assert.equal(state.pendingSteerMessages['thread-1']?.content, 'Wait for the tool result first')
+
+    useAppStore.getState().applyServerEvent({
+      type: 'thread.state.replaced',
+      eventId: 'event-thread-state-replaced-pending-steer',
+      timestamp: '2026-03-15T00:00:02.000Z',
+      threadId: 'thread-1',
+      thread: {
+        id: 'thread-1',
+        title: 'Thread one',
+        updatedAt: '2026-03-15T00:00:02.000Z',
+        headMessageId: 'user-steer'
+      },
+      messages: [
+        {
+          id: 'user-1',
+          threadId: 'thread-1',
+          role: 'user',
+          content: 'Original request',
+          status: 'completed',
+          createdAt: TIMESTAMP
+        },
+        {
+          id: 'user-steer',
+          threadId: 'thread-1',
+          parentMessageId: 'user-1',
+          role: 'user',
+          content: 'Wait for the tool result first',
+          status: 'completed',
+          createdAt: '2026-03-15T00:00:01.000Z'
+        }
+      ],
+      toolCalls: []
+    })
+
+    state = useAppStore.getState()
+    assert.equal(state.pendingSteerMessages['thread-1'], undefined)
+    assert.equal(state.activeRequestMessageId, 'user-steer')
+    assert.deepEqual(
+      state.messages['thread-1']?.map((message) => message.id),
+      ['user-1', 'user-steer']
+    )
   } finally {
     restoreWindow()
   }

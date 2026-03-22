@@ -83,6 +83,8 @@ export interface StoredToolCallRow {
   id: string
   runId: string
   threadId: string
+  requestMessageId: string | null
+  assistantMessageId: string | null
   toolName: ToolCallName
   status: ToolCallStatus
   inputSummary: string
@@ -92,11 +94,6 @@ export interface StoredToolCallRow {
   details: string | null
   startedAt: string
   finishedAt: string | null
-}
-
-interface StoredToolCallRunRefs {
-  requestMessageId?: string | null
-  assistantMessageId?: string | null
 }
 
 export interface StoredRunRow {
@@ -201,13 +198,11 @@ export function toMessageRecord(row: StoredMessageRow): MessageRecord {
   }
 }
 
-export function toToolCallRecord(row: StoredToolCallRow & StoredToolCallRunRefs): ToolCallRecord {
+export function toToolCallRecord(row: StoredToolCallRow): ToolCallRecord {
   const details = parseToolCallDetails(row.details)
 
   return {
-    ...(row.assistantMessageId === null || row.assistantMessageId === undefined
-      ? {}
-      : { assistantMessageId: row.assistantMessageId }),
+    ...(row.assistantMessageId === null ? {} : { assistantMessageId: row.assistantMessageId }),
     ...(row.cwd === null ? {} : { cwd: row.cwd }),
     ...(details ? { details } : {}),
     ...(row.error === null ? {} : { error: row.error }),
@@ -215,9 +210,7 @@ export function toToolCallRecord(row: StoredToolCallRow & StoredToolCallRunRefs)
     ...(row.outputSummary === null ? {} : { outputSummary: row.outputSummary }),
     id: row.id,
     inputSummary: row.inputSummary,
-    ...(row.requestMessageId === null || row.requestMessageId === undefined
-      ? {}
-      : { requestMessageId: row.requestMessageId }),
+    ...(row.requestMessageId === null ? {} : { requestMessageId: row.requestMessageId }),
     runId: row.runId,
     startedAt: row.startedAt,
     status: row.status,

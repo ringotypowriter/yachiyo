@@ -26,6 +26,7 @@ const DEFAULT_HARNESS = 'default.reply'
 
 type TimelineItem =
   | ReturnType<typeof buildConversationTimeline>[number]
+  | { kind: 'pending-steer'; key: string; time: string; data: Message }
   | { kind: 'queued-follow-up'; key: string; time: string; data: Message }
   | { kind: 'harness'; key: string; time: string; data: HarnessRecord }
   | { kind: 'tool'; key: string; time: string; data: ToolCall }
@@ -45,10 +46,21 @@ function buildTimeline(
   groups: ReturnType<typeof buildMessageGroups>,
   harnesses: HarnessRecord[],
   orphanToolCalls: ToolCall[],
+  pendingSteerMessage: Message | null,
   queuedFollowUpMessage: Message | null
 ): TimelineItem[] {
   const items: TimelineItem[] = [
     ...buildConversationTimeline(groups),
+    ...(pendingSteerMessage
+      ? [
+          {
+            kind: 'pending-steer' as const,
+            key: pendingSteerMessage.id,
+            time: pendingSteerMessage.createdAt,
+            data: pendingSteerMessage
+          }
+        ]
+      : []),
     ...(queuedFollowUpMessage
       ? [
           {
@@ -178,6 +190,9 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   const harnessEvents = useAppStore((state) =>
     threadId ? (state.harnessEvents[threadId] ?? EMPTY_HARNESSES) : EMPTY_HARNESSES
   )
+  const pendingSteerEntry = useAppStore((state) =>
+    threadId ? (state.pendingSteerMessages[threadId] ?? null) : null
+  )
   const toolCalls = useAppStore((state) =>
     threadId ? (state.toolCalls[threadId] ?? EMPTY_TOOL_CALLS) : EMPTY_TOOL_CALLS
   )
@@ -198,6 +213,19 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
         activeRequestMessageId: activeRunThreadId === threadId ? activeRequestMessageId : null
       })
     : []
+  const pendingSteerMessage =
+    threadId && pendingSteerEntry
+      ? {
+          id: `pending-steer:${threadId}`,
+          threadId,
+          parentMessageId: activeRequestMessageId ?? undefined,
+          role: 'user' as const,
+          content: pendingSteerEntry.content,
+          ...(pendingSteerEntry.images ? { images: pendingSteerEntry.images } : {}),
+          status: 'streaming' as const,
+          createdAt: pendingSteerEntry.createdAt
+        }
+      : null
   const queuedFollowUpMessage =
     thread?.queuedFollowUpMessageId &&
     messages.some((message) => message.id === thread.queuedFollowUpMessageId)
@@ -211,6 +239,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     messageGroups,
     harnessEvents,
     orphanToolCalls,
+    pendingSteerMessage,
     queuedFollowUpMessage
   )
 
@@ -292,6 +321,21 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
               onRetry={() => handleRetry(item.data.id)}
               onCreateBranch={() => handleCreateBranch(item.data.id)}
               onDelete={() => handleDelete(item.data.id)}
+            />
+          )
+        }
+
+        if (item.kind === 'pending-steer') {
+          return (
+            <UserMessageBubble
+              key={item.key}
+              label="Pending steer"
+              pending
+              message={item.data}
+              threadHasActiveRun
+              onRetry={() => undefined}
+              onCreateBranch={() => undefined}
+              onDelete={() => undefined}
             />
           )
         }

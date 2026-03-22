@@ -55,6 +55,12 @@ export const toolCallsTable = sqliteTable('tool_calls', {
   runId: text('run_id')
     .notNull()
     .references(() => runsTable.id, { onDelete: 'cascade' }),
+  requestMessageId: text('request_message_id').references(() => messagesTable.id, {
+    onDelete: 'set null'
+  }),
+  assistantMessageId: text('assistant_message_id').references(() => messagesTable.id, {
+    onDelete: 'set null'
+  }),
   threadId: text('thread_id')
     .notNull()
     .references(() => threadsTable.id, { onDelete: 'cascade' }),

@@ -40,15 +40,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     [...items].sort((left, right) => left.createdAt.localeCompare(right.createdAt))
   const sortToolCalls = (items: ToolCallRecord[]): ToolCallRecord[] =>
     [...items].sort((left, right) => left.startedAt.localeCompare(right.startedAt))
-  const toToolCallRecordWithRun = (row: StoredToolCallRow): ToolCallRecord => {
-    const run = runs.get(row.runId)
-
-    return toToolCallRecord({
-      ...row,
-      assistantMessageId: run?.assistantMessageId ?? null,
-      requestMessageId: run?.requestMessageId ?? null
-    })
-  }
+  const toToolCallRecordWithRun = (row: StoredToolCallRow): ToolCallRecord => toToolCallRecord(row)
   const applyThreadSnapshot = (
     storedThread: StoredThreadRow,
     nextThread: ReturnType<typeof toThreadRecord>
@@ -289,6 +281,17 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         run.status = 'completed'
         run.completedAt = updatedThread.updatedAt
       }
+
+      for (const [toolCallId, toolCall] of toolCalls.entries()) {
+        if (toolCall.runId !== runId) {
+          continue
+        }
+
+        toolCalls.set(toolCallId, {
+          ...toolCall,
+          assistantMessageId: assistantMessage.id
+        })
+      }
     },
 
     cancelRun({ runId, completedAt }) {
@@ -333,6 +336,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
     createToolCall(toolCall) {
       toolCalls.set(toolCall.id, {
+        assistantMessageId: toolCall.assistantMessageId ?? null,
         cwd: toolCall.cwd ?? null,
         details: serializeToolCallDetails(toolCall.details),
         error: toolCall.error ?? null,
@@ -340,6 +344,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         id: toolCall.id,
         inputSummary: toolCall.inputSummary,
         outputSummary: toolCall.outputSummary ?? null,
+        requestMessageId: toolCall.requestMessageId ?? null,
         runId: toolCall.runId,
         startedAt: toolCall.startedAt,
         status: toolCall.status,
@@ -354,6 +359,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
 
       toolCalls.set(toolCall.id, {
+        assistantMessageId: toolCall.assistantMessageId ?? null,
         cwd: toolCall.cwd ?? null,
         details: serializeToolCallDetails(toolCall.details),
         error: toolCall.error ?? null,
@@ -361,6 +367,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         id: toolCall.id,
         inputSummary: toolCall.inputSummary,
         outputSummary: toolCall.outputSummary ?? null,
+        requestMessageId: toolCall.requestMessageId ?? null,
         runId: toolCall.runId,
         startedAt: toolCall.startedAt,
         status: toolCall.status,

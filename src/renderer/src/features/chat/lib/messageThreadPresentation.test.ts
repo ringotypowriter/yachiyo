@@ -457,6 +457,60 @@ test('getVisibleToolCallsForGroup keeps failed branch tool calls visible even wh
   )
 })
 
+test('getVisibleToolCallsForGroup keeps unresolved assistant-anchored tool calls visible', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'user-steer'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'First question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'user-steer',
+        threadId: 'thread-1',
+        role: 'user',
+        parentMessageId: 'user-1',
+        content: 'Use the screenshot instead',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:02.000Z'
+      }
+    ],
+    runPhase: 'preparing',
+    activeRequestMessageId: 'user-steer'
+  })
+
+  const toolCalls = getVisibleToolCallsForGroup({
+    group: group!,
+    toolCalls: [
+      {
+        id: 'tool-running-old-attempt',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'running',
+        inputSummary: 'sleep 15',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-superseded',
+        startedAt: '2026-03-15T00:00:01.000Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    toolCalls.map((toolCall) => toolCall.id),
+    ['tool-running-old-attempt']
+  )
+})
+
 test('partitionToolCallsForGroups hides anchored tool calls that belong to hidden downstream requests', () => {
   const groups = buildMessageGroups({
     thread: {
