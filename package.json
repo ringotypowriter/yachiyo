@@ -1,15 +1,15 @@
 {
   "name": "yachiyo",
   "version": "1.0.0",
-  "description": "An Electron application with React and TypeScript",
+  "description": "Yachiyo",
   "main": "./out/main/index.js",
   "packageManager": "pnpm@10.30.3",
   "engines": {
     "node": "22.22.1",
     "pnpm": ">=10 <11"
   },
-  "author": "example.com",
-  "homepage": "https://electron-vite.org",
+  "author": "Ringo",
+  "homepage": "https://github.com/ringotypowriter/yachiyo",
   "scripts": {
     "db:check": "drizzle-kit check --config drizzle.config.ts",
     "db:drop": "drizzle-kit drop --config drizzle.config.ts",

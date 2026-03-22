@@ -6,6 +6,10 @@ import { installEditableContextMenu } from './editableContextMenu'
 import { resolveYachiyoDataDir } from './yachiyo-server/config/paths'
 import { registerYachiyoGateway } from './yachiyoGateway'
 
+const APP_NAME = 'Yachiyo'
+
+app.setName(APP_NAME)
+
 let settingsWindow: BrowserWindow | null = null
 
 app.setPath('userData', resolveYachiyoDataDir())
@@ -21,7 +25,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 18 },
-    ...(process.platform === 'linux' ? { icon } : {}),
+    icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -52,7 +56,12 @@ function createWindow(): void {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+  electronApp.setAppUserModelId('sh.ringo.yachiyo')
+
+  // Set dock icon for macOS
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setIcon(icon)
+  }
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
@@ -78,6 +87,7 @@ app.whenReady().then(() => {
       show: false,
       frame: false,
       backgroundColor: '#f0efeb',
+      icon,
       webPreferences: {
         preload: join(__dirname, '../preload/index.js'),
         sandbox: false

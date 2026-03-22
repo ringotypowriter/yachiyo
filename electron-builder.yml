@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: yachiyo
+appId: sh.ringo.yachiyo
+productName: Yachiyo
 directories:
   buildResources: build
 files:
@@ -33,13 +33,10 @@ linux:
     - AppImage
     - snap
     - deb
-  maintainer: electronjs.org
+  maintainer: Yachiyo
   category: Utility
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
-publish:
-  provider: generic
-  url: https://example.com/auto-updates
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/

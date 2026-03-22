@@ -1,6 +1,6 @@
-# yachiyo
+# Yachiyo
 
-An Electron application with React and TypeScript
+Yachiyo
 
 ## Docs
 
