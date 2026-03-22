@@ -172,6 +172,43 @@ test('applyServerEvent stores recalled memory on the matching run', () => {
   })
 })
 
+test('applyServerEvent supports assistant-first runs without a request message id', () => {
+  resetStore()
+
+  useAppStore.getState().applyServerEvent({
+    type: 'run.created',
+    eventId: 'event-run-created',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-compact',
+    runId: 'run-compact'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'message.started',
+    eventId: 'event-message-started',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-compact',
+    runId: 'run-compact',
+    messageId: 'assistant-compact'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'message.delta',
+    eventId: 'event-message-delta',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-compact',
+    runId: 'run-compact',
+    messageId: 'assistant-compact',
+    delta: 'Handoff'
+  })
+
+  const state = useAppStore.getState()
+
+  assert.equal(state.activeRequestMessageId, null)
+  assert.equal(state.activeRunId, 'run-compact')
+  assert.equal(state.messages['thread-compact']?.[0]?.role, 'assistant')
+  assert.equal(state.messages['thread-compact']?.[0]?.parentMessageId, undefined)
+  assert.equal(state.messages['thread-compact']?.[0]?.content, 'Handoff')
+})
+
 test('applyServerEvent stays in preparing until the first token arrives', () => {
   resetStore()
 
@@ -1293,6 +1330,58 @@ test('createBranch switches to a blank draft in the destination thread', async (
     const state = useAppStore.getState()
     assert.equal(state.activeThreadId, 'thread-2')
     assert.equal(state.composerDrafts['thread-1']?.text, 'Keep me here')
+    assert.equal(state.composerDrafts['thread-2'], undefined)
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('compactThreadToAnotherThread switches into the destination thread and starts a run', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    compactThreadToAnotherThread: async (input) => ({
+      runId: 'run-compact-1',
+      sourceThreadId: input.threadId,
+      thread: {
+        id: 'thread-2',
+        title: 'New Chat',
+        updatedAt: TIMESTAMP
+      }
+    })
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      composerDrafts: {
+        'thread-1': {
+          text: 'Keep me here too',
+          images: []
+        }
+      },
+      messages: {
+        'thread-1': []
+      },
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Original',
+          updatedAt: TIMESTAMP
+        }
+      ]
+    })
+
+    await useAppStore.getState().compactThreadToAnotherThread()
+
+    const state = useAppStore.getState()
+    assert.equal(state.activeThreadId, 'thread-2')
+    assert.equal(state.activeRunId, 'run-compact-1')
+    assert.equal(state.activeRunThreadId, 'thread-2')
+    assert.equal(state.activeRequestMessageId, null)
+    assert.equal(state.runPhase, 'preparing')
+    assert.equal(state.runStatus, 'running')
+    assert.equal(state.composerDrafts['thread-1']?.text, 'Keep me here too')
     assert.equal(state.composerDrafts['thread-2'], undefined)
   } finally {
     restoreWindow()

@@ -5,6 +5,8 @@ import { resolve } from 'node:path'
 import type {
   BootstrapPayload,
   ChatAccepted,
+  CompactThreadAccepted,
+  CompactThreadInput,
   ImportWebSearchBrowserSessionInput,
   ProviderConfig,
   ProviderSettings,
@@ -87,6 +89,10 @@ export class YachiyoServer {
   private readonly runDomain: YachiyoServerRunDomain
   private readonly threadDomain: YachiyoServerThreadDomain
   private readonly browserSearchSession: BrowserSearchSession
+  private readonly cloneThreadWorkspace: (
+    sourceThreadId: string,
+    targetThreadId: string
+  ) => Promise<string>
   private readonly readUserDocumentFile: () => Promise<UserDocument | null>
   private readonly saveUserDocumentFile: (content: string) => Promise<UserDocument | null>
   private readonly readSoulDocumentFile: () => Promise<SoulDocument | null>
@@ -167,6 +173,7 @@ export class YachiyoServer {
         readSettings: () => this.configDomain.readSettings()
       })
     this.memoryService = memoryService
+    this.cloneThreadWorkspace = cloneThreadWorkspace
     this.runDomain = new YachiyoServerRunDomain({
       storage: this.storage,
       createId: this.createId,
@@ -312,6 +319,41 @@ export class YachiyoServer {
 
   async createThread(input: { workspacePath?: string } = {}): Promise<ThreadRecord> {
     return this.threadDomain.createThread(input)
+  }
+
+  async compactThreadToAnotherThread(input: CompactThreadInput): Promise<CompactThreadAccepted> {
+    const sourceThread = this.requireThread(input.threadId)
+
+    if (this.runDomain.hasActiveThread(sourceThread.id)) {
+      throw new Error('Cannot compact a thread with an active run.')
+    }
+
+    const destinationThreadId = this.createId()
+
+    if (!sourceThread.workspacePath) {
+      await this.cloneThreadWorkspace(sourceThread.id, destinationThreadId)
+    }
+
+    let destinationThread = await this.threadDomain.createThread(
+      sourceThread.workspacePath
+        ? {
+            threadId: destinationThreadId,
+            workspacePath: sourceThread.workspacePath
+          }
+        : { threadId: destinationThreadId }
+    )
+
+    if (destinationThread.title !== sourceThread.title) {
+      destinationThread = this.threadDomain.renameThread({
+        threadId: destinationThread.id,
+        title: sourceThread.title
+      })
+    }
+
+    return this.runDomain.compactThreadToAnotherThread({
+      sourceThread,
+      destinationThread
+    })
   }
 
   async updateThreadWorkspace(input: {

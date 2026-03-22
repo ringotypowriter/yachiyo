@@ -18,6 +18,11 @@ function copyDrizzleMigrations(): { name: string; closeBundle: () => void } {
 
 export default defineConfig({
   main: {
+    resolve: {
+      alias: {
+        canvas: resolve('src/main/shims/canvas.ts')
+      }
+    },
     build: {
       externalizeDeps: false,
       rollupOptions: {

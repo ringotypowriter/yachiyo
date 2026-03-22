@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
+  CompactThreadInput,
+  CompactThreadAccepted,
   ImportWebSearchBrowserSessionInput,
   ProviderConfig,
   ProviderSettings,
@@ -22,6 +24,8 @@ const api = {
     bootstrap: () => ipcRenderer.invoke('yachiyo:bootstrap'),
     createBranch: (input: { threadId: string; messageId: string }) =>
       ipcRenderer.invoke('yachiyo:create-branch', input),
+    compactThreadToAnotherThread: (input: CompactThreadInput): Promise<CompactThreadAccepted> =>
+      ipcRenderer.invoke('yachiyo:compact-thread-to-another-thread', input),
     createThread: (input?: { workspacePath?: string }) =>
       ipcRenderer.invoke('yachiyo:create-thread', input),
     deleteThread: (input: { threadId: string }) =>

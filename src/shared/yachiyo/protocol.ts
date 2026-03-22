@@ -446,6 +446,10 @@ export interface RetryInput {
   enabledTools?: ToolCallName[]
 }
 
+export interface CompactThreadInput {
+  threadId: string
+}
+
 export interface SaveThreadInput {
   threadId: string
   archiveAfterSave?: boolean
@@ -456,6 +460,12 @@ export interface RetryAccepted {
   thread: ThreadRecord
   requestMessageId: string
   sourceAssistantMessageId?: string
+}
+
+export interface CompactThreadAccepted {
+  runId: string
+  sourceThreadId: string
+  thread: ThreadRecord
 }
 
 export interface SaveThreadResult {
@@ -526,12 +536,12 @@ export interface ThreadDeletedEvent extends ThreadEvent {
 
 export interface RunCreatedEvent extends RunEvent {
   type: 'run.created'
-  requestMessageId: string
+  requestMessageId?: string
 }
 
 export interface RunMemoryRecalledEvent extends RunEvent {
   type: 'run.memory.recalled'
-  requestMessageId: string
+  requestMessageId?: string
   recalledMemoryEntries: string[]
 }
 
@@ -551,7 +561,7 @@ export interface RunCancelledEvent extends RunEvent {
 export interface MessageStartedEvent extends RunEvent {
   type: 'message.started'
   messageId: string
-  parentMessageId: string
+  parentMessageId?: string
 }
 
 export interface MessageDeltaEvent extends RunEvent {

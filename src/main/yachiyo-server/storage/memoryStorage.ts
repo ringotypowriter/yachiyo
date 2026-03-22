@@ -262,7 +262,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
       runs.set(runId, {
         id: runId,
-        requestMessageId,
+        requestMessageId: requestMessageId ?? null,
         assistantMessageId: null,
         threadId: thread.id,
         status: 'running',

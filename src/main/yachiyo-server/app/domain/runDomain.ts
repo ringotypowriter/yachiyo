@@ -1,9 +1,16 @@
 import type {
   ChatAccepted,
+  CompactThreadAccepted,
+  MessageCompletedEvent,
+  MessageDeltaEvent,
   MessageRecord,
+  MessageStartedEvent,
   ProviderSettings,
+  RunCancelledEvent,
+  RunCompletedEvent,
   RetryAccepted,
   RetryInput,
+  RunFailedEvent,
   RunCreatedEvent,
   SendChatInput,
   SettingsConfig,
@@ -34,6 +41,8 @@ import {
   sanitizeGeneratedThreadTitle
 } from './threadTitle.ts'
 import { resolveRetryRequest } from './threadDomain.ts'
+import { buildCompactThreadHandoffMessages } from '../../runtime/threadHandoff.ts'
+import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 import {
   DEFAULT_THREAD_TITLE,
   INTERRUPTED_RUN_ERROR,
@@ -45,7 +54,7 @@ import {
 
 interface RunState {
   threadId: string
-  requestMessageId: string
+  requestMessageId?: string
   abortController: AbortController
   pendingSteerMessageId?: string
   pendingSteerInput?: {
@@ -100,6 +109,31 @@ function withParentMessageId(message: MessageRecord, parentMessageId?: string): 
     ...rest,
     ...(parentMessageId ? { parentMessageId } : {})
   }
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
+}
+
+function resolveEffectiveThreadMessages(
+  thread: ThreadRecord,
+  messages: MessageRecord[]
+): MessageRecord[] {
+  if (messages.length === 0) {
+    return []
+  }
+
+  const headMessageId =
+    thread.headMessageId && messages.some((message) => message.id === thread.headMessageId)
+      ? thread.headMessageId
+      : [...messages].sort((left, right) => left.createdAt.localeCompare(right.createdAt)).at(-1)
+          ?.id
+
+  if (!headMessageId) {
+    return [...messages].sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+  }
+
+  return collectMessagePath(messages, headMessageId)
 }
 
 export class YachiyoServerRunDomain {
@@ -209,6 +243,9 @@ export class YachiyoServerRunDomain {
     }
 
     if (mode === 'steer') {
+      if (!this.activeRuns.get(activeRunId)?.requestMessageId) {
+        throw new Error('Wait for the handoff to finish before sending a new message.')
+      }
       return this.sendActiveRunSteer({
         activeRunId,
         content,
@@ -218,6 +255,9 @@ export class YachiyoServerRunDomain {
     }
 
     if (mode === 'follow-up') {
+      if (!this.activeRuns.get(activeRunId)?.requestMessageId) {
+        throw new Error('Wait for the handoff to finish before sending a new message.')
+      }
       return this.queueFollowUp({
         content,
         enabledTools,
@@ -286,6 +326,45 @@ export class YachiyoServerRunDomain {
     })
 
     return accepted
+  }
+
+  async compactThreadToAnotherThread(input: {
+    sourceThread: ThreadRecord
+    destinationThread: ThreadRecord
+  }): Promise<CompactThreadAccepted> {
+    if (this.activeRunByThread.has(input.sourceThread.id)) {
+      throw new Error('Cannot compact a thread with an active run.')
+    }
+
+    const runId = this.deps.createId()
+    const timestamp = this.deps.timestamp()
+    const sourceMessages = this.deps.loadThreadMessages(input.sourceThread.id)
+    const effectiveMessages = resolveEffectiveThreadMessages(input.sourceThread, sourceMessages)
+
+    this.deps.storage.startRun({
+      runId,
+      thread: input.destinationThread,
+      updatedThread: input.destinationThread,
+      createdAt: timestamp
+    })
+
+    this.deps.emit<RunCreatedEvent>({
+      type: 'run.created',
+      threadId: input.destinationThread.id,
+      runId
+    })
+
+    this.startAssistantOnlyRun({
+      runId,
+      thread: input.destinationThread,
+      sourceMessages: effectiveMessages
+    })
+
+    return {
+      runId,
+      sourceThreadId: input.sourceThread.id,
+      thread: input.destinationThread
+    }
   }
 
   cancelRun(input: { runId: string }): void {
@@ -548,6 +627,24 @@ export class YachiyoServerRunDomain {
     void runTask
   }
 
+  private startAssistantOnlyRun(input: {
+    runId: string
+    thread: ThreadRecord
+    sourceMessages: MessageRecord[]
+  }): void {
+    this.activeRuns.set(input.runId, {
+      threadId: input.thread.id,
+      abortController: new AbortController(),
+      executionPhase: 'generating',
+      updateHeadOnComplete: true
+    })
+    this.activeRunByThread.set(input.thread.id, input.runId)
+
+    const runTask = this.streamCompactThreadHandoff(input)
+    this.activeRunTasks.set(input.runId, runTask)
+    void runTask
+  }
+
   private async runLoop(input: {
     enabledTools: ToolCallName[]
     runId: string
@@ -694,6 +791,133 @@ export class YachiyoServerRunDomain {
 
       if (!this.isClosing && result.kind !== 'restarted') {
         this.startQueuedFollowUpIfPresent(input.thread.id)
+      }
+    }
+  }
+
+  private async streamCompactThreadHandoff(input: {
+    runId: string
+    thread: ThreadRecord
+    sourceMessages: MessageRecord[]
+  }): Promise<void> {
+    const settings = this.deps.readSettings()
+    const runtime = this.deps.createModelRuntime()
+    const messageId = this.deps.createId()
+    let buffer = ''
+
+    this.deps.emit<MessageStartedEvent>({
+      type: 'message.started',
+      threadId: input.thread.id,
+      runId: input.runId,
+      messageId
+    })
+
+    try {
+      const userDocument = this.deps.readUserDocument ? await this.deps.readUserDocument() : null
+      const activeRun = this.activeRuns.get(input.runId)
+      if (!activeRun) {
+        return
+      }
+
+      for await (const delta of runtime.streamReply({
+        messages: buildCompactThreadHandoffMessages({
+          history: input.sourceMessages,
+          userDocumentContent: userDocument?.content
+        }),
+        settings,
+        signal: activeRun.abortController.signal
+      })) {
+        if (!delta) {
+          continue
+        }
+
+        buffer += delta
+        this.deps.emit<MessageDeltaEvent>({
+          type: 'message.delta',
+          threadId: input.thread.id,
+          runId: input.runId,
+          messageId,
+          delta
+        })
+      }
+
+      const timestamp = this.deps.timestamp()
+      const assistantMessage: MessageRecord = {
+        id: messageId,
+        threadId: input.thread.id,
+        role: 'assistant',
+        content: buffer,
+        status: 'completed',
+        createdAt: timestamp,
+        modelId: settings.model,
+        providerName: settings.providerName
+      }
+      const currentThread = this.deps.requireThread(input.thread.id)
+      const updatedThread: ThreadRecord = {
+        ...currentThread,
+        headMessageId: assistantMessage.id,
+        preview: assistantMessage.content.slice(0, 240),
+        updatedAt: timestamp
+      }
+
+      this.deps.storage.completeRun({
+        runId: input.runId,
+        updatedThread,
+        assistantMessage
+      })
+      this.activeRuns.delete(input.runId)
+      this.activeRunByThread.delete(input.thread.id)
+      this.activeRunTasks.delete(input.runId)
+
+      this.deps.emit<MessageCompletedEvent>({
+        type: 'message.completed',
+        threadId: input.thread.id,
+        runId: input.runId,
+        message: assistantMessage
+      })
+      this.deps.emit<ThreadUpdatedEvent>({
+        type: 'thread.updated',
+        threadId: input.thread.id,
+        thread: updatedThread
+      })
+      this.deps.emit<RunCompletedEvent>({
+        type: 'run.completed',
+        threadId: input.thread.id,
+        runId: input.runId
+      })
+    } catch (error) {
+      const timestamp = this.deps.timestamp()
+      const message = error instanceof Error ? error.message : String(error)
+
+      if (isAbortError(error)) {
+        this.deps.storage.cancelRun({
+          runId: input.runId,
+          completedAt: timestamp
+        })
+      } else {
+        this.deps.storage.failRun({
+          runId: input.runId,
+          completedAt: timestamp,
+          error: message
+        })
+      }
+      this.activeRuns.delete(input.runId)
+      this.activeRunByThread.delete(input.thread.id)
+      this.activeRunTasks.delete(input.runId)
+
+      if (isAbortError(error)) {
+        this.deps.emit<RunCancelledEvent>({
+          type: 'run.cancelled',
+          threadId: input.thread.id,
+          runId: input.runId
+        })
+      } else {
+        this.deps.emit<RunFailedEvent>({
+          type: 'run.failed',
+          threadId: input.thread.id,
+          runId: input.runId,
+          error: message
+        })
       }
     }
   }

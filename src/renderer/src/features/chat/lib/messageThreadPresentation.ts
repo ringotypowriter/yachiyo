@@ -19,6 +19,12 @@ export interface MessageGroup {
   showPreparing: boolean
 }
 
+export function getRootAssistantMessages(messages: Message[]): Message[] {
+  return sortMessagesByCreatedAt(
+    messages.filter((message) => message.role === 'assistant' && !message.parentMessageId)
+  )
+}
+
 export function getVisibleToolCallsForGroup(input: {
   group: MessageGroup
   toolCalls: ToolCall[]

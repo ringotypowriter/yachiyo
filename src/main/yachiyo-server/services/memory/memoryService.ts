@@ -519,7 +519,7 @@ function buildRunDistillationMessages(input: {
         'Bad: "we discussed using the repo root for commands."',
         'Good: "<username> uses the Yachiyo repo root for commands."',
         'Bad: "this time the user mentioned disliking bureaucratic language."',
-        'Good: "<username> dislikes bureaucratic or overly formal language."',
+        'Good: "<username> dislikes bureaucratic or overly formal language."'
       ].join('\n')
     },
     {

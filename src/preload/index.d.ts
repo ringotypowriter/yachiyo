@@ -2,6 +2,8 @@ import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
   BootstrapPayload,
   ChatAccepted,
+  CompactThreadAccepted,
+  CompactThreadInput,
   ImportWebSearchBrowserSessionInput,
   ProviderConfig,
   ProviderSettings,
@@ -30,6 +32,7 @@ declare global {
         archiveThread: (input: { threadId: string }) => Promise<void>
         bootstrap: () => Promise<BootstrapPayload>
         createBranch: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>
+        compactThreadToAnotherThread: (input: CompactThreadInput) => Promise<CompactThreadAccepted>
         createThread: (input?: { workspacePath?: string }) => Promise<ThreadRecord>
         deleteThread: (input: { threadId: string }) => Promise<void>
         deleteMessage: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>

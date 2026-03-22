@@ -28,7 +28,7 @@ import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 interface PendingAssistantMessage {
   messageId: string
   threadId: string
-  parentMessageId: string
+  parentMessageId?: string
   shouldStartNewTextBlock: boolean
 }
 
@@ -73,6 +73,7 @@ interface AppState {
   activeThreadId: string | null
   archivedThreads: Thread[]
   archiveThread: (threadId: string) => Promise<void>
+  compactThreadToAnotherThread: () => Promise<void>
   composerDrafts: Record<string, ComposerDraft>
   createBranch: (messageId: string) => Promise<void>
   config: SettingsConfig | null
@@ -397,6 +398,40 @@ export const useAppStore = create<AppState>((set, get) => ({
       throw error
     }
   },
+  compactThreadToAnotherThread: async () => {
+    const threadId = get().activeThreadId
+    if (!threadId) {
+      return
+    }
+
+    try {
+      const accepted = await window.api.yachiyo.compactThreadToAnotherThread({ threadId })
+      set((state) => ({
+        activeRequestMessageId: null,
+        activeRunId: accepted.runId,
+        activeRunThreadId: accepted.thread.id,
+        activeThreadId: accepted.thread.id,
+        lastError: null,
+        runPhase: 'preparing',
+        runStatus: 'running',
+        threadListMode: 'active',
+        messages: {
+          ...state.messages,
+          [accepted.thread.id]: state.messages[accepted.thread.id] ?? []
+        },
+        toolCalls: {
+          ...state.toolCalls,
+          [accepted.thread.id]: state.toolCalls[accepted.thread.id] ?? []
+        },
+        threads: upsertThread(state.threads, accepted.thread)
+      }))
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to compact into another thread.'
+      set({ lastError: message })
+      throw error
+    }
+  },
   createBranch: async (messageId) => {
     const threadId = get().activeThreadId
     if (!threadId) {
@@ -667,7 +702,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (event.type === 'run.created') {
         return {
           activeRunId: event.runId,
-          activeRequestMessageId: event.requestMessageId,
+          activeRequestMessageId: event.requestMessageId ?? null,
           activeRunThreadId: event.threadId,
           lastError: null,
           latestRunsByThread: upsertLatestRun(state.latestRunsByThread, {
@@ -675,7 +710,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             threadId: event.threadId,
             status: 'running',
             createdAt: event.timestamp,
-            requestMessageId: event.requestMessageId
+            ...(event.requestMessageId ? { requestMessageId: event.requestMessageId } : {})
           }),
           runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
             ...run,
@@ -683,7 +718,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             threadId: event.threadId,
             status: 'running',
             createdAt: run?.createdAt ?? event.timestamp,
-            requestMessageId: event.requestMessageId,
+            ...(event.requestMessageId ? { requestMessageId: event.requestMessageId } : {}),
             recalledMemoryEntries: run?.recalledMemoryEntries
           })),
           runPhase: 'preparing',
@@ -706,7 +741,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             threadId: event.threadId,
             status: run?.status ?? 'running',
             createdAt: run?.createdAt ?? event.timestamp,
-            requestMessageId: event.requestMessageId,
+            ...(event.requestMessageId ? { requestMessageId: event.requestMessageId } : {}),
             recalledMemoryEntries: event.recalledMemoryEntries,
             ...(run?.completedAt ? { completedAt: run.completedAt } : {}),
             ...(run?.error ? { error: run.error } : {})

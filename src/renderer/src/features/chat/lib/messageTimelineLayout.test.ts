@@ -171,3 +171,16 @@ test('buildConversationGroupTimelineItems keeps generating at the bottom of the 
     { kind: 'generating', key: 'generating' }
   ])
 })
+
+test('buildConversationGroupTimelineItems does not add generating before the first assistant text block exists', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [],
+    visibleToolCalls: []
+  })
+
+  assert.deepEqual(items, [])
+})

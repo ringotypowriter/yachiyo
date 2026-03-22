@@ -32,6 +32,7 @@ export function AppMainPanel({
   const activeArchivedThreadId = useAppStore((s) => s.activeArchivedThreadId)
   const activeThreadId = useAppStore((s) => s.activeThreadId)
   const deleteThread = useAppStore((s) => s.deleteThread)
+  const compactThreadToAnotherThread = useAppStore((s) => s.compactThreadToAnotherThread)
   const messages = useAppStore((s) =>
     activeThreadId ? (s.messages[activeThreadId] ?? EMPTY) : EMPTY
   )
@@ -123,6 +124,19 @@ export function AppMainPanel({
 
     if (operationKey === 'archive') {
       void handleArchiveThread(activeThread)
+      return
+    }
+
+    if (operationKey === 'compact-to-another-thread') {
+      void (async () => {
+        try {
+          await compactThreadToAnotherThread()
+        } catch (error) {
+          window.alert(
+            error instanceof Error ? error.message : 'Failed to compact into another thread.'
+          )
+        }
+      })()
       return
     }
 

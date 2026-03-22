@@ -85,6 +85,7 @@ export function ThreadList(): React.JSX.Element {
   const activeThreadId = useAppStore((s) => s.activeThreadId)
   const archiveThread = useAppStore((s) => s.archiveThread)
   const archivedThreads = useAppStore((s) => s.archivedThreads)
+  const compactThreadToAnotherThread = useAppStore((s) => s.compactThreadToAnotherThread)
   const deleteThread = useAppStore((s) => s.deleteThread)
   const renameThread = useAppStore((s) => s.renameThread)
   const restoreThread = useAppStore((s) => s.restoreThread)
@@ -116,6 +117,12 @@ export function ThreadList(): React.JSX.Element {
         if (window.confirm(`Archive "${thread.title}"?`)) {
           await archiveThread(thread.id)
         }
+        return
+      }
+
+      if (operationKey === 'compact-to-another-thread') {
+        setActiveThread(thread.id)
+        await compactThreadToAnotherThread()
         return
       }
 

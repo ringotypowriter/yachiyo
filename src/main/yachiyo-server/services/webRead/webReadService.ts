@@ -1,5 +1,3 @@
-import { parseHTML } from 'linkedom'
-
 import {
   DEFAULT_WEB_READ_CONTENT_FORMAT,
   type WebReadContentFormat,
@@ -24,9 +22,20 @@ const WEB_READ_USER_AGENT =
 const FALLBACK_STRIP_SELECTORS =
   'script, style, noscript, template, nav, footer, header, aside, form, button'
 
-type LinkedomDocument = ReturnType<typeof parseHTML>['document']
+type LinkedomDocument = Document & {
+  URL?: string
+  defaultView?: (Window & Record<string, unknown>) | null
+}
 type LinkedomElement = NonNullable<LinkedomDocument['body']>
 type FetchImplementation = typeof fetch
+type LinkedomModule = {
+  parseHTML: (html: string) => {
+    document: LinkedomDocument
+    window: Window & Record<string, unknown>
+  }
+}
+
+let linkedomModulePromise: Promise<LinkedomModule> | undefined
 
 export interface WebReadRequest {
   format?: WebReadContentFormat
@@ -208,7 +217,16 @@ function buildComputedStyleStub(): {
   })
 }
 
-function createParsedDocument(html: string): LinkedomDocument {
+async function loadLinkedomModule(): Promise<LinkedomModule> {
+  if (!linkedomModulePromise) {
+    linkedomModulePromise = import('linkedom/worker') as unknown as Promise<LinkedomModule>
+  }
+
+  return linkedomModulePromise
+}
+
+async function createParsedDocument(html: string): Promise<LinkedomDocument> {
+  const { parseHTML } = await loadLinkedomModule()
   const { document, window } = parseHTML(html)
 
   if (typeof window.getComputedStyle !== 'function') {
@@ -569,7 +587,7 @@ export async function readWebPage(
     })
   }
 
-  const document = createParsedDocument(html)
+  const document = await createParsedDocument(html)
   const fallbackMetadata = readDocumentMetadata(document, finalUrl)
   let extractorFailed = false
 

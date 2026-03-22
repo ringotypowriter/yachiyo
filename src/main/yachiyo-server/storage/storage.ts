@@ -53,7 +53,7 @@ export interface StartRunInput {
   runId: string
   thread: ThreadRecord
   updatedThread: ThreadRecord
-  requestMessageId: string
+  requestMessageId?: string
   userMessage?: MessageRecord
   createdAt: string
 }

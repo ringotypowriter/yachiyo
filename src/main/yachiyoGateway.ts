@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 
 import type {
+  CompactThreadInput,
   ImportWebSearchBrowserSessionInput,
   ProviderConfig,
   ProviderSettings,
@@ -27,6 +28,7 @@ const IPC_CHANNELS = {
   importWebSearchBrowserSession: 'yachiyo:import-web-search-browser-session',
   bootstrap: 'yachiyo:bootstrap',
   cancelRun: 'yachiyo:cancel-run',
+  compactThreadToAnotherThread: 'yachiyo:compact-thread-to-another-thread',
   createBranch: 'yachiyo:create-branch',
   createThread: 'yachiyo:create-thread',
   deleteMessage: 'yachiyo:delete-message',
@@ -118,6 +120,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handle(IPC_CHANNELS.createBranch, (input: { threadId: string; messageId: string }) =>
     server!.createBranch(input)
+  )
+  handle(IPC_CHANNELS.compactThreadToAnotherThread, (input: CompactThreadInput) =>
+    server!.compactThreadToAnotherThread(input)
   )
   handle(IPC_CHANNELS.renameThread, (input: { threadId: string; title: string }) =>
     server!.renameThread(input)

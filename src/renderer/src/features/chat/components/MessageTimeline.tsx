@@ -5,6 +5,7 @@ import type { Message, RunRecord, ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import {
   buildMessageGroups,
+  getRootAssistantMessages,
   getVisibleToolCallsForGroup,
   partitionToolCallsForGroups
 } from '../lib/messageThreadPresentation'
@@ -32,6 +33,7 @@ const DEFAULT_HARNESS = 'default.reply'
 
 type TimelineItem =
   | ReturnType<typeof buildConversationTimeline>[number]
+  | { kind: 'assistant-root'; key: string; time: string; data: Message }
   | { kind: 'pending-steer'; key: string; time: string; data: Message }
   | { kind: 'queued-follow-up'; key: string; time: string; data: Message }
   | { kind: 'harness'; key: string; time: string; data: HarnessRecord }
@@ -50,6 +52,7 @@ function buildConversationTimeline(
 
 function buildTimeline(
   groups: ReturnType<typeof buildMessageGroups>,
+  rootAssistantMessages: Message[],
   harnesses: HarnessRecord[],
   orphanToolCalls: ToolCall[],
   pendingSteerMessage: Message | null,
@@ -57,6 +60,12 @@ function buildTimeline(
 ): TimelineItem[] {
   const items: TimelineItem[] = [
     ...buildConversationTimeline(groups),
+    ...rootAssistantMessages.map((message) => ({
+      kind: 'assistant-root' as const,
+      key: message.id,
+      time: message.createdAt,
+      data: message
+    })),
     ...(pendingSteerMessage
       ? [
           {
@@ -160,7 +169,10 @@ export function ThreadConversationGroup({
     hasMemoryRecall: Boolean(memorySummary),
     replyCount: responseCount,
     showPreparing: group.showPreparing,
-    showGenerating: activeBranch?.message.status === 'streaming' && !hasRunningToolCall,
+    showGenerating:
+      activeBranch?.message.status === 'streaming' &&
+      activeAssistantTextBlocks.length > 0 &&
+      !hasRunningToolCall,
     activeAssistantTextBlocks,
     visibleToolCalls
   })
@@ -321,8 +333,10 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     groups: messageGroups,
     toolCalls
   })
+  const rootAssistantMessages = getRootAssistantMessages(messages)
   const timeline = buildTimeline(
     messageGroups,
+    rootAssistantMessages,
     harnessEvents,
     orphanToolCalls,
     pendingSteerMessage,
@@ -428,6 +442,29 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
 
         if (item.kind === 'tool') {
           return <ToolCallRow key={item.key} toolCall={item.data} />
+        }
+
+        if (item.kind === 'assistant-root') {
+          if (item.data.status === 'streaming' && !item.data.content.trim()) {
+            return (
+              <div key={item.key} className="message-response-cluster">
+                <div className="message-response-cluster__preparing">
+                  <PreparingBubble />
+                </div>
+              </div>
+            )
+          }
+
+          return (
+            <AssistantMessageBubble
+              key={item.key}
+              message={item.data}
+              showActions={false}
+              threadHasActiveRun={activeRunThreadId === threadId}
+              onCreateBranch={() => undefined}
+              onDelete={() => undefined}
+            />
+          )
         }
 
         return (

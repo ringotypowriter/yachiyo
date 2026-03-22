@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   buildMessageGroups,
+  getRootAssistantMessages,
   getVisibleToolCallsForGroup,
   partitionToolCallsForGroups
 } from './messageThreadPresentation.ts'
@@ -84,6 +85,49 @@ test('buildMessageGroups keeps retry replies under the same user request anchor'
   assert.deepEqual(
     groups[1]?.assistantBranches.map((branch) => branch.message.id),
     ['assistant-2']
+  )
+})
+
+test('getRootAssistantMessages returns assistant-first messages in timeline order', () => {
+  const messages = getRootAssistantMessages([
+    {
+      id: 'assistant-2',
+      threadId: 'thread-1',
+      role: 'assistant',
+      content: 'Second handoff chunk',
+      status: 'streaming',
+      createdAt: '2026-03-15T00:00:02.000Z'
+    },
+    {
+      id: 'user-1',
+      threadId: 'thread-1',
+      role: 'user',
+      content: 'Later follow-up',
+      status: 'completed',
+      createdAt: '2026-03-15T00:00:03.000Z'
+    },
+    {
+      id: 'assistant-1',
+      threadId: 'thread-1',
+      role: 'assistant',
+      content: 'Initial handoff',
+      status: 'completed',
+      createdAt: TIMESTAMP
+    },
+    {
+      id: 'assistant-child',
+      threadId: 'thread-1',
+      role: 'assistant',
+      parentMessageId: 'user-1',
+      content: 'Ordinary reply',
+      status: 'completed',
+      createdAt: '2026-03-15T00:00:04.000Z'
+    }
+  ])
+
+  assert.deepEqual(
+    messages.map((message) => message.id),
+    ['assistant-1', 'assistant-2']
   )
 })
 

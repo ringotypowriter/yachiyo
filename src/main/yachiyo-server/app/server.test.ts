@@ -3837,6 +3837,164 @@ test('YachiyoServer can retry directly from a user request that has no assistant
   )
 })
 
+test('YachiyoServer compacts a thread into a new assistant-first thread and allows normal continuation', async () => {
+  const requests: ModelStreamRequest[] = []
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      const sourceThread = await server.createThread()
+      const sourceAccepted = await server.sendChat({
+        threadId: sourceThread.id,
+        content: 'We decided to ship the desktop update on Friday.'
+      })
+      await completeRun(sourceAccepted.runId)
+
+      const compacted = await server.compactThreadToAnotherThread({
+        threadId: sourceThread.id
+      })
+      await completeRun(compacted.runId)
+
+      let bootstrap = await server.bootstrap()
+      const persistedSourceThread = bootstrap.threads.find(
+        (thread) => thread.id === sourceThread.id
+      )
+      const destinationMessages = bootstrap.messagesByThread[compacted.thread.id] ?? []
+
+      assert.equal(destinationMessages.length, 1)
+      assert.equal(destinationMessages[0]?.role, 'assistant')
+      assert.equal(destinationMessages[0]?.parentMessageId, undefined)
+      assert.equal(destinationMessages[0]?.content, 'Visible handoff')
+      assert.equal(compacted.thread.title, persistedSourceThread?.title)
+      assert.equal(
+        bootstrap.threads.some((thread) => thread.id === compacted.thread.id),
+        true
+      )
+      assert.equal(
+        bootstrap.threads.some((thread) => thread.id === sourceThread.id),
+        true
+      )
+      assert.equal(
+        bootstrap.threads.find((thread) => thread.id === compacted.thread.id)?.title,
+        persistedSourceThread?.title
+      )
+
+      const handoffRequest = requests.at(-1)
+      assert.ok(handoffRequest)
+      assert.equal(handoffRequest.tools, undefined)
+      assert.equal(handoffRequest.messages.at(-1)?.role, 'user')
+      assert.match(String(handoffRequest.messages.at(-1)?.content), /visible handoff/i)
+      assert.equal(
+        handoffRequest.messages.some(
+          (message) =>
+            message.role === 'user' &&
+            message.content === 'We decided to ship the desktop update on Friday.'
+        ),
+        true
+      )
+      assert.equal(
+        handoffRequest.messages.some(
+          (message) => message.role === 'assistant' && message.content === 'Hello world'
+        ),
+        true
+      )
+
+      const continuation = await server.sendChat({
+        threadId: compacted.thread.id,
+        content: 'Continue from that handoff.'
+      })
+      await completeRun(continuation.runId)
+
+      bootstrap = await server.bootstrap()
+      const continuedMessages = bootstrap.messagesByThread[compacted.thread.id] ?? []
+      const continuationUser = continuedMessages.find(
+        (message) => message.role === 'user' && message.content === 'Continue from that handoff.'
+      )
+      const continuationAssistant = continuedMessages.find(
+        (message) =>
+          message.role === 'assistant' &&
+          message.parentMessageId === continuationUser?.id &&
+          message.id !== destinationMessages[0]?.id
+      )
+
+      assert.equal(continuedMessages[0]?.id, destinationMessages[0]?.id)
+      assert.equal(continuationUser?.parentMessageId, destinationMessages[0]?.id)
+      assert.equal(continuationAssistant?.content, 'Hello world')
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          const lastMessage = request.messages.at(-1)
+          const lastMessageText =
+            typeof lastMessage?.content === 'string' ? lastMessage.content : ''
+
+          if (/visible handoff/i.test(lastMessageText)) {
+            yield 'Visible'
+            yield ' handoff'
+            return
+          }
+
+          yield 'Hello'
+          yield ' world'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer blocks compact-to-another-thread while the source thread is running', async () => {
+  await withServer(async ({ server }) => {
+    const thread = await server.createThread()
+    await server.sendChat({
+      threadId: thread.id,
+      content: 'Keep working on this for a moment.'
+    })
+
+    await assert.rejects(
+      () =>
+        server.compactThreadToAnotherThread({
+          threadId: thread.id
+        }),
+      /Cannot compact a thread with an active run\./
+    )
+
+    const bootstrap = await server.bootstrap()
+    assert.equal(bootstrap.threads.length, 1)
+    assert.equal(bootstrap.threads[0]?.id, thread.id)
+  })
+})
+
+test('YachiyoServer does not create a destination thread when compact workspace cloning fails', async () => {
+  await withServer(
+    async ({ server, completeRun }) => {
+      const sourceThread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: sourceThread.id,
+        content: 'Keep this thread intact if compact setup fails.'
+      })
+      await completeRun(accepted.runId)
+
+      await assert.rejects(
+        () =>
+          server.compactThreadToAnotherThread({
+            threadId: sourceThread.id
+          }),
+        /workspace clone failed/
+      )
+
+      const bootstrap = await server.bootstrap()
+      assert.equal(bootstrap.threads.length, 1)
+      assert.equal(bootstrap.threads[0]?.id, sourceThread.id)
+    },
+    {
+      cloneThreadWorkspace: async () => {
+        throw new Error('workspace clone failed')
+      }
+    }
+  )
+})
+
 test('YachiyoServer bootstrap creates the default USER.md template under the same .yachiyo root', async () => {
   await withServer(async ({ server }) => {
     await server.bootstrap()
