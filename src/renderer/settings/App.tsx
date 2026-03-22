@@ -116,7 +116,7 @@ function validateConfig(config: SettingsConfig | null): string | null {
 }
 
 function SettingsApp(): React.ReactNode {
-  const [activeTab, setActiveTab] = useState<TabId>('providers')
+  const [activeTab, setActiveTab] = useState<TabId>('general')
   const [activeSubTab, setActiveSubTab] = useState(initSubTabs)
   const [savedConfig, setSavedConfig] = useState<SettingsConfig | null>(null)
   const [draft, setDraft] = useState<SettingsConfig | null>(null)
