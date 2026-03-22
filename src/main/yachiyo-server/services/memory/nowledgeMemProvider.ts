@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process'
+import { accessSync, constants } from 'node:fs'
+import { delimiter, join } from 'node:path'
 
 import type { SettingsConfig } from '../../../../shared/yachiyo/protocol.ts'
 import { DEFAULT_MEMORY_BASE_URL } from '../../../../shared/yachiyo/protocol.ts'
@@ -48,8 +50,63 @@ export interface NowledgeMemProviderDeps {
   runCommand?: (input: RunNowledgeMemCommandInput) => Promise<RunNowledgeMemCommandResult>
 }
 
+const COMMON_CLI_PATH_SEGMENTS = ['/opt/homebrew/bin', '/usr/local/bin', '/opt/local/bin']
+
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/u, '')
+}
+
+function withAugmentedPath(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const homeDir = env.HOME?.trim()
+  const additionalSegments = [
+    ...COMMON_CLI_PATH_SEGMENTS,
+    ...(homeDir ? [join(homeDir, '.local', 'bin'), join(homeDir, 'bin')] : [])
+  ]
+  const existingSegments = (env.PATH ?? '')
+    .split(delimiter)
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+
+  const pathSegments = [...existingSegments]
+  for (const segment of additionalSegments) {
+    if (!pathSegments.includes(segment)) {
+      pathSegments.push(segment)
+    }
+  }
+
+  return {
+    ...env,
+    PATH: pathSegments.join(delimiter)
+  }
+}
+
+function isExecutable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function resolveCommandOnPath(command: string, env: NodeJS.ProcessEnv): string | undefined {
+  const pathValue = env.PATH
+  if (!pathValue) {
+    return undefined
+  }
+
+  for (const segment of pathValue.split(delimiter)) {
+    if (!segment) {
+      continue
+    }
+
+    const candidatePath = join(segment, command)
+    if (isExecutable(candidatePath)) {
+      return candidatePath
+    }
+  }
+
+  return undefined
 }
 
 function normalizeBaseUrl(config: SettingsConfig): string {
@@ -197,11 +254,21 @@ async function runNowledgeMemCommand(
   input: RunNowledgeMemCommandInput
 ): Promise<RunNowledgeMemCommandResult> {
   return await new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn('nmem', ['--json', ...input.args], {
-      env: {
-        ...process.env,
-        ...input.env
-      },
+    const env = withAugmentedPath({
+      ...process.env,
+      ...input.env
+    })
+    const executable = resolveCommandOnPath('nmem', env)
+
+    if (!executable) {
+      const error = new Error('spawn nmem ENOENT') as Error & { code?: string }
+      error.code = 'ENOENT'
+      rejectPromise(error)
+      return
+    }
+
+    const child = spawn(executable, ['--json', ...input.args], {
+      env,
       stdio: ['ignore', 'pipe', 'pipe']
     })
 
