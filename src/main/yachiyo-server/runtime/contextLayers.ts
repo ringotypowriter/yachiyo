@@ -20,6 +20,10 @@ export interface AgentLayerInput {
   instructions?: string
 }
 
+export interface UserLayerInput {
+  content?: string
+}
+
 export interface HintLayerInput {
   reminder?: string
 }
@@ -31,6 +35,7 @@ export interface MemoryLayerInput {
 export interface CompileContextLayersInput {
   history: ContextLayerHistoryMessage[]
   personality: PersonalityLayerInput
+  user?: UserLayerInput
   agent?: AgentLayerInput
   hint?: HintLayerInput
   memory?: MemoryLayerInput
@@ -118,6 +123,22 @@ export function compileAgentLayer(input: AgentLayerInput | undefined): ModelMess
   }
 }
 
+export function compileUserLayer(input: UserLayerInput | undefined): ModelMessage | null {
+  const content = input?.content?.trim() ?? ''
+  if (!content) {
+    return null
+  }
+
+  return {
+    role: 'system',
+    content: [
+      '以下是来自 USER.md 的稳定用户理解，请把它当作长期协作画像，而不是当前临时任务状态：',
+      '',
+      content
+    ].join('\n')
+  }
+}
+
 export function compileHintLayer(input: HintLayerInput | undefined): ModelMessage | null {
   const reminder = input?.reminder?.trim() ?? ''
   if (!reminder) {
@@ -146,6 +167,7 @@ export function compileContextLayers(input: CompileContextLayersInput): ModelMes
   return removeEmptyMessages([
     ...[
       compilePersonalityLayer(input.personality),
+      compileUserLayer(input.user),
       compileAgentLayer(input.agent),
       compileHintLayer(input.hint),
       compileMemoryLayer(input.memory)

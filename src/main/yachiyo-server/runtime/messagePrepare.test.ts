@@ -29,6 +29,9 @@ test('message prepare can add agent, hint, and memory layers without mutating us
       basePersona: SYSTEM_PROMPT,
       evolvedTraits: ['Keeps replies crisp under pressure', 'Prefers concrete next actions']
     },
+    user: {
+      content: '# USER\n\n## Work Style\n- Likes decisions with explicit tradeoffs'
+    },
     history: [{ role: 'user', content: 'Inspect the workspace' }],
     agent: {
       instructions: 'Workspace: /tmp/thread-1'
@@ -51,6 +54,14 @@ test('message prepare can add agent, hint, and memory layers without mutating us
         '以下是来自 SOUL 的人格补充，请自然吸收并保持整体稳定：',
         '- Keeps replies crisp under pressure',
         '- Prefers concrete next actions'
+      ].join('\n')
+    },
+    {
+      role: 'system',
+      content: [
+        '以下是来自 USER.md 的稳定用户理解，请把它当作长期协作画像，而不是当前临时任务状态：',
+        '',
+        '# USER\n\n## Work Style\n- Likes decisions with explicit tradeoffs'
       ].join('\n')
     },
     { role: 'system', content: 'Workspace: /tmp/thread-1' },

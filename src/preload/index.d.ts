@@ -13,6 +13,7 @@ import type {
   SendChatInput,
   TestMemoryConnectionInput,
   TestMemoryConnectionResult,
+  UserDocument,
   ThreadSnapshot,
   ThreadRecord,
   ToolPreferencesInput,
@@ -50,11 +51,13 @@ declare global {
         }) => Promise<ThreadRecord>
         cancelRun: (input: { runId: string }) => Promise<void>
         getConfig: () => Promise<SettingsConfig>
+        getUserDocument: () => Promise<UserDocument>
         testMemoryConnection: (
           input: TestMemoryConnectionInput
         ) => Promise<TestMemoryConnectionResult>
         getSettings: () => Promise<ProviderSettings>
         saveConfig: (input: SettingsConfig) => Promise<SettingsConfig>
+        saveUserDocument: (input: { content: string }) => Promise<UserDocument>
         saveSettings: (input: Partial<ProviderSettings>) => Promise<ProviderSettings>
         upsertProvider: (input: ProviderConfig) => Promise<ProviderConfig>
         removeProvider: (input: { name: string }) => Promise<SettingsConfig>

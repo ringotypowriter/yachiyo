@@ -1,9 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
-import { resolveYachiyoDataDir } from '../config/paths.ts'
+import { resolveYachiyoSoulPath } from '../config/paths.ts'
 
-const SOUL_FILE_NAME = 'SOUL.md'
 const EVOLVED_TRAITS_HEADING = '## Evolved Traits'
 const DEFAULT_SOUL_TITLE = '# SOUL'
 
@@ -40,7 +39,7 @@ export interface UpsertDailySoulTraitInput {
 }
 
 function resolveSoulPath(filePath?: string): string {
-  return filePath ?? `${resolveYachiyoDataDir()}/${SOUL_FILE_NAME}`
+  return filePath ?? resolveYachiyoSoulPath()
 }
 
 function buildDefaultSoulTemplate(): string {

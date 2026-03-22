@@ -7,11 +7,13 @@ import test from 'node:test'
 import { YachiyoServer } from './YachiyoServer.ts'
 import type { ModelStreamRequest } from '../runtime/types.ts'
 import type { SoulDocument } from '../runtime/soul.ts'
+import { readUserDocument, writeUserDocument } from '../runtime/user.ts'
 import { createInMemoryYachiyoStorage } from '../storage/memoryStorage.ts'
 import type { MemoryService } from '../services/memory/memoryService.ts'
 import type {
   ChatAccepted,
   ChatAcceptedWithUserMessage,
+  UserDocument,
   YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol.ts'
 
@@ -34,6 +36,8 @@ async function withServer(
       streamReply(request: ModelStreamRequest): AsyncIterable<string>
     }
     readSoulDocument?: () => Promise<SoulDocument | null>
+    readUserDocument?: () => Promise<UserDocument | null>
+    saveUserDocument?: (content: string) => Promise<UserDocument | null>
     ensureThreadWorkspace?: (
       threadId: string,
       workspacePathForThread: (threadId: string) => string
@@ -53,6 +57,7 @@ async function withServer(
 ): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-test-'))
   const settingsPath = join(root, 'config.toml')
+  const userDocumentPath = join(root, '.yachiyo', 'USER.md')
   const storage = createInMemoryYachiyoStorage()
   const modelRequests: ModelStreamRequest[] = []
   const workspacePathForThread = (threadId: string): string =>
@@ -208,6 +213,11 @@ async function withServer(
         }
       })),
     readSoulDocument: options.readSoulDocument ?? (async () => null),
+    readUserDocument:
+      options.readUserDocument ?? (() => readUserDocument({ filePath: userDocumentPath })),
+    saveUserDocument:
+      options.saveUserDocument ??
+      ((content) => writeUserDocument({ filePath: userDocumentPath, content })),
     memoryService: options.memoryService
   })
 
@@ -2488,6 +2498,7 @@ test('YachiyoServer emits a replacement snapshot when a queued follow-up is repa
 test('YachiyoServer bootstrap recovers interrupted runs and marks running tool calls as failed', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-recover-test-'))
   const settingsPath = join(root, 'config.toml')
+  const userDocumentPath = join(root, '.yachiyo', 'USER.md')
   const storage = createInMemoryYachiyoStorage()
   const createdAt = '2026-03-16T09:00:00.000Z'
   const interruptedAt = '2026-03-17T09:30:00.000Z'
@@ -2542,6 +2553,9 @@ test('YachiyoServer bootstrap recovers interrupted runs and marks running tool c
   const server = new YachiyoServer({
     storage,
     settingsPath,
+    readSoulDocument: async () => null,
+    readUserDocument: () => readUserDocument({ filePath: userDocumentPath }),
+    saveUserDocument: (content) => writeUserDocument({ filePath: userDocumentPath, content }),
     now: () => new Date(interruptedAt)
   })
 
@@ -2573,6 +2587,7 @@ test('YachiyoServer bootstrap recovers interrupted runs and marks running tool c
 test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queued tool override', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-queued-recover-test-'))
   const settingsPath = join(root, 'config.toml')
+  const userDocumentPath = join(root, '.yachiyo', 'USER.md')
   const storage = createInMemoryYachiyoStorage()
   const workspacePathForThread = (threadId: string): string =>
     join(root, '.yachiyo', 'temp-workspace', threadId)
@@ -2581,6 +2596,8 @@ test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queu
     storage,
     settingsPath,
     readSoulDocument: async () => null,
+    readUserDocument: () => readUserDocument({ filePath: userDocumentPath }),
+    saveUserDocument: (content) => writeUserDocument({ filePath: userDocumentPath, content }),
     ensureThreadWorkspace: async (threadId) => {
       const workspacePath = workspacePathForThread(threadId)
       await mkdir(workspacePath, { recursive: true })
@@ -2645,6 +2662,8 @@ test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queu
       storage,
       settingsPath,
       readSoulDocument: async () => null,
+      readUserDocument: () => readUserDocument({ filePath: userDocumentPath }),
+      saveUserDocument: (content) => writeUserDocument({ filePath: userDocumentPath, content }),
       ensureThreadWorkspace: async (threadId) => {
         const workspacePath = workspacePathForThread(threadId)
         await mkdir(workspacePath, { recursive: true })
@@ -2715,6 +2734,7 @@ test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queu
 test('YachiyoServer keeps a recovered queued follow-up pending when a new run starts immediately after bootstrap', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-queued-race-test-'))
   const settingsPath = join(root, 'config.toml')
+  const userDocumentPath = join(root, '.yachiyo', 'USER.md')
   const storage = createInMemoryYachiyoStorage()
   const workspacePathForThread = (threadId: string): string =>
     join(root, '.yachiyo', 'temp-workspace', threadId)
@@ -2723,6 +2743,8 @@ test('YachiyoServer keeps a recovered queued follow-up pending when a new run st
     storage,
     settingsPath,
     readSoulDocument: async () => null,
+    readUserDocument: () => readUserDocument({ filePath: userDocumentPath }),
+    saveUserDocument: (content) => writeUserDocument({ filePath: userDocumentPath, content }),
     ensureThreadWorkspace: async (threadId) => {
       const workspacePath = workspacePathForThread(threadId)
       await mkdir(workspacePath, { recursive: true })
@@ -2787,6 +2809,8 @@ test('YachiyoServer keeps a recovered queued follow-up pending when a new run st
       storage,
       settingsPath,
       readSoulDocument: async () => null,
+      readUserDocument: () => readUserDocument({ filePath: userDocumentPath }),
+      saveUserDocument: (content) => writeUserDocument({ filePath: userDocumentPath, content }),
       ensureThreadWorkspace: async (threadId) => {
         const workspacePath = workspacePathForThread(threadId)
         await mkdir(workspacePath, { recursive: true })
@@ -2876,11 +2900,14 @@ test('YachiyoServer keeps a recovered queued follow-up pending when a new run st
 test('YachiyoServer close waits for active runs to persist a terminal status', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-close-test-'))
   const settingsPath = join(root, 'config.toml')
+  const userDocumentPath = join(root, '.yachiyo', 'USER.md')
   const storage = createInMemoryYachiyoStorage()
   const server = new YachiyoServer({
     storage,
     settingsPath,
     readSoulDocument: async () => null,
+    readUserDocument: () => readUserDocument({ filePath: userDocumentPath }),
+    saveUserDocument: (content) => writeUserDocument({ filePath: userDocumentPath, content }),
     ensureThreadWorkspace: async (threadId) => {
       const workspacePath = join(root, '.yachiyo', 'temp-workspace', threadId)
       await mkdir(workspacePath, { recursive: true })
@@ -3717,6 +3744,106 @@ test('YachiyoServer can retry directly from a user request that has no assistant
           yield 'Hello'
           yield ' world'
         }
+      })
+    }
+  )
+})
+
+test('YachiyoServer bootstrap creates the default USER.md template under the same .yachiyo root', async () => {
+  await withServer(async ({ server }) => {
+    await server.bootstrap()
+
+    const document = await server.getUserDocument()
+    const content = await readFile(document.filePath, 'utf8')
+
+    assert.equal(document.filePath.includes('/.yachiyo/USER.md'), true)
+    assert.match(content, /^# USER/m)
+    assert.match(content, /durable understanding of the user/)
+  })
+})
+
+test('YachiyoServer persists direct USER.md edits through the settings-facing API', async () => {
+  await withServer(async ({ server }) => {
+    const saved = await server.saveUserDocument({
+      content: '# USER\n\n## Preferences\n- Prefers concise collaboration'
+    })
+
+    assert.equal(saved.filePath.includes('/.yachiyo/USER.md'), true)
+    assert.equal(
+      await readFile(saved.filePath, 'utf8'),
+      '# USER\n\n## Preferences\n- Prefers concise collaboration\n'
+    )
+    assert.deepEqual(await server.getUserDocument(), saved)
+  })
+})
+
+test('YachiyoServer injects USER.md as a separate context layer and exposes the model edit path', async () => {
+  await withServer(
+    async ({ server, completeRun, modelRequests }) => {
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Use the saved profile.'
+      })
+
+      await completeRun(accepted.runId)
+
+      const request = modelRequests.at(-1)
+      assert.ok(request)
+
+      const systemMessages = request.messages.filter((message) => message.role === 'system')
+      assert.equal(
+        systemMessages.some(
+          (message) =>
+            typeof message.content === 'string' &&
+            message.content.includes('以下是来自 USER.md 的稳定用户理解')
+        ),
+        true
+      )
+      assert.equal(
+        systemMessages.some(
+          (message) =>
+            typeof message.content === 'string' &&
+            message.content.includes('Do not mix USER.md content into SOUL.md.')
+        ),
+        true
+      )
+      assert.equal(
+        systemMessages.some(
+          (message) =>
+            typeof message.content === 'string' &&
+            message.content.includes('# USER') &&
+            message.content.includes('Leader prefers direct tradeoff summaries')
+        ),
+        true
+      )
+      assert.equal(
+        systemMessages.some(
+          (message) =>
+            typeof message.content === 'string' &&
+            message.content.includes('Responds with stable optimism')
+        ),
+        true
+      )
+      assert.equal(
+        systemMessages.some(
+          (message) =>
+            typeof message.content === 'string' &&
+            message.content.includes('Leader prefers direct tradeoff summaries') &&
+            message.content.includes('来自 SOUL')
+        ),
+        false
+      )
+    },
+    {
+      readSoulDocument: async () => ({
+        filePath: '/tmp/.yachiyo/SOUL.md',
+        evolvedTraits: ['Responds with stable optimism'],
+        lastUpdated: '2026-03-22T00:00:00.000Z'
+      }),
+      readUserDocument: async () => ({
+        filePath: '/tmp/.yachiyo/USER.md',
+        content: '# USER\n\n## Preferences\n- Leader prefers direct tradeoff summaries\n'
       })
     }
   )

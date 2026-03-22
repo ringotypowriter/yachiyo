@@ -33,6 +33,7 @@ const IPC_CHANNELS = {
   enableProviderModel: 'yachiyo:enable-provider-model',
   event: 'yachiyo:event',
   getConfig: 'yachiyo:get-config',
+  getUserDocument: 'yachiyo:get-user-document',
   getSettings: 'yachiyo:get-settings',
   renameThread: 'yachiyo:rename-thread',
   removeProvider: 'yachiyo:remove-provider',
@@ -44,6 +45,7 @@ const IPC_CHANNELS = {
   saveThread: 'yachiyo:save-thread',
   testMemoryConnection: 'yachiyo:test-memory-connection',
   saveConfig: 'yachiyo:save-config',
+  saveUserDocument: 'yachiyo:save-user-document',
   saveSettings: 'yachiyo:save-settings',
   saveToolPreferences: 'yachiyo:save-tool-preferences',
   selectReplyBranch: 'yachiyo:select-reply-branch',
@@ -157,11 +159,15 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handle(IPC_CHANNELS.cancelRun, (input: { runId: string }) => server!.cancelRun(input))
   handle(IPC_CHANNELS.getConfig, () => server!.getConfig())
+  handle(IPC_CHANNELS.getUserDocument, () => server!.getUserDocument())
   handle(IPC_CHANNELS.testMemoryConnection, (input: TestMemoryConnectionInput) =>
     server!.testMemoryConnection(input.config)
   )
   handle(IPC_CHANNELS.getSettings, () => server!.getSettings())
   handle(IPC_CHANNELS.saveConfig, (input: SettingsConfig) => server!.saveConfig(input))
+  handle(IPC_CHANNELS.saveUserDocument, (input: { content: string }) =>
+    server!.saveUserDocument(input)
+  )
   handle(IPC_CHANNELS.saveSettings, (input: Partial<ProviderSettings>) =>
     server!.saveSettings(input)
   )

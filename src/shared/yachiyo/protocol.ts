@@ -301,6 +301,11 @@ export interface GeneralConfig {
   sidebarVisibility?: SidebarVisibility
 }
 
+export interface UserDocument {
+  filePath: string
+  content: string
+}
+
 export interface WorkspaceConfig {
   savedPaths?: string[]
 }

@@ -18,6 +18,7 @@ import type {
   ThreadRecord,
   ThreadSnapshot,
   ToolPreferencesInput,
+  UserDocument,
   WebSearchBrowserImportSource,
   YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol.ts'
@@ -28,6 +29,7 @@ import {
 import { createAuxiliaryGenerationService } from '../runtime/auxiliaryGeneration.ts'
 import { createAiSdkModelRuntime } from '../runtime/modelRuntime.ts'
 import { readSoulDocument, type SoulDocument } from '../runtime/soul.ts'
+import { readUserDocument, writeUserDocument } from '../runtime/user.ts'
 import type { ModelRuntime } from '../runtime/types.ts'
 import { createSearchService, type SearchService } from '../services/search/searchService.ts'
 import { createMemoryService, type MemoryService } from '../services/memory/memoryService.ts'
@@ -63,6 +65,8 @@ export interface YachiyoServerOptions {
   createModelRuntime?: () => ModelRuntime
   searchService?: SearchService
   readSoulDocument?: () => Promise<SoulDocument | null>
+  readUserDocument?: () => Promise<UserDocument | null>
+  saveUserDocument?: (content: string) => Promise<UserDocument | null>
   ensureThreadWorkspace?: (threadId: string) => Promise<string>
   cloneThreadWorkspace?: (sourceThreadId: string, targetThreadId: string) => Promise<string>
   deleteThreadWorkspace?: (threadId: string) => Promise<void>
@@ -83,6 +87,9 @@ export class YachiyoServer {
   private readonly runDomain: YachiyoServerRunDomain
   private readonly threadDomain: YachiyoServerThreadDomain
   private readonly browserSearchSession: BrowserSearchSession
+  private readonly readUserDocumentFile: () => Promise<UserDocument | null>
+  private readonly saveUserDocumentFile: (content: string) => Promise<UserDocument | null>
+  private readonly readSoulDocumentFile: () => Promise<SoulDocument | null>
 
   private static logBrowserSearchDiagnostic(event: BrowserSearchDiagnosticEvent): void {
     const details = {
@@ -106,6 +113,10 @@ export class YachiyoServer {
 
     const settingsStore = createSettingsStore(options.settingsPath ?? resolveYachiyoSettingsPath())
     const createModelRuntime = options.createModelRuntime ?? (() => createAiSdkModelRuntime())
+    this.readSoulDocumentFile = options.readSoulDocument ?? (() => readSoulDocument())
+    this.readUserDocumentFile = options.readUserDocument ?? (() => readUserDocument())
+    this.saveUserDocumentFile =
+      options.saveUserDocument ?? ((content) => writeUserDocument({ content }))
     const searchService = options.searchService ?? createSearchService()
     const ensureThreadWorkspace = options.ensureThreadWorkspace ?? defaultEnsureThreadWorkspace
     const cloneThreadWorkspace = options.cloneThreadWorkspace ?? defaultCloneThreadWorkspace
@@ -167,7 +178,8 @@ export class YachiyoServer {
       searchService,
       webSearchService,
       memoryService,
-      readSoulDocument: options.readSoulDocument ?? (() => readSoulDocument()),
+      readSoulDocument: this.readSoulDocumentFile,
+      readUserDocument: this.readUserDocumentFile,
       readConfig: () => this.configDomain.readConfig(),
       readSettings: () => this.configDomain.readSettings(),
       requireThread: this.requireThread.bind(this),
@@ -207,6 +219,7 @@ export class YachiyoServer {
 
   async bootstrap(): Promise<BootstrapPayload> {
     this.recoverInterruptedRuns()
+    await Promise.all([this.readSoulDocumentFile(), this.readUserDocumentFile()])
     const recoveredQueuedFollowUps = this.runDomain.prepareRecoveredQueuedFollowUps()
 
     const { archivedThreads, threads, messagesByThread, toolCallsByThread, latestRunsByThread } =
@@ -229,8 +242,26 @@ export class YachiyoServer {
     return this.configDomain.getConfig()
   }
 
+  async getUserDocument(): Promise<UserDocument> {
+    const document = await this.readUserDocumentFile()
+    if (!document) {
+      throw new Error('USER.md is unavailable.')
+    }
+
+    return document
+  }
+
   async saveConfig(input: SettingsConfig): Promise<SettingsConfig> {
     return this.configDomain.saveConfig(input)
+  }
+
+  async saveUserDocument(input: { content: string }): Promise<UserDocument> {
+    const document = await this.saveUserDocumentFile(input.content)
+    if (!document) {
+      throw new Error('Failed to save USER.md.')
+    }
+
+    return document
   }
 
   async testMemoryConnection(config: SettingsConfig): Promise<TestMemoryConnectionResult> {

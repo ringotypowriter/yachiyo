@@ -6,7 +6,8 @@ import {
   compileContextLayers,
   compileHintLayer,
   compileMemoryLayer,
-  compilePersonalityLayer
+  compilePersonalityLayer,
+  compileUserLayer
 } from './contextLayers.ts'
 
 test('compilePersonalityLayer falls back to the base persona when no SOUL traits exist', () => {
@@ -26,6 +27,9 @@ test('compileContextLayers preserves user history and orders explicit layers bef
     personality: {
       basePersona: 'Base persona',
       evolvedTraits: ['Leans toward concise execution']
+    },
+    user: {
+      content: '# USER\n\n## Preferences\n- Prefers direct communication'
     },
     agent: {
       instructions: 'Workspace: /tmp/thread-1'
@@ -52,6 +56,14 @@ test('compileContextLayers preserves user history and orders explicit layers bef
         '- Leans toward concise execution'
       ].join('\n')
     },
+    {
+      role: 'system',
+      content: [
+        '以下是来自 USER.md 的稳定用户理解，请把它当作长期协作画像，而不是当前临时任务状态：',
+        '',
+        '# USER\n\n## Preferences\n- Prefers direct communication'
+      ].join('\n')
+    },
     { role: 'system', content: 'Workspace: /tmp/thread-1' },
     { role: 'system', content: reminder },
     {
@@ -67,4 +79,5 @@ test('individual layer compilers drop empty content', () => {
   assert.equal(compileAgentLayer({ instructions: '   ' }), null)
   assert.equal(compileHintLayer({ reminder: '   ' }), null)
   assert.equal(compileMemoryLayer({ entries: [] }), null)
+  assert.equal(compileUserLayer({ content: '   ' }), null)
 })

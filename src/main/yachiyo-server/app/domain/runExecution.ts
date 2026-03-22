@@ -31,6 +31,7 @@ import {
   formatQueryReminder
 } from '../../runtime/queryReminder.ts'
 import { readSoulDocument, type SoulDocument } from '../../runtime/soul.ts'
+import { readUserDocument, type UserDocument } from '../../runtime/user.ts'
 import type { ModelRuntime } from '../../runtime/types.ts'
 import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
@@ -83,6 +84,7 @@ export interface RunExecutionDeps {
   searchService?: SearchService
   webSearchService?: WebSearchService
   readSoulDocument?: () => Promise<SoulDocument | null>
+  readUserDocument?: () => Promise<UserDocument | null>
   readThread: (threadId: string) => ThreadRecord
   readConfig: () => SettingsConfig
   readSettings: () => ProviderSettings
@@ -121,6 +123,8 @@ function buildAgentInstructions(input: {
   workspacePath: string
   enabledTools: ToolCallName[]
   hasHiddenMemorySearch: boolean
+  soulDocumentPath?: string
+  userDocumentPath?: string
 }): string {
   const instructions = [
     'You are operating as a tool-using local agent.',
@@ -128,6 +132,22 @@ function buildAgentInstructions(input: {
     `The current thread workspace is ${input.workspacePath}.`,
     'Relative paths should resolve from that workspace unless you intentionally use an absolute path.'
   ]
+
+  if (input.userDocumentPath || input.soulDocumentPath) {
+    instructions.push('Durable context files live outside the thread workspace.')
+  }
+
+  if (input.userDocumentPath) {
+    instructions.push(
+      `USER.md is at ${input.userDocumentPath}. It stores durable understanding of the user. Update it only for stable user facts, preferences, communication style, or work style.`
+    )
+  }
+
+  if (input.soulDocumentPath) {
+    instructions.push(
+      `SOUL.md is at ${input.soulDocumentPath}. It stores your evolving self-model and personality continuity. Do not mix USER.md content into SOUL.md.`
+    )
+  }
 
   if (input.enabledTools.length === 0 && !input.hasHiddenMemorySearch) {
     instructions.push('No tools are available for this run. Respond without tool calls.')
@@ -332,6 +352,9 @@ export async function executeServerRun(
     const soulDocument = deps.readSoulDocument
       ? await deps.readSoulDocument()
       : await readSoulDocument()
+    const userDocument = deps.readUserDocument
+      ? await deps.readUserDocument()
+      : await readUserDocument()
     const hiddenQueryReminder = formatQueryReminder(
       [
         ...(input.previousEnabledTools
@@ -375,11 +398,16 @@ export async function executeServerRun(
         basePersona: SYSTEM_PROMPT,
         evolvedTraits: soulDocument?.evolvedTraits ?? []
       },
+      user: {
+        content: userDocument?.content ?? ''
+      },
       agent: {
         instructions: buildAgentInstructions({
           workspacePath,
           enabledTools: input.enabledTools,
-          hasHiddenMemorySearch: deps.memoryService.hasHiddenSearchCapability()
+          hasHiddenMemorySearch: deps.memoryService.hasHiddenSearchCapability(),
+          soulDocumentPath: soulDocument?.filePath,
+          userDocumentPath: userDocument?.filePath
         })
       },
       hint: {

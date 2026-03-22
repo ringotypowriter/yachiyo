@@ -9,6 +9,7 @@ import type {
   SettingsConfig,
   SendChatInput,
   TestMemoryConnectionInput,
+  UserDocument,
   ToolPreferencesInput,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
@@ -45,10 +46,13 @@ const api = {
       ipcRenderer.invoke('yachiyo:select-reply-branch', input),
     cancelRun: (input: { runId: string }) => ipcRenderer.invoke('yachiyo:cancel-run', input),
     getConfig: () => ipcRenderer.invoke('yachiyo:get-config'),
+    getUserDocument: (): Promise<UserDocument> => ipcRenderer.invoke('yachiyo:get-user-document'),
     testMemoryConnection: (input: TestMemoryConnectionInput) =>
       ipcRenderer.invoke('yachiyo:test-memory-connection', input),
     getSettings: () => ipcRenderer.invoke('yachiyo:get-settings'),
     saveConfig: (input: SettingsConfig) => ipcRenderer.invoke('yachiyo:save-config', input),
+    saveUserDocument: (input: { content: string }): Promise<UserDocument> =>
+      ipcRenderer.invoke('yachiyo:save-user-document', input),
     saveSettings: (input: Partial<ProviderSettings>) =>
       ipcRenderer.invoke('yachiyo:save-settings', input),
     upsertProvider: (input: ProviderConfig) => ipcRenderer.invoke('yachiyo:upsert-provider', input),
