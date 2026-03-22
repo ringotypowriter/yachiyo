@@ -11,7 +11,7 @@ import {
 } from './defuddleExtractor.ts'
 
 const DEFAULT_WEB_READ_TIMEOUT_MS = 12_000
-const MAX_WEB_READ_RESPONSE_BYTES = 1_000_000
+const MAX_WEB_READ_RESPONSE_BYTES = 10_000_000
 const MAX_WEB_READ_CONTENT_CHARS = 32_000
 const HTML_CONTENT_TYPES = ['text/html', 'application/xhtml+xml']
 const WEB_READ_ACCEPT_HEADER =

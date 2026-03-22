@@ -263,3 +263,29 @@ test('readWebPage classifies body-read aborts as timeouts', async () => {
   assert.equal(result.failureCode, 'timeout')
   assert.equal(result.error, 'Timed out while reading response body from https://example.com/slow.')
 })
+
+test('readWebPage accepts HTML responses larger than 1 MB', async () => {
+  const largeArticle = `<html><body><article>${'a'.repeat(1_500_000)}</article></body></html>`
+
+  const result = await readWebPage(
+    {
+      url: 'https://example.com/large'
+    },
+    {
+      fetchImpl: async () =>
+        createHtmlResponse(largeArticle, {
+          contentType: 'text/html; charset=utf-8'
+        }),
+      extractReadableContent: async () => ({
+        extractor: 'defuddle',
+        title: 'Large article',
+        content: 'Large content'
+      })
+    }
+  )
+
+  assert.equal(result.failureCode, undefined)
+  assert.equal(result.error, undefined)
+  assert.equal(result.title, 'Large article')
+  assert.equal(result.extractor, 'defuddle')
+})
