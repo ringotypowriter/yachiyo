@@ -377,7 +377,11 @@ test('memory service distills completed runs into canonical topic-aware updates 
   )
   assert.match(
     String(auxiliaryRequests[0]?.messages[0]?.content),
-    /Reuse the same topic key and title for repeated long-term topics/u
+    /When the memory is about the user, prefer "<username> \+ objective description"/u
+  )
+  assert.match(
+    String(auxiliaryRequests[0]?.messages[0]?.content),
+    /Good: "<username> prefers concise status updates\."/u
   )
   assert.deepEqual(updated, [
     {
