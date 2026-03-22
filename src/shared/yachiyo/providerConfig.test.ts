@@ -1,7 +1,25 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { syncToolModelWithProvider } from './providerConfig.ts'
+import { sanitizeProviderConfig, syncToolModelWithProvider } from './providerConfig.ts'
+
+test('sanitizeProviderConfig preserves spaces while editing a provider name', () => {
+  const sanitized = sanitizeProviderConfig({
+    id: 'provider-work',
+    name: 'OpenAI Work ',
+    type: 'openai',
+    apiKey: ' sk-openai ',
+    baseUrl: ' https://api.openai.com/v1 ',
+    modelList: {
+      enabled: ['gpt-5'],
+      disabled: []
+    }
+  })
+
+  assert.equal(sanitized.name, 'OpenAI Work ')
+  assert.equal(sanitized.apiKey, 'sk-openai')
+  assert.equal(sanitized.baseUrl, 'https://api.openai.com/v1')
+})
 
 test('syncToolModelWithProvider keeps a valid tool-model selection', () => {
   const synced = syncToolModelWithProvider(

@@ -26,7 +26,7 @@ export function sanitizeProviderConfig(provider: ProviderConfig): ProviderConfig
   return {
     ...provider,
     id: ensureProviderId(provider.id),
-    name: provider.name.trim(),
+    name: provider.name,
     apiKey: provider.apiKey.trim(),
     baseUrl: provider.baseUrl.trim(),
     modelList: {
