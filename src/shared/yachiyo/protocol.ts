@@ -7,6 +7,7 @@ export type ActiveRunEnterBehavior = 'enter-steers' | 'enter-queues-follow-up'
 export type SidebarVisibility = 'expanded' | 'collapsed'
 export type SendChatMode = 'normal' | 'steer' | 'follow-up'
 export type ToolModelMode = 'disabled' | 'custom'
+export type MemoryProviderId = 'nowledge-mem'
 export type WebReadContentFormat = 'markdown' | 'html'
 export type WebReadExtractor = 'defuddle' | 'linkedom-fallback' | 'none'
 export type WebSearchProviderId = 'google-browser' | 'exa'
@@ -35,7 +36,8 @@ export type WebSearchFailureCode =
   | 'provider-failed'
   | 'aborted'
 export const DEFAULT_WEB_READ_CONTENT_FORMAT: WebReadContentFormat = 'markdown'
-
+export const DEFAULT_MEMORY_PROVIDER: MemoryProviderId = 'nowledge-mem'
+export const DEFAULT_MEMORY_BASE_URL = 'http://127.0.0.1:14242'
 export const DEFAULT_WEB_SEARCH_PROVIDER: WebSearchProviderId = 'google-browser'
 export const CORE_TOOL_NAMES = [
   'read',
@@ -56,6 +58,13 @@ export const DEFAULT_ENABLED_TOOL_NAMES = [...CORE_TOOL_NAMES] as ToolCallName[]
 export const DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR: ActiveRunEnterBehavior = 'enter-steers'
 export const DEFAULT_SIDEBAR_VISIBILITY: SidebarVisibility = 'expanded'
 export const DEFAULT_TOOL_MODEL_MODE: ToolModelMode = 'disabled'
+
+export function normalizeMemoryProviderId(
+  value: unknown,
+  fallback: MemoryProviderId = DEFAULT_MEMORY_PROVIDER
+): MemoryProviderId {
+  return value === 'nowledge-mem' ? value : fallback
+}
 
 export function normalizeEnabledTools(
   value: unknown,
@@ -299,6 +308,12 @@ export interface ToolModelConfig {
   model?: string
 }
 
+export interface MemoryConfig {
+  enabled?: boolean
+  provider?: MemoryProviderId
+  baseUrl?: string
+}
+
 export interface BrowserBackedWebSearchSessionConfig {
   sourceBrowser?: BrowserSearchImportSourceId
   sourceProfileName?: string
@@ -324,7 +339,20 @@ export interface SettingsConfig {
   chat?: ChatConfig
   workspace?: WorkspaceConfig
   toolModel?: ToolModelConfig
+  memory?: MemoryConfig
   webSearch?: WebSearchConfig
+}
+
+export function isMemoryConfigured(
+  config: Pick<SettingsConfig, 'memory'> | null | undefined
+): boolean {
+  if (!config?.memory?.enabled) {
+    return false
+  }
+
+  const provider = normalizeMemoryProviderId(config.memory.provider)
+  const baseUrl = config.memory.baseUrl?.trim() ?? ''
+  return provider === 'nowledge-mem' && baseUrl.length > 0
 }
 
 export interface ProviderSettings {
@@ -400,11 +428,31 @@ export interface RetryInput {
   enabledTools?: ToolCallName[]
 }
 
+export interface SaveThreadInput {
+  threadId: string
+  archiveAfterSave?: boolean
+}
+
 export interface RetryAccepted {
   runId: string
   thread: ThreadRecord
   requestMessageId: string
   sourceAssistantMessageId?: string
+}
+
+export interface SaveThreadResult {
+  archived: boolean
+  savedMemoryCount: number
+  thread: ThreadRecord
+}
+
+export interface TestMemoryConnectionInput {
+  config: SettingsConfig
+}
+
+export interface TestMemoryConnectionResult {
+  message: string
+  ok: boolean
 }
 
 export interface ThreadSnapshot {

@@ -91,6 +91,7 @@ interface AppState {
   renameThread: (threadId: string, title: string) => Promise<void>
   restoreThread: (threadId: string) => Promise<void>
   retryMessage: (messageId: string) => Promise<void>
+  saveThread: (threadId: string, options?: { archiveAfterSave?: boolean }) => Promise<void>
   selectReplyBranch: (messageId: string) => Promise<void>
   runPhase: 'idle' | 'preparing' | 'streaming'
   runStatus: RunStatus
@@ -409,6 +410,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ lastError: null })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to restore this thread.'
+      set({ lastError: message })
+      throw error
+    }
+  },
+  saveThread: async (threadId, options = {}) => {
+    try {
+      await window.api.yachiyo.saveThread({
+        threadId,
+        archiveAfterSave: options.archiveAfterSave
+      })
+      set({ lastError: null })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save this thread.'
       set({ lastError: message })
       throw error
     }

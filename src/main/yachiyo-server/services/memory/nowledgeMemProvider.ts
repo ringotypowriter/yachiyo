@@ -1,0 +1,287 @@
+import { spawn } from 'node:child_process'
+
+import type { SettingsConfig } from '../../../../shared/yachiyo/protocol.ts'
+import { DEFAULT_MEMORY_BASE_URL } from '../../../../shared/yachiyo/protocol.ts'
+import type { MemoryCandidate, MemoryProvider, MemorySearchResult } from './memoryService.ts'
+
+interface NowledgeMemSearchResponseItem {
+  id?: unknown
+  title?: unknown
+  content?: unknown
+  text?: unknown
+  snippet?: unknown
+  score?: unknown
+  confidence?: unknown
+  source_thread?: unknown
+  sourceThreadId?: unknown
+}
+
+interface NowledgeMemCliResponse {
+  error?: unknown
+  message?: unknown
+  detail?: unknown
+  memories?: unknown
+}
+
+export interface RunNowledgeMemCommandInput {
+  args: string[]
+  env?: NodeJS.ProcessEnv
+  signal?: AbortSignal
+}
+
+export interface RunNowledgeMemCommandResult {
+  exitCode: number
+  stderr: string
+  stdout: string
+}
+
+export interface NowledgeMemProviderDeps {
+  runCommand?: (input: RunNowledgeMemCommandInput) => Promise<RunNowledgeMemCommandResult>
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/u, '')
+}
+
+function normalizeBaseUrl(config: SettingsConfig): string {
+  return trimTrailingSlash(config.memory?.baseUrl?.trim() || DEFAULT_MEMORY_BASE_URL)
+}
+
+function normalizeSearchResult(item: NowledgeMemSearchResponseItem): MemorySearchResult | null {
+  const contentSource =
+    typeof item.content === 'string'
+      ? item.content
+      : typeof item.text === 'string'
+        ? item.text
+        : typeof item.snippet === 'string'
+          ? item.snippet
+          : ''
+  const content = contentSource.trim()
+  if (!content) {
+    return null
+  }
+
+  const sourceThreadId =
+    typeof item.sourceThreadId === 'string'
+      ? item.sourceThreadId
+      : typeof item.source_thread === 'string'
+        ? item.source_thread
+        : undefined
+
+  const score =
+    typeof item.score === 'number'
+      ? item.score
+      : typeof item.confidence === 'number'
+        ? item.confidence
+        : undefined
+
+  return {
+    id: typeof item.id === 'string' ? item.id : normalizeResultId(item),
+    ...(typeof item.title === 'string' ? { title: item.title.trim() } : {}),
+    content,
+    ...(score !== undefined ? { score } : {}),
+    ...(sourceThreadId ? { sourceThreadId } : {})
+  }
+}
+
+function normalizeResultId(item: NowledgeMemSearchResponseItem): string {
+  return [
+    typeof item.title === 'string' ? item.title : '',
+    typeof item.content === 'string' ? item.content : typeof item.text === 'string' ? item.text : ''
+  ]
+    .join(':')
+    .slice(0, 120)
+}
+
+function parseJsonPayload(text: string): unknown {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return trimmed
+  }
+}
+
+function toSearchItems(payload: unknown): NowledgeMemSearchResponseItem[] {
+  if (Array.isArray(payload)) {
+    return payload as NowledgeMemSearchResponseItem[]
+  }
+
+  if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>
+
+    if (Array.isArray(record['results'])) {
+      return record['results'] as NowledgeMemSearchResponseItem[]
+    }
+
+    if (Array.isArray(record['memories'])) {
+      return record['memories'] as NowledgeMemSearchResponseItem[]
+    }
+
+    if (Array.isArray(record['items'])) {
+      return record['items'] as NowledgeMemSearchResponseItem[]
+    }
+  }
+
+  return []
+}
+
+function stringifyCommandFailureDetail(
+  payload: NowledgeMemCliResponse | string | null,
+  fallback: string
+): string {
+  if (typeof payload === 'string') {
+    return payload || fallback
+  }
+
+  if (payload && typeof payload === 'object') {
+    const detail =
+      typeof payload.detail === 'string'
+        ? payload.detail
+        : typeof payload.message === 'string'
+          ? payload.message
+          : typeof payload.error === 'string'
+            ? payload.error
+            : ''
+    if (detail) {
+      return detail
+    }
+  }
+
+  return fallback
+}
+
+async function runNowledgeMemCommand(
+  input: RunNowledgeMemCommandInput
+): Promise<RunNowledgeMemCommandResult> {
+  return await new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn('nmem', ['--json', ...input.args], {
+      env: {
+        ...process.env,
+        ...input.env
+      },
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+
+    let stdout = ''
+    let stderr = ''
+
+    const onAbort = (): void => {
+      child.kill('SIGTERM')
+    }
+
+    input.signal?.addEventListener('abort', onAbort, { once: true })
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk
+    })
+    child.stderr.on('data', (chunk: string) => {
+      stderr += chunk
+    })
+    child.once('error', (error) => {
+      input.signal?.removeEventListener('abort', onAbort)
+      rejectPromise(error)
+    })
+    child.once('close', (exitCode) => {
+      input.signal?.removeEventListener('abort', onAbort)
+      resolvePromise({
+        exitCode: exitCode ?? 0,
+        stdout,
+        stderr
+      })
+    })
+  })
+}
+
+function toCommandEnv(baseUrl: string): NodeJS.ProcessEnv {
+  return {
+    NMEM_API_URL: baseUrl
+  }
+}
+
+export function createNowledgeMemProvider(
+  config: SettingsConfig,
+  deps: NowledgeMemProviderDeps = {}
+): MemoryProvider {
+  const runCommand = deps.runCommand ?? runNowledgeMemCommand
+  const baseUrl = normalizeBaseUrl(config)
+  const env = toCommandEnv(baseUrl)
+
+  return {
+    async createMemories(input: {
+      items: MemoryCandidate[]
+      signal?: AbortSignal
+    }): Promise<{ savedCount: number }> {
+      let savedCount = 0
+
+      for (const item of input.items) {
+        const args = [
+          'm',
+          'add',
+          '--title',
+          item.title,
+          '--source',
+          'Yachiyo',
+          ...(item.importance !== undefined ? ['--importance', String(item.importance)] : []),
+          item.content
+        ]
+        const result = await runCommand({
+          args,
+          env,
+          signal: input.signal
+        })
+        const payload = parseJsonPayload(result.stdout) as NowledgeMemCliResponse | string | null
+
+        if (
+          result.exitCode !== 0 ||
+          (payload && typeof payload === 'object' && typeof payload.error === 'string')
+        ) {
+          throw new Error(
+            `Nowledge Mem create failed: ${stringifyCommandFailureDetail(
+              payload,
+              result.stderr.trim() || `exit ${result.exitCode}`
+            )}`
+          )
+        }
+
+        savedCount += 1
+      }
+
+      return { savedCount }
+    },
+
+    async searchMemories(input: {
+      limit: number
+      query: string
+      signal?: AbortSignal
+    }): Promise<MemorySearchResult[]> {
+      const result = await runCommand({
+        args: ['m', 'search', '--limit', String(input.limit), input.query],
+        env,
+        signal: input.signal
+      })
+      const payload = parseJsonPayload(result.stdout) as NowledgeMemCliResponse | string | null
+
+      if (
+        result.exitCode !== 0 ||
+        (payload && typeof payload === 'object' && typeof payload.error === 'string')
+      ) {
+        throw new Error(
+          `Nowledge Mem search failed: ${stringifyCommandFailureDetail(
+            payload,
+            result.stderr.trim() || `exit ${result.exitCode}`
+          )}`
+        )
+      }
+
+      return toSearchItems(payload)
+        .map(normalizeSearchResult)
+        .filter((item): item is MemorySearchResult => item !== null)
+    }
+  }
+}

@@ -8,6 +8,7 @@ import { AppMainPanelHeader } from '@renderer/features/layout/components/AppMain
 import { RunStatusStrip } from '@renderer/features/runs/components/RunStatusStrip'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import { theme } from '@renderer/theme/theme'
+import { isMemoryConfigured } from '../../../../../shared/yachiyo/protocol.ts'
 
 const EMPTY: Message[] = []
 
@@ -41,9 +42,12 @@ export function AppMainPanel({
   const isBootstrapping = useAppStore((s) => s.isBootstrapping)
   const messageCount = messages.length
   const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null
+  const config = useAppStore((s) => s.config)
   const activeArchivedThread =
     archivedThreads.find((thread) => thread.id === activeArchivedThreadId) ?? null
+  const saveThread = useAppStore((s) => s.saveThread)
   const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null)
+  const memoryEnabled = isMemoryConfigured(config)
 
   async function handleRenameThread(thread: Thread): Promise<void> {
     if (renamingThreadId === thread.id) {
@@ -122,6 +126,21 @@ export function AppMainPanel({
       return
     }
 
+    if (operationKey === 'save-thread') {
+      void (async () => {
+        try {
+          await saveThread(activeThread.id, {
+            archiveAfterSave: window.confirm(
+              `Archive "${activeThread.title}" after saving it to long-term memory?`
+            )
+          })
+        } catch (error) {
+          window.alert(error instanceof Error ? error.message : 'Failed to save the thread.')
+        }
+      })()
+      return
+    }
+
     if (operationKey === 'delete') {
       void handleDeleteThread(activeThread)
     }
@@ -169,6 +188,7 @@ export function AppMainPanel({
         activeThread={activeThread}
         headerPaddingLeft={headerPaddingLeft}
         isBootstrapping={isBootstrapping}
+        isMemoryEnabled={memoryEnabled}
         isSidebarToggleDisabled={isSidebarToggleDisabled}
         messageCount={messageCount}
         onOpenThreadWorkspace={handleOpenThreadWorkspace}

@@ -19,6 +19,7 @@ import {
 import { PlaceholderPane } from './components/primitives'
 import { ChatPane } from './panes/ChatPane'
 import { GeneralPane } from './panes/GeneralPane'
+import { MemoryPane } from './panes/MemoryPane'
 import { ProvidersPane } from './panes/ProvidersPane'
 import { SearchPane } from './panes/SearchPane'
 import { WorkspacePane } from './panes/WorkspacePane'
@@ -54,11 +55,7 @@ const TABS: Tab[] = [
   {
     id: 'memory',
     label: 'Memory',
-    icon: Brain,
-    subTabs: [
-      { id: 'context', label: 'Context' },
-      { id: 'history', label: 'History' }
-    ]
+    icon: Brain
   },
   {
     id: 'ui',
@@ -109,6 +106,10 @@ function validateConfig(config: SettingsConfig | null): string | null {
     if (!toolModel.model.trim()) {
       return 'Choose a model for the tool model.'
     }
+  }
+
+  if (config.memory?.enabled && !config.memory.baseUrl?.trim()) {
+    return 'Choose a Nowledge Mem backend URL before enabling Memory.'
   }
 
   return null
@@ -236,6 +237,8 @@ function SettingsApp(): React.ReactNode {
       body = <WorkspacePane draft={draft} onChange={setDraft} />
     } else if (activeTab === 'search') {
       body = <SearchPane draft={draft} onChange={setDraft} />
+    } else if (activeTab === 'memory') {
+      body = <MemoryPane draft={draft} onChange={setDraft} />
     }
   }
 

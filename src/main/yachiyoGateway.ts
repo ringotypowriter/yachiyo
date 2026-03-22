@@ -5,8 +5,10 @@ import type {
   ProviderConfig,
   ProviderSettings,
   RetryInput,
+  SaveThreadInput,
   SettingsConfig,
   SendChatInput,
+  TestMemoryConnectionInput,
   ToolPreferencesInput,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
@@ -39,6 +41,8 @@ const IPC_CHANNELS = {
   pickWorkspaceDirectory: 'yachiyo:pick-workspace-directory',
   restoreThread: 'yachiyo:restore-thread',
   retryMessage: 'yachiyo:retry-message',
+  saveThread: 'yachiyo:save-thread',
+  testMemoryConnection: 'yachiyo:test-memory-connection',
   saveConfig: 'yachiyo:save-config',
   saveSettings: 'yachiyo:save-settings',
   saveToolPreferences: 'yachiyo:save-tool-preferences',
@@ -143,6 +147,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handle(IPC_CHANNELS.sendChat, (input: SendChatInput) => server!.sendChat(input))
   handle(IPC_CHANNELS.retryMessage, (input: RetryInput) => server!.retryMessage(input))
+  handle(IPC_CHANNELS.saveThread, (input: SaveThreadInput) => server!.saveThread(input))
   handle(
     IPC_CHANNELS.selectReplyBranch,
     (input: { threadId: string; assistantMessageId: string }) => server!.selectReplyBranch(input)
@@ -152,6 +157,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handle(IPC_CHANNELS.cancelRun, (input: { runId: string }) => server!.cancelRun(input))
   handle(IPC_CHANNELS.getConfig, () => server!.getConfig())
+  handle(IPC_CHANNELS.testMemoryConnection, (input: TestMemoryConnectionInput) =>
+    server!.testMemoryConnection(input.config)
+  )
   handle(IPC_CHANNELS.getSettings, () => server!.getSettings())
   handle(IPC_CHANNELS.saveConfig, (input: SettingsConfig) => server!.saveConfig(input))
   handle(IPC_CHANNELS.saveSettings, (input: Partial<ProviderSettings>) =>

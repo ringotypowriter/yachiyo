@@ -3,6 +3,8 @@ import { resolve } from 'node:path'
 
 import type {
   MessageRecord,
+  SaveThreadInput,
+  SaveThreadResult,
   ThreadArchivedEvent,
   ThreadCreatedEvent,
   ThreadDeletedEvent,
@@ -21,6 +23,7 @@ import {
   pickReplacementHeadId,
   sortMessagesByCreatedAt
 } from '../../../../shared/yachiyo/threadTree.ts'
+import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import {
   DEFAULT_THREAD_TITLE,
@@ -37,6 +40,8 @@ interface ThreadDomainDeps {
   ensureThreadWorkspace: (threadId: string) => Promise<string>
   cloneThreadWorkspace: (sourceThreadId: string, targetThreadId: string) => Promise<string>
   deleteThreadWorkspace: (threadId: string) => Promise<void>
+  memoryService: MemoryService
+  loadThreadMessages: (threadId: string) => MessageRecord[]
   requireThread: (threadId: string) => ThreadRecord
   isThreadRunning: (threadId: string) => boolean
 }
@@ -248,6 +253,37 @@ export class YachiyoServerThreadDomain {
     })
   }
 
+  async saveThread(input: SaveThreadInput): Promise<SaveThreadResult> {
+    const thread = this.deps.requireThread(input.threadId)
+    if (this.deps.isThreadRunning(thread.id)) {
+      throw new Error('Cannot save a thread while it still has an active run.')
+    }
+    if (!this.deps.memoryService.isConfigured()) {
+      throw new Error('Memory is not enabled.')
+    }
+
+    const saved = await this.deps.memoryService.saveThread({
+      thread,
+      messages: this.deps.loadThreadMessages(thread.id)
+    })
+
+    if (!input.archiveAfterSave) {
+      return {
+        archived: false,
+        savedMemoryCount: saved.savedCount,
+        thread
+      }
+    }
+
+    this.archiveThread({ threadId: thread.id })
+
+    return {
+      archived: true,
+      savedMemoryCount: saved.savedCount,
+      thread: this.requireArchivedThread(thread.id)
+    }
+  }
+
   restoreThread(input: { threadId: string }): ThreadRecord {
     const thread = this.requireArchivedThread(input.threadId)
     const timestamp = this.deps.timestamp()
@@ -351,14 +387,20 @@ export class YachiyoServerThreadDomain {
 
     const path = collectMessagePath(messages, branchPoint.id)
     const timestamp = this.deps.timestamp()
+    const branchCreatedAtMs = Date.parse(timestamp)
     const threadId = this.deps.createId()
     const idMap = new Map<string, string>()
     const clonedMessages = path.map((message) => {
       const clonedId = this.deps.createId()
       idMap.set(message.id, clonedId)
+      const createdAt =
+        Number.isFinite(branchCreatedAtMs) && message.createdAt.localeCompare(timestamp) >= 0
+          ? new Date(branchCreatedAtMs - (path.length - idMap.size + 1)).toISOString()
+          : message.createdAt
 
       return {
         ...message,
+        createdAt,
         id: clonedId,
         threadId,
         ...(message.parentMessageId ? { parentMessageId: idMap.get(message.parentMessageId)! } : {})

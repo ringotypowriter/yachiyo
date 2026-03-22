@@ -10,12 +10,14 @@ import { theme } from '@renderer/theme/theme'
 
 export interface ThreadHeaderActionsProps {
   activeThread: Thread | null
+  isMemoryEnabled: boolean
   isRenameDisabled: boolean
   onSelectOperation: (operationKey: ThreadContextOperationKey) => void
 }
 
 export function ThreadHeaderActions({
   activeThread,
+  isMemoryEnabled,
   isRenameDisabled,
   onSelectOperation
 }: ThreadHeaderActionsProps): React.JSX.Element {
@@ -27,6 +29,7 @@ export function ThreadHeaderActions({
 
   const operations = resolveThreadContextOperations({
     isArchived: false,
+    isMemoryEnabled,
     isRenameDisabled
   })
 

@@ -71,6 +71,11 @@ export interface RunExecutionDeps {
   emit: EmitServerEvent
   createModelRuntime: () => ModelRuntime
   ensureThreadWorkspace: (threadId: string) => Promise<string>
+  buildMemoryLayerEntries?: (input: {
+    signal: AbortSignal
+    thread: ThreadRecord
+    userQuery: string
+  }) => Promise<string[]>
   searchService?: SearchService
   webSearchService?: WebSearchService
   readSoulDocument?: () => Promise<SoulDocument | null>
@@ -323,6 +328,25 @@ export async function executeServerRun(
           : [])
       ].flatMap((section) => (section ? [section] : []))
     )
+    const requestMessage = deps
+      .loadThreadMessages(input.thread.id)
+      .find((message) => message.id === input.requestMessageId && message.role === 'user')
+    let memoryEntries: string[] = []
+    if (deps.buildMemoryLayerEntries) {
+      try {
+        memoryEntries = await deps.buildMemoryLayerEntries({
+          signal: input.abortController.signal,
+          thread: input.thread,
+          userQuery: requestMessage?.content ?? ''
+        })
+      } catch (error) {
+        console.warn('[yachiyo][memory] failed to build memory layer; continuing run', {
+          error: error instanceof Error ? error.message : String(error),
+          runId: input.runId,
+          threadId: input.thread.id
+        })
+      }
+    }
     const messages = prepareModelMessages({
       personality: {
         basePersona: SYSTEM_PROMPT,
@@ -335,7 +359,7 @@ export async function executeServerRun(
         reminder: hiddenQueryReminder
       },
       memory: {
-        entries: []
+        entries: memoryEntries
       },
       history: loadRunHistory(deps.loadThreadMessages, input.thread.id, input.requestMessageId)
     })

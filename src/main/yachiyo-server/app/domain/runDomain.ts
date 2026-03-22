@@ -20,6 +20,7 @@ import {
 } from '../../../../shared/yachiyo/messageContent.ts'
 import type { AuxiliaryGenerationService } from '../../runtime/auxiliaryGeneration.ts'
 import type { SoulDocument } from '../../runtime/soul.ts'
+import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
 import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
 import type { ModelRuntime } from '../../runtime/types.ts'
@@ -71,6 +72,7 @@ interface RunDomainDeps {
   auxiliaryGeneration: AuxiliaryGenerationService
   createModelRuntime: () => ModelRuntime
   ensureThreadWorkspace: (threadId: string) => Promise<string>
+  memoryService: MemoryService
   searchService?: SearchService
   webSearchService?: WebSearchService
   readSoulDocument?: () => Promise<SoulDocument | null>
@@ -105,6 +107,8 @@ export class YachiyoServerRunDomain {
   private readonly activeRunTasks = new Map<string, Promise<void>>()
   private readonly backgroundTitleTasks = new Set<Promise<void>>()
   private readonly backgroundTitleTaskControllers = new Set<AbortController>()
+  private readonly backgroundMemoryTasks = new Set<Promise<void>>()
+  private readonly backgroundMemoryTaskControllers = new Set<AbortController>()
   private lastRunEnabledTools: ToolCallName[] | null
   private isClosing = false
 
@@ -126,12 +130,18 @@ export class YachiyoServerRunDomain {
     for (const controller of this.backgroundTitleTaskControllers.values()) {
       controller.abort()
     }
+    for (const controller of this.backgroundMemoryTaskControllers.values()) {
+      controller.abort()
+    }
 
     if (this.activeRunTasks.size > 0) {
       await Promise.allSettled(this.activeRunTasks.values())
     }
     if (this.backgroundTitleTasks.size > 0) {
       await Promise.allSettled(this.backgroundTitleTasks)
+    }
+    if (this.backgroundMemoryTasks.size > 0) {
+      await Promise.allSettled(this.backgroundMemoryTasks)
     }
 
     this.recoverInterruptedRuns(SHUTDOWN_RUN_ERROR)
@@ -140,6 +150,8 @@ export class YachiyoServerRunDomain {
     this.activeRunTasks.clear()
     this.backgroundTitleTaskControllers.clear()
     this.backgroundTitleTasks.clear()
+    this.backgroundMemoryTaskControllers.clear()
+    this.backgroundMemoryTasks.clear()
   }
 
   recoverInterruptedRuns(error: string = INTERRUPTED_RUN_ERROR): void {
@@ -565,6 +577,13 @@ export class YachiyoServerRunDomain {
             emit: this.deps.emit,
             createModelRuntime: this.deps.createModelRuntime,
             ensureThreadWorkspace: this.deps.ensureThreadWorkspace,
+            buildMemoryLayerEntries: (context) =>
+              this.deps.memoryService.recallForContext({
+                history: this.deps.loadThreadMessages(context.thread.id),
+                signal: context.signal,
+                thread: context.thread,
+                userQuery: context.userQuery
+              }),
             searchService: this.deps.searchService,
             webSearchService: this.deps.webSearchService,
             readSoulDocument: this.deps.readSoulDocument,
@@ -628,6 +647,28 @@ export class YachiyoServerRunDomain {
 
         previousEnabledTools = input.enabledTools
 
+        if (result.kind === 'completed') {
+          const threadMessages = this.deps.loadThreadMessages(currentThread.id)
+          const assistantMessage = threadMessages
+            .filter(
+              (message) =>
+                message.role === 'assistant' && message.parentMessageId === currentRequestMessageId
+            )
+            .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+            .at(-1)
+          const userMessage = threadMessages.find(
+            (message) => message.id === currentRequestMessageId && message.role === 'user'
+          )
+
+          if (assistantMessage && userMessage) {
+            this.schedulePostRunMemoryDistillation({
+              assistantResponse: assistantMessage.content,
+              thread: currentThread,
+              userQuery: userMessage.content
+            })
+          }
+        }
+
         if (result.kind !== 'restarted') {
           break
         }
@@ -651,6 +692,40 @@ export class YachiyoServerRunDomain {
         this.startQueuedFollowUpIfPresent(input.thread.id)
       }
     }
+  }
+
+  private schedulePostRunMemoryDistillation(input: {
+    assistantResponse: string
+    thread: ThreadRecord
+    userQuery: string
+  }): void {
+    if (!this.deps.memoryService.isConfigured()) {
+      return
+    }
+
+    const abortController = new AbortController()
+    this.backgroundMemoryTaskControllers.add(abortController)
+
+    const task: Promise<void> | undefined = (async (): Promise<void> => {
+      try {
+        await this.deps.memoryService.distillCompletedRun({
+          assistantResponse: input.assistantResponse,
+          signal: abortController.signal,
+          thread: input.thread,
+          userQuery: input.userQuery
+        })
+      } catch {
+        // Memory distillation must not affect the completed run path.
+      } finally {
+        this.backgroundMemoryTaskControllers.delete(abortController)
+        if (task) {
+          this.backgroundMemoryTasks.delete(task)
+        }
+      }
+    })()
+
+    this.backgroundMemoryTasks.add(task)
+    void task
   }
 
   private scheduleThreadTitleGeneration(input: {

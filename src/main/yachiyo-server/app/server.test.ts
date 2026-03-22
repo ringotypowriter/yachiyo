@@ -8,6 +8,7 @@ import { YachiyoServer } from './YachiyoServer.ts'
 import type { ModelStreamRequest } from '../runtime/types.ts'
 import type { SoulDocument } from '../runtime/soul.ts'
 import { createInMemoryYachiyoStorage } from '../storage/memoryStorage.ts'
+import type { MemoryService } from '../services/memory/memoryService.ts'
 import type {
   ChatAccepted,
   ChatAcceptedWithUserMessage,
@@ -46,6 +47,7 @@ async function withServer(
       threadId: string,
       workspacePathForThread: (threadId: string) => string
     ) => Promise<void>
+    memoryService?: MemoryService
     now?: () => Date
   } = {}
 ): Promise<void> {
@@ -205,7 +207,8 @@ async function withServer(
           yield ' world'
         }
       })),
-    readSoulDocument: options.readSoulDocument ?? (async () => null)
+    readSoulDocument: options.readSoulDocument ?? (async () => null),
+    memoryService: options.memoryService
   })
 
   const unsubscribe = server.subscribe((event) => {
@@ -540,6 +543,174 @@ test('YachiyoServer can refine the fallback thread title with the configured too
           yield ' world'
         }
       })
+    }
+  )
+})
+
+test('YachiyoServer injects recalled memory into the compiled context before the main run', async () => {
+  const recalledQueries: string[] = []
+
+  await withServer(
+    async ({ completeRun, modelRequests, server }) => {
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'How do we handle deploys?'
+      })
+      assertAcceptedHasUserMessage(accepted)
+      await completeRun(accepted.runId)
+
+      const mainRequest = modelRequests.find(
+        (request) => request.providerOptionsMode !== 'auxiliary'
+      )
+      assert.ok(mainRequest)
+      assert.equal(recalledQueries[0], 'How do we handle deploys?')
+      assert.ok(
+        mainRequest.messages.some(
+          (message) =>
+            message.role === 'system' &&
+            typeof message.content === 'string' &&
+            message.content ===
+              '<memory>\n- Deploy workflow: Always run the staging smoke test first.\n</memory>'
+        )
+      )
+    },
+    {
+      memoryService: {
+        hasHiddenSearchCapability: () => true,
+        isConfigured: () => true,
+        testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+        recallForContext: async ({ userQuery }) => {
+          recalledQueries.push(userQuery)
+          return ['Deploy workflow: Always run the staging smoke test first.']
+        },
+        distillCompletedRun: async () => ({ savedCount: 0 }),
+        saveThread: async () => ({ savedCount: 0 })
+      }
+    }
+  )
+})
+
+test('YachiyoServer continues the run when memory recall fails', async () => {
+  await withServer(
+    async ({ completeRun, modelRequests, server }) => {
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Keep going even if memory is down.'
+      })
+      assertAcceptedHasUserMessage(accepted)
+      await completeRun(accepted.runId)
+
+      const mainRequest = modelRequests.find(
+        (request) => request.providerOptionsMode !== 'auxiliary'
+      )
+      assert.ok(mainRequest)
+      assert.ok(
+        !mainRequest.messages.some(
+          (message) =>
+            message.role === 'system' &&
+            typeof message.content === 'string' &&
+            message.content.includes('<memory>')
+        )
+      )
+    },
+    {
+      memoryService: {
+        hasHiddenSearchCapability: () => true,
+        isConfigured: () => true,
+        testConnection: async () => ({ ok: false, message: 'Cannot connect to Nowledge Mem' }),
+        recallForContext: async () => {
+          throw new Error('Cannot connect to Nowledge Mem')
+        },
+        distillCompletedRun: async () => ({ savedCount: 0 }),
+        saveThread: async () => ({ savedCount: 0 })
+      }
+    }
+  )
+})
+
+test('YachiyoServer saveThread uses the explicit memory service and can archive afterward', async () => {
+  let savedThreadId = ''
+
+  await withServer(
+    async ({ completeRun, server }) => {
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Remember the code review policy.'
+      })
+      assertAcceptedHasUserMessage(accepted)
+      await completeRun(accepted.runId)
+
+      const result = await server.saveThread({
+        threadId: thread.id,
+        archiveAfterSave: true
+      })
+
+      assert.equal(savedThreadId, thread.id)
+      assert.equal(result.archived, true)
+      assert.equal(result.savedMemoryCount, 2)
+
+      const bootstrap = await server.bootstrap()
+      assert.equal(bootstrap.threads.length, 0)
+      assert.equal(bootstrap.archivedThreads[0]?.id, thread.id)
+    },
+    {
+      memoryService: {
+        hasHiddenSearchCapability: () => true,
+        isConfigured: () => true,
+        testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+        recallForContext: async () => [],
+        distillCompletedRun: async () => ({ savedCount: 0 }),
+        saveThread: async ({ thread }) => {
+          savedThreadId = thread.id
+          return { savedCount: 2 }
+        }
+      }
+    }
+  )
+})
+
+test('YachiyoServer tests memory connectivity against the provided draft config', async () => {
+  let receivedConfig: unknown = null
+
+  await withServer(
+    async ({ server }) => {
+      const result = await server.testMemoryConnection({
+        providers: [],
+        memory: {
+          enabled: true,
+          provider: 'nowledge-mem',
+          baseUrl: 'http://127.0.0.1:14242'
+        }
+      })
+
+      assert.deepEqual(receivedConfig, {
+        providers: [],
+        memory: {
+          enabled: true,
+          provider: 'nowledge-mem',
+          baseUrl: 'http://127.0.0.1:14242'
+        }
+      })
+      assert.deepEqual(result, {
+        ok: true,
+        message: 'Nowledge Mem is reachable.'
+      })
+    },
+    {
+      memoryService: {
+        hasHiddenSearchCapability: () => true,
+        isConfigured: () => true,
+        testConnection: async (config) => {
+          receivedConfig = config
+          return { ok: true, message: 'Nowledge Mem is reachable.' }
+        },
+        recallForContext: async () => [],
+        distillCompletedRun: async () => ({ savedCount: 0 }),
+        saveThread: async () => ({ savedCount: 0 })
+      }
     }
   )
 })

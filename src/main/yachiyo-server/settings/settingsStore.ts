@@ -4,15 +4,19 @@ import { dirname } from 'node:path'
 import {
   DEFAULT_WEB_SEARCH_PROVIDER,
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
+  DEFAULT_MEMORY_BASE_URL,
+  DEFAULT_MEMORY_PROVIDER,
   DEFAULT_ENABLED_TOOL_NAMES,
   DEFAULT_SIDEBAR_VISIBILITY,
   DEFAULT_TOOL_MODEL_MODE,
+  normalizeMemoryProviderId,
   normalizeActiveRunEnterBehavior,
   normalizeEnabledTools,
   normalizeSidebarVisibility,
   normalizeToolModelMode,
   type BrowserBackedWebSearchSessionConfig,
   type ExaWebSearchConfig,
+  type MemoryConfig,
   type ProviderConfig,
   type ProviderKind,
   type ProviderSettings,
@@ -47,6 +51,11 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
     providerId: '',
     providerName: '',
     model: ''
+  },
+  memory: {
+    enabled: false,
+    provider: DEFAULT_MEMORY_PROVIDER,
+    baseUrl: DEFAULT_MEMORY_BASE_URL
   },
   webSearch: {
     defaultProvider: DEFAULT_WEB_SEARCH_PROVIDER,
@@ -138,6 +147,22 @@ function normalizeToolModelConfig(
     providerId: normalizeString(input['providerId'], fallback.providerId ?? ''),
     providerName: normalizeString(input['providerName'], fallback.providerName ?? ''),
     model: normalizeString(input['model'], fallback.model ?? '')
+  }
+}
+
+function normalizeMemoryConfig(
+  value: unknown,
+  fallback: MemoryConfig = DEFAULT_SETTINGS_CONFIG.memory ?? {}
+): MemoryConfig {
+  const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+
+  return {
+    enabled: input['enabled'] === true,
+    provider: normalizeMemoryProviderId(
+      input['provider'],
+      fallback.provider ?? DEFAULT_MEMORY_PROVIDER
+    ),
+    baseUrl: normalizeString(input['baseUrl'], fallback.baseUrl ?? DEFAULT_MEMORY_BASE_URL)
   }
 }
 
@@ -267,6 +292,7 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
           ? syncToolModelWithProvider(toolModel, resolvedToolProvider)
           : createDisabledToolModelConfig()
         : toolModel,
+    memory: normalizeMemoryConfig(input['memory']),
     webSearch: normalizeWebSearchConfig(input['webSearch']),
     providers: hasProviders ? providers : DEFAULT_SETTINGS_CONFIG.providers
   }
@@ -302,6 +328,19 @@ function parseTomlStringArray(value: string): string[] {
     : []
 }
 
+function parseTomlValue(value: string): unknown {
+  const trimmed = value.trim()
+  if (trimmed === 'true') {
+    return true
+  }
+
+  if (trimmed === 'false') {
+    return false
+  }
+
+  return trimmed.startsWith('[') ? parseTomlStringArray(trimmed) : parseTomlString(trimmed)
+}
+
 export function parseSettingsToml(raw: string): SettingsConfig {
   const root: Record<string, unknown> = {}
   const providers: Array<Record<string, unknown>> = []
@@ -312,6 +351,7 @@ export function parseSettingsToml(raw: string): SettingsConfig {
     | 'chat'
     | 'workspace'
     | 'toolModel'
+    | 'memory'
     | 'webSearch'
     | 'webSearch.browserSession'
     | 'webSearch.exa'
@@ -343,6 +383,12 @@ export function parseSettingsToml(raw: string): SettingsConfig {
     if (line === '[workspace]') {
       root['workspace'] = root['workspace'] ?? {}
       section = 'workspace'
+      continue
+    }
+
+    if (line === '[memory]') {
+      root['memory'] = root['memory'] ?? {}
+      section = 'memory'
       continue
     }
 
@@ -400,9 +446,7 @@ export function parseSettingsToml(raw: string): SettingsConfig {
     }
 
     const [, key, rawValue] = match
-    const value = rawValue.trim().startsWith('[')
-      ? parseTomlStringArray(rawValue.trim())
-      : parseTomlString(rawValue.trim())
+    const value = parseTomlValue(rawValue.trim())
 
     if (section === 'root') {
       root[key] = value
@@ -462,6 +506,20 @@ export function parseSettingsToml(raw: string): SettingsConfig {
       }
 
       workspace[key] = value
+      continue
+    }
+
+    if (section === 'memory') {
+      const memory =
+        root['memory'] && typeof root['memory'] === 'object'
+          ? (root['memory'] as Record<string, unknown>)
+          : null
+
+      if (!memory) {
+        throw new Error(`Memory settings are not initialized for ${key}.`)
+      }
+
+      memory[key] = value
       continue
     }
 
@@ -537,6 +595,7 @@ function stringifyTomlStringArray(values: string[]): string {
 export function stringifySettingsToml(config: SettingsConfig): string {
   const normalized = normalizeSettingsConfig(config)
   const toolModel = normalizeToolModelConfig(normalized.toolModel)
+  const memory = normalizeMemoryConfig(normalized.memory)
   const lines: string[] = [
     `enabledTools = ${stringifyTomlStringArray(
       normalizeEnabledTools(normalized.enabledTools, DEFAULT_SETTINGS_CONFIG.enabledTools)
@@ -566,6 +625,11 @@ export function stringifySettingsToml(config: SettingsConfig): string {
     `providerId = ${stringifyTomlString(toolModel.providerId ?? '')}`,
     `providerName = ${stringifyTomlString(toolModel.providerName ?? '')}`,
     `model = ${stringifyTomlString(toolModel.model ?? '')}`,
+    '',
+    '[memory]',
+    `enabled = ${memory.enabled ? 'true' : 'false'}`,
+    `provider = ${stringifyTomlString(memory.provider ?? DEFAULT_MEMORY_PROVIDER)}`,
+    `baseUrl = ${stringifyTomlString(memory.baseUrl ?? DEFAULT_MEMORY_BASE_URL)}`,
     '',
     '[webSearch]',
     `defaultProvider = ${stringifyTomlString(

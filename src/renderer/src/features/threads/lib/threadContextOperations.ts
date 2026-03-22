@@ -1,4 +1,4 @@
-export type ThreadContextOperationKey = 'rename' | 'archive' | 'restore' | 'delete'
+export type ThreadContextOperationKey = 'rename' | 'save-thread' | 'archive' | 'restore' | 'delete'
 
 export interface ThreadContextOperation {
   disabled?: boolean
@@ -9,6 +9,7 @@ export interface ThreadContextOperation {
 
 export function resolveThreadContextOperations(input: {
   isArchived: boolean
+  isMemoryEnabled?: boolean
   isRenameDisabled?: boolean
 }): ThreadContextOperation[] {
   if (input.isArchived) {
@@ -31,6 +32,14 @@ export function resolveThreadContextOperations(input: {
       key: 'rename',
       label: 'Rename'
     },
+    ...(input.isMemoryEnabled
+      ? [
+          {
+            key: 'save-thread' as const,
+            label: 'Save Thread'
+          }
+        ]
+      : []),
     {
       key: 'archive',
       label: 'Archive'

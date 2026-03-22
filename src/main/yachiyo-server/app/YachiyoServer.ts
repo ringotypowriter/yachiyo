@@ -10,8 +10,11 @@ import type {
   ProviderSettings,
   RetryAccepted,
   RetryInput,
+  SaveThreadInput,
+  SaveThreadResult,
   SendChatInput,
   SettingsConfig,
+  TestMemoryConnectionResult,
   ThreadRecord,
   ThreadSnapshot,
   ToolPreferencesInput,
@@ -27,6 +30,8 @@ import { createAiSdkModelRuntime } from '../runtime/modelRuntime.ts'
 import { readSoulDocument, type SoulDocument } from '../runtime/soul.ts'
 import type { ModelRuntime } from '../runtime/types.ts'
 import { createSearchService, type SearchService } from '../services/search/searchService.ts'
+import { createMemoryService, type MemoryService } from '../services/memory/memoryService.ts'
+import { createNowledgeMemProvider } from '../services/memory/nowledgeMemProvider.ts'
 import {
   BrowserSearchSession,
   createBrowserSearchSessionImportService,
@@ -61,6 +66,7 @@ export interface YachiyoServerOptions {
   ensureThreadWorkspace?: (threadId: string) => Promise<string>
   cloneThreadWorkspace?: (sourceThreadId: string, targetThreadId: string) => Promise<string>
   deleteThreadWorkspace?: (threadId: string) => Promise<void>
+  memoryService?: MemoryService
 }
 
 export interface SqliteYachiyoServerOptions extends Omit<YachiyoServerOptions, 'storage'> {
@@ -72,6 +78,7 @@ export class YachiyoServer {
   private readonly now: () => Date
   private readonly createId: () => string
   private readonly listeners = new Set<(event: YachiyoServerEvent) => void>()
+  private readonly memoryService: MemoryService
   private readonly configDomain: YachiyoServerConfigDomain
   private readonly runDomain: YachiyoServerRunDomain
   private readonly threadDomain: YachiyoServerThreadDomain
@@ -120,7 +127,6 @@ export class YachiyoServer {
       ],
       readConfig: () => this.configDomain.readConfig()
     })
-
     this.configDomain = new YachiyoServerConfigDomain({
       settingsStore,
       emit: this.emit.bind(this),
@@ -140,6 +146,16 @@ export class YachiyoServer {
       createModelRuntime,
       readToolModelSettings: () => this.configDomain.readToolModelSettings()
     })
+    const memoryService =
+      options.memoryService ??
+      createMemoryService({
+        auxiliaryGeneration,
+        createModelRuntime,
+        createProvider: (config) => createNowledgeMemProvider(config),
+        readConfig: () => this.configDomain.readConfig(),
+        readSettings: () => this.configDomain.readSettings()
+      })
+    this.memoryService = memoryService
     this.runDomain = new YachiyoServerRunDomain({
       storage: this.storage,
       createId: this.createId,
@@ -150,6 +166,7 @@ export class YachiyoServer {
       ensureThreadWorkspace,
       searchService,
       webSearchService,
+      memoryService,
       readSoulDocument: options.readSoulDocument ?? (() => readSoulDocument()),
       readConfig: () => this.configDomain.readConfig(),
       readSettings: () => this.configDomain.readSettings(),
@@ -165,7 +182,9 @@ export class YachiyoServer {
       ensureThreadWorkspace,
       cloneThreadWorkspace,
       deleteThreadWorkspace,
+      memoryService,
       requireThread: this.requireThread.bind(this),
+      loadThreadMessages: (threadId) => this.storage.listThreadMessages(threadId),
       isThreadRunning: (threadId) => this.runDomain.hasActiveThread(threadId)
     })
   }
@@ -212,6 +231,10 @@ export class YachiyoServer {
 
   async saveConfig(input: SettingsConfig): Promise<SettingsConfig> {
     return this.configDomain.saveConfig(input)
+  }
+
+  async testMemoryConnection(config: SettingsConfig): Promise<TestMemoryConnectionResult> {
+    return this.memoryService.testConnection(config)
   }
 
   async getSettings(): Promise<ProviderSettings> {
@@ -302,6 +325,10 @@ export class YachiyoServer {
 
   async retryMessage(input: RetryInput): Promise<RetryAccepted> {
     return this.runDomain.retryMessage(input)
+  }
+
+  async saveThread(input: SaveThreadInput): Promise<SaveThreadResult> {
+    return this.threadDomain.saveThread(input)
   }
 
   async selectReplyBranch(input: {

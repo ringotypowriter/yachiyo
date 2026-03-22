@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import test from 'node:test'
 
 import {
+  DEFAULT_MEMORY_BASE_URL,
   DEFAULT_ENABLED_TOOL_NAMES,
   DEFAULT_TOOL_MODEL_MODE,
   DEFAULT_SIDEBAR_VISIBILITY
@@ -39,6 +40,11 @@ test('settings store persists multi-provider config as TOML', async () => {
         providerId: 'provider-backup',
         providerName: 'backup',
         model: 'claude-opus-4-6'
+      },
+      memory: {
+        enabled: true,
+        provider: 'nowledge-mem',
+        baseUrl: 'http://127.0.0.1:14242'
       },
       webSearch: {
         defaultProvider: 'google-browser',
@@ -99,6 +105,10 @@ test('settings store persists multi-provider config as TOML', async () => {
     assert.match(toml, /providerName = "backup"/)
     assert.match(toml, /model = "claude-opus-4-6"/)
     assert.match(toml, /\[webSearch\]/)
+    assert.match(toml, /\[memory\]/)
+    assert.match(toml, /enabled = true/)
+    assert.match(toml, /provider = "nowledge-mem"/)
+    assert.match(toml, /baseUrl = "http:\/\/127\.0\.0\.1:14242"/)
     assert.match(toml, /defaultProvider = "google-browser"/)
     assert.match(toml, /\[webSearch\.browserSession\]/)
     assert.match(toml, /sourceProfileName = "Default"/)
@@ -263,6 +273,30 @@ test('normalizeSettingsConfig falls back to the default tool model mode', () => 
       model: 'gpt-5-mini'
     }
   )
+})
+
+test('normalizeSettingsConfig fills memory defaults and preserves a valid config', () => {
+  const defaults = normalizeSettingsConfig({ providers: [] })
+  assert.deepEqual(defaults.memory, {
+    enabled: false,
+    provider: 'nowledge-mem',
+    baseUrl: DEFAULT_MEMORY_BASE_URL
+  })
+
+  const configured = normalizeSettingsConfig({
+    providers: [],
+    memory: {
+      enabled: true,
+      provider: 'nowledge-mem',
+      baseUrl: 'http://mem.local:14242'
+    }
+  })
+
+  assert.deepEqual(configured.memory, {
+    enabled: true,
+    provider: 'nowledge-mem',
+    baseUrl: 'http://mem.local:14242'
+  })
 })
 
 test('normalizeSettingsConfig fills webSearch defaults and preserves imported browser session metadata', () => {

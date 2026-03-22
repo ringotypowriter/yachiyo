@@ -8,15 +8,18 @@ import {
   type ThreadContextOperationKey
 } from '@renderer/features/threads/lib/threadContextOperations'
 import { theme } from '@renderer/theme/theme'
+import { isMemoryConfigured } from '../../../../../shared/yachiyo/protocol.ts'
 
 function ThreadListItem({
   isActive,
+  isMemoryEnabled,
   onSelectOperation,
   onSelectThread,
   thread,
   threadListMode
 }: {
   isActive: boolean
+  isMemoryEnabled: boolean
   onSelectOperation: (thread: Thread, operationKey: ThreadContextOperationKey) => void
   onSelectThread: (threadId: string) => void
   thread: Thread
@@ -25,7 +28,8 @@ function ThreadListItem({
   const preview = thread.preview?.trim() || 'No messages yet'
   const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null)
   const operations = resolveThreadContextOperations({
-    isArchived: threadListMode === 'archived'
+    isArchived: threadListMode === 'archived',
+    isMemoryEnabled
   })
 
   return (
@@ -84,12 +88,15 @@ export function ThreadList(): React.JSX.Element {
   const deleteThread = useAppStore((s) => s.deleteThread)
   const renameThread = useAppStore((s) => s.renameThread)
   const restoreThread = useAppStore((s) => s.restoreThread)
+  const saveThread = useAppStore((s) => s.saveThread)
   const setActiveArchivedThread = useAppStore((s) => s.setActiveArchivedThread)
   const setActiveThread = useAppStore((s) => s.setActiveThread)
   const threadListMode = useAppStore((s) => s.threadListMode)
   const threads = useAppStore((s) => s.threads)
+  const config = useAppStore((s) => s.config)
   const visibleThreads = threadListMode === 'archived' ? archivedThreads : threads
   const activeId = threadListMode === 'archived' ? activeArchivedThreadId : activeThreadId
+  const memoryEnabled = isMemoryConfigured(config)
 
   async function handleSelectOperation(
     thread: Thread,
@@ -109,6 +116,15 @@ export function ThreadList(): React.JSX.Element {
         if (window.confirm(`Archive "${thread.title}"?`)) {
           await archiveThread(thread.id)
         }
+        return
+      }
+
+      if (operationKey === 'save-thread') {
+        await saveThread(thread.id, {
+          archiveAfterSave: window.confirm(
+            `Archive "${thread.title}" after saving it to long-term memory?`
+          )
+        })
         return
       }
 
@@ -139,6 +155,7 @@ export function ThreadList(): React.JSX.Element {
           key={thread.id}
           thread={thread}
           isActive={thread.id === activeId}
+          isMemoryEnabled={memoryEnabled}
           threadListMode={threadListMode}
           onSelectOperation={(targetThread, operationKey) =>
             void handleSelectOperation(targetThread, operationKey)

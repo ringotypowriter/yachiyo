@@ -9,6 +9,7 @@ export interface AppMainPanelHeaderProps {
   activeThread: Thread | null
   headerPaddingLeft: number
   isBootstrapping: boolean
+  isMemoryEnabled: boolean
   isSidebarToggleDisabled: boolean
   messageCount: number
   onOpenThreadWorkspace: () => Promise<void>
@@ -22,6 +23,7 @@ export function AppMainPanelHeader({
   activeThread,
   headerPaddingLeft,
   isBootstrapping,
+  isMemoryEnabled,
   isSidebarToggleDisabled,
   messageCount,
   onOpenThreadWorkspace,
@@ -63,6 +65,7 @@ export function AppMainPanelHeader({
 
       <ThreadHeaderActions
         activeThread={activeThread}
+        isMemoryEnabled={isMemoryEnabled}
         isRenameDisabled={false}
         onSelectOperation={onSelectThreadOperation}
       />

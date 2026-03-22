@@ -1,4 +1,4 @@
-import { Archive, PenLine, RotateCcw, Trash2 } from 'lucide-react'
+import { Archive, BookMarked, PenLine, RotateCcw, Trash2 } from 'lucide-react'
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import type { ThreadContextOperation } from '@renderer/features/threads/lib/threadContextOperations'
@@ -21,6 +21,10 @@ function resolveOperationIcon(operationKey: ThreadContextOperation['key']): Reac
 
   if (operationKey === 'archive') {
     return <Archive size={14} strokeWidth={1.7} />
+  }
+
+  if (operationKey === 'save-thread') {
+    return <BookMarked size={14} strokeWidth={1.7} />
   }
 
   if (operationKey === 'restore') {

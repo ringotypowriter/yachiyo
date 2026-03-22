@@ -5,8 +5,10 @@ import type {
   ProviderConfig,
   ProviderSettings,
   RetryInput,
+  SaveThreadInput,
   SettingsConfig,
   SendChatInput,
+  TestMemoryConnectionInput,
   ToolPreferencesInput,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
@@ -36,12 +38,15 @@ const api = {
       ipcRenderer.invoke('yachiyo:save-tool-preferences', input),
     sendChat: (input: SendChatInput) => ipcRenderer.invoke('yachiyo:send-chat', input),
     retryMessage: (input: RetryInput) => ipcRenderer.invoke('yachiyo:retry-message', input),
+    saveThread: (input: SaveThreadInput) => ipcRenderer.invoke('yachiyo:save-thread', input),
     updateThreadWorkspace: (input: { threadId: string; workspacePath?: string | null }) =>
       ipcRenderer.invoke('yachiyo:update-thread-workspace', input),
     selectReplyBranch: (input: { threadId: string; assistantMessageId: string }) =>
       ipcRenderer.invoke('yachiyo:select-reply-branch', input),
     cancelRun: (input: { runId: string }) => ipcRenderer.invoke('yachiyo:cancel-run', input),
     getConfig: () => ipcRenderer.invoke('yachiyo:get-config'),
+    testMemoryConnection: (input: TestMemoryConnectionInput) =>
+      ipcRenderer.invoke('yachiyo:test-memory-connection', input),
     getSettings: () => ipcRenderer.invoke('yachiyo:get-settings'),
     saveConfig: (input: SettingsConfig) => ipcRenderer.invoke('yachiyo:save-config', input),
     saveSettings: (input: Partial<ProviderSettings>) =>

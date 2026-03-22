@@ -7,8 +7,12 @@ import type {
   ProviderSettings,
   RetryInput,
   RetryAccepted,
+  SaveThreadInput,
+  SaveThreadResult,
   SettingsConfig,
   SendChatInput,
+  TestMemoryConnectionInput,
+  TestMemoryConnectionResult,
   ThreadSnapshot,
   ThreadRecord,
   ToolPreferencesInput,
@@ -35,6 +39,7 @@ declare global {
         saveToolPreferences: (input: ToolPreferencesInput) => Promise<SettingsConfig>
         sendChat: (input: SendChatInput) => Promise<ChatAccepted>
         retryMessage: (input: RetryInput) => Promise<RetryAccepted>
+        saveThread: (input: SaveThreadInput) => Promise<SaveThreadResult>
         updateThreadWorkspace: (input: {
           threadId: string
           workspacePath?: string | null
@@ -45,6 +50,9 @@ declare global {
         }) => Promise<ThreadRecord>
         cancelRun: (input: { runId: string }) => Promise<void>
         getConfig: () => Promise<SettingsConfig>
+        testMemoryConnection: (
+          input: TestMemoryConnectionInput
+        ) => Promise<TestMemoryConnectionResult>
         getSettings: () => Promise<ProviderSettings>
         saveConfig: (input: SettingsConfig) => Promise<SettingsConfig>
         saveSettings: (input: Partial<ProviderSettings>) => Promise<ProviderSettings>

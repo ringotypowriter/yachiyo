@@ -1,0 +1,375 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+
+import type { SettingsConfig } from '../../../../shared/yachiyo/protocol.ts'
+import type { AuxiliaryGenerationService } from '../../runtime/auxiliaryGeneration.ts'
+import type { ModelStreamRequest, ModelRuntime } from '../../runtime/types.ts'
+import {
+  HIDDEN_MEMORY_SEARCH_TOOL_NAME,
+  createMemoryService,
+  type MemoryCandidate,
+  type MemoryProvider
+} from './memoryService.ts'
+
+function createAuxiliaryGenerationStub(output: string): AuxiliaryGenerationService {
+  return {
+    async generateText() {
+      return {
+        status: 'success',
+        settings: {
+          providerName: 'tool',
+          provider: 'openai',
+          model: 'gpt-5-mini',
+          apiKey: 'sk-tool',
+          baseUrl: ''
+        },
+        text: output
+      }
+    }
+  }
+}
+
+const MEMORY_CONFIG: SettingsConfig = {
+  providers: [],
+  memory: {
+    enabled: true,
+    provider: 'nowledge-mem',
+    baseUrl: 'http://127.0.0.1:14242'
+  }
+}
+
+test('memory service exposes the hidden memory-search capability only when memory is configured', () => {
+  const provider: MemoryProvider = {
+    async createMemories() {
+      return { savedCount: 0 }
+    },
+    async searchMemories() {
+      return []
+    }
+  }
+
+  const configured = createMemoryService({
+    auxiliaryGeneration: createAuxiliaryGenerationStub('{"queries":[]}'),
+    createModelRuntime: () => ({
+      async *streamReply() {
+        yield ''
+      }
+    }),
+    createProvider: () => provider,
+    readConfig: () => MEMORY_CONFIG,
+    readSettings: () => ({
+      providerName: 'main',
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'sk-main',
+      baseUrl: ''
+    })
+  })
+
+  assert.equal(configured.isConfigured(), true)
+  assert.equal(configured.hasHiddenSearchCapability(), true)
+  assert.equal(HIDDEN_MEMORY_SEARCH_TOOL_NAME, 'memory_search')
+
+  const disabled = createMemoryService({
+    auxiliaryGeneration: createAuxiliaryGenerationStub('{"queries":[]}'),
+    createModelRuntime: () => ({
+      async *streamReply() {
+        yield ''
+      }
+    }),
+    createProvider: () => provider,
+    readConfig: () => ({ providers: [] }),
+    readSettings: () => ({
+      providerName: 'main',
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'sk-main',
+      baseUrl: ''
+    })
+  })
+
+  assert.equal(disabled.hasHiddenSearchCapability(), false)
+})
+
+test('memory service derives retrieval queries, ranks provider results, and compacts them for context', async () => {
+  const searchQueries: string[] = []
+  const provider: MemoryProvider = {
+    async createMemories() {
+      return { savedCount: 0 }
+    },
+    async searchMemories({ query }) {
+      searchQueries.push(query)
+
+      if (query.includes('deployment')) {
+        return [
+          {
+            id: 'mem-1',
+            title: 'Deploy workflow',
+            content: 'Use the staging smoke test before any production-adjacent deploy review.',
+            score: 0.95
+          }
+        ]
+      }
+
+      return [
+        {
+          id: 'mem-2',
+          title: 'Repo preference',
+          content: 'The user prefers repo-root commands from /Users/ringo/projects/yachiyo.',
+          score: 0.82
+        }
+      ]
+    }
+  }
+
+  const service = createMemoryService({
+    auxiliaryGeneration: createAuxiliaryGenerationStub(
+      JSON.stringify({
+        queries: [
+          {
+            query: 'deployment checklist and staging validation',
+            reason: 'The user is asking about release behavior.',
+            weight: 0.9
+          },
+          {
+            query: 'repo root preference for Yachiyo work',
+            reason: 'Workspace conventions may matter.',
+            weight: 0.6
+          }
+        ]
+      })
+    ),
+    createModelRuntime: () => ({
+      async *streamReply() {
+        yield ''
+      }
+    }),
+    createProvider: () => provider,
+    readConfig: () => MEMORY_CONFIG,
+    readSettings: () => ({
+      providerName: 'main',
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'sk-main',
+      baseUrl: ''
+    })
+  })
+
+  const entries = await service.recallForContext({
+    thread: {
+      id: 'thread-1',
+      title: 'Deploy thread',
+      updatedAt: '2026-03-22T00:00:00.000Z'
+    },
+    userQuery: 'How should I handle this deployment?',
+    history: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'We are preparing a deploy.',
+        status: 'completed',
+        createdAt: '2026-03-22T00:00:00.000Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(searchQueries, [
+    'deployment checklist and staging validation',
+    'repo root preference for Yachiyo work'
+  ])
+  assert.deepEqual(entries, [
+    'Deploy workflow: Use the staging smoke test before any production-adjacent deploy review.',
+    'Repo preference: The user prefers repo-root commands from /Users/ringo/projects/yachiyo.'
+  ])
+})
+
+test('memory service can test Nowledge Mem connectivity and report missing CLI clearly', async () => {
+  const service = createMemoryService({
+    auxiliaryGeneration: createAuxiliaryGenerationStub('{"queries":[]}'),
+    createModelRuntime: () => ({
+      async *streamReply() {
+        yield ''
+      }
+    }),
+    createProvider: () => ({
+      async createMemories() {
+        return { savedCount: 0 }
+      },
+      async searchMemories() {
+        const error = new Error('spawn nmem ENOENT') as Error & { code?: string }
+        error.code = 'ENOENT'
+        throw error
+      }
+    }),
+    readConfig: () => MEMORY_CONFIG,
+    readSettings: () => ({
+      providerName: 'main',
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'sk-main',
+      baseUrl: ''
+    })
+  })
+
+  const result = await service.testConnection()
+
+  assert.deepEqual(result, {
+    ok: false,
+    message: 'Nowledge Mem CLI not found. Install `nmem` on this Mac first.'
+  })
+})
+
+test('memory service distills completed runs and skips exact duplicates before writing', async () => {
+  const saved: MemoryCandidate[] = []
+  const provider: MemoryProvider = {
+    async createMemories({ items }) {
+      saved.push(...items)
+      return { savedCount: items.length }
+    },
+    async searchMemories({ query }) {
+      if (query === 'Repo preference') {
+        return [
+          {
+            id: 'existing-1',
+            title: 'Repo preference',
+            content: 'Use the Yachiyo repo root for commands.'
+          }
+        ]
+      }
+
+      return []
+    }
+  }
+
+  const service = createMemoryService({
+    auxiliaryGeneration: createAuxiliaryGenerationStub(
+      JSON.stringify({
+        candidates: [
+          {
+            title: 'Repo preference',
+            content: 'Use the Yachiyo repo root for commands.',
+            importance: 0.8
+          },
+          {
+            title: 'Testing workflow',
+            content: 'Run the targeted server tests before shipping memory changes.',
+            importance: 0.74
+          }
+        ]
+      })
+    ),
+    createModelRuntime: () => ({
+      async *streamReply() {
+        yield ''
+      }
+    }),
+    createProvider: () => provider,
+    readConfig: () => MEMORY_CONFIG,
+    readSettings: () => ({
+      providerName: 'main',
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'sk-main',
+      baseUrl: ''
+    })
+  })
+
+  const result = await service.distillCompletedRun({
+    thread: {
+      id: 'thread-1',
+      title: 'Memory run',
+      updatedAt: '2026-03-22T00:00:00.000Z'
+    },
+    userQuery: 'What should we remember?',
+    assistantResponse: 'Remember the repo root and the testing flow.'
+  })
+
+  assert.equal(result.savedCount, 1)
+  assert.deepEqual(saved, [
+    {
+      title: 'Testing workflow',
+      content: 'Run the targeted server tests before shipping memory changes.',
+      importance: 0.74
+    }
+  ])
+})
+
+test('memory service uses the main model for explicit Save Thread extraction', async () => {
+  const requests: ModelStreamRequest[] = []
+  const saved: MemoryCandidate[] = []
+  const provider: MemoryProvider = {
+    async createMemories({ items }) {
+      saved.push(...items)
+      return { savedCount: items.length }
+    },
+    async searchMemories() {
+      return []
+    }
+  }
+  const runtime: ModelRuntime = {
+    async *streamReply(request) {
+      requests.push(request)
+      yield JSON.stringify({
+        candidates: [
+          {
+            title: 'Code review policy',
+            content: 'Present findings first, then summaries.',
+            importance: 0.9
+          }
+        ]
+      })
+    }
+  }
+
+  const service = createMemoryService({
+    auxiliaryGeneration: createAuxiliaryGenerationStub('{"queries":[]}'),
+    createModelRuntime: () => runtime,
+    createProvider: () => provider,
+    readConfig: () => MEMORY_CONFIG,
+    readSettings: () => ({
+      providerName: 'main',
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'sk-main',
+      baseUrl: ''
+    })
+  })
+
+  const result = await service.saveThread({
+    thread: {
+      id: 'thread-1',
+      title: 'Saved thread',
+      updatedAt: '2026-03-22T00:00:00.000Z'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'Review this patch.',
+        status: 'completed',
+        createdAt: '2026-03-22T00:00:00.000Z'
+      },
+      {
+        id: 'assistant-1',
+        threadId: 'thread-1',
+        role: 'assistant',
+        content: 'Lead with concrete findings.',
+        status: 'completed',
+        createdAt: '2026-03-22T00:00:05.000Z'
+      }
+    ]
+  })
+
+  assert.equal(result.savedCount, 1)
+  assert.equal(requests[0]?.providerOptionsMode, undefined)
+  assert.equal(requests[0]?.settings.model, 'gpt-5')
+  assert.deepEqual(saved, [
+    {
+      title: 'Code review policy',
+      content: 'Present findings first, then summaries.',
+      importance: 0.9
+    }
+  ])
+})
