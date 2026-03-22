@@ -227,6 +227,10 @@ test('memory service derives stricter retrieval plans and ranks recalled context
     String(auxiliaryRequests[0]?.messages[0]?.content),
     /Do not do naive keyword splitting/u
   )
+  assert.match(
+    String(auxiliaryRequests[0]?.messages[0]?.content),
+    /Avoid time words, temporary status, and conversational framing/u
+  )
   assert.deepEqual(entries, [
     'Deploy workflow: Always run the staging smoke test before production-adjacent deploy review.',
     'Repo preference: Use the repo root for Yachiyo commands.'
@@ -343,11 +347,23 @@ test('memory service distills completed runs into canonical topic-aware updates 
       label: 'topic:repo-preference'
     },
     {
+      query: 'Repo preference Repo Preference',
+      label: undefined
+    },
+    {
+      query: 'Repo Preference Use the Yachiyo repo root for commands and run work from that root.',
+      label: undefined
+    },
+    {
       query: 'Testing workflow',
       label: 'topic:testing-workflow'
     },
     {
-      query: 'Testing workflow testing-workflow',
+      query: 'Testing workflow Testing Workflow',
+      label: undefined
+    },
+    {
+      query: 'Testing Workflow Run the targeted server tests before shipping memory changes.',
       label: undefined
     }
   ])
@@ -358,6 +374,10 @@ test('memory service distills completed runs into canonical topic-aware updates 
   assert.match(
     String(auxiliaryRequests[0]?.messages[0]?.content),
     /Do not emit multiple near-duplicate candidates/u
+  )
+  assert.match(
+    String(auxiliaryRequests[0]?.messages[0]?.content),
+    /Reuse the same topic key and title for repeated long-term topics/u
   )
   assert.deepEqual(updated, [
     {
@@ -453,6 +473,74 @@ test('memory service rejects malformed or weak memory candidates before persiste
   ])
 })
 
+test('memory service keeps durable candidates that legitimately mention thread or chat', async () => {
+  const created: MemoryCandidate[] = []
+  const provider: MemoryProvider = {
+    async createMemories({ items }) {
+      created.push(...items)
+      return { savedCount: items.length }
+    },
+    async searchMemories() {
+      return []
+    },
+    async updateMemory() {
+      return undefined
+    }
+  }
+
+  const service = createConfiguredService({
+    auxiliaryGeneration: createAuxiliaryGenerationStub({
+      text: JSON.stringify({
+        candidates: [
+          {
+            topic: 'release-coordination',
+            title: 'Release coordination',
+            content: 'Use a Slack thread for release coordination and status handoff.',
+            unitType: 'procedure',
+            importance: 0.72
+          },
+          {
+            topic: 'chat-model-selection',
+            title: 'Chat model selection',
+            content: 'The chat model is gpt-5 for the main assistant run path.',
+            unitType: 'fact',
+            importance: 0.68
+          }
+        ]
+      })
+    }),
+    provider
+  })
+
+  const result = await service.distillCompletedRun({
+    thread: {
+      id: 'thread-1',
+      title: 'Memory run',
+      updatedAt: '2026-03-22T00:00:00.000Z'
+    },
+    userQuery: 'What should we remember?',
+    assistantResponse: 'Remember the release coordination and model choice.'
+  })
+
+  assert.equal(result.savedCount, 2)
+  assert.deepEqual(created, [
+    {
+      topic: 'release-coordination',
+      title: 'Release coordination',
+      content: 'Use a Slack thread for release coordination and status handoff.',
+      importance: 0.72,
+      unitType: 'procedure'
+    },
+    {
+      topic: 'chat-model-selection',
+      title: 'Chat model selection',
+      content: 'The chat model is gpt-5 for the main assistant run path.',
+      importance: 0.68,
+      unitType: 'fact'
+    }
+  ])
+})
+
 test('memory service uses the main model for explicit Save Thread extraction with the stricter schema', async () => {
   const requests: ModelStreamRequest[] = []
   const saved: MemoryCandidate[] = []
@@ -521,6 +609,7 @@ test('memory service uses the main model for explicit Save Thread extraction wit
   assert.equal(requests[0]?.providerOptionsMode, undefined)
   assert.equal(requests[0]?.settings.model, 'gpt-5')
   assert.match(String(requests[0]?.messages[0]?.content), /stable canonical topics/u)
+  assert.match(String(requests[0]?.messages[0]?.content), /Do not write conversational summaries/u)
   assert.deepEqual(saved, [
     {
       topic: 'code-review-policy',

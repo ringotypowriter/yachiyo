@@ -9,11 +9,13 @@ import {
 } from '../../../shared/yachiyo/protocol.ts'
 import type { SearchService } from '../services/search/searchService.ts'
 import type { WebSearchService } from '../services/webSearch/webSearchService.ts'
+import type { MemoryService } from '../services/memory/memoryService.ts'
 
 import { createTool as createBashTool } from './agentTools/bashTool.ts'
 import { createTool as createEditTool } from './agentTools/editTool.ts'
 import { createTool as createGlobTool } from './agentTools/globTool.ts'
 import { createTool as createGrepTool } from './agentTools/grepTool.ts'
+import { createTool as createMemorySearchTool } from './agentTools/memorySearchTool.ts'
 import { createTool as createReadTool } from './agentTools/readTool.ts'
 import {
   takeTail,
@@ -62,6 +64,7 @@ export { createTool as createWebSearchTool, runWebSearchTool } from './agentTool
 export { createTool as createWriteTool, runWriteTool } from './agentTools/writeTool.ts'
 
 export interface AgentToolDependencies {
+  memoryService?: MemoryService
   searchService?: SearchService
   webSearchService?: WebSearchService
 }
@@ -243,6 +246,10 @@ export function createAgentToolSet(
     tools.webSearch = createWebSearchTool(context, {
       webSearchService: dependencies.webSearchService
     })
+  }
+
+  if (dependencies.memoryService?.hasHiddenSearchCapability()) {
+    tools.memory_search = createMemorySearchTool(dependencies.memoryService)
   }
 
   return Object.keys(tools).length > 0 ? tools : undefined

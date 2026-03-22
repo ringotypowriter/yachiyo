@@ -584,6 +584,7 @@ export class YachiyoServerRunDomain {
                 thread: context.thread,
                 userQuery: context.userQuery
               }),
+            memoryService: this.deps.memoryService,
             searchService: this.deps.searchService,
             webSearchService: this.deps.webSearchService,
             readSoulDocument: this.deps.readSoulDocument,

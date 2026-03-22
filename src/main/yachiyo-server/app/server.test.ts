@@ -589,6 +589,7 @@ test('YachiyoServer injects recalled memory into the compiled context before the
       memoryService: {
         hasHiddenSearchCapability: () => true,
         isConfigured: () => true,
+        searchMemories: async () => [],
         testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
         recallForContext: async ({ userQuery }) => {
           recalledQueries.push(userQuery)
@@ -598,6 +599,137 @@ test('YachiyoServer injects recalled memory into the compiled context before the
         saveThread: async () => ({ savedCount: 0 })
       }
     }
+  )
+})
+
+test('YachiyoServer only injects the hidden memory_search runtime tool when memory is configured', async () => {
+  const configuredRequests: ModelStreamRequest[] = []
+  const disabledRequests: ModelStreamRequest[] = []
+
+  await withServer(
+    async ({ completeRun, server }) => {
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Find the saved deploy workflow.'
+      })
+      assertAcceptedHasUserMessage(accepted)
+      await completeRun(accepted.runId)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          configuredRequests.push(request)
+          yield 'done'
+        }
+      }),
+      memoryService: {
+        hasHiddenSearchCapability: () => true,
+        isConfigured: () => true,
+        searchMemories: async () => [],
+        testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+        recallForContext: async () => [],
+        distillCompletedRun: async () => ({ savedCount: 0 }),
+        saveThread: async () => ({ savedCount: 0 })
+      }
+    }
+  )
+
+  await withServer(
+    async ({ completeRun, server }) => {
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Find the saved deploy workflow.'
+      })
+      assertAcceptedHasUserMessage(accepted)
+      await completeRun(accepted.runId)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          disabledRequests.push(request)
+          yield 'done'
+        }
+      }),
+      memoryService: {
+        hasHiddenSearchCapability: () => false,
+        isConfigured: () => false,
+        searchMemories: async () => [],
+        testConnection: async () => ({ ok: false, message: 'Memory disabled.' }),
+        recallForContext: async () => [],
+        distillCompletedRun: async () => ({ savedCount: 0 }),
+        saveThread: async () => ({ savedCount: 0 })
+      }
+    }
+  )
+
+  const configuredMainRequest = configuredRequests.find(
+    (request) => request.providerOptionsMode !== 'auxiliary'
+  )
+  const disabledMainRequest = disabledRequests.find(
+    (request) => request.providerOptionsMode !== 'auxiliary'
+  )
+
+  assert.ok(configuredMainRequest?.tools)
+  assert.equal('memory_search' in (configuredMainRequest?.tools ?? {}), true)
+  assert.equal('memory_search' in (disabledMainRequest?.tools ?? {}), false)
+})
+
+test('YachiyoServer does not claim there are no tools when hidden memory search is the only tool', async () => {
+  const modelRequests: ModelStreamRequest[] = []
+
+  await withServer(
+    async ({ completeRun, server }) => {
+      await server.saveConfig({
+        ...(await server.getConfig()),
+        enabledTools: []
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Find the saved deploy workflow.'
+      })
+      assertAcceptedHasUserMessage(accepted)
+      await completeRun(accepted.runId)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          modelRequests.push(request)
+          yield 'done'
+        }
+      }),
+      memoryService: {
+        hasHiddenSearchCapability: () => true,
+        isConfigured: () => true,
+        searchMemories: async () => [],
+        testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+        recallForContext: async () => [],
+        distillCompletedRun: async () => ({ savedCount: 0 }),
+        saveThread: async () => ({ savedCount: 0 })
+      }
+    }
+  )
+
+  const mainRequest = modelRequests.find((request) => request.providerOptionsMode !== 'auxiliary')
+  const systemMessages = (mainRequest?.messages ?? []).filter(
+    (message): message is { role: 'system'; content: string } =>
+      message.role === 'system' && typeof message.content === 'string'
+  )
+
+  assert.ok(mainRequest?.tools)
+  assert.equal('memory_search' in (mainRequest?.tools ?? {}), true)
+  assert.equal(
+    systemMessages.some((message) => /No tools are available for this run/u.test(message.content)),
+    false
+  )
+  assert.equal(
+    systemMessages.some((message) =>
+      /Long-term memory search is available internally/u.test(message.content)
+    ),
+    true
   )
 })
 
@@ -629,6 +761,7 @@ test('YachiyoServer continues the run when memory recall fails', async () => {
       memoryService: {
         hasHiddenSearchCapability: () => true,
         isConfigured: () => true,
+        searchMemories: async () => [],
         testConnection: async () => ({ ok: false, message: 'Cannot connect to Nowledge Mem' }),
         recallForContext: async () => {
           throw new Error('Cannot connect to Nowledge Mem')
@@ -670,6 +803,7 @@ test('YachiyoServer saveThread uses the explicit memory service and can archive 
       memoryService: {
         hasHiddenSearchCapability: () => true,
         isConfigured: () => true,
+        searchMemories: async () => [],
         testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
         recallForContext: async () => [],
         distillCompletedRun: async () => ({ savedCount: 0 }),
@@ -713,6 +847,7 @@ test('YachiyoServer tests memory connectivity against the provided draft config'
       memoryService: {
         hasHiddenSearchCapability: () => true,
         isConfigured: () => true,
+        searchMemories: async () => [],
         testConnection: async (config) => {
           receivedConfig = config
           return { ok: true, message: 'Nowledge Mem is reachable.' }

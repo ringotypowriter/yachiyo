@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import test from 'node:test'
 
 import {
+  createAgentToolSet,
   normalizeToolResult,
   runGlobTool,
   runGrepTool,
@@ -18,6 +19,8 @@ import {
   summarizeToolOutput,
   streamBashTool
 } from './agentTools.ts'
+import type { MemoryService } from '../services/memory/memoryService.ts'
+import { createTool as createMemorySearchTool } from './agentTools/memorySearchTool.ts'
 
 async function withWorkspace(fn: (workspacePath: string) => Promise<void> | void): Promise<void> {
   const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-agent-tools-'))
@@ -67,6 +70,81 @@ test('runReadTool uses offset/limit continuation semantics and returns truncatio
       'two\nthree\n\n[truncated: continue with offset 3]'
     )
   })
+})
+
+test('createAgentToolSet adds hidden memory_search only when memory is configured', () => {
+  const baseMemoryService: MemoryService = {
+    hasHiddenSearchCapability: () => true,
+    isConfigured: () => true,
+    searchMemories: async () => [],
+    testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+    recallForContext: async () => [],
+    distillCompletedRun: async () => ({ savedCount: 0 }),
+    saveThread: async () => ({ savedCount: 0 })
+  }
+
+  const withMemory = createAgentToolSet(
+    {
+      enabledTools: ['read', 'bash'],
+      workspacePath: '/tmp/yachiyo'
+    },
+    {
+      memoryService: baseMemoryService
+    }
+  )
+  const withoutMemory = createAgentToolSet(
+    {
+      enabledTools: ['read', 'bash'],
+      workspacePath: '/tmp/yachiyo'
+    },
+    {
+      memoryService: {
+        ...baseMemoryService,
+        hasHiddenSearchCapability: () => false,
+        isConfigured: () => false
+      }
+    }
+  )
+
+  assert.ok(withMemory)
+  assert.ok(withoutMemory)
+  assert.equal('memory_search' in withMemory, true)
+  assert.equal('memory_search' in withoutMemory, false)
+  assert.equal('memory_search' in (withMemory ?? {}), true)
+  assert.equal('memory_search' in (withoutMemory ?? {}), false)
+})
+
+test('memory_search forwards the abort signal to memory service lookups', async () => {
+  const abortController = new AbortController()
+  let receivedSignal: AbortSignal | undefined
+  const memorySearchTool = createMemorySearchTool({
+    hasHiddenSearchCapability: () => true,
+    isConfigured: () => true,
+    searchMemories: async ({ signal }) => {
+      receivedSignal = signal
+      return []
+    },
+    testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+    recallForContext: async () => [],
+    distillCompletedRun: async () => ({ savedCount: 0 }),
+    saveThread: async () => ({ savedCount: 0 })
+  })
+
+  assert.equal(typeof memorySearchTool.execute, 'function')
+  const executeOptions: Parameters<NonNullable<typeof memorySearchTool.execute>>[1] = {
+    abortSignal: abortController.signal,
+    toolCallId: 'memory-search-tool-call',
+    messages: []
+  }
+
+  await memorySearchTool.execute!(
+    {
+      query: 'deploy workflow'
+    },
+    executeOptions
+  )
+
+  assert.equal(receivedSignal, abortController.signal)
 })
 
 test('runWriteTool overwrites existing files by default and reports bytes plus overwrite state', async () => {

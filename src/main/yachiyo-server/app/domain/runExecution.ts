@@ -20,9 +20,11 @@ import type {
   ToolCallRecord,
   ToolCallUpdatedEvent
 } from '../../../../shared/yachiyo/protocol.ts'
+import { isCoreToolName } from '../../../../shared/yachiyo/protocol.ts'
 import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 import { prepareModelMessages } from '../../runtime/messagePrepare.ts'
 import { SYSTEM_PROMPT } from '../../runtime/prompt.ts'
+import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
 import {
   buildToolAvailabilityReminderSection,
@@ -77,6 +79,7 @@ export interface RunExecutionDeps {
     thread: ThreadRecord
     userQuery: string
   }) => Promise<string[]>
+  memoryService: MemoryService
   searchService?: SearchService
   webSearchService?: WebSearchService
   readSoulDocument?: () => Promise<SoulDocument | null>
@@ -114,35 +117,41 @@ function throwIfAborted(signal: AbortSignal): void {
   throw error
 }
 
-function buildAgentInstructions(workspacePath: string, enabledTools: ToolCallName[]): string {
+function buildAgentInstructions(input: {
+  workspacePath: string
+  enabledTools: ToolCallName[]
+  hasHiddenMemorySearch: boolean
+}): string {
   const instructions = [
     'You are operating as a tool-using local agent.',
     'Default execution mode is YOLO: use tools directly for normal local work instead of asking for per-step confirmation.',
-    `The current thread workspace is ${workspacePath}.`,
+    `The current thread workspace is ${input.workspacePath}.`,
     'Relative paths should resolve from that workspace unless you intentionally use an absolute path.'
   ]
 
-  if (enabledTools.length === 0) {
+  if (input.enabledTools.length === 0 && !input.hasHiddenMemorySearch) {
     instructions.push('No tools are available for this run. Respond without tool calls.')
     return instructions.join('\n')
   }
 
-  instructions.push(`Available tools: ${enabledTools.join(', ')}.`)
+  if (input.enabledTools.length > 0) {
+    instructions.push(`Available tools: ${input.enabledTools.join(', ')}.`)
+  }
 
-  if (enabledTools.includes('bash')) {
+  if (input.enabledTools.includes('bash')) {
     instructions.push('Use bash for shell commands when shell execution is the clearest path.')
   }
 
-  if (enabledTools.includes('grep')) {
+  if (input.enabledTools.includes('grep')) {
     instructions.push('Use grep for text/code search before falling back to bash search commands.')
   }
 
-  if (enabledTools.includes('glob')) {
+  if (input.enabledTools.includes('glob')) {
     instructions.push('Use glob for file discovery before falling back to bash find/fd commands.')
   }
 
   if (
-    enabledTools.some(
+    input.enabledTools.some(
       (toolName) =>
         toolName === 'read' || toolName === 'write' || toolName === 'edit' || toolName === 'glob'
     )
@@ -152,15 +161,21 @@ function buildAgentInstructions(workspacePath: string, enabledTools: ToolCallNam
     )
   }
 
-  if (enabledTools.includes('webRead')) {
+  if (input.enabledTools.includes('webRead')) {
     instructions.push(
       'Use webRead for static HTTP(S) pages when you need readable extracted content. It is not a browser automation or JS-rendering tool.'
     )
   }
 
-  if (enabledTools.includes('webSearch')) {
+  if (input.enabledTools.includes('webSearch')) {
     instructions.push(
       'Use webSearch for general search results across the web. It returns normalized search hits, not arbitrary browser automation.'
+    )
+  }
+
+  if (input.hasHiddenMemorySearch) {
+    instructions.push(
+      'Long-term memory search is available internally. Use it for durable preferences, decisions, workflows, constraints, bugs, and project facts instead of guessing.'
     )
   }
 
@@ -361,7 +376,11 @@ export async function executeServerRun(
         evolvedTraits: soulDocument?.evolvedTraits ?? []
       },
       agent: {
-        instructions: buildAgentInstructions(workspacePath, input.enabledTools)
+        instructions: buildAgentInstructions({
+          workspacePath,
+          enabledTools: input.enabledTools,
+          hasHiddenMemorySearch: deps.memoryService.hasHiddenSearchCapability()
+        })
       },
       hint: {
         reminder: hiddenQueryReminder
@@ -378,6 +397,7 @@ export async function executeServerRun(
       },
       {
         searchService: deps.searchService,
+        memoryService: deps.memoryService,
         webSearchService: deps.webSearchService
       }
     )
@@ -389,6 +409,10 @@ export async function executeServerRun(
       signal: input.abortController.signal,
       ...(tools ? { tools } : {}),
       onToolCallStart: (event) => {
+        if (!isCoreToolName(event.toolCall.toolName)) {
+          return
+        }
+
         cancelPendingSafeSteerPointAfterTool()
         runningToolCallIds.add(event.toolCall.toolCallId)
         setExecutionPhase('tool-running')
@@ -417,6 +441,10 @@ export async function executeServerRun(
         })
       },
       onToolCallUpdate: (event) => {
+        if (!isCoreToolName(event.toolCall.toolName)) {
+          return
+        }
+
         const startedToolCall = toolCalls.get(event.toolCall.toolCallId)
         if (!startedToolCall) {
           return
@@ -447,6 +475,10 @@ export async function executeServerRun(
       },
       onToolCallFinish: (event) => {
         try {
+          if (!isCoreToolName(event.toolCall.toolName)) {
+            return
+          }
+
           const startedToolCall = toolCalls.get(event.toolCall.toolCallId)
           const toolName = event.toolCall.toolName as ToolCallRecord['toolName']
           const finishedAt = deps.timestamp()

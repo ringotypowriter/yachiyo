@@ -18,6 +18,7 @@ import type { ModelMessage, ModelRuntime } from '../../runtime/types.ts'
 export const HIDDEN_MEMORY_SEARCH_TOOL_NAME = 'memory_search'
 const DEFAULT_CONTEXT_MEMORY_LIMIT = 4
 const DEFAULT_PROVIDER_SEARCH_LIMIT = 4
+const DEFAULT_MEMORY_TOOL_LIMIT = 5
 
 export interface MemoryQueryPlanItem {
   query: string
@@ -92,6 +93,11 @@ export interface DistillRunMemoryInput {
 export interface MemoryService {
   hasHiddenSearchCapability(): boolean
   isConfigured(): boolean
+  searchMemories(input: {
+    limit?: number
+    query: string
+    signal?: AbortSignal
+  }): Promise<MemorySearchResult[]>
   testConnection(config?: SettingsConfig): Promise<TestMemoryConnectionResult>
   recallForContext(input: RecallMemoryInput): Promise<string[]>
   distillCompletedRun(input: DistillRunMemoryInput): Promise<{ savedCount: number }>
@@ -140,19 +146,41 @@ const FORBIDDEN_MEMORY_PHRASES = [
   /\bjust now\b/iu,
   /\bcurrently\b/iu,
   /\bwe discussed\b/iu,
+  /\bwe talked about\b/iu,
+  /\bin this (chat|conversation|thread|run)\b/iu,
+  /\bearlier (today|in this chat|in this thread)\b/iu,
   /\bit seems\b/iu,
   /\bmaybe\b/iu,
   /\bseems like\b/iu,
+  /\bthe user asked\b/iu,
+  /\bthe assistant said\b/iu,
   /这次/u,
   /刚才/u,
   /目前/u,
   /我们讨论/u,
+  /这段对话/u,
+  /这个线程/u,
   /似乎/u,
   /也许/u
+]
+const FORBIDDEN_MEMORY_TITLE_PATTERNS = [
+  /^(i|we|you)\b/iu,
+  /^(this|that|these|those)\b/iu,
+  /^(discussion|conversation)\b/iu
+]
+const FORBIDDEN_MEMORY_CONTENT_PATTERNS = [
+  /\b(asked|said|mentioned|talked about|discussed)\b/iu,
+  /\bconversation\b/iu,
+  /用户/u,
+  /助手/u,
+  /对话/u
 ]
 const MAX_MEMORY_TITLE_LENGTH = 80
 const MAX_MEMORY_CONTENT_LENGTH = 320
 const MAX_MEMORY_TOPIC_LENGTH = 64
+const MIN_MEMORY_CONTENT_LENGTH = 20
+const MIN_MEMORY_TITLE_LENGTH = 3
+const MIN_MEMORY_TOPIC_LENGTH = 3
 
 function clampWeight(value: unknown): number | undefined {
   if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -177,6 +205,14 @@ function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/gu, ' ').trim()
 }
 
+function clampMemorySearchLimit(value: number | undefined): number {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return DEFAULT_MEMORY_TOOL_LIMIT
+  }
+
+  return Math.max(1, Math.min(10, Math.trunc(value)))
+}
+
 function truncate(value: string, maxLength: number): string {
   if (value.length <= maxLength) {
     return value
@@ -192,6 +228,10 @@ function stripMarkdownFence(value: string): string {
 
 function hasForbiddenMemoryPhrase(value: string): boolean {
   return FORBIDDEN_MEMORY_PHRASES.some((pattern) => pattern.test(value))
+}
+
+function matchesAnyPattern(value: string, patterns: RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(value))
 }
 
 function normalizeUnitType(value: unknown): MemoryUnitType {
@@ -303,7 +343,11 @@ function normalizeMemoryCandidate(raw: {
     return null
   }
 
-  if (title.length < 3 || content.length < 16) {
+  if (
+    topic.length < MIN_MEMORY_TOPIC_LENGTH ||
+    title.length < MIN_MEMORY_TITLE_LENGTH ||
+    content.length < MIN_MEMORY_CONTENT_LENGTH
+  ) {
     return null
   }
 
@@ -311,7 +355,12 @@ function normalizeMemoryCandidate(raw: {
     return null
   }
 
-  if (hasForbiddenMemoryPhrase(title) || hasForbiddenMemoryPhrase(content)) {
+  if (
+    hasForbiddenMemoryPhrase(title) ||
+    hasForbiddenMemoryPhrase(content) ||
+    matchesAnyPattern(title, FORBIDDEN_MEMORY_TITLE_PATTERNS) ||
+    matchesAnyPattern(content, FORBIDDEN_MEMORY_CONTENT_PATTERNS)
+  ) {
     return null
   }
 
@@ -374,6 +423,30 @@ function normalizeDedupKey(input: { title: string; content: string }): string {
     .trim()
 }
 
+function tokenizeForSimilarity(value: string): string[] {
+  return normalizeDedupKey({ title: value, content: '' })
+    .split(/\s+/u)
+    .filter((token) => token.length > 1)
+}
+
+function computeTokenOverlap(left: string, right: string): number {
+  const leftTokens = new Set(tokenizeForSimilarity(left))
+  const rightTokens = new Set(tokenizeForSimilarity(right))
+
+  if (leftTokens.size === 0 || rightTokens.size === 0) {
+    return 0
+  }
+
+  let shared = 0
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) {
+      shared += 1
+    }
+  }
+
+  return shared / Math.max(leftTokens.size, rightTokens.size)
+}
+
 function buildHistoryExcerpt(history: MessageRecord[]): string {
   return history
     .slice(-4)
@@ -394,7 +467,11 @@ function buildQueryPlanningMessages(input: {
         'Schema: {"queries":[{"topic":"string","query":"string","reason":"string","weight":0.0}]}',
         'Produce 0-3 focused semantic queries.',
         'Each topic must be a short stable canonical topic key, not a sentence.',
-        'Each query must target durable memories such as preferences, decisions, workflows, constraints, bugs, or project facts.',
+        'Each query must target durable memories such as preferences, decisions, workflows, constraints, bugs, project facts, and reusable troubleshooting knowledge.',
+        'Write retrieval-oriented semantic queries, not naive keyword splitting and not paraphrases of the full user turn.',
+        'Favor stable project wording that could match long-term memory written on earlier days.',
+        'Prefer queries that can surface durable preferences, decisions, workflows, constraints, bugs, and project facts.',
+        'Avoid time words, temporary status, and conversational framing like "this time", "currently", "we discussed", or "maybe".',
         'Do not do naive keyword splitting.',
         'Do not include run-specific chatter, filler, or temporary status language.'
       ].join('\n')
@@ -424,11 +501,15 @@ function buildRunDistillationMessages(input: {
         'Return JSON only.',
         'Schema: {"candidates":[{"topic":"string","title":"string","content":"string","unitType":"fact|preference|decision|plan|procedure|learning|context|event","importance":0.0}]}',
         'Only keep durable preferences, decisions, workflows, stable facts, or reusable lessons.',
-        'Title must be short, stable, canonical, and topic-like.',
-        'Topic must be a stable canonical topic identifier for dedupe and updates.',
-        'Content must be normalized factual wording, not chatty summary prose.',
+        'Emit at most one candidate per durable topic.',
+        'Topic must be a stable canonical topic identifier for dedupe, reconciliation, and later updates.',
+        'Title must be short, stable, canonical, topic-like, and noun-style when possible.',
+        'Reuse the same topic key and title for repeated long-term topics instead of inventing variants.',
+        'Content must be normalized durable wording, compact, factual, and easy to compare during future updates.',
+        'Content must not describe the chat itself, the thread itself, or the current run.',
         'Exclude temporary run chatter, conversational filler, and weak observations.',
         'Do not use phrases like "this time", "just now", "currently", "we discussed", "it seems", or "maybe".',
+        'Do not write vague conversational summaries like "the user asked", "we talked about", or "the assistant said".',
         'Do not emit multiple near-duplicate candidates for the same long-term topic.'
       ].join('\n')
     },
@@ -456,9 +537,13 @@ function buildSaveThreadMessages(messages: MessageRecord[]): ModelMessage[] {
         'Return JSON only.',
         'Schema: {"candidates":[{"topic":"string","title":"string","content":"string","unitType":"fact|preference|decision|plan|procedure|learning|context|event","importance":0.0}]}',
         'Keep only durable knowledge that should survive beyond this single thread.',
-        'Prefer stable canonical topics and normalized factual wording.',
+        'Emit at most one candidate per durable topic.',
+        'Prefer stable canonical topics, stable canonical titles, and normalized factual wording.',
+        'Reuse the same topic key and title for repeated long-term topics instead of inventing variants.',
+        'Content must be compact durable wording, not a story about this thread.',
         'Exclude temporary status, filler, speculation, and thread-specific narration.',
         'Do not use phrases like "this time", "just now", "currently", "we discussed", "it seems", or "maybe".',
+        'Do not write conversational summaries like "the user asked", "we talked about", or "the assistant said".',
         'Do not emit multiple near-duplicate candidates for the same long-term topic.'
       ].join('\n')
     },
@@ -559,15 +644,26 @@ async function deriveMemoryCandidates(
 
 function scoreTopicMatch(topic: string, result: MemorySearchResult): number {
   const resultTitleTopic = normalizeTopicKey(result.title ?? '')
+  const labelTopic = normalizeTopicKey(findTopicLabel(result.labels)?.slice('topic:'.length) ?? '')
+  const contentTopic = normalizeTopicKey(result.content)
+
+  if (labelTopic && labelTopic === topic) {
+    return 1.1
+  }
+
   if (!resultTitleTopic) {
-    return 0
+    return contentTopic === topic ? 0.9 : 0
   }
 
   if (resultTitleTopic === topic) {
     return 1
   }
 
-  if (resultTitleTopic.includes(topic) || topic.includes(resultTitleTopic)) {
+  if (
+    resultTitleTopic.includes(topic) ||
+    topic.includes(resultTitleTopic) ||
+    contentTopic === topic
+  ) {
     return 0.8
   }
 
@@ -592,11 +688,15 @@ function selectReconciliationTarget(
   const scored = results
     .map((result) => ({
       result,
-      score: scoreTopicMatch(candidate.topic, result) + (result.score ?? 0)
+      score:
+        scoreTopicMatch(candidate.topic, result) +
+        computeTokenOverlap(candidate.title, result.title ?? '') * 0.75 +
+        computeTokenOverlap(candidate.content, result.content) * 0.45 +
+        (result.score ?? 0) * 0.2
     }))
     .sort((left, right) => right.score - left.score)
 
-  if ((scored[0]?.score ?? 0) >= 0.8) {
+  if ((scored[0]?.score ?? 0) >= 0.9) {
     return scored[0]?.result ?? null
   }
 
@@ -640,21 +740,34 @@ async function reconcileMemoryCandidates(
   const updates: Array<{ id: string; item: MemoryCandidate }> = []
 
   for (const candidate of mergeCandidatesByTopic(candidates)) {
-    const topicMatches = await provider.searchMemories({
-      limit: 4,
-      query: candidate.title,
-      label: buildTopicLabel(candidate.topic),
-      signal
-    })
-    const fallbackMatches =
-      topicMatches.length > 0
-        ? topicMatches
-        : await provider.searchMemories({
-            limit: 4,
-            query: `${candidate.title} ${candidate.topic}`,
-            signal
-          })
-    const existing = selectReconciliationTarget(candidate, fallbackMatches)
+    const aggregatedMatches = new Map<string, MemorySearchResult>()
+    const reconciliationQueries = [
+      {
+        label: buildTopicLabel(candidate.topic),
+        query: candidate.title
+      },
+      {
+        query: `${candidate.title} ${humanizeTopic(candidate.topic)}`
+      },
+      {
+        query: `${humanizeTopic(candidate.topic)} ${candidate.content}`
+      }
+    ]
+
+    for (const searchInput of reconciliationQueries) {
+      const matches = await provider.searchMemories({
+        limit: 4,
+        query: truncate(searchInput.query, 180),
+        ...(searchInput.label ? { label: searchInput.label } : {}),
+        signal
+      })
+
+      for (const match of matches) {
+        aggregatedMatches.set(match.id, match)
+      }
+    }
+
+    const existing = selectReconciliationTarget(candidate, [...aggregatedMatches.values()])
 
     if (!existing) {
       creates.push(candidate)
@@ -687,6 +800,28 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
 
     isConfigured(): boolean {
       return isMemoryConfigured(deps.readConfig())
+    },
+
+    async searchMemories(input: {
+      limit?: number
+      query: string
+      signal?: AbortSignal
+    }): Promise<MemorySearchResult[]> {
+      const provider = resolveProvider()
+      if (!provider) {
+        return []
+      }
+
+      const query = normalizeWhitespace(input.query)
+      if (!query) {
+        return []
+      }
+
+      return provider.searchMemories({
+        limit: clampMemorySearchLimit(input.limit),
+        query,
+        signal: input.signal
+      })
     },
 
     async testConnection(configOverride?: SettingsConfig): Promise<TestMemoryConnectionResult> {

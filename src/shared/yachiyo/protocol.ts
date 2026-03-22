@@ -94,6 +94,10 @@ export function normalizeEnabledTools(
   return enabledTools
 }
 
+export function isCoreToolName(value: string): value is ToolCallName {
+  return coreToolNameSet.has(value)
+}
+
 export function normalizeActiveRunEnterBehavior(
   value: unknown,
   fallback: ActiveRunEnterBehavior = DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
