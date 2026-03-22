@@ -1467,6 +1467,109 @@ test('createNewThread preserves the drafted workspace selection', async () => {
   }
 })
 
+test('createNewThread reuses an existing blank New Chat instead of creating another thread', async () => {
+  resetStore()
+
+  let createThreadCallCount = 0
+  const restoreWindow = withWindowApiMock({
+    createThread: async () => {
+      createThreadCallCount += 1
+      return {
+        id: 'thread-2',
+        title: 'New Chat',
+        updatedAt: TIMESTAMP
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-older',
+      messages: {
+        'thread-1': [],
+        'thread-older': [
+          {
+            id: 'message-1',
+            threadId: 'thread-older',
+            role: 'user',
+            content: 'hello',
+            status: 'completed',
+            createdAt: TIMESTAMP
+          }
+        ]
+      },
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'New Chat',
+          updatedAt: TIMESTAMP
+        },
+        {
+          id: 'thread-older',
+          title: 'Existing',
+          updatedAt: '2026-03-14T00:00:00.000Z',
+          preview: 'hello',
+          headMessageId: 'message-1'
+        }
+      ]
+    })
+
+    await useAppStore.getState().createNewThread()
+
+    const state = useAppStore.getState()
+    assert.equal(createThreadCallCount, 0)
+    assert.equal(state.activeThreadId, 'thread-1')
+    assert.equal(state.threads.length, 2)
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('createNewThread does not reuse a New Chat that already has unsent draft content', async () => {
+  resetStore()
+
+  const createThreadCalls: Array<{ workspacePath?: string } | undefined> = []
+  const restoreWindow = withWindowApiMock({
+    createThread: async (input) => {
+      createThreadCalls.push(input)
+      return {
+        id: 'thread-2',
+        title: 'New Chat',
+        updatedAt: TIMESTAMP
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      composerDrafts: {
+        'thread-1': {
+          text: 'Unsaved draft',
+          images: []
+        }
+      },
+      messages: {
+        'thread-1': []
+      },
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'New Chat',
+          updatedAt: TIMESTAMP
+        }
+      ]
+    })
+
+    await useAppStore.getState().createNewThread()
+
+    const state = useAppStore.getState()
+    assert.deepEqual(createThreadCalls, [undefined])
+    assert.equal(state.activeThreadId, 'thread-2')
+  } finally {
+    restoreWindow()
+  }
+})
+
 test('upsertComposerImage ignores late async updates after the placeholder was removed or cleared', () => {
   resetStore()
 

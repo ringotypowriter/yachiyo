@@ -245,6 +245,7 @@ function bootstrapRunsByThread(
 }
 
 const NEW_THREAD_DRAFT_KEY = '__new__'
+const DEFAULT_THREAD_TITLE = 'New Chat'
 
 function getComposerDraftKey(threadId: string | null): string {
   return threadId ?? NEW_THREAD_DRAFT_KEY
@@ -258,6 +259,32 @@ function getComposerDraft(
 
 function isComposerDraftEmpty(draft: ComposerDraft): boolean {
   return draft.text.trim().length === 0 && draft.images.length === 0
+}
+
+function isThreadReusableNewChat(
+  input: Pick<AppState, 'composerDrafts' | 'messages'> & {
+    pendingWorkspacePath: string | null
+  },
+  thread: Thread
+): boolean {
+  if (thread.title !== DEFAULT_THREAD_TITLE) {
+    return false
+  }
+
+  if ((input.messages[thread.id] ?? []).length > 0) {
+    return false
+  }
+
+  if (thread.preview || thread.headMessageId) {
+    return false
+  }
+
+  const draft = input.composerDrafts[getComposerDraftKey(thread.id)]
+  if (draft && !isComposerDraftEmpty(draft)) {
+    return false
+  }
+
+  return normalizeWorkspacePath(thread.workspacePath) === input.pendingWorkspacePath
 }
 
 function upsertComposerDraft(
@@ -1043,6 +1070,26 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   createNewThread: async () => {
     const pendingWorkspacePath = normalizeWorkspacePath(get().pendingWorkspacePath)
+    const reusableThread = get().threads.find((thread) =>
+      isThreadReusableNewChat(
+        {
+          composerDrafts: get().composerDrafts,
+          messages: get().messages,
+          pendingWorkspacePath
+        },
+        thread
+      )
+    )
+
+    if (reusableThread) {
+      set({
+        activeThreadId: reusableThread.id,
+        pendingWorkspacePath: null,
+        threadListMode: 'active'
+      })
+      return
+    }
+
     const thread = await window.api.yachiyo.createThread(
       pendingWorkspacePath ? { workspacePath: pendingWorkspacePath } : undefined
     )
