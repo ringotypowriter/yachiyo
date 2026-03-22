@@ -82,6 +82,7 @@ interface AppState {
   isBootstrapping: boolean
   lastError: string | null
   latestRunsByThread: Record<string, RunRecord>
+  runsByThread: Record<string, RunRecord[]>
   removeComposerImage: (imageId: string, threadId?: string | null) => void
   deleteMessage: (messageId: string) => Promise<void>
   messages: Record<string, Message[]>
@@ -182,6 +183,33 @@ function upsertLatestRun(
     ...latestRunsByThread,
     [run.threadId]: run
   }
+}
+
+function upsertRunRecord(runs: RunRecord[], run: RunRecord): RunRecord[] {
+  const next = [...runs.filter((entry) => entry.id !== run.id), run]
+  return next.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+}
+
+function updateRunRecord(
+  runsByThread: Record<string, RunRecord[]>,
+  threadId: string,
+  runId: string,
+  updater: (run: RunRecord | undefined) => RunRecord
+): Record<string, RunRecord[]> {
+  const runs = runsByThread[threadId] ?? []
+
+  return {
+    ...runsByThread,
+    [threadId]: upsertRunRecord(runs, updater(runs.find((entry) => entry.id === runId)))
+  }
+}
+
+function bootstrapRunsByThread(
+  latestRunsByThread: Record<string, RunRecord>
+): Record<string, RunRecord[]> {
+  return Object.fromEntries(
+    Object.values(latestRunsByThread).map((run) => [run.threadId, [run]] as const)
+  )
 }
 
 const NEW_THREAD_DRAFT_KEY = '__new__'
@@ -389,6 +417,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   isBootstrapping: false,
   lastError: null,
   latestRunsByThread: {},
+  runsByThread: {},
   removeComposerImage: (imageId, threadId) =>
     set((state) => {
       const draftKey = getComposerDraftKey(threadId ?? state.activeThreadId)
@@ -508,6 +537,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete harnessEvents[event.threadId]
         const latestRunsByThread = { ...state.latestRunsByThread }
         delete latestRunsByThread[event.threadId]
+        const runsByThread = { ...state.runsByThread }
+        delete runsByThread[event.threadId]
         const toolCalls = { ...state.toolCalls }
         delete toolCalls[event.threadId]
 
@@ -524,6 +555,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           composerDrafts: removeComposerDraft(state.composerDrafts, event.threadId),
           harnessEvents,
           latestRunsByThread,
+          runsByThread,
           messages,
           pendingSteerMessages: removePendingSteerMessage(
             state.pendingSteerMessages,
@@ -611,10 +643,43 @@ export const useAppStore = create<AppState>((set, get) => ({
             id: event.runId,
             threadId: event.threadId,
             status: 'running',
-            createdAt: event.timestamp
+            createdAt: event.timestamp,
+            requestMessageId: event.requestMessageId
           }),
+          runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
+            ...run,
+            id: event.runId,
+            threadId: event.threadId,
+            status: 'running',
+            createdAt: run?.createdAt ?? event.timestamp,
+            requestMessageId: event.requestMessageId,
+            recalledMemoryEntries: run?.recalledMemoryEntries
+          })),
           runPhase: 'preparing',
           runStatus: 'running'
+        }
+      }
+
+      if (event.type === 'run.memory.recalled') {
+        return {
+          latestRunsByThread:
+            state.latestRunsByThread[event.threadId]?.id === event.runId
+              ? upsertLatestRun(state.latestRunsByThread, {
+                  ...state.latestRunsByThread[event.threadId]!,
+                  recalledMemoryEntries: event.recalledMemoryEntries
+                })
+              : state.latestRunsByThread,
+          runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
+            ...run,
+            id: event.runId,
+            threadId: event.threadId,
+            status: run?.status ?? 'running',
+            createdAt: run?.createdAt ?? event.timestamp,
+            requestMessageId: event.requestMessageId,
+            recalledMemoryEntries: event.recalledMemoryEntries,
+            ...(run?.completedAt ? { completedAt: run.completedAt } : {}),
+            ...(run?.error ? { error: run.error } : {})
+          }))
         }
       }
 
@@ -693,6 +758,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (event.type === 'run.completed') {
         const pendingAssistantMessages = { ...state.pendingAssistantMessages }
         delete pendingAssistantMessages[event.runId]
+        const existingLatestRun =
+          state.latestRunsByThread[event.threadId]?.id === event.runId
+            ? state.latestRunsByThread[event.threadId]
+            : undefined
 
         return {
           activeRunId: state.activeRunId === event.runId ? null : state.activeRunId,
@@ -703,12 +772,21 @@ export const useAppStore = create<AppState>((set, get) => ({
             id: event.runId,
             threadId: event.threadId,
             status: 'completed',
-            createdAt:
-              state.latestRunsByThread[event.threadId]?.id === event.runId
-                ? state.latestRunsByThread[event.threadId]!.createdAt
-                : event.timestamp,
+            createdAt: existingLatestRun?.createdAt ?? event.timestamp,
+            requestMessageId: existingLatestRun?.requestMessageId,
+            recalledMemoryEntries: existingLatestRun?.recalledMemoryEntries,
             completedAt: event.timestamp
           }),
+          runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
+            ...run,
+            id: event.runId,
+            threadId: event.threadId,
+            status: 'completed',
+            createdAt: run?.createdAt ?? event.timestamp,
+            requestMessageId: run?.requestMessageId,
+            recalledMemoryEntries: run?.recalledMemoryEntries,
+            completedAt: event.timestamp
+          })),
           pendingAssistantMessages,
           pendingSteerMessages:
             state.activeRunThreadId === event.threadId
@@ -723,6 +801,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         const pending = state.pendingAssistantMessages[event.runId]
         const pendingAssistantMessages = { ...state.pendingAssistantMessages }
         delete pendingAssistantMessages[event.runId]
+        const existingLatestRun =
+          state.latestRunsByThread[event.threadId]?.id === event.runId
+            ? state.latestRunsByThread[event.threadId]
+            : undefined
 
         return {
           activeRunId: state.activeRunId === event.runId ? null : state.activeRunId,
@@ -735,12 +817,22 @@ export const useAppStore = create<AppState>((set, get) => ({
             threadId: event.threadId,
             status: 'failed',
             error: event.error,
-            createdAt:
-              state.latestRunsByThread[event.threadId]?.id === event.runId
-                ? state.latestRunsByThread[event.threadId]!.createdAt
-                : event.timestamp,
+            createdAt: existingLatestRun?.createdAt ?? event.timestamp,
+            requestMessageId: existingLatestRun?.requestMessageId,
+            recalledMemoryEntries: existingLatestRun?.recalledMemoryEntries,
             completedAt: event.timestamp
           }),
+          runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
+            ...run,
+            id: event.runId,
+            threadId: event.threadId,
+            status: 'failed',
+            error: event.error,
+            createdAt: run?.createdAt ?? event.timestamp,
+            requestMessageId: run?.requestMessageId,
+            recalledMemoryEntries: run?.recalledMemoryEntries,
+            completedAt: event.timestamp
+          })),
           messages: pending
             ? {
                 ...state.messages,
@@ -765,6 +857,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         const pending = state.pendingAssistantMessages[event.runId]
         const pendingAssistantMessages = { ...state.pendingAssistantMessages }
         delete pendingAssistantMessages[event.runId]
+        const existingLatestRun =
+          state.latestRunsByThread[event.threadId]?.id === event.runId
+            ? state.latestRunsByThread[event.threadId]
+            : undefined
 
         return {
           activeRunId: state.activeRunId === event.runId ? null : state.activeRunId,
@@ -775,12 +871,21 @@ export const useAppStore = create<AppState>((set, get) => ({
             id: event.runId,
             threadId: event.threadId,
             status: 'cancelled',
-            createdAt:
-              state.latestRunsByThread[event.threadId]?.id === event.runId
-                ? state.latestRunsByThread[event.threadId]!.createdAt
-                : event.timestamp,
+            createdAt: existingLatestRun?.createdAt ?? event.timestamp,
+            requestMessageId: existingLatestRun?.requestMessageId,
+            recalledMemoryEntries: existingLatestRun?.recalledMemoryEntries,
             completedAt: event.timestamp
           }),
+          runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
+            ...run,
+            id: event.runId,
+            threadId: event.threadId,
+            status: 'cancelled',
+            createdAt: run?.createdAt ?? event.timestamp,
+            requestMessageId: run?.requestMessageId,
+            recalledMemoryEntries: run?.recalledMemoryEntries,
+            completedAt: event.timestamp
+          })),
           messages: pending
             ? {
                 ...state.messages,
@@ -892,6 +997,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           isBootstrapping: false,
           lastError: null,
           latestRunsByThread: payload.latestRunsByThread,
+          runsByThread: bootstrapRunsByThread(payload.latestRunsByThread),
           messages: payload.messagesByThread,
           settings: payload.settings ?? state.settings ?? DEFAULT_SETTINGS,
           threads: sortThreads(payload.threads),

@@ -380,6 +380,8 @@ export interface RunRecord {
   error?: string
   createdAt: string
   completedAt?: string
+  requestMessageId?: string
+  recalledMemoryEntries?: string[]
 }
 
 export interface ChatAcceptedWithUserMessage {
@@ -511,6 +513,12 @@ export interface RunCreatedEvent extends RunEvent {
   requestMessageId: string
 }
 
+export interface RunMemoryRecalledEvent extends RunEvent {
+  type: 'run.memory.recalled'
+  requestMessageId: string
+  recalledMemoryEntries: string[]
+}
+
 export interface RunCompletedEvent extends RunEvent {
   type: 'run.completed'
 }
@@ -574,6 +582,7 @@ export type YachiyoServerEvent =
   | ThreadRestoredEvent
   | ThreadDeletedEvent
   | RunCreatedEvent
+  | RunMemoryRecalledEvent
   | RunCompletedEvent
   | RunFailedEvent
   | RunCancelledEvent

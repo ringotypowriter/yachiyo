@@ -1,18 +1,20 @@
 import React, { useEffect, useRef } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { HarnessRecord } from '@renderer/app/store/useAppStore'
-import type { Message, ToolCall } from '@renderer/app/types'
+import type { Message, RunRecord, ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import {
   buildMessageGroups,
   getVisibleToolCallsForGroup,
   partitionToolCallsForGroups
 } from '../lib/messageThreadPresentation'
+import { findRunMemorySummary } from '../lib/runMemoryPresentation.ts'
 import { buildConversationGroupSectionKinds } from '../lib/messageTimelineLayout.ts'
 import { UserMessageBubble } from './UserMessageBubble'
 import { AssistantMessageBubble } from './AssistantMessageBubble'
 import { PreparingBubble } from './PreparingBubble'
 import { RunEventRow } from './RunEventRow'
+import { RunMemoryRecallRow } from './RunMemoryRecallRow'
 import { ReplyBranchNavigation } from './ReplyBranchNavigation'
 import { ToolCallRow } from './ToolCallRow'
 
@@ -22,6 +24,7 @@ interface MessageTimelineProps {
 
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_HARNESSES: HarnessRecord[] = []
+const EMPTY_RUNS: RunRecord[] = []
 const EMPTY_TOOL_CALLS: ToolCall[] = []
 
 const DEFAULT_HARNESS = 'default.reply'
@@ -109,6 +112,7 @@ export function ThreadConversationGroup({
   group,
   toolCalls,
   threadHasActiveRun,
+  runs,
   onCreateBranch,
   onRetry,
   onSelectReplyBranch,
@@ -118,6 +122,7 @@ export function ThreadConversationGroup({
   group: ReturnType<typeof buildMessageGroups>[number]
   toolCalls: ToolCall[]
   threadHasActiveRun: boolean
+  runs: RunRecord[]
   onCreateBranch: (messageId: string) => Promise<void>
   onRetry: (messageId: string) => Promise<void>
   onSelectReplyBranch: (messageId: string) => Promise<void>
@@ -134,6 +139,7 @@ export function ThreadConversationGroup({
       : null
   const retryTargetMessageId = activeBranch?.message.id ?? group.userMessage.id
   const visibleToolCalls = getVisibleToolCallsForGroup({ group, toolCalls })
+  const memorySummary = findRunMemorySummary(runs, group.userMessage.id)
   const sectionKinds = buildConversationGroupSectionKinds({
     hasActiveBranch: Boolean(activeBranch),
     hideActiveBranchWhilePreparing: group.hideActiveBranchWhilePreparing,
@@ -186,6 +192,7 @@ export function ThreadConversationGroup({
         if (sectionKind === 'assistant-bubble' && activeBranch) {
           return (
             <div key="assistant-bubble" className="message-response-cluster">
+              {memorySummary ? <RunMemoryRecallRow entries={memorySummary.entries} /> : null}
               <AssistantMessageBubble
                 message={activeBranch.message}
                 threadHasActiveRun={threadHasActiveRun}
@@ -228,6 +235,9 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   )
   const toolCalls = useAppStore((state) =>
     threadId ? (state.toolCalls[threadId] ?? EMPTY_TOOL_CALLS) : EMPTY_TOOL_CALLS
+  )
+  const runs = useAppStore((state) =>
+    threadId ? (state.runsByThread[threadId] ?? EMPTY_RUNS) : EMPTY_RUNS
   )
   const activeRunThreadId = useAppStore((state) => state.activeRunThreadId)
   const activeRequestMessageId = useAppStore((state) => state.activeRequestMessageId)
@@ -384,6 +394,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
             group={item.data}
             toolCalls={inlineToolCalls}
             threadHasActiveRun={activeRunThreadId === threadId}
+            runs={runs}
             onCreateBranch={handleCreateBranch}
             onRetry={handleRetry}
             onSelectReplyBranch={handleSelectReplyBranch}

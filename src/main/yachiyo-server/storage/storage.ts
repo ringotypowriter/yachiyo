@@ -260,6 +260,7 @@ export function toRunRecord(row: StoredRunRow): RunRecord {
   return {
     ...(row.completedAt === null ? {} : { completedAt: row.completedAt }),
     ...(row.error === null ? {} : { error: row.error }),
+    ...(row.requestMessageId === null ? {} : { requestMessageId: row.requestMessageId }),
     createdAt: row.createdAt,
     id: row.id,
     status: row.status,

@@ -12,6 +12,7 @@ import type {
   RunCancelledEvent,
   RunCompletedEvent,
   RunFailedEvent,
+  RunMemoryRecalledEvent,
   SettingsConfig,
   ThreadRecord,
   ThreadUpdatedEvent,
@@ -347,6 +348,13 @@ export async function executeServerRun(
         })
       }
     }
+    deps.emit<RunMemoryRecalledEvent>({
+      type: 'run.memory.recalled',
+      threadId: input.thread.id,
+      runId: input.runId,
+      requestMessageId: input.requestMessageId,
+      recalledMemoryEntries: memoryEntries
+    })
     const messages = prepareModelMessages({
       personality: {
         basePersona: SYSTEM_PROMPT,

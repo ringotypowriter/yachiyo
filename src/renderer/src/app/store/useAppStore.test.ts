@@ -29,6 +29,7 @@ function resetStore(): void {
     isBootstrapping: false,
     lastError: null,
     latestRunsByThread: {},
+    runsByThread: {},
     messages: {},
     pendingAssistantMessages: {},
     pendingSteerMessages: {},
@@ -125,6 +126,49 @@ test('applyServerEvent keeps a stopped placeholder when a run is cancelled befor
       createdAt: TIMESTAMP
     }
   ])
+})
+
+test('applyServerEvent stores recalled memory on the matching run', () => {
+  resetStore()
+
+  useAppStore.getState().applyServerEvent({
+    type: 'run.created',
+    eventId: 'event-run-created',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    requestMessageId: 'user-1'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'run.memory.recalled',
+    eventId: 'event-run-memory-recalled',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    requestMessageId: 'user-1',
+    recalledMemoryEntries: ['Deploys start with staging smoke tests.']
+  })
+
+  const state = useAppStore.getState()
+
+  assert.deepEqual(state.runsByThread['thread-1'], [
+    {
+      id: 'run-1',
+      threadId: 'thread-1',
+      status: 'running',
+      createdAt: TIMESTAMP,
+      requestMessageId: 'user-1',
+      recalledMemoryEntries: ['Deploys start with staging smoke tests.']
+    }
+  ])
+  assert.deepEqual(state.latestRunsByThread['thread-1'], {
+    id: 'run-1',
+    threadId: 'thread-1',
+    status: 'running',
+    createdAt: TIMESTAMP,
+    requestMessageId: 'user-1',
+    recalledMemoryEntries: ['Deploys start with staging smoke tests.']
+  })
 })
 
 test('applyServerEvent stays in preparing until the first token arrives', () => {

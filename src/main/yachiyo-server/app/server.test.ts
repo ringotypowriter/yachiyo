@@ -551,13 +551,18 @@ test('YachiyoServer injects recalled memory into the compiled context before the
   const recalledQueries: string[] = []
 
   await withServer(
-    async ({ completeRun, modelRequests, server }) => {
+    async ({ completeRun, modelRequests, server, waitForEvent }) => {
       const thread = await server.createThread()
       const accepted = await server.sendChat({
         threadId: thread.id,
         content: 'How do we handle deploys?'
       })
       assertAcceptedHasUserMessage(accepted)
+      const recalledEvent = (await waitForEvent('run.memory.recalled')) as {
+        recalledMemoryEntries: string[]
+        requestMessageId: string
+        runId: string
+      }
       await completeRun(accepted.runId)
 
       const mainRequest = modelRequests.find(
@@ -565,6 +570,11 @@ test('YachiyoServer injects recalled memory into the compiled context before the
       )
       assert.ok(mainRequest)
       assert.equal(recalledQueries[0], 'How do we handle deploys?')
+      assert.equal(recalledEvent.runId, accepted.runId)
+      assert.equal(recalledEvent.requestMessageId, accepted.userMessage.id)
+      assert.deepEqual(recalledEvent.recalledMemoryEntries, [
+        'Deploy workflow: Always run the staging smoke test first.'
+      ])
       assert.ok(
         mainRequest.messages.some(
           (message) =>
@@ -2408,6 +2418,7 @@ test('YachiyoServer bootstrap recovers interrupted runs and marks running tool c
       threadId: 'thread-1',
       status: 'failed',
       error: 'Run interrupted before completion.',
+      requestMessageId: 'user-1',
       createdAt,
       completedAt: interruptedAt
     })
