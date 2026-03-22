@@ -1,6 +1,8 @@
 import type {
   BashToolCallDetails,
   EditToolCallDetails,
+  GlobToolCallDetails,
+  GrepToolCallDetails,
   ReadToolCallDetails,
   ToolCall,
   WebReadToolCallDetails,
@@ -224,6 +226,40 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
       toolCall.status === 'failed' || details.blocked ? 'danger' : undefined
     )
     pushOutputTail(codeBlocks, 'stdout', details.stdout)
+  }
+
+  if (toolCall.toolName === 'grep') {
+    const details = toolCall.details as GrepToolCallDetails | undefined
+    if (!details) {
+      return { fields, codeBlocks }
+    }
+
+    pushField(fields, 'backend', details.backend)
+    pushField(fields, 'path', details.path)
+    pushField(fields, 'results', details.resultCount)
+    pushField(fields, 'truncated', toYesNo(details.truncated))
+    pushCodeBlock(
+      codeBlocks,
+      'matches',
+      details.matches.map((match) => `${match.path}:${match.line}: ${match.text}`).join('\n')
+    )
+
+    return { fields, codeBlocks }
+  }
+
+  if (toolCall.toolName === 'glob') {
+    const details = toolCall.details as GlobToolCallDetails | undefined
+    if (!details) {
+      return { fields, codeBlocks }
+    }
+
+    pushField(fields, 'backend', details.backend)
+    pushField(fields, 'path', details.path)
+    pushField(fields, 'results', details.resultCount)
+    pushField(fields, 'truncated', toYesNo(details.truncated))
+    pushCodeBlock(codeBlocks, 'matches', details.matches.join('\n'))
+
+    return { fields, codeBlocks }
   }
 
   if (toolCall.toolName === 'webRead') {

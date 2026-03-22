@@ -23,6 +23,7 @@ import {
 import { createAuxiliaryGenerationService } from '../runtime/auxiliaryGeneration.ts'
 import { createAiSdkModelRuntime } from '../runtime/modelRuntime.ts'
 import type { ModelRuntime } from '../runtime/types.ts'
+import { createSearchService, type SearchService } from '../services/search/searchService.ts'
 import {
   BrowserSearchSession,
   createBrowserSearchSessionImportService,
@@ -52,6 +53,7 @@ export interface YachiyoServerOptions {
   now?: () => Date
   createId?: () => string
   createModelRuntime?: () => ModelRuntime
+  searchService?: SearchService
   ensureThreadWorkspace?: (threadId: string) => Promise<string>
   cloneThreadWorkspace?: (sourceThreadId: string, targetThreadId: string) => Promise<string>
   deleteThreadWorkspace?: (threadId: string) => Promise<void>
@@ -93,6 +95,7 @@ export class YachiyoServer {
 
     const settingsStore = createSettingsStore(options.settingsPath ?? resolveYachiyoSettingsPath())
     const createModelRuntime = options.createModelRuntime ?? (() => createAiSdkModelRuntime())
+    const searchService = options.searchService ?? createSearchService()
     const ensureThreadWorkspace = options.ensureThreadWorkspace ?? defaultEnsureThreadWorkspace
     const cloneThreadWorkspace = options.cloneThreadWorkspace ?? defaultCloneThreadWorkspace
     const deleteThreadWorkspace = options.deleteThreadWorkspace ?? defaultDeleteThreadWorkspace
@@ -141,6 +144,7 @@ export class YachiyoServer {
       auxiliaryGeneration,
       createModelRuntime,
       ensureThreadWorkspace,
+      searchService,
       webSearchService,
       readConfig: () => this.configDomain.readConfig(),
       readSettings: () => this.configDomain.readSettings(),

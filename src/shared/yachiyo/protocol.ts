@@ -11,6 +11,8 @@ export type WebReadContentFormat = 'markdown' | 'html'
 export type WebReadExtractor = 'defuddle' | 'linkedom-fallback' | 'none'
 export type WebSearchProviderId = 'google-browser' | 'exa'
 export type BrowserSearchImportSourceId = 'google-chrome'
+export type SearchGrepBackend = 'rg' | 'grep' | 'typescript'
+export type SearchFileDiscoveryBackend = 'fd' | 'find' | 'typescript'
 export type WebReadFailureCode =
   | 'invalid-url'
   | 'unsupported-protocol'
@@ -35,7 +37,16 @@ export type WebSearchFailureCode =
 export const DEFAULT_WEB_READ_CONTENT_FORMAT: WebReadContentFormat = 'markdown'
 
 export const DEFAULT_WEB_SEARCH_PROVIDER: WebSearchProviderId = 'google-browser'
-export const CORE_TOOL_NAMES = ['read', 'write', 'edit', 'bash', 'webRead', 'webSearch'] as const
+export const CORE_TOOL_NAMES = [
+  'read',
+  'write',
+  'edit',
+  'bash',
+  'grep',
+  'glob',
+  'webRead',
+  'webSearch'
+] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
 export type ToolCallStatus = 'running' | 'completed' | 'failed'
 
@@ -132,6 +143,30 @@ export interface BashToolCallDetails {
   outputFilePath?: string
 }
 
+export interface GrepToolCallMatch {
+  path: string
+  line: number
+  text: string
+}
+
+export interface GrepToolCallDetails {
+  backend: SearchGrepBackend
+  pattern: string
+  path: string
+  resultCount: number
+  truncated: boolean
+  matches: GrepToolCallMatch[]
+}
+
+export interface GlobToolCallDetails {
+  backend: SearchFileDiscoveryBackend
+  pattern: string
+  path: string
+  resultCount: number
+  truncated: boolean
+  matches: string[]
+}
+
 export interface WebReadToolCallDetails {
   requestedUrl: string
   finalUrl?: string
@@ -176,6 +211,8 @@ export type ToolCallDetailsSnapshot =
   | WriteToolCallDetails
   | EditToolCallDetails
   | BashToolCallDetails
+  | GrepToolCallDetails
+  | GlobToolCallDetails
   | WebReadToolCallDetails
   | WebSearchToolCallDetails
 

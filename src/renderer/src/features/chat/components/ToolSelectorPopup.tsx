@@ -27,6 +27,14 @@ const TOOL_COPY: Record<
     label: 'bash',
     description: 'Run shell commands in the workspace'
   },
+  grep: {
+    label: 'grep',
+    description: 'Search file contents with the fastest local backend'
+  },
+  glob: {
+    label: 'glob',
+    description: 'Find files by pattern with the fastest local backend'
+  },
   webRead: {
     label: 'webRead',
     description: 'Read static web pages as clean content'
@@ -36,6 +44,8 @@ const TOOL_COPY: Record<
     description: 'Search the web and return normalized results'
   }
 }
+
+const TOOL_LIST_MAX_HEIGHT = 320
 
 export function ToolSelectorPopup({
   enabledTools,
@@ -82,6 +92,8 @@ export function ToolSelectorPopup({
         borderRadius: 16,
         boxShadow: '0 8px 40px rgba(0,0,0,0.13), 0 2px 8px rgba(0,0,0,0.07)',
         overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
         zIndex: 50,
         opacity: visible ? 1 : 0,
         transform: visible ? 'translateY(0)' : 'translateY(6px)',
@@ -116,7 +128,14 @@ export function ToolSelectorPopup({
         </div>
       </div>
 
-      <div style={{ padding: '6px 0' }}>
+      <div
+        style={{
+          padding: '6px 0',
+          maxHeight: TOOL_LIST_MAX_HEIGHT,
+          overflowY: 'auto',
+          overscrollBehavior: 'contain'
+        }}
+      >
         {CORE_TOOL_NAMES.map((toolName) => {
           const enabled = enabledToolSet.has(toolName)
           const copy = TOOL_COPY[toolName]

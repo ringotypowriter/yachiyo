@@ -113,6 +113,67 @@ test('buildToolCallDetailsPresentation exposes bash metadata, tails, and explici
   ])
 })
 
+test('buildToolCallDetailsPresentation exposes grep metadata and normalized matches', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'grep',
+    inputSummary: 'needle',
+    details: {
+      backend: 'rg',
+      pattern: 'needle',
+      path: '/tmp/thread-1',
+      resultCount: 2,
+      truncated: true,
+      matches: [
+        { path: 'src/alpha.ts', line: 3, text: 'const needle = 1' },
+        { path: 'src/beta.ts', line: 8, text: 'needle()' }
+      ]
+    }
+  })
+
+  assert.deepEqual(presentation.fields, [
+    { label: 'backend', value: 'rg' },
+    { label: 'path', value: '/tmp/thread-1' },
+    { label: 'results', value: '2' },
+    { label: 'truncated', value: 'yes' }
+  ])
+  assert.deepEqual(presentation.codeBlocks, [
+    {
+      label: 'matches',
+      value: 'src/alpha.ts:3: const needle = 1\nsrc/beta.ts:8: needle()'
+    }
+  ])
+})
+
+test('buildToolCallDetailsPresentation exposes glob metadata and normalized file matches', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'glob',
+    inputSummary: 'src/**/*.ts',
+    details: {
+      backend: 'fd',
+      pattern: 'src/**/*.ts',
+      path: '/tmp/thread-1',
+      resultCount: 2,
+      truncated: false,
+      matches: ['src/alpha.ts', 'src/beta.ts']
+    }
+  })
+
+  assert.deepEqual(presentation.fields, [
+    { label: 'backend', value: 'fd' },
+    { label: 'path', value: '/tmp/thread-1' },
+    { label: 'results', value: '2' },
+    { label: 'truncated', value: 'no' }
+  ])
+  assert.deepEqual(presentation.codeBlocks, [
+    {
+      label: 'matches',
+      value: 'src/alpha.ts\nsrc/beta.ts'
+    }
+  ])
+})
+
 test('buildToolCallDetailsPresentation exposes webRead metadata and markdown excerpts', () => {
   const presentation = buildToolCallDetailsPresentation({
     ...BASE_TOOL_CALL,

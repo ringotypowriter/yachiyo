@@ -19,6 +19,7 @@ import {
   summarizeMessageInput
 } from '../../../../shared/yachiyo/messageContent.ts'
 import type { AuxiliaryGenerationService } from '../../runtime/auxiliaryGeneration.ts'
+import type { SearchService } from '../../services/search/searchService.ts'
 import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
 import type { ModelRuntime } from '../../runtime/types.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
@@ -63,6 +64,7 @@ interface RunDomainDeps {
   auxiliaryGeneration: AuxiliaryGenerationService
   createModelRuntime: () => ModelRuntime
   ensureThreadWorkspace: (threadId: string) => Promise<string>
+  searchService?: SearchService
   webSearchService?: WebSearchService
   readConfig: () => SettingsConfig
   readSettings: () => ProviderSettings
@@ -520,6 +522,7 @@ export class YachiyoServerRunDomain {
             emit: this.deps.emit,
             createModelRuntime: this.deps.createModelRuntime,
             ensureThreadWorkspace: this.deps.ensureThreadWorkspace,
+            searchService: this.deps.searchService,
             webSearchService: this.deps.webSearchService,
             readThread: this.deps.requireThread,
             readConfig: this.deps.readConfig,

@@ -18,6 +18,7 @@ import type {
 } from '../../../../shared/yachiyo/protocol.ts'
 import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 import { prepareModelMessages } from '../../runtime/messagePrepare.ts'
+import type { SearchService } from '../../services/search/searchService.ts'
 import {
   buildToolAvailabilityReminderSection,
   formatQueryReminder,
@@ -66,6 +67,7 @@ export interface RunExecutionDeps {
   emit: EmitServerEvent
   createModelRuntime: () => ModelRuntime
   ensureThreadWorkspace: (threadId: string) => Promise<string>
+  searchService?: SearchService
   webSearchService?: WebSearchService
   readThread: (threadId: string) => ThreadRecord
   readConfig: () => SettingsConfig
@@ -117,9 +119,18 @@ function buildAgentInstructions(workspacePath: string, enabledTools: ToolCallNam
     instructions.push('Use bash for shell commands when shell execution is the clearest path.')
   }
 
+  if (enabledTools.includes('grep')) {
+    instructions.push('Use grep for text/code search before falling back to bash search commands.')
+  }
+
+  if (enabledTools.includes('glob')) {
+    instructions.push('Use glob for file discovery before falling back to bash find/fd commands.')
+  }
+
   if (
     enabledTools.some(
-      (toolName) => toolName === 'read' || toolName === 'write' || toolName === 'edit'
+      (toolName) =>
+        toolName === 'read' || toolName === 'write' || toolName === 'edit' || toolName === 'glob'
     )
   ) {
     instructions.push(
@@ -239,6 +250,7 @@ export async function executeServerRun(
         workspacePath
       },
       {
+        searchService: deps.searchService,
         webSearchService: deps.webSearchService
       }
     )

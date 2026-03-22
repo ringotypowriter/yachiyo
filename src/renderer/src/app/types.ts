@@ -3,6 +3,8 @@ export type {
   BashToolCallDetails,
   ConnectionStatus,
   EditToolCallDetails,
+  GlobToolCallDetails,
+  GrepToolCallDetails,
   MessageRecord as Message,
   MessageImageRecord,
   ProviderSettings,

@@ -6,6 +6,8 @@ import test from 'node:test'
 
 import {
   normalizeToolResult,
+  runGlobTool,
+  runGrepTool,
   runBashTool,
   runEditTool,
   runReadTool,
@@ -213,6 +215,114 @@ test('runBashTool maps timeout failures into structured metadata', async () => {
     assert.equal(result.details.timedOut, true)
     assert.equal(result.details.exitCode, 124)
     assert.match(flattenToolContent(result.content), /timed out/i)
+  })
+})
+
+test('runGrepTool maps normalized search results into structured details and summaries', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const result = await runGrepTool(
+      {
+        pattern: 'needle',
+        path: '.',
+        limit: 5
+      },
+      { workspacePath },
+      {
+        searchService: {
+          capabilities: {
+            grep: {
+              preferred: 'rg',
+              backends: {
+                rg: { executable: '/usr/bin/rg' }
+              }
+            },
+            fileDiscovery: {
+              preferred: 'fd',
+              backends: {
+                fd: { executable: '/usr/bin/fd' }
+              }
+            }
+          },
+          grep: async () => ({
+            backend: 'rg',
+            rootPath: workspacePath,
+            matches: [
+              {
+                path: 'src/example.ts',
+                line: 12,
+                text: 'const needle = true'
+              }
+            ],
+            truncated: false
+          }),
+          glob: async () => {
+            throw new Error('glob should not be called')
+          }
+        }
+      }
+    )
+
+    assert.equal(result.error, undefined)
+    assert.equal(result.details.backend, 'rg')
+    assert.equal(result.details.resultCount, 1)
+    assert.equal(summarizeToolInput('grep', { pattern: 'needle' }), 'needle')
+    assert.equal(summarizeToolOutput('grep', result), 'found 1 match')
+    assert.match(flattenToolContent(result.content), /src\/example\.ts:12: const needle = true/)
+
+    const normalized = normalizeToolResult('grep', result)
+    assert.equal(normalized.status, 'completed')
+    assert.equal(normalized.outputSummary, 'found 1 match')
+  })
+})
+
+test('runGlobTool maps normalized file discovery results into structured details and summaries', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const result = await runGlobTool(
+      {
+        pattern: 'src/**/*.ts',
+        path: '.',
+        limit: 5
+      },
+      { workspacePath },
+      {
+        searchService: {
+          capabilities: {
+            grep: {
+              preferred: 'rg',
+              backends: {
+                rg: { executable: '/usr/bin/rg' }
+              }
+            },
+            fileDiscovery: {
+              preferred: 'fd',
+              backends: {
+                fd: { executable: '/usr/bin/fd' }
+              }
+            }
+          },
+          grep: async () => {
+            throw new Error('grep should not be called')
+          },
+          glob: async () => ({
+            backend: 'fd',
+            rootPath: workspacePath,
+            paths: ['src/example.ts', 'src/search/tool.ts'],
+            truncated: false
+          })
+        }
+      }
+    )
+
+    assert.equal(result.error, undefined)
+    assert.equal(result.details.backend, 'fd')
+    assert.equal(result.details.resultCount, 2)
+    assert.equal(summarizeToolInput('glob', { pattern: 'src/**/*.ts' }), 'src/**/*.ts')
+    assert.equal(summarizeToolOutput('glob', result), 'found 2 files')
+    assert.match(flattenToolContent(result.content), /src\/example\.ts/)
+
+    const normalized = normalizeToolResult('glob', result)
+    assert.equal(normalized.status, 'completed')
+    assert.equal(normalized.outputSummary, 'found 2 files')
   })
 })
 

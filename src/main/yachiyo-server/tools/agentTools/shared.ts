@@ -6,6 +6,8 @@ import { z } from 'zod'
 import type {
   BashToolCallDetails,
   EditToolCallDetails,
+  GlobToolCallDetails,
+  GrepToolCallDetails,
   ReadToolCallDetails,
   ToolCallDetailsSnapshot,
   ToolCallName,
@@ -23,6 +25,8 @@ export const DEFAULT_BASH_TIMEOUT_SECONDS = 30
 export const MAX_BASH_TIMEOUT_SECONDS = 120
 export const MAX_BASH_MODEL_OUTPUT_CHARS = 20_000
 export const MAX_BASH_DETAILS_OUTPUT_CHARS = 8_000
+export const DEFAULT_SEARCH_LIMIT = 50
+export const MAX_SEARCH_LIMIT = 200
 export const DEFAULT_WEB_READ_FORMAT = DEFAULT_WEB_READ_CONTENT_FORMAT
 export const DEFAULT_WEB_SEARCH_LIMIT = 5
 export const MAX_WEB_SEARCH_LIMIT = 10
@@ -49,6 +53,20 @@ export const bashToolInputSchema = z.object({
   timeout: z.number().int().min(1).max(MAX_BASH_TIMEOUT_SECONDS).optional()
 })
 
+export const grepToolInputSchema = z.object({
+  pattern: z.string().min(1),
+  path: z.string().min(1).optional(),
+  limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).optional(),
+  literal: z.boolean().optional(),
+  caseSensitive: z.boolean().optional()
+})
+
+export const globToolInputSchema = z.object({
+  pattern: z.string().min(1),
+  path: z.string().min(1).optional(),
+  limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).optional()
+})
+
 export const webReadToolInputSchema = z.object({
   url: z.string().min(1),
   format: z.enum(['markdown', 'html']).optional(),
@@ -64,6 +82,8 @@ export type ReadToolInput = z.infer<typeof readToolInputSchema>
 export type WriteToolInput = z.infer<typeof writeToolInputSchema>
 export type EditToolInput = z.infer<typeof editToolInputSchema>
 export type BashToolInput = z.infer<typeof bashToolInputSchema>
+export type GrepToolInput = z.infer<typeof grepToolInputSchema>
+export type GlobToolInput = z.infer<typeof globToolInputSchema>
 export type WebReadToolInput = z.infer<typeof webReadToolInputSchema>
 export type WebSearchToolInput = z.infer<typeof webSearchToolInputSchema>
 
@@ -97,6 +117,8 @@ export type ReadToolOutput = AgentToolResult<ReadToolCallDetails>
 export type WriteToolOutput = AgentToolResult<WriteToolCallDetails>
 export type EditToolOutput = AgentToolResult<EditToolCallDetails>
 export type BashToolOutput = AgentToolResult<BashToolCallDetails>
+export type GrepToolOutput = AgentToolResult<GrepToolCallDetails>
+export type GlobToolOutput = AgentToolResult<GlobToolCallDetails>
 export type WebReadToolOutput = AgentToolResult<WebReadToolCallDetails>
 export type WebSearchToolOutput = AgentToolResult<WebSearchToolCallDetails>
 
@@ -105,6 +127,8 @@ export type AgentToolOutput =
   | WriteToolOutput
   | EditToolOutput
   | BashToolOutput
+  | GrepToolOutput
+  | GlobToolOutput
   | WebReadToolOutput
   | WebSearchToolOutput
 

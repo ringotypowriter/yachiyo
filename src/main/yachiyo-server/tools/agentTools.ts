@@ -7,10 +7,13 @@ import {
   type ToolCallName,
   type ToolCallStatus
 } from '../../../shared/yachiyo/protocol.ts'
+import type { SearchService } from '../services/search/searchService.ts'
 import type { WebSearchService } from '../services/webSearch/webSearchService.ts'
 
 import { createTool as createBashTool } from './agentTools/bashTool.ts'
 import { createTool as createEditTool } from './agentTools/editTool.ts'
+import { createTool as createGlobTool } from './agentTools/globTool.ts'
+import { createTool as createGrepTool } from './agentTools/grepTool.ts'
 import { createTool as createReadTool } from './agentTools/readTool.ts'
 import {
   takeTail,
@@ -18,6 +21,8 @@ import {
   type AgentToolOutput,
   type BashToolOutput,
   type EditToolOutput,
+  type GlobToolOutput,
+  type GrepToolOutput,
   type ReadToolOutput,
   type WebReadToolOutput,
   type WebSearchToolOutput,
@@ -33,6 +38,8 @@ export type {
   AgentToolOutput,
   BashToolOutput,
   EditToolOutput,
+  GlobToolOutput,
+  GrepToolOutput,
   ReadToolOutput,
   ToolContentBlock,
   WebReadToolOutput,
@@ -47,12 +54,15 @@ export {
   streamBashTool
 } from './agentTools/bashTool.ts'
 export { createTool as createEditTool, runEditTool } from './agentTools/editTool.ts'
+export { createTool as createGlobTool, runGlobTool } from './agentTools/globTool.ts'
+export { createTool as createGrepTool, runGrepTool } from './agentTools/grepTool.ts'
 export { createTool as createReadTool, runReadTool } from './agentTools/readTool.ts'
 export { createTool as createWebReadTool, runWebReadTool } from './agentTools/webReadTool.ts'
 export { createTool as createWebSearchTool, runWebSearchTool } from './agentTools/webSearchTool.ts'
 export { createTool as createWriteTool, runWriteTool } from './agentTools/writeTool.ts'
 
 export interface AgentToolDependencies {
+  searchService?: SearchService
   webSearchService?: WebSearchService
 }
 
@@ -80,6 +90,14 @@ export function summarizeToolInput(toolName: ToolCallName, input: unknown): stri
     const query = typeof input === 'object' && input !== null && 'query' in input ? input.query : ''
     return typeof query === 'string' && query.trim().length > 0
       ? takeTail(query, 160).text
+      : toolName
+  }
+
+  if (toolName === 'grep' || toolName === 'glob') {
+    const pattern =
+      typeof input === 'object' && input !== null && 'pattern' in input ? input.pattern : ''
+    return typeof pattern === 'string' && pattern.trim().length > 0
+      ? takeTail(pattern, 160).text
       : toolName
   }
 
@@ -133,6 +151,18 @@ export function summarizeToolOutput(
     const details = (output as WebSearchToolOutput).details
     const summary = `found ${details.resultCount} result${details.resultCount === 1 ? '' : 's'}`
     return details.failureCode ? `search failed (${details.failureCode})` : summary
+  }
+
+  if (toolName === 'grep') {
+    const details = (output as GrepToolOutput).details
+    const summary = `found ${details.resultCount} match${details.resultCount === 1 ? '' : 'es'}`
+    return details.truncated ? `${summary} (truncated)` : summary
+  }
+
+  if (toolName === 'glob') {
+    const details = (output as GlobToolOutput).details
+    const summary = `found ${details.resultCount} file${details.resultCount === 1 ? '' : 's'}`
+    return details.truncated ? `${summary} (truncated)` : summary
   }
 
   if (phase === 'update') {
@@ -191,6 +221,18 @@ export function createAgentToolSet(
 
   if (enabledTools.has('bash')) {
     tools.bash = createBashTool(context)
+  }
+
+  if (enabledTools.has('grep') && dependencies.searchService) {
+    tools.grep = createGrepTool(context, {
+      searchService: dependencies.searchService
+    })
+  }
+
+  if (enabledTools.has('glob') && dependencies.searchService) {
+    tools.glob = createGlobTool(context, {
+      searchService: dependencies.searchService
+    })
   }
 
   if (enabledTools.has('webRead')) {
