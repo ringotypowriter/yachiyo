@@ -5,6 +5,7 @@ export type ConversationGroupTimelineItem =
   | { kind: 'reply-nav'; key: 'reply-nav' }
   | { kind: 'assistant-text-block'; key: string; textBlockId: string }
   | { kind: 'tool-call'; key: string; toolCallId: string }
+  | { kind: 'generating'; key: 'generating' }
   | { kind: 'preparing'; key: 'preparing' }
 
 interface ChronologicalTimelineEntry {
@@ -29,17 +30,18 @@ export function buildConversationGroupTimelineItems(input: {
   hasMemoryRecall: boolean
   replyCount: number
   showPreparing: boolean
+  showGenerating: boolean
   activeAssistantTextBlocks: MessageTextBlockRecord[]
   visibleToolCalls: ToolCall[]
 }): ConversationGroupTimelineItem[] {
   const items: ConversationGroupTimelineItem[] = []
 
-  if (input.hasMemoryRecall) {
-    items.push({ kind: 'memory-recall', key: 'memory-recall' })
-  }
-
   if (input.replyCount > 1) {
     items.push({ kind: 'reply-nav', key: 'reply-nav' })
+  }
+
+  if (input.hasMemoryRecall) {
+    items.push({ kind: 'memory-recall', key: 'memory-recall' })
   }
 
   const chronologicalEntries: ChronologicalTimelineEntry[] = []
@@ -69,6 +71,10 @@ export function buildConversationGroupTimelineItems(input: {
   }
 
   items.push(...chronologicalEntries.sort(compareTimelineEntries).map((entry) => entry.item))
+
+  if (input.showGenerating) {
+    items.push({ kind: 'generating', key: 'generating' })
+  }
 
   if (input.showPreparing) {
     items.push({ kind: 'preparing', key: 'preparing' })

@@ -1,5 +1,5 @@
 import type React from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, GitBranch } from 'lucide-react'
 
 interface ReplyBranchNavigationProps {
   canSelectNextReply: boolean
@@ -18,6 +18,9 @@ export function ReplyBranchNavigation({
 }: ReplyBranchNavigationProps): React.JSX.Element {
   return (
     <div className="assistant-message-bubble__branch-nav">
+      <span className="assistant-message-bubble__branch-nav-icon" aria-hidden="true">
+        <GitBranch size={11} strokeWidth={1.8} />
+      </span>
       <span>{replyCount} replies</span>
       <div className="assistant-message-bubble__branch-nav-actions">
         <button

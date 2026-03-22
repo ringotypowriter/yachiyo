@@ -47,6 +47,8 @@ interface AssistantMessageBubbleProps {
   contentOverride?: string
   showFooter?: boolean
   showActions?: boolean
+  suppressGeneratingLabel?: boolean
+  compactBottomSpacing?: boolean
   threadHasActiveRun?: boolean
   onRetry?: () => Promise<void> | void
   onCreateBranch: () => Promise<void> | void
@@ -58,6 +60,8 @@ export function AssistantMessageBubble({
   contentOverride,
   showFooter = true,
   showActions = true,
+  suppressGeneratingLabel = false,
+  compactBottomSpacing = false,
   threadHasActiveRun = false,
   onRetry,
   onCreateBranch,
@@ -65,6 +69,11 @@ export function AssistantMessageBubble({
 }: AssistantMessageBubbleProps): React.JSX.Element {
   const { showContent, showBubble, footer } = buildMessagePresentation(message)
   const isStreaming = message.status === 'streaming' && showFooter
+  const shouldShowGeneratingLabel =
+    message.status === 'streaming' && showFooter && !suppressGeneratingLabel
+  const shouldHideStreamingFooterRow = suppressGeneratingLabel && message.status === 'streaming'
+  const effectiveShowActions = shouldHideStreamingFooterRow ? false : showActions
+  const effectiveShowFooter = shouldHideStreamingFooterRow ? false : showFooter
   const canRetry = canRetryAssistantMessage({
     messageStatus: message.status,
     threadHasActiveRun
@@ -75,16 +84,22 @@ export function AssistantMessageBubble({
 
   return (
     <div
-      className={`flex flex-col gap-2 px-6 py-1 message-bubble-group${isStreaming ? ' sd-caret-host' : ''}`}
+      className={`flex flex-col gap-2 px-6 py-1 message-bubble-group${isStreaming ? ' sd-caret-host' : ''}${compactBottomSpacing ? ' message-bubble-group--compact-after' : ''}`}
     >
       <div className="w-full message-card-shell">
         <div className="assistant-message-bubble">
           {showContent && <MessageMarkdown content={content} isStreaming={isStreaming} />}
         </div>
-        {showFooter || showActions ? (
+        {effectiveShowFooter || effectiveShowActions ? (
           <div className="assistant-message-bubble__footer-row">
-            <div>{showFooter && footer ? <MessageMetaRow footer={footer} /> : null}</div>
-            {showActions ? (
+            <div>
+              {effectiveShowFooter &&
+              footer &&
+              (footer.kind !== 'streaming' || shouldShowGeneratingLabel) ? (
+                <MessageMetaRow footer={footer} />
+              ) : null}
+            </div>
+            {effectiveShowActions ? (
               <MessageActionBar
                 align="start"
                 content={message.content}

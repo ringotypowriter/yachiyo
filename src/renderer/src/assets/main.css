@@ -307,6 +307,13 @@ body {
   letter-spacing: 0.02em;
 }
 
+.assistant-message-bubble__branch-nav-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgb(var(--yachiyo-rgb-accent) / 0.72);
+}
+
 .assistant-message-bubble__branch-nav-actions {
   display: inline-flex;
   align-items: center;
@@ -341,15 +348,6 @@ body {
   cursor: default;
 }
 
-.assistant-message-bubble__branch-nav::before {
-  content: '';
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  border-radius: 999px;
-  background: rgb(var(--yachiyo-rgb-accent) / 0.55);
-}
-
 .assistant-message-bubble__footer-row {
   display: flex;
   flex-direction: column;
@@ -380,6 +378,14 @@ body {
 .message-bubble-group:focus-within .message-actions {
   opacity: 1;
   transform: translateY(0);
+}
+
+.message-bubble-group--compact-after {
+  padding-bottom: 0;
+}
+
+.message-bubble-group--compact-after .assistant-message-bubble__footer-row {
+  margin-top: 4px;
 }
 
 .message-action-button {

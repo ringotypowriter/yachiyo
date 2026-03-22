@@ -12,6 +12,7 @@ import { findRunMemorySummary } from '../lib/runMemoryPresentation.ts'
 import { buildConversationGroupTimelineItems } from '../lib/messageTimelineLayout.ts'
 import { UserMessageBubble } from './UserMessageBubble'
 import { AssistantMessageBubble } from './AssistantMessageBubble'
+import { GeneratingRow } from './GeneratingRow'
 import { PreparingBubble } from './PreparingBubble'
 import { RunEventRow } from './RunEventRow'
 import { RunMemoryRecallRow } from './RunMemoryRecallRow'
@@ -154,14 +155,18 @@ export function ThreadConversationGroup({
             ]
           : []
       : []
+  const hasRunningToolCall = visibleToolCalls.some((toolCall) => toolCall.status === 'running')
   const timelineItems = buildConversationGroupTimelineItems({
     hasMemoryRecall: Boolean(memorySummary),
     replyCount: responseCount,
     showPreparing: group.showPreparing,
+    showGenerating: activeBranch?.message.status === 'streaming' && !hasRunningToolCall,
     activeAssistantTextBlocks,
     visibleToolCalls
   })
-  const textBlocksById = new Map(activeAssistantTextBlocks.map((textBlock) => [textBlock.id, textBlock]))
+  const textBlocksById = new Map(
+    activeAssistantTextBlocks.map((textBlock) => [textBlock.id, textBlock])
+  )
   const lastTextBlockId = activeAssistantTextBlocks.at(-1)?.id
   const canSelectPreviousReply = !threadHasActiveRun && Boolean(previousBranch)
   const canSelectNextReply = !threadHasActiveRun && Boolean(nextBranch)
@@ -176,7 +181,9 @@ export function ThreadConversationGroup({
         onDelete={() => onDelete(group.userMessage.id)}
       />
 
-      {timelineItems.map((item) => {
+      {timelineItems.map((item, index) => {
+        const nextItem = timelineItems[index + 1]
+
         if (item.kind === 'memory-recall' && memorySummary) {
           return <RunMemoryRecallRow key={item.key} entries={memorySummary.entries} />
         }
@@ -211,6 +218,11 @@ export function ThreadConversationGroup({
           }
 
           const isLastTextBlock = textBlock.id === lastTextBlockId
+          const nextToolCall =
+            nextItem?.kind === 'tool-call'
+              ? visibleToolCalls.find((entry) => entry.id === nextItem.toolCallId)
+              : null
+          const compactBottomSpacing = nextToolCall?.status === 'running'
           return (
             <div key={item.key} className="message-response-cluster">
               <AssistantMessageBubble
@@ -218,6 +230,10 @@ export function ThreadConversationGroup({
                 contentOverride={textBlock.content}
                 showActions={isLastTextBlock}
                 showFooter={isLastTextBlock}
+                suppressGeneratingLabel={
+                  hasRunningToolCall || activeBranch.message.status === 'streaming'
+                }
+                compactBottomSpacing={compactBottomSpacing}
                 threadHasActiveRun={threadHasActiveRun}
                 onRetry={() => onRetry(activeBranch.message.id)}
                 onCreateBranch={() => onCreateBranch(activeBranch.message.id)}
@@ -225,6 +241,10 @@ export function ThreadConversationGroup({
               />
             </div>
           )
+        }
+
+        if (item.kind === 'generating') {
+          return <GeneratingRow key="generating" />
         }
 
         if (item.kind === 'preparing') {
