@@ -86,7 +86,7 @@ app.whenReady().then(() => {
       minimizable: false,
       show: false,
       frame: false,
-      backgroundColor: '#f0efeb',
+      backgroundColor: '#eaf2f7',
       icon,
       webPreferences: {
         preload: join(__dirname, '../preload/index.js'),

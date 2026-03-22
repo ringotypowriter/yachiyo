@@ -3,6 +3,7 @@ import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ConnectionStatusIndicator } from '@renderer/features/layout/components/ConnectionStatusIndicator'
 import { ThreadList } from '@renderer/features/threads/components/ThreadList'
 import { TRAFFIC_LIGHTS_SAFE_ZONE } from '@renderer/lib/sidebarLayout'
+import { theme } from '@renderer/theme/theme'
 
 export interface AppSidebarProps {
   isOpen: boolean
@@ -30,7 +31,7 @@ export function AppSidebar({
       className="flex flex-col h-full shrink-0 overflow-hidden transition-all duration-200"
       style={{
         width: sidebarWidth,
-        background: '#F0EFEB',
+        background: theme.background.app,
         opacity: isOpen ? 1 : 0,
         pointerEvents: isOpen ? 'auto' : 'none'
       }}
@@ -48,7 +49,7 @@ export function AppSidebar({
             disabled={isToggleDisabled}
             onClick={onToggle}
             className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity disabled:opacity-30"
-            style={{ color: '#2D2D2B' }}
+            style={{ color: theme.icon.default }}
             title={toggleTitle}
             aria-label={toggleTitle}
           >
@@ -56,14 +57,14 @@ export function AppSidebar({
           </button>
           <button
             className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
-            style={{ color: '#2D2D2B' }}
+            style={{ color: theme.icon.default }}
           >
             <Search size={15} strokeWidth={1.5} />
           </button>
           <button
             onClick={createNewThread}
             className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
-            style={{ color: '#2D2D2B' }}
+            style={{ color: theme.icon.default }}
             title="New chat"
           >
             <SquarePen size={15} strokeWidth={1.5} />
@@ -79,7 +80,7 @@ export function AppSidebar({
             <button
               onClick={() => window.api.openSettings()}
               className="p-1.5 rounded-md opacity-40 hover:opacity-70 transition-opacity"
-              style={{ color: '#2D2D2B' }}
+              style={{ color: theme.icon.default }}
               title="Settings"
               aria-label="Settings"
             >
@@ -91,7 +92,7 @@ export function AppSidebar({
               }
               className="p-1.5 rounded-md transition-opacity"
               style={{
-                color: threadListMode === 'archived' ? '#8E3E35' : '#2D2D2B',
+                color: threadListMode === 'archived' ? theme.text.accentStrong : theme.icon.default,
                 opacity: threadListMode === 'archived' ? 0.9 : 0.4
               }}
               title={threadListMode === 'archived' ? 'Show active chats' : 'Show archived chats'}

@@ -1,5 +1,6 @@
 import type React from 'react'
 import type { HarnessRecord } from '@renderer/app/store/useAppStore'
+import { theme } from '@renderer/theme/theme'
 
 interface RunEventRowProps {
   harness: HarnessRecord
@@ -14,12 +15,16 @@ export function RunEventRow({ harness }: RunEventRowProps): React.JSX.Element {
   const isRunning = harness.status === 'running'
   const isFailed = harness.status === 'failed'
 
-  const dotColor = isFailed ? '#b53a2f' : isRunning ? '#CC7D5E' : '#c0bdb8'
+  const dotColor = isFailed
+    ? theme.status.danger
+    : isRunning
+      ? theme.text.accent
+      : theme.status.idle
 
   return (
     <div
       className="flex items-center gap-1.5 px-6 py-0.5"
-      style={{ fontSize: '11px', color: '#a8a5a0' }}
+      style={{ fontSize: '11px', color: theme.text.placeholder }}
     >
       <span
         className="w-1.5 h-1.5 rounded-full shrink-0"
@@ -32,7 +37,9 @@ export function RunEventRow({ harness }: RunEventRowProps): React.JSX.Element {
       {!isRunning && harness.finishedAt && (
         <span>· {elapsedSeconds(harness.startedAt, harness.finishedAt)}</span>
       )}
-      {isFailed && harness.error && <span style={{ color: '#b53a2f' }}>· {harness.error}</span>}
+      {isFailed && harness.error && (
+        <span style={{ color: theme.text.danger }}>· {harness.error}</span>
+      )}
     </div>
   )
 }

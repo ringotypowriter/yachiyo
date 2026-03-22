@@ -1,5 +1,6 @@
 import type React from 'react'
 import type { Message } from '@renderer/app/types'
+import { theme } from '@renderer/theme/theme'
 import { canRetryUserMessage } from '../lib/messageActionState'
 import { MessageActionBar } from './MessageActionBar'
 
@@ -49,12 +50,12 @@ export function UserMessageBubble({
       <div className="max-w-[68%] message-card-shell">
         <div
           className="rounded-[18px] px-4 py-2.5 message-selectable"
-          style={{ background: '#CC7D5E', color: '#fff' }}
+          style={{ background: theme.text.accent, color: theme.text.inverse }}
         >
           {label ? (
             <div
               className="mb-2 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium"
-              style={{ background: 'rgba(255,255,255,0.2)' }}
+              style={{ background: theme.background.surfaceOverlay }}
             >
               {label}
             </div>

@@ -1,5 +1,6 @@
 import { ChevronDown, CircleCheck } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { theme } from '@renderer/theme/theme'
 import type { SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
 import {
   getToolModelConfig,
@@ -85,7 +86,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
         <section className="rounded-[28px] px-5 py-5" style={settingsPanelStyle()}>
           <div
             className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-            style={{ color: '#8e8e93' }}
+            style={{ color: theme.text.muted }}
           >
             Active run
           </div>
@@ -93,15 +94,15 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
           <div
             className="mt-3 flex items-center justify-between gap-4 rounded-2xl px-4 py-3"
             style={{
-              background: 'rgba(255,255,255,0.78)',
-              border: '1px solid rgba(0,0,0,0.06)'
+              background: theme.background.surfaceLight,
+              border: `1px solid ${theme.border.default}`
             }}
           >
             <div className="min-w-0 space-y-1">
-              <div className="text-sm font-semibold" style={{ color: '#2D2D2B' }}>
+              <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
                 Enter steers during active runs
               </div>
-              <div className="text-sm leading-5" style={{ color: '#6b6a66' }}>
+              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
                 Off = queue follow-up. Alt+Enter swaps.
               </div>
             </div>
@@ -130,7 +131,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
         <section className="rounded-[28px] px-5 py-5" style={settingsPanelStyle()}>
           <div
             className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-            style={{ color: '#8e8e93' }}
+            style={{ color: theme.text.muted }}
           >
             Tool model
           </div>
@@ -138,15 +139,15 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
           <div
             className="mt-3 flex items-center justify-between gap-4 rounded-2xl px-4 py-3"
             style={{
-              background: 'rgba(255,255,255,0.78)',
-              border: '1px solid rgba(0,0,0,0.06)'
+              background: theme.background.surfaceLight,
+              border: `1px solid ${theme.border.default}`
             }}
           >
             <div className="min-w-0 space-y-1">
-              <div className="text-sm font-semibold" style={{ color: '#2D2D2B' }}>
+              <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
                 Thread titles and small auxiliary tasks
               </div>
-              <div className="text-sm leading-5" style={{ color: '#6b6a66' }}>
+              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
                 {hasEnabledModels
                   ? 'Uses the selected model below.'
                   : 'Enable a model in Providers first.'}
@@ -167,7 +168,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
                 }}
                 className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity"
                 style={{
-                  color: '#2D2D2B',
+                  color: theme.text.primary,
                   opacity: toolModelSelectorOpen ? 1 : 0.72,
                   cursor: canOpenToolModelSelector ? 'pointer' : 'default'
                 }}
@@ -176,14 +177,14 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
                 <CircleCheck
                   size={12}
                   strokeWidth={1.5}
-                  color={toolModel.mode === 'custom' ? '#5CAD8A' : '#8e8e93'}
+                  color={toolModel.mode === 'custom' ? theme.icon.success : theme.icon.muted}
                 />
                 {toolModelLabel}
                 {canOpenToolModelSelector ? (
                   <ChevronDown
                     size={10}
                     strokeWidth={1.5}
-                    color="#8e8e93"
+                    color={theme.icon.muted}
                     style={{
                       transform: toolModelSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
                       transition: 'transform 0.15s ease'

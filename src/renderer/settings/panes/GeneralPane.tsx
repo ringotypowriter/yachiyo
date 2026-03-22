@@ -1,5 +1,6 @@
 import { DEFAULT_SIDEBAR_VISIBILITY } from '../../../shared/yachiyo/protocol.ts'
 import type { SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
+import { theme } from '@renderer/theme/theme'
 import { PlaceholderPane, SettingSwitch } from '../components/primitives'
 import { settingsPanelStyle } from '../components/styles'
 
@@ -22,7 +23,7 @@ export function GeneralPane({ activeSubTab, draft, onChange }: GeneralPaneProps)
         <section className="rounded-[28px] px-5 py-5" style={settingsPanelStyle()}>
           <div
             className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-            style={{ color: '#8e8e93' }}
+            style={{ color: theme.text.muted }}
           >
             Window layout
           </div>
@@ -30,15 +31,15 @@ export function GeneralPane({ activeSubTab, draft, onChange }: GeneralPaneProps)
           <div
             className="mt-3 flex items-center justify-between gap-4 rounded-2xl px-4 py-3"
             style={{
-              background: 'rgba(255,255,255,0.78)',
-              border: '1px solid rgba(0,0,0,0.06)'
+              background: theme.background.surfaceLight,
+              border: `1px solid ${theme.border.default}`
             }}
           >
             <div className="min-w-0 space-y-1">
-              <div className="text-sm font-semibold" style={{ color: '#2D2D2B' }}>
+              <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
                 Show sidebar on launch
               </div>
-              <div className="text-sm leading-5" style={{ color: '#6b6a66' }}>
+              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
                 Off starts focused on the conversation.
               </div>
             </div>

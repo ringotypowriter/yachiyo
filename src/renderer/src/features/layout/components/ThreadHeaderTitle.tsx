@@ -1,5 +1,6 @@
 import { FolderOpen } from 'lucide-react'
 import type { Thread } from '@renderer/app/types'
+import { theme } from '@renderer/theme/theme'
 
 export interface ThreadHeaderTitleProps {
   activeThread: Thread | null
@@ -33,7 +34,7 @@ export function ThreadHeaderTitle({
       <div className="flex items-center gap-1.5 min-w-0">
         <span
           className="text-sm font-semibold truncate"
-          style={{ color: '#2D2D2B', letterSpacing: '-0.2px' }}
+          style={{ color: theme.text.primary, letterSpacing: '-0.2px' }}
         >
           {activeThread?.title ?? 'Start a conversation'}
         </span>
@@ -41,7 +42,7 @@ export function ThreadHeaderTitle({
           <button
             onClick={() => void onOpenThreadWorkspace()}
             className="no-drag shrink-0 rounded-md p-1 transition-opacity opacity-55 hover:opacity-100"
-            style={{ color: '#5b5a57' }}
+            style={{ color: theme.text.secondary }}
             title="Open workspace in Finder"
             aria-label="Open workspace in Finder"
           >
@@ -49,7 +50,7 @@ export function ThreadHeaderTitle({
           </button>
         ) : null}
       </div>
-      <span className="text-xs font-medium" style={{ color: '#8e8e93' }}>
+      <span className="text-xs font-medium" style={{ color: theme.text.muted }}>
         {subtitle}
       </span>
     </div>

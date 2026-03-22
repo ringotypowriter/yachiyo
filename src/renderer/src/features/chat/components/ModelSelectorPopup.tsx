@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, Search } from 'lucide-react'
 import type { SettingsConfig } from '@renderer/app/types'
+import { theme } from '@renderer/theme/theme'
 import { resolveModelSelectorState } from '../lib/modelSelectorState'
 
 function ModelOption({
@@ -27,9 +28,9 @@ function ModelOption({
         width: '100%',
         padding: '6px 12px 6px 10px',
         background: isSelected
-          ? 'rgba(204,125,94,0.1)'
+          ? theme.background.accentMuted
           : hovered
-            ? 'rgba(0,0,0,0.04)'
+            ? theme.background.hover
             : 'transparent',
         border: 'none',
         cursor: 'pointer',
@@ -41,13 +42,13 @@ function ModelOption({
       <span
         style={{ width: 18, flexShrink: 0, display: 'flex', alignItems: 'center', paddingLeft: 2 }}
       >
-        {isSelected && <Check size={11} strokeWidth={2.5} color="#CC7D5E" />}
+        {isSelected && <Check size={11} strokeWidth={2.5} color={theme.icon.accent} />}
       </span>
       <span
         style={{
           flex: 1,
           fontSize: 13,
-          color: isSelected ? '#CC7D5E' : '#2D2D2B',
+          color: isSelected ? theme.text.accent : theme.text.primary,
           fontWeight: isSelected ? 500 : 400,
           letterSpacing: '-0.1px',
           lineHeight: 1.4
@@ -147,12 +148,12 @@ export function ModelSelectorPopup({
       style={{
         ...popupStyle,
         maxHeight: 360,
-        background: 'rgba(248,247,245,0.97)',
+        background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
         WebkitBackdropFilter: 'blur(24px)',
-        border: '1px solid rgba(0,0,0,0.1)',
+        border: `1px solid ${theme.border.strong}`,
         borderRadius: 16,
-        boxShadow: '0 8px 40px rgba(0,0,0,0.13), 0 2px 8px rgba(0,0,0,0.07)',
+        boxShadow: theme.shadow.overlay,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -169,10 +170,10 @@ export function ModelSelectorPopup({
           alignItems: 'center',
           gap: 8,
           padding: '10px 14px',
-          borderBottom: '1px solid rgba(0,0,0,0.07)'
+          borderBottom: `1px solid ${theme.border.panel}`
         }}
       >
-        <Search size={14} strokeWidth={1.5} color="#aaa9a4" />
+        <Search size={14} strokeWidth={1.5} color={theme.icon.placeholder} />
         <input
           ref={inputRef}
           value={query}
@@ -184,7 +185,7 @@ export function ModelSelectorPopup({
             border: 'none',
             outline: 'none',
             fontSize: 13,
-            color: '#2D2D2B',
+            color: theme.text.primary,
             letterSpacing: '-0.1px'
           }}
         />
@@ -210,7 +211,7 @@ export function ModelSelectorPopup({
             style={{
               padding: '24px 14px',
               textAlign: 'center',
-              color: '#8e8e93',
+              color: theme.text.muted,
               fontSize: 13
             }}
           >
@@ -223,7 +224,7 @@ export function ModelSelectorPopup({
                 style={{
                   padding: '10px 14px 3px',
                   fontSize: 10.5,
-                  color: '#aaa9a4',
+                  color: theme.text.placeholder,
                   fontWeight: 600,
                   letterSpacing: '0.07em',
                   textTransform: 'uppercase'

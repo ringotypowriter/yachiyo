@@ -7,6 +7,7 @@ import { ArchivedThreadsPage } from '@renderer/features/layout/components/Archiv
 import { AppMainPanelHeader } from '@renderer/features/layout/components/AppMainPanelHeader'
 import { RunStatusStrip } from '@renderer/features/runs/components/RunStatusStrip'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
+import { theme } from '@renderer/theme/theme'
 
 const EMPTY: Message[] = []
 
@@ -128,21 +129,24 @@ export function AppMainPanel({
 
   if (threadListMode === 'archived') {
     return (
-      <div className="flex flex-col flex-1 h-full min-w-0" style={{ background: '#F9F9F7' }}>
+      <div
+        className="flex flex-col flex-1 h-full min-w-0"
+        style={{ background: theme.background.canvas }}
+      >
         <div
           className="flex items-center shrink-0 drag-region"
           style={{
             height: '52px',
             paddingLeft: `${headerPaddingLeft}px`,
             paddingRight: '20px',
-            borderBottom: '1px solid rgba(0,0,0,0.06)'
+            borderBottom: `1px solid ${theme.border.default}`
           }}
         >
           <div className="min-w-0">
-            <div className="text-sm font-semibold" style={{ color: '#2D2D2B' }}>
+            <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
               Archived
             </div>
-            <div className="text-xs font-medium" style={{ color: '#8e8e93' }}>
+            <div className="text-xs font-medium" style={{ color: theme.text.muted }}>
               {archivedThreads.length} thread{archivedThreads.length !== 1 ? 's' : ''}
             </div>
           </div>
@@ -157,7 +161,10 @@ export function AppMainPanel({
   }
 
   return (
-    <div className="flex flex-col flex-1 h-full min-w-0" style={{ background: '#F9F9F7' }}>
+    <div
+      className="flex flex-col flex-1 h-full min-w-0"
+      style={{ background: theme.background.canvas }}
+    >
       <AppMainPanelHeader
         activeThread={activeThread}
         headerPaddingLeft={headerPaddingLeft}

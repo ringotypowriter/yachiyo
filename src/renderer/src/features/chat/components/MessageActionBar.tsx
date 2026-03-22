@@ -1,6 +1,7 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
 import { Check, Copy, GitBranchPlus, RotateCcw, Trash2 } from 'lucide-react'
+import { theme } from '@renderer/theme/theme'
 import { copyTextWithFallback } from '../lib/copyTextWithFallback'
 
 interface MessageActionBarProps {
@@ -34,7 +35,7 @@ function ActionButton({
       aria-label={label}
       disabled={disabled}
       style={{
-        color: success ? '#4f8a6b' : danger ? '#9b4638' : '#6d6962'
+        color: success ? theme.text.success : danger ? theme.text.dangerStrong : theme.text.tertiary
       }}
       type="button"
     >

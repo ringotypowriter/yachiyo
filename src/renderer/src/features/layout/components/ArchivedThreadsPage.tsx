@@ -1,4 +1,5 @@
 import type { Thread } from '@renderer/app/types'
+import { theme } from '@renderer/theme/theme'
 
 export interface ArchivedThreadsPageProps {
   activeThread: Thread | null
@@ -15,10 +16,10 @@ export function ArchivedThreadsPage({
     return (
       <div className="flex flex-1 items-center justify-center px-8">
         <div className="max-w-md text-center">
-          <div className="text-sm font-semibold" style={{ color: '#2D2D2B' }}>
+          <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
             Archived threads
           </div>
-          <div className="mt-2 text-sm leading-6" style={{ color: '#8e8e93' }}>
+          <div className="mt-2 text-sm leading-6" style={{ color: theme.text.muted }}>
             Select an archived thread from the sidebar to restore it or delete it permanently.
           </div>
         </div>
@@ -31,21 +32,21 @@ export function ArchivedThreadsPage({
       <div
         className="w-full max-w-xl rounded-3xl p-6"
         style={{
-          background: 'rgba(255,255,255,0.72)',
-          border: '1px solid rgba(0,0,0,0.06)',
-          boxShadow: '0 18px 40px rgba(0,0,0,0.05)'
+          background: theme.background.surfaceLightest,
+          border: `1px solid ${theme.border.default}`,
+          boxShadow: theme.shadow.card
         }}
       >
         <div
           className="text-xs font-semibold tracking-[0.18em] uppercase"
-          style={{ color: '#aaa9a4' }}
+          style={{ color: theme.text.placeholder }}
         >
           Archived
         </div>
-        <div className="mt-3 text-xl font-semibold" style={{ color: '#2D2D2B' }}>
+        <div className="mt-3 text-xl font-semibold" style={{ color: theme.text.primary }}>
           {activeThread.title}
         </div>
-        <div className="mt-3 text-sm leading-6" style={{ color: '#5b5a57' }}>
+        <div className="mt-3 text-sm leading-6" style={{ color: theme.text.secondary }}>
           {activeThread.preview?.trim() || 'No preview available for this thread.'}
         </div>
         <div className="mt-6 flex items-center gap-3">
@@ -53,8 +54,8 @@ export function ArchivedThreadsPage({
             onClick={() => void onRestoreThread(activeThread)}
             className="rounded-full px-4 py-2 text-sm font-medium"
             style={{
-              background: '#2D2D2B',
-              color: '#F9F9F7'
+              background: theme.text.primary,
+              color: theme.background.canvas
             }}
           >
             Restore
@@ -63,9 +64,9 @@ export function ArchivedThreadsPage({
             onClick={() => void onDeleteThread(activeThread)}
             className="rounded-full px-4 py-2 text-sm font-medium"
             style={{
-              background: 'rgba(142,62,53,0.08)',
-              color: '#8E3E35',
-              border: '1px solid rgba(142,62,53,0.14)'
+              background: theme.background.dangerSurface,
+              color: theme.text.dangerStrong,
+              border: `1px solid ${theme.border.danger}`
             }}
           >
             Delete permanently

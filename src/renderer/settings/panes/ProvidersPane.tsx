@@ -1,5 +1,6 @@
 import { Loader2, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
+import { theme } from '@renderer/theme/theme'
 import type {
   ProviderConfig,
   ProviderKind,
@@ -75,11 +76,11 @@ function ModelToggle({ model, enabled, onToggle, onRemove }: ModelToggleProps): 
     <div
       className="flex items-center justify-between px-3 py-2 rounded-lg transition-colors"
       style={{
-        background: enabled ? 'rgba(204,125,94,0.06)' : 'rgba(255,255,255,0.72)',
-        boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.035)'
+        background: enabled ? theme.background.accentSoft : theme.background.surfaceSoft,
+        boxShadow: `inset 0 0 0 1px ${theme.border.subtle}`
       }}
     >
-      <span className="text-sm truncate mr-3" style={{ color: '#2D2D2B' }}>
+      <span className="text-sm truncate mr-3" style={{ color: theme.text.primary }}>
         {model}
       </span>
       <div className="flex items-center gap-2 shrink-0">
@@ -89,7 +90,7 @@ function ModelToggle({ model, enabled, onToggle, onRemove }: ModelToggleProps): 
           className="p-0.5 rounded opacity-0 hover:opacity-100 group-hover:opacity-40 transition-opacity"
           title="Remove model"
         >
-          <X size={12} strokeWidth={1.5} color="#8e8e93" />
+          <X size={12} strokeWidth={1.5} color={theme.icon.muted} />
         </button>
         <SettingSwitch
           checked={enabled}
@@ -181,7 +182,7 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium" style={{ color: '#2D2D2B' }}>
+        <span className="text-sm font-medium" style={{ color: theme.text.primary }}>
           Models
         </span>
         <button
@@ -190,8 +191,8 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
           disabled={fetching || !provider.apiKey.trim()}
           className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-opacity disabled:opacity-40"
           style={{
-            background: 'rgba(204,125,94,0.1)',
-            color: '#CC7D5E'
+            background: theme.background.accentMuted,
+            color: theme.text.accent
           }}
           title={!provider.apiKey.trim() ? 'Add an API key first' : 'Fetch available models'}
         >
@@ -207,13 +208,13 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
       <div
         className="rounded-2xl overflow-hidden"
         style={{
-          border: '1px solid rgba(0,0,0,0.06)',
-          background: 'rgba(255,255,255,0.46)'
+          border: `1px solid ${theme.border.default}`,
+          background: theme.background.surfaceSoft
         }}
       >
         {allModels.length === 0 ? (
           <div className="px-4 py-6 text-center">
-            <span className="text-sm" style={{ color: '#8e8e93' }}>
+            <span className="text-sm" style={{ color: theme.text.muted }}>
               No models yet. Fetch from API or add manually.
             </span>
           </div>
@@ -244,7 +245,7 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
 
         <div
           className="flex items-center gap-2 px-3 py-2"
-          style={{ borderTop: '1px solid rgba(0,0,0,0.04)' }}
+          style={{ borderTop: `1px solid ${theme.border.subtle}` }}
         >
           <input
             value={manualInput}
@@ -256,7 +257,7 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
               }
             }}
             className="flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400"
-            style={{ color: '#2D2D2B' }}
+            style={{ color: theme.text.primary }}
             placeholder="Add model name..."
           />
           <button
@@ -266,13 +267,13 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
             className="p-1 rounded-md transition-opacity disabled:opacity-30"
             title="Add model"
           >
-            <Plus size={14} strokeWidth={2} color="#CC7D5E" />
+            <Plus size={14} strokeWidth={2} color={theme.icon.accent} />
           </button>
         </div>
       </div>
 
       {allModels.length > 0 ? (
-        <div className="text-xs" style={{ color: '#8e8e93' }}>
+        <div className="text-xs" style={{ color: theme.text.muted }}>
           {provider.modelList.enabled.length} enabled, {provider.modelList.disabled.length} disabled
         </div>
       ) : null}
@@ -280,7 +281,10 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
       {fetchError ? (
         <div
           className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs"
-          style={{ background: 'rgba(183,81,62,0.08)', color: '#8f4132' }}
+          style={{
+            background: theme.background.dangerSurface,
+            color: theme.text.dangerStrong
+          }}
         >
           <span className="shrink-0">Fetch failed:</span>
           <span className="truncate">{fetchError}</span>
@@ -348,14 +352,18 @@ export function ProvidersPane({
     <div className="flex flex-1 min-h-0">
       <div
         className="shrink-0 flex flex-col"
-        style={{ width: 250, borderRight: '1px solid rgba(0,0,0,0.06)', background: '#EFEEE9' }}
+        style={{
+          width: 250,
+          borderRight: `1px solid ${theme.border.default}`,
+          background: theme.background.sidebar
+        }}
       >
         <div className="flex items-center justify-between px-5 py-4">
           <div>
-            <div className="text-sm font-semibold" style={{ color: '#2D2D2B' }}>
+            <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
               Providers
             </div>
-            <div className="text-xs" style={{ color: '#8e8e93' }}>
+            <div className="text-xs" style={{ color: theme.text.muted }}>
               {draft.providers.length} configured
             </div>
           </div>
@@ -363,7 +371,7 @@ export function ProvidersPane({
             type="button"
             onClick={handleAddProvider}
             className="flex items-center gap-1 rounded-full px-2.5 py-1.5 text-xs font-medium"
-            style={{ background: '#CC7D5E', color: '#fff' }}
+            style={{ background: theme.text.accent, color: theme.text.inverse }}
           >
             <Plus size={12} strokeWidth={2} />
             Add
@@ -383,26 +391,29 @@ export function ProvidersPane({
                 style={
                   isSelected
                     ? {
-                        background: 'rgba(255,255,255,0.82)',
-                        boxShadow: '0 6px 18px rgba(0,0,0,0.08)'
+                        background: theme.background.surfaceFrosted,
+                        boxShadow: theme.shadow.raised
                       }
                     : {
-                        background: 'rgba(255,255,255,0.46)'
+                        background: theme.background.surfaceSoft
                       }
                 }
               >
                 <div className="min-w-0">
                   <div
                     className="truncate text-sm font-semibold"
-                    style={{ color: '#2D2D2B', letterSpacing: '-0.2px' }}
+                    style={{ color: theme.text.primary, letterSpacing: '-0.2px' }}
                   >
                     {provider.name}
                   </div>
-                  <div className="text-xs uppercase tracking-[0.14em]" style={{ color: '#8e8e93' }}>
+                  <div
+                    className="text-xs uppercase tracking-[0.14em]"
+                    style={{ color: theme.text.muted }}
+                  >
                     {provider.type}
                   </div>
                 </div>
-                <div className="mt-3 text-xs" style={{ color: '#6b6a66' }}>
+                <div className="mt-3 text-xs" style={{ color: theme.text.tertiary }}>
                   {provider.modelList.enabled.length} enabled
                 </div>
               </button>
@@ -417,7 +428,7 @@ export function ProvidersPane({
             <div className="flex items-start justify-between gap-4">
               <div
                 className="text-2xl font-semibold"
-                style={{ color: '#2D2D2B', letterSpacing: '-0.4px' }}
+                style={{ color: theme.text.primary, letterSpacing: '-0.4px' }}
               >
                 {selectedProvider.name}
               </div>
@@ -426,7 +437,10 @@ export function ProvidersPane({
                 type="button"
                 onClick={handleRemoveProvider}
                 className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium"
-                style={{ background: 'rgba(183,81,62,0.1)', color: '#8f4132' }}
+                style={{
+                  background: theme.background.dangerSurface,
+                  color: theme.text.dangerStrong
+                }}
               >
                 <Trash2 size={12} strokeWidth={1.8} />
                 Remove

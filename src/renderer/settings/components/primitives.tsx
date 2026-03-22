@@ -1,3 +1,5 @@
+import { theme } from '@renderer/theme/theme'
+
 interface FieldProps {
   children: React.ReactNode
   label: string
@@ -17,7 +19,7 @@ interface SettingSwitchProps {
 export function Field({ label, children }: FieldProps): React.ReactNode {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-sm font-medium" style={{ color: '#2D2D2B' }}>
+      <span className="text-sm font-medium" style={{ color: theme.text.primary }}>
         {label}
       </span>
       {children}
@@ -31,20 +33,20 @@ export function PlaceholderPane({ label }: PlaceholderPaneProps): React.ReactNod
       <div className="flex flex-col items-center gap-2.5" style={{ opacity: 0.4 }}>
         <div
           className="flex items-center justify-center rounded-full"
-          style={{ width: 40, height: 40, border: '2px dashed #8e8e93' }}
+          style={{ width: 40, height: 40, border: `2px dashed ${theme.border.input}` }}
         >
           <svg
             width="16"
             height="16"
             viewBox="0 0 16 16"
             fill="none"
-            stroke="#8e8e93"
+            stroke={theme.icon.muted}
             strokeWidth="1.5"
           >
             <path d="M8 4v8M4 8h8" />
           </svg>
         </div>
-        <span className="text-sm" style={{ color: '#8e8e93' }}>
+        <span className="text-sm" style={{ color: theme.text.muted }}>
           {label ?? 'Content coming soon'}
         </span>
       </div>
@@ -68,10 +70,10 @@ export function SettingSwitch({
       onClick={onChange}
       className="relative h-6 w-11 rounded-full transition-all disabled:cursor-not-allowed disabled:opacity-40"
       style={{
-        background: checked ? '#CC7D5E' : 'rgba(0,0,0,0.12)',
+        background: checked ? theme.background.accentSurface : theme.border.input,
         boxShadow: checked
-          ? 'inset 0 0 0 1px rgba(181,106,74,0.16)'
-          : 'inset 0 0 0 1px rgba(0,0,0,0.05)'
+          ? `inset 0 0 0 1px ${theme.border.accentStrong}`
+          : `inset 0 0 0 1px ${theme.border.subtle}`
       }}
     >
       <span
@@ -80,7 +82,8 @@ export function SettingSwitch({
           width: 20,
           height: 20,
           left: checked ? 22 : 2,
-          boxShadow: '0 1px 3px rgba(0,0,0,0.18)'
+          boxShadow: theme.shadow.knob,
+          background: checked ? theme.text.accent : theme.text.inverse
         }}
       />
     </button>

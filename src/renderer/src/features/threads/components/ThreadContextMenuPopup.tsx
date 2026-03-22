@@ -2,6 +2,7 @@ import { Archive, PenLine, RotateCcw, Trash2 } from 'lucide-react'
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import type { ThreadContextOperation } from '@renderer/features/threads/lib/threadContextOperations'
+import { theme } from '@renderer/theme/theme'
 
 export interface ThreadContextMenuPopupProps {
   onClose: () => void
@@ -63,12 +64,12 @@ export function ThreadContextMenuPopup({
         left: Math.max(12, Math.min(position.left, window.innerWidth - 196)),
         width: 184,
         padding: 6,
-        background: 'rgba(248,247,245,0.98)',
+        background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
         WebkitBackdropFilter: 'blur(24px)',
-        border: '1px solid rgba(0,0,0,0.1)',
+        border: `1px solid ${theme.border.strong}`,
         borderRadius: 14,
-        boxShadow: '0 14px 36px rgba(0,0,0,0.14), 0 2px 8px rgba(0,0,0,0.08)',
+        boxShadow: theme.shadow.menu,
         zIndex: 100
       }}
     >
@@ -82,10 +83,11 @@ export function ThreadContextMenuPopup({
           }}
           className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors disabled:opacity-35"
           style={{
-            color: operation.tone === 'danger' ? '#8E3E35' : '#2D2D2B'
+            color: operation.tone === 'danger' ? theme.text.dangerStrong : theme.text.primary
           }}
           onMouseEnter={(event) => {
-            ;(event.currentTarget as HTMLButtonElement).style.background = 'rgba(0,0,0,0.05)'
+            ;(event.currentTarget as HTMLButtonElement).style.background =
+              theme.background.hoverStrong
           }}
           onMouseLeave={(event) => {
             ;(event.currentTarget as HTMLButtonElement).style.background = 'transparent'

@@ -1,4 +1,5 @@
 import type { ConnectionStatus } from '@renderer/app/types'
+import { theme } from '@renderer/theme/theme'
 
 function resolveConnectionPresentation(connectionStatus: ConnectionStatus): {
   ariaLabel: string
@@ -8,14 +9,14 @@ function resolveConnectionPresentation(connectionStatus: ConnectionStatus): {
   if (connectionStatus === 'connected') {
     return {
       ariaLabel: 'Server ready',
-      indicatorColor: 'rgba(78, 131, 102, 0.78)',
+      indicatorColor: theme.status.success,
       title: 'Server ready'
     }
   }
 
   return {
     ariaLabel: 'Server offline',
-    indicatorColor: 'rgba(182, 92, 84, 0.76)',
+    indicatorColor: theme.status.danger,
     title: 'Server offline'
   }
 }
@@ -35,8 +36,8 @@ export function ConnectionStatusIndicator({
       style={{
         width: '24px',
         height: '24px',
-        background: 'rgba(255,255,255,0.52)',
-        border: '1px solid rgba(0,0,0,0.05)'
+        background: theme.background.surfaceSoft,
+        border: `1px solid ${theme.border.subtle}`
       }}
     >
       <span

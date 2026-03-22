@@ -6,6 +6,7 @@ import {
   resolveThreadContextOperations,
   type ThreadContextOperationKey
 } from '@renderer/features/threads/lib/threadContextOperations'
+import { theme } from '@renderer/theme/theme'
 
 export interface ThreadHeaderActionsProps {
   activeThread: Thread | null
@@ -40,7 +41,7 @@ export function ThreadHeaderActions({
           })
         }}
         className="rounded-md p-1.5 opacity-50 transition-opacity hover:opacity-90"
-        style={{ color: '#2D2D2B' }}
+        style={{ color: theme.icon.default }}
         title="Thread options"
         aria-label="Thread options"
       >

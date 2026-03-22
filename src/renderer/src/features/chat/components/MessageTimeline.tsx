@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { HarnessRecord } from '@renderer/app/store/useAppStore'
 import type { Message, ToolCall } from '@renderer/app/types'
+import { theme } from '@renderer/theme/theme'
 import {
   buildMessageGroups,
   getVisibleToolCallsForGroup,
@@ -319,7 +320,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   if (!threadId) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-sm" style={{ color: '#8a8680' }}>
+        <p className="text-sm" style={{ color: theme.text.muted }}>
           Start a new thread or type below to create one automatically.
         </p>
       </div>
@@ -329,7 +330,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   if (timeline.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-sm" style={{ color: '#aaa' }}>
+        <p className="text-sm" style={{ color: theme.text.placeholder }}>
           No messages yet
         </p>
       </div>

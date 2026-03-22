@@ -1,3 +1,5 @@
+import { theme } from '@renderer/theme/theme'
+
 export interface AppSidebarDividerProps {
   offset: number | null
 }
@@ -11,7 +13,7 @@ export function AppSidebarDivider({ offset }: AppSidebarDividerProps): React.JSX
     <div
       style={{
         width: '1px',
-        background: 'rgba(0,0,0,0.08)',
+        background: theme.border.panel,
         position: 'absolute',
         left: `${offset}px`,
         top: 0,

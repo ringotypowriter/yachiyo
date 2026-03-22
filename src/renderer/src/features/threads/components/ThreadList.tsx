@@ -7,6 +7,7 @@ import {
   resolveThreadContextOperations,
   type ThreadContextOperationKey
 } from '@renderer/features/threads/lib/threadContextOperations'
+import { theme } from '@renderer/theme/theme'
 
 function ThreadListItem({
   isActive,
@@ -33,7 +34,7 @@ function ThreadListItem({
         onClick={() => onSelectThread(thread.id)}
         className="w-full text-left px-3 py-2.5 rounded-lg transition-colors no-drag"
         style={{
-          background: isActive ? 'rgba(0,0,0,0.07)' : 'transparent'
+          background: isActive ? theme.background.code : 'transparent'
         }}
         onContextMenu={(event) => {
           event.preventDefault()
@@ -44,7 +45,7 @@ function ThreadListItem({
           })
         }}
         onMouseEnter={(e) => {
-          if (!isActive) (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.04)'
+          if (!isActive) (e.currentTarget as HTMLElement).style.background = theme.background.hover
         }}
         onMouseLeave={(e) => {
           if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent'
@@ -52,13 +53,13 @@ function ThreadListItem({
       >
         <span
           className="block text-sm truncate font-medium"
-          style={{ color: isActive ? '#2D2D2B' : '#3a3a3c' }}
+          style={{ color: isActive ? theme.text.primary : theme.text.secondary }}
         >
           {thread.title}
         </span>
         <span
           className="mt-0.5 block text-xs truncate"
-          style={{ color: isActive ? '#5b5a57' : '#8e8e93' }}
+          style={{ color: isActive ? theme.text.secondary : theme.text.muted }}
         >
           {preview}
         </span>
@@ -127,7 +128,7 @@ export function ThreadList(): React.JSX.Element {
   return (
     <div className="flex-1 overflow-y-auto px-2 py-1">
       {visibleThreads.length === 0 ? (
-        <div className="px-4 py-6 text-sm leading-6" style={{ color: '#8e8e93' }}>
+        <div className="px-4 py-6 text-sm leading-6" style={{ color: theme.text.muted }}>
           {threadListMode === 'archived'
             ? 'No archived threads yet.'
             : 'No chats yet. Start one from the compose box or the new chat button.'}

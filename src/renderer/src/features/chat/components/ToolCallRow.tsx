@@ -2,6 +2,7 @@ import type React from 'react'
 import { useId, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import type { ToolCall } from '@renderer/app/types'
+import { theme } from '@renderer/theme/theme'
 import { buildToolCallDetailsPresentation } from '../lib/toolCallPresentation.ts'
 
 interface ToolCallRowProps {
@@ -18,7 +19,11 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
   const detailsId = useId()
   const isRunning = toolCall.status === 'running'
   const isFailed = toolCall.status === 'failed'
-  const dotColor = isFailed ? '#b53a2f' : isRunning ? '#CC7D5E' : '#7a8b73'
+  const dotColor = isFailed
+    ? theme.status.danger
+    : isRunning
+      ? theme.text.accent
+      : theme.status.success
   const presentation = buildToolCallDetailsPresentation(toolCall)
   const hasExpandableDetails = presentation.fields.length > 0 || presentation.codeBlocks.length > 0
 
@@ -35,7 +40,9 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
       <span>· {toolCall.inputSummary}</span>
       {toolCall.cwd && <span>· cwd {toolCall.cwd}</span>}
       {toolCall.outputSummary && (
-        <span style={{ color: isFailed ? '#b53a2f' : '#a19a90' }}>· {toolCall.outputSummary}</span>
+        <span style={{ color: isFailed ? theme.text.danger : theme.text.placeholder }}>
+          · {toolCall.outputSummary}
+        </span>
       )}
       {!isRunning && toolCall.finishedAt && (
         <span>· {elapsedSeconds(toolCall.startedAt, toolCall.finishedAt)}</span>
@@ -47,7 +54,7 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
     return (
       <div
         className="flex flex-wrap items-center gap-1.5 px-6 py-0.5"
-        style={{ fontSize: '11px', color: '#8f8a82' }}
+        style={{ fontSize: '11px', color: theme.text.muted }}
       >
         {summaryContent}
       </div>
@@ -55,7 +62,7 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
   }
 
   return (
-    <div className="px-6 py-0.5" style={{ fontSize: '11px', color: '#8f8a82' }}>
+    <div className="px-6 py-0.5" style={{ fontSize: '11px', color: theme.text.muted }}>
       <button
         type="button"
         className="flex w-full items-start gap-2 rounded-sm text-left"
@@ -76,7 +83,7 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">{summaryContent}</div>
         <span
           className="mt-0.5 inline-flex shrink-0"
-          style={{ color: '#b2aba1', transition: 'transform 0.15s ease' }}
+          style={{ color: theme.text.placeholder, transition: 'transform 0.15s ease' }}
         >
           <ChevronRight
             size={11}
@@ -90,17 +97,20 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
         <div
           id={detailsId}
           className="mt-1 ml-3 flex flex-col gap-1.5 border-l pl-3 pr-6"
-          style={{ borderColor: 'rgba(0, 0, 0, 0.08)' }}
+          style={{ borderColor: theme.border.panel }}
         >
           {presentation.fields.length > 0 ? (
-            <div className="flex flex-wrap gap-x-3 gap-y-1" style={{ color: '#968f85' }}>
+            <div
+              className="flex flex-wrap gap-x-3 gap-y-1"
+              style={{ color: theme.text.placeholder }}
+            >
               {presentation.fields.map((field) => (
                 <span key={`${field.label}:${field.value}`}>
                   <span style={{ opacity: 0.72 }}>{field.label}</span>{' '}
                   <span
                     className="break-all"
                     style={{
-                      color: field.tone === 'danger' ? '#b53a2f' : '#7f776d',
+                      color: field.tone === 'danger' ? theme.text.danger : theme.text.tertiary,
                       fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace"
                     }}
                   >
@@ -115,7 +125,7 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
             <div key={`${block.label}:${block.value.slice(0, 32)}`}>
               <div
                 style={{
-                  color: block.tone === 'danger' ? '#b53a2f' : '#a19a90',
+                  color: block.tone === 'danger' ? theme.text.danger : theme.text.placeholder,
                   fontSize: '10px',
                   letterSpacing: '0.04em',
                   marginBottom: '4px',
@@ -128,11 +138,13 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
                 className="message-selectable overflow-auto rounded-md px-3 py-2"
                 style={{
                   background:
-                    block.tone === 'danger' ? 'rgba(181, 58, 47, 0.06)' : 'rgba(0, 0, 0, 0.035)',
+                    block.tone === 'danger'
+                      ? theme.background.dangerSoft
+                      : theme.background.codeBlock,
                   border: `1px solid ${
-                    block.tone === 'danger' ? 'rgba(181, 58, 47, 0.14)' : 'rgba(0, 0, 0, 0.06)'
+                    block.tone === 'danger' ? theme.border.danger : theme.border.default
                   }`,
-                  color: block.tone === 'danger' ? '#8f2b22' : '#6f675f',
+                  color: block.tone === 'danger' ? theme.text.dangerStrong : theme.text.secondary,
                   fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
                   fontSize: '10.5px',
                   lineHeight: 1.5,

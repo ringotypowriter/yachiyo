@@ -19,6 +19,7 @@ import {
 } from '@renderer/app/store/useAppStore'
 import { getComposerActionState } from '@renderer/features/chat/lib/composerActionState'
 import { resolveComposerEnterAction } from '@renderer/features/chat/lib/composerEnterBehavior'
+import { theme } from '@renderer/theme/theme'
 import {
   CORE_TOOL_NAMES,
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
@@ -359,7 +360,7 @@ export function Composer(): React.JSX.Element {
     config !== null && config.providers.some((provider) => provider.modelList.enabled.length > 0)
 
   return (
-    <div className="flex flex-col" style={{ borderTop: '1px solid rgba(0,0,0,0.08)' }}>
+    <div className="flex flex-col" style={{ borderTop: `1px solid ${theme.border.panel}` }}>
       {draftImages.length > 0 ? (
         <div className="composer-image-strip">
           {draftImages.map((image) => (
@@ -389,7 +390,7 @@ export function Composer(): React.JSX.Element {
           rows={1}
           className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed placeholder:text-gray-400 message-selectable"
           style={{
-            color: '#2D2D2B',
+            color: theme.text.primary,
             minHeight: '22px',
             maxHeight: '160px'
           }}
@@ -432,7 +433,7 @@ export function Composer(): React.JSX.Element {
           className="p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity disabled:opacity-30"
           aria-label="Attach"
         >
-          <Paperclip size={16} strokeWidth={1.5} color="#8e8e93" />
+          <Paperclip size={16} strokeWidth={1.5} color={theme.icon.muted} />
         </button>
 
         <div ref={toolSelectorRef} style={{ position: 'relative' }}>
@@ -450,12 +451,12 @@ export function Composer(): React.JSX.Element {
             <Wrench
               size={16}
               strokeWidth={1.5}
-              color={disabledToolCount > 0 ? '#CC7D5E' : '#8e8e93'}
+              color={disabledToolCount > 0 ? theme.icon.accent : theme.icon.muted}
             />
             {disabledToolCount > 0 ? (
               <span
                 className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center"
-                style={{ fontSize: '8px', background: '#CC7D5E' }}
+                style={{ fontSize: '8px', background: theme.text.accent }}
               >
                 {disabledToolCount}
               </span>
@@ -484,20 +485,24 @@ export function Composer(): React.JSX.Element {
             }}
             className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity ml-0.5"
             style={{
-              color: '#2D2D2B',
+              color: theme.text.primary,
               opacity: modelSelectorOpen ? 1 : 0.6,
               cursor: hasModels && !isModelSelectorLocked ? 'pointer' : 'default'
             }}
             aria-label="Model selection"
             type="button"
           >
-            <CircleCheck size={12} strokeWidth={1.5} color={isConfigured ? '#5CAD8A' : '#8e8e93'} />
+            <CircleCheck
+              size={12}
+              strokeWidth={1.5}
+              color={isConfigured ? theme.icon.success : theme.icon.muted}
+            />
             {providerLabel} - {modelLabel}
             {hasModels ? (
               <ChevronDown
                 size={10}
                 strokeWidth={1.5}
-                color="#8e8e93"
+                color={theme.icon.muted}
                 style={{
                   transform: modelSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
                   transition: 'transform 0.15s ease'
@@ -524,13 +529,13 @@ export function Composer(): React.JSX.Element {
               onClick={() => void cancelActiveRun()}
               className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
               style={{
-                background: 'rgba(204,125,94,0.14)',
-                border: '1px solid rgba(204,125,94,0.28)'
+                background: theme.background.accentPanel,
+                border: `1px solid ${theme.border.accent}`
               }}
               aria-label="Stop generation"
               title="Stop generation"
             >
-              <Square size={10} fill="#CC7D5E" strokeWidth={0} />
+              <Square size={10} fill={theme.text.accent} strokeWidth={0} />
             </button>
           ) : null}
 
@@ -545,7 +550,7 @@ export function Composer(): React.JSX.Element {
             disabled={!canSend}
             className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
             style={{
-              background: canSend ? '#CC7D5E' : 'rgba(0,0,0,0.08)',
+              background: canSend ? theme.text.accent : theme.border.panel,
               cursor: canSend ? 'pointer' : 'default'
             }}
             aria-label={
@@ -563,7 +568,11 @@ export function Composer(): React.JSX.Element {
                   : 'Send'
             }
           >
-            <SendHorizonal size={14} strokeWidth={1.8} color={canSend ? 'white' : '#aaa'} />
+            <SendHorizonal
+              size={14}
+              strokeWidth={1.8}
+              color={canSend ? theme.text.inverse : theme.icon.placeholder}
+            />
           </button>
         </div>
       </div>

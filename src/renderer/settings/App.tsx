@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Brain, Compass, Cpu, Info, MessageSquare, Monitor, Settings2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { theme } from '@renderer/theme/theme'
 import type { SettingsConfig } from '../../shared/yachiyo/protocol.ts'
 import {
   getToolModelConfig,
@@ -195,7 +196,7 @@ function SettingsApp(): React.ReactNode {
   if (loading) {
     body = (
       <div className="flex-1 overflow-y-auto flex items-center justify-center">
-        <span className="text-sm" style={{ color: '#8e8e93' }}>
+        <span className="text-sm" style={{ color: theme.text.muted }}>
           Loading settings...
         </span>
       </div>
@@ -229,10 +230,17 @@ function SettingsApp(): React.ReactNode {
     <div className="flex h-full overflow-hidden">
       <div
         className="flex flex-col shrink-0"
-        style={{ width: '210px', background: '#E8E7E3', borderRight: '1px solid rgba(0,0,0,0.08)' }}
+        style={{
+          width: '210px',
+          background: theme.background.sidebar,
+          borderRight: `1px solid ${theme.border.panel}`
+        }}
       >
         <div className="drag-region shrink-0 flex items-center px-4" style={{ height: '52px' }}>
-          <span className="font-bold text-lg" style={{ color: '#2D2D2B', letterSpacing: '-0.3px' }}>
+          <span
+            className="font-bold text-lg"
+            style={{ color: theme.text.primary, letterSpacing: '-0.3px' }}
+          >
             Settings
           </span>
         </div>
@@ -246,12 +254,12 @@ function SettingsApp(): React.ReactNode {
               style={
                 activeTab === id
                   ? {
-                      background: 'rgba(255,255,255,0.75)',
-                      color: '#2D2D2B',
+                      background: theme.background.surface,
+                      color: theme.text.primary,
                       fontWeight: 500,
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.08)'
+                      boxShadow: theme.shadow.button
                     }
-                  : { color: '#3a3a3c' }
+                  : { color: theme.text.secondary }
               }
             >
               <Icon
@@ -265,15 +273,23 @@ function SettingsApp(): React.ReactNode {
         </nav>
       </div>
 
-      <div className="flex flex-col flex-1 min-w-0" style={{ background: '#F9F9F7' }}>
+      <div className="flex flex-col flex-1 min-w-0" style={{ background: theme.background.canvas }}>
         <div
           className="shrink-0 flex items-center gap-2.5 drag-region"
-          style={{ height: '52px', padding: '0 28px', borderBottom: '1px solid rgba(0,0,0,0.07)' }}
+          style={{
+            height: '52px',
+            padding: '0 28px',
+            borderBottom: `1px solid ${theme.border.panel}`
+          }}
         >
-          <ActiveIcon size={20} strokeWidth={1.5} style={{ color: '#2D2D2B', opacity: 0.75 }} />
+          <ActiveIcon
+            size={20}
+            strokeWidth={1.5}
+            style={{ color: theme.icon.default, opacity: 0.75 }}
+          />
           <span
             className="font-semibold text-xl"
-            style={{ color: '#2D2D2B', letterSpacing: '-0.3px' }}
+            style={{ color: theme.text.primary, letterSpacing: '-0.3px' }}
           >
             {active.label}
           </span>
@@ -282,7 +298,7 @@ function SettingsApp(): React.ReactNode {
         {active.subTabs ? (
           <div
             className="shrink-0 no-drag flex items-center gap-1 px-7"
-            style={{ borderBottom: '1px solid rgba(0,0,0,0.07)' }}
+            style={{ borderBottom: `1px solid ${theme.border.panel}` }}
           >
             {active.subTabs.map((subTab) => {
               const isActive = activeSubTab[active.id] === subTab.id
@@ -293,13 +309,13 @@ function SettingsApp(): React.ReactNode {
                     setActiveSubTab((current) => ({ ...current, [active.id]: subTab.id }))
                   }
                   className="relative px-3 py-2.5 text-sm font-medium transition-colors"
-                  style={{ color: isActive ? '#2D2D2B' : '#8e8e93' }}
+                  style={{ color: isActive ? theme.text.primary : theme.text.muted }}
                 >
                   {subTab.label}
                   {isActive ? (
                     <span
                       className="absolute bottom-0 left-3 right-3"
-                      style={{ height: 2, background: '#2D2D2B', borderRadius: 1 }}
+                      style={{ height: 2, background: theme.text.primary, borderRadius: 1 }}
                     />
                   ) : null}
                 </button>
@@ -312,11 +328,13 @@ function SettingsApp(): React.ReactNode {
 
         <div
           className="shrink-0 no-drag flex items-center justify-between px-5 py-3"
-          style={{ borderTop: '1px solid rgba(0,0,0,0.08)' }}
+          style={{ borderTop: `1px solid ${theme.border.panel}` }}
         >
           <span
             className="text-xs"
-            style={{ color: error || validationError ? '#8f4132' : '#8e8e93' }}
+            style={{
+              color: error || validationError ? theme.text.dangerStrong : theme.text.muted
+            }}
           >
             {validationError
               ? validationError
@@ -333,9 +351,9 @@ function SettingsApp(): React.ReactNode {
               onClick={() => window.close()}
               className="px-4 py-1.5 rounded-lg text-sm font-medium"
               style={{
-                background: 'rgba(255,255,255,0.8)',
-                border: '1px solid rgba(0,0,0,0.15)',
-                color: '#2D2D2B',
+                background: theme.background.surface,
+                border: `1px solid ${theme.border.contrast}`,
+                color: theme.text.primary,
                 cursor: 'pointer'
               }}
             >
@@ -348,9 +366,9 @@ function SettingsApp(): React.ReactNode {
               style={{
                 background:
                   !isDirty || saving || loading || !draft || validationError
-                    ? '#8e8e93'
-                    : '#CC7D5E',
-                color: '#fff',
+                    ? theme.text.muted
+                    : theme.text.accent,
+                color: theme.text.inverse,
                 opacity: !isDirty || saving || loading || !draft || validationError ? 0.4 : 1,
                 border: '1px solid transparent',
                 cursor:

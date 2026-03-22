@@ -3,6 +3,7 @@ import type { Thread } from '@renderer/app/types'
 import { ThreadHeaderActions } from '@renderer/features/layout/components/ThreadHeaderActions'
 import { ThreadHeaderTitle } from '@renderer/features/layout/components/ThreadHeaderTitle'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
+import { theme } from '@renderer/theme/theme'
 
 export interface AppMainPanelHeaderProps {
   activeThread: Thread | null
@@ -36,7 +37,7 @@ export function AppMainPanelHeader({
         height: '52px',
         paddingLeft: `${headerPaddingLeft}px`,
         paddingRight: '20px',
-        borderBottom: '1px solid rgba(0,0,0,0.06)'
+        borderBottom: `1px solid ${theme.border.default}`
       }}
     >
       <div className="flex items-center gap-3 min-w-0">
@@ -45,7 +46,7 @@ export function AppMainPanelHeader({
             disabled={isSidebarToggleDisabled}
             onClick={onToggleSidebar}
             className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity no-drag shrink-0 disabled:opacity-30"
-            style={{ color: '#2D2D2B' }}
+            style={{ color: theme.icon.default }}
             title={toggleSidebarTitle}
             aria-label={toggleSidebarTitle}
           >

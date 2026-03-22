@@ -5,6 +5,7 @@ import { buildMessagePresentation } from '../lib/messagePresentation'
 import type { MessageFooter } from '../lib/messagePresentation'
 import { canRetryAssistantMessage } from '../lib/messageActionState'
 import { MessageActionBar } from './MessageActionBar'
+import { theme } from '@renderer/theme/theme'
 
 function MessageMetaRow({ footer }: { footer: MessageFooter }): React.JSX.Element | null {
   if (footer.kind === 'streaming') {
@@ -13,7 +14,7 @@ function MessageMetaRow({ footer }: { footer: MessageFooter }): React.JSX.Elemen
         <span
           className="w-1.5 h-1.5 rounded-full"
           style={{
-            background: '#CC7D5E',
+            background: theme.text.accent,
             display: 'inline-block',
             animation: 'yachiyo-generating-pulse 1s ease-in-out infinite'
           }}
@@ -27,7 +28,7 @@ function MessageMetaRow({ footer }: { footer: MessageFooter }): React.JSX.Elemen
     return (
       <div
         className="mt-1 message-footer message-footer--always-visible"
-        style={{ color: '#b53a2f' }}
+        style={{ color: theme.text.danger }}
       >
         Failed to generate
       </div>

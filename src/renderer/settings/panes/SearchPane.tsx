@@ -1,5 +1,6 @@
 import { Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { theme } from '@renderer/theme/theme'
 
 import {
   DEFAULT_WEB_SEARCH_PROVIDER,
@@ -86,7 +87,7 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
         <section className="rounded-[28px] px-5 py-5" style={settingsPanelStyle()}>
           <div
             className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-            style={{ color: '#8e8e93' }}
+            style={{ color: theme.text.muted }}
           >
             Search
           </div>
@@ -94,15 +95,15 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
           <div
             className="mt-3 flex items-center justify-between gap-4 rounded-2xl px-4 py-3"
             style={{
-              background: 'rgba(255,255,255,0.78)',
-              border: '1px solid rgba(0,0,0,0.06)'
+              background: theme.background.surfaceLight,
+              border: `1px solid ${theme.border.default}`
             }}
           >
             <div className="min-w-0 space-y-1">
-              <div className="text-sm font-semibold" style={{ color: '#2D2D2B' }}>
+              <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
                 Default search provider
               </div>
-              <div className="text-sm leading-5" style={{ color: '#6b6a66' }}>
+              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
                 Browser-backed now. API-backed providers can join this picker later.
               </div>
             </div>
@@ -120,9 +121,9 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
               }
               className="rounded-xl px-3 py-2 text-sm"
               style={{
-                background: 'rgba(255,255,255,0.92)',
-                border: '1px solid rgba(0,0,0,0.08)',
-                color: '#2D2D2B'
+                background: theme.background.surfaceSoft,
+                border: `1px solid ${theme.border.panel}`,
+                color: theme.text.primary
               }}
             >
               <option value="google-browser">Google (browser-backed)</option>
@@ -133,7 +134,7 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
         <section className="rounded-[28px] px-5 py-5" style={settingsPanelStyle()}>
           <div
             className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-            style={{ color: '#8e8e93' }}
+            style={{ color: theme.text.muted }}
           >
             Browser session
           </div>
@@ -141,15 +142,15 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
           <div
             className="mt-3 rounded-2xl px-4 py-3 space-y-3"
             style={{
-              background: 'rgba(255,255,255,0.78)',
-              border: '1px solid rgba(0,0,0,0.06)'
+              background: theme.background.surfaceLight,
+              border: `1px solid ${theme.border.default}`
             }}
           >
             <div className="space-y-1">
-              <div className="text-sm font-semibold" style={{ color: '#2D2D2B' }}>
+              <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
                 Independent retained profile
               </div>
-              <div className="text-sm leading-5" style={{ color: '#6b6a66' }}>
+              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
                 Hidden browser search keeps its own session. Import from Chrome to bootstrap cookies
                 and consent state.
               </div>
@@ -160,11 +161,11 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
                 value={selectedProfileName}
                 onChange={(event) => setSelectedProfileName(event.target.value)}
                 disabled={loadingSources || profileOptions.length === 0}
-                className="min-w-[180px] rounded-xl px-3 py-2 text-sm"
+                className="min-w-45 rounded-xl px-3 py-2 text-sm"
                 style={{
-                  background: 'rgba(255,255,255,0.92)',
-                  border: '1px solid rgba(0,0,0,0.08)',
-                  color: '#2D2D2B'
+                  background: theme.background.surfaceSoft,
+                  border: `1px solid ${theme.border.panel}`,
+                  color: theme.text.primary
                 }}
               >
                 {profileOptions.length === 0 ? (
@@ -184,8 +185,8 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
                 disabled={!selectedProfileName || importing || loadingSources}
                 className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium disabled:opacity-40"
                 style={{
-                  background: 'rgba(204,125,94,0.12)',
-                  color: '#CC7D5E'
+                  background: theme.background.accentSurface,
+                  color: theme.text.accent
                 }}
               >
                 {importing ? <Loader2 size={14} className="animate-spin" /> : null}
@@ -193,14 +194,14 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
               </button>
             </div>
 
-            <div className="text-sm leading-5" style={{ color: '#6b6a66' }}>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
               {browserSession?.importedAt
                 ? `Last import: ${browserSession.sourceBrowser} / ${browserSession.sourceProfileName} at ${browserSession.importedAt}`
                 : 'No browser session imported yet.'}
             </div>
 
             {error ? (
-              <div className="text-sm leading-5" style={{ color: '#c05621' }}>
+              <div className="text-sm leading-5" style={{ color: theme.text.warning }}>
                 {error}
               </div>
             ) : null}

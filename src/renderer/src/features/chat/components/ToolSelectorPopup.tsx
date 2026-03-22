@@ -2,6 +2,7 @@ import type React from 'react'
 import { useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
 import type { ToolCallName } from '@renderer/app/types'
+import { theme } from '@renderer/theme/theme'
 import { CORE_TOOL_NAMES } from '../../../../../shared/yachiyo/protocol.ts'
 
 const TOOL_COPY: Record<
@@ -85,12 +86,12 @@ export function ToolSelectorPopup({
         bottom: 'calc(100% + 8px)',
         left: 0,
         width: 280,
-        background: 'rgba(248,247,245,0.97)',
+        background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
         WebkitBackdropFilter: 'blur(24px)',
-        border: '1px solid rgba(0,0,0,0.1)',
+        border: `1px solid ${theme.border.strong}`,
         borderRadius: 16,
-        boxShadow: '0 8px 40px rgba(0,0,0,0.13), 0 2px 8px rgba(0,0,0,0.07)',
+        boxShadow: theme.shadow.overlay,
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
@@ -103,14 +104,14 @@ export function ToolSelectorPopup({
       <div
         style={{
           padding: '11px 14px 10px',
-          borderBottom: '1px solid rgba(0,0,0,0.07)'
+          borderBottom: `1px solid ${theme.border.panel}`
         }}
       >
         <div
           style={{
             fontSize: 12,
             fontWeight: 600,
-            color: '#2D2D2B',
+            color: theme.text.primary,
             letterSpacing: '-0.1px'
           }}
         >
@@ -120,7 +121,7 @@ export function ToolSelectorPopup({
           style={{
             marginTop: 3,
             fontSize: 12,
-            color: '#8e8e93',
+            color: theme.text.muted,
             lineHeight: 1.45
           }}
         >
@@ -160,7 +161,7 @@ export function ToolSelectorPopup({
                 transition: 'background 0.12s ease'
               }}
               onMouseEnter={(event) => {
-                event.currentTarget.style.background = 'rgba(0,0,0,0.04)'
+                event.currentTarget.style.background = theme.background.hover
               }}
               onMouseLeave={(event) => {
                 event.currentTarget.style.background = 'transparent'
@@ -175,10 +176,10 @@ export function ToolSelectorPopup({
                   justifyContent: 'center',
                   borderRadius: 5,
                   border: enabled
-                    ? '1px solid rgba(204,125,94,0.28)'
-                    : '1px solid rgba(0,0,0,0.12)',
-                  background: enabled ? 'rgba(204,125,94,0.12)' : 'transparent',
-                  color: enabled ? '#CC7D5E' : '#c2c1bc',
+                    ? `1px solid ${theme.border.accent}`
+                    : `1px solid ${theme.border.input}`,
+                  background: enabled ? theme.background.accentSurface : 'transparent',
+                  color: enabled ? theme.text.accent : theme.text.placeholder,
                   flexShrink: 0
                 }}
               >
@@ -191,7 +192,7 @@ export function ToolSelectorPopup({
                     display: 'block',
                     fontFamily: '"SF Mono", "Monaco", monospace',
                     fontSize: 12,
-                    color: '#2D2D2B',
+                    color: theme.text.primary,
                     letterSpacing: '-0.05px'
                   }}
                 >
@@ -202,7 +203,7 @@ export function ToolSelectorPopup({
                     display: 'block',
                     marginTop: 2,
                     fontSize: 12,
-                    color: '#8e8e93',
+                    color: theme.text.muted,
                     lineHeight: 1.4
                   }}
                 >
@@ -215,7 +216,7 @@ export function ToolSelectorPopup({
                   flexShrink: 0,
                   fontSize: 11,
                   fontWeight: 600,
-                  color: enabled ? '#5CAD8A' : '#aaa9a4',
+                  color: enabled ? theme.text.success : theme.text.placeholder,
                   textTransform: 'uppercase',
                   letterSpacing: '0.06em'
                 }}
@@ -230,9 +231,9 @@ export function ToolSelectorPopup({
       <div
         style={{
           padding: '10px 14px 12px',
-          borderTop: '1px solid rgba(0,0,0,0.06)',
+          borderTop: `1px solid ${theme.border.default}`,
           fontSize: 11.5,
-          color: '#8e8e93',
+          color: theme.text.muted,
           lineHeight: 1.45
         }}
       >
