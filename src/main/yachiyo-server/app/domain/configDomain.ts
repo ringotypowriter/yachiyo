@@ -183,6 +183,7 @@ export class YachiyoServerConfigDomain {
       (provider) => provider.name === providerName
     )
     const nextConfig = this.persistConfig({
+      ...current,
       providers: prioritizedProvider
         ? [
             prioritizedProvider,

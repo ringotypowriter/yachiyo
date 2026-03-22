@@ -3522,6 +3522,74 @@ test('YachiyoServer persists shared tool preferences in app settings', async () 
   })
 })
 
+test('YachiyoServer preserves tool-model settings when saving the active chat model', async () => {
+  await withServer(async ({ server, waitForEvent }) => {
+    await server.saveConfig({
+      enabledTools: ['read', 'write', 'edit', 'bash', 'webRead'],
+      toolModel: {
+        mode: 'custom',
+        providerId: 'provider-backup',
+        providerName: 'backup',
+        model: 'claude-haiku-4-5'
+      },
+      providers: [
+        {
+          id: 'provider-work',
+          name: 'work',
+          type: 'openai',
+          apiKey: 'sk-openai',
+          baseUrl: 'https://api.openai.com/v1',
+          modelList: {
+            enabled: ['gpt-5'],
+            disabled: []
+          }
+        },
+        {
+          id: 'provider-backup',
+          name: 'backup',
+          type: 'anthropic',
+          apiKey: 'sk-ant',
+          baseUrl: '',
+          modelList: {
+            enabled: ['claude-haiku-4-5'],
+            disabled: []
+          }
+        }
+      ]
+    })
+
+    const updatedEvent = waitForEvent('settings.updated')
+    await server.saveSettings({
+      providerName: 'work',
+      model: 'gpt-5'
+    })
+
+    const event = (await updatedEvent) as {
+      config: {
+        toolModel?: {
+          mode?: string
+          providerId?: string
+          providerName?: string
+          model?: string
+        }
+      }
+    }
+
+    assert.deepEqual(event.config.toolModel, {
+      mode: 'custom',
+      providerId: 'provider-backup',
+      providerName: 'backup',
+      model: 'claude-haiku-4-5'
+    })
+    assert.deepEqual((await server.getConfig()).toolModel, {
+      mode: 'custom',
+      providerId: 'provider-backup',
+      providerName: 'backup',
+      model: 'claude-haiku-4-5'
+    })
+  })
+})
+
 test('YachiyoServer persists the active-run input behavior in shared app settings', async () => {
   await withServer(async ({ server, waitForEvent }) => {
     const updatedEvent = waitForEvent('settings.updated')
