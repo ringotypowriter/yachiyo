@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import type { SettingsConfig } from '../../../../shared/yachiyo/protocol.ts'
-import type { AuxiliaryGenerationService } from '../../runtime/auxiliaryGeneration.ts'
+import type {
+  AuxiliaryGenerationService,
+  AuxiliaryTextGenerationRequest
+} from '../../runtime/auxiliaryGeneration.ts'
 import type { ModelStreamRequest, ModelRuntime } from '../../runtime/types.ts'
 import {
   HIDDEN_MEMORY_SEARCH_TOOL_NAME,
@@ -11,9 +14,33 @@ import {
   type MemoryProvider
 } from './memoryService.ts'
 
-function createAuxiliaryGenerationStub(output: string): AuxiliaryGenerationService {
+interface AuxiliaryStubOptions {
+  text: string
+  status?: 'success' | 'failed'
+}
+
+function createAuxiliaryGenerationStub(
+  options: AuxiliaryStubOptions,
+  requests: AuxiliaryTextGenerationRequest[] = []
+): AuxiliaryGenerationService {
   return {
-    async generateText() {
+    async generateText(request) {
+      requests.push(request)
+
+      if (options.status === 'failed') {
+        return {
+          status: 'failed',
+          error: 'auxiliary failed',
+          settings: {
+            providerName: 'tool',
+            provider: 'openai',
+            model: 'gpt-5-mini',
+            apiKey: 'sk-tool',
+            baseUrl: ''
+          }
+        }
+      }
+
       return {
         status: 'success',
         settings: {
@@ -23,7 +50,7 @@ function createAuxiliaryGenerationStub(output: string): AuxiliaryGenerationServi
           apiKey: 'sk-tool',
           baseUrl: ''
         },
-        text: output
+        text: options.text
       }
     }
   }
@@ -38,24 +65,20 @@ const MEMORY_CONFIG: SettingsConfig = {
   }
 }
 
-test('memory service exposes the hidden memory-search capability only when memory is configured', () => {
-  const provider: MemoryProvider = {
-    async createMemories() {
-      return { savedCount: 0 }
-    },
-    async searchMemories() {
-      return []
-    }
-  }
-
-  const configured = createMemoryService({
-    auxiliaryGeneration: createAuxiliaryGenerationStub('{"queries":[]}'),
-    createModelRuntime: () => ({
-      async *streamReply() {
-        yield ''
-      }
-    }),
-    createProvider: () => provider,
+function createConfiguredService(input: {
+  auxiliaryGeneration: AuxiliaryGenerationService
+  provider: MemoryProvider
+  runtime?: ModelRuntime
+}): ReturnType<typeof createMemoryService> {
+  return createMemoryService({
+    auxiliaryGeneration: input.auxiliaryGeneration,
+    createModelRuntime: () =>
+      input.runtime ?? {
+        async *streamReply() {
+          yield ''
+        }
+      },
+    createProvider: () => input.provider,
     readConfig: () => MEMORY_CONFIG,
     readSettings: () => ({
       providerName: 'main',
@@ -65,13 +88,32 @@ test('memory service exposes the hidden memory-search capability only when memor
       baseUrl: ''
     })
   })
+}
+
+test('memory service exposes the hidden memory-search capability only when memory is configured', () => {
+  const provider: MemoryProvider = {
+    async createMemories() {
+      return { savedCount: 0 }
+    },
+    async searchMemories() {
+      return []
+    },
+    async updateMemory() {
+      return undefined
+    }
+  }
+
+  const configured = createConfiguredService({
+    auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"queries":[]}' }),
+    provider
+  })
 
   assert.equal(configured.isConfigured(), true)
   assert.equal(configured.hasHiddenSearchCapability(), true)
   assert.equal(HIDDEN_MEMORY_SEARCH_TOOL_NAME, 'memory_search')
 
   const disabled = createMemoryService({
-    auxiliaryGeneration: createAuxiliaryGenerationStub('{"queries":[]}'),
+    auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"queries":[]}' }),
     createModelRuntime: () => ({
       async *streamReply() {
         yield ''
@@ -91,21 +133,22 @@ test('memory service exposes the hidden memory-search capability only when memor
   assert.equal(disabled.hasHiddenSearchCapability(), false)
 })
 
-test('memory service derives retrieval queries, ranks provider results, and compacts them for context', async () => {
-  const searchQueries: string[] = []
+test('memory service derives stricter retrieval plans and ranks recalled context', async () => {
+  const auxiliaryRequests: AuxiliaryTextGenerationRequest[] = []
+  const searchCalls: Array<{ query: string; label?: string }> = []
   const provider: MemoryProvider = {
     async createMemories() {
       return { savedCount: 0 }
     },
-    async searchMemories({ query }) {
-      searchQueries.push(query)
+    async searchMemories({ query, label }) {
+      searchCalls.push({ query, label })
 
       if (query.includes('deployment')) {
         return [
           {
             id: 'mem-1',
             title: 'Deploy workflow',
-            content: 'Use the staging smoke test before any production-adjacent deploy review.',
+            content: 'Always run the staging smoke test before production-adjacent deploy review.',
             score: 0.95
           }
         ]
@@ -115,44 +158,39 @@ test('memory service derives retrieval queries, ranks provider results, and comp
         {
           id: 'mem-2',
           title: 'Repo preference',
-          content: 'The user prefers repo-root commands from /Users/ringo/projects/yachiyo.',
+          content: 'Use the repo root for Yachiyo commands.',
           score: 0.82
         }
       ]
+    },
+    async updateMemory() {
+      return undefined
     }
   }
 
-  const service = createMemoryService({
+  const service = createConfiguredService({
     auxiliaryGeneration: createAuxiliaryGenerationStub(
-      JSON.stringify({
-        queries: [
-          {
-            query: 'deployment checklist and staging validation',
-            reason: 'The user is asking about release behavior.',
-            weight: 0.9
-          },
-          {
-            query: 'repo root preference for Yachiyo work',
-            reason: 'Workspace conventions may matter.',
-            weight: 0.6
-          }
-        ]
-      })
+      {
+        text: JSON.stringify({
+          queries: [
+            {
+              topic: 'deploy-workflow',
+              query: 'deployment checklist and staging validation',
+              reason: 'The user is asking about release behavior.',
+              weight: 0.9
+            },
+            {
+              topic: 'repo-preference',
+              query: 'repo root preference for Yachiyo work',
+              reason: 'Workspace conventions may matter.',
+              weight: 0.6
+            }
+          ]
+        })
+      },
+      auxiliaryRequests
     ),
-    createModelRuntime: () => ({
-      async *streamReply() {
-        yield ''
-      }
-    }),
-    createProvider: () => provider,
-    readConfig: () => MEMORY_CONFIG,
-    readSettings: () => ({
-      providerName: 'main',
-      provider: 'openai',
-      model: 'gpt-5',
-      apiKey: 'sk-main',
-      baseUrl: ''
-    })
+    provider
   })
 
   const entries = await service.recallForContext({
@@ -174,25 +212,31 @@ test('memory service derives retrieval queries, ranks provider results, and comp
     ]
   })
 
-  assert.deepEqual(searchQueries, [
-    'deployment checklist and staging validation',
-    'repo root preference for Yachiyo work'
+  assert.deepEqual(searchCalls, [
+    {
+      query: 'deployment checklist and staging validation',
+      label: undefined
+    },
+    {
+      query: 'repo root preference for Yachiyo work',
+      label: undefined
+    }
   ])
+  assert.match(String(auxiliaryRequests[0]?.messages[0]?.content), /stable canonical topic key/u)
+  assert.match(
+    String(auxiliaryRequests[0]?.messages[0]?.content),
+    /Do not do naive keyword splitting/u
+  )
   assert.deepEqual(entries, [
-    'Deploy workflow: Use the staging smoke test before any production-adjacent deploy review.',
-    'Repo preference: The user prefers repo-root commands from /Users/ringo/projects/yachiyo.'
+    'Deploy workflow: Always run the staging smoke test before production-adjacent deploy review.',
+    'Repo preference: Use the repo root for Yachiyo commands.'
   ])
 })
 
 test('memory service can test Nowledge Mem connectivity and report missing CLI clearly', async () => {
-  const service = createMemoryService({
-    auxiliaryGeneration: createAuxiliaryGenerationStub('{"queries":[]}'),
-    createModelRuntime: () => ({
-      async *streamReply() {
-        yield ''
-      }
-    }),
-    createProvider: () => ({
+  const service = createConfiguredService({
+    auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"queries":[]}' }),
+    provider: {
       async createMemories() {
         return { savedCount: 0 }
       },
@@ -200,16 +244,11 @@ test('memory service can test Nowledge Mem connectivity and report missing CLI c
         const error = new Error('spawn nmem ENOENT') as Error & { code?: string }
         error.code = 'ENOENT'
         throw error
+      },
+      async updateMemory() {
+        return undefined
       }
-    }),
-    readConfig: () => MEMORY_CONFIG,
-    readSettings: () => ({
-      providerName: 'main',
-      provider: 'openai',
-      model: 'gpt-5',
-      apiKey: 'sk-main',
-      baseUrl: ''
-    })
+    }
   })
 
   const result = await service.testConnection()
@@ -220,59 +259,71 @@ test('memory service can test Nowledge Mem connectivity and report missing CLI c
   })
 })
 
-test('memory service distills completed runs and skips exact duplicates before writing', async () => {
-  const saved: MemoryCandidate[] = []
+test('memory service distills completed runs into canonical topic-aware updates instead of appending duplicates', async () => {
+  const auxiliaryRequests: AuxiliaryTextGenerationRequest[] = []
+  const created: MemoryCandidate[] = []
+  const updated: Array<{ id: string; item: MemoryCandidate }> = []
+  const searchCalls: Array<{ query: string; label?: string }> = []
   const provider: MemoryProvider = {
     async createMemories({ items }) {
-      saved.push(...items)
+      created.push(...items)
       return { savedCount: items.length }
     },
-    async searchMemories({ query }) {
-      if (query === 'Repo preference') {
+    async searchMemories({ query, label }) {
+      searchCalls.push({ query, label })
+
+      if (label === 'topic:repo-preference') {
         return [
           {
             id: 'existing-1',
             title: 'Repo preference',
-            content: 'Use the Yachiyo repo root for commands.'
+            content: 'Use the Yachiyo repo root for commands.',
+            labels: ['topic:repo-preference'],
+            importance: 0.55,
+            unitType: 'preference'
           }
         ]
       }
 
       return []
+    },
+    async updateMemory(input) {
+      updated.push(input)
     }
   }
 
-  const service = createMemoryService({
+  const service = createConfiguredService({
     auxiliaryGeneration: createAuxiliaryGenerationStub(
-      JSON.stringify({
-        candidates: [
-          {
-            title: 'Repo preference',
-            content: 'Use the Yachiyo repo root for commands.',
-            importance: 0.8
-          },
-          {
-            title: 'Testing workflow',
-            content: 'Run the targeted server tests before shipping memory changes.',
-            importance: 0.74
-          }
-        ]
-      })
+      {
+        text: JSON.stringify({
+          candidates: [
+            {
+              topic: 'repo-preference',
+              title: 'Repo preference',
+              content: 'Use the Yachiyo repo root for commands and run work from that root.',
+              unitType: 'preference',
+              importance: 0.8
+            },
+            {
+              topic: 'repo-preference',
+              title: 'Repo root preference',
+              content: 'Use the Yachiyo repo root for commands.',
+              unitType: 'preference',
+              importance: 0.6
+            },
+            {
+              topic: 'testing-workflow',
+              title: 'Testing workflow',
+              content: 'Run the targeted server tests before shipping memory changes.',
+              unitType: 'procedure',
+              importance: 0.74
+            }
+          ]
+        })
+      },
+      auxiliaryRequests
     ),
-    createModelRuntime: () => ({
-      async *streamReply() {
-        yield ''
-      }
-    }),
-    createProvider: () => provider,
-    readConfig: () => MEMORY_CONFIG,
-    readSettings: () => ({
-      providerName: 'main',
-      provider: 'openai',
-      model: 'gpt-5',
-      apiKey: 'sk-main',
-      baseUrl: ''
-    })
+    provider
   })
 
   const result = await service.distillCompletedRun({
@@ -285,17 +336,124 @@ test('memory service distills completed runs and skips exact duplicates before w
     assistantResponse: 'Remember the repo root and the testing flow.'
   })
 
-  assert.equal(result.savedCount, 1)
-  assert.deepEqual(saved, [
+  assert.equal(result.savedCount, 2)
+  assert.deepEqual(searchCalls, [
     {
+      query: 'Repo preference',
+      label: 'topic:repo-preference'
+    },
+    {
+      query: 'Testing workflow',
+      label: 'topic:testing-workflow'
+    },
+    {
+      query: 'Testing workflow testing-workflow',
+      label: undefined
+    }
+  ])
+  assert.match(
+    String(auxiliaryRequests[0]?.messages[0]?.content),
+    /stable canonical topic identifier/u
+  )
+  assert.match(
+    String(auxiliaryRequests[0]?.messages[0]?.content),
+    /Do not emit multiple near-duplicate candidates/u
+  )
+  assert.deepEqual(updated, [
+    {
+      id: 'existing-1',
+      item: {
+        topic: 'repo-preference',
+        title: 'Repo preference',
+        content: 'Use the Yachiyo repo root for commands and run work from that root.',
+        importance: 0.8,
+        unitType: 'preference'
+      },
+      signal: undefined
+    }
+  ])
+  assert.deepEqual(created, [
+    {
+      topic: 'testing-workflow',
       title: 'Testing workflow',
       content: 'Run the targeted server tests before shipping memory changes.',
-      importance: 0.74
+      importance: 0.74,
+      unitType: 'procedure'
     }
   ])
 })
 
-test('memory service uses the main model for explicit Save Thread extraction', async () => {
+test('memory service rejects malformed or weak memory candidates before persistence', async () => {
+  const created: MemoryCandidate[] = []
+  const updated: Array<{ id: string; item: MemoryCandidate }> = []
+  const provider: MemoryProvider = {
+    async createMemories({ items }) {
+      created.push(...items)
+      return { savedCount: items.length }
+    },
+    async searchMemories() {
+      return []
+    },
+    async updateMemory(input) {
+      updated.push(input)
+    }
+  }
+
+  const service = createConfiguredService({
+    auxiliaryGeneration: createAuxiliaryGenerationStub({
+      text: JSON.stringify({
+        candidates: [
+          {
+            topic: 'repo-preference',
+            title: 'Repo preference.',
+            content: 'Use the Yachiyo repo root for commands.',
+            unitType: 'preference',
+            importance: 0.8
+          },
+          {
+            topic: 'chat-summary',
+            title: 'We discussed the deploy',
+            content: 'We discussed what to do this time.',
+            unitType: 'fact',
+            importance: 0.4
+          },
+          {
+            topic: 'weak-memory',
+            title: 'Weak memory',
+            content: 'Maybe.',
+            unitType: 'fact',
+            importance: 0.2
+          }
+        ]
+      })
+    }),
+    provider
+  })
+
+  const result = await service.distillCompletedRun({
+    thread: {
+      id: 'thread-1',
+      title: 'Memory run',
+      updatedAt: '2026-03-22T00:00:00.000Z'
+    },
+    userQuery: 'What should we remember?',
+    assistantResponse: 'Remember the repo root.'
+  })
+
+  assert.equal(result.savedCount, 1)
+  assert.deepEqual(updated, [])
+  assert.deepEqual(created, [
+    {
+      topic: 'repo-preference',
+      title: 'Repo preference',
+      content: 'Use the Yachiyo repo root for commands.',
+      importance: 0.8,
+      unitType: 'preference'
+    }
+  ])
+})
+
+test('memory service uses the main model for explicit Save Thread extraction with the stricter schema', async () => {
   const requests: ModelStreamRequest[] = []
   const saved: MemoryCandidate[] = []
   const provider: MemoryProvider = {
@@ -305,6 +463,9 @@ test('memory service uses the main model for explicit Save Thread extraction', a
     },
     async searchMemories() {
       return []
+    },
+    async updateMemory() {
+      return undefined
     }
   }
   const runtime: ModelRuntime = {
@@ -313,8 +474,10 @@ test('memory service uses the main model for explicit Save Thread extraction', a
       yield JSON.stringify({
         candidates: [
           {
+            topic: 'code-review-policy',
             title: 'Code review policy',
             content: 'Present findings first, then summaries.',
+            unitType: 'procedure',
             importance: 0.9
           }
         ]
@@ -322,18 +485,10 @@ test('memory service uses the main model for explicit Save Thread extraction', a
     }
   }
 
-  const service = createMemoryService({
-    auxiliaryGeneration: createAuxiliaryGenerationStub('{"queries":[]}'),
-    createModelRuntime: () => runtime,
-    createProvider: () => provider,
-    readConfig: () => MEMORY_CONFIG,
-    readSettings: () => ({
-      providerName: 'main',
-      provider: 'openai',
-      model: 'gpt-5',
-      apiKey: 'sk-main',
-      baseUrl: ''
-    })
+  const service = createConfiguredService({
+    auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"queries":[]}' }),
+    provider,
+    runtime
   })
 
   const result = await service.saveThread({
@@ -365,11 +520,14 @@ test('memory service uses the main model for explicit Save Thread extraction', a
   assert.equal(result.savedCount, 1)
   assert.equal(requests[0]?.providerOptionsMode, undefined)
   assert.equal(requests[0]?.settings.model, 'gpt-5')
+  assert.match(String(requests[0]?.messages[0]?.content), /stable canonical topics/u)
   assert.deepEqual(saved, [
     {
+      topic: 'code-review-policy',
       title: 'Code review policy',
       content: 'Present findings first, then summaries.',
-      importance: 0.9
+      importance: 0.9,
+      unitType: 'procedure'
     }
   ])
 })

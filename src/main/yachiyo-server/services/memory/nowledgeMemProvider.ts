@@ -2,7 +2,12 @@ import { spawn } from 'node:child_process'
 
 import type { SettingsConfig } from '../../../../shared/yachiyo/protocol.ts'
 import { DEFAULT_MEMORY_BASE_URL } from '../../../../shared/yachiyo/protocol.ts'
-import type { MemoryCandidate, MemoryProvider, MemorySearchResult } from './memoryService.ts'
+import type {
+  MemoryCandidate,
+  MemoryProvider,
+  MemorySearchResult,
+  MemoryUnitType
+} from './memoryService.ts'
 
 interface NowledgeMemSearchResponseItem {
   id?: unknown
@@ -14,6 +19,10 @@ interface NowledgeMemSearchResponseItem {
   confidence?: unknown
   source_thread?: unknown
   sourceThreadId?: unknown
+  labels?: unknown
+  unit_type?: unknown
+  unitType?: unknown
+  importance?: unknown
 }
 
 interface NowledgeMemCliResponse {
@@ -75,13 +84,42 @@ function normalizeSearchResult(item: NowledgeMemSearchResponseItem): MemorySearc
         ? item.confidence
         : undefined
 
+  const labels = Array.isArray(item.labels)
+    ? item.labels.filter((label): label is string => typeof label === 'string')
+    : undefined
+  const unitType = normalizeUnitType(item.unitType ?? item.unit_type)
+  const importance = typeof item.importance === 'number' ? item.importance : undefined
+
   return {
     id: typeof item.id === 'string' ? item.id : normalizeResultId(item),
     ...(typeof item.title === 'string' ? { title: item.title.trim() } : {}),
     content,
     ...(score !== undefined ? { score } : {}),
-    ...(sourceThreadId ? { sourceThreadId } : {})
+    ...(sourceThreadId ? { sourceThreadId } : {}),
+    ...(labels?.length ? { labels } : {}),
+    ...(importance !== undefined ? { importance } : {}),
+    ...(unitType ? { unitType } : {})
   }
+}
+
+function normalizeUnitType(value: unknown): MemoryUnitType | undefined {
+  switch (value) {
+    case 'fact':
+    case 'preference':
+    case 'decision':
+    case 'plan':
+    case 'procedure':
+    case 'learning':
+    case 'context':
+    case 'event':
+      return value
+    default:
+      return undefined
+  }
+}
+
+function buildTopicLabel(topic: string): string {
+  return `topic:${topic}`
 }
 
 function normalizeResultId(item: NowledgeMemSearchResponseItem): string {
@@ -227,6 +265,10 @@ export function createNowledgeMemProvider(
           item.title,
           '--source',
           'Yachiyo',
+          '--label',
+          buildTopicLabel(item.topic),
+          '--unit-type',
+          item.unitType,
           ...(item.importance !== undefined ? ['--importance', String(item.importance)] : []),
           item.content
         ]
@@ -258,10 +300,18 @@ export function createNowledgeMemProvider(
     async searchMemories(input: {
       limit: number
       query: string
+      label?: string
       signal?: AbortSignal
     }): Promise<MemorySearchResult[]> {
       const result = await runCommand({
-        args: ['m', 'search', '--limit', String(input.limit), input.query],
+        args: [
+          'm',
+          'search',
+          '--limit',
+          String(input.limit),
+          ...(input.label ? ['--label', input.label] : []),
+          input.query
+        ],
         env,
         signal: input.signal
       })
@@ -282,6 +332,42 @@ export function createNowledgeMemProvider(
       return toSearchItems(payload)
         .map(normalizeSearchResult)
         .filter((item): item is MemorySearchResult => item !== null)
+    },
+
+    async updateMemory(input: {
+      id: string
+      item: MemoryCandidate
+      signal?: AbortSignal
+    }): Promise<void> {
+      const result = await runCommand({
+        args: [
+          'm',
+          'update',
+          input.id,
+          '--title',
+          input.item.title,
+          '--content',
+          input.item.content,
+          ...(input.item.importance !== undefined
+            ? ['--importance', String(input.item.importance)]
+            : [])
+        ],
+        env,
+        signal: input.signal
+      })
+      const payload = parseJsonPayload(result.stdout) as NowledgeMemCliResponse | string | null
+
+      if (
+        result.exitCode !== 0 ||
+        (payload && typeof payload === 'object' && typeof payload.error === 'string')
+      ) {
+        throw new Error(
+          `Nowledge Mem update failed: ${stringifyCommandFailureDetail(
+            payload,
+            result.stderr.trim() || `exit ${result.exitCode}`
+          )}`
+        )
+      }
     }
   }
 }

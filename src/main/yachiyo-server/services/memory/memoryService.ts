@@ -21,9 +21,20 @@ const DEFAULT_PROVIDER_SEARCH_LIMIT = 4
 
 export interface MemoryQueryPlanItem {
   query: string
+  topic?: string
   reason?: string
   weight?: number
 }
+
+export type MemoryUnitType =
+  | 'fact'
+  | 'preference'
+  | 'decision'
+  | 'plan'
+  | 'procedure'
+  | 'learning'
+  | 'context'
+  | 'event'
 
 export interface MemorySearchResult {
   id: string
@@ -31,12 +42,17 @@ export interface MemorySearchResult {
   content: string
   score?: number
   sourceThreadId?: string
+  labels?: string[]
+  importance?: number
+  unitType?: MemoryUnitType
 }
 
 export interface MemoryCandidate {
+  topic: string
   title: string
   content: string
   importance?: number
+  unitType: MemoryUnitType
 }
 
 export interface MemoryProvider {
@@ -47,8 +63,10 @@ export interface MemoryProvider {
   searchMemories(input: {
     limit: number
     query: string
+    label?: string
     signal?: AbortSignal
   }): Promise<MemorySearchResult[]>
+  updateMemory(input: { id: string; item: MemoryCandidate; signal?: AbortSignal }): Promise<void>
 }
 
 export interface RecallMemoryInput {
@@ -91,6 +109,7 @@ export interface MemoryServiceDeps {
 interface QueryPlanEnvelope {
   queries?: Array<{
     query?: unknown
+    topic?: unknown
     reason?: unknown
     weight?: unknown
   }>
@@ -98,11 +117,42 @@ interface QueryPlanEnvelope {
 
 interface CandidateEnvelope {
   candidates?: Array<{
+    topic?: unknown
     content?: unknown
     importance?: unknown
     title?: unknown
+    unitType?: unknown
   }>
 }
+
+const MEMORY_UNIT_TYPES: readonly MemoryUnitType[] = [
+  'fact',
+  'preference',
+  'decision',
+  'plan',
+  'procedure',
+  'learning',
+  'context',
+  'event'
+]
+const FORBIDDEN_MEMORY_PHRASES = [
+  /\bthis time\b/iu,
+  /\bjust now\b/iu,
+  /\bcurrently\b/iu,
+  /\bwe discussed\b/iu,
+  /\bit seems\b/iu,
+  /\bmaybe\b/iu,
+  /\bseems like\b/iu,
+  /这次/u,
+  /刚才/u,
+  /目前/u,
+  /我们讨论/u,
+  /似乎/u,
+  /也许/u
+]
+const MAX_MEMORY_TITLE_LENGTH = 80
+const MAX_MEMORY_CONTENT_LENGTH = 320
+const MAX_MEMORY_TOPIC_LENGTH = 64
 
 function clampWeight(value: unknown): number | undefined {
   if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -110,6 +160,17 @@ function clampWeight(value: unknown): number | undefined {
   }
 
   return Math.max(0, Math.min(1, value))
+}
+
+function normalizeTopicKey(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFKC')
+    .replace(/['’]/gu, '')
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/gu, '-')
+    .replace(/^-+|-+$/gu, '')
+    .replace(/-+/gu, '-')
+    .slice(0, MAX_MEMORY_TOPIC_LENGTH)
 }
 
 function normalizeWhitespace(value: string): string {
@@ -127,6 +188,30 @@ function truncate(value: string, maxLength: number): string {
 function stripMarkdownFence(value: string): string {
   const fenced = value.trim().match(/^```(?:json)?\s*([\s\S]*?)\s*```$/u)
   return fenced?.[1]?.trim() ?? value.trim()
+}
+
+function hasForbiddenMemoryPhrase(value: string): boolean {
+  return FORBIDDEN_MEMORY_PHRASES.some((pattern) => pattern.test(value))
+}
+
+function normalizeUnitType(value: unknown): MemoryUnitType {
+  return MEMORY_UNIT_TYPES.includes(value as MemoryUnitType) ? (value as MemoryUnitType) : 'fact'
+}
+
+function buildTopicLabel(topic: string): string {
+  return `topic:${topic}`
+}
+
+function humanizeTopic(topic: string): string {
+  return topic
+    .split('-')
+    .filter(Boolean)
+    .map((segment) =>
+      segment.length <= 3
+        ? segment.toUpperCase()
+        : `${segment[0]?.toUpperCase() ?? ''}${segment.slice(1)}`
+    )
+    .join(' ')
 }
 
 function extractJsonBlock(value: string): string | null {
@@ -184,6 +269,10 @@ function parseQueryPlan(text: string): MemoryQueryPlanItem[] {
       return [
         {
           query,
+          topic:
+            typeof item.topic === 'string'
+              ? normalizeTopicKey(normalizeWhitespace(item.topic))
+              : undefined,
           reason: typeof item.reason === 'string' ? normalizeWhitespace(item.reason) : undefined,
           weight: clampWeight(item.weight)
         }
@@ -192,30 +281,90 @@ function parseQueryPlan(text: string): MemoryQueryPlanItem[] {
     .slice(0, 3)
 }
 
+function normalizeMemoryCandidate(raw: {
+  content?: unknown
+  importance?: unknown
+  title?: unknown
+  topic?: unknown
+  unitType?: unknown
+}): MemoryCandidate | null {
+  const rawTopic = typeof raw.topic === 'string' ? normalizeWhitespace(raw.topic) : ''
+  const rawTitle = typeof raw.title === 'string' ? normalizeWhitespace(raw.title) : ''
+  const rawContent = typeof raw.content === 'string' ? normalizeWhitespace(raw.content) : ''
+
+  const topic = normalizeTopicKey(rawTopic || rawTitle)
+  const title = truncate(
+    rawTitle.replace(/[.!?。！？:：]+$/u, '').trim() || humanizeTopic(topic),
+    MAX_MEMORY_TITLE_LENGTH
+  )
+  const content = truncate(rawContent.replace(/^[-*]\s*/u, '').trim(), MAX_MEMORY_CONTENT_LENGTH)
+
+  if (!topic || !title || !content) {
+    return null
+  }
+
+  if (title.length < 3 || content.length < 16) {
+    return null
+  }
+
+  if (title.includes('\n') || content.includes('\n')) {
+    return null
+  }
+
+  if (hasForbiddenMemoryPhrase(title) || hasForbiddenMemoryPhrase(content)) {
+    return null
+  }
+
+  return {
+    topic,
+    title,
+    content,
+    importance: clampWeight(raw.importance),
+    unitType: normalizeUnitType(raw.unitType)
+  }
+}
+
+function chooseBetterContent(left: string, right: string): string {
+  if (left === right) {
+    return left
+  }
+
+  return right.length > left.length ? right : left
+}
+
+function mergeCandidatePair(left: MemoryCandidate, right: MemoryCandidate): MemoryCandidate {
+  return {
+    topic: left.topic,
+    title: left.title.length <= right.title.length ? left.title : right.title,
+    content: chooseBetterContent(left.content, right.content),
+    importance: Math.max(left.importance ?? 0, right.importance ?? 0) || undefined,
+    unitType: left.unitType === right.unitType ? left.unitType : right.unitType
+  }
+}
+
+function mergeCandidatesByTopic(candidates: MemoryCandidate[]): MemoryCandidate[] {
+  const merged = new Map<string, MemoryCandidate>()
+
+  for (const candidate of candidates) {
+    const existing = merged.get(candidate.topic)
+    merged.set(candidate.topic, existing ? mergeCandidatePair(existing, candidate) : candidate)
+  }
+
+  return [...merged.values()]
+}
+
 function parseMemoryCandidates(text: string): MemoryCandidate[] {
   const parsed = parseJsonEnvelope<CandidateEnvelope>(text)
   if (!parsed?.candidates || !Array.isArray(parsed.candidates)) {
     return []
   }
 
-  return parsed.candidates
-    .flatMap((item) => {
-      const title = typeof item.title === 'string' ? normalizeWhitespace(item.title) : ''
-      const content = typeof item.content === 'string' ? normalizeWhitespace(item.content) : ''
-
-      if (!title || !content) {
-        return []
-      }
-
-      return [
-        {
-          title: truncate(title, 120),
-          content: truncate(content, 600),
-          importance: clampWeight(item.importance)
-        }
-      ]
-    })
-    .slice(0, 8)
+  return mergeCandidatesByTopic(
+    parsed.candidates
+      .map((item) => normalizeMemoryCandidate(item))
+      .filter((item): item is MemoryCandidate => item !== null)
+      .slice(0, 8)
+  )
 }
 
 function normalizeDedupKey(input: { title: string; content: string }): string {
@@ -240,11 +389,14 @@ function buildQueryPlanningMessages(input: {
     {
       role: 'system',
       content: [
-        'You create semantic retrieval plans for long-term memory recall.',
+        'You create retrieval plans for long-term memory recall.',
         'Return JSON only.',
-        'Schema: {"queries":[{"query":"string","reason":"string","weight":0.0}]}',
-        'Produce 0-3 focused search queries.',
-        'Avoid keyword splitting. Use intent-level recall queries that could match prior decisions, preferences, bugs, or workflows.'
+        'Schema: {"queries":[{"topic":"string","query":"string","reason":"string","weight":0.0}]}',
+        'Produce 0-3 focused semantic queries.',
+        'Each topic must be a short stable canonical topic key, not a sentence.',
+        'Each query must target durable memories such as preferences, decisions, workflows, constraints, bugs, or project facts.',
+        'Do not do naive keyword splitting.',
+        'Do not include run-specific chatter, filler, or temporary status language.'
       ].join('\n')
     },
     {
@@ -270,9 +422,14 @@ function buildRunDistillationMessages(input: {
       content: [
         'Extract durable long-term memory candidates from a completed exchange.',
         'Return JSON only.',
-        'Schema: {"candidates":[{"title":"string","content":"string","importance":0.0}]}',
+        'Schema: {"candidates":[{"topic":"string","title":"string","content":"string","unitType":"fact|preference|decision|plan|procedure|learning|context|event","importance":0.0}]}',
         'Only keep durable preferences, decisions, workflows, stable facts, or reusable lessons.',
-        'Skip ephemeral task chatter and temporary run-specific details.'
+        'Title must be short, stable, canonical, and topic-like.',
+        'Topic must be a stable canonical topic identifier for dedupe and updates.',
+        'Content must be normalized factual wording, not chatty summary prose.',
+        'Exclude temporary run chatter, conversational filler, and weak observations.',
+        'Do not use phrases like "this time", "just now", "currently", "we discussed", "it seems", or "maybe".',
+        'Do not emit multiple near-duplicate candidates for the same long-term topic.'
       ].join('\n')
     },
     {
@@ -297,8 +454,12 @@ function buildSaveThreadMessages(messages: MessageRecord[]): ModelMessage[] {
       content: [
         'Review the full conversation transcript and extract durable long-term memory updates.',
         'Return JSON only.',
-        'Schema: {"candidates":[{"title":"string","content":"string","importance":0.0}]}',
-        'Keep only knowledge that should survive beyond this single thread.'
+        'Schema: {"candidates":[{"topic":"string","title":"string","content":"string","unitType":"fact|preference|decision|plan|procedure|learning|context|event","importance":0.0}]}',
+        'Keep only durable knowledge that should survive beyond this single thread.',
+        'Prefer stable canonical topics and normalized factual wording.',
+        'Exclude temporary status, filler, speculation, and thread-specific narration.',
+        'Do not use phrases like "this time", "just now", "currently", "we discussed", "it seems", or "maybe".',
+        'Do not emit multiple near-duplicate candidates for the same long-term topic.'
       ].join('\n')
     },
     {
@@ -396,40 +557,121 @@ async function deriveMemoryCandidates(
   return parseMemoryCandidates(result.text)
 }
 
-async function filterNewCandidates(
+function scoreTopicMatch(topic: string, result: MemorySearchResult): number {
+  const resultTitleTopic = normalizeTopicKey(result.title ?? '')
+  if (!resultTitleTopic) {
+    return 0
+  }
+
+  if (resultTitleTopic === topic) {
+    return 1
+  }
+
+  if (resultTitleTopic.includes(topic) || topic.includes(resultTitleTopic)) {
+    return 0.8
+  }
+
+  return 0
+}
+
+function findTopicLabel(labels?: string[]): string | null {
+  return labels?.find((label) => label.startsWith('topic:')) ?? null
+}
+
+function selectReconciliationTarget(
+  candidate: MemoryCandidate,
+  results: MemorySearchResult[]
+): MemorySearchResult | null {
+  const exactLabelMatch = results.find(
+    (result) => findTopicLabel(result.labels) === buildTopicLabel(candidate.topic)
+  )
+  if (exactLabelMatch) {
+    return exactLabelMatch
+  }
+
+  const scored = results
+    .map((result) => ({
+      result,
+      score: scoreTopicMatch(candidate.topic, result) + (result.score ?? 0)
+    }))
+    .sort((left, right) => right.score - left.score)
+
+  if ((scored[0]?.score ?? 0) >= 0.8) {
+    return scored[0]?.result ?? null
+  }
+
+  return null
+}
+
+function shouldSkipExistingMemory(
+  existing: MemorySearchResult,
+  candidate: MemoryCandidate
+): boolean {
+  return (
+    normalizeDedupKey({
+      title: existing.title ?? '',
+      content: existing.content
+    }) === normalizeDedupKey(candidate)
+  )
+}
+
+function mergeWithExistingMemory(
+  existing: MemorySearchResult,
+  candidate: MemoryCandidate
+): MemoryCandidate {
+  return {
+    topic: candidate.topic,
+    title:
+      candidate.title.length <= (existing.title?.length ?? Number.MAX_SAFE_INTEGER)
+        ? candidate.title
+        : (existing.title ?? candidate.title),
+    content: chooseBetterContent(existing.content, candidate.content),
+    importance: Math.max(existing.importance ?? 0, candidate.importance ?? 0) || undefined,
+    unitType: candidate.unitType
+  }
+}
+
+async function reconcileMemoryCandidates(
   provider: MemoryProvider,
   candidates: MemoryCandidate[],
   signal?: AbortSignal
-): Promise<MemoryCandidate[]> {
-  const seen = new Set<string>()
-  const filtered: MemoryCandidate[] = []
+): Promise<{ creates: MemoryCandidate[]; updates: Array<{ id: string; item: MemoryCandidate }> }> {
+  const creates: MemoryCandidate[] = []
+  const updates: Array<{ id: string; item: MemoryCandidate }> = []
 
-  for (const candidate of candidates) {
-    const dedupKey = normalizeDedupKey(candidate)
-    if (seen.has(dedupKey)) {
+  for (const candidate of mergeCandidatesByTopic(candidates)) {
+    const topicMatches = await provider.searchMemories({
+      limit: 4,
+      query: candidate.title,
+      label: buildTopicLabel(candidate.topic),
+      signal
+    })
+    const fallbackMatches =
+      topicMatches.length > 0
+        ? topicMatches
+        : await provider.searchMemories({
+            limit: 4,
+            query: `${candidate.title} ${candidate.topic}`,
+            signal
+          })
+    const existing = selectReconciliationTarget(candidate, fallbackMatches)
+
+    if (!existing) {
+      creates.push(candidate)
       continue
     }
 
-    seen.add(dedupKey)
-    const similar = await provider.searchMemories({
-      limit: 3,
-      query: candidate.title,
-      signal
-    })
-    const isDuplicate = similar.some(
-      (result) =>
-        normalizeDedupKey({
-          title: result.title ?? '',
-          content: result.content
-        }) === dedupKey
-    )
-
-    if (!isDuplicate) {
-      filtered.push(candidate)
+    if (shouldSkipExistingMemory(existing, candidate)) {
+      continue
     }
+
+    updates.push({
+      id: existing.id,
+      item: mergeWithExistingMemory(existing, candidate)
+    })
   }
 
-  return filtered
+  return { creates, updates }
 }
 
 export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
@@ -516,7 +758,11 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
             const key =
               result.id || normalizeDedupKey({ title: result.title ?? '', content: result.content })
             const baseScore = result.score ?? Math.max(0.1, 1 - resultIndex * 0.1)
-            const weightedScore = baseScore + (query.weight ?? 0.5) * 0.35 - queryIndex * 0.02
+            const weightedScore =
+              baseScore +
+              (query.weight ?? 0.5) * 0.35 +
+              scoreTopicMatch(query.topic ?? '', result) * 0.2 -
+              queryIndex * 0.02
             const existing = aggregated.get(key)
 
             if (!existing || weightedScore > existing.score) {
@@ -561,16 +807,27 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
         signal: input.signal
       })
       const candidates = await deriveMemoryCandidates(result)
-      const filtered = await filterNewCandidates(provider, candidates, input.signal)
+      const reconciled = await reconcileMemoryCandidates(provider, candidates, input.signal)
 
-      if (filtered.length === 0) {
-        return { savedCount: 0 }
+      for (const update of reconciled.updates) {
+        await provider.updateMemory({
+          id: update.id,
+          item: update.item,
+          signal: input.signal
+        })
       }
 
-      return provider.createMemories({
-        items: filtered,
-        signal: input.signal
-      })
+      const created =
+        reconciled.creates.length === 0
+          ? { savedCount: 0 }
+          : await provider.createMemories({
+              items: reconciled.creates,
+              signal: input.signal
+            })
+
+      return {
+        savedCount: created.savedCount + reconciled.updates.length
+      }
     },
 
     async saveThread(input: SaveThreadMemoryInput): Promise<{ savedCount: number }> {
@@ -594,16 +851,27 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
         signal: input.signal
       })
       const candidates = parseMemoryCandidates(text)
-      const filtered = await filterNewCandidates(provider, candidates, input.signal)
+      const reconciled = await reconcileMemoryCandidates(provider, candidates, input.signal)
 
-      if (filtered.length === 0) {
-        return { savedCount: 0 }
+      for (const update of reconciled.updates) {
+        await provider.updateMemory({
+          id: update.id,
+          item: update.item,
+          signal: input.signal
+        })
       }
 
-      return provider.createMemories({
-        items: filtered,
-        signal: input.signal
-      })
+      const created =
+        reconciled.creates.length === 0
+          ? { savedCount: 0 }
+          : await provider.createMemories({
+              items: reconciled.creates,
+              signal: input.signal
+            })
+
+      return {
+        savedCount: created.savedCount + reconciled.updates.length
+      }
     }
   }
 }
