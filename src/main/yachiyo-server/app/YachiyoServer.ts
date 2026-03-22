@@ -22,6 +22,7 @@ import {
 } from '../config/paths.ts'
 import { createAuxiliaryGenerationService } from '../runtime/auxiliaryGeneration.ts'
 import { createAiSdkModelRuntime } from '../runtime/modelRuntime.ts'
+import { readSoulDocument, type SoulDocument } from '../runtime/soul.ts'
 import type { ModelRuntime } from '../runtime/types.ts'
 import { createSearchService, type SearchService } from '../services/search/searchService.ts'
 import {
@@ -54,6 +55,7 @@ export interface YachiyoServerOptions {
   createId?: () => string
   createModelRuntime?: () => ModelRuntime
   searchService?: SearchService
+  readSoulDocument?: () => Promise<SoulDocument | null>
   ensureThreadWorkspace?: (threadId: string) => Promise<string>
   cloneThreadWorkspace?: (sourceThreadId: string, targetThreadId: string) => Promise<string>
   deleteThreadWorkspace?: (threadId: string) => Promise<void>
@@ -146,6 +148,7 @@ export class YachiyoServer {
       ensureThreadWorkspace,
       searchService,
       webSearchService,
+      readSoulDocument: options.readSoulDocument ?? (() => readSoulDocument()),
       readConfig: () => this.configDomain.readConfig(),
       readSettings: () => this.configDomain.readSettings(),
       requireThread: this.requireThread.bind(this),

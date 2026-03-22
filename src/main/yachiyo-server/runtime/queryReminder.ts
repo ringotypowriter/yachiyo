@@ -57,37 +57,3 @@ export function formatQueryReminder(sections: QueryReminderSection[]): string | 
 
   return lines.join('\n')
 }
-
-export function prependQueryReminder(content: string, reminder: string | undefined): string {
-  if (!reminder) {
-    return content
-  }
-
-  return content.trim().length > 0 ? `${reminder}\n\n${content}` : reminder
-}
-
-export function prependQueryReminderToLatestUserMessage<
-  TMessage extends { role: 'user' | 'assistant'; content: string }
->(messages: TMessage[], reminder: string | undefined): TMessage[] {
-  if (!reminder) {
-    return messages
-  }
-
-  const latestUserMessageIndex = [...messages]
-    .map((message, index) => ({ index, role: message.role }))
-    .reverse()
-    .find((message) => message.role === 'user')?.index
-
-  if (latestUserMessageIndex === undefined) {
-    return messages
-  }
-
-  return messages.map((message, index) =>
-    index === latestUserMessageIndex
-      ? {
-          ...message,
-          content: prependQueryReminder(message.content, reminder)
-        }
-      : message
-  )
-}

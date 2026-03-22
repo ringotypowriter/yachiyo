@@ -1,17 +1,8 @@
 import type { ModelMessage as AiSdkModelMessage } from 'ai'
 
-import { SYSTEM_PROMPT } from './prompt.ts'
+import { compileContextLayers, type CompileContextLayersInput } from './contextLayers.ts'
 import type { ModelMessage, ModelStreamRequest } from './types.ts'
-import type { MessageImageRecord } from '../../../shared/yachiyo/protocol'
-import {
-  extractBase64DataUrlPayload,
-  normalizeMessageImages
-} from '../../../shared/yachiyo/messageContent.ts'
-
-interface MessagePrepareInput {
-  history: Array<{ role: 'user' | 'assistant'; content: string; images?: MessageImageRecord[] }>
-  agentInstructions?: string
-}
+type MessagePrepareInput = CompileContextLayersInput
 
 function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
   return messages.filter((message) => {
@@ -23,45 +14,8 @@ function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
   })
 }
 
-function toModelMessage(message: MessagePrepareInput['history'][number]): ModelMessage {
-  if (message.role !== 'user') {
-    return {
-      role: message.role,
-      content: message.content
-    }
-  }
-
-  const images = normalizeMessageImages(message.images)
-  if (images.length === 0) {
-    return {
-      role: 'user',
-      content: message.content
-    }
-  }
-
-  return {
-    role: 'user',
-    content: [
-      ...(message.content.trim().length > 0
-        ? [{ type: 'text' as const, text: message.content }]
-        : []),
-      ...images.map((image) => ({
-        type: 'image' as const,
-        image: extractBase64DataUrlPayload(image.dataUrl)?.base64 ?? image.dataUrl,
-        mediaType: image.mediaType
-      }))
-    ]
-  }
-}
-
 export function prepareModelMessages(input: MessagePrepareInput): ModelMessage[] {
-  return removeEmptyMessages([
-    { role: 'system', content: SYSTEM_PROMPT },
-    ...(input.agentInstructions
-      ? [{ role: 'system' as const, content: input.agentInstructions }]
-      : []),
-    ...input.history.map(toModelMessage)
-  ])
+  return compileContextLayers(input)
 }
 
 export function prepareAiSdkMessages(

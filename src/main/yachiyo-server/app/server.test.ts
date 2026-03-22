@@ -6,6 +6,7 @@ import test from 'node:test'
 
 import { YachiyoServer } from './YachiyoServer.ts'
 import type { ModelStreamRequest } from '../runtime/types.ts'
+import type { SoulDocument } from '../runtime/soul.ts'
 import { createInMemoryYachiyoStorage } from '../storage/memoryStorage.ts'
 import type {
   ChatAccepted,
@@ -31,6 +32,7 @@ async function withServer(
     createModelRuntime?: () => {
       streamReply(request: ModelStreamRequest): AsyncIterable<string>
     }
+    readSoulDocument?: () => Promise<SoulDocument | null>
     ensureThreadWorkspace?: (
       threadId: string,
       workspacePathForThread: (threadId: string) => string
@@ -202,7 +204,8 @@ async function withServer(
           yield 'Hello'
           yield ' world'
         }
-      }))
+      })),
+    readSoulDocument: options.readSoulDocument ?? (async () => null)
   })
 
   const unsubscribe = server.subscribe((event) => {
@@ -601,7 +604,7 @@ test('YachiyoServer keeps the simple fallback title when tool-model title genera
   )
 })
 
-test('YachiyoServer snapshots the enabled tool subset and prepends hidden reminder context after tool changes', async () => {
+test('YachiyoServer snapshots the enabled tool subset and sends tool-change reminders as a hint layer', async () => {
   await withServer(async ({ server, completeRun, modelRequests }) => {
     await server.upsertProvider({
       name: 'work',
@@ -647,29 +650,35 @@ test('YachiyoServer snapshots the enabled tool subset and prepends hidden remind
     assert.equal(modelRequests[0]?.messages.at(-1)?.content, 'Default tool run')
 
     assert.deepEqual(Object.keys(modelRequests[1]?.tools ?? {}), ['read', 'bash'])
-    assert.equal(
-      modelRequests[1]?.messages.at(-1)?.content,
-      [
-        '<reminder>',
-        'Tool availability changed for this turn:',
-        '- Disabled: write, edit, webRead.',
-        '</reminder>',
-        '',
-        'Use only read and bash'
-      ].join('\n')
+    assert.equal(modelRequests[1]?.messages.at(-1)?.content, 'Use only read and bash')
+    assert.ok(
+      modelRequests[1]?.messages.some(
+        (message) =>
+          message.role === 'system' &&
+          message.content ===
+            [
+              '<reminder>',
+              'Tool availability changed for this turn:',
+              '- Disabled: write, edit, webRead.',
+              '</reminder>'
+            ].join('\n')
+      )
     )
 
     assert.deepEqual(Object.keys(modelRequests[2]?.tools ?? {}), ['read', 'write', 'bash'])
-    assert.equal(
-      modelRequests[2]?.messages.at(-1)?.content,
-      [
-        '<reminder>',
-        'Tool availability changed for this turn:',
-        '- Enabled: write.',
-        '</reminder>',
-        '',
-        'Turn write back on'
-      ].join('\n')
+    assert.equal(modelRequests[2]?.messages.at(-1)?.content, 'Turn write back on')
+    assert.ok(
+      modelRequests[2]?.messages.some(
+        (message) =>
+          message.role === 'system' &&
+          message.content ===
+            [
+              '<reminder>',
+              'Tool availability changed for this turn:',
+              '- Enabled: write.',
+              '</reminder>'
+            ].join('\n')
+      )
     )
 
     const bootstrap = await server.bootstrap()

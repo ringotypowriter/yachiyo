@@ -18,12 +18,13 @@ import type {
 } from '../../../../shared/yachiyo/protocol.ts'
 import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 import { prepareModelMessages } from '../../runtime/messagePrepare.ts'
+import { SYSTEM_PROMPT } from '../../runtime/prompt.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
 import {
   buildToolAvailabilityReminderSection,
-  formatQueryReminder,
-  prependQueryReminderToLatestUserMessage
+  formatQueryReminder
 } from '../../runtime/queryReminder.ts'
+import { readSoulDocument, type SoulDocument } from '../../runtime/soul.ts'
 import type { ModelRuntime } from '../../runtime/types.ts'
 import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
@@ -69,6 +70,7 @@ export interface RunExecutionDeps {
   ensureThreadWorkspace: (threadId: string) => Promise<string>
   searchService?: SearchService
   webSearchService?: WebSearchService
+  readSoulDocument?: () => Promise<SoulDocument | null>
   readThread: (threadId: string) => ThreadRecord
   readConfig: () => SettingsConfig
   readSettings: () => ProviderSettings
@@ -287,6 +289,9 @@ export async function executeServerRun(
   try {
     const workspacePath = await deps.ensureThreadWorkspace(input.thread.id)
     const runtime = deps.createModelRuntime()
+    const soulDocument = deps.readSoulDocument
+      ? await deps.readSoulDocument()
+      : await readSoulDocument()
     const hiddenQueryReminder = formatQueryReminder(
       [
         ...(input.previousEnabledTools
@@ -299,13 +304,21 @@ export async function executeServerRun(
           : [])
       ].flatMap((section) => (section ? [section] : []))
     )
-    const history = prependQueryReminderToLatestUserMessage(
-      loadRunHistory(deps.loadThreadMessages, input.thread.id, input.requestMessageId),
-      hiddenQueryReminder
-    )
     const messages = prepareModelMessages({
-      history,
-      agentInstructions: buildAgentInstructions(workspacePath, input.enabledTools)
+      personality: {
+        basePersona: SYSTEM_PROMPT,
+        evolvedTraits: soulDocument?.evolvedTraits ?? []
+      },
+      agent: {
+        instructions: buildAgentInstructions(workspacePath, input.enabledTools)
+      },
+      hint: {
+        reminder: hiddenQueryReminder
+      },
+      memory: {
+        entries: []
+      },
+      history: loadRunHistory(deps.loadThreadMessages, input.thread.id, input.requestMessageId)
     })
     const tools = createAgentToolSet(
       {

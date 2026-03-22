@@ -4,8 +4,11 @@ import test from 'node:test'
 import { prepareAiSdkMessages, prepareModelMessages } from './messagePrepare.ts'
 import { SYSTEM_PROMPT } from './prompt.ts'
 
-test('message prepare prepends the system prompt and drops empty messages', () => {
+test('message prepare compiles explicit context layers and drops empty messages', () => {
   const prepared = prepareModelMessages({
+    personality: {
+      basePersona: SYSTEM_PROMPT
+    },
     history: [
       { role: 'user', content: '   ' },
       { role: 'assistant', content: 'Previous answer' },
@@ -20,15 +23,46 @@ test('message prepare prepends the system prompt and drops empty messages', () =
   ])
 })
 
-test('message prepare can add a second system message for agent runtime instructions', () => {
+test('message prepare can add agent, hint, and memory layers without mutating user content', () => {
   const prepared = prepareModelMessages({
+    personality: {
+      basePersona: SYSTEM_PROMPT,
+      evolvedTraits: ['Keeps replies crisp under pressure', 'Prefers concrete next actions']
+    },
     history: [{ role: 'user', content: 'Inspect the workspace' }],
-    agentInstructions: 'Workspace: /tmp/thread-1'
+    agent: {
+      instructions: 'Workspace: /tmp/thread-1'
+    },
+    hint: {
+      reminder:
+        '<reminder>\nTool availability changed for this turn:\n- Disabled: edit.\n</reminder>'
+    },
+    memory: {
+      entries: ['No persisted memories yet.']
+    }
   })
 
   assert.deepEqual(prepared, [
-    { role: 'system', content: SYSTEM_PROMPT },
+    {
+      role: 'system',
+      content: [
+        SYSTEM_PROMPT,
+        '',
+        '以下是来自 SOUL 的人格补充，请自然吸收并保持整体稳定：',
+        '- Keeps replies crisp under pressure',
+        '- Prefers concrete next actions'
+      ].join('\n')
+    },
     { role: 'system', content: 'Workspace: /tmp/thread-1' },
+    {
+      role: 'system',
+      content:
+        '<reminder>\nTool availability changed for this turn:\n- Disabled: edit.\n</reminder>'
+    },
+    {
+      role: 'system',
+      content: ['<memory>', '- No persisted memories yet.', '</memory>'].join('\n')
+    },
     { role: 'user', content: 'Inspect the workspace' }
   ])
 })
@@ -48,6 +82,9 @@ test('message prepare converts prepared messages into AI SDK messages', () => {
 
 test('message prepare keeps image input close to the user text payload', () => {
   const prepared = prepareModelMessages({
+    personality: {
+      basePersona: SYSTEM_PROMPT
+    },
     history: [
       {
         role: 'user',

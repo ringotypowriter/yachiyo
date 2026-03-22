@@ -19,6 +19,7 @@ import {
   summarizeMessageInput
 } from '../../../../shared/yachiyo/messageContent.ts'
 import type { AuxiliaryGenerationService } from '../../runtime/auxiliaryGeneration.ts'
+import type { SoulDocument } from '../../runtime/soul.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
 import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
 import type { ModelRuntime } from '../../runtime/types.ts'
@@ -72,6 +73,7 @@ interface RunDomainDeps {
   ensureThreadWorkspace: (threadId: string) => Promise<string>
   searchService?: SearchService
   webSearchService?: WebSearchService
+  readSoulDocument?: () => Promise<SoulDocument | null>
   readConfig: () => SettingsConfig
   readSettings: () => ProviderSettings
   requireThread: (threadId: string) => ThreadRecord
@@ -565,6 +567,7 @@ export class YachiyoServerRunDomain {
             ensureThreadWorkspace: this.deps.ensureThreadWorkspace,
             searchService: this.deps.searchService,
             webSearchService: this.deps.webSearchService,
+            readSoulDocument: this.deps.readSoulDocument,
             readThread: this.deps.requireThread,
             readConfig: this.deps.readConfig,
             readSettings: this.deps.readSettings,
