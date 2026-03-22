@@ -1,20 +1,15 @@
 import { DEFAULT_SIDEBAR_VISIBILITY } from '../../../shared/yachiyo/protocol.ts'
 import type { SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
 import { theme } from '@renderer/theme/theme'
-import { PlaceholderPane, SettingSwitch } from '../components/primitives'
+import { SettingSwitch } from '../components/primitives'
 import { settingsPanelStyle } from '../components/styles'
 
 interface GeneralPaneProps {
-  activeSubTab: string
   draft: SettingsConfig
   onChange: (next: SettingsConfig) => void
 }
 
-export function GeneralPane({ activeSubTab, draft, onChange }: GeneralPaneProps): React.ReactNode {
-  if (activeSubTab !== 'appearance') {
-    return <PlaceholderPane label="Language settings coming soon." />
-  }
-
+export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactNode {
   const sidebarVisibility = draft.general?.sidebarVisibility ?? DEFAULT_SIDEBAR_VISIBILITY
 
   return (

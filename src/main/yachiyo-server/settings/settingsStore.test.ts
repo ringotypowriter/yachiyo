@@ -172,6 +172,26 @@ test('toProviderSettings resolves the active provider snapshot', () => {
   assert.equal(snapshot.apiKey, 'sk-ant')
 })
 
+test('normalizeSettingsConfig keeps vertex providers', () => {
+  const normalized = normalizeSettingsConfig({
+    providers: [
+      {
+        id: 'provider-vertex',
+        name: 'vertex-work',
+        type: 'vertex',
+        apiKey: 'vgw_test',
+        baseUrl: 'https://ai-gateway.vercel.sh/v3/ai',
+        modelList: {
+          enabled: ['google/gemini-3-flash'],
+          disabled: []
+        }
+      }
+    ]
+  })
+
+  assert.equal(normalized.providers[0]?.type, 'vertex')
+})
+
 test('toToolModelSettings resolves the configured auxiliary model snapshot', () => {
   const config = {
     enabledTools: DEFAULT_ENABLED_TOOL_NAMES,

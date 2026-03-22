@@ -477,6 +477,7 @@ export function ProvidersPane({
                 >
                   <option value="openai">OpenAI</option>
                   <option value="anthropic">Anthropic</option>
+                  <option value="vertex">Vertex</option>
                 </select>
               </Field>
 
@@ -493,7 +494,13 @@ export function ProvidersPane({
                     }
                     className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                     style={inputStyle()}
-                    placeholder={selectedProvider.type === 'anthropic' ? 'sk-ant-...' : 'sk-...'}
+                    placeholder={
+                      selectedProvider.type === 'anthropic'
+                        ? 'sk-ant-...'
+                        : selectedProvider.type === 'vertex'
+                          ? 'vgw_...'
+                          : 'sk-...'
+                    }
                   />
                 </Field>
               </div>
@@ -513,7 +520,9 @@ export function ProvidersPane({
                     placeholder={
                       selectedProvider.type === 'anthropic'
                         ? 'https://api.anthropic.com/v1'
-                        : 'https://api.openai.com/v1'
+                        : selectedProvider.type === 'vertex'
+                          ? 'https://ai-gateway.vercel.sh/v3/ai'
+                          : 'https://api.openai.com/v1'
                     }
                   />
                 </Field>

@@ -212,6 +212,191 @@ test('createAiSdkModelRuntime uses AI SDK streaming with Anthropic thinking enab
   })
 })
 
+test('createAiSdkModelRuntime uses AI Gateway with vertex provider options for Gemini', async () => {
+  let gatewayOptions: { apiKey?: string; baseURL?: string } | undefined
+  let selectedModel: { provider: string; modelId: string } | null = null
+  let call: {
+    abortSignal?: AbortSignal
+    messages: unknown
+    providerOptions?: {
+      gateway?: {
+        order?: string[]
+      }
+      vertex?: {
+        thinkingConfig?: {
+          includeThoughts?: boolean
+          thinkingLevel?: string
+        }
+      }
+    }
+  } | null = null
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () => {
+      throw new Error('OpenAI should not be used in this test.')
+    },
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    createGatewayProvider: (options) => {
+      gatewayOptions = options
+      return ((modelId: string) => {
+        selectedModel = { modelId, provider: 'gateway' }
+        return { modelId, provider: 'gateway' } as never
+      }) as never
+    },
+    streamTextImpl: ((input: {
+      abortSignal?: AbortSignal
+      messages: unknown
+      providerOptions?: {
+        gateway?: {
+          order?: string[]
+        }
+        vertex?: {
+          thinkingConfig?: {
+            includeThoughts?: boolean
+            thinkingLevel?: string
+          }
+        }
+      }
+    }) => {
+      call = {
+        abortSignal: input.abortSignal,
+        messages: input.messages,
+        providerOptions: input.providerOptions
+      }
+      return {
+        textStream: (async function* () {
+          yield 'Vertex'
+        })()
+      }
+    }) as never
+  })
+
+  const controller = new AbortController()
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Think carefully.' }],
+    settings: {
+      providerName: 'vertex-work',
+      provider: 'vertex',
+      model: 'google/gemini-3-flash',
+      apiKey: 'vgw_test',
+      baseUrl: 'https://ai-gateway.vercel.sh/v1'
+    },
+    signal: controller.signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['Vertex'])
+  assert.equal(gatewayOptions?.apiKey, 'vgw_test')
+  assert.equal(gatewayOptions?.baseURL, 'https://ai-gateway.vercel.sh/v3/ai')
+  assert.deepEqual(selectedModel, {
+    provider: 'gateway',
+    modelId: 'google/gemini-3-flash'
+  })
+  const streamCall = call as {
+    abortSignal?: AbortSignal
+    messages: unknown
+    providerOptions?: {
+      gateway?: {
+        order?: string[]
+      }
+      vertex?: {
+        thinkingConfig?: {
+          includeThoughts?: boolean
+          thinkingLevel?: string
+        }
+      }
+    }
+  } | null
+  if (streamCall === null) {
+    assert.fail('Expected streamText to be called.')
+  }
+  assert.deepEqual(streamCall.providerOptions, {
+    gateway: {
+      order: ['vertex']
+    },
+    vertex: {
+      thinkingConfig: {
+        includeThoughts: true,
+        thinkingLevel: 'medium'
+      }
+    }
+  })
+})
+
+test('createAiSdkModelRuntime omits vertex thinking config for non-Gemini-3 models', async () => {
+  let providerOptions:
+    | {
+        gateway?: {
+          order?: string[]
+        }
+        vertex?: {
+          thinkingConfig?: {
+            includeThoughts?: boolean
+            thinkingLevel?: string
+          }
+        }
+      }
+    | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () => {
+      throw new Error('OpenAI should not be used in this test.')
+    },
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    createGatewayProvider: () => ((modelId: string) => ({ modelId, provider: 'gateway' })) as never,
+    streamTextImpl: ((input: {
+      providerOptions?: {
+        gateway?: {
+          order?: string[]
+        }
+        vertex?: {
+          thinkingConfig?: {
+            includeThoughts?: boolean
+            thinkingLevel?: string
+          }
+        }
+      }
+    }) => {
+      providerOptions = input.providerOptions
+      return {
+        textStream: (async function* () {
+          yield 'ok'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Say hi' }],
+    settings: {
+      providerName: 'vertex-work',
+      provider: 'vertex',
+      model: 'google/gemini-2.5-flash',
+      apiKey: 'vgw_test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
+  assert.deepEqual(providerOptions, {
+    gateway: {
+      order: ['vertex']
+    }
+  })
+})
+
 test('createAiSdkModelRuntime omits OpenAI reasoningEffort for auxiliary generation', async () => {
   let providerOptions:
     | {

@@ -77,7 +77,7 @@ function normalizeString(value: unknown, fallback: string): string {
 }
 
 function normalizeProviderType(value: unknown, fallback: ProviderKind): ProviderKind {
-  return value === 'openai' || value === 'anthropic' ? value : fallback
+  return value === 'openai' || value === 'anthropic' || value === 'vertex' ? value : fallback
 }
 
 function normalizeWebSearchProviderId(

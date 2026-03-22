@@ -39,15 +39,7 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
-  {
-    id: 'general',
-    label: 'General',
-    icon: Settings2,
-    subTabs: [
-      { id: 'appearance', label: 'Appearance' },
-      { id: 'language', label: 'Language' }
-    ]
-  },
+  { id: 'general', label: 'General', icon: Settings2 },
   { id: 'providers', label: 'Providers', icon: Cpu },
   { id: 'chat', label: 'Chat', icon: MessageSquare },
   { id: 'workspace', label: 'Workspace', icon: FolderOpen },
@@ -215,13 +207,7 @@ function SettingsApp(): React.ReactNode {
     )
   } else if (draft) {
     if (activeTab === 'general') {
-      body = (
-        <GeneralPane
-          activeSubTab={activeSubTab.general ?? 'appearance'}
-          draft={draft}
-          onChange={setDraft}
-        />
-      )
+      body = <GeneralPane draft={draft} onChange={setDraft} />
     } else if (activeTab === 'providers') {
       body = (
         <ProvidersPane
