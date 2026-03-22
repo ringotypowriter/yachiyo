@@ -44,6 +44,9 @@ function MessageMetaRow({ footer }: { footer: MessageFooter }): React.JSX.Elemen
 
 interface AssistantMessageBubbleProps {
   message: Message
+  contentOverride?: string
+  showFooter?: boolean
+  showActions?: boolean
   threadHasActiveRun?: boolean
   onRetry?: () => Promise<void> | void
   onCreateBranch: () => Promise<void> | void
@@ -52,17 +55,21 @@ interface AssistantMessageBubbleProps {
 
 export function AssistantMessageBubble({
   message,
+  contentOverride,
+  showFooter = true,
+  showActions = true,
   threadHasActiveRun = false,
   onRetry,
   onCreateBranch,
   onDelete
 }: AssistantMessageBubbleProps): React.JSX.Element {
   const { showContent, showBubble, footer } = buildMessagePresentation(message)
-  const isStreaming = message.status === 'streaming'
+  const isStreaming = message.status === 'streaming' && showFooter
   const canRetry = canRetryAssistantMessage({
     messageStatus: message.status,
     threadHasActiveRun
   })
+  const content = contentOverride ?? message.content
 
   if (!showBubble) return <></>
 
@@ -70,21 +77,25 @@ export function AssistantMessageBubble({
     <div
       className={`flex flex-col gap-2 px-6 py-1 message-bubble-group${isStreaming ? ' sd-caret-host' : ''}`}
     >
-      <div className="max-w-[72%] message-card-shell">
+      <div className="w-full message-card-shell">
         <div className="assistant-message-bubble">
-          {showContent && <MessageMarkdown content={message.content} isStreaming={isStreaming} />}
+          {showContent && <MessageMarkdown content={content} isStreaming={isStreaming} />}
         </div>
-        <div className="assistant-message-bubble__footer-row">
-          <div>{footer && <MessageMetaRow footer={footer} />}</div>
-          <MessageActionBar
-            align="start"
-            content={message.content}
-            canRetry={canRetry}
-            onRetry={isStreaming ? undefined : onRetry}
-            onCreateBranch={onCreateBranch}
-            onDelete={onDelete}
-          />
-        </div>
+        {showFooter || showActions ? (
+          <div className="assistant-message-bubble__footer-row">
+            <div>{showFooter && footer ? <MessageMetaRow footer={footer} /> : null}</div>
+            {showActions ? (
+              <MessageActionBar
+                align="start"
+                content={message.content}
+                canRetry={canRetry}
+                onRetry={isStreaming ? undefined : onRetry}
+                onCreateBranch={onCreateBranch}
+                onDelete={onDelete}
+              />
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   )

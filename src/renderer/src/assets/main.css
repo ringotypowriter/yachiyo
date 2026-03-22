@@ -423,7 +423,6 @@ body {
 
 .message-response-cluster {
   position: relative;
-  margin-left: 26px;
   display: flex;
   flex-direction: column;
   gap: 2px;

@@ -1522,6 +1522,94 @@ test('YachiyoServer restarts on steer even when the runtime returns normally aft
   )
 })
 
+test('YachiyoServer persists assistant text blocks around tool calls', async () => {
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Split the assistant message around tools'
+      })
+
+      await completeRun(accepted.runId)
+
+      const bootstrap = await server.bootstrap()
+      const assistantMessage = bootstrap.messagesByThread[thread.id]?.find(
+        (message) => message.role === 'assistant'
+      )
+
+      assert.deepEqual(
+        assistantMessage?.textBlocks?.map((textBlock) => textBlock.content),
+        ['Before tool', 'After tool']
+      )
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          yield 'Before tool'
+
+          request.onToolCallStart?.({
+            abortSignal: request.signal,
+            experimental_context: undefined,
+            functionId: undefined,
+            messages: request.messages,
+            metadata: undefined,
+            model: undefined,
+            stepNumber: 0,
+            toolCall: {
+              input: { filePath: '/tmp/example.txt' },
+              toolCallId: 'tool-read-1',
+              toolName: 'read'
+            }
+          } as never)
+
+          request.onToolCallFinish?.({
+            abortSignal: request.signal,
+            durationMs: 1,
+            experimental_context: undefined,
+            functionId: undefined,
+            messages: request.messages,
+            metadata: undefined,
+            model: undefined,
+            stepNumber: 0,
+            success: true,
+            output: {
+              content: [{ type: 'text', text: 'ok' }],
+              details: {
+                path: '/tmp/example.txt',
+                startLine: 1,
+                endLine: 1,
+                totalLines: 1,
+                totalBytes: 2,
+                truncated: false
+              },
+              metadata: {}
+            },
+            toolCall: {
+              input: { filePath: '/tmp/example.txt' },
+              toolCallId: 'tool-read-1',
+              toolName: 'read'
+            }
+          } as never)
+
+          yield 'After tool'
+        }
+      })
+    }
+  )
+})
+
 test('YachiyoServer delays steer restart until the running tool call finishes', async () => {
   const requests: ModelStreamRequest[] = []
   let attempt = 0

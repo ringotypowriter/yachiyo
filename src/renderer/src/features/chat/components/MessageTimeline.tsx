@@ -9,7 +9,7 @@ import {
   partitionToolCallsForGroups
 } from '../lib/messageThreadPresentation'
 import { findRunMemorySummary } from '../lib/runMemoryPresentation.ts'
-import { buildConversationGroupSectionKinds } from '../lib/messageTimelineLayout.ts'
+import { buildConversationGroupTimelineItems } from '../lib/messageTimelineLayout.ts'
 import { UserMessageBubble } from './UserMessageBubble'
 import { AssistantMessageBubble } from './AssistantMessageBubble'
 import { PreparingBubble } from './PreparingBubble'
@@ -140,13 +140,29 @@ export function ThreadConversationGroup({
   const retryTargetMessageId = activeBranch?.message.id ?? group.userMessage.id
   const visibleToolCalls = getVisibleToolCallsForGroup({ group, toolCalls })
   const memorySummary = findRunMemorySummary(runs, group.userMessage.id)
-  const sectionKinds = buildConversationGroupSectionKinds({
-    hasActiveBranch: Boolean(activeBranch),
-    hideActiveBranchWhilePreparing: group.hideActiveBranchWhilePreparing,
+  const activeAssistantTextBlocks =
+    activeBranch && !group.hideActiveBranchWhilePreparing
+      ? activeBranch.message.textBlocks && activeBranch.message.textBlocks.length > 0
+        ? activeBranch.message.textBlocks
+        : activeBranch.message.content.trim().length > 0
+          ? [
+              {
+                id: activeBranch.message.id,
+                content: activeBranch.message.content,
+                createdAt: activeBranch.message.createdAt
+              }
+            ]
+          : []
+      : []
+  const timelineItems = buildConversationGroupTimelineItems({
+    hasMemoryRecall: Boolean(memorySummary),
     replyCount: responseCount,
     showPreparing: group.showPreparing,
-    visibleToolCallCount: visibleToolCalls.length
+    activeAssistantTextBlocks,
+    visibleToolCalls
   })
+  const textBlocksById = new Map(activeAssistantTextBlocks.map((textBlock) => [textBlock.id, textBlock]))
+  const lastTextBlockId = activeAssistantTextBlocks.at(-1)?.id
   const canSelectPreviousReply = !threadHasActiveRun && Boolean(previousBranch)
   const canSelectNextReply = !threadHasActiveRun && Boolean(nextBranch)
 
@@ -160,8 +176,12 @@ export function ThreadConversationGroup({
         onDelete={() => onDelete(group.userMessage.id)}
       />
 
-      {sectionKinds.map((sectionKind) => {
-        if (sectionKind === 'reply-nav') {
+      {timelineItems.map((item) => {
+        if (item.kind === 'memory-recall' && memorySummary) {
+          return <RunMemoryRecallRow key={item.key} entries={memorySummary.entries} />
+        }
+
+        if (item.kind === 'reply-nav') {
           return (
             <div key="reply-nav" className="px-6 py-0.5">
               <ReplyBranchNavigation
@@ -179,22 +199,25 @@ export function ThreadConversationGroup({
           )
         }
 
-        if (sectionKind === 'tool-calls') {
-          return (
-            <React.Fragment key="tool-calls">
-              {visibleToolCalls.map((toolCall) => (
-                <ToolCallRow key={toolCall.id} toolCall={toolCall} />
-              ))}
-            </React.Fragment>
-          )
+        if (item.kind === 'tool-call') {
+          const toolCall = visibleToolCalls.find((entry) => entry.id === item.toolCallId)
+          return toolCall ? <ToolCallRow key={toolCall.id} toolCall={toolCall} /> : null
         }
 
-        if (sectionKind === 'assistant-bubble' && activeBranch) {
+        if (item.kind === 'assistant-text-block' && activeBranch) {
+          const textBlock = textBlocksById.get(item.textBlockId)
+          if (!textBlock) {
+            return null
+          }
+
+          const isLastTextBlock = textBlock.id === lastTextBlockId
           return (
-            <div key="assistant-bubble" className="message-response-cluster">
-              {memorySummary ? <RunMemoryRecallRow entries={memorySummary.entries} /> : null}
+            <div key={item.key} className="message-response-cluster">
               <AssistantMessageBubble
                 message={activeBranch.message}
+                contentOverride={textBlock.content}
+                showActions={isLastTextBlock}
+                showFooter={isLastTextBlock}
                 threadHasActiveRun={threadHasActiveRun}
                 onRetry={() => onRetry(activeBranch.message.id)}
                 onCreateBranch={() => onCreateBranch(activeBranch.message.id)}
@@ -204,7 +227,7 @@ export function ThreadConversationGroup({
           )
         }
 
-        if (sectionKind === 'preparing') {
+        if (item.kind === 'preparing') {
           return (
             <div key="preparing" className="message-response-cluster">
               <div className="message-response-cluster__preparing">

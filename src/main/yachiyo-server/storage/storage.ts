@@ -1,6 +1,7 @@
 import type {
   MessageImageRecord,
   MessageRecord,
+  MessageTextBlockRecord,
   RunRecord,
   ThreadRecord,
   ToolCallDetailsSnapshot,
@@ -32,6 +33,7 @@ export interface StoredMessageRow {
   parentMessageId: string | null
   role: MessageRecord['role']
   content: string
+  textBlocks: string | null
   images: string | null
   status: MessageRecord['status']
   createdAt: string
@@ -188,6 +190,7 @@ export function toThreadRecord(
 
 export function toMessageRecord(row: StoredMessageRow): MessageRecord {
   const images = parseMessageImages(row.images)
+  const textBlocks = parseMessageTextBlocks(row.textBlocks)
 
   return {
     id: row.id,
@@ -195,6 +198,7 @@ export function toMessageRecord(row: StoredMessageRow): MessageRecord {
     ...(row.parentMessageId === null ? {} : { parentMessageId: row.parentMessageId }),
     role: row.role,
     content: row.content,
+    ...(textBlocks ? { textBlocks } : {}),
     ...(images ? { images } : {}),
     status: row.status,
     createdAt: row.createdAt,
@@ -271,6 +275,25 @@ export function toRunRecord(row: StoredRunRow): RunRecord {
 export function serializeMessageImages(images?: MessageImageRecord[]): string | null {
   const normalized = normalizeMessageImages(images)
   return normalized.length > 0 ? JSON.stringify(normalized) : null
+}
+
+export function serializeMessageTextBlocks(textBlocks?: MessageTextBlockRecord[]): string | null {
+  return textBlocks && textBlocks.length > 0 ? JSON.stringify(textBlocks) : null
+}
+
+export function parseMessageTextBlocks(
+  textBlocks: string | null
+): MessageTextBlockRecord[] | undefined {
+  if (!textBlocks) {
+    return undefined
+  }
+
+  try {
+    const parsed = JSON.parse(textBlocks) as MessageTextBlockRecord[]
+    return parsed.length > 0 ? parsed : undefined
+  } catch {
+    return undefined
+  }
 }
 
 export function parseMessageImages(images: string | null): MessageImageRecord[] | undefined {

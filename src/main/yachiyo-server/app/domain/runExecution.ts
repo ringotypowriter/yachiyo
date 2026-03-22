@@ -8,6 +8,7 @@ import type {
   MessageDeltaEvent,
   MessageRecord,
   MessageStartedEvent,
+  MessageTextBlockRecord,
   ProviderSettings,
   RunCancelledEvent,
   RunCompletedEvent,
@@ -98,6 +99,43 @@ export interface RunExecutionDeps {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError'
+}
+
+function appendMessageDeltaToTextBlocks(input: {
+  textBlocks: MessageTextBlockRecord[]
+  delta: string
+  timestamp: string
+  createId: CreateId
+  shouldStartNewBlock: boolean
+}): { textBlocks: MessageTextBlockRecord[]; shouldStartNewBlock: boolean } {
+  if (!input.delta) {
+    return {
+      textBlocks: input.textBlocks,
+      shouldStartNewBlock: input.shouldStartNewBlock
+    }
+  }
+
+  const nextTextBlocks = [...input.textBlocks]
+  const currentTextBlock =
+    !input.shouldStartNewBlock && nextTextBlocks.length > 0 ? nextTextBlocks.at(-1) : undefined
+
+  if (currentTextBlock) {
+    nextTextBlocks[nextTextBlocks.length - 1] = {
+      ...currentTextBlock,
+      content: currentTextBlock.content + input.delta
+    }
+  } else {
+    nextTextBlocks.push({
+      id: input.createId(),
+      content: input.delta,
+      createdAt: input.timestamp
+    })
+  }
+
+  return {
+    textBlocks: nextTextBlocks,
+    shouldStartNewBlock: false
+  }
 }
 
 function isRestartRunReason(value: unknown): value is RestartRunReason {
@@ -291,6 +329,8 @@ export async function executeServerRun(
   const toolCalls = new Map<string, ToolCallRecord>()
   const runningToolCallIds = new Set<string>()
   let buffer = ''
+  let textBlocks: MessageTextBlockRecord[] = []
+  let shouldStartNewTextBlock = true
   let executionPhase: 'generating' | 'tool-running' = 'generating'
   let awaitingSafeSteerPointAfterTool = false
   let safeSteerTimer: ReturnType<typeof setTimeout> | null = null
@@ -443,6 +483,7 @@ export async function executeServerRun(
 
         cancelPendingSafeSteerPointAfterTool()
         runningToolCallIds.add(event.toolCall.toolCallId)
+        shouldStartNewTextBlock = true
         setExecutionPhase('tool-running')
 
         const toolCall: ToolCallRecord = {
@@ -587,6 +628,15 @@ export async function executeServerRun(
 
       if (!delta) continue
       buffer += delta
+      const nextTextBlockState = appendMessageDeltaToTextBlocks({
+        textBlocks,
+        delta,
+        timestamp: deps.timestamp(),
+        createId: deps.createId,
+        shouldStartNewBlock: shouldStartNewTextBlock
+      })
+      textBlocks = nextTextBlockState.textBlocks
+      shouldStartNewTextBlock = nextTextBlockState.shouldStartNewBlock
       deps.emit<MessageDeltaEvent>({
         type: 'message.delta',
         threadId: input.thread.id,
@@ -607,6 +657,7 @@ export async function executeServerRun(
       parentMessageId: input.requestMessageId,
       role: 'assistant',
       content: buffer,
+      ...(textBlocks.length > 0 ? { textBlocks } : {}),
       status: 'completed',
       createdAt: timestamp,
       modelId: settings.model,

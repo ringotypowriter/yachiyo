@@ -14,6 +14,7 @@ import {
   groupMessagesByThread,
   serializeEnabledTools,
   serializeMessageImages,
+  serializeMessageTextBlocks,
   serializeToolCallDetails,
   toMessageRecord,
   toRunRecord,
@@ -124,6 +125,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                 providerName: messagesTable.providerName,
                 role: messagesTable.role,
                 status: messagesTable.status,
+                textBlocks: messagesTable.textBlocks,
                 threadId: messagesTable.threadId
               })
               .from(messagesTable)
@@ -318,6 +320,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             .values(
               messages.map((message) => ({
                 ...message,
+                textBlocks: serializeMessageTextBlocks(message.textBlocks),
                 images: serializeMessageImages(message.images)
               }))
             )
@@ -383,9 +386,11 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           tx.delete(messagesTable).where(eq(messagesTable.id, replacedMessageId)).run()
         }
 
+        const { textBlocks, ...persistedMessage } = message
         tx.insert(messagesTable)
           .values({
-            ...message,
+            ...persistedMessage,
+            textBlocks: serializeMessageTextBlocks(textBlocks),
             images: serializeMessageImages(message.images)
           })
           .run()
@@ -419,9 +424,11 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     }: StartRunInput) {
       db.transaction((tx) => {
         if (userMessage) {
+          const { textBlocks, ...persistedUserMessage } = userMessage
           tx.insert(messagesTable)
             .values({
-              ...userMessage,
+              ...persistedUserMessage,
+              textBlocks: serializeMessageTextBlocks(textBlocks),
               images: serializeMessageImages(userMessage.images)
             })
             .run()
@@ -459,9 +466,11 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
     completeRun({ runId, updatedThread, assistantMessage }: CompleteRunInput) {
       db.transaction((tx) => {
+        const { textBlocks, ...persistedAssistantMessage } = assistantMessage
         tx.insert(messagesTable)
           .values({
-            ...assistantMessage,
+            ...persistedAssistantMessage,
+            textBlocks: serializeMessageTextBlocks(textBlocks),
             images: serializeMessageImages(assistantMessage.images)
           })
           .run()
@@ -532,6 +541,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           providerName: messagesTable.providerName,
           role: messagesTable.role,
           status: messagesTable.status,
+          textBlocks: messagesTable.textBlocks,
           threadId: messagesTable.threadId
         })
         .from(messagesTable)
@@ -546,6 +556,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .set({
           content: message.content,
           images: serializeMessageImages(message.images),
+          textBlocks: serializeMessageTextBlocks(message.textBlocks),
           modelId: message.modelId ?? null,
           parentMessageId: message.parentMessageId ?? null,
           providerName: message.providerName ?? null,

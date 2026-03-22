@@ -7,6 +7,7 @@ export type {
   GrepToolCallDetails,
   MessageRecord as Message,
   MessageImageRecord,
+  MessageTextBlockRecord,
   ProviderSettings,
   ReadToolCallDetails,
   RunRecord,

@@ -57,6 +57,13 @@
       "when": 1774174452146,
       "tag": "0007_dashing_silk_fever",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1774185549498,
+      "tag": "0008_clumsy_leech",
+      "breakpoints": true
     }
   ]
 }

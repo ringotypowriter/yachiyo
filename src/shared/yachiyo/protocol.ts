@@ -235,6 +235,12 @@ export interface MessageImageRecord {
   filename?: string
 }
 
+export interface MessageTextBlockRecord {
+  id: string
+  content: string
+  createdAt: string
+}
+
 export interface ThreadRecord {
   archivedAt?: string
   id: string
@@ -255,6 +261,7 @@ export interface MessageRecord {
   parentMessageId?: string
   role: MessageRole
   content: string
+  textBlocks?: MessageTextBlockRecord[]
   images?: MessageImageRecord[]
   status: MessageStatus
   createdAt: string

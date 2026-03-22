@@ -4,6 +4,7 @@ import type {
   ConnectionStatus,
   Message,
   MessageImageRecord,
+  MessageTextBlockRecord,
   ProviderSettings,
   RunRecord,
   RunStatus,
@@ -28,6 +29,7 @@ interface PendingAssistantMessage {
   messageId: string
   threadId: string
   parentMessageId: string
+  shouldStartNewTextBlock: boolean
 }
 
 interface PendingSteerMessage {
@@ -156,6 +158,35 @@ function removeThread(threads: Thread[], threadId: string): Thread[] {
 function upsertMessage(messages: Message[], message: Message): Message[] {
   const next = [...messages.filter((item) => item.id !== message.id), message]
   return next.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+}
+
+function appendTextBlockDelta(input: {
+  textBlocks: MessageTextBlockRecord[] | undefined
+  delta: string
+  timestamp: string
+  shouldStartNewTextBlock: boolean
+}): { textBlocks: MessageTextBlockRecord[]; shouldStartNewTextBlock: boolean } {
+  const nextTextBlocks = [...(input.textBlocks ?? [])]
+  const currentTextBlock =
+    !input.shouldStartNewTextBlock && nextTextBlocks.length > 0 ? nextTextBlocks.at(-1) : undefined
+
+  if (currentTextBlock) {
+    nextTextBlocks[nextTextBlocks.length - 1] = {
+      ...currentTextBlock,
+      content: currentTextBlock.content + input.delta
+    }
+  } else {
+    nextTextBlocks.push({
+      id: `${input.timestamp}:${nextTextBlocks.length}`,
+      content: input.delta,
+      createdAt: input.timestamp
+    })
+  }
+
+  return {
+    textBlocks: nextTextBlocks,
+    shouldStartNewTextBlock: false
+  }
 }
 
 function replaceMessage(
@@ -690,6 +721,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           parentMessageId: event.parentMessageId,
           role: 'assistant',
           content: '',
+          textBlocks: [],
           status: 'streaming',
           createdAt: event.timestamp
         }
@@ -705,7 +737,8 @@ export const useAppStore = create<AppState>((set, get) => ({
             [event.runId]: {
               messageId: event.messageId,
               parentMessageId: event.parentMessageId,
-              threadId: event.threadId
+              threadId: event.threadId,
+              shouldStartNewTextBlock: true
             }
           }
         }
@@ -715,12 +748,28 @@ export const useAppStore = create<AppState>((set, get) => ({
         const pending = state.pendingAssistantMessages[event.runId]
         if (!pending) return {}
 
+        let nextPendingAssistantMessage = pending
+
         const nextThreadMessages = (state.messages[event.threadId] ?? []).map((message) =>
           message.id === pending.messageId
-            ? {
-                ...message,
-                content: message.content + event.delta
-              }
+            ? (() => {
+                const nextTextBlockState = appendTextBlockDelta({
+                  textBlocks: message.textBlocks,
+                  delta: event.delta,
+                  timestamp: event.timestamp,
+                  shouldStartNewTextBlock: pending.shouldStartNewTextBlock
+                })
+                nextPendingAssistantMessage = {
+                  ...pending,
+                  shouldStartNewTextBlock: nextTextBlockState.shouldStartNewTextBlock
+                }
+
+                return {
+                  ...message,
+                  content: message.content + event.delta,
+                  textBlocks: nextTextBlockState.textBlocks
+                }
+              })()
             : message
         )
 
@@ -728,6 +777,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           messages: {
             ...state.messages,
             [event.threadId]: nextThreadMessages
+          },
+          pendingAssistantMessages: {
+            ...state.pendingAssistantMessages,
+            [event.runId]: nextPendingAssistantMessage
           },
           runPhase: 'streaming'
         }
@@ -747,7 +800,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       if (event.type === 'tool.updated') {
+        const pending = state.pendingAssistantMessages[event.runId]
         return {
+          pendingAssistantMessages: pending
+            ? {
+                ...state.pendingAssistantMessages,
+                [event.runId]: {
+                  ...pending,
+                  shouldStartNewTextBlock: true
+                }
+              }
+            : state.pendingAssistantMessages,
           toolCalls: {
             ...state.toolCalls,
             [event.threadId]: upsertToolCall(state.toolCalls[event.threadId] ?? [], event.toolCall)

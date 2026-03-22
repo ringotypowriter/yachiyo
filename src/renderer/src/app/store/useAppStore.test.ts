@@ -122,6 +122,7 @@ test('applyServerEvent keeps a stopped placeholder when a run is cancelled befor
       role: 'assistant',
       parentMessageId: 'user-1',
       content: '',
+      textBlocks: [],
       status: 'stopped',
       createdAt: TIMESTAMP
     }
@@ -575,6 +576,82 @@ test('applyServerEvent upserts live tool activity for the current thread', () =>
   assert.equal(state.toolCalls['thread-1']?.length, 1)
   assert.equal(state.toolCalls['thread-1']?.[0]?.status, 'completed')
   assert.equal(state.toolCalls['thread-1']?.[0]?.cwd, '/tmp/thread-1')
+})
+
+test('applyServerEvent starts a new assistant text block after a tool update', () => {
+  resetStore()
+
+  useAppStore.getState().applyServerEvent({
+    type: 'run.created',
+    eventId: 'event-run-created',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    requestMessageId: 'user-1'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'message.started',
+    eventId: 'event-message-started',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    messageId: 'message-1',
+    parentMessageId: 'user-1'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'message.delta',
+    eventId: 'event-message-delta-1',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    messageId: 'message-1',
+    delta: 'Before tool'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'tool.updated',
+    eventId: 'event-tool-started',
+    timestamp: '2026-03-15T00:00:01.000Z',
+    threadId: 'thread-1',
+    runId: 'run-1',
+    toolCall: {
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'bash',
+      status: 'running',
+      inputSummary: 'pwd',
+      startedAt: '2026-03-15T00:00:01.000Z'
+    }
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'message.delta',
+    eventId: 'event-message-delta-2',
+    timestamp: '2026-03-15T00:00:02.000Z',
+    threadId: 'thread-1',
+    runId: 'run-1',
+    messageId: 'message-1',
+    delta: 'After tool'
+  })
+
+  const message = useAppStore.getState().messages['thread-1']?.[0]
+
+  assert.equal(message?.content, 'Before toolAfter tool')
+  assert.deepEqual(
+    message?.textBlocks?.map((textBlock) => ({
+      content: textBlock.content,
+      createdAt: textBlock.createdAt
+    })),
+    [
+      {
+        content: 'Before tool',
+        createdAt: TIMESTAMP
+      },
+      {
+        content: 'After tool',
+        createdAt: '2026-03-15T00:00:02.000Z'
+      }
+    ]
+  )
 })
 
 test('selectModel ignores changes while a run is active', async () => {
