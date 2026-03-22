@@ -287,12 +287,7 @@ test('sqlite migrations backfill tool call message anchors from historical runs'
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-sqlite-native-'))
   const dbPath = join(root, 'native.sqlite')
   const migrationTimes = [
-    1773678990559,
-    1773720356847,
-    1773721712396,
-    1773733715724,
-    1773892989412,
-    1773907329656
+    1773678990559, 1773720356847, 1773721712396, 1773733715724, 1773892989412, 1773907329656
   ]
 
   try {

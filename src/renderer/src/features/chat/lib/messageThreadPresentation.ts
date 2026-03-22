@@ -24,12 +24,20 @@ export function getVisibleToolCallsForGroup(input: {
   toolCalls: ToolCall[]
 }): ToolCall[] {
   const requestMessageId = input.group.userMessage.id
+  const hiddenActiveAssistantId =
+    input.group.hideActiveBranchWhilePreparing && input.group.activeBranchIndex >= 0
+      ? input.group.assistantBranches[input.group.activeBranchIndex]?.message.id
+      : undefined
   const knownAssistantIds = new Set(
     input.group.assistantBranches.map((branch) => branch.message.id)
   )
   const visibleAssistantIds = new Set(
     input.group.assistantBranches
-      .filter((branch) => branch.isActive || branch.message.status !== 'completed')
+      .filter(
+        (branch) =>
+          (!input.group.hideActiveBranchWhilePreparing && branch.isActive) ||
+          branch.message.status !== 'completed'
+      )
       .map((branch) => branch.message.id)
   )
 
@@ -37,6 +45,14 @@ export function getVisibleToolCallsForGroup(input: {
     .filter((toolCall) => {
       if (toolCall.requestMessageId !== requestMessageId) {
         return false
+      }
+
+      if (
+        hiddenActiveAssistantId &&
+        toolCall.assistantMessageId === hiddenActiveAssistantId &&
+        toolCall.status !== 'completed'
+      ) {
+        return true
       }
 
       return (

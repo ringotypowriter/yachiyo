@@ -1150,7 +1150,7 @@ test('YachiyoServer delays steer restart until the running tool call finishes', 
   const requests: ModelStreamRequest[] = []
   let attempt = 0
   let firstRequest: ModelStreamRequest | null = null
-  const toolStatuses: string[] = []
+  const toolUpdates: Array<{ assistantMessageId?: string; status: string }> = []
   let releaseToolExecution: (() => void) | null = null
   let markToolExecutionStarted: (() => void) | null = null
   const toolExecutionStarted = new Promise<void>((resolve) => {
@@ -1168,7 +1168,12 @@ test('YachiyoServer delays steer restart until the running tool call finishes', 
           return
         }
 
-        toolStatuses.push(event.toolCall.status)
+        toolUpdates.push({
+          ...(event.toolCall.assistantMessageId
+            ? { assistantMessageId: event.toolCall.assistantMessageId }
+            : {}),
+          status: event.toolCall.status
+        })
       })
       let acceptedRunId = ''
 
@@ -1222,12 +1227,18 @@ test('YachiyoServer delays steer restart until the running tool call finishes', 
       assert.equal(toolCalls[0]?.status, 'completed')
       assert.equal(toolCalls[0]?.outputSummary, 'exit 0')
       assert.equal(toolCalls[0]?.error, undefined)
-      assert.deepEqual(toolStatuses, ['running', 'completed'])
+      assert.deepEqual(
+        toolUpdates.map((toolCall) => toolCall.status),
+        ['running', 'completed', 'completed']
+      )
       assert.equal(messages.length, 3)
       assert.equal(messages[1]?.content, 'Actually summarize the result instead')
       assert.equal(messages[1]?.parentMessageId, accepted.userMessage.id)
       assert.equal(messages[2]?.content, 'Steered reply')
       assert.equal(messages[2]?.parentMessageId, messages[1]?.id)
+      assert.equal(toolUpdates[0]?.assistantMessageId, undefined)
+      assert.equal(toolUpdates[1]?.assistantMessageId, undefined)
+      assert.equal(toolUpdates[2]?.assistantMessageId, messages[2]?.id)
       unsubscribe()
     },
     {
@@ -1317,7 +1328,7 @@ test('YachiyoServer delays steer restart until the running tool call finishes', 
 })
 
 test('YachiyoServer ignores late tool updates after a tool call has already finished', async () => {
-  const toolStatuses: string[] = []
+  const toolUpdates: Array<{ assistantMessageId?: string; status: string }> = []
 
   await withServer(
     async ({ server, completeRun }) => {
@@ -1344,7 +1355,12 @@ test('YachiyoServer ignores late tool updates after a tool call has already fini
           return
         }
 
-        toolStatuses.push(event.toolCall.status)
+        toolUpdates.push({
+          ...(event.toolCall.assistantMessageId
+            ? { assistantMessageId: event.toolCall.assistantMessageId }
+            : {}),
+          status: event.toolCall.status
+        })
       })
 
       await completeRun(accepted.runId)
@@ -1357,7 +1373,13 @@ test('YachiyoServer ignores late tool updates after a tool call has already fini
       assert.equal(toolCalls[0]?.status, 'completed')
       assert.equal(toolCalls[0]?.outputSummary, 'exit 0')
       assert.equal(typeof toolCalls[0]?.finishedAt, 'string')
-      assert.deepEqual(toolStatuses, ['running', 'completed'])
+      assert.deepEqual(
+        toolUpdates.map((toolCall) => toolCall.status),
+        ['running', 'completed', 'completed']
+      )
+      assert.equal(toolUpdates[0]?.assistantMessageId, undefined)
+      assert.equal(toolUpdates[1]?.assistantMessageId, undefined)
+      assert.equal(toolUpdates[2]?.assistantMessageId, toolCalls[0]?.assistantMessageId)
     },
     {
       createModelRuntime: () => ({
@@ -1440,7 +1462,7 @@ test('YachiyoServer ignores late tool updates after a tool call has already fini
 })
 
 test('YachiyoServer persists tool finishes that arrive without a prior tool start event', async () => {
-  const toolStatuses: string[] = []
+  const toolUpdates: Array<{ assistantMessageId?: string; status: string }> = []
 
   await withServer(
     async ({ server, completeRun }) => {
@@ -1467,7 +1489,12 @@ test('YachiyoServer persists tool finishes that arrive without a prior tool star
           return
         }
 
-        toolStatuses.push(event.toolCall.status)
+        toolUpdates.push({
+          ...(event.toolCall.assistantMessageId
+            ? { assistantMessageId: event.toolCall.assistantMessageId }
+            : {}),
+          status: event.toolCall.status
+        })
       })
 
       await completeRun(accepted.runId)
@@ -1483,7 +1510,12 @@ test('YachiyoServer persists tool finishes that arrive without a prior tool star
       assert.equal(toolCalls[0]?.outputSummary, 'exit 0')
       assert.equal(toolCalls[0]?.requestMessageId, accepted.userMessage.id)
       assert.equal(typeof toolCalls[0]?.assistantMessageId, 'string')
-      assert.deepEqual(toolStatuses, ['completed'])
+      assert.deepEqual(
+        toolUpdates.map((toolCall) => toolCall.status),
+        ['completed', 'completed']
+      )
+      assert.equal(toolUpdates[0]?.assistantMessageId, undefined)
+      assert.equal(toolUpdates[1]?.assistantMessageId, toolCalls[0]?.assistantMessageId)
     },
     {
       createModelRuntime: () => ({

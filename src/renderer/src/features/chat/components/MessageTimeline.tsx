@@ -1,5 +1,4 @@
-import type React from 'react'
-import { useEffect, useRef } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { HarnessRecord } from '@renderer/app/store/useAppStore'
 import type { Message, ToolCall } from '@renderer/app/types'
@@ -8,10 +7,12 @@ import {
   getVisibleToolCallsForGroup,
   partitionToolCallsForGroups
 } from '../lib/messageThreadPresentation'
+import { buildConversationGroupSectionKinds } from '../lib/messageTimelineLayout.ts'
 import { UserMessageBubble } from './UserMessageBubble'
 import { AssistantMessageBubble } from './AssistantMessageBubble'
 import { PreparingBubble } from './PreparingBubble'
 import { RunEventRow } from './RunEventRow'
+import { ReplyBranchNavigation } from './ReplyBranchNavigation'
 import { ToolCallRow } from './ToolCallRow'
 
 interface MessageTimelineProps {
@@ -102,7 +103,7 @@ function confirmDelete(message: Message): boolean {
   )
 }
 
-function ThreadConversationGroup({
+export function ThreadConversationGroup({
   threadId,
   group,
   toolCalls,
@@ -132,6 +133,15 @@ function ThreadConversationGroup({
       : null
   const retryTargetMessageId = activeBranch?.message.id ?? group.userMessage.id
   const visibleToolCalls = getVisibleToolCallsForGroup({ group, toolCalls })
+  const sectionKinds = buildConversationGroupSectionKinds({
+    hasActiveBranch: Boolean(activeBranch),
+    hideActiveBranchWhilePreparing: group.hideActiveBranchWhilePreparing,
+    replyCount: responseCount,
+    showPreparing: group.showPreparing,
+    visibleToolCallCount: visibleToolCalls.length
+  })
+  const canSelectPreviousReply = !threadHasActiveRun && Boolean(previousBranch)
+  const canSelectNextReply = !threadHasActiveRun && Boolean(nextBranch)
 
   return (
     <div className="flex flex-col gap-2" data-thread-id={threadId}>
@@ -143,39 +153,61 @@ function ThreadConversationGroup({
         onDelete={() => onDelete(group.userMessage.id)}
       />
 
-      {visibleToolCalls.map((toolCall) => (
-        <ToolCallRow key={toolCall.id} toolCall={toolCall} />
-      ))}
-
-      {responseCount > 0 || group.showPreparing ? (
-        <div className="message-response-cluster">
-          {!group.hideActiveBranchWhilePreparing && activeBranch ? (
-            <AssistantMessageBubble
-              key={activeBranch.message.id}
-              message={activeBranch.message}
-              replyCount={responseCount}
-              canSelectPreviousReply={!threadHasActiveRun && Boolean(previousBranch)}
-              canSelectNextReply={!threadHasActiveRun && Boolean(nextBranch)}
-              threadHasActiveRun={threadHasActiveRun}
-              onRetry={() => onRetry(activeBranch.message.id)}
-              onSelectPreviousReply={
-                previousBranch ? () => onSelectReplyBranch(previousBranch.message.id) : undefined
-              }
-              onSelectNextReply={
-                nextBranch ? () => onSelectReplyBranch(nextBranch.message.id) : undefined
-              }
-              onCreateBranch={() => onCreateBranch(activeBranch.message.id)}
-              onDelete={() => onDelete(activeBranch.message.id)}
-            />
-          ) : null}
-
-          {group.showPreparing ? (
-            <div className="message-response-cluster__preparing">
-              <PreparingBubble />
+      {sectionKinds.map((sectionKind) => {
+        if (sectionKind === 'reply-nav') {
+          return (
+            <div key="reply-nav" className="px-6 py-0.5">
+              <ReplyBranchNavigation
+                replyCount={responseCount}
+                canSelectPreviousReply={canSelectPreviousReply}
+                canSelectNextReply={canSelectNextReply}
+                onSelectPreviousReply={
+                  previousBranch ? () => onSelectReplyBranch(previousBranch.message.id) : undefined
+                }
+                onSelectNextReply={
+                  nextBranch ? () => onSelectReplyBranch(nextBranch.message.id) : undefined
+                }
+              />
             </div>
-          ) : null}
-        </div>
-      ) : null}
+          )
+        }
+
+        if (sectionKind === 'tool-calls') {
+          return (
+            <React.Fragment key="tool-calls">
+              {visibleToolCalls.map((toolCall) => (
+                <ToolCallRow key={toolCall.id} toolCall={toolCall} />
+              ))}
+            </React.Fragment>
+          )
+        }
+
+        if (sectionKind === 'assistant-bubble' && activeBranch) {
+          return (
+            <div key="assistant-bubble" className="message-response-cluster">
+              <AssistantMessageBubble
+                message={activeBranch.message}
+                threadHasActiveRun={threadHasActiveRun}
+                onRetry={() => onRetry(activeBranch.message.id)}
+                onCreateBranch={() => onCreateBranch(activeBranch.message.id)}
+                onDelete={() => onDelete(activeBranch.message.id)}
+              />
+            </div>
+          )
+        }
+
+        if (sectionKind === 'preparing') {
+          return (
+            <div key="preparing" className="message-response-cluster">
+              <div className="message-response-cluster__preparing">
+                <PreparingBubble />
+              </div>
+            </div>
+          )
+        }
+
+        return null
+      })}
     </div>
   )
 }

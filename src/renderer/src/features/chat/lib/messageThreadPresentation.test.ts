@@ -179,6 +179,162 @@ test('buildMessageGroups hides downstream messages while a historical retry is p
   assert.equal(groups[0]?.hideActiveBranchWhilePreparing, true)
 })
 
+test('getVisibleToolCallsForGroup hides completed tool calls from the replaced branch while a retry is preparing', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-2'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'First question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-1',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'First answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'user-2',
+        threadId: 'thread-1',
+        role: 'user',
+        parentMessageId: 'assistant-1',
+        content: 'Second question',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:02.000Z'
+      },
+      {
+        id: 'assistant-2',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-2',
+        content: 'Second answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:03.000Z'
+      }
+    ],
+    runPhase: 'preparing',
+    activeRequestMessageId: 'user-1'
+  })
+
+  const toolCalls = getVisibleToolCallsForGroup({
+    group: group!,
+    toolCalls: [
+      {
+        id: 'tool-old-branch',
+        runId: 'run-old',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'completed',
+        inputSummary: 'sleep 5',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-1',
+        startedAt: '2026-03-15T00:00:01.100Z'
+      },
+      {
+        id: 'tool-retry-running',
+        runId: 'run-retry',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'running',
+        inputSummary: 'sleep 5',
+        requestMessageId: 'user-1',
+        startedAt: '2026-03-15T00:00:04.100Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    toolCalls.map((toolCall) => toolCall.id),
+    ['tool-retry-running']
+  )
+})
+
+test('getVisibleToolCallsForGroup keeps failed tool calls from the replaced branch visible while a retry is preparing', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-2'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'First question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-1',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'First answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'user-2',
+        threadId: 'thread-1',
+        role: 'user',
+        parentMessageId: 'assistant-1',
+        content: 'Second question',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:02.000Z'
+      },
+      {
+        id: 'assistant-2',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-2',
+        content: 'Second answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:03.000Z'
+      }
+    ],
+    runPhase: 'preparing',
+    activeRequestMessageId: 'user-1'
+  })
+
+  const toolCalls = getVisibleToolCallsForGroup({
+    group: group!,
+    toolCalls: [
+      {
+        id: 'tool-old-failed',
+        runId: 'run-old',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'failed',
+        inputSummary: 'sleep 5',
+        outputSummary: 'exit 1',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-1',
+        startedAt: '2026-03-15T00:00:01.100Z',
+        finishedAt: '2026-03-15T00:00:01.900Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    toolCalls.map((toolCall) => toolCall.id),
+    ['tool-old-failed']
+  )
+})
+
 test('buildMessageGroups treats the newest assistant branch as active while a retry is streaming', () => {
   const groups = buildMessageGroups({
     thread: {

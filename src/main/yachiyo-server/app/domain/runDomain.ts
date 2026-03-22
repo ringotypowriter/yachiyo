@@ -569,6 +569,7 @@ export class YachiyoServerRunDomain {
             readConfig: this.deps.readConfig,
             readSettings: this.deps.readSettings,
             loadThreadMessages: this.deps.loadThreadMessages,
+            loadThreadToolCalls: this.deps.loadThreadToolCalls,
             onEnabledToolsUsed: (enabledTools) => {
               this.lastRunEnabledTools = [...enabledTools]
             },

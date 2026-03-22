@@ -73,6 +73,7 @@ export interface RunExecutionDeps {
   readConfig: () => SettingsConfig
   readSettings: () => ProviderSettings
   loadThreadMessages: (threadId: string) => MessageRecord[]
+  loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
   onEnabledToolsUsed: (enabledTools: ToolCallName[]) => void
   onExecutionPhaseChange?: (phase: 'generating' | 'tool-running') => void
   onSafeToSteerAfterTool?: () => void
@@ -194,6 +195,29 @@ function finishPendingToolCalls(
       threadId: input.threadId,
       runId: input.runId,
       toolCall: nextToolCall
+    })
+  }
+}
+
+function bindCompletedToolCallsToAssistant(
+  deps: Pick<RunExecutionDeps, 'emit' | 'loadThreadToolCalls'>,
+  toolCalls: Map<string, ToolCallRecord>,
+  input: { threadId: string; runId: string; assistantMessageId: string }
+): void {
+  const persistedToolCalls = deps
+    .loadThreadToolCalls(input.threadId)
+    .filter(
+      (toolCall) =>
+        toolCall.runId === input.runId && toolCall.assistantMessageId === input.assistantMessageId
+    )
+
+  for (const persistedToolCall of persistedToolCalls) {
+    toolCalls.set(persistedToolCall.id, persistedToolCall)
+    deps.emit<ToolCallUpdatedEvent>({
+      type: 'tool.updated',
+      threadId: input.threadId,
+      runId: input.runId,
+      toolCall: persistedToolCall
     })
   }
 }
@@ -489,6 +513,11 @@ export async function executeServerRun(
       threadId: input.thread.id,
       runId: input.runId,
       message: assistantMessage
+    })
+    bindCompletedToolCallsToAssistant(deps, toolCalls, {
+      threadId: input.thread.id,
+      runId: input.runId,
+      assistantMessageId: assistantMessage.id
     })
     deps.emit<ThreadUpdatedEvent>({
       type: 'thread.updated',
