@@ -9,6 +9,7 @@ import {
 test('createEditableContextMenuTemplate returns no menu for non-editable targets', () => {
   const template = createEditableContextMenuTemplate({
     isEditable: false,
+    selectionText: '',
     editFlags: {
       canUndo: false,
       canRedo: false,
@@ -25,6 +26,7 @@ test('createEditableContextMenuTemplate returns no menu for non-editable targets
 test('createEditableContextMenuTemplate mirrors Electron edit capabilities', () => {
   const template = createEditableContextMenuTemplate({
     isEditable: true,
+    selectionText: '',
     editFlags: {
       canUndo: true,
       canRedo: false,
@@ -47,7 +49,28 @@ test('createEditableContextMenuTemplate mirrors Electron edit capabilities', () 
   ])
 })
 
-test('installEditableContextMenu pops up the menu only for editable targets', () => {
+test('createEditableContextMenuTemplate exposes copy actions for selected read-only text', () => {
+  const template = createEditableContextMenuTemplate({
+    isEditable: false,
+    selectionText: 'selected text',
+    editFlags: {
+      canUndo: false,
+      canRedo: false,
+      canCut: false,
+      canCopy: true,
+      canPaste: false,
+      canSelectAll: true
+    }
+  })
+
+  assert.deepEqual(template, [
+    { role: 'copy', enabled: true },
+    { type: 'separator' },
+    { role: 'selectAll', enabled: true }
+  ])
+})
+
+test('installEditableContextMenu pops up the menu for editable fields and selected read-only text', () => {
   let listener: ((event: Electron.Event, params: Electron.ContextMenuParams) => void) | undefined
   const templates: Electron.MenuItemConstructorOptions[][] = []
   const popupWindows: unknown[] = []
@@ -80,6 +103,7 @@ test('installEditableContextMenu pops up the menu only for editable targets', ()
     {} as Electron.Event,
     {
       isEditable: false,
+      selectionText: '',
       editFlags: {
         canUndo: false,
         canRedo: false,
@@ -95,6 +119,7 @@ test('installEditableContextMenu pops up the menu only for editable targets', ()
     {} as Electron.Event,
     {
       isEditable: true,
+      selectionText: '',
       editFlags: {
         canUndo: true,
         canRedo: true,
@@ -106,7 +131,24 @@ test('installEditableContextMenu pops up the menu only for editable targets', ()
     } as Electron.ContextMenuParams
   )
 
-  assert.equal(templates.length, 1)
-  assert.equal(popupWindows.length, 1)
+  listener(
+    {} as Electron.Event,
+    {
+      isEditable: false,
+      selectionText: 'selected text',
+      editFlags: {
+        canUndo: false,
+        canRedo: false,
+        canCut: false,
+        canCopy: true,
+        canPaste: false,
+        canSelectAll: true
+      }
+    } as Electron.ContextMenuParams
+  )
+
+  assert.equal(templates.length, 2)
+  assert.equal(popupWindows.length, 2)
   assert.equal(popupWindows[0], window)
+  assert.equal(popupWindows[1], window)
 })

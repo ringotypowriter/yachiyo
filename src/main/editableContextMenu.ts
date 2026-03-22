@@ -14,6 +14,7 @@ export interface EditableContextMenuFlags {
 export interface EditableContextMenuParams {
   editFlags: EditableContextMenuFlags
   isEditable: boolean
+  selectionText: string
 }
 
 export interface EditableContextMenuDependencies {
@@ -23,11 +24,20 @@ export interface EditableContextMenuDependencies {
 export function createEditableContextMenuTemplate(
   params: EditableContextMenuParams
 ): Electron.MenuItemConstructorOptions[] | null {
-  if (!params.isEditable) {
-    return null
-  }
-
   const { editFlags } = params
+  const hasSelectedText = params.selectionText.trim().length > 0
+
+  if (!params.isEditable) {
+    if (!hasSelectedText) {
+      return null
+    }
+
+    return [
+      { role: 'copy', enabled: editFlags.canCopy },
+      { type: 'separator' },
+      { role: 'selectAll', enabled: editFlags.canSelectAll }
+    ]
+  }
 
   return [
     { role: 'undo', enabled: editFlags.canUndo },
@@ -50,6 +60,7 @@ export function installEditableContextMenu(
   window.webContents.on('context-menu', (_, params) => {
     const template = createEditableContextMenuTemplate({
       isEditable: params.isEditable,
+      selectionText: params.selectionText,
       editFlags: {
         canUndo: params.editFlags.canUndo,
         canRedo: params.editFlags.canRedo,
