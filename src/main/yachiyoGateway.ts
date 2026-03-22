@@ -36,6 +36,7 @@ const IPC_CHANNELS = {
   removeProvider: 'yachiyo:remove-provider',
   listWebSearchBrowserImportSources: 'yachiyo:list-web-search-browser-import-sources',
   openThreadWorkspace: 'yachiyo:open-thread-workspace',
+  pickWorkspaceDirectory: 'yachiyo:pick-workspace-directory',
   restoreThread: 'yachiyo:restore-thread',
   retryMessage: 'yachiyo:retry-message',
   saveConfig: 'yachiyo:save-config',
@@ -43,6 +44,7 @@ const IPC_CHANNELS = {
   saveToolPreferences: 'yachiyo:save-tool-preferences',
   selectReplyBranch: 'yachiyo:select-reply-branch',
   sendChat: 'yachiyo:send-chat',
+  updateThreadWorkspace: 'yachiyo:update-thread-workspace',
   upsertProvider: 'yachiyo:upsert-provider'
 } as const
 
@@ -105,7 +107,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   server.subscribe(broadcast)
 
   handle(IPC_CHANNELS.bootstrap, () => server!.bootstrap())
-  handle(IPC_CHANNELS.createThread, () => server!.createThread())
+  handle(IPC_CHANNELS.createThread, (input?: { workspacePath?: string }) =>
+    server!.createThread(input)
+  )
   handle(IPC_CHANNELS.createBranch, (input: { threadId: string; messageId: string }) =>
     server!.createBranch(input)
   )
@@ -115,8 +119,24 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.archiveThread, (input: { threadId: string }) => server!.archiveThread(input))
   handle(IPC_CHANNELS.deleteThread, (input: { threadId: string }) => server!.deleteThread(input))
   handle(IPC_CHANNELS.openThreadWorkspace, (input: { threadId: string }) =>
-    openThreadWorkspace(input.threadId)
+    server!
+      .openThreadWorkspace(input)
+      .then((workspacePath) => openThreadWorkspace(input.threadId, workspacePath))
   )
+  handle(
+    IPC_CHANNELS.updateThreadWorkspace,
+    (input: { threadId: string; workspacePath?: string | null }) =>
+      server!.updateThreadWorkspace(input)
+  )
+  handle(IPC_CHANNELS.pickWorkspaceDirectory, async () => {
+    const { dialog } = await import('electron')
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory'],
+      buttonLabel: 'Select workspace'
+    })
+
+    return result.canceled ? null : (result.filePaths[0] ?? null)
+  })
   handle(IPC_CHANNELS.restoreThread, (input: { threadId: string }) => server!.restoreThread(input))
   handle(IPC_CHANNELS.saveToolPreferences, (input: ToolPreferencesInput) =>
     server!.saveToolPreferences(input)

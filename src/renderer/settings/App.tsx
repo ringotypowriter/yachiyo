@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Brain, Compass, Cpu, Info, MessageSquare, Monitor, Settings2 } from 'lucide-react'
+import {
+  Brain,
+  Compass,
+  Cpu,
+  FolderOpen,
+  Info,
+  MessageSquare,
+  Monitor,
+  Settings2
+} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import type { SettingsConfig } from '../../shared/yachiyo/protocol.ts'
@@ -12,8 +21,9 @@ import { ChatPane } from './panes/ChatPane'
 import { GeneralPane } from './panes/GeneralPane'
 import { ProvidersPane } from './panes/ProvidersPane'
 import { SearchPane } from './panes/SearchPane'
+import { WorkspacePane } from './panes/WorkspacePane'
 
-type TabId = 'general' | 'providers' | 'chat' | 'search' | 'memory' | 'ui' | 'about'
+type TabId = 'general' | 'providers' | 'chat' | 'workspace' | 'search' | 'memory' | 'ui' | 'about'
 
 interface SubTab {
   id: string
@@ -39,6 +49,7 @@ const TABS: Tab[] = [
   },
   { id: 'providers', label: 'Providers', icon: Cpu },
   { id: 'chat', label: 'Chat', icon: MessageSquare },
+  { id: 'workspace', label: 'Workspace', icon: FolderOpen },
   { id: 'search', label: 'Search', icon: Compass },
   {
     id: 'memory',
@@ -221,6 +232,8 @@ function SettingsApp(): React.ReactNode {
       )
     } else if (activeTab === 'chat') {
       body = <ChatPane draft={draft} onChange={setDraft} />
+    } else if (activeTab === 'workspace') {
+      body = <WorkspacePane draft={draft} onChange={setDraft} />
     } else if (activeTab === 'search') {
       body = <SearchPane draft={draft} onChange={setDraft} />
     }

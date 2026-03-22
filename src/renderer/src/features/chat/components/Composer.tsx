@@ -4,6 +4,7 @@ import {
   AlertCircle,
   ChevronDown,
   CircleCheck,
+  Folder,
   Paperclip,
   LoaderCircle,
   SendHorizonal,
@@ -26,6 +27,7 @@ import {
 } from '../../../../../shared/yachiyo/protocol.ts'
 import { ModelSelectorPopup } from './ModelSelectorPopup'
 import { ToolSelectorPopup } from './ToolSelectorPopup'
+import { WorkspaceSelectorPopup } from './WorkspaceSelectorPopup'
 
 const NEW_THREAD_DRAFT_KEY = '__new__'
 const MAX_COMPOSER_IMAGES = 4
@@ -63,6 +65,38 @@ function getImageStatusLabel(image: ComposerImageDraft): string {
   }
 
   return 'Ready'
+}
+
+function getWorkspaceLabel(workspacePath: string | null): string {
+  if (!workspacePath) {
+    return 'Temp workspace'
+  }
+
+  return workspacePath.split('/').filter(Boolean).at(-1) ?? workspacePath
+}
+
+function getWorkspaceHint(input: { isWorkspaceLocked: boolean; workspacePath: string | null }): {
+  title: string
+  detail: string
+} {
+  if (input.isWorkspaceLocked) {
+    return {
+      title: 'Workspace locked',
+      detail: input.workspacePath
+        ? `${input.workspacePath}\nSent messages already exist, so this thread can no longer switch workspaces.`
+        : 'This thread is already using the temp workspace. Sent messages already exist, so it can no longer switch workspaces.'
+    }
+  }
+
+  return input.workspacePath
+    ? {
+        title: getWorkspaceLabel(input.workspacePath),
+        detail: input.workspacePath
+      }
+    : {
+        title: 'Temp workspace',
+        detail: 'No specific workspace selected for this thread.'
+      }
 }
 
 function ComposerImagePreview({
@@ -118,6 +152,8 @@ export function Composer(): React.JSX.Element {
   const settings = useAppStore((s) => s.settings ?? DEFAULT_SETTINGS)
   const activeRunId = useAppStore((s) => s.activeRunId)
   const config = useAppStore((s) => s.config)
+  const messages = useAppStore((s) => s.messages)
+  const pendingWorkspacePath = useAppStore((s) => s.pendingWorkspacePath)
   const runPhase = useAppStore((s) => s.runPhase)
   const cancelActiveRun = useAppStore((s) => s.cancelActiveRun)
   const enabledTools = useAppStore((s) => s.enabledTools)
@@ -125,16 +161,22 @@ export function Composer(): React.JSX.Element {
   const sendMessage = useAppStore((s) => s.sendMessage)
   const selectModel = useAppStore((s) => s.selectModel)
   const setComposerValue = useAppStore((s) => s.setComposerValue)
+  const setThreadWorkspace = useAppStore((s) => s.setThreadWorkspace)
   const toggleEnabledTool = useAppStore((s) => s.toggleEnabledTool)
+  const threads = useAppStore((s) => s.threads)
   const upsertComposerImage = useAppStore((s) => s.upsertComposerImage)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const modelSelectorRef = useRef<HTMLDivElement>(null)
   const toolSelectorRef = useRef<HTMLDivElement>(null)
+  const workspaceSelectorRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false)
   const [toolSelectorOpen, setToolSelectorOpen] = useState(false)
+  const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false)
+  const [workspaceHintHovered, setWorkspaceHintHovered] = useState(false)
+  const [workspaceHintPinned, setWorkspaceHintPinned] = useState(false)
   const [isComposing, setIsComposing] = useState(false)
 
   const composerValue = composerDraft.text
@@ -148,6 +190,27 @@ export function Composer(): React.JSX.Element {
   const isModelSelectorLocked = runPhase === 'preparing' || runPhase === 'streaming'
   const isConfigured = settings.apiKey.trim().length > 0 && settings.model.trim().length > 0
   const disabledToolCount = CORE_TOOL_NAMES.length - enabledTools.length
+  const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null
+  const currentWorkspacePath = activeThread?.workspacePath ?? pendingWorkspacePath
+  const isWorkspaceLocked = activeThreadId !== null && (messages[activeThreadId]?.length ?? 0) > 0
+  const savedWorkspacePaths = config?.workspace?.savedPaths ?? []
+  const workspaceHint = getWorkspaceHint({
+    isWorkspaceLocked,
+    workspacePath: currentWorkspacePath
+  })
+  const showWorkspaceHint = !workspaceSelectorOpen && (workspaceHintHovered || workspaceHintPinned)
+
+  useEffect(() => {
+    if (!workspaceHintPinned) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setWorkspaceHintPinned(false)
+    }, 1800)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [workspaceHintPinned])
   const { canSend, showStopButton } = getComposerActionState({
     connectionStatus,
     hasActiveRun,
@@ -227,13 +290,15 @@ export function Composer(): React.JSX.Element {
   }, [activeThreadId])
 
   useEffect(() => {
-    if (!modelSelectorOpen && !toolSelectorOpen) return
+    if (!modelSelectorOpen && !toolSelectorOpen && !workspaceSelectorOpen) return
     const handler = (event: MouseEvent): void => {
       const target = event.target as Node
       const clickedInsideModelSelector =
         modelSelectorRef.current && modelSelectorRef.current.contains(target)
       const clickedInsideToolSelector =
         toolSelectorRef.current && toolSelectorRef.current.contains(target)
+      const clickedInsideWorkspaceSelector =
+        workspaceSelectorRef.current && workspaceSelectorRef.current.contains(target)
 
       if (!clickedInsideModelSelector) {
         setModelSelectorOpen(false)
@@ -242,10 +307,14 @@ export function Composer(): React.JSX.Element {
       if (!clickedInsideToolSelector) {
         setToolSelectorOpen(false)
       }
+
+      if (!clickedInsideWorkspaceSelector) {
+        setWorkspaceSelectorOpen(false)
+      }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [modelSelectorOpen, toolSelectorOpen])
+  }, [modelSelectorOpen, toolSelectorOpen, workspaceSelectorOpen])
 
   const queueImageFiles = useCallback(
     async (files: File[]) => {
@@ -331,6 +400,7 @@ export function Composer(): React.JSX.Element {
       if (canSend) {
         setModelSelectorOpen(false)
         setToolSelectorOpen(false)
+        setWorkspaceSelectorOpen(false)
         void sendMessage(action === 'send' ? 'normal' : action)
       }
     },
@@ -441,6 +511,7 @@ export function Composer(): React.JSX.Element {
             type="button"
             onClick={() => {
               setModelSelectorOpen(false)
+              setWorkspaceSelectorOpen(false)
               setToolSelectorOpen((open) => !open)
             }}
             className="relative p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity"
@@ -473,6 +544,126 @@ export function Composer(): React.JSX.Element {
           ) : null}
         </div>
 
+        <div
+          ref={workspaceSelectorRef}
+          style={{ position: 'relative' }}
+          onMouseEnter={() => setWorkspaceHintHovered(true)}
+          onMouseLeave={() => setWorkspaceHintHovered(false)}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              if (isWorkspaceLocked) {
+                setWorkspaceHintPinned(true)
+                return
+              }
+
+              setModelSelectorOpen(false)
+              setToolSelectorOpen(false)
+              setWorkspaceSelectorOpen((open) => !open)
+            }}
+            className="flex items-center gap-0.5 px-1 py-1 rounded-lg text-xs font-medium transition-opacity"
+            style={{
+              color: theme.text.primary,
+              opacity: workspaceSelectorOpen ? 1 : 0.6,
+              cursor: isWorkspaceLocked ? 'default' : 'pointer'
+            }}
+            aria-label="Workspace selection"
+            aria-expanded={workspaceSelectorOpen}
+            aria-haspopup="menu"
+            disabled={isWorkspaceLocked}
+          >
+            <Folder
+              size={12}
+              strokeWidth={1.5}
+              color={currentWorkspacePath ? theme.icon.accent : theme.icon.muted}
+            />
+            <ChevronDown
+              size={10}
+              strokeWidth={1.5}
+              color={theme.icon.muted}
+              style={{
+                transform: workspaceSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.15s ease'
+              }}
+            />
+          </button>
+
+          {showWorkspaceHint ? (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 'calc(100% + 8px)',
+                left: 0,
+                width: 260,
+                padding: '10px 11px',
+                borderRadius: 12,
+                background: theme.background.surfaceFrosted,
+                backdropFilter: 'blur(18px)',
+                WebkitBackdropFilter: 'blur(18px)',
+                border: `1px solid ${theme.border.strong}`,
+                boxShadow: theme.shadow.overlay,
+                zIndex: 45
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: theme.text.primary,
+                  lineHeight: 1.35
+                }}
+              >
+                {workspaceHint.title}
+              </div>
+              <div
+                style={{
+                  marginTop: 4,
+                  fontSize: 12,
+                  color: theme.text.muted,
+                  lineHeight: 1.45,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word'
+                }}
+              >
+                {workspaceHint.detail}
+              </div>
+            </div>
+          ) : null}
+
+          {workspaceSelectorOpen && !isWorkspaceLocked ? (
+            <WorkspaceSelectorPopup
+              currentWorkspacePath={currentWorkspacePath}
+              savedPaths={savedWorkspacePaths}
+              onSelectWorkspace={(workspacePath) => {
+                void setThreadWorkspace(workspacePath)
+              }}
+              onChooseDirectory={() => {
+                void (async () => {
+                  const pickedPath = await window.api.yachiyo.pickWorkspaceDirectory()
+                  if (!pickedPath) {
+                    return
+                  }
+
+                  if (config) {
+                    const nextSavedPaths = [...new Set([...savedWorkspacePaths, pickedPath])]
+                    await window.api.yachiyo.saveConfig({
+                      ...config,
+                      workspace: {
+                        ...config.workspace,
+                        savedPaths: nextSavedPaths
+                      }
+                    })
+                  }
+
+                  await setThreadWorkspace(pickedPath)
+                })()
+              }}
+              onClose={() => setWorkspaceSelectorOpen(false)}
+            />
+          ) : null}
+        </div>
+
         <div ref={modelSelectorRef} style={{ position: 'relative' }}>
           <button
             onClick={() => {
@@ -481,6 +672,7 @@ export function Composer(): React.JSX.Element {
               }
 
               setToolSelectorOpen(false)
+              setWorkspaceSelectorOpen(false)
               setModelSelectorOpen((open) => !open)
             }}
             className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity ml-0.5"
@@ -545,6 +737,7 @@ export function Composer(): React.JSX.Element {
               if (!canSend) return
               setModelSelectorOpen(false)
               setToolSelectorOpen(false)
+              setWorkspaceSelectorOpen(false)
               void sendMessage(primarySendMode)
             }}
             disabled={!canSend}

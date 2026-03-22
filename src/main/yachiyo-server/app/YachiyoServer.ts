@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import { mkdir } from 'node:fs/promises'
+import { resolve } from 'node:path'
 
 import type {
   BootstrapPayload,
@@ -254,8 +256,28 @@ export class YachiyoServer {
     return this.configDomain.importWebSearchBrowserSession(input)
   }
 
-  async createThread(): Promise<ThreadRecord> {
-    return this.threadDomain.createThread()
+  async createThread(input: { workspacePath?: string } = {}): Promise<ThreadRecord> {
+    return this.threadDomain.createThread(input)
+  }
+
+  async updateThreadWorkspace(input: {
+    threadId: string
+    workspacePath?: string | null
+  }): Promise<ThreadRecord> {
+    return this.threadDomain.updateWorkspace(input)
+  }
+
+  async openThreadWorkspace(input: { threadId: string }): Promise<string> {
+    const thread = this.requireThread(input.threadId)
+    const workspacePath = thread.workspacePath?.trim()
+
+    if (workspacePath) {
+      const resolvedWorkspacePath = resolve(workspacePath)
+      await mkdir(resolvedWorkspacePath, { recursive: true })
+      return resolvedWorkspacePath
+    }
+
+    return defaultEnsureThreadWorkspace(thread.id)
   }
 
   async renameThread(input: { threadId: string; title: string }): Promise<ThreadRecord> {

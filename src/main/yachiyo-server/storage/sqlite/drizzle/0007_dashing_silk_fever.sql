@@ -1,0 +1,1 @@
+ALTER TABLE `threads` ADD `workspace_path` text;

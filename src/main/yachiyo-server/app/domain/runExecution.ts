@@ -1,3 +1,6 @@
+import { mkdir } from 'node:fs/promises'
+import { resolve } from 'node:path'
+
 import type {
   HarnessFinishedEvent,
   HarnessStartedEvent,
@@ -158,6 +161,19 @@ function buildAgentInstructions(workspacePath: string, enabledTools: ToolCallNam
   return instructions.join('\n')
 }
 
+async function ensureResolvedWorkspacePath(
+  thread: ThreadRecord,
+  ensureThreadWorkspace: (threadId: string) => Promise<string>
+): Promise<string> {
+  if (!thread.workspacePath?.trim()) {
+    return ensureThreadWorkspace(thread.id)
+  }
+
+  const workspacePath = resolve(thread.workspacePath)
+  await mkdir(workspacePath, { recursive: true })
+  return workspacePath
+}
+
 function loadRunHistory(
   loadThreadMessages: RunExecutionDeps['loadThreadMessages'],
   threadId: string,
@@ -287,7 +303,10 @@ export async function executeServerRun(
   })
 
   try {
-    const workspacePath = await deps.ensureThreadWorkspace(input.thread.id)
+    const workspacePath = await ensureResolvedWorkspacePath(
+      input.thread,
+      deps.ensureThreadWorkspace
+    )
     const runtime = deps.createModelRuntime()
     const soulDocument = deps.readSoulDocument
       ? await deps.readSoulDocument()

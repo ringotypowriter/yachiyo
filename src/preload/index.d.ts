@@ -25,15 +25,20 @@ declare global {
         archiveThread: (input: { threadId: string }) => Promise<void>
         bootstrap: () => Promise<BootstrapPayload>
         createBranch: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>
-        createThread: () => Promise<ThreadRecord>
+        createThread: (input?: { workspacePath?: string }) => Promise<ThreadRecord>
         deleteThread: (input: { threadId: string }) => Promise<void>
         deleteMessage: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>
         openThreadWorkspace: (input: { threadId: string }) => Promise<void>
+        pickWorkspaceDirectory: () => Promise<string | null>
         renameThread: (input: { threadId: string; title: string }) => Promise<ThreadRecord>
         restoreThread: (input: { threadId: string }) => Promise<ThreadRecord>
         saveToolPreferences: (input: ToolPreferencesInput) => Promise<SettingsConfig>
         sendChat: (input: SendChatInput) => Promise<ChatAccepted>
         retryMessage: (input: RetryInput) => Promise<RetryAccepted>
+        updateThreadWorkspace: (input: {
+          threadId: string
+          workspacePath?: string | null
+        }) => Promise<ThreadRecord>
         selectReplyBranch: (input: {
           threadId: string
           assistantMessageId: string

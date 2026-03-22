@@ -19,13 +19,15 @@ const api = {
     bootstrap: () => ipcRenderer.invoke('yachiyo:bootstrap'),
     createBranch: (input: { threadId: string; messageId: string }) =>
       ipcRenderer.invoke('yachiyo:create-branch', input),
-    createThread: () => ipcRenderer.invoke('yachiyo:create-thread'),
+    createThread: (input?: { workspacePath?: string }) =>
+      ipcRenderer.invoke('yachiyo:create-thread', input),
     deleteThread: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:delete-thread', input),
     deleteMessage: (input: { threadId: string; messageId: string }) =>
       ipcRenderer.invoke('yachiyo:delete-message', input),
     openThreadWorkspace: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:open-thread-workspace', input),
+    pickWorkspaceDirectory: () => ipcRenderer.invoke('yachiyo:pick-workspace-directory'),
     renameThread: (input: { threadId: string; title: string }) =>
       ipcRenderer.invoke('yachiyo:rename-thread', input),
     restoreThread: (input: { threadId: string }) =>
@@ -34,6 +36,8 @@ const api = {
       ipcRenderer.invoke('yachiyo:save-tool-preferences', input),
     sendChat: (input: SendChatInput) => ipcRenderer.invoke('yachiyo:send-chat', input),
     retryMessage: (input: RetryInput) => ipcRenderer.invoke('yachiyo:retry-message', input),
+    updateThreadWorkspace: (input: { threadId: string; workspacePath?: string | null }) =>
+      ipcRenderer.invoke('yachiyo:update-thread-workspace', input),
     selectReplyBranch: (input: { threadId: string; assistantMessageId: string }) =>
       ipcRenderer.invoke('yachiyo:select-reply-branch', input),
     cancelRun: (input: { runId: string }) => ipcRenderer.invoke('yachiyo:cancel-run', input),

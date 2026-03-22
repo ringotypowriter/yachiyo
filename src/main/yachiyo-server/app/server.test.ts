@@ -737,6 +737,47 @@ test('YachiyoServer fails runs cleanly when thread workspace initialization fail
   )
 })
 
+test('YachiyoServer allows setting a specific workspace before the first send and locks it after', async () => {
+  await withServer(
+    async ({ completeRun, server }) => {
+      const firstWorkspace = join(tmpdir(), 'yachiyo-specific-workspace-a')
+      const secondWorkspace = join(tmpdir(), 'yachiyo-specific-workspace-b')
+
+      const thread = await server.createThread({
+        workspacePath: firstWorkspace
+      })
+      assert.equal(thread.workspacePath, firstWorkspace)
+
+      const updatedThread = await server.updateThreadWorkspace({
+        threadId: thread.id,
+        workspacePath: secondWorkspace
+      })
+      assert.equal(updatedThread.workspacePath, secondWorkspace)
+
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Hello'
+      })
+      await completeRun(accepted.runId)
+
+      await assert.rejects(
+        server.updateThreadWorkspace({
+          threadId: thread.id,
+          workspacePath: null
+        }),
+        /before the first message is sent/
+      )
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(): AsyncIterable<string> {
+          yield 'Done'
+        }
+      })
+    }
+  )
+})
+
 test('YachiyoServer creates a per-thread workspace, persists structured tool details, and updates the same tool call through its lifecycle', async () => {
   let toolWorkspacePath = ''
 
@@ -2222,6 +2263,7 @@ test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queu
   const firstServer = new YachiyoServer({
     storage,
     settingsPath,
+    readSoulDocument: async () => null,
     ensureThreadWorkspace: async (threadId) => {
       const workspacePath = workspacePathForThread(threadId)
       await mkdir(workspacePath, { recursive: true })
@@ -2229,7 +2271,7 @@ test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queu
     },
     createModelRuntime: () => ({
       async *streamReply(request: ModelStreamRequest) {
-        yield 'Hello'
+        yield ''
         await new Promise((_, reject) => {
           const abort = (): void => {
             const error = new Error('Aborted')
@@ -2267,7 +2309,6 @@ test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queu
       threadId: thread.id,
       content: 'First question'
     })
-    await firstWaiter.waitForEvent('message.delta')
 
     const queuedFollowUp = await firstServer.sendChat({
       threadId: thread.id,
@@ -2286,6 +2327,7 @@ test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queu
     const resumedServer = new YachiyoServer({
       storage,
       settingsPath,
+      readSoulDocument: async () => null,
       ensureThreadWorkspace: async (threadId) => {
         const workspacePath = workspacePathForThread(threadId)
         await mkdir(workspacePath, { recursive: true })
@@ -2363,6 +2405,7 @@ test('YachiyoServer keeps a recovered queued follow-up pending when a new run st
   const firstServer = new YachiyoServer({
     storage,
     settingsPath,
+    readSoulDocument: async () => null,
     ensureThreadWorkspace: async (threadId) => {
       const workspacePath = workspacePathForThread(threadId)
       await mkdir(workspacePath, { recursive: true })
@@ -2370,7 +2413,7 @@ test('YachiyoServer keeps a recovered queued follow-up pending when a new run st
     },
     createModelRuntime: () => ({
       async *streamReply(request: ModelStreamRequest) {
-        yield 'Hello'
+        yield ''
         await new Promise((_, reject) => {
           const abort = (): void => {
             const error = new Error('Aborted')
@@ -2409,7 +2452,6 @@ test('YachiyoServer keeps a recovered queued follow-up pending when a new run st
       threadId: thread.id,
       content: 'First question'
     })
-    await firstWaiter.waitForEvent('message.delta')
 
     const queuedFollowUp = await firstServer.sendChat({
       threadId: thread.id,
@@ -2427,6 +2469,7 @@ test('YachiyoServer keeps a recovered queued follow-up pending when a new run st
     const resumedServer = new YachiyoServer({
       storage,
       settingsPath,
+      readSoulDocument: async () => null,
       ensureThreadWorkspace: async (threadId) => {
         const workspacePath = workspacePathForThread(threadId)
         await mkdir(workspacePath, { recursive: true })
@@ -2520,6 +2563,7 @@ test('YachiyoServer close waits for active runs to persist a terminal status', a
   const server = new YachiyoServer({
     storage,
     settingsPath,
+    readSoulDocument: async () => null,
     ensureThreadWorkspace: async (threadId) => {
       const workspacePath = join(root, '.yachiyo', 'temp-workspace', threadId)
       await mkdir(workspacePath, { recursive: true })
@@ -2873,6 +2917,65 @@ test('YachiyoServer copies the source workspace when creating a branch thread', 
     const branchFilePath = join(workspacePathForThread(branch.thread.id), 'nested', 'notes.txt')
     assert.equal(await readFile(branchFilePath, 'utf8'), 'workspace snapshot')
   })
+})
+
+test('YachiyoServer allows changing a fresh branch workspace before the first new message', async () => {
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Branch this thread'
+      })
+      await completeRun(accepted.runId)
+
+      const bootstrap = await server.bootstrap()
+      const assistantMessage = bootstrap.messagesByThread[thread.id]?.[1]
+      const branch = await server.createBranch({
+        threadId: thread.id,
+        messageId: assistantMessage!.id
+      })
+
+      const customWorkspace = join(tmpdir(), 'yachiyo-branch-custom-workspace')
+      const updatedBranch = await server.updateThreadWorkspace({
+        threadId: branch.thread.id,
+        workspacePath: customWorkspace
+      })
+      assert.equal(updatedBranch.workspacePath, customWorkspace)
+
+      const followUp = await server.sendChat({
+        threadId: branch.thread.id,
+        content: 'Now continue on the branch'
+      })
+      await completeRun(followUp.runId)
+
+      await assert.rejects(
+        server.updateThreadWorkspace({
+          threadId: branch.thread.id,
+          workspacePath: null
+        }),
+        /before the first message is sent/
+      )
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(): AsyncIterable<string> {
+          yield 'Done'
+        }
+      })
+    }
+  )
 })
 
 test('YachiyoServer can switch the active thread branch between sibling replies', async () => {

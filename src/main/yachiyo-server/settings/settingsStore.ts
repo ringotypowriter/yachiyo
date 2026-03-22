@@ -19,7 +19,8 @@ import {
   type SettingsConfig,
   type ToolModelConfig,
   type WebSearchConfig,
-  type WebSearchProviderId
+  type WebSearchProviderId,
+  type WorkspaceConfig
 } from '../../../shared/yachiyo/protocol.ts'
 import {
   createDisabledToolModelConfig,
@@ -37,6 +38,9 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   },
   chat: {
     activeRunEnterBehavior: DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
+  },
+  workspace: {
+    savedPaths: []
   },
   toolModel: {
     mode: DEFAULT_TOOL_MODEL_MODE,
@@ -78,6 +82,17 @@ function normalizeStringList(value: unknown): string[] {
   if (!Array.isArray(value)) return []
 
   return [...new Set(value.map((item) => normalizeString(item, '')).filter(Boolean))]
+}
+
+function normalizeWorkspaceConfig(
+  value: unknown,
+  fallback: WorkspaceConfig = DEFAULT_SETTINGS_CONFIG.workspace ?? {}
+): WorkspaceConfig {
+  const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+
+  return {
+    savedPaths: normalizeStringList(input['savedPaths'] ?? fallback.savedPaths)
+  }
 }
 
 function normalizeProviderConfig(value: unknown, fallback?: ProviderConfig): ProviderConfig | null {
@@ -245,6 +260,7 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
         DEFAULT_SETTINGS_CONFIG.chat?.activeRunEnterBehavior
       )
     },
+    workspace: normalizeWorkspaceConfig(input['workspace']),
     toolModel:
       toolModel.mode === 'custom'
         ? resolvedToolProvider
@@ -294,6 +310,7 @@ export function parseSettingsToml(raw: string): SettingsConfig {
     | 'root'
     | 'general'
     | 'chat'
+    | 'workspace'
     | 'toolModel'
     | 'webSearch'
     | 'webSearch.browserSession'
@@ -320,6 +337,12 @@ export function parseSettingsToml(raw: string): SettingsConfig {
     if (line === '[toolModel]') {
       root['toolModel'] = root['toolModel'] ?? {}
       section = 'toolModel'
+      continue
+    }
+
+    if (line === '[workspace]') {
+      root['workspace'] = root['workspace'] ?? {}
+      section = 'workspace'
       continue
     }
 
@@ -428,6 +451,20 @@ export function parseSettingsToml(raw: string): SettingsConfig {
       continue
     }
 
+    if (section === 'workspace') {
+      const workspace =
+        root['workspace'] && typeof root['workspace'] === 'object'
+          ? (root['workspace'] as Record<string, unknown>)
+          : null
+
+      if (!workspace) {
+        throw new Error(`Workspace settings are not initialized for ${key}.`)
+      }
+
+      workspace[key] = value
+      continue
+    }
+
     if (section === 'webSearch') {
       const webSearch =
         root['webSearch'] && typeof root['webSearch'] === 'object'
@@ -520,6 +557,9 @@ export function stringifySettingsToml(config: SettingsConfig): string {
         DEFAULT_SETTINGS_CONFIG.chat?.activeRunEnterBehavior
       )
     )}`,
+    '',
+    '[workspace]',
+    `savedPaths = ${stringifyTomlStringArray(normalized.workspace?.savedPaths ?? [])}`,
     '',
     '[toolModel]',
     `mode = ${stringifyTomlString(toolModel.mode ?? DEFAULT_TOOL_MODEL_MODE)}`,

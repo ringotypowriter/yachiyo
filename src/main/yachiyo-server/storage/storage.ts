@@ -14,6 +14,7 @@ import { normalizeMessageImages } from '../../../shared/yachiyo/messageContent.t
 export interface StoredThreadRow {
   id: string
   title: string
+  workspacePath: string | null
   preview: string | null
   branchFromThreadId: string | null
   branchFromMessageId: string | null
@@ -113,6 +114,7 @@ export interface YachiyoStorage {
   recoverInterruptedRuns(input: { finishedAt: string; error: string }): void
   getThread(threadId: string): ThreadRecord | undefined
   getArchivedThread(threadId: string): ThreadRecord | undefined
+  getThreadCreatedAt(threadId: string): string | undefined
   createThread(input: CreateThreadInput): void
   renameThread(input: { threadId: string; title: string; updatedAt: string }): void
   archiveThread(input: { threadId: string; archivedAt: string; updatedAt: string }): void
@@ -145,6 +147,7 @@ export function toThreadRecord(
     | 'queuedFollowUpMessageId'
     | 'title'
     | 'updatedAt'
+    | 'workspacePath'
   >
 ): ThreadRecord {
   const queuedFollowUpEnabledTools = parseEnabledTools(row.queuedFollowUpEnabledTools)
@@ -159,6 +162,7 @@ export function toThreadRecord(
       ...(row.queuedFollowUpMessageId === null
         ? {}
         : { queuedFollowUpMessageId: row.queuedFollowUpMessageId }),
+      ...(row.workspacePath === null ? {} : { workspacePath: row.workspacePath }),
       id: row.id,
       title: row.title,
       updatedAt: row.updatedAt
@@ -174,6 +178,7 @@ export function toThreadRecord(
     ...(row.queuedFollowUpMessageId === null
       ? {}
       : { queuedFollowUpMessageId: row.queuedFollowUpMessageId }),
+    ...(row.workspacePath === null ? {} : { workspacePath: row.workspacePath }),
     id: row.id,
     preview: row.preview,
     title: row.title,

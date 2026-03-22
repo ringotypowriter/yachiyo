@@ -99,7 +99,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           title: threadsTable.title,
-          updatedAt: threadsTable.updatedAt
+          updatedAt: threadsTable.updatedAt,
+          workspacePath: threadsTable.workspacePath
         })
         .from(threadsTable)
         .orderBy(desc(threadsTable.updatedAt))
@@ -240,7 +241,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           title: threadsTable.title,
-          updatedAt: threadsTable.updatedAt
+          updatedAt: threadsTable.updatedAt,
+          workspacePath: threadsTable.workspacePath
         })
         .from(threadsTable)
         .where(and(eq(threadsTable.id, threadId), isNull(threadsTable.archivedAt)))
@@ -261,7 +263,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           title: threadsTable.title,
-          updatedAt: threadsTable.updatedAt
+          updatedAt: threadsTable.updatedAt,
+          workspacePath: threadsTable.workspacePath
         })
         .from(threadsTable)
         .where(eq(threadsTable.id, threadId))
@@ -272,6 +275,23 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       }
 
       return toThreadRecord(thread)
+    },
+
+    getThreadCreatedAt(threadId) {
+      const thread = db
+        .select({
+          archivedAt: threadsTable.archivedAt,
+          createdAt: threadsTable.createdAt
+        })
+        .from(threadsTable)
+        .where(eq(threadsTable.id, threadId))
+        .get()
+
+      if (!thread || thread.archivedAt !== null) {
+        return undefined
+      }
+
+      return thread.createdAt
     },
 
     createThread({ thread, createdAt, messages }: CreateThreadInput) {
@@ -288,7 +308,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             queuedFollowUpEnabledTools: serializeEnabledTools(thread.queuedFollowUpEnabledTools),
             queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
             title: thread.title,
-            updatedAt: thread.updatedAt
+            updatedAt: thread.updatedAt,
+            workspacePath: thread.workspacePath ?? null
           })
           .run()
 
@@ -349,7 +370,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpEnabledTools: serializeEnabledTools(thread.queuedFollowUpEnabledTools),
           queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
           title: thread.title,
-          updatedAt: thread.updatedAt
+          updatedAt: thread.updatedAt,
+          workspacePath: thread.workspacePath ?? null
         })
         .where(eq(threadsTable.id, thread.id))
         .run()
@@ -379,7 +401,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             ),
             queuedFollowUpMessageId: updatedThread.queuedFollowUpMessageId ?? null,
             title: updatedThread.title,
-            updatedAt: updatedThread.updatedAt
+            updatedAt: updatedThread.updatedAt,
+            workspacePath: updatedThread.workspacePath ?? null
           })
           .where(eq(threadsTable.id, thread.id))
           .run()
@@ -413,7 +436,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             ),
             queuedFollowUpMessageId: updatedThread.queuedFollowUpMessageId ?? null,
             title: updatedThread.title,
-            updatedAt: updatedThread.updatedAt
+            updatedAt: updatedThread.updatedAt,
+            workspacePath: updatedThread.workspacePath ?? null
           })
           .where(eq(threadsTable.id, thread.id))
           .run()
@@ -451,7 +475,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             ),
             queuedFollowUpMessageId: updatedThread.queuedFollowUpMessageId ?? null,
             title: updatedThread.title,
-            updatedAt: updatedThread.updatedAt
+            updatedAt: updatedThread.updatedAt,
+            workspacePath: updatedThread.workspacePath ?? null
           })
           .where(eq(threadsTable.id, updatedThread.id))
           .run()

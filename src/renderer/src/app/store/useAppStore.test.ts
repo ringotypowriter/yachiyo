@@ -32,6 +32,7 @@ function resetStore(): void {
     messages: {},
     pendingAssistantMessages: {},
     pendingSteerMessages: {},
+    pendingWorkspacePath: null,
     runPhase: 'idle',
     runStatus: 'idle',
     settings: DEFAULT_SETTINGS,
@@ -1218,6 +1219,39 @@ test('sendMessage keeps draft text and images when the first send fails after au
     assert.equal(state.composerDrafts.__new__, undefined)
     assert.equal(state.composerDrafts['thread-1']?.text, 'Keep this draft')
     assert.equal(state.composerDrafts['thread-1']?.images[0]?.filename, 'diagram.png')
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('createNewThread preserves the drafted workspace selection', async () => {
+  resetStore()
+
+  const createThreadCalls: Array<{ workspacePath?: string } | undefined> = []
+  const restoreWindow = withWindowApiMock({
+    createThread: async (input) => {
+      createThreadCalls.push(input)
+      return {
+        id: 'thread-1',
+        title: 'New Chat',
+        updatedAt: TIMESTAMP,
+        ...(input?.workspacePath ? { workspacePath: input.workspacePath } : {})
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      pendingWorkspacePath: '/tmp/pinned-workspace'
+    })
+
+    await useAppStore.getState().createNewThread()
+
+    const state = useAppStore.getState()
+    assert.deepEqual(createThreadCalls, [{ workspacePath: '/tmp/pinned-workspace' }])
+    assert.equal(state.activeThreadId, 'thread-1')
+    assert.equal(state.pendingWorkspacePath, null)
+    assert.equal(state.threads[0]?.workspacePath, '/tmp/pinned-workspace')
   } finally {
     restoreWindow()
   }

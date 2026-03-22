@@ -1,3 +1,6 @@
+import { mkdir } from 'node:fs/promises'
+import { resolve } from 'node:path'
+
 import type {
   MessageRecord,
   ThreadArchivedEvent,
@@ -119,15 +122,21 @@ export class YachiyoServerThreadDomain {
     this.deps = deps
   }
 
-  async createThread(): Promise<ThreadRecord> {
+  async createThread(input: { workspacePath?: string } = {}): Promise<ThreadRecord> {
     const timestamp = this.deps.timestamp()
+    const workspacePath = input.workspacePath?.trim() ? resolve(input.workspacePath) : undefined
     const thread: ThreadRecord = {
       id: this.deps.createId(),
       title: DEFAULT_THREAD_TITLE,
-      updatedAt: timestamp
+      updatedAt: timestamp,
+      ...(workspacePath ? { workspacePath } : {})
     }
 
-    await this.deps.ensureThreadWorkspace(thread.id)
+    if (workspacePath) {
+      await mkdir(workspacePath, { recursive: true })
+    } else {
+      await this.deps.ensureThreadWorkspace(thread.id)
+    }
     this.deps.storage.createThread({ thread, createdAt: timestamp })
 
     this.deps.emit<ThreadCreatedEvent>({
@@ -137,6 +146,53 @@ export class YachiyoServerThreadDomain {
     })
 
     return thread
+  }
+
+  async updateWorkspace(input: {
+    threadId: string
+    workspacePath?: string | null
+  }): Promise<ThreadRecord> {
+    const thread = this.deps.requireThread(input.threadId)
+    if (this.deps.isThreadRunning(thread.id)) {
+      throw new Error('Cannot change the workspace while this thread is running.')
+    }
+
+    const messages = this.loadThreadMessages(thread.id)
+    const threadCreatedAt = this.deps.storage.getThreadCreatedAt(thread.id)
+    const hasThreadLocalMessages =
+      messages.length > 0 &&
+      (!threadCreatedAt ||
+        messages.some((message) => message.createdAt.localeCompare(threadCreatedAt) >= 0))
+    if (hasThreadLocalMessages) {
+      throw new Error('Workspace can only be changed before the first message is sent.')
+    }
+
+    const workspacePath = input.workspacePath?.trim()
+      ? resolve(input.workspacePath.trim())
+      : undefined
+
+    if (workspacePath) {
+      await mkdir(workspacePath, { recursive: true })
+    }
+
+    const updatedThread: ThreadRecord = {
+      ...thread,
+      updatedAt: this.deps.timestamp(),
+      ...(workspacePath ? { workspacePath } : {})
+    }
+
+    if (!workspacePath) {
+      delete updatedThread.workspacePath
+    }
+
+    this.deps.storage.updateThread(updatedThread)
+    this.deps.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: updatedThread.id,
+      thread: updatedThread
+    })
+
+    return updatedThread
   }
 
   renameThread(input: { threadId: string; title: string }): ThreadRecord {
@@ -228,7 +284,9 @@ export class YachiyoServerThreadDomain {
       throw new Error('Cannot delete a thread with an active run.')
     }
 
-    await this.deps.deleteThreadWorkspace(thread.id)
+    if (!thread.workspacePath) {
+      await this.deps.deleteThreadWorkspace(thread.id)
+    }
     this.deps.storage.deleteThread({ threadId: thread.id })
     this.deps.emit<ThreadDeletedEvent>({
       type: 'thread.deleted',
@@ -314,11 +372,14 @@ export class YachiyoServerThreadDomain {
       updatedAt: timestamp,
       branchFromThreadId: thread.id,
       branchFromMessageId: branchPoint.id,
+      ...(thread.workspacePath ? { workspacePath: thread.workspacePath } : {}),
       ...(preview ? { preview: preview.slice(0, 240) } : {}),
       ...(previewSource ? { headMessageId: previewSource.id } : {})
     }
 
-    await this.deps.cloneThreadWorkspace(thread.id, branchThread.id)
+    if (!thread.workspacePath) {
+      await this.deps.cloneThreadWorkspace(thread.id, branchThread.id)
+    }
     this.deps.storage.createThread({
       thread: branchThread,
       createdAt: timestamp,

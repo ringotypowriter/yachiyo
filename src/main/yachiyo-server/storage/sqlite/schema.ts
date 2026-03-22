@@ -5,6 +5,7 @@ import type { MessageRecord, RunRecord, ToolCallRecord } from '../../../../share
 export const threadsTable = sqliteTable('threads', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
+  workspacePath: text('workspace_path'),
   preview: text('preview'),
   branchFromThreadId: text('branch_from_thread_id'),
   branchFromMessageId: text('branch_from_message_id'),

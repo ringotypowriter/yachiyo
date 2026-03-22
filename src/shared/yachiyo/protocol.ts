@@ -227,6 +227,7 @@ export interface ThreadRecord {
   id: string
   title: string
   updatedAt: string
+  workspacePath?: string
   preview?: string
   headMessageId?: string
   queuedFollowUpMessageId?: string
@@ -287,6 +288,10 @@ export interface GeneralConfig {
   sidebarVisibility?: SidebarVisibility
 }
 
+export interface WorkspaceConfig {
+  savedPaths?: string[]
+}
+
 export interface ToolModelConfig {
   mode?: ToolModelMode
   providerId?: string
@@ -317,6 +322,7 @@ export interface SettingsConfig {
   enabledTools?: ToolCallName[]
   general?: GeneralConfig
   chat?: ChatConfig
+  workspace?: WorkspaceConfig
   toolModel?: ToolModelConfig
   webSearch?: WebSearchConfig
 }

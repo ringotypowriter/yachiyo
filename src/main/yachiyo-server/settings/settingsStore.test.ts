@@ -31,6 +31,9 @@ test('settings store persists multi-provider config as TOML', async () => {
       chat: {
         activeRunEnterBehavior: 'enter-queues-follow-up'
       },
+      workspace: {
+        savedPaths: ['/Users/ringo/projects/yachiyo', '/Users/ringo/projects/handshake']
+      },
       toolModel: {
         mode: 'custom',
         providerId: 'provider-backup',
@@ -85,6 +88,11 @@ test('settings store persists multi-provider config as TOML', async () => {
     assert.match(toml, /\[general\]/)
     assert.match(toml, /sidebarVisibility = "collapsed"/)
     assert.match(toml, /activeRunEnterBehavior = "enter-queues-follow-up"/)
+    assert.match(toml, /\[workspace\]/)
+    assert.match(
+      toml,
+      /savedPaths = \["\/Users\/ringo\/projects\/yachiyo","\/Users\/ringo\/projects\/handshake"\]/
+    )
     assert.match(toml, /\[toolModel\]/)
     assert.match(toml, /mode = "custom"/)
     assert.match(toml, /providerId = "provider-backup"/)

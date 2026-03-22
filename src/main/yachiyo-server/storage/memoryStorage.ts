@@ -55,6 +55,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     storedThread.queuedFollowUpMessageId = nextThread.queuedFollowUpMessageId ?? null
     storedThread.title = nextThread.title
     storedThread.updatedAt = nextThread.updatedAt
+    storedThread.workspacePath = nextThread.workspacePath ?? null
   }
 
   return {
@@ -135,10 +136,15 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       return thread ? toThreadRecord(thread) : undefined
     },
 
+    getThreadCreatedAt(threadId) {
+      return readThread(threadId)?.createdAt
+    },
+
     createThread({ thread, createdAt, messages: initialMessages = [] }) {
       threads.set(thread.id, {
         id: thread.id,
         title: thread.title,
+        workspacePath: thread.workspacePath ?? null,
         preview: thread.preview ?? null,
         branchFromThreadId: thread.branchFromThreadId ?? null,
         branchFromMessageId: thread.branchFromMessageId ?? null,

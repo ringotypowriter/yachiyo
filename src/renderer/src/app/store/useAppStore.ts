@@ -87,6 +87,7 @@ interface AppState {
   messages: Record<string, Message[]>
   pendingAssistantMessages: Record<string, PendingAssistantMessage>
   pendingSteerMessages: Record<string, PendingSteerMessage>
+  pendingWorkspacePath: string | null
   renameThread: (threadId: string, title: string) => Promise<void>
   restoreThread: (threadId: string) => Promise<void>
   retryMessage: (messageId: string) => Promise<void>
@@ -108,6 +109,8 @@ interface AppState {
   setActiveThread: (id: string) => void
   setActiveArchivedThread: (id: string) => void
   setComposerValue: (value: string) => void
+  setPendingWorkspacePath: (workspacePath: string | null) => void
+  setThreadWorkspace: (workspacePath: string | null) => Promise<void>
   setThreadListMode: (mode: 'active' | 'archived') => void
   toggleEnabledTool: (toolName: ToolCallName) => Promise<void>
   upsertComposerImage: (image: ComposerImageDraft, threadId?: string | null) => void
@@ -259,6 +262,11 @@ function removePendingSteerMessage(
   return next
 }
 
+function normalizeWorkspacePath(workspacePath: string | null | undefined): string | null {
+  const normalized = workspacePath?.trim()
+  return normalized ? normalized : null
+}
+
 function toReadyMessageImages(images: ComposerImageDraft[]): MessageImageRecord[] {
   return normalizeMessageImages(
     images
@@ -394,6 +402,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   messages: {},
   pendingAssistantMessages: {},
   pendingSteerMessages: {},
+  pendingWorkspacePath: null,
   restoreThread: async (threadId) => {
     try {
       await window.api.yachiyo.restoreThread({ threadId })
@@ -816,11 +825,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   createNewThread: async () => {
-    const thread = await window.api.yachiyo.createThread()
+    const pendingWorkspacePath = normalizeWorkspacePath(get().pendingWorkspacePath)
+    const thread = await window.api.yachiyo.createThread(
+      pendingWorkspacePath ? { workspacePath: pendingWorkspacePath } : undefined
+    )
     set((state) => ({
       activeArchivedThreadId: state.activeArchivedThreadId,
       activeThreadId: thread.id,
       composerDrafts: removeComposerDraft(state.composerDrafts, null),
+      pendingWorkspacePath: null,
       threadListMode: 'active',
       messages: {
         ...state.messages,
@@ -955,15 +968,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     let threadId = currentState.activeThreadId
+    const workspacePath = normalizeWorkspacePath(
+      threadId
+        ? currentState.threads.find((thread) => thread.id === threadId)?.workspacePath
+        : currentState.pendingWorkspacePath
+    )
 
     if (!threadId && mode !== 'normal') {
       return
     }
 
     if (!threadId) {
-      const thread = await window.api.yachiyo.createThread()
+      const thread = await window.api.yachiyo.createThread(
+        workspacePath ? { workspacePath } : undefined
+      )
       set((state) => ({
         activeThreadId: thread.id,
+        pendingWorkspacePath: null,
         threadListMode: 'active',
         composerDrafts: moveComposerDraft(
           state.composerDrafts,
@@ -1127,6 +1148,36 @@ export const useAppStore = create<AppState>((set, get) => ({
         }))
       }
     }),
+
+  setPendingWorkspacePath: (workspacePath) =>
+    set({
+      pendingWorkspacePath: normalizeWorkspacePath(workspacePath)
+    }),
+
+  setThreadWorkspace: async (workspacePath) => {
+    const threadId = get().activeThreadId
+    if (!threadId) {
+      set({
+        pendingWorkspacePath: normalizeWorkspacePath(workspacePath)
+      })
+      return
+    }
+
+    try {
+      const thread = await window.api.yachiyo.updateThreadWorkspace({
+        threadId,
+        workspacePath: normalizeWorkspacePath(workspacePath)
+      })
+      set((state) => ({
+        lastError: null,
+        threads: upsertThread(state.threads, thread)
+      }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to change the workspace.'
+      set({ lastError: message })
+      throw error
+    }
+  },
 
   toggleEnabledTool: async (toolName) => {
     await get().setEnabledTools(toggleEnabledTools(get().enabledTools, toolName))
