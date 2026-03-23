@@ -58,6 +58,9 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     storedThread.queuedFollowUpEnabledTools = nextThread.queuedFollowUpEnabledTools
       ? JSON.stringify(nextThread.queuedFollowUpEnabledTools)
       : null
+    storedThread.queuedFollowUpEnabledSkillNames = nextThread.queuedFollowUpEnabledSkillNames
+      ? JSON.stringify(nextThread.queuedFollowUpEnabledSkillNames)
+      : null
     storedThread.queuedFollowUpMessageId = nextThread.queuedFollowUpMessageId ?? null
     storedThread.title = nextThread.title
     storedThread.updatedAt = nextThread.updatedAt
@@ -157,6 +160,9 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         branchFromMessageId: thread.branchFromMessageId ?? null,
         queuedFollowUpEnabledTools: thread.queuedFollowUpEnabledTools
           ? JSON.stringify(thread.queuedFollowUpEnabledTools)
+          : null,
+        queuedFollowUpEnabledSkillNames: thread.queuedFollowUpEnabledSkillNames
+          ? JSON.stringify(thread.queuedFollowUpEnabledSkillNames)
           : null,
         queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
         archivedAt: null,
@@ -422,6 +428,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
       if (deletedIds.has(storedThread.queuedFollowUpMessageId ?? '')) {
         storedThread.queuedFollowUpEnabledTools = null
+        storedThread.queuedFollowUpEnabledSkillNames = null
         storedThread.queuedFollowUpMessageId = null
       }
 
@@ -447,20 +454,17 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
           .map((t) => t.id)
       )
 
-      const messageMatchByThread = new Map<string, { messageId: string; content: string }>()
+      const messageMatchesByThread = new Map<string, { messageId: string; content: string }[]>()
       for (const message of messages) {
-        if (messageMatchByThread.has(message.threadId)) continue
         const thread = threads.get(message.threadId)
         if (!thread || thread.archivedAt !== null) continue
-        if (message.content.toLowerCase().includes(lower)) {
-          messageMatchByThread.set(message.threadId, {
-            messageId: message.id,
-            content: message.content
-          })
-        }
+        if (!message.content.toLowerCase().includes(lower)) continue
+        const existing = messageMatchesByThread.get(message.threadId) ?? []
+        existing.push({ messageId: message.id, content: message.content })
+        messageMatchesByThread.set(message.threadId, existing)
       }
 
-      const allMatchedIds = new Set([...titleMatchedIds, ...messageMatchByThread.keys()])
+      const allMatchedIds = new Set([...titleMatchedIds, ...messageMatchesByThread.keys()])
       if (allMatchedIds.size === 0) return []
 
       const matchedThreads = activeThreads
@@ -469,24 +473,19 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         .slice(0, 30)
 
       const results: ThreadSearchResult[] = matchedThreads.map((thread) => {
-        const msgMatch = messageMatchByThread.get(thread.id)
-        const idx = msgMatch ? msgMatch.content.toLowerCase().indexOf(lower) : -1
-        const snippet =
-          msgMatch && idx >= 0
-            ? (() => {
-                const start = Math.max(0, idx - 8)
-                const end = Math.min(msgMatch.content.length, start + 120)
-                return `${start > 0 ? '…' : ''}${msgMatch.content.slice(start, end)}${end < msgMatch.content.length ? '…' : ''}`
-              })()
-            : undefined
+        const matches = messageMatchesByThread.get(thread.id) ?? []
         return {
           threadId: thread.id,
           threadTitle: thread.title,
           threadUpdatedAt: thread.updatedAt,
           titleMatched: titleMatchedIds.has(thread.id),
-          ...(msgMatch && snippet
-            ? { messageMatch: { messageId: msgMatch.messageId, snippet } }
-            : {})
+          messageMatches: matches.map((m) => {
+            const idx = m.content.toLowerCase().indexOf(lower)
+            const start = Math.max(0, idx - 8)
+            const end = Math.min(m.content.length, start + 120)
+            const snippet = `${start > 0 ? '…' : ''}${m.content.slice(start, end)}${end < m.content.length ? '…' : ''}`
+            return { messageId: m.messageId, snippet }
+          })
         }
       })
 

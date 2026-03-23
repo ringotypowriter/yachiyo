@@ -246,7 +246,7 @@ export function ThreadConversationGroup({
               : null
           const compactBottomSpacing = nextToolCall?.status === 'running'
           return (
-            <div key={item.key} className="message-response-cluster">
+            <div key={item.key} className="message-response-cluster" data-message-id={activeBranch.message.id}>
               <AssistantMessageBubble
                 message={activeBranch.message}
                 contentOverride={textBlock.content}
@@ -312,6 +312,8 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   const retryMessage = useAppStore((state) => state.retryMessage)
   const selectReplyBranch = useAppStore((state) => state.selectReplyBranch)
   const runPhase = useAppStore((state) => state.runPhase)
+  const scrollToMessageId = useAppStore((state) => state.scrollToMessageId)
+  const clearScrollToMessageId = useAppStore((state) => state.clearScrollToMessageId)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const messageGroups = thread
@@ -357,6 +359,13 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [activeRequestMessageId, harnessEvents, messages, runPhase, toolCalls])
+
+  useEffect(() => {
+    if (!scrollToMessageId || messages.length === 0) return
+    const element = document.querySelector(`[data-message-id="${scrollToMessageId}"]`)
+    clearScrollToMessageId()
+    element?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [scrollToMessageId, messages, clearScrollToMessageId])
 
   async function handleCreateBranch(messageId: string): Promise<void> {
     try {
@@ -424,30 +433,32 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
 
         if (item.kind === 'queued-follow-up') {
           return (
-            <UserMessageBubble
-              key={item.key}
-              label="Queued follow-up"
-              message={item.data}
-              threadHasActiveRun={activeRunThreadId === threadId}
-              onRetry={() => handleRetry(item.data.id)}
-              onCreateBranch={() => handleCreateBranch(item.data.id)}
-              onDelete={() => handleDelete(item.data.id)}
-            />
+            <div key={item.key} data-message-id={item.key}>
+              <UserMessageBubble
+                label="Queued follow-up"
+                message={item.data}
+                threadHasActiveRun={activeRunThreadId === threadId}
+                onRetry={() => handleRetry(item.data.id)}
+                onCreateBranch={() => handleCreateBranch(item.data.id)}
+                onDelete={() => handleDelete(item.data.id)}
+              />
+            </div>
           )
         }
 
         if (item.kind === 'pending-steer') {
           return (
-            <UserMessageBubble
-              key={item.key}
-              label="Pending steer"
-              pending
-              message={item.data}
-              threadHasActiveRun
-              onRetry={() => undefined}
-              onCreateBranch={() => undefined}
-              onDelete={() => undefined}
-            />
+            <div key={item.key} data-message-id={item.key}>
+              <UserMessageBubble
+                label="Pending steer"
+                pending
+                message={item.data}
+                threadHasActiveRun
+                onRetry={() => undefined}
+                onCreateBranch={() => undefined}
+                onDelete={() => undefined}
+              />
+            </div>
           )
         }
 
@@ -467,31 +478,33 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
           }
 
           return (
-            <AssistantMessageBubble
-              key={item.key}
-              message={item.data}
-              showActions={false}
-              threadHasActiveRun={activeRunThreadId === threadId}
-              onCreateBranch={() => undefined}
-              onDelete={() => undefined}
-            />
+            <div key={item.key} data-message-id={item.key}>
+              <AssistantMessageBubble
+                message={item.data}
+                showActions={false}
+                threadHasActiveRun={activeRunThreadId === threadId}
+                onCreateBranch={() => undefined}
+                onDelete={() => undefined}
+              />
+            </div>
           )
         }
 
         return (
-          <ThreadConversationGroup
-            key={item.key}
-            threadId={threadId}
-            group={item.data}
-            toolCalls={inlineToolCalls}
-            activeRunId={activeRunThreadId === threadId ? activeRunId : null}
-            threadHasActiveRun={activeRunThreadId === threadId}
-            runs={runs}
-            onCreateBranch={handleCreateBranch}
-            onRetry={handleRetry}
-            onSelectReplyBranch={handleSelectReplyBranch}
-            onDelete={handleDelete}
-          />
+          <div key={item.key} data-message-id={item.key}>
+            <ThreadConversationGroup
+              threadId={threadId}
+              group={item.data}
+              toolCalls={inlineToolCalls}
+              activeRunId={activeRunThreadId === threadId ? activeRunId : null}
+              threadHasActiveRun={activeRunThreadId === threadId}
+              runs={runs}
+              onCreateBranch={handleCreateBranch}
+              onRetry={handleRetry}
+              onSelectReplyBranch={handleSelectReplyBranch}
+              onDelete={handleDelete}
+            />
+          </div>
         )
       })}
       <div ref={bottomRef} />

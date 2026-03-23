@@ -72,9 +72,10 @@ function HighlightedText({ text, query }: { text: string; query: string }): Reac
 interface SidebarSearchProps {
   onClose: () => void
   onSelectThread: (threadId: string) => void
+  onSelectMessage: (threadId: string, messageId: string) => void
 }
 
-export function SidebarSearch({ onClose, onSelectThread }: SidebarSearchProps): React.JSX.Element {
+export function SidebarSearch({ onClose, onSelectThread, onSelectMessage }: SidebarSearchProps): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ThreadSearchResult[]>([])
   const [loading, setLoading] = useState(false)
@@ -117,6 +118,11 @@ export function SidebarSearch({ onClose, onSelectThread }: SidebarSearchProps): 
 
   const handleSelect = (threadId: string): void => {
     onSelectThread(threadId)
+    onClose()
+  }
+
+  const handleSelectMessage = (threadId: string, messageId: string): void => {
+    onSelectMessage(threadId, messageId)
     onClose()
   }
 
@@ -167,33 +173,58 @@ export function SidebarSearch({ onClose, onSelectThread }: SidebarSearchProps): 
 
         {!loading &&
           results.map((result) => (
-            <button
-              key={result.threadId}
-              onClick={() => handleSelect(result.threadId)}
-              className="w-full text-left px-3 py-2.5 rounded-lg transition-colors no-drag"
-              style={{ background: 'transparent' }}
-              onMouseEnter={(e) => {
-                ;(e.currentTarget as HTMLElement).style.background = theme.background.hover
-              }}
-              onMouseLeave={(e) => {
-                ;(e.currentTarget as HTMLElement).style.background = 'transparent'
-              }}
-            >
-              <span
-                className="block text-sm truncate font-medium"
-                style={{ color: theme.text.primary }}
-              >
-                <HighlightedText text={result.threadTitle} query={query.trim()} />
-              </span>
-              {result.messageMatch && (
-                <span className="block text-xs truncate mt-0.5" style={{ color: theme.text.muted }}>
-                  <HighlightedText
-                    text={stripMarkdown(result.messageMatch.snippet)}
-                    query={query.trim()}
-                  />
-                </span>
+            <div key={result.threadId} className="py-1 px-1">
+              {result.titleMatched && result.messageMatches.length === 0 ? (
+                <button
+                  onClick={() => handleSelect(result.threadId)}
+                  className="w-full text-left px-2 py-1 rounded-md no-drag"
+                  style={{ background: 'transparent' }}
+                  onMouseEnter={(e) => {
+                    ;(e.currentTarget as HTMLElement).style.background = theme.background.hover
+                  }}
+                  onMouseLeave={(e) => {
+                    ;(e.currentTarget as HTMLElement).style.background = 'transparent'
+                  }}
+                >
+                  <span
+                    className="block text-xs font-semibold truncate"
+                    style={{ color: theme.text.tertiary }}
+                  >
+                    <HighlightedText text={result.threadTitle} query={query.trim()} />
+                  </span>
+                </button>
+              ) : (
+                <div className="px-2 py-1">
+                  <span
+                    className="block text-xs font-semibold truncate"
+                    style={{ color: theme.text.tertiary }}
+                  >
+                    <HighlightedText text={result.threadTitle} query={query.trim()} />
+                  </span>
+                </div>
               )}
-            </button>
+              {result.messageMatches.map((m) => (
+                <button
+                  key={m.messageId}
+                  onClick={() => handleSelectMessage(result.threadId, m.messageId)}
+                  className="w-full text-left px-2 py-1 rounded-md no-drag"
+                  style={{ background: 'transparent' }}
+                  onMouseEnter={(e) => {
+                    ;(e.currentTarget as HTMLElement).style.background = theme.background.hover
+                  }}
+                  onMouseLeave={(e) => {
+                    ;(e.currentTarget as HTMLElement).style.background = 'transparent'
+                  }}
+                >
+                  <span
+                    className="block text-xs truncate"
+                    style={{ color: theme.text.secondary }}
+                  >
+                    <HighlightedText text={stripMarkdown(m.snippet)} query={query.trim()} />
+                  </span>
+                </button>
+              ))}
+            </div>
           ))}
       </div>
     </div>

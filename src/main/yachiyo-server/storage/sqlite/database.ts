@@ -13,6 +13,7 @@ import {
   groupToolCallsByThread,
   groupMessagesByThread,
   serializeEnabledTools,
+  serializeSkillNames,
   serializeMessageImages,
   serializeMessageTextBlocks,
   serializeThreadMemoryRecallState,
@@ -116,6 +117,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           memoryRecallState: threadsTable.memoryRecallState,
           preview: threadsTable.preview,
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
+          queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
@@ -260,6 +262,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           memoryRecallState: threadsTable.memoryRecallState,
           preview: threadsTable.preview,
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
+          queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
@@ -283,6 +286,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           memoryRecallState: threadsTable.memoryRecallState,
           preview: threadsTable.preview,
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
+          queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
@@ -329,6 +333,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             memoryRecallState: serializeThreadMemoryRecallState(thread.memoryRecall),
             preview: thread.preview ?? null,
             queuedFollowUpEnabledTools: serializeEnabledTools(thread.queuedFollowUpEnabledTools),
+            queuedFollowUpEnabledSkillNames: serializeSkillNames(
+              thread.queuedFollowUpEnabledSkillNames
+            ),
             queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
             title: thread.title,
             updatedAt: thread.updatedAt,
@@ -393,6 +400,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           memoryRecallState: serializeThreadMemoryRecallState(thread.memoryRecall),
           preview: thread.preview ?? null,
           queuedFollowUpEnabledTools: serializeEnabledTools(thread.queuedFollowUpEnabledTools),
+          queuedFollowUpEnabledSkillNames: serializeSkillNames(
+            thread.queuedFollowUpEnabledSkillNames
+          ),
           queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
           title: thread.title,
           updatedAt: thread.updatedAt,
@@ -426,6 +436,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             preview: updatedThread.preview ?? null,
             queuedFollowUpEnabledTools: serializeEnabledTools(
               updatedThread.queuedFollowUpEnabledTools
+            ),
+            queuedFollowUpEnabledSkillNames: serializeSkillNames(
+              updatedThread.queuedFollowUpEnabledSkillNames
             ),
             queuedFollowUpMessageId: updatedThread.queuedFollowUpMessageId ?? null,
             title: updatedThread.title,
@@ -464,6 +477,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             preview: updatedThread.preview ?? null,
             queuedFollowUpEnabledTools: serializeEnabledTools(
               updatedThread.queuedFollowUpEnabledTools
+            ),
+            queuedFollowUpEnabledSkillNames: serializeSkillNames(
+              updatedThread.queuedFollowUpEnabledSkillNames
             ),
             queuedFollowUpMessageId: updatedThread.queuedFollowUpMessageId ?? null,
             title: updatedThread.title,
@@ -506,6 +522,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             preview: updatedThread.preview ?? null,
             queuedFollowUpEnabledTools: serializeEnabledTools(
               updatedThread.queuedFollowUpEnabledTools
+            ),
+            queuedFollowUpEnabledSkillNames: serializeSkillNames(
+              updatedThread.queuedFollowUpEnabledSkillNames
             ),
             queuedFollowUpMessageId: updatedThread.queuedFollowUpMessageId ?? null,
             title: updatedThread.title,
@@ -699,6 +718,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             memoryRecallState: serializeThreadMemoryRecallState(thread.memoryRecall),
             preview: thread.preview ?? null,
             queuedFollowUpEnabledTools: serializeEnabledTools(thread.queuedFollowUpEnabledTools),
+            queuedFollowUpEnabledSkillNames: serializeSkillNames(
+              thread.queuedFollowUpEnabledSkillNames
+            ),
             queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
             title: thread.title,
             updatedAt: thread.updatedAt
@@ -742,17 +764,17 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .orderBy(desc(threadsTable.updatedAt), asc(messagesTable.createdAt))
         .all()
 
-      const messageMatchByThread = new Map<
+      const messageMatchesByThread = new Map<
         string,
-        { messageId: string; content: string; threadUpdatedAt: string }
+        { messageId: string; content: string }[]
       >()
       for (const match of allMessageMatches) {
-        if (!messageMatchByThread.has(match.threadId)) {
-          messageMatchByThread.set(match.threadId, match)
-        }
+        const existing = messageMatchesByThread.get(match.threadId) ?? []
+        existing.push({ messageId: match.messageId, content: match.content })
+        messageMatchesByThread.set(match.threadId, existing)
       }
 
-      const allMatchedIds = new Set([...titleMatchedIds, ...messageMatchByThread.keys()])
+      const allMatchedIds = new Set([...titleMatchedIds, ...messageMatchesByThread.keys()])
       if (allMatchedIds.size === 0) {
         return []
       }
@@ -770,20 +792,16 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .all()
 
       const results: ThreadSearchResult[] = matchedThreads.map((thread) => {
-        const msgMatch = messageMatchByThread.get(thread.id)
+        const matches = messageMatchesByThread.get(thread.id) ?? []
         return {
           threadId: thread.id,
           threadTitle: thread.title,
           threadUpdatedAt: thread.updatedAt,
           titleMatched: titleMatchedIds.has(thread.id),
-          ...(msgMatch
-            ? {
-                messageMatch: {
-                  messageId: msgMatch.messageId,
-                  snippet: extractSnippet(msgMatch.content, trimmed)
-                }
-              }
-            : {})
+          messageMatches: matches.map((m) => ({
+            messageId: m.messageId,
+            snippet: extractSnippet(m.content, trimmed)
+          }))
         }
       })
 

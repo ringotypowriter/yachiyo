@@ -98,9 +98,9 @@ test('finds thread by message content match', () => {
   assert.ok(results.length >= 1)
   const hit = results.find((r) => r.threadId === 'thread-2')
   assert.ok(hit, 'thread-2 should be in results')
-  assert.ok(hit.messageMatch, 'should have a message match')
-  assert.equal(hit.messageMatch?.messageId, 'msg-3')
-  assert.ok(hit.messageMatch?.snippet.includes('useState'))
+  assert.ok(hit.messageMatches.length > 0, 'should have message matches')
+  assert.equal(hit.messageMatches[0].messageId, 'msg-3')
+  assert.ok(hit.messageMatches[0].snippet.includes('useState'))
 })
 
 test('associates results with the correct thread', () => {
@@ -108,7 +108,7 @@ test('associates results with the correct thread', () => {
   const results = storage.searchThreadsAndMessages({ query: 'generics' })
   assert.equal(results.length, 1)
   assert.equal(results[0].threadId, 'thread-1')
-  assert.equal(results[0].messageMatch?.messageId, 'msg-1')
+  assert.equal(results[0].messageMatches[0].messageId, 'msg-1')
 })
 
 test('returns no results when query does not match anything', () => {
@@ -119,7 +119,6 @@ test('returns no results when query does not match anything', () => {
 
 test('thread appearing in both title and message match has titleMatched=true', () => {
   const storage = setupStorage()
-  // "TypeScript" matches both thread-1 title and msg-1 content
   const results = storage.searchThreadsAndMessages({ query: 'TypeScript' })
   const hit = results.find((r) => r.threadId === 'thread-1')
   assert.ok(hit)
@@ -131,7 +130,48 @@ test('snippet is extracted from matched message content', () => {
   const results = storage.searchThreadsAndMessages({ query: 'reusable' })
   const hit = results.find((r) => r.threadId === 'thread-1')
   assert.ok(hit)
-  assert.ok(hit.messageMatch?.snippet.includes('reusable'))
+  assert.ok(hit.messageMatches[0].snippet.includes('reusable'))
+})
+
+test('returns multiple message matches per thread', () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createThread({
+    thread: makeThread({ id: 'thread-multi', title: 'Multi match', updatedAt: NOW }),
+    createdAt: NOW,
+    messages: [
+      makeMessage({ id: 'mm-1', threadId: 'thread-multi', content: 'hello world first', createdAt: '2024-01-01T00:00:01.000Z' }),
+      makeMessage({ id: 'mm-2', threadId: 'thread-multi', content: 'hello world second', createdAt: '2024-01-01T00:00:02.000Z' }),
+      makeMessage({ id: 'mm-3', threadId: 'thread-multi', content: 'hello world third', createdAt: '2024-01-01T00:00:03.000Z' })
+    ]
+  })
+  const results = storage.searchThreadsAndMessages({ query: 'hello' })
+  const hit = results.find((r) => r.threadId === 'thread-multi')
+  assert.ok(hit)
+  assert.equal(hit.messageMatches.length, 3)
+  assert.equal(hit.messageMatches[0].messageId, 'mm-1')
+  assert.equal(hit.messageMatches[1].messageId, 'mm-2')
+  assert.equal(hit.messageMatches[2].messageId, 'mm-3')
+})
+
+test('returns all message matches without cap', () => {
+  const storage = createInMemoryYachiyoStorage()
+  const messages = Array.from({ length: 5 }, (_, i) =>
+    makeMessage({
+      id: `cap-msg-${i}`,
+      threadId: 'thread-cap',
+      content: `target text message ${i}`,
+      createdAt: `2024-01-01T00:00:0${i}.000Z`
+    })
+  )
+  storage.createThread({
+    thread: makeThread({ id: 'thread-cap', title: 'Cap test', updatedAt: NOW }),
+    createdAt: NOW,
+    messages
+  })
+  const results = storage.searchThreadsAndMessages({ query: 'target' })
+  const hit = results.find((r) => r.threadId === 'thread-cap')
+  assert.ok(hit)
+  assert.equal(hit.messageMatches.length, 5)
 })
 
 test('does not return archived threads', () => {
@@ -149,5 +189,6 @@ test('each result has required fields', () => {
     assert.ok(typeof result.threadTitle === 'string')
     assert.ok(typeof result.threadUpdatedAt === 'string')
     assert.ok(typeof result.titleMatched === 'boolean')
+    assert.ok(Array.isArray(result.messageMatches))
   }
 })

@@ -10,6 +10,7 @@ import type {
   RunStatus,
   SendChatMode,
   SettingsConfig,
+  SkillCatalogEntry,
   Thread,
   ToolCallName,
   ToolCall,
@@ -21,7 +22,8 @@ import {
 } from '../../../../shared/yachiyo/messageContent.ts'
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
-  normalizeEnabledTools
+  normalizeEnabledTools,
+  normalizeSkillNames
 } from '../../../../shared/yachiyo/protocol.ts'
 import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 
@@ -58,11 +60,13 @@ export interface ComposerImageDraft extends MessageImageRecord {
 export interface ComposerDraft {
   text: string
   images: ComposerImageDraft[]
+  enabledSkillNames?: string[] | null
 }
 
 export const EMPTY_COMPOSER_DRAFT: ComposerDraft = {
   text: '',
-  images: []
+  images: [],
+  enabledSkillNames: null
 }
 
 interface AppState {
@@ -73,6 +77,7 @@ interface AppState {
   activeThreadId: string | null
   archivedThreads: Thread[]
   archiveThread: (threadId: string) => Promise<void>
+  availableSkills: SkillCatalogEntry[]
   compactThreadToAnotherThread: () => Promise<void>
   composerDrafts: Record<string, ComposerDraft>
   createBranch: (messageId: string) => Promise<void>
@@ -111,9 +116,12 @@ interface AppState {
   selectModel: (providerName: string, model: string) => Promise<void>
   sendMessage: (mode?: SendChatMode) => Promise<void>
   setEnabledTools: (enabledTools: ToolCallName[]) => Promise<void>
-  setActiveThread: (id: string) => void
+  scrollToMessageId: string | null
+  clearScrollToMessageId: () => void
+  setActiveThread: (id: string, scrollToMessageId?: string) => void
   setActiveArchivedThread: (id: string) => void
   setComposerValue: (value: string) => void
+  setComposerEnabledSkillNames: (enabledSkillNames: string[] | null) => void
   setPendingWorkspacePath: (workspacePath: string | null) => void
   setThreadWorkspace: (workspacePath: string | null) => Promise<void>
   setThreadListMode: (mode: 'active' | 'archived') => void
@@ -258,7 +266,11 @@ function getComposerDraft(
 }
 
 function isComposerDraftEmpty(draft: ComposerDraft): boolean {
-  return draft.text.trim().length === 0 && draft.images.length === 0
+  return (
+    draft.text.trim().length === 0 &&
+    draft.images.length === 0 &&
+    draft.enabledSkillNames === null
+  )
 }
 
 function isThreadReusableNewChat(
@@ -355,6 +367,13 @@ function normalizeWorkspacePath(workspacePath: string | null | undefined): strin
   return normalized ? normalized : null
 }
 
+function resolveEffectiveEnabledSkillNames(input: {
+  config: SettingsConfig | null
+  draft: ComposerDraft
+}): string[] {
+  return normalizeSkillNames(input.draft.enabledSkillNames ?? input.config?.skills?.enabled)
+}
+
 function toReadyMessageImages(images: ComposerImageDraft[]): MessageImageRecord[] {
   return normalizeMessageImages(
     images
@@ -407,6 +426,31 @@ function resolveActiveRequestMessageId(
 
 let bootstrapPromise: Promise<void> | null = null
 let unsubscribeFromServer: (() => void) | null = null
+let availableSkillsRequestId = 0
+
+async function refreshAvailableSkills(
+  set: (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void,
+  get: () => AppState
+): Promise<void> {
+  const requestId = ++availableSkillsRequestId
+  const state = get()
+  const activeThread = state.threads.find((thread) => thread.id === state.activeThreadId) ?? null
+  const workspacePath = normalizeWorkspacePath(activeThread?.workspacePath ?? state.pendingWorkspacePath)
+
+  try {
+    const availableSkills = await window.api.yachiyo.listSkills(
+      workspacePath ? { workspacePaths: [workspacePath] } : undefined
+    )
+
+    if (requestId !== availableSkillsRequestId) {
+      return
+    }
+
+    set({ availableSkills })
+  } catch (error) {
+    console.warn('[yachiyo][skills] failed to refresh available skills', error)
+  }
+}
 
 export const useAppStore = create<AppState>((set, get) => ({
   activeArchivedThreadId: null,
@@ -414,7 +458,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeRequestMessageId: null,
   activeRunThreadId: null,
   activeThreadId: null,
+  scrollToMessageId: null,
   archivedThreads: [],
+  availableSkills: [],
   archiveThread: async (threadId) => {
     try {
       await window.api.yachiyo.archiveThread({ threadId })
@@ -1124,6 +1170,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         pendingWorkspacePath: null,
         threadListMode: 'active'
       })
+      await refreshAvailableSkills(set, get)
       return
     }
 
@@ -1146,6 +1193,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       },
       threads: upsertThread(state.threads, thread)
     }))
+    await refreshAvailableSkills(set, get)
   },
 
   initialize: async () => {
@@ -1185,6 +1233,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           threads: sortThreads(payload.threads),
           toolCalls: payload.toolCallsByThread
         }))
+        await refreshAvailableSkills(set, get)
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to bootstrap Yachiyo.'
         set({
@@ -1261,6 +1310,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const trimmed = draft.text.trim()
     const images = toReadyMessageImages(draft.images)
     const enabledTools = currentState.enabledTools
+    const enabledSkillNames = resolveEffectiveEnabledSkillNames({
+      config: currentState.config,
+      draft
+    })
 
     if (
       draft.images.some((image) => image.status === 'loading' || image.status === 'failed') ||
@@ -1310,6 +1363,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const accepted = await window.api.yachiyo.sendChat({
         content: trimmed,
         enabledTools,
+        enabledSkillNames: draft.enabledSkillNames === null ? undefined : enabledSkillNames,
         ...(images.length > 0 ? { images } : {}),
         ...(mode !== 'normal' ? { mode } : {}),
         threadId
@@ -1422,7 +1476,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  setActiveThread: (id) => set({ activeThreadId: id, threadListMode: 'active' }),
+  setActiveThread: (id, scrollToMessageId) => {
+    set({ activeThreadId: id, threadListMode: 'active', scrollToMessageId: scrollToMessageId ?? null })
+    void refreshAvailableSkills(set, get)
+  },
+  clearScrollToMessageId: () => set({ scrollToMessageId: null }),
+  setComposerEnabledSkillNames: (enabledSkillNames) =>
+    set((state) => {
+      const draftKey = getComposerDraftKey(state.activeThreadId)
+      return {
+        composerDrafts: updateComposerDraft(state.composerDrafts, draftKey, (draft) => ({
+          ...draft,
+          enabledSkillNames: enabledSkillNames ? normalizeSkillNames(enabledSkillNames) : null
+        }))
+      }
+    }),
 
   setActiveArchivedThread: (id) => set({ activeArchivedThreadId: id, threadListMode: 'archived' }),
 
@@ -1451,10 +1519,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }),
 
-  setPendingWorkspacePath: (workspacePath) =>
+  setPendingWorkspacePath: (workspacePath) => {
     set({
       pendingWorkspacePath: normalizeWorkspacePath(workspacePath)
-    }),
+    })
+    void refreshAvailableSkills(set, get)
+  },
 
   setThreadWorkspace: async (workspacePath) => {
     const threadId = get().activeThreadId
@@ -1462,6 +1532,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({
         pendingWorkspacePath: normalizeWorkspacePath(workspacePath)
       })
+      await refreshAvailableSkills(set, get)
       return
     }
 
@@ -1474,6 +1545,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         lastError: null,
         threads: upsertThread(state.threads, thread)
       }))
+      await refreshAvailableSkills(set, get)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to change the workspace.'
       set({ lastError: message })

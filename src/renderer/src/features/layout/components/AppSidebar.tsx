@@ -88,6 +88,9 @@ export function AppSidebar({
           onSelectThread={(threadId) => {
             setActiveThread(threadId)
           }}
+          onSelectMessage={(threadId, messageId) => {
+            setActiveThread(threadId, messageId)
+          }}
         />
       ) : (
         <ThreadList />
