@@ -104,3 +104,116 @@ test('Google browser provider extracts normalized organic results from a browser
   assert.equal(result.results[0]?.url, 'https://example.com/first')
   assert.equal(result.results[1]?.rank, 2)
 })
+
+test('Google browser provider retries transient load failures before succeeding', async () => {
+  let disposed = 0
+  let attempts = 0
+
+  const session = new BrowserSearchSession({
+    profilePath: '/tmp/yachiyo-web-search-profile',
+    pageFactory: {
+      async createPage() {
+        attempts += 1
+
+        return {
+          async loadURL() {
+            if (attempts < 3) {
+              throw new Error('ERR_CONNECTION_CLOSED')
+            }
+          },
+          async waitForFunction() {
+            return undefined
+          },
+          async evaluate<TResult>() {
+            return [
+              {
+                href: 'https://example.com/recovered',
+                title: 'Recovered result',
+                snippet: 'Recovered snippet'
+              }
+            ] as TResult
+          },
+          getURL() {
+            return 'https://www.google.com/search?q=yachiyo'
+          }
+        }
+      },
+      async disposePage() {
+        disposed += 1
+      }
+    }
+  })
+
+  const provider = createGoogleBrowserWebSearchProvider({
+    browserSession: session,
+    loadTimeoutMs: 100,
+    retryAttempts: 3,
+    retryDelayMs: 0
+  })
+
+  const result = await provider.search({
+    query: 'yachiyo',
+    limit: 1
+  })
+
+  assert.equal(attempts, 3)
+  assert.equal(disposed, 3)
+  assert.equal(result.failureCode, undefined)
+  assert.equal(result.results[0]?.url, 'https://example.com/recovered')
+})
+
+test('Google browser provider retries extraction failures before succeeding', async () => {
+  let attempts = 0
+
+  const session = new BrowserSearchSession({
+    profilePath: '/tmp/yachiyo-web-search-profile',
+    pageFactory: {
+      async createPage() {
+        return {
+          async loadURL() {
+            return undefined
+          },
+          async waitForFunction() {
+            return undefined
+          },
+          async evaluate<TResult>() {
+            attempts += 1
+            if (attempts < 3) {
+              return [] as TResult
+            }
+
+            return [
+              {
+                href: 'https://example.com/final',
+                title: 'Final result',
+                snippet: 'Final snippet'
+              }
+            ] as TResult
+          },
+          getURL() {
+            return 'https://www.google.com/search?q=yachiyo'
+          }
+        }
+      },
+      async disposePage() {
+        return undefined
+      }
+    }
+  })
+
+  const provider = createGoogleBrowserWebSearchProvider({
+    browserSession: session,
+    loadTimeoutMs: 100,
+    retryAttempts: 3,
+    retryDelayMs: 0
+  })
+
+  const result = await provider.search({
+    query: 'yachiyo',
+    limit: 1
+  })
+
+  assert.equal(attempts, 3)
+  assert.equal(result.failureCode, undefined)
+  assert.equal(result.results[0]?.title, 'Final result')
+})

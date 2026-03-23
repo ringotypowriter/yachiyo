@@ -1046,7 +1046,11 @@ test('YachiyoServer fails runs cleanly when thread workspace initialization fail
       await assert.rejects(completeRun(secondRun.runId), /Workspace unavailable/)
 
       const bootstrap = await server.bootstrap()
-      assert.equal(bootstrap.messagesByThread[thread.id]?.length, 2)
+      assert.equal(bootstrap.messagesByThread[thread.id]?.length, 4)
+      assert.deepEqual(
+        (bootstrap.messagesByThread[thread.id] ?? []).map((message) => message.status),
+        ['completed', 'failed', 'completed', 'failed']
+      )
     },
     {
       ensureThreadWorkspace: async (threadId, workspacePathForThread) => {
@@ -3502,6 +3506,142 @@ test('YachiyoServer can switch the active thread branch between sibling replies'
   )
 })
 
+test('YachiyoServer preserves failed retry branches that only produced tool calls', async () => {
+  let runAttempt = 0
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      const thread = await server.createThread()
+
+      const firstRun = await server.sendChat({
+        threadId: thread.id,
+        content: 'Question'
+      })
+      await completeRun(firstRun.runId)
+
+      let bootstrap = await server.bootstrap()
+      const [userMessage, firstAssistant] = bootstrap.messagesByThread[thread.id] ?? []
+
+      const failedRetryRun = await server.retryMessage({
+        threadId: thread.id,
+        messageId: firstAssistant!.id
+      })
+      await assert.rejects(completeRun(failedRetryRun.runId), /Tool-backed retry failure/)
+
+      bootstrap = await server.bootstrap()
+
+      const failedRetryAssistant = (bootstrap.messagesByThread[thread.id] ?? []).find(
+        (message) =>
+          message.parentMessageId === userMessage?.id &&
+          message.role === 'assistant' &&
+          message.status === 'failed'
+      )
+      const failedRetryToolCalls = (bootstrap.toolCallsByThread[thread.id] ?? []).filter(
+        (toolCall) => toolCall.runId === failedRetryRun.runId
+      )
+
+      assert.ok(failedRetryAssistant)
+      assert.equal(failedRetryAssistant?.content, '')
+      assert.deepEqual(
+        failedRetryToolCalls.map((toolCall) => toolCall.assistantMessageId),
+        [failedRetryAssistant?.id]
+      )
+
+      const successfulRetryRun = await server.retryMessage({
+        threadId: thread.id,
+        messageId: failedRetryAssistant!.id
+      })
+      await completeRun(successfulRetryRun.runId)
+
+      bootstrap = await server.bootstrap()
+      const successfulRetryAssistant = (bootstrap.messagesByThread[thread.id] ?? []).find(
+        (message) =>
+          message.parentMessageId === userMessage?.id &&
+          message.role === 'assistant' &&
+          message.status === 'completed' &&
+          message.id !== firstAssistant?.id
+      )
+      const persistedFailedRetryToolCalls = (bootstrap.toolCallsByThread[thread.id] ?? []).filter(
+        (toolCall) => toolCall.runId === failedRetryRun.runId
+      )
+
+      assert.ok(successfulRetryAssistant)
+      assert.deepEqual(
+        persistedFailedRetryToolCalls.map((toolCall) => toolCall.assistantMessageId),
+        [failedRetryAssistant?.id]
+      )
+
+      const switched = await server.selectReplyBranch({
+        threadId: thread.id,
+        assistantMessageId: failedRetryAssistant!.id
+      })
+
+      assert.equal(switched.headMessageId, failedRetryAssistant?.id)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest): AsyncIterable<string> {
+          runAttempt += 1
+
+          if (runAttempt === 1) {
+            yield 'Original answer'
+            return
+          }
+
+          if (runAttempt === 2) {
+            request.onToolCallStart?.({
+              abortSignal: request.signal,
+              experimental_context: undefined,
+              functionId: undefined,
+              messages: request.messages,
+              metadata: undefined,
+              model: undefined,
+              stepNumber: 0,
+              toolCall: {
+                input: { path: 'notes.txt' },
+                toolCallId: 'tool-retry-failed-1',
+                toolName: 'read'
+              }
+            } as never)
+            request.onToolCallFinish?.({
+              abortSignal: request.signal,
+              durationMs: 1,
+              experimental_context: undefined,
+              functionId: undefined,
+              messages: request.messages,
+              metadata: undefined,
+              model: undefined,
+              stepNumber: 0,
+              success: true,
+              output: {
+                content: [{ type: 'text', text: 'hello' }],
+                details: {
+                  endLine: 1,
+                  path: '/tmp/notes.txt',
+                  startLine: 1,
+                  totalBytes: 5,
+                  totalLines: 1,
+                  truncated: false
+                },
+                metadata: {}
+              },
+              toolCall: {
+                input: { path: 'notes.txt' },
+                toolCallId: 'tool-retry-failed-1',
+                toolName: 'read'
+              }
+            } as never)
+
+            throw new Error('Tool-backed retry failure')
+          }
+
+          yield 'Recovered answer'
+        }
+      })
+    }
+  )
+})
+
 test('YachiyoServer deletes a user request anchor together with every attached response branch', async () => {
   await withServer(async ({ server, completeRun }) => {
     await server.upsertProvider({
@@ -3838,41 +3978,60 @@ test('YachiyoServer can retry directly from a user request that has no assistant
 })
 
 test('YachiyoServer points the thread head at the retried request immediately', async () => {
-  await withServer(async ({ server, completeRun }) => {
-    await server.upsertProvider({
-      name: 'work',
-      type: 'openai',
-      apiKey: 'sk-test',
-      baseUrl: 'https://api.openai.com/v1',
-      modelList: {
-        enabled: ['gpt-5'],
-        disabled: []
-      }
-    })
+  let attempt = 0
 
-    const thread = await server.createThread()
-    const accepted = await server.sendChat({
-      threadId: thread.id,
-      content: 'First question'
-    })
-    await completeRun(accepted.runId)
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
 
-    let bootstrap = await server.bootstrap()
-    const [userMessage, assistantMessage] = bootstrap.messagesByThread[thread.id] ?? []
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'First question'
+      })
+      await completeRun(accepted.runId)
 
-    assert.equal(bootstrap.threads[0]?.headMessageId, assistantMessage?.id)
+      let bootstrap = await server.bootstrap()
+      const [userMessage, assistantMessage] = bootstrap.messagesByThread[thread.id] ?? []
 
-    const retried = await server.retryMessage({
-      threadId: thread.id,
-      messageId: assistantMessage!.id
-    })
+      assert.equal(bootstrap.threads[0]?.headMessageId, assistantMessage?.id)
 
-    bootstrap = await server.bootstrap()
-    assert.equal(retried.requestMessageId, userMessage?.id)
-    assert.equal(bootstrap.threads[0]?.headMessageId, userMessage?.id)
+      const retried = await server.retryMessage({
+        threadId: thread.id,
+        messageId: assistantMessage!.id
+      })
 
-    await completeRun(retried.runId)
-  })
+      bootstrap = await server.bootstrap()
+      assert.equal(retried.requestMessageId, userMessage?.id)
+      assert.equal(bootstrap.threads[0]?.headMessageId, userMessage?.id)
+
+      await completeRun(retried.runId)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(): AsyncIterable<string> {
+          attempt += 1
+
+          if (attempt === 1) {
+            yield 'First answer'
+            return
+          }
+
+          await new Promise((resolve) => setTimeout(resolve, 10))
+          yield 'Retried answer'
+        }
+      })
+    }
+  )
 })
 
 test('YachiyoServer compacts a thread into a new assistant-first thread and allows normal continuation', async () => {

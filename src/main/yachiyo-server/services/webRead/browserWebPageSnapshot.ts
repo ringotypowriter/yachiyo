@@ -1,4 +1,5 @@
 import type { BrowserSearchSession } from '../webSearch/browserSearchSession.ts'
+import { runWithBrowserRetries } from '../webSearch/browserRetry.ts'
 
 const DEFAULT_BROWSER_WEB_READ_TIMEOUT_MS = 15_000
 const PAGE_READY_PREDICATE = `
@@ -42,35 +43,49 @@ function isAbortError(error: unknown): boolean {
 export function createBrowserWebPageSnapshotLoader(input: {
   browserSession: BrowserSearchSession
   loadTimeoutMs?: number
+  retryAttempts?: number
+  retryDelayMs?: number
 }): BrowserWebPageSnapshotLoader {
   const loadTimeoutMs = input.loadTimeoutMs ?? DEFAULT_BROWSER_WEB_READ_TIMEOUT_MS
+  const retryAttempts = input.retryAttempts ?? 3
+  const retryDelayMs = input.retryDelayMs ?? 350
 
   return async ({ signal, url }) =>
-    input.browserSession.withPage(async (page) => {
-      await page.loadURL(url)
+    runWithBrowserRetries({
+      attempts: retryAttempts,
+      delayMs: retryDelayMs,
+      signal,
+      run: async () =>
+        input.browserSession.withPage(async (page) => {
+          await page.loadURL(url)
 
-      try {
-        await page.waitForFunction({
-          predicate: PAGE_READY_PREDICATE,
-          timeoutMs: loadTimeoutMs,
-          signal
+          try {
+            await page.waitForFunction({
+              predicate: PAGE_READY_PREDICATE,
+              timeoutMs: loadTimeoutMs,
+              signal
+            })
+          } catch (error) {
+            if (isAbortError(error)) {
+              throw error
+            }
+          }
+
+          const snapshot = await page.evaluate<{
+            contentType?: string
+            html: string
+            title?: string
+          }>(SNAPSHOT_SCRIPT)
+
+          if (!snapshot.html.trim()) {
+            throw new Error('Browser snapshot returned empty HTML.')
+          }
+
+          return {
+            finalUrl: page.getURL() || url,
+            ...(snapshot.contentType ? { contentType: snapshot.contentType } : {}),
+            html: snapshot.html
+          }
         })
-      } catch (error) {
-        if (isAbortError(error)) {
-          throw error
-        }
-      }
-
-      const snapshot = await page.evaluate<{
-        contentType?: string
-        html: string
-        title?: string
-      }>(SNAPSHOT_SCRIPT)
-
-      return {
-        finalUrl: page.getURL() || url,
-        ...(snapshot.contentType ? { contentType: snapshot.contentType } : {}),
-        html: snapshot.html
-      }
     })
 }

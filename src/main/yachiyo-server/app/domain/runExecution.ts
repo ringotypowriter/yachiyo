@@ -322,6 +322,46 @@ function bindCompletedToolCallsToAssistant(
   }
 }
 
+function persistTerminalAssistantMessage(
+  deps: Pick<RunExecutionDeps, 'readThread' | 'storage'>,
+  input: {
+    runId: string
+    threadId: string
+    messageId: string
+    requestMessageId: string
+    timestamp: string
+    settings: ProviderSettings
+    status: MessageRecord['status']
+    content: string
+    textBlocks: MessageTextBlockRecord[]
+  }
+): MessageRecord {
+  const currentThread = deps.readThread(input.threadId)
+  const assistantMessage: MessageRecord = {
+    id: input.messageId,
+    threadId: input.threadId,
+    parentMessageId: input.requestMessageId,
+    role: 'assistant',
+    content: input.content,
+    ...(input.textBlocks.length > 0 ? { textBlocks: input.textBlocks } : {}),
+    status: input.status,
+    createdAt: input.timestamp,
+    modelId: input.settings.model,
+    providerName: input.settings.providerName
+  }
+
+  deps.storage.completeRun({
+    runId: input.runId,
+    updatedThread: {
+      ...currentThread,
+      updatedAt: input.timestamp
+    },
+    assistantMessage
+  })
+
+  return assistantMessage
+}
+
 export async function executeServerRun(
   deps: RunExecutionDeps,
   input: ExecuteRunInput
@@ -777,6 +817,26 @@ export async function executeServerRun(
       runId: input.runId,
       threadId: input.thread.id
     })
+
+    if (input.requestMessageId) {
+      persistTerminalAssistantMessage(deps, {
+        runId: input.runId,
+        threadId: input.thread.id,
+        messageId,
+        requestMessageId: input.requestMessageId,
+        timestamp,
+        settings,
+        status: 'failed',
+        content: buffer,
+        textBlocks
+      })
+      bindCompletedToolCallsToAssistant(deps, toolCalls, {
+        threadId: input.thread.id,
+        runId: input.runId,
+        assistantMessageId: messageId
+      })
+    }
+
     deps.storage.failRun({
       runId: input.runId,
       completedAt: timestamp,

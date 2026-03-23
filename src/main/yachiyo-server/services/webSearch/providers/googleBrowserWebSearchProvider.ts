@@ -3,6 +3,7 @@ import type {
   WebSearchResultItem
 } from '../../../../../shared/yachiyo/protocol.ts'
 import type { BrowserSearchSession } from '../browserSearchSession.ts'
+import { runWithBrowserRetries } from '../browserRetry.ts'
 import type { WebSearchProvider, WebSearchResult } from '../webSearchService.ts'
 
 const GOOGLE_SEARCH_URL = 'https://www.google.com/search'
@@ -166,8 +167,12 @@ export function normalizeGoogleOrganicResults(
 export function createGoogleBrowserWebSearchProvider(input: {
   browserSession: BrowserSearchSession
   loadTimeoutMs?: number
+  retryAttempts?: number
+  retryDelayMs?: number
 }): WebSearchProvider {
   const loadTimeoutMs = input.loadTimeoutMs ?? 15_000
+  const retryAttempts = input.retryAttempts ?? 3
+  const retryDelayMs = input.retryDelayMs ?? 350
 
   return {
     id: 'google-browser',
@@ -177,65 +182,74 @@ export function createGoogleBrowserWebSearchProvider(input: {
       searchUrl.searchParams.set('num', String(limit))
       searchUrl.searchParams.set('q', query)
 
-      return input.browserSession.withPage(async (page) => {
-        try {
-          await page.loadURL(searchUrl.toString())
-          await page.waitForFunction({
-            predicate: PAGE_READY_PREDICATE,
-            timeoutMs: loadTimeoutMs,
-            signal
+      return runWithBrowserRetries<WebSearchResult>({
+        attempts: retryAttempts,
+        delayMs: retryDelayMs,
+        signal,
+        shouldRetryResult: (result, attempt) =>
+          attempt < retryAttempts &&
+          (result.failureCode === 'load-failed' || result.failureCode === 'extraction-failed'),
+        run: async () =>
+          input.browserSession.withPage(async (page) => {
+            try {
+              await page.loadURL(searchUrl.toString())
+              await page.waitForFunction({
+                predicate: PAGE_READY_PREDICATE,
+                timeoutMs: loadTimeoutMs,
+                signal
+              })
+            } catch (error) {
+              const failureCode =
+                error instanceof Error && error.name === 'AbortError' ? 'aborted' : 'load-failed'
+              return createFailure({
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : `Failed to load Google search results for "${query}".`,
+                failureCode,
+                query,
+                searchUrl: searchUrl.toString(),
+                finalUrl: page.getURL()
+              })
+            }
+
+            let rawResults: RawGoogleSearchResult[] = []
+
+            try {
+              rawResults = await page.evaluate<RawGoogleSearchResult[]>(EXTRACTION_SCRIPT)
+            } catch (error) {
+              return createFailure({
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : `Failed to extract Google search results for "${query}".`,
+                failureCode: 'extraction-failed',
+                query,
+                searchUrl: searchUrl.toString(),
+                finalUrl: page.getURL()
+              })
+            }
+
+            const results = normalizeGoogleOrganicResults(rawResults, limit)
+
+            if (results.length === 0) {
+              return createFailure({
+                error: 'Google search returned no extractable organic results.',
+                failureCode: 'extraction-failed',
+                query,
+                searchUrl: searchUrl.toString(),
+                finalUrl: page.getURL()
+              })
+            }
+
+            return {
+              provider: 'google-browser',
+              query,
+              searchUrl: searchUrl.toString(),
+              finalUrl: page.getURL(),
+              results
+            }
           })
-        } catch (error) {
-          const failureCode =
-            error instanceof Error && error.name === 'AbortError' ? 'aborted' : 'load-failed'
-          return createFailure({
-            error:
-              error instanceof Error
-                ? error.message
-                : `Failed to load Google search results for "${query}".`,
-            failureCode,
-            query,
-            searchUrl: searchUrl.toString(),
-            finalUrl: page.getURL()
-          })
-        }
-
-        let rawResults: RawGoogleSearchResult[] = []
-
-        try {
-          rawResults = await page.evaluate<RawGoogleSearchResult[]>(EXTRACTION_SCRIPT)
-        } catch (error) {
-          return createFailure({
-            error:
-              error instanceof Error
-                ? error.message
-                : `Failed to extract Google search results for "${query}".`,
-            failureCode: 'extraction-failed',
-            query,
-            searchUrl: searchUrl.toString(),
-            finalUrl: page.getURL()
-          })
-        }
-
-        const results = normalizeGoogleOrganicResults(rawResults, limit)
-
-        if (results.length === 0) {
-          return createFailure({
-            error: 'Google search returned no extractable organic results.',
-            failureCode: 'extraction-failed',
-            query,
-            searchUrl: searchUrl.toString(),
-            finalUrl: page.getURL()
-          })
-        }
-
-        return {
-          provider: 'google-browser',
-          query,
-          searchUrl: searchUrl.toString(),
-          finalUrl: page.getURL(),
-          results
-        }
       })
     }
   }
