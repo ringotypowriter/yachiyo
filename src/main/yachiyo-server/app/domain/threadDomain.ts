@@ -127,7 +127,9 @@ export class YachiyoServerThreadDomain {
     this.deps = deps
   }
 
-  async createThread(input: { threadId?: string; workspacePath?: string } = {}): Promise<ThreadRecord> {
+  async createThread(
+    input: { threadId?: string; workspacePath?: string } = {}
+  ): Promise<ThreadRecord> {
     const timestamp = this.deps.timestamp()
     const workspacePath = input.workspacePath?.trim() ? resolve(input.workspacePath) : undefined
     const thread: ThreadRecord = {

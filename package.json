@@ -8,6 +8,9 @@
     "node": "22.22.1",
     "pnpm": ">=10 <11"
   },
+  "bin": {
+    "yachiyo": "bin/yachiyo"
+  },
   "author": "Ringo",
   "homepage": "https://github.com/ringotypowriter/yachiyo",
   "scripts": {

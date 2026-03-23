@@ -1,0 +1,689 @@
+import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import test from 'node:test'
+
+import { runYachiyoCli } from './yachiyo-cli.ts'
+import { createInMemoryYachiyoStorage } from '../storage/memoryStorage.ts'
+import { YachiyoServer } from './YachiyoServer.ts'
+import { readSoulDocument, upsertDailySoulTrait, removeSoulTrait } from '../runtime/soul.ts'
+
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
+function makeRunCommand(): (args: string[]) => Promise<unknown> {
+  return async (args: string[]) => {
+    let stdout = ''
+    await runYachiyoCli(args, {
+      stdout: {
+        write(chunk) {
+          stdout += String(chunk)
+          return true
+        }
+      },
+      readSoulDocument: (input) => readSoulDocument(input),
+      upsertDailySoulTrait: (input) => upsertDailySoulTrait(input),
+      removeSoulTrait: (input) => removeSoulTrait(input)
+    })
+    return JSON.parse(stdout)
+  }
+}
+
+// Soul commands bypass the server and use the soul path flag directly.
+function makeRunSoulCommand(): (args: string[]) => Promise<unknown> {
+  return async (args: string[]) => {
+    let stdout = ''
+    await runYachiyoCli(args, {
+      stdout: {
+        write(chunk) {
+          stdout += String(chunk)
+          return true
+        }
+      },
+      readSoulDocument: (input) => readSoulDocument(input),
+      upsertDailySoulTrait: (input) => upsertDailySoulTrait(input),
+      removeSoulTrait: (input) => removeSoulTrait(input)
+    })
+    return JSON.parse(stdout)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Soul traits tests
+// ---------------------------------------------------------------------------
+
+test('soul traits list - empty document', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-soul-'))
+  const soulPath = join(root, 'SOUL.md')
+
+  try {
+    const run = makeRunSoulCommand()
+    const result = await run(['soul', 'traits', 'list', '--soul', soulPath])
+    assert.deepEqual(result, [])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('soul traits add - creates and persists a trait', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-soul-'))
+  const soulPath = join(root, 'SOUL.md')
+
+  try {
+    const run = makeRunSoulCommand()
+    const result = (await run([
+      'soul',
+      'traits',
+      'add',
+      'Prefers concise responses',
+      '--soul',
+      soulPath
+    ])) as {
+      added: string
+      traits: Array<{ index: number; trait: string }>
+    }
+    assert.equal(result.added, 'Prefers concise responses')
+    assert.equal(result.traits.length, 1)
+    assert.equal(result.traits[0]?.trait, 'Prefers concise responses')
+    assert.equal(result.traits[0]?.index, 0)
+
+    // Persists: list should show it
+    const list = (await run(['soul', 'traits', 'list', '--soul', soulPath])) as Array<{
+      index: number
+      trait: string
+    }>
+    assert.equal(list.length, 1)
+    assert.equal(list[0]?.trait, 'Prefers concise responses')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('soul traits add - multiple traits, deduplicated', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-soul-'))
+  const soulPath = join(root, 'SOUL.md')
+
+  try {
+    const run = makeRunSoulCommand()
+    await run(['soul', 'traits', 'add', 'Trait A', '--soul', soulPath])
+    await run(['soul', 'traits', 'add', 'Trait B', '--soul', soulPath])
+    await run(['soul', 'traits', 'add', 'Trait A', '--soul', soulPath]) // duplicate
+
+    const list = (await run(['soul', 'traits', 'list', '--soul', soulPath])) as Array<{
+      index: number
+      trait: string
+    }>
+    assert.equal(list.length, 2)
+    assert.deepEqual(
+      list.map((t) => t.trait),
+      ['Trait A', 'Trait B']
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('soul traits remove by index', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-soul-'))
+  const soulPath = join(root, 'SOUL.md')
+
+  try {
+    const run = makeRunSoulCommand()
+    await run(['soul', 'traits', 'add', 'Trait A', '--soul', soulPath])
+    await run(['soul', 'traits', 'add', 'Trait B', '--soul', soulPath])
+    await run(['soul', 'traits', 'add', 'Trait C', '--soul', soulPath])
+
+    const result = (await run(['soul', 'traits', 'remove', '1', '--soul', soulPath])) as {
+      removed: string
+      traits: Array<{ index: number; trait: string }>
+    }
+    assert.equal(result.removed, '1')
+    assert.equal(result.traits.length, 2)
+    assert.deepEqual(
+      result.traits.map((t) => t.trait),
+      ['Trait A', 'Trait C']
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('soul traits remove by text', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-soul-'))
+  const soulPath = join(root, 'SOUL.md')
+
+  try {
+    const run = makeRunSoulCommand()
+    await run(['soul', 'traits', 'add', 'Trait A', '--soul', soulPath])
+    await run(['soul', 'traits', 'add', 'Trait B', '--soul', soulPath])
+
+    const result = (await run(['soul', 'traits', 'remove', 'Trait A', '--soul', soulPath])) as {
+      traits: Array<{ trait: string }>
+    }
+    assert.equal(result.traits.length, 1)
+    assert.equal(result.traits[0]?.trait, 'Trait B')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('soul traits remove by out-of-range index throws', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-soul-'))
+  const soulPath = join(root, 'SOUL.md')
+
+  try {
+    const run = makeRunSoulCommand()
+    await run(['soul', 'traits', 'add', 'Only one', '--soul', soulPath])
+
+    await assert.rejects(
+      () => run(['soul', 'traits', 'remove', '99', '--soul', soulPath]),
+      /out of range/
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Provider tests
+// ---------------------------------------------------------------------------
+
+test('provider list - empty', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-provider-'))
+
+  try {
+    const run = makeRunCommand()
+    const result = (await run([
+      'provider',
+      'list',
+      '--settings',
+      join(root, 'config.toml')
+    ])) as unknown[]
+    assert.deepEqual(result, [])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('provider list - shows providers with redacted apiKey', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-provider-'))
+  const settingsPath = join(root, 'config.toml')
+
+  try {
+    const run = makeRunCommand()
+
+    // Add a provider first via the server's upsert command
+    await run(['provider', 'update', 'nonexistent', '--settings', settingsPath]).catch(() => null) // expected to fail - no such provider yet
+
+    // Upsert via raw server call - use settings.provider.upsert from cli.ts instead
+    // Actually let's use the old cli to set up state, then test new cli reads it
+    // But both share the same settings file - let's do it via yachiyo-cli provider update after creating
+    // We'll use a workaround: add provider via the existing internal API by using a custom server
+    const storage = createInMemoryYachiyoStorage()
+    const server = new YachiyoServer({
+      storage,
+      settingsPath,
+      ensureThreadWorkspace: async (threadId) => {
+        const p = join(root, '.yachiyo', 'temp-workspace', threadId)
+        await mkdir(p, { recursive: true })
+        return p
+      }
+    })
+    await server.upsertProvider({
+      id: 'test-id-1',
+      name: 'my-provider',
+      type: 'anthropic',
+      apiKey: 'sk-secret-key',
+      baseUrl: '',
+      modelList: { enabled: ['claude-opus-4-6'], disabled: [] }
+    })
+    await server.close()
+
+    // Now list via CLI with shared settings file
+    let stdout = ''
+    await runYachiyoCli(['provider', 'list', '--settings', settingsPath], {
+      stdout: {
+        write(chunk) {
+          stdout += String(chunk)
+          return true
+        }
+      }
+    })
+
+    const providers = JSON.parse(stdout) as Array<{ name: string; apiKey: string }>
+    assert.equal(providers.length, 1)
+    assert.equal(providers[0]?.name, 'my-provider')
+    assert.equal(providers[0]?.apiKey, '***', 'apiKey must be redacted')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('provider show - redacts apiKey', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-provider-'))
+  const settingsPath = join(root, 'config.toml')
+
+  try {
+    const storage = createInMemoryYachiyoStorage()
+
+    const setupServer = new YachiyoServer({
+      storage,
+      settingsPath,
+      ensureThreadWorkspace: async (threadId) => {
+        const p = join(root, '.yachiyo', 'temp-workspace', threadId)
+        await mkdir(p, { recursive: true })
+        return p
+      }
+    })
+    await setupServer.upsertProvider({
+      id: 'prov-uuid',
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-real-key',
+      baseUrl: '',
+      modelList: { enabled: ['gpt-5'], disabled: [] }
+    })
+    await setupServer.close()
+
+    let stdout = ''
+    await runYachiyoCli(['provider', 'show', 'work', '--settings', settingsPath], {
+      stdout: {
+        write(chunk) {
+          stdout += String(chunk)
+          return true
+        }
+      }
+    })
+
+    const provider = JSON.parse(stdout) as { name: string; type: string; apiKey: string }
+    assert.equal(provider.name, 'work')
+    assert.equal(provider.type, 'openai')
+    assert.equal(provider.apiKey, '***', 'apiKey must be redacted')
+    assert.ok(
+      !JSON.stringify(provider).includes('sk-real-key'),
+      'raw key must never appear in output'
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('provider set-default - moves provider to first position', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-provider-'))
+  const settingsPath = join(root, 'config.toml')
+
+  try {
+    const storage = createInMemoryYachiyoStorage()
+
+    const setupServer = new YachiyoServer({
+      storage,
+      settingsPath,
+      ensureThreadWorkspace: async (threadId) => {
+        const p = join(root, '.yachiyo', 'temp-workspace', threadId)
+        await mkdir(p, { recursive: true })
+        return p
+      }
+    })
+    await setupServer.upsertProvider({
+      id: 'prov-a',
+      name: 'provider-a',
+      type: 'anthropic',
+      apiKey: 'key-a',
+      baseUrl: '',
+      modelList: { enabled: ['model-a'], disabled: [] }
+    })
+    await setupServer.upsertProvider({
+      id: 'prov-b',
+      name: 'provider-b',
+      type: 'openai',
+      apiKey: 'key-b',
+      baseUrl: '',
+      modelList: { enabled: ['model-b'], disabled: [] }
+    })
+    await setupServer.close()
+
+    let stdout = ''
+    await runYachiyoCli(['provider', 'set-default', 'provider-b', '--settings', settingsPath], {
+      stdout: {
+        write(chunk) {
+          stdout += String(chunk)
+          return true
+        }
+      }
+    })
+
+    const result = JSON.parse(stdout) as {
+      defaultProvider: { name: string }
+      providers: Array<{ name: string }>
+    }
+    assert.equal(result.defaultProvider.name, 'provider-b', 'provider-b should be new default')
+    assert.equal(result.providers[0]?.name, 'provider-b', 'provider-b should be first in list')
+    assert.equal(result.providers[1]?.name, 'provider-a')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('provider set-default - unknown provider throws', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-provider-'))
+  const settingsPath = join(root, 'config.toml')
+
+  try {
+    await assert.rejects(
+      () =>
+        runYachiyoCli(['provider', 'set-default', 'nonexistent', '--settings', settingsPath], {
+          stdout: {
+            write() {
+              return true
+            }
+          }
+        }),
+      /Unknown provider/
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('provider update - patches provider fields', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-provider-'))
+  const settingsPath = join(root, 'config.toml')
+
+  try {
+    const storage = createInMemoryYachiyoStorage()
+
+    const setupServer = new YachiyoServer({
+      storage,
+      settingsPath,
+      ensureThreadWorkspace: async (threadId) => {
+        const p = join(root, '.yachiyo', 'temp-workspace', threadId)
+        await mkdir(p, { recursive: true })
+        return p
+      }
+    })
+    await setupServer.upsertProvider({
+      id: 'prov-1',
+      name: 'my-prov',
+      type: 'anthropic',
+      apiKey: 'old-key',
+      baseUrl: '',
+      modelList: { enabled: ['model-1'], disabled: [] }
+    })
+    await setupServer.close()
+
+    let stdout = ''
+    await runYachiyoCli(
+      [
+        'provider',
+        'update',
+        'my-prov',
+        '--settings',
+        settingsPath,
+        '--payload',
+        JSON.stringify({ baseUrl: 'https://custom.api.example.com' })
+      ],
+      {
+        stdout: {
+          write(chunk) {
+            stdout += String(chunk)
+            return true
+          }
+        }
+      }
+    )
+
+    const result = JSON.parse(stdout) as { name: string; baseUrl: string; apiKey: string }
+    assert.equal(result.name, 'my-prov')
+    assert.equal(result.baseUrl, 'https://custom.api.example.com')
+    assert.equal(result.apiKey, '***', 'apiKey must be redacted in update output')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Config tests
+// ---------------------------------------------------------------------------
+
+test('config get - full config (no path)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-config-'))
+  const settingsPath = join(root, 'config.toml')
+
+  try {
+    let stdout = ''
+    await runYachiyoCli(['config', 'get', '--settings', settingsPath], {
+      stdout: {
+        write(chunk) {
+          stdout += String(chunk)
+          return true
+        }
+      }
+    })
+
+    const config = JSON.parse(stdout) as { providers: unknown[]; memory: { enabled: boolean } }
+    assert.ok(Array.isArray(config.providers))
+    assert.equal(typeof config.memory.enabled, 'boolean')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('config get - by dot path', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-config-'))
+  const settingsPath = join(root, 'config.toml')
+
+  try {
+    let stdout = ''
+    await runYachiyoCli(['config', 'get', 'memory.enabled', '--settings', settingsPath], {
+      stdout: {
+        write(chunk) {
+          stdout += String(chunk)
+          return true
+        }
+      }
+    })
+
+    const value = JSON.parse(stdout)
+    assert.equal(value, false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('config set - boolean value persists', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-config-'))
+  const settingsPath = join(root, 'config.toml')
+
+  try {
+    const runCmd = async (args: string[]): Promise<unknown> => {
+      let stdout = ''
+      await runYachiyoCli(args, {
+        stdout: {
+          write(chunk) {
+            stdout += String(chunk)
+            return true
+          }
+        }
+      })
+      return JSON.parse(stdout)
+    }
+
+    const setResult = (await runCmd([
+      'config',
+      'set',
+      'memory.enabled',
+      'true',
+      '--settings',
+      settingsPath
+    ])) as {
+      path: string
+      value: boolean
+      ok: boolean
+    }
+    assert.equal(setResult.ok, true)
+    assert.equal(setResult.path, 'memory.enabled')
+    assert.equal(setResult.value, true)
+
+    // Verify it persisted
+    const getResult = await runCmd(['config', 'get', 'memory.enabled', '--settings', settingsPath])
+    assert.equal(getResult, true)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('config set - string value persists', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-config-'))
+  const settingsPath = join(root, 'config.toml')
+
+  try {
+    const runCmd = async (args: string[]): Promise<unknown> => {
+      let stdout = ''
+      await runYachiyoCli(args, {
+        stdout: {
+          write(chunk) {
+            stdout += String(chunk)
+            return true
+          }
+        }
+      })
+      return JSON.parse(stdout)
+    }
+
+    await runCmd([
+      'config',
+      'set',
+      'memory.baseUrl',
+      '"http://localhost:14242"',
+      '--settings',
+      settingsPath
+    ])
+
+    const value = await runCmd(['config', 'get', 'memory.baseUrl', '--settings', settingsPath])
+    assert.equal(value, 'http://localhost:14242')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('config get - redacts provider apiKey in nested path', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-config-'))
+  const settingsPath = join(root, 'config.toml')
+
+  try {
+    const storage = createInMemoryYachiyoStorage()
+
+    const setupServer = new YachiyoServer({
+      storage,
+      settingsPath,
+      ensureThreadWorkspace: async (threadId) => {
+        const p = join(root, '.yachiyo', 'temp-workspace', threadId)
+        await mkdir(p, { recursive: true })
+        return p
+      }
+    })
+    await setupServer.upsertProvider({
+      id: 'p-1',
+      name: 'safe-test',
+      type: 'anthropic',
+      apiKey: 'sk-super-secret',
+      baseUrl: '',
+      modelList: { enabled: ['model-1'], disabled: [] }
+    })
+    await setupServer.close()
+
+    let stdout = ''
+    await runYachiyoCli(['config', 'get', 'providers', '--settings', settingsPath], {
+      stdout: {
+        write(chunk) {
+          stdout += String(chunk)
+          return true
+        }
+      }
+    })
+
+    const providers = JSON.parse(stdout) as Array<{ apiKey: string }>
+    assert.equal(providers[0]?.apiKey, '***')
+    assert.ok(
+      !JSON.stringify(providers).includes('sk-super-secret'),
+      'raw apiKey must never appear in config get output'
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Error handling tests
+// ---------------------------------------------------------------------------
+
+test('unknown namespace throws with helpful message', async () => {
+  await assert.rejects(
+    () =>
+      runYachiyoCli(['bogus', 'command'], {
+        stdout: {
+          write() {
+            return true
+          }
+        },
+        createConfigService: () => {
+          throw new Error('should not create config service')
+        }
+      }),
+    /Unknown namespace.*bogus/
+  )
+})
+
+test('missing namespace throws usage message', async () => {
+  await assert.rejects(
+    () =>
+      runYachiyoCli([], {
+        stdout: {
+          write() {
+            return true
+          }
+        }
+      }),
+    /Usage/
+  )
+})
+
+test('soul traits remove - unknown text throws', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-soul-err-'))
+  const soulPath = join(root, 'SOUL.md')
+
+  try {
+    const run = makeRunSoulCommand()
+    await run(['soul', 'traits', 'add', 'existing trait', '--soul', soulPath])
+
+    await assert.rejects(
+      () => run(['soul', 'traits', 'remove', 'nonexistent trait', '--soul', soulPath]),
+      /Trait not found/
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('provider show - unknown provider throws', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-provider-err-'))
+  const settingsPath = join(root, 'config.toml')
+
+  try {
+    await assert.rejects(
+      () =>
+        runYachiyoCli(['provider', 'show', 'does-not-exist', '--settings', settingsPath], {
+          stdout: {
+            write() {
+              return true
+            }
+          }
+        }),
+      /Unknown provider/
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

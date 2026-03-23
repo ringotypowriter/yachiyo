@@ -1,0 +1,391 @@
+import { pathToFileURL } from 'node:url'
+
+import type { ProviderConfig, SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
+import { providerMatchesReference } from '../../../shared/yachiyo/providerConfig.ts'
+import { resolveYachiyoSettingsPath, resolveYachiyoSoulPath } from '../config/paths.ts'
+import {
+  readSoulDocument as defaultReadSoulDocument,
+  upsertDailySoulTrait as defaultUpsertDailySoulTrait,
+  removeSoulTrait as defaultRemoveSoulTrait,
+  type SoulDocument,
+  type RemoveSoulTraitInput,
+  type UpsertDailySoulTraitInput
+} from '../runtime/soul.ts'
+import { createSettingsStore } from '../settings/settingsStore.ts'
+import { YachiyoServerConfigDomain } from './domain/configDomain.ts'
+
+const USAGE = `Usage: yachiyo <namespace> <subcommand> [args...] [flags...]
+
+Namespaces:
+  soul traits list
+  soul traits add <trait>
+  soul traits remove <index-or-text>
+
+  provider list
+  provider show <id-or-name>
+  provider update <id-or-name> [--payload <json>]
+  provider set-default <id-or-name>
+  provider models <id-or-name>
+
+  config get [path]
+  config set <path> <value>
+
+Flags:
+  --settings <path> Settings file path (default: ~/.yachiyo/config.toml)
+  --soul <path>     Soul file path (default: ~/.yachiyo/SOUL.md)
+  --payload <json>  JSON payload for mutation commands`
+
+export interface CliConfigService {
+  getConfig(): SettingsConfig | Promise<SettingsConfig>
+  saveConfig(input: SettingsConfig): SettingsConfig | Promise<SettingsConfig>
+  upsertProvider(input: ProviderConfig): ProviderConfig | Promise<ProviderConfig>
+  setDefaultProvider(input: {
+    id?: string
+    name?: string
+  }): SettingsConfig | Promise<SettingsConfig>
+  fetchProviderModels(input: ProviderConfig): Promise<string[]>
+}
+
+export interface RunYachiyoCliOptions {
+  createConfigService?: (settingsPath: string) => CliConfigService
+  readSoulDocument?: (input: { filePath: string }) => Promise<SoulDocument | null>
+  upsertDailySoulTrait?: (input: UpsertDailySoulTraitInput) => Promise<SoulDocument | null>
+  removeSoulTrait?: (input: RemoveSoulTraitInput) => Promise<SoulDocument | null>
+  stdout?: Pick<typeof process.stdout, 'write'>
+  stderr?: Pick<typeof process.stderr, 'write'>
+}
+
+function createDefaultConfigService(settingsPath: string): CliConfigService {
+  const settingsStore = createSettingsStore(settingsPath)
+  return new YachiyoServerConfigDomain({ settingsStore, emit: () => {} })
+}
+
+const VALUE_FLAGS = new Set(['--settings', '--soul', '--payload'])
+
+function parseArgs(rawArgs: string[]): { positionals: string[]; flags: Map<string, string> } {
+  const positionals: string[] = []
+  const flags = new Map<string, string>()
+
+  for (let i = 0; i < rawArgs.length; i++) {
+    const arg = rawArgs[i]
+    if (arg.startsWith('--')) {
+      if (VALUE_FLAGS.has(arg)) {
+        const value = rawArgs[i + 1]
+        if (value !== undefined && !value.startsWith('--')) {
+          flags.set(arg, value)
+          i++
+        }
+      } else {
+        flags.set(arg, 'true')
+      }
+    } else {
+      positionals.push(arg)
+    }
+  }
+
+  return { positionals, flags }
+}
+
+function outputJson(stdout: Pick<typeof process.stdout, 'write'>, value: unknown): void {
+  stdout.write(`${JSON.stringify(value, null, 2)}\n`)
+}
+
+function sanitizeForOutput(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeForOutput)
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        k,
+        k === 'apiKey' && typeof v === 'string' ? (v ? '***' : '') : sanitizeForOutput(v)
+      ])
+    )
+  }
+  return value
+}
+
+function findProviderByRef(providers: ProviderConfig[], ref: string): ProviderConfig | undefined {
+  return (
+    providers.find((p) => providerMatchesReference(p, { id: ref })) ??
+    providers.find((p) => providerMatchesReference(p, { name: ref }))
+  )
+}
+
+function getByPath(obj: unknown, segments: string[]): unknown {
+  if (segments.length === 0) return obj
+  if (obj === null || obj === undefined) return undefined
+
+  const [head, ...rest] = segments
+  const numericHead = /^\d+$/u.test(head) ? parseInt(head, 10) : NaN
+
+  if (Array.isArray(obj) && !isNaN(numericHead)) {
+    return getByPath(obj[numericHead], rest)
+  }
+
+  if (typeof obj === 'object' && !Array.isArray(obj)) {
+    return getByPath((obj as Record<string, unknown>)[head], rest)
+  }
+
+  return undefined
+}
+
+function setByPath(obj: unknown, segments: string[], value: unknown): unknown {
+  if (segments.length === 0) return value
+
+  const [head, ...rest] = segments
+  const numericHead = /^\d+$/u.test(head) ? parseInt(head, 10) : NaN
+
+  if (Array.isArray(obj) && !isNaN(numericHead)) {
+    const arr = [...obj]
+    arr[numericHead] = setByPath(arr[numericHead], rest, value)
+    return arr
+  }
+
+  if (obj !== null && typeof obj === 'object' && !Array.isArray(obj)) {
+    const record = obj as Record<string, unknown>
+    return { ...record, [head]: setByPath(record[head], rest, value) }
+  }
+
+  if (!isNaN(numericHead)) {
+    const arr: unknown[] = []
+    arr[numericHead] = setByPath(undefined, rest, value)
+    return arr
+  }
+
+  return { [head]: setByPath(undefined, rest, value) }
+}
+
+function parseConfigValue(raw: string): unknown {
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return raw
+  }
+}
+
+function formatTraitList(traits: string[]): Array<{ index: number; trait: string }> {
+  return traits.map((trait, index) => ({ index, trait }))
+}
+
+async function handleSoulCommand(
+  positionals: string[],
+  soulPath: string,
+  stdout: Pick<typeof process.stdout, 'write'>,
+  options: RunYachiyoCliOptions
+): Promise<void> {
+  const subcommand = positionals[0]
+
+  if (subcommand !== 'traits') {
+    throw new Error(`Unknown soul subcommand: ${subcommand ?? '(none)'}. Expected: traits`)
+  }
+
+  const action = positionals[1]
+  const readDoc = options.readSoulDocument ?? defaultReadSoulDocument
+  const upsertTrait = options.upsertDailySoulTrait ?? defaultUpsertDailySoulTrait
+  const removeTrait = options.removeSoulTrait ?? defaultRemoveSoulTrait
+
+  if (action === 'list') {
+    const doc = await readDoc({ filePath: soulPath })
+    outputJson(stdout, formatTraitList(doc?.evolvedTraits ?? []))
+    return
+  }
+
+  if (action === 'add') {
+    const traitText = positionals[2]
+    if (!traitText?.trim()) {
+      throw new Error('Trait text is required: soul traits add "<text>"')
+    }
+    const doc = await upsertTrait({ filePath: soulPath, trait: traitText })
+    outputJson(stdout, {
+      added: traitText.trim(),
+      traits: formatTraitList(doc?.evolvedTraits ?? [])
+    })
+    return
+  }
+
+  if (action === 'remove') {
+    const ref = positionals[2]
+    if (ref === undefined) {
+      throw new Error('Index or trait text is required: soul traits remove <index-or-text>')
+    }
+    const numericIndex = /^\d+$/u.test(ref) ? parseInt(ref, 10) : NaN
+    const input: RemoveSoulTraitInput = { filePath: soulPath }
+    if (!isNaN(numericIndex)) {
+      input.index = numericIndex
+    } else {
+      input.trait = ref
+    }
+    const doc = await removeTrait(input)
+    outputJson(stdout, {
+      removed: ref,
+      traits: formatTraitList(doc?.evolvedTraits ?? [])
+    })
+    return
+  }
+
+  throw new Error(`Unknown soul traits action: ${action ?? '(none)'}. Expected: list, add, remove`)
+}
+
+async function handleProviderCommand(
+  positionals: string[],
+  flags: Map<string, string>,
+  configService: CliConfigService,
+  stdout: Pick<typeof process.stdout, 'write'>
+): Promise<void> {
+  const action = positionals[0]
+
+  if (action === 'list') {
+    const config = await configService.getConfig()
+    outputJson(
+      stdout,
+      config.providers.map((p) => sanitizeForOutput(p))
+    )
+    return
+  }
+
+  if (action === 'show') {
+    const ref = positionals[1]
+    if (!ref) throw new Error('Provider id or name is required: provider show <id-or-name>')
+    const config = await configService.getConfig()
+    const provider = findProviderByRef(config.providers, ref)
+    if (!provider) throw new Error(`Unknown provider: ${ref}`)
+    outputJson(stdout, sanitizeForOutput(provider))
+    return
+  }
+
+  if (action === 'update') {
+    const ref = positionals[1]
+    if (!ref) throw new Error('Provider id or name is required: provider update <id-or-name>')
+    const payloadRaw = flags.get('--payload')
+    const patch = payloadRaw ? (JSON.parse(payloadRaw) as Partial<ProviderConfig>) : {}
+    const config = await configService.getConfig()
+    const existing = findProviderByRef(config.providers, ref)
+    if (!existing) throw new Error(`Unknown provider: ${ref}`)
+    const updated: ProviderConfig = {
+      ...existing,
+      ...patch,
+      id: existing.id,
+      name: patch.name ?? existing.name,
+      modelList: patch.modelList
+        ? {
+            enabled: patch.modelList.enabled ?? existing.modelList.enabled,
+            disabled: patch.modelList.disabled ?? existing.modelList.disabled
+          }
+        : existing.modelList
+    }
+    const provider = await configService.upsertProvider(updated)
+    outputJson(stdout, sanitizeForOutput(provider))
+    return
+  }
+
+  if (action === 'set-default') {
+    const ref = positionals[1]
+    if (!ref) throw new Error('Provider id or name is required: provider set-default <id-or-name>')
+    const config = await configService.setDefaultProvider({ id: ref, name: ref })
+    outputJson(stdout, {
+      defaultProvider: config.providers[0] ? sanitizeForOutput(config.providers[0]) : null,
+      providers: config.providers.map((p) => sanitizeForOutput(p))
+    })
+    return
+  }
+
+  if (action === 'models') {
+    const ref = positionals[1]
+    if (!ref) throw new Error('Provider id or name is required: provider models <id-or-name>')
+    const config = await configService.getConfig()
+    const provider = findProviderByRef(config.providers, ref)
+    if (!provider) throw new Error(`Unknown provider: ${ref}`)
+    const models = await configService.fetchProviderModels(provider)
+    outputJson(stdout, { provider: provider.name, models })
+    return
+  }
+
+  throw new Error(
+    `Unknown provider action: ${action ?? '(none)'}. Expected: list, show, update, set-default, models`
+  )
+}
+
+async function handleConfigCommand(
+  positionals: string[],
+  configService: CliConfigService,
+  stdout: Pick<typeof process.stdout, 'write'>
+): Promise<void> {
+  const action = positionals[0]
+
+  if (action === 'get') {
+    const path = positionals[1]
+    const config = await configService.getConfig()
+    const value = path ? getByPath(config, path.split('.')) : config
+    outputJson(stdout, sanitizeForOutput(value))
+    return
+  }
+
+  if (action === 'set') {
+    const path = positionals[1]
+    const rawValue = positionals[2]
+    if (!path) throw new Error('Path is required: config set <path> <value>')
+    if (rawValue === undefined) throw new Error('Value is required: config set <path> <value>')
+    const value = parseConfigValue(rawValue)
+    const config = await configService.getConfig()
+    const updated = setByPath(
+      config as unknown as Record<string, unknown>,
+      path.split('.'),
+      value
+    ) as unknown as SettingsConfig
+    const saved = await configService.saveConfig(updated)
+    outputJson(stdout, {
+      path,
+      value: sanitizeForOutput(getByPath(saved, path.split('.'))),
+      ok: true
+    })
+    return
+  }
+
+  throw new Error(`Unknown config action: ${action ?? '(none)'}. Expected: get, set`)
+}
+
+export async function runYachiyoCli(
+  args = process.argv.slice(2),
+  options: RunYachiyoCliOptions = {}
+): Promise<void> {
+  const stdout = options.stdout ?? process.stdout
+  const { positionals, flags } = parseArgs(args)
+  const namespace = positionals[0]
+
+  if (!namespace) {
+    throw new Error(USAGE)
+  }
+
+  const settingsPath = flags.get('--settings') ?? resolveYachiyoSettingsPath()
+  const soulPath = flags.get('--soul') ?? resolveYachiyoSoulPath()
+
+  if (namespace === 'soul') {
+    await handleSoulCommand(positionals.slice(1), soulPath, stdout, options)
+    return
+  }
+
+  if (namespace !== 'provider' && namespace !== 'config') {
+    throw new Error(`Unknown namespace: ${namespace}. Expected: soul, provider, config`)
+  }
+
+  const createConfigService = options.createConfigService ?? createDefaultConfigService
+  const configService = createConfigService(settingsPath)
+
+  if (namespace === 'provider') {
+    await handleProviderCommand(positionals.slice(1), flags, configService, stdout)
+    return
+  }
+
+  await handleConfigCommand(positionals.slice(1), configService, stdout)
+}
+
+async function main(): Promise<void> {
+  await runYachiyoCli()
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error)
+    process.stderr.write(`Error: ${message}\n`)
+    process.exitCode = 1
+  })
+}

@@ -26,6 +26,10 @@ export default defineConfig({
     build: {
       externalizeDeps: false,
       rollupOptions: {
+        input: {
+          index: resolve('src/main/index.ts'),
+          'yachiyo-cli': resolve('src/main/yachiyo-server/app/yachiyo-cli.ts')
+        },
         external: ['better-sqlite3']
       }
     },

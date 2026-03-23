@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Yachiyo CLI - first-class control surface for the Yachiyo app.
+# Run `pnpm link` (or `npm link`) from the repo root to put `yachiyo` on PATH.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec node --experimental-strip-types "$ROOT/src/main/yachiyo-server/app/yachiyo-cli.ts" "$@"

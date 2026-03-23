@@ -284,6 +284,22 @@ export class YachiyoServerConfigDomain {
     )
   }
 
+  setDefaultProvider(input: { id?: string; name?: string }): SettingsConfig {
+    const current = this.readConfig()
+    let index = input.id
+      ? current.providers.findIndex((p) => providerMatchesReference(p, { id: input.id }))
+      : -1
+    if (index < 0 && input.name) {
+      index = current.providers.findIndex((p) => providerMatchesReference(p, { name: input.name }))
+    }
+    if (index < 0) {
+      throw new Error(`Unknown provider: ${input.id ?? input.name}`)
+    }
+    const provider = current.providers[index]
+    const providers = [provider, ...current.providers.filter((_, i) => i !== index)]
+    return this.persistConfig({ ...current, providers })
+  }
+
   async fetchProviderModels(input: ProviderConfig): Promise<string[]> {
     console.log('[fetchProviderModels] called with:', {
       name: input.name,

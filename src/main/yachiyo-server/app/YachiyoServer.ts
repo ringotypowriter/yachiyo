@@ -305,6 +305,10 @@ export class YachiyoServer {
     return this.configDomain.disableProviderModel(input)
   }
 
+  async setDefaultProvider(input: { id?: string; name?: string }): Promise<SettingsConfig> {
+    return this.configDomain.setDefaultProvider(input)
+  }
+
   async fetchProviderModels(input: ProviderConfig): Promise<string[]> {
     return this.configDomain.fetchProviderModels(input)
   }

@@ -38,6 +38,12 @@ export interface UpsertDailySoulTraitInput {
   trait: string
 }
 
+export interface RemoveSoulTraitInput {
+  filePath?: string
+  index?: number
+  trait?: string
+}
+
 function resolveSoulPath(filePath?: string): string {
   return filePath ?? resolveYachiyoSoulPath()
 }
@@ -277,6 +283,57 @@ export async function readSoulDocument(
     evolvedTraits: flattenTraits(parsedBody.entries),
     lastUpdated: frontmatter.values.get('last_updated') ?? ''
   }
+}
+
+export async function removeSoulTrait(input: RemoveSoulTraitInput): Promise<SoulDocument | null> {
+  const filePath = resolveSoulPath(input.filePath)
+
+  let content: string
+  try {
+    content = await readFile(filePath, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null
+    }
+    throw error
+  }
+
+  const { frontmatter, body } = parseFrontmatter(content)
+  const parsedBody = parseSoulBody(body)
+  const flattened = flattenTraits(parsedBody.entries)
+
+  let traitText: string
+  if (input.index !== undefined) {
+    const found = flattened[input.index]
+    if (found === undefined) {
+      throw new Error(`Trait index ${input.index} is out of range (${flattened.length} traits).`)
+    }
+    traitText = found
+  } else if (input.trait !== undefined) {
+    const normalized = input.trait.trim()
+    if (!flattened.includes(normalized)) {
+      throw new Error(`Trait not found: "${normalized}"`)
+    }
+    traitText = normalized
+  } else {
+    throw new Error('Either index or trait must be provided to removeSoulTrait.')
+  }
+
+  const updatedEntries = parsedBody.entries
+    .map((entry) => ({ ...entry, traits: entry.traits.filter((t) => t !== traitText) }))
+    .filter((entry) => entry.traits.length > 0)
+
+  const timestamp = new Date().toISOString()
+  if (!frontmatter.values.has('last_updated')) {
+    frontmatter.keys.push('last_updated')
+  }
+  frontmatter.values.set('last_updated', timestamp)
+
+  const updatedBody: ParsedSoulBody = { ...parsedBody, entries: updatedEntries }
+  await mkdir(dirname(filePath), { recursive: true })
+  await writeFile(filePath, `${serializeFrontmatter(frontmatter)}${serializeSoulBody(updatedBody)}`)
+
+  return readSoulDocument({ filePath })
 }
 
 export async function upsertDailySoulTrait(

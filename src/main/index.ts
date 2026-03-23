@@ -6,6 +6,7 @@ import { installEditableContextMenu } from './editableContextMenu'
 import { hydrateProcessEnvFromLoginShell } from './userShellEnv'
 import { resolveYachiyoDataDir } from './yachiyo-server/config/paths'
 import { registerYachiyoGateway } from './yachiyoGateway'
+import { setupCLI } from './cliSetup'
 
 const APP_NAME = 'Yachiyo'
 
@@ -57,6 +58,7 @@ function createWindow(): void {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   hydrateProcessEnvFromLoginShell()
+  setupCLI()
 
   // Set app user model id for windows
   electronApp.setAppUserModelId('sh.ringo.yachiyo')
