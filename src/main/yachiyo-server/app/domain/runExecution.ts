@@ -81,6 +81,7 @@ export interface RunExecutionDeps {
     thread: ThreadRecord
     userQuery: string
   }) => Promise<string[]>
+  fetchImpl?: typeof globalThis.fetch
   memoryService: MemoryService
   searchService?: SearchService
   webSearchService?: WebSearchService
@@ -464,6 +465,7 @@ export async function executeServerRun(
         workspacePath
       },
       {
+        fetchImpl: deps.fetchImpl,
         searchService: deps.searchService,
         memoryService: deps.memoryService,
         webSearchService: deps.webSearchService

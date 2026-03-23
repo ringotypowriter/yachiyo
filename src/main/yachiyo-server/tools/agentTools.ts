@@ -64,6 +64,7 @@ export { createTool as createWebSearchTool, runWebSearchTool } from './agentTool
 export { createTool as createWriteTool, runWriteTool } from './agentTools/writeTool.ts'
 
 export interface AgentToolDependencies {
+  fetchImpl?: typeof globalThis.fetch
   memoryService?: MemoryService
   searchService?: SearchService
   webSearchService?: WebSearchService
@@ -239,7 +240,9 @@ export function createAgentToolSet(
   }
 
   if (enabledTools.has('webRead')) {
-    tools.webRead = createWebReadTool(context)
+    tools.webRead = createWebReadTool(context, {
+      ...(dependencies.fetchImpl ? { fetchImpl: dependencies.fetchImpl } : {})
+    })
   }
 
   if (enabledTools.has('webSearch') && dependencies.webSearchService) {

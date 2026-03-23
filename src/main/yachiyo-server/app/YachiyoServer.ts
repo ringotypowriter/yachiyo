@@ -62,6 +62,7 @@ import { YachiyoServerThreadDomain } from './domain/threadDomain.ts'
 export interface YachiyoServerOptions {
   storage: YachiyoStorage
   settingsPath?: string
+  fetchImpl?: typeof globalThis.fetch
   now?: () => Date
   createId?: () => string
   createModelRuntime?: () => ModelRuntime
@@ -182,6 +183,7 @@ export class YachiyoServer {
       auxiliaryGeneration,
       createModelRuntime,
       ensureThreadWorkspace,
+      fetchImpl: options.fetchImpl,
       searchService,
       webSearchService,
       memoryService,

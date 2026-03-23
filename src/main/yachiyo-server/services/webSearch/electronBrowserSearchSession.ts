@@ -70,12 +70,38 @@ class ElectronBrowserSearchPage implements BrowserSearchPage {
   }
 }
 
+function resolveProxyConfig(): Parameters<typeof session.defaultSession.setProxy>[0] {
+  const proxyUrl = (
+    process.env.HTTPS_PROXY ??
+    process.env.https_proxy ??
+    process.env.HTTP_PROXY ??
+    process.env.http_proxy ??
+    process.env.ALL_PROXY ??
+    process.env.all_proxy
+  )?.trim()
+
+  return proxyUrl ? { mode: 'fixed_servers', proxyRules: proxyUrl } : { mode: 'system' }
+}
+
 export function createElectronBrowserSearchPageFactory(
   input: ElectronBrowserSearchPageFactoryOptions = {}
 ): BrowserSearchPageFactory {
+  const proxyReadyByPath = new Map<string, Promise<void>>()
+
   return {
     async createPage(profilePath) {
       const browserSession = session.fromPath(profilePath, { cache: true })
+
+      if (!proxyReadyByPath.has(profilePath)) {
+        proxyReadyByPath.set(
+          profilePath,
+          browserSession.setProxy(resolveProxyConfig()).then(() => {
+            browserSession.setCertificateVerifyProc((_request, callback) => callback(0))
+          })
+        )
+      }
+      await proxyReadyByPath.get(profilePath)
+
       const window = new BrowserWindow({
         show: false,
         width: 1280,

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, net, session } from 'electron'
 
 import type {
   CompactThreadInput,
@@ -107,9 +107,16 @@ export function registerYachiyoGateway(): YachiyoServer {
     return server
   }
 
+  // net.fetch (used by webRead) runs through the default session. When an
+  // SSL-intercepting proxy is in use, disable strict certificate verification
+  // so the proxy's re-signed certificates are accepted.
+  session.defaultSession.setCertificateVerifyProc((_request, callback) => callback(0))
+
   server = createSqliteYachiyoServer({
     dbPath: resolveYachiyoDbPath(),
-    settingsPath: resolveYachiyoSettingsPath()
+    settingsPath: resolveYachiyoSettingsPath(),
+    fetchImpl: (input, init) =>
+      net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init)
   })
   registerFatalRunRecovery()
   server.subscribe(broadcast)
