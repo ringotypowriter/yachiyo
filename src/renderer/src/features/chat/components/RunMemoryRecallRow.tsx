@@ -9,6 +9,31 @@ interface RunMemoryRecallRowProps {
   recallDecision?: RecallDecisionSnapshot
 }
 
+function compactNovelTerms(terms: string[] | undefined): string[] {
+  if (!terms || terms.length === 0) {
+    return []
+  }
+
+  const seen = new Set<string>()
+  const compacted: string[] = []
+
+  for (const term of terms) {
+    const normalized = term.trim()
+    if (!normalized || seen.has(normalized)) {
+      continue
+    }
+
+    seen.add(normalized)
+    compacted.push(normalized.length > 24 ? `${normalized.slice(0, 24).trimEnd()}...` : normalized)
+
+    if (compacted.length >= 3) {
+      break
+    }
+  }
+
+  return compacted
+}
+
 function formatReason(reason: string): string {
   switch (reason) {
     case 'thread-cold-start':
@@ -36,6 +61,8 @@ export function RunMemoryRecallRow({
   const detailsId = useId()
   const reasons = recallDecision?.reasons?.map(formatReason) ?? []
   const debugLabel = reasons.length > 0 ? reasons.join(', ') : 'manual/unknown'
+  const shouldShowNovelTerms = recallDecision?.reasons?.includes('topic-novelty') ?? false
+  const novelTerms = shouldShowNovelTerms ? compactNovelTerms(recallDecision?.novelTerms) : []
 
   return (
     <div className="px-6 pb-1">
@@ -120,12 +147,12 @@ export function RunMemoryRecallRow({
               </div>
             ))}
           </div>
-          {recallDecision?.novelTerms && recallDecision.novelTerms.length > 0 ? (
+          {novelTerms.length > 0 ? (
             <div
               className="mt-3 text-[11px]"
               style={{ color: theme.text.placeholder, lineHeight: 1.5 }}
             >
-              Novel terms: {recallDecision.novelTerms.join(', ')}
+              Novel terms: {novelTerms.join(' · ')}
             </div>
           ) : null}
         </div>
