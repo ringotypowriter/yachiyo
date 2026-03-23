@@ -764,10 +764,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .orderBy(desc(threadsTable.updatedAt), asc(messagesTable.createdAt))
         .all()
 
-      const messageMatchesByThread = new Map<
-        string,
-        { messageId: string; content: string }[]
-      >()
+      const messageMatchesByThread = new Map<string, { messageId: string; content: string }[]>()
       for (const match of allMessageMatches) {
         const existing = messageMatchesByThread.get(match.threadId) ?? []
         existing.push({ messageId: match.messageId, content: match.content })

@@ -75,7 +75,11 @@ interface SidebarSearchProps {
   onSelectMessage: (threadId: string, messageId: string) => void
 }
 
-export function SidebarSearch({ onClose, onSelectThread, onSelectMessage }: SidebarSearchProps): React.JSX.Element {
+export function SidebarSearch({
+  onClose,
+  onSelectThread,
+  onSelectMessage
+}: SidebarSearchProps): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ThreadSearchResult[]>([])
   const [loading, setLoading] = useState(false)
@@ -118,12 +122,10 @@ export function SidebarSearch({ onClose, onSelectThread, onSelectMessage }: Side
 
   const handleSelect = (threadId: string): void => {
     onSelectThread(threadId)
-    onClose()
   }
 
   const handleSelectMessage = (threadId: string, messageId: string): void => {
     onSelectMessage(threadId, messageId)
-    onClose()
   }
 
   return (
@@ -216,10 +218,7 @@ export function SidebarSearch({ onClose, onSelectThread, onSelectMessage }: Side
                     ;(e.currentTarget as HTMLElement).style.background = 'transparent'
                   }}
                 >
-                  <span
-                    className="block text-xs truncate"
-                    style={{ color: theme.text.secondary }}
-                  >
+                  <span className="block text-xs truncate" style={{ color: theme.text.secondary }}>
                     <HighlightedText text={stripMarkdown(m.snippet)} query={query.trim()} />
                   </span>
                 </button>

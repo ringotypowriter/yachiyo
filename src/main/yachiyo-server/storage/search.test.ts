@@ -139,9 +139,24 @@ test('returns multiple message matches per thread', () => {
     thread: makeThread({ id: 'thread-multi', title: 'Multi match', updatedAt: NOW }),
     createdAt: NOW,
     messages: [
-      makeMessage({ id: 'mm-1', threadId: 'thread-multi', content: 'hello world first', createdAt: '2024-01-01T00:00:01.000Z' }),
-      makeMessage({ id: 'mm-2', threadId: 'thread-multi', content: 'hello world second', createdAt: '2024-01-01T00:00:02.000Z' }),
-      makeMessage({ id: 'mm-3', threadId: 'thread-multi', content: 'hello world third', createdAt: '2024-01-01T00:00:03.000Z' })
+      makeMessage({
+        id: 'mm-1',
+        threadId: 'thread-multi',
+        content: 'hello world first',
+        createdAt: '2024-01-01T00:00:01.000Z'
+      }),
+      makeMessage({
+        id: 'mm-2',
+        threadId: 'thread-multi',
+        content: 'hello world second',
+        createdAt: '2024-01-01T00:00:02.000Z'
+      }),
+      makeMessage({
+        id: 'mm-3',
+        threadId: 'thread-multi',
+        content: 'hello world third',
+        createdAt: '2024-01-01T00:00:03.000Z'
+      })
     ]
   })
   const results = storage.searchThreadsAndMessages({ query: 'hello' })

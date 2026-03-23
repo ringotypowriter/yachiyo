@@ -246,7 +246,11 @@ export function ThreadConversationGroup({
               : null
           const compactBottomSpacing = nextToolCall?.status === 'running'
           return (
-            <div key={item.key} className="message-response-cluster" data-message-id={activeBranch.message.id}>
+            <div
+              key={item.key}
+              className="message-response-cluster"
+              data-message-id={activeBranch.message.id}
+            >
               <AssistantMessageBubble
                 message={activeBranch.message}
                 contentOverride={textBlock.content}

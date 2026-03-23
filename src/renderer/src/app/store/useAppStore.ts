@@ -267,9 +267,7 @@ function getComposerDraft(
 
 function isComposerDraftEmpty(draft: ComposerDraft): boolean {
   return (
-    draft.text.trim().length === 0 &&
-    draft.images.length === 0 &&
-    draft.enabledSkillNames === null
+    draft.text.trim().length === 0 && draft.images.length === 0 && draft.enabledSkillNames === null
   )
 }
 
@@ -435,7 +433,9 @@ async function refreshAvailableSkills(
   const requestId = ++availableSkillsRequestId
   const state = get()
   const activeThread = state.threads.find((thread) => thread.id === state.activeThreadId) ?? null
-  const workspacePath = normalizeWorkspacePath(activeThread?.workspacePath ?? state.pendingWorkspacePath)
+  const workspacePath = normalizeWorkspacePath(
+    activeThread?.workspacePath ?? state.pendingWorkspacePath
+  )
 
   try {
     const availableSkills = await window.api.yachiyo.listSkills(
@@ -1477,7 +1477,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setActiveThread: (id, scrollToMessageId) => {
-    set({ activeThreadId: id, threadListMode: 'active', scrollToMessageId: scrollToMessageId ?? null })
+    set({
+      activeThreadId: id,
+      threadListMode: 'active',
+      scrollToMessageId: scrollToMessageId ?? null
+    })
     void refreshAvailableSkills(set, get)
   },
   clearScrollToMessageId: () => set({ scrollToMessageId: null }),
