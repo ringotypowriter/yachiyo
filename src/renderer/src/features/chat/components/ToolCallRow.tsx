@@ -4,6 +4,7 @@ import { ChevronRight } from 'lucide-react'
 import type { ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { buildToolCallDetailsPresentation } from '../lib/toolCallPresentation.ts'
+import { DiffBlock } from './DiffBlock.tsx'
 
 interface ToolCallRowProps {
   toolCall: ToolCall
@@ -142,28 +143,33 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
               >
                 {block.label}
               </div>
-              <pre
-                className="message-selectable overflow-auto rounded-md px-3 py-2"
-                style={{
-                  background:
-                    block.tone === 'danger'
-                      ? theme.background.dangerSoft
-                      : theme.background.codeBlock,
-                  border: `1px solid ${
-                    block.tone === 'danger' ? theme.border.danger : theme.border.default
-                  }`,
-                  color: block.tone === 'danger' ? theme.text.dangerStrong : theme.text.secondary,
-                  fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
-                  fontSize: '10.5px',
-                  lineHeight: 1.5,
-                  margin: 0,
-                  maxHeight: '160px',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word'
-                }}
-              >
-                {block.value}
-              </pre>
+              {block.label === 'diff' ? (
+                <DiffBlock value={block.value} />
+              ) : (
+                <pre
+                  className="message-selectable overflow-auto rounded-md px-3 py-2"
+                  style={{
+                    background:
+                      block.tone === 'danger'
+                        ? theme.background.dangerSoft
+                        : theme.background.codeBlock,
+                    border: `1px solid ${
+                      block.tone === 'danger' ? theme.border.danger : theme.border.default
+                    }`,
+                    color:
+                      block.tone === 'danger' ? theme.text.dangerStrong : theme.text.secondary,
+                    fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
+                    fontSize: '10.5px',
+                    lineHeight: 1.5,
+                    margin: 0,
+                    maxHeight: '160px',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word'
+                  }}
+                >
+                  {block.value}
+                </pre>
+              )}
             </div>
           ))}
         </div>
