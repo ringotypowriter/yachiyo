@@ -44,7 +44,6 @@ test('buildConversationGroupTimelineItems keeps replies before memory recall and
   })
 
   assert.deepEqual(items, [
-    { kind: 'reply-nav', key: 'reply-nav' },
     { kind: 'memory-recall', key: 'memory-recall' },
     { kind: 'assistant-text-block', key: 'text-0', textBlockId: 'text-0' },
     { kind: 'tool-call', key: 'tool-1', toolCallId: 'tool-1' },
@@ -63,10 +62,7 @@ test('buildConversationGroupTimelineItems keeps preparing at the end while a his
     visibleToolCalls: []
   })
 
-  assert.deepEqual(items, [
-    { kind: 'reply-nav', key: 'reply-nav' },
-    { kind: 'preparing', key: 'preparing' }
-  ])
+  assert.deepEqual(items, [{ kind: 'preparing', key: 'preparing' }])
 })
 
 test('buildConversationGroupTimelineItems keeps the assistant ahead of tools when timestamps tie', () => {

@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { canRetryAssistantMessage, canRetryUserMessage } from './messageActionState.ts'
+import {
+  canRetryAssistantMessage,
+  canRetryUserMessage,
+  resolveRetryTargetMessageId
+} from './messageActionState.ts'
 
 test('canRetryAssistantMessage disables retry while the thread already has an active run', () => {
   assert.equal(
@@ -44,5 +48,29 @@ test('canRetryUserMessage only depends on whether the thread is already running'
       threadHasActiveRun: false
     }),
     true
+  )
+})
+
+test('resolveRetryTargetMessageId falls back to the user anchor for stopped replies', () => {
+  assert.equal(
+    resolveRetryTargetMessageId({
+      userMessageId: 'user-1',
+      activeAssistantMessage: {
+        id: 'assistant-stopped',
+        status: 'stopped'
+      }
+    }),
+    'user-1'
+  )
+
+  assert.equal(
+    resolveRetryTargetMessageId({
+      userMessageId: 'user-1',
+      activeAssistantMessage: {
+        id: 'assistant-1',
+        status: 'completed'
+      }
+    }),
+    'assistant-1'
   )
 })

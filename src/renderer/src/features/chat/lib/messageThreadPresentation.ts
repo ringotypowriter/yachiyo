@@ -28,6 +28,7 @@ export function getRootAssistantMessages(messages: Message[]): Message[] {
 export function getVisibleToolCallsForGroup(input: {
   group: MessageGroup
   toolCalls: ToolCall[]
+  activeRunId?: string | null
 }): ToolCall[] {
   const requestMessageId = input.group.userMessage.id
   const hiddenActiveAssistantId =
@@ -53,19 +54,27 @@ export function getVisibleToolCallsForGroup(input: {
         return false
       }
 
+      if (input.group.showPreparing && input.activeRunId && toolCall.runId !== input.activeRunId) {
+        return false
+      }
+
+      if (!toolCall.assistantMessageId || !knownAssistantIds.has(toolCall.assistantMessageId)) {
+        return true
+      }
+
       if (
         hiddenActiveAssistantId &&
         toolCall.assistantMessageId === hiddenActiveAssistantId &&
-        toolCall.status !== 'completed'
+        toolCall.status === 'running'
       ) {
         return true
       }
 
-      return (
-        !toolCall.assistantMessageId ||
-        !knownAssistantIds.has(toolCall.assistantMessageId) ||
-        visibleAssistantIds.has(toolCall.assistantMessageId)
-      )
+      if (hiddenActiveAssistantId) {
+        return false
+      }
+
+      return visibleAssistantIds.has(toolCall.assistantMessageId)
     })
     .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
 }

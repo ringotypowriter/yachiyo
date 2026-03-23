@@ -19,6 +19,7 @@ import { RunEventRow } from './RunEventRow'
 import { RunMemoryRecallRow } from './RunMemoryRecallRow'
 import { ReplyBranchNavigation } from './ReplyBranchNavigation'
 import { ToolCallRow } from './ToolCallRow'
+import { resolveRetryTargetMessageId } from '../lib/messageActionState'
 
 interface MessageTimelineProps {
   threadId: string | null
@@ -121,6 +122,7 @@ export function ThreadConversationGroup({
   threadId,
   group,
   toolCalls,
+  activeRunId,
   threadHasActiveRun,
   runs,
   onCreateBranch,
@@ -131,6 +133,7 @@ export function ThreadConversationGroup({
   threadId: string
   group: ReturnType<typeof buildMessageGroups>[number]
   toolCalls: ToolCall[]
+  activeRunId: string | null
   threadHasActiveRun: boolean
   runs: RunRecord[]
   onCreateBranch: (messageId: string) => Promise<void>
@@ -147,8 +150,11 @@ export function ThreadConversationGroup({
     group.activeBranchIndex >= 0 && group.activeBranchIndex < responseCount - 1
       ? group.assistantBranches[group.activeBranchIndex + 1]
       : null
-  const retryTargetMessageId = activeBranch?.message.id ?? group.userMessage.id
-  const visibleToolCalls = getVisibleToolCallsForGroup({ group, toolCalls })
+  const retryTargetMessageId = resolveRetryTargetMessageId({
+    userMessageId: group.userMessage.id,
+    ...(activeBranch ? { activeAssistantMessage: activeBranch.message } : {})
+  })
+  const visibleToolCalls = getVisibleToolCallsForGroup({ group, toolCalls, activeRunId })
   const memorySummary = findRunMemorySummary(runs, group.userMessage.id)
   const activeAssistantTextBlocks =
     activeBranch && !group.hideActiveBranchWhilePreparing
@@ -193,29 +199,27 @@ export function ThreadConversationGroup({
         onDelete={() => onDelete(group.userMessage.id)}
       />
 
+      {responseCount > 1 ? (
+        <div className="px-6 py-0.5">
+          <ReplyBranchNavigation
+            replyCount={responseCount}
+            canSelectPreviousReply={canSelectPreviousReply}
+            canSelectNextReply={canSelectNextReply}
+            onSelectPreviousReply={
+              previousBranch ? () => onSelectReplyBranch(previousBranch.message.id) : undefined
+            }
+            onSelectNextReply={
+              nextBranch ? () => onSelectReplyBranch(nextBranch.message.id) : undefined
+            }
+          />
+        </div>
+      ) : null}
+
       {timelineItems.map((item, index) => {
         const nextItem = timelineItems[index + 1]
 
         if (item.kind === 'memory-recall' && memorySummary) {
           return <RunMemoryRecallRow key={item.key} entries={memorySummary.entries} />
-        }
-
-        if (item.kind === 'reply-nav') {
-          return (
-            <div key="reply-nav" className="px-6 py-0.5">
-              <ReplyBranchNavigation
-                replyCount={responseCount}
-                canSelectPreviousReply={canSelectPreviousReply}
-                canSelectNextReply={canSelectNextReply}
-                onSelectPreviousReply={
-                  previousBranch ? () => onSelectReplyBranch(previousBranch.message.id) : undefined
-                }
-                onSelectNextReply={
-                  nextBranch ? () => onSelectReplyBranch(nextBranch.message.id) : undefined
-                }
-              />
-            </div>
-          )
         }
 
         if (item.kind === 'tool-call') {
@@ -294,6 +298,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   const runs = useAppStore((state) =>
     threadId ? (state.runsByThread[threadId] ?? EMPTY_RUNS) : EMPTY_RUNS
   )
+  const activeRunId = useAppStore((state) => state.activeRunId)
   const activeRunThreadId = useAppStore((state) => state.activeRunThreadId)
   const activeRequestMessageId = useAppStore((state) => state.activeRequestMessageId)
   const createBranch = useAppStore((state) => state.createBranch)
@@ -473,6 +478,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
             threadId={threadId}
             group={item.data}
             toolCalls={inlineToolCalls}
+            activeRunId={activeRunThreadId === threadId ? activeRunId : null}
             threadHasActiveRun={activeRunThreadId === threadId}
             runs={runs}
             onCreateBranch={handleCreateBranch}

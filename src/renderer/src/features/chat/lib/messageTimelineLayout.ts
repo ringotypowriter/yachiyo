@@ -2,7 +2,6 @@ import type { MessageTextBlockRecord, ToolCall } from '@renderer/app/types'
 
 export type ConversationGroupTimelineItem =
   | { kind: 'memory-recall'; key: 'memory-recall' }
-  | { kind: 'reply-nav'; key: 'reply-nav' }
   | { kind: 'assistant-text-block'; key: string; textBlockId: string }
   | { kind: 'tool-call'; key: string; toolCallId: string }
   | { kind: 'generating'; key: 'generating' }
@@ -35,10 +34,6 @@ export function buildConversationGroupTimelineItems(input: {
   visibleToolCalls: ToolCall[]
 }): ConversationGroupTimelineItem[] {
   const items: ConversationGroupTimelineItem[] = []
-
-  if (input.replyCount > 1) {
-    items.push({ kind: 'reply-nav', key: 'reply-nav' })
-  }
 
   if (input.hasMemoryRecall) {
     items.push({ kind: 'memory-recall', key: 'memory-recall' })

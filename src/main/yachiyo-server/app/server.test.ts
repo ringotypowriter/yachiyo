@@ -3837,6 +3837,44 @@ test('YachiyoServer can retry directly from a user request that has no assistant
   )
 })
 
+test('YachiyoServer points the thread head at the retried request immediately', async () => {
+  await withServer(async ({ server, completeRun }) => {
+    await server.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    })
+
+    const thread = await server.createThread()
+    const accepted = await server.sendChat({
+      threadId: thread.id,
+      content: 'First question'
+    })
+    await completeRun(accepted.runId)
+
+    let bootstrap = await server.bootstrap()
+    const [userMessage, assistantMessage] = bootstrap.messagesByThread[thread.id] ?? []
+
+    assert.equal(bootstrap.threads[0]?.headMessageId, assistantMessage?.id)
+
+    const retried = await server.retryMessage({
+      threadId: thread.id,
+      messageId: assistantMessage!.id
+    })
+
+    bootstrap = await server.bootstrap()
+    assert.equal(retried.requestMessageId, userMessage?.id)
+    assert.equal(bootstrap.threads[0]?.headMessageId, userMessage?.id)
+
+    await completeRun(retried.runId)
+  })
+})
+
 test('YachiyoServer compacts a thread into a new assistant-first thread and allows normal continuation', async () => {
   const requests: ModelStreamRequest[] = []
 

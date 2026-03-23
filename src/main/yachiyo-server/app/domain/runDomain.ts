@@ -82,6 +82,7 @@ interface RunDomainDeps {
   auxiliaryGeneration: AuxiliaryGenerationService
   createModelRuntime: () => ModelRuntime
   ensureThreadWorkspace: (threadId: string) => Promise<string>
+  fetchImpl?: typeof globalThis.fetch
   memoryService: MemoryService
   searchService?: SearchService
   webSearchService?: WebSearchService
@@ -288,6 +289,7 @@ export class YachiyoServerRunDomain {
     const timestamp = this.deps.timestamp()
     const updatedThread: ThreadRecord = {
       ...thread,
+      headMessageId: requestMessage.id,
       updatedAt: timestamp
     }
     const accepted: RetryAccepted = {
@@ -683,6 +685,7 @@ export class YachiyoServerRunDomain {
                 thread: context.thread,
                 userQuery: context.userQuery
               }),
+            fetchImpl: this.deps.fetchImpl,
             memoryService: this.deps.memoryService,
             searchService: this.deps.searchService,
             webSearchService: this.deps.webSearchService,

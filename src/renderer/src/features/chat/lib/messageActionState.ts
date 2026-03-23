@@ -10,3 +10,14 @@ export function canRetryAssistantMessage(input: {
 export function canRetryUserMessage(input: { threadHasActiveRun: boolean }): boolean {
   return !input.threadHasActiveRun
 }
+
+export function resolveRetryTargetMessageId(input: {
+  userMessageId: string
+  activeAssistantMessage?: Pick<Message, 'id' | 'status'>
+}): string {
+  if (!input.activeAssistantMessage || input.activeAssistantMessage.status === 'stopped') {
+    return input.userMessageId
+  }
+
+  return input.activeAssistantMessage.id
+}

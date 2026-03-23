@@ -274,6 +274,7 @@ test('getVisibleToolCallsForGroup hides completed tool calls from the replaced b
 
   const toolCalls = getVisibleToolCallsForGroup({
     group: group!,
+    activeRunId: 'run-retry',
     toolCalls: [
       {
         id: 'tool-old-branch',
@@ -305,7 +306,7 @@ test('getVisibleToolCallsForGroup hides completed tool calls from the replaced b
   )
 })
 
-test('getVisibleToolCallsForGroup keeps failed tool calls from the replaced branch visible while a retry is preparing', () => {
+test('getVisibleToolCallsForGroup hides failed tool calls from the replaced branch while a retry is preparing', () => {
   const [group] = buildMessageGroups({
     thread: {
       id: 'thread-1',
@@ -356,6 +357,7 @@ test('getVisibleToolCallsForGroup keeps failed tool calls from the replaced bran
 
   const toolCalls = getVisibleToolCallsForGroup({
     group: group!,
+    activeRunId: 'run-retry',
     toolCalls: [
       {
         id: 'tool-old-failed',
@@ -375,7 +377,90 @@ test('getVisibleToolCallsForGroup keeps failed tool calls from the replaced bran
 
   assert.deepEqual(
     toolCalls.map((toolCall) => toolCall.id),
-    ['tool-old-failed']
+    []
+  )
+})
+
+test('getVisibleToolCallsForGroup hides branchless tool calls from older runs while a retry is preparing', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-2'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'First question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-1',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'First answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'user-2',
+        threadId: 'thread-1',
+        role: 'user',
+        parentMessageId: 'assistant-1',
+        content: 'Second question',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:02.000Z'
+      },
+      {
+        id: 'assistant-2',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-2',
+        content: 'Second answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:03.000Z'
+      }
+    ],
+    runPhase: 'preparing',
+    activeRequestMessageId: 'user-1'
+  })
+
+  const toolCalls = getVisibleToolCallsForGroup({
+    group: group!,
+    activeRunId: 'run-retry',
+    toolCalls: [
+      {
+        id: 'tool-old-request-only',
+        runId: 'run-old',
+        threadId: 'thread-1',
+        toolName: 'webRead',
+        status: 'failed',
+        inputSummary: 'old tool',
+        requestMessageId: 'user-1',
+        startedAt: '2026-03-15T00:00:01.100Z',
+        finishedAt: '2026-03-15T00:00:01.900Z'
+      },
+      {
+        id: 'tool-retry-request-only',
+        runId: 'run-retry',
+        threadId: 'thread-1',
+        toolName: 'webSearch',
+        status: 'running',
+        inputSummary: 'new tool',
+        requestMessageId: 'user-1',
+        startedAt: '2026-03-15T00:00:04.100Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    toolCalls.map((toolCall) => toolCall.id),
+    ['tool-retry-request-only']
   )
 })
 
