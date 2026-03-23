@@ -149,6 +149,58 @@ test('readWebPage maps network failures into structured errors', async () => {
   assert.equal(result.extractor, 'none')
 })
 
+test('readWebPage falls back to a browser snapshot for X URLs when the static fetch fails', async () => {
+  let browserSnapshotCalls = 0
+
+  const result = await readWebPage(
+    {
+      url: 'https://x.com/HiTw93/article/2034627967926825175'
+    },
+    {
+      fetchImpl: async () => {
+        throw new Error('blocked by upstream')
+      },
+      loadBrowserSnapshot: async ({ url }) => {
+        browserSnapshotCalls += 1
+        assert.equal(url, 'https://x.com/HiTw93/article/2034627967926825175')
+
+        return {
+          finalUrl: url,
+          contentType: 'text/html; charset=utf-8',
+          html: `<!doctype html>
+            <html>
+              <head>
+                <title>X article</title>
+              </head>
+              <body>
+                <article>
+                  <h1>X article</h1>
+                  <p>Loaded from the live browser DOM.</p>
+                </article>
+              </body>
+            </html>`
+        }
+      },
+      extractReadableContent: async (document) => {
+        const htmlDocument = document as Document
+
+        return {
+          extractor: 'defuddle',
+          title: htmlDocument.querySelector('h1')?.textContent?.trim() ?? 'Untitled',
+          content: htmlDocument.querySelector('article')?.textContent?.trim() ?? ''
+        }
+      }
+    }
+  )
+
+  assert.equal(browserSnapshotCalls, 1)
+  assert.equal(result.error, undefined)
+  assert.equal(result.failureCode, undefined)
+  assert.equal(result.extractor, 'defuddle')
+  assert.equal(result.title, 'X article')
+  assert.match(result.content, /Loaded from the live browser DOM\./)
+})
+
 test('readWebPage rejects unsupported non-HTML content', async () => {
   const result = await readWebPage(
     {
@@ -204,6 +256,62 @@ test('readWebPage falls back to bounded linkedom extraction when the primary ext
   assert.equal(result.title, 'Fallback article')
   assert.match(result.content, /Useful fallback text\./)
   assert.doesNotMatch(result.content, /Ignore me/)
+})
+
+test('readWebPage retries X shell pages through the browser when static extraction is empty', async () => {
+  let browserSnapshotCalls = 0
+
+  const result = await readWebPage(
+    {
+      url: 'https://x.com/HiTw93/article/2034627967926825175'
+    },
+    {
+      fetchImpl: async () =>
+        createHtmlResponse(
+          '<!doctype html><html><head><title>X</title></head><body><div id="react-root"></div></body></html>',
+          {
+            contentType: 'text/html; charset=utf-8',
+            url: 'https://x.com/HiTw93/article/2034627967926825175'
+          }
+        ),
+      loadBrowserSnapshot: async ({ url }) => {
+        browserSnapshotCalls += 1
+
+        return {
+          finalUrl: url,
+          contentType: 'text/html; charset=utf-8',
+          html: `<!doctype html>
+            <html>
+              <head>
+                <title>X article</title>
+              </head>
+              <body>
+                <article>
+                  <h1>X article</h1>
+                  <p>Recovered after loading the live page.</p>
+                </article>
+              </body>
+            </html>`
+        }
+      },
+      extractReadableContent: async (document) => {
+        const htmlDocument = document as Document
+
+        return {
+          extractor: 'defuddle',
+          title: htmlDocument.querySelector('h1')?.textContent?.trim() ?? 'X',
+          content: htmlDocument.querySelector('article')?.textContent?.trim() ?? ''
+        }
+      }
+    }
+  )
+
+  assert.equal(browserSnapshotCalls, 1)
+  assert.equal(result.error, undefined)
+  assert.equal(result.failureCode, undefined)
+  assert.equal(result.extractor, 'defuddle')
+  assert.equal(result.title, 'X article')
+  assert.match(result.content, /Recovered after loading the live page\./)
 })
 
 test('readWebPage truncates oversized extracted content and reports the original size', async () => {

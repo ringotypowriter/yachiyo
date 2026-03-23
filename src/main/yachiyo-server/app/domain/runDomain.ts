@@ -31,6 +31,7 @@ import type { UserDocument } from '../../runtime/user.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
 import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
+import type { BrowserWebPageSnapshotLoader } from '../../services/webRead/browserWebPageSnapshot.ts'
 import type { ModelRuntime } from '../../runtime/types.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import { assertSupportedImages, resolveEnabledTools } from './configDomain.ts'
@@ -83,6 +84,7 @@ interface RunDomainDeps {
   createModelRuntime: () => ModelRuntime
   ensureThreadWorkspace: (threadId: string) => Promise<string>
   fetchImpl?: typeof globalThis.fetch
+  loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
   memoryService: MemoryService
   searchService?: SearchService
   webSearchService?: WebSearchService
@@ -686,6 +688,7 @@ export class YachiyoServerRunDomain {
                 userQuery: context.userQuery
               }),
             fetchImpl: this.deps.fetchImpl,
+            loadBrowserSnapshot: this.deps.loadBrowserSnapshot,
             memoryService: this.deps.memoryService,
             searchService: this.deps.searchService,
             webSearchService: this.deps.webSearchService,

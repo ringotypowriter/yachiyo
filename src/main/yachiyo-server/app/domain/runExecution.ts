@@ -27,6 +27,7 @@ import { prepareModelMessages } from '../../runtime/messagePrepare.ts'
 import { SYSTEM_PROMPT } from '../../runtime/prompt.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
+import type { BrowserWebPageSnapshotLoader } from '../../services/webRead/browserWebPageSnapshot.ts'
 import {
   buildToolAvailabilityReminderSection,
   formatQueryReminder
@@ -82,6 +83,7 @@ export interface RunExecutionDeps {
     userQuery: string
   }) => Promise<string[]>
   fetchImpl?: typeof globalThis.fetch
+  loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
   memoryService: MemoryService
   searchService?: SearchService
   webSearchService?: WebSearchService
@@ -466,6 +468,7 @@ export async function executeServerRun(
       },
       {
         fetchImpl: deps.fetchImpl,
+        loadBrowserSnapshot: deps.loadBrowserSnapshot,
         searchService: deps.searchService,
         memoryService: deps.memoryService,
         webSearchService: deps.webSearchService

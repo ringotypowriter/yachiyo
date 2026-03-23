@@ -10,6 +10,7 @@ import {
 import type { SearchService } from '../services/search/searchService.ts'
 import type { WebSearchService } from '../services/webSearch/webSearchService.ts'
 import type { MemoryService } from '../services/memory/memoryService.ts'
+import type { BrowserWebPageSnapshotLoader } from '../services/webRead/browserWebPageSnapshot.ts'
 
 import { createTool as createBashTool } from './agentTools/bashTool.ts'
 import { createTool as createEditTool } from './agentTools/editTool.ts'
@@ -65,6 +66,7 @@ export { createTool as createWriteTool, runWriteTool } from './agentTools/writeT
 
 export interface AgentToolDependencies {
   fetchImpl?: typeof globalThis.fetch
+  loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
   memoryService?: MemoryService
   searchService?: SearchService
   webSearchService?: WebSearchService
@@ -241,7 +243,10 @@ export function createAgentToolSet(
 
   if (enabledTools.has('webRead')) {
     tools.webRead = createWebReadTool(context, {
-      ...(dependencies.fetchImpl ? { fetchImpl: dependencies.fetchImpl } : {})
+      ...(dependencies.fetchImpl ? { fetchImpl: dependencies.fetchImpl } : {}),
+      ...(dependencies.loadBrowserSnapshot
+        ? { loadBrowserSnapshot: dependencies.loadBrowserSnapshot }
+        : {})
     })
   }
 

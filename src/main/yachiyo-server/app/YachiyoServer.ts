@@ -36,6 +36,7 @@ import type { ModelRuntime } from '../runtime/types.ts'
 import { createSearchService, type SearchService } from '../services/search/searchService.ts'
 import { createMemoryService, type MemoryService } from '../services/memory/memoryService.ts'
 import { createNowledgeMemProvider } from '../services/memory/nowledgeMemProvider.ts'
+import { createBrowserWebPageSnapshotLoader } from '../services/webRead/browserWebPageSnapshot.ts'
 import {
   BrowserSearchSession,
   createBrowserSearchSessionImportService,
@@ -137,6 +138,9 @@ export class YachiyoServer {
     const webSearchImportService = createBrowserSearchSessionImportService({
       chromeDataPath: resolveGoogleChromeDataPath()
     })
+    const browserWebPageSnapshotLoader = createBrowserWebPageSnapshotLoader({
+      browserSession: this.browserSearchSession
+    })
     const webSearchService = createWebSearchService({
       providers: [
         createGoogleBrowserWebSearchProvider({
@@ -184,6 +188,7 @@ export class YachiyoServer {
       createModelRuntime,
       ensureThreadWorkspace,
       fetchImpl: options.fetchImpl,
+      loadBrowserSnapshot: browserWebPageSnapshotLoader,
       searchService,
       webSearchService,
       memoryService,

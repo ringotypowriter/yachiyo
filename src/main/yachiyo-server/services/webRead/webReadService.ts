@@ -9,6 +9,7 @@ import {
   type WebReadableExtraction,
   type WebReadableExtractor
 } from './defuddleExtractor.ts'
+import type { BrowserWebPageSnapshotLoader } from './browserWebPageSnapshot.ts'
 
 const DEFAULT_WEB_READ_TIMEOUT_MS = 12_000
 const MAX_WEB_READ_RESPONSE_BYTES = 10_000_000
@@ -21,6 +22,7 @@ const WEB_READ_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
 const FALLBACK_STRIP_SELECTORS =
   'script, style, noscript, template, nav, footer, header, aside, form, button'
+const BROWSER_FALLBACK_HOSTS = ['x.com', 'twitter.com'] as const
 
 type LinkedomDocument = Document & {
   URL?: string
@@ -67,6 +69,7 @@ export interface WebReadServiceResult {
 export interface WebReadServiceDependencies {
   extractReadableContent?: WebReadableExtractor
   fetchImpl?: FetchImplementation
+  loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
 }
 
 function normalizeOptionalText(value: string | null | undefined): string | undefined {
@@ -272,6 +275,19 @@ function readMetaContent(document: LinkedomDocument, selector: string): string |
   return normalizeOptionalText(value)
 }
 
+function matchesBrowserFallbackHost(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase()
+    return BROWSER_FALLBACK_HOSTS.some((host) => hostname === host || hostname.endsWith(`.${host}`))
+  } catch {
+    return false
+  }
+}
+
+function shouldTryBrowserFallback(urls: Array<string | undefined>): boolean {
+  return urls.some((url) => (url ? matchesBrowserFallbackHost(url) : false))
+}
+
 function readDocumentMetadata(
   document: LinkedomDocument,
   pageUrl: string
@@ -409,7 +425,7 @@ function truncateContent(
 function mapResult(input: {
   requestedUrl: string
   finalUrl: string
-  httpStatus: number
+  httpStatus?: number
   contentType?: string
   format: WebReadContentFormat
   extracted: WebReadableExtraction
@@ -461,6 +477,129 @@ function mapResult(input: {
   }
 }
 
+async function extractReadableResult(input: {
+  requestedUrl: string
+  finalUrl: string
+  httpStatus?: number
+  contentType?: string
+  format: WebReadContentFormat
+  html: string
+  maxContentChars?: number | null
+  extractReadableContent: WebReadableExtractor
+}): Promise<WebReadServiceResult> {
+  if (!input.html.trim()) {
+    return createFailureResult({
+      requestedUrl: input.requestedUrl,
+      format: input.format,
+      finalUrl: input.finalUrl,
+      ...(input.httpStatus === undefined ? {} : { httpStatus: input.httpStatus }),
+      ...(input.contentType ? { contentType: input.contentType } : {}),
+      error: `Fetched ${input.finalUrl} but the response body was empty.`,
+      failureCode: 'empty-body'
+    })
+  }
+
+  if (!looksLikeHtml(input.html)) {
+    return createFailureResult({
+      requestedUrl: input.requestedUrl,
+      format: input.format,
+      finalUrl: input.finalUrl,
+      ...(input.httpStatus === undefined ? {} : { httpStatus: input.httpStatus }),
+      ...(input.contentType ? { contentType: input.contentType } : {}),
+      error: `Fetched ${input.finalUrl} but the response did not look like HTML.`,
+      failureCode: 'unsupported-content-type'
+    })
+  }
+
+  const document = await createParsedDocument(input.html)
+  const fallbackMetadata = readDocumentMetadata(document, input.finalUrl)
+  let extractorFailed = false
+
+  try {
+    const extracted = await input.extractReadableContent(document, input.finalUrl, input.format)
+    if (normalizeOptionalText(extracted.content)) {
+      return mapResult({
+        requestedUrl: input.requestedUrl,
+        finalUrl: input.finalUrl,
+        ...(input.httpStatus === undefined ? {} : { httpStatus: input.httpStatus }),
+        ...(input.contentType ? { contentType: input.contentType } : {}),
+        format: input.format,
+        extracted: {
+          ...extracted,
+          content: normalizeOptionalText(extracted.content) ?? ''
+        },
+        fallbackMetadata,
+        ...(input.maxContentChars === undefined ? {} : { maxContentChars: input.maxContentChars })
+      })
+    }
+  } catch {
+    extractorFailed = true
+  }
+
+  const fallback = extractFallbackContent(document, input.format)
+  if (fallback) {
+    return mapResult({
+      requestedUrl: input.requestedUrl,
+      finalUrl: input.finalUrl,
+      ...(input.httpStatus === undefined ? {} : { httpStatus: input.httpStatus }),
+      ...(input.contentType ? { contentType: input.contentType } : {}),
+      format: input.format,
+      extracted: fallback,
+      fallbackMetadata,
+      ...(input.maxContentChars === undefined ? {} : { maxContentChars: input.maxContentChars })
+    })
+  }
+
+  return createFailureResult({
+    requestedUrl: input.requestedUrl,
+    format: input.format,
+    finalUrl: input.finalUrl,
+    ...(input.httpStatus === undefined ? {} : { httpStatus: input.httpStatus }),
+    ...(input.contentType ? { contentType: input.contentType } : {}),
+    error: `Unable to extract readable content from ${input.finalUrl}.`,
+    failureCode: extractorFailed ? 'extraction-failed' : 'empty-content'
+  })
+}
+
+async function tryBrowserFallback(input: {
+  requestedUrl: string
+  candidateUrl?: string
+  format: WebReadContentFormat
+  maxContentChars?: number | null
+  signal?: AbortSignal
+  extractReadableContent: WebReadableExtractor
+  loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
+}): Promise<WebReadServiceResult | undefined> {
+  if (!input.loadBrowserSnapshot) {
+    return undefined
+  }
+
+  const targetUrl = normalizeOptionalText(input.candidateUrl) ?? input.requestedUrl
+  if (!shouldTryBrowserFallback([input.requestedUrl, targetUrl])) {
+    return undefined
+  }
+
+  try {
+    const snapshot = await input.loadBrowserSnapshot({
+      url: targetUrl,
+      signal: input.signal
+    })
+    const finalUrl = normalizeOptionalText(snapshot.finalUrl) ?? targetUrl
+
+    return extractReadableResult({
+      requestedUrl: input.requestedUrl,
+      finalUrl,
+      contentType: normalizeOptionalText(snapshot.contentType) ?? 'text/html; charset=utf-8',
+      format: input.format,
+      html: snapshot.html,
+      extractReadableContent: input.extractReadableContent,
+      ...(input.maxContentChars === undefined ? {} : { maxContentChars: input.maxContentChars })
+    })
+  } catch {
+    return undefined
+  }
+}
+
 export async function readWebPage(
   request: WebReadRequest,
   dependencies: WebReadServiceDependencies = {}
@@ -501,6 +640,18 @@ export async function readWebPage(
           ? `Failed to fetch ${requestedUrl}: ${error.message}`
           : `Failed to fetch ${requestedUrl}.`
 
+    const browserFallback = await tryBrowserFallback({
+      requestedUrl,
+      format,
+      signal: request.signal,
+      extractReadableContent,
+      loadBrowserSnapshot: dependencies.loadBrowserSnapshot,
+      ...(request.maxContentChars === undefined ? {} : { maxContentChars: request.maxContentChars })
+    })
+    if (browserFallback && !browserFallback.error) {
+      return browserFallback
+    }
+
     return createFailureResult({
       requestedUrl,
       format,
@@ -514,6 +665,19 @@ export async function readWebPage(
   const contentType = getContentTypeHeader(response.headers)
 
   if (!response.ok) {
+    const browserFallback = await tryBrowserFallback({
+      requestedUrl,
+      candidateUrl: finalUrl,
+      format,
+      signal: request.signal,
+      extractReadableContent,
+      loadBrowserSnapshot: dependencies.loadBrowserSnapshot,
+      ...(request.maxContentChars === undefined ? {} : { maxContentChars: request.maxContentChars })
+    })
+    if (browserFallback && !browserFallback.error) {
+      return browserFallback
+    }
+
     return createFailureResult({
       requestedUrl,
       format,
@@ -526,6 +690,19 @@ export async function readWebPage(
   }
 
   if (!isSupportedHtmlContentType(contentType)) {
+    const browserFallback = await tryBrowserFallback({
+      requestedUrl,
+      candidateUrl: finalUrl,
+      format,
+      signal: request.signal,
+      extractReadableContent,
+      loadBrowserSnapshot: dependencies.loadBrowserSnapshot,
+      ...(request.maxContentChars === undefined ? {} : { maxContentChars: request.maxContentChars })
+    })
+    if (browserFallback && !browserFallback.error) {
+      return browserFallback
+    }
+
     return createFailureResult({
       requestedUrl,
       format,
@@ -552,6 +729,19 @@ export async function readWebPage(
         ? `Timed out while reading response body from ${finalUrl}.`
         : message
 
+    const browserFallback = await tryBrowserFallback({
+      requestedUrl,
+      candidateUrl: finalUrl,
+      format,
+      signal: request.signal,
+      extractReadableContent,
+      loadBrowserSnapshot: dependencies.loadBrowserSnapshot,
+      ...(request.maxContentChars === undefined ? {} : { maxContentChars: request.maxContentChars })
+    })
+    if (browserFallback && !browserFallback.error) {
+      return browserFallback
+    }
+
     return createFailureResult({
       requestedUrl,
       format,
@@ -563,79 +753,33 @@ export async function readWebPage(
     })
   }
 
-  if (!html.trim()) {
-    return createFailureResult({
-      requestedUrl,
-      format,
-      finalUrl,
-      httpStatus,
-      contentType,
-      error: `Fetched ${finalUrl} but the response body was empty.`,
-      failureCode: 'empty-body'
-    })
-  }
-
-  if (!looksLikeHtml(html)) {
-    return createFailureResult({
-      requestedUrl,
-      format,
-      finalUrl,
-      httpStatus,
-      contentType,
-      error: `Fetched ${finalUrl} but the response did not look like HTML.`,
-      failureCode: 'unsupported-content-type'
-    })
-  }
-
-  const document = await createParsedDocument(html)
-  const fallbackMetadata = readDocumentMetadata(document, finalUrl)
-  let extractorFailed = false
-
-  try {
-    const extracted = await extractReadableContent(document, finalUrl, format)
-    if (normalizeOptionalText(extracted.content)) {
-      return mapResult({
-        requestedUrl,
-        finalUrl,
-        httpStatus,
-        contentType,
-        format,
-        extracted: {
-          ...extracted,
-          content: normalizeOptionalText(extracted.content) ?? ''
-        },
-        fallbackMetadata,
-        ...(request.maxContentChars === undefined
-          ? {}
-          : { maxContentChars: request.maxContentChars })
-      })
-    }
-  } catch {
-    extractorFailed = true
-    // Fall through to the bounded linkedom fallback below.
-  }
-
-  const fallback = extractFallbackContent(document, format)
-  if (fallback) {
-    return mapResult({
-      requestedUrl,
-      finalUrl,
-      httpStatus,
-      contentType,
-      format,
-      extracted: fallback,
-      fallbackMetadata,
-      ...(request.maxContentChars === undefined ? {} : { maxContentChars: request.maxContentChars })
-    })
-  }
-
-  return createFailureResult({
+  const extracted = await extractReadableResult({
     requestedUrl,
-    format,
     finalUrl,
     httpStatus,
     contentType,
-    error: `Unable to extract readable content from ${finalUrl}.`,
-    failureCode: extractorFailed ? 'extraction-failed' : 'empty-content'
+    format,
+    html,
+    extractReadableContent,
+    ...(request.maxContentChars === undefined ? {} : { maxContentChars: request.maxContentChars })
   })
+
+  if (!extracted.error) {
+    return extracted
+  }
+
+  const browserFallback = await tryBrowserFallback({
+    requestedUrl,
+    candidateUrl: finalUrl,
+    format,
+    signal: request.signal,
+    extractReadableContent,
+    loadBrowserSnapshot: dependencies.loadBrowserSnapshot,
+    ...(request.maxContentChars === undefined ? {} : { maxContentChars: request.maxContentChars })
+  })
+  if (browserFallback && !browserFallback.error) {
+    return browserFallback
+  }
+
+  return extracted
 }
