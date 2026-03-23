@@ -430,6 +430,7 @@ export type RunContextSourceKind =
   | 'user'
   | 'agent'
   | 'skills'
+  | 'fileMentions'
   | 'memory'
   | 'handoff'
   | 'hint'
@@ -469,6 +470,17 @@ export interface SkillSummary {
 export interface SkillCatalogEntry extends SkillSummary {
   directoryPath: string
   skillFilePath: string
+}
+
+export interface FileMentionCandidate {
+  path: string
+}
+
+export interface SearchWorkspaceFilesInput {
+  query: string
+  threadId?: string
+  workspacePath?: string | null
+  limit?: number
 }
 
 export interface UserPrompt {

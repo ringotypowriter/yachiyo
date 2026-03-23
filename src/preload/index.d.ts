@@ -4,6 +4,7 @@ import type {
   ChatAccepted,
   CompactThreadAccepted,
   CompactThreadInput,
+  FileMentionCandidate,
   ImportWebSearchBrowserSessionInput,
   ListSkillsInput,
   ProviderConfig,
@@ -12,6 +13,7 @@ import type {
   RetryAccepted,
   SaveThreadInput,
   SaveThreadResult,
+  SearchWorkspaceFilesInput,
   SettingsConfig,
   SendChatInput,
   TestMemoryConnectionInput,
@@ -33,6 +35,7 @@ declare global {
       openSettings: () => void
       yachiyo: {
         searchThreadsAndMessages: (input: { query: string }) => Promise<ThreadSearchResult[]>
+        searchWorkspaceFiles: (input: SearchWorkspaceFilesInput) => Promise<FileMentionCandidate[]>
         archiveThread: (input: { threadId: string }) => Promise<void>
         bootstrap: () => Promise<BootstrapPayload>
         createBranch: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>

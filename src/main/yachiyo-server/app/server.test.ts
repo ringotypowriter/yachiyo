@@ -1279,6 +1279,54 @@ test('YachiyoServer injects only active skill summaries into runtime context and
   })
 })
 
+test('YachiyoServer keeps @file mentions visible in chat while injecting hidden file context for the model', async () => {
+  await withServer(async ({ server, completeRun, modelRequests, workspacePathForThread }) => {
+    await server.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    })
+
+    const thread = await server.createThread()
+    const workspacePath = workspacePathForThread(thread.id)
+    await mkdir(join(workspacePath, 'src'), { recursive: true })
+    await writeFile(
+      join(workspacePath, 'src', 'tiny.ts'),
+      ['export const tiny = true', 'export const answer = 42'].join('\n'),
+      'utf8'
+    )
+
+    const accepted = await server.sendChat({
+      threadId: thread.id,
+      content: 'Check @src/tiny.ts before changing it.'
+    })
+    await completeRun(accepted.runId)
+
+    const bootstrap = await server.bootstrap()
+    assert.equal(
+      bootstrap.messagesByThread[thread.id]?.[0]?.content,
+      'Check @src/tiny.ts before changing it.'
+    )
+
+    const request = modelRequests.at(-1)
+    assert.ok(request)
+    assert.match(String(request.messages.at(-1)?.content ?? ''), /<file_mentions>/)
+    assert.match(
+      String(request.messages.at(-1)?.content ?? ''),
+      /<referenced_file path="src\/tiny\.ts">/
+    )
+    assert.match(
+      String(request.messages.at(-1)?.content ?? ''),
+      /Check @src\/tiny\.ts before changing it\.$/
+    )
+  })
+})
+
 test('YachiyoServer fails runs cleanly when thread workspace initialization fails', async () => {
   let workspaceInitializationAttempts = 0
 

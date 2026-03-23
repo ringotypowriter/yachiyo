@@ -74,6 +74,8 @@ function sourceKindLabel(kind: RunContextSourceSummary['kind']): string {
       return 'Agent'
     case 'skills':
       return 'Skills'
+    case 'fileMentions':
+      return 'Files'
     case 'memory':
       return 'Memory'
     case 'handoff':

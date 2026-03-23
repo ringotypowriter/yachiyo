@@ -1,24 +1,35 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
-import { Hash, Sparkles, Zap } from 'lucide-react'
+import { Folder, Hash, Sparkles, Zap } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 
 export interface SlashCommand {
   key: string
   label: string
   description: string
-  type: 'action' | 'prompt' | 'skill' | 'skill-prefix'
+  type: 'action' | 'prompt' | 'skill' | 'skill-prefix' | 'file'
 }
 
 const TYPE_ICONS = {
   action: Zap,
   prompt: Hash,
   skill: Sparkles,
-  'skill-prefix': Sparkles
+  'skill-prefix': Sparkles,
+  file: Folder
 } satisfies Record<
   SlashCommand['type'],
   React.ComponentType<{ size: number; strokeWidth: number; color: string }>
 >
+
+const FILE_LABEL_MAX_CHARS = 56
+
+function trimFileLabelFromStart(label: string): string {
+  if (label.length <= FILE_LABEL_MAX_CHARS) {
+    return label
+  }
+
+  return `...${label.slice(-(FILE_LABEL_MAX_CHARS - 3))}`
+}
 
 function CommandKey({ command }: { command: SlashCommand }): React.ReactNode {
   const muted = { fontFamily: 'monospace', fontSize: 12, color: theme.text.muted }
@@ -48,6 +59,25 @@ function CommandKey({ command }: { command: SlashCommand }): React.ReactNode {
     )
   }
 
+  if (command.type === 'file') {
+    return (
+      <span
+        style={{
+          ...accent,
+          display: '-webkit-box',
+          WebkitBoxOrient: 'vertical',
+          WebkitLineClamp: 2,
+          overflow: 'hidden',
+          lineHeight: 1.45,
+          wordBreak: 'break-all',
+          whiteSpace: 'normal'
+        }}
+      >
+        {trimFileLabelFromStart(command.label)}
+      </span>
+    )
+  }
+
   return (
     <>
       <span style={muted}>/</span>
@@ -60,12 +90,14 @@ export function SlashCommandPopup({
   commands,
   selectedIndex,
   onSelect,
-  onClose
+  onClose,
+  emptyState
 }: {
   commands: SlashCommand[]
   selectedIndex: number
   onSelect: (command: SlashCommand) => void
   onClose: () => void
+  emptyState?: string
 }): React.ReactNode {
   const [visible, setVisible] = useState(false)
 
@@ -107,6 +139,18 @@ export function SlashCommandPopup({
         transition: 'opacity 0.15s ease, transform 0.15s ease'
       }}
     >
+      {commands.length === 0 ? (
+        <div
+          style={{
+            padding: '11px 14px',
+            fontSize: 12,
+            lineHeight: 1.5,
+            color: theme.text.muted
+          }}
+        >
+          {emptyState ?? 'No results'}
+        </div>
+      ) : null}
       {commands.map((command, index) => {
         const isSelected = index === selectedIndex
         const Icon = TYPE_ICONS[command.type]
@@ -130,25 +174,45 @@ export function SlashCommandPopup({
               transition: 'background 0.1s ease'
             }}
           >
-            <Icon size={13} strokeWidth={1.7} color={theme.icon.muted} />
-            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
-                <CommandKey command={command} />
-              </div>
+            <div
+              style={{
+                width: 16,
+                minWidth: 16,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}
+            >
+              <Icon size={13} strokeWidth={1.7} color={theme.icon.muted} />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
               <div
                 style={{
-                  marginTop: 1,
-                  fontSize: 11,
-                  color: theme.text.muted,
-                  lineHeight: 1.4,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  maxWidth: '100%'
+                  display: 'flex',
+                  alignItems: command.type === 'file' ? 'flex-start' : 'baseline',
+                  gap: 1,
+                  minWidth: 0
                 }}
               >
-                {command.description}
+                <CommandKey command={command} />
               </div>
+              {command.type === 'file' ? null : (
+                <div
+                  style={{
+                    marginTop: 1,
+                    fontSize: 11,
+                    color: theme.text.muted,
+                    lineHeight: 1.4,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    maxWidth: '100%'
+                  }}
+                >
+                  {command.description}
+                </div>
+              )}
             </div>
           </button>
         )

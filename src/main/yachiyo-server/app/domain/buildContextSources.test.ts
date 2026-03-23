@@ -9,6 +9,8 @@ const BASE_INPUT = {
   hasUserContent: false,
   enabledTools: [] as ToolCallName[],
   activeSkills: [],
+  fileMentionCount: 0,
+  inlinedFileCount: 0,
   workspacePath: '/workspace',
   hasToolReminder: false,
   memoryEntries: [] as string[],
@@ -79,6 +81,20 @@ test('buildContextSources skills reflect only active skills', () => {
   assert.equal(skills.summary, '1 skill active')
 
   assert.equal(withoutSkills.find((s) => s.kind === 'skills')?.present, false)
+})
+
+test('buildContextSources file mentions reflect referenced and inlined files', () => {
+  const sources = buildContextSources({
+    ...BASE_INPUT,
+    fileMentionCount: 2,
+    inlinedFileCount: 1
+  })
+
+  const fileMentions = sources.find((s) => s.kind === 'fileMentions')
+  assert.ok(fileMentions)
+  assert.equal(fileMentions.present, true)
+  assert.equal(fileMentions.count, 2)
+  assert.equal(fileMentions.summary, '2 file references · 1 inlined')
 })
 
 test('buildContextSources agent summary includes workspace when workspacePath is non-empty', () => {
@@ -189,12 +205,13 @@ test('buildContextSources includes toolReminder when hasToolReminder is true', (
   assert.equal(reminder.present, true)
 })
 
-test('buildContextSources source order is persona, soul, user, skills, agent, memory, toolReminder', () => {
+test('buildContextSources source order is persona, soul, user, skills, fileMentions, agent, memory, toolReminder', () => {
   const sources = buildContextSources({
     ...BASE_INPUT,
     evolvedTraitCount: 1,
     hasUserContent: true,
     activeSkills: [{ name: 'repo-skill', description: 'Local repo helper' }],
+    fileMentionCount: 1,
     enabledTools: ['bash'] as ToolCallName[],
     hasToolReminder: true,
     memoryEntries: ['entry'],
@@ -211,5 +228,14 @@ test('buildContextSources source order is persona, soul, user, skills, agent, me
   })
 
   const kinds = sources.map((s) => s.kind)
-  assert.deepEqual(kinds, ['persona', 'soul', 'user', 'skills', 'agent', 'memory', 'toolReminder'])
+  assert.deepEqual(kinds, [
+    'persona',
+    'soul',
+    'user',
+    'skills',
+    'fileMentions',
+    'agent',
+    'memory',
+    'toolReminder'
+  ])
 })

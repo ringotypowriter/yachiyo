@@ -38,6 +38,7 @@ import {
   buildToolAvailabilityReminderSection,
   formatQueryReminder
 } from '../../runtime/queryReminder.ts'
+import { resolveFileMentionsForUserQuery } from '../../runtime/fileMentions.ts'
 import { readSoulDocument, type SoulDocument } from '../../runtime/soul.ts'
 import { readUserDocument, type UserDocument } from '../../runtime/user.ts'
 import type { ModelRuntime } from '../../runtime/types.ts'
@@ -188,6 +189,8 @@ export function buildContextSources(input: {
   hasUserContent: boolean
   enabledTools: ToolCallName[]
   activeSkills: SkillSummary[]
+  fileMentionCount: number
+  inlinedFileCount: number
   workspacePath: string
   hasToolReminder: boolean
   memoryEntries: string[]
@@ -219,6 +222,20 @@ export function buildContextSources(input: {
           summary: `${input.activeSkills.length} ${input.activeSkills.length === 1 ? 'skill' : 'skills'} active`
         }
       : { kind: 'skills', present: false }
+  )
+
+  sources.push(
+    input.fileMentionCount > 0
+      ? {
+          kind: 'fileMentions',
+          present: true,
+          count: input.fileMentionCount,
+          summary:
+            input.inlinedFileCount > 0
+              ? `${input.fileMentionCount} file reference${input.fileMentionCount === 1 ? '' : 's'} · ${input.inlinedFileCount} inlined`
+              : `${input.fileMentionCount} file reference${input.fileMentionCount === 1 ? '' : 's'}`
+        }
+      : { kind: 'fileMentions', present: false }
   )
 
   const toolCount = input.enabledTools.length
@@ -370,11 +387,12 @@ async function ensureResolvedWorkspacePath(
 function loadRunHistory(
   loadThreadMessages: RunExecutionDeps['loadThreadMessages'],
   threadId: string,
-  requestMessageId: string
+  requestMessageId: string,
+  requestMessageContentOverride?: string
 ): Array<Pick<MessageRecord, 'content' | 'images' | 'role'>> {
   return collectMessagePath(loadThreadMessages(threadId), requestMessageId).map(
-    ({ content, images, role }) => ({
-      content,
+    ({ content, id, images, role }) => ({
+      content: id === requestMessageId ? (requestMessageContentOverride ?? content) : content,
       ...(images ? { images } : {}),
       role
     })
@@ -576,6 +594,11 @@ export async function executeServerRun(
     const requestMessage = deps
       .loadThreadMessages(input.thread.id)
       .find((message) => message.id === input.requestMessageId && message.role === 'user')
+    const fileMentionResolution = await resolveFileMentionsForUserQuery({
+      content: requestMessage?.content ?? '',
+      workspacePath,
+      searchService: deps.searchService
+    })
     let memoryEntries: string[] = []
     let recallDecision: RecallDecisionSnapshot | undefined
     if (deps.buildMemoryLayerEntries) {
@@ -613,6 +636,8 @@ export async function executeServerRun(
         hasUserContent: (userDocument?.content ?? '').trim().length > 0,
         enabledTools: modelEnabledTools,
         activeSkills,
+        fileMentionCount: fileMentionResolution.mentions.length,
+        inlinedFileCount: fileMentionResolution.inlinedPath ? 1 : 0,
         workspacePath,
         hasToolReminder: hiddenQueryReminder !== undefined,
         memoryEntries,
@@ -646,7 +671,12 @@ export async function executeServerRun(
       memory: {
         entries: memoryEntries
       },
-      history: loadRunHistory(deps.loadThreadMessages, input.thread.id, input.requestMessageId)
+      history: loadRunHistory(
+        deps.loadThreadMessages,
+        input.thread.id,
+        input.requestMessageId,
+        fileMentionResolution.augmentedUserQuery
+      )
     })
     const tools = createAgentToolSet(
       {

@@ -19,6 +19,7 @@ import {
   useAppStore,
   type ComposerImageDraft
 } from '@renderer/app/store/useAppStore'
+import type { FileMentionCandidate } from '@renderer/app/types'
 import { getComposerActionState } from '@renderer/features/chat/lib/composerActionState'
 import { resolveComposerEnterAction } from '@renderer/features/chat/lib/composerEnterBehavior'
 import { theme } from '@renderer/theme/theme'
@@ -38,7 +39,8 @@ import { WorkspaceSelectorPopup } from './WorkspaceSelectorPopup'
 const NEW_THREAD_DRAFT_KEY = '__new__'
 const MAX_COMPOSER_IMAGES = 4
 
-const SKILL_TAG_HIGHLIGHT_RE = /@skills:[a-zA-Z0-9_-]+/g
+const COMPOSER_TAG_HIGHLIGHT_RE = /@skills:[a-zA-Z0-9_-]+|@[A-Za-z0-9._/-]+/g
+const CONFIRMED_FILE_TAG_RE = /(^|\s)@([A-Za-z0-9._/-]+)(?=\s|$)/g
 
 function renderComposerTextHighlights(
   text: string,
@@ -48,8 +50,8 @@ function renderComposerTextHighlights(
   const parts: React.ReactNode[] = []
   let last = 0
   let m: RegExpExecArray | null
-  SKILL_TAG_HIGHLIGHT_RE.lastIndex = 0
-  while ((m = SKILL_TAG_HIGHLIGHT_RE.exec(text)) !== null) {
+  COMPOSER_TAG_HIGHLIGHT_RE.lastIndex = 0
+  while ((m = COMPOSER_TAG_HIGHLIGHT_RE.exec(text)) !== null) {
     if (m.index > last) {
       parts.push(
         <span key={last} style={{ color: primaryColor }}>
@@ -75,6 +77,50 @@ function renderComposerTextHighlights(
     )
   }
   return parts.length > 0 ? <>{parts}</> : null
+}
+
+function collectConfirmedFileTags(text: string): string[] {
+  const tags: string[] = []
+  const seen = new Set<string>()
+  let match: RegExpExecArray | null
+
+  CONFIRMED_FILE_TAG_RE.lastIndex = 0
+  while ((match = CONFIRMED_FILE_TAG_RE.exec(text)) !== null) {
+    const value = match[2]?.trim() ?? ''
+    if (!value || value.startsWith('skills:') || seen.has(value)) {
+      continue
+    }
+
+    seen.add(value)
+    tags.push(value)
+  }
+
+  return tags
+}
+
+async function resolveValidatedFileTags(input: {
+  fileTags: string[]
+  threadId: string | null
+  workspacePath: string | null
+}): Promise<string[]> {
+  const validated: string[] = []
+
+  await Promise.all(
+    input.fileTags.map(async (fileTag) => {
+      const matches = await window.api.yachiyo.searchWorkspaceFiles({
+        query: fileTag,
+        ...(input.threadId ? { threadId: input.threadId } : {}),
+        ...(!input.threadId && input.workspacePath ? { workspacePath: input.workspacePath } : {}),
+        limit: 8
+      })
+
+      if (matches.some((match) => match.path === fileTag)) {
+        validated.push(fileTag)
+      }
+    })
+  )
+
+  return input.fileTags.filter((fileTag) => validated.includes(fileTag))
 }
 
 function createDraftImageId(): string {
@@ -234,6 +280,7 @@ export function Composer({
   const [isComposing, setIsComposing] = useState(false)
   const [dismissedSlashQuery, setDismissedSlashQuery] = useState<string | null>(null)
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
+  const [fileMentionMatches, setFileMentionMatches] = useState<FileMentionCandidate[]>([])
 
   const composerValue = composerDraft.text
   const draftImages = composerDraft.images
@@ -268,6 +315,7 @@ export function Composer({
   const SLASH_PATTERN = /^\/([a-zA-Z0-9-]*)$/
   const SKILL_PREFIX_PATTERN = /^\/skills:([a-zA-Z0-9_-]*)$/
   const AT_SKILL_PREFIX_PATTERN = /^@skills:([a-zA-Z0-9_-]*)$/
+  const FILE_MENTION_PATTERN = /(^|\s)@([A-Za-z0-9._/-]*)$/
   const slashMatch = SLASH_PATTERN.exec(composerValue)
   const skillPrefixMatch = SKILL_PREFIX_PATTERN.exec(composerValue)
   const atSkillPrefixMatch = AT_SKILL_PREFIX_PATTERN.exec(composerValue)
@@ -277,9 +325,17 @@ export function Composer({
     : atSkillPrefixMatch
       ? atSkillPrefixMatch[1]
       : null
+  const fileMentionMatch =
+    skillQuery === null && atSkillPrefixMatch === null
+      ? FILE_MENTION_PATTERN.exec(composerValue)
+      : null
+  const fileMentionQuery =
+    fileMentionMatch && !fileMentionMatch[2].startsWith('skills:') ? fileMentionMatch[2] : null
   // Only show chip when skill tag is confirmed (has trailing space/content) and popup is not active
   const skillTagMatch = skillQuery === null ? SKILL_TAG_PATTERN.exec(composerValue) : null
   const activeSkillTag = skillTagMatch ? skillTagMatch[1] : null
+  const confirmedFileTags = useMemo(() => collectConfirmedFileTags(composerValue), [composerValue])
+  const [validatedFileTags, setValidatedFileTags] = useState<string[]>([])
 
   const userPrompts = useMemo(() => config?.prompts ?? [], [config?.prompts])
   const memoryEnabled = isMemoryConfigured(config)
@@ -337,14 +393,87 @@ export function Composer({
           type: 'skill' as const
         }))
     }
+    if (fileMentionQuery !== null) {
+      return fileMentionMatches.map((match) => ({
+        key: `file:${match.path}`,
+        label: match.path,
+        description: 'Workspace file',
+        type: 'file' as const
+      }))
+    }
     if (slashQuery !== null) {
       return allSlashCommands.filter((cmd) => cmd.key.startsWith(slashQuery))
     }
     return []
-  }, [skillQuery, slashQuery, allSlashCommands, availableSkills])
-  const activeQuery = skillQuery ?? slashQuery
+  }, [
+    skillQuery,
+    fileMentionQuery,
+    fileMentionMatches,
+    slashQuery,
+    allSlashCommands,
+    availableSkills
+  ])
+  const activeQuery = skillQuery ?? fileMentionQuery ?? slashQuery
   const showSlashCommandPopup =
-    matchingSlashCommands.length > 0 && dismissedSlashQuery !== activeQuery
+    (fileMentionQuery !== null || matchingSlashCommands.length > 0) &&
+    dismissedSlashQuery !== activeQuery
+
+  useEffect(() => {
+    if (fileMentionQuery === null) {
+      setFileMentionMatches([])
+      return
+    }
+
+    let cancelled = false
+    void window.api.yachiyo
+      .searchWorkspaceFiles({
+        query: fileMentionQuery,
+        ...(activeThreadId ? { threadId: activeThreadId } : {}),
+        ...(!activeThreadId && currentWorkspacePath ? { workspacePath: currentWorkspacePath } : {})
+      })
+      .then((matches) => {
+        if (!cancelled) {
+          setFileMentionMatches(matches)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFileMentionMatches([])
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeThreadId, currentWorkspacePath, fileMentionQuery])
+
+  useEffect(() => {
+    if (confirmedFileTags.length === 0) {
+      setValidatedFileTags([])
+      return
+    }
+
+    let cancelled = false
+    void resolveValidatedFileTags({
+      fileTags: confirmedFileTags,
+      threadId: activeThreadId,
+      workspacePath: currentWorkspacePath
+    })
+      .then((fileTags) => {
+        if (!cancelled) {
+          setValidatedFileTags(fileTags)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setValidatedFileTags([])
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeThreadId, confirmedFileTags, currentWorkspacePath])
 
   useEffect(() => {
     if (!workspaceHintPinned) {
@@ -551,12 +680,20 @@ export function Composer({
       } else if (command.type === 'skill') {
         const skillName = command.key.slice('skills:'.length)
         setComposerValue(`@skills:${skillName} `)
+      } else if (command.type === 'file') {
+        const filePath = command.key.slice('file:'.length)
+        setComposerValue(
+          composerValue.replace(
+            FILE_MENTION_PATTERN,
+            (_match, prefix: string) => `${prefix}@${filePath} `
+          )
+        )
       } else {
         const prompt = userPrompts.find((p) => p.keycode === command.key)
         if (prompt) setComposerValue(prompt.text)
       }
     },
-    [canRunThreadOperations, onSelectThreadOperation, userPrompts, setComposerValue]
+    [canRunThreadOperations, composerValue, onSelectThreadOperation, userPrompts, setComposerValue]
   )
 
   const handleTextareaScroll = useCallback((event: React.UIEvent<HTMLTextAreaElement>) => {
@@ -678,31 +815,84 @@ export function Composer({
             selectedIndex={slashSelectedIndex}
             onSelect={handleSlashCommandSelect}
             onClose={dismissSlashPopup}
+            emptyState={
+              fileMentionQuery !== null ? 'No files found in the current workspace.' : undefined
+            }
           />
         ) : null}
-        {activeSkillTag ? (
-          <div className="px-4 pt-2 flex items-center gap-2">
-            <div
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-              style={{
-                background: theme.background.accentPanel,
-                border: `1px solid ${theme.border.accent}`,
-                color: theme.text.accent
-              }}
-            >
-              <Sparkles size={11} strokeWidth={1.7} />
-              <span className="font-mono">{activeSkillTag}</span>
-              <button
-                type="button"
-                aria-label={`Remove skill ${activeSkillTag}`}
-                onClick={() =>
-                  setComposerValue(composerValue.replace(SKILL_TAG_PATTERN, '').trimStart())
-                }
-                className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity"
+        {activeSkillTag || validatedFileTags.length > 0 ? (
+          <div className="px-4 pt-2 flex flex-wrap items-center gap-2">
+            {activeSkillTag ? (
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+                style={{
+                  maxWidth: '100%',
+                  background: theme.background.accentPanel,
+                  border: `1px solid ${theme.border.accent}`,
+                  color: theme.text.accent
+                }}
               >
-                <X size={11} strokeWidth={2} />
-              </button>
-            </div>
+                <Sparkles size={11} strokeWidth={1.7} />
+                <span
+                  className="font-mono"
+                  style={{
+                    minWidth: 0,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {activeSkillTag}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Remove skill ${activeSkillTag}`}
+                  onClick={() =>
+                    setComposerValue(composerValue.replace(SKILL_TAG_PATTERN, '').trimStart())
+                  }
+                  className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity"
+                >
+                  <X size={11} strokeWidth={2} />
+                </button>
+              </div>
+            ) : null}
+            {validatedFileTags.map((fileTag, index) => (
+              <div
+                key={`${fileTag}-${index}`}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+                style={{
+                  maxWidth: '100%',
+                  background: theme.background.accentPanel,
+                  border: `1px solid ${theme.border.accent}`,
+                  color: theme.text.accent
+                }}
+              >
+                <Folder size={11} strokeWidth={1.7} />
+                <span
+                  className="font-mono"
+                  style={{
+                    minWidth: 0,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {fileTag}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Remove file ${fileTag}`}
+                  onClick={() =>
+                    setComposerValue(
+                      composerValue.replace(`@${fileTag}`, '').replace(/\s{2,}/g, ' ').trimStart()
+                    )
+                  }
+                  className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity"
+                >
+                  <X size={11} strokeWidth={2} />
+                </button>
+              </div>
+            ))}
           </div>
         ) : null}
         <div className="px-4 pt-3 pb-1" style={{ display: 'grid' }}>

@@ -7,6 +7,7 @@ import type {
   ChatAccepted,
   CompactThreadAccepted,
   CompactThreadInput,
+  FileMentionCandidate,
   ImportWebSearchBrowserSessionInput,
   ListSkillsInput,
   ProviderConfig,
@@ -15,6 +16,7 @@ import type {
   RetryInput,
   SaveThreadInput,
   SaveThreadResult,
+  SearchWorkspaceFilesInput,
   SendChatInput,
   SettingsConfig,
   SkillCatalogEntry,
@@ -32,6 +34,7 @@ import {
   resolveYachiyoWebSearchBrowserSessionPath
 } from '../config/paths.ts'
 import { createAuxiliaryGenerationService } from '../runtime/auxiliaryGeneration.ts'
+import { searchWorkspaceFileMentionCandidates } from '../runtime/fileMentions.ts'
 import { createAiSdkModelRuntime } from '../runtime/modelRuntime.ts'
 import { readSoulDocument, type SoulDocument } from '../runtime/soul.ts'
 import { readUserDocument, writeUserDocument } from '../runtime/user.ts'
@@ -96,10 +99,12 @@ export class YachiyoServer {
   private readonly runDomain: YachiyoServerRunDomain
   private readonly threadDomain: YachiyoServerThreadDomain
   private readonly browserSearchSession: BrowserSearchSession
+  private readonly ensureThreadWorkspacePath: (threadId: string) => Promise<string>
   private readonly cloneThreadWorkspace: (
     sourceThreadId: string,
     targetThreadId: string
   ) => Promise<string>
+  private readonly searchService: SearchService
   private readonly readUserDocumentFile: () => Promise<UserDocument | null>
   private readonly saveUserDocumentFile: (content: string) => Promise<UserDocument | null>
   private readonly readSoulDocumentFile: () => Promise<SoulDocument | null>
@@ -183,7 +188,9 @@ export class YachiyoServer {
         readSettings: () => this.configDomain.readSettings()
       })
     this.memoryService = memoryService
+    this.ensureThreadWorkspacePath = ensureThreadWorkspace
     this.cloneThreadWorkspace = cloneThreadWorkspace
+    this.searchService = searchService
     this.runDomain = new YachiyoServerRunDomain({
       storage: this.storage,
       createId: this.createId,
@@ -336,6 +343,32 @@ export class YachiyoServer {
 
   async listSkills(input: ListSkillsInput = {}): Promise<SkillCatalogEntry[]> {
     return buildSkillRegistry(await discoverSkills(input.workspacePaths ?? []))
+  }
+
+  async searchWorkspaceFiles(input: SearchWorkspaceFilesInput): Promise<FileMentionCandidate[]> {
+    const query = input.query.trim()
+
+    let workspacePath = input.workspacePath?.trim() ?? ''
+    if (!workspacePath && input.threadId) {
+      const thread = this.requireThread(input.threadId)
+      workspacePath = thread.workspacePath?.trim() ?? ''
+      if (!workspacePath) {
+        workspacePath = await this.ensureThreadWorkspacePath(thread.id)
+      }
+    }
+
+    if (!workspacePath) {
+      return []
+    }
+
+    const paths = await searchWorkspaceFileMentionCandidates({
+      query,
+      workspacePath: resolve(workspacePath),
+      searchService: this.searchService,
+      limit: input.limit
+    })
+
+    return paths.map((path) => ({ path }))
   }
 
   searchThreadsAndMessages(input: { query: string }): ThreadSearchResult[] {

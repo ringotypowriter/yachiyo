@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, net, session } from 'electron'
 
 import type {
   CompactThreadInput,
+  SearchWorkspaceFilesInput,
   ImportWebSearchBrowserSessionInput,
   ListSkillsInput,
   ProviderConfig,
@@ -23,6 +24,7 @@ import { openThreadWorkspace } from './openThreadWorkspace.ts'
 
 const IPC_CHANNELS = {
   archiveThread: 'yachiyo:archive-thread',
+  searchWorkspaceFiles: 'yachiyo:search-workspace-files',
   searchThreadsAndMessages: 'yachiyo:search-threads-and-messages',
   deleteThread: 'yachiyo:delete-thread',
   disableProviderModel: 'yachiyo:disable-provider-model',
@@ -126,6 +128,9 @@ export function registerYachiyoGateway(): YachiyoServer {
 
   handle(IPC_CHANNELS.searchThreadsAndMessages, (input: { query: string }) =>
     server!.searchThreadsAndMessages(input)
+  )
+  handle(IPC_CHANNELS.searchWorkspaceFiles, (input: SearchWorkspaceFilesInput) =>
+    server!.searchWorkspaceFiles(input)
   )
   handle(IPC_CHANNELS.bootstrap, () => server!.bootstrap())
   handle(IPC_CHANNELS.createThread, (input?: { workspacePath?: string }) =>

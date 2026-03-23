@@ -3,6 +3,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type {
   CompactThreadInput,
   CompactThreadAccepted,
+  SearchWorkspaceFilesInput,
   ImportWebSearchBrowserSessionInput,
   ListSkillsInput,
   ProviderConfig,
@@ -23,6 +24,8 @@ const api = {
   yachiyo: {
     searchThreadsAndMessages: (input: { query: string }): Promise<ThreadSearchResult[]> =>
       ipcRenderer.invoke('yachiyo:search-threads-and-messages', input),
+    searchWorkspaceFiles: (input: SearchWorkspaceFilesInput) =>
+      ipcRenderer.invoke('yachiyo:search-workspace-files', input),
     archiveThread: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:archive-thread', input),
     bootstrap: () => ipcRenderer.invoke('yachiyo:bootstrap'),
