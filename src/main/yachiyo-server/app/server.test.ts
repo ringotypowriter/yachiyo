@@ -601,9 +601,140 @@ test('YachiyoServer injects recalled memory into the compiled context before the
         isConfigured: () => true,
         searchMemories: async () => [],
         testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
-        recallForContext: async ({ userQuery }) => {
+        recallForContext: async ({ thread, userQuery }) => {
           recalledQueries.push(userQuery)
-          return ['Deploy workflow: Always run the staging smoke test first.']
+          return {
+            decision: {
+              shouldRecall: true,
+              score: 1,
+              reasons: ['thread-cold-start'],
+              messagesSinceLastRecall: 1,
+              charsSinceLastRecall: userQuery.length,
+              idleMs: 0,
+              noveltyScore: 0.8,
+              novelTerms: ['deploy']
+            },
+            entries: ['Deploy workflow: Always run the staging smoke test first.'],
+            thread
+          }
+        },
+        distillCompletedRun: async () => ({ savedCount: 0 }),
+        saveThread: async () => ({ savedCount: 0 })
+      }
+    }
+  )
+})
+
+test('YachiyoServer keeps the compile pipeline working when recall is gated off', async () => {
+  await withServer(
+    async ({ completeRun, modelRequests, server, waitForEvent }) => {
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: '继续当前这个小问题'
+      })
+      assertAcceptedHasUserMessage(accepted)
+      const recalledEvent = (await waitForEvent('run.memory.recalled')) as {
+        recalledMemoryEntries: string[]
+        recallDecision?: { shouldRecall: boolean; reasons: string[] }
+      }
+      await completeRun(accepted.runId)
+
+      const mainRequest = modelRequests.find(
+        (request) => request.providerOptionsMode !== 'auxiliary'
+      )
+      assert.ok(mainRequest)
+      assert.deepEqual(recalledEvent.recalledMemoryEntries, [])
+      assert.equal(recalledEvent.recallDecision?.shouldRecall, false)
+      assert.deepEqual(recalledEvent.recallDecision?.reasons, [])
+      assert.equal(
+        mainRequest.messages.some(
+          (message) =>
+            message.role === 'system' &&
+            typeof message.content === 'string' &&
+            message.content.includes('<memory>')
+        ),
+        false
+      )
+    },
+    {
+      memoryService: {
+        hasHiddenSearchCapability: () => true,
+        isConfigured: () => true,
+        searchMemories: async () => [],
+        testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+        recallForContext: async ({ thread }) => ({
+          decision: {
+            shouldRecall: false,
+            score: 0,
+            reasons: [],
+            messagesSinceLastRecall: 1,
+            charsSinceLastRecall: 10,
+            idleMs: 0,
+            noveltyScore: 0,
+            novelTerms: []
+          },
+          entries: [],
+          thread
+        }),
+        distillCompletedRun: async () => ({ savedCount: 0 }),
+        saveThread: async () => ({ savedCount: 0 })
+      }
+    }
+  )
+})
+
+test('YachiyoServer bases recall history on the active branch during retry', async () => {
+  const recalledHistoryIds: string[][] = []
+
+  await withServer(
+    async ({ completeRun, server }) => {
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Need deploy guidance'
+      })
+      assertAcceptedHasUserMessage(accepted)
+      await completeRun(accepted.runId)
+
+      const retry = await server.retryMessage({
+        threadId: thread.id,
+        messageId: accepted.userMessage.id
+      })
+      await completeRun(retry.runId)
+
+      assert.deepEqual(recalledHistoryIds[0], [accepted.userMessage.id])
+      assert.deepEqual(
+        recalledHistoryIds[1],
+        [accepted.userMessage.id],
+        'retry recall should not include the sibling assistant branch'
+      )
+    },
+    {
+      memoryService: {
+        hasHiddenSearchCapability: () => true,
+        isConfigured: () => true,
+        searchMemories: async () => [],
+        testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+        recallForContext: async ({ history, thread }) => {
+          recalledHistoryIds.push(history.map((message) => message.id))
+          return {
+            decision: {
+              shouldRecall: true,
+              score: 1,
+              reasons: ['thread-cold-start'],
+              messagesSinceLastRecall: history.length,
+              charsSinceLastRecall: history.reduce(
+                (total, message) => total + message.content.length,
+                0
+              ),
+              idleMs: 0,
+              noveltyScore: 0.8,
+              novelTerms: ['deploy']
+            },
+            entries: [],
+            thread
+          }
         },
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
@@ -638,7 +769,20 @@ test('YachiyoServer only injects the hidden memory_search runtime tool when memo
         isConfigured: () => true,
         searchMemories: async () => [],
         testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
-        recallForContext: async () => [],
+        recallForContext: async ({ thread }) => ({
+          decision: {
+            shouldRecall: false,
+            score: 0,
+            reasons: [],
+            messagesSinceLastRecall: 0,
+            charsSinceLastRecall: 0,
+            idleMs: 0,
+            noveltyScore: 0,
+            novelTerms: []
+          },
+          entries: [],
+          thread
+        }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -667,7 +811,20 @@ test('YachiyoServer only injects the hidden memory_search runtime tool when memo
         isConfigured: () => false,
         searchMemories: async () => [],
         testConnection: async () => ({ ok: false, message: 'Memory disabled.' }),
-        recallForContext: async () => [],
+        recallForContext: async ({ thread }) => ({
+          decision: {
+            shouldRecall: false,
+            score: 0,
+            reasons: [],
+            messagesSinceLastRecall: 0,
+            charsSinceLastRecall: 0,
+            idleMs: 0,
+            noveltyScore: 0,
+            novelTerms: []
+          },
+          entries: [],
+          thread
+        }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -716,7 +873,20 @@ test('YachiyoServer does not claim there are no tools when hidden memory search 
         isConfigured: () => true,
         searchMemories: async () => [],
         testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
-        recallForContext: async () => [],
+        recallForContext: async ({ thread }) => ({
+          decision: {
+            shouldRecall: false,
+            score: 0,
+            reasons: [],
+            messagesSinceLastRecall: 0,
+            charsSinceLastRecall: 0,
+            idleMs: 0,
+            noveltyScore: 0,
+            novelTerms: []
+          },
+          entries: [],
+          thread
+        }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -815,7 +985,20 @@ test('YachiyoServer saveThread uses the explicit memory service and can archive 
         isConfigured: () => true,
         searchMemories: async () => [],
         testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
-        recallForContext: async () => [],
+        recallForContext: async ({ thread }) => ({
+          decision: {
+            shouldRecall: false,
+            score: 0,
+            reasons: [],
+            messagesSinceLastRecall: 0,
+            charsSinceLastRecall: 0,
+            idleMs: 0,
+            noveltyScore: 0,
+            novelTerms: []
+          },
+          entries: [],
+          thread
+        }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async ({ thread }) => {
           savedThreadId = thread.id
@@ -862,7 +1045,20 @@ test('YachiyoServer tests memory connectivity against the provided draft config'
           receivedConfig = config
           return { ok: true, message: 'Nowledge Mem is reachable.' }
         },
-        recallForContext: async () => [],
+        recallForContext: async ({ thread }) => ({
+          decision: {
+            shouldRecall: false,
+            score: 0,
+            reasons: [],
+            messagesSinceLastRecall: 0,
+            charsSinceLastRecall: 0,
+            idleMs: 0,
+            noveltyScore: 0,
+            novelTerms: []
+          },
+          entries: [],
+          thread
+        }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }

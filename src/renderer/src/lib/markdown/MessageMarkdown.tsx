@@ -16,7 +16,11 @@ export function MessageMarkdown({
       <div className="streamdown-content message-selectable">
         <Streamdown
           isAnimating={isStreaming}
-          animated={isStreaming ? { sep: 'char', animation: 'slideUp', duration: 120, easing: 'ease-out' } : false}
+          animated={
+            isStreaming
+              ? { sep: 'char', animation: 'slideUp', duration: 120, easing: 'ease-out' }
+              : false
+          }
           caret={isStreaming ? 'circle' : undefined}
           mode={isStreaming ? 'streaming' : 'static'}
           controls={true}

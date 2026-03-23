@@ -64,6 +64,13 @@
       "when": 1774185549498,
       "tag": "0008_clumsy_leech",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1774257045217,
+      "tag": "0009_new_liz_osborn",
+      "breakpoints": true
     }
   ]
 }

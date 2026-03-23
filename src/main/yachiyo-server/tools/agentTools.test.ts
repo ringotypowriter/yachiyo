@@ -78,7 +78,20 @@ test('createAgentToolSet adds hidden memory_search only when memory is configure
     isConfigured: () => true,
     searchMemories: async () => [],
     testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
-    recallForContext: async () => [],
+    recallForContext: async ({ thread }) => ({
+      decision: {
+        shouldRecall: false,
+        score: 0,
+        reasons: [],
+        messagesSinceLastRecall: 0,
+        charsSinceLastRecall: 0,
+        idleMs: 0,
+        noveltyScore: 0,
+        novelTerms: []
+      },
+      entries: [],
+      thread
+    }),
     distillCompletedRun: async () => ({ savedCount: 0 }),
     saveThread: async () => ({ savedCount: 0 })
   }
@@ -125,7 +138,20 @@ test('memory_search forwards the abort signal to memory service lookups', async 
       return []
     },
     testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
-    recallForContext: async () => [],
+    recallForContext: async ({ thread }) => ({
+      decision: {
+        shouldRecall: false,
+        score: 0,
+        reasons: [],
+        messagesSinceLastRecall: 0,
+        charsSinceLastRecall: 0,
+        idleMs: 0,
+        noveltyScore: 0,
+        novelTerms: []
+      },
+      entries: [],
+      thread
+    }),
     distillCompletedRun: async () => ({ savedCount: 0 }),
     saveThread: async () => ({ savedCount: 0 })
   })

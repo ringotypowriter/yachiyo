@@ -26,6 +26,7 @@ import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 import { prepareModelMessages } from '../../runtime/messagePrepare.ts'
 import { SYSTEM_PROMPT } from '../../runtime/prompt.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'
+import type { RecallDecisionSnapshot } from '../../../../shared/yachiyo/protocol.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
 import type { BrowserWebPageSnapshotLoader } from '../../services/webRead/browserWebPageSnapshot.ts'
 import {
@@ -78,10 +79,14 @@ export interface RunExecutionDeps {
   createModelRuntime: () => ModelRuntime
   ensureThreadWorkspace: (threadId: string) => Promise<string>
   buildMemoryLayerEntries?: (input: {
+    requestMessageId: string
     signal: AbortSignal
     thread: ThreadRecord
     userQuery: string
-  }) => Promise<string[]>
+  }) => Promise<{
+    entries: string[]
+    recallDecision?: RecallDecisionSnapshot
+  }>
   fetchImpl?: typeof globalThis.fetch
   loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
   memoryService: MemoryService
@@ -454,13 +459,17 @@ export async function executeServerRun(
       .loadThreadMessages(input.thread.id)
       .find((message) => message.id === input.requestMessageId && message.role === 'user')
     let memoryEntries: string[] = []
+    let recallDecision: RecallDecisionSnapshot | undefined
     if (deps.buildMemoryLayerEntries) {
       try {
-        memoryEntries = await deps.buildMemoryLayerEntries({
+        const result = await deps.buildMemoryLayerEntries({
+          requestMessageId: input.requestMessageId,
           signal: input.abortController.signal,
           thread: input.thread,
           userQuery: requestMessage?.content ?? ''
         })
+        memoryEntries = result.entries
+        recallDecision = result.recallDecision
       } catch (error) {
         console.warn('[yachiyo][memory] failed to build memory layer; continuing run', {
           error: error instanceof Error ? error.message : String(error),
@@ -474,7 +483,8 @@ export async function executeServerRun(
       threadId: input.thread.id,
       runId: input.runId,
       requestMessageId: input.requestMessageId,
-      recalledMemoryEntries: memoryEntries
+      recalledMemoryEntries: memoryEntries,
+      ...(recallDecision ? { recallDecision } : {})
     })
     const messages = prepareModelMessages({
       personality: {

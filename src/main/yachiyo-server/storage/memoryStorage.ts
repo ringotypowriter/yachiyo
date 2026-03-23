@@ -3,6 +3,7 @@ import {
   groupLatestRunsByThread,
   groupToolCallsByThread,
   groupMessagesByThread,
+  serializeThreadMemoryRecallState,
   serializeToolCallDetails,
   toRunRecord,
   toToolCallRecord,
@@ -48,6 +49,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     storedThread.branchFromThreadId = nextThread.branchFromThreadId ?? null
     storedThread.branchFromMessageId = nextThread.branchFromMessageId ?? null
     storedThread.headMessageId = nextThread.headMessageId ?? null
+    storedThread.memoryRecallState = serializeThreadMemoryRecallState(nextThread.memoryRecall)
     storedThread.preview = nextThread.preview ?? null
     storedThread.queuedFollowUpEnabledTools = nextThread.queuedFollowUpEnabledTools
       ? JSON.stringify(nextThread.queuedFollowUpEnabledTools)
@@ -144,6 +146,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       threads.set(thread.id, {
         id: thread.id,
         title: thread.title,
+        memoryRecallState: serializeThreadMemoryRecallState(thread.memoryRecall),
         workspacePath: thread.workspacePath ?? null,
         preview: thread.preview ?? null,
         branchFromThreadId: thread.branchFromThreadId ?? null,

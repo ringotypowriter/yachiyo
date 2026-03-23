@@ -1,0 +1,1 @@
+ALTER TABLE `threads` ADD `memory_recall_state` text;

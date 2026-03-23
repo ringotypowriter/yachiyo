@@ -246,6 +246,7 @@ export interface ThreadRecord {
   id: string
   title: string
   updatedAt: string
+  memoryRecall?: ThreadMemoryRecallState
   workspacePath?: string
   preview?: string
   headMessageId?: string
@@ -328,6 +329,34 @@ export interface MemoryConfig {
   enabled?: boolean
   provider?: MemoryProviderId
   baseUrl?: string
+}
+
+export interface ThreadMemoryRecallEntry {
+  memoryId: string
+  fingerprint: string
+  injectedAt: string
+  messageCount: number
+  charCount: number
+  score?: number
+}
+
+export interface ThreadMemoryRecallState {
+  lastRunAt?: string
+  lastRecallAt?: string
+  lastRecallMessageCount?: number
+  lastRecallCharCount?: number
+  recentInjections?: ThreadMemoryRecallEntry[]
+}
+
+export interface RecallDecisionSnapshot {
+  shouldRecall: boolean
+  score: number
+  reasons: string[]
+  messagesSinceLastRecall: number
+  charsSinceLastRecall: number
+  idleMs: number
+  noveltyScore: number
+  novelTerms: string[]
 }
 
 export interface BrowserBackedWebSearchSessionConfig {
@@ -543,6 +572,7 @@ export interface RunMemoryRecalledEvent extends RunEvent {
   type: 'run.memory.recalled'
   requestMessageId?: string
   recalledMemoryEntries: string[]
+  recallDecision?: RecallDecisionSnapshot
 }
 
 export interface RunCompletedEvent extends RunEvent {

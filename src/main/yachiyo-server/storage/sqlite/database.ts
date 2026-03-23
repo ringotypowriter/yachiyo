@@ -15,6 +15,7 @@ import {
   serializeEnabledTools,
   serializeMessageImages,
   serializeMessageTextBlocks,
+  serializeThreadMemoryRecallState,
   serializeToolCallDetails,
   toMessageRecord,
   toRunRecord,
@@ -96,6 +97,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           branchFromThreadId: threadsTable.branchFromThreadId,
           headMessageId: threadsTable.headMessageId,
           id: threadsTable.id,
+          memoryRecallState: threadsTable.memoryRecallState,
           preview: threadsTable.preview,
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
@@ -239,6 +241,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           branchFromThreadId: threadsTable.branchFromThreadId,
           headMessageId: threadsTable.headMessageId,
           id: threadsTable.id,
+          memoryRecallState: threadsTable.memoryRecallState,
           preview: threadsTable.preview,
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
@@ -261,6 +264,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           branchFromThreadId: threadsTable.branchFromThreadId,
           headMessageId: threadsTable.headMessageId,
           id: threadsTable.id,
+          memoryRecallState: threadsTable.memoryRecallState,
           preview: threadsTable.preview,
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
@@ -306,6 +310,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             createdAt,
             headMessageId: thread.headMessageId ?? null,
             id: thread.id,
+            memoryRecallState: serializeThreadMemoryRecallState(thread.memoryRecall),
             preview: thread.preview ?? null,
             queuedFollowUpEnabledTools: serializeEnabledTools(thread.queuedFollowUpEnabledTools),
             queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
@@ -369,6 +374,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           branchFromMessageId: thread.branchFromMessageId ?? null,
           branchFromThreadId: thread.branchFromThreadId ?? null,
           headMessageId: thread.headMessageId ?? null,
+          memoryRecallState: serializeThreadMemoryRecallState(thread.memoryRecall),
           preview: thread.preview ?? null,
           queuedFollowUpEnabledTools: serializeEnabledTools(thread.queuedFollowUpEnabledTools),
           queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
@@ -400,6 +406,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             branchFromMessageId: updatedThread.branchFromMessageId ?? null,
             branchFromThreadId: updatedThread.branchFromThreadId ?? null,
             headMessageId: updatedThread.headMessageId ?? null,
+            memoryRecallState: serializeThreadMemoryRecallState(updatedThread.memoryRecall),
             preview: updatedThread.preview ?? null,
             queuedFollowUpEnabledTools: serializeEnabledTools(
               updatedThread.queuedFollowUpEnabledTools
@@ -437,6 +444,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         tx.update(threadsTable)
           .set({
             headMessageId: updatedThread.headMessageId ?? null,
+            memoryRecallState: serializeThreadMemoryRecallState(updatedThread.memoryRecall),
             preview: updatedThread.preview ?? null,
             queuedFollowUpEnabledTools: serializeEnabledTools(
               updatedThread.queuedFollowUpEnabledTools
@@ -478,6 +486,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         tx.update(threadsTable)
           .set({
             headMessageId: updatedThread.headMessageId ?? null,
+            memoryRecallState: serializeThreadMemoryRecallState(updatedThread.memoryRecall),
             preview: updatedThread.preview ?? null,
             queuedFollowUpEnabledTools: serializeEnabledTools(
               updatedThread.queuedFollowUpEnabledTools
@@ -671,6 +680,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         tx.update(threadsTable)
           .set({
             headMessageId: thread.headMessageId ?? null,
+            memoryRecallState: serializeThreadMemoryRecallState(thread.memoryRecall),
             preview: thread.preview ?? null,
             queuedFollowUpEnabledTools: serializeEnabledTools(thread.queuedFollowUpEnabledTools),
             queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,

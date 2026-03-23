@@ -34,6 +34,7 @@ import type { WebSearchService } from '../../services/webSearch/webSearchService
 import type { BrowserWebPageSnapshotLoader } from '../../services/webRead/browserWebPageSnapshot.ts'
 import type { ModelRuntime } from '../../runtime/types.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
+import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 import { assertSupportedImages, resolveEnabledTools } from './configDomain.ts'
 import { executeServerRun, type RestartRunReason, type ExecuteRunResult } from './runExecution.ts'
 import {
@@ -43,7 +44,6 @@ import {
 } from './threadTitle.ts'
 import { resolveRetryRequest } from './threadDomain.ts'
 import { buildCompactThreadHandoffMessages } from '../../runtime/threadHandoff.ts'
-import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 import {
   DEFAULT_THREAD_TITLE,
   INTERRUPTED_RUN_ERROR,
@@ -680,13 +680,28 @@ export class YachiyoServerRunDomain {
             emit: this.deps.emit,
             createModelRuntime: this.deps.createModelRuntime,
             ensureThreadWorkspace: this.deps.ensureThreadWorkspace,
-            buildMemoryLayerEntries: (context) =>
-              this.deps.memoryService.recallForContext({
-                history: this.deps.loadThreadMessages(context.thread.id),
+            buildMemoryLayerEntries: async (context) => {
+              const branchHistory = collectMessagePath(
+                this.deps.loadThreadMessages(context.thread.id),
+                context.requestMessageId
+              )
+              const result = await this.deps.memoryService.recallForContext({
+                history: branchHistory,
+                now: context.thread.updatedAt,
                 signal: context.signal,
                 thread: context.thread,
                 userQuery: context.userQuery
-              }),
+              })
+              const persistedThread = this.deps.requireThread(context.thread.id)
+              this.deps.storage.updateThread({
+                ...persistedThread,
+                memoryRecall: result.thread.memoryRecall
+              })
+              return {
+                entries: result.entries,
+                recallDecision: result.decision
+              }
+            },
             fetchImpl: this.deps.fetchImpl,
             loadBrowserSnapshot: this.deps.loadBrowserSnapshot,
             memoryService: this.deps.memoryService,

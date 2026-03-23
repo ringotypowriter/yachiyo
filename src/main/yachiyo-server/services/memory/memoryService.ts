@@ -1,5 +1,6 @@
 import type {
   MessageRecord,
+  RecallDecisionSnapshot,
   TestMemoryConnectionResult,
   ProviderSettings,
   SettingsConfig,
@@ -14,6 +15,12 @@ import type {
   AuxiliaryTextGenerationResult
 } from '../../runtime/auxiliaryGeneration.ts'
 import type { ModelMessage, ModelRuntime } from '../../runtime/types.ts'
+import {
+  buildNextRecallState,
+  filterRecalledMemories,
+  shouldRecallBeforeRun,
+  type RecallFilterCandidate
+} from './recallPolicy.ts'
 
 export const HIDDEN_MEMORY_SEARCH_TOOL_NAME = 'memory_search'
 const DEFAULT_CONTEXT_MEMORY_LIMIT = 4
@@ -72,9 +79,16 @@ export interface MemoryProvider {
 
 export interface RecallMemoryInput {
   history: MessageRecord[]
+  now: string
   thread: ThreadRecord
   userQuery: string
   signal?: AbortSignal
+}
+
+export interface RecallForContextResult {
+  decision: RecallDecisionSnapshot
+  entries: string[]
+  thread: ThreadRecord
 }
 
 export interface SaveThreadMemoryInput {
@@ -99,7 +113,7 @@ export interface MemoryService {
     signal?: AbortSignal
   }): Promise<MemorySearchResult[]>
   testConnection(config?: SettingsConfig): Promise<TestMemoryConnectionResult>
-  recallForContext(input: RecallMemoryInput): Promise<string[]>
+  recallForContext(input: RecallMemoryInput): Promise<RecallForContextResult>
   distillCompletedRun(input: DistillRunMemoryInput): Promise<{ savedCount: number }>
   saveThread(input: SaveThreadMemoryInput): Promise<{ savedCount: number }>
 }
@@ -878,10 +892,29 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
       }
     },
 
-    async recallForContext(input: RecallMemoryInput): Promise<string[]> {
+    async recallForContext(input: RecallMemoryInput): Promise<RecallForContextResult> {
+      const decision = shouldRecallBeforeRun({
+        history: input.history,
+        now: input.now,
+        thread: input.thread,
+        userQuery: input.userQuery
+      })
       const provider = resolveProvider()
-      if (!provider) {
-        return []
+      if (!provider || !decision.shouldRecall) {
+        return {
+          decision,
+          entries: [],
+          thread: {
+            ...input.thread,
+            memoryRecall: buildNextRecallState({
+              didRecall: false,
+              decision,
+              history: input.history,
+              now: input.now,
+              thread: input.thread
+            })
+          }
+        }
       }
 
       try {
@@ -931,21 +964,69 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
           }
         }
 
-        return [...aggregated.values()]
+        const candidates = [...aggregated.values()]
           .map((entry) => ({
             entry: compactMemoryEntry(entry.result),
+            id:
+              entry.result.id ||
+              normalizeDedupKey({
+                title: entry.result.title ?? '',
+                content: entry.result.content
+              }),
             score: entry.score + (entry.matches - 1) * 0.15
           }))
-          .filter((entry): entry is { entry: string; score: number } => Boolean(entry.entry))
+          .filter(
+            (entry): entry is RecallFilterCandidate =>
+              typeof entry.entry === 'string' && entry.entry.length > 0
+          )
           .sort((left, right) => right.score - left.score)
           .slice(0, DEFAULT_CONTEXT_MEMORY_LIMIT)
-          .map((entry) => entry.entry)
+        const filtered = filterRecalledMemories({
+          candidates,
+          history: input.history,
+          now: input.now,
+          thread: input.thread,
+          userQuery: input.userQuery
+        })
+
+        return {
+          decision,
+          entries: filtered.entries,
+          thread: {
+            ...input.thread,
+            memoryRecall: buildNextRecallState({
+              didRecall: true,
+              decision,
+              history: input.history,
+              now: input.now,
+              recentInjections: filtered.recentInjections,
+              thread: input.thread
+            })
+          }
+        }
       } catch (error) {
         console.warn('[yachiyo][memory] recall failed; continuing without memory context', {
           error: error instanceof Error ? error.message : String(error),
           threadId: input.thread.id
         })
-        return []
+        return {
+          decision,
+          entries: [],
+          thread: {
+            ...input.thread,
+            memoryRecall: buildNextRecallState({
+              didRecall: false,
+              decision: {
+                ...decision,
+                shouldRecall: false,
+                reasons: [...decision.reasons, 'recall-failed']
+              },
+              history: input.history,
+              now: input.now,
+              thread: input.thread
+            })
+          }
+        }
       }
     },
 

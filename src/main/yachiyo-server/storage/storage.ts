@@ -1,6 +1,7 @@
 import type {
   MessageImageRecord,
   MessageRecord,
+  ThreadMemoryRecallState,
   MessageTextBlockRecord,
   RunRecord,
   ThreadRecord,
@@ -15,6 +16,7 @@ import { normalizeMessageImages } from '../../../shared/yachiyo/messageContent.t
 export interface StoredThreadRow {
   id: string
   title: string
+  memoryRecallState: string | null
   workspacePath: string | null
   preview: string | null
   branchFromThreadId: string | null
@@ -144,6 +146,7 @@ export function toThreadRecord(
     | 'archivedAt'
     | 'headMessageId'
     | 'id'
+    | 'memoryRecallState'
     | 'preview'
     | 'queuedFollowUpEnabledTools'
     | 'queuedFollowUpMessageId'
@@ -153,6 +156,7 @@ export function toThreadRecord(
   >
 ): ThreadRecord {
   const queuedFollowUpEnabledTools = parseEnabledTools(row.queuedFollowUpEnabledTools)
+  const memoryRecall = parseThreadMemoryRecallState(row.memoryRecallState)
 
   if (row.preview === null) {
     return {
@@ -160,6 +164,7 @@ export function toThreadRecord(
       ...(row.branchFromMessageId === null ? {} : { branchFromMessageId: row.branchFromMessageId }),
       ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
       ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
+      ...(memoryRecall ? { memoryRecall } : {}),
       ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
       ...(row.queuedFollowUpMessageId === null
         ? {}
@@ -176,6 +181,7 @@ export function toThreadRecord(
     ...(row.branchFromMessageId === null ? {} : { branchFromMessageId: row.branchFromMessageId }),
     ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
     ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
+    ...(memoryRecall ? { memoryRecall } : {}),
     ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
     ...(row.queuedFollowUpMessageId === null
       ? {}
@@ -236,6 +242,42 @@ export function serializeEnabledTools(enabledTools?: readonly ToolCallName[]): s
   return enabledTools ? JSON.stringify(normalizeEnabledTools(enabledTools)) : null
 }
 
+export function serializeThreadMemoryRecallState(state?: ThreadMemoryRecallState): string | null {
+  if (!state) {
+    return null
+  }
+
+  const recentInjections =
+    state.recentInjections
+      ?.filter(
+        (entry) =>
+          entry.memoryId.trim().length > 0 &&
+          entry.fingerprint.trim().length > 0 &&
+          entry.injectedAt.trim().length > 0 &&
+          Number.isFinite(entry.messageCount) &&
+          Number.isFinite(entry.charCount)
+      )
+      .map((entry) => ({
+        ...entry,
+        messageCount: Math.max(0, Math.trunc(entry.messageCount)),
+        charCount: Math.max(0, Math.trunc(entry.charCount))
+      })) ?? []
+
+  const normalized: ThreadMemoryRecallState = {
+    ...(state.lastRunAt?.trim() ? { lastRunAt: state.lastRunAt.trim() } : {}),
+    ...(state.lastRecallAt?.trim() ? { lastRecallAt: state.lastRecallAt.trim() } : {}),
+    ...(Number.isFinite(state.lastRecallMessageCount)
+      ? { lastRecallMessageCount: Math.max(0, Math.trunc(state.lastRecallMessageCount ?? 0)) }
+      : {}),
+    ...(Number.isFinite(state.lastRecallCharCount)
+      ? { lastRecallCharCount: Math.max(0, Math.trunc(state.lastRecallCharCount ?? 0)) }
+      : {}),
+    ...(recentInjections.length > 0 ? { recentInjections } : {})
+  }
+
+  return Object.keys(normalized).length > 0 ? JSON.stringify(normalized) : null
+}
+
 export function parseToolCallDetails(details: string | null): ToolCallDetailsSnapshot | undefined {
   if (!details) {
     return undefined
@@ -255,6 +297,58 @@ function parseEnabledTools(value: string | null): ToolCallName[] | undefined {
 
   try {
     return normalizeEnabledTools(JSON.parse(value))
+  } catch {
+    return undefined
+  }
+}
+
+function parseThreadMemoryRecallState(value: string | null): ThreadMemoryRecallState | undefined {
+  if (value === null) {
+    return undefined
+  }
+
+  try {
+    const parsed = JSON.parse(value) as ThreadMemoryRecallState
+    const recentInjections =
+      parsed.recentInjections
+        ?.filter(
+          (entry) =>
+            typeof entry.memoryId === 'string' &&
+            typeof entry.fingerprint === 'string' &&
+            typeof entry.injectedAt === 'string' &&
+            typeof entry.messageCount === 'number' &&
+            typeof entry.charCount === 'number'
+        )
+        .map((entry) => ({
+          ...entry,
+          memoryId: entry.memoryId.trim(),
+          fingerprint: entry.fingerprint.trim(),
+          injectedAt: entry.injectedAt.trim(),
+          messageCount: Math.max(0, Math.trunc(entry.messageCount)),
+          charCount: Math.max(0, Math.trunc(entry.charCount))
+        }))
+        .filter(
+          (entry) =>
+            entry.memoryId.length > 0 && entry.fingerprint.length > 0 && entry.injectedAt.length > 0
+        ) ?? []
+
+    const normalized: ThreadMemoryRecallState = {
+      ...(typeof parsed.lastRunAt === 'string' && parsed.lastRunAt.trim().length > 0
+        ? { lastRunAt: parsed.lastRunAt.trim() }
+        : {}),
+      ...(typeof parsed.lastRecallAt === 'string' && parsed.lastRecallAt.trim().length > 0
+        ? { lastRecallAt: parsed.lastRecallAt.trim() }
+        : {}),
+      ...(typeof parsed.lastRecallMessageCount === 'number'
+        ? { lastRecallMessageCount: Math.max(0, Math.trunc(parsed.lastRecallMessageCount)) }
+        : {}),
+      ...(typeof parsed.lastRecallCharCount === 'number'
+        ? { lastRecallCharCount: Math.max(0, Math.trunc(parsed.lastRecallCharCount)) }
+        : {}),
+      ...(recentInjections.length > 0 ? { recentInjections } : {})
+    }
+
+    return Object.keys(normalized).length > 0 ? normalized : undefined
   } catch {
     return undefined
   }

@@ -193,12 +193,13 @@ test('memory service derives stricter retrieval plans and ranks recalled context
     provider
   })
 
-  const entries = await service.recallForContext({
+  const result = await service.recallForContext({
     thread: {
       id: 'thread-1',
       title: 'Deploy thread',
       updatedAt: '2026-03-22T00:00:00.000Z'
     },
+    now: '2026-03-22T00:00:00.000Z',
     userQuery: 'How should I handle this deployment?',
     history: [
       {
@@ -231,10 +232,163 @@ test('memory service derives stricter retrieval plans and ranks recalled context
     String(auxiliaryRequests[0]?.messages[0]?.content),
     /Avoid time words, temporary status, and conversational framing/u
   )
-  assert.deepEqual(entries, [
+  assert.deepEqual(result.entries, [
     'Deploy workflow: Always run the staging smoke test before production-adjacent deploy review.',
     'Repo preference: Use the repo root for Yachiyo commands.'
   ])
+  assert.equal(result.decision.shouldRecall, true)
+})
+
+test('memory service skips provider recall when gating says the thread barely changed', async () => {
+  const searchCalls: string[] = []
+  const provider: MemoryProvider = {
+    async createMemories() {
+      return { savedCount: 0 }
+    },
+    async searchMemories({ query }) {
+      searchCalls.push(query)
+      return []
+    },
+    async updateMemory() {
+      return undefined
+    }
+  }
+  const service = createConfiguredService({
+    auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"queries":[]}' }),
+    provider
+  })
+
+  const result = await service.recallForContext({
+    thread: {
+      id: 'thread-1',
+      title: 'Deploy thread',
+      updatedAt: '2026-03-22T00:06:00.000Z',
+      memoryRecall: {
+        lastRunAt: '2026-03-22T00:05:00.000Z',
+        lastRecallAt: '2026-03-22T00:05:00.000Z',
+        lastRecallMessageCount: 4,
+        lastRecallCharCount: 76
+      }
+    },
+    now: '2026-03-22T00:06:00.000Z',
+    userQuery: 'ok continue',
+    history: [
+      {
+        id: 'm1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'Deploy checklist',
+        status: 'completed',
+        createdAt: '2026-03-22T00:00:00.000Z'
+      },
+      {
+        id: 'm2',
+        threadId: 'thread-1',
+        role: 'assistant',
+        content: 'Smoke test first',
+        status: 'completed',
+        createdAt: '2026-03-22T00:01:00.000Z'
+      },
+      {
+        id: 'm3',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'staging first',
+        status: 'completed',
+        createdAt: '2026-03-22T00:02:00.000Z'
+      },
+      {
+        id: 'm4',
+        threadId: 'thread-1',
+        role: 'assistant',
+        content: 'yes',
+        status: 'completed',
+        createdAt: '2026-03-22T00:03:00.000Z'
+      },
+      {
+        id: 'm5',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'ok continue',
+        status: 'completed',
+        createdAt: '2026-03-22T00:06:00.000Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(searchCalls, [])
+  assert.deepEqual(result.entries, [])
+  assert.equal(result.decision.shouldRecall, false)
+})
+
+test('memory service does not advance lastRecall markers when recall is gated on but no provider is available', async () => {
+  const disabled = createMemoryService({
+    auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"queries":[]}' }),
+    createModelRuntime: () => ({
+      async *streamReply() {
+        yield ''
+      }
+    }),
+    createProvider: () => {
+      throw new Error('should not construct provider while disabled')
+    },
+    readConfig: () => ({ providers: [] }),
+    readSettings: () => ({
+      providerName: 'main',
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'sk-main',
+      baseUrl: ''
+    })
+  })
+
+  const result = await disabled.recallForContext({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: '2026-03-23T09:00:00.000Z',
+      memoryRecall: {
+        lastRunAt: '2026-03-22T00:30:00.000Z',
+        lastRecallAt: '2026-03-22T00:30:00.000Z',
+        lastRecallMessageCount: 2,
+        lastRecallCharCount: 20
+      }
+    },
+    now: '2026-03-23T09:00:00.000Z',
+    userQuery: '我回来继续排查这个线程',
+    history: [
+      {
+        id: 'm1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: '前一天我们聊过 CI 故障',
+        status: 'completed',
+        createdAt: '2026-03-22T00:00:00.000Z'
+      },
+      {
+        id: 'm2',
+        threadId: 'thread-1',
+        role: 'assistant',
+        content: '嗯，继续吧',
+        status: 'completed',
+        createdAt: '2026-03-22T00:01:00.000Z'
+      },
+      {
+        id: 'm3',
+        threadId: 'thread-1',
+        role: 'user',
+        content: '我回来继续排查这个线程',
+        status: 'completed',
+        createdAt: '2026-03-23T09:00:00.000Z'
+      }
+    ]
+  })
+
+  assert.equal(result.decision.shouldRecall, true)
+  assert.equal(result.thread.memoryRecall?.lastRunAt, '2026-03-23T09:00:00.000Z')
+  assert.equal(result.thread.memoryRecall?.lastRecallAt, '2026-03-22T00:30:00.000Z')
+  assert.equal(result.thread.memoryRecall?.lastRecallMessageCount, 2)
+  assert.equal(result.thread.memoryRecall?.lastRecallCharCount, 20)
 })
 
 test('memory service can test Nowledge Mem connectivity and report missing CLI clearly', async () => {
