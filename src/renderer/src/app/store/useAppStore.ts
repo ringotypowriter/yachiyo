@@ -746,7 +746,8 @@ export const useAppStore = create<AppState>((set, get) => ({
             status: 'running',
             createdAt: run?.createdAt ?? event.timestamp,
             ...(event.requestMessageId ? { requestMessageId: event.requestMessageId } : {}),
-            recalledMemoryEntries: run?.recalledMemoryEntries
+            recalledMemoryEntries: run?.recalledMemoryEntries,
+            recallDecision: run?.recallDecision
           })),
           runPhase: 'preparing',
           runStatus: 'running'
@@ -759,7 +760,8 @@ export const useAppStore = create<AppState>((set, get) => ({
             state.latestRunsByThread[event.threadId]?.id === event.runId
               ? upsertLatestRun(state.latestRunsByThread, {
                   ...state.latestRunsByThread[event.threadId]!,
-                  recalledMemoryEntries: event.recalledMemoryEntries
+                  recalledMemoryEntries: event.recalledMemoryEntries,
+                  recallDecision: event.recallDecision
                 })
               : state.latestRunsByThread,
           runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
@@ -770,6 +772,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             createdAt: run?.createdAt ?? event.timestamp,
             ...(event.requestMessageId ? { requestMessageId: event.requestMessageId } : {}),
             recalledMemoryEntries: event.recalledMemoryEntries,
+            recallDecision: event.recallDecision,
             ...(run?.completedAt ? { completedAt: run.completedAt } : {}),
             ...(run?.error ? { error: run.error } : {})
           }))
@@ -900,6 +903,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             createdAt: existingLatestRun?.createdAt ?? event.timestamp,
             requestMessageId: existingLatestRun?.requestMessageId,
             recalledMemoryEntries: existingLatestRun?.recalledMemoryEntries,
+            recallDecision: existingLatestRun?.recallDecision,
             completedAt: event.timestamp
           }),
           runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
@@ -910,6 +914,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             createdAt: run?.createdAt ?? event.timestamp,
             requestMessageId: run?.requestMessageId,
             recalledMemoryEntries: run?.recalledMemoryEntries,
+            recallDecision: run?.recallDecision,
             completedAt: event.timestamp
           })),
           pendingAssistantMessages,
@@ -945,6 +950,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             createdAt: existingLatestRun?.createdAt ?? event.timestamp,
             requestMessageId: existingLatestRun?.requestMessageId,
             recalledMemoryEntries: existingLatestRun?.recalledMemoryEntries,
+            recallDecision: existingLatestRun?.recallDecision,
             completedAt: event.timestamp
           }),
           runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
@@ -956,6 +962,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             createdAt: run?.createdAt ?? event.timestamp,
             requestMessageId: run?.requestMessageId,
             recalledMemoryEntries: run?.recalledMemoryEntries,
+            recallDecision: run?.recallDecision,
             completedAt: event.timestamp
           })),
           messages: pending
@@ -999,6 +1006,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             createdAt: existingLatestRun?.createdAt ?? event.timestamp,
             requestMessageId: existingLatestRun?.requestMessageId,
             recalledMemoryEntries: existingLatestRun?.recalledMemoryEntries,
+            recallDecision: existingLatestRun?.recallDecision,
             completedAt: event.timestamp
           }),
           runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
@@ -1009,6 +1017,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             createdAt: run?.createdAt ?? event.timestamp,
             requestMessageId: run?.requestMessageId,
             recalledMemoryEntries: run?.recalledMemoryEntries,
+            recallDecision: run?.recallDecision,
             completedAt: event.timestamp
           })),
           messages: pending

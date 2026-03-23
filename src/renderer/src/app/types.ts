@@ -9,6 +9,7 @@ export type {
   MessageImageRecord,
   MessageTextBlockRecord,
   ProviderSettings,
+  RecallDecisionSnapshot,
   ReadToolCallDetails,
   RunRecord,
   RunStatus,

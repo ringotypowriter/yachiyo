@@ -210,11 +210,29 @@ test('detectNoveltySignal is Chinese-aware and keeps mixed English technical ter
   })
 
   assert.equal(novelty.noveltyScore > 0.62, true)
-  assert.equal(novelty.novelTerms.includes('mcp'), true)
+  assert.equal(
+    novelty.novelTerms.some((term) => term.includes('mcp')),
+    true
+  )
   assert.equal(
     novelty.novelTerms.some((term) => term.includes('调度')),
     true
   )
+})
+
+test('detectNoveltySignal filters low-signal Chinese filler fragments from debug terms', () => {
+  const novelty = detectNoveltySignal({
+    history: [
+      createMessage({
+        id: 'm1',
+        createdAt: '2026-03-23T00:00:00.000Z',
+        content: '用户刚才在问系统提示词和 general 规则'
+      })
+    ],
+    userQuery: '感觉这不是重点'
+  })
+
+  assert.deepEqual(novelty.novelTerms, [])
 })
 
 test('filterRecalledMemories suppresses recently injected memories but allows them back after enough distance', () => {

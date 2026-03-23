@@ -20,7 +20,17 @@ test('findRunMemorySummary returns the latest recalled memory for a request', ()
         status: 'completed',
         createdAt: '2026-03-22T00:00:01.000Z',
         requestMessageId: 'user-1',
-        recalledMemoryEntries: ['newer']
+        recalledMemoryEntries: ['newer'],
+        recallDecision: {
+          shouldRecall: true,
+          score: 0.6,
+          reasons: ['char-growth'],
+          messagesSinceLastRecall: 3,
+          charsSinceLastRecall: 1200,
+          idleMs: 0,
+          noveltyScore: 0.2,
+          novelTerms: []
+        }
       }
     ],
     'user-1'
@@ -28,7 +38,17 @@ test('findRunMemorySummary returns the latest recalled memory for a request', ()
 
   assert.deepEqual(summary, {
     runId: 'run-2',
-    entries: ['newer']
+    entries: ['newer'],
+    recallDecision: {
+      shouldRecall: true,
+      score: 0.6,
+      reasons: ['char-growth'],
+      messagesSinceLastRecall: 3,
+      charsSinceLastRecall: 1200,
+      idleMs: 0,
+      noveltyScore: 0.2,
+      novelTerms: []
+    }
   })
 })
 

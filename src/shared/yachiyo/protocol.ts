@@ -427,6 +427,7 @@ export interface RunRecord {
   completedAt?: string
   requestMessageId?: string
   recalledMemoryEntries?: string[]
+  recallDecision?: RecallDecisionSnapshot
 }
 
 export interface ChatAcceptedWithUserMessage {

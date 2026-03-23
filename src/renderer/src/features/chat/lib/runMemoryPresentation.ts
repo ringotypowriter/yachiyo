@@ -1,7 +1,9 @@
+import type { RecallDecisionSnapshot } from '@renderer/app/types'
 import type { RunRecord } from '@renderer/app/types'
 
 export interface RunMemorySummary {
   entries: string[]
+  recallDecision?: RecallDecisionSnapshot
   runId: string
 }
 
@@ -23,6 +25,7 @@ export function findRunMemorySummary(
 
     return {
       entries,
+      recallDecision: run.recallDecision,
       runId: run.id
     }
   }

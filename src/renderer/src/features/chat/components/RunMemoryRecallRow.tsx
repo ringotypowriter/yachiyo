@@ -1,15 +1,41 @@
 import type React from 'react'
 import { useId, useState } from 'react'
 import { Brain, ChevronRight } from 'lucide-react'
+import type { RecallDecisionSnapshot } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 
 interface RunMemoryRecallRowProps {
   entries: string[]
+  recallDecision?: RecallDecisionSnapshot
 }
 
-export function RunMemoryRecallRow({ entries }: RunMemoryRecallRowProps): React.JSX.Element {
+function formatReason(reason: string): string {
+  switch (reason) {
+    case 'thread-cold-start':
+      return 'new thread'
+    case 'message-growth':
+      return 'message growth'
+    case 'char-growth':
+      return 'context growth'
+    case 'idle-gap':
+      return 'idle gap'
+    case 'topic-novelty':
+      return 'new topic'
+    case 'recall-failed':
+      return 'recall failed'
+    default:
+      return reason
+  }
+}
+
+export function RunMemoryRecallRow({
+  entries,
+  recallDecision
+}: RunMemoryRecallRowProps): React.JSX.Element {
   const [isExpanded, setIsExpanded] = useState(false)
   const detailsId = useId()
+  const reasons = recallDecision?.reasons?.map(formatReason) ?? []
+  const debugLabel = reasons.length > 0 ? reasons.join(', ') : 'manual/unknown'
 
   return (
     <div className="px-6 pb-1">
@@ -36,6 +62,7 @@ export function RunMemoryRecallRow({ entries }: RunMemoryRecallRowProps): React.
         <span style={{ fontSize: '11px' }}>
           {entries.length} recalled {entries.length === 1 ? 'memory' : 'memories'}
         </span>
+        <span style={{ color: theme.text.placeholder, fontSize: '11px' }}>· {debugLabel}</span>
         <ChevronRight
           size={11}
           strokeWidth={1.8}
@@ -68,6 +95,21 @@ export function RunMemoryRecallRow({ entries }: RunMemoryRecallRowProps): React.
           >
             Memory used for this run
           </div>
+          <div
+            className="mb-3 text-[11px]"
+            style={{ color: theme.text.placeholder, lineHeight: 1.5 }}
+          >
+            Reason: {debugLabel}
+            {typeof recallDecision?.messagesSinceLastRecall === 'number' ? (
+              <> · +{recallDecision.messagesSinceLastRecall} msgs</>
+            ) : null}
+            {typeof recallDecision?.charsSinceLastRecall === 'number' ? (
+              <> · +{recallDecision.charsSinceLastRecall} chars</>
+            ) : null}
+            {typeof recallDecision?.noveltyScore === 'number' ? (
+              <> · novelty {recallDecision.noveltyScore.toFixed(2)}</>
+            ) : null}
+          </div>
           <div className="flex flex-col gap-2">
             {entries.map((entry) => (
               <div key={entry} className="flex gap-2" style={{ fontSize: '12px', lineHeight: 1.5 }}>
@@ -78,6 +120,14 @@ export function RunMemoryRecallRow({ entries }: RunMemoryRecallRowProps): React.
               </div>
             ))}
           </div>
+          {recallDecision?.novelTerms && recallDecision.novelTerms.length > 0 ? (
+            <div
+              className="mt-3 text-[11px]"
+              style={{ color: theme.text.placeholder, lineHeight: 1.5 }}
+            >
+              Novel terms: {recallDecision.novelTerms.join(', ')}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

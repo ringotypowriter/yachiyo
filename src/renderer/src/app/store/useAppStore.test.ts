@@ -147,7 +147,17 @@ test('applyServerEvent stores recalled memory on the matching run', () => {
     threadId: 'thread-1',
     runId: 'run-1',
     requestMessageId: 'user-1',
-    recalledMemoryEntries: ['Deploys start with staging smoke tests.']
+    recalledMemoryEntries: ['Deploys start with staging smoke tests.'],
+    recallDecision: {
+      shouldRecall: true,
+      score: 0.65,
+      reasons: ['topic-novelty'],
+      messagesSinceLastRecall: 1,
+      charsSinceLastRecall: 42,
+      idleMs: 0,
+      noveltyScore: 0.75,
+      novelTerms: ['system prompt', 'general']
+    }
   })
 
   const state = useAppStore.getState()
@@ -159,7 +169,17 @@ test('applyServerEvent stores recalled memory on the matching run', () => {
       status: 'running',
       createdAt: TIMESTAMP,
       requestMessageId: 'user-1',
-      recalledMemoryEntries: ['Deploys start with staging smoke tests.']
+      recalledMemoryEntries: ['Deploys start with staging smoke tests.'],
+      recallDecision: {
+        shouldRecall: true,
+        score: 0.65,
+        reasons: ['topic-novelty'],
+        messagesSinceLastRecall: 1,
+        charsSinceLastRecall: 42,
+        idleMs: 0,
+        noveltyScore: 0.75,
+        novelTerms: ['system prompt', 'general']
+      }
     }
   ])
   assert.deepEqual(state.latestRunsByThread['thread-1'], {
@@ -168,7 +188,17 @@ test('applyServerEvent stores recalled memory on the matching run', () => {
     status: 'running',
     createdAt: TIMESTAMP,
     requestMessageId: 'user-1',
-    recalledMemoryEntries: ['Deploys start with staging smoke tests.']
+    recalledMemoryEntries: ['Deploys start with staging smoke tests.'],
+    recallDecision: {
+      shouldRecall: true,
+      score: 0.65,
+      reasons: ['topic-novelty'],
+      messagesSinceLastRecall: 1,
+      charsSinceLastRecall: 42,
+      idleMs: 0,
+      noveltyScore: 0.75,
+      novelTerms: ['system prompt', 'general']
+    }
   })
 })
 

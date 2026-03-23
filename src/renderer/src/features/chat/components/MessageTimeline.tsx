@@ -219,7 +219,13 @@ export function ThreadConversationGroup({
         const nextItem = timelineItems[index + 1]
 
         if (item.kind === 'memory-recall' && memorySummary) {
-          return <RunMemoryRecallRow key={item.key} entries={memorySummary.entries} />
+          return (
+            <RunMemoryRecallRow
+              key={item.key}
+              entries={memorySummary.entries}
+              recallDecision={memorySummary.recallDecision}
+            />
+          )
         }
 
         if (item.kind === 'tool-call') {

@@ -19,6 +19,7 @@ export interface RecallNoveltySignal {
 export interface RecallDecisionInput {
   history: MessageRecord[]
   now: string
+  novelty?: RecallNoveltySignal
   thread: ThreadRecord
   userQuery: string
 }
@@ -43,7 +44,7 @@ export interface RecallFilterResult {
 }
 
 const GROWTH_MESSAGE_THRESHOLD = 4
-const GROWTH_CHAR_THRESHOLD = 900
+const GROWTH_CHAR_THRESHOLD = 4096
 const IDLE_RECALL_MS = 1000 * 60 * 60 * 6
 const RECENT_INJECTION_MESSAGE_WINDOW = 4
 const RECENT_INJECTION_CHAR_WINDOW = 900
@@ -51,92 +52,13 @@ const RECENT_INJECTION_SCORE_BOOST = 0.22
 const MAX_RECENT_INJECTIONS = 16
 const MAX_NOVEL_TERMS = 6
 const RECENT_CONTEXT_MESSAGE_LIMIT = 6
-const CJK_SEGMENT_PATTERN = /[\u3400-\u9fff]+/gu
-const LATIN_TERM_PATTERN = /[A-Za-z][A-Za-z0-9._:/-]*/gu
+const WORD_SEGMENTER = new Intl.Segmenter('zh-Hans', { granularity: 'word' })
+const CLAUSE_SPLIT_PATTERN = /[\n\r,，.。!！?？:：;；、()（）【】[\]{}"'`]+/u
 
-const CHINESE_STOPWORDS = new Set([
-  '这个',
-  '那个',
-  '这样',
-  '那样',
-  '一下',
-  '一个',
-  '一些',
-  '已经',
-  '现在',
-  '还是',
-  '就是',
-  '然后',
-  '如果',
-  '因为',
-  '所以',
-  '我们',
-  '你们',
-  '他们',
-  '还有',
-  '另外',
-  '顺便',
-  '换个',
-  '问题',
-  '这里',
-  '这个问题',
-  '那个问题',
-  '需要',
-  '可以',
-  '怎么',
-  '怎样',
-  '是否',
-  '一下子'
-])
-
-const ENGLISH_STOPWORDS = new Set([
-  'ok',
-  'okay',
-  'the',
-  'and',
-  'for',
-  'with',
-  'that',
-  'this',
-  'from',
-  'into',
-  'about',
-  'there',
-  'their',
-  'have',
-  'should',
-  'would',
-  'could',
-  'what',
-  'when',
-  'where',
-  'which',
-  'while',
-  'also',
-  'just',
-  'another',
-  'question',
-  'issue',
-  'problem',
-  'please',
-  'help',
-  'continue'
-])
-
-const TOPIC_SHIFT_CUES = [
-  '另外',
-  '顺便',
-  '回头说',
-  '换个问题',
-  '还有一个',
-  '另一个',
-  '换个话题',
-  'by the way',
-  'another question',
-  'switching gears',
-  'separately',
-  'also'
-] as const
+interface TopicToken {
+  value: string
+  hasLatinOrDigit: boolean
+}
 
 function normalizeText(value: string): string {
   return value.normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim()
@@ -153,46 +75,113 @@ export function buildRecallThreadMetrics(history: MessageRecord[]): RecallThread
   }
 }
 
-function extractCjkTerms(value: string): string[] {
-  const terms: string[] = []
+function isWordLikeToken(value: string): boolean {
+  return /[\p{Letter}\p{Number}\u3400-\u9fff]/u.test(value)
+}
 
-  for (const segment of value.match(CJK_SEGMENT_PATTERN) ?? []) {
-    if (segment.length < 2) {
+function normalizeToken(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/^[^\p{Letter}\p{Number}\u3400-\u9fff]+|[^\p{Letter}\p{Number}\u3400-\u9fff]+$/gu, '')
+}
+
+function extractTopicTokens(value: string): TopicToken[] {
+  const tokens: TopicToken[] = []
+
+  for (const { segment, isWordLike } of WORD_SEGMENTER.segment(value)) {
+    if (!isWordLike && !isWordLikeToken(segment)) {
       continue
     }
 
-    if (segment.length <= 6 && !CHINESE_STOPWORDS.has(segment)) {
-      terms.push(segment)
+    const normalized = normalizeToken(segment)
+    if (normalized.length < 2) {
+      continue
     }
 
-    for (let size = 2; size <= 3; size += 1) {
-      if (segment.length < size) {
+    tokens.push({
+      value: normalized,
+      hasLatinOrDigit: /[a-z0-9]/u.test(normalized)
+    })
+  }
+
+  return tokens
+}
+
+function splitClauses(value: string): string[] {
+  return value
+    .split(CLAUSE_SPLIT_PATTERN)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+}
+
+function clauseHasSignal(tokens: TopicToken[]): boolean {
+  if (tokens.length === 0) {
+    return false
+  }
+
+  if (tokens.some((token) => token.hasLatinOrDigit)) {
+    return true
+  }
+
+  const maxTokenLength = Math.max(...tokens.map((token) => token.value.length))
+  const totalLength = tokens.reduce((sum, token) => sum + token.value.length, 0)
+
+  return maxTokenLength >= 4 || totalLength >= 8 || tokens.length >= 4
+}
+
+function joinPhraseTokens(tokens: TopicToken[]): string {
+  return tokens.every((token) => !token.hasLatinOrDigit)
+    ? tokens.map((token) => token.value).join('')
+    : tokens.map((token) => token.value).join(' ')
+}
+
+function buildTopicCandidates(value: string): string[] {
+  const candidates: string[] = []
+
+  for (const clause of splitClauses(value)) {
+    const tokens = extractTopicTokens(clause)
+    if (!clauseHasSignal(tokens)) {
+      continue
+    }
+
+    for (let index = 0; index < tokens.length; index += 1) {
+      const single = tokens[index]
+      if (!single) {
         continue
       }
 
-      for (let index = 0; index <= segment.length - size; index += 1) {
-        const token = segment.slice(index, index + size)
-        if (!CHINESE_STOPWORDS.has(token)) {
-          terms.push(token)
+      if (single.hasLatinOrDigit || single.value.length >= 4) {
+        candidates.push(single.value)
+      }
+
+      for (let span = 2; span <= 3; span += 1) {
+        const slice = tokens.slice(index, index + span)
+        if (slice.length < span) {
+          continue
         }
+
+        const totalLength = slice.reduce((sum, token) => sum + token.value.length, 0)
+        const longestTokenLength = Math.max(...slice.map((token) => token.value.length))
+        if (
+          totalLength < 5 ||
+          (longestTokenLength < 3 && !slice.some((token) => token.hasLatinOrDigit))
+        ) {
+          continue
+        }
+
+        candidates.push(joinPhraseTokens(slice))
       }
     }
   }
 
-  return terms
-}
-
-function extractLatinTerms(value: string): string[] {
-  return (value.match(LATIN_TERM_PATTERN) ?? [])
-    .map((term) => term.toLowerCase())
-    .filter((term) => term.length >= 2 && !ENGLISH_STOPWORDS.has(term))
+  return candidates
 }
 
 function uniqueTerms(value: string): string[] {
   const seen = new Set<string>()
   const terms: string[] = []
 
-  for (const term of [...extractCjkTerms(value), ...extractLatinTerms(value)]) {
+  for (const term of buildTopicCandidates(value)) {
     if (seen.has(term)) {
       continue
     }
@@ -205,9 +194,23 @@ function uniqueTerms(value: string): string[] {
 }
 
 function scoreTerm(term: string): number {
-  const latinBoost = /[a-z]/u.test(term) ? 3 : 0
-  const shortPenalty = term.length <= 2 ? 0.5 : 0
-  return term.length + latinBoost - shortPenalty
+  const latinBoost = /[a-z0-9]/u.test(term) ? 2 : 0
+  const phraseBoost = /\s/u.test(term) || term.length >= 5 ? 1.5 : 0
+  return term.length + latinBoost + phraseBoost
+}
+
+function filterOverlappingTerms(terms: string[]): string[] {
+  const kept: string[] = []
+
+  for (const term of terms) {
+    if (kept.some((existing) => existing.includes(term) || term.includes(existing))) {
+      continue
+    }
+
+    kept.push(term)
+  }
+
+  return kept
 }
 
 export function detectNoveltySignal(input: {
@@ -231,15 +234,12 @@ export function detectNoveltySignal(input: {
     return { noveltyScore: 0, novelTerms: [] }
   }
 
-  const novelTerms = queryTerms
-    .filter((term) => !contextTerms.has(term))
-    .sort((left, right) => scoreTerm(right) - scoreTerm(left))
-    .slice(0, MAX_NOVEL_TERMS)
-  const topicShiftBoost = TOPIC_SHIFT_CUES.some((cue) => normalizedQuery.includes(cue)) ? 0.2 : 0
-  const noveltyScore = Math.min(
-    1,
-    novelTerms.length / Math.max(2, Math.min(queryTerms.length, 6)) + topicShiftBoost
-  )
+  const novelTerms = filterOverlappingTerms(
+    queryTerms
+      .filter((term) => !contextTerms.has(term))
+      .sort((left, right) => scoreTerm(right) - scoreTerm(left))
+  ).slice(0, MAX_NOVEL_TERMS)
+  const noveltyScore = Math.min(1, novelTerms.length / Math.max(2, Math.min(queryTerms.length, 6)))
 
   return {
     noveltyScore,
@@ -267,10 +267,12 @@ function isColdStartThread(input: { history: MessageRecord[]; thread: ThreadReco
 
 export function shouldRecallBeforeRun(input: RecallDecisionInput): RecallDecisionSnapshot {
   const metrics = buildRecallThreadMetrics(input.history)
-  const novelty = detectNoveltySignal({
-    history: input.history,
-    userQuery: input.userQuery
-  })
+  const novelty =
+    input.novelty ??
+    detectNoveltySignal({
+      history: input.history,
+      userQuery: input.userQuery
+    })
   const state = input.thread.memoryRecall
   const messagesSinceLastRecall = Math.max(
     0,
