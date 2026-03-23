@@ -86,6 +86,8 @@ export function ThreadList(): React.JSX.Element {
   const archiveThread = useAppStore((s) => s.archiveThread)
   const archivedThreads = useAppStore((s) => s.archivedThreads)
   const compactThreadToAnotherThread = useAppStore((s) => s.compactThreadToAnotherThread)
+  const activeRunThreadId = useAppStore((s) => s.activeRunThreadId)
+  const cancelActiveRun = useAppStore((s) => s.cancelActiveRun)
   const deleteThread = useAppStore((s) => s.deleteThread)
   const renameThread = useAppStore((s) => s.renameThread)
   const restoreThread = useAppStore((s) => s.restoreThread)
@@ -140,6 +142,14 @@ export function ThreadList(): React.JSX.Element {
         return
       }
 
+      if (activeRunThreadId === thread.id) {
+        if (!window.confirm(`"${thread.title}" has an active run. Cancel the run and delete?`)) {
+          return
+        }
+        await cancelActiveRun()
+        await deleteThread(thread.id)
+        return
+      }
       if (window.confirm(`Delete "${thread.title}" permanently?`)) {
         await deleteThread(thread.id)
       }
