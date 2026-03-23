@@ -1386,7 +1386,7 @@ test('YachiyoServer accepts active-run steer as an ordinary message and forwards
 
       assert.equal(steerAccepted.kind, 'active-run-steer')
       assert.equal(steerAccepted.runId, accepted.runId)
-      assert.equal(messages.length, 3)
+      assert.equal(messages.length, 4)
       assert.equal(messages[0]?.content, 'Start with the code path')
       assert.equal(messages[1]?.content, 'Use the screenshot instead')
       assert.deepEqual(messages[1]?.images, [
@@ -1397,7 +1397,9 @@ test('YachiyoServer accepts active-run steer as an ordinary message and forwards
         }
       ])
       assert.equal(messages[2]?.role, 'assistant')
-      assert.equal(messages[2]?.parentMessageId, steerAccepted.userMessage.id)
+      assert.equal(messages[2]?.status, 'stopped')
+      assert.equal(messages[3]?.role, 'assistant')
+      assert.equal(messages[3]?.parentMessageId, steerAccepted.userMessage.id)
       assert.deepEqual(requests[1]?.messages.at(-1), {
         role: 'user',
         content: [
@@ -1440,6 +1442,72 @@ test('YachiyoServer accepts active-run steer as an ordinary message and forwards
 
           yield 'Steered'
           yield ' reply'
+        }
+      })
+    }
+  )
+})
+
+test('steer during generation preserves partial assistant content as a stopped message', async () => {
+  let attempt = 0
+
+  await withServer(
+    async ({ server, completeRun, waitForEvent }) => {
+      await server.upsertProvider({
+        name: 'default',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: { enabled: ['gpt-5'], disabled: [] }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Tell me something long'
+      })
+
+      await waitForEvent('message.delta')
+
+      const steerAccepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Never mind, do this instead',
+        mode: 'steer'
+      })
+
+      await completeRun(accepted.runId)
+
+      const bootstrap = await server.bootstrap()
+      const messages = bootstrap.messagesByThread[thread.id] ?? []
+
+      assert.equal(steerAccepted.kind, 'active-run-steer')
+
+      const partialMsg = messages.find((m) => m.role === 'assistant' && m.status === 'stopped')
+      assert.ok(partialMsg, 'partial assistant message should exist')
+      assert.ok(partialMsg.content.length > 0, 'partial content should be non-empty')
+      assert.equal(partialMsg.status, 'stopped')
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          if (attempt === 0) {
+            attempt += 1
+            yield 'Here is the partial answer'
+            await new Promise((_, reject) => {
+              const abort = (): void => {
+                const error = new Error('Aborted')
+                error.name = 'AbortError'
+                reject(error)
+              }
+              if (request.signal.aborted) {
+                abort()
+                return
+              }
+              request.signal.addEventListener('abort', abort, { once: true })
+            })
+            return
+          }
+          yield 'New answer'
         }
       })
     }

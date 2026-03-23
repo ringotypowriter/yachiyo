@@ -766,6 +766,38 @@ export async function executeServerRun(
       const timestamp = deps.timestamp()
 
       if (isRestartRunReason(restartReason)) {
+        if (buffer.length > 0 && input.requestMessageId) {
+          const currentThread = deps.readThread(input.thread.id)
+          const partialAssistantMessage: MessageRecord = {
+            id: messageId,
+            threadId: input.thread.id,
+            parentMessageId: input.requestMessageId,
+            role: 'assistant',
+            content: buffer,
+            ...(textBlocks.length > 0 ? { textBlocks } : {}),
+            status: 'stopped',
+            createdAt: timestamp,
+            modelId: settings.model,
+            providerName: settings.providerName
+          }
+          deps.storage.saveThreadMessage({
+            thread: currentThread,
+            updatedThread: currentThread,
+            message: partialAssistantMessage
+          })
+          deps.emit<MessageCompletedEvent>({
+            type: 'message.completed',
+            threadId: input.thread.id,
+            runId: input.runId,
+            message: partialAssistantMessage
+          })
+          bindCompletedToolCallsToAssistant(deps, toolCalls, {
+            threadId: input.thread.id,
+            runId: input.runId,
+            assistantMessageId: messageId
+          })
+        }
+
         deps.emit<HarnessFinishedEvent>({
           type: 'harness.finished',
           threadId: input.thread.id,
