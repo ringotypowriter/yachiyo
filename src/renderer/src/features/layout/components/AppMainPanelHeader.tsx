@@ -1,4 +1,4 @@
-import { PanelLeft } from 'lucide-react'
+import { PanelLeft, PanelRight } from 'lucide-react'
 import type { Thread } from '@renderer/app/types'
 import { ThreadHeaderActions } from '@renderer/features/layout/components/ThreadHeaderActions'
 import { ThreadHeaderTitle } from '@renderer/features/layout/components/ThreadHeaderTitle'
@@ -9,11 +9,13 @@ export interface AppMainPanelHeaderProps {
   activeThread: Thread | null
   headerPaddingLeft: number
   isBootstrapping: boolean
+  isInspectionPanelOpen: boolean
   isMemoryEnabled: boolean
   isSidebarToggleDisabled: boolean
   messageCount: number
   onOpenThreadWorkspace: () => Promise<void>
   onSelectThreadOperation: (operationKey: ThreadContextOperationKey) => void
+  onToggleInspectionPanel: () => void
   onToggleSidebar: () => void
   showSidebarToggle: boolean
   toggleSidebarTitle: string
@@ -23,11 +25,13 @@ export function AppMainPanelHeader({
   activeThread,
   headerPaddingLeft,
   isBootstrapping,
+  isInspectionPanelOpen,
   isMemoryEnabled,
   isSidebarToggleDisabled,
   messageCount,
   onOpenThreadWorkspace,
   onSelectThreadOperation,
+  onToggleInspectionPanel,
   onToggleSidebar,
   showSidebarToggle,
   toggleSidebarTitle
@@ -63,12 +67,29 @@ export function AppMainPanelHeader({
         />
       </div>
 
-      <ThreadHeaderActions
-        activeThread={activeThread}
-        isMemoryEnabled={isMemoryEnabled}
-        isRenameDisabled={false}
-        onSelectOperation={onSelectThreadOperation}
-      />
+      <div className="flex items-center gap-1 no-drag">
+        {activeThread ? (
+          <button
+            onClick={onToggleInspectionPanel}
+            className="p-1.5 rounded-md transition-opacity no-drag shrink-0"
+            style={{
+              color: isInspectionPanelOpen ? theme.text.accent : theme.icon.default,
+              opacity: isInspectionPanelOpen ? 1 : 0.45
+            }}
+            title={isInspectionPanelOpen ? 'Close run inspector' : 'Open run inspector'}
+            aria-label={isInspectionPanelOpen ? 'Close run inspector' : 'Open run inspector'}
+            aria-pressed={isInspectionPanelOpen}
+          >
+            <PanelRight size={16} strokeWidth={1.5} />
+          </button>
+        ) : null}
+        <ThreadHeaderActions
+          activeThread={activeThread}
+          isMemoryEnabled={isMemoryEnabled}
+          isRenameDisabled={false}
+          onSelectOperation={onSelectThreadOperation}
+        />
+      </div>
     </div>
   )
 }

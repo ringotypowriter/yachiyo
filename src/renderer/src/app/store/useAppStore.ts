@@ -779,6 +779,28 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
 
+      if (event.type === 'run.context.compiled') {
+        return {
+          latestRunsByThread:
+            state.latestRunsByThread[event.threadId]?.id === event.runId
+              ? upsertLatestRun(state.latestRunsByThread, {
+                  ...state.latestRunsByThread[event.threadId]!,
+                  contextSources: event.contextSources
+                })
+              : state.latestRunsByThread,
+          runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
+            ...run,
+            id: event.runId,
+            threadId: event.threadId,
+            status: run?.status ?? 'running',
+            createdAt: run?.createdAt ?? event.timestamp,
+            contextSources: event.contextSources,
+            ...(run?.completedAt ? { completedAt: run.completedAt } : {}),
+            ...(run?.error ? { error: run.error } : {})
+          }))
+        }
+      }
+
       if (event.type === 'message.started') {
         const nextMessage: Message = {
           id: event.messageId,
@@ -904,6 +926,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             requestMessageId: existingLatestRun?.requestMessageId,
             recalledMemoryEntries: existingLatestRun?.recalledMemoryEntries,
             recallDecision: existingLatestRun?.recallDecision,
+            contextSources: existingLatestRun?.contextSources,
             completedAt: event.timestamp
           }),
           runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
@@ -915,6 +938,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             requestMessageId: run?.requestMessageId,
             recalledMemoryEntries: run?.recalledMemoryEntries,
             recallDecision: run?.recallDecision,
+            contextSources: run?.contextSources,
             completedAt: event.timestamp
           })),
           pendingAssistantMessages,
@@ -951,6 +975,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             requestMessageId: existingLatestRun?.requestMessageId,
             recalledMemoryEntries: existingLatestRun?.recalledMemoryEntries,
             recallDecision: existingLatestRun?.recallDecision,
+            contextSources: existingLatestRun?.contextSources,
             completedAt: event.timestamp
           }),
           runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
@@ -963,6 +988,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             requestMessageId: run?.requestMessageId,
             recalledMemoryEntries: run?.recalledMemoryEntries,
             recallDecision: run?.recallDecision,
+            contextSources: run?.contextSources,
             completedAt: event.timestamp
           })),
           messages: pending
@@ -1007,6 +1033,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             requestMessageId: existingLatestRun?.requestMessageId,
             recalledMemoryEntries: existingLatestRun?.recalledMemoryEntries,
             recallDecision: existingLatestRun?.recallDecision,
+            contextSources: existingLatestRun?.contextSources,
             completedAt: event.timestamp
           }),
           runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
@@ -1018,6 +1045,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             requestMessageId: run?.requestMessageId,
             recalledMemoryEntries: run?.recalledMemoryEntries,
             recallDecision: run?.recallDecision,
+            contextSources: run?.contextSources,
             completedAt: event.timestamp
           })),
           messages: pending

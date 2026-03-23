@@ -359,6 +359,24 @@ export interface RecallDecisionSnapshot {
   novelTerms: string[]
 }
 
+export type RunContextSourceKind =
+  | 'persona'
+  | 'soul'
+  | 'user'
+  | 'agent'
+  | 'memory'
+  | 'handoff'
+  | 'hint'
+  | 'toolReminder'
+
+export interface RunContextSourceSummary {
+  kind: RunContextSourceKind
+  present: boolean
+  summary?: string
+  count?: number
+  reasons?: string[]
+}
+
 export interface BrowserBackedWebSearchSessionConfig {
   sourceBrowser?: BrowserSearchImportSourceId
   sourceProfileName?: string
@@ -428,6 +446,7 @@ export interface RunRecord {
   requestMessageId?: string
   recalledMemoryEntries?: string[]
   recallDecision?: RecallDecisionSnapshot
+  contextSources?: RunContextSourceSummary[]
 }
 
 export interface ChatAcceptedWithUserMessage {
@@ -576,6 +595,11 @@ export interface RunMemoryRecalledEvent extends RunEvent {
   recallDecision?: RecallDecisionSnapshot
 }
 
+export interface RunContextCompiledEvent extends RunEvent {
+  type: 'run.context.compiled'
+  contextSources: RunContextSourceSummary[]
+}
+
 export interface RunCompletedEvent extends RunEvent {
   type: 'run.completed'
 }
@@ -640,6 +664,7 @@ export type YachiyoServerEvent =
   | ThreadDeletedEvent
   | RunCreatedEvent
   | RunMemoryRecalledEvent
+  | RunContextCompiledEvent
   | RunCompletedEvent
   | RunFailedEvent
   | RunCancelledEvent

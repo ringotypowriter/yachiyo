@@ -11,6 +11,7 @@ export type {
   ProviderSettings,
   RecallDecisionSnapshot,
   ReadToolCallDetails,
+  RunContextSourceSummary,
   RunRecord,
   RunStatus,
   SendChatMode,

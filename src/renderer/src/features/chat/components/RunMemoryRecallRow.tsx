@@ -133,9 +133,6 @@ export function RunMemoryRecallRow({
             {typeof recallDecision?.charsSinceLastRecall === 'number' ? (
               <> · +{recallDecision.charsSinceLastRecall} chars</>
             ) : null}
-            {typeof recallDecision?.noveltyScore === 'number' ? (
-              <> · novelty {recallDecision.noveltyScore.toFixed(2)}</>
-            ) : null}
           </div>
           <div className="flex flex-col gap-2">
             {entries.map((entry) => (

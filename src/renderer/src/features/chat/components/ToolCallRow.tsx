@@ -1,5 +1,5 @@
 import type React from 'react'
-import { useId, useState } from 'react'
+import { Fragment, useId, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import type { ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
@@ -25,7 +25,9 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
       ? theme.text.accent
       : theme.status.success
   const presentation = buildToolCallDetailsPresentation(toolCall)
-  const hasExpandableDetails = presentation.fields.length > 0 || presentation.codeBlocks.length > 0
+  // Only show secondary-tier blocks inline; inspection-tier blocks belong in the run inspector
+  const secondaryCodeBlocks = presentation.codeBlocks.filter((b) => b.displayTier !== 'inspection')
+  const hasExpandableDetails = presentation.fields.length > 0 || secondaryCodeBlocks.length > 0
 
   const summaryContent = (
     <>
@@ -101,12 +103,18 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
         >
           {presentation.fields.length > 0 ? (
             <div
-              className="flex flex-wrap gap-x-3 gap-y-1"
-              style={{ color: theme.text.placeholder }}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'max-content 1fr max-content 1fr',
+                columnGap: '10px',
+                rowGap: '2px'
+              }}
             >
               {presentation.fields.map((field) => (
-                <span key={`${field.label}:${field.value}`}>
-                  <span style={{ opacity: 0.72 }}>{field.label}</span>{' '}
+                <Fragment key={field.label}>
+                  <span style={{ color: theme.text.placeholder, textAlign: 'right' }}>
+                    {field.label}
+                  </span>
                   <span
                     className="break-all"
                     style={{
@@ -116,12 +124,12 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
                   >
                     {field.value}
                   </span>
-                </span>
+                </Fragment>
               ))}
             </div>
           ) : null}
 
-          {presentation.codeBlocks.map((block) => (
+          {secondaryCodeBlocks.map((block) => (
             <div key={`${block.label}:${block.value.slice(0, 32)}`}>
               <div
                 style={{

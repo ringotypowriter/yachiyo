@@ -202,6 +202,51 @@ test('applyServerEvent stores recalled memory on the matching run', () => {
   })
 })
 
+test('applyServerEvent preserves compiled context sources after the run completes', () => {
+  resetStore()
+
+  const contextSources = [
+    {
+      kind: 'persona' as const,
+      id: 'persona-default',
+      title: 'Default Persona'
+    }
+  ]
+
+  useAppStore.getState().applyServerEvent({
+    type: 'run.created',
+    eventId: 'event-run-created',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    requestMessageId: 'user-1'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'run.context.compiled',
+    eventId: 'event-run-context-compiled',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    contextSources
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'run.completed',
+    eventId: 'event-run-completed',
+    timestamp: '2026-03-15T00:00:05.000Z',
+    threadId: 'thread-1',
+    runId: 'run-1'
+  })
+
+  const state = useAppStore.getState()
+
+  assert.equal(state.runsByThread['thread-1']?.[0]?.status, 'completed')
+  assert.equal(state.runsByThread['thread-1']?.[0]?.completedAt, '2026-03-15T00:00:05.000Z')
+  assert.deepEqual(state.runsByThread['thread-1']?.[0]?.contextSources, contextSources)
+  assert.equal(state.latestRunsByThread['thread-1']?.status, 'completed')
+  assert.equal(state.latestRunsByThread['thread-1']?.completedAt, '2026-03-15T00:00:05.000Z')
+  assert.deepEqual(state.latestRunsByThread['thread-1']?.contextSources, contextSources)
+})
+
 test('applyServerEvent supports assistant-first runs without a request message id', () => {
   resetStore()
 

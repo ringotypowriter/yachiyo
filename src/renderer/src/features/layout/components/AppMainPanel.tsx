@@ -5,6 +5,7 @@ import { Composer } from '@renderer/features/chat/components/Composer'
 import { MessageTimeline } from '@renderer/features/chat/components/MessageTimeline'
 import { ArchivedThreadsPage } from '@renderer/features/layout/components/ArchivedThreadsPage'
 import { AppMainPanelHeader } from '@renderer/features/layout/components/AppMainPanelHeader'
+import { RunInspectionPanel } from '@renderer/features/runs/components/RunInspectionPanel'
 import { RunStatusStrip } from '@renderer/features/runs/components/RunStatusStrip'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import { theme } from '@renderer/theme/theme'
@@ -50,6 +51,7 @@ export function AppMainPanel({
     archivedThreads.find((thread) => thread.id === activeArchivedThreadId) ?? null
   const saveThread = useAppStore((s) => s.saveThread)
   const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null)
+  const [isInspectionPanelOpen, setIsInspectionPanelOpen] = useState(false)
   const memoryEnabled = isMemoryConfigured(config)
 
   async function handleRenameThread(thread: Thread): Promise<void> {
@@ -213,17 +215,22 @@ export function AppMainPanel({
         activeThread={activeThread}
         headerPaddingLeft={headerPaddingLeft}
         isBootstrapping={isBootstrapping}
+        isInspectionPanelOpen={isInspectionPanelOpen}
         isMemoryEnabled={memoryEnabled}
         isSidebarToggleDisabled={isSidebarToggleDisabled}
         messageCount={messageCount}
         onOpenThreadWorkspace={handleOpenThreadWorkspace}
         onSelectThreadOperation={handleSelectThreadOperation}
+        onToggleInspectionPanel={() => setIsInspectionPanelOpen((v) => !v)}
         onToggleSidebar={onToggleSidebar}
         showSidebarToggle={showSidebarToggle}
         toggleSidebarTitle={toggleSidebarTitle}
       />
 
-      <MessageTimeline key={activeThreadId ?? 'empty'} threadId={activeThreadId} />
+      <div className="flex flex-row flex-1 min-h-0">
+        <MessageTimeline key={activeThreadId ?? 'empty'} threadId={activeThreadId} />
+        {isInspectionPanelOpen ? <RunInspectionPanel threadId={activeThreadId} /> : null}
+      </div>
       <RunStatusStrip />
       <Composer />
     </div>

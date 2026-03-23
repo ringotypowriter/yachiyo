@@ -12,6 +12,8 @@ import type {
   ProviderSettings,
   RunCancelledEvent,
   RunCompletedEvent,
+  RunContextCompiledEvent,
+  RunContextSourceSummary,
   RunFailedEvent,
   RunMemoryRecalledEvent,
   SettingsConfig,
@@ -163,6 +165,66 @@ function throwIfAborted(signal: AbortSignal): void {
   const error = new Error('Aborted')
   error.name = 'AbortError'
   throw error
+}
+
+export function buildContextSources(input: {
+  evolvedTraitCount: number
+  hasUserContent: boolean
+  enabledTools: ToolCallName[]
+  workspacePath: string
+  hasToolReminder: boolean
+  memoryEntries: string[]
+  recallDecision: RecallDecisionSnapshot | undefined
+}): RunContextSourceSummary[] {
+  const sources: RunContextSourceSummary[] = []
+
+  sources.push({ kind: 'persona', present: true })
+
+  sources.push(
+    input.evolvedTraitCount > 0
+      ? {
+          kind: 'soul',
+          present: true,
+          count: input.evolvedTraitCount,
+          summary: `${input.evolvedTraitCount} ${input.evolvedTraitCount === 1 ? 'trait' : 'traits'}`
+        }
+      : { kind: 'soul', present: false }
+  )
+
+  sources.push({ kind: 'user', present: input.hasUserContent })
+
+  const toolCount = input.enabledTools.length
+  const agentSummaryParts = [`${toolCount} ${toolCount === 1 ? 'tool' : 'tools'}`]
+  if (input.workspacePath) {
+    agentSummaryParts.push('workspace')
+  }
+  sources.push({ kind: 'agent', present: true, count: toolCount, summary: agentSummaryParts.join(' · ') })
+
+  if (input.recallDecision) {
+    const entryCount = input.memoryEntries.filter((e) => e.trim()).length
+    sources.push(
+      input.recallDecision.shouldRecall
+        ? {
+            kind: 'memory',
+            present: true,
+            count: entryCount,
+            reasons: input.recallDecision.reasons,
+            summary: `${entryCount} ${entryCount === 1 ? 'memory' : 'memories'} recalled`
+          }
+        : {
+            kind: 'memory',
+            present: false,
+            reasons: input.recallDecision.reasons,
+            summary: 'not recalled'
+          }
+    )
+  }
+
+  if (input.hasToolReminder) {
+    sources.push({ kind: 'toolReminder', present: true })
+  }
+
+  return sources
 }
 
 function buildAgentInstructions(input: {
@@ -485,6 +547,20 @@ export async function executeServerRun(
       requestMessageId: input.requestMessageId,
       recalledMemoryEntries: memoryEntries,
       ...(recallDecision ? { recallDecision } : {})
+    })
+    deps.emit<RunContextCompiledEvent>({
+      type: 'run.context.compiled',
+      threadId: input.thread.id,
+      runId: input.runId,
+      contextSources: buildContextSources({
+        evolvedTraitCount: (soulDocument?.evolvedTraits ?? []).filter((t) => t.trim()).length,
+        hasUserContent: (userDocument?.content ?? '').trim().length > 0,
+        enabledTools: input.enabledTools,
+        workspacePath,
+        hasToolReminder: hiddenQueryReminder !== undefined,
+        memoryEntries,
+        recallDecision
+      })
     })
     const messages = prepareModelMessages({
       personality: {

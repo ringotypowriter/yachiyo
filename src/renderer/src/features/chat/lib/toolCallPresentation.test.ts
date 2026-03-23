@@ -89,7 +89,7 @@ test('buildToolCallDetailsPresentation exposes bash metadata, tails, and explici
   })
 
   assert.deepEqual(presentation.fields, [
-    { label: 'exit code', value: '124' },
+    { label: 'exit code', value: '124', tone: 'danger' },
     { label: 'timed out', value: 'yes' },
     { label: 'blocked', value: 'yes' },
     { label: 'output file', value: '/tmp/thread-1/bash-output.txt' }
@@ -100,15 +100,18 @@ test('buildToolCallDetailsPresentation exposes bash metadata, tails, and explici
       value: 'Command timed out after 1 second.',
       tone: 'danger'
     },
+    // stderr with danger tone stays secondary (shown inline in chat)
     {
       label: 'stderr',
       value: 'timed out',
       tone: 'danger'
     },
+    // stdout is inspection-only; output summary in the collapsed row is sufficient
     {
       label: 'stdout tail',
       value:
-        'line 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20'
+        'line 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20',
+      displayTier: 'inspection'
     }
   ])
 })
@@ -140,7 +143,8 @@ test('buildToolCallDetailsPresentation exposes grep metadata and normalized matc
   assert.deepEqual(presentation.codeBlocks, [
     {
       label: 'matches',
-      value: 'src/alpha.ts:3: const needle = 1\nsrc/beta.ts:8: needle()'
+      value: 'src/alpha.ts:3: const needle = 1\nsrc/beta.ts:8: needle()',
+      displayTier: 'inspection'
     }
   ])
 })
@@ -163,13 +167,13 @@ test('buildToolCallDetailsPresentation exposes glob metadata and normalized file
   assert.deepEqual(presentation.fields, [
     { label: 'backend', value: 'fd' },
     { label: 'path', value: '/tmp/thread-1' },
-    { label: 'results', value: '2' },
-    { label: 'truncated', value: 'no' }
+    { label: 'results', value: '2' }
   ])
   assert.deepEqual(presentation.codeBlocks, [
     {
       label: 'matches',
-      value: 'src/alpha.ts\nsrc/beta.ts'
+      value: 'src/alpha.ts\nsrc/beta.ts',
+      displayTier: 'inspection'
     }
   ])
 })
@@ -213,9 +217,11 @@ test('buildToolCallDetailsPresentation exposes webRead metadata and markdown exc
   ])
   assert.deepEqual(presentation.codeBlocks, [
     { label: 'description', value: 'Short summary.' },
+    // Full web content is inspection-only; chat shows only description + metadata
     {
       label: 'content',
-      value: '# Example article\n\nFirst paragraph.\n\nSecond paragraph.\n\nThird paragraph.'
+      value: '# Example article\n\nFirst paragraph.\n\nSecond paragraph.\n\nThird paragraph.',
+      displayTier: 'inspection'
     }
   ])
 })
@@ -248,7 +254,6 @@ test('buildToolCallDetailsPresentation exposes webRead saved-file metadata witho
     { label: 'extractor', value: 'defuddle' },
     { label: 'title', value: 'Example article' },
     { label: 'format', value: 'markdown' },
-    { label: 'truncated', value: 'no' },
     { label: 'saved file', value: '/tmp/thread-1/captures/example.md' },
     { label: 'saved bytes', value: '40000' }
   ])
@@ -277,7 +282,78 @@ test('buildToolCallDetailsPresentation exposes webRead html excerpts', () => {
   assert.deepEqual(presentation.codeBlocks, [
     {
       label: 'content',
-      value: '<article><p>First paragraph.</p><p>Second paragraph.</p></article>'
+      value: '<article><p>First paragraph.</p><p>Second paragraph.</p></article>',
+      displayTier: 'inspection'
     }
   ])
+})
+
+test('buildToolCallDetailsPresentation marks bash stdout as inspection-tier regardless of success', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'bash',
+    status: 'completed',
+    details: {
+      command: 'echo hello',
+      cwd: '/tmp',
+      exitCode: 0,
+      stdout: 'hello',
+      stderr: ''
+    }
+  })
+
+  const stdoutBlock = presentation.codeBlocks.find((b) => b.label === 'stdout')
+  assert.ok(stdoutBlock, 'stdout block should be present')
+  assert.equal(stdoutBlock.displayTier, 'inspection')
+})
+
+test('buildToolCallDetailsPresentation keeps bash stderr secondary when it carries danger signal', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'bash',
+    status: 'failed',
+    details: {
+      command: 'bad-cmd',
+      cwd: '/tmp',
+      exitCode: 1,
+      stdout: '',
+      stderr: 'command not found'
+    }
+  })
+
+  const stderrBlock = presentation.codeBlocks.find((b) => b.label === 'stderr')
+  assert.ok(stderrBlock, 'stderr block should be present')
+  assert.equal(stderrBlock.tone, 'danger')
+  assert.equal(stderrBlock.displayTier, undefined)
+})
+
+test('buildToolCallDetailsPresentation marks grep and glob match lists as inspection-tier', () => {
+  const grepPresentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'grep',
+    details: {
+      backend: 'rg',
+      pattern: 'foo',
+      path: '/src',
+      resultCount: 1,
+      truncated: false,
+      matches: [{ path: 'a.ts', line: 1, text: 'foo' }]
+    }
+  })
+
+  const globPresentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'glob',
+    details: {
+      backend: 'fd',
+      pattern: '**/*.ts',
+      path: '/src',
+      resultCount: 1,
+      truncated: false,
+      matches: ['a.ts']
+    }
+  })
+
+  assert.equal(grepPresentation.codeBlocks[0].displayTier, 'inspection')
+  assert.equal(globPresentation.codeBlocks[0].displayTier, 'inspection')
 })

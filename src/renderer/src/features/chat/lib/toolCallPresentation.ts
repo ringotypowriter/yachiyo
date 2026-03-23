@@ -12,6 +12,15 @@ import type {
 
 type ToolCallDetailTone = 'danger'
 
+/**
+ * Presentation tier for tool call detail blocks:
+ * - 'secondary': shown in the expandable section inline in chat
+ * - 'inspection': only shown in the dedicated run inspection panel
+ *
+ * Absence of displayTier is treated as 'secondary'.
+ */
+export type ToolCallDetailDisplayTier = 'secondary' | 'inspection'
+
 export interface ToolCallDetailField {
   label: string
   value: string
@@ -22,6 +31,7 @@ export interface ToolCallDetailCodeBlock {
   label: string
   value: string
   tone?: ToolCallDetailTone
+  displayTier?: ToolCallDetailDisplayTier
 }
 
 export interface ToolCallDetailsPresentation {
@@ -53,7 +63,8 @@ function pushCodeBlock(
   codeBlocks: ToolCallDetailCodeBlock[],
   label: string,
   value: string | undefined,
-  tone?: ToolCallDetailTone
+  tone?: ToolCallDetailTone,
+  displayTier?: ToolCallDetailDisplayTier
 ): void {
   const normalizedValue = value?.trimEnd()
   if (!normalizedValue) {
@@ -63,7 +74,8 @@ function pushCodeBlock(
   codeBlocks.push({
     label,
     value: normalizedValue,
-    ...(tone ? { tone } : {})
+    ...(tone ? { tone } : {}),
+    ...(displayTier ? { displayTier } : {})
   })
 }
 
@@ -130,28 +142,36 @@ function pushOutputTail(
   codeBlocks: ToolCallDetailCodeBlock[],
   label: string,
   value: string,
-  tone?: ToolCallDetailTone
+  tone?: ToolCallDetailTone,
+  displayTier?: ToolCallDetailDisplayTier
 ): void {
   const tail = takeTextTail(value)
   if (!tail.text) {
     return
   }
 
-  pushCodeBlock(codeBlocks, tail.truncated ? `${label} tail` : label, tail.text, tone)
+  pushCodeBlock(codeBlocks, tail.truncated ? `${label} tail` : label, tail.text, tone, displayTier)
 }
 
 function pushOutputHead(
   codeBlocks: ToolCallDetailCodeBlock[],
   label: string,
   value: string,
-  tone?: ToolCallDetailTone
+  tone?: ToolCallDetailTone,
+  displayTier?: ToolCallDetailDisplayTier
 ): void {
   const head = takeTextHead(value)
   if (!head.text) {
     return
   }
 
-  pushCodeBlock(codeBlocks, head.truncated ? `${label} excerpt` : label, head.text, tone)
+  pushCodeBlock(
+    codeBlocks,
+    head.truncated ? `${label} excerpt` : label,
+    head.text,
+    tone,
+    displayTier
+  )
 }
 
 export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDetailsPresentation {
@@ -168,7 +188,9 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
 
     pushField(fields, 'start line', details.startLine)
     pushField(fields, 'end line', details.endLine)
-    pushField(fields, 'truncated', toYesNo(details.truncated))
+    if (details.truncated) {
+      pushField(fields, 'truncated', 'yes')
+    }
     pushField(fields, 'next offset', details.nextOffset)
     pushField(fields, 'remaining lines', details.remainingLines)
     return { fields, codeBlocks }
@@ -204,28 +226,32 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
       return { fields, codeBlocks }
     }
 
-    pushField(fields, 'exit code', details.exitCode)
+    pushField(fields, 'exit code', details.exitCode, details.exitCode !== 0 ? 'danger' : undefined)
 
-    if (details.timedOut !== undefined) {
-      pushField(fields, 'timed out', toYesNo(details.timedOut))
+    if (details.timedOut) {
+      pushField(fields, 'timed out', 'yes')
     }
 
-    if (details.blocked !== undefined) {
-      pushField(fields, 'blocked', toYesNo(details.blocked))
+    if (details.blocked) {
+      pushField(fields, 'blocked', 'yes')
     }
 
-    if (details.truncated !== undefined) {
-      pushField(fields, 'output truncated', toYesNo(details.truncated))
+    if (details.truncated) {
+      pushField(fields, 'output truncated', 'yes')
     }
 
     pushField(fields, 'output file', details.outputFilePath)
+    // stderr shown inline only when it carries error signal; otherwise defer to inspection panel
+    const stderrTone = toolCall.status === 'failed' || details.blocked ? 'danger' : undefined
     pushOutputTail(
       codeBlocks,
       'stderr',
       details.stderr,
-      toolCall.status === 'failed' || details.blocked ? 'danger' : undefined
+      stderrTone,
+      stderrTone ? undefined : 'inspection'
     )
-    pushOutputTail(codeBlocks, 'stdout', details.stdout)
+    // stdout is usually large and already summarised by outputSummary — inspection panel only
+    pushOutputTail(codeBlocks, 'stdout', details.stdout, undefined, 'inspection')
   }
 
   if (toolCall.toolName === 'grep') {
@@ -237,11 +263,16 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     pushField(fields, 'backend', details.backend)
     pushField(fields, 'path', details.path)
     pushField(fields, 'results', details.resultCount)
-    pushField(fields, 'truncated', toYesNo(details.truncated))
+    if (details.truncated) {
+      pushField(fields, 'truncated', 'yes')
+    }
+    // Full match list can be long — inspection panel only; count already shown in fields
     pushCodeBlock(
       codeBlocks,
       'matches',
-      details.matches.map((match) => `${match.path}:${match.line}: ${match.text}`).join('\n')
+      details.matches.map((match) => `${match.path}:${match.line}: ${match.text}`).join('\n'),
+      undefined,
+      'inspection'
     )
 
     return { fields, codeBlocks }
@@ -256,8 +287,11 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     pushField(fields, 'backend', details.backend)
     pushField(fields, 'path', details.path)
     pushField(fields, 'results', details.resultCount)
-    pushField(fields, 'truncated', toYesNo(details.truncated))
-    pushCodeBlock(codeBlocks, 'matches', details.matches.join('\n'))
+    if (details.truncated) {
+      pushField(fields, 'truncated', 'yes')
+    }
+    // Full file list deferred to inspection panel; count already shown in fields
+    pushCodeBlock(codeBlocks, 'matches', details.matches.join('\n'), undefined, 'inspection')
 
     return { fields, codeBlocks }
   }
@@ -277,13 +311,16 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     pushField(fields, 'site name', details.siteName)
     pushField(fields, 'published', details.publishedTime)
     pushField(fields, 'format', details.contentFormat)
-    pushField(fields, 'truncated', toYesNo(details.truncated))
+    if (details.truncated) {
+      pushField(fields, 'truncated', 'yes')
+    }
     pushField(fields, 'original chars', details.originalContentChars)
     pushField(fields, 'saved file', details.savedFilePath)
     pushField(fields, 'saved bytes', details.savedBytes)
     pushField(fields, 'failure code', details.failureCode)
     pushCodeBlock(codeBlocks, 'description', details.description)
-    pushOutputHead(codeBlocks, 'content', details.content)
+    // Full web content belongs in the inspection panel, not inline in chat
+    pushOutputHead(codeBlocks, 'content', details.content, undefined, 'inspection')
 
     return { fields, codeBlocks }
   }
@@ -300,6 +337,7 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     pushField(fields, 'loaded url', details.finalUrl)
     pushField(fields, 'results', details.resultCount)
     pushField(fields, 'failure code', details.failureCode)
+    // Full search result listing deferred to inspection panel; count shown in fields
     pushCodeBlock(
       codeBlocks,
       'results',
@@ -309,7 +347,9 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
             .filter(Boolean)
             .join('\n')
         )
-        .join('\n\n')
+        .join('\n\n'),
+      undefined,
+      'inspection'
     )
 
     return { fields, codeBlocks }
