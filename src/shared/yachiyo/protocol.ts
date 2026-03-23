@@ -471,6 +471,34 @@ export interface SkillCatalogEntry extends SkillSummary {
   skillFilePath: string
 }
 
+export interface UserPrompt {
+  keycode: string
+  text: string
+}
+
+const KEYCODE_RE = /^[a-zA-Z][a-zA-Z0-9-]*$/
+
+export function normalizeUserPrompts(value: unknown): UserPrompt[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  const result: UserPrompt[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const keycode =
+      typeof (item as Record<string, unknown>).keycode === 'string'
+        ? ((item as Record<string, unknown>).keycode as string).trim()
+        : ''
+    const text =
+      typeof (item as Record<string, unknown>).text === 'string'
+        ? ((item as Record<string, unknown>).text as string).trim()
+        : ''
+    if (!keycode || !KEYCODE_RE.test(keycode) || !text || seen.has(keycode)) continue
+    seen.add(keycode)
+    result.push({ keycode, text })
+  }
+  return result
+}
+
 export interface SettingsConfig {
   providers: ProviderConfig[]
   enabledTools?: ToolCallName[]
@@ -481,6 +509,7 @@ export interface SettingsConfig {
   skills?: SkillsConfig
   memory?: MemoryConfig
   webSearch?: WebSearchConfig
+  prompts?: UserPrompt[]
 }
 
 export function isMemoryConfigured(

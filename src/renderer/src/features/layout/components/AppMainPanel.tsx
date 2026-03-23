@@ -232,7 +232,7 @@ export function AppMainPanel({
         {isInspectionPanelOpen ? <RunInspectionPanel threadId={activeThreadId} /> : null}
       </div>
       <RunStatusStrip />
-      <Composer />
+      <Composer onSelectThreadOperation={handleSelectThreadOperation} />
     </div>
   )
 }

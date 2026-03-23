@@ -8,12 +8,15 @@ import {
   DEFAULT_MEMORY_BASE_URL,
   DEFAULT_ENABLED_TOOL_NAMES,
   DEFAULT_TOOL_MODEL_MODE,
-  DEFAULT_SIDEBAR_VISIBILITY
+  DEFAULT_SIDEBAR_VISIBILITY,
+  normalizeUserPrompts
 } from '../../../shared/yachiyo/protocol.ts'
 import {
   DEFAULT_SETTINGS_CONFIG,
   createSettingsStore,
   normalizeSettingsConfig,
+  parseSettingsToml,
+  stringifySettingsToml,
   toProviderSettings,
   toToolModelSettings
 } from './settingsStore.ts'
@@ -62,6 +65,7 @@ test('settings store persists multi-provider config as TOML', async () => {
           baseUrl: 'https://api.exa.ai'
         }
       },
+      prompts: [],
       providers: [
         {
           id: 'provider-work',
@@ -342,6 +346,73 @@ test('normalizeSettingsConfig fills memory defaults and preserves a valid config
     provider: 'nowledge-mem',
     baseUrl: 'http://mem.local:14242'
   })
+})
+
+test('normalizeUserPrompts filters invalid and duplicate entries', () => {
+  assert.deepEqual(normalizeUserPrompts(null), [])
+  assert.deepEqual(normalizeUserPrompts([]), [])
+
+  const result = normalizeUserPrompts([
+    { keycode: 'standup', text: 'Daily standup update' },
+    { keycode: 'fix', text: 'Please fix:' },
+    { keycode: 'standup', text: 'duplicate — should be dropped' },
+    { keycode: '1invalid', text: 'starts with digit' },
+    { keycode: '', text: 'empty keycode' },
+    { keycode: 'valid', text: '' },
+    'not-an-object',
+    null
+  ])
+
+  assert.deepEqual(result, [
+    { keycode: 'standup', text: 'Daily standup update' },
+    { keycode: 'fix', text: 'Please fix:' }
+  ])
+})
+
+test('normalizeUserPrompts accepts hyphens in keycodes', () => {
+  const result = normalizeUserPrompts([{ keycode: 'my-prompt', text: 'some text' }])
+  assert.deepEqual(result, [{ keycode: 'my-prompt', text: 'some text' }])
+})
+
+test('[[prompts]] TOML round-trip', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-prompts-'))
+  const settingsPath = join(root, 'config.toml')
+  const store = createSettingsStore(settingsPath)
+
+  try {
+    const config: Parameters<typeof store.write>[0] = {
+      ...DEFAULT_SETTINGS_CONFIG,
+      prompts: [
+        { keycode: 'standup', text: 'Daily standup update' },
+        { keycode: 'fix', text: 'Please fix:' }
+      ]
+    }
+
+    store.write(config)
+
+    const toml = await readFile(settingsPath, 'utf8')
+    assert.match(toml, /\[\[prompts\]\]/)
+    assert.match(toml, /keycode = "standup"/)
+    assert.match(toml, /text = "Daily standup update"/)
+    assert.match(toml, /keycode = "fix"/)
+
+    const read = store.read()
+    assert.deepEqual(read.prompts, config.prompts)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('[[prompts]] with multiline text round-trips correctly', () => {
+  const original = { keycode: 'essay', text: 'Line one\nLine two\nLine three' } // no leading/trailing whitespace
+  const toml = stringifySettingsToml({ ...DEFAULT_SETTINGS_CONFIG, prompts: [original] })
+  const parsed = parseSettingsToml(toml)
+  assert.deepEqual(parsed.prompts, [original])
+})
+
+test('normalizeSettingsConfig returns empty prompts array by default', () => {
+  const normalized = normalizeSettingsConfig({ providers: [] })
+  assert.deepEqual(normalized.prompts, [])
 })
 
 test('normalizeSettingsConfig fills webSearch defaults and preserves imported browser session metadata', () => {

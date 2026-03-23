@@ -1,5 +1,5 @@
 import type React from 'react'
-import { useRef, useCallback, useState, useEffect } from 'react'
+import { useRef, useCallback, useState, useEffect, useMemo } from 'react'
 import {
   AlertCircle,
   ChevronDown,
@@ -24,15 +24,58 @@ import { resolveComposerEnterAction } from '@renderer/features/chat/lib/composer
 import { theme } from '@renderer/theme/theme'
 import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
-  USER_MANAGED_TOOL_NAMES
+  USER_MANAGED_TOOL_NAMES,
+  isMemoryConfigured
 } from '../../../../../shared/yachiyo/protocol.ts'
+import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import { ModelSelectorPopup } from './ModelSelectorPopup'
+import { SlashCommandPopup } from './SlashCommandPopup'
+import type { SlashCommand } from './SlashCommandPopup'
 import { SkillsSelectorPopup } from './SkillsSelectorPopup'
 import { ToolSelectorPopup } from './ToolSelectorPopup'
 import { WorkspaceSelectorPopup } from './WorkspaceSelectorPopup'
 
 const NEW_THREAD_DRAFT_KEY = '__new__'
 const MAX_COMPOSER_IMAGES = 4
+
+const SKILL_TAG_HIGHLIGHT_RE = /@skills:[a-zA-Z0-9_-]+/g
+
+function renderComposerTextHighlights(
+  text: string,
+  primaryColor: string,
+  accentColor: string
+): React.ReactNode {
+  const parts: React.ReactNode[] = []
+  let last = 0
+  let m: RegExpExecArray | null
+  SKILL_TAG_HIGHLIGHT_RE.lastIndex = 0
+  while ((m = SKILL_TAG_HIGHLIGHT_RE.exec(text)) !== null) {
+    if (m.index > last) {
+      parts.push(
+        <span key={last} style={{ color: primaryColor }}>
+          {text.slice(last, m.index)}
+        </span>
+      )
+    }
+    parts.push(
+      <span
+        key={`h${m.index}`}
+        style={{ color: accentColor, textDecoration: 'underline', textUnderlineOffset: '2px' }}
+      >
+        {m[0]}
+      </span>
+    )
+    last = m.index + m[0].length
+  }
+  if (last < text.length) {
+    parts.push(
+      <span key={last} style={{ color: primaryColor }}>
+        {text.slice(last)}
+      </span>
+    )
+  }
+  return parts.length > 0 ? <>{parts}</> : null
+}
 
 function createDraftImageId(): string {
   return (
@@ -145,7 +188,11 @@ function ComposerImagePreview({
   )
 }
 
-export function Composer(): React.JSX.Element {
+export function Composer({
+  onSelectThreadOperation
+}: {
+  onSelectThreadOperation?: (key: ThreadContextOperationKey) => void
+}): React.JSX.Element {
   const activeThreadId = useAppStore((s) => s.activeThreadId)
   const composerDraft = useAppStore(
     (s) => s.composerDrafts[s.activeThreadId ?? NEW_THREAD_DRAFT_KEY] ?? EMPTY_COMPOSER_DRAFT
@@ -171,6 +218,7 @@ export function Composer(): React.JSX.Element {
   const upsertComposerImage = useAppStore((s) => s.upsertComposerImage)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
   const modelSelectorRef = useRef<HTMLDivElement>(null)
   const skillsSelectorRef = useRef<HTMLDivElement>(null)
   const toolSelectorRef = useRef<HTMLDivElement>(null)
@@ -184,6 +232,8 @@ export function Composer(): React.JSX.Element {
   const [workspaceHintHovered, setWorkspaceHintHovered] = useState(false)
   const [workspaceHintPinned, setWorkspaceHintPinned] = useState(false)
   const [isComposing, setIsComposing] = useState(false)
+  const [dismissedSlashQuery, setDismissedSlashQuery] = useState<string | null>(null)
+  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
 
   const composerValue = composerDraft.text
   const draftImages = composerDraft.images
@@ -196,7 +246,10 @@ export function Composer(): React.JSX.Element {
   const isModelSelectorLocked = runPhase === 'preparing' || runPhase === 'streaming'
   const isConfigured = settings.apiKey.trim().length > 0 && settings.model.trim().length > 0
   const disabledToolCount = USER_MANAGED_TOOL_NAMES.length - enabledTools.length
-  const defaultEnabledSkillNames = config?.skills?.enabled ?? []
+  const defaultEnabledSkillNames = useMemo(
+    () => config?.skills?.enabled ?? [],
+    [config?.skills?.enabled]
+  )
   const effectiveEnabledSkillNames = composerDraft.enabledSkillNames ?? defaultEnabledSkillNames
   const hasCustomSkillOverride =
     composerDraft.enabledSkillNames !== null && composerDraft.enabledSkillNames !== undefined
@@ -211,6 +264,88 @@ export function Composer(): React.JSX.Element {
   })
   const showWorkspaceHint = !workspaceSelectorOpen && (workspaceHintHovered || workspaceHintPinned)
 
+  const SKILL_TAG_PATTERN = /^@skills:([a-zA-Z0-9_-]+)(\s|$)/
+  const SLASH_PATTERN = /^\/([a-zA-Z0-9-]*)$/
+  const SKILL_PREFIX_PATTERN = /^\/skills:([a-zA-Z0-9_-]*)$/
+  const AT_SKILL_PREFIX_PATTERN = /^@skills:([a-zA-Z0-9_-]*)$/
+  const slashMatch = SLASH_PATTERN.exec(composerValue)
+  const skillPrefixMatch = SKILL_PREFIX_PATTERN.exec(composerValue)
+  const atSkillPrefixMatch = AT_SKILL_PREFIX_PATTERN.exec(composerValue)
+  const slashQuery = slashMatch ? slashMatch[1] : null
+  const skillQuery = skillPrefixMatch
+    ? skillPrefixMatch[1]
+    : atSkillPrefixMatch
+      ? atSkillPrefixMatch[1]
+      : null
+  // Only show chip when skill tag is confirmed (has trailing space/content) and popup is not active
+  const skillTagMatch = skillQuery === null ? SKILL_TAG_PATTERN.exec(composerValue) : null
+  const activeSkillTag = skillTagMatch ? skillTagMatch[1] : null
+
+  const userPrompts = useMemo(() => config?.prompts ?? [], [config?.prompts])
+  const memoryEnabled = isMemoryConfigured(config)
+  const canRunThreadOperations = activeThreadId !== null
+  const allSlashCommands = useMemo<SlashCommand[]>(
+    () => [
+      ...(canRunThreadOperations
+        ? [
+            {
+              key: 'handoff',
+              label: 'Handoff',
+              description: 'Compact into a new thread',
+              type: 'action' as const
+            }
+          ]
+        : []),
+      ...(canRunThreadOperations && memoryEnabled
+        ? [
+            {
+              key: 'save',
+              label: 'Save Thread',
+              description: 'Save to long-term memory',
+              type: 'action' as const
+            }
+          ]
+        : []),
+      ...userPrompts.map((p) => ({
+        key: p.keycode,
+        label: `/${p.keycode}`,
+        description: p.text.length > 60 ? `${p.text.slice(0, 60)}\u2026` : p.text,
+        type: 'prompt' as const
+      })),
+      ...(availableSkills.length > 0
+        ? [
+            {
+              key: 'skills',
+              label: 'Skills',
+              description: `Browse ${availableSkills.length} available skill${availableSkills.length !== 1 ? 's' : ''}`,
+              type: 'skill-prefix' as const
+            }
+          ]
+        : [])
+    ],
+    [canRunThreadOperations, memoryEnabled, userPrompts, availableSkills]
+  )
+  const matchingSlashCommands = useMemo<SlashCommand[]>(() => {
+    if (skillQuery !== null) {
+      const q = skillQuery.toLowerCase()
+      return availableSkills
+        .filter((s) => s.name.toLowerCase().startsWith(q))
+        .map((s) => ({
+          key: `skills:${s.name}`,
+          label: s.name,
+          description: s.description ?? 'No description available',
+          type: 'skill' as const
+        }))
+    }
+    if (slashQuery !== null) {
+      return allSlashCommands.filter((cmd) => cmd.key.startsWith(slashQuery))
+    }
+    return []
+  }, [skillQuery, slashQuery, allSlashCommands, availableSkills])
+  const activeQuery = skillQuery ?? slashQuery
+  const showSlashCommandPopup =
+    matchingSlashCommands.length > 0 && dismissedSlashQuery !== activeQuery
+
   useEffect(() => {
     if (!workspaceHintPinned) {
       return
@@ -222,6 +357,17 @@ export function Composer(): React.JSX.Element {
 
     return () => window.clearTimeout(timeoutId)
   }, [workspaceHintPinned])
+  const prevActiveQueryRef = useRef(activeQuery)
+  if (prevActiveQueryRef.current !== activeQuery) {
+    prevActiveQueryRef.current = activeQuery
+    setSlashSelectedIndex(0)
+    setDismissedSlashQuery(null)
+  }
+
+  const dismissSlashPopup = useCallback(() => {
+    setDismissedSlashQuery(activeQuery)
+  }, [activeQuery])
+
   const { canSend, showStopButton } = getComposerActionState({
     connectionStatus,
     hasActiveRun,
@@ -390,6 +536,33 @@ export function Composer(): React.JSX.Element {
     [activeThreadId, upsertComposerImage]
   )
 
+  const handleSlashCommandSelect = useCallback(
+    (command: SlashCommand) => {
+      if (command.type === 'action') {
+        if (!canRunThreadOperations) {
+          return
+        }
+
+        setComposerValue('')
+        const opKey = command.key === 'save' ? 'save-thread' : 'compact-to-another-thread'
+        onSelectThreadOperation?.(opKey as ThreadContextOperationKey)
+      } else if (command.type === 'skill-prefix') {
+        setComposerValue('/skills:')
+      } else if (command.type === 'skill') {
+        const skillName = command.key.slice('skills:'.length)
+        setComposerValue(`@skills:${skillName} `)
+      } else {
+        const prompt = userPrompts.find((p) => p.keycode === command.key)
+        if (prompt) setComposerValue(prompt.text)
+      }
+    },
+    [canRunThreadOperations, onSelectThreadOperation, userPrompts, setComposerValue]
+  )
+
+  const handleTextareaScroll = useCallback((event: React.UIEvent<HTMLTextAreaElement>) => {
+    if (overlayRef.current) overlayRef.current.scrollTop = event.currentTarget.scrollTop
+  }, [])
+
   const handleInput = useCallback(
     (event: React.ChangeEvent<HTMLTextAreaElement>) => {
       setComposerValue(event.target.value)
@@ -399,6 +572,30 @@ export function Composer(): React.JSX.Element {
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (showSlashCommandPopup) {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault()
+          setSlashSelectedIndex((i) => Math.min(i + 1, matchingSlashCommands.length - 1))
+          return
+        }
+        if (event.key === 'ArrowUp') {
+          event.preventDefault()
+          setSlashSelectedIndex((i) => Math.max(i - 1, 0))
+          return
+        }
+        if (event.key === 'Enter' && !event.shiftKey && !event.altKey) {
+          event.preventDefault()
+          const selected = matchingSlashCommands[slashSelectedIndex]
+          if (selected) handleSlashCommandSelect(selected)
+          return
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          dismissSlashPopup()
+          return
+        }
+      }
+
       const action = resolveComposerEnterAction({
         activeRunEnterBehavior,
         event: {
@@ -424,7 +621,18 @@ export function Composer(): React.JSX.Element {
         void sendMessage(action === 'send' ? 'normal' : action)
       }
     },
-    [activeRunEnterBehavior, canSend, hasActiveRun, isComposing, sendMessage]
+    [
+      activeRunEnterBehavior,
+      canSend,
+      handleSlashCommandSelect,
+      hasActiveRun,
+      isComposing,
+      matchingSlashCommands,
+      dismissSlashPopup,
+      sendMessage,
+      showSlashCommandPopup,
+      slashSelectedIndex
+    ]
   )
 
   const handlePaste = useCallback(
@@ -463,28 +671,84 @@ export function Composer(): React.JSX.Element {
         </div>
       ) : null}
 
-      <div className="px-4 pt-3 pb-1">
-        <textarea
-          ref={textareaRef}
-          value={composerValue}
-          onChange={handleInput}
-          onCompositionStart={() => setIsComposing(true)}
-          onCompositionEnd={() => setIsComposing(false)}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          placeholder={
-            isConfigured
-              ? 'Message Yachiyo...'
-              : 'Open Settings and configure a provider before chatting.'
-          }
-          rows={1}
-          className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed placeholder:text-gray-400 message-selectable"
-          style={{
-            color: theme.text.primary,
-            minHeight: '22px',
-            maxHeight: '160px'
-          }}
-        />
+      <div style={{ position: 'relative' }}>
+        {showSlashCommandPopup ? (
+          <SlashCommandPopup
+            commands={matchingSlashCommands}
+            selectedIndex={slashSelectedIndex}
+            onSelect={handleSlashCommandSelect}
+            onClose={dismissSlashPopup}
+          />
+        ) : null}
+        {activeSkillTag ? (
+          <div className="px-4 pt-2 flex items-center gap-2">
+            <div
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+              style={{
+                background: theme.background.accentPanel,
+                border: `1px solid ${theme.border.accent}`,
+                color: theme.text.accent
+              }}
+            >
+              <Sparkles size={11} strokeWidth={1.7} />
+              <span className="font-mono">{activeSkillTag}</span>
+              <button
+                type="button"
+                aria-label={`Remove skill ${activeSkillTag}`}
+                onClick={() =>
+                  setComposerValue(composerValue.replace(SKILL_TAG_PATTERN, '').trimStart())
+                }
+                className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity"
+              >
+                <X size={11} strokeWidth={2} />
+              </button>
+            </div>
+          </div>
+        ) : null}
+        <div className="px-4 pt-3 pb-1" style={{ display: 'grid' }}>
+          <div
+            aria-hidden
+            ref={overlayRef}
+            style={{
+              gridArea: '1 / 1',
+              fontSize: '0.875rem',
+              lineHeight: '1.625',
+              fontFamily: 'inherit',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              overflowY: 'hidden',
+              pointerEvents: 'none',
+              minHeight: '22px'
+            }}
+          >
+            {renderComposerTextHighlights(composerValue, theme.text.primary, theme.text.accent)}
+          </div>
+          <textarea
+            ref={textareaRef}
+            value={composerValue}
+            onChange={handleInput}
+            onCompositionStart={() => setIsComposing(true)}
+            onCompositionEnd={() => setIsComposing(false)}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            onScroll={handleTextareaScroll}
+            placeholder={
+              isConfigured
+                ? 'Message Yachiyo...'
+                : 'Open Settings and configure a provider before chatting.'
+            }
+            rows={1}
+            className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed placeholder:text-gray-400 message-selectable"
+            style={{
+              gridArea: '1 / 1',
+              color: 'transparent',
+              caretColor: theme.text.primary,
+              padding: 0,
+              minHeight: '22px',
+              maxHeight: '160px'
+            }}
+          />
+        </div>
       </div>
 
       {composerStatus ? (

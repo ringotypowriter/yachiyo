@@ -14,6 +14,7 @@ import {
   normalizeUserEnabledTools,
   normalizeSidebarVisibility,
   normalizeToolModelMode,
+  normalizeUserPrompts,
   type BrowserBackedWebSearchSessionConfig,
   type ExaWebSearchConfig,
   type MemoryConfig,
@@ -61,6 +62,7 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
     provider: DEFAULT_MEMORY_PROVIDER,
     baseUrl: DEFAULT_MEMORY_BASE_URL
   },
+  prompts: [],
   webSearch: {
     defaultProvider: DEFAULT_WEB_SEARCH_PROVIDER,
     browserSession: {
@@ -310,7 +312,8 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
         : toolModel,
     memory: normalizeMemoryConfig(input['memory']),
     webSearch: normalizeWebSearchConfig(input['webSearch']),
-    providers: hasProviders ? providers : DEFAULT_SETTINGS_CONFIG.providers
+    providers: hasProviders ? providers : DEFAULT_SETTINGS_CONFIG.providers,
+    prompts: normalizeUserPrompts(input['prompts'])
   }
 }
 
@@ -360,7 +363,9 @@ function parseTomlValue(value: string): unknown {
 export function parseSettingsToml(raw: string): SettingsConfig {
   const root: Record<string, unknown> = {}
   const providers: Array<Record<string, unknown>> = []
+  const prompts: Array<Record<string, unknown>> = []
   let currentProvider: Record<string, unknown> | null = null
+  let currentPrompt: Record<string, unknown> | null = null
   let section:
     | 'root'
     | 'general'
@@ -373,7 +378,8 @@ export function parseSettingsToml(raw: string): SettingsConfig {
     | 'webSearch.browserSession'
     | 'webSearch.exa'
     | 'provider'
-    | 'provider.modelList' = 'root'
+    | 'provider.modelList'
+    | 'prompt' = 'root'
 
   for (const rawLine of raw.split(/\r?\n/u)) {
     const line = stripTomlComment(rawLine).trim()
@@ -460,6 +466,13 @@ export function parseSettingsToml(raw: string): SettingsConfig {
       }
       currentProvider['modelList'] = currentProvider['modelList'] ?? {}
       section = 'provider.modelList'
+      continue
+    }
+
+    if (line === '[[prompts]]') {
+      currentPrompt = {}
+      prompts.push(currentPrompt)
+      section = 'prompt'
       continue
     }
 
@@ -603,6 +616,14 @@ export function parseSettingsToml(raw: string): SettingsConfig {
       continue
     }
 
+    if (section === 'prompt') {
+      if (!currentPrompt) {
+        throw new Error(`Prompt entry is not initialized for ${key}.`)
+      }
+      currentPrompt[key] = value
+      continue
+    }
+
     const modelList =
       currentProvider && typeof currentProvider['modelList'] === 'object'
         ? (currentProvider['modelList'] as Record<string, unknown>)
@@ -617,7 +638,8 @@ export function parseSettingsToml(raw: string): SettingsConfig {
 
   return normalizeSettingsConfig({
     ...root,
-    providers
+    providers,
+    prompts
   })
 }
 
@@ -704,6 +726,15 @@ export function stringifySettingsToml(config: SettingsConfig): string {
       '[providers.modelList]',
       `enabled = ${stringifyTomlStringArray(provider.modelList.enabled)}`,
       `disabled = ${stringifyTomlStringArray(provider.modelList.disabled)}`
+    )
+  }
+
+  for (const prompt of normalized.prompts ?? []) {
+    lines.push(
+      '',
+      '[[prompts]]',
+      `keycode = ${stringifyTomlString(prompt.keycode)}`,
+      `text = ${stringifyTomlString(prompt.text)}`
     )
   }
 
