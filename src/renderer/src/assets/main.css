@@ -3,6 +3,21 @@
 @import 'streamdown/styles.css';
 @import '../theme/theme.css';
 
+/**
+ * Streamdown uses shadcn/ui-style Tailwind color tokens.
+ * Define them here so Tailwind generates the utility classes.
+ * These values serve as the defaults; .streamdown-content scopes
+ * the inner divider/background colors further down in this file.
+ */
+@theme {
+  --color-background: rgb(var(--yachiyo-rgb-surface));
+  --color-sidebar: rgb(var(--yachiyo-rgb-canvas));
+  --color-border: rgb(var(--yachiyo-rgb-ink) / 0.08);
+  --color-muted: rgb(232 240 246);
+  --color-muted-foreground: rgb(var(--yachiyo-rgb-text-tertiary));
+  --color-foreground: rgb(var(--yachiyo-rgb-ink));
+}
+
 *,
 *::before,
 *::after {
@@ -85,23 +100,7 @@ body {
   font-size: 1.05em;
 }
 
-.streamdown-content table {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 0.75em 0;
-  font-size: 13px;
-}
-.streamdown-content th,
-.streamdown-content td {
-  border: 1px solid rgb(var(--yachiyo-rgb-ink) / 0.12);
-  padding: 6px 12px;
-  text-align: left;
-}
-.streamdown-content th {
-  background: rgb(var(--yachiyo-rgb-ink) / 0.04);
-  font-weight: 600;
-}
-
+/* Inline code */
 .streamdown-content code:not(pre code) {
   background: rgb(var(--yachiyo-rgb-ink) / 0.07);
   padding: 1px 5px;
@@ -110,12 +109,35 @@ body {
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
-.streamdown-content pre {
+/* Code block card: teal accent outer border */
+.streamdown-content [data-streamdown='code-block'] {
+  border-color: rgb(var(--yachiyo-rgb-accent) / 0.22);
+  box-shadow: 0 1px 3px rgb(var(--yachiyo-rgb-ink) / 0.05);
+}
+
+/* Code block inner body */
+.streamdown-content [data-streamdown='code-block-body'] {
+  background: rgb(var(--yachiyo-rgb-surface));
+  border-color: rgb(var(--yachiyo-rgb-ink) / 0.06);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+/* Table card: remove outer border, keep inner table border only */
+.streamdown-content [data-streamdown='table-wrapper'] {
+  border-width: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* Table header: clean light tint */
+.streamdown-content [data-streamdown='table-header'] {
   background: rgb(var(--yachiyo-rgb-ink) / 0.04);
-  border-radius: 8px;
-  padding: 12px 16px;
-  overflow-x: auto;
-  margin: 0.75em 0;
+}
+
+/* Table cells: strip any stray borders — row dividers come from divide-y only */
+.streamdown-content [data-streamdown='table-header-cell'],
+.streamdown-content [data-streamdown='table-cell'] {
+  border-width: 0;
 }
 
 .streamdown-content ul,

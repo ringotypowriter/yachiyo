@@ -19,6 +19,7 @@ export function MessageMarkdown({
           animated={isStreaming}
           caret={isStreaming ? 'circle' : undefined}
           mode={isStreaming ? 'streaming' : 'static'}
+          controls={true}
         >
           {content}
         </Streamdown>
