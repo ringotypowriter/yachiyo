@@ -1,9 +1,10 @@
-import { readFile, stat } from 'node:fs/promises'
-import { basename, isAbsolute, relative, resolve } from 'node:path'
+import { readFile, readdir, stat } from 'node:fs/promises'
+import { basename, isAbsolute, join, relative, resolve } from 'node:path'
+import createIgnore, { type Ignore } from 'ignore'
 
 import type { SearchService } from '../services/search/searchService.ts'
 
-const FILE_MENTION_RE = /(^|\s)@([A-Za-z0-9._/-]+)/g
+const FILE_MENTION_RE = /(^|\s)@(!?)([A-Za-z0-9._/-]+)/g
 const MAX_FILE_MENTION_COUNT = 8
 const DEFAULT_CANDIDATE_LIMIT = 8
 const DEFAULT_INLINE_MAX_BYTES = 6_000
@@ -12,6 +13,7 @@ const DEFAULT_INLINE_MAX_LINES = 120
 export interface ParsedFileMention {
   raw: string
   query: string
+  includeIgnored?: boolean
 }
 
 export interface ResolvedFileMention {
@@ -28,6 +30,11 @@ export interface FileMentionResolution {
   inlinedPath?: string
 }
 
+interface WorkspaceIgnoreRule {
+  basePath: string
+  matcher: Ignore
+}
+
 function stripTrailingMentionPunctuation(value: string): string {
   return value.replace(/[.,!?;:)\]]+$/g, '')
 }
@@ -42,7 +49,7 @@ function toWorkspaceRelativePath(workspacePath: string, targetPath: string): str
     return undefined
   }
 
-  return relativePath
+  return normalizeRelativePath(relativePath)
 }
 
 function resolveWorkspaceBoundPath(workspacePath: string, targetPath: string): string | undefined {
@@ -61,6 +68,90 @@ function toUnique<T>(values: T[]): T[] {
   return [...new Set(values)]
 }
 
+function normalizeRelativePath(path: string): string {
+  return path.replaceAll('\\', '/')
+}
+
+function isIgnoredWorkspacePath(
+  relativePath: string,
+  rules: WorkspaceIgnoreRule[],
+  includeIgnored: boolean | undefined
+): boolean {
+  if (includeIgnored) {
+    return false
+  }
+
+  let ignored = false
+  const normalizedPath = normalizeRelativePath(relativePath)
+  for (const rule of rules) {
+    const scopedPath = toScopedIgnorePath(normalizedPath, rule.basePath)
+    if (!scopedPath) {
+      continue
+    }
+
+    const result = rule.matcher.test(scopedPath)
+    if (result.ignored) {
+      ignored = true
+    }
+    if (result.unignored) {
+      ignored = false
+    }
+  }
+
+  return ignored
+}
+
+function toScopedIgnorePath(path: string, basePath: string): string | null {
+  if (!basePath) {
+    return path
+  }
+
+  if (path === basePath) {
+    return basename(path)
+  }
+
+  if (!path.startsWith(`${basePath}/`)) {
+    return null
+  }
+
+  return path.slice(basePath.length + 1)
+}
+
+function compareIgnoreRuleDepth(left: WorkspaceIgnoreRule, right: WorkspaceIgnoreRule): number {
+  return left.basePath.split('/').length - right.basePath.split('/').length
+}
+
+async function loadWorkspaceIgnoreRules(workspacePath: string): Promise<WorkspaceIgnoreRule[]> {
+  const rules: WorkspaceIgnoreRule[] = []
+
+  async function visit(currentPath: string): Promise<void> {
+    const entries = await readdir(currentPath, { withFileTypes: true }).catch(() => [])
+    const gitignoreEntry = entries.find((entry) => entry.isFile() && entry.name === '.gitignore')
+    if (gitignoreEntry) {
+      const gitignorePath = join(currentPath, gitignoreEntry.name)
+      const gitignoreContent = await readFile(gitignorePath, 'utf8').catch(() => null)
+
+      if (gitignoreContent) {
+        rules.push({
+          basePath: toWorkspaceRelativePath(workspacePath, currentPath) ?? '',
+          matcher: createIgnore().add(gitignoreContent)
+        })
+      }
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name === '.git') {
+        continue
+      }
+
+      await visit(join(currentPath, entry.name))
+    }
+  }
+
+  await visit(workspacePath)
+  return rules.sort(compareIgnoreRuleDepth)
+}
+
 export function parseFileMentions(content: string): ParsedFileMention[] {
   const mentions: ParsedFileMention[] = []
   const seen = new Set<string>()
@@ -68,18 +159,21 @@ export function parseFileMentions(content: string): ParsedFileMention[] {
 
   FILE_MENTION_RE.lastIndex = 0
   while ((match = FILE_MENTION_RE.exec(content)) !== null) {
-    const query = stripTrailingMentionPunctuation(match[2]?.trim() ?? '')
+    const includeIgnored = match[2] === '!'
+    const query = stripTrailingMentionPunctuation(match[3]?.trim() ?? '')
     const tokenEndIndex = match.index + match[0].length
     const nextCharacter = content[tokenEndIndex]
+    const key = `${includeIgnored ? '!' : ''}${query}`
 
-    if (!query || (query === 'skills' && nextCharacter === ':') || seen.has(query)) {
+    if (!query || (query === 'skills' && nextCharacter === ':') || seen.has(key)) {
       continue
     }
 
-    seen.add(query)
+    seen.add(key)
     mentions.push({
-      raw: `@${query}`,
-      query
+      raw: `@${includeIgnored ? '!' : ''}${query}`,
+      query,
+      ...(includeIgnored ? { includeIgnored: true } : {})
     })
 
     if (mentions.length >= MAX_FILE_MENTION_COUNT) {
@@ -92,7 +186,9 @@ export function parseFileMentions(content: string): ParsedFileMention[] {
 
 async function resolveExactWorkspaceFile(
   workspacePath: string,
-  query: string
+  query: string,
+  ignoreRules: WorkspaceIgnoreRule[],
+  includeIgnored?: boolean
 ): Promise<string | null> {
   const targetPath = resolveWorkspaceBoundPath(workspacePath, query)
   if (!targetPath) {
@@ -104,7 +200,12 @@ async function resolveExactWorkspaceFile(
     return null
   }
 
-  return toWorkspaceRelativePath(workspacePath, targetPath) ?? null
+  const relativePath = toWorkspaceRelativePath(workspacePath, targetPath)
+  if (!relativePath || isIgnoredWorkspacePath(relativePath, ignoreRules, includeIgnored)) {
+    return null
+  }
+
+  return relativePath
 }
 
 async function isWorkspaceFile(workspacePath: string, candidatePath: string): Promise<boolean> {
@@ -114,7 +215,7 @@ async function isWorkspaceFile(workspacePath: string, candidatePath: string): Pr
 }
 
 function buildGlobPatterns(query: string): string[] {
-  const trimmed = query.trim()
+  const trimmed = normalizeRelativePath(query.trim())
   if (!trimmed) {
     return ['**/*']
   }
@@ -133,11 +234,44 @@ export async function searchWorkspaceFileMentionCandidates(input: {
   query: string
   workspacePath: string
   searchService: SearchService
+  includeIgnored?: boolean
   limit?: number
 }): Promise<string[]> {
-  const exactMatch = await resolveExactWorkspaceFile(input.workspacePath, input.query)
+  const ignoreRules = await loadWorkspaceIgnoreRules(input.workspacePath)
+  const exactMatch = await resolveExactWorkspaceFile(
+    input.workspacePath,
+    input.query,
+    ignoreRules,
+    input.includeIgnored
+  )
   const candidates = exactMatch ? [exactMatch] : []
   const candidateLimit = input.limit ?? DEFAULT_CANDIDATE_LIMIT
+
+  if (input.includeIgnored) {
+    const matcherList = buildGlobPatterns(input.query).map(createGlobMatcher)
+    const workspaceFiles = await findWorkspaceFilesByGlob(
+      input.workspacePath,
+      matcherList,
+      candidateLimit
+    )
+
+    for (const filePath of workspaceFiles) {
+      const relativePath = toWorkspaceRelativePath(input.workspacePath, filePath)
+      if (!relativePath || candidates.includes(relativePath)) {
+        continue
+      }
+      if (!matcherList.some((matcher) => matcher(relativePath))) {
+        continue
+      }
+
+      candidates.push(relativePath)
+      if (candidates.length >= candidateLimit) {
+        break
+      }
+    }
+
+    return candidates.slice(0, candidateLimit)
+  }
 
   for (const pattern of buildGlobPatterns(input.query)) {
     if (candidates.length >= candidateLimit) {
@@ -162,6 +296,9 @@ export async function searchWorkspaceFileMentionCandidates(input: {
       if (!(await isWorkspaceFile(input.workspacePath, normalizedPath))) {
         continue
       }
+      if (isIgnoredWorkspacePath(normalizedPath, ignoreRules, input.includeIgnored)) {
+        continue
+      }
       if (!candidates.includes(normalizedPath)) {
         candidates.push(normalizedPath)
       }
@@ -173,6 +310,81 @@ export async function searchWorkspaceFileMentionCandidates(input: {
   }
 
   return candidates.slice(0, candidateLimit)
+}
+
+async function findWorkspaceFilesByGlob(
+  workspacePath: string,
+  matchers: Array<(value: string) => boolean>,
+  limit: number
+): Promise<string[]> {
+  const results: string[] = []
+
+  async function visit(currentPath: string): Promise<void> {
+    if (results.length >= limit) {
+      return
+    }
+
+    const entries = await readdir(currentPath, { withFileTypes: true }).catch(() => [])
+    for (const entry of entries) {
+      if (entry.name === '.git') {
+        continue
+      }
+
+      const entryPath = join(currentPath, entry.name)
+      if (entry.isDirectory()) {
+        await visit(entryPath)
+      } else if (entry.isFile()) {
+        const relativePath = toWorkspaceRelativePath(workspacePath, entryPath)
+        if (relativePath && matchers.some((matcher) => matcher(relativePath))) {
+          results.push(entryPath)
+        }
+      }
+
+      if (results.length >= limit) {
+        return
+      }
+    }
+  }
+
+  await visit(workspacePath)
+  return results
+}
+
+function createGlobMatcher(pattern: string): (value: string) => boolean {
+  const regex = globPatternToRegExp(pattern)
+  return (value: string): boolean => regex.test(value)
+}
+
+function globPatternToRegExp(pattern: string): RegExp {
+  const normalizedPattern = pattern.replace(/\\/g, '/').replace(/^\.\//, '')
+  let source = '^'
+
+  for (let index = 0; index < normalizedPattern.length; index += 1) {
+    const char = normalizedPattern[index]
+    const next = normalizedPattern[index + 1]
+
+    if (char === '*' && next === '*') {
+      const nextNext = normalizedPattern[index + 2]
+      source += nextNext === '/' ? '(?:.*/)?' : '.*'
+      index += nextNext === '/' ? 2 : 1
+      continue
+    }
+
+    if (char === '*') {
+      source += '[^/]*'
+      continue
+    }
+
+    if (char === '?') {
+      source += '[^/]'
+      continue
+    }
+
+    source += /[|\\{}()[\]^$+*?.]/.test(char) ? `\\${char}` : char
+  }
+
+  source += '$'
+  return new RegExp(source)
 }
 
 async function maybeInlineResolvedFile(input: {
@@ -259,9 +471,15 @@ export async function resolveFileMentionsForUserQuery(input: {
   }
 
   const mentions: ResolvedFileMention[] = []
+  const ignoreRules = await loadWorkspaceIgnoreRules(input.workspacePath)
 
   for (const mention of parsedMentions) {
-    const exactMatch = await resolveExactWorkspaceFile(input.workspacePath, mention.query)
+    const exactMatch = await resolveExactWorkspaceFile(
+      input.workspacePath,
+      mention.query,
+      ignoreRules,
+      mention.includeIgnored
+    )
     if (exactMatch) {
       mentions.push({
         ...mention,
@@ -283,6 +501,7 @@ export async function resolveFileMentionsForUserQuery(input: {
 
     const candidates = await searchWorkspaceFileMentionCandidates({
       query: mention.query,
+      includeIgnored: mention.includeIgnored,
       workspacePath: input.workspacePath,
       searchService: input.searchService
     })

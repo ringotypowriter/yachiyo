@@ -21,12 +21,21 @@ async function withWorkspace(
 
   try {
     await mkdir(join(workspacePath, 'src', 'nested'), { recursive: true })
+    await mkdir(join(workspacePath, 'packages', 'app', 'dist'), { recursive: true })
     await writeFile(join(workspacePath, 'src', 'app.ts'), 'export const app = true\n', 'utf8')
     await writeFile(
       join(workspacePath, 'src', 'nested', 'tiny.ts'),
       ['export const tiny = true', 'export const answer = 42'].join('\n'),
       'utf8'
     )
+    await writeFile(
+      join(workspacePath, 'packages', 'app', 'dist', 'ignored.js'),
+      'console.log("ignored")\n',
+      'utf8'
+    )
+    await writeFile(join(workspacePath, 'secret.txt'), 'top secret\n', 'utf8')
+    await writeFile(join(workspacePath, '.gitignore'), 'secret.txt\n', 'utf8')
+    await writeFile(join(workspacePath, 'packages', 'app', '.gitignore'), 'dist/\n', 'utf8')
     await writeFile(join(workspacePath, 'README.md'), '# Demo\n', 'utf8')
 
     await fn({
@@ -57,6 +66,13 @@ test('parseFileMentions strips trailing sentence punctuation from @file tokens',
   ])
 })
 
+test('parseFileMentions keeps @! mentions and marks them to include ignored files', () => {
+  assert.deepEqual(parseFileMentions('Check @!secret.txt and @src/app.ts'), [
+    { raw: '@!secret.txt', query: 'secret.txt', includeIgnored: true },
+    { raw: '@src/app.ts', query: 'src/app.ts' }
+  ])
+})
+
 test('searchWorkspaceFileMentionCandidates finds workspace-relative matches with glob fallback', async () => {
   await withWorkspace(async ({ searchService, workspacePath }) => {
     const results = await searchWorkspaceFileMentionCandidates({
@@ -79,7 +95,58 @@ test('searchWorkspaceFileMentionCandidates returns default workspace files for a
 
     assert.ok(results.length > 0)
     assert.equal(results.includes('README.md'), true)
+    assert.equal(results.includes('secret.txt'), false)
     assert.equal(results.includes('src'), false)
+  })
+})
+
+test('searchWorkspaceFileMentionCandidates respects .gitignore by default', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    const results = await searchWorkspaceFileMentionCandidates({
+      query: 'secret.txt',
+      workspacePath,
+      searchService
+    })
+
+    assert.deepEqual(results, [])
+  })
+})
+
+test('searchWorkspaceFileMentionCandidates can include ignored files when requested', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    const results = await searchWorkspaceFileMentionCandidates({
+      query: 'secret.txt',
+      workspacePath,
+      searchService,
+      includeIgnored: true
+    })
+
+    assert.deepEqual(results, ['secret.txt'])
+  })
+})
+
+test('searchWorkspaceFileMentionCandidates respects nested .gitignore files', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    const results = await searchWorkspaceFileMentionCandidates({
+      query: 'ignored.js',
+      workspacePath,
+      searchService
+    })
+
+    assert.deepEqual(results, [])
+  })
+})
+
+test('searchWorkspaceFileMentionCandidates can bypass nested .gitignore files with @!', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    const results = await searchWorkspaceFileMentionCandidates({
+      query: 'ignored.js',
+      workspacePath,
+      searchService,
+      includeIgnored: true
+    })
+
+    assert.deepEqual(results, ['packages/app/dist/ignored.js'])
   })
 })
 
@@ -143,5 +210,46 @@ test('resolveFileMentionsForUserQuery records ambiguous and missing mentions wit
     assert.match(result.augmentedUserQuery, /@tiny -> ambiguous:/)
     assert.match(result.augmentedUserQuery, /@missing\.ts -> unresolved/)
     assert.match(result.augmentedUserQuery, /Compare @tiny and @missing\.ts$/)
+  })
+})
+
+test('resolveFileMentionsForUserQuery hides ignored files unless @! is used', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    const hiddenResult = await resolveFileMentionsForUserQuery({
+      content: 'Inspect @secret.txt',
+      workspacePath,
+      searchService
+    })
+    const bypassResult = await resolveFileMentionsForUserQuery({
+      content: 'Inspect @!secret.txt',
+      workspacePath,
+      searchService
+    })
+
+    assert.equal(hiddenResult.mentions[0]?.kind, 'missing')
+    assert.match(hiddenResult.augmentedUserQuery, /@secret\.txt -> unresolved/)
+    assert.equal(bypassResult.mentions[0]?.kind, 'resolved')
+    assert.equal(bypassResult.inlinedPath, 'secret.txt')
+    assert.match(bypassResult.augmentedUserQuery, /@!secret\.txt -> secret\.txt/)
+    assert.match(bypassResult.augmentedUserQuery, /top secret/)
+  })
+})
+
+test('resolveFileMentionsForUserQuery respects nested .gitignore files unless @! is used', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    const hiddenResult = await resolveFileMentionsForUserQuery({
+      content: 'Inspect @packages/app/dist/ignored.js',
+      workspacePath,
+      searchService
+    })
+    const bypassResult = await resolveFileMentionsForUserQuery({
+      content: 'Inspect @!packages/app/dist/ignored.js',
+      workspacePath,
+      searchService
+    })
+
+    assert.equal(hiddenResult.mentions[0]?.kind, 'missing')
+    assert.equal(bypassResult.mentions[0]?.kind, 'resolved')
+    assert.equal(bypassResult.inlinedPath, 'packages/app/dist/ignored.js')
   })
 })

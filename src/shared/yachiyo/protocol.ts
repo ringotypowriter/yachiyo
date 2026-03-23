@@ -478,6 +478,7 @@ export interface FileMentionCandidate {
 
 export interface SearchWorkspaceFilesInput {
   query: string
+  includeIgnored?: boolean
   threadId?: string
   workspacePath?: string | null
   limit?: number

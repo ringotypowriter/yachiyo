@@ -363,6 +363,7 @@ export class YachiyoServer {
 
     const paths = await searchWorkspaceFileMentionCandidates({
       query,
+      includeIgnored: input.includeIgnored,
       workspacePath: resolve(workspacePath),
       searchService: this.searchService,
       limit: input.limit

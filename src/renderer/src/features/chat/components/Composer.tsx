@@ -39,8 +39,13 @@ import { WorkspaceSelectorPopup } from './WorkspaceSelectorPopup'
 const NEW_THREAD_DRAFT_KEY = '__new__'
 const MAX_COMPOSER_IMAGES = 4
 
-const COMPOSER_TAG_HIGHLIGHT_RE = /@skills:[a-zA-Z0-9_-]+|@[A-Za-z0-9._/-]+/g
-const CONFIRMED_FILE_TAG_RE = /(^|\s)@([A-Za-z0-9._/-]+)(?=\s|$)/g
+const COMPOSER_TAG_HIGHLIGHT_RE = /@skills:[a-zA-Z0-9_-]+|@!?[A-Za-z0-9._/-]+/g
+const CONFIRMED_FILE_TAG_RE = /(^|\s)@(!?[A-Za-z0-9._/-]+)(?=\s|$)/g
+const SKILL_TAG_PATTERN = /^@skills:([a-zA-Z0-9_-]+)(\s|$)/
+const SLASH_PATTERN = /^\/([a-zA-Z0-9-]*)$/
+const SKILL_PREFIX_PATTERN = /^\/skills:([a-zA-Z0-9_-]*)$/
+const AT_SKILL_PREFIX_PATTERN = /^@skills:([a-zA-Z0-9_-]*)$/
+const FILE_MENTION_PATTERN = /(^|\s)@(!?)([A-Za-z0-9._/-]*)$/
 
 function renderComposerTextHighlights(
   text: string,
@@ -107,14 +112,17 @@ async function resolveValidatedFileTags(input: {
 
   await Promise.all(
     input.fileTags.map(async (fileTag) => {
+      const includeIgnored = fileTag.startsWith('!')
+      const query = includeIgnored ? fileTag.slice(1) : fileTag
       const matches = await window.api.yachiyo.searchWorkspaceFiles({
-        query: fileTag,
+        query,
+        includeIgnored,
         ...(input.threadId ? { threadId: input.threadId } : {}),
         ...(!input.threadId && input.workspacePath ? { workspacePath: input.workspacePath } : {}),
         limit: 8
       })
 
-      if (matches.some((match) => match.path === fileTag)) {
+      if (matches.some((match) => match.path === query)) {
         validated.push(fileTag)
       }
     })
@@ -280,7 +288,13 @@ export function Composer({
   const [isComposing, setIsComposing] = useState(false)
   const [dismissedSlashQuery, setDismissedSlashQuery] = useState<string | null>(null)
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
-  const [fileMentionMatches, setFileMentionMatches] = useState<FileMentionCandidate[]>([])
+  const [fileMentionMatchesState, setFileMentionMatchesState] = useState<{
+    key: string | null
+    matches: FileMentionCandidate[]
+  }>({
+    key: null,
+    matches: []
+  })
 
   const composerValue = composerDraft.text
   const draftImages = composerDraft.images
@@ -311,11 +325,6 @@ export function Composer({
   })
   const showWorkspaceHint = !workspaceSelectorOpen && (workspaceHintHovered || workspaceHintPinned)
 
-  const SKILL_TAG_PATTERN = /^@skills:([a-zA-Z0-9_-]+)(\s|$)/
-  const SLASH_PATTERN = /^\/([a-zA-Z0-9-]*)$/
-  const SKILL_PREFIX_PATTERN = /^\/skills:([a-zA-Z0-9_-]*)$/
-  const AT_SKILL_PREFIX_PATTERN = /^@skills:([a-zA-Z0-9_-]*)$/
-  const FILE_MENTION_PATTERN = /(^|\s)@([A-Za-z0-9._/-]*)$/
   const slashMatch = SLASH_PATTERN.exec(composerValue)
   const skillPrefixMatch = SKILL_PREFIX_PATTERN.exec(composerValue)
   const atSkillPrefixMatch = AT_SKILL_PREFIX_PATTERN.exec(composerValue)
@@ -330,12 +339,36 @@ export function Composer({
       ? FILE_MENTION_PATTERN.exec(composerValue)
       : null
   const fileMentionQuery =
-    fileMentionMatch && !fileMentionMatch[2].startsWith('skills:') ? fileMentionMatch[2] : null
+    fileMentionMatch && !fileMentionMatch[3].startsWith('skills:') ? fileMentionMatch[3] : null
+  const fileMentionIncludeIgnored = fileMentionMatch?.[2] === '!'
+  const fileMentionRequestKey =
+    fileMentionQuery === null ? null : `${fileMentionIncludeIgnored ? '!' : ''}${fileMentionQuery}`
   // Only show chip when skill tag is confirmed (has trailing space/content) and popup is not active
   const skillTagMatch = skillQuery === null ? SKILL_TAG_PATTERN.exec(composerValue) : null
   const activeSkillTag = skillTagMatch ? skillTagMatch[1] : null
   const confirmedFileTags = useMemo(() => collectConfirmedFileTags(composerValue), [composerValue])
-  const [validatedFileTags, setValidatedFileTags] = useState<string[]>([])
+  const [validatedFileTagsState, setValidatedFileTagsState] = useState<{
+    key: string | null
+    tags: string[]
+  }>({
+    key: null,
+    tags: []
+  })
+  const fileMentionMatches = useMemo(
+    () =>
+      fileMentionRequestKey !== null && fileMentionMatchesState.key === fileMentionRequestKey
+        ? fileMentionMatchesState.matches
+        : [],
+    [fileMentionMatchesState, fileMentionRequestKey]
+  )
+  const confirmedFileTagsKey = confirmedFileTags.join('\n')
+  const validatedFileTags = useMemo(
+    () =>
+      confirmedFileTags.length > 0 && validatedFileTagsState.key === confirmedFileTagsKey
+        ? validatedFileTagsState.tags
+        : [],
+    [confirmedFileTags.length, confirmedFileTagsKey, validatedFileTagsState]
+  )
 
   const userPrompts = useMemo(() => config?.prompts ?? [], [config?.prompts])
   const memoryEnabled = isMemoryConfigured(config)
@@ -420,40 +453,47 @@ export function Composer({
 
   useEffect(() => {
     if (fileMentionQuery === null) {
-      setFileMentionMatches([])
       return
     }
 
     let cancelled = false
+    const requestKey = `${fileMentionIncludeIgnored ? '!' : ''}${fileMentionQuery}`
     void window.api.yachiyo
       .searchWorkspaceFiles({
         query: fileMentionQuery,
+        includeIgnored: fileMentionIncludeIgnored,
         ...(activeThreadId ? { threadId: activeThreadId } : {}),
         ...(!activeThreadId && currentWorkspacePath ? { workspacePath: currentWorkspacePath } : {})
       })
       .then((matches) => {
         if (!cancelled) {
-          setFileMentionMatches(matches)
+          setFileMentionMatchesState({
+            key: requestKey,
+            matches
+          })
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setFileMentionMatches([])
+          setFileMentionMatchesState({
+            key: requestKey,
+            matches: []
+          })
         }
       })
 
     return () => {
       cancelled = true
     }
-  }, [activeThreadId, currentWorkspacePath, fileMentionQuery])
+  }, [activeThreadId, currentWorkspacePath, fileMentionIncludeIgnored, fileMentionQuery])
 
   useEffect(() => {
     if (confirmedFileTags.length === 0) {
-      setValidatedFileTags([])
       return
     }
 
     let cancelled = false
+    const requestKey = confirmedFileTags.join('\n')
     void resolveValidatedFileTags({
       fileTags: confirmedFileTags,
       threadId: activeThreadId,
@@ -461,12 +501,18 @@ export function Composer({
     })
       .then((fileTags) => {
         if (!cancelled) {
-          setValidatedFileTags(fileTags)
+          setValidatedFileTagsState({
+            key: requestKey,
+            tags: fileTags
+          })
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setValidatedFileTags([])
+          setValidatedFileTagsState({
+            key: requestKey,
+            tags: []
+          })
         }
       })
 
@@ -685,7 +731,8 @@ export function Composer({
         setComposerValue(
           composerValue.replace(
             FILE_MENTION_PATTERN,
-            (_match, prefix: string) => `${prefix}@${filePath} `
+            (_match, prefix: string, ignoreMarker: string) =>
+              `${prefix}@${ignoreMarker}${filePath} `
           )
         )
       } else {
@@ -884,7 +931,10 @@ export function Composer({
                   aria-label={`Remove file ${fileTag}`}
                   onClick={() =>
                     setComposerValue(
-                      composerValue.replace(`@${fileTag}`, '').replace(/\s{2,}/g, ' ').trimStart()
+                      composerValue
+                        .replace(`@${fileTag}`, '')
+                        .replace(/\s{2,}/g, ' ')
+                        .trimStart()
                     )
                   }
                   className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity"
