@@ -11,7 +11,7 @@ import {
   DEFAULT_TOOL_MODEL_MODE,
   normalizeMemoryProviderId,
   normalizeActiveRunEnterBehavior,
-  normalizeEnabledTools,
+  normalizeUserEnabledTools,
   normalizeSidebarVisibility,
   normalizeToolModelMode,
   type BrowserBackedWebSearchSessionConfig,
@@ -20,6 +20,7 @@ import {
   type ProviderConfig,
   type ProviderKind,
   type ProviderSettings,
+  type SkillsConfig,
   type SettingsConfig,
   type ToolModelConfig,
   type WebSearchConfig,
@@ -45,6 +46,9 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   },
   workspace: {
     savedPaths: []
+  },
+  skills: {
+    enabled: []
   },
   toolModel: {
     mode: DEFAULT_TOOL_MODEL_MODE,
@@ -101,6 +105,17 @@ function normalizeWorkspaceConfig(
 
   return {
     savedPaths: normalizeStringList(input['savedPaths'] ?? fallback.savedPaths)
+  }
+}
+
+function normalizeSkillsConfig(
+  value: unknown,
+  fallback: SkillsConfig = DEFAULT_SETTINGS_CONFIG.skills ?? {}
+): SkillsConfig {
+  const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+
+  return {
+    enabled: normalizeStringList(input['enabled'] ?? fallback.enabled)
   }
 }
 
@@ -265,7 +280,7 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
   const resolvedToolProvider = resolveToolModelProvider({ providers }, toolModel)
 
   return {
-    enabledTools: normalizeEnabledTools(
+    enabledTools: normalizeUserEnabledTools(
       input['enabledTools'],
       DEFAULT_SETTINGS_CONFIG.enabledTools
     ),
@@ -286,6 +301,7 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
       )
     },
     workspace: normalizeWorkspaceConfig(input['workspace']),
+    skills: normalizeSkillsConfig(input['skills']),
     toolModel:
       toolModel.mode === 'custom'
         ? resolvedToolProvider
@@ -350,6 +366,7 @@ export function parseSettingsToml(raw: string): SettingsConfig {
     | 'general'
     | 'chat'
     | 'workspace'
+    | 'skills'
     | 'toolModel'
     | 'memory'
     | 'webSearch'
@@ -377,6 +394,12 @@ export function parseSettingsToml(raw: string): SettingsConfig {
     if (line === '[toolModel]') {
       root['toolModel'] = root['toolModel'] ?? {}
       section = 'toolModel'
+      continue
+    }
+
+    if (line === '[skills]') {
+      root['skills'] = root['skills'] ?? {}
+      section = 'skills'
       continue
     }
 
@@ -495,6 +518,20 @@ export function parseSettingsToml(raw: string): SettingsConfig {
       continue
     }
 
+    if (section === 'skills') {
+      const skills =
+        root['skills'] && typeof root['skills'] === 'object'
+          ? (root['skills'] as Record<string, unknown>)
+          : null
+
+      if (!skills) {
+        throw new Error(`Skill settings are not initialized for ${key}.`)
+      }
+
+      skills[key] = value
+      continue
+    }
+
     if (section === 'workspace') {
       const workspace =
         root['workspace'] && typeof root['workspace'] === 'object'
@@ -598,7 +635,7 @@ export function stringifySettingsToml(config: SettingsConfig): string {
   const memory = normalizeMemoryConfig(normalized.memory)
   const lines: string[] = [
     `enabledTools = ${stringifyTomlStringArray(
-      normalizeEnabledTools(normalized.enabledTools, DEFAULT_SETTINGS_CONFIG.enabledTools)
+      normalizeUserEnabledTools(normalized.enabledTools, DEFAULT_SETTINGS_CONFIG.enabledTools)
     )}`,
     '',
     '[general]',
@@ -619,6 +656,9 @@ export function stringifySettingsToml(config: SettingsConfig): string {
     '',
     '[workspace]',
     `savedPaths = ${stringifyTomlStringArray(normalized.workspace?.savedPaths ?? [])}`,
+    '',
+    '[skills]',
+    `enabled = ${stringifyTomlStringArray(normalized.skills?.enabled ?? [])}`,
     '',
     '[toolModel]',
     `mode = ${stringifyTomlString(toolModel.mode ?? DEFAULT_TOOL_MODEL_MODE)}`,

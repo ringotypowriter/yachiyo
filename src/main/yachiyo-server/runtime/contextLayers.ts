@@ -4,6 +4,7 @@ import {
   normalizeMessageImages
 } from '../../../shared/yachiyo/messageContent.ts'
 import type { ModelMessage } from './types.ts'
+import type { SkillSummary } from '../../../shared/yachiyo/protocol.ts'
 
 export interface ContextLayerHistoryMessage {
   role: 'user' | 'assistant'
@@ -24,6 +25,10 @@ export interface UserLayerInput {
   content?: string
 }
 
+export interface SkillsLayerInput {
+  activeSkills?: SkillSummary[]
+}
+
 export interface HintLayerInput {
   reminder?: string
 }
@@ -36,6 +41,7 @@ export interface CompileContextLayersInput {
   history: ContextLayerHistoryMessage[]
   personality: PersonalityLayerInput
   user?: UserLayerInput
+  skills?: SkillsLayerInput
   agent?: AgentLayerInput
   hint?: HintLayerInput
   memory?: MemoryLayerInput
@@ -139,6 +145,31 @@ export function compileUserLayer(input: UserLayerInput | undefined): ModelMessag
   }
 }
 
+export function compileSkillsLayer(input: SkillsLayerInput | undefined): ModelMessage | null {
+  const activeSkills =
+    input?.activeSkills
+      ?.map((skill) => ({
+        name: skill.name.trim(),
+        description: skill.description?.trim() ?? ''
+      }))
+      .filter((skill) => skill.name.length > 0) ?? []
+
+  if (activeSkills.length === 0) {
+    return null
+  }
+
+  return {
+    role: 'system',
+    content: [
+      '以下是当前这次运行里已激活的 Skills。默认只看名称和简介；如果需要详细内容，请使用 skillsRead 按名称读取对应的 SKILL.md：',
+      '',
+      ...activeSkills.map((skill) =>
+        skill.description ? `- ${skill.name}: ${skill.description}` : `- ${skill.name}`
+      )
+    ].join('\n')
+  }
+}
+
 export function compileHintLayer(input: HintLayerInput | undefined): ModelMessage | null {
   const reminder = input?.reminder?.trim() ?? ''
   if (!reminder) {
@@ -168,6 +199,7 @@ export function compileContextLayers(input: CompileContextLayersInput): ModelMes
     ...[
       compilePersonalityLayer(input.personality),
       compileUserLayer(input.user),
+      compileSkillsLayer(input.skills),
       compileAgentLayer(input.agent),
       compileHintLayer(input.hint),
       compileMemoryLayer(input.memory)

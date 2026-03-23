@@ -484,6 +484,7 @@ export class YachiyoServerThreadDomain {
       ...(thread.queuedFollowUpMessageId && !deletedIds.has(thread.queuedFollowUpMessageId)
         ? {
             queuedFollowUpEnabledTools: thread.queuedFollowUpEnabledTools,
+            queuedFollowUpEnabledSkillNames: thread.queuedFollowUpEnabledSkillNames,
             queuedFollowUpMessageId: thread.queuedFollowUpMessageId
           }
         : {}),
@@ -501,6 +502,7 @@ export class YachiyoServerThreadDomain {
 
     if (thread.queuedFollowUpMessageId && deletedIds.has(thread.queuedFollowUpMessageId)) {
       delete updatedThread.queuedFollowUpEnabledTools
+      delete updatedThread.queuedFollowUpEnabledSkillNames
       delete updatedThread.queuedFollowUpMessageId
     }
 

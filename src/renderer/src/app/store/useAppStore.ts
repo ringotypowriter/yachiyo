@@ -22,7 +22,7 @@ import {
 } from '../../../../shared/yachiyo/messageContent.ts'
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
-  normalizeEnabledTools,
+  normalizeUserEnabledTools,
   normalizeSkillNames
 } from '../../../../shared/yachiyo/protocol.ts'
 import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
@@ -766,7 +766,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (event.type === 'settings.updated') {
         return {
           config: event.config ?? state.config,
-          enabledTools: normalizeEnabledTools(event.config?.enabledTools, state.enabledTools),
+          enabledTools: normalizeUserEnabledTools(event.config?.enabledTools, state.enabledTools),
           lastError: null,
           settings: event.settings ?? state.settings ?? DEFAULT_SETTINGS
         }
@@ -1222,7 +1222,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           archivedThreads: sortThreads(payload.archivedThreads),
           config: payload.config ?? state.config,
           connectionStatus: 'connected',
-          enabledTools: normalizeEnabledTools(payload.config?.enabledTools, state.enabledTools),
+          enabledTools: normalizeUserEnabledTools(payload.config?.enabledTools, state.enabledTools),
           initialized: true,
           isBootstrapping: false,
           lastError: null,
@@ -1255,13 +1255,24 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   retryMessage: async (messageId) => {
-    const { activeThreadId: threadId, enabledTools } = get()
+    const currentState = get()
+    const { activeThreadId: threadId, enabledTools } = currentState
     if (!threadId) {
       return
     }
 
+    const enabledSkillNames = resolveEffectiveEnabledSkillNames({
+      config: currentState.config,
+      draft: getComposerDraft(currentState)
+    })
+
     try {
-      const accepted = await window.api.yachiyo.retryMessage({ threadId, messageId, enabledTools })
+      const accepted = await window.api.yachiyo.retryMessage({
+        threadId,
+        messageId,
+        enabledTools,
+        enabledSkillNames
+      })
       set((state) => ({
         activeRunId: accepted.runId,
         activeRequestMessageId: accepted.requestMessageId,
@@ -1363,7 +1374,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       const accepted = await window.api.yachiyo.sendChat({
         content: trimmed,
         enabledTools,
-        enabledSkillNames: draft.enabledSkillNames === null ? undefined : enabledSkillNames,
+        enabledSkillNames:
+          mode === 'follow-up' || draft.enabledSkillNames !== null ? enabledSkillNames : undefined,
         ...(images.length > 0 ? { images } : {}),
         ...(mode !== 'normal' ? { mode } : {}),
         threadId
@@ -1442,7 +1454,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setEnabledTools: async (enabledTools) => {
     const previousEnabledTools = get().enabledTools
-    const nextEnabledTools = normalizeEnabledTools(enabledTools, previousEnabledTools)
+    const nextEnabledTools = normalizeUserEnabledTools(enabledTools, previousEnabledTools)
 
     if (areEnabledToolsEqual(previousEnabledTools, nextEnabledTools)) {
       return
@@ -1460,7 +1472,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       })
       set({
         config,
-        enabledTools: normalizeEnabledTools(config.enabledTools, nextEnabledTools),
+        enabledTools: normalizeUserEnabledTools(config.enabledTools, nextEnabledTools),
         lastError: null
       })
     } catch (error) {

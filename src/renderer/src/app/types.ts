@@ -16,6 +16,7 @@ export type {
   RunStatus,
   SendChatMode,
   SidebarVisibility,
+  SkillCatalogEntry,
   SettingsConfig,
   ThreadRecord as Thread,
   ToolCallName,

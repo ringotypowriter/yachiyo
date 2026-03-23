@@ -3,6 +3,7 @@ import { app, BrowserWindow, ipcMain, net, session } from 'electron'
 import type {
   CompactThreadInput,
   ImportWebSearchBrowserSessionInput,
+  ListSkillsInput,
   ProviderConfig,
   ProviderSettings,
   RetryInput,
@@ -41,6 +42,7 @@ const IPC_CHANNELS = {
   renameThread: 'yachiyo:rename-thread',
   removeProvider: 'yachiyo:remove-provider',
   listWebSearchBrowserImportSources: 'yachiyo:list-web-search-browser-import-sources',
+  listSkills: 'yachiyo:list-skills',
   openThreadWorkspace: 'yachiyo:open-thread-workspace',
   pickWorkspaceDirectory: 'yachiyo:pick-workspace-directory',
   restoreThread: 'yachiyo:restore-thread',
@@ -201,6 +203,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.listWebSearchBrowserImportSources, () =>
     server!.listWebSearchBrowserImportSources()
   )
+  handle(IPC_CHANNELS.listSkills, (input: ListSkillsInput | undefined) => server!.listSkills(input))
   handle(IPC_CHANNELS.importWebSearchBrowserSession, (input: ImportWebSearchBrowserSessionInput) =>
     server!.importWebSearchBrowserSession(input)
   )

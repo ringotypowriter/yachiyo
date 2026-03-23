@@ -58,7 +58,10 @@ function withWindowApiMock(mock: YachiyoApiMock): () => void {
   Object.defineProperty(globalScope, 'window', {
     value: {
       api: {
-        yachiyo: mock
+        yachiyo: {
+          listSkills: async () => [],
+          ...mock
+        }
       }
     },
     configurable: true,
@@ -208,8 +211,7 @@ test('applyServerEvent preserves compiled context sources after the run complete
   const contextSources = [
     {
       kind: 'persona' as const,
-      id: 'persona-default',
-      title: 'Default Persona'
+      present: true
     }
   ]
 
@@ -1179,11 +1181,17 @@ test('sendMessage keeps a tool-waiting steer as a temporary pending marker until
 test('sendMessage replaces the queued follow-up for an active run', async () => {
   resetStore()
 
-  const calls: Array<{ content: string; mode?: string; threadId: string }> = []
+  const calls: Array<{
+    content: string
+    enabledSkillNames?: string[]
+    mode?: string
+    threadId: string
+  }> = []
   const restoreWindow = withWindowApiMock({
     sendChat: async (input) => {
       calls.push({
         content: input.content,
+        enabledSkillNames: input.enabledSkillNames,
         mode: input.mode,
         threadId: input.threadId
       })
@@ -1218,6 +1226,13 @@ test('sendMessage replaces the queued follow-up for an active run', async () => 
       activeRequestMessageId: 'user-1',
       activeRunThreadId: 'thread-1',
       activeThreadId: 'thread-1',
+      config: {
+        ...DEFAULT_SETTINGS,
+        providers: [],
+        skills: {
+          enabled: ['workspace-refactor']
+        }
+      },
       composerDrafts: {
         'thread-1': {
           text: 'Second queued follow-up',
@@ -1264,6 +1279,7 @@ test('sendMessage replaces the queued follow-up for an active run', async () => 
     assert.deepEqual(calls, [
       {
         content: 'Second queued follow-up',
+        enabledSkillNames: ['workspace-refactor'],
         mode: 'follow-up',
         threadId: 'thread-1'
       }
@@ -1284,10 +1300,16 @@ test('sendMessage replaces the queued follow-up for an active run', async () => 
 test('retryMessage marks the accepted run as active immediately', async () => {
   resetStore()
 
-  const calls: Array<{ enabledTools?: string[]; messageId: string; threadId: string }> = []
+  const calls: Array<{
+    enabledSkillNames?: string[]
+    enabledTools?: string[]
+    messageId: string
+    threadId: string
+  }> = []
   const restoreWindow = withWindowApiMock({
     retryMessage: async (input) => {
       calls.push({
+        enabledSkillNames: input.enabledSkillNames,
         enabledTools: input.enabledTools,
         messageId: input.messageId,
         threadId: input.threadId
@@ -1331,6 +1353,13 @@ test('retryMessage marks the accepted run as active immediately', async () => {
         ]
       },
       enabledTools: ['read', 'edit'],
+      config: {
+        ...DEFAULT_SETTINGS,
+        providers: [],
+        skills: {
+          enabled: ['workspace-refactor']
+        }
+      },
       settings: READY_SETTINGS,
       threads: [
         {
@@ -1346,6 +1375,7 @@ test('retryMessage marks the accepted run as active immediately', async () => {
     const state = useAppStore.getState()
     assert.deepEqual(calls, [
       {
+        enabledSkillNames: ['workspace-refactor'],
         enabledTools: ['read', 'edit'],
         messageId: 'assistant-1',
         threadId: 'thread-1'

@@ -13,6 +13,7 @@ export const threadsTable = sqliteTable('threads', {
   headMessageId: text('head_message_id'),
   queuedFollowUpMessageId: text('queued_follow_up_message_id'),
   queuedFollowUpEnabledTools: text('queued_follow_up_enabled_tools'),
+  queuedFollowUpEnabledSkillNames: text('queued_follow_up_enabled_skill_names'),
   archivedAt: text('archived_at'),
   updatedAt: text('updated_at').notNull(),
   createdAt: text('created_at').notNull()

@@ -3,6 +3,7 @@ import type { ToolSet } from 'ai'
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
   normalizeEnabledTools,
+  type SkillCatalogEntry,
   type ToolCallDetailsSnapshot,
   type ToolCallName,
   type ToolCallStatus
@@ -18,6 +19,7 @@ import { createTool as createGlobTool } from './agentTools/globTool.ts'
 import { createTool as createGrepTool } from './agentTools/grepTool.ts'
 import { createTool as createMemorySearchTool } from './agentTools/memorySearchTool.ts'
 import { createTool as createReadTool } from './agentTools/readTool.ts'
+import { createTool as createSkillsReadTool } from './agentTools/skillsReadTool.ts'
 import {
   takeTail,
   type AgentToolContext,
@@ -27,6 +29,7 @@ import {
   type GlobToolOutput,
   type GrepToolOutput,
   type ReadToolOutput,
+  type SkillsReadToolOutput,
   type WebReadToolOutput,
   type WebSearchToolOutput,
   type WriteToolOutput
@@ -44,6 +47,7 @@ export type {
   GlobToolOutput,
   GrepToolOutput,
   ReadToolOutput,
+  SkillsReadToolOutput,
   ToolContentBlock,
   WebReadToolOutput,
   WebSearchToolOutput,
@@ -60,11 +64,16 @@ export { createTool as createEditTool, runEditTool } from './agentTools/editTool
 export { createTool as createGlobTool, runGlobTool } from './agentTools/globTool.ts'
 export { createTool as createGrepTool, runGrepTool } from './agentTools/grepTool.ts'
 export { createTool as createReadTool, runReadTool } from './agentTools/readTool.ts'
+export {
+  createTool as createSkillsReadTool,
+  runSkillsReadTool
+} from './agentTools/skillsReadTool.ts'
 export { createTool as createWebReadTool, runWebReadTool } from './agentTools/webReadTool.ts'
 export { createTool as createWebSearchTool, runWebSearchTool } from './agentTools/webSearchTool.ts'
 export { createTool as createWriteTool, runWriteTool } from './agentTools/writeTool.ts'
 
 export interface AgentToolDependencies {
+  availableSkills?: SkillCatalogEntry[]
   fetchImpl?: typeof globalThis.fetch
   loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
   memoryService?: MemoryService
@@ -96,6 +105,14 @@ export function summarizeToolInput(toolName: ToolCallName, input: unknown): stri
     const query = typeof input === 'object' && input !== null && 'query' in input ? input.query : ''
     return typeof query === 'string' && query.trim().length > 0
       ? takeTail(query, 160).text
+      : toolName
+  }
+
+  if (toolName === 'skillsRead') {
+    const names =
+      typeof input === 'object' && input !== null && 'names' in input ? input.names : undefined
+    return Array.isArray(names) && names.length > 0
+      ? takeTail(names.join(', '), 160).text
       : toolName
   }
 
@@ -157,6 +174,14 @@ export function summarizeToolOutput(
     const details = (output as WebSearchToolOutput).details
     const summary = `found ${details.resultCount} result${details.resultCount === 1 ? '' : 's'}`
     return details.failureCode ? `search failed (${details.failureCode})` : summary
+  }
+
+  if (toolName === 'skillsRead') {
+    const details = (output as SkillsReadToolOutput).details
+    if (details.resolvedCount === 0) {
+      return 'no skills found'
+    }
+    return `read ${details.resolvedCount} skill${details.resolvedCount === 1 ? '' : 's'}`
   }
 
   if (toolName === 'grep') {
@@ -253,6 +278,12 @@ export function createAgentToolSet(
   if (enabledTools.has('webSearch') && dependencies.webSearchService) {
     tools.webSearch = createWebSearchTool(context, {
       webSearchService: dependencies.webSearchService
+    })
+  }
+
+  if (enabledTools.has('skillsRead') && dependencies.availableSkills) {
+    tools.skillsRead = createSkillsReadTool(context, {
+      availableSkills: dependencies.availableSkills
     })
   }
 

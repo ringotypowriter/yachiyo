@@ -13,6 +13,7 @@ import type {
   RunFailedEvent,
   RunCreatedEvent,
   SendChatInput,
+  SkillCatalogEntry,
   SettingsConfig,
   ThreadRecord,
   ThreadStateReplacedEvent,
@@ -25,6 +26,7 @@ import {
   normalizeMessageImages,
   summarizeMessageInput
 } from '../../../../shared/yachiyo/messageContent.ts'
+import { normalizeSkillNames } from '../../../../shared/yachiyo/protocol.ts'
 import type { AuxiliaryGenerationService } from '../../runtime/auxiliaryGeneration.ts'
 import type { SoulDocument } from '../../runtime/soul.ts'
 import type { UserDocument } from '../../runtime/user.ts'
@@ -56,6 +58,7 @@ import {
 interface RunState {
   threadId: string
   requestMessageId?: string
+  enabledSkillNames?: string[]
   abortController: AbortController
   pendingSteerMessageId?: string
   pendingSteerInput?: {
@@ -70,6 +73,7 @@ interface RunState {
 interface PreparedQueuedFollowUpStart {
   createdAt: string
   enabledTools: ToolCallName[]
+  enabledSkillNames?: string[]
   requestMessageId: string
   runId: string
   thread: ThreadRecord
@@ -92,6 +96,7 @@ interface RunDomainDeps {
   readUserDocument?: () => Promise<UserDocument | null>
   readConfig: () => SettingsConfig
   readSettings: () => ProviderSettings
+  listSkills: (workspacePaths?: string[]) => Promise<SkillCatalogEntry[]>
   requireThread: (threadId: string) => ThreadRecord
   loadThreadMessages: (threadId: string) => MessageRecord[]
   loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
@@ -226,6 +231,10 @@ export class YachiyoServerRunDomain {
       input.enabledTools,
       this.deps.readConfig().enabledTools
     )
+    const enabledSkillNames =
+      input.enabledSkillNames === undefined
+        ? undefined
+        : normalizeSkillNames(input.enabledSkillNames)
 
     if (!hasMessagePayload({ content, images })) {
       throw new Error('Cannot send an empty message.')
@@ -240,6 +249,7 @@ export class YachiyoServerRunDomain {
       return this.startFreshRun({
         content,
         enabledTools,
+        enabledSkillNames,
         images,
         thread
       })
@@ -252,6 +262,7 @@ export class YachiyoServerRunDomain {
       return this.sendActiveRunSteer({
         activeRunId,
         content,
+        enabledSkillNames,
         images,
         thread
       })
@@ -264,6 +275,7 @@ export class YachiyoServerRunDomain {
       return this.queueFollowUp({
         content,
         enabledTools,
+        enabledSkillNames,
         images,
         thread
       })
@@ -282,6 +294,10 @@ export class YachiyoServerRunDomain {
       input.enabledTools,
       this.deps.readConfig().enabledTools
     )
+    const enabledSkillNames =
+      input.enabledSkillNames === undefined
+        ? undefined
+        : normalizeSkillNames(input.enabledSkillNames)
     const messages = this.deps.loadThreadMessages(thread.id)
     const { requestMessage, sourceAssistantMessage } = resolveRetryRequest(
       thread,
@@ -323,6 +339,7 @@ export class YachiyoServerRunDomain {
 
     this.startActiveRun({
       enabledTools,
+      enabledSkillNames,
       runId: accepted.runId,
       thread: accepted.thread,
       requestMessageId: requestMessage.id,
@@ -378,6 +395,7 @@ export class YachiyoServerRunDomain {
   private startFreshRun(input: {
     content: string
     enabledTools: ToolCallName[]
+    enabledSkillNames?: string[]
     images: MessageRecord['images']
     thread: ThreadRecord
   }): ChatAccepted {
@@ -446,6 +464,7 @@ export class YachiyoServerRunDomain {
 
     this.startActiveRun({
       enabledTools: input.enabledTools,
+      enabledSkillNames: input.enabledSkillNames,
       runId: accepted.runId,
       thread: accepted.thread,
       requestMessageId: userMessage.id,
@@ -458,6 +477,7 @@ export class YachiyoServerRunDomain {
   private sendActiveRunSteer(input: {
     activeRunId: string
     content: string
+    enabledSkillNames?: string[]
     images: MessageRecord['images']
     thread: ThreadRecord
   }): ChatAccepted {
@@ -467,6 +487,9 @@ export class YachiyoServerRunDomain {
     }
 
     if (activeRun.executionPhase === 'tool-running') {
+      activeRun.enabledSkillNames = input.enabledSkillNames
+        ? [...input.enabledSkillNames]
+        : undefined
       activeRun.pendingSteerInput = {
         content: input.content,
         images: input.images,
@@ -480,6 +503,7 @@ export class YachiyoServerRunDomain {
       }
     }
 
+    activeRun.enabledSkillNames = input.enabledSkillNames ? [...input.enabledSkillNames] : undefined
     const { updatedThread, userMessage } = this.persistSteerMessage({
       content: input.content,
       images: input.images,
@@ -502,6 +526,7 @@ export class YachiyoServerRunDomain {
   private queueFollowUp(input: {
     content: string
     enabledTools: ToolCallName[]
+    enabledSkillNames?: string[]
     images: MessageRecord['images']
     thread: ThreadRecord
   }): ChatAccepted {
@@ -525,6 +550,11 @@ export class YachiyoServerRunDomain {
       queuedFollowUpEnabledTools: [...input.enabledTools],
       queuedFollowUpMessageId: userMessage.id,
       updatedAt: timestamp
+    }
+    if (input.enabledSkillNames !== undefined) {
+      updatedThread.queuedFollowUpEnabledSkillNames = [...input.enabledSkillNames]
+    } else {
+      delete updatedThread.queuedFollowUpEnabledSkillNames
     }
 
     this.deps.storage.saveThreadMessage({
@@ -606,6 +636,7 @@ export class YachiyoServerRunDomain {
 
   private startActiveRun(input: {
     enabledTools: ToolCallName[]
+    enabledSkillNames?: string[]
     runId: string
     thread: ThreadRecord
     requestMessageId: string
@@ -614,6 +645,7 @@ export class YachiyoServerRunDomain {
     this.activeRuns.set(input.runId, {
       threadId: input.thread.id,
       requestMessageId: input.requestMessageId,
+      ...(input.enabledSkillNames ? { enabledSkillNames: [...input.enabledSkillNames] } : {}),
       abortController: new AbortController(),
       executionPhase: 'generating',
       updateHeadOnComplete: input.updateHeadOnComplete
@@ -622,6 +654,7 @@ export class YachiyoServerRunDomain {
 
     const runTask = this.runLoop({
       enabledTools: input.enabledTools,
+      enabledSkillNames: input.enabledSkillNames,
       runId: input.runId,
       thread: input.thread,
       requestMessageId: input.requestMessageId,
@@ -651,6 +684,7 @@ export class YachiyoServerRunDomain {
 
   private async runLoop(input: {
     enabledTools: ToolCallName[]
+    enabledSkillNames?: string[]
     runId: string
     thread: ThreadRecord
     requestMessageId: string
@@ -714,6 +748,7 @@ export class YachiyoServerRunDomain {
             readSettings: this.deps.readSettings,
             loadThreadMessages: this.deps.loadThreadMessages,
             loadThreadToolCalls: this.deps.loadThreadToolCalls,
+            listSkills: this.deps.listSkills,
             onEnabledToolsUsed: (enabledTools) => {
               this.lastRunEnabledTools = [...enabledTools]
             },
@@ -759,6 +794,7 @@ export class YachiyoServerRunDomain {
           {
             abortController,
             enabledTools: input.enabledTools,
+            enabledSkillNames: activeRun.enabledSkillNames ?? input.enabledSkillNames,
             previousEnabledTools,
             requestMessageId: currentRequestMessageId,
             runId: input.runId,
@@ -1199,12 +1235,13 @@ export class YachiyoServerRunDomain {
     const thread = this.deps.requireThread(threadId)
     const queuedMessageId = thread.queuedFollowUpMessageId
     if (!queuedMessageId) {
-      if (thread.queuedFollowUpEnabledTools) {
+      if (thread.queuedFollowUpEnabledTools || thread.queuedFollowUpEnabledSkillNames) {
         const clearedThread: ThreadRecord = {
           ...thread,
           updatedAt: this.deps.timestamp()
         }
         delete clearedThread.queuedFollowUpEnabledTools
+        delete clearedThread.queuedFollowUpEnabledSkillNames
         this.deps.storage.updateThread(clearedThread)
       }
       return null
@@ -1219,6 +1256,7 @@ export class YachiyoServerRunDomain {
         updatedAt: this.deps.timestamp()
       }
       delete clearedThread.queuedFollowUpEnabledTools
+      delete clearedThread.queuedFollowUpEnabledSkillNames
       delete clearedThread.queuedFollowUpMessageId
 
       this.deps.storage.updateThread(clearedThread)
@@ -1239,6 +1277,7 @@ export class YachiyoServerRunDomain {
       updatedAt: timestamp
     }
     delete updatedThread.queuedFollowUpEnabledTools
+    delete updatedThread.queuedFollowUpEnabledSkillNames
     delete updatedThread.queuedFollowUpMessageId
 
     this.deps.storage.updateThread(updatedThread)
@@ -1246,11 +1285,16 @@ export class YachiyoServerRunDomain {
     const enabledTools = thread.queuedFollowUpEnabledTools
       ? [...thread.queuedFollowUpEnabledTools]
       : resolveEnabledTools(undefined, this.deps.readConfig().enabledTools)
+    const enabledSkillNames =
+      thread.queuedFollowUpEnabledSkillNames === undefined
+        ? undefined
+        : normalizeSkillNames(thread.queuedFollowUpEnabledSkillNames)
     const runId = this.deps.createId()
 
     return {
       createdAt: timestamp,
       enabledTools,
+      enabledSkillNames,
       requestMessageId: queuedMessage.id,
       runId,
       thread: updatedThread
@@ -1287,6 +1331,7 @@ export class YachiyoServerRunDomain {
 
     this.startActiveRun({
       enabledTools: prepared.enabledTools,
+      enabledSkillNames: prepared.enabledSkillNames,
       runId: prepared.runId,
       thread: prepared.thread,
       requestMessageId: prepared.requestMessageId,

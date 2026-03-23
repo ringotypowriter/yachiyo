@@ -1210,6 +1210,75 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
   })
 })
 
+test('YachiyoServer injects only active skill summaries into runtime context and exposes skillsRead', async () => {
+  await withServer(async ({ server, completeRun, modelRequests, workspacePathForThread }) => {
+    await server.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    })
+
+    const thread = await server.createThread()
+    const workspacePath = workspacePathForThread(thread.id)
+
+    await mkdir(join(workspacePath, '.yachiyo', 'skills', 'workspace-refactor'), {
+      recursive: true
+    })
+    await writeFile(
+      join(workspacePath, '.yachiyo', 'skills', 'workspace-refactor', 'SKILL.md'),
+      [
+        '---',
+        'name: workspace-refactor',
+        'description: Workspace refactor guide',
+        '---',
+        '',
+        '# Workspace Refactor',
+        '',
+        'Detailed implementation instructions.'
+      ].join('\n')
+    )
+
+    await server.saveConfig({
+      ...(await server.getConfig()),
+      skills: {
+        enabled: ['workspace-refactor']
+      }
+    })
+
+    const accepted = await server.sendChat({
+      threadId: thread.id,
+      content: 'Use the local skill summary',
+      enabledTools: ['read']
+    })
+    await completeRun(accepted.runId)
+
+    const request = modelRequests.at(-1)
+    assert.ok(request)
+    assert.deepEqual(Object.keys(request.tools ?? {}), ['read', 'skillsRead'])
+    assert.ok(
+      request.messages.some(
+        (message) =>
+          message.role === 'system' &&
+          typeof message.content === 'string' &&
+          message.content.includes('workspace-refactor: Workspace refactor guide')
+      )
+    )
+    assert.ok(
+      !request.messages.some(
+        (message) =>
+          message.role === 'system' &&
+          typeof message.content === 'string' &&
+          message.content.includes('Detailed implementation instructions.')
+      )
+    )
+  })
+})
+
 test('YachiyoServer fails runs cleanly when thread workspace initialization fails', async () => {
   let workspaceInitializationAttempts = 0
 

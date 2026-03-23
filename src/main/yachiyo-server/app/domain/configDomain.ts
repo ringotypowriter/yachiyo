@@ -1,7 +1,7 @@
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
   type ImportWebSearchBrowserSessionInput,
-  normalizeEnabledTools,
+  normalizeUserEnabledTools,
   type SettingsConfig,
   type SettingsUpdatedEvent,
   type ToolCallName,
@@ -54,7 +54,7 @@ export function resolveEnabledTools(
   value: unknown,
   fallback: readonly ToolCallName[] = DEFAULT_ENABLED_TOOL_NAMES
 ): ToolCallName[] {
-  return normalizeEnabledTools(value, fallback)
+  return normalizeUserEnabledTools(value, fallback)
 }
 
 function upsertProviderConfig(config: SettingsConfig, provider: ProviderConfig): SettingsConfig {

@@ -8,6 +8,7 @@ const BASE_INPUT = {
   evolvedTraitCount: 0,
   hasUserContent: false,
   enabledTools: [] as ToolCallName[],
+  activeSkills: [],
   workspacePath: '/workspace',
   hasToolReminder: false,
   memoryEntries: [] as string[],
@@ -62,6 +63,22 @@ test('buildContextSources agent is always present with tool count', () => {
   assert.ok(agent)
   assert.equal(agent.present, true)
   assert.equal(agent.count, 4)
+})
+
+test('buildContextSources skills reflect only active skills', () => {
+  const withSkills = buildContextSources({
+    ...BASE_INPUT,
+    activeSkills: [{ name: 'repo-skill', description: 'Local repo helper' }]
+  })
+  const withoutSkills = buildContextSources({ ...BASE_INPUT, activeSkills: [] })
+
+  const skills = withSkills.find((s) => s.kind === 'skills')
+  assert.ok(skills)
+  assert.equal(skills.present, true)
+  assert.equal(skills.count, 1)
+  assert.equal(skills.summary, '1 skill active')
+
+  assert.equal(withoutSkills.find((s) => s.kind === 'skills')?.present, false)
 })
 
 test('buildContextSources agent summary includes workspace when workspacePath is non-empty', () => {
@@ -172,11 +189,12 @@ test('buildContextSources includes toolReminder when hasToolReminder is true', (
   assert.equal(reminder.present, true)
 })
 
-test('buildContextSources source order is persona, soul, user, agent, memory, toolReminder', () => {
+test('buildContextSources source order is persona, soul, user, skills, agent, memory, toolReminder', () => {
   const sources = buildContextSources({
     ...BASE_INPUT,
     evolvedTraitCount: 1,
     hasUserContent: true,
+    activeSkills: [{ name: 'repo-skill', description: 'Local repo helper' }],
     enabledTools: ['bash'] as ToolCallName[],
     hasToolReminder: true,
     memoryEntries: ['entry'],
@@ -193,5 +211,5 @@ test('buildContextSources source order is persona, soul, user, agent, memory, to
   })
 
   const kinds = sources.map((s) => s.kind)
-  assert.deepEqual(kinds, ['persona', 'soul', 'user', 'agent', 'memory', 'toolReminder'])
+  assert.deepEqual(kinds, ['persona', 'soul', 'user', 'skills', 'agent', 'memory', 'toolReminder'])
 })

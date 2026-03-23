@@ -35,6 +35,9 @@ test('settings store persists multi-provider config as TOML', async () => {
       workspace: {
         savedPaths: ['/Users/ringo/projects/yachiyo', '/Users/ringo/projects/handshake']
       },
+      skills: {
+        enabled: ['workspace-refactor', 'release-checklist']
+      },
       toolModel: {
         mode: 'custom',
         providerId: 'provider-backup',
@@ -99,6 +102,8 @@ test('settings store persists multi-provider config as TOML', async () => {
       toml,
       /savedPaths = \["\/Users\/ringo\/projects\/yachiyo","\/Users\/ringo\/projects\/handshake"\]/
     )
+    assert.match(toml, /\[skills\]/)
+    assert.match(toml, /enabled = \["workspace-refactor","release-checklist"\]/)
     assert.match(toml, /\[toolModel\]/)
     assert.match(toml, /mode = "custom"/)
     assert.match(toml, /providerId = "provider-backup"/)
@@ -190,6 +195,26 @@ test('normalizeSettingsConfig keeps vertex providers', () => {
   })
 
   assert.equal(normalized.providers[0]?.type, 'vertex')
+})
+
+test('normalizeSettingsConfig normalizes skill name lists', () => {
+  const normalized = normalizeSettingsConfig({
+    skills: {
+      enabled: ['  workspace-refactor  ', 'release-checklist', 'workspace-refactor', '']
+    },
+    providers: []
+  })
+
+  assert.deepEqual(normalized.skills?.enabled, ['workspace-refactor', 'release-checklist'])
+})
+
+test('normalizeSettingsConfig strips runtime-managed tools from user tool preferences', () => {
+  const normalized = normalizeSettingsConfig({
+    enabledTools: ['read', 'skillsRead', 'bash'],
+    providers: []
+  })
+
+  assert.deepEqual(normalized.enabledTools, ['read', 'bash'])
 })
 
 test('toToolModelSettings resolves the configured auxiliary model snapshot', () => {

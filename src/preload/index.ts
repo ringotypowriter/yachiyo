@@ -4,6 +4,7 @@ import type {
   CompactThreadInput,
   CompactThreadAccepted,
   ImportWebSearchBrowserSessionInput,
+  ListSkillsInput,
   ProviderConfig,
   ProviderSettings,
   RetryInput,
@@ -71,6 +72,7 @@ const api = {
       ipcRenderer.invoke('yachiyo:disable-provider-model', input),
     fetchProviderModels: (input: ProviderConfig) =>
       ipcRenderer.invoke('yachiyo:fetch-provider-models', input),
+    listSkills: (input?: ListSkillsInput) => ipcRenderer.invoke('yachiyo:list-skills', input),
     listWebSearchBrowserImportSources: () =>
       ipcRenderer.invoke('yachiyo:list-web-search-browser-import-sources'),
     importWebSearchBrowserSession: (input: ImportWebSearchBrowserSessionInput) =>

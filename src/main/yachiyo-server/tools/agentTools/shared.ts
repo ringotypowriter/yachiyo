@@ -9,6 +9,7 @@ import type {
   GlobToolCallDetails,
   GrepToolCallDetails,
   ReadToolCallDetails,
+  SkillsReadToolCallDetails,
   ToolCallDetailsSnapshot,
   ToolCallName,
   WebReadToolCallDetails,
@@ -78,6 +79,11 @@ export const webSearchToolInputSchema = z.object({
   limit: z.number().int().min(1).max(MAX_WEB_SEARCH_LIMIT).optional()
 })
 
+export const skillsReadToolInputSchema = z.object({
+  names: z.array(z.string().min(1)).min(1).max(20),
+  includeContent: z.boolean().optional()
+})
+
 export type ReadToolInput = z.infer<typeof readToolInputSchema>
 export type WriteToolInput = z.infer<typeof writeToolInputSchema>
 export type EditToolInput = z.infer<typeof editToolInputSchema>
@@ -86,6 +92,7 @@ export type GrepToolInput = z.infer<typeof grepToolInputSchema>
 export type GlobToolInput = z.infer<typeof globToolInputSchema>
 export type WebReadToolInput = z.infer<typeof webReadToolInputSchema>
 export type WebSearchToolInput = z.infer<typeof webSearchToolInputSchema>
+export type SkillsReadToolInput = z.infer<typeof skillsReadToolInputSchema>
 
 export interface AgentToolContext {
   enabledTools?: ToolCallName[]
@@ -121,6 +128,7 @@ export type GrepToolOutput = AgentToolResult<GrepToolCallDetails>
 export type GlobToolOutput = AgentToolResult<GlobToolCallDetails>
 export type WebReadToolOutput = AgentToolResult<WebReadToolCallDetails>
 export type WebSearchToolOutput = AgentToolResult<WebSearchToolCallDetails>
+export type SkillsReadToolOutput = AgentToolResult<SkillsReadToolCallDetails>
 
 export type AgentToolOutput =
   | ReadToolOutput
@@ -131,6 +139,7 @@ export type AgentToolOutput =
   | GlobToolOutput
   | WebReadToolOutput
   | WebSearchToolOutput
+  | SkillsReadToolOutput
 
 export interface BashRunnerInput {
   command: string

@@ -47,14 +47,20 @@ export const CORE_TOOL_NAMES = [
   'grep',
   'glob',
   'webRead',
-  'webSearch'
+  'webSearch',
+  'skillsRead'
 ] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
 export type ToolCallStatus = 'running' | 'completed' | 'failed'
 
 const coreToolNameSet = new Set<string>(CORE_TOOL_NAMES)
+const runtimeManagedToolNameSet = new Set<ToolCallName>(['skillsRead'])
+const userManagedToolNames = CORE_TOOL_NAMES.filter(
+  (toolName) => !runtimeManagedToolNameSet.has(toolName)
+)
 
-export const DEFAULT_ENABLED_TOOL_NAMES = [...CORE_TOOL_NAMES] as ToolCallName[]
+export const USER_MANAGED_TOOL_NAMES = [...userManagedToolNames] as ToolCallName[]
+export const DEFAULT_ENABLED_TOOL_NAMES = [...USER_MANAGED_TOOL_NAMES] as ToolCallName[]
 export const DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR: ActiveRunEnterBehavior = 'enter-steers'
 export const DEFAULT_SIDEBAR_VISIBILITY: SidebarVisibility = 'expanded'
 export const DEFAULT_TOOL_MODEL_MODE: ToolModelMode = 'disabled'
@@ -92,6 +98,44 @@ export function normalizeEnabledTools(
   }
 
   return enabledTools
+}
+
+export function normalizeUserEnabledTools(
+  value: unknown,
+  fallback: readonly ToolCallName[] = DEFAULT_ENABLED_TOOL_NAMES
+): ToolCallName[] {
+  const fallbackSet = new Set(USER_MANAGED_TOOL_NAMES)
+  const normalizedFallback = normalizeEnabledTools(fallback).filter((toolName) =>
+    fallbackSet.has(toolName)
+  )
+  const normalizedTools = normalizeEnabledTools(value, normalizedFallback)
+
+  return normalizedTools.filter((toolName) => fallbackSet.has(toolName))
+}
+
+export function normalizeSkillNames(value: unknown, fallback: readonly string[] = []): string[] {
+  if (!Array.isArray(value)) {
+    return [...fallback]
+  }
+
+  const names: string[] = []
+  const seen = new Set<string>()
+
+  for (const item of value) {
+    if (typeof item !== 'string') {
+      continue
+    }
+
+    const name = item.trim()
+    if (!name || seen.has(name)) {
+      continue
+    }
+
+    seen.add(name)
+    names.push(name)
+  }
+
+  return names
 }
 
 export function isCoreToolName(value: string): value is ToolCallName {
@@ -219,6 +263,21 @@ export interface WebSearchToolCallDetails {
   failureCode?: WebSearchFailureCode
 }
 
+export interface SkillsReadRecord {
+  name: string
+  directoryPath: string
+  skillFilePath: string
+  description?: string
+  content?: string
+}
+
+export interface SkillsReadToolCallDetails {
+  requestedNames: string[]
+  resolvedCount: number
+  skills: SkillsReadRecord[]
+  missingNames?: string[]
+}
+
 export type ToolCallDetailsSnapshot =
   | ReadToolCallDetails
   | WriteToolCallDetails
@@ -228,6 +287,7 @@ export type ToolCallDetailsSnapshot =
   | GlobToolCallDetails
   | WebReadToolCallDetails
   | WebSearchToolCallDetails
+  | SkillsReadToolCallDetails
 
 export interface MessageImageRecord {
   dataUrl: string
@@ -252,6 +312,7 @@ export interface ThreadRecord {
   headMessageId?: string
   queuedFollowUpMessageId?: string
   queuedFollowUpEnabledTools?: ToolCallName[]
+  queuedFollowUpEnabledSkillNames?: string[]
   branchFromThreadId?: string
   branchFromMessageId?: string
 }
@@ -325,6 +386,10 @@ export interface ToolModelConfig {
   model?: string
 }
 
+export interface SkillsConfig {
+  enabled?: string[]
+}
+
 export interface MemoryConfig {
   enabled?: boolean
   provider?: MemoryProviderId
@@ -364,6 +429,7 @@ export type RunContextSourceKind =
   | 'soul'
   | 'user'
   | 'agent'
+  | 'skills'
   | 'memory'
   | 'handoff'
   | 'hint'
@@ -395,6 +461,16 @@ export interface WebSearchConfig {
   exa?: ExaWebSearchConfig
 }
 
+export interface SkillSummary {
+  name: string
+  description?: string
+}
+
+export interface SkillCatalogEntry extends SkillSummary {
+  directoryPath: string
+  skillFilePath: string
+}
+
 export interface SettingsConfig {
   providers: ProviderConfig[]
   enabledTools?: ToolCallName[]
@@ -402,6 +478,7 @@ export interface SettingsConfig {
   chat?: ChatConfig
   workspace?: WorkspaceConfig
   toolModel?: ToolModelConfig
+  skills?: SkillsConfig
   memory?: MemoryConfig
   webSearch?: WebSearchConfig
 }
@@ -469,6 +546,10 @@ export interface ToolPreferencesInput {
   enabledTools?: ToolCallName[]
 }
 
+export interface ListSkillsInput {
+  workspacePaths?: string[]
+}
+
 export interface WebSearchBrowserImportSource {
   browserId: BrowserSearchImportSourceId
   browserName: string
@@ -486,6 +567,7 @@ export interface SendChatInput {
   content: string
   images?: MessageImageRecord[]
   enabledTools?: ToolCallName[]
+  enabledSkillNames?: string[]
   mode?: SendChatMode
 }
 
@@ -493,6 +575,7 @@ export interface RetryInput {
   threadId: string
   messageId: string
   enabledTools?: ToolCallName[]
+  enabledSkillNames?: string[]
 }
 
 export interface CompactThreadInput {
@@ -548,7 +631,7 @@ export interface ThreadSearchResult {
   threadTitle: string
   threadUpdatedAt: string
   titleMatched: boolean
-  messageMatch?: ThreadSearchMessageMatch
+  messageMatches: ThreadSearchMessageMatch[]
 }
 
 interface BaseEvent {

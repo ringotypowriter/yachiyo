@@ -8,6 +8,7 @@ import {
   Paperclip,
   LoaderCircle,
   SendHorizonal,
+  Sparkles,
   Square,
   Wrench,
   X
@@ -22,10 +23,11 @@ import { getComposerActionState } from '@renderer/features/chat/lib/composerActi
 import { resolveComposerEnterAction } from '@renderer/features/chat/lib/composerEnterBehavior'
 import { theme } from '@renderer/theme/theme'
 import {
-  CORE_TOOL_NAMES,
-  DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
+  DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
+  USER_MANAGED_TOOL_NAMES
 } from '../../../../../shared/yachiyo/protocol.ts'
 import { ModelSelectorPopup } from './ModelSelectorPopup'
+import { SkillsSelectorPopup } from './SkillsSelectorPopup'
 import { ToolSelectorPopup } from './ToolSelectorPopup'
 import { WorkspaceSelectorPopup } from './WorkspaceSelectorPopup'
 
@@ -149,6 +151,7 @@ export function Composer(): React.JSX.Element {
     (s) => s.composerDrafts[s.activeThreadId ?? NEW_THREAD_DRAFT_KEY] ?? EMPTY_COMPOSER_DRAFT
   )
   const connectionStatus = useAppStore((s) => s.connectionStatus)
+  const availableSkills = useAppStore((s) => s.availableSkills)
   const settings = useAppStore((s) => s.settings ?? DEFAULT_SETTINGS)
   const activeRunId = useAppStore((s) => s.activeRunId)
   const config = useAppStore((s) => s.config)
@@ -160,6 +163,7 @@ export function Composer(): React.JSX.Element {
   const removeComposerImage = useAppStore((s) => s.removeComposerImage)
   const sendMessage = useAppStore((s) => s.sendMessage)
   const selectModel = useAppStore((s) => s.selectModel)
+  const setComposerEnabledSkillNames = useAppStore((s) => s.setComposerEnabledSkillNames)
   const setComposerValue = useAppStore((s) => s.setComposerValue)
   const setThreadWorkspace = useAppStore((s) => s.setThreadWorkspace)
   const toggleEnabledTool = useAppStore((s) => s.toggleEnabledTool)
@@ -168,11 +172,13 @@ export function Composer(): React.JSX.Element {
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const modelSelectorRef = useRef<HTMLDivElement>(null)
+  const skillsSelectorRef = useRef<HTMLDivElement>(null)
   const toolSelectorRef = useRef<HTMLDivElement>(null)
   const workspaceSelectorRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false)
+  const [skillsSelectorOpen, setSkillsSelectorOpen] = useState(false)
   const [toolSelectorOpen, setToolSelectorOpen] = useState(false)
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false)
   const [workspaceHintHovered, setWorkspaceHintHovered] = useState(false)
@@ -189,7 +195,12 @@ export function Composer(): React.JSX.Element {
   const hasActiveRun = activeRunId !== null
   const isModelSelectorLocked = runPhase === 'preparing' || runPhase === 'streaming'
   const isConfigured = settings.apiKey.trim().length > 0 && settings.model.trim().length > 0
-  const disabledToolCount = CORE_TOOL_NAMES.length - enabledTools.length
+  const disabledToolCount = USER_MANAGED_TOOL_NAMES.length - enabledTools.length
+  const defaultEnabledSkillNames = config?.skills?.enabled ?? []
+  const effectiveEnabledSkillNames = composerDraft.enabledSkillNames ?? defaultEnabledSkillNames
+  const hasCustomSkillOverride =
+    composerDraft.enabledSkillNames !== null && composerDraft.enabledSkillNames !== undefined
+  const enabledSkillCount = effectiveEnabledSkillNames.length
   const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null
   const currentWorkspacePath = activeThread?.workspacePath ?? pendingWorkspacePath
   const isWorkspaceLocked = activeThreadId !== null && (messages[activeThreadId]?.length ?? 0) > 0
@@ -290,11 +301,15 @@ export function Composer(): React.JSX.Element {
   }, [activeThreadId])
 
   useEffect(() => {
-    if (!modelSelectorOpen && !toolSelectorOpen && !workspaceSelectorOpen) return
+    if (!modelSelectorOpen && !skillsSelectorOpen && !toolSelectorOpen && !workspaceSelectorOpen) {
+      return
+    }
     const handler = (event: MouseEvent): void => {
       const target = event.target as Node
       const clickedInsideModelSelector =
         modelSelectorRef.current && modelSelectorRef.current.contains(target)
+      const clickedInsideSkillsSelector =
+        skillsSelectorRef.current && skillsSelectorRef.current.contains(target)
       const clickedInsideToolSelector =
         toolSelectorRef.current && toolSelectorRef.current.contains(target)
       const clickedInsideWorkspaceSelector =
@@ -302,6 +317,10 @@ export function Composer(): React.JSX.Element {
 
       if (!clickedInsideModelSelector) {
         setModelSelectorOpen(false)
+      }
+
+      if (!clickedInsideSkillsSelector) {
+        setSkillsSelectorOpen(false)
       }
 
       if (!clickedInsideToolSelector) {
@@ -314,7 +333,7 @@ export function Composer(): React.JSX.Element {
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [modelSelectorOpen, toolSelectorOpen, workspaceSelectorOpen])
+  }, [modelSelectorOpen, skillsSelectorOpen, toolSelectorOpen, workspaceSelectorOpen])
 
   const queueImageFiles = useCallback(
     async (files: File[]) => {
@@ -399,6 +418,7 @@ export function Composer(): React.JSX.Element {
       event.preventDefault()
       if (canSend) {
         setModelSelectorOpen(false)
+        setSkillsSelectorOpen(false)
         setToolSelectorOpen(false)
         setWorkspaceSelectorOpen(false)
         void sendMessage(action === 'send' ? 'normal' : action)
@@ -511,6 +531,7 @@ export function Composer(): React.JSX.Element {
             type="button"
             onClick={() => {
               setModelSelectorOpen(false)
+              setSkillsSelectorOpen(false)
               setWorkspaceSelectorOpen(false)
               setToolSelectorOpen((open) => !open)
             }}
@@ -544,6 +565,55 @@ export function Composer(): React.JSX.Element {
           ) : null}
         </div>
 
+        <div ref={skillsSelectorRef} style={{ position: 'relative' }}>
+          <button
+            type="button"
+            onClick={() => {
+              setModelSelectorOpen(false)
+              setToolSelectorOpen(false)
+              setWorkspaceSelectorOpen(false)
+              setSkillsSelectorOpen((open) => !open)
+            }}
+            className="relative p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity"
+            aria-label="Skills"
+            aria-expanded={skillsSelectorOpen}
+            aria-haspopup="menu"
+          >
+            <Sparkles
+              size={16}
+              strokeWidth={1.5}
+              color={enabledSkillCount > 0 ? theme.icon.accent : theme.icon.muted}
+            />
+            {enabledSkillCount > 0 ? (
+              <span
+                className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center"
+                style={{ fontSize: '8px', background: theme.text.accent }}
+              >
+                {enabledSkillCount}
+              </span>
+            ) : null}
+          </button>
+
+          {skillsSelectorOpen ? (
+            <SkillsSelectorPopup
+              availableSkills={availableSkills}
+              effectiveEnabledSkillNames={effectiveEnabledSkillNames}
+              hasCustomOverride={hasCustomSkillOverride}
+              onReset={() => setComposerEnabledSkillNames(null)}
+              onToggle={(skillName) => {
+                const current = hasCustomSkillOverride
+                  ? effectiveEnabledSkillNames
+                  : defaultEnabledSkillNames
+                const next = current.includes(skillName)
+                  ? current.filter((name) => name !== skillName)
+                  : [...current, skillName]
+                setComposerEnabledSkillNames(next)
+              }}
+              onClose={() => setSkillsSelectorOpen(false)}
+            />
+          ) : null}
+        </div>
+
         <div
           ref={workspaceSelectorRef}
           style={{ position: 'relative' }}
@@ -559,6 +629,7 @@ export function Composer(): React.JSX.Element {
               }
 
               setModelSelectorOpen(false)
+              setSkillsSelectorOpen(false)
               setToolSelectorOpen(false)
               setWorkspaceSelectorOpen((open) => !open)
             }}
@@ -671,6 +742,7 @@ export function Composer(): React.JSX.Element {
                 return
               }
 
+              setSkillsSelectorOpen(false)
               setToolSelectorOpen(false)
               setWorkspaceSelectorOpen(false)
               setModelSelectorOpen((open) => !open)
@@ -736,6 +808,7 @@ export function Composer(): React.JSX.Element {
             onClick={() => {
               if (!canSend) return
               setModelSelectorOpen(false)
+              setSkillsSelectorOpen(false)
               setToolSelectorOpen(false)
               setWorkspaceSelectorOpen(false)
               void sendMessage(primarySendMode)

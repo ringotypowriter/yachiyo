@@ -71,6 +71,13 @@
       "when": 1774257045217,
       "tag": "0009_new_liz_osborn",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1774271944433,
+      "tag": "0010_faithful_juggernaut",
+      "breakpoints": true
     }
   ]
 }

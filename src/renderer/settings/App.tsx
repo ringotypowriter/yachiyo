@@ -7,11 +7,13 @@ import {
   Info,
   MessageSquare,
   Monitor,
+  Sparkles,
   Settings2
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import type { SettingsConfig } from '../../shared/yachiyo/protocol.ts'
+import type { SkillCatalogEntry } from '../../shared/yachiyo/protocol.ts'
 import {
   getToolModelConfig,
   resolveToolModelProvider
@@ -22,9 +24,19 @@ import { GeneralPane } from './panes/GeneralPane'
 import { MemoryPane } from './panes/MemoryPane'
 import { ProvidersPane } from './panes/ProvidersPane'
 import { SearchPane } from './panes/SearchPane'
+import { SkillsPane } from './panes/SkillsPane'
 import { WorkspacePane } from './panes/WorkspacePane'
 
-type TabId = 'general' | 'providers' | 'chat' | 'workspace' | 'search' | 'memory' | 'ui' | 'about'
+type TabId =
+  | 'general'
+  | 'providers'
+  | 'chat'
+  | 'skills'
+  | 'workspace'
+  | 'search'
+  | 'memory'
+  | 'ui'
+  | 'about'
 
 interface SubTab {
   id: string
@@ -42,6 +54,7 @@ const TABS: Tab[] = [
   { id: 'general', label: 'General', icon: Settings2 },
   { id: 'providers', label: 'Providers', icon: Cpu },
   { id: 'chat', label: 'Chat', icon: MessageSquare },
+  { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'workspace', label: 'Workspace', icon: FolderOpen },
   { id: 'search', label: 'Search', icon: Compass },
   {
@@ -113,6 +126,7 @@ function SettingsApp(): React.ReactNode {
   const [savedConfig, setSavedConfig] = useState<SettingsConfig | null>(null)
   const [draft, setDraft] = useState<SettingsConfig | null>(null)
   const [selectedProviderId, setSelectedProviderId] = useState('')
+  const [availableSkills, setAvailableSkills] = useState<SkillCatalogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -145,6 +159,32 @@ function SettingsApp(): React.ReactNode {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!draft) {
+      return
+    }
+
+    let cancelled = false
+
+    void window.api.yachiyo
+      .listSkills({ workspacePaths: draft.workspace?.savedPaths ?? [] })
+      .then((skills) => {
+        if (!cancelled) {
+          setAvailableSkills(skills)
+        }
+      })
+      .catch((reason) => {
+        if (!cancelled) {
+          console.warn('[yachiyo][settings] failed to load skills', reason)
+          setAvailableSkills([])
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [draft])
 
   useEffect(() => {
     if (!draft) {
@@ -219,6 +259,8 @@ function SettingsApp(): React.ReactNode {
       )
     } else if (activeTab === 'chat') {
       body = <ChatPane draft={draft} onChange={setDraft} />
+    } else if (activeTab === 'skills') {
+      body = <SkillsPane availableSkills={availableSkills} draft={draft} onChange={setDraft} />
     } else if (activeTab === 'workspace') {
       body = <WorkspacePane draft={draft} onChange={setDraft} />
     } else if (activeTab === 'search') {

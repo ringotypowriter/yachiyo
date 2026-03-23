@@ -100,6 +100,7 @@ test('buildRunInspectionViewModel prepends thread source before server-populated
     ...BASE_RUN,
     contextSources: [
       { kind: 'persona' as const, present: true },
+      { kind: 'skills' as const, present: true, count: 2, summary: '2 skills active' },
       { kind: 'memory' as const, present: false, summary: 'not recalled' }
     ]
   }
@@ -108,7 +109,8 @@ test('buildRunInspectionViewModel prepends thread source before server-populated
 
   assert.equal(vm.contextSources[0].kind, 'thread')
   assert.equal(vm.contextSources[1].kind, 'persona')
-  assert.equal(vm.contextSources[2].kind, 'memory')
+  assert.equal(vm.contextSources[2].kind, 'skills')
+  assert.equal(vm.contextSources[3].kind, 'memory')
 })
 
 test('buildRunInspectionViewModel uses empty sources list when contextSources absent', () => {

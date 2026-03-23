@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
 import type { ToolCallName } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
-import { CORE_TOOL_NAMES } from '../../../../../shared/yachiyo/protocol.ts'
+import { USER_MANAGED_TOOL_NAMES } from '../../../../../shared/yachiyo/protocol.ts'
 
 const TOOL_COPY: Record<
   ToolCallName,
@@ -43,6 +43,10 @@ const TOOL_COPY: Record<
   webSearch: {
     label: 'webSearch',
     description: 'Search the web and return normalized results'
+  },
+  skillsRead: {
+    label: 'skillsRead',
+    description: 'Open discovered SKILL.md files by skill name'
   }
 }
 
@@ -137,7 +141,7 @@ export function ToolSelectorPopup({
           overscrollBehavior: 'contain'
         }}
       >
-        {CORE_TOOL_NAMES.map((toolName) => {
+        {USER_MANAGED_TOOL_NAMES.map((toolName) => {
           const enabled = enabledToolSet.has(toolName)
           const copy = TOOL_COPY[toolName]
 

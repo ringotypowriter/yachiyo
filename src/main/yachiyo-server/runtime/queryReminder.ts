@@ -1,4 +1,4 @@
-import { CORE_TOOL_NAMES, type ToolCallName } from '../../../shared/yachiyo/protocol.ts'
+import { USER_MANAGED_TOOL_NAMES, type ToolCallName } from '../../../shared/yachiyo/protocol.ts'
 
 export interface QueryReminderSection {
   key: string
@@ -12,10 +12,10 @@ export function buildToolAvailabilityReminderSection(input: {
 }): QueryReminderSection | null {
   const previousEnabledToolSet = new Set(input.previousEnabledTools)
   const enabledToolSet = new Set(input.enabledTools)
-  const addedTools = CORE_TOOL_NAMES.filter(
+  const addedTools = USER_MANAGED_TOOL_NAMES.filter(
     (toolName) => enabledToolSet.has(toolName) && !previousEnabledToolSet.has(toolName)
   )
-  const removedTools = CORE_TOOL_NAMES.filter(
+  const removedTools = USER_MANAGED_TOOL_NAMES.filter(
     (toolName) => !enabledToolSet.has(toolName) && previousEnabledToolSet.has(toolName)
   )
 

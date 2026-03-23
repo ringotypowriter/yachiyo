@@ -16,6 +16,8 @@ import type {
   RunContextSourceSummary,
   RunFailedEvent,
   RunMemoryRecalledEvent,
+  SkillCatalogEntry,
+  SkillSummary,
   SettingsConfig,
   ThreadRecord,
   ThreadUpdatedEvent,
@@ -29,6 +31,7 @@ import { prepareModelMessages } from '../../runtime/messagePrepare.ts'
 import { SYSTEM_PROMPT } from '../../runtime/prompt.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { RecallDecisionSnapshot } from '../../../../shared/yachiyo/protocol.ts'
+import { resolveActiveSkills } from '../../services/skills/skillResolver.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
 import type { BrowserWebPageSnapshotLoader } from '../../services/webRead/browserWebPageSnapshot.ts'
 import {
@@ -54,6 +57,7 @@ import {
 
 export interface ExecuteRunInput {
   enabledTools: ToolCallName[]
+  enabledSkillNames?: string[]
   runId: string
   thread: ThreadRecord
   requestMessageId: string
@@ -101,6 +105,7 @@ export interface RunExecutionDeps {
   readSettings: () => ProviderSettings
   loadThreadMessages: (threadId: string) => MessageRecord[]
   loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
+  listSkills: (workspacePaths?: string[]) => Promise<SkillCatalogEntry[]>
   onEnabledToolsUsed: (enabledTools: ToolCallName[]) => void
   onExecutionPhaseChange?: (phase: 'generating' | 'tool-running') => void
   onSafeToSteerAfterTool?: () => void
@@ -167,10 +172,22 @@ function throwIfAborted(signal: AbortSignal): void {
   throw error
 }
 
+function resolveModelEnabledTools(input: {
+  activeSkills: SkillSummary[]
+  enabledTools: ToolCallName[]
+}): ToolCallName[] {
+  if (input.activeSkills.length === 0 || input.enabledTools.includes('skillsRead')) {
+    return input.enabledTools
+  }
+
+  return [...input.enabledTools, 'skillsRead']
+}
+
 export function buildContextSources(input: {
   evolvedTraitCount: number
   hasUserContent: boolean
   enabledTools: ToolCallName[]
+  activeSkills: SkillSummary[]
   workspacePath: string
   hasToolReminder: boolean
   memoryEntries: string[]
@@ -192,6 +209,17 @@ export function buildContextSources(input: {
   )
 
   sources.push({ kind: 'user', present: input.hasUserContent })
+
+  sources.push(
+    input.activeSkills.length > 0
+      ? {
+          kind: 'skills',
+          present: true,
+          count: input.activeSkills.length,
+          summary: `${input.activeSkills.length} ${input.activeSkills.length === 1 ? 'skill' : 'skills'} active`
+        }
+      : { kind: 'skills', present: false }
+  )
 
   const toolCount = input.enabledTools.length
   const agentSummaryParts = [`${toolCount} ${toolCount === 1 ? 'tool' : 'tools'}`]
@@ -235,6 +263,7 @@ export function buildContextSources(input: {
 function buildAgentInstructions(input: {
   workspacePath: string
   enabledTools: ToolCallName[]
+  activeSkills: SkillSummary[]
   hasHiddenMemorySearch: boolean
   soulDocumentPath?: string
   userDocumentPath?: string
@@ -271,6 +300,10 @@ function buildAgentInstructions(input: {
     instructions.push(`Available tools: ${input.enabledTools.join(', ')}.`)
   }
 
+  if (input.activeSkills.length > 0) {
+    instructions.push(`Active Skills: ${input.activeSkills.map((skill) => skill.name).join(', ')}.`)
+  }
+
   if (input.enabledTools.includes('bash')) {
     instructions.push('Use bash for shell commands when shell execution is the clearest path.')
   }
@@ -303,6 +336,12 @@ function buildAgentInstructions(input: {
   if (input.enabledTools.includes('webSearch')) {
     instructions.push(
       'Use webSearch for general search results across the web. It returns normalized search hits, not arbitrary browser automation.'
+    )
+  }
+
+  if (input.enabledTools.includes('skillsRead')) {
+    instructions.push(
+      'Use skillsRead to inspect discovered Skills by name. It returns paths by default and only includes full SKILL.md content when you explicitly request it.'
     )
   }
 
@@ -504,6 +543,18 @@ export async function executeServerRun(
       deps.ensureThreadWorkspace
     )
     const runtime = deps.createModelRuntime()
+    const availableSkills = await deps.listSkills([workspacePath])
+    const activeSkills = resolveActiveSkills({
+      availableSkills,
+      config: deps.readConfig(),
+      ...(input.enabledSkillNames !== undefined
+        ? { enabledSkillNames: input.enabledSkillNames }
+        : {})
+    })
+    const modelEnabledTools = resolveModelEnabledTools({
+      activeSkills,
+      enabledTools: input.enabledTools
+    })
     const soulDocument = deps.readSoulDocument
       ? await deps.readSoulDocument()
       : await readSoulDocument()
@@ -560,7 +611,8 @@ export async function executeServerRun(
       contextSources: buildContextSources({
         evolvedTraitCount: (soulDocument?.evolvedTraits ?? []).filter((t) => t.trim()).length,
         hasUserContent: (userDocument?.content ?? '').trim().length > 0,
-        enabledTools: input.enabledTools,
+        enabledTools: modelEnabledTools,
+        activeSkills,
         workspacePath,
         hasToolReminder: hiddenQueryReminder !== undefined,
         memoryEntries,
@@ -575,10 +627,14 @@ export async function executeServerRun(
       user: {
         content: userDocument?.content ?? ''
       },
+      skills: {
+        activeSkills
+      },
       agent: {
         instructions: buildAgentInstructions({
           workspacePath,
-          enabledTools: input.enabledTools,
+          enabledTools: modelEnabledTools,
+          activeSkills,
           hasHiddenMemorySearch: deps.memoryService.hasHiddenSearchCapability(),
           soulDocumentPath: soulDocument?.filePath,
           userDocumentPath: userDocument?.filePath
@@ -594,10 +650,11 @@ export async function executeServerRun(
     })
     const tools = createAgentToolSet(
       {
-        enabledTools: input.enabledTools,
+        enabledTools: modelEnabledTools,
         workspacePath
       },
       {
+        availableSkills,
         fetchImpl: deps.fetchImpl,
         loadBrowserSnapshot: deps.loadBrowserSnapshot,
         searchService: deps.searchService,

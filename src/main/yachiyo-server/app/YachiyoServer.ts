@@ -8,6 +8,7 @@ import type {
   CompactThreadAccepted,
   CompactThreadInput,
   ImportWebSearchBrowserSessionInput,
+  ListSkillsInput,
   ProviderConfig,
   ProviderSettings,
   RetryAccepted,
@@ -16,6 +17,7 @@ import type {
   SaveThreadResult,
   SendChatInput,
   SettingsConfig,
+  SkillCatalogEntry,
   TestMemoryConnectionResult,
   ThreadRecord,
   ThreadSearchResult,
@@ -37,6 +39,8 @@ import type { ModelRuntime } from '../runtime/types.ts'
 import { createSearchService, type SearchService } from '../services/search/searchService.ts'
 import { createMemoryService, type MemoryService } from '../services/memory/memoryService.ts'
 import { createNowledgeMemProvider } from '../services/memory/nowledgeMemProvider.ts'
+import { discoverSkills } from '../services/skills/skillDiscovery.ts'
+import { buildSkillRegistry } from '../services/skills/skillRegistry.ts'
 import { createBrowserWebPageSnapshotLoader } from '../services/webRead/browserWebPageSnapshot.ts'
 import {
   BrowserSearchSession,
@@ -197,6 +201,7 @@ export class YachiyoServer {
       readUserDocument: this.readUserDocumentFile,
       readConfig: () => this.configDomain.readConfig(),
       readSettings: () => this.configDomain.readSettings(),
+      listSkills: (workspacePaths) => this.listSkills({ workspacePaths }),
       requireThread: this.requireThread.bind(this),
       loadThreadMessages: (threadId) => this.storage.listThreadMessages(threadId),
       loadThreadToolCalls: (threadId) => this.storage.listThreadToolCalls(threadId)
@@ -327,6 +332,10 @@ export class YachiyoServer {
     input: ImportWebSearchBrowserSessionInput
   ): Promise<SettingsConfig> {
     return this.configDomain.importWebSearchBrowserSession(input)
+  }
+
+  async listSkills(input: ListSkillsInput = {}): Promise<SkillCatalogEntry[]> {
+    return buildSkillRegistry(await discoverSkills(input.workspacePaths ?? []))
   }
 
   searchThreadsAndMessages(input: { query: string }): ThreadSearchResult[] {

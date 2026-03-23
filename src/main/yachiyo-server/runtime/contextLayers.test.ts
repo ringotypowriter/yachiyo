@@ -7,6 +7,7 @@ import {
   compileHintLayer,
   compileMemoryLayer,
   compilePersonalityLayer,
+  compileSkillsLayer,
   compileUserLayer
 } from './contextLayers.ts'
 
@@ -30,6 +31,14 @@ test('compileContextLayers preserves user history and orders explicit layers bef
     },
     user: {
       content: '# USER\n\n## Preferences\n- Prefers direct communication'
+    },
+    skills: {
+      activeSkills: [
+        {
+          name: 'workspace-refactor',
+          description: 'Repository-specific refactor workflow'
+        }
+      ]
     },
     agent: {
       instructions: 'Workspace: /tmp/thread-1'
@@ -64,6 +73,14 @@ test('compileContextLayers preserves user history and orders explicit layers bef
         '# USER\n\n## Preferences\n- Prefers direct communication'
       ].join('\n')
     },
+    {
+      role: 'system',
+      content: [
+        '以下是当前这次运行里已激活的 Skills。默认只看名称和简介；如果需要详细内容，请使用 skillsRead 按名称读取对应的 SKILL.md：',
+        '',
+        '- workspace-refactor: Repository-specific refactor workflow'
+      ].join('\n')
+    },
     { role: 'system', content: 'Workspace: /tmp/thread-1' },
     { role: 'system', content: reminder },
     {
@@ -79,5 +96,6 @@ test('individual layer compilers drop empty content', () => {
   assert.equal(compileAgentLayer({ instructions: '   ' }), null)
   assert.equal(compileHintLayer({ reminder: '   ' }), null)
   assert.equal(compileMemoryLayer({ entries: [] }), null)
+  assert.equal(compileSkillsLayer({ activeSkills: [] }), null)
   assert.equal(compileUserLayer({ content: '   ' }), null)
 })

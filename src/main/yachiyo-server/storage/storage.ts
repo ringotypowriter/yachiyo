@@ -11,7 +11,7 @@ import type {
   ToolCallRecord,
   ToolCallStatus
 } from '../../../shared/yachiyo/protocol'
-import { normalizeEnabledTools } from '../../../shared/yachiyo/protocol.ts'
+import { normalizeEnabledTools, normalizeSkillNames } from '../../../shared/yachiyo/protocol.ts'
 import { normalizeMessageImages } from '../../../shared/yachiyo/messageContent.ts'
 
 export interface StoredThreadRow {
@@ -24,6 +24,7 @@ export interface StoredThreadRow {
   branchFromMessageId: string | null
   queuedFollowUpMessageId: string | null
   queuedFollowUpEnabledTools: string | null
+  queuedFollowUpEnabledSkillNames: string | null
   archivedAt: string | null
   updatedAt: string
   createdAt: string
@@ -151,6 +152,7 @@ export function toThreadRecord(
     | 'memoryRecallState'
     | 'preview'
     | 'queuedFollowUpEnabledTools'
+    | 'queuedFollowUpEnabledSkillNames'
     | 'queuedFollowUpMessageId'
     | 'title'
     | 'updatedAt'
@@ -158,6 +160,7 @@ export function toThreadRecord(
   >
 ): ThreadRecord {
   const queuedFollowUpEnabledTools = parseEnabledTools(row.queuedFollowUpEnabledTools)
+  const queuedFollowUpEnabledSkillNames = parseSkillNames(row.queuedFollowUpEnabledSkillNames)
   const memoryRecall = parseThreadMemoryRecallState(row.memoryRecallState)
 
   if (row.preview === null) {
@@ -168,6 +171,7 @@ export function toThreadRecord(
       ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
       ...(memoryRecall ? { memoryRecall } : {}),
       ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
+      ...(queuedFollowUpEnabledSkillNames ? { queuedFollowUpEnabledSkillNames } : {}),
       ...(row.queuedFollowUpMessageId === null
         ? {}
         : { queuedFollowUpMessageId: row.queuedFollowUpMessageId }),
@@ -185,6 +189,7 @@ export function toThreadRecord(
     ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
     ...(memoryRecall ? { memoryRecall } : {}),
     ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
+    ...(queuedFollowUpEnabledSkillNames ? { queuedFollowUpEnabledSkillNames } : {}),
     ...(row.queuedFollowUpMessageId === null
       ? {}
       : { queuedFollowUpMessageId: row.queuedFollowUpMessageId }),
@@ -244,6 +249,10 @@ export function serializeEnabledTools(enabledTools?: readonly ToolCallName[]): s
   return enabledTools ? JSON.stringify(normalizeEnabledTools(enabledTools)) : null
 }
 
+export function serializeSkillNames(skillNames?: readonly string[]): string | null {
+  return skillNames ? JSON.stringify(normalizeSkillNames(skillNames)) : null
+}
+
 export function serializeThreadMemoryRecallState(state?: ThreadMemoryRecallState): string | null {
   if (!state) {
     return null
@@ -299,6 +308,18 @@ function parseEnabledTools(value: string | null): ToolCallName[] | undefined {
 
   try {
     return normalizeEnabledTools(JSON.parse(value))
+  } catch {
+    return undefined
+  }
+}
+
+function parseSkillNames(value: string | null): string[] | undefined {
+  if (!value) {
+    return undefined
+  }
+
+  try {
+    return normalizeSkillNames(JSON.parse(value))
   } catch {
     return undefined
   }

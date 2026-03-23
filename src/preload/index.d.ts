@@ -5,6 +5,7 @@ import type {
   CompactThreadAccepted,
   CompactThreadInput,
   ImportWebSearchBrowserSessionInput,
+  ListSkillsInput,
   ProviderConfig,
   ProviderSettings,
   RetryInput,
@@ -20,6 +21,7 @@ import type {
   ThreadSnapshot,
   ThreadRecord,
   ToolPreferencesInput,
+  SkillCatalogEntry,
   WebSearchBrowserImportSource,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
@@ -69,6 +71,7 @@ declare global {
         enableProviderModel: (input: { name: string; model: string }) => Promise<SettingsConfig>
         disableProviderModel: (input: { name: string; model: string }) => Promise<SettingsConfig>
         fetchProviderModels: (input: ProviderConfig) => Promise<string[]>
+        listSkills: (input?: ListSkillsInput) => Promise<SkillCatalogEntry[]>
         listWebSearchBrowserImportSources: () => Promise<WebSearchBrowserImportSource[]>
         importWebSearchBrowserSession: (
           input: ImportWebSearchBrowserSessionInput
