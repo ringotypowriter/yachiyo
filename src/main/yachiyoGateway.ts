@@ -22,6 +22,7 @@ import { openThreadWorkspace } from './openThreadWorkspace.ts'
 
 const IPC_CHANNELS = {
   archiveThread: 'yachiyo:archive-thread',
+  searchThreadsAndMessages: 'yachiyo:search-threads-and-messages',
   deleteThread: 'yachiyo:delete-thread',
   disableProviderModel: 'yachiyo:disable-provider-model',
   fetchProviderModels: 'yachiyo:fetch-provider-models',
@@ -121,6 +122,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   registerFatalRunRecovery()
   server.subscribe(broadcast)
 
+  handle(IPC_CHANNELS.searchThreadsAndMessages, (input: { query: string }) =>
+    server!.searchThreadsAndMessages(input)
+  )
   handle(IPC_CHANNELS.bootstrap, () => server!.bootstrap())
   handle(IPC_CHANNELS.createThread, (input?: { workspacePath?: string }) =>
     server!.createThread(input)

@@ -15,6 +15,7 @@ import type {
   SendChatInput,
   TestMemoryConnectionInput,
   TestMemoryConnectionResult,
+  ThreadSearchResult,
   UserDocument,
   ThreadSnapshot,
   ThreadRecord,
@@ -29,6 +30,7 @@ declare global {
     api: {
       openSettings: () => void
       yachiyo: {
+        searchThreadsAndMessages: (input: { query: string }) => Promise<ThreadSearchResult[]>
         archiveThread: (input: { threadId: string }) => Promise<void>
         bootstrap: () => Promise<BootstrapPayload>
         createBranch: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>

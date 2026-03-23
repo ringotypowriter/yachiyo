@@ -198,7 +198,12 @@ export function buildContextSources(input: {
   if (input.workspacePath) {
     agentSummaryParts.push('workspace')
   }
-  sources.push({ kind: 'agent', present: true, count: toolCount, summary: agentSummaryParts.join(' · ') })
+  sources.push({
+    kind: 'agent',
+    present: true,
+    count: toolCount,
+    summary: agentSummaryParts.join(' · ')
+  })
 
   if (input.recallDecision) {
     const entryCount = input.memoryEntries.filter((e) => e.trim()).length

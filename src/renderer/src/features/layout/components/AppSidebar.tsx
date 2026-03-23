@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { Archive, PanelLeft, Search, Settings, SquarePen } from 'lucide-react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ConnectionStatusIndicator } from '@renderer/features/layout/components/ConnectionStatusIndicator'
+import { SidebarSearch } from '@renderer/features/search/SidebarSearch'
 import { ThreadList } from '@renderer/features/threads/components/ThreadList'
 import { TRAFFIC_LIGHTS_SAFE_ZONE } from '@renderer/lib/sidebarLayout'
 import { theme } from '@renderer/theme/theme'
@@ -22,8 +24,10 @@ export function AppSidebar({
 }: AppSidebarProps): React.JSX.Element {
   const connectionStatus = useAppStore((s) => s.connectionStatus)
   const createNewThread = useAppStore((s) => s.createNewThread)
+  const setActiveThread = useAppStore((s) => s.setActiveThread)
   const setThreadListMode = useAppStore((s) => s.setThreadListMode)
   const threadListMode = useAppStore((s) => s.threadListMode)
+  const [searchOpen, setSearchOpen] = useState(false)
 
   return (
     <div
@@ -56,8 +60,14 @@ export function AppSidebar({
             <PanelLeft size={16} strokeWidth={1.5} />
           </button>
           <button
-            className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
-            style={{ color: theme.icon.default }}
+            onClick={() => setSearchOpen(true)}
+            className="p-1.5 rounded-md transition-opacity"
+            style={{
+              color: theme.icon.default,
+              opacity: searchOpen ? 0.9 : 0.5
+            }}
+            title="Search chats"
+            aria-label="Search chats"
           >
             <Search size={15} strokeWidth={1.5} />
           </button>
@@ -72,7 +82,16 @@ export function AppSidebar({
         </div>
       </div>
 
-      <ThreadList />
+      {searchOpen ? (
+        <SidebarSearch
+          onClose={() => setSearchOpen(false)}
+          onSelectThread={(threadId) => {
+            setActiveThread(threadId)
+          }}
+        />
+      ) : (
+        <ThreadList />
+      )}
 
       <div className="shrink-0 px-3 py-3 no-drag">
         <div className="flex items-center">

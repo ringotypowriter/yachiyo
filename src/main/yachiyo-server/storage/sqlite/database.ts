@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, like, or } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
 import * as schema from './schema.ts'
@@ -27,6 +27,7 @@ import {
   type StartRunInput,
   type YachiyoStorage
 } from '../storage.ts'
+import type { ThreadSearchResult } from '../../../../shared/yachiyo/protocol.ts'
 
 const MIGRATIONS_DIR = fileURLToPath(new URL('./drizzle', import.meta.url))
 const require = createRequire(import.meta.url)
@@ -71,6 +72,21 @@ function loadSqliteRuntime(): SqliteRuntime {
     drizzle: drizzleModule.drizzle,
     migrate: migratorModule.migrate
   }
+}
+
+function toSearchPattern(query: string): string {
+  return `%${query.replace(/[%_]/g, '')}%`
+}
+
+function extractSnippet(content: string, query: string, maxLength = 120): string {
+  const idx = content.toLowerCase().indexOf(query.toLowerCase())
+  if (idx < 0) {
+    return content.length > maxLength ? `${content.slice(0, maxLength)}…` : content
+  }
+  const start = Math.max(0, idx - 8)
+  const end = Math.min(content.length, start + maxLength)
+  const snippet = content.slice(start, end)
+  return `${start > 0 ? '…' : ''}${snippet}${end < content.length ? '…' : ''}`
 }
 
 export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
@@ -690,6 +706,88 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           .where(eq(threadsTable.id, thread.id))
           .run()
       })
+    },
+
+    searchThreadsAndMessages({ query }) {
+      const trimmed = query.trim()
+      if (trimmed.length === 0) {
+        return []
+      }
+      const pattern = toSearchPattern(trimmed)
+
+      const titleMatchedIds = new Set(
+        db
+          .select({ id: threadsTable.id })
+          .from(threadsTable)
+          .where(
+            and(
+              isNull(threadsTable.archivedAt),
+              or(like(threadsTable.title, pattern), like(threadsTable.preview, pattern))
+            )
+          )
+          .all()
+          .map((t) => t.id)
+      )
+
+      const allMessageMatches = db
+        .select({
+          messageId: messagesTable.id,
+          threadId: messagesTable.threadId,
+          content: messagesTable.content,
+          threadUpdatedAt: threadsTable.updatedAt
+        })
+        .from(messagesTable)
+        .innerJoin(threadsTable, eq(messagesTable.threadId, threadsTable.id))
+        .where(and(isNull(threadsTable.archivedAt), like(messagesTable.content, pattern)))
+        .orderBy(desc(threadsTable.updatedAt), asc(messagesTable.createdAt))
+        .all()
+
+      const messageMatchByThread = new Map<
+        string,
+        { messageId: string; content: string; threadUpdatedAt: string }
+      >()
+      for (const match of allMessageMatches) {
+        if (!messageMatchByThread.has(match.threadId)) {
+          messageMatchByThread.set(match.threadId, match)
+        }
+      }
+
+      const allMatchedIds = new Set([...titleMatchedIds, ...messageMatchByThread.keys()])
+      if (allMatchedIds.size === 0) {
+        return []
+      }
+
+      const matchedThreads = db
+        .select({
+          id: threadsTable.id,
+          title: threadsTable.title,
+          updatedAt: threadsTable.updatedAt
+        })
+        .from(threadsTable)
+        .where(inArray(threadsTable.id, [...allMatchedIds]))
+        .orderBy(desc(threadsTable.updatedAt))
+        .limit(30)
+        .all()
+
+      const results: ThreadSearchResult[] = matchedThreads.map((thread) => {
+        const msgMatch = messageMatchByThread.get(thread.id)
+        return {
+          threadId: thread.id,
+          threadTitle: thread.title,
+          threadUpdatedAt: thread.updatedAt,
+          titleMatched: titleMatchedIds.has(thread.id),
+          ...(msgMatch
+            ? {
+                messageMatch: {
+                  messageId: msgMatch.messageId,
+                  snippet: extractSnippet(msgMatch.content, trimmed)
+                }
+              }
+            : {})
+        }
+      })
+
+      return results
     }
   }
 }

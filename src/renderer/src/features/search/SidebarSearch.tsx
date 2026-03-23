@@ -1,0 +1,201 @@
+import type React from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Search, X } from 'lucide-react'
+import type { ThreadSearchResult } from '../../../../shared/yachiyo/protocol'
+import { theme } from '@renderer/theme/theme'
+
+interface Segment {
+  text: string
+  highlighted: boolean
+}
+
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/_(.+?)_/g, '$1')
+    .replace(/\[(.+?)\]\([^)]+\)/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^>\s*/gm, '')
+    .replace(/^[-*+]\s+/gm, '')
+    .replace(/\n+/g, ' ')
+    .trim()
+}
+
+function splitHighlight(text: string, query: string): Segment[] {
+  if (!query) return [{ text, highlighted: false }]
+  const lower = text.toLowerCase()
+  const lowerQuery = query.toLowerCase()
+  const segments: Segment[] = []
+  let offset = 0
+  while (offset < text.length) {
+    const idx = lower.indexOf(lowerQuery, offset)
+    if (idx < 0) {
+      segments.push({ text: text.slice(offset), highlighted: false })
+      break
+    }
+    if (idx > offset) segments.push({ text: text.slice(offset, idx), highlighted: false })
+    segments.push({ text: text.slice(idx, idx + query.length), highlighted: true })
+    offset = idx + query.length
+  }
+  return segments
+}
+
+function HighlightedText({ text, query }: { text: string; query: string }): React.JSX.Element {
+  return (
+    <>
+      {splitHighlight(text, query).map((seg, i) =>
+        seg.highlighted ? (
+          <mark
+            key={i}
+            style={{
+              background: theme.background.accentPanel,
+              color: theme.text.accentStrong,
+              borderRadius: '2px',
+              padding: '0 1px',
+              fontWeight: 600
+            }}
+          >
+            {seg.text}
+          </mark>
+        ) : (
+          <span key={i}>{seg.text}</span>
+        )
+      )}
+    </>
+  )
+}
+
+interface SidebarSearchProps {
+  onClose: () => void
+  onSelectThread: (threadId: string) => void
+}
+
+export function SidebarSearch({ onClose, onSelectThread }: SidebarSearchProps): React.JSX.Element {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<ThreadSearchResult[]>([])
+  const [loading, setLoading] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  useEffect(() => {
+    const trimmed = query.trim()
+    if (!trimmed) {
+      setResults([])
+      setLoading(false)
+      return
+    }
+
+    setLoading(true)
+    const timeout = setTimeout(async () => {
+      try {
+        const res = await window.api.yachiyo.searchThreadsAndMessages({ query: trimmed })
+        setResults(res)
+      } catch {
+        setResults([])
+      } finally {
+        setLoading(false)
+      }
+    }, 280)
+
+    return () => clearTimeout(timeout)
+  }, [query])
+
+  const handleSelect = (threadId: string): void => {
+    onSelectThread(threadId)
+    onClose()
+  }
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div
+        className="flex items-center gap-2 px-3 shrink-0"
+        style={{
+          height: '40px',
+          borderBottom: `1px solid ${theme.border.subtle}`
+        }}
+      >
+        <Search size={13} style={{ color: theme.icon.muted, flexShrink: 0 }} strokeWidth={1.5} />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search chats…"
+          className="flex-1 bg-transparent text-sm outline-none min-w-0"
+          style={{
+            color: theme.text.primary,
+            fontFamily: theme.font.ui
+          }}
+        />
+        <button
+          onClick={onClose}
+          className="p-1 rounded opacity-40 hover:opacity-70 transition-opacity shrink-0"
+          style={{ color: theme.icon.default }}
+          title="Close search"
+          aria-label="Close search"
+        >
+          <X size={13} strokeWidth={1.5} />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {loading && (
+          <p className="px-4 py-3 text-xs" style={{ color: theme.text.muted }}>
+            Searching…
+          </p>
+        )}
+
+        {!loading && query.trim() && results.length === 0 && (
+          <p className="px-4 py-3 text-xs" style={{ color: theme.text.muted }}>
+            No results
+          </p>
+        )}
+
+        {!loading &&
+          results.map((result) => (
+            <button
+              key={result.threadId}
+              onClick={() => handleSelect(result.threadId)}
+              className="w-full text-left px-3 py-2.5 rounded-lg transition-colors no-drag"
+              style={{ background: 'transparent' }}
+              onMouseEnter={(e) => {
+                ;(e.currentTarget as HTMLElement).style.background = theme.background.hover
+              }}
+              onMouseLeave={(e) => {
+                ;(e.currentTarget as HTMLElement).style.background = 'transparent'
+              }}
+            >
+              <span
+                className="block text-sm truncate font-medium"
+                style={{ color: theme.text.primary }}
+              >
+                <HighlightedText text={result.threadTitle} query={query.trim()} />
+              </span>
+              {result.messageMatch && (
+                <span className="block text-xs truncate mt-0.5" style={{ color: theme.text.muted }}>
+                  <HighlightedText
+                    text={stripMarkdown(result.messageMatch.snippet)}
+                    query={query.trim()}
+                  />
+                </span>
+              )}
+            </button>
+          ))}
+      </div>
+    </div>
+  )
+}

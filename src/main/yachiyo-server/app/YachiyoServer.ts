@@ -18,6 +18,7 @@ import type {
   SettingsConfig,
   TestMemoryConnectionResult,
   ThreadRecord,
+  ThreadSearchResult,
   ThreadSnapshot,
   ToolPreferencesInput,
   UserDocument,
@@ -326,6 +327,10 @@ export class YachiyoServer {
     input: ImportWebSearchBrowserSessionInput
   ): Promise<SettingsConfig> {
     return this.configDomain.importWebSearchBrowserSession(input)
+  }
+
+  searchThreadsAndMessages(input: { query: string }): ThreadSearchResult[] {
+    return this.storage.searchThreadsAndMessages(input)
   }
 
   async createThread(input: { workspacePath?: string } = {}): Promise<ThreadRecord> {

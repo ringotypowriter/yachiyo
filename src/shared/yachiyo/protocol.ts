@@ -538,6 +538,19 @@ export interface ThreadSnapshot {
   toolCalls: ToolCallRecord[]
 }
 
+export interface ThreadSearchMessageMatch {
+  messageId: string
+  snippet: string
+}
+
+export interface ThreadSearchResult {
+  threadId: string
+  threadTitle: string
+  threadUpdatedAt: string
+  titleMatched: boolean
+  messageMatch?: ThreadSearchMessageMatch
+}
+
 interface BaseEvent {
   eventId: string
   timestamp: string

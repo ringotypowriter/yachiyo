@@ -5,6 +5,7 @@ import type {
   MessageTextBlockRecord,
   RunRecord,
   ThreadRecord,
+  ThreadSearchResult,
   ToolCallDetailsSnapshot,
   ToolCallName,
   ToolCallRecord,
@@ -136,6 +137,7 @@ export interface YachiyoStorage {
   createToolCall(toolCall: ToolCallRecord): void
   updateToolCall(toolCall: ToolCallRecord): void
   deleteMessages(input: DeleteMessagesInput): void
+  searchThreadsAndMessages(input: { query: string }): ThreadSearchResult[]
 }
 
 export function toThreadRecord(

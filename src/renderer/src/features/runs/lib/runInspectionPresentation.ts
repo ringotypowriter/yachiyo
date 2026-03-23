@@ -45,9 +45,7 @@ export function buildRunInspectionViewModel(
     return { run: null, toolCalls: [], contextSources: [threadSource] }
   }
 
-  const latestRun = runs.reduce((latest, run) =>
-    run.createdAt > latest.createdAt ? run : latest
-  )
+  const latestRun = runs.reduce((latest, run) => (run.createdAt > latest.createdAt ? run : latest))
 
   const runToolCalls = toolCalls
     .filter((tc) => tc.runId === latestRun.id)

@@ -11,6 +11,7 @@ import type {
   SettingsConfig,
   SendChatInput,
   TestMemoryConnectionInput,
+  ThreadSearchResult,
   UserDocument,
   ToolPreferencesInput,
   YachiyoServerEvent
@@ -19,6 +20,8 @@ import type {
 const api = {
   openSettings: () => ipcRenderer.send('open-settings'),
   yachiyo: {
+    searchThreadsAndMessages: (input: { query: string }): Promise<ThreadSearchResult[]> =>
+      ipcRenderer.invoke('yachiyo:search-threads-and-messages', input),
     archiveThread: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:archive-thread', input),
     bootstrap: () => ipcRenderer.invoke('yachiyo:bootstrap'),

@@ -1,4 +1,8 @@
-import type { MessageRecord, ToolCallRecord } from '../../../shared/yachiyo/protocol'
+import type {
+  MessageRecord,
+  ThreadSearchResult,
+  ToolCallRecord
+} from '../../../shared/yachiyo/protocol'
 import {
   groupLatestRunsByThread,
   groupToolCallsByThread,
@@ -422,6 +426,71 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
 
       applyThreadSnapshot(storedThread, thread)
+    },
+
+    searchThreadsAndMessages({ query }) {
+      const trimmed = query.trim()
+      if (trimmed.length === 0) {
+        return []
+      }
+      const lower = trimmed.toLowerCase()
+
+      const activeThreads = [...threads.values()].filter((t) => t.archivedAt === null)
+
+      const titleMatchedIds = new Set(
+        activeThreads
+          .filter(
+            (t) =>
+              t.title.toLowerCase().includes(lower) ||
+              (t.preview ?? '').toLowerCase().includes(lower)
+          )
+          .map((t) => t.id)
+      )
+
+      const messageMatchByThread = new Map<string, { messageId: string; content: string }>()
+      for (const message of messages) {
+        if (messageMatchByThread.has(message.threadId)) continue
+        const thread = threads.get(message.threadId)
+        if (!thread || thread.archivedAt !== null) continue
+        if (message.content.toLowerCase().includes(lower)) {
+          messageMatchByThread.set(message.threadId, {
+            messageId: message.id,
+            content: message.content
+          })
+        }
+      }
+
+      const allMatchedIds = new Set([...titleMatchedIds, ...messageMatchByThread.keys()])
+      if (allMatchedIds.size === 0) return []
+
+      const matchedThreads = activeThreads
+        .filter((t) => allMatchedIds.has(t.id))
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, 30)
+
+      const results: ThreadSearchResult[] = matchedThreads.map((thread) => {
+        const msgMatch = messageMatchByThread.get(thread.id)
+        const idx = msgMatch ? msgMatch.content.toLowerCase().indexOf(lower) : -1
+        const snippet =
+          msgMatch && idx >= 0
+            ? (() => {
+                const start = Math.max(0, idx - 8)
+                const end = Math.min(msgMatch.content.length, start + 120)
+                return `${start > 0 ? '…' : ''}${msgMatch.content.slice(start, end)}${end < msgMatch.content.length ? '…' : ''}`
+              })()
+            : undefined
+        return {
+          threadId: thread.id,
+          threadTitle: thread.title,
+          threadUpdatedAt: thread.updatedAt,
+          titleMatched: titleMatchedIds.has(thread.id),
+          ...(msgMatch && snippet
+            ? { messageMatch: { messageId: msgMatch.messageId, snippet } }
+            : {})
+        }
+      })
+
+      return results
     }
   }
 }

@@ -119,7 +119,11 @@ function MemorySourceRow({
   if (!source.present) {
     return (
       <div className="flex items-center gap-1.5">
-        <Brain size={12} strokeWidth={1.8} style={{ color: theme.text.placeholder, flexShrink: 0 }} />
+        <Brain
+          size={12}
+          strokeWidth={1.8}
+          style={{ color: theme.text.placeholder, flexShrink: 0 }}
+        />
         <span style={{ color: theme.text.muted, fontSize: '11px' }}>Memory</span>
         <span style={{ color: theme.text.muted, fontSize: '11px' }}>
           · not recalled
@@ -399,8 +403,7 @@ export function RunInspectionPanel({ threadId }: RunInspectionPanelProps): React
   )
 
   const vm = buildRunInspectionViewModel(runs, toolCalls, thread, messageCount)
-  const recalledEntries =
-    vm.run?.recalledMemoryEntries?.filter((e) => e.trim()) ?? []
+  const recalledEntries = vm.run?.recalledMemoryEntries?.filter((e) => e.trim()) ?? []
 
   const contextSourcesSection = (
     <div className="px-4 py-3" style={{ borderTop: `1px solid ${theme.border.subtle}` }}>
