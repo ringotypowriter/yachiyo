@@ -35,6 +35,7 @@ import type { SlashCommand } from './SlashCommandPopup'
 import { SkillsSelectorPopup } from './SkillsSelectorPopup'
 import { ToolSelectorPopup } from './ToolSelectorPopup'
 import { WorkspaceSelectorPopup } from './WorkspaceSelectorPopup'
+import { SmoothCaretOverlay } from './SmoothCaretOverlay'
 
 const NEW_THREAD_DRAFT_KEY = '__new__'
 const MAX_COMPOSER_IMAGES = 4
@@ -277,6 +278,7 @@ export function Composer({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
+  const composerInputRef = useRef<HTMLDivElement>(null)
   const modelSelectorRef = useRef<HTMLDivElement>(null)
   const skillsSelectorRef = useRef<HTMLDivElement>(null)
   const toolSelectorRef = useRef<HTMLDivElement>(null)
@@ -290,6 +292,7 @@ export function Composer({
   const [workspaceHintHovered, setWorkspaceHintHovered] = useState(false)
   const [workspaceHintPinned, setWorkspaceHintPinned] = useState(false)
   const [isComposing, setIsComposing] = useState(false)
+  const [isTextareaFocused, setIsTextareaFocused] = useState(false)
   const [dismissedSlashQuery, setDismissedSlashQuery] = useState<string | null>(null)
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [fileMentionMatchesState, setFileMentionMatchesState] = useState<{
@@ -949,7 +952,11 @@ export function Composer({
             ))}
           </div>
         ) : null}
-        <div className="px-4 pt-3 pb-1" style={{ display: 'grid' }}>
+        <div
+          ref={composerInputRef}
+          className="px-4 pt-3 pb-1"
+          style={{ display: 'grid', position: 'relative' }}
+        >
           <div
             aria-hidden
             ref={overlayRef}
@@ -976,6 +983,8 @@ export function Composer({
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             onScroll={handleTextareaScroll}
+            onFocus={() => setIsTextareaFocused(true)}
+            onBlur={() => setIsTextareaFocused(false)}
             placeholder={
               isConfigured
                 ? 'Message Yachiyo...'
@@ -986,11 +995,20 @@ export function Composer({
             style={{
               gridArea: '1 / 1',
               color: 'transparent',
-              caretColor: theme.text.primary,
+              caretColor: 'transparent',
               padding: 0,
               minHeight: '22px',
               maxHeight: '160px'
             }}
+          />
+          <SmoothCaretOverlay
+            textareaRef={textareaRef}
+            hostRef={composerInputRef}
+            enabled={true}
+            trailStrength="high"
+            isFocused={isTextareaFocused}
+            color={theme.text.accent}
+            trailColor={`rgb(75 175 201 / 0.38)`}
           />
         </div>
       </div>

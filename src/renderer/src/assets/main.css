@@ -310,6 +310,51 @@ body {
   opacity: 0.72;
 }
 
+/* Smooth caret overlay */
+.echooo-caret-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.echooo-caret {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 1px;
+  opacity: 0;
+  background: var(--echooo-caret-color, currentColor);
+  will-change: transform, opacity, height;
+  animation: echooo-blink 1.1s ease-in-out infinite;
+}
+
+.echooo-caret-trail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 999px;
+  opacity: 0;
+  background: var(--echooo-caret-trail-color, currentColor);
+  will-change: transform, opacity;
+}
+
+.echooo-hide-native-caret {
+  caret-color: transparent !important;
+}
+
+@keyframes echooo-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  55%,
+  100% {
+    opacity: 0;
+  }
+}
+
 .assistant-message-bubble {
   position: relative;
   padding: 0;
