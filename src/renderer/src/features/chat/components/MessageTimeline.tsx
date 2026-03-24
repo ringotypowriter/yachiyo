@@ -19,6 +19,7 @@ import { RunEventRow } from './RunEventRow'
 import { RunMemoryRecallRow } from './RunMemoryRecallRow'
 import { ReplyBranchNavigation } from './ReplyBranchNavigation'
 import { ToolCallRow } from './ToolCallRow'
+import { ThinkingBlock } from './ThinkingBlock'
 import { resolveRetryTargetMessageId } from '../lib/messageActionState'
 
 interface MessageTimelineProps {
@@ -215,6 +216,13 @@ export function ThreadConversationGroup({
         </div>
       ) : null}
 
+      {activeBranch?.message.reasoning ? (
+        <ThinkingBlock
+          reasoning={activeBranch.message.reasoning}
+          isActive={activeBranch.message.status === 'streaming' && !activeBranch.message.content}
+        />
+      ) : null}
+
       {timelineItems.map((item, index) => {
         const nextItem = timelineItems[index + 1]
 
@@ -308,14 +316,19 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   const runs = useAppStore((state) =>
     threadId ? (state.runsByThread[threadId] ?? EMPTY_RUNS) : EMPTY_RUNS
   )
-  const activeRunId = useAppStore((state) => state.activeRunId)
-  const activeRunThreadId = useAppStore((state) => state.activeRunThreadId)
-  const activeRequestMessageId = useAppStore((state) => state.activeRequestMessageId)
+  const activeRunId = useAppStore((state) =>
+    threadId ? (state.activeRunIdsByThread[threadId] ?? null) : null
+  )
+  const activeRequestMessageId = useAppStore((state) =>
+    threadId ? (state.activeRequestMessageIdsByThread[threadId] ?? null) : null
+  )
   const createBranch = useAppStore((state) => state.createBranch)
   const deleteMessage = useAppStore((state) => state.deleteMessage)
   const retryMessage = useAppStore((state) => state.retryMessage)
   const selectReplyBranch = useAppStore((state) => state.selectReplyBranch)
-  const runPhase = useAppStore((state) => state.runPhase)
+  const runPhase = useAppStore((state) =>
+    threadId ? (state.runPhasesByThread[threadId] ?? 'idle') : 'idle'
+  )
   const scrollToMessageId = useAppStore((state) => state.scrollToMessageId)
   const clearScrollToMessageId = useAppStore((state) => state.clearScrollToMessageId)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -325,7 +338,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
         thread,
         messages,
         runPhase,
-        activeRequestMessageId: activeRunThreadId === threadId ? activeRequestMessageId : null
+        activeRequestMessageId
       })
     : []
   const pendingSteerMessage =
@@ -441,7 +454,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
               <UserMessageBubble
                 label="Queued follow-up"
                 message={item.data}
-                threadHasActiveRun={activeRunThreadId === threadId}
+                threadHasActiveRun={activeRunId !== null}
                 onRetry={() => handleRetry(item.data.id)}
                 onCreateBranch={() => handleCreateBranch(item.data.id)}
                 onDelete={() => handleDelete(item.data.id)}
@@ -486,7 +499,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
               <AssistantMessageBubble
                 message={item.data}
                 showActions={false}
-                threadHasActiveRun={activeRunThreadId === threadId}
+                threadHasActiveRun={activeRunId !== null}
                 onCreateBranch={() => undefined}
                 onDelete={() => undefined}
               />
@@ -500,8 +513,8 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
               threadId={threadId}
               group={item.data}
               toolCalls={inlineToolCalls}
-              activeRunId={activeRunThreadId === threadId ? activeRunId : null}
-              threadHasActiveRun={activeRunThreadId === threadId}
+              activeRunId={activeRunId}
+              threadHasActiveRun={activeRunId !== null}
               runs={runs}
               onCreateBranch={handleCreateBranch}
               onRetry={handleRetry}

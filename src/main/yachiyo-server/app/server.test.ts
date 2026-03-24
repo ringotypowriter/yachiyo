@@ -514,7 +514,7 @@ test('YachiyoServer can refine the fallback thread title with the configured too
           typeof auxiliaryRequest?.messages[0]?.content === 'string'
             ? auxiliaryRequest.messages[0].content
             : '',
-          /Use the same language as the user query\./u
+          /same language as the query/u
         )
         assert.match(
           typeof auxiliaryRequest?.messages[0]?.content === 'string'

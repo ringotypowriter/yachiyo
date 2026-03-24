@@ -4,6 +4,7 @@ import type { MessageRecord, RunRecord, ToolCallRecord } from '../../../../share
 
 export const threadsTable = sqliteTable('threads', {
   id: text('id').primaryKey(),
+  icon: text('icon'),
   title: text('title').notNull(),
   memoryRecallState: text('memory_recall_state'),
   workspacePath: text('workspace_path'),
@@ -32,6 +33,7 @@ export const messagesTable = sqliteTable('messages', {
   content: text('content').notNull(),
   textBlocks: text('text_blocks'),
   images: text('images'),
+  reasoning: text('reasoning'),
   status: text('status').$type<MessageRecord['status']>().notNull(),
   createdAt: text('created_at').notNull(),
   modelId: text('model_id'),

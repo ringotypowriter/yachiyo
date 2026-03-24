@@ -16,6 +16,7 @@ import { normalizeMessageImages } from '../../../shared/yachiyo/messageContent.t
 
 export interface StoredThreadRow {
   id: string
+  icon: string | null
   title: string
   memoryRecallState: string | null
   workspacePath: string | null
@@ -40,6 +41,7 @@ export interface StoredMessageRow {
   content: string
   textBlocks: string | null
   images: string | null
+  reasoning: string | null
   status: MessageRecord['status']
   createdAt: string
   modelId: string | null
@@ -124,6 +126,7 @@ export interface YachiyoStorage {
   getThreadCreatedAt(threadId: string): string | undefined
   createThread(input: CreateThreadInput): void
   renameThread(input: { threadId: string; title: string; updatedAt: string }): void
+  setThreadIcon(input: { threadId: string; icon: string | null; updatedAt: string }): void
   archiveThread(input: { threadId: string; archivedAt: string; updatedAt: string }): void
   restoreThread(input: { threadId: string; updatedAt: string }): void
   deleteThread(input: { threadId: string }): void
@@ -150,6 +153,7 @@ export function toThreadRecord(
     | 'branchFromThreadId'
     | 'archivedAt'
     | 'headMessageId'
+    | 'icon'
     | 'id'
     | 'memoryRecallState'
     | 'preview'
@@ -172,6 +176,7 @@ export function toThreadRecord(
       ...(row.branchFromMessageId === null ? {} : { branchFromMessageId: row.branchFromMessageId }),
       ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
       ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
+      ...(row.icon === null ? {} : { icon: row.icon }),
       ...(memoryRecall ? { memoryRecall } : {}),
       ...(row.privacyMode === '1' ? { privacyMode: true } : {}),
       ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
@@ -191,6 +196,7 @@ export function toThreadRecord(
     ...(row.branchFromMessageId === null ? {} : { branchFromMessageId: row.branchFromMessageId }),
     ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
     ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
+    ...(row.icon === null ? {} : { icon: row.icon }),
     ...(memoryRecall ? { memoryRecall } : {}),
     ...(row.privacyMode === '1' ? { privacyMode: true } : {}),
     ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
@@ -218,6 +224,7 @@ export function toMessageRecord(row: StoredMessageRow): MessageRecord {
     content: row.content,
     ...(textBlocks ? { textBlocks } : {}),
     ...(images ? { images } : {}),
+    ...(row.reasoning ? { reasoning: row.reasoning } : {}),
     status: row.status,
     createdAt: row.createdAt,
     ...(row.modelId === null ? {} : { modelId: row.modelId }),
@@ -392,6 +399,10 @@ export function toRunRecord(row: StoredRunRow): RunRecord {
     status: row.status,
     threadId: row.threadId
   }
+}
+
+export function serializeReasoning(reasoning?: string): string | null {
+  return reasoning?.trim() ? reasoning : null
 }
 
 export function serializeMessageImages(images?: MessageImageRecord[]): string | null {

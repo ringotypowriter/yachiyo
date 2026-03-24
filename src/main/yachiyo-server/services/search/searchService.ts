@@ -346,6 +346,7 @@ async function runRipgrepSearch(input: {
 }): Promise<GrepSearchResult> {
   const args = [
     '--json',
+    '--hidden',
     '--color',
     'never',
     '--line-number',
@@ -475,8 +476,21 @@ async function runFdSearch(input: {
   rootPath: string
   runCommand: (input: SearchCommandInput) => Promise<SearchCommandResult>
 }): Promise<GlobSearchResult> {
+  const targetStat = await stat(input.rootPath).catch(() => null)
+  if (targetStat?.isFile()) {
+    const matcher = createGlobMatcher(input.request.pattern)
+    const fileName = normalizeRelativePath(basename(input.rootPath))
+    return {
+      backend: 'fd',
+      rootPath: input.rootPath,
+      paths: matcher(fileName) ? [fileName] : [],
+      truncated: false
+    }
+  }
+
   const args = [
     '--glob',
+    '--hidden',
     '--color',
     'never',
     '--max-results',
@@ -515,8 +529,20 @@ async function runFindSearch(input: {
   rootPath: string
   runCommand: (input: SearchCommandInput) => Promise<SearchCommandResult>
 }): Promise<GlobSearchResult> {
+  const targetStat = await stat(input.rootPath).catch(() => null)
   const matcher = createGlobMatcher(input.request.pattern)
-  const args = [input.rootPath, '-type', 'f', '!', '-path', '*/.*', '-print']
+
+  if (targetStat?.isFile()) {
+    const fileName = normalizeRelativePath(basename(input.rootPath))
+    return {
+      backend: 'find',
+      rootPath: input.rootPath,
+      paths: matcher(fileName) ? [fileName] : [],
+      truncated: false
+    }
+  }
+
+  const args = [input.rootPath, '-type', 'f', '-print']
   const result = await runCliSearchCommand({
     command: input.executable,
     args,
@@ -693,10 +719,6 @@ async function collectFiles(
   const entries = await readdir(currentPath, { withFileTypes: true }).catch(() => [])
 
   for (const entry of entries) {
-    if (entry.name.startsWith('.')) {
-      continue
-    }
-
     const entryPath = join(currentPath, entry.name)
     if (entry.isDirectory()) {
       await collectFiles(entryPath, limit, signal, results)

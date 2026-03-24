@@ -62,8 +62,7 @@ export function AppMainPanel({
   const archivedThreads = useAppStore((s) => s.archivedThreads)
   const activeArchivedThreadId = useAppStore((s) => s.activeArchivedThreadId)
   const activeThreadId = useAppStore((s) => s.activeThreadId)
-  const activeRunThreadId = useAppStore((s) => s.activeRunThreadId)
-  const cancelActiveRun = useAppStore((s) => s.cancelActiveRun)
+  const cancelRunForThread = useAppStore((s) => s.cancelRunForThread)
   const deleteThread = useAppStore((s) => s.deleteThread)
   const compactThreadToAnotherThread = useAppStore((s) => s.compactThreadToAnotherThread)
   const messages = useAppStore((s) =>
@@ -77,6 +76,7 @@ export function AppMainPanel({
   const messageCount = messages.length
   const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null
   const config = useAppStore((s) => s.config)
+  const latestRunsByThread = useAppStore((s) => s.latestRunsByThread)
   const activeArchivedThread =
     archivedThreads.find((thread) => thread.id === activeArchivedThreadId) ?? null
   const saveThread = useAppStore((s) => s.saveThread)
@@ -199,11 +199,11 @@ export function AppMainPanel({
   }
 
   async function handleDeleteThread(thread: Thread): Promise<void> {
-    if (activeRunThreadId === thread.id) {
+    if (latestRunsByThread[thread.id]?.status === 'running') {
       if (!window.confirm(`"${thread.title}" has an active run. Cancel the run and delete?`)) {
         return
       }
-      await cancelActiveRun()
+      await cancelRunForThread(thread.id)
       await deleteThread(thread.id)
       return
     }

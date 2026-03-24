@@ -6,6 +6,7 @@ import type {
   HarnessStartedEvent,
   MessageCompletedEvent,
   MessageDeltaEvent,
+  MessageReasoningDeltaEvent,
   MessageRecord,
   MessageStartedEvent,
   MessageTextBlockRecord,
@@ -501,6 +502,7 @@ export async function executeServerRun(
   const toolCalls = new Map<string, ToolCallRecord>()
   const runningToolCallIds = new Set<string>()
   let buffer = ''
+  let reasoningBuffer = ''
   let textBlocks: MessageTextBlockRecord[] = []
   let shouldStartNewTextBlock = true
   let executionPhase: 'generating' | 'tool-running' = 'generating'
@@ -700,6 +702,16 @@ export async function executeServerRun(
       settings,
       signal: input.abortController.signal,
       ...(tools ? { tools } : {}),
+      onReasoningDelta: (reasoningDelta) => {
+        reasoningBuffer += reasoningDelta
+        deps.emit<MessageReasoningDeltaEvent>({
+          type: 'message.reasoning.delta',
+          threadId: input.thread.id,
+          runId: input.runId,
+          messageId,
+          delta: reasoningDelta
+        })
+      },
       onToolCallStart: (event) => {
         if (!isCoreToolName(event.toolCall.toolName)) {
           return
@@ -882,6 +894,7 @@ export async function executeServerRun(
       role: 'assistant',
       content: buffer,
       ...(textBlocks.length > 0 ? { textBlocks } : {}),
+      ...(reasoningBuffer ? { reasoning: reasoningBuffer } : {}),
       status: 'completed',
       createdAt: timestamp,
       modelId: settings.model,

@@ -3,7 +3,7 @@ export const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1'
 export const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
 export const DEFAULT_GATEWAY_BASE_URL = 'https://ai-gateway.vercel.sh/v3/ai'
 export const DEFAULT_OPENAI_REASONING_EFFORT = 'medium'
-export const DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS = 1024
+export const DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS = 8000
 export const DEFAULT_GEMINI_THINKING_BUDGET = 1024
 export const DEFAULT_VERCEL_GATEWAY_THINKING_LEVEL = 'medium'
 

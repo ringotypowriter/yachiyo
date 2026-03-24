@@ -45,6 +45,9 @@ const api = {
     pickWorkspaceDirectory: () => ipcRenderer.invoke('yachiyo:pick-workspace-directory'),
     renameThread: (input: { threadId: string; title: string }) =>
       ipcRenderer.invoke('yachiyo:rename-thread', input),
+    setThreadIcon: (input: { threadId: string; icon: string | null }) =>
+      ipcRenderer.invoke('yachiyo:set-thread-icon', input),
+    showEmojiPanel: () => ipcRenderer.invoke('yachiyo:show-emoji-panel'),
     restoreThread: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:restore-thread', input),
     saveToolPreferences: (input: ToolPreferencesInput) =>

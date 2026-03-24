@@ -19,6 +19,7 @@ import {
   serializeThreadMemoryRecallState,
   serializeToolCallDetails,
   toMessageRecord,
+  serializeReasoning,
   toRunRecord,
   toToolCallRecord,
   toThreadRecord,
@@ -113,6 +114,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           branchFromMessageId: threadsTable.branchFromMessageId,
           branchFromThreadId: threadsTable.branchFromThreadId,
           headMessageId: threadsTable.headMessageId,
+          icon: threadsTable.icon,
           id: threadsTable.id,
           memoryRecallState: threadsTable.memoryRecallState,
           preview: threadsTable.preview,
@@ -144,6 +146,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                 modelId: messagesTable.modelId,
                 parentMessageId: messagesTable.parentMessageId,
                 providerName: messagesTable.providerName,
+                reasoning: messagesTable.reasoning,
                 role: messagesTable.role,
                 status: messagesTable.status,
                 textBlocks: messagesTable.textBlocks,
@@ -259,6 +262,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           branchFromMessageId: threadsTable.branchFromMessageId,
           branchFromThreadId: threadsTable.branchFromThreadId,
           headMessageId: threadsTable.headMessageId,
+          icon: threadsTable.icon,
           id: threadsTable.id,
           memoryRecallState: threadsTable.memoryRecallState,
           preview: threadsTable.preview,
@@ -284,6 +288,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           branchFromMessageId: threadsTable.branchFromMessageId,
           branchFromThreadId: threadsTable.branchFromThreadId,
           headMessageId: threadsTable.headMessageId,
+          icon: threadsTable.icon,
           id: threadsTable.id,
           memoryRecallState: threadsTable.memoryRecallState,
           preview: threadsTable.preview,
@@ -350,10 +355,11 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         if (messages && messages.length > 0) {
           tx.insert(messagesTable)
             .values(
-              messages.map((message) => ({
-                ...message,
-                textBlocks: serializeMessageTextBlocks(message.textBlocks),
-                images: serializeMessageImages(message.images)
+              messages.map(({ textBlocks, reasoning, ...rest }) => ({
+                ...rest,
+                textBlocks: serializeMessageTextBlocks(textBlocks),
+                images: serializeMessageImages(rest.images),
+                reasoning: serializeReasoning(reasoning)
               }))
             )
             .run()
@@ -401,6 +407,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           branchFromMessageId: thread.branchFromMessageId ?? null,
           branchFromThreadId: thread.branchFromThreadId ?? null,
           headMessageId: thread.headMessageId ?? null,
+          icon: thread.icon ?? null,
           memoryRecallState: serializeThreadMemoryRecallState(thread.memoryRecall),
           preview: thread.preview ?? null,
           privacyMode: thread.privacyMode ? '1' : null,
@@ -415,6 +422,10 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         })
         .where(eq(threadsTable.id, thread.id))
         .run()
+    },
+
+    setThreadIcon({ threadId, icon, updatedAt }) {
+      db.update(threadsTable).set({ icon, updatedAt }).where(eq(threadsTable.id, threadId)).run()
     },
 
     setThreadPrivacyMode({ threadId, privacyMode, updatedAt }) {
@@ -433,12 +444,13 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           tx.delete(messagesTable).where(eq(messagesTable.id, replacedMessageId)).run()
         }
 
-        const { textBlocks, ...persistedMessage } = message
+        const { textBlocks, reasoning, ...persistedMessage } = message
         tx.insert(messagesTable)
           .values({
             ...persistedMessage,
             textBlocks: serializeMessageTextBlocks(textBlocks),
-            images: serializeMessageImages(message.images)
+            images: serializeMessageImages(message.images),
+            reasoning: serializeReasoning(reasoning)
           })
           .run()
 
@@ -475,12 +487,13 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     }: StartRunInput) {
       db.transaction((tx) => {
         if (userMessage) {
-          const { textBlocks, ...persistedUserMessage } = userMessage
+          const { textBlocks, reasoning, ...persistedUserMessage } = userMessage
           tx.insert(messagesTable)
             .values({
               ...persistedUserMessage,
               textBlocks: serializeMessageTextBlocks(textBlocks),
-              images: serializeMessageImages(userMessage.images)
+              images: serializeMessageImages(userMessage.images),
+              reasoning: serializeReasoning(reasoning)
             })
             .run()
         }
@@ -521,12 +534,13 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
     completeRun({ runId, updatedThread, assistantMessage }: CompleteRunInput) {
       db.transaction((tx) => {
-        const { textBlocks, ...persistedAssistantMessage } = assistantMessage
+        const { textBlocks, reasoning, ...persistedAssistantMessage } = assistantMessage
         tx.insert(messagesTable)
           .values({
             ...persistedAssistantMessage,
             textBlocks: serializeMessageTextBlocks(textBlocks),
-            images: serializeMessageImages(assistantMessage.images)
+            images: serializeMessageImages(assistantMessage.images),
+            reasoning: serializeReasoning(reasoning)
           })
           .run()
 
@@ -598,6 +612,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           modelId: messagesTable.modelId,
           parentMessageId: messagesTable.parentMessageId,
           providerName: messagesTable.providerName,
+          reasoning: messagesTable.reasoning,
           role: messagesTable.role,
           status: messagesTable.status,
           textBlocks: messagesTable.textBlocks,
@@ -615,6 +630,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .set({
           content: message.content,
           images: serializeMessageImages(message.images),
+          reasoning: serializeReasoning(message.reasoning),
           textBlocks: serializeMessageTextBlocks(message.textBlocks),
           modelId: message.modelId ?? null,
           parentMessageId: message.parentMessageId ?? null,

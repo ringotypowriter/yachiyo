@@ -44,7 +44,7 @@ import { executeServerRun, type RestartRunReason, type ExecuteRunResult } from '
 import {
   buildThreadTitleGenerationMessages,
   deriveThreadTitleFallback,
-  sanitizeGeneratedThreadTitle
+  parseGeneratedTitleAndIcon
 } from './threadTitle.ts'
 import { resolveRetryRequest } from './threadDomain.ts'
 import { buildCompactThreadHandoffMessages } from '../../runtime/threadHandoff.ts'
@@ -1156,13 +1156,13 @@ export class YachiyoServerRunDomain {
       detail: formatThreadTitleDebugValue(result.text)
     })
 
-    const title = sanitizeGeneratedThreadTitle(result.text)
+    const { icon, title } = parseGeneratedTitleAndIcon(result.text)
     this.logThreadTitleDebug({
       phase: 'sanitized-output',
       runId: input.runId,
       threadId: input.threadId,
       message: 'Computed sanitized title candidate.',
-      detail: formatThreadTitleDebugValue(title ?? '')
+      detail: formatThreadTitleDebugValue(title ? `${icon ?? ''} ${title}`.trim() : '')
     })
 
     if (!title) {
@@ -1202,15 +1202,12 @@ export class YachiyoServerRunDomain {
 
     const updatedThread: ThreadRecord = {
       ...latestThread,
+      ...(icon !== null ? { icon } : {}),
       title,
       updatedAt: this.deps.timestamp()
     }
 
-    this.deps.storage.renameThread({
-      threadId: latestThread.id,
-      title,
-      updatedAt: updatedThread.updatedAt
-    })
+    this.deps.storage.updateThread(updatedThread)
     this.deps.emit<ThreadUpdatedEvent>({
       type: 'thread.updated',
       threadId: updatedThread.id,
@@ -1220,8 +1217,8 @@ export class YachiyoServerRunDomain {
       phase: 'succeeded',
       runId: input.runId,
       threadId: input.threadId,
-      message: 'Updated the thread title from the tool-model result.',
-      detail: title
+      message: 'Updated the thread title and icon from the tool-model result.',
+      detail: icon ? `${icon} ${title}` : title
     })
   }
 

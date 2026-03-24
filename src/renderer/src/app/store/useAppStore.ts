@@ -72,12 +72,15 @@ export const EMPTY_COMPOSER_DRAFT: ComposerDraft = {
 interface AppState {
   activeArchivedThreadId: string | null
   activeRunId: string | null
+  activeRunIdsByThread: Record<string, string>
   activeRequestMessageId: string | null
+  activeRequestMessageIdsByThread: Record<string, string>
   activeRunThreadId: string | null
   activeThreadId: string | null
   archivedThreads: Thread[]
   archiveThread: (threadId: string) => Promise<void>
   availableSkills: SkillCatalogEntry[]
+  cancelRunForThread: (threadId: string) => Promise<void>
   compactThreadToAnotherThread: () => Promise<void>
   composerDrafts: Record<string, ComposerDraft>
   createBranch: (messageId: string) => Promise<void>
@@ -98,12 +101,15 @@ interface AppState {
   pendingSteerMessages: Record<string, PendingSteerMessage>
   pendingWorkspacePath: string | null
   renameThread: (threadId: string, title: string) => Promise<void>
+  setThreadIcon: (threadId: string, icon: string | null) => Promise<void>
   restoreThread: (threadId: string) => Promise<void>
   retryMessage: (messageId: string) => Promise<void>
+  runPhasesByThread: Record<string, 'idle' | 'preparing' | 'streaming'>
   saveThread: (threadId: string, options?: { archiveAfterSave?: boolean }) => Promise<void>
   selectReplyBranch: (messageId: string) => Promise<void>
   runPhase: 'idle' | 'preparing' | 'streaming'
   runStatus: RunStatus
+  runStatusesByThread: Record<string, RunStatus>
   settings: ProviderSettings
   threads: Thread[]
   threadListMode: 'active' | 'archived'
@@ -266,6 +272,75 @@ function getComposerDraft(
   return state.composerDrafts[getComposerDraftKey(state.activeThreadId)] ?? EMPTY_COMPOSER_DRAFT
 }
 
+function getThreadActiveRunId(
+  state: Pick<AppState, 'activeRunIdsByThread'>,
+  threadId: string | null
+): string | null {
+  if (!threadId) {
+    return null
+  }
+
+  return state.activeRunIdsByThread[threadId] ?? null
+}
+
+function getThreadActiveRequestMessageId(
+  state: Pick<AppState, 'activeRequestMessageIdsByThread'>,
+  threadId: string | null
+): string | null {
+  if (!threadId) {
+    return null
+  }
+
+  return state.activeRequestMessageIdsByThread[threadId] ?? null
+}
+
+function getThreadRunPhase(
+  state: Pick<AppState, 'runPhasesByThread'>,
+  threadId: string | null
+): AppState['runPhase'] {
+  if (!threadId) {
+    return 'idle'
+  }
+
+  return state.runPhasesByThread[threadId] ?? 'idle'
+}
+
+function getThreadRunStatus(
+  state: Pick<AppState, 'runStatusesByThread'>,
+  threadId: string | null
+): RunStatus {
+  if (!threadId) {
+    return 'idle'
+  }
+
+  return state.runStatusesByThread[threadId] ?? 'idle'
+}
+
+function deriveActiveThreadRunState(
+  state: Pick<
+    AppState,
+    | 'activeThreadId'
+    | 'activeRunIdsByThread'
+    | 'activeRequestMessageIdsByThread'
+    | 'runPhasesByThread'
+    | 'runStatusesByThread'
+  >
+): Pick<
+  AppState,
+  'activeRunId' | 'activeRequestMessageId' | 'activeRunThreadId' | 'runPhase' | 'runStatus'
+> {
+  const activeThreadId = state.activeThreadId
+  const activeRunId = getThreadActiveRunId(state, activeThreadId)
+
+  return {
+    activeRunId,
+    activeRequestMessageId: getThreadActiveRequestMessageId(state, activeThreadId),
+    activeRunThreadId: activeRunId ? activeThreadId : null,
+    runPhase: getThreadRunPhase(state, activeThreadId),
+    runStatus: getThreadRunStatus(state, activeThreadId)
+  }
+}
+
 function isComposerDraftEmpty(draft: ComposerDraft): boolean {
   return (
     draft.text.trim().length === 0 && draft.images.length === 0 && draft.enabledSkillNames === null
@@ -361,6 +436,49 @@ function removePendingSteerMessage(
   return next
 }
 
+function setThreadStringValue(
+  values: Record<string, string>,
+  threadId: string,
+  value: string | null
+): Record<string, string> {
+  if (value === null) {
+    if (!(threadId in values)) {
+      return values
+    }
+
+    const next = { ...values }
+    delete next[threadId]
+    return next
+  }
+
+  return {
+    ...values,
+    [threadId]: value
+  }
+}
+
+function setThreadRunPhaseValue(
+  values: AppState['runPhasesByThread'],
+  threadId: string,
+  value: AppState['runPhase']
+): AppState['runPhasesByThread'] {
+  return {
+    ...values,
+    [threadId]: value
+  }
+}
+
+function setThreadRunStatusValue(
+  values: AppState['runStatusesByThread'],
+  threadId: string,
+  value: RunStatus
+): AppState['runStatusesByThread'] {
+  return {
+    ...values,
+    [threadId]: value
+  }
+}
+
 function normalizeWorkspacePath(workspacePath: string | null | undefined): string | null {
   const normalized = workspacePath?.trim()
   return normalized ? normalized : null
@@ -431,6 +549,10 @@ async function refreshAvailableSkills(
   set: (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void,
   get: () => AppState
 ): Promise<void> {
+  if (typeof window === 'undefined') {
+    return
+  }
+
   const requestId = ++availableSkillsRequestId
   const state = get()
   const activeThread = state.threads.find((thread) => thread.id === state.activeThreadId) ?? null
@@ -456,7 +578,9 @@ async function refreshAvailableSkills(
 export const useAppStore = create<AppState>((set, get) => ({
   activeArchivedThreadId: null,
   activeRunId: null,
+  activeRunIdsByThread: {},
   activeRequestMessageId: null,
+  activeRequestMessageIdsByThread: {},
   activeRunThreadId: null,
   activeThreadId: null,
   scrollToMessageId: null,
@@ -480,25 +604,42 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     try {
       const accepted = await window.api.yachiyo.compactThreadToAnotherThread({ threadId })
-      set((state) => ({
-        activeRequestMessageId: null,
-        activeRunId: accepted.runId,
-        activeRunThreadId: accepted.thread.id,
-        activeThreadId: accepted.thread.id,
-        lastError: null,
-        runPhase: 'preparing',
-        runStatus: 'running',
-        threadListMode: 'active',
-        messages: {
-          ...state.messages,
-          [accepted.thread.id]: state.messages[accepted.thread.id] ?? []
-        },
-        toolCalls: {
-          ...state.toolCalls,
-          [accepted.thread.id]: state.toolCalls[accepted.thread.id] ?? []
-        },
-        threads: upsertThread(state.threads, accepted.thread)
-      }))
+      set((state) => {
+        const nextState = {
+          ...state,
+          activeRunIdsByThread: {
+            ...state.activeRunIdsByThread,
+            [accepted.thread.id]: accepted.runId
+          },
+          activeThreadId: accepted.thread.id,
+          lastError: null,
+          runPhasesByThread: setThreadRunPhaseValue(
+            state.runPhasesByThread,
+            accepted.thread.id,
+            'preparing'
+          ),
+          runStatusesByThread: setThreadRunStatusValue(
+            state.runStatusesByThread,
+            accepted.thread.id,
+            'running'
+          ),
+          threadListMode: 'active' as const,
+          messages: {
+            ...state.messages,
+            [accepted.thread.id]: state.messages[accepted.thread.id] ?? []
+          },
+          toolCalls: {
+            ...state.toolCalls,
+            [accepted.thread.id]: state.toolCalls[accepted.thread.id] ?? []
+          },
+          threads: upsertThread(state.threads, accepted.thread)
+        }
+
+        return {
+          ...nextState,
+          ...deriveActiveThreadRunState(nextState)
+        }
+      })
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Unable to compact into another thread.'
@@ -514,24 +655,32 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     try {
       const snapshot = await window.api.yachiyo.createBranch({ threadId, messageId })
-      set((state) => ({
-        activeThreadId: snapshot.thread.id,
-        threadListMode: 'active',
-        harnessEvents: {
-          ...state.harnessEvents,
-          [snapshot.thread.id]: []
-        },
-        lastError: null,
-        messages: {
-          ...state.messages,
-          [snapshot.thread.id]: snapshot.messages
-        },
-        toolCalls: {
-          ...state.toolCalls,
-          [snapshot.thread.id]: snapshot.toolCalls
-        },
-        threads: upsertThread(state.threads, snapshot.thread)
-      }))
+      set((state) => {
+        const nextState = {
+          ...state,
+          activeThreadId: snapshot.thread.id,
+          threadListMode: 'active' as const,
+          harnessEvents: {
+            ...state.harnessEvents,
+            [snapshot.thread.id]: []
+          },
+          lastError: null,
+          messages: {
+            ...state.messages,
+            [snapshot.thread.id]: snapshot.messages
+          },
+          toolCalls: {
+            ...state.toolCalls,
+            [snapshot.thread.id]: snapshot.toolCalls
+          },
+          threads: upsertThread(state.threads, snapshot.thread)
+        }
+
+        return {
+          ...nextState,
+          ...deriveActiveThreadRunState(nextState)
+        }
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to create a branch.'
       set({ lastError: message })
@@ -558,6 +707,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   lastError: null,
   latestRunsByThread: {},
   runsByThread: {},
+  runPhasesByThread: {},
   removeComposerImage: (imageId, threadId) =>
     set((state) => {
       const draftKey = getComposerDraftKey(threadId ?? state.activeThreadId)
@@ -628,6 +778,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   runPhase: 'idle',
   runStatus: 'idle',
+  runStatusesByThread: {},
   settings: DEFAULT_SETTINGS,
   threads: [],
   threadListMode: 'active',
@@ -638,7 +789,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (event.type === 'thread.archived') {
         const threads = removeThread(state.threads, event.threadId)
         const archivedThreads = upsertThread(state.archivedThreads, event.thread)
-        return {
+        const nextState = {
+          ...state,
           activeThreadId:
             state.activeThreadId === event.threadId
               ? (threads[0]?.id ?? null)
@@ -651,24 +803,39 @@ export const useAppStore = create<AppState>((set, get) => ({
           composerDrafts: removeComposerDraft(state.composerDrafts, event.threadId),
           threads
         }
+
+        return {
+          ...nextState,
+          ...deriveActiveThreadRunState(nextState)
+        }
       }
 
       if (event.type === 'thread.restored') {
         const archivedThreads = removeThread(state.archivedThreads, event.threadId)
         const threads = upsertThread(state.threads, event.thread)
-        return {
+        const nextState = {
+          ...state,
           activeArchivedThreadId:
             state.activeArchivedThreadId === event.threadId
               ? (archivedThreads[0]?.id ?? null)
               : state.activeArchivedThreadId,
           activeThreadId: event.thread.id,
           archivedThreads,
-          threadListMode: 'active',
+          threadListMode: 'active' as const,
           threads
+        }
+
+        return {
+          ...nextState,
+          ...deriveActiveThreadRunState(nextState)
         }
       }
 
       if (event.type === 'thread.deleted') {
+        const activeRunIdsByThread = { ...state.activeRunIdsByThread }
+        delete activeRunIdsByThread[event.threadId]
+        const activeRequestMessageIdsByThread = { ...state.activeRequestMessageIdsByThread }
+        delete activeRequestMessageIdsByThread[event.threadId]
         const threads = removeThread(state.threads, event.threadId)
         const archivedThreads = removeThread(state.archivedThreads, event.threadId)
         const messages = { ...state.messages }
@@ -679,18 +846,24 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete latestRunsByThread[event.threadId]
         const runsByThread = { ...state.runsByThread }
         delete runsByThread[event.threadId]
+        const runPhasesByThread = { ...state.runPhasesByThread }
+        delete runPhasesByThread[event.threadId]
+        const runStatusesByThread = { ...state.runStatusesByThread }
+        delete runStatusesByThread[event.threadId]
         const toolCalls = { ...state.toolCalls }
         delete toolCalls[event.threadId]
 
-        return {
+        const activeThreadId =
+          state.activeThreadId === event.threadId ? (threads[0]?.id ?? null) : state.activeThreadId
+        const nextState = {
+          ...state,
           activeArchivedThreadId:
             state.activeArchivedThreadId === event.threadId
               ? (archivedThreads[0]?.id ?? null)
               : state.activeArchivedThreadId,
-          activeThreadId:
-            state.activeThreadId === event.threadId
-              ? (threads[0]?.id ?? null)
-              : state.activeThreadId,
+          activeRequestMessageIdsByThread,
+          activeRunIdsByThread,
+          activeThreadId,
           archivedThreads,
           composerDrafts: removeComposerDraft(state.composerDrafts, event.threadId),
           harnessEvents,
@@ -701,48 +874,69 @@ export const useAppStore = create<AppState>((set, get) => ({
             state.pendingSteerMessages,
             event.threadId
           ),
+          runPhasesByThread,
+          runStatusesByThread,
           toolCalls,
           threads
+        }
+
+        return {
+          ...nextState,
+          ...deriveActiveThreadRunState(nextState)
         }
       }
 
       if (event.type === 'thread.created' || event.type === 'thread.updated') {
-        const nextActiveRequestMessageId =
-          state.activeRunThreadId === event.threadId
-            ? resolveActiveRequestMessageId(
-                event.thread,
-                state.messages[event.threadId] ?? [],
-                state.activeRequestMessageId
-              )
-            : state.activeRequestMessageId
+        const nextActiveRequestMessageId = state.activeRunIdsByThread[event.threadId]
+          ? resolveActiveRequestMessageId(
+              event.thread,
+              state.messages[event.threadId] ?? [],
+              state.activeRequestMessageIdsByThread[event.threadId] ?? null
+            )
+          : (state.activeRequestMessageIdsByThread[event.threadId] ?? null)
         const shouldClearPendingSteer =
           Boolean(state.pendingSteerMessages[event.threadId]) &&
-          state.activeRunThreadId === event.threadId &&
+          Boolean(state.activeRunIdsByThread[event.threadId]) &&
           Boolean(event.thread.headMessageId) &&
-          event.thread.headMessageId !== state.activeRequestMessageId
+          event.thread.headMessageId !==
+            (state.activeRequestMessageIdsByThread[event.threadId] ?? null)
 
-        return {
-          activeRequestMessageId: nextActiveRequestMessageId,
+        const nextState = {
+          ...state,
+          activeRequestMessageIdsByThread: setThreadStringValue(
+            state.activeRequestMessageIdsByThread,
+            event.threadId,
+            nextActiveRequestMessageId
+          ),
           archivedThreads: removeThread(state.archivedThreads, event.threadId),
           pendingSteerMessages: shouldClearPendingSteer
             ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
             : state.pendingSteerMessages,
           threads: upsertThread(state.threads, event.thread)
         }
+
+        return {
+          ...nextState,
+          ...deriveActiveThreadRunState(nextState)
+        }
       }
 
       if (event.type === 'thread.state.replaced') {
-        const nextActiveRequestMessageId =
-          state.activeRunThreadId === event.threadId
-            ? resolveActiveRequestMessageId(
-                event.thread,
-                event.messages,
-                state.activeRequestMessageId
-              )
-            : state.activeRequestMessageId
+        const nextActiveRequestMessageId = state.activeRunIdsByThread[event.threadId]
+          ? resolveActiveRequestMessageId(
+              event.thread,
+              event.messages,
+              state.activeRequestMessageIdsByThread[event.threadId] ?? null
+            )
+          : (state.activeRequestMessageIdsByThread[event.threadId] ?? null)
 
-        return {
-          activeRequestMessageId: nextActiveRequestMessageId,
+        const nextState = {
+          ...state,
+          activeRequestMessageIdsByThread: setThreadStringValue(
+            state.activeRequestMessageIdsByThread,
+            event.threadId,
+            nextActiveRequestMessageId
+          ),
           archivedThreads: removeThread(state.archivedThreads, event.threadId),
           harnessEvents: {
             ...state.harnessEvents,
@@ -762,6 +956,11 @@ export const useAppStore = create<AppState>((set, get) => ({
           },
           threads: upsertThread(state.threads, event.thread)
         }
+
+        return {
+          ...nextState,
+          ...deriveActiveThreadRunState(nextState)
+        }
       }
 
       if (event.type === 'settings.updated') {
@@ -774,10 +973,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       if (event.type === 'run.created') {
-        return {
-          activeRunId: event.runId,
-          activeRequestMessageId: event.requestMessageId ?? null,
-          activeRunThreadId: event.threadId,
+        const nextState = {
+          ...state,
+          activeRequestMessageIdsByThread: event.requestMessageId
+            ? {
+                ...state.activeRequestMessageIdsByThread,
+                [event.threadId]: event.requestMessageId
+              }
+            : state.activeRequestMessageIdsByThread,
+          activeRunIdsByThread: {
+            ...state.activeRunIdsByThread,
+            [event.threadId]: event.runId
+          },
           lastError: null,
           latestRunsByThread: upsertLatestRun(state.latestRunsByThread, {
             id: event.runId,
@@ -796,8 +1003,21 @@ export const useAppStore = create<AppState>((set, get) => ({
             recalledMemoryEntries: run?.recalledMemoryEntries,
             recallDecision: run?.recallDecision
           })),
-          runPhase: 'preparing',
-          runStatus: 'running'
+          runPhasesByThread: setThreadRunPhaseValue(
+            state.runPhasesByThread,
+            event.threadId,
+            'preparing'
+          ),
+          runStatusesByThread: setThreadRunStatusValue(
+            state.runStatusesByThread,
+            event.threadId,
+            'running'
+          )
+        }
+
+        return {
+          ...nextState,
+          ...deriveActiveThreadRunState(nextState)
         }
       }
 
@@ -878,6 +1098,21 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
 
+      if (event.type === 'message.reasoning.delta') {
+        const pending = state.pendingAssistantMessages[event.runId]
+        if (!pending) return {}
+
+        const nextThreadMessages = (state.messages[event.threadId] ?? []).map((message) =>
+          message.id === pending.messageId
+            ? { ...message, reasoning: (message.reasoning ?? '') + event.delta }
+            : message
+        )
+
+        return {
+          messages: { ...state.messages, [event.threadId]: nextThreadMessages }
+        }
+      }
+
       if (event.type === 'message.delta') {
         const pending = state.pendingAssistantMessages[event.runId]
         if (!pending) return {}
@@ -907,7 +1142,8 @@ export const useAppStore = create<AppState>((set, get) => ({
             : message
         )
 
-        return {
+        const nextState = {
+          ...state,
           messages: {
             ...state.messages,
             [event.threadId]: nextThreadMessages
@@ -916,7 +1152,16 @@ export const useAppStore = create<AppState>((set, get) => ({
             ...state.pendingAssistantMessages,
             [event.runId]: nextPendingAssistantMessage
           },
-          runPhase: 'streaming'
+          runPhasesByThread: setThreadRunPhaseValue(
+            state.runPhasesByThread,
+            event.threadId,
+            'streaming'
+          )
+        }
+
+        return {
+          ...nextState,
+          ...deriveActiveThreadRunState(nextState)
         }
       }
 
@@ -955,16 +1200,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (event.type === 'run.completed') {
         const pendingAssistantMessages = { ...state.pendingAssistantMessages }
         delete pendingAssistantMessages[event.runId]
+        const activeRunIdsByThread = { ...state.activeRunIdsByThread }
+        delete activeRunIdsByThread[event.threadId]
+        const activeRequestMessageIdsByThread = { ...state.activeRequestMessageIdsByThread }
+        delete activeRequestMessageIdsByThread[event.threadId]
         const existingLatestRun =
           state.latestRunsByThread[event.threadId]?.id === event.runId
             ? state.latestRunsByThread[event.threadId]
             : undefined
 
-        return {
-          activeRunId: state.activeRunId === event.runId ? null : state.activeRunId,
-          activeRequestMessageId:
-            state.activeRunId === event.runId ? null : state.activeRequestMessageId,
-          activeRunThreadId: state.activeRunId === event.runId ? null : state.activeRunThreadId,
+        const nextState = {
+          ...state,
+          activeRequestMessageIdsByThread,
+          activeRunIdsByThread,
           latestRunsByThread: upsertLatestRun(state.latestRunsByThread, {
             id: event.runId,
             threadId: event.threadId,
@@ -989,12 +1237,24 @@ export const useAppStore = create<AppState>((set, get) => ({
             completedAt: event.timestamp
           })),
           pendingAssistantMessages,
-          pendingSteerMessages:
-            state.activeRunThreadId === event.threadId
-              ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
-              : state.pendingSteerMessages,
-          runPhase: 'idle',
-          runStatus: 'idle'
+          pendingSteerMessages: state.activeRunIdsByThread[event.threadId]
+            ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
+            : state.pendingSteerMessages,
+          runPhasesByThread: setThreadRunPhaseValue(
+            state.runPhasesByThread,
+            event.threadId,
+            'idle'
+          ),
+          runStatusesByThread: setThreadRunStatusValue(
+            state.runStatusesByThread,
+            event.threadId,
+            'idle'
+          )
+        }
+
+        return {
+          ...nextState,
+          ...deriveActiveThreadRunState(nextState)
         }
       }
 
@@ -1002,16 +1262,19 @@ export const useAppStore = create<AppState>((set, get) => ({
         const pending = state.pendingAssistantMessages[event.runId]
         const pendingAssistantMessages = { ...state.pendingAssistantMessages }
         delete pendingAssistantMessages[event.runId]
+        const activeRunIdsByThread = { ...state.activeRunIdsByThread }
+        delete activeRunIdsByThread[event.threadId]
+        const activeRequestMessageIdsByThread = { ...state.activeRequestMessageIdsByThread }
+        delete activeRequestMessageIdsByThread[event.threadId]
         const existingLatestRun =
           state.latestRunsByThread[event.threadId]?.id === event.runId
             ? state.latestRunsByThread[event.threadId]
             : undefined
 
-        return {
-          activeRunId: state.activeRunId === event.runId ? null : state.activeRunId,
-          activeRequestMessageId:
-            state.activeRunId === event.runId ? null : state.activeRequestMessageId,
-          activeRunThreadId: state.activeRunId === event.runId ? null : state.activeRunThreadId,
+        const nextState = {
+          ...state,
+          activeRequestMessageIdsByThread,
+          activeRunIdsByThread,
           lastError: event.error,
           latestRunsByThread: upsertLatestRun(state.latestRunsByThread, {
             id: event.runId,
@@ -1049,12 +1312,24 @@ export const useAppStore = create<AppState>((set, get) => ({
               }
             : state.messages,
           pendingAssistantMessages,
-          pendingSteerMessages:
-            state.activeRunThreadId === event.threadId
-              ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
-              : state.pendingSteerMessages,
-          runPhase: 'idle',
-          runStatus: 'failed'
+          pendingSteerMessages: state.activeRunIdsByThread[event.threadId]
+            ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
+            : state.pendingSteerMessages,
+          runPhasesByThread: setThreadRunPhaseValue(
+            state.runPhasesByThread,
+            event.threadId,
+            'idle'
+          ),
+          runStatusesByThread: setThreadRunStatusValue(
+            state.runStatusesByThread,
+            event.threadId,
+            'failed'
+          )
+        }
+
+        return {
+          ...nextState,
+          ...deriveActiveThreadRunState(nextState)
         }
       }
 
@@ -1062,16 +1337,19 @@ export const useAppStore = create<AppState>((set, get) => ({
         const pending = state.pendingAssistantMessages[event.runId]
         const pendingAssistantMessages = { ...state.pendingAssistantMessages }
         delete pendingAssistantMessages[event.runId]
+        const activeRunIdsByThread = { ...state.activeRunIdsByThread }
+        delete activeRunIdsByThread[event.threadId]
+        const activeRequestMessageIdsByThread = { ...state.activeRequestMessageIdsByThread }
+        delete activeRequestMessageIdsByThread[event.threadId]
         const existingLatestRun =
           state.latestRunsByThread[event.threadId]?.id === event.runId
             ? state.latestRunsByThread[event.threadId]
             : undefined
 
-        return {
-          activeRunId: state.activeRunId === event.runId ? null : state.activeRunId,
-          activeRequestMessageId:
-            state.activeRunId === event.runId ? null : state.activeRequestMessageId,
-          activeRunThreadId: state.activeRunId === event.runId ? null : state.activeRunThreadId,
+        const nextState = {
+          ...state,
+          activeRequestMessageIdsByThread,
+          activeRunIdsByThread,
           latestRunsByThread: upsertLatestRun(state.latestRunsByThread, {
             id: event.runId,
             threadId: event.threadId,
@@ -1107,12 +1385,24 @@ export const useAppStore = create<AppState>((set, get) => ({
               }
             : state.messages,
           pendingAssistantMessages,
-          pendingSteerMessages:
-            state.activeRunThreadId === event.threadId
-              ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
-              : state.pendingSteerMessages,
-          runPhase: 'idle',
-          runStatus: 'cancelled'
+          pendingSteerMessages: state.activeRunIdsByThread[event.threadId]
+            ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
+            : state.pendingSteerMessages,
+          runPhasesByThread: setThreadRunPhaseValue(
+            state.runPhasesByThread,
+            event.threadId,
+            'idle'
+          ),
+          runStatusesByThread: setThreadRunStatusValue(
+            state.runStatusesByThread,
+            event.threadId,
+            'cancelled'
+          )
+        }
+
+        return {
+          ...nextState,
+          ...deriveActiveThreadRunState(nextState)
         }
       }
 
@@ -1147,7 +1437,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   cancelActiveRun: async () => {
-    const runId = get().activeRunId
+    const activeThreadId = get().activeThreadId
+    if (!activeThreadId) return
+    await get().cancelRunForThread(activeThreadId)
+  },
+
+  cancelRunForThread: async (threadId) => {
+    const runId = get().activeRunIdsByThread[threadId]
     if (!runId) return
     await window.api.yachiyo.cancelRun({ runId })
   },
@@ -1166,10 +1462,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     )
 
     if (reusableThread) {
-      set({
-        activeThreadId: reusableThread.id,
-        pendingWorkspacePath: null,
-        threadListMode: 'active'
+      set((state) => {
+        const nextState = {
+          ...state,
+          activeThreadId: reusableThread.id,
+          pendingWorkspacePath: null,
+          threadListMode: 'active' as const
+        }
+
+        return {
+          ...nextState,
+          ...deriveActiveThreadRunState(nextState)
+        }
       })
       await refreshAvailableSkills(set, get)
       return
@@ -1178,22 +1482,30 @@ export const useAppStore = create<AppState>((set, get) => ({
     const thread = await window.api.yachiyo.createThread(
       pendingWorkspacePath ? { workspacePath: pendingWorkspacePath } : undefined
     )
-    set((state) => ({
-      activeArchivedThreadId: state.activeArchivedThreadId,
-      activeThreadId: thread.id,
-      composerDrafts: removeComposerDraft(state.composerDrafts, null),
-      pendingWorkspacePath: null,
-      threadListMode: 'active',
-      messages: {
-        ...state.messages,
-        [thread.id]: state.messages[thread.id] ?? []
-      },
-      toolCalls: {
-        ...state.toolCalls,
-        [thread.id]: state.toolCalls[thread.id] ?? []
-      },
-      threads: upsertThread(state.threads, thread)
-    }))
+    set((state) => {
+      const nextState = {
+        ...state,
+        activeArchivedThreadId: state.activeArchivedThreadId,
+        activeThreadId: thread.id,
+        composerDrafts: removeComposerDraft(state.composerDrafts, null),
+        pendingWorkspacePath: null,
+        threadListMode: 'active' as const,
+        messages: {
+          ...state.messages,
+          [thread.id]: state.messages[thread.id] ?? []
+        },
+        toolCalls: {
+          ...state.toolCalls,
+          [thread.id]: state.toolCalls[thread.id] ?? []
+        },
+        threads: upsertThread(state.threads, thread)
+      }
+
+      return {
+        ...nextState,
+        ...deriveActiveThreadRunState(nextState)
+      }
+    })
     await refreshAvailableSkills(set, get)
   },
 
@@ -1229,11 +1541,21 @@ export const useAppStore = create<AppState>((set, get) => ({
           lastError: null,
           latestRunsByThread: payload.latestRunsByThread,
           runsByThread: bootstrapRunsByThread(payload.latestRunsByThread),
+          runPhasesByThread: Object.fromEntries(
+            Object.keys(payload.latestRunsByThread).map((threadId) => [threadId, 'idle'] as const)
+          ),
+          runStatusesByThread: Object.fromEntries(
+            Object.entries(payload.latestRunsByThread).map(([threadId, run]) => [
+              threadId,
+              run.status === 'running' ? 'running' : 'idle'
+            ])
+          ),
           messages: payload.messagesByThread,
           settings: payload.settings ?? state.settings ?? DEFAULT_SETTINGS,
           threads: sortThreads(payload.threads),
           toolCalls: payload.toolCallsByThread
         }))
+        set((state) => deriveActiveThreadRunState(state))
         await refreshAvailableSkills(set, get)
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to bootstrap Yachiyo.'
@@ -1253,6 +1575,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   renameThread: async (threadId, title) => {
     await window.api.yachiyo.renameThread({ threadId, title })
+  },
+
+  setThreadIcon: async (threadId, icon) => {
+    await window.api.yachiyo.setThreadIcon({ threadId, icon })
   },
 
   setThreadPrivacyMode: async (threadId, enabled) => {
@@ -1279,17 +1605,39 @@ export const useAppStore = create<AppState>((set, get) => ({
         enabledTools,
         enabledSkillNames
       })
-      set((state) => ({
-        activeRunId: accepted.runId,
-        activeRequestMessageId: accepted.requestMessageId,
-        activeRunThreadId: accepted.thread.id,
-        activeThreadId: accepted.thread.id,
-        lastError: null,
-        runPhase: 'preparing',
-        runStatus: 'running',
-        threadListMode: 'active',
-        threads: upsertThread(state.threads, accepted.thread)
-      }))
+      set((state) => {
+        const nextState = {
+          ...state,
+          activeRequestMessageIdsByThread: setThreadStringValue(
+            state.activeRequestMessageIdsByThread,
+            accepted.thread.id,
+            accepted.requestMessageId
+          ),
+          activeRunIdsByThread: {
+            ...state.activeRunIdsByThread,
+            [accepted.thread.id]: accepted.runId
+          },
+          activeThreadId: accepted.thread.id,
+          lastError: null,
+          runPhasesByThread: setThreadRunPhaseValue(
+            state.runPhasesByThread,
+            accepted.thread.id,
+            'preparing'
+          ),
+          runStatusesByThread: setThreadRunStatusValue(
+            state.runStatusesByThread,
+            accepted.thread.id,
+            'running'
+          ),
+          threadListMode: 'active' as const,
+          threads: upsertThread(state.threads, accepted.thread)
+        }
+
+        return {
+          ...nextState,
+          ...deriveActiveThreadRunState(nextState)
+        }
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to retry this response.'
       set({ lastError: message })
@@ -1314,7 +1662,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   selectModel: async (providerName, model) => {
-    if (get().runPhase !== 'idle' || get().runStatus === 'running') {
+    const state = get()
+    if (
+      getThreadRunPhase(state, state.activeThreadId) !== 'idle' ||
+      getThreadRunStatus(state, state.activeThreadId) === 'running'
+    ) {
       return
     }
 
@@ -1357,7 +1709,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set((state) => ({
         activeThreadId: thread.id,
         pendingWorkspacePath: null,
-        threadListMode: 'active',
+        threadListMode: 'active' as const,
         composerDrafts: moveComposerDraft(
           state.composerDrafts,
           getComposerDraftKey(null),
@@ -1387,67 +1739,82 @@ export const useAppStore = create<AppState>((set, get) => ({
         threadId
       })
 
+      const threadActiveRunId = getThreadActiveRunId(currentState, threadId)
       const acceptedKind =
         accepted.kind ??
         (mode === 'follow-up'
           ? 'active-run-follow-up'
-          : currentState.activeRunId
+          : threadActiveRunId
             ? 'active-run-steer'
             : 'run-started')
       const acceptedUserMessage = 'userMessage' in accepted ? accepted.userMessage : null
       const acceptedReplacedMessageId =
         'replacedMessageId' in accepted ? accepted.replacedMessageId : undefined
 
-      set((state) => ({
-        activeRunId:
-          acceptedKind === 'active-run-follow-up'
-            ? state.activeRunId
-            : (accepted.runId ?? state.activeRunId),
-        activeRequestMessageId:
-          acceptedKind === 'active-run-follow-up' || acceptedKind === 'active-run-steer-pending'
-            ? state.activeRequestMessageId
-            : (acceptedUserMessage?.id ?? state.activeRequestMessageId),
-        activeRunThreadId:
-          acceptedKind === 'active-run-follow-up' ? state.activeRunThreadId : accepted.thread.id,
-        activeThreadId: accepted.thread.id,
-        archivedThreads: removeThread(state.archivedThreads, accepted.thread.id),
-        composerDrafts: removeComposerDraft(state.composerDrafts, accepted.thread.id),
-        lastError: null,
-        messages: {
-          ...state.messages,
-          [accepted.thread.id]:
+      set((state) => {
+        const nextActiveRequestMessageIdsByThread =
+          acceptedKind !== 'active-run-follow-up' && acceptedKind !== 'active-run-steer-pending'
+            ? setThreadStringValue(
+                state.activeRequestMessageIdsByThread,
+                accepted.thread.id,
+                acceptedUserMessage?.id ?? null
+              )
+            : state.activeRequestMessageIdsByThread
+
+        const nextActiveRunIdsByThread = { ...state.activeRunIdsByThread }
+        if (acceptedKind !== 'active-run-follow-up' && accepted.runId) {
+          nextActiveRunIdsByThread[accepted.thread.id] = accepted.runId
+        }
+
+        const nextState = {
+          ...state,
+          activeRequestMessageIdsByThread: nextActiveRequestMessageIdsByThread,
+          activeRunIdsByThread: nextActiveRunIdsByThread,
+          activeThreadId: accepted.thread.id,
+          archivedThreads: removeThread(state.archivedThreads, accepted.thread.id),
+          composerDrafts: removeComposerDraft(state.composerDrafts, accepted.thread.id),
+          lastError: null,
+          messages: {
+            ...state.messages,
+            [accepted.thread.id]:
+              acceptedKind === 'active-run-steer-pending'
+                ? (state.messages[accepted.thread.id] ?? [])
+                : replaceMessage(
+                    state.messages[accepted.thread.id] ?? [],
+                    acceptedUserMessage as Message,
+                    acceptedReplacedMessageId
+                  )
+          },
+          pendingSteerMessages:
             acceptedKind === 'active-run-steer-pending'
-              ? (state.messages[accepted.thread.id] ?? [])
-              : replaceMessage(
-                  state.messages[accepted.thread.id] ?? [],
-                  acceptedUserMessage as Message,
-                  acceptedReplacedMessageId
-                )
-        },
-        pendingSteerMessages:
-          acceptedKind === 'active-run-steer-pending'
-            ? {
-                ...state.pendingSteerMessages,
-                [accepted.thread.id]: {
-                  content: trimmed,
-                  createdAt: new Date().toISOString(),
-                  ...(images.length > 0 ? { images } : {})
+              ? {
+                  ...state.pendingSteerMessages,
+                  [accepted.thread.id]: {
+                    content: trimmed,
+                    createdAt: new Date().toISOString(),
+                    ...(images.length > 0 ? { images } : {})
+                  }
                 }
-              }
-            : acceptedKind === 'active-run-steer'
-              ? removePendingSteerMessage(state.pendingSteerMessages, accepted.thread.id)
-              : state.pendingSteerMessages,
-        runPhase:
-          acceptedKind === 'active-run-follow-up' || acceptedKind === 'active-run-steer-pending'
-            ? state.runPhase
-            : 'preparing',
-        runStatus:
-          acceptedKind === 'active-run-follow-up' || acceptedKind === 'active-run-steer-pending'
-            ? state.runStatus
-            : 'running',
-        threadListMode: 'active',
-        threads: upsertThread(state.threads, accepted.thread)
-      }))
+              : acceptedKind === 'active-run-steer'
+                ? removePendingSteerMessage(state.pendingSteerMessages, accepted.thread.id)
+                : state.pendingSteerMessages,
+          runPhasesByThread:
+            acceptedKind === 'active-run-follow-up' || acceptedKind === 'active-run-steer-pending'
+              ? state.runPhasesByThread
+              : setThreadRunPhaseValue(state.runPhasesByThread, accepted.thread.id, 'preparing'),
+          runStatusesByThread:
+            acceptedKind === 'active-run-follow-up' || acceptedKind === 'active-run-steer-pending'
+              ? state.runStatusesByThread
+              : setThreadRunStatusValue(state.runStatusesByThread, accepted.thread.id, 'running'),
+          threadListMode: 'active' as const,
+          threads: upsertThread(state.threads, accepted.thread)
+        }
+
+        return {
+          ...nextState,
+          ...deriveActiveThreadRunState(nextState)
+        }
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to send the message.'
       set({
@@ -1495,10 +1862,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setActiveThread: (id, scrollToMessageId) => {
-    set({
-      activeThreadId: id,
-      threadListMode: 'active',
-      scrollToMessageId: scrollToMessageId ?? null
+    set((state) => {
+      const nextState = {
+        ...state,
+        activeThreadId: id,
+        threadListMode: 'active' as const,
+        scrollToMessageId: scrollToMessageId ?? null
+      }
+
+      return {
+        ...nextState,
+        ...deriveActiveThreadRunState(nextState)
+      }
     })
     void refreshAvailableSkills(set, get)
   },

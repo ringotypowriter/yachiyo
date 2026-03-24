@@ -42,6 +42,8 @@ const IPC_CHANNELS = {
   getUserDocument: 'yachiyo:get-user-document',
   getSettings: 'yachiyo:get-settings',
   renameThread: 'yachiyo:rename-thread',
+  setThreadIcon: 'yachiyo:set-thread-icon',
+  showEmojiPanel: 'yachiyo:show-emoji-panel',
   removeProvider: 'yachiyo:remove-provider',
   listWebSearchBrowserImportSources: 'yachiyo:list-web-search-browser-import-sources',
   listSkills: 'yachiyo:list-skills',
@@ -146,6 +148,12 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.renameThread, (input: { threadId: string; title: string }) =>
     server!.renameThread(input)
   )
+  handle(IPC_CHANNELS.setThreadIcon, (input: { threadId: string; icon: string | null }) =>
+    server!.setThreadIcon(input)
+  )
+  handle(IPC_CHANNELS.showEmojiPanel, () => {
+    app.showEmojiPanel()
+  })
   handle(IPC_CHANNELS.archiveThread, (input: { threadId: string }) => server!.archiveThread(input))
   handle(IPC_CHANNELS.deleteThread, (input: { threadId: string }) => server!.deleteThread(input))
   handle(IPC_CHANNELS.openThreadWorkspace, (input: { threadId: string }) =>

@@ -339,7 +339,7 @@ test('typescript fallback supports bounded grep and glob behavior', async () => 
     const grepResult = await service.grep({
       cwd: workspacePath,
       pattern: 'needle',
-      path: '.',
+      path: 'src',
       limit: 1
     })
     const globResult = await service.glob({
@@ -352,7 +352,7 @@ test('typescript fallback supports bounded grep and glob behavior', async () => 
     assert.equal(grepResult.truncated, true)
     assert.deepEqual(grepResult.matches, [
       {
-        path: 'src/alpha.ts',
+        path: 'alpha.ts',
         line: 2,
         text: 'needle here'
       }
@@ -361,4 +361,179 @@ test('typescript fallback supports bounded grep and glob behavior', async () => 
     assert.equal(globResult.backend, 'typescript')
     assert.deepEqual(globResult.paths, ['src/alpha.ts', 'src/beta.ts'])
   })
+})
+
+test('fd backend handles file path as rootPath (e.g. ~/.aerospace.toml)', async () => {
+  await withWorkspace(async (workspacePath) => {
+    await writeFile(join(workspacePath, '.aerospace.toml'), '[gaps]\n', 'utf8')
+
+    const service = createSearchService({
+      capabilities: {
+        grep: { preferred: 'typescript', backends: {} },
+        fileDiscovery: {
+          preferred: 'fd',
+          backends: { fd: { executable: '/usr/bin/fd' } }
+        }
+      },
+      runCommand: async () => {
+        throw new Error('fd should not be called when rootPath is a file')
+      }
+    })
+
+    const result = await service.glob({
+      cwd: workspacePath,
+      pattern: '.aerospace.toml',
+      path: join(workspacePath, '.aerospace.toml')
+    })
+
+    assert.equal(result.backend, 'fd')
+    assert.deepEqual(result.paths, ['.aerospace.toml'])
+    assert.equal(result.truncated, false)
+  })
+})
+
+test('find backend handles file path as rootPath', async () => {
+  await withWorkspace(async (workspacePath) => {
+    await writeFile(join(workspacePath, '.aerospace.toml'), '[gaps]\n', 'utf8')
+
+    const service = createSearchService({
+      capabilities: {
+        grep: { preferred: 'typescript', backends: {} },
+        fileDiscovery: {
+          preferred: 'find',
+          backends: { find: { executable: '/usr/bin/find' } }
+        }
+      },
+      runCommand: async () => {
+        throw new Error('find should not be called when rootPath is a file')
+      }
+    })
+
+    const result = await service.glob({
+      cwd: workspacePath,
+      pattern: '.aerospace.toml',
+      path: join(workspacePath, '.aerospace.toml')
+    })
+
+    assert.equal(result.backend, 'find')
+    assert.deepEqual(result.paths, ['.aerospace.toml'])
+    assert.equal(result.truncated, false)
+  })
+})
+
+test('typescript grep backend includes hidden files', async () => {
+  await withWorkspace(async (workspacePath) => {
+    await mkdir(join(workspacePath, '.config'), { recursive: true })
+    await writeFile(join(workspacePath, '.env'), 'needle=secret\n', 'utf8')
+    await writeFile(join(workspacePath, '.config', 'settings.ts'), 'needle config\n', 'utf8')
+    await writeFile(join(workspacePath, 'visible.ts'), 'not a match\n', 'utf8')
+
+    const service = createSearchService({
+      capabilities: {
+        grep: { preferred: 'typescript', backends: {} },
+        fileDiscovery: { preferred: 'typescript', backends: {} }
+      }
+    })
+
+    const result = await service.grep({ cwd: workspacePath, pattern: 'needle', path: '.' })
+
+    assert.equal(result.backend, 'typescript')
+    const paths = result.matches.map((m) => m.path).sort()
+    assert.deepEqual(paths, ['.config/settings.ts', '.env'])
+  })
+})
+
+test('typescript glob backend includes hidden files', async () => {
+  await withWorkspace(async (workspacePath) => {
+    await mkdir(join(workspacePath, '.config'), { recursive: true })
+    await writeFile(join(workspacePath, '.env'), '', 'utf8')
+    await writeFile(join(workspacePath, '.config', 'settings.ts'), '', 'utf8')
+    await writeFile(join(workspacePath, 'visible.ts'), '', 'utf8')
+
+    const service = createSearchService({
+      capabilities: {
+        grep: { preferred: 'typescript', backends: {} },
+        fileDiscovery: { preferred: 'typescript', backends: {} }
+      }
+    })
+
+    const result = await service.glob({ cwd: workspacePath, pattern: '**/*.ts', path: '.' })
+
+    assert.equal(result.backend, 'typescript')
+    const paths = result.paths.sort()
+    assert.deepEqual(paths, ['.config/settings.ts', 'visible.ts'])
+  })
+})
+
+test('fd backend passes --hidden flag to include hidden files', async () => {
+  const calls: Array<{ args: string[] }> = []
+  const service = createSearchService({
+    capabilities: {
+      grep: { preferred: 'typescript', backends: {} },
+      fileDiscovery: {
+        preferred: 'fd',
+        backends: { fd: { executable: '/usr/bin/fd' } }
+      }
+    },
+    runCommand: async ({ args }) => {
+      calls.push({ args })
+      return { exitCode: 0, stdout: '', stderr: '' }
+    }
+  })
+
+  await service.glob({ cwd: '/repo', pattern: '**/*.ts', path: '.' })
+
+  assert.ok(
+    calls[0]?.args.includes('--hidden'),
+    `Expected --hidden in fd args but got: ${calls[0]?.args.join(' ')}`
+  )
+})
+
+test('rg backend passes --hidden flag to include hidden files', async () => {
+  const calls: Array<{ args: string[] }> = []
+  const service = createSearchService({
+    capabilities: {
+      grep: {
+        preferred: 'rg',
+        backends: { rg: { executable: '/usr/bin/rg' } }
+      },
+      fileDiscovery: { preferred: 'typescript', backends: {} }
+    },
+    runCommand: async ({ args }) => {
+      calls.push({ args })
+      return { exitCode: 0, stdout: '', stderr: '' }
+    }
+  })
+
+  await service.grep({ cwd: '/repo', pattern: 'needle', path: '.' })
+
+  assert.ok(
+    calls[0]?.args.includes('--hidden'),
+    `Expected --hidden in rg args but got: ${calls[0]?.args.join(' ')}`
+  )
+})
+
+test('find backend does not exclude hidden paths', async () => {
+  const calls: Array<{ args: string[] }> = []
+  const service = createSearchService({
+    capabilities: {
+      grep: { preferred: 'typescript', backends: {} },
+      fileDiscovery: {
+        preferred: 'find',
+        backends: { find: { executable: '/usr/bin/find' } }
+      }
+    },
+    runCommand: async ({ args }) => {
+      calls.push({ args })
+      return { exitCode: 0, stdout: '', stderr: '' }
+    }
+  })
+
+  await service.glob({ cwd: '/repo', pattern: '**/*.ts', path: '.' })
+
+  const argsStr = calls[0]?.args.join(' ') ?? ''
+  assert.ok(
+    !argsStr.includes('*/.*'),
+    `find args should not exclude hidden paths but got: ${argsStr}`
+  )
 })

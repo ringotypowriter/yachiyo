@@ -32,6 +32,11 @@ export function ThreadHeaderTitle({
   return (
     <div className="flex flex-col min-w-0">
       <div className="flex items-center gap-1.5 min-w-0">
+        {activeThread?.icon ? (
+          <span className="shrink-0 select-none leading-none" style={{ fontSize: '1em' }}>
+            {activeThread.icon}
+          </span>
+        ) : null}
         <span
           className="text-sm font-semibold truncate"
           style={{ color: theme.text.primary, letterSpacing: '-0.2px' }}

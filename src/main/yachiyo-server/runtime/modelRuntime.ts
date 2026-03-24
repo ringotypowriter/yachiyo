@@ -99,6 +99,11 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             toolName?: string
             type: string
           }>) {
+            if (part.type === 'reasoning' && part.text) {
+              request.onReasoningDelta?.(part.text as string)
+              continue
+            }
+
             if (part.type === 'text-delta' && part.text) {
               yield part.text
               continue

@@ -29,6 +29,7 @@ export interface ModelStreamRequest {
   onToolCallStart?: GenerateTextOnToolCallStartCallback<ToolSet>
   onToolCallFinish?: GenerateTextOnToolCallFinishCallback<ToolSet>
   onToolCallUpdate?: (event: ModelToolCallUpdateEvent) => void
+  onReasoningDelta?: (delta: string) => void
 }
 
 export interface ModelRuntime {

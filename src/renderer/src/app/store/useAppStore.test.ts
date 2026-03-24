@@ -16,7 +16,9 @@ function resetStore(): void {
   useAppStore.setState({
     activeArchivedThreadId: null,
     activeRunId: null,
+    activeRunIdsByThread: {},
     activeRequestMessageId: null,
+    activeRequestMessageIdsByThread: {},
     activeRunThreadId: null,
     activeThreadId: null,
     archivedThreads: [],
@@ -35,7 +37,9 @@ function resetStore(): void {
     pendingSteerMessages: {},
     pendingWorkspacePath: null,
     runPhase: 'idle',
+    runPhasesByThread: {},
     runStatus: 'idle',
+    runStatusesByThread: {},
     settings: DEFAULT_SETTINGS,
     threadListMode: 'active',
     threads: [],
@@ -84,6 +88,7 @@ function withWindowApiMock(mock: YachiyoApiMock): () => void {
 
 test('applyServerEvent keeps a stopped placeholder when a run is cancelled before the first token', () => {
   resetStore()
+  useAppStore.setState({ activeThreadId: 'thread-1' })
 
   useAppStore.getState().applyServerEvent({
     type: 'run.created',
@@ -117,6 +122,7 @@ test('applyServerEvent keeps a stopped placeholder when a run is cancelled befor
   assert.equal(state.activeRunThreadId, null)
   assert.equal(state.runPhase, 'idle')
   assert.equal(state.runStatus, 'cancelled')
+  assert.equal(state.runStatusesByThread['thread-1'], 'cancelled')
   assert.equal(state.pendingAssistantMessages['run-1'], undefined)
   assert.deepEqual(state.messages['thread-1'], [
     {
@@ -251,6 +257,7 @@ test('applyServerEvent preserves compiled context sources after the run complete
 
 test('applyServerEvent supports assistant-first runs without a request message id', () => {
   resetStore()
+  useAppStore.setState({ activeThreadId: 'thread-compact' })
 
   useAppStore.getState().applyServerEvent({
     type: 'run.created',
@@ -281,6 +288,7 @@ test('applyServerEvent supports assistant-first runs without a request message i
 
   assert.equal(state.activeRequestMessageId, null)
   assert.equal(state.activeRunId, 'run-compact')
+  assert.equal(state.activeRunIdsByThread['thread-compact'], 'run-compact')
   assert.equal(state.messages['thread-compact']?.[0]?.role, 'assistant')
   assert.equal(state.messages['thread-compact']?.[0]?.parentMessageId, undefined)
   assert.equal(state.messages['thread-compact']?.[0]?.content, 'Handoff')
@@ -288,6 +296,7 @@ test('applyServerEvent supports assistant-first runs without a request message i
 
 test('applyServerEvent stays in preparing until the first token arrives', () => {
   resetStore()
+  useAppStore.setState({ activeThreadId: 'thread-1' })
 
   useAppStore.getState().applyServerEvent({
     type: 'run.created',
@@ -303,6 +312,7 @@ test('applyServerEvent stays in preparing until the first token arrives', () => 
   assert.equal(state.activeRequestMessageId, 'user-1')
   assert.equal(state.activeRunThreadId, 'thread-1')
   assert.equal(state.runPhase, 'preparing')
+  assert.equal(state.runPhasesByThread['thread-1'], 'preparing')
 
   useAppStore.getState().applyServerEvent({
     type: 'message.started',
@@ -522,9 +532,16 @@ test('applyServerEvent retargets the active request when an active thread head m
   resetStore()
 
   useAppStore.setState({
+    activeRunIdsByThread: {
+      'thread-1': 'run-1'
+    },
+    activeRequestMessageIdsByThread: {
+      'thread-1': 'user-1'
+    },
     activeRunId: 'run-1',
     activeRequestMessageId: 'user-1',
     activeRunThreadId: 'thread-1',
+    activeThreadId: 'thread-1',
     messages: {
       'thread-1': [
         {
@@ -579,9 +596,16 @@ test('applyServerEvent keeps the steer request visible after thread replacement 
   resetStore()
 
   useAppStore.setState({
+    activeRunIdsByThread: {
+      'thread-1': 'run-1'
+    },
+    activeRequestMessageIdsByThread: {
+      'thread-1': 'user-1'
+    },
     activeRunId: 'run-1',
     activeRequestMessageId: 'user-1',
     activeRunThreadId: 'thread-1',
+    activeThreadId: 'thread-1',
     messages: {
       'thread-1': [
         {
@@ -789,8 +813,15 @@ test('selectModel ignores changes while a run is active', async () => {
 
   try {
     useAppStore.setState({
+      activeThreadId: 'thread-1',
       runPhase: 'preparing',
-      runStatus: 'running'
+      runPhasesByThread: {
+        'thread-1': 'preparing'
+      },
+      runStatus: 'running',
+      runStatusesByThread: {
+        'thread-1': 'running'
+      }
     })
 
     await useAppStore.getState().selectModel('work', 'gpt-5')
@@ -798,7 +829,13 @@ test('selectModel ignores changes while a run is active', async () => {
 
     useAppStore.setState({
       runPhase: 'idle',
-      runStatus: 'idle'
+      runPhasesByThread: {
+        'thread-1': 'idle'
+      },
+      runStatus: 'idle',
+      runStatusesByThread: {
+        'thread-1': 'idle'
+      }
     })
 
     await useAppStore.getState().selectModel('work', 'gpt-5')
@@ -858,6 +895,58 @@ test('setEnabledTools persists one shared tool preference across thread switches
   } finally {
     restoreWindow()
   }
+})
+
+test('setActiveThread derives run state from the selected thread only', () => {
+  resetStore()
+
+  useAppStore.setState({
+    activeThreadId: 'thread-1',
+    activeRunIdsByThread: {
+      'thread-1': 'run-1'
+    },
+    activeRequestMessageIdsByThread: {
+      'thread-1': 'user-1'
+    },
+    runPhasesByThread: {
+      'thread-1': 'streaming'
+    },
+    runStatusesByThread: {
+      'thread-1': 'running',
+      'thread-2': 'idle'
+    },
+    threads: [
+      {
+        id: 'thread-1',
+        title: 'Thread one',
+        updatedAt: TIMESTAMP,
+        headMessageId: 'user-1'
+      },
+      {
+        id: 'thread-2',
+        title: 'Thread two',
+        updatedAt: '2026-03-15T00:00:01.000Z'
+      }
+    ]
+  })
+
+  useAppStore.getState().setActiveThread('thread-2')
+
+  let state = useAppStore.getState()
+  assert.equal(state.activeRunId, null)
+  assert.equal(state.activeRequestMessageId, null)
+  assert.equal(state.activeRunThreadId, null)
+  assert.equal(state.runPhase, 'idle')
+  assert.equal(state.runStatus, 'idle')
+
+  useAppStore.getState().setActiveThread('thread-1')
+
+  state = useAppStore.getState()
+  assert.equal(state.activeRunId, 'run-1')
+  assert.equal(state.activeRequestMessageId, 'user-1')
+  assert.equal(state.activeRunThreadId, 'thread-1')
+  assert.equal(state.runPhase, 'streaming')
+  assert.equal(state.runStatus, 'running')
 })
 
 test('sendMessage restores per-thread drafts and clears only the sent thread on success', async () => {
@@ -997,6 +1086,12 @@ test('sendMessage routes active-run steer through the ordinary message path with
 
   try {
     useAppStore.setState({
+      activeRunIdsByThread: {
+        'thread-1': 'run-1'
+      },
+      activeRequestMessageIdsByThread: {
+        'thread-1': 'user-1'
+      },
       activeRunId: 'run-1',
       activeRequestMessageId: 'user-1',
       activeRunThreadId: 'thread-1',
@@ -1093,6 +1188,12 @@ test('sendMessage keeps a tool-waiting steer as a temporary pending marker until
 
   try {
     useAppStore.setState({
+      activeRunIdsByThread: {
+        'thread-1': 'run-1'
+      },
+      activeRequestMessageIdsByThread: {
+        'thread-1': 'user-1'
+      },
       activeRunId: 'run-1',
       activeRequestMessageId: 'user-1',
       activeRunThreadId: 'thread-1',
@@ -1131,6 +1232,7 @@ test('sendMessage keeps a tool-waiting steer as a temporary pending marker until
     let state = useAppStore.getState()
     assert.equal(state.messages['thread-1']?.length, 1)
     assert.equal(state.activeRequestMessageId, 'user-1')
+    assert.equal(state.activeRequestMessageIdsByThread['thread-1'], 'user-1')
     assert.equal(state.pendingSteerMessages['thread-1']?.content, 'Wait for the tool result first')
 
     useAppStore.getState().applyServerEvent({
@@ -1222,6 +1324,12 @@ test('sendMessage replaces the queued follow-up for an active run', async () => 
 
   try {
     useAppStore.setState({
+      activeRunIdsByThread: {
+        'thread-1': 'run-1'
+      },
+      activeRequestMessageIdsByThread: {
+        'thread-1': 'user-1'
+      },
       activeRunId: 'run-1',
       activeRequestMessageId: 'user-1',
       activeRunThreadId: 'thread-1',

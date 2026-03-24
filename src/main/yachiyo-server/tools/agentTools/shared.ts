@@ -1,5 +1,6 @@
 import { access } from 'node:fs/promises'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import { z } from 'zod'
 
@@ -159,8 +160,16 @@ export interface BashRunnerResult {
 
 export type BashRunner = (input: BashRunnerInput) => Promise<BashRunnerResult>
 
+export function expandTilde(targetPath: string): string {
+  if (targetPath === '~' || targetPath.startsWith('~/') || targetPath.startsWith('~\\')) {
+    return join(homedir(), targetPath.slice(1))
+  }
+  return targetPath
+}
+
 export function resolveToolPath(workspacePath: string, targetPath: string): string {
-  return isAbsolute(targetPath) ? resolve(targetPath) : resolve(workspacePath, targetPath)
+  const expanded = expandTilde(targetPath)
+  return isAbsolute(expanded) ? resolve(expanded) : resolve(workspacePath, expanded)
 }
 
 export function resolvePathWithinWorkspace(

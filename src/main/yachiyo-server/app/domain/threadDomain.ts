@@ -230,6 +230,29 @@ export class YachiyoServerThreadDomain {
     return updatedThread
   }
 
+  setThreadIcon(input: { threadId: string; icon: string | null }): ThreadRecord {
+    const thread = this.deps.requireThread(input.threadId)
+    const updatedThread: ThreadRecord = {
+      ...thread,
+      ...(input.icon !== null ? { icon: input.icon } : { icon: undefined }),
+      updatedAt: this.deps.timestamp()
+    }
+
+    this.deps.storage.setThreadIcon({
+      threadId: thread.id,
+      icon: input.icon,
+      updatedAt: updatedThread.updatedAt
+    })
+
+    this.deps.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: updatedThread.id,
+      thread: updatedThread
+    })
+
+    return updatedThread
+  }
+
   archiveThread(input: { threadId: string }): void {
     const thread = this.deps.requireThread(input.threadId)
     if (this.deps.isThreadRunning(thread.id)) {

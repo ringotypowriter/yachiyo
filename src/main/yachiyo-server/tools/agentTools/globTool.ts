@@ -1,4 +1,4 @@
-import { isAbsolute, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path'
 
 import { tool, type Tool } from 'ai'
 
@@ -6,6 +6,7 @@ import type { GlobToolCallDetails } from '../../../../shared/yachiyo/protocol.ts
 import type { SearchService } from '../../services/search/searchService.ts'
 import {
   DEFAULT_SEARCH_LIMIT,
+  expandTilde,
   globToolInputSchema,
   type AgentToolContext,
   type GlobToolInput,
@@ -39,7 +40,11 @@ export async function runGlobTool(
     searchService: SearchService
   }
 ): Promise<GlobToolOutput> {
-  const searchPath = input.path?.trim() || '.'
+  const { pattern, searchPath } = resolveGlobInput(
+    input.pattern,
+    input.path?.trim(),
+    context.workspacePath
+  )
   const resolvedPath = resolveToolTarget(context.workspacePath, searchPath)
   const fallbackDetails: GlobToolCallDetails = {
     backend: dependencies.searchService.capabilities.fileDiscovery.preferred,
@@ -53,7 +58,7 @@ export async function runGlobTool(
   try {
     const result = await dependencies.searchService.glob({
       cwd: context.workspacePath,
-      pattern: input.pattern,
+      pattern,
       path: searchPath,
       limit: input.limit ?? DEFAULT_SEARCH_LIMIT,
       signal: dependencies.abortSignal
@@ -98,8 +103,32 @@ function formatGlobContent(matches: string[], truncated: boolean): string {
   return lines.join('\n')
 }
 
+// When the model passes something like "~/.aerospace*" or "/home/user/.config*" as the
+// pattern (i.e. an absolute/tilde path with a glob suffix), split it into the directory
+// portion (used as the search path) and the basename portion (used as the pattern).
+export function resolveGlobInput(
+  rawPattern: string,
+  rawPath: string | undefined,
+  workspacePath: string
+): { pattern: string; searchPath: string } {
+  const expandedPattern = expandTilde(rawPattern.trim())
+
+  if (isAbsolute(expandedPattern)) {
+    return {
+      pattern: basename(expandedPattern),
+      searchPath: dirname(expandedPattern)
+    }
+  }
+
+  return {
+    pattern: rawPattern.trim(),
+    searchPath: expandTilde(rawPath?.trim() || '.') || workspacePath
+  }
+}
+
 function resolveToolTarget(workspacePath: string, targetPath: string): string {
-  return isAbsolute(targetPath) ? resolve(targetPath) : resolve(workspacePath, targetPath)
+  const expanded = expandTilde(targetPath)
+  return isAbsolute(expanded) ? resolve(expanded) : resolve(workspacePath, expanded)
 }
 
 function toWorkspaceDisplayPath(

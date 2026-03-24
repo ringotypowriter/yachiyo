@@ -19,6 +19,7 @@ import {
   summarizeToolOutput,
   streamBashTool
 } from './agentTools.ts'
+import { resolveGlobInput } from './agentTools/globTool.ts'
 import type { MemoryService } from '../services/memory/memoryService.ts'
 import { createTool as createMemorySearchTool } from './agentTools/memorySearchTool.ts'
 
@@ -377,6 +378,31 @@ test('runGrepTool maps normalized search results into structured details and sum
     assert.equal(normalized.status, 'completed')
     assert.equal(normalized.outputSummary, 'found 1 match')
   })
+})
+
+test('resolveGlobInput splits tilde/absolute patterns into path + basename', () => {
+  const home = process.env.HOME ?? '/Users/test'
+  const workspace = '/workspace'
+
+  // ~/.aerospace* → dir: home, pattern: .aerospace*
+  const tildeResult = resolveGlobInput('~/.aerospace*', undefined, workspace)
+  assert.equal(tildeResult.searchPath, home)
+  assert.equal(tildeResult.pattern, '.aerospace*')
+
+  // /Users/foo/.config → dir: /Users/foo, pattern: .config
+  const absResult = resolveGlobInput('/Users/foo/.config', undefined, workspace)
+  assert.equal(absResult.searchPath, '/Users/foo')
+  assert.equal(absResult.pattern, '.config')
+
+  // relative pattern — unchanged, uses explicit path
+  const relResult = resolveGlobInput('src/**/*.ts', 'lib', workspace)
+  assert.equal(relResult.searchPath, 'lib')
+  assert.equal(relResult.pattern, 'src/**/*.ts')
+
+  // relative pattern with no path — defaults to '.' (relative to cwd)
+  const noPathResult = resolveGlobInput('**/*.ts', undefined, workspace)
+  assert.equal(noPathResult.searchPath, '.')
+  assert.equal(noPathResult.pattern, '**/*.ts')
 })
 
 test('runGlobTool maps normalized file discovery results into structured details and summaries', async () => {

@@ -254,11 +254,15 @@ export function Composer({
   const connectionStatus = useAppStore((s) => s.connectionStatus)
   const availableSkills = useAppStore((s) => s.availableSkills)
   const settings = useAppStore((s) => s.settings ?? DEFAULT_SETTINGS)
-  const activeRunId = useAppStore((s) => s.activeRunId)
+  const activeRunId = useAppStore((s) =>
+    s.activeThreadId ? (s.activeRunIdsByThread[s.activeThreadId] ?? null) : null
+  )
   const config = useAppStore((s) => s.config)
   const messages = useAppStore((s) => s.messages)
   const pendingWorkspacePath = useAppStore((s) => s.pendingWorkspacePath)
-  const runPhase = useAppStore((s) => s.runPhase)
+  const runPhase = useAppStore((s) =>
+    s.activeThreadId ? (s.runPhasesByThread[s.activeThreadId] ?? 'idle') : 'idle'
+  )
   const cancelActiveRun = useAppStore((s) => s.cancelActiveRun)
   const enabledTools = useAppStore((s) => s.enabledTools)
   const removeComposerImage = useAppStore((s) => s.removeComposerImage)

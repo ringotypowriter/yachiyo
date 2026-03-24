@@ -46,6 +46,8 @@ declare global {
         openThreadWorkspace: (input: { threadId: string }) => Promise<void>
         pickWorkspaceDirectory: () => Promise<string | null>
         renameThread: (input: { threadId: string; title: string }) => Promise<ThreadRecord>
+        setThreadIcon: (input: { threadId: string; icon: string | null }) => Promise<ThreadRecord>
+        showEmojiPanel: () => Promise<void>
         restoreThread: (input: { threadId: string }) => Promise<ThreadRecord>
         saveToolPreferences: (input: ToolPreferencesInput) => Promise<SettingsConfig>
         sendChat: (input: SendChatInput) => Promise<ChatAccepted>

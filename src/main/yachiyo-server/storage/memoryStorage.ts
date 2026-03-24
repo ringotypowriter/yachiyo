@@ -53,6 +53,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     storedThread.branchFromThreadId = nextThread.branchFromThreadId ?? null
     storedThread.branchFromMessageId = nextThread.branchFromMessageId ?? null
     storedThread.headMessageId = nextThread.headMessageId ?? null
+    storedThread.icon = nextThread.icon ?? null
     storedThread.memoryRecallState = serializeThreadMemoryRecallState(nextThread.memoryRecall)
     storedThread.preview = nextThread.preview ?? null
     storedThread.privacyMode = nextThread.privacyMode ? '1' : null
@@ -153,6 +154,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     createThread({ thread, createdAt, messages: initialMessages = [] }) {
       threads.set(thread.id, {
         id: thread.id,
+        icon: thread.icon ?? null,
         title: thread.title,
         memoryRecallState: serializeThreadMemoryRecallState(thread.memoryRecall),
         workspacePath: thread.workspacePath ?? null,
@@ -182,6 +184,16 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
 
       thread.title = title
+      thread.updatedAt = updatedAt
+    },
+
+    setThreadIcon({ threadId, icon, updatedAt }) {
+      const thread = threads.get(threadId)
+      if (!thread) {
+        return
+      }
+
+      thread.icon = icon
       thread.updatedAt = updatedAt
     },
 

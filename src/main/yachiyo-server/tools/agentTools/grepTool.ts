@@ -6,6 +6,7 @@ import type { GrepToolCallDetails } from '../../../../shared/yachiyo/protocol.ts
 import type { SearchService } from '../../services/search/searchService.ts'
 import {
   DEFAULT_SEARCH_LIMIT,
+  expandTilde,
   grepToolInputSchema,
   type AgentToolContext,
   type GrepToolInput,
@@ -39,7 +40,7 @@ export async function runGrepTool(
     searchService: SearchService
   }
 ): Promise<GrepToolOutput> {
-  const searchPath = input.path?.trim() || '.'
+  const searchPath = expandTilde(input.path?.trim() || '.')
   const resolvedPath = resolveToolTarget(context.workspacePath, searchPath)
   const fallbackDetails: GrepToolCallDetails = {
     backend: dependencies.searchService.capabilities.grep.preferred,
@@ -102,7 +103,8 @@ function formatGrepContent(matches: GrepToolCallDetails['matches'], truncated: b
 }
 
 function resolveToolTarget(workspacePath: string, targetPath: string): string {
-  return isAbsolute(targetPath) ? resolve(targetPath) : resolve(workspacePath, targetPath)
+  const expanded = expandTilde(targetPath)
+  return isAbsolute(expanded) ? resolve(expanded) : resolve(workspacePath, expanded)
 }
 
 function toWorkspaceDisplayPath(

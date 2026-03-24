@@ -309,6 +309,7 @@ export interface MessageTextBlockRecord {
 
 export interface ThreadRecord {
   archivedAt?: string
+  icon?: string
   id: string
   title: string
   updatedAt: string
@@ -332,6 +333,7 @@ export interface MessageRecord {
   content: string
   textBlocks?: MessageTextBlockRecord[]
   images?: MessageImageRecord[]
+  reasoning?: string
   status: MessageStatus
   createdAt: string
   modelId?: string
@@ -782,6 +784,12 @@ export interface MessageDeltaEvent extends RunEvent {
   delta: string
 }
 
+export interface MessageReasoningDeltaEvent extends RunEvent {
+  type: 'message.reasoning.delta'
+  messageId: string
+  delta: string
+}
+
 export interface MessageCompletedEvent extends RunEvent {
   type: 'message.completed'
   message: MessageRecord
@@ -827,6 +835,7 @@ export type YachiyoServerEvent =
   | RunCancelledEvent
   | MessageStartedEvent
   | MessageDeltaEvent
+  | MessageReasoningDeltaEvent
   | MessageCompletedEvent
   | ToolCallUpdatedEvent
   | HarnessStartedEvent
