@@ -11,6 +11,32 @@ import {
   type SearchCommandResult
 } from './searchService.ts'
 
+test('resolveSearchBackendCapabilities finds rg/fd via extraPaths when PATH is minimal', () => {
+  // Simulates an Electron GUI app where launchd provides only system directories.
+  const capabilities = resolveSearchBackendCapabilities({
+    env: { PATH: '/usr/bin:/bin' },
+    extraPaths: ['/opt/homebrew/bin'],
+    resolveCommand: (command, env) => {
+      const dirs = (env?.PATH ?? '').split(':')
+      const paths: Record<string, string> = {
+        rg: '/opt/homebrew/bin/rg',
+        fd: '/opt/homebrew/bin/fd',
+        grep: '/usr/bin/grep',
+        find: '/usr/bin/find'
+      }
+      const resolved = paths[command]
+      if (!resolved) return undefined
+      const dir = resolved.slice(0, resolved.lastIndexOf('/'))
+      return dirs.includes(dir) ? resolved : undefined
+    }
+  })
+
+  assert.equal(capabilities.grep.preferred, 'rg')
+  assert.equal(capabilities.grep.backends.rg?.executable, '/opt/homebrew/bin/rg')
+  assert.equal(capabilities.fileDiscovery.preferred, 'fd')
+  assert.equal(capabilities.fileDiscovery.backends.fd?.executable, '/opt/homebrew/bin/fd')
+})
+
 async function withWorkspace(fn: (workspacePath: string) => Promise<void>): Promise<void> {
   const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-search-service-'))
 

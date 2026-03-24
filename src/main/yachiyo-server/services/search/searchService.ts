@@ -1,5 +1,6 @@
 import { accessSync, constants } from 'node:fs'
 import { readdir, readFile, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { delimiter } from 'node:path'
 import { basename, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -26,6 +27,12 @@ export interface SearchBackendCapabilities {
 export interface ResolveSearchBackendCapabilitiesOptions {
   env?: NodeJS.ProcessEnv
   resolveCommand?: (command: string, env?: NodeJS.ProcessEnv) => string | undefined
+  /**
+   * Extra PATH segments to probe after the environment PATH. Defaults to
+   * well-known package-manager directories that GUI apps miss on macOS because
+   * launchd provides a minimal PATH that excludes Homebrew and cargo.
+   */
+  extraPaths?: string[]
 }
 
 export interface SearchCommandInput {
@@ -109,11 +116,24 @@ const MAX_SEARCH_STDERR_CHARS = 32_000
 const MAX_SEARCH_STDOUT_CHARS = 1_000_000
 const WINDOWS_EXECUTABLE_EXTENSIONS = ['.exe', '.cmd', '.bat', '.com']
 
+// GUI apps on macOS receive a minimal PATH from launchd that omits user-level
+// package manager directories. These are the most common install locations for fd/rg.
+export const DEFAULT_EXTRA_PATHS: readonly string[] =
+  process.platform === 'darwin'
+    ? [
+        '/opt/homebrew/bin', // Apple Silicon Homebrew
+        '/usr/local/bin', // Intel Homebrew
+        `${homedir()}/.cargo/bin` // Rust tools (rg)
+      ]
+    : []
+
 export function resolveSearchBackendCapabilities(
   options: ResolveSearchBackendCapabilitiesOptions = {}
 ): SearchBackendCapabilities {
   const resolveCommandFromPath = options.resolveCommand ?? findExecutableOnPath
-  const env = options.env ?? process.env
+  const baseEnv = options.env ?? process.env
+  const extraPaths = options.extraPaths ?? DEFAULT_EXTRA_PATHS
+  const env = augmentPathEnv(baseEnv, extraPaths)
   const rgExecutable = resolveCommandFromPath('rg', env)
   const grepExecutable = resolveCommandFromPath('grep', env)
   const fdExecutable = resolveCommandFromPath('fd', env)
@@ -960,6 +980,21 @@ function toOptionalNestedString(
   }
 
   return typeof current === 'string' ? current : undefined
+}
+
+function augmentPathEnv(env: NodeJS.ProcessEnv, extraPaths: readonly string[]): NodeJS.ProcessEnv {
+  if (extraPaths.length === 0) {
+    return env
+  }
+
+  const existing = (env.PATH ?? '').split(delimiter).filter(Boolean)
+  const novel = extraPaths.filter((p) => !existing.includes(p))
+
+  if (novel.length === 0) {
+    return env
+  }
+
+  return { ...env, PATH: [...existing, ...novel].join(delimiter) }
 }
 
 function findExecutableOnPath(
