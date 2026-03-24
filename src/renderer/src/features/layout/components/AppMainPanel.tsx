@@ -1,6 +1,8 @@
-import { useState } from 'react'
-import type { Message, Thread } from '@renderer/app/types'
+import { useEffect, useMemo, useState } from 'react'
+import type { Message, Thread, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
+import { ThreadFindBar } from '@renderer/features/chat/components/ThreadFindBar'
+import { buildFindMatches } from '@renderer/features/chat/lib/threadFindBar'
 import { Composer } from '@renderer/features/chat/components/Composer'
 import { MessageTimeline } from '@renderer/features/chat/components/MessageTimeline'
 import { ArchivedThreadsPage } from '@renderer/features/layout/components/ArchivedThreadsPage'
@@ -8,10 +10,34 @@ import { AppMainPanelHeader } from '@renderer/features/layout/components/AppMain
 import { RunInspectionPanel } from '@renderer/features/runs/components/RunInspectionPanel'
 import { RunStatusStrip } from '@renderer/features/runs/components/RunStatusStrip'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
+import { isOpenFindBarShortcut } from '@renderer/features/layout/lib/findBarShortcut'
 import { theme } from '@renderer/theme/theme'
 import { isMemoryConfigured } from '../../../../../shared/yachiyo/protocol.ts'
 
 const EMPTY: Message[] = []
+const EMPTY_TOOL_CALLS: ToolCall[] = []
+
+function getTextRanges(el: Element, query: string): Range[] {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+  const ranges: Range[] = []
+  const lowerQuery = query.toLowerCase()
+  let node: Node | null
+  while ((node = walker.nextNode())) {
+    const text = node.textContent ?? ''
+    const lower = text.toLowerCase()
+    let offset = 0
+    while (offset < lower.length) {
+      const idx = lower.indexOf(lowerQuery, offset)
+      if (idx < 0) break
+      const range = document.createRange()
+      range.setStart(node, idx)
+      range.setEnd(node, idx + query.length)
+      ranges.push(range)
+      offset = idx + query.length
+    }
+  }
+  return ranges
+}
 
 export interface AppMainPanelProps {
   headerPaddingLeft: number
@@ -19,6 +45,8 @@ export interface AppMainPanelProps {
   showSidebarToggle: boolean
   onToggleSidebar: () => void
   toggleSidebarTitle: string
+  pendingFindQuery: string | null
+  onPendingFindQueryApplied: () => void
 }
 
 export function AppMainPanel({
@@ -26,7 +54,9 @@ export function AppMainPanel({
   isSidebarToggleDisabled,
   showSidebarToggle,
   onToggleSidebar,
-  toggleSidebarTitle
+  toggleSidebarTitle,
+  pendingFindQuery,
+  onPendingFindQueryApplied
 }: AppMainPanelProps): React.JSX.Element {
   const archiveThread = useAppStore((s) => s.archiveThread)
   const archivedThreads = useAppStore((s) => s.archivedThreads)
@@ -51,8 +81,89 @@ export function AppMainPanel({
     archivedThreads.find((thread) => thread.id === activeArchivedThreadId) ?? null
   const saveThread = useAppStore((s) => s.saveThread)
   const setThreadPrivacyMode = useAppStore((s) => s.setThreadPrivacyMode)
+  const toolCalls = useAppStore((s) =>
+    activeThreadId ? (s.toolCalls[activeThreadId] ?? EMPTY_TOOL_CALLS) : EMPTY_TOOL_CALLS
+  )
   const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null)
   const [isInspectionPanelOpen, setIsInspectionPanelOpen] = useState(false)
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState('')
+  const [findCurrentIndex, setFindCurrentIndex] = useState(0)
+
+  const findMatches = useMemo(
+    () =>
+      findOpen && findQuery.trim().length >= 2
+        ? buildFindMatches(messages, toolCalls, findQuery)
+        : [],
+    [findOpen, findQuery, messages, toolCalls]
+  )
+
+  useEffect(() => {
+    setFindCurrentIndex(0)
+  }, [findMatches])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent): void => {
+      if (!isOpenFindBarShortcut(e) || !activeThreadId) return
+      e.preventDefault()
+      setFindOpen(true)
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [activeThreadId])
+
+  // Build CSS highlight ranges for all matched messages
+  useEffect(() => {
+    if (!CSS.highlights) return
+    CSS.highlights.delete('yachiyo-find')
+    if (!findOpen || findQuery.trim().length < 2 || findMatches.length === 0) return
+
+    const ranges: Range[] = []
+    for (const match of findMatches) {
+      const el = document.querySelector(`[data-message-id="${match.messageId}"]`)
+      if (el) ranges.push(...getTextRanges(el, findQuery))
+    }
+    if (ranges.length > 0) CSS.highlights.set('yachiyo-find', new Highlight(...ranges))
+
+    return () => {
+      CSS.highlights?.delete('yachiyo-find')
+    }
+  }, [findOpen, findQuery, findMatches])
+
+  // Highlight + scroll current match
+  useEffect(() => {
+    if (!CSS.highlights) return
+    CSS.highlights.delete('yachiyo-find-current')
+
+    const match = findMatches[findCurrentIndex]
+    if (!match) return
+    const el = document.querySelector(`[data-message-id="${match.messageId}"]`)
+    if (!el) return
+
+    const ranges = getTextRanges(el, findQuery)
+    if (ranges.length > 0) {
+      CSS.highlights.set('yachiyo-find-current', new Highlight(...ranges))
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+
+    return () => {
+      CSS.highlights?.delete('yachiyo-find-current')
+    }
+  }, [findCurrentIndex, findMatches, findQuery])
+
+  useEffect(() => {
+    if (!pendingFindQuery) return
+    setFindOpen(true)
+    setFindQuery(pendingFindQuery)
+    setFindCurrentIndex(0)
+    onPendingFindQueryApplied()
+  }, [pendingFindQuery, onPendingFindQueryApplied])
+
+  function handleFindClose(): void {
+    setFindOpen(false)
+    setFindQuery('')
+    setFindCurrentIndex(0)
+  }
   const memoryEnabled = isMemoryConfigured(config) && !activeThread?.privacyMode
 
   async function handleRenameThread(thread: Thread): Promise<void> {
@@ -222,13 +333,32 @@ export function AppMainPanel({
 
   return (
     <div
-      className="flex flex-col flex-1 h-full min-w-0 overflow-hidden"
+      className="flex flex-col flex-1 h-full min-w-0 overflow-hidden relative"
       style={{
         background: theme.background.chatCard,
         borderRadius: 12,
         boxShadow: theme.shadow.card
       }}
     >
+      {findOpen && (
+        <ThreadFindBar
+          matches={findMatches}
+          currentIndex={findCurrentIndex}
+          query={findQuery}
+          onQueryChange={setFindQuery}
+          onNext={() =>
+            setFindCurrentIndex((i) =>
+              findMatches.length === 0 ? 0 : (i + 1) % findMatches.length
+            )
+          }
+          onPrev={() =>
+            setFindCurrentIndex((i) =>
+              findMatches.length === 0 ? 0 : (i - 1 + findMatches.length) % findMatches.length
+            )
+          }
+          onClose={handleFindClose}
+        />
+      )}
       <AppMainPanelHeader
         activeThread={activeThread}
         headerPaddingLeft={headerPaddingLeft}

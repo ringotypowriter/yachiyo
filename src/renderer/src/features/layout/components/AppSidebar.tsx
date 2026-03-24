@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Archive, PanelLeft, Search, Settings, SquarePen } from 'lucide-react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ConnectionStatusIndicator } from '@renderer/features/layout/components/ConnectionStatusIndicator'
@@ -14,6 +13,10 @@ export interface AppSidebarProps {
   onToggle: () => void
   sidebarWidth: number
   toggleTitle: string
+  isSearchOpen: boolean
+  onOpenSearch: () => void
+  onCloseSearch: () => void
+  onSearchSelect: (query: string) => void
 }
 
 export function AppSidebar({
@@ -21,14 +24,17 @@ export function AppSidebar({
   isToggleDisabled,
   onToggle,
   sidebarWidth,
-  toggleTitle
+  toggleTitle,
+  isSearchOpen,
+  onOpenSearch,
+  onCloseSearch,
+  onSearchSelect
 }: AppSidebarProps): React.JSX.Element {
   const connectionStatus = useAppStore((s) => s.connectionStatus)
   const createNewThread = useAppStore((s) => s.createNewThread)
   const setActiveThread = useAppStore((s) => s.setActiveThread)
   const setThreadListMode = useAppStore((s) => s.setThreadListMode)
   const threadListMode = useAppStore((s) => s.threadListMode)
-  const [searchOpen, setSearchOpen] = useState(false)
 
   return (
     <div
@@ -63,11 +69,11 @@ export function AppSidebar({
           </Tooltip>
           <Tooltip content="Search chats" placement="bottom">
             <button
-              onClick={() => setSearchOpen(true)}
+              onClick={onOpenSearch}
               className="p-1.5 rounded-md transition-opacity"
               style={{
                 color: theme.icon.default,
-                opacity: searchOpen ? 0.9 : 0.5
+                opacity: isSearchOpen ? 0.9 : 0.5
               }}
               aria-label="Search chats"
             >
@@ -87,14 +93,16 @@ export function AppSidebar({
         </div>
       </div>
 
-      {searchOpen ? (
+      {isSearchOpen ? (
         <SidebarSearch
-          onClose={() => setSearchOpen(false)}
-          onSelectThread={(threadId) => {
+          onClose={onCloseSearch}
+          onSelectThread={(threadId, query) => {
             setActiveThread(threadId)
+            onSearchSelect(query)
           }}
-          onSelectMessage={(threadId, messageId) => {
+          onSelectMessage={(threadId, messageId, query) => {
             setActiveThread(threadId, messageId)
+            onSearchSelect(query)
           }}
         />
       ) : (

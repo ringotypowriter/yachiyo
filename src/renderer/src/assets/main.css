@@ -512,3 +512,14 @@ body {
   vertical-align: middle;
   margin-left: 1px;
 }
+
+/* Thread find bar — inline text highlights (CSS Custom Highlight API) */
+::highlight(yachiyo-find) {
+  background-color: rgb(var(--yachiyo-rgb-accent) / 0.22);
+  color: inherit;
+}
+
+::highlight(yachiyo-find-current) {
+  background-color: rgb(var(--yachiyo-rgb-accent) / 0.55);
+  color: inherit;
+}

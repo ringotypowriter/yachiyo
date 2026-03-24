@@ -1,5 +1,5 @@
 import type React from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search, X } from 'lucide-react'
 import type { ThreadSearchResult } from '../../../../shared/yachiyo/protocol'
 import { theme } from '@renderer/theme/theme'
@@ -69,10 +69,14 @@ function HighlightedText({ text, query }: { text: string; query: string }): Reac
   )
 }
 
+type SelectableItem =
+  | { kind: 'thread'; threadId: string }
+  | { kind: 'message'; threadId: string; messageId: string }
+
 interface SidebarSearchProps {
   onClose: () => void
-  onSelectThread: (threadId: string) => void
-  onSelectMessage: (threadId: string, messageId: string) => void
+  onSelectThread: (threadId: string, query: string) => void
+  onSelectMessage: (threadId: string, messageId: string, query: string) => void
 }
 
 export function SidebarSearch({
@@ -83,7 +87,34 @@ export function SidebarSearch({
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ThreadSearchResult[]>([])
   const [loading, setLoading] = useState(false)
+  const [focusedIndex, setFocusedIndex] = useState(-1)
   const inputRef = useRef<HTMLInputElement>(null)
+  const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
+
+  const flatItems = useMemo<SelectableItem[]>(() => {
+    const items: SelectableItem[] = []
+    for (const result of results) {
+      if (result.titleMatched && result.messageMatches.length === 0) {
+        items.push({ kind: 'thread', threadId: result.threadId })
+      }
+      for (const m of result.messageMatches) {
+        items.push({ kind: 'message', threadId: result.threadId, messageId: m.messageId })
+      }
+    }
+    return items
+  }, [results])
+
+  // Reset focus when results change
+  useEffect(() => {
+    setFocusedIndex(-1)
+    itemRefs.current.clear()
+  }, [results])
+
+  // Scroll focused item into view
+  useEffect(() => {
+    if (focusedIndex < 0) return
+    itemRefs.current.get(focusedIndex)?.scrollIntoView({ block: 'nearest' })
+  }, [focusedIndex])
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -120,13 +151,32 @@ export function SidebarSearch({
     return () => clearTimeout(timeout)
   }, [query])
 
-  const handleSelect = (threadId: string): void => {
-    onSelectThread(threadId)
+  function selectItem(item: SelectableItem): void {
+    if (item.kind === 'thread') {
+      onSelectThread(item.threadId, query.trim())
+    } else {
+      onSelectMessage(item.threadId, item.messageId, query.trim())
+    }
   }
 
-  const handleSelectMessage = (threadId: string, messageId: string): void => {
-    onSelectMessage(threadId, messageId)
+  function handleInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
+    if (flatItems.length === 0) return
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setFocusedIndex((i) => (i + 1) % flatItems.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setFocusedIndex((i) => (i <= 0 ? flatItems.length - 1 : i - 1))
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      const item = flatItems[focusedIndex >= 0 ? focusedIndex : 0]
+      if (item) selectItem(item)
+    }
   }
+
+  // Build a flat index counter per result for mapping to focusedIndex
+  let itemIdx = 0
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -142,6 +192,7 @@ export function SidebarSearch({
           ref={inputRef}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleInputKeyDown}
           placeholder="Search chats…"
           className="flex-1 bg-transparent text-sm outline-none min-w-0"
           style={{
@@ -174,57 +225,86 @@ export function SidebarSearch({
         )}
 
         {!loading &&
-          results.map((result) => (
-            <div key={result.threadId} className="py-1 px-1">
-              {result.titleMatched && result.messageMatches.length === 0 ? (
-                <button
-                  onClick={() => handleSelect(result.threadId)}
-                  className="w-full text-left px-2 py-1 rounded-md no-drag"
-                  style={{ background: 'transparent' }}
-                  onMouseEnter={(e) => {
-                    ;(e.currentTarget as HTMLElement).style.background = theme.background.hover
-                  }}
-                  onMouseLeave={(e) => {
-                    ;(e.currentTarget as HTMLElement).style.background = 'transparent'
-                  }}
-                >
-                  <span
-                    className="block text-xs font-semibold truncate"
-                    style={{ color: theme.text.tertiary }}
+          results.map((result) => {
+            const threadItemIdx =
+              result.titleMatched && result.messageMatches.length === 0 ? itemIdx++ : -1
+
+            return (
+              <div key={result.threadId} className="py-1 px-1">
+                {result.titleMatched && result.messageMatches.length === 0 ? (
+                  <button
+                    ref={(el) => {
+                      if (el) itemRefs.current.set(threadItemIdx, el)
+                    }}
+                    onClick={() => onSelectThread(result.threadId, query.trim())}
+                    className="w-full text-left px-2 py-1 rounded-md no-drag"
+                    style={{
+                      background:
+                        focusedIndex === threadItemIdx
+                          ? theme.background.hoverStrong
+                          : 'transparent'
+                    }}
+                    onMouseEnter={(e) => {
+                      ;(e.currentTarget as HTMLElement).style.background = theme.background.hover
+                    }}
+                    onMouseLeave={(e) => {
+                      ;(e.currentTarget as HTMLElement).style.background =
+                        focusedIndex === threadItemIdx
+                          ? theme.background.hoverStrong
+                          : 'transparent'
+                    }}
                   >
-                    <HighlightedText text={result.threadTitle} query={query.trim()} />
-                  </span>
-                </button>
-              ) : (
-                <div className="px-2 py-1">
-                  <span
-                    className="block text-xs font-semibold truncate"
-                    style={{ color: theme.text.tertiary }}
-                  >
-                    <HighlightedText text={result.threadTitle} query={query.trim()} />
-                  </span>
-                </div>
-              )}
-              {result.messageMatches.map((m) => (
-                <button
-                  key={m.messageId}
-                  onClick={() => handleSelectMessage(result.threadId, m.messageId)}
-                  className="w-full text-left px-2 py-1 rounded-md no-drag"
-                  style={{ background: 'transparent' }}
-                  onMouseEnter={(e) => {
-                    ;(e.currentTarget as HTMLElement).style.background = theme.background.hover
-                  }}
-                  onMouseLeave={(e) => {
-                    ;(e.currentTarget as HTMLElement).style.background = 'transparent'
-                  }}
-                >
-                  <span className="block text-xs truncate" style={{ color: theme.text.secondary }}>
-                    <HighlightedText text={stripMarkdown(m.snippet)} query={query.trim()} />
-                  </span>
-                </button>
-              ))}
-            </div>
-          ))}
+                    <span
+                      className="block text-xs font-semibold truncate"
+                      style={{ color: theme.text.tertiary }}
+                    >
+                      <HighlightedText text={result.threadTitle} query={query.trim()} />
+                    </span>
+                  </button>
+                ) : (
+                  <div className="px-2 py-1">
+                    <span
+                      className="block text-xs font-semibold truncate"
+                      style={{ color: theme.text.tertiary }}
+                    >
+                      <HighlightedText text={result.threadTitle} query={query.trim()} />
+                    </span>
+                  </div>
+                )}
+                {result.messageMatches.map((m) => {
+                  const msgItemIdx = itemIdx++
+                  return (
+                    <button
+                      key={m.messageId}
+                      ref={(el) => {
+                        if (el) itemRefs.current.set(msgItemIdx, el)
+                      }}
+                      onClick={() => onSelectMessage(result.threadId, m.messageId, query.trim())}
+                      className="w-full text-left px-2 py-1 rounded-md no-drag"
+                      style={{
+                        background:
+                          focusedIndex === msgItemIdx ? theme.background.hoverStrong : 'transparent'
+                      }}
+                      onMouseEnter={(e) => {
+                        ;(e.currentTarget as HTMLElement).style.background = theme.background.hover
+                      }}
+                      onMouseLeave={(e) => {
+                        ;(e.currentTarget as HTMLElement).style.background =
+                          focusedIndex === msgItemIdx ? theme.background.hoverStrong : 'transparent'
+                      }}
+                    >
+                      <span
+                        className="block text-xs truncate"
+                        style={{ color: theme.text.secondary }}
+                      >
+                        <HighlightedText text={stripMarkdown(m.snippet)} query={query.trim()} />
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            )
+          })}
       </div>
     </div>
   )
