@@ -1,5 +1,7 @@
 export type ThreadContextOperationKey =
+  | 'enter-select-mode'
   | 'rename'
+  | 'regenerate-title'
   | 'compact-to-another-thread'
   | 'save-thread'
   | 'archive'
@@ -21,8 +23,16 @@ export function resolveThreadContextOperations(input: {
   if (input.isArchived) {
     return [
       {
+        key: 'enter-select-mode',
+        label: 'Select'
+      },
+      {
         key: 'restore',
         label: 'Restore'
+      },
+      {
+        key: 'regenerate-title',
+        label: 'Regenerate Title'
       },
       {
         key: 'delete',
@@ -34,9 +44,17 @@ export function resolveThreadContextOperations(input: {
 
   return [
     {
+      key: 'enter-select-mode',
+      label: 'Select'
+    },
+    {
       disabled: input.isRenameDisabled,
       key: 'rename',
       label: 'Rename'
+    },
+    {
+      key: 'regenerate-title',
+      label: 'Regenerate Title'
     },
     {
       key: 'compact-to-another-thread',

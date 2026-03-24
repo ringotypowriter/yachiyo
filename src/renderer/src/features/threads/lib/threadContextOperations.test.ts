@@ -9,7 +9,15 @@ test('thread context operations only expose Save Thread when memory is enabled',
       isArchived: false,
       isMemoryEnabled: true
     }).map((operation) => operation.key),
-    ['rename', 'compact-to-another-thread', 'save-thread', 'archive', 'delete']
+    [
+      'enter-select-mode',
+      'rename',
+      'regenerate-title',
+      'compact-to-another-thread',
+      'save-thread',
+      'archive',
+      'delete'
+    ]
   )
 
   assert.deepEqual(
@@ -17,7 +25,14 @@ test('thread context operations only expose Save Thread when memory is enabled',
       isArchived: false,
       isMemoryEnabled: false
     }).map((operation) => operation.key),
-    ['rename', 'compact-to-another-thread', 'archive', 'delete']
+    [
+      'enter-select-mode',
+      'rename',
+      'regenerate-title',
+      'compact-to-another-thread',
+      'archive',
+      'delete'
+    ]
   )
 })
 

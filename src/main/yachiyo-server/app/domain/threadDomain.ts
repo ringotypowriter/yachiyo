@@ -23,6 +23,7 @@ import {
   pickReplacementHeadId,
   sortMessagesByCreatedAt
 } from '../../../../shared/yachiyo/threadTree.ts'
+import type { AuxiliaryGenerationService } from '../../runtime/auxiliaryGeneration.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import {
@@ -31,6 +32,7 @@ import {
   type EmitServerEvent,
   type Timestamp
 } from './shared.ts'
+import { buildThreadTitleGenerationMessages, parseGeneratedTitleAndIcon } from './threadTitle.ts'
 
 interface ThreadDomainDeps {
   storage: YachiyoStorage
@@ -44,6 +46,7 @@ interface ThreadDomainDeps {
   loadThreadMessages: (threadId: string) => MessageRecord[]
   requireThread: (threadId: string) => ThreadRecord
   isThreadRunning: (threadId: string) => boolean
+  auxiliaryGeneration: AuxiliaryGenerationService
 }
 
 export interface RetryRequestResolution {
@@ -244,6 +247,55 @@ export class YachiyoServerThreadDomain {
       updatedAt: updatedThread.updatedAt
     })
 
+    this.deps.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: updatedThread.id,
+      thread: updatedThread
+    })
+
+    return updatedThread
+  }
+
+  async regenerateThreadTitle(input: { threadId: string }): Promise<ThreadRecord> {
+    const thread = this.deps.requireThread(input.threadId)
+    const messages = this.deps.loadThreadMessages(input.threadId)
+
+    const query = messages
+      .filter((m) => m.role === 'user')
+      .map((m) => m.content.trim())
+      .filter(Boolean)
+      .join('\n')
+      .slice(0, 1000)
+
+    if (!query) {
+      throw new Error('No user messages found to generate a title from.')
+    }
+
+    const result = await this.deps.auxiliaryGeneration.generateText({
+      messages: buildThreadTitleGenerationMessages(query)
+    })
+
+    if (result.status === 'unavailable') {
+      throw new Error('Title regeneration requires a tool model to be configured in Settings.')
+    }
+
+    if (result.status === 'failed') {
+      throw new Error(`Title generation failed: ${result.error}`)
+    }
+
+    const { icon, title } = parseGeneratedTitleAndIcon(result.text)
+
+    if (!title) {
+      throw new Error('Title generation produced an empty result.')
+    }
+
+    const updatedThread: ThreadRecord = {
+      ...thread,
+      title,
+      ...(icon !== null ? { icon } : {})
+    }
+
+    this.deps.storage.updateThread(updatedThread)
     this.deps.emit<ThreadUpdatedEvent>({
       type: 'thread.updated',
       threadId: updatedThread.id,

@@ -1,4 +1,13 @@
-import { Archive, BookMarked, PenLine, RotateCcw, SendHorizonal, Trash2 } from 'lucide-react'
+import {
+  Archive,
+  BookMarked,
+  ListChecks,
+  PenLine,
+  RotateCcw,
+  SendHorizonal,
+  Sparkles,
+  Trash2
+} from 'lucide-react'
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import type { ThreadContextOperation } from '@renderer/features/threads/lib/threadContextOperations'
@@ -15,6 +24,14 @@ export interface ThreadContextMenuPopupProps {
 }
 
 function resolveOperationIcon(operationKey: ThreadContextOperation['key']): React.JSX.Element {
+  if (operationKey === 'enter-select-mode') {
+    return <ListChecks size={14} strokeWidth={1.7} />
+  }
+
+  if (operationKey === 'regenerate-title') {
+    return <Sparkles size={14} strokeWidth={1.7} />
+  }
+
   if (operationKey === 'rename') {
     return <PenLine size={14} strokeWidth={1.7} />
   }

@@ -347,7 +347,7 @@ test('createAiSdkModelRuntime uses AI SDK streaming with Anthropic thinking enab
     anthropic: {
       thinking: {
         type: 'enabled',
-        budgetTokens: 1024
+        budgetTokens: 8000
       }
     }
   })

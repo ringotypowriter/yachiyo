@@ -100,6 +100,7 @@ interface AppState {
   pendingAssistantMessages: Record<string, PendingAssistantMessage>
   pendingSteerMessages: Record<string, PendingSteerMessage>
   pendingWorkspacePath: string | null
+  regenerateThreadTitle: (threadId: string) => Promise<void>
   renameThread: (threadId: string, title: string) => Promise<void>
   setThreadIcon: (threadId: string, icon: string | null) => Promise<void>
   restoreThread: (threadId: string) => Promise<void>
@@ -1571,6 +1572,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     })()
 
     return bootstrapPromise
+  },
+
+  regenerateThreadTitle: async (threadId) => {
+    await window.api.yachiyo.regenerateThreadTitle({ threadId })
   },
 
   renameThread: async (threadId, title) => {

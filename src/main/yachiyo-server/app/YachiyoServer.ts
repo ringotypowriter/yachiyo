@@ -227,7 +227,8 @@ export class YachiyoServer {
       memoryService,
       requireThread: this.requireThread.bind(this),
       loadThreadMessages: (threadId) => this.storage.listThreadMessages(threadId),
-      isThreadRunning: (threadId) => this.runDomain.hasActiveThread(threadId)
+      isThreadRunning: (threadId) => this.runDomain.hasActiveThread(threadId),
+      auxiliaryGeneration
     })
   }
 
@@ -444,6 +445,10 @@ export class YachiyoServer {
 
   async setThreadIcon(input: { threadId: string; icon: string | null }): Promise<ThreadRecord> {
     return this.threadDomain.setThreadIcon(input)
+  }
+
+  async regenerateThreadTitle(input: { threadId: string }): Promise<ThreadRecord> {
+    return this.threadDomain.regenerateThreadTitle(input)
   }
 
   async setThreadPrivacyMode(input: { threadId: string; enabled: boolean }): Promise<ThreadRecord> {

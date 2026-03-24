@@ -85,6 +85,7 @@ declare global {
           threadId: string
           enabled: boolean
         }) => Promise<ThreadRecord>
+        regenerateThreadTitle: (input: { threadId: string }) => Promise<ThreadRecord>
         subscribe: (listener: (event: YachiyoServerEvent) => void) => () => void
       }
     }
