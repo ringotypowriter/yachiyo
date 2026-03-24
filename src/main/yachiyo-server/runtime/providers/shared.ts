@@ -16,6 +16,7 @@ export type OpenAiChatRuntimeProviderOptions = {
 export type OpenAiResponsesRuntimeProviderOptions = {
   openai: {
     reasoningEffort?: string
+    reasoningSummary?: 'auto' | 'detailed'
     store: false
   }
 }

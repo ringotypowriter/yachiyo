@@ -10,9 +10,10 @@ interface ToolCallRowProps {
   toolCall: ToolCall
 }
 
-function elapsedSeconds(startedAt: string, finishedAt: string): string {
+function elapsedSeconds(startedAt: string, finishedAt: string): string | null {
   const ms = new Date(finishedAt).getTime() - new Date(startedAt).getTime()
-  return `${(ms / 1000).toFixed(1)}s`
+  const s = ms / 1000
+  return s >= 0.1 ? `${s.toFixed(1)}s` : null
 }
 
 export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
@@ -47,9 +48,12 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
           · {toolCall.outputSummary}
         </span>
       )}
-      {!isRunning && toolCall.finishedAt && (
-        <span>· {elapsedSeconds(toolCall.startedAt, toolCall.finishedAt)}</span>
-      )}
+      {!isRunning &&
+        toolCall.finishedAt &&
+        (() => {
+          const t = elapsedSeconds(toolCall.startedAt, toolCall.finishedAt)
+          return t ? <span>· {t}</span> : null
+        })()}
     </>
   )
 

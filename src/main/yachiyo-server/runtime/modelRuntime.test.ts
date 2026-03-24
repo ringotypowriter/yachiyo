@@ -177,7 +177,7 @@ test('createAiSdkModelRuntime uses responses() with reasoning for openai-respons
   }
   assert.equal(streamCall.abortSignal, controller.signal)
   assert.deepEqual(streamCall.providerOptions, {
-    openai: { reasoningEffort: 'medium', store: false }
+    openai: { reasoningEffort: 'medium', reasoningSummary: 'auto', store: false }
   })
 })
 
@@ -242,7 +242,7 @@ test('createAiSdkModelRuntime preserves legacy openai reasoning models', async (
   assert.deepEqual(chunks, ['ok'])
   assert.deepEqual(selectedModel, { provider: 'openai.responses', modelId: 'gpt-5' })
   assert.deepEqual(providerOptions, {
-    openai: { reasoningEffort: 'medium', store: false }
+    openai: { reasoningEffort: 'medium', reasoningSummary: 'auto', store: false }
   })
 })
 
@@ -666,6 +666,51 @@ test('createAiSdkModelRuntime omits OpenAI reasoningEffort for non-reasoning mod
       store: false
     }
   })
+})
+
+test('createAiSdkModelRuntime forwards reasoning deltas from fullStream reasoning events', async () => {
+  const reasoningDeltas: string[] = []
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => ({ modelId: 'gpt-5', provider: 'openai.responses' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: (() => ({
+      fullStream: (async function* () {
+        yield { type: 'reasoning-start', id: 'reasoning-1' }
+        yield { type: 'reasoning-delta', id: 'reasoning-1', delta: 'first ' }
+        yield { type: 'reasoning-delta', id: 'reasoning-1', delta: 'second' }
+        yield { type: 'reasoning-end', id: 'reasoning-1' }
+        yield { type: 'text-delta', id: 'text-1', delta: 'answer' }
+      })()
+    })) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Think carefully.' }],
+    settings: {
+      providerName: 'work',
+      provider: 'openai-responses',
+      model: 'gpt-5',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal,
+    onReasoningDelta: (delta) => {
+      reasoningDeltas.push(delta)
+    }
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(reasoningDeltas, ['first ', 'second'])
+  assert.deepEqual(chunks, ['answer'])
 })
 
 test('createAiSdkModelRuntime disables Anthropic thinking for auxiliary generation', async () => {

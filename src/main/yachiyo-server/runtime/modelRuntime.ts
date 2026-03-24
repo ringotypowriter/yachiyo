@@ -18,6 +18,10 @@ import { createProviderOptions } from './providers/providerOptions.ts'
 
 const DEFAULT_MAX_RETRIES = 3
 
+function readTextDelta(part: { delta?: string; text?: string; textDelta?: string }): string | null {
+  return part.delta ?? part.textDelta ?? part.text ?? null
+}
+
 export async function fetchModels(
   provider: import('../../../shared/yachiyo/protocol').ProviderConfig,
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
@@ -105,13 +109,18 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                 : new Error(String(part.error ?? 'Unknown stream error'))
             }
 
-            if (part.type === 'reasoning' && part.text) {
-              request.onReasoningDelta?.(part.text as string)
+            if (
+              (part.type === 'reasoning' ||
+                part.type === 'reasoning-delta' ||
+                part.type === 'reasoning-part-finish') &&
+              readTextDelta(part)
+            ) {
+              request.onReasoningDelta?.(readTextDelta(part) as string)
               continue
             }
 
-            if (part.type === 'text-delta' && part.text) {
-              yield part.text
+            if (part.type === 'text-delta' && readTextDelta(part)) {
+              yield readTextDelta(part) as string
               continue
             }
 

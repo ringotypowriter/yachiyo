@@ -50,14 +50,13 @@ export function createOpenAiProviderOptions(
   settings: ProviderSettings,
   mode: 'default' | 'auxiliary'
 ): RuntimeProviderOptions {
-  const reasoningEffort =
-    mode === 'default' && supportsOpenAIReasoningEffort(settings.model)
-      ? DEFAULT_OPENAI_REASONING_EFFORT
-      : undefined
+  const enableReasoningPreview = mode === 'default' && supportsOpenAIReasoningEffort(settings.model)
+  const reasoningEffort = enableReasoningPreview ? DEFAULT_OPENAI_REASONING_EFFORT : undefined
 
   return {
     openai: {
       ...(reasoningEffort ? { reasoningEffort } : {}),
+      ...(enableReasoningPreview ? { reasoningSummary: 'auto' as const } : {}),
       store: false
     }
   }
