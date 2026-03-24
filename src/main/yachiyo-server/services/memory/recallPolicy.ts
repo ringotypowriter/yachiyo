@@ -54,13 +54,45 @@ const MAX_NOVEL_TERMS = 6
 const RECENT_CONTEXT_MESSAGE_LIMIT = 6
 const NOVELTY_SCORE_THRESHOLD = 0.75
 const NOVELTY_TERM_THRESHOLD = 3
-const WORD_SEGMENTER = new Intl.Segmenter('zh-Hans', { granularity: 'word' })
-const CLAUSE_SPLIT_PATTERN = /[\n\r,，.。!！?？:：;；、()（）【】[\]{}"'`]+/u
+const MAX_MARKED_TERM_LENGTH = 64
+const MIN_UNMARKED_CJK_TERM_LENGTH = 3
+const MAX_UNMARKED_CJK_TERM_LENGTH = 8
+const MARKER_TERM_SCORE = 1
+const MARKER_CJK_TERM_SCORE = 0.58
+const SYNTAX_TERM_SCORE = 0.88
+const CODE_SWITCH_TERM_SCORE = 0.74
+const PURE_CJK_TERM_SCORE_CAP = 0.18
+const MIN_EXTRACTABLE_TERM_SCORE = 0.2
+const CJK_PATTERN = /[\u3400-\u9fff]/u
+const ALLOWED_TERM_CHARS_PATTERN = /[^\p{Letter}\p{Number}\u3400-\u9fff._/-]+/gu
+const STRUCTURAL_SPLIT_PATTERN = /[\s\n\r,，.。!！?？:：;；、()（）【】[\]{}"'“”‘’`*]+/u
 
-interface TopicToken {
-  value: string
-  hasLatinOrDigit: boolean
+interface NovelTermCandidate {
+  normalized: string
+  order: number
+  score: number
 }
+
+const EMPHASIZED_TERM_PATTERNS = [
+  /`([^`\n]{2,64})`/gu,
+  /\*\*([^*\n]{2,64})\*\*/gu,
+  /(?<!\*)\*([^*\n]{2,64})\*(?!\*)/gu,
+  /"([^"\n]{2,64})"/gu,
+  /“([^”\n]{2,64})”/gu,
+  /\[([^\]\n]{2,64})\]/gu,
+  /【([^】\n]{2,64})】/gu,
+  /「([^」\n]{2,64})」/gu
+] as const
+
+const SYNTAX_TERM_PATTERNS = [
+  /\b[a-z]+(?:[A-Z][a-z0-9]+)+\b/gu,
+  /\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+\b/gu,
+  /\b[a-z0-9]+(?:_[a-z0-9]+)+\b/giu,
+  /\b[a-z0-9]+(?:-[a-z0-9]+)+\b/giu,
+  /\b(?:[A-Za-z]+[-_.]?\d[\w.-]*|[A-Za-z]*\d+[A-Za-z][\w.-]*)\b/gu
+] as const
+
+const LATIN_TERM_PATTERN = /\b[A-Za-z][A-Za-z0-9]{1,}\b/gu
 
 function normalizeText(value: string): string {
   return value.normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim()
@@ -77,135 +109,170 @@ export function buildRecallThreadMetrics(history: MessageRecord[]): RecallThread
   }
 }
 
-function isWordLikeToken(value: string): boolean {
-  return /[\p{Letter}\p{Number}\u3400-\u9fff]/u.test(value)
+function normalizeNovelTerm(value: string): string {
+  return normalizeText(value).replace(ALLOWED_TERM_CHARS_PATTERN, ' ').replace(/\s+/gu, ' ').trim()
 }
 
-function normalizeToken(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/^[^\p{Letter}\p{Number}\u3400-\u9fff]+|[^\p{Letter}\p{Number}\u3400-\u9fff]+$/gu, '')
+function isPureCjkTerm(value: string): boolean {
+  return /^[\u3400-\u9fff]+$/u.test(value)
 }
 
-function extractTopicTokens(value: string): TopicToken[] {
-  const tokens: TopicToken[] = []
+function isSyntaxTerm(value: string): boolean {
+  return SYNTAX_TERM_PATTERNS.some((pattern) => {
+    pattern.lastIndex = 0
+    return pattern.test(value)
+  })
+}
 
-  for (const { segment, isWordLike } of WORD_SEGMENTER.segment(value)) {
-    if (!isWordLike && !isWordLikeToken(segment)) {
-      continue
-    }
+function isLatinCodeSwitchTerm(value: string): boolean {
+  return /^[a-z0-9]+$/u.test(value) && value.length >= 3
+}
 
-    const normalized = normalizeToken(segment)
-    if (normalized.length < 2) {
-      continue
-    }
+function addNovelTermCandidate(
+  candidates: Map<string, NovelTermCandidate>,
+  rawValue: string,
+  score: number,
+  orderRef: { value: number }
+): void {
+  const normalized = normalizeNovelTerm(rawValue)
+  if (!normalized || normalized.length > MAX_MARKED_TERM_LENGTH) {
+    return
+  }
 
-    tokens.push({
-      value: normalized,
-      hasLatinOrDigit: /[a-z0-9]/u.test(normalized)
+  const existing = candidates.get(normalized)
+  if (!existing) {
+    candidates.set(normalized, {
+      normalized,
+      order: orderRef.value,
+      score
     })
+    orderRef.value += 1
+    return
   }
 
-  return tokens
-}
-
-function splitClauses(value: string): string[] {
-  return value
-    .split(CLAUSE_SPLIT_PATTERN)
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0)
-}
-
-function clauseHasSignal(tokens: TopicToken[]): boolean {
-  if (tokens.length === 0) {
-    return false
+  if (score > existing.score) {
+    existing.score = score
   }
-
-  if (tokens.some((token) => token.hasLatinOrDigit)) {
-    return true
-  }
-
-  const maxTokenLength = Math.max(...tokens.map((token) => token.value.length))
-  const totalLength = tokens.reduce((sum, token) => sum + token.value.length, 0)
-
-  return maxTokenLength >= 4 || totalLength >= 8 || tokens.length >= 4
 }
 
-function joinPhraseTokens(tokens: TopicToken[]): string {
-  return tokens.every((token) => !token.hasLatinOrDigit)
-    ? tokens.map((token) => token.value).join('')
-    : tokens.map((token) => token.value).join(' ')
-}
-
-function buildTopicCandidates(value: string): string[] {
-  const candidates: string[] = []
-
-  for (const clause of splitClauses(value)) {
-    const tokens = extractTopicTokens(clause)
-    if (!clauseHasSignal(tokens)) {
-      continue
-    }
-
-    for (let index = 0; index < tokens.length; index += 1) {
-      const single = tokens[index]
-      if (!single) {
+function extractMarkedTermCandidates(
+  value: string,
+  candidates: Map<string, NovelTermCandidate>,
+  orderRef: { value: number }
+): void {
+  for (const pattern of EMPHASIZED_TERM_PATTERNS) {
+    for (const match of value.matchAll(pattern)) {
+      const raw = match[1]?.trim()
+      if (!raw) {
         continue
       }
 
-      if (single.hasLatinOrDigit || single.value.length >= 4) {
-        candidates.push(single.value)
+      const normalized = normalizeNovelTerm(raw)
+      if (!normalized) {
+        continue
       }
 
-      for (let span = 2; span <= 3; span += 1) {
-        const slice = tokens.slice(index, index + span)
-        if (slice.length < span) {
-          continue
-        }
-
-        const totalLength = slice.reduce((sum, token) => sum + token.value.length, 0)
-        const longestTokenLength = Math.max(...slice.map((token) => token.value.length))
-        if (
-          totalLength < 5 ||
-          (longestTokenLength < 3 && !slice.some((token) => token.hasLatinOrDigit))
-        ) {
-          continue
-        }
-
-        candidates.push(joinPhraseTokens(slice))
-      }
+      addNovelTermCandidate(
+        candidates,
+        normalized,
+        isPureCjkTerm(normalized) ? MARKER_CJK_TERM_SCORE : MARKER_TERM_SCORE,
+        orderRef
+      )
     }
   }
-
-  return candidates
 }
 
-function uniqueTerms(value: string): string[] {
-  const seen = new Set<string>()
-  const terms: string[] = []
+function extractSyntaxTermCandidates(
+  value: string,
+  candidates: Map<string, NovelTermCandidate>,
+  orderRef: { value: number }
+): void {
+  for (const pattern of SYNTAX_TERM_PATTERNS) {
+    for (const match of value.matchAll(pattern)) {
+      const raw = match[0]?.trim()
+      if (!raw) {
+        continue
+      }
 
-  for (const term of buildTopicCandidates(value)) {
-    if (seen.has(term)) {
+      addNovelTermCandidate(candidates, raw, SYNTAX_TERM_SCORE, orderRef)
+    }
+  }
+}
+
+function extractLatinCodeSwitchCandidates(
+  value: string,
+  candidates: Map<string, NovelTermCandidate>,
+  orderRef: { value: number }
+): void {
+  if (!CJK_PATTERN.test(value)) {
+    return
+  }
+
+  for (const match of value.matchAll(LATIN_TERM_PATTERN)) {
+    const raw = match[0]?.trim()
+    if (!raw || isSyntaxTerm(raw)) {
       continue
     }
 
-    seen.add(term)
-    terms.push(term)
+    const normalized = normalizeNovelTerm(raw)
+    if (!isLatinCodeSwitchTerm(normalized)) {
+      continue
+    }
+
+    addNovelTermCandidate(candidates, normalized, CODE_SWITCH_TERM_SCORE, orderRef)
+  }
+}
+
+function extractPureCjkCandidates(
+  value: string,
+  candidates: Map<string, NovelTermCandidate>,
+  orderRef: { value: number }
+): void {
+  for (const fragment of value.split(STRUCTURAL_SPLIT_PATTERN)) {
+    const normalized = normalizeNovelTerm(fragment)
+    if (
+      !normalized ||
+      !isPureCjkTerm(normalized) ||
+      normalized.length < MIN_UNMARKED_CJK_TERM_LENGTH ||
+      normalized.length > MAX_UNMARKED_CJK_TERM_LENGTH
+    ) {
+      continue
+    }
+
+    addNovelTermCandidate(candidates, normalized, PURE_CJK_TERM_SCORE_CAP, orderRef)
+  }
+}
+
+function extractNovelTermCandidates(value: string): NovelTermCandidate[] {
+  const normalizedValue = normalizeText(value)
+  if (!normalizedValue) {
+    return []
   }
 
-  return terms
+  const candidates = new Map<string, NovelTermCandidate>()
+  const orderRef = { value: 0 }
+
+  extractMarkedTermCandidates(normalizedValue, candidates, orderRef)
+  extractSyntaxTermCandidates(normalizedValue, candidates, orderRef)
+  extractLatinCodeSwitchCandidates(normalizedValue, candidates, orderRef)
+  extractPureCjkCandidates(normalizedValue, candidates, orderRef)
+
+  return [...candidates.values()]
+    .filter((candidate) => candidate.score >= MIN_EXTRACTABLE_TERM_SCORE)
+    .sort((left, right) => right.score - left.score || left.order - right.order)
 }
 
-function scoreTerm(term: string): number {
-  const latinBoost = /[a-z0-9]/u.test(term) ? 2 : 0
-  const phraseBoost = /\s/u.test(term) || term.length >= 5 ? 1.5 : 0
-  return term.length + latinBoost + phraseBoost
-}
-
-function filterOverlappingTerms(terms: string[]): string[] {
-  const kept: string[] = []
+function filterOverlappingTerms(terms: NovelTermCandidate[]): NovelTermCandidate[] {
+  const kept: NovelTermCandidate[] = []
 
   for (const term of terms) {
-    if (kept.some((existing) => existing.includes(term) || term.includes(existing))) {
+    if (
+      kept.some(
+        (existing) =>
+          existing.normalized.includes(term.normalized) ||
+          term.normalized.includes(existing.normalized)
+      )
+    ) {
       continue
     }
 
@@ -219,8 +286,7 @@ export function detectNoveltySignal(input: {
   history: MessageRecord[]
   userQuery: string
 }): RecallNoveltySignal {
-  const normalizedQuery = normalizeText(input.userQuery)
-  if (!normalizedQuery) {
+  if (!normalizeText(input.userQuery)) {
     return { noveltyScore: 0, novelTerms: [] }
   }
 
@@ -229,23 +295,26 @@ export function detectNoveltySignal(input: {
     .slice(-RECENT_CONTEXT_MESSAGE_LIMIT)
     .map((message) => message.content)
     .join('\n')
-  const contextTerms = new Set(uniqueTerms(normalizeText(contextWindow)))
-  const queryTerms = uniqueTerms(normalizedQuery)
+  const contextTerms = new Set(
+    extractNovelTermCandidates(contextWindow).map((candidate) => candidate.normalized)
+  )
+  const queryTerms = extractNovelTermCandidates(input.userQuery)
 
   if (queryTerms.length === 0) {
     return { noveltyScore: 0, novelTerms: [] }
   }
 
   const novelTerms = filterOverlappingTerms(
-    queryTerms
-      .filter((term) => !contextTerms.has(term))
-      .sort((left, right) => scoreTerm(right) - scoreTerm(left))
+    queryTerms.filter((term) => !contextTerms.has(term.normalized))
   ).slice(0, MAX_NOVEL_TERMS)
-  const noveltyScore = Math.min(1, novelTerms.length / Math.max(2, Math.min(queryTerms.length, 6)))
+  const noveltyScore =
+    novelTerms
+      .slice(0, NOVELTY_TERM_THRESHOLD)
+      .reduce((total, candidate) => total + candidate.score, 0) / NOVELTY_TERM_THRESHOLD
 
   return {
-    noveltyScore,
-    novelTerms
+    noveltyScore: Number(Math.min(1, noveltyScore).toFixed(3)),
+    novelTerms: novelTerms.map((candidate) => candidate.normalized)
   }
 }
 

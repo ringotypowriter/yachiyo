@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { findRunMemorySummary } from './runMemoryPresentation.ts'
+import { compactNovelTermsForDisplay, findRunMemorySummary } from './runMemoryPresentation.ts'
 
 test('findRunMemorySummary returns the latest recalled memory for a request', () => {
   const summary = findRunMemorySummary(
@@ -68,4 +68,29 @@ test('findRunMemorySummary returns null when the matched run recalled nothing us
   )
 
   assert.equal(summary, null)
+})
+
+test('compactNovelTermsForDisplay hides low-signal mixed-language fragments', () => {
+  const terms = compactNovelTermsForDisplay([
+    'my',
+    'alpha beta gamma',
+    'cache 模型',
+    'vector index',
+    'tool timeout',
+    'agent scheduling'
+  ])
+
+  assert.deepEqual(terms, ['vector index', 'tool timeout', 'agent scheduling'])
+})
+
+test('compactNovelTermsForDisplay keeps strong single technical terms and removes duplicates', () => {
+  const terms = compactNovelTermsForDisplay([
+    ' deploy ',
+    'deploy',
+    'system prompt',
+    'deploy workflow',
+    'your'
+  ])
+
+  assert.deepEqual(terms, ['deploy', 'system prompt', 'deploy workflow'])
 })

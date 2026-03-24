@@ -78,10 +78,17 @@ export function ThinkingBlock({
             className="px-3 pb-3 overflow-y-auto message-selectable"
             style={{ maxHeight: '240px' }}
           >
-            <div className="streamdown-content message-selectable" style={{ color: theme.text.tertiary }}>
+            <div
+              className="streamdown-content message-selectable"
+              style={{ color: theme.text.tertiary }}
+            >
               <Streamdown
                 isAnimating={isActive}
-                animated={isActive ? { sep: 'char', animation: 'slideUp', duration: 120, easing: 'ease-out' } : false}
+                animated={
+                  isActive
+                    ? { sep: 'char', animation: 'slideUp', duration: 120, easing: 'ease-out' }
+                    : false
+                }
                 caret={isActive ? 'circle' : undefined}
                 mode={isActive ? 'streaming' : 'static'}
                 controls={true}

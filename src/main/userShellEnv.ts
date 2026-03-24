@@ -49,7 +49,7 @@ export function readLoginShellEnvSync(
   shellPath = baseEnv.SHELL?.trim() || DEFAULT_LOGIN_SHELL
 ): NodeJS.ProcessEnv {
   try {
-    const output = execFileSync(shellPath, ['-l', '-c', 'printenv -0'], {
+    const output = execFileSync(shellPath, ['-l', '-c', 'env -0'], {
       env: { ...baseEnv },
       encoding: 'utf8',
       maxBuffer: 1024 * 1024 * 4,

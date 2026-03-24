@@ -253,13 +253,13 @@ test('shouldRecallBeforeRun triggers after a long idle gap in the same thread', 
   assert.equal(decision.reasons.includes('idle-gap'), true)
 })
 
-test('detectNoveltySignal is Chinese-aware and keeps mixed English technical terms', () => {
+test('detectNoveltySignal boosts emphasized and syntax-heavy terms', () => {
   const novelty = detectNoveltySignal({
     history: [
       createMessage({
         id: 'm1',
         createdAt: '2026-03-23T00:00:00.000Z',
-        content: '我们刚刚在聊 Drizzle migration 和 sqlite schema'
+        content: '我们刚刚在聊数据库迁移'
       }),
       createMessage({
         id: 'm2',
@@ -270,30 +270,25 @@ test('detectNoveltySignal is Chinese-aware and keeps mixed English technical ter
       createMessage({
         id: 'm3',
         createdAt: '2026-03-23T00:02:00.000Z',
-        content: '另外，帮我看一下 MCP 工具的超时和 agent 调度问题'
+        content: '另外，帮我看一下 `toolTimeout`、"Sonnet-4.6" 和 [agent] 这几个点'
       })
     ],
-    userQuery: '另外，帮我看一下 MCP 工具的超时和 agent 调度问题'
+    userQuery: '另外，帮我看一下 `toolTimeout`、"Sonnet-4.6" 和 [agent] 这几个点'
   })
 
-  assert.equal(novelty.noveltyScore > 0.62, true)
-  assert.equal(
-    novelty.novelTerms.some((term) => term.includes('mcp')),
-    true
-  )
-  assert.equal(
-    novelty.novelTerms.some((term) => term.includes('调度')),
-    true
-  )
+  assert.equal(novelty.noveltyScore >= 0.75, true)
+  assert.equal(novelty.novelTerms.includes('tooltimeout'), true)
+  assert.equal(novelty.novelTerms.includes('sonnet-4.6'), true)
+  assert.equal(novelty.novelTerms.includes('agent'), true)
 })
 
-test('shouldRecallBeforeRun skips topic novelty when the score stays below the stricter threshold', () => {
+test('shouldRecallBeforeRun skips topic novelty when only two strong code-switch terms appear', () => {
   const decision = shouldRecallBeforeRun({
     history: [
       createMessage({
         id: 'm1',
         createdAt: '2026-03-23T00:00:00.000Z',
-        content: '我们刚刚在聊 Drizzle migration 和 sqlite schema'
+        content: '我们刚刚在聊数据库迁移'
       }),
       createMessage({
         id: 'm2',
@@ -304,7 +299,7 @@ test('shouldRecallBeforeRun skips topic novelty when the score stays below the s
       createMessage({
         id: 'm3',
         createdAt: '2026-03-23T00:02:00.000Z',
-        content: '另外，帮我看一下 MCP 工具的超时和 agent 调度问题'
+        content: '另外，帮我看 MCP 和 agent 的行为'
       })
     ],
     now: '2026-03-23T00:02:00.000Z',
@@ -316,11 +311,11 @@ test('shouldRecallBeforeRun skips topic novelty when the score stays below the s
         lastRecallCharCount: 48
       }
     }),
-    userQuery: '另外，帮我看一下 MCP 工具的超时和 agent 调度问题'
+    userQuery: '另外，帮我看 MCP 和 agent 的行为'
   })
 
   assert.equal(decision.noveltyScore < 0.75, true)
-  assert.equal(decision.novelTerms.length >= 3, true)
+  assert.equal(decision.novelTerms.length, 2)
   assert.equal(decision.shouldRecall, false)
   assert.equal(decision.reasons.includes('topic-novelty'), false)
 })
@@ -365,18 +360,19 @@ test('shouldRecallBeforeRun requires three strong novel terms before topic novel
   assert.equal(decision.reasons.includes('topic-novelty'), true)
 })
 
-test('detectNoveltySignal filters low-signal Chinese filler fragments from debug terms', () => {
+test('detectNoveltySignal suppresses unmarked pure Chinese filler', () => {
   const novelty = detectNoveltySignal({
     history: [
       createMessage({
         id: 'm1',
         createdAt: '2026-03-23T00:00:00.000Z',
-        content: '用户刚才在问系统提示词和 general 规则'
+        content: '用户刚才在问系统提示词'
       })
     ],
-    userQuery: '感觉这不是重点'
+    userQuery: '我觉得这个修改方案可能还要再看一下'
   })
 
+  assert.equal(novelty.noveltyScore < 0.3, true)
   assert.deepEqual(novelty.novelTerms, [])
 })
 

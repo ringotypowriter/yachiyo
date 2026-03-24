@@ -3,35 +3,11 @@ import { useId, useState } from 'react'
 import { Brain, ChevronRight } from 'lucide-react'
 import type { RecallDecisionSnapshot } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
+import { compactNovelTermsForDisplay } from '../lib/runMemoryPresentation.ts'
 
 interface RunMemoryRecallRowProps {
   entries: string[]
   recallDecision?: RecallDecisionSnapshot
-}
-
-function compactNovelTerms(terms: string[] | undefined): string[] {
-  if (!terms || terms.length === 0) {
-    return []
-  }
-
-  const seen = new Set<string>()
-  const compacted: string[] = []
-
-  for (const term of terms) {
-    const normalized = term.trim()
-    if (!normalized || seen.has(normalized)) {
-      continue
-    }
-
-    seen.add(normalized)
-    compacted.push(normalized.length > 24 ? `${normalized.slice(0, 24).trimEnd()}...` : normalized)
-
-    if (compacted.length >= 3) {
-      break
-    }
-  }
-
-  return compacted
 }
 
 function formatReason(reason: string): string {
@@ -62,7 +38,9 @@ export function RunMemoryRecallRow({
   const reasons = recallDecision?.reasons?.map(formatReason) ?? []
   const debugLabel = reasons.length > 0 ? reasons.join(', ') : 'manual/unknown'
   const shouldShowNovelTerms = recallDecision?.reasons?.includes('topic-novelty') ?? false
-  const novelTerms = shouldShowNovelTerms ? compactNovelTerms(recallDecision?.novelTerms) : []
+  const novelTerms = shouldShowNovelTerms
+    ? compactNovelTermsForDisplay(recallDecision?.novelTerms)
+    : []
 
   return (
     <div className="px-6 pb-1">
