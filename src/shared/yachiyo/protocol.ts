@@ -315,6 +315,7 @@ export interface ThreadRecord {
   queuedFollowUpEnabledSkillNames?: string[]
   branchFromThreadId?: string
   branchFromMessageId?: string
+  privacyMode?: boolean
 }
 
 export interface MessageRecord {

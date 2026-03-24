@@ -156,8 +156,7 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
                     border: `1px solid ${
                       block.tone === 'danger' ? theme.border.danger : theme.border.default
                     }`,
-                    color:
-                      block.tone === 'danger' ? theme.text.dangerStrong : theme.text.secondary,
+                    color: block.tone === 'danger' ? theme.text.dangerStrong : theme.text.secondary,
                     fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
                     fontSize: '10.5px',
                     lineHeight: 1.5,

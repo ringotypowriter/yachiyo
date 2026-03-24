@@ -50,9 +50,10 @@ export function AppMainPanel({
   const activeArchivedThread =
     archivedThreads.find((thread) => thread.id === activeArchivedThreadId) ?? null
   const saveThread = useAppStore((s) => s.saveThread)
+  const setThreadPrivacyMode = useAppStore((s) => s.setThreadPrivacyMode)
   const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null)
   const [isInspectionPanelOpen, setIsInspectionPanelOpen] = useState(false)
-  const memoryEnabled = isMemoryConfigured(config)
+  const memoryEnabled = isMemoryConfigured(config) && !activeThread?.privacyMode
 
   async function handleRenameThread(thread: Thread): Promise<void> {
     if (renamingThreadId === thread.id) {
@@ -112,6 +113,15 @@ export function AppMainPanel({
       await restoreThread(thread.id)
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'Failed to restore the thread.')
+    }
+  }
+
+  async function handleTogglePrivacyMode(): Promise<void> {
+    if (!activeThread) return
+    try {
+      await setThreadPrivacyMode(activeThread.id, !activeThread.privacyMode)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to toggle privacy mode.')
     }
   }
 
@@ -217,11 +227,14 @@ export function AppMainPanel({
         isBootstrapping={isBootstrapping}
         isInspectionPanelOpen={isInspectionPanelOpen}
         isMemoryEnabled={memoryEnabled}
+        isPrivacyMode={activeThread?.privacyMode ?? false}
+        isPrivacyToggleLocked={messageCount > 0}
         isSidebarToggleDisabled={isSidebarToggleDisabled}
         messageCount={messageCount}
         onOpenThreadWorkspace={handleOpenThreadWorkspace}
         onSelectThreadOperation={handleSelectThreadOperation}
         onToggleInspectionPanel={() => setIsInspectionPanelOpen((v) => !v)}
+        onTogglePrivacyMode={handleTogglePrivacyMode}
         onToggleSidebar={onToggleSidebar}
         showSidebarToggle={showSidebarToggle}
         toggleSidebarTitle={toggleSidebarTitle}

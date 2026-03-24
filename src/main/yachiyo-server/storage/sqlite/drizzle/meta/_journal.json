@@ -78,6 +78,13 @@
       "when": 1774271944433,
       "tag": "0010_faithful_juggernaut",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1774320297379,
+      "tag": "0011_flashy_shinobi_shaw",
+      "breakpoints": true
     }
   ]
 }

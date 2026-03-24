@@ -79,6 +79,10 @@ declare global {
         importWebSearchBrowserSession: (
           input: ImportWebSearchBrowserSessionInput
         ) => Promise<SettingsConfig>
+        setThreadPrivacyMode: (input: {
+          threadId: string
+          enabled: boolean
+        }) => Promise<ThreadRecord>
         subscribe: (listener: (event: YachiyoServerEvent) => void) => () => void
       }
     }

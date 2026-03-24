@@ -1,0 +1,1 @@
+ALTER TABLE `threads` ADD `privacy_mode` text;

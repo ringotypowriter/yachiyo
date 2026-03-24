@@ -55,6 +55,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     storedThread.headMessageId = nextThread.headMessageId ?? null
     storedThread.memoryRecallState = serializeThreadMemoryRecallState(nextThread.memoryRecall)
     storedThread.preview = nextThread.preview ?? null
+    storedThread.privacyMode = nextThread.privacyMode ? '1' : null
     storedThread.queuedFollowUpEnabledTools = nextThread.queuedFollowUpEnabledTools
       ? JSON.stringify(nextThread.queuedFollowUpEnabledTools)
       : null
@@ -166,6 +167,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
           : null,
         queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
         archivedAt: null,
+        privacyMode: thread.privacyMode ? '1' : null,
         headMessageId: thread.headMessageId ?? null,
         updatedAt: thread.updatedAt,
         createdAt
@@ -231,6 +233,16 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
 
       applyThreadSnapshot(storedThread, nextThread)
+    },
+
+    setThreadPrivacyMode({ threadId, privacyMode, updatedAt }) {
+      const storedThread = threads.get(threadId)
+      if (!storedThread || storedThread.archivedAt !== null) {
+        return
+      }
+
+      storedThread.privacyMode = privacyMode ? '1' : null
+      storedThread.updatedAt = updatedAt
     },
 
     saveThreadMessage({ thread, updatedThread, message, replacedMessageId }) {

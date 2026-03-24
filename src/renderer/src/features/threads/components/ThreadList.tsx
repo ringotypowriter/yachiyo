@@ -29,7 +29,7 @@ function ThreadListItem({
   const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null)
   const operations = resolveThreadContextOperations({
     isArchived: threadListMode === 'archived',
-    isMemoryEnabled
+    isMemoryEnabled: isMemoryEnabled && !thread.privacyMode
   })
 
   return (

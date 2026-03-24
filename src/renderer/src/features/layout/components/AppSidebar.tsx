@@ -6,6 +6,7 @@ import { SidebarSearch } from '@renderer/features/search/SidebarSearch'
 import { ThreadList } from '@renderer/features/threads/components/ThreadList'
 import { TRAFFIC_LIGHTS_SAFE_ZONE } from '@renderer/lib/sidebarLayout'
 import { theme } from '@renderer/theme/theme'
+import { Tooltip } from '@renderer/components/Tooltip'
 
 export interface AppSidebarProps {
   isOpen: boolean
@@ -49,36 +50,40 @@ export function AppSidebar({
         }}
       >
         <div className="flex items-center gap-1 no-drag ml-auto">
-          <button
-            disabled={isToggleDisabled}
-            onClick={onToggle}
-            className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity disabled:opacity-30"
-            style={{ color: theme.icon.default }}
-            title={toggleTitle}
-            aria-label={toggleTitle}
-          >
-            <PanelLeft size={16} strokeWidth={1.5} />
-          </button>
-          <button
-            onClick={() => setSearchOpen(true)}
-            className="p-1.5 rounded-md transition-opacity"
-            style={{
-              color: theme.icon.default,
-              opacity: searchOpen ? 0.9 : 0.5
-            }}
-            title="Search chats"
-            aria-label="Search chats"
-          >
-            <Search size={15} strokeWidth={1.5} />
-          </button>
-          <button
-            onClick={createNewThread}
-            className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
-            style={{ color: theme.icon.default }}
-            title="New chat"
-          >
-            <SquarePen size={15} strokeWidth={1.5} />
-          </button>
+          <Tooltip content={toggleTitle} placement="bottom">
+            <button
+              disabled={isToggleDisabled}
+              onClick={onToggle}
+              className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity disabled:opacity-30"
+              style={{ color: theme.icon.default }}
+              aria-label={toggleTitle}
+            >
+              <PanelLeft size={16} strokeWidth={1.5} />
+            </button>
+          </Tooltip>
+          <Tooltip content="Search chats" placement="bottom">
+            <button
+              onClick={() => setSearchOpen(true)}
+              className="p-1.5 rounded-md transition-opacity"
+              style={{
+                color: theme.icon.default,
+                opacity: searchOpen ? 0.9 : 0.5
+              }}
+              aria-label="Search chats"
+            >
+              <Search size={15} strokeWidth={1.5} />
+            </button>
+          </Tooltip>
+          <Tooltip content="New chat" placement="bottom">
+            <button
+              onClick={createNewThread}
+              className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
+              style={{ color: theme.icon.default }}
+              aria-label="New chat"
+            >
+              <SquarePen size={15} strokeWidth={1.5} />
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -99,31 +104,36 @@ export function AppSidebar({
       <div className="shrink-0 px-3 py-3 no-drag">
         <div className="flex items-center">
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => window.api.openSettings()}
-              className="p-1.5 rounded-md opacity-40 hover:opacity-70 transition-opacity"
-              style={{ color: theme.icon.default }}
-              title="Settings"
-              aria-label="Settings"
+            <Tooltip content="Settings">
+              <button
+                onClick={() => window.api.openSettings()}
+                className="p-1.5 rounded-md opacity-40 hover:opacity-70 transition-opacity"
+                style={{ color: theme.icon.default }}
+                aria-label="Settings"
+              >
+                <Settings size={16} strokeWidth={1.5} />
+              </button>
+            </Tooltip>
+            <Tooltip
+              content={threadListMode === 'archived' ? 'Show active chats' : 'Show archived chats'}
             >
-              <Settings size={16} strokeWidth={1.5} />
-            </button>
-            <button
-              onClick={() =>
-                setThreadListMode(threadListMode === 'archived' ? 'active' : 'archived')
-              }
-              className="p-1.5 rounded-md transition-opacity"
-              style={{
-                color: threadListMode === 'archived' ? theme.text.accentStrong : theme.icon.default,
-                opacity: threadListMode === 'archived' ? 0.9 : 0.4
-              }}
-              title={threadListMode === 'archived' ? 'Show active chats' : 'Show archived chats'}
-              aria-label={
-                threadListMode === 'archived' ? 'Show active chats' : 'Show archived chats'
-              }
-            >
-              <Archive size={16} strokeWidth={1.5} />
-            </button>
+              <button
+                onClick={() =>
+                  setThreadListMode(threadListMode === 'archived' ? 'active' : 'archived')
+                }
+                className="p-1.5 rounded-md transition-opacity"
+                style={{
+                  color:
+                    threadListMode === 'archived' ? theme.text.accentStrong : theme.icon.default,
+                  opacity: threadListMode === 'archived' ? 0.9 : 0.4
+                }}
+                aria-label={
+                  threadListMode === 'archived' ? 'Show active chats' : 'Show archived chats'
+                }
+              >
+                <Archive size={16} strokeWidth={1.5} />
+              </button>
+            </Tooltip>
           </div>
           <div className="flex-1" />
           <ConnectionStatusIndicator connectionStatus={connectionStatus} />

@@ -741,6 +741,9 @@ export class YachiyoServerRunDomain {
             createModelRuntime: this.deps.createModelRuntime,
             ensureThreadWorkspace: this.deps.ensureThreadWorkspace,
             buildMemoryLayerEntries: async (context) => {
+              if (context.thread.privacyMode) {
+                return { entries: [], recallDecision: undefined }
+              }
               const branchHistory = collectMessagePath(
                 this.deps.loadThreadMessages(context.thread.id),
                 context.requestMessageId
@@ -1011,6 +1014,10 @@ export class YachiyoServerRunDomain {
     userQuery: string
   }): void {
     if (!this.deps.memoryService.isConfigured()) {
+      return
+    }
+
+    if (input.thread.privacyMode) {
       return
     }
 

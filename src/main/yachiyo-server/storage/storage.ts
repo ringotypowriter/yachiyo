@@ -26,6 +26,7 @@ export interface StoredThreadRow {
   queuedFollowUpEnabledTools: string | null
   queuedFollowUpEnabledSkillNames: string | null
   archivedAt: string | null
+  privacyMode: string | null
   updatedAt: string
   createdAt: string
   headMessageId: string | null
@@ -127,6 +128,7 @@ export interface YachiyoStorage {
   restoreThread(input: { threadId: string; updatedAt: string }): void
   deleteThread(input: { threadId: string }): void
   updateThread(thread: ThreadRecord): void
+  setThreadPrivacyMode(input: { threadId: string; privacyMode: boolean; updatedAt: string }): void
   saveThreadMessage(input: SaveThreadMessageInput): void
   startRun(input: StartRunInput): void
   completeRun(input: CompleteRunInput): void
@@ -151,6 +153,7 @@ export function toThreadRecord(
     | 'id'
     | 'memoryRecallState'
     | 'preview'
+    | 'privacyMode'
     | 'queuedFollowUpEnabledTools'
     | 'queuedFollowUpEnabledSkillNames'
     | 'queuedFollowUpMessageId'
@@ -170,6 +173,7 @@ export function toThreadRecord(
       ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
       ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
       ...(memoryRecall ? { memoryRecall } : {}),
+      ...(row.privacyMode === '1' ? { privacyMode: true } : {}),
       ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
       ...(queuedFollowUpEnabledSkillNames ? { queuedFollowUpEnabledSkillNames } : {}),
       ...(row.queuedFollowUpMessageId === null
@@ -188,6 +192,7 @@ export function toThreadRecord(
     ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
     ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
     ...(memoryRecall ? { memoryRecall } : {}),
+    ...(row.privacyMode === '1' ? { privacyMode: true } : {}),
     ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
     ...(queuedFollowUpEnabledSkillNames ? { queuedFollowUpEnabledSkillNames } : {}),
     ...(row.queuedFollowUpMessageId === null

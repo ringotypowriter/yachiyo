@@ -527,6 +527,36 @@ export class YachiyoServerThreadDomain {
     }
   }
 
+  setThreadPrivacyMode(input: { threadId: string; enabled: boolean }): ThreadRecord {
+    const thread = this.deps.requireThread(input.threadId)
+    if (this.deps.loadThreadMessages(thread.id).length > 0) {
+      throw new Error('Cannot change privacy mode after messages have been sent.')
+    }
+
+    const updatedAt = this.deps.timestamp()
+    this.deps.storage.setThreadPrivacyMode({
+      threadId: thread.id,
+      privacyMode: input.enabled,
+      updatedAt
+    })
+    const updatedThread: ThreadRecord = {
+      ...thread,
+      updatedAt,
+      ...(input.enabled ? { privacyMode: true } : {})
+    }
+    if (!input.enabled) {
+      delete updatedThread.privacyMode
+    }
+
+    this.deps.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: updatedThread.id,
+      thread: updatedThread
+    })
+
+    return updatedThread
+  }
+
   private loadThreadMessages(threadId: string): MessageRecord[] {
     return this.deps.storage.listThreadMessages(threadId)
   }

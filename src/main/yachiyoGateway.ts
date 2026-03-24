@@ -58,7 +58,8 @@ const IPC_CHANNELS = {
   selectReplyBranch: 'yachiyo:select-reply-branch',
   sendChat: 'yachiyo:send-chat',
   updateThreadWorkspace: 'yachiyo:update-thread-workspace',
-  upsertProvider: 'yachiyo:upsert-provider'
+  upsertProvider: 'yachiyo:upsert-provider',
+  setThreadPrivacyMode: 'yachiyo:set-thread-privacy-mode'
 } as const
 
 let server: YachiyoServer | null = null
@@ -211,6 +212,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.listSkills, (input: ListSkillsInput | undefined) => server!.listSkills(input))
   handle(IPC_CHANNELS.importWebSearchBrowserSession, (input: ImportWebSearchBrowserSessionInput) =>
     server!.importWebSearchBrowserSession(input)
+  )
+  handle(IPC_CHANNELS.setThreadPrivacyMode, (input: { threadId: string; enabled: boolean }) =>
+    server!.setThreadPrivacyMode(input)
   )
 
   app.once('before-quit', () => {

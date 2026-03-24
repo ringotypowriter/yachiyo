@@ -21,6 +21,15 @@ test('thread context operations only expose Save Thread when memory is enabled',
   )
 })
 
+test('thread context operations omit Save Thread when the caller disables memory actions', () => {
+  assert.ok(
+    !resolveThreadContextOperations({
+      isArchived: false,
+      isMemoryEnabled: false
+    }).some((operation) => operation.key === 'save-thread')
+  )
+})
+
 test('thread context operations use the short handoff label for compacting into another thread', () => {
   const handoffOperation = resolveThreadContextOperations({
     isArchived: false,

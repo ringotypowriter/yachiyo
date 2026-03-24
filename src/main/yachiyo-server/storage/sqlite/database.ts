@@ -116,6 +116,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           id: threadsTable.id,
           memoryRecallState: threadsTable.memoryRecallState,
           preview: threadsTable.preview,
+          privacyMode: threadsTable.privacyMode,
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
           queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
@@ -261,6 +262,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           id: threadsTable.id,
           memoryRecallState: threadsTable.memoryRecallState,
           preview: threadsTable.preview,
+          privacyMode: threadsTable.privacyMode,
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
           queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
@@ -285,6 +287,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           id: threadsTable.id,
           memoryRecallState: threadsTable.memoryRecallState,
           preview: threadsTable.preview,
+          privacyMode: threadsTable.privacyMode,
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
           queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
@@ -332,6 +335,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             id: thread.id,
             memoryRecallState: serializeThreadMemoryRecallState(thread.memoryRecall),
             preview: thread.preview ?? null,
+            privacyMode: thread.privacyMode ? '1' : null,
             queuedFollowUpEnabledTools: serializeEnabledTools(thread.queuedFollowUpEnabledTools),
             queuedFollowUpEnabledSkillNames: serializeSkillNames(
               thread.queuedFollowUpEnabledSkillNames
@@ -399,6 +403,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           headMessageId: thread.headMessageId ?? null,
           memoryRecallState: serializeThreadMemoryRecallState(thread.memoryRecall),
           preview: thread.preview ?? null,
+          privacyMode: thread.privacyMode ? '1' : null,
           queuedFollowUpEnabledTools: serializeEnabledTools(thread.queuedFollowUpEnabledTools),
           queuedFollowUpEnabledSkillNames: serializeSkillNames(
             thread.queuedFollowUpEnabledSkillNames
@@ -409,6 +414,16 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           workspacePath: thread.workspacePath ?? null
         })
         .where(eq(threadsTable.id, thread.id))
+        .run()
+    },
+
+    setThreadPrivacyMode({ threadId, privacyMode, updatedAt }) {
+      db.update(threadsTable)
+        .set({
+          privacyMode: privacyMode ? '1' : null,
+          updatedAt
+        })
+        .where(eq(threadsTable.id, threadId))
         .run()
     },
 

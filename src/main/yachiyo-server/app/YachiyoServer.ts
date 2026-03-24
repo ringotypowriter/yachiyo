@@ -439,6 +439,10 @@ export class YachiyoServer {
     return this.threadDomain.renameThread(input)
   }
 
+  async setThreadPrivacyMode(input: { threadId: string; enabled: boolean }): Promise<ThreadRecord> {
+    return this.threadDomain.setThreadPrivacyMode(input)
+  }
+
   async archiveThread(input: { threadId: string }): Promise<void> {
     this.threadDomain.archiveThread(input)
   }

@@ -125,6 +125,7 @@ interface AppState {
   setPendingWorkspacePath: (workspacePath: string | null) => void
   setThreadWorkspace: (workspacePath: string | null) => Promise<void>
   setThreadListMode: (mode: 'active' | 'archived') => void
+  setThreadPrivacyMode: (threadId: string, enabled: boolean) => Promise<void>
   toggleEnabledTool: (toolName: ToolCallName) => Promise<void>
   upsertComposerImage: (image: ComposerImageDraft, threadId?: string | null) => void
 }
@@ -1252,6 +1253,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   renameThread: async (threadId, title) => {
     await window.api.yachiyo.renameThread({ threadId, title })
+  },
+
+  setThreadPrivacyMode: async (threadId, enabled) => {
+    const thread = await window.api.yachiyo.setThreadPrivacyMode({ threadId, enabled })
+    set((state) => ({ threads: upsertThread(state.threads, thread) }))
   },
 
   retryMessage: async (messageId) => {

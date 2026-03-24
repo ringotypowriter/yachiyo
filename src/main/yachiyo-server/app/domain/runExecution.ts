@@ -660,7 +660,8 @@ export async function executeServerRun(
           workspacePath,
           enabledTools: modelEnabledTools,
           activeSkills,
-          hasHiddenMemorySearch: deps.memoryService.hasHiddenSearchCapability(),
+          hasHiddenMemorySearch:
+            !input.thread.privacyMode && deps.memoryService.hasHiddenSearchCapability(),
           soulDocumentPath: soulDocument?.filePath,
           userDocumentPath: userDocument?.filePath
         })
@@ -688,7 +689,7 @@ export async function executeServerRun(
         fetchImpl: deps.fetchImpl,
         loadBrowserSnapshot: deps.loadBrowserSnapshot,
         searchService: deps.searchService,
-        memoryService: deps.memoryService,
+        memoryService: input.thread.privacyMode ? undefined : deps.memoryService,
         webSearchService: deps.webSearchService
       }
     )

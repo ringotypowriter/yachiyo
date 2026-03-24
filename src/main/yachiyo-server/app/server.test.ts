@@ -1009,6 +1009,51 @@ test('YachiyoServer saveThread uses the explicit memory service and can archive 
   )
 })
 
+test('YachiyoServer setThreadPrivacyMode updates the thread timestamp and persists the flag', async () => {
+  let tick = 0
+
+  await withServer(
+    async ({ server }) => {
+      const thread = await server.createThread()
+      const bootstrap = await server.bootstrap()
+      const originalThread = bootstrap.threads.find((entry) => entry.id === thread.id)
+
+      assert.ok(originalThread)
+
+      const privateThread = await server.setThreadPrivacyMode({
+        threadId: thread.id,
+        enabled: true
+      })
+
+      assert.equal(privateThread.privacyMode, true)
+      assert.notEqual(privateThread.updatedAt, originalThread.updatedAt)
+
+      let reloaded = await server.bootstrap()
+      const reloadedPrivateThread = reloaded.threads.find((entry) => entry.id === thread.id)
+
+      assert.equal(reloadedPrivateThread?.privacyMode, true)
+      assert.equal(reloadedPrivateThread?.updatedAt, privateThread.updatedAt)
+
+      const publicThread = await server.setThreadPrivacyMode({
+        threadId: thread.id,
+        enabled: false
+      })
+
+      assert.equal(publicThread.privacyMode, undefined)
+      assert.ok(publicThread.updatedAt > privateThread.updatedAt)
+
+      reloaded = await server.bootstrap()
+      const reloadedPublicThread = reloaded.threads.find((entry) => entry.id === thread.id)
+
+      assert.equal(reloadedPublicThread?.privacyMode, undefined)
+      assert.equal(reloadedPublicThread?.updatedAt, publicThread.updatedAt)
+    },
+    {
+      now: () => new Date(Date.UTC(2026, 2, 15, 0, 0, tick++))
+    }
+  )
+})
+
 test('YachiyoServer tests memory connectivity against the provided draft config', async () => {
   let receivedConfig: unknown = null
 
