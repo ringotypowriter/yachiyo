@@ -369,6 +369,24 @@ function buildAgentInstructions(input: {
     )
   }
 
+  // Tool Execution Discipline
+  instructions.push(
+    'Before modifying any file, use read or grep to verify the exact content and context; never assume or guess file contents.',
+    'Prefer native search tools (grep, glob) over complex bash pipelines for file and content discovery; this avoids shell-escaping errors and produces more reliable results.',
+    'After any write or edit operation, verify the result by reading the affected location before proceeding.'
+  )
+
+  // Blast Radius & Risk Management
+  instructions.push(
+    'Before executing destructive or large-scale operations (mass file deletion, heavy refactoring, database wipes, force-overwriting existing work), output an explicit plan stating the scope and consequences, then pause for user confirmation.',
+    'When a tool call is blocked or fails, diagnose the root cause and try an alternative approach; never brute-force retry the same blocked action.'
+  )
+
+  // Anti-Hallucination
+  instructions.push(
+    'Never invent file contents, API shapes, configuration keys, or project structures. If you are uncertain about any of these, use tools to discover the ground truth before proceeding.'
+  )
+
   return instructions.join('\n')
 }
 
