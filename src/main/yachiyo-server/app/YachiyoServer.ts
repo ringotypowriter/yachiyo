@@ -130,7 +130,9 @@ export class YachiyoServer {
     this.createId = options.createId ?? randomUUID
 
     const settingsStore = createSettingsStore(options.settingsPath ?? resolveYachiyoSettingsPath())
-    const createModelRuntime = options.createModelRuntime ?? (() => createAiSdkModelRuntime())
+    const createModelRuntime =
+      options.createModelRuntime ??
+      (() => createAiSdkModelRuntime({ fetchImpl: options.fetchImpl }))
     this.readSoulDocumentFile = options.readSoulDocument ?? (() => readSoulDocument())
     this.readUserDocumentFile = options.readUserDocument ?? (() => readUserDocument())
     this.saveUserDocumentFile =
@@ -162,6 +164,7 @@ export class YachiyoServer {
     this.configDomain = new YachiyoServerConfigDomain({
       settingsStore,
       emit: this.emit.bind(this),
+      fetchImpl: options.fetchImpl,
       webSearchDeps: {
         listBrowserImportSources: () => webSearchImportService.listSources(),
         importBrowserSession: (input) =>

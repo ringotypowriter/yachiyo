@@ -125,15 +125,18 @@ export class YachiyoServerConfigDomain {
   private readonly settingsStore: SettingsStore
   private readonly emit: EmitServerEvent
   private readonly webSearchDeps: WebSearchSettingsDeps
+  private readonly fetchImpl: typeof globalThis.fetch
 
   constructor(input: {
     settingsStore: SettingsStore
     emit: EmitServerEvent
     webSearchDeps?: WebSearchSettingsDeps
+    fetchImpl?: typeof globalThis.fetch
   }) {
     this.settingsStore = input.settingsStore
     this.emit = input.emit
     this.webSearchDeps = input.webSearchDeps ?? {}
+    this.fetchImpl = input.fetchImpl ?? globalThis.fetch
   }
 
   getConfig(): SettingsConfig {
@@ -159,22 +162,43 @@ export class YachiyoServerConfigDomain {
 
     const existing =
       current.providers.find((provider) => provider.name === providerName) ??
-      current.providers.find((provider) => provider.type === input.provider)
+      current.providers.find(
+        (provider) => input.provider !== undefined && provider.type === input.provider
+      )
+
+    // Always start from the existing stored config so every field (including
+    // provider-type-specific ones like project/location/serviceAccountEmail) is
+    // preserved by default. Only fields explicitly present in `input` are
+    // overridden. This means adding new fields to ProviderConfig never requires
+    // touching this function.
+    const base: ProviderConfig = existing ?? {
+      id: createProviderId(),
+      name: providerName,
+      type: input.provider ?? currentSettings.provider,
+      apiKey: input.apiKey?.trim() ?? currentSettings.apiKey ?? '',
+      baseUrl: input.baseUrl?.trim() ?? currentSettings.baseUrl ?? '',
+      modelList: { enabled: [], disabled: [] }
+    }
+
+    const model = input.model?.trim() ?? currentSettings.model
 
     const nextProvider: ProviderConfig = {
-      id: existing?.id ?? createProviderId(),
-      name: providerName,
-      type: input.provider ?? existing?.type ?? currentSettings.provider,
-      apiKey: input.apiKey?.trim() ?? existing?.apiKey ?? currentSettings.apiKey,
-      baseUrl: input.baseUrl?.trim() ?? existing?.baseUrl ?? currentSettings.baseUrl,
+      ...base,
+      ...(input.provider !== undefined ? { type: input.provider } : {}),
+      ...(input.apiKey !== undefined ? { apiKey: input.apiKey.trim() } : {}),
+      ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl.trim() } : {}),
+      ...(input.project !== undefined ? { project: input.project } : {}),
+      ...(input.location !== undefined ? { location: input.location } : {}),
+      ...(input.serviceAccountEmail !== undefined
+        ? { serviceAccountEmail: input.serviceAccountEmail }
+        : {}),
+      ...(input.serviceAccountPrivateKey !== undefined
+        ? { serviceAccountPrivateKey: input.serviceAccountPrivateKey }
+        : {}),
       modelList: {
-        enabled: mergeUnique([
-          ...(existing?.modelList.enabled ?? []),
-          input.model?.trim() ?? currentSettings.model
-        ]),
-        disabled: (existing?.modelList.disabled ?? []).filter(
-          (model) => model !== (input.model?.trim() ?? currentSettings.model)
-        )
+        // Put the selected model first so resolvePrimaryModel picks it up.
+        enabled: mergeUnique([model, ...base.modelList.enabled]),
+        disabled: base.modelList.disabled.filter((m) => m !== model)
       }
     }
 
@@ -307,7 +331,7 @@ export class YachiyoServerConfigDomain {
       baseUrl: input.baseUrl || '(default)',
       hasApiKey: Boolean(input.apiKey?.trim())
     })
-    const models = await fetchModels(input)
+    const models = await fetchModels(input, this.fetchImpl)
     console.log('[fetchProviderModels] result:', models.length, 'models', models.slice(0, 5))
     return models
   }

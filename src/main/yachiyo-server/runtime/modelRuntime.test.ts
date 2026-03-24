@@ -1,9 +1,96 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createAiSdkModelRuntime } from './modelRuntime.ts'
+import { createAiSdkModelRuntime, fetchModels } from './modelRuntime.ts'
 
-test('createAiSdkModelRuntime uses AI SDK streaming with the OpenAI responses provider', async () => {
+test('createAiSdkModelRuntime uses chat() for openai (Chat Completions) provider', async () => {
+  let openAiOptions: { apiKey?: string; baseURL?: string } | undefined
+  let selectedModel: { provider: string; modelId: string } | null = null
+  let call: {
+    abortSignal?: AbortSignal
+    messages: unknown
+    providerOptions?: {
+      openai?: {
+        store?: boolean
+      }
+    }
+  } | null = null
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: (options) => {
+      openAiOptions = options
+      return {
+        chat: (modelId: string) => {
+          selectedModel = { modelId, provider: 'openai.chat' }
+          return { modelId, provider: 'openai.chat' } as never
+        }
+      } as never
+    },
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: ((input: {
+      abortSignal?: AbortSignal
+      messages: unknown
+      providerOptions?: {
+        openai?: {
+          store?: boolean
+        }
+      }
+    }) => {
+      call = {
+        abortSignal: input.abortSignal,
+        messages: input.messages,
+        providerOptions: input.providerOptions
+      }
+      return {
+        textStream: (async function* () {
+          yield 'Hel'
+          yield 'lo'
+        })()
+      }
+    }) as never
+  })
+
+  const controller = new AbortController()
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [
+      { role: 'system', content: 'You are concise.' },
+      { role: 'user', content: 'Say hello' }
+    ],
+    settings: {
+      providerName: 'work',
+      provider: 'openai',
+      model: 'gpt-4o',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    },
+    signal: controller.signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['Hel', 'lo'])
+  assert.deepEqual(openAiOptions, {
+    apiKey: 'sk-test',
+    baseURL: 'https://api.openai.com/v1'
+  })
+  assert.deepEqual(selectedModel, { provider: 'openai.chat', modelId: 'gpt-4o' })
+  const streamCall = call as {
+    abortSignal?: AbortSignal
+    messages: unknown
+    providerOptions?: { openai?: { store?: boolean } }
+  } | null
+  if (streamCall === null) {
+    assert.fail('Expected streamText to be called.')
+  }
+  assert.equal(streamCall.abortSignal, controller.signal)
+  assert.deepEqual(streamCall.providerOptions, { openai: { store: false } })
+})
+
+test('createAiSdkModelRuntime uses responses() with reasoning for openai-responses provider', async () => {
   let openAiOptions: { apiKey?: string; baseURL?: string } | undefined
   let selectedModel: { provider: string; modelId: string } | null = null
   let call: {
@@ -64,7 +151,7 @@ test('createAiSdkModelRuntime uses AI SDK streaming with the OpenAI responses pr
     ],
     settings: {
       providerName: 'work',
-      provider: 'openai',
+      provider: 'openai-responses',
       model: 'gpt-5',
       apiKey: 'sk-test',
       baseUrl: ''
@@ -79,29 +166,83 @@ test('createAiSdkModelRuntime uses AI SDK streaming with the OpenAI responses pr
     apiKey: 'sk-test',
     baseURL: 'https://api.openai.com/v1'
   })
-  assert.deepEqual(selectedModel, {
-    provider: 'openai.responses',
-    modelId: 'gpt-5'
-  })
+  assert.deepEqual(selectedModel, { provider: 'openai.responses', modelId: 'gpt-5' })
   const streamCall = call as {
     abortSignal?: AbortSignal
     messages: unknown
-    providerOptions?: {
-      openai?: {
-        reasoningEffort?: string
-        store?: boolean
-      }
-    }
+    providerOptions?: { openai?: { reasoningEffort?: string; store?: boolean } }
   } | null
   if (streamCall === null) {
     assert.fail('Expected streamText to be called.')
   }
   assert.equal(streamCall.abortSignal, controller.signal)
   assert.deepEqual(streamCall.providerOptions, {
-    openai: {
-      reasoningEffort: 'medium',
-      store: false
-    }
+    openai: { reasoningEffort: 'medium', store: false }
+  })
+})
+
+test('createAiSdkModelRuntime preserves legacy openai reasoning models', async () => {
+  let selectedModel: { provider: string; modelId: string } | null = null
+  let providerOptions:
+    | {
+        openai?: {
+          reasoningEffort?: string
+          store?: boolean
+        }
+      }
+    | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        chat: () => {
+          throw new Error('Legacy GPT-5 OpenAI providers should not use chat().')
+        },
+        responses: (modelId: string) => {
+          selectedModel = { modelId, provider: 'openai.responses' }
+          return { modelId, provider: 'openai.responses' }
+        }
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: ((input: {
+      providerOptions?: {
+        openai?: {
+          reasoningEffort?: string
+          store?: boolean
+        }
+      }
+    }) => {
+      providerOptions = input.providerOptions
+      return {
+        textStream: (async function* () {
+          yield 'ok'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Think.' }],
+    settings: {
+      providerName: 'legacy-openai',
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
+  assert.deepEqual(selectedModel, { provider: 'openai.responses', modelId: 'gpt-5' })
+  assert.deepEqual(providerOptions, {
+    openai: { reasoningEffort: 'medium', store: false }
   })
 })
 
@@ -212,7 +353,7 @@ test('createAiSdkModelRuntime uses AI SDK streaming with Anthropic thinking enab
   })
 })
 
-test('createAiSdkModelRuntime uses AI Gateway with vertex provider options for Gemini', async () => {
+test('createAiSdkModelRuntime uses Vercel AI Gateway with vertex provider options for Gemini', async () => {
   let gatewayOptions: { apiKey?: string; baseURL?: string } | undefined
   let selectedModel: { provider: string; modelId: string } | null = null
   let call: {
@@ -279,8 +420,8 @@ test('createAiSdkModelRuntime uses AI Gateway with vertex provider options for G
   for await (const chunk of runtime.streamReply({
     messages: [{ role: 'user', content: 'Think carefully.' }],
     settings: {
-      providerName: 'vertex-work',
-      provider: 'vertex',
+      providerName: 'vercel-gateway-work',
+      provider: 'vercel-gateway',
       model: 'google/gemini-3-flash',
       apiKey: 'vgw_test',
       baseUrl: 'https://ai-gateway.vercel.sh/v1'
@@ -328,7 +469,7 @@ test('createAiSdkModelRuntime uses AI Gateway with vertex provider options for G
   })
 })
 
-test('createAiSdkModelRuntime omits vertex thinking config for non-Gemini-3 models', async () => {
+test('createAiSdkModelRuntime omits vercel-gateway thinking config for non-Gemini-3 models', async () => {
   let providerOptions:
     | {
         gateway?: {
@@ -378,8 +519,8 @@ test('createAiSdkModelRuntime omits vertex thinking config for non-Gemini-3 mode
   for await (const chunk of runtime.streamReply({
     messages: [{ role: 'user', content: 'Say hi' }],
     settings: {
-      providerName: 'vertex-work',
-      provider: 'vertex',
+      providerName: 'vercel-gateway-work',
+      provider: 'vercel-gateway',
       model: 'google/gemini-2.5-flash',
       apiKey: 'vgw_test',
       baseUrl: ''
@@ -397,7 +538,7 @@ test('createAiSdkModelRuntime omits vertex thinking config for non-Gemini-3 mode
   })
 })
 
-test('createAiSdkModelRuntime omits OpenAI reasoningEffort for auxiliary generation', async () => {
+test('createAiSdkModelRuntime uses chat() for openai-responses auxiliary generation', async () => {
   let providerOptions:
     | {
         openai?: {
@@ -446,7 +587,7 @@ test('createAiSdkModelRuntime omits OpenAI reasoningEffort for auxiliary generat
     providerOptionsMode: 'auxiliary',
     settings: {
       providerName: 'work',
-      provider: 'openai',
+      provider: 'openai-responses',
       model: 'gpt-5-mini',
       apiKey: 'sk-test',
       baseUrl: ''
@@ -509,7 +650,7 @@ test('createAiSdkModelRuntime omits OpenAI reasoningEffort for non-reasoning mod
     messages: [{ role: 'user', content: 'Say hi' }],
     settings: {
       providerName: 'work',
-      provider: 'openai',
+      provider: 'openai-responses',
       model: 'qwen3.5-flash',
       apiKey: 'sk-test',
       baseUrl: ''
@@ -634,7 +775,7 @@ test('createAiSdkModelRuntime forwards tools and tool callbacks into the AI SDK 
     messages: [{ role: 'user', content: 'List the workspace files.' }],
     settings: {
       providerName: 'work',
-      provider: 'openai',
+      provider: 'openai-responses',
       model: 'gpt-5',
       apiKey: 'sk-test',
       baseUrl: ''
@@ -738,7 +879,7 @@ test('createAiSdkModelRuntime forwards preliminary tool results through onToolCa
     messages: [{ role: 'user', content: 'List the workspace files.' }],
     settings: {
       providerName: 'work',
-      provider: 'openai',
+      provider: 'openai-responses',
       model: 'gpt-5',
       apiKey: 'sk-test',
       baseUrl: ''
@@ -866,7 +1007,7 @@ test('createAiSdkModelRuntime forwards final tool results through onToolCallFini
     messages: [{ role: 'user', content: 'List the workspace files.' }],
     settings: {
       providerName: 'work',
-      provider: 'openai',
+      provider: 'openai-responses',
       model: 'gpt-5',
       apiKey: 'sk-test',
       baseUrl: ''
@@ -930,4 +1071,253 @@ test('createAiSdkModelRuntime forwards final tool results through onToolCallFini
       }
     }
   ])
+})
+test('createAiSdkModelRuntime uses Google AI provider for gemini', async () => {
+  let googleOptions: { apiKey?: string; baseURL?: string } | undefined
+  let selectedModel: { provider: string; modelId: string } | null = null
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () => {
+      throw new Error('OpenAI should not be used in this test.')
+    },
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    createGoogleProvider: (options) => {
+      googleOptions = options
+      return ((modelId: string) => {
+        selectedModel = { modelId, provider: 'google' }
+        return { modelId, provider: 'google' } as never
+      }) as never
+    },
+    streamTextImpl: (() => ({
+      textStream: (async function* () {
+        yield 'Gemini'
+      })()
+    })) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Hello' }],
+    settings: {
+      providerName: 'google-ai',
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      apiKey: 'AIza_test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['Gemini'])
+  assert.deepEqual(googleOptions, {
+    apiKey: 'AIza_test',
+    baseURL: 'https://generativelanguage.googleapis.com/v1beta'
+  })
+  assert.deepEqual(selectedModel, { provider: 'google', modelId: 'gemini-2.5-flash' })
+})
+
+test('createAiSdkModelRuntime uses Vertex AI provider for vertex', async () => {
+  let vertexOptions: { project?: string; location?: string } | undefined
+  let selectedModel: { provider: string; modelId: string } | null = null
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () => {
+      throw new Error('OpenAI should not be used in this test.')
+    },
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    createVertexProvider: (options?) => {
+      vertexOptions = { project: options?.project ?? '', location: options?.location ?? '' }
+      return ((modelId: string) => {
+        selectedModel = { modelId, provider: 'vertex' }
+        return { modelId, provider: 'vertex' } as never
+      }) as never
+    },
+    streamTextImpl: (() => ({
+      textStream: (async function* () {
+        yield 'VertexAI'
+      })()
+    })) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Hello' }],
+    settings: {
+      providerName: 'my-vertex',
+      provider: 'vertex',
+      model: 'gemini-2.5-flash-001',
+      apiKey: '',
+      baseUrl: '',
+      project: 'my-project',
+      location: 'us-central1'
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['VertexAI'])
+  assert.deepEqual(vertexOptions, { project: 'my-project', location: 'us-central1' })
+  assert.deepEqual(selectedModel, { provider: 'vertex', modelId: 'gemini-2.5-flash-001' })
+})
+
+test('createAiSdkModelRuntime passes gateway vertex routing for google/ models on vercel-gateway', async () => {
+  let capturedProviderOptions: Record<string, unknown> | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () => {
+      throw new Error('OpenAI should not be used in this test.')
+    },
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    createGatewayProvider: () => {
+      return ((modelId: string) => ({ modelId, provider: 'gateway' })) as never
+    },
+    streamTextImpl: ((input: { providerOptions?: Record<string, unknown> }) => {
+      capturedProviderOptions = input.providerOptions
+      return {
+        textStream: (async function* () {
+          yield 'ok'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Hello' }],
+    settings: {
+      providerName: 'vercel',
+      provider: 'vercel-gateway',
+      model: 'google/gemini-2.0-flash',
+      apiKey: 'vgw-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
+  assert.deepEqual((capturedProviderOptions as { gateway?: { order: string[] } })?.gateway, {
+    order: ['vertex']
+  })
+})
+
+test('createAiSdkModelRuntime skips gateway vertex routing for non-google models on vercel-gateway', async () => {
+  let capturedProviderOptions: Record<string, unknown> | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () => {
+      throw new Error('OpenAI should not be used in this test.')
+    },
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    createGatewayProvider: () => {
+      return ((modelId: string) => ({ modelId, provider: 'gateway' })) as never
+    },
+    streamTextImpl: ((input: { providerOptions?: Record<string, unknown> }) => {
+      capturedProviderOptions = input.providerOptions
+      return {
+        textStream: (async function* () {
+          yield 'ok'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Hello' }],
+    settings: {
+      providerName: 'vercel',
+      provider: 'vercel-gateway',
+      model: 'meta/llama-3-70b',
+      apiKey: 'vgw-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
+  assert.equal(
+    (capturedProviderOptions as { gateway?: unknown } | undefined)?.gateway,
+    undefined,
+    'non-google model must not receive gateway vertex routing'
+  )
+})
+
+test('fetchModels allows vertex model fetching via ADC', async () => {
+  let requestedUrl = ''
+  let authorizationHeader = ''
+  let adcCalls = 0
+
+  const models = await fetchModels(
+    {
+      id: 'provider-vertex',
+      name: 'vertex',
+      type: 'vertex',
+      apiKey: '',
+      baseUrl: '',
+      project: 'my-project',
+      location: 'asia-northeast1',
+      modelList: {
+        enabled: [],
+        disabled: []
+      }
+    },
+    (async (input, init) => {
+      requestedUrl =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+
+      if (init?.headers instanceof Headers) {
+        authorizationHeader = init.headers.get('Authorization') ?? ''
+      } else {
+        authorizationHeader = String(
+          (init?.headers as Record<string, string> | undefined)?.Authorization ?? ''
+        )
+      }
+
+      return new Response(
+        JSON.stringify({
+          publisherModels: [
+            { name: 'publishers/google/models/gemini-2.5-flash-001' },
+            { name: 'publishers/google/models/gemini-2.5-pro-001' }
+          ]
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      )
+    }) as typeof globalThis.fetch,
+    {
+      getVertexAdcAccessToken: async () => {
+        adcCalls += 1
+        return 'adc-token'
+      }
+    }
+  )
+
+  assert.equal(adcCalls, 1)
+  assert.equal(
+    requestedUrl,
+    'https://asia-northeast1-aiplatform.googleapis.com/v1beta1/publishers/google/models'
+  )
+  assert.equal(authorizationHeader, 'Bearer adc-token')
+  assert.deepEqual(models, ['gemini-2.5-flash-001', 'gemini-2.5-pro-001'])
 })

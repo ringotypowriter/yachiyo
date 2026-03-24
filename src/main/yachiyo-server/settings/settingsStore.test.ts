@@ -73,6 +73,10 @@ test('settings store persists multi-provider config as TOML', async () => {
           type: 'openai' as const,
           apiKey: 'sk-work',
           baseUrl: 'https://openrouter.example/v1',
+          project: '',
+          location: '',
+          serviceAccountEmail: '',
+          serviceAccountPrivateKey: '',
           modelList: {
             enabled: ['gpt-5', 'gpt-4.1'],
             disabled: ['o3-mini']
@@ -84,6 +88,10 @@ test('settings store persists multi-provider config as TOML', async () => {
           type: 'anthropic' as const,
           apiKey: 'sk-ant',
           baseUrl: '',
+          project: '',
+          location: '',
+          serviceAccountEmail: '',
+          serviceAccountPrivateKey: '',
           modelList: {
             enabled: ['claude-opus-4-6'],
             disabled: []
@@ -181,12 +189,54 @@ test('toProviderSettings resolves the active provider snapshot', () => {
   assert.equal(snapshot.apiKey, 'sk-ant')
 })
 
-test('normalizeSettingsConfig keeps vertex providers', () => {
+test('normalizeSettingsConfig keeps vercel-gateway providers', () => {
+  const normalized = normalizeSettingsConfig({
+    providers: [
+      {
+        id: 'provider-gateway',
+        name: 'vercel-gateway-work',
+        type: 'vercel-gateway',
+        apiKey: 'vgw_test',
+        baseUrl: 'https://ai-gateway.vercel.sh/v3/ai',
+        modelList: {
+          enabled: ['google/gemini-3-flash'],
+          disabled: []
+        }
+      }
+    ]
+  })
+
+  assert.equal(normalized.providers[0]?.type, 'vercel-gateway')
+})
+
+test('normalizeSettingsConfig keeps vertex (true Vertex AI) providers', () => {
   const normalized = normalizeSettingsConfig({
     providers: [
       {
         id: 'provider-vertex',
         name: 'vertex-work',
+        type: 'vertex',
+        apiKey: '',
+        baseUrl: '',
+        project: 'my-project',
+        location: 'us-central1',
+        modelList: {
+          enabled: ['gemini-2.5-flash-001'],
+          disabled: []
+        }
+      }
+    ]
+  })
+
+  assert.equal(normalized.providers[0]?.type, 'vertex')
+})
+
+test('normalizeSettingsConfig migrates legacy vertex gateway providers', () => {
+  const normalized = normalizeSettingsConfig({
+    providers: [
+      {
+        id: 'provider-vertex-legacy',
+        name: 'legacy-gateway',
         type: 'vertex',
         apiKey: 'vgw_test',
         baseUrl: 'https://ai-gateway.vercel.sh/v3/ai',
@@ -198,7 +248,7 @@ test('normalizeSettingsConfig keeps vertex providers', () => {
     ]
   })
 
-  assert.equal(normalized.providers[0]?.type, 'vertex')
+  assert.equal(normalized.providers[0]?.type, 'vercel-gateway')
 })
 
 test('normalizeSettingsConfig normalizes skill name lists', () => {

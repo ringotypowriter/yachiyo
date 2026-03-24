@@ -1,4 +1,4 @@
-import { Loader2, Plus, RefreshCw, Trash2, X } from 'lucide-react'
+import { Eraser, Loader2, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
 import { theme } from '@renderer/theme/theme'
 import type {
@@ -162,6 +162,13 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
     }))
   }
 
+  const handleClearAll = (): void => {
+    onProviderChange((p) => ({
+      ...p,
+      modelList: { enabled: [], disabled: [] }
+    }))
+  }
+
   const handleAddManual = (): void => {
     const model = manualInput.trim()
     if (!model || allModels.includes(model)) {
@@ -185,24 +192,45 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
         <span className="text-sm font-medium" style={{ color: theme.text.primary }}>
           Models
         </span>
-        <button
-          type="button"
-          onClick={() => void handleFetch()}
-          disabled={fetching || !provider.apiKey.trim()}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-opacity disabled:opacity-40"
-          style={{
-            background: theme.background.accentMuted,
-            color: theme.text.accent
-          }}
-          title={!provider.apiKey.trim() ? 'Add an API key first' : 'Fetch available models'}
-        >
-          {fetching ? (
-            <Loader2 size={12} strokeWidth={2} className="animate-spin" />
-          ) : (
-            <RefreshCw size={12} strokeWidth={2} />
+        <div className="flex items-center gap-2">
+          {allModels.length > 0 && (
+            <button
+              type="button"
+              onClick={handleClearAll}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-opacity"
+              style={{
+                background: theme.background.dangerSurface,
+                color: theme.text.dangerStrong
+              }}
+              title="Clear all models"
+            >
+              <Eraser size={12} strokeWidth={2} />
+              Clear
+            </button>
           )}
-          {fetching ? 'Fetching...' : 'Fetch'}
-        </button>
+          <button
+            type="button"
+            onClick={() => void handleFetch()}
+            disabled={fetching || (provider.type !== 'vertex' && !provider.apiKey.trim())}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-opacity disabled:opacity-40"
+            style={{
+              background: theme.background.accentMuted,
+              color: theme.text.accent
+            }}
+            title={
+              provider.type !== 'vertex' && !provider.apiKey.trim()
+                ? 'Add an API key first'
+                : 'Fetch available models'
+            }
+          >
+            {fetching ? (
+              <Loader2 size={12} strokeWidth={2} className="animate-spin" />
+            ) : (
+              <RefreshCw size={12} strokeWidth={2} />
+            )}
+            {fetching ? 'Fetching...' : 'Fetch'}
+          </button>
+        </div>
       </div>
 
       <div
@@ -424,7 +452,7 @@ export function ProvidersPane({
 
       <div className="flex-1 overflow-y-auto px-7 py-6">
         {selectedProvider ? (
-          <div className="max-w-3xl space-y-6">
+          <div key={selectedProvider.id} className="max-w-3xl space-y-6">
             <div className="flex items-start justify-between gap-4">
               <div
                 className="text-2xl font-semibold"
@@ -475,58 +503,139 @@ export function ProvidersPane({
                   className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                   style={inputStyle()}
                 >
-                  <option value="openai">OpenAI</option>
+                  <option value="openai">OpenAI (Chat)</option>
+                  <option value="openai-responses">OpenAI (Responses)</option>
                   <option value="anthropic">Anthropic</option>
-                  <option value="vertex">Vertex</option>
+                  <option value="gemini">Google AI / Gemini</option>
+                  <option value="vertex">Google Vertex AI</option>
+                  <option value="vercel-gateway">Vercel AI Gateway</option>
                 </select>
               </Field>
 
-              <div className="col-span-2">
-                <Field label="API Key">
-                  <input
-                    type="password"
-                    value={selectedProvider.apiKey}
-                    onChange={(event) =>
-                      handleProviderChange((provider) => ({
-                        ...provider,
-                        apiKey: event.target.value
-                      }))
-                    }
-                    className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
-                    style={inputStyle()}
-                    placeholder={
-                      selectedProvider.type === 'anthropic'
-                        ? 'sk-ant-...'
-                        : selectedProvider.type === 'vertex'
-                          ? 'vgw_...'
-                          : 'sk-...'
-                    }
-                  />
-                </Field>
-              </div>
+              {selectedProvider.type === 'vertex' ? (
+                <>
+                  <Field label="Project ID">
+                    <input
+                      value={selectedProvider.project ?? ''}
+                      onChange={(event) =>
+                        handleProviderChange((provider) => ({
+                          ...provider,
+                          project: event.target.value
+                        }))
+                      }
+                      className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                      style={inputStyle()}
+                      placeholder="my-gcp-project"
+                    />
+                  </Field>
 
-              <div className="col-span-2">
-                <Field label="Base URL">
-                  <input
-                    value={selectedProvider.baseUrl}
-                    onChange={(event) =>
-                      handleProviderChange((provider) => ({
-                        ...provider,
-                        baseUrl: event.target.value
-                      }))
-                    }
-                    className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
-                    style={inputStyle()}
-                    placeholder={
-                      selectedProvider.type === 'anthropic'
-                        ? 'https://api.anthropic.com/v1'
-                        : selectedProvider.type === 'vertex'
-                          ? 'https://ai-gateway.vercel.sh/v3/ai'
-                          : 'https://api.openai.com/v1'
-                    }
-                  />
-                </Field>
-              </div>
+                  <Field label="Location">
+                    <input
+                      value={selectedProvider.location ?? ''}
+                      onChange={(event) =>
+                        handleProviderChange((provider) => ({
+                          ...provider,
+                          location: event.target.value
+                        }))
+                      }
+                      className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                      style={inputStyle()}
+                      placeholder="us-central1"
+                    />
+                  </Field>
+
+                  <div className="col-span-2">
+                    <Field label="Service Account Email">
+                      <input
+                        value={selectedProvider.serviceAccountEmail ?? ''}
+                        onChange={(event) =>
+                          handleProviderChange((provider) => ({
+                            ...provider,
+                            serviceAccountEmail: event.target.value
+                          }))
+                        }
+                        className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                        style={inputStyle()}
+                        placeholder="sa@my-project.iam.gserviceaccount.com (optional — uses ADC if empty)"
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="col-span-2">
+                    <Field label="Service Account Private Key">
+                      <textarea
+                        value={selectedProvider.serviceAccountPrivateKey ?? ''}
+                        onChange={(event) => {
+                          // Auto-convert literal \n sequences (from JSON service account files)
+                          // into real newlines so the key is stored correctly.
+                          const value = event.target.value.replace(/\\n/g, '\n')
+                          handleProviderChange((provider) => ({
+                            ...provider,
+                            serviceAccountPrivateKey: value
+                          }))
+                        }}
+                        rows={4}
+                        className="w-full rounded-xl px-3 py-2.5 text-sm outline-none font-mono"
+                        style={inputStyle()}
+                        placeholder="-----BEGIN PRIVATE KEY-----&#10;(optional — uses ADC if empty)"
+                      />
+                    </Field>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="col-span-2">
+                    <Field label="API Key">
+                      <input
+                        type="password"
+                        value={selectedProvider.apiKey}
+                        onChange={(event) =>
+                          handleProviderChange((provider) => ({
+                            ...provider,
+                            apiKey: event.target.value
+                          }))
+                        }
+                        className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                        style={inputStyle()}
+                        placeholder={
+                          selectedProvider.type === 'anthropic'
+                            ? 'sk-ant-...'
+                            : selectedProvider.type === 'gemini'
+                              ? 'AIza...'
+                              : selectedProvider.type === 'vercel-gateway'
+                                ? 'vgw_...'
+                                : 'sk-...'
+                        }
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="col-span-2">
+                    <Field label="Base URL">
+                      <input
+                        value={selectedProvider.baseUrl}
+                        onChange={(event) =>
+                          handleProviderChange((provider) => ({
+                            ...provider,
+                            baseUrl: event.target.value
+                          }))
+                        }
+                        className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                        style={inputStyle()}
+                        placeholder={
+                          selectedProvider.type === 'anthropic'
+                            ? 'https://api.anthropic.com/v1'
+                            : selectedProvider.type === 'gemini'
+                              ? 'https://generativelanguage.googleapis.com/v1beta'
+                              : selectedProvider.type === 'vercel-gateway'
+                                ? 'https://ai-gateway.vercel.sh/v3/ai'
+                                : 'https://api.openai.com/v1'
+                        }
+                      />
+                    </Field>
+                  </div>
+                </>
+              )}
             </div>
 
             <ModelListSection provider={selectedProvider} onProviderChange={handleProviderChange} />

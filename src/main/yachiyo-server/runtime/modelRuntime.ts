@@ -1,6 +1,11 @@
+import { createSign } from 'node:crypto'
+
 import { createAnthropic } from '@ai-sdk/anthropic'
-import { createOpenAI } from '@ai-sdk/openai'
+import { createGoogleGenerativeAI } from '@ai-sdk/google'
+import { createVertex } from '@ai-sdk/google-vertex'
 import { createGateway, stepCountIs, streamText, type LanguageModel } from 'ai'
+import { createOpenAI } from '@ai-sdk/openai'
+import { GoogleAuth } from 'google-auth-library'
 
 import type { ProviderConfig, ProviderSettings } from '../../../shared/yachiyo/protocol'
 import { prepareAiSdkMessages } from './messagePrepare.ts'
@@ -8,18 +13,28 @@ import type { ModelProviderOptionsMode, ModelRuntime } from './types.ts'
 
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1'
+const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
 const DEFAULT_GATEWAY_BASE_URL = 'https://ai-gateway.vercel.sh/v3/ai'
 const DEFAULT_OPENAI_REASONING_EFFORT = 'medium'
 const DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS = 1024
-const DEFAULT_VERTEX_THINKING_LEVEL = 'medium'
+const DEFAULT_GEMINI_THINKING_BUDGET = 1024
+const DEFAULT_VERCEL_GATEWAY_THINKING_LEVEL = 'medium'
 const DEFAULT_MAX_RETRIES = 3
 
 type OpenAIProviderFactory = typeof createOpenAI
 type AnthropicProviderFactory = typeof createAnthropic
+type GoogleProviderFactory = typeof createGoogleGenerativeAI
+type VertexProviderFactory = typeof createVertex
 type GatewayProviderFactory = typeof createGateway
 type StreamTextImplementation = typeof streamText
 
-type OpenAiRuntimeProviderOptions = {
+type OpenAiChatRuntimeProviderOptions = {
+  openai: {
+    store: false
+  }
+}
+
+type OpenAiResponsesRuntimeProviderOptions = {
   openai: {
     reasoningEffort?: string
     store: false
@@ -35,13 +50,31 @@ type AnthropicRuntimeProviderOptions = {
   }
 }
 
-type VertexGatewayRuntimeProviderOptions = {
+type GeminiRuntimeProviderOptions = {
+  google: {
+    thinkingConfig?: {
+      thinkingBudget: number
+      includeThoughts: true
+    }
+  }
+}
+
+type VertexRuntimeProviderOptions = {
+  vertex: {
+    thinkingConfig?: {
+      thinkingBudget: number
+      includeThoughts: true
+    }
+  }
+}
+
+type VercelGatewayRuntimeProviderOptions = {
   gateway: {
     order: ['vertex']
   }
 }
 
-type VertexThinkingRuntimeProviderOptions = VertexGatewayRuntimeProviderOptions & {
+type VercelGatewayThinkingRuntimeProviderOptions = VercelGatewayRuntimeProviderOptions & {
   vertex: {
     thinkingConfig: {
       includeThoughts: true
@@ -51,16 +84,23 @@ type VertexThinkingRuntimeProviderOptions = VertexGatewayRuntimeProviderOptions 
 }
 
 type RuntimeProviderOptions =
-  | OpenAiRuntimeProviderOptions
+  | OpenAiChatRuntimeProviderOptions
+  | OpenAiResponsesRuntimeProviderOptions
   | AnthropicRuntimeProviderOptions
-  | VertexGatewayRuntimeProviderOptions
-  | VertexThinkingRuntimeProviderOptions
+  | GeminiRuntimeProviderOptions
+  | VertexRuntimeProviderOptions
+  | VercelGatewayRuntimeProviderOptions
+  | VercelGatewayThinkingRuntimeProviderOptions
+  | Record<string, never>
 
 export interface AiSdkRuntimeDependencies {
   createAnthropicProvider?: AnthropicProviderFactory
   createGatewayProvider?: GatewayProviderFactory
+  createGoogleProvider?: GoogleProviderFactory
   createOpenAIProvider?: OpenAIProviderFactory
+  createVertexProvider?: VertexProviderFactory
   streamTextImpl?: StreamTextImplementation
+  fetchImpl?: typeof globalThis.fetch
 }
 
 function cleanBaseUrl(baseUrl: string, fallback: string): string {
@@ -68,12 +108,22 @@ function cleanBaseUrl(baseUrl: string, fallback: string): string {
 }
 
 function assertConfigured(settings: ProviderSettings): void {
-  if (!settings.apiKey.trim()) {
-    throw new Error('No API key configured. Open Settings and add a provider key first.')
-  }
-
   if (!settings.model.trim()) {
     throw new Error('No model configured. Open Settings and choose a model first.')
+  }
+
+  if (settings.provider === 'vertex') {
+    // True Vertex AI uses project + location; auth via service account or ADC — no API key needed.
+    if (!settings.project?.trim()) {
+      throw new Error(
+        'Vertex AI requires a Project ID. Open Settings and configure your Vertex provider.'
+      )
+    }
+    return
+  }
+
+  if (!settings.apiKey.trim()) {
+    throw new Error('No API key configured. Open Settings and add a provider key first.')
   }
 }
 
@@ -108,13 +158,13 @@ function normalizeGatewayBaseUrl(baseUrl: string): string {
 }
 
 function shouldLogGatewayDiagnostics(settings: ProviderSettings): boolean {
-  if (settings.provider !== 'openai' && settings.provider !== 'vertex') {
+  if (settings.provider !== 'openai' && settings.provider !== 'vercel-gateway') {
     return false
   }
 
   const normalizedModel = settings.model.trim().toLowerCase()
   const normalizedBaseUrl =
-    settings.provider === 'vertex'
+    settings.provider === 'vercel-gateway'
       ? normalizeGatewayBaseUrl(settings.baseUrl)
       : cleanBaseUrl(settings.baseUrl, DEFAULT_OPENAI_BASE_URL)
 
@@ -229,9 +279,10 @@ function createGatewayDiagnosticFetch(
 function createLanguageModel(
   settings: ProviderSettings,
   dependencies: Required<AiSdkRuntimeDependencies>,
-  mode: ModelProviderOptionsMode = 'default'
+  mode: ModelProviderOptionsMode = 'default',
+  fetchImpl?: typeof globalThis.fetch
 ): LanguageModel {
-  if (settings.provider === 'openai') {
+  if (shouldUseOpenAIResponsesApi(settings)) {
     const diagnosticFetch = createGatewayDiagnosticFetch(settings)
     const provider = dependencies.createOpenAIProvider({
       apiKey: settings.apiKey,
@@ -241,7 +292,59 @@ function createLanguageModel(
     return mode === 'auxiliary' ? provider.chat(settings.model) : provider.responses(settings.model)
   }
 
+  if (settings.provider === 'openai') {
+    const provider = dependencies.createOpenAIProvider({
+      apiKey: settings.apiKey,
+      baseURL: cleanBaseUrl(settings.baseUrl, DEFAULT_OPENAI_BASE_URL)
+    })
+    return provider.chat(settings.model)
+  }
+
+  if (settings.provider === 'openai-responses') {
+    const diagnosticFetch = createGatewayDiagnosticFetch(settings)
+    const provider = dependencies.createOpenAIProvider({
+      apiKey: settings.apiKey,
+      baseURL: cleanBaseUrl(settings.baseUrl, DEFAULT_OPENAI_BASE_URL),
+      ...(diagnosticFetch ? { fetch: diagnosticFetch } : {})
+    })
+    return mode === 'auxiliary' ? provider.chat(settings.model) : provider.responses(settings.model)
+  }
+
+  if (settings.provider === 'gemini') {
+    const provider = dependencies.createGoogleProvider({
+      apiKey: settings.apiKey,
+      baseURL: cleanBaseUrl(settings.baseUrl, DEFAULT_GEMINI_BASE_URL)
+    })
+    return provider(settings.model)
+  }
+
   if (settings.provider === 'vertex') {
+    const project = settings.project ?? ''
+    const location = settings.location ?? 'us-central1'
+    const hasServiceAccount =
+      !!settings.serviceAccountEmail?.trim() && !!settings.serviceAccountPrivateKey?.trim()
+
+    // baseURL is calculated by the SDK from project + location.
+    // Falls back to {location}-aiplatform.googleapis.com when not provided.
+    const provider = dependencies.createVertexProvider({
+      project,
+      location,
+      ...(hasServiceAccount
+        ? {
+            googleAuthOptions: {
+              credentials: {
+                client_email: settings.serviceAccountEmail!,
+                private_key: settings.serviceAccountPrivateKey!
+              }
+            }
+          }
+        : {}),
+      ...(fetchImpl ? { fetch: fetchImpl } : {})
+    })
+    return provider(settings.model)
+  }
+
+  if (settings.provider === 'vercel-gateway') {
     const diagnosticFetch = createGatewayDiagnosticFetch(settings)
     const provider = dependencies.createGatewayProvider({
       apiKey: settings.apiKey,
@@ -251,6 +354,7 @@ function createLanguageModel(
     return provider(settings.model)
   }
 
+  // anthropic
   const provider = dependencies.createAnthropicProvider({
     apiKey: settings.apiKey,
     baseURL: cleanBaseUrl(settings.baseUrl, DEFAULT_ANTHROPIC_BASE_URL)
@@ -262,7 +366,7 @@ function createProviderOptions(
   settings: ProviderSettings,
   mode: ModelProviderOptionsMode = 'default'
 ): RuntimeProviderOptions {
-  if (settings.provider === 'openai') {
+  if (settings.provider === 'openai' || settings.provider === 'openai-responses') {
     const reasoningEffort =
       mode === 'default' && supportsOpenAIReasoningEffort(settings.model)
         ? DEFAULT_OPENAI_REASONING_EFFORT
@@ -270,16 +374,45 @@ function createProviderOptions(
 
     return {
       openai: {
+        ...(reasoningEffort ? { reasoningEffort } : {}),
         // Keep tool-call context inline for proxy compatibility instead of
         // depending on provider-side item storage across tool steps.
-        ...(reasoningEffort ? { reasoningEffort } : {}),
         store: false
       }
     }
   }
 
+  if (settings.provider === 'gemini') {
+    return supportsGeminiThinking(settings.model)
+      ? {
+          google: {
+            thinkingConfig: {
+              thinkingBudget: DEFAULT_GEMINI_THINKING_BUDGET,
+              includeThoughts: true
+            }
+          }
+        }
+      : { google: {} }
+  }
+
   if (settings.provider === 'vertex') {
-    return supportsVertexThinkingLevel(settings.model)
+    return supportsGeminiThinking(settings.model)
+      ? {
+          vertex: {
+            thinkingConfig: {
+              thinkingBudget: DEFAULT_GEMINI_THINKING_BUDGET,
+              includeThoughts: true
+            }
+          }
+        }
+      : { vertex: {} }
+  }
+
+  if (settings.provider === 'vercel-gateway') {
+    if (!isVercelGatewayGoogleModel(settings.model)) {
+      return {}
+    }
+    return supportsVercelGatewayThinkingLevel(settings.model)
       ? {
           gateway: {
             order: ['vertex']
@@ -287,7 +420,7 @@ function createProviderOptions(
           vertex: {
             thinkingConfig: {
               includeThoughts: true,
-              thinkingLevel: DEFAULT_VERTEX_THINKING_LEVEL
+              thinkingLevel: DEFAULT_VERCEL_GATEWAY_THINKING_LEVEL
             }
           }
         }
@@ -323,7 +456,34 @@ function supportsOpenAIReasoningEffort(modelId: string): boolean {
   )
 }
 
-function supportsVertexThinkingLevel(modelId: string): boolean {
+function shouldUseOpenAIResponsesApi(settings: ProviderSettings): boolean {
+  return (
+    settings.provider === 'openai-responses' ||
+    (settings.provider === 'openai' && supportsOpenAIReasoningEffort(settings.model))
+  )
+}
+
+// Gemini 2.5+ supports extended thinking (budget-based)
+function supportsGeminiThinking(modelId: string): boolean {
+  const normalized = modelId.trim().toLowerCase()
+
+  return (
+    normalized.startsWith('gemini-2.5') ||
+    normalized.startsWith('gemini-3') ||
+    normalized.startsWith('gemini-3.') ||
+    // Vertex AI style: publishers/google/models/gemini-2.5-...
+    normalized.includes('gemini-2.5') ||
+    normalized.includes('gemini-3')
+  )
+}
+
+// Vercel Gateway routes Google models through Vertex; non-google models skip vertex routing.
+function isVercelGatewayGoogleModel(modelId: string): boolean {
+  return modelId.trim().toLowerCase().startsWith('google/')
+}
+
+// Vercel Gateway Vertex routing uses thinkingLevel (not thinkingBudget)
+function supportsVercelGatewayThinkingLevel(modelId: string): boolean {
   const normalized = modelId.trim().toLowerCase()
 
   return normalized.startsWith('google/gemini-3') || normalized.startsWith('google/gemini-3.1')
@@ -333,26 +493,89 @@ interface ModelsResponseItem {
   id: string
 }
 
-export async function fetchModels(provider: ProviderConfig): Promise<string[]> {
-  const fallbackBase =
-    provider.type === 'anthropic'
-      ? DEFAULT_ANTHROPIC_BASE_URL
-      : provider.type === 'vertex'
-        ? DEFAULT_GATEWAY_BASE_URL
-        : DEFAULT_OPENAI_BASE_URL
-  const baseUrl =
-    provider.type === 'vertex'
-      ? normalizeGatewayBaseUrl(provider.baseUrl)
-      : cleanBaseUrl(provider.baseUrl, fallbackBase)
+interface GeminiModelsResponseItem {
+  name: string
+}
 
-  if (!provider.apiKey.trim()) {
+interface VertexPublisherModel {
+  name: string
+}
+
+// Signs a Google service account JWT and exchanges it for an OAuth2 access token.
+async function getVertexServiceAccountToken(
+  clientEmail: string,
+  privateKey: string,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch
+): Promise<string> {
+  const now = Math.floor(Date.now() / 1000)
+  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url')
+  const claims = Buffer.from(
+    JSON.stringify({
+      iss: clientEmail,
+      scope: 'https://www.googleapis.com/auth/cloud-platform',
+      aud: 'https://oauth2.googleapis.com/token',
+      exp: now + 3600,
+      iat: now
+    })
+  ).toString('base64url')
+
+  const sign = createSign('RSA-SHA256')
+  sign.update(`${header}.${claims}`)
+  const signature = sign.sign(privateKey).toString('base64url')
+  const jwt = `${header}.${claims}.${signature}`
+
+  const response = await fetchImpl('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: jwt
+    })
+  })
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '')
+    throw new Error(`Failed to obtain Vertex access token: ${response.status} ${body}`)
+  }
+
+  const body = (await response.json()) as { access_token?: string }
+  if (!body.access_token) {
+    throw new Error('Vertex token response did not include an access_token.')
+  }
+  return body.access_token
+}
+
+async function getVertexAdcAccessToken(): Promise<string> {
+  const auth = new GoogleAuth({
+    scopes: ['https://www.googleapis.com/auth/cloud-platform']
+  })
+  const accessToken = await auth.getAccessToken()
+
+  if (!accessToken) {
+    throw new Error('Failed to obtain Vertex access token from Application Default Credentials.')
+  }
+
+  return accessToken
+}
+
+interface FetchModelsDependencies {
+  getVertexAdcAccessToken?: () => Promise<string>
+}
+
+export async function fetchModels(
+  provider: ProviderConfig,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+  dependencies: FetchModelsDependencies = {}
+): Promise<string[]> {
+  if (!provider.apiKey.trim() && provider.type !== 'vertex') {
     throw new Error('API key is required')
   }
 
   if (provider.type === 'anthropic') {
+    const baseUrl = cleanBaseUrl(provider.baseUrl, DEFAULT_ANTHROPIC_BASE_URL)
     const url = `${baseUrl}/models?limit=100`
     console.log('[fetchModels] fetching anthropic:', url)
-    const response = await fetch(url, {
+    const response = await fetchImpl(url, {
       headers: {
         'x-api-key': provider.apiKey,
         'anthropic-version': '2023-06-01'
@@ -365,7 +588,54 @@ export async function fetchModels(provider: ProviderConfig): Promise<string[]> {
     return (body.data ?? []).map((m) => m.id).sort()
   }
 
+  if (provider.type === 'gemini') {
+    const baseUrl = cleanBaseUrl(provider.baseUrl, DEFAULT_GEMINI_BASE_URL)
+    const url = `${baseUrl}/models?key=${encodeURIComponent(provider.apiKey)}&pageSize=100`
+    console.log('[fetchModels] fetching gemini:', url)
+    const response = await fetchImpl(url)
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`)
+    }
+    const body = (await response.json()) as { models: GeminiModelsResponseItem[] }
+    return (body.models ?? [])
+      .map((m) => m.name.replace(/^models\//, ''))
+      .filter((id) => id.startsWith('gemini'))
+      .sort()
+  }
+
   if (provider.type === 'vertex') {
+    if (!provider.project?.trim()) {
+      throw new Error('Vertex AI requires a Project ID to fetch models.')
+    }
+    const location = provider.location?.trim() || 'us-central1'
+    const hasServiceAccount =
+      !!provider.serviceAccountEmail?.trim() && !!provider.serviceAccountPrivateKey?.trim()
+    const accessToken = hasServiceAccount
+      ? await getVertexServiceAccountToken(
+          provider.serviceAccountEmail!,
+          provider.serviceAccountPrivateKey!,
+          fetchImpl
+        )
+      : await (dependencies.getVertexAdcAccessToken ?? getVertexAdcAccessToken)()
+    const url = `https://${location}-aiplatform.googleapis.com/v1beta1/publishers/google/models`
+    console.log('[fetchModels] fetching vertex model garden:', url)
+    const response = await fetchImpl(url, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    })
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`)
+    }
+    const body = (await response.json()) as {
+      publisherModels?: VertexPublisherModel[]
+    }
+    return (body.publisherModels ?? [])
+      .map((m) => m.name.replace(/^publishers\/google\/models\//, ''))
+      .filter((id) => id.toLowerCase().startsWith('gemini'))
+      .sort()
+  }
+
+  if (provider.type === 'vercel-gateway') {
+    const baseUrl = normalizeGatewayBaseUrl(provider.baseUrl)
     console.log('[fetchModels] fetching gateway config:', `${baseUrl}/config`)
     const gatewayProvider = createGateway({
       apiKey: provider.apiKey,
@@ -378,10 +648,11 @@ export async function fetchModels(provider: ProviderConfig): Promise<string[]> {
       .sort()
   }
 
-  // OpenAI-compatible
+  // openai and openai-responses both use the OpenAI-compatible /models endpoint
+  const baseUrl = cleanBaseUrl(provider.baseUrl, DEFAULT_OPENAI_BASE_URL)
   const url = `${baseUrl}/models`
-  console.log('[fetchModels] fetching openai:', url)
-  const response = await fetch(url, {
+  console.log('[fetchModels] fetching openai-compatible:', url)
+  const response = await fetchImpl(url, {
     headers: { Authorization: `Bearer ${provider.apiKey}` }
   })
   if (!response.ok) {
@@ -395,8 +666,11 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
   const resolvedDependencies: Required<AiSdkRuntimeDependencies> = {
     createAnthropicProvider: dependencies.createAnthropicProvider ?? createAnthropic,
     createGatewayProvider: dependencies.createGatewayProvider ?? createGateway,
+    createGoogleProvider: dependencies.createGoogleProvider ?? createGoogleGenerativeAI,
     createOpenAIProvider: dependencies.createOpenAIProvider ?? createOpenAI,
-    streamTextImpl: dependencies.streamTextImpl ?? streamText
+    createVertexProvider: dependencies.createVertexProvider ?? createVertex,
+    streamTextImpl: dependencies.streamTextImpl ?? streamText,
+    fetchImpl: dependencies.fetchImpl ?? globalThis.fetch
   }
 
   return {
@@ -446,7 +720,8 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
           model: createLanguageModel(
             request.settings,
             resolvedDependencies,
-            request.providerOptionsMode ?? 'default'
+            request.providerOptionsMode ?? 'default',
+            resolvedDependencies.fetchImpl
           ),
           providerOptions,
           ...(request.tools ? { tools: request.tools, stopWhen: stepCountIs(20) } : {}),

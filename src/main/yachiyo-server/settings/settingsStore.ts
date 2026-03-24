@@ -83,7 +83,29 @@ function normalizeString(value: unknown, fallback: string): string {
 }
 
 function normalizeProviderType(value: unknown, fallback: ProviderKind): ProviderKind {
-  return value === 'openai' || value === 'anthropic' || value === 'vertex' ? value : fallback
+  return value === 'openai' ||
+    value === 'openai-responses' ||
+    value === 'anthropic' ||
+    value === 'gemini' ||
+    value === 'vertex' ||
+    value === 'vercel-gateway'
+    ? (value as ProviderKind)
+    : fallback
+}
+
+function isLegacyGatewayVertexProvider(input: Record<string, unknown>): boolean {
+  if (input['type'] !== 'vertex') {
+    return false
+  }
+
+  const project = normalizeString(input['project'], '')
+  if (project) {
+    return false
+  }
+
+  const apiKey = normalizeString(input['apiKey'], '')
+  const baseUrl = normalizeString(input['baseUrl'], '')
+  return !!apiKey || !!baseUrl
 }
 
 function normalizeWebSearchProviderId(
@@ -143,9 +165,21 @@ function normalizeProviderConfig(value: unknown, fallback?: ProviderConfig): Pro
   return sanitizeProviderConfig({
     id: ensureProviderId(normalizeString(input['id'], fallback?.id ?? '')),
     name,
-    type: normalizeProviderType(input['type'], fallback?.type ?? 'anthropic'),
+    type: isLegacyGatewayVertexProvider(input)
+      ? 'vercel-gateway'
+      : normalizeProviderType(input['type'], fallback?.type ?? 'anthropic'),
     apiKey: normalizeString(input['apiKey'], fallback?.apiKey ?? ''),
     baseUrl: normalizeString(input['baseUrl'], fallback?.baseUrl ?? ''),
+    project: normalizeString(input['project'], fallback?.project ?? ''),
+    location: normalizeString(input['location'], fallback?.location ?? ''),
+    serviceAccountEmail: normalizeString(
+      input['serviceAccountEmail'],
+      fallback?.serviceAccountEmail ?? ''
+    ),
+    serviceAccountPrivateKey: normalizeString(
+      input['serviceAccountPrivateKey'],
+      fallback?.serviceAccountPrivateKey ?? ''
+    ),
     modelList: {
       enabled,
       disabled
@@ -259,7 +293,11 @@ function toResolvedProviderSettings(
     provider: provider.type,
     model,
     apiKey: provider.apiKey,
-    baseUrl: provider.baseUrl
+    baseUrl: provider.baseUrl,
+    project: provider.project,
+    location: provider.location,
+    serviceAccountEmail: provider.serviceAccountEmail,
+    serviceAccountPrivateKey: provider.serviceAccountPrivateKey
   }
 }
 
@@ -722,6 +760,10 @@ export function stringifySettingsToml(config: SettingsConfig): string {
       `type = ${stringifyTomlString(provider.type)}`,
       `apiKey = ${stringifyTomlString(provider.apiKey)}`,
       `baseUrl = ${stringifyTomlString(provider.baseUrl)}`,
+      `project = ${stringifyTomlString(provider.project ?? '')}`,
+      `location = ${stringifyTomlString(provider.location ?? '')}`,
+      `serviceAccountEmail = ${stringifyTomlString(provider.serviceAccountEmail ?? '')}`,
+      `serviceAccountPrivateKey = ${stringifyTomlString(provider.serviceAccountPrivateKey ?? '')}`,
       '',
       '[providers.modelList]',
       `enabled = ${stringifyTomlStringArray(provider.modelList.enabled)}`,
@@ -751,7 +793,11 @@ export function toProviderSettings(config: SettingsConfig): ProviderSettings {
       provider: 'anthropic',
       model: '',
       apiKey: '',
-      baseUrl: ''
+      baseUrl: '',
+      project: '',
+      location: '',
+      serviceAccountEmail: '',
+      serviceAccountPrivateKey: ''
     }
   )
 }

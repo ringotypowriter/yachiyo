@@ -2,7 +2,13 @@ export type MessageRole = 'user' | 'assistant'
 export type MessageStatus = 'completed' | 'streaming' | 'failed' | 'stopped'
 export type RunStatus = 'idle' | 'running' | 'completed' | 'failed' | 'cancelled'
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected'
-export type ProviderKind = 'openai' | 'anthropic' | 'vertex'
+export type ProviderKind =
+  | 'openai'
+  | 'openai-responses'
+  | 'anthropic'
+  | 'gemini'
+  | 'vertex'
+  | 'vercel-gateway'
 export type ActiveRunEnterBehavior = 'enter-steers' | 'enter-queues-follow-up'
 export type SidebarVisibility = 'expanded' | 'collapsed'
 export type SendChatMode = 'normal' | 'steer' | 'follow-up'
@@ -358,8 +364,14 @@ export interface ProviderConfig {
   id?: string
   name: string
   type: ProviderKind
+  // Used by openai, openai-responses, anthropic, gemini, vercel-gateway
   apiKey: string
   baseUrl: string
+  // Used by vertex only
+  project?: string
+  location?: string
+  serviceAccountEmail?: string
+  serviceAccountPrivateKey?: string
   modelList: ProviderModelList
 }
 
@@ -542,8 +554,14 @@ export interface ProviderSettings {
   providerName: string
   provider: ProviderKind
   model: string
+  // Used by openai, openai-responses, anthropic, gemini, vercel-gateway
   apiKey: string
   baseUrl: string
+  // Used by vertex only
+  project?: string
+  location?: string
+  serviceAccountEmail?: string
+  serviceAccountPrivateKey?: string
 }
 
 export interface BootstrapPayload {
