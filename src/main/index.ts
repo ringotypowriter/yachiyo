@@ -27,6 +27,10 @@ function createWindow(): void {
     autoHideMenuBar: true,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 18 },
+    ...(process.platform === 'darwin' && {
+      vibrancy: 'under-window',
+      backgroundColor: '#00000000'
+    }),
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

@@ -59,6 +59,8 @@ export const theme = {
     app: solid('app'),
     canvas: solid('canvas'),
     sidebar: solid('sidebar'),
+    sidebarVibrancy: 'rgba(234, 242, 247, 0.45)',
+    chatCard: alpha('canvas', 0.92),
     surface: alpha('surface', 0.94),
     surfaceSoft: alpha('surface', 0.88),
     surfaceMuted: alpha('surface', 0.82),

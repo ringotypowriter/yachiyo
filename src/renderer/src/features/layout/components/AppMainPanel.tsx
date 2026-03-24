@@ -186,8 +186,12 @@ export function AppMainPanel({
   if (threadListMode === 'archived') {
     return (
       <div
-        className="flex flex-col flex-1 h-full min-w-0"
-        style={{ background: theme.background.canvas }}
+        className="flex flex-col flex-1 h-full min-w-0 overflow-hidden"
+        style={{
+          background: theme.background.chatCard,
+          borderRadius: 12,
+          boxShadow: theme.shadow.card
+        }}
       >
         <div
           className="flex items-center shrink-0 drag-region"
@@ -218,8 +222,12 @@ export function AppMainPanel({
 
   return (
     <div
-      className="flex flex-col flex-1 h-full min-w-0"
-      style={{ background: theme.background.canvas }}
+      className="flex flex-col flex-1 h-full min-w-0 overflow-hidden"
+      style={{
+        background: theme.background.chatCard,
+        borderRadius: 12,
+        boxShadow: theme.shadow.card
+      }}
     >
       <AppMainPanelHeader
         activeThread={activeThread}

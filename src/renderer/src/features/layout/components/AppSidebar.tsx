@@ -36,7 +36,7 @@ export function AppSidebar({
       className="flex flex-col h-full shrink-0 overflow-hidden transition-all duration-200"
       style={{
         width: sidebarWidth,
-        background: theme.background.app,
+        background: 'transparent',
         opacity: isOpen ? 1 : 0,
         pointerEvents: isOpen ? 'auto' : 'none'
       }}
