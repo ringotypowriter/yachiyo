@@ -43,7 +43,7 @@ export interface RecallFilterResult {
   recentInjections: ThreadMemoryRecallEntry[]
 }
 
-const GROWTH_MESSAGE_THRESHOLD = 4
+const GROWTH_MESSAGE_THRESHOLD = 6
 const GROWTH_CHAR_THRESHOLD = 4096
 const IDLE_RECALL_MS = 1000 * 60 * 60 * 6
 const RECENT_INJECTION_MESSAGE_WINDOW = 4
@@ -52,6 +52,8 @@ const RECENT_INJECTION_SCORE_BOOST = 0.22
 const MAX_RECENT_INJECTIONS = 16
 const MAX_NOVEL_TERMS = 6
 const RECENT_CONTEXT_MESSAGE_LIMIT = 6
+const NOVELTY_SCORE_THRESHOLD = 0.75
+const NOVELTY_TERM_THRESHOLD = 3
 const WORD_SEGMENTER = new Intl.Segmenter('zh-Hans', { granularity: 'word' })
 const CLAUSE_SPLIT_PATTERN = /[\n\r,，.。!！?？:：;；、()（）【】[\]{}"'`]+/u
 
@@ -316,7 +318,10 @@ export function shouldRecallBeforeRun(input: RecallDecisionInput): RecallDecisio
     score += 0.7
   }
 
-  if (novelty.noveltyScore >= 0.62 && novelty.novelTerms.length >= 2) {
+  if (
+    novelty.noveltyScore >= NOVELTY_SCORE_THRESHOLD &&
+    novelty.novelTerms.length >= NOVELTY_TERM_THRESHOLD
+  ) {
     reasons.push('topic-novelty')
     score += 0.65
   }

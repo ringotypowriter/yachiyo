@@ -102,6 +102,63 @@ test('shouldRecallBeforeRun stays quiet for small local growth after a recent re
   assert.deepEqual(decision.reasons, [])
 })
 
+test('shouldRecallBeforeRun stays quiet until six new messages land after the last recall', () => {
+  const decision = shouldRecallBeforeRun({
+    history: [
+      createMessage({
+        id: 'm1',
+        createdAt: '2026-03-23T00:00:00.000Z',
+        content: '部署前要跑 smoke test'
+      }),
+      createMessage({
+        id: 'm2',
+        createdAt: '2026-03-23T00:01:00.000Z',
+        content: '收到',
+        role: 'assistant'
+      }),
+      createMessage({
+        id: 'm3',
+        createdAt: '2026-03-23T00:02:00.000Z',
+        content: '还要检查配置漂移'
+      }),
+      createMessage({
+        id: 'm4',
+        createdAt: '2026-03-23T00:03:00.000Z',
+        content: '继续',
+        role: 'assistant'
+      }),
+      createMessage({
+        id: 'm5',
+        createdAt: '2026-03-23T00:04:00.000Z',
+        content: '然后核对回滚策略'
+      }),
+      createMessage({
+        id: 'm6',
+        createdAt: '2026-03-23T00:05:00.000Z',
+        content: '最后确认值班人'
+      }),
+      createMessage({
+        id: 'm7',
+        createdAt: '2026-03-23T00:06:00.000Z',
+        content: '再看 release note'
+      })
+    ],
+    now: '2026-03-23T00:06:00.000Z',
+    thread: createThread({
+      memoryRecall: {
+        lastRunAt: '2026-03-23T00:00:00.000Z',
+        lastRecallAt: '2026-03-23T00:00:00.000Z',
+        lastRecallMessageCount: 2,
+        lastRecallCharCount: 24
+      }
+    }),
+    userQuery: '再看 release note'
+  })
+
+  assert.equal(decision.shouldRecall, false)
+  assert.equal(decision.reasons.includes('message-growth'), false)
+})
+
 test('shouldRecallBeforeRun triggers after enough growth since the last recall', () => {
   const decision = shouldRecallBeforeRun({
     history: [
@@ -132,9 +189,19 @@ test('shouldRecallBeforeRun triggers after enough growth since the last recall',
         createdAt: '2026-03-23T00:04:00.000Z',
         content: '然后核对回滚策略'
       }),
-      createMessage({ id: 'm6', createdAt: '2026-03-23T00:05:00.000Z', content: '最后确认值班人' })
+      createMessage({ id: 'm6', createdAt: '2026-03-23T00:05:00.000Z', content: '最后确认值班人' }),
+      createMessage({
+        id: 'm7',
+        createdAt: '2026-03-23T00:06:00.000Z',
+        content: '补一条发布窗口安排'
+      }),
+      createMessage({
+        id: 'm8',
+        createdAt: '2026-03-23T00:07:00.000Z',
+        content: '最后确认值班人'
+      })
     ],
-    now: '2026-03-23T00:05:00.000Z',
+    now: '2026-03-23T00:07:00.000Z',
     thread: createThread({
       memoryRecall: {
         lastRunAt: '2026-03-23T00:00:00.000Z',
@@ -218,6 +285,84 @@ test('detectNoveltySignal is Chinese-aware and keeps mixed English technical ter
     novelty.novelTerms.some((term) => term.includes('调度')),
     true
   )
+})
+
+test('shouldRecallBeforeRun skips topic novelty when the score stays below the stricter threshold', () => {
+  const decision = shouldRecallBeforeRun({
+    history: [
+      createMessage({
+        id: 'm1',
+        createdAt: '2026-03-23T00:00:00.000Z',
+        content: '我们刚刚在聊 Drizzle migration 和 sqlite schema'
+      }),
+      createMessage({
+        id: 'm2',
+        createdAt: '2026-03-23T00:01:00.000Z',
+        content: '继续看数据库就好',
+        role: 'assistant'
+      }),
+      createMessage({
+        id: 'm3',
+        createdAt: '2026-03-23T00:02:00.000Z',
+        content: '另外，帮我看一下 MCP 工具的超时和 agent 调度问题'
+      })
+    ],
+    now: '2026-03-23T00:02:00.000Z',
+    thread: createThread({
+      memoryRecall: {
+        lastRunAt: '2026-03-23T00:01:30.000Z',
+        lastRecallAt: '2026-03-23T00:01:30.000Z',
+        lastRecallMessageCount: 2,
+        lastRecallCharCount: 48
+      }
+    }),
+    userQuery: '另外，帮我看一下 MCP 工具的超时和 agent 调度问题'
+  })
+
+  assert.equal(decision.noveltyScore < 0.75, true)
+  assert.equal(decision.novelTerms.length >= 3, true)
+  assert.equal(decision.shouldRecall, false)
+  assert.equal(decision.reasons.includes('topic-novelty'), false)
+})
+
+test('shouldRecallBeforeRun requires three strong novel terms before topic novelty recalls', () => {
+  const decision = shouldRecallBeforeRun({
+    history: [
+      createMessage({
+        id: 'm1',
+        createdAt: '2026-03-23T00:00:00.000Z',
+        content: '我们一直在聊部署节奏'
+      }),
+      createMessage({
+        id: 'm2',
+        createdAt: '2026-03-23T00:01:00.000Z',
+        content: '继续',
+        role: 'assistant'
+      }),
+      createMessage({
+        id: 'm3',
+        createdAt: '2026-03-23T00:02:00.000Z',
+        content: '新的问题来了'
+      })
+    ],
+    now: '2026-03-23T00:02:00.000Z',
+    thread: createThread({
+      memoryRecall: {
+        lastRunAt: '2026-03-23T00:01:30.000Z',
+        lastRecallAt: '2026-03-23T00:01:30.000Z',
+        lastRecallMessageCount: 2,
+        lastRecallCharCount: 24
+      }
+    }),
+    userQuery: '新的问题来了',
+    novelty: {
+      noveltyScore: 0.8,
+      novelTerms: ['vector index', 'agent scheduling', 'tool timeout']
+    }
+  })
+
+  assert.equal(decision.shouldRecall, true)
+  assert.equal(decision.reasons.includes('topic-novelty'), true)
 })
 
 test('detectNoveltySignal filters low-signal Chinese filler fragments from debug terms', () => {
