@@ -64,6 +64,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       ? JSON.stringify(nextThread.queuedFollowUpEnabledSkillNames)
       : null
     storedThread.queuedFollowUpMessageId = nextThread.queuedFollowUpMessageId ?? null
+    storedThread.starredAt = nextThread.starredAt ?? null
     storedThread.title = nextThread.title
     storedThread.updatedAt = nextThread.updatedAt
     storedThread.workspacePath = nextThread.workspacePath ?? null
@@ -169,6 +170,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
           : null,
         queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
         archivedAt: null,
+        starredAt: null,
         privacyMode: thread.privacyMode ? '1' : null,
         headMessageId: thread.headMessageId ?? null,
         updatedAt: thread.updatedAt,
@@ -195,6 +197,12 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
       thread.icon = icon
       thread.updatedAt = updatedAt
+    },
+
+    starThread({ threadId, starredAt }) {
+      const thread = threads.get(threadId)
+      if (!thread) return
+      thread.starredAt = starredAt
     },
 
     archiveThread({ threadId, archivedAt, updatedAt }) {

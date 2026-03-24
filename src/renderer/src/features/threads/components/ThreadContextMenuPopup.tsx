@@ -6,6 +6,7 @@ import {
   RotateCcw,
   SendHorizonal,
   Sparkles,
+  Star,
   Trash2
 } from 'lucide-react'
 import { useEffect } from 'react'
@@ -50,6 +51,14 @@ function resolveOperationIcon(operationKey: ThreadContextOperation['key']): Reac
 
   if (operationKey === 'restore') {
     return <RotateCcw size={14} strokeWidth={1.7} />
+  }
+
+  if (operationKey === 'star') {
+    return <Star size={14} strokeWidth={1.7} />
+  }
+
+  if (operationKey === 'unstar') {
+    return <Star size={14} strokeWidth={0} fill="currentColor" />
   }
 
   return <Trash2 size={14} strokeWidth={1.7} />

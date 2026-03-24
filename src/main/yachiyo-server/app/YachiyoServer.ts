@@ -447,6 +447,10 @@ export class YachiyoServer {
     return this.threadDomain.setThreadIcon(input)
   }
 
+  async starThread(input: { threadId: string; starred: boolean }): Promise<ThreadRecord> {
+    return this.threadDomain.starThread(input)
+  }
+
   async regenerateThreadTitle(input: { threadId: string }): Promise<ThreadRecord> {
     return this.threadDomain.regenerateThreadTitle(input)
   }

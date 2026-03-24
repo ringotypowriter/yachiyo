@@ -88,6 +88,8 @@ const api = {
       ipcRenderer.invoke('yachiyo:set-thread-privacy-mode', input),
     regenerateThreadTitle: (input: { threadId: string }): Promise<ThreadRecord> =>
       ipcRenderer.invoke('yachiyo:regenerate-thread-title', input),
+    starThread: (input: { threadId: string; starred: boolean }): Promise<ThreadRecord> =>
+      ipcRenderer.invoke('yachiyo:star-thread', input),
     subscribe: (listener: (event: YachiyoServerEvent) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, payload: YachiyoServerEvent): void => {
         listener(payload)

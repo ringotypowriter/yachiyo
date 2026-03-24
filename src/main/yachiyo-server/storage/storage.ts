@@ -27,6 +27,7 @@ export interface StoredThreadRow {
   queuedFollowUpEnabledTools: string | null
   queuedFollowUpEnabledSkillNames: string | null
   archivedAt: string | null
+  starredAt: string | null
   privacyMode: string | null
   updatedAt: string
   createdAt: string
@@ -127,6 +128,7 @@ export interface YachiyoStorage {
   createThread(input: CreateThreadInput): void
   renameThread(input: { threadId: string; title: string; updatedAt: string }): void
   setThreadIcon(input: { threadId: string; icon: string | null; updatedAt: string }): void
+  starThread(input: { threadId: string; starredAt: string | null }): void
   archiveThread(input: { threadId: string; archivedAt: string; updatedAt: string }): void
   restoreThread(input: { threadId: string; updatedAt: string }): void
   deleteThread(input: { threadId: string }): void
@@ -152,6 +154,7 @@ export function toThreadRecord(
     | 'branchFromMessageId'
     | 'branchFromThreadId'
     | 'archivedAt'
+    | 'starredAt'
     | 'headMessageId'
     | 'icon'
     | 'id'
@@ -173,6 +176,7 @@ export function toThreadRecord(
   if (row.preview === null) {
     return {
       ...(row.archivedAt === null ? {} : { archivedAt: row.archivedAt }),
+      ...(row.starredAt === null ? {} : { starredAt: row.starredAt }),
       ...(row.branchFromMessageId === null ? {} : { branchFromMessageId: row.branchFromMessageId }),
       ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
       ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
@@ -193,6 +197,7 @@ export function toThreadRecord(
 
   return {
     ...(row.archivedAt === null ? {} : { archivedAt: row.archivedAt }),
+    ...(row.starredAt === null ? {} : { starredAt: row.starredAt }),
     ...(row.branchFromMessageId === null ? {} : { branchFromMessageId: row.branchFromMessageId }),
     ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
     ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),

@@ -86,6 +86,7 @@ declare global {
           enabled: boolean
         }) => Promise<ThreadRecord>
         regenerateThreadTitle: (input: { threadId: string }) => Promise<ThreadRecord>
+        starThread: (input: { threadId: string; starred: boolean }) => Promise<ThreadRecord>
         subscribe: (listener: (event: YachiyoServerEvent) => void) => () => void
       }
     }

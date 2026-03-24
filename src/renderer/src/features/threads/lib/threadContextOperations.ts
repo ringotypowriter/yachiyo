@@ -7,6 +7,8 @@ export type ThreadContextOperationKey =
   | 'archive'
   | 'restore'
   | 'delete'
+  | 'star'
+  | 'unstar'
 
 export interface ThreadContextOperation {
   disabled?: boolean
@@ -19,6 +21,7 @@ export function resolveThreadContextOperations(input: {
   isArchived: boolean
   isMemoryEnabled?: boolean
   isRenameDisabled?: boolean
+  isStarred?: boolean
 }): ThreadContextOperation[] {
   if (input.isArchived) {
     return [
@@ -39,6 +42,10 @@ export function resolveThreadContextOperations(input: {
   }
 
   return [
+    {
+      key: input.isStarred ? 'unstar' : 'star',
+      label: input.isStarred ? 'Unstar' : 'Star'
+    },
     {
       disabled: input.isRenameDisabled,
       key: 'rename',

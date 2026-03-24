@@ -111,6 +111,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       const allThreads = db
         .select({
           archivedAt: threadsTable.archivedAt,
+          starredAt: threadsTable.starredAt,
           branchFromMessageId: threadsTable.branchFromMessageId,
           branchFromThreadId: threadsTable.branchFromThreadId,
           headMessageId: threadsTable.headMessageId,
@@ -259,6 +260,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       const thread = db
         .select({
           archivedAt: threadsTable.archivedAt,
+          starredAt: threadsTable.starredAt,
           branchFromMessageId: threadsTable.branchFromMessageId,
           branchFromThreadId: threadsTable.branchFromThreadId,
           headMessageId: threadsTable.headMessageId,
@@ -285,6 +287,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       const thread = db
         .select({
           archivedAt: threadsTable.archivedAt,
+          starredAt: threadsTable.starredAt,
           branchFromMessageId: threadsTable.branchFromMessageId,
           branchFromThreadId: threadsTable.branchFromThreadId,
           headMessageId: threadsTable.headMessageId,
@@ -333,6 +336,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         tx.insert(threadsTable)
           .values({
             archivedAt: null,
+            starredAt: null,
             branchFromMessageId: thread.branchFromMessageId ?? null,
             branchFromThreadId: thread.branchFromThreadId ?? null,
             createdAt,
@@ -408,6 +412,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           branchFromThreadId: thread.branchFromThreadId ?? null,
           headMessageId: thread.headMessageId ?? null,
           icon: thread.icon ?? null,
+          starredAt: thread.starredAt ?? null,
           memoryRecallState: serializeThreadMemoryRecallState(thread.memoryRecall),
           preview: thread.preview ?? null,
           privacyMode: thread.privacyMode ? '1' : null,
@@ -426,6 +431,10 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
     setThreadIcon({ threadId, icon, updatedAt }) {
       db.update(threadsTable).set({ icon, updatedAt }).where(eq(threadsTable.id, threadId)).run()
+    },
+
+    starThread({ threadId, starredAt }) {
+      db.update(threadsTable).set({ starredAt }).where(eq(threadsTable.id, threadId)).run()
     },
 
     setThreadPrivacyMode({ threadId, privacyMode, updatedAt }) {

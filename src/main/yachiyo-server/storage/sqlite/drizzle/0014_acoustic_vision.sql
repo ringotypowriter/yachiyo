@@ -1,0 +1,1 @@
+ALTER TABLE `threads` ADD `starred_at` text;

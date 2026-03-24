@@ -62,7 +62,8 @@ const IPC_CHANNELS = {
   updateThreadWorkspace: 'yachiyo:update-thread-workspace',
   upsertProvider: 'yachiyo:upsert-provider',
   setThreadPrivacyMode: 'yachiyo:set-thread-privacy-mode',
-  regenerateThreadTitle: 'yachiyo:regenerate-thread-title'
+  regenerateThreadTitle: 'yachiyo:regenerate-thread-title',
+  starThread: 'yachiyo:star-thread'
 } as const
 
 let server: YachiyoServer | null = null
@@ -227,6 +228,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handle(IPC_CHANNELS.regenerateThreadTitle, (input: { threadId: string }) =>
     server!.regenerateThreadTitle(input)
+  )
+  handle(IPC_CHANNELS.starThread, (input: { threadId: string; starred: boolean }) =>
+    server!.starThread(input)
   )
 
   app.once('before-quit', () => {

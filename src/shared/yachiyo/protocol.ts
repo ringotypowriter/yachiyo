@@ -309,6 +309,7 @@ export interface MessageTextBlockRecord {
 
 export interface ThreadRecord {
   archivedAt?: string
+  starredAt?: string
   icon?: string
   id: string
   title: string

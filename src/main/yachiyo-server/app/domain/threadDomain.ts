@@ -602,6 +602,27 @@ export class YachiyoServerThreadDomain {
     }
   }
 
+  starThread(input: { threadId: string; starred: boolean }): ThreadRecord {
+    const thread = this.deps.requireThread(input.threadId)
+    const starredAt = input.starred ? this.deps.timestamp() : null
+    const updatedThread: ThreadRecord = {
+      ...thread,
+      ...(starredAt ? { starredAt } : {})
+    }
+    if (!starredAt) {
+      delete updatedThread.starredAt
+    }
+
+    this.deps.storage.starThread({ threadId: thread.id, starredAt })
+    this.deps.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: updatedThread.id,
+      thread: updatedThread
+    })
+
+    return updatedThread
+  }
+
   setThreadPrivacyMode(input: { threadId: string; enabled: boolean }): ThreadRecord {
     const thread = this.deps.requireThread(input.threadId)
     if (this.deps.loadThreadMessages(thread.id).length > 0) {

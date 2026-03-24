@@ -99,6 +99,13 @@
       "when": 1774340226060,
       "tag": "0013_flaky_snowbird",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1774355074621,
+      "tag": "0014_acoustic_vision",
+      "breakpoints": true
     }
   ]
 }

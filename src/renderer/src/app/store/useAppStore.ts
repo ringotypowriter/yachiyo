@@ -103,6 +103,7 @@ interface AppState {
   regenerateThreadTitle: (threadId: string) => Promise<void>
   renameThread: (threadId: string, title: string) => Promise<void>
   setThreadIcon: (threadId: string, icon: string | null) => Promise<void>
+  starThread: (threadId: string, starred: boolean) => Promise<void>
   restoreThread: (threadId: string) => Promise<void>
   retryMessage: (messageId: string) => Promise<void>
   runPhasesByThread: Record<string, 'idle' | 'preparing' | 'streaming'>
@@ -1584,6 +1585,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setThreadIcon: async (threadId, icon) => {
     await window.api.yachiyo.setThreadIcon({ threadId, icon })
+  },
+
+  starThread: async (threadId, starred) => {
+    await window.api.yachiyo.starThread({ threadId, starred })
   },
 
   setThreadPrivacyMode: async (threadId, enabled) => {

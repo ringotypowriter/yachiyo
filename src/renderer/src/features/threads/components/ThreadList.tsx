@@ -1,6 +1,6 @@
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { Archive, Check, RotateCcw, Sparkles, Trash2, X } from 'lucide-react'
+import { Archive, Check, RotateCcw, Sparkles, Star, Trash2, X } from 'lucide-react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { Thread } from '@renderer/app/types'
 import { ThreadContextMenuPopup } from '@renderer/features/threads/components/ThreadContextMenuPopup'
@@ -70,16 +70,52 @@ function useTitleAnimation(title: string, skip: boolean): string {
   return displayed
 }
 
+function groupThreadsByDate(threads: Thread[]): Array<{ label: string; threads: Thread[] }> {
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+  const groups = new Map<string, Thread[]>()
+
+  for (const thread of threads) {
+    const date = new Date(thread.updatedAt)
+    const threadDay = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+    const diffMs = today.getTime() - threadDay.getTime()
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+
+    let label: string
+    if (diffDays === 0) {
+      label = 'Today'
+    } else if (diffDays === 1) {
+      label = 'Yesterday'
+    } else {
+      label = threadDay.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      })
+    }
+
+    if (!groups.has(label)) {
+      groups.set(label, [])
+    }
+    groups.get(label)!.push(thread)
+  }
+
+  return [...groups.entries()].map(([label, threads]) => ({ label, threads }))
+}
+
 function ThreadListItem({
   isActive,
   hasActiveRun,
   isMemoryEnabled,
   isSelectMode,
   isSelected,
+  isStarred,
   onRename,
   onSelectOperation,
   onSelectThread,
   onSetIcon,
+  onStar,
   onToggleSelect,
   thread,
   threadListMode
@@ -89,10 +125,12 @@ function ThreadListItem({
   isMemoryEnabled: boolean
   isSelectMode: boolean
   isSelected: boolean
+  isStarred: boolean
   onRename: (thread: Thread, nextTitle: string) => void
   onSelectOperation: (thread: Thread, operationKey: ThreadContextOperationKey) => void
   onSelectThread: (threadId: string) => void
   onSetIcon: (thread: Thread, icon: string | null) => void
+  onStar: (thread: Thread) => void
   onToggleSelect: (threadId: string) => void
   thread: Thread
   threadListMode: 'active' | 'archived'
@@ -100,11 +138,13 @@ function ThreadListItem({
   const preview = thread.preview?.trim() || 'No messages yet'
   const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null)
   const [renamingTitle, setRenamingTitle] = useState(false)
+  const [isHovered, setIsHovered] = useState(false)
   const iconInputRef = useRef<HTMLInputElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
   const operations = resolveThreadContextOperations({
     isArchived: threadListMode === 'archived',
-    isMemoryEnabled: isMemoryEnabled && !thread.privacyMode
+    isMemoryEnabled: isMemoryEnabled && !thread.privacyMode,
+    isStarred
   })
 
   const displayedTitle = useTitleAnimation(thread.title, renamingTitle)
@@ -165,121 +205,155 @@ function ThreadListItem({
     onSelectOperation(thread, operationKey)
   }
 
+  function openContextMenu(event: React.MouseEvent): void {
+    event.preventDefault()
+    if (isSelectMode) return
+    onSelectThread(thread.id)
+    setMenuPosition({
+      left: event.clientX,
+      top: event.clientY
+    })
+  }
+
   return (
     <>
-      <button
-        onClick={handleClick}
-        className="relative w-full text-left px-3 py-2.5 rounded-lg transition-colors no-drag"
-        style={{
-          background: isHighlighted ? theme.background.code : 'transparent'
-        }}
-        onContextMenu={(event) => {
-          event.preventDefault()
-          if (isSelectMode) return
-          onSelectThread(thread.id)
-          setMenuPosition({
-            left: event.clientX,
-            top: event.clientY
-          })
-        }}
-        onMouseEnter={(e) => {
-          if (!isHighlighted)
-            (e.currentTarget as HTMLElement).style.background = theme.background.hover
-        }}
-        onMouseLeave={(e) => {
-          if (!isHighlighted) (e.currentTarget as HTMLElement).style.background = 'transparent'
-        }}
+      <div
+        className="relative"
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
       >
-        <div className="flex items-stretch gap-2 pr-4">
-          {isSelectMode ? (
-            <span
-              className="shrink-0 flex items-center"
-              style={{ width: '1.45em', fontSize: '1.45em' }}
-            >
+        <button
+          onClick={handleClick}
+          className="relative w-full text-left px-3 py-2.5 rounded-lg transition-colors no-drag"
+          style={{
+            background: isHighlighted ? theme.background.code : 'transparent'
+          }}
+          onContextMenu={openContextMenu}
+          onMouseEnter={(e) => {
+            if (!isHighlighted)
+              (e.currentTarget as HTMLElement).style.background = theme.background.hover
+          }}
+          onMouseLeave={(e) => {
+            if (!isHighlighted) (e.currentTarget as HTMLElement).style.background = 'transparent'
+          }}
+        >
+          <div className="flex items-stretch gap-2 pr-4">
+            {isSelectMode ? (
               <span
-                className="flex items-center justify-center rounded-full"
+                className="shrink-0 flex items-center"
+                style={{ width: '1.45em', fontSize: '1.45em' }}
+              >
+                <span
+                  className="flex items-center justify-center rounded-full"
+                  style={{
+                    width: 18,
+                    height: 18,
+                    border: `1.5px solid ${isSelected ? theme.text.accentStrong : theme.border.strong}`,
+                    background: isSelected ? theme.text.accentStrong : 'transparent',
+                    flexShrink: 0
+                  }}
+                >
+                  {isSelected ? <Check size={10} strokeWidth={3} color="white" /> : null}
+                </span>
+              </span>
+            ) : thread.icon ? (
+              <span
+                className="relative shrink-0 flex items-center cursor-pointer select-none leading-none"
+                style={{ fontSize: '1.45em' }}
+                title="Click to change icon"
+              >
+                {thread.icon}
+                <input
+                  ref={iconInputRef}
+                  type="text"
+                  tabIndex={-1}
+                  defaultValue=""
+                  onInput={handleIconInput}
+                  onKeyDown={handleIconInputKeyDown}
+                  onClick={handleIconClick}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                  style={{ fontSize: 'inherit', width: '100%', height: '100%' }}
+                />
+              </span>
+            ) : null}
+            <div className="min-w-0 flex-1">
+              <span
+                className="flex items-center gap-1.5 text-sm font-medium"
+                style={{ color: isHighlighted ? theme.text.primary : theme.text.secondary }}
+              >
+                {renamingTitle ? (
+                  <input
+                    ref={titleInputRef}
+                    autoFocus
+                    type="text"
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onKeyDown={handleTitleInputKeyDown}
+                    onBlur={handleTitleInputBlur}
+                    defaultValue={thread.title}
+                    className="min-w-0 flex-1 bg-transparent outline-none"
+                    style={{
+                      color: isHighlighted ? theme.text.primary : theme.text.secondary,
+                      fontSize: 'inherit',
+                      fontWeight: 'inherit'
+                    }}
+                  />
+                ) : (
+                  <span className="min-w-0 flex-1 truncate">{displayedTitle}</span>
+                )}
+              </span>
+              <span
+                className="mt-0.5 block truncate"
                 style={{
-                  width: 18,
-                  height: 18,
-                  border: `1.5px solid ${isSelected ? theme.text.accentStrong : theme.border.strong}`,
-                  background: isSelected ? theme.text.accentStrong : 'transparent',
-                  flexShrink: 0
+                  fontSize: '0.68rem',
+                  color: isHighlighted ? theme.text.secondary : theme.text.muted
                 }}
               >
-                {isSelected ? <Check size={10} strokeWidth={3} color="white" /> : null}
+                {preview}
               </span>
-            </span>
-          ) : thread.icon ? (
-            <span
-              className="relative shrink-0 flex items-center cursor-pointer select-none leading-none"
-              style={{ fontSize: '1.45em' }}
-              title="Click to change icon"
-            >
-              {thread.icon}
-              <input
-                ref={iconInputRef}
-                type="text"
-                tabIndex={-1}
-                defaultValue=""
-                onInput={handleIconInput}
-                onKeyDown={handleIconInputKeyDown}
-                onClick={handleIconClick}
-                onMouseDown={(e) => e.stopPropagation()}
-                className="absolute inset-0 opacity-0 cursor-pointer"
-                style={{ fontSize: 'inherit', width: '100%', height: '100%' }}
-              />
-            </span>
-          ) : null}
-          <div className="min-w-0 flex-1">
-            <span
-              className="flex items-center gap-1.5 text-sm font-medium"
-              style={{ color: isHighlighted ? theme.text.primary : theme.text.secondary }}
-            >
-              {renamingTitle ? (
-                <input
-                  ref={titleInputRef}
-                  autoFocus
-                  type="text"
-                  onClick={(e) => e.stopPropagation()}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onKeyDown={handleTitleInputKeyDown}
-                  onBlur={handleTitleInputBlur}
-                  defaultValue={thread.title}
-                  className="min-w-0 flex-1 bg-transparent outline-none"
-                  style={{
-                    color: isHighlighted ? theme.text.primary : theme.text.secondary,
-                    fontSize: 'inherit',
-                    fontWeight: 'inherit'
-                  }}
-                />
-              ) : (
-                <span className="min-w-0 flex-1 truncate">{displayedTitle}</span>
-              )}
-            </span>
-            <span
-              className="mt-0.5 block truncate"
-              style={{
-                fontSize: '0.68rem',
-                color: isHighlighted ? theme.text.secondary : theme.text.muted
-              }}
-            >
-              {preview}
-            </span>
+            </div>
           </div>
-        </div>
-        {hasActiveRun ? (
-          <span
-            aria-label="Run active"
-            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full"
-            style={{
-              width: '7px',
-              height: '7px',
-              background: theme.text.accentStrong,
-              opacity: isHighlighted ? 1 : 0.8
+          {hasActiveRun ? (
+            <span
+              aria-label="Run active"
+              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full"
+              style={{
+                width: '7px',
+                height: '7px',
+                background: theme.text.accentStrong,
+                opacity: isHighlighted ? 1 : 0.8
+              }}
+            />
+          ) : null}
+        </button>
+        {!isSelectMode ? (
+          <button
+            title={isStarred ? 'Unstar' : 'Star'}
+            onClick={(e) => {
+              e.stopPropagation()
+              onStar(thread)
             }}
-          />
+            onMouseDown={(e) => e.stopPropagation()}
+            onContextMenu={(e) => {
+              e.stopPropagation()
+              openContextMenu(e)
+            }}
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 no-drag"
+            style={{
+              color: isStarred ? '#f59e0b' : theme.text.muted,
+              opacity: isHovered || isStarred ? 1 : 0,
+              transition: 'opacity 0.15s'
+            }}
+          >
+            <Star
+              size={11}
+              strokeWidth={isStarred ? 0 : 1.5}
+              fill={isStarred ? '#f59e0b' : 'none'}
+            />
+          </button>
         ) : null}
-      </button>
+      </div>
       {menuPosition ? (
         <ThreadContextMenuPopup
           position={menuPosition}
@@ -292,41 +366,45 @@ function ThreadListItem({
   )
 }
 
-export function ThreadList(): React.JSX.Element {
-  const activeArchivedThreadId = useAppStore((s) => s.activeArchivedThreadId)
-  const activeThreadId = useAppStore((s) => s.activeThreadId)
-  const archiveThread = useAppStore((s) => s.archiveThread)
-  const archivedThreads = useAppStore((s) => s.archivedThreads)
-  const compactThreadToAnotherThread = useAppStore((s) => s.compactThreadToAnotherThread)
-  const cancelRunForThread = useAppStore((s) => s.cancelRunForThread)
-  const deleteThread = useAppStore((s) => s.deleteThread)
-  const latestRunsByThread = useAppStore((s) => s.latestRunsByThread)
-  const regenerateThreadTitle = useAppStore((s) => s.regenerateThreadTitle)
-  const renameThread = useAppStore((s) => s.renameThread)
-  const setThreadIcon = useAppStore((s) => s.setThreadIcon)
-  const restoreThread = useAppStore((s) => s.restoreThread)
-  const saveThread = useAppStore((s) => s.saveThread)
-  const setActiveArchivedThread = useAppStore((s) => s.setActiveArchivedThread)
-  const setActiveThread = useAppStore((s) => s.setActiveThread)
-  const threadListMode = useAppStore((s) => s.threadListMode)
-  const threads = useAppStore((s) => s.threads)
-  const config = useAppStore((s) => s.config)
-  const visibleThreads = threadListMode === 'archived' ? archivedThreads : threads
-  const activeId = threadListMode === 'archived' ? activeArchivedThreadId : activeThreadId
-  const memoryEnabled = isMemoryConfigured(config)
-
+function ThreadListContent({
+  activeId,
+  archiveThread,
+  cancelRunForThread,
+  compactThreadToAnotherThread,
+  deleteThread,
+  latestRunsByThread,
+  memoryEnabled,
+  regenerateThreadTitle,
+  renameThread,
+  restoreThread,
+  saveThread,
+  setActiveArchivedThread,
+  setActiveThread,
+  setThreadIcon,
+  starThread,
+  threadListMode,
+  visibleThreads
+}: {
+  activeId: string | null
+  archiveThread: (threadId: string) => Promise<void>
+  cancelRunForThread: (threadId: string) => Promise<void>
+  compactThreadToAnotherThread: () => Promise<void>
+  deleteThread: (threadId: string) => Promise<void>
+  latestRunsByThread: Record<string, { status: string }>
+  memoryEnabled: boolean
+  regenerateThreadTitle: (threadId: string) => Promise<void>
+  renameThread: (threadId: string, title: string) => Promise<void>
+  restoreThread: (threadId: string) => Promise<void>
+  saveThread: (threadId: string, options: { archiveAfterSave: boolean }) => Promise<void>
+  setActiveArchivedThread: (threadId: string) => void
+  setActiveThread: (threadId: string) => void
+  setThreadIcon: (threadId: string, icon: string | null) => Promise<void>
+  starThread: (threadId: string, starred: boolean) => Promise<void>
+  threadListMode: 'active' | 'archived'
+  visibleThreads: Thread[]
+}): React.JSX.Element {
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const prevThreadListModeRef = useRef(threadListMode)
-
-  // Reset select mode when switching between active and archived tabs (during render, not effect)
-  if (prevThreadListModeRef.current !== threadListMode) {
-    prevThreadListModeRef.current = threadListMode
-    if (selectMode) {
-      setSelectMode(false)
-      setSelectedIds(new Set())
-    }
-  }
 
   function exitSelectMode(): void {
     setSelectMode(false)
@@ -367,6 +445,11 @@ export function ThreadList(): React.JSX.Element {
 
       if (operationKey === 'regenerate-title') {
         await regenerateThreadTitle(thread.id)
+        return
+      }
+
+      if (operationKey === 'star' || operationKey === 'unstar') {
+        await starThread(thread.id, operationKey === 'star')
         return
       }
 
@@ -480,6 +563,44 @@ export function ThreadList(): React.JSX.Element {
     }
   }
 
+  async function handleStar(thread: Thread): Promise<void> {
+    try {
+      await starThread(thread.id, !thread.starredAt)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to update the thread.')
+    }
+  }
+
+  function renderThreadItem(thread: Thread): React.JSX.Element {
+    return (
+      <ThreadListItem
+        key={thread.id}
+        thread={thread}
+        isActive={thread.id === activeId}
+        hasActiveRun={latestRunsByThread[thread.id]?.status === 'running'}
+        isMemoryEnabled={memoryEnabled}
+        isSelectMode={selectMode}
+        isSelected={selectedIds.has(thread.id)}
+        isStarred={!!thread.starredAt}
+        threadListMode={threadListMode}
+        onRename={(targetThread, nextTitle) => void handleRename(targetThread, nextTitle)}
+        onSelectOperation={(targetThread, operationKey) =>
+          void handleSelectOperation(targetThread, operationKey)
+        }
+        onSelectThread={(threadId) => {
+          if (threadListMode === 'archived') {
+            setActiveArchivedThread(threadId)
+            return
+          }
+          setActiveThread(threadId)
+        }}
+        onSetIcon={(targetThread, icon) => void handleSetIcon(targetThread, icon)}
+        onStar={(targetThread) => void handleStar(targetThread)}
+        onToggleSelect={toggleSelection}
+      />
+    )
+  }
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {selectMode ? (
@@ -573,32 +694,101 @@ export function ThreadList(): React.JSX.Element {
               : 'No chats yet. Start one from the compose box or the new chat button.'}
           </div>
         ) : null}
-        {visibleThreads.map((thread) => (
-          <ThreadListItem
-            key={thread.id}
-            thread={thread}
-            isActive={thread.id === activeId}
-            hasActiveRun={latestRunsByThread[thread.id]?.status === 'running'}
-            isMemoryEnabled={memoryEnabled}
-            isSelectMode={selectMode}
-            isSelected={selectedIds.has(thread.id)}
-            threadListMode={threadListMode}
-            onRename={(targetThread, nextTitle) => void handleRename(targetThread, nextTitle)}
-            onSelectOperation={(targetThread, operationKey) =>
-              void handleSelectOperation(targetThread, operationKey)
-            }
-            onSelectThread={(threadId) => {
-              if (threadListMode === 'archived') {
-                setActiveArchivedThread(threadId)
-                return
-              }
-              setActiveThread(threadId)
-            }}
-            onSetIcon={(targetThread, icon) => void handleSetIcon(targetThread, icon)}
-            onToggleSelect={toggleSelection}
-          />
-        ))}
+        {threadListMode === 'active' ? (
+          <>
+            {(() => {
+              const starredThreads = visibleThreads.filter((t) => t.starredAt)
+              if (starredThreads.length === 0) return null
+              return (
+                <>
+                  <div
+                    className="px-3 pt-2 pb-1"
+                    style={{
+                      fontSize: '0.7rem',
+                      fontWeight: 600,
+                      color: theme.text.muted,
+                      letterSpacing: '0.04em',
+                      textTransform: 'uppercase'
+                    }}
+                  >
+                    Starred
+                  </div>
+                  {starredThreads.map(renderThreadItem)}
+                </>
+              )
+            })()}
+            {(() => {
+              const unstarredThreads = visibleThreads.filter((t) => !t.starredAt)
+              const groups = groupThreadsByDate(unstarredThreads)
+              return groups.map(({ label, threads: groupThreads }) => (
+                <div key={label}>
+                  <div
+                    className="px-3 pt-2 pb-1"
+                    style={{
+                      fontSize: '0.7rem',
+                      fontWeight: 500,
+                      color: theme.text.muted
+                    }}
+                  >
+                    {label}
+                  </div>
+                  {groupThreads.map(renderThreadItem)}
+                </div>
+              ))
+            })()}
+          </>
+        ) : (
+          visibleThreads.map(renderThreadItem)
+        )}
       </div>
     </div>
+  )
+}
+
+export function ThreadList(): React.JSX.Element {
+  const activeArchivedThreadId = useAppStore((s) => s.activeArchivedThreadId)
+  const activeThreadId = useAppStore((s) => s.activeThreadId)
+  const archiveThread = useAppStore((s) => s.archiveThread)
+  const archivedThreads = useAppStore((s) => s.archivedThreads)
+  const compactThreadToAnotherThread = useAppStore((s) => s.compactThreadToAnotherThread)
+  const cancelRunForThread = useAppStore((s) => s.cancelRunForThread)
+  const deleteThread = useAppStore((s) => s.deleteThread)
+  const latestRunsByThread = useAppStore((s) => s.latestRunsByThread)
+  const regenerateThreadTitle = useAppStore((s) => s.regenerateThreadTitle)
+  const renameThread = useAppStore((s) => s.renameThread)
+  const setThreadIcon = useAppStore((s) => s.setThreadIcon)
+  const starThread = useAppStore((s) => s.starThread)
+  const restoreThread = useAppStore((s) => s.restoreThread)
+  const saveThread = useAppStore((s) => s.saveThread)
+  const setActiveArchivedThread = useAppStore((s) => s.setActiveArchivedThread)
+  const setActiveThread = useAppStore((s) => s.setActiveThread)
+  const threadListMode = useAppStore((s) => s.threadListMode)
+  const threads = useAppStore((s) => s.threads)
+  const config = useAppStore((s) => s.config)
+  const visibleThreads = threadListMode === 'archived' ? archivedThreads : threads
+  const activeId = threadListMode === 'archived' ? activeArchivedThreadId : activeThreadId
+  const memoryEnabled = isMemoryConfigured(config)
+
+  return (
+    <ThreadListContent
+      key={threadListMode}
+      activeId={activeId}
+      archiveThread={archiveThread}
+      cancelRunForThread={cancelRunForThread}
+      compactThreadToAnotherThread={compactThreadToAnotherThread}
+      deleteThread={deleteThread}
+      latestRunsByThread={latestRunsByThread as Record<string, { status: string }>}
+      memoryEnabled={memoryEnabled}
+      regenerateThreadTitle={regenerateThreadTitle}
+      renameThread={renameThread}
+      restoreThread={restoreThread}
+      saveThread={saveThread}
+      setActiveArchivedThread={setActiveArchivedThread}
+      setActiveThread={setActiveThread}
+      setThreadIcon={setThreadIcon}
+      starThread={starThread}
+      threadListMode={threadListMode}
+      visibleThreads={visibleThreads}
+    />
   )
 }
