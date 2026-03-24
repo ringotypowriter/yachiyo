@@ -78,3 +78,35 @@ export function hydrateProcessEnvFromLoginShell(): void {
     process.env[key] = value
   }
 }
+
+/**
+ * Resolves the system proxy for HTTPS via Electron's app.resolveProxy and injects
+ * it into process.env so that node-fetch / gaxios (used by google-auth-library)
+ * can pick it up. Only runs on macOS and only sets the env vars if they are not
+ * already present (shell-configured proxies take precedence).
+ */
+export async function hydrateProxyFromSystemSettings(): Promise<void> {
+  if (process.platform !== 'darwin') {
+    return
+  }
+
+  if (process.env.HTTPS_PROXY || process.env.https_proxy) {
+    return
+  }
+
+  try {
+    const { app } = await import('electron')
+    const proxyString = await app.resolveProxy('https://oauth2.googleapis.com')
+    // proxyString is e.g. "PROXY 10.0.0.1:3128" or "SOCKS5 10.0.0.1:1080" or "DIRECT"
+    const match = proxyString.match(/^(?:PROXY|HTTPS)\s+(\S+)/i)
+    if (match) {
+      const proxyUrl = `http://${match[1]}`
+      process.env.HTTPS_PROXY = proxyUrl
+      process.env.https_proxy = proxyUrl
+      process.env.HTTP_PROXY = proxyUrl
+      process.env.http_proxy = proxyUrl
+    }
+  } catch {
+    // resolveProxy is best-effort; ignore failures
+  }
+}

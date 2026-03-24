@@ -3,7 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { installEditableContextMenu } from './editableContextMenu'
-import { hydrateProcessEnvFromLoginShell } from './userShellEnv'
+import { hydrateProcessEnvFromLoginShell, hydrateProxyFromSystemSettings } from './userShellEnv'
 import { resolveYachiyoDataDir } from './yachiyo-server/config/paths'
 import { registerYachiyoGateway } from './yachiyoGateway'
 import { setupCLI } from './cliSetup'
@@ -62,6 +62,7 @@ function createWindow(): void {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   hydrateProcessEnvFromLoginShell()
+  hydrateProxyFromSystemSettings()
   setupCLI()
 
   // Set app user model id for windows

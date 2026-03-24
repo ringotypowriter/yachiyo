@@ -23,10 +23,6 @@ export function resolveThreadContextOperations(input: {
   if (input.isArchived) {
     return [
       {
-        key: 'enter-select-mode',
-        label: 'Select'
-      },
-      {
         key: 'restore',
         label: 'Restore'
       },
@@ -43,10 +39,6 @@ export function resolveThreadContextOperations(input: {
   }
 
   return [
-    {
-      key: 'enter-select-mode',
-      label: 'Select'
-    },
     {
       disabled: input.isRenameDisabled,
       key: 'rename',

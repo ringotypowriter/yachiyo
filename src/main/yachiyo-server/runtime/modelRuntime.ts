@@ -99,6 +99,12 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             toolName?: string
             type: string
           }>) {
+            if (part.type === 'error') {
+              throw part.error instanceof Error
+                ? part.error
+                : new Error(String(part.error ?? 'Unknown stream error'))
+            }
+
             if (part.type === 'reasoning' && part.text) {
               request.onReasoningDelta?.(part.text as string)
               continue
@@ -241,6 +247,11 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             error: toSerializableError(error),
             model: request.settings.model,
             providerOptions
+          })
+        } else if (request.settings.provider === 'vertex') {
+          console.error('[yachiyo][vertex] stream error', {
+            error: error instanceof Error ? error.message : String(error),
+            model: request.settings.model
           })
         }
 
