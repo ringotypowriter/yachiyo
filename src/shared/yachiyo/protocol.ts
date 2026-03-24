@@ -384,6 +384,8 @@ export interface ChatConfig {
 
 export interface GeneralConfig {
   sidebarVisibility?: SidebarVisibility
+  uiFontSize?: number
+  chatFontSize?: number
 }
 
 export interface UserDocument {

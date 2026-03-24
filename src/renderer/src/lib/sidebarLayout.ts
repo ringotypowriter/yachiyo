@@ -6,9 +6,13 @@ import {
 } from '../../../shared/yachiyo/protocol.ts'
 
 export const SIDEBAR_WIDTH = 260
+export const DEFAULT_SIDEBAR_WIDTH = 260
+export const MIN_SIDEBAR_WIDTH = 180
+export const MAX_SIDEBAR_WIDTH = 480
 export const TRAFFIC_LIGHTS_SAFE_ZONE = 80
 export const MAIN_HEADER_HORIZONTAL_PADDING = 20
 export const SIDEBAR_VISIBILITY_STORAGE_KEY = 'yachiyo.sidebarVisibility'
+export const SIDEBAR_WIDTH_STORAGE_KEY = 'yachiyo.sidebarWidth'
 
 export interface SidebarLayout {
   dividerOffset: number | null
@@ -18,13 +22,16 @@ export interface SidebarLayout {
   toggleTitle: string
 }
 
-export function resolveSidebarLayout(isSidebarOpen: boolean): SidebarLayout {
+export function resolveSidebarLayout(
+  isSidebarOpen: boolean,
+  sidebarWidth: number = DEFAULT_SIDEBAR_WIDTH
+): SidebarLayout {
   if (isSidebarOpen) {
     return {
-      dividerOffset: SIDEBAR_WIDTH,
+      dividerOffset: sidebarWidth,
       mainHeaderPaddingLeft: MAIN_HEADER_HORIZONTAL_PADDING,
       showDivider: true,
-      sidebarWidth: SIDEBAR_WIDTH,
+      sidebarWidth,
       toggleTitle: 'Hide sidebar'
     }
   }
@@ -36,6 +43,13 @@ export function resolveSidebarLayout(isSidebarOpen: boolean): SidebarLayout {
     sidebarWidth: 0,
     toggleTitle: 'Show sidebar'
   }
+}
+
+export function parseStoredSidebarWidth(value: string | null | undefined): number | null {
+  if (!value) return null
+  const n = parseInt(value, 10)
+  if (isNaN(n)) return null
+  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, n))
 }
 
 export function resolveSidebarVisibilityPreference(

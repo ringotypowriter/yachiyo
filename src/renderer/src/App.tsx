@@ -2,13 +2,22 @@ import { useEffect, useState } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { AppMainPanel } from '@renderer/features/layout/components/AppMainPanel'
 import { AppSidebar } from '@renderer/features/layout/components/AppSidebar'
+import { AppSidebarDivider } from '@renderer/features/layout/components/AppSidebarDivider'
 import { useSidebarVisibilityState } from '@renderer/features/layout/hooks/useSidebarVisibilityState'
 import { isCreateNewThreadShortcut } from '@renderer/features/layout/lib/newThreadShortcut'
 import { isOpenSidebarSearchShortcut } from '@renderer/features/layout/lib/findBarShortcut'
 
 function App(): React.JSX.Element {
-  const { isConfigLoaded, isSidebarOpen, openSidebar, sidebarLayout, toggleSidebar } =
-    useSidebarVisibilityState()
+  const {
+    isDragging,
+    isConfigLoaded,
+    isSidebarOpen,
+    onDragStart,
+    openSidebar,
+    sidebarLayout,
+    toggleSidebar
+  } = useSidebarVisibilityState()
+  const config = useAppStore((s) => s.config)
   const createNewThread = useAppStore((s) => s.createNewThread)
   const [isSidebarSearchOpen, setIsSidebarSearchOpen] = useState(false)
   const [pendingFindQuery, setPendingFindQuery] = useState<string | null>(null)
@@ -37,9 +46,28 @@ function App(): React.JSX.Element {
     return () => document.removeEventListener('keydown', handler)
   }, [])
 
+  useEffect(() => {
+    const uiFontSize = config?.general?.uiFontSize
+    const chatFontSize = config?.general?.chatFontSize
+    if (uiFontSize != null) {
+      document.documentElement.style.setProperty('--yachiyo-font-size-ui', `${uiFontSize}px`)
+    } else {
+      document.documentElement.style.removeProperty('--yachiyo-font-size-ui')
+    }
+    if (chatFontSize != null) {
+      document.documentElement.style.setProperty('--yachiyo-font-size-chat', `${chatFontSize}px`)
+    } else {
+      document.documentElement.style.removeProperty('--yachiyo-font-size-chat')
+    }
+  }, [config?.general?.uiFontSize, config?.general?.chatFontSize])
+
   return (
-    <div className="flex h-full overflow-hidden relative">
+    <div
+      className="flex h-full overflow-hidden relative"
+      style={{ userSelect: isDragging ? 'none' : undefined }}
+    >
       <AppSidebar
+        isDragging={isDragging}
         isOpen={isSidebarOpen}
         isToggleDisabled={!isConfigLoaded}
         onToggle={() => void toggleSidebar()}
@@ -50,6 +78,7 @@ function App(): React.JSX.Element {
         onCloseSearch={() => setIsSidebarSearchOpen(false)}
         onSearchSelect={(query) => setPendingFindQuery(query)}
       />
+      <AppSidebarDivider offset={sidebarLayout.dividerOffset} onDragStart={onDragStart} />
       <div className="flex flex-1 min-w-0 p-2 pl-1">
         <AppMainPanel
           headerPaddingLeft={sidebarLayout.mainHeaderPaddingLeft}

@@ -17,6 +17,7 @@ import {
   normalizeUserPrompts,
   type BrowserBackedWebSearchSessionConfig,
   type ExaWebSearchConfig,
+  type GeneralConfig,
   type MemoryConfig,
   type ProviderConfig,
   type ProviderKind,
@@ -119,6 +120,26 @@ function normalizeStringList(value: unknown): string[] {
   if (!Array.isArray(value)) return []
 
   return [...new Set(value.map((item) => normalizeString(item, '')).filter(Boolean))]
+}
+
+function normalizePositiveInt(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) return undefined
+  return value
+}
+
+function normalizeGeneralConfig(value: unknown): GeneralConfig {
+  const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  const result: GeneralConfig = {
+    sidebarVisibility: normalizeSidebarVisibility(
+      input['sidebarVisibility'],
+      DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility
+    )
+  }
+  const uiFontSize = normalizePositiveInt(input['uiFontSize'])
+  const chatFontSize = normalizePositiveInt(input['chatFontSize'])
+  if (uiFontSize !== undefined) result.uiFontSize = uiFontSize
+  if (chatFontSize !== undefined) result.chatFontSize = chatFontSize
+  return result
 }
 
 function normalizeWorkspaceConfig(
@@ -324,14 +345,7 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
       input['enabledTools'],
       DEFAULT_SETTINGS_CONFIG.enabledTools
     ),
-    general: {
-      sidebarVisibility: normalizeSidebarVisibility(
-        input['general'] && typeof input['general'] === 'object'
-          ? (input['general'] as Record<string, unknown>)['sidebarVisibility']
-          : undefined,
-        DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility
-      )
-    },
+    general: normalizeGeneralConfig(input['general']),
     chat: {
       activeRunEnterBehavior: normalizeActiveRunEnterBehavior(
         input['chat'] && typeof input['chat'] === 'object'
@@ -705,6 +719,12 @@ export function stringifySettingsToml(config: SettingsConfig): string {
         DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility
       )
     )}`,
+    ...(normalized.general?.uiFontSize != null
+      ? [`uiFontSize = ${normalized.general.uiFontSize}`]
+      : []),
+    ...(normalized.general?.chatFontSize != null
+      ? [`chatFontSize = ${normalized.general.chatFontSize}`]
+      : []),
     '',
     '[chat]',
     `activeRunEnterBehavior = ${stringifyTomlString(

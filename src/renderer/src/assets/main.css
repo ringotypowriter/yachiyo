@@ -35,6 +35,7 @@ body,
 
 body {
   font-family: var(--yachiyo-font-ui);
+  font-size: var(--yachiyo-font-size-ui, 13px);
   background: transparent;
   color: rgb(var(--yachiyo-rgb-ink));
   -webkit-font-smoothing: antialiased;
@@ -72,7 +73,7 @@ body {
 
 /* Streamdown overrides */
 .streamdown-content {
-  font-size: 14px;
+  font-size: var(--yachiyo-font-size-chat, 14px);
   line-height: 1.6;
   color: rgb(var(--yachiyo-rgb-ink));
 }

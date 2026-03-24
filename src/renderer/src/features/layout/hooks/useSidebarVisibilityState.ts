@@ -1,11 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SidebarVisibility } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import {
+  DEFAULT_SIDEBAR_WIDTH,
+  MAX_SIDEBAR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
   SIDEBAR_VISIBILITY_STORAGE_KEY,
+  SIDEBAR_WIDTH_STORAGE_KEY,
   applySidebarVisibilityPreference,
   isSidebarOpenByPreference,
   parseStoredSidebarVisibility,
+  parseStoredSidebarWidth,
   resolveSidebarLayout,
   resolveSidebarVisibilityPreference,
   type SidebarLayout
@@ -13,9 +18,13 @@ import {
 
 export interface UseSidebarVisibilityStateResult {
   isConfigLoaded: boolean
+  isDragging: boolean
   isSidebarOpen: boolean
+  onDragStart: (e: React.MouseEvent) => void
   openSidebar: () => Promise<void>
+  setWidth: (w: number) => void
   sidebarLayout: SidebarLayout
+  sidebarWidth: number
   toggleSidebar: () => Promise<void>
 }
 
@@ -36,7 +45,26 @@ export function useSidebarVisibilityState(): UseSidebarVisibilityStateResult {
   )
   const [sidebarOpenOverride, setSidebarOpenOverride] = useState<boolean | null>(null)
   const isSidebarOpen = sidebarOpenOverride ?? preferredSidebarOpen
-  const sidebarLayout = resolveSidebarLayout(isSidebarOpen)
+
+  const [sidebarWidth, setSidebarWidth] = useState<number>(
+    () =>
+      parseStoredSidebarWidth(globalThis.localStorage?.getItem(SIDEBAR_WIDTH_STORAGE_KEY)) ??
+      DEFAULT_SIDEBAR_WIDTH
+  )
+  const [isDragging, setIsDragging] = useState(false)
+  const sidebarLayout = resolveSidebarLayout(isSidebarOpen, sidebarWidth)
+
+  useEffect(() => {
+    const handler = (e: StorageEvent): void => {
+      if (e.key !== SIDEBAR_WIDTH_STORAGE_KEY) return
+      const parsed = parseStoredSidebarWidth(e.newValue)
+      if (parsed != null) {
+        setSidebarWidth(parsed)
+      }
+    }
+    window.addEventListener('storage', handler)
+    return () => window.removeEventListener('storage', handler)
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -51,6 +79,54 @@ export function useSidebarVisibilityState(): UseSidebarVisibilityStateResult {
 
     globalThis.localStorage?.setItem(SIDEBAR_VISIBILITY_STORAGE_KEY, preferredSidebarVisibility)
   }, [config, preferredSidebarVisibility])
+
+  const setWidth = useCallback((w: number) => {
+    const clamped = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, w))
+    setSidebarWidth(clamped)
+    globalThis.localStorage?.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clamped))
+  }, [])
+
+  const onDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      const startX = e.clientX
+      const startWidth = sidebarWidth
+      let currentWidth = startWidth
+
+      setIsDragging(true)
+
+      const onMouseMove = (event: MouseEvent): void => {
+        const delta = event.clientX - startX
+        const next = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, startWidth + delta))
+        currentWidth = next
+        setSidebarWidth(next)
+      }
+
+      const stopDragging = (finalWidth: number): void => {
+        document.removeEventListener('mousemove', onMouseMove)
+        document.removeEventListener('mouseup', onMouseUp)
+        window.removeEventListener('blur', onWindowBlur)
+        setIsDragging(false)
+        globalThis.localStorage?.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(finalWidth))
+      }
+
+      const onMouseUp = (event: MouseEvent): void => {
+        const finalWidth = Math.min(
+          MAX_SIDEBAR_WIDTH,
+          Math.max(MIN_SIDEBAR_WIDTH, startWidth + (event.clientX - startX))
+        )
+        stopDragging(finalWidth)
+      }
+
+      const onWindowBlur = (): void => {
+        stopDragging(currentWidth)
+      }
+
+      document.addEventListener('mousemove', onMouseMove)
+      document.addEventListener('mouseup', onMouseUp)
+      window.addEventListener('blur', onWindowBlur)
+    },
+    [sidebarWidth]
+  )
 
   function clearPendingOverrideSync(): void {
     clearPendingOverrideSyncRef.current?.()
@@ -103,9 +179,13 @@ export function useSidebarVisibilityState(): UseSidebarVisibilityStateResult {
 
   return {
     isConfigLoaded: config !== null,
+    isDragging,
     isSidebarOpen,
+    onDragStart,
     openSidebar: () => persistSidebarVisibility(true),
+    setWidth,
     sidebarLayout,
+    sidebarWidth,
     toggleSidebar: () => persistSidebarVisibility(!isSidebarOpen)
   }
 }

@@ -63,7 +63,8 @@ export function UserMessageBubble({
           <UserMessageImages message={message} />
           {message.content ? (
             <p
-              className={`text-sm leading-relaxed whitespace-pre-wrap m-0${message.images?.length ? ' mt-3' : ''}`}
+              className={`leading-relaxed whitespace-pre-wrap m-0${message.images?.length ? ' mt-3' : ''}`}
+              style={{ fontSize: 'var(--yachiyo-font-size-chat, 14px)' }}
             >
               {message.content}
             </p>

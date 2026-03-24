@@ -8,6 +8,7 @@ import { theme } from '@renderer/theme/theme'
 import { Tooltip } from '@renderer/components/Tooltip'
 
 export interface AppSidebarProps {
+  isDragging: boolean
   isOpen: boolean
   isToggleDisabled: boolean
   onToggle: () => void
@@ -20,6 +21,7 @@ export interface AppSidebarProps {
 }
 
 export function AppSidebar({
+  isDragging,
   isOpen,
   isToggleDisabled,
   onToggle,
@@ -39,12 +41,13 @@ export function AppSidebar({
   return (
     <div
       aria-hidden={!isOpen}
-      className="flex flex-col h-full shrink-0 overflow-hidden transition-all duration-200"
+      className="flex flex-col h-full shrink-0 overflow-hidden"
       style={{
         width: sidebarWidth,
         background: 'transparent',
         opacity: isOpen ? 1 : 0,
-        pointerEvents: isOpen ? 'auto' : 'none'
+        pointerEvents: isOpen ? 'auto' : 'none',
+        transition: isDragging ? 'none' : 'opacity 200ms, width 200ms'
       }}
     >
       <div

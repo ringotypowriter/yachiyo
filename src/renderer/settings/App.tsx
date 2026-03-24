@@ -27,6 +27,7 @@ import { ProvidersPane } from './panes/ProvidersPane'
 import { SearchPane } from './panes/SearchPane'
 import { PromptsPane } from './panes/PromptsPane'
 import { SkillsPane } from './panes/SkillsPane'
+import { UIPane } from './panes/UIPane'
 import { WorkspacePane } from './panes/WorkspacePane'
 
 type TabId =
@@ -273,6 +274,8 @@ function SettingsApp(): React.ReactNode {
       body = <SearchPane draft={draft} onChange={setDraft} />
     } else if (activeTab === 'memory') {
       body = <MemoryPane draft={draft} onChange={setDraft} />
+    } else if (activeTab === 'ui') {
+      body = <UIPane draft={draft} onChange={setDraft} subTab={activeSubTab['ui'] ?? 'theme'} />
     }
   }
 
