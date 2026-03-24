@@ -50,9 +50,9 @@ function App(): React.JSX.Element {
     const uiFontSize = config?.general?.uiFontSize
     const chatFontSize = config?.general?.chatFontSize
     if (uiFontSize != null) {
-      document.documentElement.style.setProperty('--yachiyo-font-size-ui', `${uiFontSize}px`)
+      document.documentElement.style.setProperty('--yachiyo-ui-zoom', String(uiFontSize / 14))
     } else {
-      document.documentElement.style.removeProperty('--yachiyo-font-size-ui')
+      document.documentElement.style.removeProperty('--yachiyo-ui-zoom')
     }
     if (chatFontSize != null) {
       document.documentElement.style.setProperty('--yachiyo-font-size-chat', `${chatFontSize}px`)

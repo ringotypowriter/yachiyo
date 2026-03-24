@@ -1,7 +1,7 @@
 :root {
   --yachiyo-font-ui: 'Avenir Next', 'Helvetica Neue', 'Segoe UI', sans-serif;
   --yachiyo-font-display: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
-  --yachiyo-font-size-ui: 13px;
+  --yachiyo-ui-zoom: 1;
   --yachiyo-font-size-chat: 14px;
 
   --yachiyo-rgb-ink: 45 45 43;

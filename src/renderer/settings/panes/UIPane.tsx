@@ -11,7 +11,7 @@ import {
 
 const UI_FONT_SIZES = [11, 12, 13, 14, 15, 16]
 const CHAT_FONT_SIZES = [12, 13, 14, 15, 16, 18, 20]
-const DEFAULT_UI_FONT_SIZE = 13
+const DEFAULT_UI_FONT_SIZE = 14
 const DEFAULT_CHAT_FONT_SIZE = 14
 
 interface UIPaneProps {

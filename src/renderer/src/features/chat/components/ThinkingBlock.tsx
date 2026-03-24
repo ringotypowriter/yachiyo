@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import { Streamdown } from 'streamdown'
 import { theme } from '@renderer/theme/theme'
 
 interface ThinkingBlockProps {
@@ -77,12 +78,17 @@ export function ThinkingBlock({
             className="px-3 pb-3 overflow-y-auto message-selectable"
             style={{ maxHeight: '240px' }}
           >
-            <p
-              className="text-xs whitespace-pre-wrap leading-relaxed"
-              style={{ color: theme.text.tertiary }}
-            >
-              {reasoning}
-            </p>
+            <div className="streamdown-content message-selectable" style={{ color: theme.text.tertiary }}>
+              <Streamdown
+                isAnimating={isActive}
+                animated={isActive ? { sep: 'char', animation: 'slideUp', duration: 120, easing: 'ease-out' } : false}
+                caret={isActive ? 'circle' : undefined}
+                mode={isActive ? 'streaming' : 'static'}
+                controls={true}
+              >
+                {reasoning}
+              </Streamdown>
+            </div>
           </div>
         )}
       </div>
