@@ -26,10 +26,7 @@ import type {
   ToolCallRecord,
   ToolCallName
 } from '../../../../shared/yachiyo/protocol.ts'
-import {
-  saveFileAttachmentsToWorkspace,
-  saveImageFilesToWorkspace
-} from './attachmentDomain.ts'
+import { saveFileAttachmentsToWorkspace, saveImageFilesToWorkspace } from './attachmentDomain.ts'
 import {
   hasMessagePayload,
   normalizeMessageImages,

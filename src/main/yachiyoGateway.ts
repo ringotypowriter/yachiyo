@@ -265,7 +265,11 @@ export function registerYachiyoGateway(): YachiyoServer {
 
       const data = await readFile(filePath)
       const base64 = data.toString('base64')
-      results.push({ filename: basename(filePath), mediaType, dataUrl: `data:${mediaType};base64,${base64}` })
+      results.push({
+        filename: basename(filePath),
+        mediaType,
+        dataUrl: `data:${mediaType};base64,${base64}`
+      })
     }
 
     return results

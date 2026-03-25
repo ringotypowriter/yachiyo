@@ -452,9 +452,7 @@ export function parseMessageImages(images: string | null): MessageImageRecord[] 
   }
 }
 
-export function serializeMessageAttachments(
-  attachments?: MessageFileAttachment[]
-): string | null {
+export function serializeMessageAttachments(attachments?: MessageFileAttachment[]): string | null {
   return attachments && attachments.length > 0 ? JSON.stringify(attachments) : null
 }
 
@@ -468,7 +466,10 @@ export function parseMessageAttachments(
   try {
     const parsed = JSON.parse(attachments) as MessageFileAttachment[]
     const valid = parsed.filter(
-      (a) => typeof a.filename === 'string' && typeof a.mediaType === 'string' && typeof a.workspacePath === 'string'
+      (a) =>
+        typeof a.filename === 'string' &&
+        typeof a.mediaType === 'string' &&
+        typeof a.workspacePath === 'string'
     )
     return valid.length > 0 ? valid : undefined
   } catch {

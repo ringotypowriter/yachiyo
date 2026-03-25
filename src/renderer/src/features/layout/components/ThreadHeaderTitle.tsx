@@ -7,6 +7,7 @@ export interface ThreadHeaderTitleProps {
   isBootstrapping: boolean
   messageCount: number
   onOpenThreadWorkspace: () => Promise<void>
+  showSubtitle?: boolean
 }
 
 function resolveThreadSubtitle(isBootstrapping: boolean, messageCount: number): string {
@@ -25,7 +26,8 @@ export function ThreadHeaderTitle({
   activeThread,
   isBootstrapping,
   messageCount,
-  onOpenThreadWorkspace
+  onOpenThreadWorkspace,
+  showSubtitle = true
 }: ThreadHeaderTitleProps): React.JSX.Element {
   const subtitle = resolveThreadSubtitle(isBootstrapping, messageCount)
 
@@ -55,9 +57,11 @@ export function ThreadHeaderTitle({
           </button>
         ) : null}
       </div>
-      <span className="text-xs font-medium" style={{ color: theme.text.muted }}>
-        {subtitle}
-      </span>
+      {showSubtitle ? (
+        <span className="text-xs font-medium" style={{ color: theme.text.muted }}>
+          {subtitle}
+        </span>
+      ) : null}
     </div>
   )
 }

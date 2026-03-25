@@ -22,6 +22,7 @@ import type {
 
 const api = {
   openSettings: () => ipcRenderer.send('open-settings'),
+  setVibrancy: (enabled: boolean) => ipcRenderer.send('set-vibrancy', enabled),
   yachiyo: {
     searchThreadsAndMessages: (input: { query: string }): Promise<ThreadSearchResult[]> =>
       ipcRenderer.invoke('yachiyo:search-threads-and-messages', input),
@@ -90,8 +91,9 @@ const api = {
       ipcRenderer.invoke('yachiyo:regenerate-thread-title', input),
     starThread: (input: { threadId: string; starred: boolean }): Promise<ThreadRecord> =>
       ipcRenderer.invoke('yachiyo:star-thread', input),
-    readClipboardFilePaths: (): Promise<{ filename: string; mediaType: string; dataUrl: string }[]> =>
-      ipcRenderer.invoke('yachiyo:read-clipboard-file-paths'),
+    readClipboardFilePaths: (): Promise<
+      { filename: string; mediaType: string; dataUrl: string }[]
+    > => ipcRenderer.invoke('yachiyo:read-clipboard-file-paths'),
     subscribe: (listener: (event: YachiyoServerEvent) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, payload: YachiyoServerEvent): void => {
         listener(payload)

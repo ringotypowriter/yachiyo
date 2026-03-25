@@ -47,6 +47,15 @@ function App(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
+    if (isSidebarOpen) {
+      window.api.setVibrancy(true)
+      return
+    }
+    const timer = setTimeout(() => window.api.setVibrancy(false), 220)
+    return () => clearTimeout(timer)
+  }, [isSidebarOpen])
+
+  useEffect(() => {
     const uiFontSize = config?.general?.uiFontSize
     const chatFontSize = config?.general?.chatFontSize
     if (uiFontSize != null) {
@@ -79,9 +88,16 @@ function App(): React.JSX.Element {
         onSearchSelect={(query) => setPendingFindQuery(query)}
       />
       <AppSidebarDivider offset={sidebarLayout.dividerOffset} onDragStart={onDragStart} />
-      <div className="flex flex-1 min-w-0 p-2 pl-1">
+      <div
+        className="flex flex-1 min-w-0"
+        style={{
+          padding: isSidebarOpen ? '0 8px 8px 4px' : '0',
+          transition: 'padding 200ms ease'
+        }}
+      >
         <AppMainPanel
           headerPaddingLeft={sidebarLayout.mainHeaderPaddingLeft}
+          isSidebarOpen={isSidebarOpen}
           isSidebarToggleDisabled={!isConfigLoaded}
           showSidebarToggle={!isSidebarOpen}
           onToggleSidebar={() => void openSidebar()}

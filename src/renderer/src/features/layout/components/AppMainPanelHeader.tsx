@@ -45,36 +45,55 @@ export function AppMainPanelHeader({
 }: AppMainPanelHeaderProps): React.JSX.Element {
   return (
     <div
-      className="flex items-center justify-between shrink-0 drag-region"
+      className="flex items-center shrink-0 drag-region"
       style={{
-        height: '52px',
+        height: '48px',
         paddingLeft: `${headerPaddingLeft}px`,
         paddingRight: '20px',
-        borderBottom: `1px solid ${theme.border.default}`
+        borderBottom: `1px solid ${theme.border.default}`,
+        position: 'relative'
       }}
     >
-      <div className="flex items-center gap-3 min-w-0">
-        {showSidebarToggle ? (
-          <button
-            disabled={isSidebarToggleDisabled}
-            onClick={onToggleSidebar}
-            className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity no-drag shrink-0 disabled:opacity-30"
-            style={{ color: theme.icon.default }}
-            title={toggleSidebarTitle}
-            aria-label={toggleSidebarTitle}
-          >
-            <PanelLeft size={16} strokeWidth={1.5} />
-          </button>
-        ) : null}
-        <ThreadHeaderTitle
-          activeThread={activeThread}
-          isBootstrapping={isBootstrapping}
-          messageCount={messageCount}
-          onOpenThreadWorkspace={onOpenThreadWorkspace}
-        />
+      {/* Left zone: sidebar toggle */}
+      {showSidebarToggle ? (
+        <button
+          disabled={isSidebarToggleDisabled}
+          onClick={onToggleSidebar}
+          className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity no-drag shrink-0 disabled:opacity-30"
+          style={{ color: theme.icon.default, marginTop: -4 }}
+          title={toggleSidebarTitle}
+          aria-label={toggleSidebarTitle}
+        >
+          <PanelLeft size={16} strokeWidth={1.5} />
+        </button>
+      ) : null}
+
+      {/* Title: centered when sidebar is hidden, left-aligned when sidebar is open */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: showSidebarToggle ? 'center' : 'flex-start',
+          paddingLeft: showSidebarToggle ? '80px' : `${headerPaddingLeft}px`,
+          paddingRight: '80px',
+          pointerEvents: 'none'
+        }}
+      >
+        <div style={{ pointerEvents: 'auto', minWidth: 0, overflow: 'hidden' }}>
+          <ThreadHeaderTitle
+            activeThread={activeThread}
+            isBootstrapping={isBootstrapping}
+            messageCount={messageCount}
+            onOpenThreadWorkspace={onOpenThreadWorkspace}
+            showSubtitle={!showSidebarToggle}
+          />
+        </div>
       </div>
 
-      <div className="flex items-center gap-1 no-drag">
+      {/* Right zone: actions */}
+      <div className="flex items-center gap-1 no-drag ml-auto" style={{ position: 'relative' }}>
         {activeThread ? (
           <Tooltip
             content={

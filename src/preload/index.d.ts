@@ -33,6 +33,7 @@ declare global {
     electron: ElectronAPI
     api: {
       openSettings: () => void
+      setVibrancy: (enabled: boolean) => void
       yachiyo: {
         searchThreadsAndMessages: (input: { query: string }) => Promise<ThreadSearchResult[]>
         searchWorkspaceFiles: (input: SearchWorkspaceFilesInput) => Promise<FileMentionCandidate[]>
@@ -87,7 +88,9 @@ declare global {
         }) => Promise<ThreadRecord>
         regenerateThreadTitle: (input: { threadId: string }) => Promise<ThreadRecord>
         starThread: (input: { threadId: string; starred: boolean }) => Promise<ThreadRecord>
-        readClipboardFilePaths: () => Promise<{ filename: string; mediaType: string; dataUrl: string }[]>
+        readClipboardFilePaths: () => Promise<
+          { filename: string; mediaType: string; dataUrl: string }[]
+        >
         subscribe: (listener: (event: YachiyoServerEvent) => void) => () => void
       }
     }

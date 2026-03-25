@@ -82,6 +82,19 @@ app.whenReady().then(() => {
 
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
+
+  ipcMain.on('set-vibrancy', (event, enabled: boolean) => {
+    if (process.platform !== 'darwin') return
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    if (enabled) {
+      win.setVibrancy('under-window')
+      win.setBackgroundColor('#00000000')
+    } else {
+      win.setVibrancy(null)
+      win.setBackgroundColor('#f5f4f0')
+    }
+  })
   registerYachiyoGateway()
 
   ipcMain.on('open-settings', () => {

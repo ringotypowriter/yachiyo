@@ -53,7 +53,7 @@ export function AppSidebar({
       <div
         className="flex items-center drag-region shrink-0"
         style={{
-          height: '52px',
+          height: '48px',
           paddingLeft: `${TRAFFIC_LIGHTS_SAFE_ZONE}px`,
           paddingRight: '12px'
         }}

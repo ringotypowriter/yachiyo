@@ -1736,11 +1736,19 @@ test('YachiyoServer accepts image-first user input and forwards it as multimodal
     const lastModelMessage = modelRequests[0]?.messages.at(-1)
     assert.equal(lastModelMessage?.role, 'user')
     assert.ok(Array.isArray(lastModelMessage?.content), 'content should be an array')
-    const contentArray = lastModelMessage?.content as { type: string; image?: string; mediaType?: string; text?: string }[]
+    const contentArray = lastModelMessage?.content as {
+      type: string
+      image?: string
+      mediaType?: string
+      text?: string
+    }[]
     const imagePart = contentArray.find((part) => part.type === 'image')
     assert.deepEqual(imagePart, { type: 'image', image: 'AAAA', mediaType: 'image/png' })
     const textPart = contentArray.find((part) => part.type === 'text')
-    assert.ok(textPart?.text?.includes('<attached_files>'), 'model message should include attached_files block')
+    assert.ok(
+      textPart?.text?.includes('<attached_files>'),
+      'model message should include attached_files block'
+    )
   })
 })
 
@@ -1808,7 +1816,12 @@ test('YachiyoServer accepts active-run steer as an ordinary message and forwards
       const steerModelMsg = requests[1]?.messages.at(-1)
       assert.equal(steerModelMsg?.role, 'user')
       assert.ok(Array.isArray(steerModelMsg?.content))
-      const steerContent = steerModelMsg?.content as { type: string; text?: string; image?: string; mediaType?: string }[]
+      const steerContent = steerModelMsg?.content as {
+        type: string
+        text?: string
+        image?: string
+        mediaType?: string
+      }[]
       const steerImagePart = steerContent.find((p) => p.type === 'image')
       assert.deepEqual(steerImagePart, { type: 'image', image: 'BBBB', mediaType: 'image/png' })
       const steerTextPart = steerContent.find((p) => p.type === 'text')

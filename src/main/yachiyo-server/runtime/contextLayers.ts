@@ -64,7 +64,10 @@ function buildAttachedFilesBlock(
 ): string | null {
   const imageEntries = (images ?? [])
     .filter((img) => img.workspacePath)
-    .map((img) => `- ${img.filename ?? 'image'} (${img.mediaType}) → ${img.workspacePath} [sent inline]`)
+    .map(
+      (img) =>
+        `- ${img.filename ?? 'image'} (${img.mediaType}) → ${img.workspacePath} [sent inline]`
+    )
 
   const fileEntries = (attachments ?? []).map(
     (a) => `- ${a.filename} (${a.mediaType}) → ${a.workspacePath}`

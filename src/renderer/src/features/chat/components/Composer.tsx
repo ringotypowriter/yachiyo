@@ -963,12 +963,21 @@ export function Composer({
 
         for (const f of finderImages) {
           const id = createDraftImageId()
-          upsertComposerImage({ id, dataUrl: f.dataUrl, mediaType: f.mediaType, status: 'ready' }, activeThreadId)
+          upsertComposerImage(
+            { id, dataUrl: f.dataUrl, mediaType: f.mediaType, status: 'ready' },
+            activeThreadId
+          )
         }
         for (const f of finderDocs) {
           const id = createDraftImageId()
           upsertComposerFile(
-            { id, filename: f.filename, mediaType: f.mediaType, dataUrl: f.dataUrl, status: 'ready' },
+            {
+              id,
+              filename: f.filename,
+              mediaType: f.mediaType,
+              dataUrl: f.dataUrl,
+              status: 'ready'
+            },
             activeThreadId
           )
         }

@@ -18,7 +18,7 @@ export function AppSidebarDivider({
         position: 'absolute',
         left: `${offset - 4}px`,
         width: '8px',
-        top: '52px',
+        top: '48px',
         bottom: 0,
         zIndex: 1,
         cursor: 'col-resize'

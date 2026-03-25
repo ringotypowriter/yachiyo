@@ -548,7 +548,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
     completeRun({ runId, updatedThread, assistantMessage }: CompleteRunInput) {
       db.transaction((tx) => {
-        const { textBlocks, reasoning, attachments, ...persistedAssistantMessage } = assistantMessage
+        const { textBlocks, reasoning, attachments, ...persistedAssistantMessage } =
+          assistantMessage
         tx.insert(messagesTable)
           .values({
             ...persistedAssistantMessage,

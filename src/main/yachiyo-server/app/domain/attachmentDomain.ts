@@ -61,12 +61,7 @@ async function ensureGitExclude(workspacePath: string): Promise<void> {
 }
 
 async function ensureAttachmentDir(workspacePath: string, messageId: string): Promise<string> {
-  const attachmentDir = join(
-    workspacePath,
-    YACHIYO_ATTACHMENT_DIR,
-    'attachments',
-    messageId
-  )
+  const attachmentDir = join(workspacePath, YACHIYO_ATTACHMENT_DIR, 'attachments', messageId)
   await mkdir(attachmentDir, { recursive: true })
   await ensureGitExclude(workspacePath)
   return attachmentDir

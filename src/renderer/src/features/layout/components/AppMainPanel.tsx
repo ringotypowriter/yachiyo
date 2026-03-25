@@ -41,6 +41,7 @@ function getTextRanges(el: Element, query: string): Range[] {
 
 export interface AppMainPanelProps {
   headerPaddingLeft: number
+  isSidebarOpen: boolean
   isSidebarToggleDisabled: boolean
   showSidebarToggle: boolean
   onToggleSidebar: () => void
@@ -51,6 +52,7 @@ export interface AppMainPanelProps {
 
 export function AppMainPanel({
   headerPaddingLeft,
+  isSidebarOpen,
   isSidebarToggleDisabled,
   showSidebarToggle,
   onToggleSidebar,
@@ -294,20 +296,20 @@ export function AppMainPanel({
     }
   }
 
+  const cardStyle = {
+    background: theme.background.chatCard,
+    borderRadius: isSidebarOpen ? 12 : 0,
+    boxShadow: isSidebarOpen ? theme.shadow.card : 'none',
+    transition: 'border-radius 200ms ease, box-shadow 200ms ease'
+  }
+
   if (threadListMode === 'archived') {
     return (
-      <div
-        className="flex flex-col flex-1 h-full min-w-0 overflow-hidden"
-        style={{
-          background: theme.background.chatCard,
-          borderRadius: 12,
-          boxShadow: theme.shadow.card
-        }}
-      >
+      <div className="flex flex-col flex-1 h-full min-w-0 overflow-hidden" style={cardStyle}>
         <div
           className="flex items-center shrink-0 drag-region"
           style={{
-            height: '52px',
+            height: '48px',
             paddingLeft: `${headerPaddingLeft}px`,
             paddingRight: '20px',
             borderBottom: `1px solid ${theme.border.default}`
@@ -332,14 +334,7 @@ export function AppMainPanel({
   }
 
   return (
-    <div
-      className="flex flex-col flex-1 h-full min-w-0 overflow-hidden relative"
-      style={{
-        background: theme.background.chatCard,
-        borderRadius: 12,
-        boxShadow: theme.shadow.card
-      }}
-    >
+    <div className="flex flex-col flex-1 h-full min-w-0 overflow-hidden relative" style={cardStyle}>
       {findOpen && (
         <ThreadFindBar
           matches={findMatches}
