@@ -226,6 +226,7 @@ export function SmoothCaretOverlay({
   const lastIntentRef = useRef<CaretIntent>('other')
   const rafRef = useRef<number | null>(null)
   const scheduledRef = useRef<number | null>(null)
+  const blinkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reduceMotion = useMemo(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return false
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -258,6 +259,22 @@ export function SmoothCaretOverlay({
     })
   }, [color, trailColor])
 
+  const stopBlink = (): void => {
+    if (blinkTimerRef.current !== null) {
+      clearTimeout(blinkTimerRef.current)
+      blinkTimerRef.current = null
+    }
+    caretRef.current?.classList.remove('echooo-caret--blink')
+  }
+
+  const startBlinkAfterDelay = (): void => {
+    stopBlink()
+    blinkTimerRef.current = setTimeout(() => {
+      blinkTimerRef.current = null
+      caretRef.current?.classList.add('echooo-caret--blink')
+    }, 530)
+  }
+
   const stopAnimation = (): void => {
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current)
@@ -271,7 +288,10 @@ export function SmoothCaretOverlay({
     const { x, y, height, visible } = currentRef.current
     caret.style.transform = `translate3d(${x}px, ${y}px, 0)`
     caret.style.height = `${height}px`
-    caret.style.opacity = visible ? '1' : '0'
+    // Don't override opacity when blink animation is active — CSS handles it.
+    if (!caret.classList.contains('echooo-caret--blink')) {
+      caret.style.opacity = visible ? '1' : '0'
+    }
   }
 
   const hideOverlay = (): void => {
@@ -279,6 +299,7 @@ export function SmoothCaretOverlay({
     currentRef.current.visible = false
     applyCaretStyle()
     stopAnimation()
+    stopBlink()
     if (scheduledRef.current !== null) {
       cancelAnimationFrame(scheduledRef.current)
       scheduledRef.current = null
@@ -397,6 +418,7 @@ export function SmoothCaretOverlay({
 
   const animateCaret = (): void => {
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+    stopBlink()
 
     const step = (): void => {
       const target = targetRef.current
@@ -418,6 +440,7 @@ export function SmoothCaretOverlay({
         applyCaretStyle()
         if (!visibleChanged || !target.visible) {
           rafRef.current = null
+          startBlinkAfterDelay()
           return
         }
       } else {

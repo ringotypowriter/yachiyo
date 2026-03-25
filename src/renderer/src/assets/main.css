@@ -398,8 +398,10 @@ body {
   opacity: 0;
   background: var(--echooo-caret-color, currentColor);
   will-change: transform, opacity, height;
-  /* Opacity is driven by JS each frame; a CSS keyframe on the same property hid the caret. */
-  animation: none;
+}
+
+.echooo-caret--blink {
+  animation: echooo-blink 1.2s ease-in-out infinite;
 }
 
 .echooo-caret-trail {
@@ -418,12 +420,15 @@ body {
 
 @keyframes echooo-blink {
   0%,
-  45% {
+  40% {
     opacity: 1;
   }
-  55%,
-  100% {
+  50%,
+  90% {
     opacity: 0;
+  }
+  100% {
+    opacity: 1;
   }
 }
 
