@@ -33,6 +33,14 @@ export function buildToolAvailabilityReminderSection(input: {
   }
 }
 
+export function buildCurrentTimeSection(): QueryReminderSection {
+  return {
+    key: 'current-time',
+    title: 'Current local time',
+    lines: [new Date().toLocaleString()]
+  }
+}
+
 export function formatQueryReminder(sections: QueryReminderSection[]): string | undefined {
   const normalizedSections = sections
     .map((section) => ({

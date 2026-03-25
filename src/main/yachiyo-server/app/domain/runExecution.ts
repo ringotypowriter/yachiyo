@@ -36,6 +36,7 @@ import { resolveActiveSkills } from '../../services/skills/skillResolver.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
 import type { BrowserWebPageSnapshotLoader } from '../../services/webRead/browserWebPageSnapshot.ts'
 import {
+  buildCurrentTimeSection,
   buildToolAvailabilityReminderSection,
   formatQueryReminder
 } from '../../runtime/queryReminder.ts'
@@ -609,7 +610,8 @@ export async function executeServerRun(
                 enabledTools: input.enabledTools
               })
             ]
-          : [])
+          : []),
+        buildCurrentTimeSection()
       ].flatMap((section) => (section ? [section] : []))
     )
     const requestMessage = deps

@@ -1267,13 +1267,9 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       modelRequests[1]?.messages.some(
         (message) =>
           message.role === 'system' &&
-          message.content ===
-            [
-              '<reminder>',
-              'Tool availability changed for this turn:',
-              '- Disabled: write, edit, webRead.',
-              '</reminder>'
-            ].join('\n')
+          typeof message.content === 'string' &&
+          message.content.includes('Tool availability changed for this turn:') &&
+          message.content.includes('- Disabled: write, edit, webRead.')
       )
     )
 
@@ -1283,13 +1279,9 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       modelRequests[2]?.messages.some(
         (message) =>
           message.role === 'system' &&
-          message.content ===
-            [
-              '<reminder>',
-              'Tool availability changed for this turn:',
-              '- Enabled: write.',
-              '</reminder>'
-            ].join('\n')
+          typeof message.content === 'string' &&
+          message.content.includes('Tool availability changed for this turn:') &&
+          message.content.includes('- Enabled: write.')
       )
     )
 
