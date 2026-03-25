@@ -1,5 +1,6 @@
 import type React from 'react'
 import { useEffect, useMemo, useRef } from 'react'
+import { parseComputedLineHeightPx } from '@renderer/features/chat/lib/composerLineMetrics'
 
 type TrailStrength = 'off' | 'low' | 'medium' | 'high'
 type CaretIntent = 'typing' | 'delete' | 'nav-left' | 'nav-right' | 'other'
@@ -7,6 +8,7 @@ type CaretIntent = 'typing' | 'delete' | 'nav-left' | 'nav-right' | 'other'
 interface SmoothCaretOverlayProps {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
   hostRef: React.RefObject<HTMLElement | null>
+  highlightRef: React.RefObject<HTMLElement | null>
   enabled: boolean
   trailStrength?: TrailStrength
   isFocused: boolean
@@ -24,77 +26,190 @@ const strengthScale: Record<TrailStrength, number> = {
   high: 1.8
 }
 
-// Mirror div: computes caret (x, y, height) relative to the textarea's top-left corner.
-// Returns null when position cannot be determined.
-function measureTextareaCaretPos(
-  textarea: HTMLTextAreaElement
-): { x: number; y: number; height: number } | null {
-  const pos = textarea.selectionStart
-  if (pos === null) return null
+// Cached mirror div — typography from the textarea's *computed* styles so glyph
+// advances (narrow letters like "l", "i") match the replaced element, not the overlay div.
+let _mirror: HTMLDivElement | null = null
+let _mirrorSource: HTMLElement | null = null
 
-  const style = getComputedStyle(textarea)
-  const mirror = document.createElement('div')
+/** Match textarea text reflow when a vertical scrollbar narrows the editable. */
+function mirrorMeasureWidth(overlay: HTMLElement, textarea: HTMLTextAreaElement): number {
+  const hw = overlay.getBoundingClientRect().width
+  const cw = textarea.clientWidth
+  if (cw > 1) {
+    return Math.min(hw, cw)
+  }
+  return hw
+}
 
+function applyMirrorTextStyles(
+  mirror: HTMLDivElement,
+  textarea: HTMLTextAreaElement,
+  targetW: number
+): void {
+  const ts = getComputedStyle(textarea)
   Object.assign(mirror.style, {
     position: 'absolute',
     visibility: 'hidden',
     top: '-9999px',
     left: '-9999px',
     zIndex: '-1',
-    boxSizing: style.boxSizing,
-    width: `${textarea.offsetWidth}px`,
-    paddingTop: style.paddingTop,
-    paddingRight: style.paddingRight,
-    paddingBottom: style.paddingBottom,
-    paddingLeft: style.paddingLeft,
-    borderTopWidth: style.borderTopWidth,
-    borderRightWidth: style.borderRightWidth,
-    borderBottomWidth: style.borderBottomWidth,
-    borderLeftWidth: style.borderLeftWidth,
-    borderStyle: 'solid',
-    borderColor: 'transparent',
-    fontSize: style.fontSize,
-    fontFamily: style.fontFamily,
-    fontWeight: style.fontWeight,
-    fontStyle: style.fontStyle,
-    lineHeight: style.lineHeight,
-    letterSpacing: style.letterSpacing,
-    wordSpacing: style.wordSpacing,
-    whiteSpace: 'pre-wrap',
-    wordBreak: style.wordBreak,
-    overflowWrap: style.overflowWrap,
-    tabSize: style.tabSize,
-    overflow: 'hidden'
+    boxSizing: ts.boxSizing,
+    width: `${targetW}px`,
+    paddingTop: ts.paddingTop,
+    paddingRight: ts.paddingRight,
+    paddingBottom: ts.paddingBottom,
+    paddingLeft: ts.paddingLeft,
+    border: 'none',
+    fontSize: ts.fontSize,
+    fontFamily: ts.fontFamily,
+    fontWeight: ts.fontWeight,
+    fontStyle: ts.fontStyle,
+    lineHeight: ts.lineHeight,
+    letterSpacing: ts.letterSpacing,
+    wordSpacing: ts.wordSpacing,
+    whiteSpace: ts.whiteSpace,
+    wordBreak: ts.wordBreak,
+    overflowWrap: ts.overflowWrap,
+    tabSize: ts.tabSize,
+    overflow: 'hidden',
+    fontFeatureSettings: ts.fontFeatureSettings,
+    fontKerning: ts.fontKerning,
+    fontVariantLigatures: ts.fontVariantLigatures,
+    fontVariantNumeric: ts.fontVariantNumeric,
+    fontVariantCaps: ts.fontVariantCaps,
+    textRendering: ts.textRendering,
+    textIndent: ts.textIndent,
+    direction: ts.direction,
+    unicodeBidi: ts.unicodeBidi
   })
+}
 
-  mirror.textContent = textarea.value.substring(0, pos)
-  const marker = document.createElement('span')
-  marker.textContent = '\u200b'
-  mirror.appendChild(marker)
+function ensureMirror(overlay: HTMLElement, textarea: HTMLTextAreaElement): HTMLDivElement {
+  const targetW = mirrorMeasureWidth(overlay, textarea)
+
+  if (_mirror && _mirrorSource === overlay) {
+    applyMirrorTextStyles(_mirror, textarea, targetW)
+    return _mirror
+  }
+
+  if (_mirror) {
+    _mirror.remove()
+    _mirror = null
+  }
+
+  const mirror = document.createElement('div')
+  applyMirrorTextStyles(mirror, textarea, targetW)
   document.body.appendChild(mirror)
+  _mirror = mirror
+  _mirrorSource = overlay
+  return mirror
+}
+
+function disposeMirror(): void {
+  if (_mirror) {
+    _mirror.remove()
+    _mirror = null
+    _mirrorSource = null
+  }
+}
+
+/** Exclusive end index of the logical line that contains `from` (LF/CR, not soft-wrap). */
+function endIndexOfLogicalLine(s: string, from: number): number {
+  const n = s.indexOf('\n', from)
+  const r = s.indexOf('\r', from)
+  let end = s.length
+  if (n !== -1) end = Math.min(end, n)
+  if (r !== -1) end = Math.min(end, r)
+  return end
+}
+
+function flushTextareaLayout(textarea: HTMLTextAreaElement): void {
+  void textarea.offsetHeight
+}
+
+/**
+ * Native caret is hidden, so the browser may not scroll the textarea on input. We still clamp
+ * to [0, maxScroll]: an uncapped target fights the browser at maxHeight and desyncs highlight
+ * scroll from textarea.scrollTop (viewport/caret mismatch after newline or typing).
+ */
+function ensureCaretVisibleInTextarea(
+  textarea: HTMLTextAreaElement,
+  caretTop: number,
+  caretHeight: number
+): void {
+  flushTextareaLayout(textarea)
+  const ch = textarea.clientHeight
+  if (ch < 1) return
+
+  const maxScroll = Math.max(0, textarea.scrollHeight - ch)
+  const caretBottom = caretTop + caretHeight
+  let next = textarea.scrollTop
+  if (caretTop < next) {
+    next = caretTop
+  }
+  if (caretBottom > next + ch) {
+    next = caretBottom - ch
+  }
+  next = Math.max(0, Math.min(next, maxScroll))
+  if (next !== textarea.scrollTop) {
+    textarea.scrollTop = next
+  }
+}
+
+/**
+ * Textarea caret pixel position via the classic mirror + span marker (same idea as
+ * textarea-caret-position): no collapsed Range / getClientRects heuristics.
+ * Returns (x, y, height) relative to the mirror's border box top-left.
+ */
+function measureCaretPos(
+  overlay: HTMLElement,
+  textarea: HTMLTextAreaElement
+): { x: number; y: number; height: number } | null {
+  const pos = textarea.selectionStart
+  if (pos === null) return null
+
+  const mirror = ensureMirror(overlay, textarea)
+  const value = textarea.value
+  const clampedPos = value ? Math.min(pos, value.length) : 0
+
+  mirror.replaceChildren()
+  const before = value.slice(0, clampedPos)
+  if (before.length > 0) {
+    mirror.appendChild(document.createTextNode(before))
+  }
+
+  // Only put text after the caret *on the same logical line* in the tail span. If the
+  // tail includes `\n` and following lines, getBoundingClientRect() unions all lines —
+  // wrong Y and a caret height that looks like ~1.5 lines (arrow-key multiline bug).
+  const lineEnd = endIndexOfLogicalLine(value, clampedPos)
+  const afterOnLine = value.slice(clampedPos, lineEnd)
+  const tail = document.createElement('span')
+  tail.textContent = afterOnLine.length > 0 ? afterOnLine : '\u200b'
+  mirror.appendChild(tail)
 
   const mirrorRect = mirror.getBoundingClientRect()
-  const markerRect = marker.getBoundingClientRect()
-  document.body.removeChild(mirror)
+  const spanRect = tail.getBoundingClientRect()
+  const lineHeightPx = parseComputedLineHeightPx(textarea)
 
-  const fontSizePx = parseFloat(style.fontSize) || 16
-  // Caret height is capped to ~1.2x font-size so it fits the glyph body
-  // rather than the full line box (which includes leading space).
-  const caretHeight = fontSizePx * 1.2
-  // Use the line box height from the mirror to vertically center the caret.
-  const lineBoxHeight = markerRect.height > 0 ? markerRect.height : caretHeight
-  const verticalOffset = (lineBoxHeight - caretHeight) / 2
+  const xRel = spanRect.left - mirrorRect.left
+  // Long lines (e.g. slash prompts) soft-wrap: the tail span's union box spans many rows.
+  // Centering in that tall union shifts Y far below the real caret line → clipped / "hidden".
+  const tailWrapsManyRows = spanRect.height > lineHeightPx * 1.55
+  const yRel = tailWrapsManyRows
+    ? spanRect.top - mirrorRect.top
+    : spanRect.top - mirrorRect.top + (spanRect.height - lineHeightPx) / 2
 
   return {
-    x: markerRect.left - mirrorRect.left,
-    y: markerRect.top - mirrorRect.top - textarea.scrollTop + verticalOffset,
-    height: caretHeight
+    x: xRel,
+    y: yRel,
+    height: lineHeightPx
   }
 }
 
 export function SmoothCaretOverlay({
   textareaRef,
   hostRef,
+  highlightRef,
   enabled,
   trailStrength = 'low',
   isFocused,
@@ -341,31 +456,62 @@ export function SmoothCaretOverlay({
 
     textarea.classList.add('echooo-hide-native-caret')
 
-    const caretPos = measureTextareaCaretPos(textarea)
+    const highlight = highlightRef.current
+    const host = hostRef.current
+    if (!highlight || !host) {
+      hideOverlay()
+      return
+    }
+
+    const overlayEl = overlayRef.current
+    if (!overlayEl) {
+      hideOverlay()
+      return
+    }
+
+    const caretPos = measureCaretPos(highlight, textarea)
     if (!caretPos) {
       hideOverlay()
       return
     }
 
-    const host = hostRef.current
-    if (!host) {
-      hideOverlay()
-      return
-    }
-
-    const hostRect = host.getBoundingClientRect()
-    const textareaRect = textarea.getBoundingClientRect()
-
-    const x = textareaRect.left - hostRect.left + caretPos.x
-    const y = textareaRect.top - hostRect.top + caretPos.y
     const { height } = caretPos
+    // Mirror x/y are in full content coordinates; map into the highlight viewport with the
+    // textarea's scrollTop (source of truth). Flush layout first so scrollHeight/clientHeight
+    // match the latest value/height after React/layout effects (maxHeight composer).
+    ensureCaretVisibleInTextarea(textarea, caretPos.y, height)
+    flushTextareaLayout(textarea)
+    highlight.scrollTop = textarea.scrollTop
 
+    // Overlay content includes a trailing-newline sentinel so its scrollHeight may exceed
+    // the textarea's. If the caret is still below the overlay viewport, scroll it further.
+    const hlCh = highlight.clientHeight
+    if (hlCh > 0) {
+      const caretBottom = caretPos.y + height
+      if (caretBottom > highlight.scrollTop + hlCh) {
+        const hlMax = Math.max(0, highlight.scrollHeight - hlCh)
+        highlight.scrollTop = Math.min(caretBottom - hlCh, hlMax)
+      }
+    }
+    const scrollTop = highlight.scrollTop
+
+    const x = caretPos.x
+    const rawY = caretPos.y - scrollTop
+
+    const visibleH = highlight.getBoundingClientRect().height
+    // Do not pin the caret to the bottom edge when scroll lags: that hid new lines below the fold.
+    const y = Math.max(0, rawY)
+    const visible = rawY >= -height * 0.5 && rawY <= visibleH + height * 0.25
+
+    const fontSize = parseFloat(getComputedStyle(textarea).fontSize || '16')
     metricsRef.current = {
       lineHeight: height,
-      charWidth: Math.max(6, Math.min(14, height * 0.55 * (9 / 14)))
+      charWidth: Number.isNaN(fontSize)
+        ? Math.max(6, Math.min(14, height * 0.55 * (9 / 14)))
+        : Math.max(6, Math.min(14, fontSize * 0.55))
     }
 
-    targetRef.current = { x, y, height, visible: true }
+    targetRef.current = { x, y, height, visible }
 
     let hasRightText = false
     try {
@@ -423,7 +569,8 @@ export function SmoothCaretOverlay({
   useEffect(() => {
     if (typeof window === 'undefined') return
     const textarea = textareaRef.current
-    if (!textarea || !enabled) return
+    const host = hostRef.current
+    if (!textarea || !host || !enabled) return
 
     const onInput = (event: Event): void => {
       const type = (event as InputEvent).inputType ?? ''
@@ -435,6 +582,7 @@ export function SmoothCaretOverlay({
         lastIntentRef.current = 'other'
       }
       scheduleMeasure()
+      requestAnimationFrame(() => scheduleMeasure())
     }
 
     const onKeyDownCapture = (event: KeyboardEvent): void => {
@@ -449,7 +597,14 @@ export function SmoothCaretOverlay({
       }
     }
 
-    const measureEvents = ['keyup', 'click', 'pointerup', 'compositionend'] as const
+    const measureEvents = [
+      'keyup',
+      'click',
+      'pointerup',
+      'compositionstart',
+      'compositionupdate',
+      'compositionend'
+    ] as const
 
     textarea.addEventListener('input', onInput, { capture: true })
     textarea.addEventListener('keydown', onKeyDownCapture, { capture: true })
@@ -465,7 +620,13 @@ export function SmoothCaretOverlay({
 
     document.addEventListener('selectionchange', onSelectionChange, true)
     window.addEventListener('resize', scheduleMeasure)
+    window.addEventListener('scroll', scheduleMeasure, true)
     textarea.addEventListener('scroll', scheduleMeasure)
+    host.addEventListener('scroll', scheduleMeasure, true)
+
+    if (document.fonts?.ready) {
+      void document.fonts.ready.then(() => scheduleMeasure())
+    }
 
     scheduleMeasure()
 
@@ -479,9 +640,12 @@ export function SmoothCaretOverlay({
       )
       document.removeEventListener('selectionchange', onSelectionChange, true)
       window.removeEventListener('resize', scheduleMeasure)
+      window.removeEventListener('scroll', scheduleMeasure, true)
       textarea.removeEventListener('scroll', scheduleMeasure)
+      host.removeEventListener('scroll', scheduleMeasure, true)
       textarea.classList.remove('echooo-hide-native-caret')
       stopAnimation()
+      disposeMirror()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, trailStrength, isFocused])

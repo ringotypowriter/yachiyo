@@ -1,5 +1,5 @@
 import type React from 'react'
-import { useRef, useCallback, useState, useEffect, useMemo } from 'react'
+import { useRef, useCallback, useState, useEffect, useLayoutEffect, useMemo } from 'react'
 import {
   AlertCircle,
   ChevronDown,
@@ -41,6 +41,8 @@ import { SmoothCaretOverlay } from './SmoothCaretOverlay'
 const NEW_THREAD_DRAFT_KEY = '__new__'
 const MAX_COMPOSER_IMAGES = 4
 const MAX_COMPOSER_FILES = 10
+/** Text stack cap; inner wrapper uses hard clip so grid min-content cannot paint into the toolbar. */
+const COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX = 160
 
 const ACCEPTED_FILE_TYPES = [
   'application/pdf',
@@ -343,6 +345,8 @@ export function Composer({
   const toolSelectorRef = useRef<HTMLDivElement>(null)
   const workspaceSelectorRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  /** Set when the user inserts a hard/soft line break so we scroll after layout (hidden native caret). */
+  const scrollComposerToEndAfterBreakRef = useRef(false)
 
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false)
   const [skillsSelectorOpen, setSkillsSelectorOpen] = useState(false)
@@ -675,19 +679,112 @@ export function Composer({
     return null
   })()
 
-  const resizeTextarea = useCallback(() => {
+  /**
+   * Autogrow uses height:auto to measure — that briefly expands the box and browsers often reset
+   * scrollTop. Without restoring scroll (or max-scroll when the user was at the bottom), the
+   * viewport jumps to the top while selection stays at the end → fake caret and highlight misalign.
+   *
+   * When the field is already capped at max height and content still overflows, **do not** set
+   * height:auto again: WebKit can report a stale/wrong scrollHeight for one frame and the last
+   * logical line (e.g. trailing newline) never scrolls into view. Keep a fixed height and read
+   * scrollHeight directly (no padding workaround).
+   */
+  const resizeTextarea = useCallback((options?: { forceScrollToBottom?: boolean }) => {
     const element = textareaRef.current
     if (!element) {
       return
     }
 
-    element.style.height = 'auto'
-    element.style.height = `${Math.min(element.scrollHeight, 160)}px`
-    element.style.overflowY = element.scrollHeight > 160 ? 'auto' : 'hidden'
+    const maxPx = COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX
+    const forceToBottom = options?.forceScrollToBottom ?? false
+    const eps = 3
+
+    const prevTop = element.scrollTop
+    const prevScrollHeight = element.scrollHeight
+    const prevClientHeight = element.clientHeight
+    const wasScrollable = prevScrollHeight > prevClientHeight + eps
+    const wasAtBottom =
+      forceToBottom ||
+      !wasScrollable ||
+      prevTop + prevClientHeight >= prevScrollHeight - eps
+
+    const styleHeightPx = parseFloat(element.style.height)
+    const boxLooksMax =
+      prevClientHeight >= maxPx - eps ||
+      (!Number.isNaN(styleHeightPx) && styleHeightPx >= maxPx - eps)
+    const alreadyCappedAndOverflowing =
+      boxLooksMax && prevScrollHeight > prevClientHeight + eps
+
+    if (alreadyCappedAndOverflowing) {
+      element.style.height = `${maxPx}px`
+      element.style.overflowY = 'auto'
+    } else {
+      element.style.height = 'auto'
+      const fullScrollHeight = element.scrollHeight
+      const nextHeight = Math.min(fullScrollHeight, maxPx)
+      element.style.height = `${nextHeight}px`
+      element.style.overflowY = fullScrollHeight > maxPx ? 'auto' : 'hidden'
+    }
+
+    void element.offsetHeight
+
+    const sh = element.scrollHeight
+    const ch = element.clientHeight
+    if (sh > ch + eps) {
+      const maxScroll = sh - ch
+      element.scrollTop = wasAtBottom ? maxScroll : Math.min(Math.max(0, prevTop), maxScroll)
+    } else {
+      element.scrollTop = 0
+    }
+
+    if (overlayRef.current) {
+      overlayRef.current.scrollTop = element.scrollTop
+      // Overlay content includes a trailing-newline sentinel, so its scrollHeight may be
+      // larger than the textarea's. When scrolled to bottom, let the overlay reach its own max.
+      if (wasAtBottom) {
+        const oMax = Math.max(0, overlayRef.current.scrollHeight - overlayRef.current.clientHeight)
+        if (oMax > overlayRef.current.scrollTop) {
+          overlayRef.current.scrollTop = oMax
+        }
+      }
+    }
   }, [])
 
-  useEffect(() => {
-    resizeTextarea()
+  useLayoutEffect(() => {
+    const force = scrollComposerToEndAfterBreakRef.current
+    scrollComposerToEndAfterBreakRef.current = false
+    resizeTextarea({ forceScrollToBottom: force })
+
+    const t = textareaRef.current
+    if (!t) return
+
+    const catchUpScrollIfCaretAtEnd = (): void => {
+      if (document.activeElement !== t) return
+      const o = overlayRef.current
+      const tOverflows = t.scrollHeight > t.clientHeight + 3
+      const oOverflows = o ? o.scrollHeight > o.clientHeight + 3 : false
+      if (!tOverflows && !oOverflows) return
+      const len = t.value.length
+      if (t.selectionStart !== len || t.selectionEnd !== len) return
+      t.scrollTop = t.scrollHeight - t.clientHeight
+      if (o) o.scrollTop = Math.max(t.scrollTop, o.scrollHeight - o.clientHeight)
+    }
+
+    void t.offsetHeight
+    catchUpScrollIfCaretAtEnd()
+    let cancelled = false
+    const id = requestAnimationFrame(() => {
+      if (cancelled) return
+      catchUpScrollIfCaretAtEnd()
+      requestAnimationFrame(() => {
+        if (cancelled) return
+        catchUpScrollIfCaretAtEnd()
+      })
+    })
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(id)
+    }
   }, [composerValue, resizeTextarea])
 
   useEffect(() => {
@@ -860,11 +957,25 @@ export function Composer({
   )
 
   const handleTextareaScroll = useCallback((event: React.UIEvent<HTMLTextAreaElement>) => {
-    if (overlayRef.current) overlayRef.current.scrollTop = event.currentTarget.scrollTop
+    if (!overlayRef.current) return
+    const ta = event.currentTarget
+    const o = overlayRef.current
+    // Don't pull overlay back when textarea is at max scroll but overlay can scroll further
+    // (trailing-newline sentinel gives overlay more scroll range)
+    const taMax = ta.scrollHeight - ta.clientHeight
+    if (ta.scrollTop >= taMax - 1 && o.scrollTop > ta.scrollTop) return
+    o.scrollTop = ta.scrollTop
   }, [])
 
   const handleInput = useCallback(
     (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const native = event.nativeEvent as InputEvent
+      const it = native.inputType ?? ''
+      if (it === 'insertLineBreak' || it === 'insertParagraph') {
+        scrollComposerToEndAfterBreakRef.current = true
+      } else if (it === 'insertText' && native.data != null && /[\n\r]/.test(native.data)) {
+        scrollComposerToEndAfterBreakRef.current = true
+      }
       setComposerValue(event.target.value)
     },
     [setComposerValue]
@@ -1102,64 +1213,90 @@ export function Composer({
             ))}
           </div>
         ) : null}
-        <div
-          ref={composerInputRef}
-          className="px-4 pt-3 pb-1"
-          style={{ display: 'grid', position: 'relative' }}
-        >
+        <div ref={composerInputRef} className="px-4 pt-3 pb-1">
+          {/*
+            Input stack (same grid cell):
+            - Highlight div: real text paint for @mentions etc. pointer-events:none; scrollTop synced
+              from textarea in onScroll.
+            - textarea: value controlled by composerValue; transparent text + hidden native caret;
+              overflowY auto when content taller than COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX.
+            - SmoothCaretOverlay: mirror+span measures caret in content Y; maps with textarea.scrollTop.
+            resizeTextarea() preserves scroll when toggling height:auto→fixed. When already at
+            max height and overflowing, it avoids height:auto so scrollHeight stays tied to the
+            new value (trailing newline can scroll into view) without content padding tricks.
+          */}
           <div
-            aria-hidden
-            ref={overlayRef}
             style={{
-              gridArea: '1 / 1',
-              fontSize: '0.875rem',
-              lineHeight: '1.625',
-              fontFamily: 'inherit',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-              overflowY: 'hidden',
-              pointerEvents: 'none',
-              minHeight: '22px'
+              display: 'grid',
+              position: 'relative',
+              maxHeight: `${COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX}px`,
+              minHeight: 0,
+              overflow: 'hidden'
             }}
           >
-            {renderComposerTextHighlights(composerValue, theme.text.primary, theme.text.accent)}
+            <div
+              aria-hidden
+              ref={overlayRef}
+              className="composer-text-overlay"
+              style={{
+                gridArea: '1 / 1',
+                position: 'relative',
+                fontSize: '0.875rem',
+                lineHeight: '1.625',
+                fontFamily: 'inherit',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                overflowY: 'auto',
+                pointerEvents: 'none',
+                minHeight: 0,
+                maxHeight: `${COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX}px`,
+                letterSpacing: '0.04em'
+              }}
+            >
+              {renderComposerTextHighlights(composerValue, theme.text.primary, theme.text.accent)}
+              {composerValue.endsWith('\n') && <span key="trailing-nl">{'\u200b'}</span>}
+            </div>
+            <SmoothCaretOverlay
+              textareaRef={textareaRef}
+              hostRef={composerInputRef}
+              highlightRef={overlayRef}
+              enabled={true}
+              trailStrength="high"
+              isFocused={isTextareaFocused}
+              color={theme.text.accent}
+              trailColor={`rgb(75 175 201 / 0.38)`}
+            />
+            <textarea
+              ref={textareaRef}
+              value={composerValue}
+              onChange={handleInput}
+              onCompositionStart={() => setIsComposing(true)}
+              onCompositionEnd={() => setIsComposing(false)}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              onScroll={handleTextareaScroll}
+              onFocus={() => setIsTextareaFocused(true)}
+              onBlur={() => setIsTextareaFocused(false)}
+              placeholder={
+                isConfigured
+                  ? 'Message Yachiyo...'
+                  : 'Open Settings and configure a provider before chatting.'
+              }
+              rows={1}
+              className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed placeholder:text-gray-400 message-selectable"
+              style={{
+                gridArea: '1 / 1',
+                color: 'transparent',
+                caretColor: 'transparent',
+                padding: 0,
+                minHeight: '22px',
+                maxHeight: `${COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX}px`,
+                letterSpacing: '0.04em',
+                wordBreak: 'break-word',
+                overflowWrap: 'break-word'
+              }}
+            />
           </div>
-          <textarea
-            ref={textareaRef}
-            value={composerValue}
-            onChange={handleInput}
-            onCompositionStart={() => setIsComposing(true)}
-            onCompositionEnd={() => setIsComposing(false)}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            onScroll={handleTextareaScroll}
-            onFocus={() => setIsTextareaFocused(true)}
-            onBlur={() => setIsTextareaFocused(false)}
-            placeholder={
-              isConfigured
-                ? 'Message Yachiyo...'
-                : 'Open Settings and configure a provider before chatting.'
-            }
-            rows={1}
-            className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed placeholder:text-gray-400 message-selectable"
-            style={{
-              gridArea: '1 / 1',
-              color: 'transparent',
-              caretColor: 'transparent',
-              padding: 0,
-              minHeight: '22px',
-              maxHeight: '160px'
-            }}
-          />
-          <SmoothCaretOverlay
-            textareaRef={textareaRef}
-            hostRef={composerInputRef}
-            enabled={true}
-            trailStrength="high"
-            isFocused={isTextareaFocused}
-            color={theme.text.accent}
-            trailColor={`rgb(75 175 201 / 0.38)`}
-          />
         </div>
       </div>
 

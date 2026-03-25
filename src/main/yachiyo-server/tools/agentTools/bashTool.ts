@@ -73,10 +73,17 @@ function buildBashContent(input: {
 
   if (baseText.length > 0) {
     const tail = takeTail(baseText, MAX_BASH_MODEL_OUTPUT_CHARS)
-    const note =
-      tail.truncated && input.outputFilePath
-        ? `\n\n[truncated output: full log saved to ${input.outputFilePath}]`
-        : ''
+
+    if (input.outputFilePath && !input.preliminary) {
+      return {
+        content: textContent(
+          `Output too large to inline. Full output saved to ${input.outputFilePath}.\nUse the read tool to read it.`
+        ),
+        truncated: true
+      }
+    }
+
+    const note = ''
 
     return {
       content: textContent(`${tail.text}${note}`),

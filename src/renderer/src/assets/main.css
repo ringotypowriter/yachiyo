@@ -372,6 +372,15 @@ body {
   opacity: 0.72;
 }
 
+/* Composer text highlight overlay — overflow:auto so scrollTop is writable (overflow:hidden
+   silently ignores programmatic scrollTop in Chrome), but the scrollbar must stay invisible. */
+.composer-text-overlay {
+  scrollbar-width: none;
+}
+.composer-text-overlay::-webkit-scrollbar {
+  display: none;
+}
+
 /* Smooth caret overlay */
 .echooo-caret-overlay {
   position: absolute;
@@ -389,7 +398,8 @@ body {
   opacity: 0;
   background: var(--echooo-caret-color, currentColor);
   will-change: transform, opacity, height;
-  animation: echooo-blink 1.1s ease-in-out infinite;
+  /* Opacity is driven by JS each frame; a CSS keyframe on the same property hid the caret. */
+  animation: none;
 }
 
 .echooo-caret-trail {

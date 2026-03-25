@@ -166,8 +166,7 @@ export function summarizeToolOutput(
       return `saved to ${details.savedFileName ?? details.savedFilePath}`
     }
 
-    const summary = details.title?.trim() ? `read "${details.title}"` : 'read web page'
-    return details.truncated ? `${summary} (truncated)` : summary
+    return details.title?.trim() ? `read "${details.title}"` : 'read web page'
   }
 
   if (toolName === 'webSearch') {

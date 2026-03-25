@@ -1,7 +1,7 @@
 import { tool, type Tool } from 'ai'
 
 import { mkdir, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { join } from 'node:path'
 
 import type { WebReadToolCallDetails } from '../../../../shared/yachiyo/protocol.ts'
 import {
@@ -13,11 +13,30 @@ import {
   type AgentToolContext,
   type WebReadToolInput,
   type WebReadToolOutput,
-  resolvePathWithinWorkspace,
   textContent,
   toToolModelOutput,
   webReadToolInputSchema
 } from './shared.ts'
+
+const AUTO_SAVE_DIR = '.yachiyo/tool-result'
+const INLINE_CONTENT_LIMIT = 32_000
+
+function sanitizeHostname(hostname: string): string {
+  return hostname
+    .replace(/\./g, '-')
+    .replace(/[^a-z0-9-]/gi, '')
+    .toLowerCase()
+}
+
+function generateAutoSaveFilename(url: string): string {
+  let hostname = 'web'
+  try {
+    hostname = sanitizeHostname(new URL(url).hostname) || 'web'
+  } catch {
+    // invalid URL — fall back to 'web' prefix
+  }
+  return `web-${hostname}-${Date.now()}.md`
+}
 
 function buildWebReadModelContent(details: WebReadToolCallDetails): string {
   const lines = [
@@ -36,17 +55,14 @@ function buildWebReadModelContent(details: WebReadToolCallDetails): string {
 
   lines.push('', details.content)
 
-  if (details.truncated) {
-    const originalChars = details.originalContentChars ?? details.contentChars
-    lines.push('', `[truncated from ${originalChars} to ${details.contentChars} characters]`)
-  }
-
   return lines.join('\n')
 }
 
-function buildSavedWebReadModelContent(details: WebReadToolCallDetails): string {
+function buildAutoSavedModelContent(details: WebReadToolCallDetails): string {
+  const filePath = details.savedFileName ?? details.savedFilePath ?? 'workspace file'
   const lines = [
-    `Saved readable content to ${details.savedFilePath ?? details.savedFileName ?? 'workspace file'}.`,
+    `Content too large to inline (${details.contentChars} chars). Full content saved to ${filePath}.`,
+    `Use the read tool to read it.`,
     `URL: ${details.finalUrl ?? details.requestedUrl}`,
     ...(details.title ? [`Title: ${details.title}`] : []),
     ...(details.author ? [`Author: ${details.author}`] : []),
@@ -67,17 +83,15 @@ function buildSavedWebReadModelContent(details: WebReadToolCallDetails): string 
 function createWebReadResult(details: WebReadToolCallDetails, error?: string): WebReadToolOutput {
   const message =
     error ??
-    (details.savedFilePath || details.savedFileName
-      ? buildSavedWebReadModelContent(details)
+    (details.savedFileName || details.savedFilePath
+      ? buildAutoSavedModelContent(details)
       : buildWebReadModelContent(details))
 
   return {
     content: textContent(message),
     details,
     ...(error ? { error } : {}),
-    metadata: {
-      ...(details.truncated ? { truncated: true } : {})
-    }
+    metadata: {}
   }
 }
 
@@ -87,7 +101,7 @@ export function createTool(
 ): Tool<WebReadToolInput, WebReadToolOutput> {
   return tool({
     description:
-      'Fetch a static HTTP(S) web page and extract its main readable content. Use it for articles, documentation pages, or other server-rendered content. If filename is provided, save the extracted content under the current workspace instead of returning the full content to the model. Do not use it for browser automation, login flows, or JS-heavy apps.',
+      'Fetch a static HTTP(S) web page and extract its main readable content. Use it for articles, documentation pages, or other server-rendered content. If the content is too large to return inline, it will be automatically saved to a workspace file and you will be instructed to read it with the read tool. Do not use it for browser automation, login flows, or JS-heavy apps.',
     inputSchema: webReadToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) =>
@@ -98,51 +112,6 @@ export function createTool(
   })
 }
 
-function createWebReadFailureDetails(input: {
-  requestedUrl: string
-  contentFormat: WebReadToolCallDetails['contentFormat']
-  errorCode: NonNullable<WebReadToolCallDetails['failureCode']>
-  savedFileName?: string
-  savedFilePath?: string
-}): WebReadToolCallDetails {
-  return {
-    requestedUrl: input.requestedUrl,
-    extractor: 'none',
-    content: '',
-    contentFormat: input.contentFormat,
-    contentChars: 0,
-    truncated: false,
-    failureCode: input.errorCode,
-    ...(input.savedFileName ? { savedFileName: input.savedFileName } : {}),
-    ...(input.savedFilePath ? { savedFilePath: input.savedFilePath } : {})
-  }
-}
-
-function resolveWebReadSaveTarget(
-  workspacePath: string,
-  filename: string
-):
-  | {
-      savedFileName: string
-      savedFilePath: string
-    }
-  | undefined {
-  const normalizedFilename = filename.trim()
-  if (!normalizedFilename) {
-    return undefined
-  }
-
-  const savedFilePath = resolvePathWithinWorkspace(workspacePath, normalizedFilename)
-  if (!savedFilePath) {
-    return undefined
-  }
-
-  return {
-    savedFileName: normalizedFilename,
-    savedFilePath
-  }
-}
-
 export async function runWebReadTool(
   input: WebReadToolInput,
   context: AgentToolContext,
@@ -150,27 +119,11 @@ export async function runWebReadTool(
     signal?: AbortSignal
   } = {}
 ): Promise<WebReadToolOutput> {
-  const saveTarget =
-    input.filename === undefined
-      ? undefined
-      : resolveWebReadSaveTarget(context.workspacePath, input.filename)
-
-  if (input.filename !== undefined && !saveTarget) {
-    return createWebReadResult(
-      createWebReadFailureDetails({
-        requestedUrl: input.url,
-        contentFormat: input.format ?? DEFAULT_WEB_READ_FORMAT,
-        errorCode: 'invalid-filename'
-      }),
-      'filename must stay within the current workspace.'
-    )
-  }
-
   const result = await readWebPage(
     {
       url: input.url,
       format: input.format ?? DEFAULT_WEB_READ_FORMAT,
-      ...(saveTarget ? { maxContentChars: null } : {}),
+      maxContentChars: null,
       signal: dependencies.signal
     },
     dependencies
@@ -190,12 +143,7 @@ export async function runWebReadTool(
     content: result.content,
     contentFormat: result.contentFormat,
     contentChars: result.contentChars,
-    truncated: result.truncated,
-    ...(result.originalContentChars === undefined
-      ? {}
-      : { originalContentChars: result.originalContentChars }),
-    ...(saveTarget?.savedFileName ? { savedFileName: saveTarget.savedFileName } : {}),
-    ...(saveTarget?.savedFilePath ? { savedFilePath: saveTarget.savedFilePath } : {}),
+    truncated: false,
     ...(result.failureCode ? { failureCode: result.failureCode } : {})
   }
 
@@ -203,18 +151,24 @@ export async function runWebReadTool(
     return createWebReadResult(baseDetails, result.error)
   }
 
-  if (!saveTarget) {
+  if (result.contentChars <= INLINE_CONTENT_LIMIT) {
     return createWebReadResult(baseDetails)
   }
 
+  // Content exceeds inline limit — auto-save to .yachiyo/tool-result/
+  const filename = generateAutoSaveFilename(result.requestedUrl)
+  const savedFileName = join(AUTO_SAVE_DIR, filename)
+  const savedFilePath = join(context.workspacePath, AUTO_SAVE_DIR, filename)
+
   try {
-    await mkdir(dirname(saveTarget.savedFilePath), { recursive: true })
-    await writeFile(saveTarget.savedFilePath, result.content, 'utf8')
+    await mkdir(join(context.workspacePath, AUTO_SAVE_DIR), { recursive: true })
+    await writeFile(savedFilePath, result.content, 'utf8')
 
     return createWebReadResult({
       ...baseDetails,
       content: '',
-      truncated: false,
+      savedFileName,
+      savedFilePath,
       savedBytes: Buffer.byteLength(result.content, 'utf8')
     })
   } catch (error) {

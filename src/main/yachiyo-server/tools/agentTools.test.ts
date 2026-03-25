@@ -355,6 +355,32 @@ test('runBashTool maps timeout failures into structured metadata', async () => {
   })
 })
 
+test('runBashTool auto-saves to .yachiyo/tool-output when output exceeds inline limit', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const largeOutput = 'x'.repeat(25_000)
+
+    const result = await runBashTool(
+      { command: 'echo large' },
+      { workspacePath },
+      {
+        runCommand: async () => ({
+          exitCode: 0,
+          stdout: largeOutput,
+          stderr: ''
+        })
+      }
+    )
+
+    assert.equal(result.error, undefined)
+    assert.equal(result.details.truncated, true)
+    assert.ok(result.details.outputFilePath?.includes('.yachiyo/tool-output'))
+    assert.equal(await readFile(result.details.outputFilePath!, 'utf8'), largeOutput)
+    assert.match(flattenToolContent(result.content), /Output too large to inline/)
+    assert.match(flattenToolContent(result.content), /Use the read tool/)
+    assert.doesNotMatch(flattenToolContent(result.content), /x{100}/)
+  })
+})
+
 test('runGrepTool maps normalized search results into structured details and summaries', async () => {
   await withWorkspace(async (workspacePath) => {
     const result = await runGrepTool(
@@ -549,7 +575,7 @@ test('runWebReadTool maps service results into structured details and summaries'
   })
 })
 
-test('runWebReadTool saves extracted content to a workspace file when filename is provided', async () => {
+test('runWebReadTool auto-saves to .yachiyo/tool-result when content exceeds inline limit', async () => {
   await withWorkspace(async (workspacePath) => {
     const longContent = `${'A'.repeat(40_000)}\n\nSecond paragraph.`
     const response = new Response('<html><body><article>stub</article></body></html>', {
@@ -565,10 +591,7 @@ test('runWebReadTool saves extracted content to a workspace file when filename i
     })
 
     const result = await runWebReadTool(
-      {
-        url: 'https://example.com/article',
-        filename: 'captures/example.md'
-      },
+      { url: 'https://example.com/article' },
       { workspacePath },
       {
         fetchImpl: async () => response,
@@ -581,40 +604,18 @@ test('runWebReadTool saves extracted content to a workspace file when filename i
       }
     )
 
-    const savedPath = join(workspacePath, 'captures/example.md')
-
     assert.equal(result.error, undefined)
-    assert.equal(result.details.savedFilePath, savedPath)
-    assert.equal(result.details.savedBytes, Buffer.byteLength(longContent, 'utf8'))
-    assert.equal(result.details.content, '')
     assert.equal(result.details.truncated, false)
     assert.equal(result.details.contentChars, longContent.length)
-    assert.equal(await readFile(savedPath, 'utf8'), longContent)
-    assert.equal(summarizeToolOutput('webRead', result), 'saved to captures/example.md')
-    assert.match(flattenToolContent(result.content), /Saved readable content to/)
-    assert.doesNotMatch(flattenToolContent(result.content), /Second paragraph\./)
-  })
-})
-
-test('runWebReadTool rejects filenames outside the workspace', async () => {
-  await withWorkspace(async (workspacePath) => {
-    const result = await runWebReadTool(
-      {
-        url: 'https://example.com/article',
-        filename: '../escape.md'
-      },
-      { workspacePath },
-      {
-        fetchImpl: async () => {
-          throw new Error('fetch should not be called')
-        }
-      }
-    )
-
-    assert.equal(result.error, 'filename must stay within the current workspace.')
-    assert.equal(result.details.failureCode, 'invalid-filename')
-    assert.equal(result.details.savedFilePath, undefined)
+    assert.equal(result.details.savedBytes, Buffer.byteLength(longContent, 'utf8'))
     assert.equal(result.details.content, '')
+    assert.ok(result.details.savedFilePath?.includes('.yachiyo/tool-result'))
+    assert.ok(result.details.savedFileName?.startsWith('.yachiyo/tool-result/web-'))
+    assert.equal(await readFile(result.details.savedFilePath!, 'utf8'), longContent)
+    assert.match(summarizeToolOutput('webRead', result), /saved to \.yachiyo\/tool-result\/web-/)
+    assert.match(flattenToolContent(result.content), /Content too large to inline/)
+    assert.match(flattenToolContent(result.content), /Use the read tool/)
+    assert.doesNotMatch(flattenToolContent(result.content), /Second paragraph\./)
   })
 })
 

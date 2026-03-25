@@ -71,8 +71,7 @@ export const globToolInputSchema = z.object({
 
 export const webReadToolInputSchema = z.object({
   url: z.string().min(1),
-  format: z.enum(['markdown', 'html']).optional(),
-  filename: z.string().min(1).optional()
+  format: z.enum(['markdown', 'html']).optional()
 })
 
 export const webSearchToolInputSchema = z.object({

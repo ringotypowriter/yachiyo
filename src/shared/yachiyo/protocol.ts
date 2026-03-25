@@ -23,7 +23,6 @@ export type SearchFileDiscoveryBackend = 'fd' | 'find' | 'typescript'
 export type WebReadFailureCode =
   | 'invalid-url'
   | 'unsupported-protocol'
-  | 'invalid-filename'
   | 'fetch-failed'
   | 'timeout'
   | 'http-error'
