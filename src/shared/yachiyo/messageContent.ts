@@ -3,6 +3,7 @@ import type { MessageImageRecord } from './protocol'
 interface MessagePayloadLike {
   content: string
   images?: MessageImageRecord[]
+  attachments?: { filename: string }[]
 }
 
 export function normalizeMessageImages(images?: MessageImageRecord[]): MessageImageRecord[] {
@@ -54,7 +55,11 @@ export function extractBase64DataUrlPayload(dataUrl: string): {
 }
 
 export function hasMessagePayload(input: MessagePayloadLike): boolean {
-  return input.content.trim().length > 0 || normalizeMessageImages(input.images).length > 0
+  return (
+    input.content.trim().length > 0 ||
+    normalizeMessageImages(input.images).length > 0 ||
+    (input.attachments?.length ?? 0) > 0
+  )
 }
 
 export function summarizeMessageInput(input: MessagePayloadLike): string {

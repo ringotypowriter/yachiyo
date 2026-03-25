@@ -4,6 +4,7 @@ import {
   AlertCircle,
   ChevronDown,
   CircleCheck,
+  FileText,
   Folder,
   Paperclip,
   LoaderCircle,
@@ -17,6 +18,7 @@ import {
   DEFAULT_SETTINGS,
   EMPTY_COMPOSER_DRAFT,
   useAppStore,
+  type ComposerFileDraft,
   type ComposerImageDraft
 } from '@renderer/app/store/useAppStore'
 import type { FileMentionCandidate } from '@renderer/app/types'
@@ -39,6 +41,20 @@ import { SmoothCaretOverlay } from './SmoothCaretOverlay'
 
 const NEW_THREAD_DRAFT_KEY = '__new__'
 const MAX_COMPOSER_IMAGES = 4
+const MAX_COMPOSER_FILES = 10
+
+const ACCEPTED_FILE_TYPES = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+  'text/plain',
+  'text/csv',
+  'text/markdown'
+]
+
+const ACCEPT_ATTRIBUTE = `image/*,${ACCEPTED_FILE_TYPES.join(',')}`
 
 const COMPOSER_TAG_HIGHLIGHT_RE = /@skills:[a-zA-Z0-9_-]+|@!?[A-Za-z0-9._/-]+/g
 const CONFIRMED_FILE_TAG_RE = /(^|\s)@(!?[A-Za-z0-9._/-]+)(?=\s|$)/g
@@ -167,6 +183,48 @@ function getImageStatusLabel(image: ComposerImageDraft): string {
   return 'Ready'
 }
 
+function getFileStatusLabel(file: ComposerFileDraft): string {
+  if (file.status === 'loading') return 'Loading'
+  if (file.status === 'failed') return 'Needs attention'
+  return 'Ready'
+}
+
+function ComposerFilePreview({
+  file,
+  onRemove
+}: {
+  file: ComposerFileDraft
+  onRemove: () => void
+}): React.JSX.Element {
+  return (
+    <div className="composer-file-card">
+      <button
+        type="button"
+        className="composer-image-card__remove"
+        aria-label={`Remove ${file.filename}`}
+        onClick={onRemove}
+      >
+        <X size={12} strokeWidth={1.8} />
+      </button>
+
+      <div className="composer-file-card__icon">
+        {file.status === 'loading' ? (
+          <LoaderCircle size={18} strokeWidth={1.7} className="composer-image-card__spinner" />
+        ) : file.status === 'failed' ? (
+          <AlertCircle size={18} strokeWidth={1.7} />
+        ) : (
+          <FileText size={18} strokeWidth={1.5} />
+        )}
+      </div>
+
+      <div className="composer-image-card__meta">
+        <span className="composer-image-card__name">{file.filename}</span>
+        <span className="composer-image-card__status">{getFileStatusLabel(file)}</span>
+      </div>
+    </div>
+  )
+}
+
 function getWorkspaceLabel(workspacePath: string | null): string {
   if (!workspacePath) {
     return 'Temp workspace'
@@ -267,6 +325,7 @@ export function Composer({
   const cancelActiveRun = useAppStore((s) => s.cancelActiveRun)
   const enabledTools = useAppStore((s) => s.enabledTools)
   const removeComposerImage = useAppStore((s) => s.removeComposerImage)
+  const removeComposerFile = useAppStore((s) => s.removeComposerFile)
   const sendMessage = useAppStore((s) => s.sendMessage)
   const selectModel = useAppStore((s) => s.selectModel)
   const setComposerEnabledSkillNames = useAppStore((s) => s.setComposerEnabledSkillNames)
@@ -275,6 +334,7 @@ export function Composer({
   const toggleEnabledTool = useAppStore((s) => s.toggleEnabledTool)
   const threads = useAppStore((s) => s.threads)
   const upsertComposerImage = useAppStore((s) => s.upsertComposerImage)
+  const upsertComposerFile = useAppStore((s) => s.upsertComposerFile)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -305,11 +365,16 @@ export function Composer({
 
   const composerValue = composerDraft.text
   const draftImages = composerDraft.images
+  const draftFiles = composerDraft.files
   const readyImageCount = draftImages.filter((image) => image.status === 'ready').length
+  const readyFileCount = draftFiles.filter((file) => file.status === 'ready').length
   const hasLoadingImages = draftImages.some((image) => image.status === 'loading')
+  const hasLoadingFiles = draftFiles.some((file) => file.status === 'loading')
   const hasFailedImages = draftImages.some((image) => image.status === 'failed')
-  const hasPayload = composerValue.trim().length > 0 || readyImageCount > 0
+  const hasFailedFiles = draftFiles.some((file) => file.status === 'failed')
+  const hasPayload = composerValue.trim().length > 0 || readyImageCount > 0 || readyFileCount > 0
   const canAddImages = draftImages.length < MAX_COMPOSER_IMAGES
+  const canAddFiles = draftFiles.length < MAX_COMPOSER_FILES
   const hasActiveRun = activeRunId !== null
   const isModelSelectorLocked = runPhase === 'preparing' || runPhase === 'streaming'
   const isConfigured = settings.apiKey.trim().length > 0 && settings.model.trim().length > 0
@@ -553,8 +618,8 @@ export function Composer({
   const { canSend, showStopButton } = getComposerActionState({
     connectionStatus,
     hasActiveRun,
-    hasFailedImages,
-    hasLoadingImages,
+    hasFailedImages: hasFailedImages || hasFailedFiles,
+    hasLoadingImages: hasLoadingImages || hasLoadingFiles,
     hasPayload,
     isConfigured
   })
@@ -585,17 +650,19 @@ export function Composer({
       }
     }
 
-    if (hasLoadingImages) {
+    if (hasLoadingImages || hasLoadingFiles) {
       return {
         tone: 'muted' as const,
-        text: 'Preparing image...'
+        text: hasLoadingFiles ? 'Preparing file...' : 'Preparing image...'
       }
     }
 
-    if (hasFailedImages) {
+    if (hasFailedImages || hasFailedFiles) {
       return {
         tone: 'error' as const,
-        text: 'This image could not be prepared.'
+        text: hasFailedFiles
+          ? 'This file could not be prepared.'
+          : 'This image could not be prepared.'
       }
     }
 
@@ -718,6 +785,49 @@ export function Composer({
     [activeThreadId, upsertComposerImage]
   )
 
+  const queueDocumentFiles = useCallback(
+    async (files: File[]) => {
+      const remainingSlots = Math.max(
+        0,
+        MAX_COMPOSER_FILES -
+          (useAppStore.getState().composerDrafts[activeThreadId ?? NEW_THREAD_DRAFT_KEY]?.files
+            .length ?? 0)
+      )
+      const docFiles = files
+        .filter((file) => !file.type.startsWith('image/'))
+        .slice(0, remainingSlots)
+
+      for (const file of docFiles) {
+        const fileId = createDraftImageId()
+        upsertComposerFile(
+          { id: fileId, filename: file.name, mediaType: file.type, dataUrl: '', status: 'loading' },
+          activeThreadId
+        )
+
+        try {
+          const dataUrl = await readFileAsDataUrl(file)
+          upsertComposerFile(
+            { id: fileId, filename: file.name, mediaType: file.type, dataUrl, status: 'ready' },
+            activeThreadId
+          )
+        } catch (error) {
+          upsertComposerFile(
+            {
+              id: fileId,
+              filename: file.name,
+              mediaType: file.type,
+              dataUrl: '',
+              status: 'failed',
+              error: error instanceof Error ? error.message : 'Unable to prepare this file.'
+            },
+            activeThreadId
+          )
+        }
+      }
+    },
+    [activeThreadId, upsertComposerFile]
+  )
+
   const handleSlashCommandSelect = useCallback(
     (command: SlashCommand) => {
       if (command.type === 'action') {
@@ -828,18 +938,43 @@ export function Composer({
 
   const handlePaste = useCallback(
     (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      const files = Array.from(event.clipboardData.items)
+      // Web clipboard items — works for screenshots and images copied from browser
+      const allFiles = Array.from(event.clipboardData.items)
         .map((item) => item.getAsFile())
-        .filter((file): file is File => file !== null && file.type.startsWith('image/'))
+        .filter((file): file is File => file !== null)
 
-      if (files.length === 0) {
+      const images = allFiles.filter((f) => f.type.startsWith('image/'))
+      const docs = allFiles.filter((f) => ACCEPTED_FILE_TYPES.includes(f.type))
+
+      if (images.length > 0 || docs.length > 0) {
+        event.preventDefault()
+        if (images.length > 0) void queueImageFiles(images)
+        if (docs.length > 0) void queueDocumentFiles(docs)
         return
       }
 
-      event.preventDefault()
-      void queueImageFiles(files)
+      // Finder-copied files: web clipboard won't carry their data, ask main process
+      void (async () => {
+        const finderFiles = await window.api.yachiyo.readClipboardFilePaths()
+        if (finderFiles.length === 0) return
+
+        const finderImages = finderFiles.filter((f) => f.mediaType.startsWith('image/'))
+        const finderDocs = finderFiles.filter((f) => !f.mediaType.startsWith('image/'))
+
+        for (const f of finderImages) {
+          const id = createDraftImageId()
+          upsertComposerImage({ id, dataUrl: f.dataUrl, mediaType: f.mediaType, status: 'ready' }, activeThreadId)
+        }
+        for (const f of finderDocs) {
+          const id = createDraftImageId()
+          upsertComposerFile(
+            { id, filename: f.filename, mediaType: f.mediaType, dataUrl: f.dataUrl, status: 'ready' },
+            activeThreadId
+          )
+        }
+      })()
     },
-    [queueImageFiles]
+    [queueImageFiles, queueDocumentFiles, upsertComposerImage, upsertComposerFile, activeThreadId]
   )
 
   const providerLabel =
@@ -850,13 +985,20 @@ export function Composer({
 
   return (
     <div className="flex flex-col" style={{ borderTop: `1px solid ${theme.border.panel}` }}>
-      {draftImages.length > 0 ? (
+      {draftImages.length > 0 || draftFiles.length > 0 ? (
         <div className="composer-image-strip">
           {draftImages.map((image) => (
             <ComposerImagePreview
               key={image.id}
               image={image}
               onRemove={() => removeComposerImage(image.id, activeThreadId)}
+            />
+          ))}
+          {draftFiles.map((file) => (
+            <ComposerFilePreview
+              key={file.id}
+              file={file}
+              onRemove={() => removeComposerFile(file.id, activeThreadId)}
             />
           ))}
         </div>
@@ -1030,14 +1172,15 @@ export function Composer({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept={ACCEPT_ATTRIBUTE}
           multiple
           className="hidden"
           onChange={(event) => {
             const files = Array.from(event.target.files ?? [])
-            if (files.length > 0) {
-              void queueImageFiles(files)
-            }
+            const images = files.filter((f) => f.type.startsWith('image/'))
+            const docs = files.filter((f) => !f.type.startsWith('image/'))
+            if (images.length > 0) void queueImageFiles(images)
+            if (docs.length > 0) void queueDocumentFiles(docs)
             event.currentTarget.value = ''
           }}
         />
@@ -1045,7 +1188,7 @@ export function Composer({
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          disabled={!canAddImages}
+          disabled={!canAddImages && !canAddFiles}
           className="p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity disabled:opacity-30"
           aria-label="Attach"
         >

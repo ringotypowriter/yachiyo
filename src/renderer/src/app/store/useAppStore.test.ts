@@ -987,11 +987,13 @@ test('sendMessage restores per-thread drafts and clears only the sent thread on 
       composerDrafts: {
         'thread-1': {
           text: 'Alpha',
-          images: []
+          images: [],
+          files: []
         },
         'thread-2': {
           text: 'Bravo',
-          images: []
+          images: [],
+          files: []
         }
       },
       messages: {
@@ -1107,7 +1109,8 @@ test('sendMessage routes active-run steer through the ordinary message path with
               mediaType: 'image/png',
               filename: 'diagram.png'
             }
-          ]
+          ],
+          files: []
         }
       },
       enabledTools: ['read', 'bash'],
@@ -1201,7 +1204,8 @@ test('sendMessage keeps a tool-waiting steer as a temporary pending marker until
       composerDrafts: {
         'thread-1': {
           text: 'Wait for the tool result first',
-          images: []
+          images: [],
+          files: []
         }
       },
       messages: {
@@ -1344,7 +1348,8 @@ test('sendMessage replaces the queued follow-up for an active run', async () => 
       composerDrafts: {
         'thread-1': {
           text: 'Second queued follow-up',
-          images: []
+          images: [],
+          files: []
         }
       },
       messages: {
@@ -1523,7 +1528,8 @@ test('createBranch switches to a blank draft in the destination thread', async (
       composerDrafts: {
         'thread-1': {
           text: 'Keep me here',
-          images: []
+          images: [],
+          files: []
         }
       },
       messages: {
@@ -1570,7 +1576,8 @@ test('compactThreadToAnotherThread switches into the destination thread and star
       composerDrafts: {
         'thread-1': {
           text: 'Keep me here too',
-          images: []
+          images: [],
+          files: []
         }
       },
       messages: {
@@ -1628,7 +1635,8 @@ test('sendMessage keeps draft text and images when the first send fails after au
               mediaType: 'image/png',
               filename: 'diagram.png'
             }
-          ]
+          ],
+          files: []
         }
       },
       settings: READY_SETTINGS
@@ -1758,7 +1766,8 @@ test('createNewThread does not reuse a New Chat that already has unsent draft co
       composerDrafts: {
         'thread-1': {
           text: 'Unsaved draft',
-          images: []
+          images: [],
+          files: []
         }
       },
       messages: {

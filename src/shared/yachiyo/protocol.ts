@@ -299,6 +299,13 @@ export interface MessageImageRecord {
   dataUrl: string
   mediaType: string
   filename?: string
+  workspacePath?: string
+}
+
+export interface MessageFileAttachment {
+  filename: string
+  mediaType: string
+  workspacePath: string
 }
 
 export interface MessageTextBlockRecord {
@@ -334,6 +341,7 @@ export interface MessageRecord {
   content: string
   textBlocks?: MessageTextBlockRecord[]
   images?: MessageImageRecord[]
+  attachments?: MessageFileAttachment[]
   reasoning?: string
   status: MessageStatus
   createdAt: string
@@ -628,10 +636,17 @@ export interface ImportWebSearchBrowserSessionInput {
   sourceProfileName: string
 }
 
+export interface SendChatAttachment {
+  filename: string
+  mediaType: string
+  dataUrl: string
+}
+
 export interface SendChatInput {
   threadId: string
   content: string
   images?: MessageImageRecord[]
+  attachments?: SendChatAttachment[]
   enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
   mode?: SendChatMode

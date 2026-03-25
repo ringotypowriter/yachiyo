@@ -1724,23 +1724,23 @@ test('YachiyoServer accepts image-first user input and forwards it as multimodal
     const messages = bootstrap.messagesByThread[thread.id] ?? []
 
     assert.equal(accepted.thread.title, 'Shared an image')
-    assert.deepEqual(messages[0]?.images, [
-      {
-        dataUrl: 'data:image/png;base64,AAAA',
-        mediaType: 'image/png',
-        filename: 'whiteboard.png'
-      }
-    ])
-    assert.deepEqual(modelRequests[0]?.messages.at(-1), {
-      role: 'user',
-      content: [
-        {
-          type: 'image',
-          image: 'AAAA',
-          mediaType: 'image/png'
-        }
-      ]
-    })
+    const savedImage = messages[0]?.images?.[0]
+    assert.equal(savedImage?.dataUrl, 'data:image/png;base64,AAAA')
+    assert.equal(savedImage?.mediaType, 'image/png')
+    assert.equal(savedImage?.filename, 'whiteboard.png')
+    assert.ok(
+      typeof savedImage?.workspacePath === 'string' &&
+        savedImage.workspacePath.endsWith('whiteboard.png'),
+      'image should be saved to workspace'
+    )
+    const lastModelMessage = modelRequests[0]?.messages.at(-1)
+    assert.equal(lastModelMessage?.role, 'user')
+    assert.ok(Array.isArray(lastModelMessage?.content), 'content should be an array')
+    const contentArray = lastModelMessage?.content as { type: string; image?: string; mediaType?: string; text?: string }[]
+    const imagePart = contentArray.find((part) => part.type === 'image')
+    assert.deepEqual(imagePart, { type: 'image', image: 'AAAA', mediaType: 'image/png' })
+    const textPart = contentArray.find((part) => part.type === 'text')
+    assert.ok(textPart?.text?.includes('<attached_files>'), 'model message should include attached_files block')
   })
 })
 
@@ -1792,31 +1792,28 @@ test('YachiyoServer accepts active-run steer as an ordinary message and forwards
       assert.equal(messages.length, 4)
       assert.equal(messages[0]?.content, 'Start with the code path')
       assert.equal(messages[1]?.content, 'Use the screenshot instead')
-      assert.deepEqual(messages[1]?.images, [
-        {
-          dataUrl: 'data:image/png;base64,BBBB',
-          mediaType: 'image/png',
-          filename: 'screenshot.png'
-        }
-      ])
+      const steerImage = messages[1]?.images?.[0]
+      assert.equal(steerImage?.dataUrl, 'data:image/png;base64,BBBB')
+      assert.equal(steerImage?.mediaType, 'image/png')
+      assert.equal(steerImage?.filename, 'screenshot.png')
+      assert.ok(
+        typeof steerImage?.workspacePath === 'string' &&
+          steerImage.workspacePath.endsWith('screenshot.png'),
+        'steer image should be saved to workspace'
+      )
       assert.equal(messages[2]?.role, 'assistant')
       assert.equal(messages[2]?.status, 'stopped')
       assert.equal(messages[3]?.role, 'assistant')
       assert.equal(messages[3]?.parentMessageId, steerAccepted.userMessage.id)
-      assert.deepEqual(requests[1]?.messages.at(-1), {
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: 'Use the screenshot instead'
-          },
-          {
-            type: 'image',
-            image: 'BBBB',
-            mediaType: 'image/png'
-          }
-        ]
-      })
+      const steerModelMsg = requests[1]?.messages.at(-1)
+      assert.equal(steerModelMsg?.role, 'user')
+      assert.ok(Array.isArray(steerModelMsg?.content))
+      const steerContent = steerModelMsg?.content as { type: string; text?: string; image?: string; mediaType?: string }[]
+      const steerImagePart = steerContent.find((p) => p.type === 'image')
+      assert.deepEqual(steerImagePart, { type: 'image', image: 'BBBB', mediaType: 'image/png' })
+      const steerTextPart = steerContent.find((p) => p.type === 'text')
+      assert.ok(steerTextPart?.text?.includes('Use the screenshot instead'))
+      assert.ok(steerTextPart?.text?.includes('<attached_files>'))
     },
     {
       createModelRuntime: () => ({

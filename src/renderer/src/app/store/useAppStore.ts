@@ -8,6 +8,7 @@ import type {
   ProviderSettings,
   RunRecord,
   RunStatus,
+  SendChatAttachment,
   SendChatMode,
   SettingsConfig,
   SkillCatalogEntry,
@@ -57,15 +58,26 @@ export interface ComposerImageDraft extends MessageImageRecord {
   error?: string
 }
 
+export interface ComposerFileDraft {
+  id: string
+  filename: string
+  mediaType: string
+  dataUrl: string
+  status: 'loading' | 'ready' | 'failed'
+  error?: string
+}
+
 export interface ComposerDraft {
   text: string
   images: ComposerImageDraft[]
+  files: ComposerFileDraft[]
   enabledSkillNames?: string[] | null
 }
 
 export const EMPTY_COMPOSER_DRAFT: ComposerDraft = {
   text: '',
   images: [],
+  files: [],
   enabledSkillNames: null
 }
 
@@ -95,6 +107,8 @@ interface AppState {
   latestRunsByThread: Record<string, RunRecord>
   runsByThread: Record<string, RunRecord[]>
   removeComposerImage: (imageId: string, threadId?: string | null) => void
+  upsertComposerFile: (file: ComposerFileDraft, threadId?: string | null) => void
+  removeComposerFile: (fileId: string, threadId?: string | null) => void
   deleteMessage: (messageId: string) => Promise<void>
   messages: Record<string, Message[]>
   pendingAssistantMessages: Record<string, PendingAssistantMessage>
@@ -345,7 +359,10 @@ function deriveActiveThreadRunState(
 
 function isComposerDraftEmpty(draft: ComposerDraft): boolean {
   return (
-    draft.text.trim().length === 0 && draft.images.length === 0 && draft.enabledSkillNames === null
+    draft.text.trim().length === 0 &&
+    draft.images.length === 0 &&
+    draft.files.length === 0 &&
+    draft.enabledSkillNames === null
   )
 }
 
@@ -503,6 +520,16 @@ function toReadyMessageImages(images: ComposerImageDraft[]): MessageImageRecord[
         ...(image.filename ? { filename: image.filename } : {})
       }))
   )
+}
+
+function toReadyFileAttachments(files: ComposerFileDraft[]): SendChatAttachment[] {
+  return files
+    .filter((file) => file.status === 'ready' && file.dataUrl)
+    .map((file) => ({
+      filename: file.filename,
+      mediaType: file.mediaType,
+      dataUrl: file.dataUrl
+    }))
 }
 
 function finalizePendingMessage(
@@ -1688,6 +1715,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const draft = getComposerDraft(currentState)
     const trimmed = draft.text.trim()
     const images = toReadyMessageImages(draft.images)
+    const attachments = toReadyFileAttachments(draft.files)
     const enabledTools = currentState.enabledTools
     const enabledSkillNames = resolveEffectiveEnabledSkillNames({
       config: currentState.config,
@@ -1696,7 +1724,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     if (
       draft.images.some((image) => image.status === 'loading' || image.status === 'failed') ||
-      !hasMessagePayload({ content: trimmed, images })
+      draft.files.some((file) => file.status === 'loading' || file.status === 'failed') ||
+      !hasMessagePayload({ content: trimmed, images, attachments })
     ) {
       return
     }
@@ -1745,6 +1774,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         enabledSkillNames:
           mode === 'follow-up' || draft.enabledSkillNames !== null ? enabledSkillNames : undefined,
         ...(images.length > 0 ? { images } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
         ...(mode !== 'normal' ? { mode } : {}),
         threadId
       })
@@ -1983,6 +2013,41 @@ export const useAppStore = create<AppState>((set, get) => ({
         composerDrafts: updateComposerDraft(state.composerDrafts, draftKey, (draft) => ({
           ...draft,
           images
+        }))
+      }
+    }),
+
+  upsertComposerFile: (file, threadId) =>
+    set((state) => {
+      const draftKey = getComposerDraftKey(threadId ?? state.activeThreadId)
+      const currentDraft = state.composerDrafts[draftKey] ?? EMPTY_COMPOSER_DRAFT
+      const existingIndex = currentDraft.files.findIndex((entry) => entry.id === file.id)
+
+      if (existingIndex === -1 && file.status !== 'loading') {
+        return state
+      }
+
+      const files =
+        existingIndex === -1
+          ? [...currentDraft.files, file]
+          : currentDraft.files.map((entry, index) => (index === existingIndex ? file : entry))
+
+      return {
+        composerDrafts: updateComposerDraft(state.composerDrafts, draftKey, (draft) => ({
+          ...draft,
+          files
+        }))
+      }
+    }),
+
+  removeComposerFile: (fileId, threadId) =>
+    set((state) => {
+      const draftKey = getComposerDraftKey(threadId ?? state.activeThreadId)
+
+      return {
+        composerDrafts: updateComposerDraft(state.composerDrafts, draftKey, (draft) => ({
+          ...draft,
+          files: draft.files.filter((file) => file.id !== fileId)
         }))
       }
     })

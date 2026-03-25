@@ -1,4 +1,4 @@
-import type { MessageImageRecord } from '../../../shared/yachiyo/protocol.ts'
+import type { MessageFileAttachment, MessageImageRecord } from '../../../shared/yachiyo/protocol.ts'
 import {
   extractBase64DataUrlPayload,
   normalizeMessageImages
@@ -10,6 +10,7 @@ export interface ContextLayerHistoryMessage {
   role: 'user' | 'assistant'
   content: string
   images?: MessageImageRecord[]
+  attachments?: MessageFileAttachment[]
 }
 
 export interface PersonalityLayerInput {
@@ -57,6 +58,26 @@ function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
   })
 }
 
+function buildAttachedFilesBlock(
+  images: MessageImageRecord[] | undefined,
+  attachments: MessageFileAttachment[] | undefined
+): string | null {
+  const imageEntries = (images ?? [])
+    .filter((img) => img.workspacePath)
+    .map((img) => `- ${img.filename ?? 'image'} (${img.mediaType}) → ${img.workspacePath} [sent inline]`)
+
+  const fileEntries = (attachments ?? []).map(
+    (a) => `- ${a.filename} (${a.mediaType}) → ${a.workspacePath}`
+  )
+
+  const allEntries = [...imageEntries, ...fileEntries]
+  if (allEntries.length === 0) {
+    return null
+  }
+
+  return ['<attached_files>', ...allEntries, '</attached_files>'].join('\n')
+}
+
 function toModelHistoryMessage(message: ContextLayerHistoryMessage): ModelMessage {
   if (message.role !== 'user') {
     return {
@@ -66,19 +87,22 @@ function toModelHistoryMessage(message: ContextLayerHistoryMessage): ModelMessag
   }
 
   const images = normalizeMessageImages(message.images)
+  const attachedFilesBlock = buildAttachedFilesBlock(message.images, message.attachments)
+  const textContent = attachedFilesBlock
+    ? `${message.content}\n\n${attachedFilesBlock}`
+    : message.content
+
   if (images.length === 0) {
     return {
       role: 'user',
-      content: message.content
+      content: textContent
     }
   }
 
   return {
     role: 'user',
     content: [
-      ...(message.content.trim().length > 0
-        ? [{ type: 'text' as const, text: message.content }]
-        : []),
+      ...(textContent.trim().length > 0 ? [{ type: 'text' as const, text: textContent }] : []),
       ...images.map((image) => ({
         type: 'image' as const,
         image: extractBase64DataUrlPayload(image.dataUrl)?.base64 ?? image.dataUrl,

@@ -63,7 +63,8 @@ const IPC_CHANNELS = {
   upsertProvider: 'yachiyo:upsert-provider',
   setThreadPrivacyMode: 'yachiyo:set-thread-privacy-mode',
   regenerateThreadTitle: 'yachiyo:regenerate-thread-title',
-  starThread: 'yachiyo:star-thread'
+  starThread: 'yachiyo:star-thread',
+  readClipboardFilePaths: 'yachiyo:read-clipboard-file-paths'
 } as const
 
 let server: YachiyoServer | null = null
@@ -232,6 +233,43 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.starThread, (input: { threadId: string; starred: boolean }) =>
     server!.starThread(input)
   )
+  handle(IPC_CHANNELS.readClipboardFilePaths, async () => {
+    const { clipboard } = await import('electron')
+    const { readFile } = await import('node:fs/promises')
+    const { basename, extname } = await import('node:path')
+
+    const ACCEPTED_EXTENSIONS: Record<string, string> = {
+      '.pdf': 'application/pdf',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.doc': 'application/msword',
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.xls': 'application/vnd.ms-excel',
+      '.txt': 'text/plain',
+      '.csv': 'text/csv',
+      '.md': 'text/markdown',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp'
+    }
+
+    // readFilePaths is macOS-only and may be missing from older type stubs
+    const paths: string[] = (clipboard as unknown as { readFilePaths(): string[] }).readFilePaths()
+    const results: { filename: string; mediaType: string; dataUrl: string }[] = []
+
+    for (const filePath of paths) {
+      const ext = extname(filePath).toLowerCase()
+      const mediaType = ACCEPTED_EXTENSIONS[ext]
+      if (!mediaType) continue
+
+      const data = await readFile(filePath)
+      const base64 = data.toString('base64')
+      results.push({ filename: basename(filePath), mediaType, dataUrl: `data:${mediaType};base64,${base64}` })
+    }
+
+    return results
+  })
 
   app.once('before-quit', () => {
     void server?.close()

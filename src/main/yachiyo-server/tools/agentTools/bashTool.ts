@@ -267,13 +267,24 @@ const defaultBashRunner: BashRunner = async ({
   const shouldBufferStdout = onStdout === undefined
   const shouldBufferStderr = onStderr === undefined
 
+  const forceKillChild = (): void => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      return
+    }
+    try {
+      child.kill('SIGKILL')
+    } catch {
+      // ESRCH if the kernel already reaped the child.
+    }
+  }
+
   const onAbort = (): void => {
     if (child.exitCode !== null || child.signalCode !== null) {
       return
     }
 
     terminatedByAbort = true
-    child.kill('SIGTERM')
+    forceKillChild()
   }
 
   if (abortSignal?.aborted) {
@@ -301,14 +312,14 @@ const defaultBashRunner: BashRunner = async ({
 
   const timeoutHandle = setTimeout(() => {
     timedOut = true
-    child.kill('SIGTERM')
+    forceKillChild()
   }, timeoutSeconds * 1000)
 
   try {
     const exitCode = await new Promise<number>((resolve, reject) => {
       child.once('error', reject)
-      child.once('close', (code, signal) => {
-        if (terminatedByAbort && signal) {
+      child.once('close', (code) => {
+        if (terminatedByAbort) {
           reject(toAbortError(abortSignal?.reason, 'Tool execution aborted.'))
           return
         }

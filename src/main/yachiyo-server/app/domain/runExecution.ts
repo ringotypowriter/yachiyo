@@ -408,11 +408,12 @@ function loadRunHistory(
   threadId: string,
   requestMessageId: string,
   requestMessageContentOverride?: string
-): Array<Pick<MessageRecord, 'content' | 'images' | 'role'>> {
+): Array<Pick<MessageRecord, 'content' | 'images' | 'attachments' | 'role'>> {
   return collectMessagePath(loadThreadMessages(threadId), requestMessageId).map(
-    ({ content, id, images, role }) => ({
+    ({ content, id, images, attachments, role }) => ({
       content: id === requestMessageId ? (requestMessageContentOverride ?? content) : content,
       ...(images ? { images } : {}),
+      ...(attachments ? { attachments } : {}),
       role
     })
   )

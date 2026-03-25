@@ -1,4 +1,5 @@
 import type {
+  MessageFileAttachment,
   MessageImageRecord,
   MessageRecord,
   ThreadMemoryRecallState,
@@ -42,6 +43,7 @@ export interface StoredMessageRow {
   content: string
   textBlocks: string | null
   images: string | null
+  attachments: string | null
   reasoning: string | null
   status: MessageRecord['status']
   createdAt: string
@@ -219,6 +221,7 @@ export function toThreadRecord(
 
 export function toMessageRecord(row: StoredMessageRow): MessageRecord {
   const images = parseMessageImages(row.images)
+  const attachments = parseMessageAttachments(row.attachments)
   const textBlocks = parseMessageTextBlocks(row.textBlocks)
 
   return {
@@ -229,6 +232,7 @@ export function toMessageRecord(row: StoredMessageRow): MessageRecord {
     content: row.content,
     ...(textBlocks ? { textBlocks } : {}),
     ...(images ? { images } : {}),
+    ...(attachments ? { attachments } : {}),
     ...(row.reasoning ? { reasoning: row.reasoning } : {}),
     status: row.status,
     createdAt: row.createdAt,
@@ -443,6 +447,30 @@ export function parseMessageImages(images: string | null): MessageImageRecord[] 
     const parsed = JSON.parse(images) as MessageImageRecord[]
     const normalized = normalizeMessageImages(parsed)
     return normalized.length > 0 ? normalized : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export function serializeMessageAttachments(
+  attachments?: MessageFileAttachment[]
+): string | null {
+  return attachments && attachments.length > 0 ? JSON.stringify(attachments) : null
+}
+
+export function parseMessageAttachments(
+  attachments: string | null
+): MessageFileAttachment[] | undefined {
+  if (!attachments) {
+    return undefined
+  }
+
+  try {
+    const parsed = JSON.parse(attachments) as MessageFileAttachment[]
+    const valid = parsed.filter(
+      (a) => typeof a.filename === 'string' && typeof a.mediaType === 'string' && typeof a.workspacePath === 'string'
+    )
+    return valid.length > 0 ? valid : undefined
   } catch {
     return undefined
   }

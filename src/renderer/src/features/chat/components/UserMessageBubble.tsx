@@ -1,4 +1,5 @@
 import type React from 'react'
+import { FileText } from 'lucide-react'
 import type { Message } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { canRetryUserMessage } from '../lib/messageActionState'
@@ -18,6 +19,23 @@ function UserMessageImages({ message }: { message: Message }): React.JSX.Element
             src={image.dataUrl}
             alt={image.filename ?? `Image ${index + 1}`}
           />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function UserMessageFiles({ message }: { message: Message }): React.JSX.Element | null {
+  if (!message.attachments || message.attachments.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="user-message-files">
+      {message.attachments.map((attachment, index) => (
+        <div key={`${attachment.filename}-${index}`} className="user-message-file-chip">
+          <FileText size={13} strokeWidth={1.5} className="user-message-file-chip__icon" />
+          <span className="user-message-file-chip__name">{attachment.filename}</span>
         </div>
       ))}
     </div>
@@ -61,9 +79,10 @@ export function UserMessageBubble({
             </div>
           ) : null}
           <UserMessageImages message={message} />
+          <UserMessageFiles message={message} />
           {message.content ? (
             <p
-              className={`leading-relaxed whitespace-pre-wrap m-0${message.images?.length ? ' mt-3' : ''}`}
+              className={`leading-relaxed whitespace-pre-wrap m-0${message.images?.length || message.attachments?.length ? ' mt-3' : ''}`}
               style={{
                 fontSize: 'calc(var(--yachiyo-font-size-chat, 14px) / var(--yachiyo-ui-zoom, 1))'
               }}

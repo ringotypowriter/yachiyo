@@ -269,6 +269,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  width: 100%;
+  min-width: 0;
 }
 
 .composer-image-card__name {
@@ -283,6 +285,62 @@ body {
 .composer-image-card__status {
   font-size: 10px;
   color: rgb(var(--yachiyo-rgb-text-secondary) / 0.88);
+}
+
+.composer-file-card {
+  position: relative;
+  flex: 0 0 124px;
+  width: 124px;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px 8px;
+  border-radius: 12px;
+  background: rgb(var(--yachiyo-rgb-bg-surface));
+  border: 1px solid rgb(var(--yachiyo-rgb-border-panel));
+}
+
+.composer-file-card__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgb(var(--yachiyo-rgb-bg-accent-panel));
+  color: rgb(var(--yachiyo-rgb-text-accent));
+}
+
+.user-message-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.user-message-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 99px;
+  background: rgb(255 255 255 / 0.15);
+  font-size: 12px;
+  max-width: 200px;
+}
+
+.user-message-file-chip__icon {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.user-message-file-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composer-status {

@@ -297,6 +297,37 @@ test('streamBashTool emits preliminary updates and runBashTool returns a structu
   })
 })
 
+test('streamBashTool abortSignal stops a long-running command without waiting for bash timeout', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const controller = new AbortController()
+    const started = performance.now()
+
+    const drain = (async () => {
+      for await (const _ of streamBashTool(
+        {
+          command: 'sleep 60',
+          timeout: 120
+        },
+        { workspacePath },
+        { abortSignal: controller.signal }
+      )) {
+        // preliminary / final chunks
+      }
+    })()
+
+    setTimeout(() => {
+      controller.abort()
+    }, 25)
+
+    await assert.rejects(drain, (error: unknown) => error instanceof Error && error.name === 'AbortError')
+
+    assert.ok(
+      performance.now() - started < 8000,
+      'expected Stop/cancel to tear down the shell quickly, not after the full sleep'
+    )
+  })
+})
+
 test('runBashTool maps timeout failures into structured metadata', async () => {
   await withWorkspace(async (workspacePath) => {
     const result = await runBashTool(

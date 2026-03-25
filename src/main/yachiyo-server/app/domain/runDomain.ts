@@ -1,10 +1,13 @@
 import { readFile } from 'node:fs/promises'
 
+import { resolve } from 'node:path'
+
 import type {
   ChatAccepted,
   CompactThreadAccepted,
   MessageCompletedEvent,
   MessageDeltaEvent,
+  MessageFileAttachment,
   MessageRecord,
   MessageStartedEvent,
   ProviderSettings,
@@ -23,6 +26,10 @@ import type {
   ToolCallRecord,
   ToolCallName
 } from '../../../../shared/yachiyo/protocol.ts'
+import {
+  saveFileAttachmentsToWorkspace,
+  saveImageFilesToWorkspace
+} from './attachmentDomain.ts'
 import {
   hasMessagePayload,
   normalizeMessageImages,
@@ -66,6 +73,8 @@ interface RunState {
   pendingSteerInput?: {
     content: string
     images: MessageRecord['images']
+    attachments: MessageFileAttachment[]
+    messageId: string
     timestamp: string
   }
   executionPhase: 'generating' | 'tool-running'
@@ -264,10 +273,34 @@ export class YachiyoServerRunDomain {
     const workspacePaths = thread.workspacePath ? [thread.workspacePath] : []
     const content = await this.expandSkillReference(rawContent, workspacePaths)
 
-    if (!hasMessagePayload({ content, images })) {
+    if (!hasMessagePayload({ content, images, attachments: input.attachments })) {
       throw new Error('Cannot send an empty message.')
     }
     assertSupportedImages(images)
+
+    const messageId = this.deps.createId()
+    const hasFiles = images.length > 0 || (input.attachments?.length ?? 0) > 0
+
+    const workspacePath = hasFiles
+      ? thread.workspacePath?.trim()
+        ? resolve(thread.workspacePath)
+        : await this.deps.ensureThreadWorkspace(thread.id)
+      : null
+
+    const enrichedImages =
+      images.length > 0 && workspacePath
+        ? await saveImageFilesToWorkspace({ workspacePath, messageId, images })
+        : images
+
+    const fileAttachments =
+      (input.attachments?.length ?? 0) > 0 && workspacePath
+        ? await saveFileAttachmentsToWorkspace({
+            workspacePath,
+            messageId,
+            attachments: input.attachments!
+          })
+        : []
+
     const activeRunId = this.activeRunByThread.get(thread.id)
     const mode = input.mode ?? 'normal'
 
@@ -276,7 +309,9 @@ export class YachiyoServerRunDomain {
         content,
         enabledTools,
         enabledSkillNames,
-        images,
+        images: enrichedImages,
+        attachments: fileAttachments,
+        messageId,
         thread
       })
     }
@@ -289,7 +324,9 @@ export class YachiyoServerRunDomain {
         activeRunId,
         content,
         enabledSkillNames,
-        images,
+        images: enrichedImages,
+        attachments: fileAttachments,
+        messageId,
         thread
       })
     }
@@ -302,7 +339,9 @@ export class YachiyoServerRunDomain {
         content,
         enabledTools,
         enabledSkillNames,
-        images,
+        images: enrichedImages,
+        attachments: fileAttachments,
+        messageId,
         thread
       })
     }
@@ -423,6 +462,8 @@ export class YachiyoServerRunDomain {
     enabledTools: ToolCallName[]
     enabledSkillNames?: string[]
     images: MessageRecord['images']
+    attachments: MessageFileAttachment[]
+    messageId: string
     thread: ThreadRecord
   }): ChatAccepted {
     const timestamp = this.deps.timestamp()
@@ -438,8 +479,10 @@ export class YachiyoServerRunDomain {
           }) || DEFAULT_THREAD_TITLE
         : null
     const userMessage = this.createUserMessage({
+      id: input.messageId,
       content: input.content,
       images: input.images,
+      attachments: input.attachments,
       parentMessageId: input.thread.headMessageId,
       threadId: input.thread.id,
       timestamp
@@ -505,6 +548,8 @@ export class YachiyoServerRunDomain {
     content: string
     enabledSkillNames?: string[]
     images: MessageRecord['images']
+    attachments: MessageFileAttachment[]
+    messageId: string
     thread: ThreadRecord
   }): ChatAccepted {
     const activeRun = this.activeRuns.get(input.activeRunId)
@@ -519,6 +564,8 @@ export class YachiyoServerRunDomain {
       activeRun.pendingSteerInput = {
         content: input.content,
         images: input.images,
+        attachments: input.attachments,
+        messageId: input.messageId,
         timestamp: this.deps.timestamp()
       }
 
@@ -533,6 +580,8 @@ export class YachiyoServerRunDomain {
     const { updatedThread, userMessage } = this.persistSteerMessage({
       content: input.content,
       images: input.images,
+      attachments: input.attachments,
+      messageId: input.messageId,
       runState: activeRun,
       thread: input.thread,
       timestamp: this.deps.timestamp()
@@ -554,6 +603,8 @@ export class YachiyoServerRunDomain {
     enabledTools: ToolCallName[]
     enabledSkillNames?: string[]
     images: MessageRecord['images']
+    attachments: MessageFileAttachment[]
+    messageId: string
     thread: ThreadRecord
   }): ChatAccepted {
     const activeRunId = this.activeRunByThread.get(input.thread.id)
@@ -565,8 +616,10 @@ export class YachiyoServerRunDomain {
     const timestamp = this.deps.timestamp()
     const previousQueuedMessageId = input.thread.queuedFollowUpMessageId
     const userMessage = this.createUserMessage({
+      id: input.messageId,
       content: input.content,
       images: input.images,
+      attachments: input.attachments,
       parentMessageId: activeRun.pendingSteerMessageId ?? activeRun.requestMessageId,
       threadId: input.thread.id,
       timestamp
@@ -605,19 +658,22 @@ export class YachiyoServerRunDomain {
   }
 
   private createUserMessage(input: {
+    id: string
     content: string
     images: MessageRecord['images']
+    attachments: MessageFileAttachment[]
     parentMessageId?: string
     threadId: string
     timestamp: string
   }): MessageRecord {
     return {
-      id: this.deps.createId(),
+      id: input.id,
       threadId: input.threadId,
       ...(input.parentMessageId ? { parentMessageId: input.parentMessageId } : {}),
       role: 'user',
       content: input.content,
       ...(input.images && input.images.length > 0 ? { images: input.images } : {}),
+      ...(input.attachments.length > 0 ? { attachments: input.attachments } : {}),
       status: 'completed',
       createdAt: input.timestamp
     }
@@ -626,13 +682,17 @@ export class YachiyoServerRunDomain {
   private persistSteerMessage(input: {
     content: string
     images: MessageRecord['images']
+    attachments: MessageFileAttachment[]
+    messageId: string
     runState: RunState
     thread: ThreadRecord
     timestamp: string
   }): { updatedThread: ThreadRecord; userMessage: MessageRecord } {
     const userMessage = this.createUserMessage({
+      id: input.messageId,
       content: input.content,
       images: input.images,
+      attachments: input.attachments,
       parentMessageId: input.runState.pendingSteerMessageId ?? input.runState.requestMessageId,
       threadId: input.thread.id,
       timestamp: input.timestamp
@@ -799,6 +859,8 @@ export class YachiyoServerRunDomain {
               const { userMessage } = this.persistSteerMessage({
                 content: currentRun.pendingSteerInput.content,
                 images: currentRun.pendingSteerInput.images,
+                attachments: currentRun.pendingSteerInput.attachments,
+                messageId: currentRun.pendingSteerInput.messageId,
                 runState: currentRun,
                 thread: currentThread,
                 timestamp: currentRun.pendingSteerInput.timestamp

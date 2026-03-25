@@ -87,6 +87,7 @@ declare global {
         }) => Promise<ThreadRecord>
         regenerateThreadTitle: (input: { threadId: string }) => Promise<ThreadRecord>
         starThread: (input: { threadId: string; starred: boolean }) => Promise<ThreadRecord>
+        readClipboardFilePaths: () => Promise<{ filename: string; mediaType: string; dataUrl: string }[]>
         subscribe: (listener: (event: YachiyoServerEvent) => void) => () => void
       }
     }
