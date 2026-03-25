@@ -27,7 +27,6 @@ import { resolveComposerEnterAction } from '@renderer/features/chat/lib/composer
 import { theme } from '@renderer/theme/theme'
 import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
-  USER_MANAGED_TOOL_NAMES,
   isMemoryConfigured
 } from '../../../../../shared/yachiyo/protocol.ts'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
@@ -378,7 +377,7 @@ export function Composer({
   const hasActiveRun = activeRunId !== null
   const isModelSelectorLocked = runPhase === 'preparing' || runPhase === 'streaming'
   const isConfigured = settings.apiKey.trim().length > 0 && settings.model.trim().length > 0
-  const disabledToolCount = USER_MANAGED_TOOL_NAMES.length - enabledTools.length
+
   const defaultEnabledSkillNames = useMemo(
     () => config?.skills?.enabled ?? [],
     [config?.skills?.enabled]
@@ -1221,14 +1220,14 @@ export function Composer({
             <Wrench
               size={16}
               strokeWidth={1.5}
-              color={disabledToolCount > 0 ? theme.icon.accent : theme.icon.muted}
+              color={enabledTools.length > 0 ? theme.icon.accent : theme.icon.muted}
             />
-            {disabledToolCount > 0 ? (
+            {enabledTools.length > 0 ? (
               <span
                 className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center"
                 style={{ fontSize: '8px', background: theme.text.accent }}
               >
-                {disabledToolCount}
+                {enabledTools.length}
               </span>
             ) : null}
           </button>
