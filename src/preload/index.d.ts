@@ -18,6 +18,8 @@ import type {
   SendChatInput,
   TestMemoryConnectionInput,
   TestMemoryConnectionResult,
+  TestSubagentProfileInput,
+  TestSubagentProfileResult,
   ThreadSearchResult,
   UserDocument,
   ThreadSnapshot,
@@ -68,6 +70,7 @@ declare global {
         testMemoryConnection: (
           input: TestMemoryConnectionInput
         ) => Promise<TestMemoryConnectionResult>
+        testSubagentProfile: (input: TestSubagentProfileInput) => Promise<TestSubagentProfileResult>
         getSettings: () => Promise<ProviderSettings>
         saveConfig: (input: SettingsConfig) => Promise<SettingsConfig>
         saveUserDocument: (input: { content: string }) => Promise<UserDocument>

@@ -14,6 +14,7 @@ import { buildConversationGroupTimelineItems } from '../lib/messageTimelineLayou
 import { UserMessageBubble } from './UserMessageBubble'
 import { AssistantMessageBubble } from './AssistantMessageBubble'
 import { GeneratingRow } from './GeneratingRow'
+import { SubagentRunningIndicator } from './SubagentRunningIndicator'
 import { PreparingBubble } from './PreparingBubble'
 import { RunEventRow } from './RunEventRow'
 import { RunMemoryRecallRow } from './RunMemoryRecallRow'
@@ -319,6 +320,10 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   const activeRunId = useAppStore((state) =>
     threadId ? (state.activeRunIdsByThread[threadId] ?? null) : null
   )
+  const subagentActive = useAppStore((state) =>
+    threadId ? (state.subagentActiveByThread[threadId] ?? false) : false
+  )
+  const cancelRunForThread = useAppStore((state) => state.cancelRunForThread)
   const activeRequestMessageId = useAppStore((state) =>
     threadId ? (state.activeRequestMessageIdsByThread[threadId] ?? null) : null
   )
@@ -524,6 +529,12 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
           </div>
         )
       })}
+      {subagentActive && threadId ? (
+        <SubagentRunningIndicator
+          threadId={threadId}
+          onCancel={() => void cancelRunForThread(threadId)}
+        />
+      ) : null}
       <div ref={bottomRef} />
     </div>
   )

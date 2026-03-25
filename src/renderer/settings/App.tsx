@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
+  Bot,
   Brain,
   Compass,
   Cpu,
@@ -26,6 +27,7 @@ import { MemoryPane } from './panes/MemoryPane'
 import { ProvidersPane } from './panes/ProvidersPane'
 import { SearchPane } from './panes/SearchPane'
 import { PromptsPane } from './panes/PromptsPane'
+import { CodingAgentsPane } from './panes/CodingAgentsPane'
 import { SkillsPane } from './panes/SkillsPane'
 import { UIPane } from './panes/UIPane'
 import { WorkspacePane } from './panes/WorkspacePane'
@@ -35,6 +37,7 @@ type TabId =
   | 'providers'
   | 'chat'
   | 'skills'
+  | 'coding-agents'
   | 'prompts'
   | 'workspace'
   | 'search'
@@ -59,6 +62,7 @@ const TABS: Tab[] = [
   { id: 'providers', label: 'Providers', icon: Cpu },
   { id: 'chat', label: 'Chat', icon: MessageSquare },
   { id: 'skills', label: 'Skills', icon: Sparkles },
+  { id: 'coding-agents', label: 'Coding', icon: Bot },
   { id: 'prompts', label: 'Prompts', icon: Hash },
   { id: 'workspace', label: 'Workspace', icon: FolderOpen },
   { id: 'search', label: 'Search', icon: Compass },
@@ -266,6 +270,8 @@ function SettingsApp(): React.ReactNode {
       body = <ChatPane draft={draft} onChange={setDraft} />
     } else if (activeTab === 'skills') {
       body = <SkillsPane availableSkills={availableSkills} draft={draft} onChange={setDraft} />
+    } else if (activeTab === 'coding-agents') {
+      body = <CodingAgentsPane draft={draft} onChange={setDraft} />
     } else if (activeTab === 'prompts') {
       body = <PromptsPane draft={draft} onChange={setDraft} />
     } else if (activeTab === 'workspace') {

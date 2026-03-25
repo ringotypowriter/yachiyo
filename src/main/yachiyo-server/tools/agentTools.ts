@@ -4,6 +4,7 @@ import {
   DEFAULT_ENABLED_TOOL_NAMES,
   normalizeEnabledTools,
   type SkillCatalogEntry,
+  type SubagentProfile,
   type ToolCallDetailsSnapshot,
   type ToolCallName,
   type ToolCallStatus
@@ -37,6 +38,10 @@ import {
 import { createTool as createWebReadTool } from './agentTools/webReadTool.ts'
 import { createTool as createWebSearchTool } from './agentTools/webSearchTool.ts'
 import { createTool as createWriteTool } from './agentTools/writeTool.ts'
+import {
+  createTool as createDelegateCodingTaskTool,
+  type DelegateCodingTaskContext
+} from './agentTools/delegateCodingTaskTool.ts'
 
 export type {
   AgentToolMetadata,
@@ -79,6 +84,14 @@ export interface AgentToolDependencies {
   memoryService?: MemoryService
   searchService?: SearchService
   webSearchService?: WebSearchService
+  subagentProfiles?: SubagentProfile[]
+  onSubagentProgress?: (chunk: string) => void
+  onSubagentStarted?: (agentName: string) => void
+  onSubagentFinished?: (
+    agentName: string,
+    status: 'success' | 'cancelled',
+    lastMessage?: string
+  ) => void
 }
 
 function isToolFailure(output: unknown): output is AgentToolOutput {
@@ -288,6 +301,18 @@ export function createAgentToolSet(
 
   if (dependencies.memoryService?.hasHiddenSearchCapability()) {
     tools.memory_search = createMemorySearchTool(dependencies.memoryService)
+  }
+
+  const enabledSubagentProfiles = (dependencies.subagentProfiles ?? []).filter((p) => p.enabled)
+  if (enabledSubagentProfiles.length > 0) {
+    const subagentCtx: DelegateCodingTaskContext = {
+      workspacePath: context.workspacePath,
+      profiles: enabledSubagentProfiles,
+      onProgress: dependencies.onSubagentProgress,
+      onSubagentStarted: dependencies.onSubagentStarted,
+      onSubagentFinished: dependencies.onSubagentFinished
+    }
+    tools.delegate_coding_task = createDelegateCodingTaskTool(subagentCtx)
   }
 
   return Object.keys(tools).length > 0 ? tools : undefined

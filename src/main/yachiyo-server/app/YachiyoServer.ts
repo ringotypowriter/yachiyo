@@ -21,6 +21,8 @@ import type {
   SettingsConfig,
   SkillCatalogEntry,
   TestMemoryConnectionResult,
+  TestSubagentProfileInput,
+  TestSubagentProfileResult,
   ThreadRecord,
   ThreadSearchResult,
   ThreadSnapshot,
@@ -64,6 +66,7 @@ import {
   deleteThreadWorkspace as defaultDeleteThreadWorkspace,
   ensureThreadWorkspace as defaultEnsureThreadWorkspace
 } from '../threads/threadWorkspace.ts'
+import { testSubagentProfile as runTestSubagentProfile } from '../tools/agentTools/testSubagentProfile.ts'
 import { YachiyoServerConfigDomain } from './domain/configDomain.ts'
 import { YachiyoServerRunDomain } from './domain/runDomain.ts'
 import { YachiyoServerThreadDomain } from './domain/threadDomain.ts'
@@ -297,6 +300,10 @@ export class YachiyoServer {
 
   async testMemoryConnection(config: SettingsConfig): Promise<TestMemoryConnectionResult> {
     return this.memoryService.testConnection(config)
+  }
+
+  async testSubagentProfile(input: TestSubagentProfileInput): Promise<TestSubagentProfileResult> {
+    return runTestSubagentProfile(input.profile)
   }
 
   async getSettings(): Promise<ProviderSettings> {

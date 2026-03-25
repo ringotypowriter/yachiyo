@@ -354,7 +354,7 @@ export interface ToolCallRecord {
   threadId: string
   requestMessageId?: string
   assistantMessageId?: string
-  toolName: ToolCallName
+  toolName: ToolCallName | string
   status: ToolCallStatus
   inputSummary: string
   outputSummary?: string
@@ -497,6 +497,16 @@ export interface SkillCatalogEntry extends SkillSummary {
   skillFilePath: string
 }
 
+export interface SubagentProfile {
+  id: string
+  name: string
+  enabled: boolean
+  description: string
+  command: string
+  args: string[]
+  env: Record<string, string>
+}
+
 export interface FileMentionCandidate {
   path: string
 }
@@ -548,6 +558,7 @@ export interface SettingsConfig {
   memory?: MemoryConfig
   webSearch?: WebSearchConfig
   prompts?: UserPrompt[]
+  subagentProfiles?: SubagentProfile[]
 }
 
 export function isMemoryConfigured(
@@ -695,6 +706,15 @@ export interface TestMemoryConnectionResult {
   ok: boolean
 }
 
+export interface TestSubagentProfileInput {
+  profile: SubagentProfile
+}
+
+export interface TestSubagentProfileResult {
+  ok: boolean
+  error?: string
+}
+
 export interface ThreadSnapshot {
   thread: ThreadRecord
   messages: MessageRecord[]
@@ -837,6 +857,17 @@ export interface SettingsUpdatedEvent extends BaseEvent {
   settings: ProviderSettings
 }
 
+export interface SubagentStartedEvent extends RunEvent {
+  type: 'subagent.started'
+  agentName: string
+}
+
+export interface SubagentFinishedEvent extends RunEvent {
+  type: 'subagent.finished'
+  agentName: string
+  status: 'success' | 'cancelled'
+}
+
 export type YachiyoServerEvent =
   | ThreadCreatedEvent
   | ThreadUpdatedEvent
@@ -858,3 +889,5 @@ export type YachiyoServerEvent =
   | HarnessStartedEvent
   | HarnessFinishedEvent
   | SettingsUpdatedEvent
+  | SubagentStartedEvent
+  | SubagentFinishedEvent

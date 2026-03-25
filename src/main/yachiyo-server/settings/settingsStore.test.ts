@@ -66,6 +66,7 @@ test('settings store persists multi-provider config as TOML', async () => {
         }
       },
       prompts: [],
+      subagentProfiles: [],
       providers: [
         {
           id: 'provider-work',

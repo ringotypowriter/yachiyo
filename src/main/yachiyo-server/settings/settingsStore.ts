@@ -24,6 +24,7 @@ import {
   type ProviderSettings,
   type SkillsConfig,
   type SettingsConfig,
+  type SubagentProfile,
   type ToolModelConfig,
   type WebSearchConfig,
   type WebSearchProviderId,
@@ -64,6 +65,17 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
     baseUrl: DEFAULT_MEMORY_BASE_URL
   },
   prompts: [],
+  subagentProfiles: [
+    {
+      id: 'claude-code-default',
+      name: 'Claude Code',
+      enabled: true,
+      description: 'Default Claude Code agent. Best for multi-file refactoring and deep reasoning.',
+      command: 'npx',
+      args: ['-y', '@zed-industries/claude-agent-acp'],
+      env: { ACP_PERMISSION_MODE: 'acceptEdits' }
+    }
+  ],
   webSearch: {
     defaultProvider: DEFAULT_WEB_SEARCH_PROVIDER,
     browserSession: {
@@ -322,6 +334,37 @@ function toResolvedProviderSettings(
   }
 }
 
+function normalizeSubagentProfile(value: unknown): SubagentProfile | null {
+  if (!value || typeof value !== 'object') return null
+  const input = value as Record<string, unknown>
+  const id = normalizeString(input['id'], '')
+  const name = normalizeString(input['name'], '')
+  if (!id || !name) return null
+
+  const rawArgs = input['args']
+  const args = Array.isArray(rawArgs)
+    ? rawArgs.map((a) => normalizeString(a, '')).filter(Boolean)
+    : []
+
+  const rawEnv = input['env']
+  const env: Record<string, string> = {}
+  if (rawEnv && typeof rawEnv === 'object' && !Array.isArray(rawEnv)) {
+    for (const [k, v] of Object.entries(rawEnv as Record<string, unknown>)) {
+      if (typeof v === 'string') env[k] = v
+    }
+  }
+
+  return {
+    id,
+    name,
+    enabled: input['enabled'] === true,
+    description: normalizeString(input['description'], ''),
+    command: normalizeString(input['command'], ''),
+    args,
+    env
+  }
+}
+
 export function normalizeSettingsConfig(value: unknown): SettingsConfig {
   const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
   const hasProviders = Array.isArray(input['providers'])
@@ -339,6 +382,14 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
   })
   const toolModel = normalizeToolModelConfig(input['toolModel'])
   const resolvedToolProvider = resolveToolModelProvider({ providers }, toolModel)
+
+  const hasSubagentProfiles = Array.isArray(input['subagentProfiles'])
+  const subagentProfiles = hasSubagentProfiles
+    ? (input['subagentProfiles'] as unknown[]).flatMap((item) => {
+        const profile = normalizeSubagentProfile(item)
+        return profile ? [profile] : []
+      })
+    : DEFAULT_SETTINGS_CONFIG.subagentProfiles
 
   return {
     enabledTools: normalizeUserEnabledTools(
@@ -365,7 +416,8 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
     memory: normalizeMemoryConfig(input['memory']),
     webSearch: normalizeWebSearchConfig(input['webSearch']),
     providers: hasProviders ? providers : DEFAULT_SETTINGS_CONFIG.providers,
-    prompts: normalizeUserPrompts(input['prompts'])
+    prompts: normalizeUserPrompts(input['prompts']),
+    subagentProfiles
   }
 }
 
@@ -416,8 +468,10 @@ export function parseSettingsToml(raw: string): SettingsConfig {
   const root: Record<string, unknown> = {}
   const providers: Array<Record<string, unknown>> = []
   const prompts: Array<Record<string, unknown>> = []
+  const subagentProfiles: Array<Record<string, unknown>> = []
   let currentProvider: Record<string, unknown> | null = null
   let currentPrompt: Record<string, unknown> | null = null
+  let currentSubagentProfile: Record<string, unknown> | null = null
   let section:
     | 'root'
     | 'general'
@@ -431,7 +485,8 @@ export function parseSettingsToml(raw: string): SettingsConfig {
     | 'webSearch.exa'
     | 'provider'
     | 'provider.modelList'
-    | 'prompt' = 'root'
+    | 'prompt'
+    | 'subagentProfile' = 'root'
 
   for (const rawLine of raw.split(/\r?\n/u)) {
     const line = stripTomlComment(rawLine).trim()
@@ -525,6 +580,13 @@ export function parseSettingsToml(raw: string): SettingsConfig {
       currentPrompt = {}
       prompts.push(currentPrompt)
       section = 'prompt'
+      continue
+    }
+
+    if (line === '[[subagentProfiles]]') {
+      currentSubagentProfile = {}
+      subagentProfiles.push(currentSubagentProfile)
+      section = 'subagentProfile'
       continue
     }
 
@@ -676,6 +738,14 @@ export function parseSettingsToml(raw: string): SettingsConfig {
       continue
     }
 
+    if (section === 'subagentProfile') {
+      if (!currentSubagentProfile) {
+        throw new Error(`SubagentProfile entry is not initialized for ${key}.`)
+      }
+      currentSubagentProfile[key] = value
+      continue
+    }
+
     const modelList =
       currentProvider && typeof currentProvider['modelList'] === 'object'
         ? (currentProvider['modelList'] as Record<string, unknown>)
@@ -691,7 +761,8 @@ export function parseSettingsToml(raw: string): SettingsConfig {
   return normalizeSettingsConfig({
     ...root,
     providers,
-    prompts
+    prompts,
+    subagentProfiles
   })
 }
 
@@ -797,6 +868,20 @@ export function stringifySettingsToml(config: SettingsConfig): string {
       '[[prompts]]',
       `keycode = ${stringifyTomlString(prompt.keycode)}`,
       `text = ${stringifyTomlString(prompt.text)}`
+    )
+  }
+
+  for (const profile of normalized.subagentProfiles ?? []) {
+    lines.push(
+      '',
+      '[[subagentProfiles]]',
+      `id = ${stringifyTomlString(profile.id)}`,
+      `name = ${stringifyTomlString(profile.name)}`,
+      `enabled = ${profile.enabled ? 'true' : 'false'}`,
+      `description = ${stringifyTomlString(profile.description)}`,
+      `command = ${stringifyTomlString(profile.command)}`,
+      `args = ${stringifyTomlStringArray(profile.args)}`,
+      `env = ${JSON.stringify(profile.env)}`
     )
   }
 

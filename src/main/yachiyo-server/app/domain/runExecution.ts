@@ -1,5 +1,10 @@
+import { execFile } from 'node:child_process'
+import { access, constants } from 'node:fs/promises'
 import { mkdir } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
+import { promisify } from 'node:util'
+
+const execFileAsync = promisify(execFile)
 
 import type {
   HarnessFinishedEvent,
@@ -20,6 +25,9 @@ import type {
   SkillCatalogEntry,
   SkillSummary,
   SettingsConfig,
+  SubagentProfile,
+  SubagentStartedEvent,
+  SubagentFinishedEvent,
   ThreadRecord,
   ThreadUpdatedEvent,
   ToolCallName,
@@ -113,6 +121,13 @@ export interface RunExecutionDeps {
   onExecutionPhaseChange?: (phase: 'generating' | 'tool-running') => void
   onSafeToSteerAfterTool?: () => void
   onTerminalState?: () => void
+  onSubagentProgress?: (chunk: string) => void
+  onSubagentStarted?: (agentName: string) => void
+  onSubagentFinished?: (
+    agentName: string,
+    status: 'success' | 'cancelled',
+    lastMessage?: string
+  ) => void
 }
 
 function isAbortError(error: unknown): boolean {
@@ -279,6 +294,83 @@ export function buildContextSources(input: {
   return sources
 }
 
+interface GitContext {
+  hasGit: boolean
+  currentBranch?: string
+  mainBranch?: string
+}
+
+async function detectGitContext(workspacePath: string): Promise<GitContext> {
+  try {
+    await access(join(workspacePath, '.git'), constants.F_OK)
+  } catch {
+    return { hasGit: false }
+  }
+
+  try {
+    const [currentResult, mainResult] = await Promise.allSettled([
+      execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: workspacePath }),
+      execFileAsync('git', ['rev-parse', '--abbrev-ref', 'origin/HEAD'], { cwd: workspacePath })
+    ])
+
+    const currentBranch =
+      currentResult.status === 'fulfilled' ? currentResult.value.stdout.trim() : undefined
+    const rawMain = mainResult.status === 'fulfilled' ? mainResult.value.stdout.trim() : undefined
+    const mainBranch = rawMain?.replace(/^origin\//, '') ?? 'main'
+
+    return { hasGit: true, currentBranch, mainBranch }
+  } catch {
+    return { hasGit: true }
+  }
+}
+
+function buildSubagentContextBlock(
+  gitCtx: GitContext,
+  workspacePath: string,
+  profiles: SubagentProfile[]
+): string {
+  const enabledProfiles = profiles.filter((p) => p.enabled)
+  if (enabledProfiles.length === 0) {
+    return ''
+  }
+
+  if (!gitCtx.hasGit) {
+    return [
+      '<coding_agents>',
+      '⚠️ CRITICAL: The current workspace is NOT a Git repository.',
+      'You CANNOT use the `delegate_coding_task` tool. If the user asks you to delegate a task, inform them that a Git repository must be initialized first to ensure safe YOLO execution.',
+      '</coding_agents>'
+    ].join('\n')
+  }
+
+  const lines = [
+    '<coding_agents>',
+    'You can delegate complex coding tasks to the following ACP-compatible agents using the `delegate_coding_task` tool.',
+    `CRITICAL RULE 1: Agents MUST ONLY operate within the current thread workspace: ${workspacePath}.`,
+    '',
+    'Git Context:',
+    `- Current Branch: ${gitCtx.currentBranch ?? 'unknown'}`,
+    `- Main Branch: ${gitCtx.mainBranch ?? 'main'}`,
+    '',
+    'CRITICAL RULE 2 (PROMPT AUTHORING):',
+    'When writing the `prompt` parameter for the delegated agent, you MUST follow these constraints:',
+    '- Write strictly in English.',
+    '- Use direct, imperative natural language (e.g., "Implement X", "Ensure Y").',
+    '- Provide ONLY: the objective, current context/constraints, and acceptance criteria.',
+    '- DO NOT predefine architectural structures; let the agent decide the implementation.',
+    '- DO NOT use overly structured, markdown-heavy formatting.',
+    '',
+    'Available Agents:'
+  ]
+
+  for (const profile of enabledProfiles) {
+    lines.push(`- Name: "${profile.name}" (Description: ${profile.description})`)
+  }
+
+  lines.push('</coding_agents>')
+  return lines.join('\n')
+}
+
 function buildAgentInstructions(input: {
   workspacePath: string
   enabledTools: ToolCallName[]
@@ -286,6 +378,7 @@ function buildAgentInstructions(input: {
   hasHiddenMemorySearch: boolean
   soulDocumentPath?: string
   userDocumentPath?: string
+  subagentContextBlock?: string
 }): string {
   const instructions = [
     'You are operating as a tool-using local agent.',
@@ -389,7 +482,12 @@ function buildAgentInstructions(input: {
     'Never invent file contents, API shapes, configuration keys, or project structures. If you are uncertain about any of these, use tools to discover the ground truth before proceeding.'
   )
 
-  return instructions.join('\n')
+  const parts: string[] = [instructions.join('\n')]
+  if (input.subagentContextBlock) {
+    parts.push(input.subagentContextBlock)
+  }
+
+  return parts.join('\n\n')
 }
 
 async function ensureResolvedWorkspacePath(
@@ -522,6 +620,8 @@ export async function executeServerRun(
   const messageId = deps.createId()
   const toolCalls = new Map<string, ToolCallRecord>()
   const runningToolCallIds = new Set<string>()
+  let subagentToolCallId: string | undefined
+  let subagentStartedAt: string | undefined
   let buffer = ''
   let reasoningBuffer = ''
   let textBlocks: MessageTextBlockRecord[] = []
@@ -668,6 +768,19 @@ export async function executeServerRun(
         recallDecision
       })
     })
+    const enabledSubagentProfiles = (deps.readConfig().subagentProfiles ?? []).filter(
+      (p) => p.enabled
+    )
+    const gitCtx =
+      enabledSubagentProfiles.length > 0
+        ? await detectGitContext(workspacePath)
+        : ({ hasGit: false } as GitContext)
+    const subagentContextBlock = buildSubagentContextBlock(
+      gitCtx,
+      workspacePath,
+      enabledSubagentProfiles
+    )
+
     const messages = prepareModelMessages({
       personality: {
         basePersona: SYSTEM_PROMPT
@@ -689,7 +802,8 @@ export async function executeServerRun(
           hasHiddenMemorySearch:
             !input.thread.privacyMode && deps.memoryService.hasHiddenSearchCapability(),
           soulDocumentPath: soulDocument?.filePath,
-          userDocumentPath: userDocument?.filePath
+          userDocumentPath: userDocument?.filePath,
+          subagentContextBlock: subagentContextBlock || undefined
         })
       },
       hint: {
@@ -716,7 +830,85 @@ export async function executeServerRun(
         loadBrowserSnapshot: deps.loadBrowserSnapshot,
         searchService: deps.searchService,
         memoryService: input.thread.privacyMode ? undefined : deps.memoryService,
-        webSearchService: deps.webSearchService
+        webSearchService: deps.webSearchService,
+        ...(gitCtx.hasGit && enabledSubagentProfiles.length > 0
+          ? {
+              subagentProfiles: enabledSubagentProfiles,
+              onSubagentProgress: deps.onSubagentProgress,
+              onSubagentStarted: (agentName: string) => {
+                subagentToolCallId = deps.createId()
+                subagentStartedAt = deps.timestamp()
+                const toolCall: ToolCallRecord = {
+                  id: subagentToolCallId,
+                  runId: input.runId,
+                  threadId: input.thread.id,
+                  requestMessageId: input.requestMessageId,
+                  toolName: 'delegate_coding_task',
+                  status: 'running',
+                  inputSummary: agentName,
+                  startedAt: subagentStartedAt
+                }
+                toolCalls.set(toolCall.id, toolCall)
+                deps.storage.createToolCall(toolCall)
+                deps.emit<ToolCallUpdatedEvent>({
+                  type: 'tool.updated',
+                  threadId: input.thread.id,
+                  runId: input.runId,
+                  toolCall
+                })
+                deps.emit<SubagentStartedEvent>({
+                  type: 'subagent.started',
+                  threadId: input.thread.id,
+                  runId: input.runId,
+                  agentName
+                })
+              },
+              onSubagentFinished: (
+                agentName: string,
+                status: 'success' | 'cancelled',
+                lastMessage?: string
+              ) => {
+                if (subagentToolCallId) {
+                  const startedToolCall = toolCalls.get(subagentToolCallId)
+                  const finishedAt = deps.timestamp()
+                  const outputSummary = lastMessage
+                    ? lastMessage.slice(0, 120) + (lastMessage.length > 120 ? '…' : '')
+                    : status === 'cancelled'
+                      ? 'cancelled'
+                      : 'done'
+                  const toolCall: ToolCallRecord = {
+                    ...(startedToolCall ?? {
+                      id: subagentToolCallId,
+                      runId: input.runId,
+                      threadId: input.thread.id,
+                      requestMessageId: input.requestMessageId,
+                      toolName: 'delegate_coding_task',
+                      inputSummary: agentName,
+                      startedAt: subagentStartedAt ?? finishedAt
+                    }),
+                    status: status === 'cancelled' ? 'failed' : 'completed',
+                    outputSummary,
+                    finishedAt
+                  }
+                  toolCalls.set(toolCall.id, toolCall)
+                  deps.storage.updateToolCall(toolCall)
+                  deps.emit<ToolCallUpdatedEvent>({
+                    type: 'tool.updated',
+                    threadId: input.thread.id,
+                    runId: input.runId,
+                    toolCall
+                  })
+                }
+                deps.emit<SubagentFinishedEvent>({
+                  type: 'subagent.finished',
+                  threadId: input.thread.id,
+                  runId: input.runId,
+                  agentName,
+                  status
+                })
+              }
+            }
+          : {})
       }
     )
     deps.onEnabledToolsUsed(input.enabledTools)
@@ -751,10 +943,10 @@ export async function executeServerRun(
           runId: input.runId,
           threadId: input.thread.id,
           requestMessageId: input.requestMessageId,
-          toolName: event.toolCall.toolName as ToolCallRecord['toolName'],
+          toolName: event.toolCall.toolName as ToolCallName,
           status: 'running',
           inputSummary: summarizeToolInput(
-            event.toolCall.toolName as ToolCallRecord['toolName'],
+            event.toolCall.toolName as ToolCallName,
             event.toolCall.input
           ),
           startedAt: deps.timestamp()
@@ -783,7 +975,7 @@ export async function executeServerRun(
           return
         }
 
-        const toolName = event.toolCall.toolName as ToolCallRecord['toolName']
+        const toolName = event.toolCall.toolName as ToolCallName
         const normalized = normalizeToolResult(toolName, event.output, { phase: 'update' })
         const toolCall: ToolCallRecord = {
           ...startedToolCall,
@@ -809,7 +1001,7 @@ export async function executeServerRun(
           }
 
           const startedToolCall = toolCalls.get(event.toolCall.toolCallId)
-          const toolName = event.toolCall.toolName as ToolCallRecord['toolName']
+          const toolName = event.toolCall.toolName as ToolCallName
           const finishedAt = deps.timestamp()
           const normalized = event.success ? normalizeToolResult(toolName, event.output) : undefined
           const errorMessage =

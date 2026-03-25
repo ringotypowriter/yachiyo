@@ -101,6 +101,7 @@ interface AppState {
   deleteThread: (threadId: string) => Promise<void>
   enabledTools: ToolCallName[]
   harnessEvents: Record<string, HarnessRecord[]>
+  subagentActiveByThread: Record<string, boolean>
   initialized: boolean
   isBootstrapping: boolean
   lastError: string | null
@@ -731,6 +732,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
   harnessEvents: {},
+  subagentActiveByThread: {},
   initialized: false,
   isBootstrapping: false,
   lastError: null,
@@ -881,6 +883,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete runStatusesByThread[event.threadId]
         const toolCalls = { ...state.toolCalls }
         delete toolCalls[event.threadId]
+        const subagentActiveByThread = { ...state.subagentActiveByThread }
+        delete subagentActiveByThread[event.threadId]
 
         const activeThreadId =
           state.activeThreadId === event.threadId ? (threads[0]?.id ?? null) : state.activeThreadId
@@ -905,6 +909,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           ),
           runPhasesByThread,
           runStatusesByThread,
+          subagentActiveByThread,
           toolCalls,
           threads
         }
@@ -1459,6 +1464,18 @@ export const useAppStore = create<AppState>((set, get) => ({
             : h
         )
         return { harnessEvents: { ...state.harnessEvents, [event.threadId]: next } }
+      }
+
+      if (event.type === 'subagent.started') {
+        return {
+          subagentActiveByThread: { ...state.subagentActiveByThread, [event.threadId]: true }
+        }
+      }
+
+      if (event.type === 'subagent.finished') {
+        const next = { ...state.subagentActiveByThread }
+        delete next[event.threadId]
+        return { subagentActiveByThread: next }
       }
 
       return {}

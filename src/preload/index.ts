@@ -13,6 +13,7 @@ import type {
   SettingsConfig,
   SendChatInput,
   TestMemoryConnectionInput,
+  TestSubagentProfileInput,
   ThreadRecord,
   ThreadSearchResult,
   UserDocument,
@@ -65,6 +66,8 @@ const api = {
     getUserDocument: (): Promise<UserDocument> => ipcRenderer.invoke('yachiyo:get-user-document'),
     testMemoryConnection: (input: TestMemoryConnectionInput) =>
       ipcRenderer.invoke('yachiyo:test-memory-connection', input),
+    testSubagentProfile: (input: TestSubagentProfileInput) =>
+      ipcRenderer.invoke('yachiyo:test-subagent-profile', input),
     getSettings: () => ipcRenderer.invoke('yachiyo:get-settings'),
     saveConfig: (input: SettingsConfig) => ipcRenderer.invoke('yachiyo:save-config', input),
     saveUserDocument: (input: { content: string }): Promise<UserDocument> =>

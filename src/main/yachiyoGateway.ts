@@ -12,6 +12,7 @@ import type {
   SettingsConfig,
   SendChatInput,
   TestMemoryConnectionInput,
+  TestSubagentProfileInput,
   ToolPreferencesInput,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
@@ -53,6 +54,7 @@ const IPC_CHANNELS = {
   retryMessage: 'yachiyo:retry-message',
   saveThread: 'yachiyo:save-thread',
   testMemoryConnection: 'yachiyo:test-memory-connection',
+  testSubagentProfile: 'yachiyo:test-subagent-profile',
   saveConfig: 'yachiyo:save-config',
   saveUserDocument: 'yachiyo:save-user-document',
   saveSettings: 'yachiyo:save-settings',
@@ -197,6 +199,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.getUserDocument, () => server!.getUserDocument())
   handle(IPC_CHANNELS.testMemoryConnection, (input: TestMemoryConnectionInput) =>
     server!.testMemoryConnection(input.config)
+  )
+  handle(IPC_CHANNELS.testSubagentProfile, (input: TestSubagentProfileInput) =>
+    server!.testSubagentProfile(input)
   )
   handle(IPC_CHANNELS.getSettings, () => server!.getSettings())
   handle(IPC_CHANNELS.saveConfig, (input: SettingsConfig) => server!.saveConfig(input))

@@ -720,16 +720,13 @@ export function Composer({
     const prevClientHeight = element.clientHeight
     const wasScrollable = prevScrollHeight > prevClientHeight + eps
     const wasAtBottom =
-      forceToBottom ||
-      !wasScrollable ||
-      prevTop + prevClientHeight >= prevScrollHeight - eps
+      forceToBottom || !wasScrollable || prevTop + prevClientHeight >= prevScrollHeight - eps
 
     const styleHeightPx = parseFloat(element.style.height)
     const boxLooksMax =
       prevClientHeight >= maxPx - eps ||
       (!Number.isNaN(styleHeightPx) && styleHeightPx >= maxPx - eps)
-    const alreadyCappedAndOverflowing =
-      boxLooksMax && prevScrollHeight > prevClientHeight + eps
+    const alreadyCappedAndOverflowing = boxLooksMax && prevScrollHeight > prevClientHeight + eps
 
     if (alreadyCappedAndOverflowing) {
       element.style.height = `${maxPx}px`
@@ -1269,7 +1266,12 @@ export function Composer({
                 letterSpacing: '0.04em'
               }}
             >
-              {renderComposerTextHighlights(composerValue, theme.text.primary, theme.text.accent, validatedFileTags)}
+              {renderComposerTextHighlights(
+                composerValue,
+                theme.text.primary,
+                theme.text.accent,
+                validatedFileTags
+              )}
               {composerValue.endsWith('\n') && <span key="trailing-nl">{'\u200b'}</span>}
             </div>
             <SmoothCaretOverlay

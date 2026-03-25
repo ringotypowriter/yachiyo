@@ -98,7 +98,7 @@ export interface StoredToolCallRow {
   threadId: string
   requestMessageId: string | null
   assistantMessageId: string | null
-  toolName: ToolCallName
+  toolName: string
   status: ToolCallStatus
   inputSummary: string
   outputSummary: string | null
