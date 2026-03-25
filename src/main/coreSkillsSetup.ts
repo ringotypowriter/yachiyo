@@ -17,7 +17,9 @@ interface CoreSkillsManifest {
 function resolveBundledCoreSkillsPath(): string {
   // Dev: project root / resources / core-skills
   // Prod: bundled alongside main process output (out/main/core-skills)
-  return is.dev ? join(app.getAppPath(), 'resources', 'core-skills') : join(__dirname, 'core-skills')
+  return is.dev
+    ? join(app.getAppPath(), 'resources', 'core-skills')
+    : join(__dirname, 'core-skills')
 }
 
 function resolveCoreSkillsTargetPath(): string {
@@ -141,7 +143,9 @@ function runSetup(): void {
 
   console.log(
     `[core-skills] Extracted ${allSkillNames.length} skill(s) to ${targetPath}` +
-      (newSkillNames.length > 0 ? ` (${newSkillNames.length} newly enabled: ${newSkillNames.join(', ')})` : '')
+      (newSkillNames.length > 0
+        ? ` (${newSkillNames.length} newly enabled: ${newSkillNames.join(', ')})`
+        : '')
   )
 }
 

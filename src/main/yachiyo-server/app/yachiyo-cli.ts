@@ -2,7 +2,11 @@ import { pathToFileURL } from 'node:url'
 
 import type { ProviderConfig, SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
 import { providerMatchesReference } from '../../../shared/yachiyo/providerConfig.ts'
-import { resolveYachiyoSettingsPath, resolveYachiyoSoulPath } from '../config/paths.ts'
+import {
+  resolveYachiyoDbPath,
+  resolveYachiyoSettingsPath,
+  resolveYachiyoSoulPath
+} from '../config/paths.ts'
 import {
   readSoulDocument as defaultReadSoulDocument,
   upsertDailySoulTrait as defaultUpsertDailySoulTrait,
@@ -13,6 +17,7 @@ import {
 } from '../runtime/soul.ts'
 import { createSettingsStore } from '../settings/settingsStore.ts'
 import { YachiyoServerConfigDomain } from './domain/configDomain.ts'
+import { searchMessages as defaultSearchMessages, type MessageSearchHit } from './threadSearch.ts'
 
 const USAGE = `Usage: yachiyo <namespace> <subcommand> [args...] [flags...]
 
@@ -30,10 +35,15 @@ Namespaces:
   config get [path]
   config set <path> <value>
 
+  thread search <query> [--limit <n>] [--json]
+
 Flags:
   --settings <path> Settings file path (default: ~/.yachiyo/config.toml)
   --soul <path>     Soul file path (default: ~/.yachiyo/SOUL.md)
-  --payload <json>  JSON payload for mutation commands`
+  --db <path>       Database file path (default: ~/.yachiyo/yachiyo.sqlite)
+  --payload <json>  JSON payload for mutation commands
+  --limit <n>       Max results to return (default: 5)
+  --json            Output raw JSON array`
 
 export interface CliConfigService {
   getConfig(): SettingsConfig | Promise<SettingsConfig>
@@ -51,6 +61,7 @@ export interface RunYachiyoCliOptions {
   readSoulDocument?: (input: { filePath: string }) => Promise<SoulDocument | null>
   upsertDailySoulTrait?: (input: UpsertDailySoulTraitInput) => Promise<SoulDocument | null>
   removeSoulTrait?: (input: RemoveSoulTraitInput) => Promise<SoulDocument | null>
+  searchMessages?: (dbPath: string, query: string, limit: number) => MessageSearchHit[]
   stdout?: Pick<typeof process.stdout, 'write'>
   stderr?: Pick<typeof process.stderr, 'write'>
 }
@@ -60,7 +71,7 @@ function createDefaultConfigService(settingsPath: string): CliConfigService {
   return new YachiyoServerConfigDomain({ settingsStore, emit: () => {} })
 }
 
-const VALUE_FLAGS = new Set(['--settings', '--soul', '--payload'])
+const VALUE_FLAGS = new Set(['--settings', '--soul', '--payload', '--db', '--limit'])
 
 function parseArgs(rawArgs: string[]): { positionals: string[]; flags: Map<string, string> } {
   const positionals: string[] = []
@@ -343,6 +354,50 @@ async function handleConfigCommand(
   throw new Error(`Unknown config action: ${action ?? '(none)'}. Expected: get, set`)
 }
 
+function formatSearchResultsText(hits: MessageSearchHit[]): string {
+  if (hits.length === 0) return '(no results)'
+  return hits
+    .map((h) => {
+      const role = h.role === 'assistant' ? 'model' : 'user'
+      return `[ThreadID: ${h.threadId}] ${h.date} Role: ${role} Content: ${h.snippet}`
+    })
+    .join('\n')
+}
+
+function handleThreadCommand(
+  positionals: string[],
+  flags: Map<string, string>,
+  dbPath: string,
+  stdout: Pick<typeof process.stdout, 'write'>,
+  options: RunYachiyoCliOptions
+): void {
+  const action = positionals[0]
+  if (action !== 'search') {
+    throw new Error(`Unknown thread action: ${action ?? '(none)'}. Expected: search`)
+  }
+
+  const query = positionals[1]
+  if (!query?.trim()) {
+    throw new Error('Query is required: thread search <query>')
+  }
+
+  const limitRaw = flags.get('--limit')
+  const limit = limitRaw !== undefined ? parseInt(limitRaw, 10) : 5
+  if (isNaN(limit) || limit < 1) {
+    throw new Error(`--limit must be a positive integer, got: ${limitRaw}`)
+  }
+
+  const useJson = flags.get('--json') === 'true'
+  const search = options.searchMessages ?? defaultSearchMessages
+  const hits = search(dbPath, query, limit)
+
+  if (useJson) {
+    outputJson(stdout, hits)
+  } else {
+    stdout.write(`${formatSearchResultsText(hits)}\n`)
+  }
+}
+
 export async function runYachiyoCli(
   args = process.argv.slice(2),
   options: RunYachiyoCliOptions = {}
@@ -357,14 +412,20 @@ export async function runYachiyoCli(
 
   const settingsPath = flags.get('--settings') ?? resolveYachiyoSettingsPath()
   const soulPath = flags.get('--soul') ?? resolveYachiyoSoulPath()
+  const dbPath = flags.get('--db') ?? resolveYachiyoDbPath()
 
   if (namespace === 'soul') {
     await handleSoulCommand(positionals.slice(1), soulPath, stdout, options)
     return
   }
 
+  if (namespace === 'thread') {
+    handleThreadCommand(positionals.slice(1), flags, dbPath, stdout, options)
+    return
+  }
+
   if (namespace !== 'provider' && namespace !== 'config') {
-    throw new Error(`Unknown namespace: ${namespace}. Expected: soul, provider, config`)
+    throw new Error(`Unknown namespace: ${namespace}. Expected: soul, provider, config, thread`)
   }
 
   const createConfigService = options.createConfigService ?? createDefaultConfigService
