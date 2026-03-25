@@ -342,7 +342,7 @@ function ThreadListItem({
             className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 no-drag"
             style={{
               color: isStarred ? '#f59e0b' : theme.text.muted,
-              opacity: isHovered || isStarred ? 1 : 0,
+              opacity: !hasActiveRun && (isHovered || isStarred) ? 1 : 0,
               transition: 'opacity 0.15s'
             }}
           >
