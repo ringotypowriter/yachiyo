@@ -83,7 +83,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             request.providerOptionsMode
           ),
           providerOptions,
-          ...(request.tools ? { tools: request.tools, stopWhen: stepCountIs(20) } : {}),
+          ...(request.tools ? { tools: request.tools, stopWhen: stepCountIs(100) } : {}),
           ...(request.onToolCallStart
             ? { experimental_onToolCallStart: request.onToolCallStart }
             : {}),

@@ -68,13 +68,21 @@ const FILE_MENTION_PATTERN = /(^|\s)@(!?)([A-Za-z0-9._/-]*)$/
 function renderComposerTextHighlights(
   text: string,
   primaryColor: string,
-  accentColor: string
+  accentColor: string,
+  validatedFileTags: string[]
 ): React.ReactNode {
+  const validatedSet = new Set(validatedFileTags)
   const parts: React.ReactNode[] = []
   let last = 0
   let m: RegExpExecArray | null
   COMPOSER_TAG_HIGHLIGHT_RE.lastIndex = 0
   while ((m = COMPOSER_TAG_HIGHLIGHT_RE.exec(text)) !== null) {
+    const matched = m[0]
+    const isSkillTag = matched.startsWith('@skills:')
+    // For file tags, strip the leading @ (and optional !) to check against validated set
+    const fileTagKey = isSkillTag ? null : matched.slice(matched.startsWith('@!') ? 2 : 1)
+    const isHighlighted = isSkillTag || (fileTagKey !== null && validatedSet.has(fileTagKey))
+
     if (m.index > last) {
       parts.push(
         <span key={last} style={{ color: primaryColor }}>
@@ -82,15 +90,23 @@ function renderComposerTextHighlights(
         </span>
       )
     }
-    parts.push(
-      <span
-        key={`h${m.index}`}
-        style={{ color: accentColor, textDecoration: 'underline', textUnderlineOffset: '2px' }}
-      >
-        {m[0]}
-      </span>
-    )
-    last = m.index + m[0].length
+    if (isHighlighted) {
+      parts.push(
+        <span
+          key={`h${m.index}`}
+          style={{ color: accentColor, textDecoration: 'underline', textUnderlineOffset: '2px' }}
+        >
+          {matched}
+        </span>
+      )
+    } else {
+      parts.push(
+        <span key={`h${m.index}`} style={{ color: primaryColor }}>
+          {matched}
+        </span>
+      )
+    }
+    last = m.index + matched.length
   }
   if (last < text.length) {
     parts.push(
@@ -1253,7 +1269,7 @@ export function Composer({
                 letterSpacing: '0.04em'
               }}
             >
-              {renderComposerTextHighlights(composerValue, theme.text.primary, theme.text.accent)}
+              {renderComposerTextHighlights(composerValue, theme.text.primary, theme.text.accent, validatedFileTags)}
               {composerValue.endsWith('\n') && <span key="trailing-nl">{'\u200b'}</span>}
             </div>
             <SmoothCaretOverlay
