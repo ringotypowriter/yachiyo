@@ -343,6 +343,7 @@ function ThreadListItem({
             style={{
               color: isStarred ? '#f59e0b' : theme.text.muted,
               opacity: !hasActiveRun && (isHovered || isStarred) ? 1 : 0,
+              pointerEvents: hasActiveRun ? 'none' : 'auto',
               transition: 'opacity 0.15s'
             }}
           >
