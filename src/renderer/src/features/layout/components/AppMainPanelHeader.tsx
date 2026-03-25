@@ -108,12 +108,20 @@ export function AppMainPanelHeader({
               className="p-1.5 rounded-md transition-opacity no-drag shrink-0"
               style={{
                 color: isPrivacyMode ? theme.text.accent : theme.icon.default,
-                opacity: isPrivacyToggleLocked ? 0.25 : isPrivacyMode ? 1 : 0.45,
+                opacity: isPrivacyToggleLocked
+                  ? isPrivacyMode
+                    ? 1
+                    : 0.25
+                  : isPrivacyMode
+                    ? 1
+                    : 0.45,
                 cursor: isPrivacyToggleLocked ? 'not-allowed' : 'pointer'
               }}
               aria-label={
                 isPrivacyToggleLocked
-                  ? 'Privacy mode locked'
+                  ? isPrivacyMode
+                    ? 'Privacy mode locked on'
+                    : 'Privacy mode locked off'
                   : isPrivacyMode
                     ? 'Privacy mode on'
                     : 'Privacy mode off'
@@ -163,12 +171,16 @@ function PrivacyTooltipContent({
   isLocked: boolean
 }): React.JSX.Element {
   const label = isLocked
-    ? 'Privacy Mode: Locked'
+    ? isPrivacyMode
+      ? 'Privacy Mode: Locked (On)'
+      : 'Privacy Mode: Locked (Off)'
     : isPrivacyMode
       ? 'Privacy Mode: On'
       : 'Privacy Mode: Off'
   const description = isLocked
-    ? 'Cannot change after messages are sent'
+    ? isPrivacyMode
+      ? 'Memory recall and distillation are disabled — cannot change after messages are sent'
+      : 'Cannot change after messages are sent'
     : isPrivacyMode
       ? 'Memory recall and distillation are disabled'
       : 'Enable to hide this thread from memory'
@@ -179,7 +191,7 @@ function PrivacyTooltipContent({
         style={{
           fontWeight: 600,
           fontSize: 12,
-          color: isPrivacyMode && !isLocked ? theme.text.accent : theme.text.primary,
+          color: isPrivacyMode ? theme.text.accent : theme.text.primary,
           marginBottom: 2
         }}
       >
