@@ -306,7 +306,8 @@ function buildAgentInstructions(input: {
 
   if (input.soulDocumentPath) {
     instructions.push(
-      `SOUL.md is at ${input.soulDocumentPath}. It stores your evolving self-model and personality continuity. Do not mix USER.md content into SOUL.md.`
+      `SOUL.md is at ${input.soulDocumentPath}. It stores your evolving self-model and personality continuity. Do not mix USER.md content into SOUL.md.`,
+      'To update SOUL.md, use yachiyo CLI commands (for example, yachiyo soul add) or built-in skills. Do not use raw edit or write tools on SOUL.md directly.'
     )
   }
 
@@ -669,8 +670,10 @@ export async function executeServerRun(
     })
     const messages = prepareModelMessages({
       personality: {
-        basePersona: SYSTEM_PROMPT,
-        evolvedTraits: soulDocument?.evolvedTraits ?? []
+        basePersona: SYSTEM_PROMPT
+      },
+      soul: {
+        content: soulDocument?.rawContent ?? ''
       },
       user: {
         content: userDocument?.content ?? ''

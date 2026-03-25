@@ -23,11 +23,15 @@ test('message prepare compiles explicit context layers and drops empty messages'
   ])
 })
 
-test('message prepare can add agent, hint, and memory layers without mutating user content', () => {
+test('message prepare can add soul, agent, hint, and memory layers without mutating user content', () => {
+  const soulContent =
+    '# SOUL\n\n## Evolved Traits\n### 2026-03-25\n- Keeps replies crisp under pressure\n- Prefers concrete next actions'
   const prepared = prepareModelMessages({
     personality: {
-      basePersona: SYSTEM_PROMPT,
-      evolvedTraits: ['Keeps replies crisp under pressure', 'Prefers concrete next actions']
+      basePersona: SYSTEM_PROMPT
+    },
+    soul: {
+      content: soulContent
     },
     user: {
       content: '# USER\n\n## Work Style\n- Likes decisions with explicit tradeoffs'
@@ -46,14 +50,13 @@ test('message prepare can add agent, hint, and memory layers without mutating us
   })
 
   assert.deepEqual(prepared, [
+    { role: 'system', content: SYSTEM_PROMPT },
     {
       role: 'system',
       content: [
-        SYSTEM_PROMPT,
+        '以下是来自 SOUL.md 的自我模型与人格延续记录，请整体吸收并自然融入当前人格：',
         '',
-        '以下是来自 SOUL 的人格补充，请自然吸收并保持整体稳定：',
-        '- Keeps replies crisp under pressure',
-        '- Prefers concrete next actions'
+        soulContent
       ].join('\n')
     },
     {

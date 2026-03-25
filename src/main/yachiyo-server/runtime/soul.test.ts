@@ -17,12 +17,16 @@ test('readSoulDocument creates a template when SOUL.md is missing', async () => 
     const content = await readFile(filePath, 'utf8')
 
     await access(filePath)
-    assert.deepEqual(soul, {
+    const { rawContent: rawContent1, ...rest1 } = soul!
+    assert.ok(rawContent1)
+    assert.deepEqual(rest1, {
       filePath,
       evolvedTraits: [],
       lastUpdated: ''
     })
-    assert.equal(content, '# SOUL\n\n## Evolved Traits\n')
+    assert.match(content, /^# SOUL/)
+    assert.match(content, /## Rules/)
+    assert.match(content, /## Evolved Traits/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -54,7 +58,9 @@ test('readSoulDocument parses evolved traits from the dedicated section', async 
 
     const soul = await readSoulDocument({ filePath })
 
-    assert.deepEqual(soul, {
+    const { rawContent: rawContent2, ...rest2 } = soul!
+    assert.ok(rawContent2)
+    assert.deepEqual(rest2, {
       filePath,
       evolvedTraits: [
         'Speaks more directly when the task is urgent',
@@ -91,7 +97,9 @@ test('upsertDailySoulTrait merges writes into one entry per day and updates fron
     const soul = await readSoulDocument({ filePath })
     const content = await readFile(filePath, 'utf8')
 
-    assert.deepEqual(soul, {
+    const { rawContent: rawContent3, ...rest3 } = soul!
+    assert.ok(rawContent3)
+    assert.deepEqual(rest3, {
       filePath,
       evolvedTraits: [
         'Responds with sharper prioritization',

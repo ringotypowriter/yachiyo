@@ -7,27 +7,45 @@ import {
   compileHintLayer,
   compileMemoryLayer,
   compilePersonalityLayer,
+  compileSoulLayer,
   compileSkillsLayer,
   compileUserLayer
 } from './contextLayers.ts'
 
-test('compilePersonalityLayer falls back to the base persona when no SOUL traits exist', () => {
-  assert.deepEqual(
-    compilePersonalityLayer({
-      basePersona: 'Base persona'
-    }),
-    { role: 'system', content: 'Base persona' }
-  )
+test('compilePersonalityLayer returns the base persona', () => {
+  assert.deepEqual(compilePersonalityLayer({ basePersona: 'Base persona' }), {
+    role: 'system',
+    content: 'Base persona'
+  })
+})
+
+test('compileSoulLayer wraps raw SOUL.md content', () => {
+  const soulContent =
+    '# SOUL\n\n## Evolved Traits\n### 2026-03-25\n- Leans toward concise execution'
+  assert.deepEqual(compileSoulLayer({ content: soulContent }), {
+    role: 'system',
+    content: [
+      '以下是来自 SOUL.md 的自我模型与人格延续记录，请整体吸收并自然融入当前人格：',
+      '',
+      soulContent
+    ].join('\n')
+  })
+  assert.equal(compileSoulLayer({ content: '   ' }), null)
+  assert.equal(compileSoulLayer(undefined), null)
 })
 
 test('compileContextLayers preserves user history and orders explicit layers before it', () => {
   const reminder =
     '<reminder>\nTool availability changed for this turn:\n- Disabled: write.\n</reminder>'
+  const soulContent =
+    '# SOUL\n\n## Evolved Traits\n### 2026-03-25\n- Leans toward concise execution'
 
   const compiled = compileContextLayers({
     personality: {
-      basePersona: 'Base persona',
-      evolvedTraits: ['Leans toward concise execution']
+      basePersona: 'Base persona'
+    },
+    soul: {
+      content: soulContent
     },
     user: {
       content: '# USER\n\n## Preferences\n- Prefers direct communication'
@@ -56,13 +74,13 @@ test('compileContextLayers preserves user history and orders explicit layers bef
   })
 
   assert.deepEqual(compiled, [
+    { role: 'system', content: 'Base persona' },
     {
       role: 'system',
       content: [
-        'Base persona',
+        '以下是来自 SOUL.md 的自我模型与人格延续记录，请整体吸收并自然融入当前人格：',
         '',
-        '以下是来自 SOUL 的人格补充，请自然吸收并保持整体稳定：',
-        '- Leans toward concise execution'
+        soulContent
       ].join('\n')
     },
     {

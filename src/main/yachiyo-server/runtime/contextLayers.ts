@@ -15,7 +15,10 @@ export interface ContextLayerHistoryMessage {
 
 export interface PersonalityLayerInput {
   basePersona: string
-  evolvedTraits?: string[]
+}
+
+export interface SoulLayerInput {
+  content?: string
 }
 
 export interface AgentLayerInput {
@@ -41,6 +44,7 @@ export interface MemoryLayerInput {
 export interface CompileContextLayersInput {
   history: ContextLayerHistoryMessage[]
   personality: PersonalityLayerInput
+  soul?: SoulLayerInput
   user?: UserLayerInput
   skills?: SkillsLayerInput
   agent?: AgentLayerInput
@@ -125,21 +129,24 @@ export function compilePersonalityLayer(input: PersonalityLayerInput): ModelMess
     return null
   }
 
-  const evolvedTraits = normalizeLines(input.evolvedTraits)
-  if (evolvedTraits.length === 0) {
-    return {
-      role: 'system',
-      content: basePersona
-    }
+  return {
+    role: 'system',
+    content: basePersona
+  }
+}
+
+export function compileSoulLayer(input: SoulLayerInput | undefined): ModelMessage | null {
+  const content = input?.content?.trim() ?? ''
+  if (!content) {
+    return null
   }
 
   return {
     role: 'system',
     content: [
-      basePersona,
+      '以下是来自 SOUL.md 的自我模型与人格延续记录，请整体吸收并自然融入当前人格：',
       '',
-      '以下是来自 SOUL 的人格补充，请自然吸收并保持整体稳定：',
-      ...evolvedTraits.map((trait) => `- ${trait}`)
+      content
     ].join('\n')
   }
 }
@@ -225,6 +232,7 @@ export function compileContextLayers(input: CompileContextLayersInput): ModelMes
   return removeEmptyMessages([
     ...[
       compilePersonalityLayer(input.personality),
+      compileSoulLayer(input.soul),
       compileUserLayer(input.user),
       compileSkillsLayer(input.skills),
       compileAgentLayer(input.agent),

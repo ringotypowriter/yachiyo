@@ -4754,6 +4754,8 @@ test('YachiyoServer injects USER.md as a separate context layer and exposes the 
     {
       readSoulDocument: async () => ({
         filePath: '/tmp/.yachiyo/SOUL.md',
+        rawContent:
+          '# SOUL\n\n## Evolved Traits\n### 2026-03-22\n- Responds with stable optimism\n',
         evolvedTraits: ['Responds with stable optimism'],
         lastUpdated: '2026-03-22T00:00:00.000Z'
       }),

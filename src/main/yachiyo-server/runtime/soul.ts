@@ -24,6 +24,7 @@ interface ParsedSoulBody {
 
 export interface SoulDocument {
   filePath: string
+  rawContent: string
   evolvedTraits: string[]
   lastUpdated: string
 }
@@ -49,7 +50,17 @@ function resolveSoulPath(filePath?: string): string {
 }
 
 function buildDefaultSoulTemplate(): string {
-  return [DEFAULT_SOUL_TITLE, '', EVOLVED_TRAITS_HEADING, ''].join('\n')
+  return [
+    DEFAULT_SOUL_TITLE,
+    '',
+    '## Rules',
+    '',
+    '- **Daily Append Rule**: Traits are grouped by date (e.g., `### YYYY-MM-DD`). There must be only one heading per day. If multiple traits are updated or added on the same day, append them as new bullet points under that existing daily heading.',
+    '- **Purpose**: This file strictly stores evolving self-model and personality continuity. Do not mix `USER.md` content or temporary task states here.',
+    '',
+    EVOLVED_TRAITS_HEADING,
+    ''
+  ].join('\n')
 }
 
 function parseFrontmatter(content: string): { frontmatter: SoulFrontmatter; body: string } {
@@ -280,6 +291,7 @@ export async function readSoulDocument(
 
   return {
     filePath,
+    rawContent: content,
     evolvedTraits: flattenTraits(parsedBody.entries),
     lastUpdated: frontmatter.values.get('last_updated') ?? ''
   }
