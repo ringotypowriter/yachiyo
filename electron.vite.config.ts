@@ -16,6 +16,18 @@ function copyDrizzleMigrations(): { name: string; closeBundle: () => void } {
   }
 }
 
+function copyCoreSkills(): { name: string; closeBundle: () => void } {
+  return {
+    name: 'copy-core-skills',
+    closeBundle() {
+      const src = resolve('resources/core-skills')
+      const dest = resolve('out/main/core-skills')
+      mkdirSync(dest, { recursive: true })
+      cpSync(src, dest, { recursive: true })
+    }
+  }
+}
+
 export default defineConfig({
   main: {
     resolve: {
@@ -33,7 +45,7 @@ export default defineConfig({
         external: ['better-sqlite3']
       }
     },
-    plugins: [copyDrizzleMigrations()]
+    plugins: [copyDrizzleMigrations(), copyCoreSkills()]
   },
   preload: {},
   renderer: {

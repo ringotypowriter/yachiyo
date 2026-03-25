@@ -7,6 +7,7 @@ import { hydrateProcessEnvFromLoginShell, hydrateProxyFromSystemSettings } from 
 import { resolveYachiyoDataDir } from './yachiyo-server/config/paths'
 import { registerYachiyoGateway } from './yachiyoGateway'
 import { setupCLI } from './cliSetup'
+import { setupCoreSkills } from './coreSkillsSetup'
 
 const APP_NAME = 'Yachiyo'
 
@@ -64,6 +65,7 @@ app.whenReady().then(() => {
   hydrateProcessEnvFromLoginShell()
   hydrateProxyFromSystemSettings()
   setupCLI()
+  setupCoreSkills()
 
   // Set app user model id for windows
   electronApp.setAppUserModelId('sh.ringo.yachiyo')
