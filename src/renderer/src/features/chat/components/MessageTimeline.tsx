@@ -490,7 +490,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   }
 
   return (
-    <div className="flex-1 overflow-y-auto py-4">
+    <div className="flex-1 overflow-y-auto overflow-x-hidden py-4">
       {timeline.map((item) => {
         if (item.kind === 'harness') {
           return <RunEventRow key={item.key} harness={item.data} />
