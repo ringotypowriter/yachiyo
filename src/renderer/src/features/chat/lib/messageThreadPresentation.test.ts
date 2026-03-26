@@ -585,7 +585,7 @@ test('buildMessageGroups keeps a steer user visible while an active run restarts
   )
 })
 
-test('getVisibleToolCallsForGroup keeps tool calls with the active branch and hides inactive completed branches', () => {
+test('getVisibleToolCallsForGroup keeps tool calls with the active branch and hides inactive completed branches and orphaned-run tool calls', () => {
   const [group] = buildMessageGroups({
     thread: {
       id: 'thread-1',
@@ -675,7 +675,7 @@ test('getVisibleToolCallsForGroup keeps tool calls with the active branch and hi
 
   assert.deepEqual(
     toolCalls.map((toolCall) => toolCall.id),
-    ['tool-branchless', 'tool-active']
+    ['tool-active']
   )
 })
 
@@ -793,6 +793,146 @@ test('getVisibleToolCallsForGroup keeps unresolved assistant-anchored tool calls
   assert.deepEqual(
     toolCalls.map((toolCall) => toolCall.id),
     ['tool-running-old-attempt']
+  )
+})
+
+test('getVisibleToolCallsForGroup hides unanchored tool calls from superseded runs after retry completes (idle)', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-retry'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'First question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-retry',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Retry answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:04.000Z'
+      }
+    ],
+    runPhase: 'idle',
+    activeRequestMessageId: null
+  })
+
+  const toolCalls = getVisibleToolCallsForGroup({
+    group: group!,
+    toolCalls: [
+      {
+        id: 'tool-superseded',
+        runId: 'run-old',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'failed',
+        inputSummary: 'pwd',
+        requestMessageId: 'user-1',
+        startedAt: '2026-03-15T00:00:01.100Z',
+        finishedAt: '2026-03-15T00:00:01.500Z'
+      },
+      {
+        id: 'tool-retry',
+        runId: 'run-retry',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'notes.txt',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-retry',
+        startedAt: '2026-03-15T00:00:04.100Z',
+        finishedAt: '2026-03-15T00:00:04.500Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    toolCalls.map((toolCall) => toolCall.id),
+    ['tool-retry']
+  )
+})
+
+test('getVisibleToolCallsForGroup hides unanchored tool calls from older runs while retry is streaming', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-retry'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'First question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-1',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Old answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'assistant-retry',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Streaming…',
+        status: 'streaming',
+        createdAt: '2026-03-15T00:00:04.000Z'
+      }
+    ],
+    runPhase: 'streaming',
+    activeRequestMessageId: 'user-1'
+  })
+
+  const toolCalls = getVisibleToolCallsForGroup({
+    group: group!,
+    activeRunId: 'run-retry',
+    toolCalls: [
+      {
+        id: 'tool-old-unanchored',
+        runId: 'run-old',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'failed',
+        inputSummary: 'echo hi',
+        requestMessageId: 'user-1',
+        startedAt: '2026-03-15T00:00:01.100Z',
+        finishedAt: '2026-03-15T00:00:01.400Z'
+      },
+      {
+        id: 'tool-retry-running',
+        runId: 'run-retry',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'running',
+        inputSummary: 'draft.txt',
+        requestMessageId: 'user-1',
+        startedAt: '2026-03-15T00:00:04.200Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    toolCalls.map((toolCall) => toolCall.id),
+    ['tool-retry-running']
   )
 })
 

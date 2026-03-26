@@ -59,7 +59,9 @@ export function getVisibleToolCallsForGroup(input: {
       }
 
       if (!toolCall.assistantMessageId || !knownAssistantIds.has(toolCall.assistantMessageId)) {
-        return true
+        if (toolCall.status === 'running') return true
+        if (input.activeRunId) return toolCall.runId === input.activeRunId
+        return visibleAssistantIds.size === 0
       }
 
       if (
