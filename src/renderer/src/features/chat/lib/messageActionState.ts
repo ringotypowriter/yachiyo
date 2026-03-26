@@ -15,6 +15,13 @@ export function canRetryUserMessage(input: {
   return !input.threadHasActiveRun && !input.threadIsSaving
 }
 
+export function canEditUserMessage(input: {
+  threadHasActiveRun: boolean
+  threadIsSaving?: boolean
+}): boolean {
+  return !input.threadHasActiveRun && !input.threadIsSaving
+}
+
 export function resolveRetryTargetMessageId(input: {
   userMessageId: string
   activeAssistantMessage?: Pick<Message, 'id' | 'status'>

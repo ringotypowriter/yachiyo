@@ -47,6 +47,7 @@ interface UserMessageBubbleProps {
   message: Message
   pending?: boolean
   threadHasActiveRun?: boolean
+  onEdit?: () => void
   onRetry?: () => Promise<void> | void
   onCreateBranch: () => Promise<void> | void
   onDelete: () => Promise<void> | void
@@ -57,6 +58,7 @@ export function UserMessageBubble({
   message,
   pending = false,
   threadHasActiveRun = false,
+  onEdit,
   onRetry,
   onCreateBranch,
   onDelete
@@ -96,6 +98,7 @@ export function UserMessageBubble({
             <MessageActionBar
               content={message.content}
               canRetry={canRetry}
+              onEdit={onEdit}
               onRetry={onRetry}
               onCreateBranch={onCreateBranch}
               onDelete={onDelete}

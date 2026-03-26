@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  canEditUserMessage,
   canRetryAssistantMessage,
   canRetryUserMessage,
   resolveRetryTargetMessageId
@@ -69,6 +70,34 @@ test('canRetryUserMessage disables retry while the thread is saving', () => {
       threadIsSaving: true
     }),
     false
+  )
+})
+
+test('canEditUserMessage disables editing while the thread has an active run', () => {
+  assert.equal(
+    canEditUserMessage({
+      threadHasActiveRun: true
+    }),
+    false
+  )
+})
+
+test('canEditUserMessage disables editing while the thread is saving', () => {
+  assert.equal(
+    canEditUserMessage({
+      threadHasActiveRun: false,
+      threadIsSaving: true
+    }),
+    false
+  )
+})
+
+test('canEditUserMessage allows editing when thread is idle', () => {
+  assert.equal(
+    canEditUserMessage({
+      threadHasActiveRun: false
+    }),
+    true
   )
 })
 

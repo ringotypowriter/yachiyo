@@ -4865,3 +4865,89 @@ test('YachiyoServer injects USER.md as a separate context layer and exposes the 
     }
   )
 })
+
+test('YachiyoServer.editMessage replaces the user message and dependent history then starts a new run', async () => {
+  await withServer(async ({ server, completeRun }) => {
+    await server.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: { enabled: ['gpt-5'], disabled: [] }
+    })
+
+    const thread = await server.createThread()
+    const firstAccepted = await server.sendChat({ threadId: thread.id, content: 'First question' })
+    assertAcceptedHasUserMessage(firstAccepted)
+    const originalUserMessageId = firstAccepted.userMessage.id
+    await completeRun(firstAccepted.runId)
+
+    const beforeEdit = await server.bootstrap()
+    assert.equal(beforeEdit.messagesByThread[thread.id]?.length, 2)
+
+    const editAccepted = await server.editMessage({
+      threadId: thread.id,
+      messageId: originalUserMessageId,
+      content: 'Revised question'
+    })
+    assertAcceptedHasUserMessage(editAccepted)
+    assert.equal(editAccepted.kind, 'run-started')
+    assert.equal(editAccepted.userMessage.content, 'Revised question')
+    assert.equal(editAccepted.replacedMessageId, originalUserMessageId)
+
+    await completeRun(editAccepted.runId)
+
+    const afterEdit = await server.bootstrap()
+    const messages = afterEdit.messagesByThread[thread.id] ?? []
+    assert.equal(messages.length, 2)
+    assert.equal(messages[0]?.role, 'user')
+    assert.equal(messages[0]?.content, 'Revised question')
+    assert.equal(messages[1]?.role, 'assistant')
+    assert.ok(messages.every((m) => m.id !== originalUserMessageId))
+  })
+})
+
+test('YachiyoServer.editMessage throws when the thread has an active run', async () => {
+  let releaseRun: (() => void) | null = null
+  const runGate = new Promise<void>((resolve) => {
+    releaseRun = resolve
+  })
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: { enabled: ['gpt-5'], disabled: [] }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({ threadId: thread.id, content: 'Ongoing message' })
+      assertAcceptedHasUserMessage(accepted)
+
+      await assert.rejects(
+        () =>
+          server.editMessage({
+            threadId: thread.id,
+            messageId: accepted.userMessage.id,
+            content: 'Attempted edit during active run'
+          }),
+        /Cannot edit history while this thread is running/
+      )
+
+      releaseRun?.()
+      await completeRun(accepted.runId)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          await runGate
+          yield 'Hello'
+          yield ' world'
+        }
+      })
+    }
+  )
+})

@@ -81,6 +81,11 @@ export const EMPTY_COMPOSER_DRAFT: ComposerDraft = {
   enabledSkillNames: null
 }
 
+export interface EditingMessageState {
+  messageId: string
+  preEditDraft: ComposerDraft
+}
+
 export interface AppToast {
   id: string
   threadId: string
@@ -146,6 +151,9 @@ interface AppState {
   upsertComposerFile: (file: ComposerFileDraft, threadId?: string | null) => void
   removeComposerFile: (fileId: string, threadId?: string | null) => void
   deleteMessage: (messageId: string) => Promise<void>
+  editingMessage: EditingMessageState | null
+  beginEditMessage: (messageId: string) => void
+  cancelEditMessage: () => void
   messages: Record<string, Message[]>
   pendingAssistantMessages: Record<string, PendingAssistantMessage>
   pendingSteerMessages: Record<string, PendingSteerMessage>
@@ -879,6 +887,76 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ lastError: message })
       throw error
     }
+  },
+  editingMessage: null,
+  beginEditMessage: (messageId) => {
+    const state = get()
+    const threadId = state.activeThreadId
+    if (!threadId) return
+    const message = (state.messages[threadId] ?? []).find((m) => m.id === messageId)
+    if (!message) return
+    const preEditDraft = state.composerDrafts[getComposerDraftKey(threadId)] ?? EMPTY_COMPOSER_DRAFT
+    const imageDrafts: ComposerImageDraft[] = (message.images ?? []).map((img) => ({
+      id: crypto.randomUUID(),
+      status: 'ready' as const,
+      dataUrl: img.dataUrl,
+      mediaType: img.mediaType,
+      filename: img.filename ?? undefined
+    }))
+    const fileDrafts: ComposerFileDraft[] = (message.attachments ?? []).map((attachment) => ({
+      id: crypto.randomUUID(),
+      filename: attachment.filename,
+      mediaType: attachment.mediaType,
+      dataUrl: '',
+      status: 'loading' as const
+    }))
+    set((s) => ({
+      editingMessage: { messageId, preEditDraft },
+      composerDrafts: updateComposerDraft(s.composerDrafts, getComposerDraftKey(threadId), () => ({
+        text: message.content,
+        images: imageDrafts,
+        files: fileDrafts,
+        enabledSkillNames: null
+      }))
+    }))
+    if (fileDrafts.length > 0 && message.attachments) {
+      const attachments = message.attachments
+      for (let i = 0; i < fileDrafts.length; i++) {
+        const draft = fileDrafts[i]
+        const attachment = attachments[i]
+        if (!draft || !attachment) continue
+        window.api.yachiyo
+          .readAttachmentFile({
+            filePath: attachment.workspacePath,
+            mediaType: attachment.mediaType
+          })
+          .then((dataUrl) => {
+            if (get().editingMessage?.messageId !== messageId) return
+            get().upsertComposerFile({ ...draft, dataUrl, status: 'ready' }, threadId)
+          })
+          .catch(() => {
+            if (get().editingMessage?.messageId !== messageId) return
+            get().upsertComposerFile(
+              { ...draft, status: 'failed', error: 'Could not load attachment' },
+              threadId
+            )
+          })
+      }
+    }
+  },
+  cancelEditMessage: () => {
+    const state = get()
+    const threadId = state.activeThreadId
+    if (!state.editingMessage || !threadId) return
+    const preEditDraft = state.editingMessage.preEditDraft
+    set((s) => ({
+      editingMessage: null,
+      composerDrafts: updateComposerDraft(
+        s.composerDrafts,
+        getComposerDraftKey(threadId),
+        () => preEditDraft
+      )
+    }))
   },
   activeToasts: [],
   queuedToasts: [],
@@ -2014,17 +2092,32 @@ export const useAppStore = create<AppState>((set, get) => ({
       threadId = thread.id
     }
 
+    const editingMessage = currentState.editingMessage
+    const isEditMode = mode === 'normal' && editingMessage !== null
+
     try {
-      const accepted = await window.api.yachiyo.sendChat({
-        content: trimmed,
-        enabledTools,
-        enabledSkillNames:
-          mode === 'follow-up' || draft.enabledSkillNames !== null ? enabledSkillNames : undefined,
-        ...(images.length > 0 ? { images } : {}),
-        ...(attachments.length > 0 ? { attachments } : {}),
-        ...(mode !== 'normal' ? { mode } : {}),
-        threadId
-      })
+      const accepted = isEditMode
+        ? await window.api.yachiyo.editMessage({
+            threadId,
+            messageId: editingMessage.messageId,
+            content: trimmed,
+            enabledTools,
+            enabledSkillNames: draft.enabledSkillNames !== null ? enabledSkillNames : undefined,
+            ...(images.length > 0 ? { images } : {}),
+            ...(attachments.length > 0 ? { attachments } : {})
+          })
+        : await window.api.yachiyo.sendChat({
+            content: trimmed,
+            enabledTools,
+            enabledSkillNames:
+              mode === 'follow-up' || draft.enabledSkillNames !== null
+                ? enabledSkillNames
+                : undefined,
+            ...(images.length > 0 ? { images } : {}),
+            ...(attachments.length > 0 ? { attachments } : {}),
+            ...(mode !== 'normal' ? { mode } : {}),
+            threadId
+          })
 
       const threadActiveRunId = getThreadActiveRunId(currentState, threadId)
       const acceptedKind =
@@ -2060,6 +2153,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           activeThreadId: accepted.thread.id,
           archivedThreads: removeThread(state.archivedThreads, accepted.thread.id),
           composerDrafts: removeComposerDraft(state.composerDrafts, accepted.thread.id),
+          editingMessage: null,
           lastError: null,
           messages: {
             ...state.messages,

@@ -133,6 +133,7 @@ export function ThreadConversationGroup({
   subagentStream,
   onCancelSubagent,
   onCreateBranch,
+  onEdit,
   onRetry,
   onSelectReplyBranch,
   onDelete
@@ -148,6 +149,7 @@ export function ThreadConversationGroup({
   subagentStream: string
   onCancelSubagent: () => void
   onCreateBranch: (messageId: string) => Promise<void>
+  onEdit: (messageId: string) => void
   onRetry: (messageId: string) => Promise<void>
   onSelectReplyBranch: (messageId: string) => Promise<void>
   onDelete: (messageId: string) => Promise<void>
@@ -206,6 +208,9 @@ export function ThreadConversationGroup({
       <UserMessageBubble
         message={group.userMessage}
         threadHasActiveRun={threadHasActiveRun || threadIsSaving}
+        onEdit={
+          !threadHasActiveRun && !threadIsSaving ? () => onEdit(group.userMessage.id) : undefined
+        }
         onRetry={() => onRetry(retryTargetMessageId)}
         onCreateBranch={() => onCreateBranch(group.userMessage.id)}
         onDelete={() => onDelete(group.userMessage.id)}
@@ -376,6 +381,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   const activeRequestMessageId = useAppStore((state) =>
     threadId ? (state.activeRequestMessageIdsByThread[threadId] ?? null) : null
   )
+  const beginEditMessage = useAppStore((state) => state.beginEditMessage)
   const createBranch = useAppStore((state) => state.createBranch)
   const deleteMessage = useAppStore((state) => state.deleteMessage)
   const retryMessage = useAppStore((state) => state.retryMessage)
@@ -437,6 +443,10 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     clearScrollToMessageId()
     element?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [scrollToMessageId, messages, clearScrollToMessageId])
+
+  function handleEdit(messageId: string): void {
+    beginEditMessage(messageId)
+  }
 
   async function handleCreateBranch(messageId: string): Promise<void> {
     try {
@@ -570,6 +580,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
               subagentStream={subagentStream}
               onCancelSubagent={() => void cancelRunForThread(threadId)}
               onCreateBranch={handleCreateBranch}
+              onEdit={handleEdit}
               onRetry={handleRetry}
               onSelectReplyBranch={handleSelectReplyBranch}
               onDelete={handleDelete}

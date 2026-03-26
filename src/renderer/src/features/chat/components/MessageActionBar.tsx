@@ -1,6 +1,6 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
-import { Check, Copy, GitBranchPlus, RotateCcw, Trash2 } from 'lucide-react'
+import { Check, Copy, GitBranchPlus, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import { copyTextWithFallback } from '../lib/copyTextWithFallback'
 
@@ -8,6 +8,7 @@ interface MessageActionBarProps {
   align?: 'start' | 'end'
   content: string
   canRetry?: boolean
+  onEdit?: () => void
   onRetry?: () => Promise<void> | void
   onCreateBranch?: () => Promise<void> | void
   onDelete?: () => Promise<void> | void
@@ -48,6 +49,7 @@ export function MessageActionBar({
   align = 'end',
   content,
   canRetry = false,
+  onEdit,
   onRetry,
   onCreateBranch,
   onDelete
@@ -99,6 +101,9 @@ export function MessageActionBar({
           success={copyState === 'copied'}
           onClick={handleCopy}
         />
+      ) : null}
+      {onEdit ? (
+        <ActionButton icon={<Pencil size={12} strokeWidth={1.7} />} label="Edit" onClick={onEdit} />
       ) : null}
       {onRetry ? (
         <ActionButton

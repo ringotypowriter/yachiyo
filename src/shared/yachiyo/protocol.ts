@@ -695,6 +695,16 @@ export interface RetryInput {
   enabledSkillNames?: string[]
 }
 
+export interface EditMessageInput {
+  threadId: string
+  messageId: string
+  content: string
+  images?: MessageImageRecord[]
+  attachments?: SendChatAttachment[]
+  enabledTools?: ToolCallName[]
+  enabledSkillNames?: string[]
+}
+
 export interface CompactThreadInput {
   threadId: string
 }

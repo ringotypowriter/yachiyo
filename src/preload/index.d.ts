@@ -4,6 +4,7 @@ import type {
   ChatAccepted,
   CompactThreadAccepted,
   CompactThreadInput,
+  EditMessageInput,
   FileMentionCandidate,
   ImportWebSearchBrowserSessionInput,
   ListSkillsInput,
@@ -47,6 +48,7 @@ declare global {
         createThread: (input?: { workspacePath?: string }) => Promise<ThreadRecord>
         deleteThread: (input: { threadId: string }) => Promise<void>
         deleteMessage: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>
+        editMessage: (input: EditMessageInput) => Promise<ChatAccepted>
         openThreadWorkspace: (input: { threadId: string }) => Promise<void>
         pickWorkspaceDirectory: () => Promise<string | null>
         renameThread: (input: { threadId: string; title: string }) => Promise<ThreadRecord>
@@ -99,6 +101,7 @@ declare global {
         readClipboardFilePaths: () => Promise<
           { filename: string; mediaType: string; dataUrl: string }[]
         >
+        readAttachmentFile: (input: { filePath: string; mediaType: string }) => Promise<string>
         showNotification: (input: { title: string; body?: string }) => void
         beep: () => void
         subscribe: (listener: (event: YachiyoServerEvent) => void) => () => void

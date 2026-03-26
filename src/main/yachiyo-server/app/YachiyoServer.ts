@@ -7,6 +7,7 @@ import type {
   ChatAccepted,
   CompactThreadAccepted,
   CompactThreadInput,
+  EditMessageInput,
   FileMentionCandidate,
   ImportWebSearchBrowserSessionInput,
   ListSkillsInput,
@@ -513,6 +514,25 @@ export class YachiyoServer {
     messageId: string
   }): Promise<ThreadSnapshot> {
     return this.threadDomain.deleteMessageFromHere(input)
+  }
+
+  async editMessage(input: EditMessageInput): Promise<ChatAccepted> {
+    this.threadDomain.deleteMessageFromHere({
+      threadId: input.threadId,
+      messageId: input.messageId
+    })
+    const accepted = await this.runDomain.sendChat({
+      threadId: input.threadId,
+      content: input.content,
+      images: input.images,
+      attachments: input.attachments,
+      enabledTools: input.enabledTools,
+      enabledSkillNames: input.enabledSkillNames
+    })
+    if ('userMessage' in accepted) {
+      return { ...accepted, replacedMessageId: input.messageId }
+    }
+    return accepted
   }
 
   async cancelRun(input: { runId: string }): Promise<void> {

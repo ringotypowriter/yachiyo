@@ -3,6 +3,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type {
   CompactThreadInput,
   CompactThreadAccepted,
+  EditMessageInput,
   SearchWorkspaceFilesInput,
   ImportWebSearchBrowserSessionInput,
   ListSkillsInput,
@@ -43,6 +44,7 @@ const api = {
       ipcRenderer.invoke('yachiyo:delete-thread', input),
     deleteMessage: (input: { threadId: string; messageId: string }) =>
       ipcRenderer.invoke('yachiyo:delete-message', input),
+    editMessage: (input: EditMessageInput) => ipcRenderer.invoke('yachiyo:edit-message', input),
     openThreadWorkspace: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:open-thread-workspace', input),
     pickWorkspaceDirectory: () => ipcRenderer.invoke('yachiyo:pick-workspace-directory'),
@@ -102,6 +104,8 @@ const api = {
     readClipboardFilePaths: (): Promise<
       { filename: string; mediaType: string; dataUrl: string }[]
     > => ipcRenderer.invoke('yachiyo:read-clipboard-file-paths'),
+    readAttachmentFile: (input: { filePath: string; mediaType: string }): Promise<string> =>
+      ipcRenderer.invoke('yachiyo:read-attachment-file', input),
     showNotification: (input: { title: string; body?: string }): void =>
       ipcRenderer.send('yachiyo:show-notification', input),
     beep: (): void => ipcRenderer.send('yachiyo:beep'),

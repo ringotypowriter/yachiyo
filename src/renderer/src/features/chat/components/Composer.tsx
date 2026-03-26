@@ -352,6 +352,8 @@ export function Composer({
     s.activeThreadId ? (s.latestRunsByThread[s.activeThreadId] ?? null) : null
   )
   const enabledTools = useAppStore((s) => s.enabledTools)
+  const editingMessage = useAppStore((s) => (s.activeThreadId ? s.editingMessage : null))
+  const cancelEditMessage = useAppStore((s) => s.cancelEditMessage)
   const removeComposerImage = useAppStore((s) => s.removeComposerImage)
   const removeComposerFile = useAppStore((s) => s.removeComposerFile)
   const sendMessage = useAppStore((s) => s.sendMessage)
@@ -817,6 +819,12 @@ export function Composer({
   }, [activeThreadId])
 
   useEffect(() => {
+    if (editingMessage !== null) {
+      textareaRef.current?.focus()
+    }
+  }, [editingMessage])
+
+  useEffect(() => {
     if (!modelSelectorOpen && !skillsSelectorOpen && !toolSelectorOpen && !workspaceSelectorOpen) {
       return
     }
@@ -1008,6 +1016,12 @@ export function Composer({
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key === 'Escape' && editingMessage !== null) {
+        event.preventDefault()
+        cancelEditMessage()
+        return
+      }
+
       if (showSlashCommandPopup) {
         if (event.key === 'ArrowDown') {
           event.preventDefault()
@@ -1059,7 +1073,9 @@ export function Composer({
     },
     [
       activeRunEnterBehavior,
+      cancelEditMessage,
       canSend,
+      editingMessage,
       handleSlashCommandSelect,
       hasActiveRun,
       isComposing,
@@ -1129,6 +1145,28 @@ export function Composer({
 
   return (
     <div className="flex flex-col" style={{ borderTop: `1px solid ${theme.border.panel}` }}>
+      {editingMessage !== null ? (
+        <div
+          className="flex items-center justify-between px-4 py-1.5"
+          style={{
+            background: theme.background.accentPanel,
+            borderBottom: `1px solid ${theme.border.accent}`
+          }}
+        >
+          <span className="text-xs font-medium" style={{ color: theme.text.accent }}>
+            Editing message
+          </span>
+          <button
+            type="button"
+            className="text-xs px-2 py-0.5 rounded transition-opacity opacity-70 hover:opacity-100"
+            style={{ color: theme.text.accent }}
+            onClick={cancelEditMessage}
+            aria-label="Cancel editing"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : null}
       {draftImages.length > 0 || draftFiles.length > 0 ? (
         <div className="composer-image-strip">
           {draftImages.map((image) => (
@@ -1717,14 +1755,18 @@ export function Composer({
                 ? 'Steer reply'
                 : primarySendMode === 'follow-up'
                   ? 'Queue follow-up'
-                  : 'Send'
+                  : editingMessage !== null
+                    ? 'Update message'
+                    : 'Send'
             }
             title={
               primarySendMode === 'steer'
                 ? 'Steer reply'
                 : primarySendMode === 'follow-up'
                   ? 'Queue follow-up'
-                  : 'Send'
+                  : editingMessage !== null
+                    ? 'Update message'
+                    : 'Send'
             }
           >
             <SendHorizonal

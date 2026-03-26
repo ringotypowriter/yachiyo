@@ -3,6 +3,7 @@ import { spawn } from 'child_process'
 
 import type {
   CompactThreadInput,
+  EditMessageInput,
   SearchWorkspaceFilesInput,
   ImportWebSearchBrowserSessionInput,
   ListSkillsInput,
@@ -41,6 +42,7 @@ const IPC_CHANNELS = {
   createBranch: 'yachiyo:create-branch',
   createThread: 'yachiyo:create-thread',
   deleteMessage: 'yachiyo:delete-message',
+  editMessage: 'yachiyo:edit-message',
   enableProviderModel: 'yachiyo:enable-provider-model',
   event: 'yachiyo:event',
   getConfig: 'yachiyo:get-config',
@@ -71,7 +73,8 @@ const IPC_CHANNELS = {
   setThreadModelOverride: 'yachiyo:set-thread-model-override',
   regenerateThreadTitle: 'yachiyo:regenerate-thread-title',
   starThread: 'yachiyo:star-thread',
-  readClipboardFilePaths: 'yachiyo:read-clipboard-file-paths'
+  readClipboardFilePaths: 'yachiyo:read-clipboard-file-paths',
+  readAttachmentFile: 'yachiyo:read-attachment-file'
 } as const
 
 let server: YachiyoServer | null = null
@@ -212,6 +215,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.deleteMessage, (input: { threadId: string; messageId: string }) =>
     server!.deleteMessageFromHere(input)
   )
+  handle(IPC_CHANNELS.editMessage, (input: EditMessageInput) => server!.editMessage(input))
   handle(IPC_CHANNELS.cancelRun, (input: { runId: string }) => server!.cancelRun(input))
   handle(IPC_CHANNELS.getConfig, () => server!.getConfig())
   handle(IPC_CHANNELS.getUserDocument, () => server!.getUserDocument())
@@ -302,6 +306,16 @@ export function registerYachiyoGateway(): YachiyoServer {
 
     return results
   })
+
+  handle(
+    IPC_CHANNELS.readAttachmentFile,
+    async (input: { filePath: string; mediaType: string }) => {
+      const { readFile } = await import('node:fs/promises')
+      const data = await readFile(input.filePath)
+      const base64 = data.toString('base64')
+      return `data:${input.mediaType};base64,${base64}`
+    }
+  )
 
   app.once('before-quit', () => {
     void server?.close()
