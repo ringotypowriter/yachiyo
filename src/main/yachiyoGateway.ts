@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, net, Notification, session } from 'electron'
+import { spawn } from 'child_process'
 
 import type {
   CompactThreadInput,
@@ -26,6 +27,7 @@ import { openThreadWorkspace } from './openThreadWorkspace.ts'
 
 const IPC_CHANNELS = {
   showNotification: 'yachiyo:show-notification',
+  beep: 'yachiyo:beep',
   archiveThread: 'yachiyo:archive-thread',
   searchWorkspaceFiles: 'yachiyo:search-workspace-files',
   searchThreadsAndMessages: 'yachiyo:search-threads-and-messages',
@@ -141,6 +143,13 @@ export function registerYachiyoGateway(): YachiyoServer {
   ipcMain.on(IPC_CHANNELS.showNotification, (_event, input: { title: string; body?: string }) => {
     if (!Notification.isSupported()) return
     new Notification({ title: input.title, body: input.body ?? '' }).show()
+  })
+
+  ipcMain.removeAllListeners(IPC_CHANNELS.beep)
+  ipcMain.on(IPC_CHANNELS.beep, () => {
+    if (process.platform === 'darwin') {
+      spawn('afplay', ['-v', '0.4', '/System/Library/Sounds/Glass.aiff'], { detached: true })
+    }
   })
 
   handle(IPC_CHANNELS.searchThreadsAndMessages, (input: { query: string }) =>

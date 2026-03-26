@@ -6,6 +6,7 @@ import { AppSidebarDivider } from '@renderer/features/layout/components/AppSideb
 import { useSidebarVisibilityState } from '@renderer/features/layout/hooks/useSidebarVisibilityState'
 import { isCreateNewThreadShortcut } from '@renderer/features/layout/lib/newThreadShortcut'
 import { isOpenSidebarSearchShortcut } from '@renderer/features/layout/lib/findBarShortcut'
+import { ToastPresenter } from '@renderer/features/notifications/components/ToastPresenter'
 
 function App(): React.JSX.Element {
   const {
@@ -54,6 +55,20 @@ function App(): React.JSX.Element {
     const timer = setTimeout(() => window.api.setVibrancy(false), 220)
     return () => clearTimeout(timer)
   }, [isSidebarOpen])
+
+  useEffect(() => {
+    const flushOnReturn = (): void => {
+      if (!document.hidden) {
+        useAppStore.getState().flushQueuedToasts()
+      }
+    }
+    window.addEventListener('focus', flushOnReturn)
+    document.addEventListener('visibilitychange', flushOnReturn)
+    return () => {
+      window.removeEventListener('focus', flushOnReturn)
+      document.removeEventListener('visibilitychange', flushOnReturn)
+    }
+  }, [])
 
   useEffect(() => {
     const uiFontSize = config?.general?.uiFontSize
@@ -106,6 +121,7 @@ function App(): React.JSX.Element {
           onPendingFindQueryApplied={() => setPendingFindQuery(null)}
         />
       </div>
+      <ToastPresenter />
     </div>
   )
 }

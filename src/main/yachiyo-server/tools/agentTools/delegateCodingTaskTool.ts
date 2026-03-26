@@ -21,7 +21,7 @@ const delegateCodingTaskInputSchema = z.object({
     .string()
     .optional()
     .describe(
-      'Optional ACP session ID returned by a previous delegateCodingTask call. When provided, resumes that existing session instead of creating a new one.'
+      'Optional ACP session ID for resuming the exact same delegated task. Use this field only when the user explicitly asks to continue or resume the same subagent session and you have the exact session ID from a previous delegateCodingTask tool result in the current context. If this is a new task, if the user did not explicitly ask to resume, or if you do not have that exact session ID, omit this field. Never invent, guess, infer, or transform a session ID.'
     )
 })
 
@@ -229,7 +229,7 @@ export function createTool(
           input.prompt,
           ctx,
           options.abortSignal,
-          input.session_id
+          input.session_id || undefined
         )
         ctx.onSubagentFinished?.(input.agent_name, 'success', lastMessage)
         return result

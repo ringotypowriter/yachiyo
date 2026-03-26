@@ -81,6 +81,14 @@ export const EMPTY_COMPOSER_DRAFT: ComposerDraft = {
   enabledSkillNames: null
 }
 
+export interface AppToast {
+  id: string
+  threadId: string
+  title: string
+  body: string
+  eventKey: string
+}
+
 const NOTIFICATION_DEDUPE_WINDOW_MS = 10_000
 const recentNotificationKeys = new Map<string, number>()
 
@@ -102,6 +110,12 @@ function shouldShowNotification(key: string): boolean {
 }
 
 interface AppState {
+  activeToasts: AppToast[]
+  queuedToasts: AppToast[]
+  pushToast: (toast: Omit<AppToast, 'id'>) => void
+  dismissToast: (id: string) => void
+  flushQueuedToasts: () => void
+
   activeArchivedThreadId: string | null
   activeRunId: string | null
   activeRunIdsByThread: Record<string, string>
@@ -851,6 +865,23 @@ export const useAppStore = create<AppState>((set, get) => ({
       throw error
     }
   },
+  activeToasts: [],
+  queuedToasts: [],
+
+  pushToast: (toast) =>
+    set((state) => ({
+      activeToasts: [...state.activeToasts, { ...toast, id: crypto.randomUUID() }]
+    })),
+
+  dismissToast: (id) =>
+    set((state) => ({ activeToasts: state.activeToasts.filter((t) => t.id !== id) })),
+
+  flushQueuedToasts: () =>
+    set((state) => {
+      if (state.queuedToasts.length === 0) return state
+      return { activeToasts: [...state.activeToasts, ...state.queuedToasts], queuedToasts: [] }
+    }),
+
   runPhase: 'idle',
   runStatus: 'idle',
   runStatusesByThread: {},
@@ -860,12 +891,30 @@ export const useAppStore = create<AppState>((set, get) => ({
   toolCalls: {},
 
   applyServerEvent: (event) => {
-    const notifyIfUnfocused = (key: string, title: string, body?: string): void => {
-      if (document.hasFocus() || !shouldShowNotification(key)) {
-        return
-      }
+    const notifyActivity = (key: string, threadId: string, title: string, body: string): void => {
+      if (!shouldShowNotification(key)) return
 
-      window.api.yachiyo.showNotification({ title, body })
+      const { activeThreadId } = get()
+      const isForeground = !document.hidden && document.hasFocus()
+
+      if (isForeground) {
+        if (threadId !== activeThreadId) {
+          set((s) => ({
+            activeToasts: [
+              ...s.activeToasts,
+              { id: crypto.randomUUID(), threadId, title, body, eventKey: key }
+            ]
+          }))
+        }
+      } else {
+        window.api.yachiyo.showNotification({ title, body })
+        set((s) => ({
+          queuedToasts: [
+            ...s.queuedToasts,
+            { id: crypto.randomUUID(), threadId, title, body, eventKey: key }
+          ]
+        }))
+      }
     }
 
     if (event.type === 'run.completed') {
@@ -881,7 +930,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           lastTextBlock?.content.trim().slice(0, 60) ??
           lastAssistantMessage?.content.trim().slice(0, 60) ??
           'Run completed'
-        notifyIfUnfocused(`run.completed:${event.runId}`, thread?.title ?? 'Yachiyo', preview)
+        notifyActivity(
+          `run.completed:${event.runId}`,
+          event.threadId,
+          thread?.title ?? 'Yachiyo',
+          preview
+        )
       }
     }
 
@@ -889,8 +943,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       const { config, threads } = get()
       if (config?.general?.notifyCodingTaskStarted !== false) {
         const thread = threads.find((t) => t.id === event.threadId)
-        notifyIfUnfocused(
+        notifyActivity(
           `subagent.started:${event.runId}:${event.agentName}`,
+          event.threadId,
           thread?.title ?? 'Yachiyo',
           `${event.agentName} dispatched`
         )
@@ -901,8 +956,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       const { config, threads } = get()
       if (config?.general?.notifyCodingTaskFinished !== false) {
         const thread = threads.find((t) => t.id === event.threadId)
-        notifyIfUnfocused(
+        notifyActivity(
           `subagent.finished:${event.runId}:${event.agentName}:${event.status}`,
+          event.threadId,
           thread?.title ?? 'Yachiyo',
           event.status === 'cancelled'
             ? `${event.agentName} cancelled`

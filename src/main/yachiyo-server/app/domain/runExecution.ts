@@ -360,6 +360,12 @@ function buildSubagentContextBlock(
     '- DO NOT predefine architectural structures; let the agent decide the implementation.',
     '- DO NOT use overly structured, markdown-heavy formatting.',
     '',
+    'CRITICAL RULE 3 (SESSION RESUME):',
+    '- For a new delegated task, omit `session_id`.',
+    '- Use `session_id` only when the user explicitly asks to continue or resume the same delegated task.',
+    '- Only copy the exact `session_id` from a previous `delegateCodingTask` tool result that is present in the current context.',
+    '- Never invent, guess, infer, or transform a `session_id`.',
+    '',
     'Available Agents:'
   ]
 

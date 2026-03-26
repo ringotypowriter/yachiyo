@@ -100,6 +100,7 @@ declare global {
           { filename: string; mediaType: string; dataUrl: string }[]
         >
         showNotification: (input: { title: string; body?: string }) => void
+        beep: () => void
         subscribe: (listener: (event: YachiyoServerEvent) => void) => () => void
       }
     }

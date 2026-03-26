@@ -56,7 +56,7 @@ You CANNOT use the `delegate_coding_task` tool. If the user asks you to delegate
     properties: {
       agent_name: { type: "STRING", description: "从上下文中选择的可用 Agent 名称" },
       prompt: { type: "STRING", description: "给 Agent 的具体任务描述，必须全英文，遵循规范" },
-      session_id: { type: "STRING", description: "(Optional) ACP session ID from a previous delegateCodingTask result. When provided, resumes that session instead of creating a new one. Omit to start a new session." }
+      session_id: { type: "STRING", description: "(Optional) ACP session ID for resuming the exact same delegated task. Use this field only when the user explicitly asks to continue or resume the same subagent session and you have the exact session ID from a previous delegateCodingTask result in the current context. If this is a new task, if the user did not explicitly ask to resume, or if you do not have that exact session ID, omit this field. Never invent, guess, infer, or transform a session ID." }
     },
     required: ["agent_name", "prompt"]
   }
@@ -86,7 +86,7 @@ I have completed the refactoring of NavBar.tsx and updated the tests.
 CRITICAL: The subagent has finished its execution. Before replying to the user, you MUST use your `read`, `bash` (e.g., git status, git diff), or `grep` tools to verify the actual file changes. Do not blindly trust the agent's summary. Once verified, report your findings to the user.
 ```
 
-The `Session ID` line appears first so the model can record it and pass it as `session_id` on a subsequent call to resume the same ACP session. When resuming fails (e.g. the session no longer exists on the provider side), the tool returns an explicit error instead of silently falling back to a new session.
+The `Session ID` line appears first so the exact value is available if the model later needs to resume the same ACP session. For a new delegated task, the model must omit `session_id`. It may use `session_id` only when the user explicitly asks to continue the same delegated task and the exact ID is present in the current context. When resuming fails (e.g. the session no longer exists on the provider side), the tool returns an explicit error instead of silently falling back to a new session.
 
 ## 6. Frontend UI & Interaction
 

@@ -104,6 +104,7 @@ const api = {
     > => ipcRenderer.invoke('yachiyo:read-clipboard-file-paths'),
     showNotification: (input: { title: string; body?: string }): void =>
       ipcRenderer.send('yachiyo:show-notification', input),
+    beep: (): void => ipcRenderer.send('yachiyo:beep'),
     subscribe: (listener: (event: YachiyoServerEvent) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, payload: YachiyoServerEvent): void => {
         listener(payload)
