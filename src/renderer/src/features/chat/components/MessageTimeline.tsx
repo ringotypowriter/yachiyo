@@ -21,7 +21,8 @@ import { RunMemoryRecallRow } from './RunMemoryRecallRow'
 import { ReplyBranchNavigation } from './ReplyBranchNavigation'
 import { ToolCallRow } from './ToolCallRow'
 import { ThinkingBlock } from './ThinkingBlock'
-import { resolveRetryTargetMessageId } from '../lib/messageActionState'
+import { canRetryAssistantMessage, resolveRetryTargetMessageId } from '../lib/messageActionState'
+import { MessageActionBar } from './MessageActionBar'
 
 interface MessageTimelineProps {
   threadId: string | null
@@ -262,6 +263,9 @@ export function ThreadConversationGroup({
               ? visibleToolCalls.find((entry) => entry.id === nextItem.toolCallId)
               : null
           const compactBottomSpacing = nextToolCall?.status === 'running'
+          const hasToolCallAfter = timelineItems
+            .slice(index + 1)
+            .some((i) => i.kind === 'tool-call')
           return (
             <div
               key={item.key}
@@ -271,7 +275,7 @@ export function ThreadConversationGroup({
               <AssistantMessageBubble
                 message={activeBranch.message}
                 contentOverride={textBlock.content}
-                showActions={isLastTextBlock}
+                showActions={isLastTextBlock && !hasToolCallAfter}
                 showFooter={isLastTextBlock}
                 suppressGeneratingLabel={
                   hasRunningToolCall || activeBranch.message.status === 'streaming'
@@ -303,6 +307,22 @@ export function ThreadConversationGroup({
 
         return null
       })}
+
+      {activeBranch && timelineItems.at(-1)?.kind === 'tool-call' ? (
+        <div className="px-6 py-1">
+          <MessageActionBar
+            align="start"
+            content={activeBranch.message.content}
+            canRetry={canRetryAssistantMessage({
+              messageStatus: activeBranch.message.status,
+              threadHasActiveRun
+            })}
+            onRetry={() => onRetry(activeBranch.message.id)}
+            onCreateBranch={() => onCreateBranch(activeBranch.message.id)}
+            onDelete={() => onDelete(activeBranch.message.id)}
+          />
+        </div>
+      ) : null}
 
       {subagentActive ? (
         <SubagentRunningIndicator
