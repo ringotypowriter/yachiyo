@@ -55,7 +55,8 @@ You CANNOT use the `delegate_coding_task` tool. If the user asks you to delegate
   parameters: {
     properties: {
       agent_name: { type: "STRING", description: "从上下文中选择的可用 Agent 名称" },
-      prompt: { type: "STRING", description: "给 Agent 的具体任务描述，必须全英文，遵循规范" }
+      prompt: { type: "STRING", description: "给 Agent 的具体任务描述，必须全英文，遵循规范" },
+      session_id: { type: "STRING", description: "(Optional) ACP session ID from a previous delegateCodingTask result. When provided, resumes that session instead of creating a new one. Omit to start a new session." }
     },
     required: ["agent_name", "prompt"]
   }
@@ -67,21 +68,25 @@ You CANNOT use the `delegate_coding_task` tool. If the user asks you to delegate
 1. **Tool Invocation**: Yachiyo calls `delegate_coding_task`. Thread reasoning suspends.
 2. **Subprocess Spawn**: Backend spawns the provider (e.g., `npx @zed-industries/claude-agent-acp`) with CWD strictly set to the thread workspace. Profile-specific `env` variables are injected.
 3. **ACP JSON-RPC**: Backend acts as the ACP client.
+   - **New session** (no `session_id` input): calls `session/new` to create a fresh session.
+   - **Resume session** (`session_id` present): calls `session/resume` (`unstable_resumeSession`) with the given ID. If the resume fails, the tool returns an explicit error — it does **not** silently fall back to a new session.
    - **Auto-Approve**: Any `window/showMessageRequest` or permission checks from the agent are automatically answered with `Approved`/`Accept`.
    - **Event Streaming**: stdout/stderr and progress events are piped to the frontend via WebSocket/SSE.
-4. **Completion**: Upon `session/close` or process exit, the backend extracts the agent's final message.
+4. **Completion**: Upon `session/close` or process exit, the backend extracts the agent's final message and the session ID.
 
 ## 5. Result Payload (Resume Yachiyo)
 
-To prevent token explosion and enforce Yachiyo's role as a reviewer, the `tool_result` returned to Yachiyo contains the agent's last message and a strict review instruction:
+To prevent token explosion and enforce Yachiyo's role as a reviewer, the `tool_result` returned to Yachiyo contains the session ID, the agent's last message, and a strict review instruction:
 
-```json
-{
-  "status": "success",
-  "agent_last_message": "I have completed the refactoring of NavBar.tsx and updated the tests.",
-  "system_instruction": "CRITICAL: The subagent has finished its execution. Before replying to the user, you MUST use your `read`, `bash` (e.g., git status, git diff), or `grep` tools to verify the actual file changes. Do not blindly trust the agent's summary. Once verified, report your findings to the user."
-}
 ```
+Session ID: <sessionId>
+
+I have completed the refactoring of NavBar.tsx and updated the tests.
+
+CRITICAL: The subagent has finished its execution. Before replying to the user, you MUST use your `read`, `bash` (e.g., git status, git diff), or `grep` tools to verify the actual file changes. Do not blindly trust the agent's summary. Once verified, report your findings to the user.
+```
+
+The `Session ID` line appears first so the model can record it and pass it as `session_id` on a subsequent call to resume the same ACP session. When resuming fails (e.g. the session no longer exists on the provider side), the tool returns an explicit error instead of silently falling back to a new session.
 
 ## 6. Frontend UI & Interaction
 

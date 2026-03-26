@@ -196,7 +196,6 @@ export function ThreadConversationGroup({
   const textBlocksById = new Map(
     activeAssistantTextBlocks.map((textBlock) => [textBlock.id, textBlock])
   )
-  const lastTextBlockId = activeAssistantTextBlocks.at(-1)?.id
   const canSelectPreviousReply = !threadHasActiveRun && Boolean(previousBranch)
   const canSelectNextReply = !threadHasActiveRun && Boolean(nextBranch)
 
@@ -257,7 +256,6 @@ export function ThreadConversationGroup({
             return null
           }
 
-          const isLastTextBlock = textBlock.id === lastTextBlockId
           const nextToolCall =
             nextItem?.kind === 'tool-call'
               ? visibleToolCalls.find((entry) => entry.id === nextItem.toolCallId)
@@ -272,17 +270,12 @@ export function ThreadConversationGroup({
               <AssistantMessageBubble
                 message={activeBranch.message}
                 contentOverride={textBlock.content}
-                showActions={false}
-                showFooter={isLastTextBlock}
+                showFooter={false}
                 suppressGeneratingLabel={
                   hasRunningToolCall || activeBranch.message.status === 'streaming'
                 }
                 pauseStreaming={subagentActive}
                 compactBottomSpacing={compactBottomSpacing}
-                threadHasActiveRun={threadHasActiveRun}
-                onRetry={() => onRetry(activeBranch.message.id)}
-                onCreateBranch={() => onCreateBranch(activeBranch.message.id)}
-                onDelete={() => onDelete(activeBranch.message.id)}
               />
             </div>
           )
@@ -309,7 +302,17 @@ export function ThreadConversationGroup({
       activeAssistantTextBlocks.length > 0 &&
       activeBranch.message.status !== 'streaming' &&
       !subagentActive ? (
-        <div className="message-bubble-group px-6 py-1">
+        <div className="message-bubble-group px-6 py-1 flex flex-col gap-0.5">
+          {activeBranch.message.status === 'stopped' ? (
+            <div className="message-footer message-footer--always-visible">Stopped</div>
+          ) : activeBranch.message.status === 'failed' ? (
+            <div
+              className="message-footer message-footer--always-visible"
+              style={{ color: theme.text.danger }}
+            >
+              Failed to generate
+            </div>
+          ) : null}
           <MessageActionBar
             align="start"
             content={activeBranch.message.content}
@@ -541,13 +544,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
 
           return (
             <div key={item.key} data-message-id={item.key}>
-              <AssistantMessageBubble
-                message={item.data}
-                showActions={false}
-                threadHasActiveRun={activeRunId !== null}
-                onCreateBranch={() => undefined}
-                onDelete={() => undefined}
-              />
+              <AssistantMessageBubble message={item.data} />
             </div>
           )
         }

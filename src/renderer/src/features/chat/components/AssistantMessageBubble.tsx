@@ -3,8 +3,6 @@ import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
 import type { Message } from '@renderer/app/types'
 import { buildMessagePresentation } from '../lib/messagePresentation'
 import type { MessageFooter } from '../lib/messagePresentation'
-import { canRetryAssistantMessage } from '../lib/messageActionState'
-import { MessageActionBar } from './MessageActionBar'
 import { theme } from '@renderer/theme/theme'
 
 function MessageMetaRow({ footer }: { footer: MessageFooter }): React.JSX.Element | null {
@@ -46,40 +44,29 @@ interface AssistantMessageBubbleProps {
   message: Message
   contentOverride?: string
   showFooter?: boolean
-  showActions?: boolean
   suppressGeneratingLabel?: boolean
   pauseStreaming?: boolean
   compactBottomSpacing?: boolean
-  threadHasActiveRun?: boolean
-  onRetry?: () => Promise<void> | void
-  onCreateBranch: () => Promise<void> | void
-  onDelete: () => Promise<void> | void
 }
 
 export function AssistantMessageBubble({
   message,
   contentOverride,
   showFooter = true,
-  showActions = true,
   suppressGeneratingLabel = false,
   pauseStreaming = false,
-  compactBottomSpacing = false,
-  threadHasActiveRun = false,
-  onRetry,
-  onCreateBranch,
-  onDelete
+  compactBottomSpacing = false
 }: AssistantMessageBubbleProps): React.JSX.Element {
   const { showContent, showBubble, footer } = buildMessagePresentation(message)
   const isStreaming = message.status === 'streaming' && showFooter && !pauseStreaming
   const shouldShowGeneratingLabel =
     message.status === 'streaming' && showFooter && !suppressGeneratingLabel
-  const shouldHideStreamingFooterRow = suppressGeneratingLabel && message.status === 'streaming'
-  const effectiveShowActions = shouldHideStreamingFooterRow ? false : showActions
-  const effectiveShowFooter = shouldHideStreamingFooterRow ? false : showFooter
-  const canRetry = canRetryAssistantMessage({
-    messageStatus: message.status,
-    threadHasActiveRun
-  })
+  const effectiveShowFooter =
+    suppressGeneratingLabel && message.status === 'streaming' ? false : showFooter
+  const hasFooterContent =
+    effectiveShowFooter &&
+    footer !== null &&
+    (footer.kind !== 'streaming' || shouldShowGeneratingLabel)
   const content = contentOverride ?? message.content
 
   if (!showBubble) return <></>
@@ -92,28 +79,13 @@ export function AssistantMessageBubble({
         <div className="assistant-message-bubble">
           {showContent && <MessageMarkdown content={content} isStreaming={isStreaming} />}
         </div>
-        {(() => {
-          const hasFooterContent =
-            effectiveShowFooter &&
-            footer !== null &&
-            (footer.kind !== 'streaming' || shouldShowGeneratingLabel)
-          if (!hasFooterContent && !effectiveShowActions) return null
-          return (
-            <div className="assistant-message-bubble__footer-row">
-              <div>{hasFooterContent ? <MessageMetaRow footer={footer!} /> : null}</div>
-              {effectiveShowActions ? (
-                <MessageActionBar
-                  align="start"
-                  content={message.content}
-                  canRetry={canRetry}
-                  onRetry={isStreaming ? undefined : onRetry}
-                  onCreateBranch={onCreateBranch}
-                  onDelete={onDelete}
-                />
-              ) : null}
+        {hasFooterContent ? (
+          <div className="assistant-message-bubble__footer-row">
+            <div>
+              <MessageMetaRow footer={footer!} />
             </div>
-          )
-        })()}
+          </div>
+        ) : null}
       </div>
     </div>
   )

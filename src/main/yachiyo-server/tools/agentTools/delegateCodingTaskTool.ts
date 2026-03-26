@@ -16,13 +16,20 @@ import { filterJsonLines } from './spawnUtils.ts'
 
 const delegateCodingTaskInputSchema = z.object({
   agent_name: z.string().min(1),
-  prompt: z.string().min(1)
+  prompt: z.string().min(1),
+  session_id: z
+    .string()
+    .optional()
+    .describe(
+      'Optional ACP session ID returned by a previous delegateCodingTask call. When provided, resumes that existing session instead of creating a new one.'
+    )
 })
 
 type DelegateCodingTaskInput = z.infer<typeof delegateCodingTaskInputSchema>
 
 interface DelegateCodingTaskOutput {
   content: Array<{ type: 'text'; text: string }>
+  sessionId?: string
   error?: string
 }
 
@@ -58,7 +65,8 @@ async function runSubagent(
   profile: SubagentProfile,
   prompt: string,
   ctx: DelegateCodingTaskContext,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  resumeSessionId?: string
 ): Promise<DelegateCodingTaskOutput & { lastMessage: string }> {
   let lastMessageText = ''
   let stopReason = 'end_turn'
@@ -116,7 +124,7 @@ async function runSubagent(
   }
 
   const connection = new ClientSideConnection(() => yoloClient, stream)
-  let sessionId: string | undefined
+  let sessionId: string
 
   try {
     if (abortSignal?.aborted) {
@@ -128,11 +136,20 @@ async function runSubagent(
       clientCapabilities: {}
     })
 
-    const sessionResult = await connection.newSession({
-      cwd: ctx.workspacePath,
-      mcpServers: []
-    })
-    sessionId = sessionResult.sessionId
+    if (resumeSessionId !== undefined) {
+      await connection.unstable_resumeSession({
+        cwd: ctx.workspacePath,
+        sessionId: resumeSessionId,
+        mcpServers: []
+      })
+      sessionId = resumeSessionId
+    } else {
+      const sessionResult = await connection.newSession({
+        cwd: ctx.workspacePath,
+        mcpServers: []
+      })
+      sessionId = sessionResult.sessionId
+    }
 
     // Wire abort: send cancel to agent then kill
     const killGroup = (): void => {
@@ -168,13 +185,15 @@ async function runSubagent(
   }
 
   const agentLastMessage = lastMessageText.trim() || '(no output)'
+  const sessionLine = `Session ID: ${sessionId}`
   const text =
     stopReason === 'cancelled'
-      ? `Agent was cancelled before completing.\n\n${SYSTEM_INSTRUCTION}`
-      : `${agentLastMessage}\n\n${SYSTEM_INSTRUCTION}`
+      ? `${sessionLine}\n\nAgent was cancelled before completing.\n\n${SYSTEM_INSTRUCTION}`
+      : `${sessionLine}\n\n${agentLastMessage}\n\n${SYSTEM_INSTRUCTION}`
 
   return {
     content: [{ type: 'text', text }],
+    sessionId,
     lastMessage: agentLastMessage
   }
 }
@@ -204,7 +223,8 @@ export function createTool(
           profile,
           input.prompt,
           ctx,
-          options.abortSignal
+          options.abortSignal,
+          input.session_id
         )
         ctx.onSubagentFinished?.(input.agent_name, 'success', lastMessage)
         return result
