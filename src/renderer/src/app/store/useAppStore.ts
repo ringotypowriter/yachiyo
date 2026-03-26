@@ -83,6 +83,7 @@ export const EMPTY_COMPOSER_DRAFT: ComposerDraft = {
 
 export interface EditingMessageState {
   messageId: string
+  threadId: string
   preEditDraft: ComposerDraft
 }
 
@@ -911,7 +912,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       status: 'loading' as const
     }))
     set((s) => ({
-      editingMessage: { messageId, preEditDraft },
+      editingMessage: { messageId, threadId, preEditDraft },
       composerDrafts: updateComposerDraft(s.composerDrafts, getComposerDraftKey(threadId), () => ({
         text: message.content,
         images: imageDrafts,
@@ -2093,7 +2094,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     const editingMessage = currentState.editingMessage
-    const isEditMode = mode === 'normal' && editingMessage !== null
+    const isEditMode =
+      mode === 'normal' && editingMessage !== null && editingMessage.threadId === threadId
 
     try {
       const accepted = isEditMode
@@ -2247,6 +2249,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const nextState = {
         ...state,
         activeThreadId: id,
+        editingMessage: state.editingMessage?.threadId === id ? state.editingMessage : null,
         threadListMode: 'active' as const,
         scrollToMessageId: scrollToMessageId ?? null
       }

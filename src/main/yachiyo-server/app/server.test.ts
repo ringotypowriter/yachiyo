@@ -4866,6 +4866,39 @@ test('YachiyoServer injects USER.md as a separate context layer and exposes the 
   )
 })
 
+test('YachiyoServer.editMessage rejects empty content before mutating history', async () => {
+  await withServer(async ({ server, completeRun }) => {
+    await server.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: { enabled: ['gpt-5'], disabled: [] }
+    })
+
+    const thread = await server.createThread()
+    const accepted = await server.sendChat({ threadId: thread.id, content: 'Original message' })
+    assertAcceptedHasUserMessage(accepted)
+    await completeRun(accepted.runId)
+
+    const messageCountBefore = (await server.bootstrap()).messagesByThread[thread.id]?.length ?? 0
+
+    await assert.rejects(
+      () =>
+        server.editMessage({
+          threadId: thread.id,
+          messageId: accepted.userMessage.id,
+          content: '   '
+        }),
+      /Cannot send an empty message/
+    )
+
+    // History must be intact — no messages should have been deleted
+    const messageCountAfter = (await server.bootstrap()).messagesByThread[thread.id]?.length ?? 0
+    assert.equal(messageCountAfter, messageCountBefore)
+  })
+})
+
 test('YachiyoServer.editMessage replaces the user message and dependent history then starts a new run', async () => {
   await withServer(async ({ server, completeRun }) => {
     await server.upsertProvider({
@@ -4942,7 +4975,7 @@ test('YachiyoServer.editMessage throws when the thread has an active run', async
     },
     {
       createModelRuntime: () => ({
-        async *streamReply(request: ModelStreamRequest) {
+        async *streamReply(): AsyncIterable<string> {
           await runGate
           yield 'Hello'
           yield ' world'

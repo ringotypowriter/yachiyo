@@ -69,9 +69,13 @@ import {
   ensureThreadWorkspace as defaultEnsureThreadWorkspace
 } from '../threads/threadWorkspace.ts'
 import { testSubagentProfile as runTestSubagentProfile } from '../tools/agentTools/testSubagentProfile.ts'
-import { YachiyoServerConfigDomain } from './domain/configDomain.ts'
+import { assertSupportedImages, YachiyoServerConfigDomain } from './domain/configDomain.ts'
 import { YachiyoServerRunDomain } from './domain/runDomain.ts'
 import { YachiyoServerThreadDomain } from './domain/threadDomain.ts'
+import {
+  hasMessagePayload,
+  normalizeMessageImages
+} from '../../../shared/yachiyo/messageContent.ts'
 
 export interface YachiyoServerOptions {
   storage: YachiyoStorage
@@ -517,6 +521,13 @@ export class YachiyoServer {
   }
 
   async editMessage(input: EditMessageInput): Promise<ChatAccepted> {
+    // Validate payload before mutating history — avoids data loss if sendChat would reject
+    const images = normalizeMessageImages(input.images)
+    if (!hasMessagePayload({ content: input.content, images, attachments: input.attachments })) {
+      throw new Error('Cannot send an empty message.')
+    }
+    assertSupportedImages(images)
+
     this.threadDomain.deleteMessageFromHere({
       threadId: input.threadId,
       messageId: input.messageId
