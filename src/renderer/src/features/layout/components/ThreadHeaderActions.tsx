@@ -12,6 +12,8 @@ export interface ThreadHeaderActionsProps {
   activeThread: Thread | null
   isMemoryEnabled: boolean
   isRenameDisabled: boolean
+  isSaving?: boolean
+  isStarred?: boolean
   onSelectOperation: (operationKey: ThreadContextOperationKey) => void
 }
 
@@ -19,6 +21,8 @@ export function ThreadHeaderActions({
   activeThread,
   isMemoryEnabled,
   isRenameDisabled,
+  isSaving,
+  isStarred,
   onSelectOperation
 }: ThreadHeaderActionsProps): React.JSX.Element {
   const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null)
@@ -30,7 +34,9 @@ export function ThreadHeaderActions({
   const operations = resolveThreadContextOperations({
     isArchived: false,
     isMemoryEnabled,
-    isRenameDisabled
+    isRenameDisabled,
+    isSaving,
+    isStarred
   })
 
   return (

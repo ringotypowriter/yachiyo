@@ -10,7 +10,7 @@ test('thread context operations only expose Save Thread when memory is enabled',
       isMemoryEnabled: true
     }).map((operation) => operation.key),
     [
-      'enter-select-mode',
+      'star',
       'rename',
       'regenerate-title',
       'compact-to-another-thread',
@@ -25,14 +25,7 @@ test('thread context operations only expose Save Thread when memory is enabled',
       isArchived: false,
       isMemoryEnabled: false
     }).map((operation) => operation.key),
-    [
-      'enter-select-mode',
-      'rename',
-      'regenerate-title',
-      'compact-to-another-thread',
-      'archive',
-      'delete'
-    ]
+    ['star', 'rename', 'regenerate-title', 'compact-to-another-thread', 'archive', 'delete']
   )
 })
 
@@ -52,4 +45,43 @@ test('thread context operations use the short handoff label for compacting into 
   }).find((operation) => operation.key === 'compact-to-another-thread')
 
   assert.equal(handoffOperation?.label, 'Handoff')
+})
+
+test('thread context operations disable all operations while saving', () => {
+  const operations = resolveThreadContextOperations({
+    isArchived: false,
+    isMemoryEnabled: true,
+    isSaving: true
+  })
+
+  assert.ok(operations.every((op) => op.disabled === true))
+})
+
+test('thread context operations disable all archived-thread operations while saving', () => {
+  const operations = resolveThreadContextOperations({
+    isArchived: true,
+    isSaving: true
+  })
+
+  assert.ok(operations.every((op) => op.disabled === true))
+})
+
+test('thread context operations show Saving… label for save-thread while saving', () => {
+  const saveOp = resolveThreadContextOperations({
+    isArchived: false,
+    isMemoryEnabled: true,
+    isSaving: true
+  }).find((op) => op.key === 'save-thread')
+
+  assert.equal(saveOp?.label, 'Saving…')
+})
+
+test('thread context operations do not disable operations when isSaving is false', () => {
+  const operations = resolveThreadContextOperations({
+    isArchived: false,
+    isMemoryEnabled: true,
+    isSaving: false
+  })
+
+  assert.ok(operations.every((op) => !op.disabled))
 })

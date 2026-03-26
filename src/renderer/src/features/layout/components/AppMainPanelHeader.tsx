@@ -14,7 +14,9 @@ export interface AppMainPanelHeaderProps {
   isMemoryEnabled: boolean
   isPrivacyMode: boolean
   isPrivacyToggleLocked: boolean
+  isSaving?: boolean
   isSidebarToggleDisabled: boolean
+  isStarred?: boolean
   messageCount: number
   onOpenThreadWorkspace: () => Promise<void>
   onSelectThreadOperation: (operationKey: ThreadContextOperationKey) => void
@@ -33,7 +35,9 @@ export function AppMainPanelHeader({
   isMemoryEnabled,
   isPrivacyMode,
   isPrivacyToggleLocked,
+  isSaving,
   isSidebarToggleDisabled,
+  isStarred,
   messageCount,
   onOpenThreadWorkspace,
   onSelectThreadOperation,
@@ -156,6 +160,8 @@ export function AppMainPanelHeader({
           activeThread={activeThread}
           isMemoryEnabled={isMemoryEnabled}
           isRenameDisabled={false}
+          isSaving={isSaving}
+          isStarred={isStarred}
           onSelectOperation={onSelectThreadOperation}
         />
       </div>

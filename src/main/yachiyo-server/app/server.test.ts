@@ -1009,6 +1009,105 @@ test('YachiyoServer saveThread uses the explicit memory service and can archive 
   )
 })
 
+test('YachiyoServer saveThread clears saving state when memory service throws', async () => {
+  let callCount = 0
+
+  await withServer(
+    async ({ completeRun, server }) => {
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Hello.'
+      })
+      assertAcceptedHasUserMessage(accepted)
+      await completeRun(accepted.runId)
+
+      // First save should throw
+      await assert.rejects(() => server.saveThread({ threadId: thread.id }), /memory error/)
+
+      // Second save should succeed — confirms saving state was cleared in the finally block
+      const result = await server.saveThread({ threadId: thread.id })
+      assert.equal(callCount, 2)
+      assert.equal(result.archived, false)
+    },
+    {
+      memoryService: {
+        hasHiddenSearchCapability: () => true,
+        isConfigured: () => true,
+        searchMemories: async () => [],
+        testConnection: async () => ({ ok: true, message: 'ok' }),
+        recallForContext: async ({ thread }) => ({
+          decision: {
+            shouldRecall: false,
+            score: 0,
+            reasons: [],
+            messagesSinceLastRecall: 0,
+            charsSinceLastRecall: 0,
+            idleMs: 0,
+            noveltyScore: 0,
+            novelTerms: []
+          },
+          entries: [],
+          thread
+        }),
+        distillCompletedRun: async () => ({ savedCount: 0 }),
+        saveThread: async () => {
+          callCount++
+          if (callCount === 1) throw new Error('memory error')
+          return { savedCount: 1 }
+        }
+      }
+    }
+  )
+})
+
+test('YachiyoServer recoverInterruptedSaves reports interrupted save recovery on bootstrap', async () => {
+  await withServer(
+    async ({ server }) => {
+      const thread = await server.createThread()
+      ;(
+        server as unknown as {
+          storage: {
+            beginThreadSave: (input: { threadId: string; savingStartedAt: string }) => void
+          }
+        }
+      ).storage.beginThreadSave({
+        threadId: thread.id,
+        savingStartedAt: new Date().toISOString()
+      })
+
+      const bootstrap = await server.bootstrap()
+      const found = bootstrap.threads.find((t) => t.id === thread.id)
+      assert.ok(found, 'thread should be present and accessible after recovery')
+      assert.deepEqual(bootstrap.recoveredInterruptedSaveThreadIds, [thread.id])
+    },
+    {
+      memoryService: {
+        hasHiddenSearchCapability: () => false,
+        isConfigured: () => false,
+        searchMemories: async () => [],
+        testConnection: async () => ({ ok: false, message: '' }),
+        recallForContext: async ({ thread }) => ({
+          decision: {
+            shouldRecall: false,
+            score: 0,
+            reasons: [],
+            messagesSinceLastRecall: 0,
+            charsSinceLastRecall: 0,
+            idleMs: 0,
+            noveltyScore: 0,
+            novelTerms: []
+          },
+          entries: [],
+          thread
+        }),
+        distillCompletedRun: async () => ({ savedCount: 0 }),
+        saveThread: async () => ({ savedCount: 0 })
+      }
+    }
+  )
+})
+
 test('YachiyoServer setThreadPrivacyMode updates the thread timestamp and persists the flag', async () => {
   let tick = 0
 

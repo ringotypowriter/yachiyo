@@ -604,6 +604,7 @@ export interface BootstrapPayload {
   messagesByThread: Record<string, MessageRecord[]>
   toolCallsByThread: Record<string, ToolCallRecord[]>
   latestRunsByThread: Record<string, RunRecord>
+  recoveredInterruptedSaveThreadIds: string[]
   config: SettingsConfig
   settings: ProviderSettings
 }

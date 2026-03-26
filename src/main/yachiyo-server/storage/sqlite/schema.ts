@@ -16,6 +16,7 @@ export const threadsTable = sqliteTable('threads', {
   queuedFollowUpEnabledTools: text('queued_follow_up_enabled_tools'),
   queuedFollowUpEnabledSkillNames: text('queued_follow_up_enabled_skill_names'),
   archivedAt: text('archived_at'),
+  savingStartedAt: text('saving_started_at'),
   starredAt: text('starred_at'),
   privacyMode: text('privacy_mode'),
   modelOverride: text('model_override'),

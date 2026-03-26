@@ -127,6 +127,7 @@ export function ThreadConversationGroup({
   toolCalls,
   activeRunId,
   threadHasActiveRun,
+  threadIsSaving,
   runs,
   subagentActive,
   subagentStream,
@@ -141,6 +142,7 @@ export function ThreadConversationGroup({
   toolCalls: ToolCall[]
   activeRunId: string | null
   threadHasActiveRun: boolean
+  threadIsSaving: boolean
   runs: RunRecord[]
   subagentActive: boolean
   subagentStream: string
@@ -196,14 +198,14 @@ export function ThreadConversationGroup({
   const textBlocksById = new Map(
     activeAssistantTextBlocks.map((textBlock) => [textBlock.id, textBlock])
   )
-  const canSelectPreviousReply = !threadHasActiveRun && Boolean(previousBranch)
-  const canSelectNextReply = !threadHasActiveRun && Boolean(nextBranch)
+  const canSelectPreviousReply = !threadHasActiveRun && !threadIsSaving && Boolean(previousBranch)
+  const canSelectNextReply = !threadHasActiveRun && !threadIsSaving && Boolean(nextBranch)
 
   return (
     <div className="flex flex-col gap-2" data-thread-id={threadId}>
       <UserMessageBubble
         message={group.userMessage}
-        threadHasActiveRun={threadHasActiveRun}
+        threadHasActiveRun={threadHasActiveRun || threadIsSaving}
         onRetry={() => onRetry(retryTargetMessageId)}
         onCreateBranch={() => onCreateBranch(group.userMessage.id)}
         onDelete={() => onDelete(group.userMessage.id)}
@@ -318,7 +320,8 @@ export function ThreadConversationGroup({
             content={activeBranch.message.content}
             canRetry={canRetryAssistantMessage({
               messageStatus: activeBranch.message.status,
-              threadHasActiveRun
+              threadHasActiveRun,
+              threadIsSaving
             })}
             onRetry={() => onRetry(activeBranch.message.id)}
             onCreateBranch={() => onCreateBranch(activeBranch.message.id)}
@@ -359,6 +362,9 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   )
   const activeRunId = useAppStore((state) =>
     threadId ? (state.activeRunIdsByThread[threadId] ?? null) : null
+  )
+  const threadIsSaving = useAppStore((state) =>
+    threadId ? state.savingThreadIds.has(threadId) : false
   )
   const subagentActive = useAppStore((state) =>
     threadId ? (state.subagentActiveByThread[threadId] ?? false) : false
@@ -502,7 +508,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
               <UserMessageBubble
                 label="Queued follow-up"
                 message={item.data}
-                threadHasActiveRun={activeRunId !== null}
+                threadHasActiveRun={activeRunId !== null || threadIsSaving}
                 onRetry={() => handleRetry(item.data.id)}
                 onCreateBranch={() => handleCreateBranch(item.data.id)}
                 onDelete={() => handleDelete(item.data.id)}
@@ -558,6 +564,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
               toolCalls={inlineToolCalls}
               activeRunId={activeRunId}
               threadHasActiveRun={activeRunId !== null}
+              threadIsSaving={threadIsSaving}
               runs={runs}
               subagentActive={isActiveGroup && subagentActive}
               subagentStream={subagentStream}

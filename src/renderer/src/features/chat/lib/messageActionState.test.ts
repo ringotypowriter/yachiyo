@@ -51,6 +51,27 @@ test('canRetryUserMessage only depends on whether the thread is already running'
   )
 })
 
+test('canRetryAssistantMessage disables retry while the thread is saving', () => {
+  assert.equal(
+    canRetryAssistantMessage({
+      messageStatus: 'completed',
+      threadHasActiveRun: false,
+      threadIsSaving: true
+    }),
+    false
+  )
+})
+
+test('canRetryUserMessage disables retry while the thread is saving', () => {
+  assert.equal(
+    canRetryUserMessage({
+      threadHasActiveRun: false,
+      threadIsSaving: true
+    }),
+    false
+  )
+})
+
 test('resolveRetryTargetMessageId falls back to the user anchor for stopped replies', () => {
   assert.equal(
     resolveRetryTargetMessageId({

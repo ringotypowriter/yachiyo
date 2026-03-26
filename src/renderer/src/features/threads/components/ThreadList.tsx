@@ -108,6 +108,7 @@ function ThreadListItem({
   isActive,
   hasActiveRun,
   isMemoryEnabled,
+  isSaving,
   isSelectMode,
   isSelected,
   isStarred,
@@ -123,6 +124,7 @@ function ThreadListItem({
   isActive: boolean
   hasActiveRun: boolean
   isMemoryEnabled: boolean
+  isSaving: boolean
   isSelectMode: boolean
   isSelected: boolean
   isStarred: boolean
@@ -144,6 +146,7 @@ function ThreadListItem({
   const operations = resolveThreadContextOperations({
     isArchived: threadListMode === 'archived',
     isMemoryEnabled: isMemoryEnabled && !thread.privacyMode,
+    isSaving,
     isStarred
   })
 
@@ -314,7 +317,18 @@ function ThreadListItem({
               </span>
             </div>
           </div>
-          {hasActiveRun ? (
+          {isSaving ? (
+            <span
+              aria-label="Saving"
+              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full"
+              style={{
+                width: '7px',
+                height: '7px',
+                background: theme.text.muted,
+                opacity: isHighlighted ? 1 : 0.8
+              }}
+            />
+          ) : hasActiveRun ? (
             <span
               aria-label="Run active"
               className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full"
@@ -342,8 +356,8 @@ function ThreadListItem({
             className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 no-drag"
             style={{
               color: isStarred ? '#f59e0b' : theme.text.muted,
-              opacity: !hasActiveRun && (isHovered || isStarred) ? 1 : 0,
-              pointerEvents: hasActiveRun ? 'none' : 'auto',
+              opacity: !hasActiveRun && !isSaving && (isHovered || isStarred) ? 1 : 0,
+              pointerEvents: hasActiveRun || isSaving ? 'none' : 'auto',
               transition: 'opacity 0.15s'
             }}
           >
@@ -379,6 +393,7 @@ function ThreadListContent({
   renameThread,
   restoreThread,
   saveThread,
+  savingThreadIds,
   setActiveArchivedThread,
   setActiveThread,
   setThreadIcon,
@@ -397,6 +412,7 @@ function ThreadListContent({
   renameThread: (threadId: string, title: string) => Promise<void>
   restoreThread: (threadId: string) => Promise<void>
   saveThread: (threadId: string, options: { archiveAfterSave: boolean }) => Promise<void>
+  savingThreadIds: Set<string>
   setActiveArchivedThread: (threadId: string) => void
   setActiveThread: (threadId: string) => void
   setThreadIcon: (threadId: string, icon: string | null) => Promise<void>
@@ -468,6 +484,7 @@ function ThreadListContent({
       }
 
       if (operationKey === 'save-thread') {
+        if (savingThreadIds.has(thread.id)) return
         await saveThread(thread.id, {
           archiveAfterSave: window.confirm(
             `Archive "${thread.title}" after saving it to long-term memory?`
@@ -580,6 +597,7 @@ function ThreadListContent({
         isActive={thread.id === activeId}
         hasActiveRun={latestRunsByThread[thread.id]?.status === 'running'}
         isMemoryEnabled={memoryEnabled}
+        isSaving={savingThreadIds.has(thread.id)}
         isSelectMode={selectMode}
         isSelected={selectedIds.has(thread.id)}
         isStarred={!!thread.starredAt}
@@ -761,6 +779,7 @@ export function ThreadList(): React.JSX.Element {
   const starThread = useAppStore((s) => s.starThread)
   const restoreThread = useAppStore((s) => s.restoreThread)
   const saveThread = useAppStore((s) => s.saveThread)
+  const savingThreadIds = useAppStore((s) => s.savingThreadIds)
   const setActiveArchivedThread = useAppStore((s) => s.setActiveArchivedThread)
   const setActiveThread = useAppStore((s) => s.setActiveThread)
   const threadListMode = useAppStore((s) => s.threadListMode)
@@ -784,6 +803,7 @@ export function ThreadList(): React.JSX.Element {
       renameThread={renameThread}
       restoreThread={restoreThread}
       saveThread={saveThread}
+      savingThreadIds={savingThreadIds}
       setActiveArchivedThread={setActiveArchivedThread}
       setActiveThread={setActiveThread}
       setThreadIcon={setThreadIcon}

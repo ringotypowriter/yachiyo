@@ -252,8 +252,13 @@ export class YachiyoServer {
     this.runDomain.recoverInterruptedRuns(error)
   }
 
+  recoverInterruptedSaves(): string[] {
+    return this.storage.recoverInterruptedSaves()
+  }
+
   async bootstrap(): Promise<BootstrapPayload> {
     this.recoverInterruptedRuns()
+    const recoveredInterruptedSaveThreadIds = this.recoverInterruptedSaves()
     await Promise.all([this.readSoulDocumentFile(), this.readUserDocumentFile()])
     const recoveredQueuedFollowUps = this.runDomain.prepareRecoveredQueuedFollowUps()
 
@@ -268,6 +273,7 @@ export class YachiyoServer {
       messagesByThread,
       toolCallsByThread,
       latestRunsByThread,
+      recoveredInterruptedSaveThreadIds,
       config: this.configDomain.readConfig(),
       settings: this.configDomain.readSettings()
     }

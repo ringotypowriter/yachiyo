@@ -29,6 +29,7 @@ export interface StoredThreadRow {
   queuedFollowUpEnabledTools: string | null
   queuedFollowUpEnabledSkillNames: string | null
   archivedAt: string | null
+  savingStartedAt: string | null
   starredAt: string | null
   privacyMode: string | null
   modelOverride: string | null
@@ -143,6 +144,9 @@ export interface YachiyoStorage {
   starThread(input: { threadId: string; starredAt: string | null }): void
   archiveThread(input: { threadId: string; archivedAt: string; updatedAt: string }): void
   restoreThread(input: { threadId: string; updatedAt: string }): void
+  beginThreadSave(input: { threadId: string; savingStartedAt: string }): void
+  clearThreadSave(input: { threadId: string }): void
+  recoverInterruptedSaves(): string[]
   deleteThread(input: { threadId: string }): void
   updateThread(thread: ThreadRecord): void
   setThreadPrivacyMode(input: { threadId: string; privacyMode: boolean; updatedAt: string }): void

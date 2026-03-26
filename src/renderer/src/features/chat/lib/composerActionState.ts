@@ -7,12 +7,14 @@ export function getComposerActionState(input: {
   hasLoadingImages: boolean
   hasPayload: boolean
   isConfigured: boolean
+  threadIsSaving?: boolean
 }): {
   canSend: boolean
   showStopButton: boolean
 } {
   const showStopButton = input.hasActiveRun
   const canSend =
+    !input.threadIsSaving &&
     input.hasPayload &&
     !input.hasLoadingImages &&
     !input.hasFailedImages &&

@@ -173,6 +173,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
           : null,
         queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
         archivedAt: null,
+        savingStartedAt: null,
         starredAt: null,
         privacyMode: thread.privacyMode ? '1' : null,
         headMessageId: thread.headMessageId ?? null,
@@ -226,6 +227,29 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
       thread.archivedAt = null
       thread.updatedAt = updatedAt
+    },
+
+    beginThreadSave({ threadId, savingStartedAt }) {
+      const thread = readThread(threadId)
+      if (!thread) return
+      thread.savingStartedAt = savingStartedAt
+    },
+
+    clearThreadSave({ threadId }) {
+      const thread = threads.get(threadId)
+      if (!thread) return
+      thread.savingStartedAt = null
+    },
+
+    recoverInterruptedSaves() {
+      const recoveredThreadIds: string[] = []
+      for (const thread of threads.values()) {
+        if (thread.savingStartedAt !== null) {
+          recoveredThreadIds.push(thread.id)
+          thread.savingStartedAt = null
+        }
+      }
+      return recoveredThreadIds
     },
 
     deleteThread({ threadId }) {

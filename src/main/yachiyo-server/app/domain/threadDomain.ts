@@ -340,10 +340,20 @@ export class YachiyoServerThreadDomain {
       throw new Error('Memory is not enabled.')
     }
 
-    const saved = await this.deps.memoryService.saveThread({
-      thread,
-      messages: this.deps.loadThreadMessages(thread.id)
+    this.deps.storage.beginThreadSave({
+      threadId: thread.id,
+      savingStartedAt: this.deps.timestamp()
     })
+
+    let saved: { savedCount: number }
+    try {
+      saved = await this.deps.memoryService.saveThread({
+        thread,
+        messages: this.deps.loadThreadMessages(thread.id)
+      })
+    } finally {
+      this.deps.storage.clearThreadSave({ threadId: thread.id })
+    }
 
     if (!input.archiveAfterSave) {
       return {

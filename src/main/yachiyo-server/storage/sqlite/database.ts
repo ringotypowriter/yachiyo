@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { and, asc, desc, eq, inArray, isNull, like, or } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, like, or } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
 import * as schema from './schema.ts'
@@ -411,6 +411,37 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         })
         .where(eq(threadsTable.id, threadId))
         .run()
+    },
+
+    beginThreadSave({ threadId, savingStartedAt }) {
+      db.update(threadsTable).set({ savingStartedAt }).where(eq(threadsTable.id, threadId)).run()
+    },
+
+    clearThreadSave({ threadId }) {
+      db.update(threadsTable)
+        .set({ savingStartedAt: null })
+        .where(eq(threadsTable.id, threadId))
+        .run()
+    },
+
+    recoverInterruptedSaves() {
+      const recoveredThreadIds = db
+        .select({ id: threadsTable.id })
+        .from(threadsTable)
+        .where(isNotNull(threadsTable.savingStartedAt))
+        .all()
+        .map((thread) => thread.id)
+
+      if (recoveredThreadIds.length === 0) {
+        return recoveredThreadIds
+      }
+
+      db.update(threadsTable)
+        .set({ savingStartedAt: null })
+        .where(isNotNull(threadsTable.savingStartedAt))
+        .run()
+
+      return recoveredThreadIds
     },
 
     deleteThread({ threadId }) {

@@ -1,0 +1,1 @@
+ALTER TABLE `threads` ADD `saving_started_at` text;

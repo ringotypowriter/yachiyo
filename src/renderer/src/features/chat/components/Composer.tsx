@@ -338,6 +338,9 @@ export function Composer({
   const activeRunId = useAppStore((s) =>
     s.activeThreadId ? (s.activeRunIdsByThread[s.activeThreadId] ?? null) : null
   )
+  const threadIsSaving = useAppStore((s) =>
+    s.activeThreadId ? s.savingThreadIds.has(s.activeThreadId) : false
+  )
   const config = useAppStore((s) => s.config)
   const messages = useAppStore((s) => s.messages)
   const pendingWorkspacePath = useAppStore((s) => s.pendingWorkspacePath)
@@ -648,6 +651,7 @@ export function Composer({
     hasFailedImages: hasFailedImages || hasFailedFiles,
     hasLoadingImages: hasLoadingImages || hasLoadingFiles,
     hasPayload,
+    threadIsSaving,
     isConfigured
   })
   const activeRunEnterBehavior =

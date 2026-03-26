@@ -21,19 +21,23 @@ export function resolveThreadContextOperations(input: {
   isArchived: boolean
   isMemoryEnabled?: boolean
   isRenameDisabled?: boolean
+  isSaving?: boolean
   isStarred?: boolean
 }): ThreadContextOperation[] {
   if (input.isArchived) {
     return [
       {
+        disabled: input.isSaving,
         key: 'restore',
         label: 'Restore'
       },
       {
+        disabled: input.isSaving,
         key: 'regenerate-title',
         label: 'Regenerate Title'
       },
       {
+        disabled: input.isSaving,
         key: 'delete',
         label: 'Delete',
         tone: 'danger'
@@ -43,35 +47,41 @@ export function resolveThreadContextOperations(input: {
 
   return [
     {
+      disabled: input.isSaving,
       key: input.isStarred ? 'unstar' : 'star',
       label: input.isStarred ? 'Unstar' : 'Star'
     },
     {
-      disabled: input.isRenameDisabled,
+      disabled: input.isSaving || input.isRenameDisabled,
       key: 'rename',
       label: 'Rename'
     },
     {
+      disabled: input.isSaving,
       key: 'regenerate-title',
       label: 'Regenerate Title'
     },
     {
+      disabled: input.isSaving,
       key: 'compact-to-another-thread',
       label: 'Handoff'
     },
     ...(input.isMemoryEnabled
       ? [
           {
+            disabled: input.isSaving,
             key: 'save-thread' as const,
-            label: 'Save Thread'
+            label: input.isSaving ? 'Saving…' : 'Save Thread'
           }
         ]
       : []),
     {
+      disabled: input.isSaving,
       key: 'archive',
       label: 'Archive'
     },
     {
+      disabled: input.isSaving,
       key: 'delete',
       label: 'Delete',
       tone: 'danger'

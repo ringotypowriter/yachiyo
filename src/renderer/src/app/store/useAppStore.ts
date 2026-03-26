@@ -157,6 +157,7 @@ interface AppState {
   restoreThread: (threadId: string) => Promise<void>
   retryMessage: (messageId: string) => Promise<void>
   runPhasesByThread: Record<string, 'idle' | 'preparing' | 'streaming'>
+  savingThreadIds: Set<string>
   saveThread: (threadId: string, options?: { archiveAfterSave?: boolean }) => Promise<void>
   selectReplyBranch: (messageId: string) => Promise<void>
   runPhase: 'idle' | 'preparing' | 'streaming'
@@ -667,6 +668,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeRunId: null,
   activeRunIdsByThread: {},
   activeRequestMessageId: null,
+  savingThreadIds: new Set<string>(),
   activeRequestMessageIdsByThread: {},
   activeRunThreadId: null,
   activeThreadId: null,
@@ -823,15 +825,28 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   saveThread: async (threadId, options = {}) => {
+    set((state) => {
+      const next = new Set(state.savingThreadIds)
+      next.add(threadId)
+      return { savingThreadIds: next }
+    })
     try {
       await window.api.yachiyo.saveThread({
         threadId,
         archiveAfterSave: options.archiveAfterSave
       })
-      set({ lastError: null })
+      set((state) => {
+        const next = new Set(state.savingThreadIds)
+        next.delete(threadId)
+        return { savingThreadIds: next, lastError: null }
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to save this thread.'
-      set({ lastError: message })
+      set((state) => {
+        const next = new Set(state.savingThreadIds)
+        next.delete(threadId)
+        return { savingThreadIds: next, lastError: message }
+      })
       throw error
     }
   },
@@ -1759,10 +1774,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       try {
         const payload = await window.api.yachiyo.bootstrap()
+        const recoveredSaveToasts = payload.recoveredInterruptedSaveThreadIds.map((threadId) => {
+          const thread = [...payload.threads, ...payload.archivedThreads].find(
+            (item) => item.id === threadId
+          )
+          return {
+            id: crypto.randomUUID(),
+            threadId,
+            title: thread?.title ?? 'Thread save interrupted',
+            body: 'Save Thread was interrupted before completion. The thread stays unarchived and is available again.',
+            eventKey: `thread.save.recovered:${threadId}`
+          }
+        })
         set((state) => ({
           activeThreadId: state.activeThreadId ?? payload.threads[0]?.id ?? null,
           activeArchivedThreadId:
             state.activeArchivedThreadId ?? payload.archivedThreads[0]?.id ?? null,
+          activeToasts: [...state.activeToasts, ...recoveredSaveToasts],
           archivedThreads: sortThreads(payload.archivedThreads),
           config: payload.config ?? state.config,
           connectionStatus: 'connected',

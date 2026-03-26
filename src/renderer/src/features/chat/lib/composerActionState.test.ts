@@ -37,6 +37,24 @@ test('getComposerActionState enables send only when the composer is ready and id
   )
 })
 
+test('getComposerActionState disables send while the thread is saving', () => {
+  assert.deepEqual(
+    getComposerActionState({
+      connectionStatus: 'connected',
+      hasActiveRun: false,
+      hasFailedImages: false,
+      hasLoadingImages: false,
+      hasPayload: true,
+      isConfigured: true,
+      threadIsSaving: true
+    }),
+    {
+      canSend: false,
+      showStopButton: false
+    }
+  )
+})
+
 test('getComposerActionState keeps send disabled when configuration or payload is missing', () => {
   assert.deepEqual(
     getComposerActionState({

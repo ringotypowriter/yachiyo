@@ -64,6 +64,9 @@ export function AppMainPanel({
   const archivedThreads = useAppStore((s) => s.archivedThreads)
   const activeArchivedThreadId = useAppStore((s) => s.activeArchivedThreadId)
   const activeThreadId = useAppStore((s) => s.activeThreadId)
+  const threadIsSaving = useAppStore((s) =>
+    s.activeThreadId ? s.savingThreadIds.has(s.activeThreadId) : false
+  )
   const cancelRunForThread = useAppStore((s) => s.cancelRunForThread)
   const deleteThread = useAppStore((s) => s.deleteThread)
   const compactThreadToAnotherThread = useAppStore((s) => s.compactThreadToAnotherThread)
@@ -83,6 +86,7 @@ export function AppMainPanel({
     archivedThreads.find((thread) => thread.id === activeArchivedThreadId) ?? null
   const saveThread = useAppStore((s) => s.saveThread)
   const setThreadPrivacyMode = useAppStore((s) => s.setThreadPrivacyMode)
+  const starThread = useAppStore((s) => s.starThread)
   const toolCalls = useAppStore((s) =>
     activeThreadId ? (s.toolCalls[activeThreadId] ?? EMPTY_TOOL_CALLS) : EMPTY_TOOL_CALLS
   )
@@ -249,7 +253,7 @@ export function AppMainPanel({
   }
 
   function handleSelectThreadOperation(operationKey: ThreadContextOperationKey): void {
-    if (!activeThread) {
+    if (!activeThread || threadIsSaving) {
       return
     }
 
@@ -286,6 +290,17 @@ export function AppMainPanel({
           })
         } catch (error) {
           window.alert(error instanceof Error ? error.message : 'Failed to save the thread.')
+        }
+      })()
+      return
+    }
+
+    if (operationKey === 'star' || operationKey === 'unstar') {
+      void (async () => {
+        try {
+          await starThread(activeThread.id, operationKey === 'star')
+        } catch (error) {
+          window.alert(error instanceof Error ? error.message : 'Failed to update the thread.')
         }
       })()
       return
@@ -362,7 +377,9 @@ export function AppMainPanel({
         isMemoryEnabled={memoryEnabled}
         isPrivacyMode={activeThread?.privacyMode ?? false}
         isPrivacyToggleLocked={messageCount > 0}
+        isSaving={threadIsSaving}
         isSidebarToggleDisabled={isSidebarToggleDisabled}
+        isStarred={!!activeThread?.starredAt}
         messageCount={messageCount}
         onOpenThreadWorkspace={handleOpenThreadWorkspace}
         onSelectThreadOperation={handleSelectThreadOperation}
@@ -373,12 +390,31 @@ export function AppMainPanel({
         toggleSidebarTitle={toggleSidebarTitle}
       />
 
-      <div className="flex flex-row flex-1 min-h-0">
-        <MessageTimeline key={activeThreadId ?? 'empty'} threadId={activeThreadId} />
-        {isInspectionPanelOpen ? <RunInspectionPanel threadId={activeThreadId} /> : null}
+      <div className="flex flex-col flex-1 min-h-0 relative">
+        <div className="flex flex-row flex-1 min-h-0">
+          <MessageTimeline key={activeThreadId ?? 'empty'} threadId={activeThreadId} />
+          {isInspectionPanelOpen ? <RunInspectionPanel threadId={activeThreadId} /> : null}
+        </div>
+        <RunStatusStrip />
+        <Composer onSelectThreadOperation={handleSelectThreadOperation} />
+        {threadIsSaving && (
+          <div
+            className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-auto"
+            style={{
+              background: 'rgba(245, 244, 240, 0.75)',
+              backdropFilter: 'blur(4px)',
+              WebkitBackdropFilter: 'blur(4px)'
+            }}
+          >
+            <p className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Saving to memory…
+            </p>
+            <p className="text-xs" style={{ color: theme.text.muted }}>
+              Thread interactions are paused
+            </p>
+          </div>
+        )}
       </div>
-      <RunStatusStrip />
-      <Composer onSelectThreadOperation={handleSelectThreadOperation} />
     </div>
   )
 }
