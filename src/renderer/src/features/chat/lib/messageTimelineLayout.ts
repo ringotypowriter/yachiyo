@@ -1,4 +1,4 @@
-import type { MessageTextBlockRecord, ToolCall } from '@renderer/app/types'
+import type { MessageStatus, MessageTextBlockRecord, ToolCall } from '@renderer/app/types'
 
 export type ConversationGroupTimelineItem =
   | { kind: 'memory-recall'; key: 'memory-recall' }
@@ -30,6 +30,7 @@ export function buildConversationGroupTimelineItems(input: {
   replyCount: number
   showPreparing: boolean
   showGenerating: boolean
+  activeBranchStatus?: MessageStatus
   activeAssistantTextBlocks: MessageTextBlockRecord[]
   visibleToolCalls: ToolCall[]
 }): ConversationGroupTimelineItem[] {

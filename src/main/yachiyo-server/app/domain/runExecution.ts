@@ -442,7 +442,7 @@ function buildAgentInstructions(input: {
 
   if (input.enabledTools.includes('webRead')) {
     instructions.push(
-      'Use webRead for static HTTP(S) pages when you need readable extracted content. It is not a browser automation or JS-rendering tool.'
+      'Use webRead for static HTTP(S) resources when you want to read the response body. It extracts readable content from HTML when possible, returns raw bodies for non-HTML text responses, and falls back to raw HTML if extraction fails. It is not a browser automation or JS-rendering tool.'
     )
   }
 

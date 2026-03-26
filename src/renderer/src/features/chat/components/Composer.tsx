@@ -38,6 +38,7 @@ import { ToolSelectorPopup } from './ToolSelectorPopup'
 import { WorkspaceSelectorPopup } from './WorkspaceSelectorPopup'
 import { SmoothCaretOverlay } from './SmoothCaretOverlay'
 import { formatTokenCount } from '@renderer/lib/formatTokenCount'
+import { Tooltip } from '@renderer/components/Tooltip'
 
 const NEW_THREAD_DRAFT_KEY = '__new__'
 const MAX_COMPOSER_IMAGES = 4
@@ -1622,14 +1623,53 @@ export function Composer({
           ) : null}
         </div>
 
-        {latestRun?.promptTokens !== undefined && latestRun.completionTokens !== undefined ? (
-          <span
-            className="text-xs px-1.5"
-            style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
-            title={`Context: ${latestRun.promptTokens + latestRun.completionTokens} tokens (last step)`}
+        {latestRun?.promptTokens != null ? (
+          <Tooltip
+            content={
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <div style={{ fontWeight: 600, marginBottom: 2 }}>Last run token usage</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                  <span style={{ color: theme.text.secondary }}>Prompt</span>
+                  <span>{latestRun.promptTokens.toLocaleString()}</span>
+                </div>
+                {latestRun.completionTokens != null ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                    <span style={{ color: theme.text.secondary }}>Completion</span>
+                    <span>{latestRun.completionTokens.toLocaleString()}</span>
+                  </div>
+                ) : null}
+                {latestRun.totalPromptTokens != null &&
+                latestRun.totalPromptTokens !== latestRun.promptTokens ? (
+                  <>
+                    <div
+                      style={{
+                        height: 1,
+                        background: theme.border.default,
+                        margin: '2px 0'
+                      }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                      <span style={{ color: theme.text.secondary }}>Total prompt</span>
+                      <span>{latestRun.totalPromptTokens.toLocaleString()}</span>
+                    </div>
+                    {latestRun.totalCompletionTokens != null ? (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                        <span style={{ color: theme.text.secondary }}>Total completion</span>
+                        <span>{latestRun.totalCompletionTokens.toLocaleString()}</span>
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+            }
           >
-            {formatTokenCount(latestRun.promptTokens + latestRun.completionTokens)}
-          </span>
+            <span
+              className="text-xs px-1.5"
+              style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
+            >
+              {formatTokenCount(latestRun.promptTokens)}
+            </span>
+          </Tooltip>
         ) : null}
 
         <div className="ml-auto flex items-center gap-2">

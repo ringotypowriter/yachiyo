@@ -575,6 +575,42 @@ test('runWebReadTool maps service results into structured details and summaries'
   })
 })
 
+test('runWebReadTool reports raw format for non-HTML responses', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const response = new Response('{"ok":true}', {
+      status: 200,
+      headers: {
+        'content-type': 'application/json'
+      }
+    })
+
+    Object.defineProperty(response, 'url', {
+      configurable: true,
+      value: 'https://example.com/data'
+    })
+
+    const result = await runWebReadTool(
+      {
+        url: 'https://example.com/data'
+      },
+      { workspacePath },
+      {
+        fetchImpl: async () => response
+      }
+    )
+
+    assert.equal(result.error, undefined)
+    assert.equal(result.details.requestedUrl, 'https://example.com/data')
+    assert.equal(result.details.finalUrl, 'https://example.com/data')
+    assert.equal(result.details.contentType, 'application/json')
+    assert.equal(result.details.extractor, 'none')
+    assert.equal(result.details.contentFormat, 'raw')
+    assert.equal(result.details.content, '{"ok":true}')
+    assert.match(flattenToolContent(result.content), /Format: raw/)
+    assert.match(flattenToolContent(result.content), /Extractor: none/)
+  })
+})
+
 test('runWebReadTool auto-saves to .yachiyo/tool-result when content exceeds inline limit', async () => {
   await withWorkspace(async (workspacePath) => {
     const longContent = `${'A'.repeat(40_000)}\n\nSecond paragraph.`

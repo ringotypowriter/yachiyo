@@ -2,7 +2,8 @@ import {
   DEFAULT_WEB_READ_CONTENT_FORMAT,
   type WebReadContentFormat,
   type WebReadExtractor,
-  type WebReadFailureCode
+  type WebReadFailureCode,
+  type WebReadRequestFormat
 } from '../../../../shared/yachiyo/protocol.ts'
 import {
   extractWithDefuddle,
@@ -40,7 +41,7 @@ type LinkedomModule = {
 let linkedomModulePromise: Promise<LinkedomModule> | undefined
 
 export interface WebReadRequest {
-  format?: WebReadContentFormat
+  format?: WebReadRequestFormat
   maxContentChars?: number | null
   signal?: AbortSignal
   url: string
@@ -422,6 +423,31 @@ function truncateContent(
   }
 }
 
+function mapRawBodyResult(input: {
+  requestedUrl: string
+  finalUrl: string
+  httpStatus?: number
+  contentType?: string
+  body: string
+  maxContentChars?: number | null
+}): WebReadServiceResult {
+  const truncated = truncateContent(input.body, input.maxContentChars)
+  return {
+    requestedUrl: input.requestedUrl,
+    finalUrl: input.finalUrl,
+    ...(input.httpStatus === undefined ? {} : { httpStatus: input.httpStatus }),
+    ...(input.contentType ? { contentType: input.contentType } : {}),
+    extractor: 'none',
+    content: truncated.content,
+    contentFormat: 'raw',
+    contentChars: truncated.contentChars,
+    truncated: truncated.truncated,
+    ...(truncated.originalContentChars === undefined
+      ? {}
+      : { originalContentChars: truncated.originalContentChars })
+  }
+}
+
 function mapResult(input: {
   requestedUrl: string
   finalUrl: string
@@ -500,14 +526,13 @@ async function extractReadableResult(input: {
   }
 
   if (!looksLikeHtml(input.html)) {
-    return createFailureResult({
+    return mapRawBodyResult({
       requestedUrl: input.requestedUrl,
-      format: input.format,
       finalUrl: input.finalUrl,
       ...(input.httpStatus === undefined ? {} : { httpStatus: input.httpStatus }),
-      ...(input.contentType ? { contentType: input.contentType } : {}),
-      error: `Fetched ${input.finalUrl} but the response did not look like HTML.`,
-      failureCode: 'unsupported-content-type'
+      contentType: input.contentType,
+      body: input.html,
+      ...(input.maxContentChars === undefined ? {} : { maxContentChars: input.maxContentChars })
     })
   }
 
@@ -703,14 +728,41 @@ export async function readWebPage(
       return browserFallback
     }
 
-    return createFailureResult({
+    let rawBody: string
+    try {
+      rawBody = await readResponseHtml(response, contentType)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to read response body.'
+      return createFailureResult({
+        requestedUrl,
+        format,
+        finalUrl,
+        httpStatus,
+        contentType,
+        error: message,
+        failureCode: 'empty-body'
+      })
+    }
+
+    if (!rawBody.trim()) {
+      return createFailureResult({
+        requestedUrl,
+        format,
+        finalUrl,
+        httpStatus,
+        contentType,
+        error: `Fetched ${finalUrl} but the response body was empty.`,
+        failureCode: 'empty-body'
+      })
+    }
+
+    return mapRawBodyResult({
       requestedUrl,
-      format,
       finalUrl,
       httpStatus,
       contentType,
-      error: `Unsupported content type: ${contentType}. webRead only supports static HTML pages.`,
-      failureCode: 'unsupported-content-type'
+      body: rawBody,
+      ...(request.maxContentChars === undefined ? {} : { maxContentChars: request.maxContentChars })
     })
   }
 
@@ -779,6 +831,17 @@ export async function readWebPage(
   })
   if (browserFallback && !browserFallback.error) {
     return browserFallback
+  }
+
+  if (html.trim()) {
+    return mapRawBodyResult({
+      requestedUrl,
+      finalUrl,
+      httpStatus,
+      contentType,
+      body: html,
+      ...(request.maxContentChars === undefined ? {} : { maxContentChars: request.maxContentChars })
+    })
   }
 
   return extracted

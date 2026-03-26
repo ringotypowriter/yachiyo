@@ -9,6 +9,7 @@ export type {
   MessageRecord as Message,
   MessageFileAttachment,
   MessageImageRecord,
+  MessageStatus,
   MessageTextBlockRecord,
   ProviderSettings,
   RecallDecisionSnapshot,

@@ -101,7 +101,7 @@ export function createTool(
 ): Tool<WebReadToolInput, WebReadToolOutput> {
   return tool({
     description:
-      'Fetch a static HTTP(S) web page and extract its main readable content. Use it for articles, documentation pages, or other server-rendered content. If the content is too large to return inline, it will be automatically saved to a workspace file and you will be instructed to read it with the read tool. Do not use it for browser automation, login flows, or JS-heavy apps.',
+      'Fetch a static HTTP(S) resource whose response body you want to read. For HTML pages, webRead returns the main readable content in the requested format when extraction succeeds. For non-HTML text responses such as plain text or JSON, it returns the raw response body. If HTML extraction fails, it falls back to the raw response body. If the content is too large to return inline, it will be automatically saved to a workspace file and you will be instructed to read it with the read tool. Do not use it for browser automation, login flows, or JS-heavy apps.',
     inputSchema: webReadToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) =>

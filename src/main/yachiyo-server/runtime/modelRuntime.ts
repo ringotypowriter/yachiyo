@@ -91,10 +91,6 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
         })
 
         if ('fullStream' in result && result.fullStream) {
-          type AiSdkTokenUsage = { inputTokens?: number; outputTokens?: number }
-          let lastStepUsage: AiSdkTokenUsage | undefined
-          let totalUsage: AiSdkTokenUsage | undefined
-
           for await (const part of result.fullStream as AsyncIterable<{
             errorText?: string
             input?: unknown
@@ -105,8 +101,6 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             text?: string
             toolCallId?: string
             toolName?: string
-            usage?: AiSdkTokenUsage
-            totalUsage?: AiSdkTokenUsage
             type: string
           }>) {
             if (part.type === 'error') {
@@ -246,27 +240,22 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               })
               toolCallContextById.delete(part.toolCallId)
             }
-
-            if (part.type === 'finish-step' && part.usage) {
-              lastStepUsage = part.usage
-            }
-
-            if (part.type === 'finish' && part.totalUsage) {
-              totalUsage = part.totalUsage
-            }
           }
 
-          if (
-            request.onFinish &&
-            lastStepUsage?.inputTokens !== undefined &&
-            lastStepUsage?.outputTokens !== undefined
-          ) {
-            request.onFinish({
-              promptTokens: lastStepUsage.inputTokens,
-              completionTokens: lastStepUsage.outputTokens,
-              totalPromptTokens: totalUsage?.inputTokens ?? lastStepUsage.inputTokens,
-              totalCompletionTokens: totalUsage?.outputTokens ?? lastStepUsage.outputTokens
-            })
+          if (request.onFinish && 'usage' in result && 'totalUsage' in result) {
+            type AiSdkUsage = { inputTokens?: number; outputTokens?: number }
+            const [usage, total] = await Promise.all([
+              result.usage as PromiseLike<AiSdkUsage>,
+              result.totalUsage as PromiseLike<AiSdkUsage>
+            ])
+            if (usage.inputTokens != null && usage.outputTokens != null) {
+              request.onFinish({
+                promptTokens: usage.inputTokens,
+                completionTokens: usage.outputTokens,
+                totalPromptTokens: total.inputTokens ?? usage.inputTokens,
+                totalCompletionTokens: total.outputTokens ?? usage.outputTokens
+              })
+            }
           }
 
           return

@@ -201,7 +201,7 @@ test('readWebPage falls back to a browser snapshot for X URLs when the static fe
   assert.match(result.content, /Loaded from the live browser DOM\./)
 })
 
-test('readWebPage rejects unsupported non-HTML content', async () => {
+test('readWebPage returns raw body for non-HTML content type', async () => {
   const result = await readWebPage(
     {
       url: 'https://example.com/data'
@@ -215,13 +215,65 @@ test('readWebPage rejects unsupported non-HTML content', async () => {
     }
   )
 
-  assert.equal(
-    result.error,
-    'Unsupported content type: application/json. webRead only supports static HTML pages.'
-  )
-  assert.equal(result.failureCode, 'unsupported-content-type')
+  assert.equal(result.error, undefined)
+  assert.equal(result.failureCode, undefined)
   assert.equal(result.httpStatus, 200)
   assert.equal(result.contentType, 'application/json')
+  assert.equal(result.extractor, 'none')
+  assert.equal(result.content, '{"ok":true}')
+  assert.equal(result.contentFormat, 'raw')
+})
+
+test('readWebPage returns raw body when content-type is HTML but body is not HTML', async () => {
+  const result = await readWebPage(
+    {
+      url: 'https://example.com/confusedserver'
+    },
+    {
+      fetchImpl: async () =>
+        createHtmlResponse('{"error":"not found"}', {
+          contentType: 'text/html; charset=utf-8',
+          url: 'https://example.com/confusedserver'
+        }),
+      extractReadableContent: async () => {
+        throw new Error('should not be called')
+      }
+    }
+  )
+
+  assert.equal(result.error, undefined)
+  assert.equal(result.failureCode, undefined)
+  assert.equal(result.extractor, 'none')
+  assert.equal(result.content, '{"error":"not found"}')
+  assert.equal(result.contentType, 'text/html; charset=utf-8')
+})
+
+test('readWebPage returns raw HTML body when all extraction produces no content', async () => {
+  const html =
+    '<!doctype html><html><head><title>Shell</title></head><body><div id="app"></div></body></html>'
+
+  const result = await readWebPage(
+    {
+      url: 'https://example.com/shell'
+    },
+    {
+      fetchImpl: async () =>
+        createHtmlResponse(html, {
+          contentType: 'text/html; charset=utf-8',
+          url: 'https://example.com/shell'
+        }),
+      extractReadableContent: async () => ({
+        extractor: 'defuddle',
+        content: ''
+      })
+    }
+  )
+
+  assert.equal(result.error, undefined)
+  assert.equal(result.failureCode, undefined)
+  assert.equal(result.extractor, 'none')
+  assert.match(result.content, /Shell/)
+  assert.equal(result.contentType, 'text/html; charset=utf-8')
 })
 
 test('readWebPage falls back to bounded linkedom extraction when the primary extractor fails', async () => {
