@@ -51,7 +51,7 @@ import {
 import { resolveFileMentionsForUserQuery } from '../../runtime/fileMentions.ts'
 import { readSoulDocument, type SoulDocument } from '../../runtime/soul.ts'
 import { readUserDocument, type UserDocument } from '../../runtime/user.ts'
-import type { ModelRuntime } from '../../runtime/types.ts'
+import type { ModelRuntime, ModelUsage } from '../../runtime/types.ts'
 import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import {
@@ -913,11 +913,16 @@ export async function executeServerRun(
     )
     deps.onEnabledToolsUsed(input.enabledTools)
 
+    let lastUsage: ModelUsage | undefined
+
     for await (const delta of runtime.streamReply({
       messages,
       settings,
       signal: input.abortController.signal,
       ...(tools ? { tools } : {}),
+      onFinish: (usage) => {
+        lastUsage = usage
+      },
       onReasoningDelta: (reasoningDelta) => {
         reasoningBuffer += reasoningDelta
         deps.emit<MessageReasoningDeltaEvent>({
@@ -1133,7 +1138,7 @@ export async function executeServerRun(
           : {})
     }
 
-    deps.storage.completeRun({ runId: input.runId, updatedThread, assistantMessage })
+    deps.storage.completeRun({ runId: input.runId, updatedThread, assistantMessage, ...lastUsage })
     deps.onTerminalState?.()
 
     deps.emit<MessageCompletedEvent>({
@@ -1163,7 +1168,8 @@ export async function executeServerRun(
     deps.emit<RunCompletedEvent>({
       type: 'run.completed',
       threadId: input.thread.id,
-      runId: input.runId
+      runId: input.runId,
+      ...lastUsage
     })
     return { kind: 'completed' }
   } catch (error) {

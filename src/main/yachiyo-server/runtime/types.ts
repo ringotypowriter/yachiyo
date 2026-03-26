@@ -20,6 +20,13 @@ export interface ModelToolCallUpdateEvent {
 
 export type ModelProviderOptionsMode = 'default' | 'auxiliary'
 
+export interface ModelUsage {
+  promptTokens: number
+  completionTokens: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+}
+
 export interface ModelStreamRequest {
   messages: ModelMessage[]
   settings: ProviderSettings
@@ -30,6 +37,7 @@ export interface ModelStreamRequest {
   onToolCallFinish?: GenerateTextOnToolCallFinishCallback<ToolSet>
   onToolCallUpdate?: (event: ModelToolCallUpdateEvent) => void
   onReasoningDelta?: (delta: string) => void
+  onFinish?: (usage: ModelUsage) => void
 }
 
 export interface ModelRuntime {

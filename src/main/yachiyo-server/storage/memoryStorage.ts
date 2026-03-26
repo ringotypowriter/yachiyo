@@ -313,11 +313,23 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         status: 'running',
         error: null,
         createdAt,
-        completedAt: null
+        completedAt: null,
+        promptTokens: null,
+        completionTokens: null,
+        totalPromptTokens: null,
+        totalCompletionTokens: null
       })
     },
 
-    completeRun({ runId, updatedThread, assistantMessage }: CompleteRunInput) {
+    completeRun({
+      runId,
+      updatedThread,
+      assistantMessage,
+      promptTokens,
+      completionTokens,
+      totalPromptTokens,
+      totalCompletionTokens
+    }: CompleteRunInput) {
       const thread = threads.get(updatedThread.id)
       const run = runs.get(runId)
 
@@ -331,6 +343,10 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         run.assistantMessageId = assistantMessage.id
         run.status = 'completed'
         run.completedAt = updatedThread.updatedAt
+        if (promptTokens !== undefined) run.promptTokens = promptTokens
+        if (completionTokens !== undefined) run.completionTokens = completionTokens
+        if (totalPromptTokens !== undefined) run.totalPromptTokens = totalPromptTokens
+        if (totalCompletionTokens !== undefined) run.totalCompletionTokens = totalCompletionTokens
       }
 
       for (const [toolCallId, toolCall] of toolCalls.entries()) {

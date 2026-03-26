@@ -608,6 +608,10 @@ export interface RunRecord {
   recalledMemoryEntries?: string[]
   recallDecision?: RecallDecisionSnapshot
   contextSources?: RunContextSourceSummary[]
+  promptTokens?: number
+  completionTokens?: number
+  totalPromptTokens?: number
+  totalCompletionTokens?: number
 }
 
 export interface ChatAcceptedWithUserMessage {
@@ -798,6 +802,10 @@ export interface RunContextCompiledEvent extends RunEvent {
 
 export interface RunCompletedEvent extends RunEvent {
   type: 'run.completed'
+  promptTokens?: number
+  completionTokens?: number
+  totalPromptTokens?: number
+  totalCompletionTokens?: number
 }
 
 export interface RunFailedEvent extends RunEvent {

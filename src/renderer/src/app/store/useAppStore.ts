@@ -1261,7 +1261,17 @@ export const useAppStore = create<AppState>((set, get) => ({
             recalledMemoryEntries: existingLatestRun?.recalledMemoryEntries,
             recallDecision: existingLatestRun?.recallDecision,
             contextSources: existingLatestRun?.contextSources,
-            completedAt: event.timestamp
+            completedAt: event.timestamp,
+            ...(event.promptTokens !== undefined ? { promptTokens: event.promptTokens } : {}),
+            ...(event.completionTokens !== undefined
+              ? { completionTokens: event.completionTokens }
+              : {}),
+            ...(event.totalPromptTokens !== undefined
+              ? { totalPromptTokens: event.totalPromptTokens }
+              : {}),
+            ...(event.totalCompletionTokens !== undefined
+              ? { totalCompletionTokens: event.totalCompletionTokens }
+              : {})
           }),
           runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
             ...run,
@@ -1273,7 +1283,17 @@ export const useAppStore = create<AppState>((set, get) => ({
             recalledMemoryEntries: run?.recalledMemoryEntries,
             recallDecision: run?.recallDecision,
             contextSources: run?.contextSources,
-            completedAt: event.timestamp
+            completedAt: event.timestamp,
+            ...(event.promptTokens !== undefined ? { promptTokens: event.promptTokens } : {}),
+            ...(event.completionTokens !== undefined
+              ? { completionTokens: event.completionTokens }
+              : {}),
+            ...(event.totalPromptTokens !== undefined
+              ? { totalPromptTokens: event.totalPromptTokens }
+              : {}),
+            ...(event.totalCompletionTokens !== undefined
+              ? { totalCompletionTokens: event.totalCompletionTokens }
+              : {})
           })),
           pendingAssistantMessages,
           pendingSteerMessages: state.activeRunIdsByThread[event.threadId]

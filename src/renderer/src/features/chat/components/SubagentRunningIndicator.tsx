@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import type React from 'react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 
 interface SubagentRunningIndicatorProps {
@@ -13,14 +14,24 @@ export function SubagentRunningIndicator({
   onCancel
 }: SubagentRunningIndicatorProps): React.JSX.Element {
   const [confirming, setConfirming] = useState(false)
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const userScrolledRef = useRef(false)
 
   useEffect(() => {
-    if (expanded && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    const el = scrollRef.current
+    if (!el || !expanded) return
+    if (!userScrolledRef.current) {
+      el.scrollTop = el.scrollHeight
     }
   }, [stream, expanded])
+
+  function handleScroll(): void {
+    const el = scrollRef.current
+    if (!el) return
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 8
+    userScrolledRef.current = !atBottom
+  }
 
   function handleCancelClick(): void {
     setConfirming(true)
@@ -36,8 +47,8 @@ export function SubagentRunningIndicator({
   }
 
   return (
-    <div className="px-6 py-0.5">
-      <div className="flex items-center gap-2 mt-1 message-footer">
+    <div className="px-6 py-1">
+      <div className="flex items-center gap-2 mt-1">
         <span
           className="w-1.5 h-1.5 rounded-full shrink-0"
           style={{
@@ -46,24 +57,37 @@ export function SubagentRunningIndicator({
             animation: 'yachiyo-generating-pulse 1s ease-in-out infinite'
           }}
         />
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          className="text-sm"
-          style={{
-            color: theme.text.muted,
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: 0
-          }}
-        >
-          Agent is working{stream ? (expanded ? ' ▲' : ' ▼') : '...'}
-        </button>
+
+        {stream ? (
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="flex items-center gap-1 text-xs"
+            style={{
+              color: theme.text.muted,
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 0,
+              fontFamily: theme.font.ui
+            }}
+          >
+            <span>Agent is working</span>
+            {expanded ? (
+              <ChevronUp size={11} style={{ opacity: 0.55 }} />
+            ) : (
+              <ChevronDown size={11} style={{ opacity: 0.55 }} />
+            )}
+          </button>
+        ) : (
+          <span className="text-xs" style={{ color: theme.text.muted }}>
+            Agent is working…
+          </span>
+        )}
 
         {confirming ? (
-          <span className="flex items-center gap-2 ml-1">
+          <span className="flex items-center gap-1.5 ml-1">
             <span className="text-xs" style={{ color: theme.text.muted }}>
-              Interrupt the agent?
+              Interrupt?
             </span>
             <button
               onClick={handleConfirm}
@@ -71,10 +95,11 @@ export function SubagentRunningIndicator({
               style={{
                 background: theme.background.dangerSurface,
                 color: theme.text.danger,
-                border: `1px solid ${theme.border.danger}`
+                border: `1px solid ${theme.border.danger}`,
+                cursor: 'pointer'
               }}
             >
-              Yes, stop
+              Stop
             </button>
             <button
               onClick={handleDismiss}
@@ -82,10 +107,11 @@ export function SubagentRunningIndicator({
               style={{
                 background: theme.background.surface,
                 color: theme.text.secondary,
-                border: `1px solid ${theme.border.contrast}`
+                border: `1px solid ${theme.border.contrast}`,
+                cursor: 'pointer'
               }}
             >
-              Keep going
+              Continue
             </button>
           </span>
         ) : (
@@ -94,8 +120,9 @@ export function SubagentRunningIndicator({
             className="text-xs px-2 py-0.5 rounded ml-1"
             style={{
               background: theme.background.surface,
-              color: theme.text.secondary,
-              border: `1px solid ${theme.border.contrast}`
+              color: theme.text.muted,
+              border: `1px solid ${theme.border.default}`,
+              cursor: 'pointer'
             }}
           >
             Cancel
@@ -106,13 +133,16 @@ export function SubagentRunningIndicator({
       {expanded && stream ? (
         <div
           ref={scrollRef}
-          className="mt-1.5 rounded text-xs font-mono whitespace-pre-wrap overflow-y-auto"
+          onScroll={handleScroll}
+          className="mt-2 rounded-md text-xs font-mono whitespace-pre-wrap overflow-y-auto"
           style={{
-            maxHeight: '200px',
-            background: theme.background.surface,
-            border: `1px solid ${theme.border.contrast}`,
-            color: theme.text.secondary,
-            padding: '8px 10px'
+            maxHeight: '180px',
+            background: theme.background.codeBlock,
+            border: `1px solid ${theme.border.subtle}`,
+            color: theme.text.tertiary,
+            padding: '8px 12px',
+            lineHeight: 1.65,
+            wordBreak: 'break-word'
           }}
         >
           {stream}

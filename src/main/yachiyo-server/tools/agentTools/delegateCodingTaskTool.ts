@@ -62,6 +62,8 @@ async function runSubagent(
 ): Promise<DelegateCodingTaskOutput & { lastMessage: string }> {
   let lastMessageText = ''
   let stopReason = 'end_turn'
+  let wasStreamingText = false
+  let hadAnyProgress = false
 
   const shellCommand = [profile.command, ...profile.args].join(' ')
   const shellEnv = readLoginShellEnvSync(process.env)
@@ -86,6 +88,8 @@ async function runSubagent(
   // Forward stderr as progress lines
   proc.stderr.on('data', (chunk: Buffer) => {
     const text = chunk.toString('utf8')
+    wasStreamingText = false
+    hadAnyProgress = true
     ctx.onProgress?.(text)
   })
 
@@ -96,8 +100,16 @@ async function runSubagent(
     sessionUpdate(params: SessionNotification): Promise<void> {
       const update = params.update
       if (update.sessionUpdate === 'agent_message_chunk' && update.content.type === 'text') {
+        // Inject a newline when a new agent message starts after a non-text phase
+        if (!wasStreamingText && hadAnyProgress) {
+          ctx.onProgress?.('\n')
+        }
+        wasStreamingText = true
+        hadAnyProgress = true
         lastMessageText += update.content.text
         ctx.onProgress?.(update.content.text)
+      } else {
+        wasStreamingText = false
       }
       return Promise.resolve()
     }
@@ -186,6 +198,7 @@ export function createTool(
       }
 
       ctx.onSubagentStarted?.(input.agent_name)
+      ctx.onProgress?.(`> ${input.prompt}\n${'─'.repeat(40)}\n`)
       try {
         const { lastMessage, ...result } = await runSubagent(
           profile,

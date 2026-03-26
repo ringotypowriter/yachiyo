@@ -37,6 +37,7 @@ import { SkillsSelectorPopup } from './SkillsSelectorPopup'
 import { ToolSelectorPopup } from './ToolSelectorPopup'
 import { WorkspaceSelectorPopup } from './WorkspaceSelectorPopup'
 import { SmoothCaretOverlay } from './SmoothCaretOverlay'
+import { formatTokenCount } from '@renderer/lib/formatTokenCount'
 
 const NEW_THREAD_DRAFT_KEY = '__new__'
 const MAX_COMPOSER_IMAGES = 4
@@ -340,6 +341,9 @@ export function Composer({
     s.activeThreadId ? (s.runPhasesByThread[s.activeThreadId] ?? 'idle') : 'idle'
   )
   const cancelActiveRun = useAppStore((s) => s.cancelActiveRun)
+  const latestRun = useAppStore((s) =>
+    s.activeThreadId ? (s.latestRunsByThread[s.activeThreadId] ?? null) : null
+  )
   const enabledTools = useAppStore((s) => s.enabledTools)
   const removeComposerImage = useAppStore((s) => s.removeComposerImage)
   const removeComposerFile = useAppStore((s) => s.removeComposerFile)
@@ -1617,6 +1621,16 @@ export function Composer({
             />
           ) : null}
         </div>
+
+        {latestRun?.promptTokens !== undefined && latestRun.completionTokens !== undefined ? (
+          <span
+            className="text-xs px-1.5"
+            style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
+            title={`Context: ${latestRun.promptTokens + latestRun.completionTokens} tokens (last step)`}
+          >
+            {formatTokenCount(latestRun.promptTokens + latestRun.completionTokens)}
+          </span>
+        ) : null}
 
         <div className="ml-auto flex items-center gap-2">
           {showStopButton ? (

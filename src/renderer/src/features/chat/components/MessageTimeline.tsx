@@ -127,6 +127,9 @@ export function ThreadConversationGroup({
   activeRunId,
   threadHasActiveRun,
   runs,
+  subagentActive,
+  subagentStream,
+  onCancelSubagent,
   onCreateBranch,
   onRetry,
   onSelectReplyBranch,
@@ -138,6 +141,9 @@ export function ThreadConversationGroup({
   activeRunId: string | null
   threadHasActiveRun: boolean
   runs: RunRecord[]
+  subagentActive: boolean
+  subagentStream: string
+  onCancelSubagent: () => void
   onCreateBranch: (messageId: string) => Promise<void>
   onRetry: (messageId: string) => Promise<void>
   onSelectReplyBranch: (messageId: string) => Promise<void>
@@ -176,11 +182,12 @@ export function ThreadConversationGroup({
   const timelineItems = buildConversationGroupTimelineItems({
     hasMemoryRecall: Boolean(memorySummary),
     replyCount: responseCount,
-    showPreparing: group.showPreparing,
+    showPreparing: group.showPreparing && !subagentActive,
     showGenerating:
       activeBranch?.message.status === 'streaming' &&
       activeAssistantTextBlocks.length > 0 &&
-      !hasRunningToolCall,
+      !hasRunningToolCall &&
+      !subagentActive,
     activeAssistantTextBlocks,
     visibleToolCalls
   })
@@ -268,6 +275,7 @@ export function ThreadConversationGroup({
                 suppressGeneratingLabel={
                   hasRunningToolCall || activeBranch.message.status === 'streaming'
                 }
+                pauseStreaming={subagentActive}
                 compactBottomSpacing={compactBottomSpacing}
                 threadHasActiveRun={threadHasActiveRun}
                 onRetry={() => onRetry(activeBranch.message.id)}
@@ -294,6 +302,14 @@ export function ThreadConversationGroup({
 
         return null
       })}
+
+      {subagentActive ? (
+        <SubagentRunningIndicator
+          threadId={threadId}
+          stream={subagentStream}
+          onCancel={onCancelSubagent}
+        />
+      ) : null}
     </div>
   )
 }
@@ -515,6 +531,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
           )
         }
 
+        const isActiveGroup = item.data.userMessage.id === activeRequestMessageId
         return (
           <div key={item.key} data-message-id={item.key}>
             <ThreadConversationGroup
@@ -524,6 +541,9 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
               activeRunId={activeRunId}
               threadHasActiveRun={activeRunId !== null}
               runs={runs}
+              subagentActive={isActiveGroup && subagentActive}
+              subagentStream={subagentStream}
+              onCancelSubagent={() => void cancelRunForThread(threadId)}
               onCreateBranch={handleCreateBranch}
               onRetry={handleRetry}
               onSelectReplyBranch={handleSelectReplyBranch}
@@ -532,13 +552,6 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
           </div>
         )
       })}
-      {subagentActive && threadId ? (
-        <SubagentRunningIndicator
-          threadId={threadId}
-          stream={subagentStream}
-          onCancel={() => void cancelRunForThread(threadId)}
-        />
-      ) : null}
       <div ref={bottomRef} />
     </div>
   )

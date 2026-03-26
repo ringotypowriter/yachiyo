@@ -193,12 +193,16 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                 .select({
                   assistantMessageId: runsTable.assistantMessageId,
                   completedAt: runsTable.completedAt,
+                  completionTokens: runsTable.completionTokens,
                   createdAt: runsTable.createdAt,
                   error: runsTable.error,
                   id: runsTable.id,
+                  promptTokens: runsTable.promptTokens,
                   requestMessageId: runsTable.requestMessageId,
                   status: runsTable.status,
-                  threadId: runsTable.threadId
+                  threadId: runsTable.threadId,
+                  totalCompletionTokens: runsTable.totalCompletionTokens,
+                  totalPromptTokens: runsTable.totalPromptTokens
                 })
                 .from(runsTable)
                 .where(inArray(runsTable.threadId, threadIds))
@@ -546,7 +550,15 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       })
     },
 
-    completeRun({ runId, updatedThread, assistantMessage }: CompleteRunInput) {
+    completeRun({
+      runId,
+      updatedThread,
+      assistantMessage,
+      promptTokens,
+      completionTokens,
+      totalPromptTokens,
+      totalCompletionTokens
+    }: CompleteRunInput) {
       db.transaction((tx) => {
         const { textBlocks, reasoning, attachments, ...persistedAssistantMessage } =
           assistantMessage
@@ -583,7 +595,11 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           .set({
             assistantMessageId: assistantMessage.id,
             completedAt: updatedThread.updatedAt,
-            status: 'completed'
+            status: 'completed',
+            ...(promptTokens !== undefined ? { promptTokens } : {}),
+            ...(completionTokens !== undefined ? { completionTokens } : {}),
+            ...(totalPromptTokens !== undefined ? { totalPromptTokens } : {}),
+            ...(totalCompletionTokens !== undefined ? { totalCompletionTokens } : {})
           })
           .where(eq(runsTable.id, runId))
           .run()

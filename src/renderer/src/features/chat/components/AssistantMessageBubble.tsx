@@ -48,6 +48,7 @@ interface AssistantMessageBubbleProps {
   showFooter?: boolean
   showActions?: boolean
   suppressGeneratingLabel?: boolean
+  pauseStreaming?: boolean
   compactBottomSpacing?: boolean
   threadHasActiveRun?: boolean
   onRetry?: () => Promise<void> | void
@@ -61,6 +62,7 @@ export function AssistantMessageBubble({
   showFooter = true,
   showActions = true,
   suppressGeneratingLabel = false,
+  pauseStreaming = false,
   compactBottomSpacing = false,
   threadHasActiveRun = false,
   onRetry,
@@ -68,7 +70,7 @@ export function AssistantMessageBubble({
   onDelete
 }: AssistantMessageBubbleProps): React.JSX.Element {
   const { showContent, showBubble, footer } = buildMessagePresentation(message)
-  const isStreaming = message.status === 'streaming' && showFooter
+  const isStreaming = message.status === 'streaming' && showFooter && !pauseStreaming
   const shouldShowGeneratingLabel =
     message.status === 'streaming' && showFooter && !suppressGeneratingLabel
   const shouldHideStreamingFooterRow = suppressGeneratingLabel && message.status === 'streaming'

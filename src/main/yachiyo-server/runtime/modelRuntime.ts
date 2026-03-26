@@ -91,6 +91,10 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
         })
 
         if ('fullStream' in result && result.fullStream) {
+          type AiSdkTokenUsage = { inputTokens?: number; outputTokens?: number }
+          let lastStepUsage: AiSdkTokenUsage | undefined
+          let totalUsage: AiSdkTokenUsage | undefined
+
           for await (const part of result.fullStream as AsyncIterable<{
             errorText?: string
             input?: unknown
@@ -101,6 +105,8 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             text?: string
             toolCallId?: string
             toolName?: string
+            usage?: AiSdkTokenUsage
+            totalUsage?: AiSdkTokenUsage
             type: string
           }>) {
             if (part.type === 'error') {
@@ -240,6 +246,27 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               })
               toolCallContextById.delete(part.toolCallId)
             }
+
+            if (part.type === 'finish-step' && part.usage) {
+              lastStepUsage = part.usage
+            }
+
+            if (part.type === 'finish' && part.totalUsage) {
+              totalUsage = part.totalUsage
+            }
+          }
+
+          if (
+            request.onFinish &&
+            lastStepUsage?.inputTokens !== undefined &&
+            lastStepUsage?.outputTokens !== undefined
+          ) {
+            request.onFinish({
+              promptTokens: lastStepUsage.inputTokens,
+              completionTokens: lastStepUsage.outputTokens,
+              totalPromptTokens: totalUsage?.inputTokens ?? lastStepUsage.inputTokens,
+              totalCompletionTokens: totalUsage?.outputTokens ?? lastStepUsage.outputTokens
+            })
           }
 
           return

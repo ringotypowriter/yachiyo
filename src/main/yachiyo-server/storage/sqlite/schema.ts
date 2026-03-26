@@ -1,4 +1,4 @@
-import { sqliteTable, text, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
+import { integer, sqliteTable, text, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
 
 import type { MessageRecord, RunRecord, ToolCallRecord } from '../../../../shared/yachiyo/protocol'
 
@@ -56,7 +56,11 @@ export const runsTable = sqliteTable('runs', {
   status: text('status').$type<RunRecord['status']>().notNull(),
   error: text('error'),
   createdAt: text('created_at').notNull(),
-  completedAt: text('completed_at')
+  completedAt: text('completed_at'),
+  promptTokens: integer('prompt_tokens'),
+  completionTokens: integer('completion_tokens'),
+  totalPromptTokens: integer('total_prompt_tokens'),
+  totalCompletionTokens: integer('total_completion_tokens')
 })
 
 export const toolCallsTable = sqliteTable('tool_calls', {

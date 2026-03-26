@@ -72,6 +72,10 @@ export interface CompleteRunInput {
   runId: string
   updatedThread: ThreadRecord
   assistantMessage: MessageRecord
+  promptTokens?: number
+  completionTokens?: number
+  totalPromptTokens?: number
+  totalCompletionTokens?: number
 }
 
 export interface CreateThreadInput {
@@ -118,6 +122,10 @@ export interface StoredRunRow {
   error: string | null
   createdAt: string
   completedAt: string | null
+  promptTokens: number | null
+  completionTokens: number | null
+  totalPromptTokens: number | null
+  totalCompletionTokens: number | null
 }
 
 export interface YachiyoStorage {
@@ -403,6 +411,12 @@ export function toRunRecord(row: StoredRunRow): RunRecord {
     ...(row.completedAt === null ? {} : { completedAt: row.completedAt }),
     ...(row.error === null ? {} : { error: row.error }),
     ...(row.requestMessageId === null ? {} : { requestMessageId: row.requestMessageId }),
+    ...(row.promptTokens == null ? {} : { promptTokens: row.promptTokens }),
+    ...(row.completionTokens == null ? {} : { completionTokens: row.completionTokens }),
+    ...(row.totalPromptTokens == null ? {} : { totalPromptTokens: row.totalPromptTokens }),
+    ...(row.totalCompletionTokens == null
+      ? {}
+      : { totalCompletionTokens: row.totalCompletionTokens }),
     createdAt: row.createdAt,
     id: row.id,
     status: row.status,
