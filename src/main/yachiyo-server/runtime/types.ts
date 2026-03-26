@@ -25,6 +25,8 @@ export interface ModelUsage {
   completionTokens: number
   totalPromptTokens: number
   totalCompletionTokens: number
+  /** Structured response messages from the AI SDK (assistant + tool messages), for lossless history replay. */
+  responseMessages?: unknown[]
 }
 
 export interface ModelStreamRequest {

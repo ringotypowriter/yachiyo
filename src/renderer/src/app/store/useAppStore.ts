@@ -894,7 +894,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   flushQueuedToasts: () =>
     set((state) => {
       if (state.queuedToasts.length === 0) return state
-      return { activeToasts: [...state.activeToasts, ...state.queuedToasts], queuedToasts: [] }
+      const toFlush = state.queuedToasts.filter((t) => t.threadId !== state.activeThreadId)
+      return { activeToasts: [...state.activeToasts, ...toFlush], queuedToasts: [] }
     }),
 
   runPhase: 'idle',

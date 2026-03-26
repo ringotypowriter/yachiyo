@@ -349,6 +349,8 @@ export interface MessageRecord {
   images?: MessageImageRecord[]
   attachments?: MessageFileAttachment[]
   reasoning?: string
+  /** Structured AI SDK response messages from tool-using runs, stored for lossless history replay. */
+  responseMessages?: unknown[]
   status: MessageStatus
   createdAt: string
   modelId?: string

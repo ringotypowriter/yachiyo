@@ -244,16 +244,25 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
 
           if (request.onFinish && 'usage' in result && 'totalUsage' in result) {
             type AiSdkUsage = { inputTokens?: number; outputTokens?: number }
-            const [usage, total] = await Promise.all([
+            const responsePromise =
+              'response' in result
+                ? (result.response as PromiseLike<{ messages?: unknown[] }>)
+                : undefined
+            const [usage, total, response] = await Promise.all([
               result.usage as PromiseLike<AiSdkUsage>,
-              result.totalUsage as PromiseLike<AiSdkUsage>
+              result.totalUsage as PromiseLike<AiSdkUsage>,
+              responsePromise
             ])
             if (usage.inputTokens != null && usage.outputTokens != null) {
+              const responseMessages = response?.messages
               request.onFinish({
                 promptTokens: usage.inputTokens,
                 completionTokens: usage.outputTokens,
                 totalPromptTokens: total.inputTokens ?? usage.inputTokens,
-                totalCompletionTokens: total.outputTokens ?? usage.outputTokens
+                totalCompletionTokens: total.outputTokens ?? usage.outputTokens,
+                ...(Array.isArray(responseMessages) && responseMessages.length > 0
+                  ? { responseMessages }
+                  : {})
               })
             }
           }

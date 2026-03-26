@@ -1,0 +1,1 @@
+ALTER TABLE `messages` ADD `response_messages` text;

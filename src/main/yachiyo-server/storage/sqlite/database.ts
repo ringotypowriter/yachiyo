@@ -22,6 +22,7 @@ import {
   serializeToolCallDetails,
   toMessageRecord,
   serializeReasoning,
+  serializeResponseMessages,
   toRunRecord,
   toToolCallRecord,
   toThreadRecord,
@@ -152,6 +153,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                 parentMessageId: messagesTable.parentMessageId,
                 providerName: messagesTable.providerName,
                 reasoning: messagesTable.reasoning,
+                responseMessages: messagesTable.responseMessages,
                 role: messagesTable.role,
                 status: messagesTable.status,
                 textBlocks: messagesTable.textBlocks,
@@ -370,12 +372,13 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         if (messages && messages.length > 0) {
           tx.insert(messagesTable)
             .values(
-              messages.map(({ textBlocks, reasoning, attachments, ...rest }) => ({
+              messages.map(({ textBlocks, reasoning, attachments, responseMessages, ...rest }) => ({
                 ...rest,
                 textBlocks: serializeMessageTextBlocks(textBlocks),
                 images: serializeMessageImages(rest.images),
                 attachments: serializeMessageAttachments(attachments),
-                reasoning: serializeReasoning(reasoning)
+                reasoning: serializeReasoning(reasoning),
+                responseMessages: serializeResponseMessages(responseMessages)
               }))
             )
             .run()
@@ -497,14 +500,16 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           tx.delete(messagesTable).where(eq(messagesTable.id, replacedMessageId)).run()
         }
 
-        const { textBlocks, reasoning, attachments, ...persistedMessage } = message
+        const { textBlocks, reasoning, attachments, responseMessages, ...persistedMessage } =
+          message
         tx.insert(messagesTable)
           .values({
             ...persistedMessage,
             textBlocks: serializeMessageTextBlocks(textBlocks),
             images: serializeMessageImages(message.images),
             attachments: serializeMessageAttachments(attachments),
-            reasoning: serializeReasoning(reasoning)
+            reasoning: serializeReasoning(reasoning),
+            responseMessages: serializeResponseMessages(responseMessages)
           })
           .run()
 
@@ -541,14 +546,16 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     }: StartRunInput) {
       db.transaction((tx) => {
         if (userMessage) {
-          const { textBlocks, reasoning, attachments, ...persistedUserMessage } = userMessage
+          const { textBlocks, reasoning, attachments, responseMessages, ...persistedUserMessage } =
+            userMessage
           tx.insert(messagesTable)
             .values({
               ...persistedUserMessage,
               textBlocks: serializeMessageTextBlocks(textBlocks),
               images: serializeMessageImages(userMessage.images),
               attachments: serializeMessageAttachments(attachments),
-              reasoning: serializeReasoning(reasoning)
+              reasoning: serializeReasoning(reasoning),
+              responseMessages: serializeResponseMessages(responseMessages)
             })
             .run()
         }
@@ -597,15 +604,21 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       totalCompletionTokens
     }: CompleteRunInput) {
       db.transaction((tx) => {
-        const { textBlocks, reasoning, attachments, ...persistedAssistantMessage } =
-          assistantMessage
+        const {
+          textBlocks,
+          reasoning,
+          attachments,
+          responseMessages,
+          ...persistedAssistantMessage
+        } = assistantMessage
         tx.insert(messagesTable)
           .values({
             ...persistedAssistantMessage,
             textBlocks: serializeMessageTextBlocks(textBlocks),
             images: serializeMessageImages(assistantMessage.images),
             attachments: serializeMessageAttachments(attachments),
-            reasoning: serializeReasoning(reasoning)
+            reasoning: serializeReasoning(reasoning),
+            responseMessages: serializeResponseMessages(responseMessages)
           })
           .run()
 
@@ -683,6 +696,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           parentMessageId: messagesTable.parentMessageId,
           providerName: messagesTable.providerName,
           reasoning: messagesTable.reasoning,
+          responseMessages: messagesTable.responseMessages,
           role: messagesTable.role,
           status: messagesTable.status,
           textBlocks: messagesTable.textBlocks,
@@ -701,6 +715,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           content: message.content,
           images: serializeMessageImages(message.images),
           reasoning: serializeReasoning(message.reasoning),
+          responseMessages: serializeResponseMessages(message.responseMessages),
           textBlocks: serializeMessageTextBlocks(message.textBlocks),
           modelId: message.modelId ?? null,
           parentMessageId: message.parentMessageId ?? null,

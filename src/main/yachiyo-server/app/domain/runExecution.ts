@@ -514,12 +514,13 @@ function loadRunHistory(
   threadId: string,
   requestMessageId: string,
   requestMessageContentOverride?: string
-): Array<Pick<MessageRecord, 'content' | 'images' | 'attachments' | 'role'>> {
+): Array<Pick<MessageRecord, 'content' | 'images' | 'attachments' | 'role' | 'responseMessages'>> {
   return collectMessagePath(loadThreadMessages(threadId), requestMessageId).map(
-    ({ content, id, images, attachments, role }) => ({
+    ({ content, id, images, attachments, role, responseMessages }) => ({
       content: id === requestMessageId ? (requestMessageContentOverride ?? content) : content,
       ...(images ? { images } : {}),
       ...(attachments ? { attachments } : {}),
+      ...(responseMessages ? { responseMessages } : {}),
       role
     })
   )
@@ -1132,6 +1133,7 @@ export async function executeServerRun(
       content: buffer,
       ...(textBlocks.length > 0 ? { textBlocks } : {}),
       ...(reasoningBuffer ? { reasoning: reasoningBuffer } : {}),
+      ...(lastUsage?.responseMessages ? { responseMessages: lastUsage.responseMessages } : {}),
       status: 'completed',
       createdAt: timestamp,
       modelId: settings.model,

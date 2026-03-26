@@ -48,6 +48,7 @@ export interface StoredMessageRow {
   images: string | null
   attachments: string | null
   reasoning: string | null
+  responseMessages: string | null
   status: MessageRecord['status']
   createdAt: string
   modelId: string | null
@@ -260,6 +261,7 @@ export function toMessageRecord(row: StoredMessageRow): MessageRecord {
   const images = parseMessageImages(row.images)
   const attachments = parseMessageAttachments(row.attachments)
   const textBlocks = parseMessageTextBlocks(row.textBlocks)
+  const responseMessages = parseResponseMessages(row.responseMessages)
 
   return {
     id: row.id,
@@ -271,6 +273,7 @@ export function toMessageRecord(row: StoredMessageRow): MessageRecord {
     ...(images ? { images } : {}),
     ...(attachments ? { attachments } : {}),
     ...(row.reasoning ? { reasoning: row.reasoning } : {}),
+    ...(responseMessages ? { responseMessages } : {}),
     status: row.status,
     createdAt: row.createdAt,
     ...(row.modelId === null ? {} : { modelId: row.modelId }),
@@ -455,6 +458,23 @@ export function toRunRecord(row: StoredRunRow): RunRecord {
 
 export function serializeReasoning(reasoning?: string): string | null {
   return reasoning?.trim() ? reasoning : null
+}
+
+export function serializeResponseMessages(responseMessages?: unknown[]): string | null {
+  return responseMessages && responseMessages.length > 0 ? JSON.stringify(responseMessages) : null
+}
+
+export function parseResponseMessages(value: string | null): unknown[] | undefined {
+  if (!value) {
+    return undefined
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown[]
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : undefined
+  } catch {
+    return undefined
+  }
 }
 
 export function serializeMessageImages(images?: MessageImageRecord[]): string | null {

@@ -11,6 +11,8 @@ export interface ContextLayerHistoryMessage {
   content: string
   images?: MessageImageRecord[]
   attachments?: MessageFileAttachment[]
+  /** Structured AI SDK response messages from tool-using runs, used for lossless history replay. */
+  responseMessages?: unknown[]
 }
 
 export interface PersonalityLayerInput {
@@ -85,12 +87,17 @@ function buildAttachedFilesBlock(
   return ['<attached_files>', ...allEntries, '</attached_files>'].join('\n')
 }
 
-function toModelHistoryMessage(message: ContextLayerHistoryMessage): ModelMessage {
+function toModelHistoryMessages(message: ContextLayerHistoryMessage): ModelMessage[] {
   if (message.role !== 'user') {
-    return {
-      role: message.role,
-      content: message.content
+    if (message.responseMessages && message.responseMessages.length > 0) {
+      return message.responseMessages as ModelMessage[]
     }
+    return [
+      {
+        role: message.role,
+        content: message.content
+      }
+    ]
   }
 
   const images = normalizeMessageImages(message.images)
@@ -100,23 +107,27 @@ function toModelHistoryMessage(message: ContextLayerHistoryMessage): ModelMessag
     : message.content
 
   if (images.length === 0) {
-    return {
-      role: 'user',
-      content: textContent
-    }
-  }
-
-  return {
-    role: 'user',
-    content: [
-      ...(textContent.trim().length > 0 ? [{ type: 'text' as const, text: textContent }] : []),
-      ...images.map((image) => ({
-        type: 'image' as const,
-        image: extractBase64DataUrlPayload(image.dataUrl)?.base64 ?? image.dataUrl,
-        mediaType: image.mediaType
-      }))
+    return [
+      {
+        role: 'user',
+        content: textContent
+      }
     ]
   }
+
+  return [
+    {
+      role: 'user',
+      content: [
+        ...(textContent.trim().length > 0 ? [{ type: 'text' as const, text: textContent }] : []),
+        ...images.map((image) => ({
+          type: 'image' as const,
+          image: extractBase64DataUrlPayload(image.dataUrl)?.base64 ?? image.dataUrl,
+          mediaType: image.mediaType
+        }))
+      ]
+    }
+  ]
 }
 
 function normalizeLines(lines: string[] | undefined): string[] {
@@ -239,6 +250,6 @@ export function compileContextLayers(input: CompileContextLayersInput): ModelMes
       compileHintLayer(input.hint),
       compileMemoryLayer(input.memory)
     ].flatMap((message) => (message ? [message] : [])),
-    ...input.history.map(toModelHistoryMessage)
+    ...input.history.flatMap(toModelHistoryMessages)
   ])
 }

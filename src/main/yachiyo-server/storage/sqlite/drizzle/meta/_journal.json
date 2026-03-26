@@ -134,6 +134,13 @@
       "when": 1774534386669,
       "tag": "0018_classy_silver_samurai",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1774536610918,
+      "tag": "0019_flashy_tigra",
+      "breakpoints": true
     }
   ]
 }

@@ -117,3 +117,256 @@ test('individual layer compilers drop empty content', () => {
   assert.equal(compileSkillsLayer({ activeSkills: [] }), null)
   assert.equal(compileUserLayer({ content: '   ' }), null)
 })
+
+test('assistant message with responseMessages injects structured tool history', () => {
+  const responseMessages = [
+    {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'Let me read that file.' },
+        {
+          type: 'tool-call',
+          toolCallId: 'tc-1',
+          toolName: 'read',
+          input: { path: '/tmp/foo.ts' }
+        }
+      ]
+    },
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'tc-1',
+          toolName: 'read',
+          output: { type: 'text', value: 'file contents here' }
+        }
+      ]
+    },
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'The file contains...' }]
+    }
+  ]
+
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'You are helpful.' },
+    history: [
+      { role: 'user', content: 'Read foo.ts' },
+      { role: 'assistant', content: 'The file contains...', responseMessages },
+      { role: 'user', content: 'Now edit it' }
+    ]
+  })
+
+  assert.deepEqual(compiled, [
+    { role: 'system', content: 'You are helpful.' },
+    { role: 'user', content: 'Read foo.ts' },
+    ...responseMessages,
+    { role: 'user', content: 'Now edit it' }
+  ])
+})
+
+test('assistant message without responseMessages falls back to plain text', () => {
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'You are helpful.' },
+    history: [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Hi there!' },
+      { role: 'user', content: 'Bye' }
+    ]
+  })
+
+  assert.deepEqual(compiled, [
+    { role: 'system', content: 'You are helpful.' },
+    { role: 'user', content: 'Hello' },
+    { role: 'assistant', content: 'Hi there!' },
+    { role: 'user', content: 'Bye' }
+  ])
+})
+
+test('mixed history with tool and non-tool assistant messages preserves interleaving', () => {
+  const toolResponseMessages = [
+    {
+      role: 'assistant',
+      content: [
+        { type: 'tool-call', toolCallId: 'tc-a', toolName: 'bash', input: { command: 'ls' } }
+      ]
+    },
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'tc-a',
+          toolName: 'bash',
+          output: { type: 'text', value: 'file1.ts\nfile2.ts' }
+        }
+      ]
+    },
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Found two files.' }]
+    }
+  ]
+
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'Base' },
+    history: [
+      { role: 'user', content: 'List files' },
+      { role: 'assistant', content: 'Found two files.', responseMessages: toolResponseMessages },
+      { role: 'user', content: 'What do they contain?' },
+      { role: 'assistant', content: 'They contain code.' },
+      { role: 'user', content: 'Thanks' }
+    ]
+  })
+
+  assert.deepEqual(compiled, [
+    { role: 'system', content: 'Base' },
+    { role: 'user', content: 'List files' },
+    ...toolResponseMessages,
+    { role: 'user', content: 'What do they contain?' },
+    { role: 'assistant', content: 'They contain code.' },
+    { role: 'user', content: 'Thanks' }
+  ])
+})
+
+test('multi-step tool calls preserve exact order in responseMessages', () => {
+  const responseMessages = [
+    {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'Step 1' },
+        {
+          type: 'tool-call',
+          toolCallId: 'tc-1',
+          toolName: 'read',
+          input: { path: '/a.ts' }
+        }
+      ]
+    },
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'tc-1',
+          toolName: 'read',
+          output: { type: 'text', value: 'content A' }
+        }
+      ]
+    },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'Step 2' },
+        {
+          type: 'tool-call',
+          toolCallId: 'tc-2',
+          toolName: 'edit',
+          input: { path: '/a.ts', content: 'new' }
+        }
+      ]
+    },
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'tc-2',
+          toolName: 'edit',
+          output: { type: 'text', value: 'edited' }
+        }
+      ]
+    },
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Done editing.' }]
+    }
+  ]
+
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'Base' },
+    history: [
+      { role: 'user', content: 'Edit file' },
+      { role: 'assistant', content: 'Done editing.', responseMessages }
+    ]
+  })
+
+  // System prompt + user message + 5 response messages = 7 total
+  assert.equal(compiled.length, 7)
+  assert.deepEqual(compiled[0], { role: 'system', content: 'Base' })
+  assert.deepEqual(compiled[1], { role: 'user', content: 'Edit file' })
+  // The 5 response messages are injected in exact original order
+  assert.deepEqual(compiled.slice(2), responseMessages)
+})
+
+test('responseMessages with interleaved reasoning are preserved in replay', () => {
+  const responseMessages = [
+    {
+      role: 'assistant',
+      content: [
+        { type: 'reasoning', text: 'The user wants me to read a file, let me check...' },
+        { type: 'text', text: 'Reading the file now.' },
+        {
+          type: 'tool-call',
+          toolCallId: 'tc-r1',
+          toolName: 'read',
+          input: { path: '/src/index.ts' }
+        }
+      ]
+    },
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'tc-r1',
+          toolName: 'read',
+          output: { type: 'text', value: 'export const main = () => {}' }
+        }
+      ]
+    },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'reasoning', text: 'OK, it exports a main function. Let me explain.' },
+        { type: 'text', text: 'The file exports a main function.' }
+      ]
+    }
+  ]
+
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'Base' },
+    history: [
+      { role: 'user', content: 'Show me index.ts' },
+      {
+        role: 'assistant',
+        content: 'The file exports a main function.',
+        responseMessages
+      }
+    ]
+  })
+
+  // Reasoning parts must be preserved — many models use interleaved thinking
+  assert.deepEqual(compiled.slice(2), responseMessages)
+  const firstAssistant = compiled[2] as { content: Array<{ type: string }> }
+  assert.equal(firstAssistant.content[0].type, 'reasoning')
+  const lastAssistant = compiled[4] as { content: Array<{ type: string }> }
+  assert.equal(lastAssistant.content[0].type, 'reasoning')
+})
+
+test('empty responseMessages array falls back to plain text', () => {
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'Base' },
+    history: [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Hi!', responseMessages: [] }
+    ]
+  })
+
+  assert.deepEqual(compiled, [
+    { role: 'system', content: 'Base' },
+    { role: 'user', content: 'Hello' },
+    { role: 'assistant', content: 'Hi!' }
+  ])
+})
