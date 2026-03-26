@@ -137,11 +137,19 @@ async function runSubagent(
     })
 
     if (resumeSessionId !== undefined) {
-      await connection.unstable_resumeSession({
-        cwd: ctx.workspacePath,
-        sessionId: resumeSessionId,
-        mcpServers: []
-      })
+      try {
+        await connection.unstable_resumeSession({
+          cwd: ctx.workspacePath,
+          sessionId: resumeSessionId,
+          mcpServers: []
+        })
+      } catch (resumeErr) {
+        const detail = resumeErr instanceof Error ? resumeErr.message : String(resumeErr)
+        throw new Error(
+          `Session resume failed for session_id "${resumeSessionId}": ${detail}. ` +
+            `Call delegateCodingTask again without session_id to start a new session.`
+        )
+      }
       sessionId = resumeSessionId
     } else {
       const sessionResult = await connection.newSession({
@@ -205,10 +213,7 @@ export function createTool(
     description:
       "Delegate a coding task to an external Coding Agent via ACP. Yachiyo will suspend until the agent finishes and returns a summary. After this tool completes, you MUST verify the agent's changes before reporting to the user.",
     inputSchema: delegateCodingTaskInputSchema,
-    toModelOutput: ({ output }) =>
-      output.error
-        ? { type: 'error-text', value: output.error }
-        : { type: 'content', value: output.content },
+    toModelOutput: ({ output }) => ({ type: 'content', value: output.content }),
     execute: async (input, options) => {
       const profile = ctx.profiles.find((p) => p.name === input.agent_name && p.enabled)
       if (!profile) {

@@ -836,6 +836,8 @@ export async function executeServerRun(
               subagentProfiles: enabledSubagentProfiles,
               onSubagentProgress: deps.onSubagentProgress,
               onSubagentStarted: (agentName: string) => {
+                cancelPendingSafeSteerPointAfterTool()
+                setExecutionPhase('tool-running')
                 subagentToolCallId = deps.createId()
                 subagentStartedAt = deps.timestamp()
                 const toolCall: ToolCallRecord = {
@@ -906,6 +908,14 @@ export async function executeServerRun(
                   agentName,
                   status
                 })
+                awaitingSafeSteerPointAfterTool = true
+                setExecutionPhase('generating')
+                if (!safeSteerTimer) {
+                  safeSteerTimer = setTimeout(() => {
+                    safeSteerTimer = null
+                    flushSafeSteerPointAfterTool()
+                  }, 0)
+                }
               }
             }
           : {})
