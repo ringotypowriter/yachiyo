@@ -91,7 +91,7 @@ function App(): React.JSX.Element {
       <div
         className="flex flex-1 min-w-0"
         style={{
-          padding: isSidebarOpen ? '0 8px 8px 4px' : '0',
+          padding: isSidebarOpen ? '8px 8px 8px 4px' : '0',
           transition: 'padding 200ms ease'
         }}
       >
