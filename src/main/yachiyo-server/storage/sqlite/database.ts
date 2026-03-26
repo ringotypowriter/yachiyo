@@ -23,6 +23,7 @@ import {
   toMessageRecord,
   serializeReasoning,
   serializeResponseMessages,
+  serializeTurnContext,
   toRunRecord,
   toToolCallRecord,
   toThreadRecord,
@@ -154,6 +155,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                 providerName: messagesTable.providerName,
                 reasoning: messagesTable.reasoning,
                 responseMessages: messagesTable.responseMessages,
+                turnContext: messagesTable.turnContext,
                 role: messagesTable.role,
                 status: messagesTable.status,
                 textBlocks: messagesTable.textBlocks,
@@ -372,14 +374,24 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         if (messages && messages.length > 0) {
           tx.insert(messagesTable)
             .values(
-              messages.map(({ textBlocks, reasoning, attachments, responseMessages, ...rest }) => ({
-                ...rest,
-                textBlocks: serializeMessageTextBlocks(textBlocks),
-                images: serializeMessageImages(rest.images),
-                attachments: serializeMessageAttachments(attachments),
-                reasoning: serializeReasoning(reasoning),
-                responseMessages: serializeResponseMessages(responseMessages)
-              }))
+              messages.map(
+                ({
+                  textBlocks,
+                  reasoning,
+                  attachments,
+                  responseMessages,
+                  turnContext,
+                  ...rest
+                }) => ({
+                  ...rest,
+                  textBlocks: serializeMessageTextBlocks(textBlocks),
+                  images: serializeMessageImages(rest.images),
+                  attachments: serializeMessageAttachments(attachments),
+                  reasoning: serializeReasoning(reasoning),
+                  responseMessages: serializeResponseMessages(responseMessages),
+                  turnContext: serializeTurnContext(turnContext)
+                })
+              )
             )
             .run()
         }
@@ -500,8 +512,14 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           tx.delete(messagesTable).where(eq(messagesTable.id, replacedMessageId)).run()
         }
 
-        const { textBlocks, reasoning, attachments, responseMessages, ...persistedMessage } =
-          message
+        const {
+          textBlocks,
+          reasoning,
+          attachments,
+          responseMessages,
+          turnContext,
+          ...persistedMessage
+        } = message
         tx.insert(messagesTable)
           .values({
             ...persistedMessage,
@@ -509,7 +527,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             images: serializeMessageImages(message.images),
             attachments: serializeMessageAttachments(attachments),
             reasoning: serializeReasoning(reasoning),
-            responseMessages: serializeResponseMessages(responseMessages)
+            responseMessages: serializeResponseMessages(responseMessages),
+            turnContext: serializeTurnContext(turnContext)
           })
           .run()
 
@@ -546,8 +565,14 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     }: StartRunInput) {
       db.transaction((tx) => {
         if (userMessage) {
-          const { textBlocks, reasoning, attachments, responseMessages, ...persistedUserMessage } =
-            userMessage
+          const {
+            textBlocks,
+            reasoning,
+            attachments,
+            responseMessages,
+            turnContext,
+            ...persistedUserMessage
+          } = userMessage
           tx.insert(messagesTable)
             .values({
               ...persistedUserMessage,
@@ -555,7 +580,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
               images: serializeMessageImages(userMessage.images),
               attachments: serializeMessageAttachments(attachments),
               reasoning: serializeReasoning(reasoning),
-              responseMessages: serializeResponseMessages(responseMessages)
+              responseMessages: serializeResponseMessages(responseMessages),
+              turnContext: serializeTurnContext(turnContext)
             })
             .run()
         }
@@ -609,6 +635,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           reasoning,
           attachments,
           responseMessages,
+          turnContext,
           ...persistedAssistantMessage
         } = assistantMessage
         tx.insert(messagesTable)
@@ -618,7 +645,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             images: serializeMessageImages(assistantMessage.images),
             attachments: serializeMessageAttachments(attachments),
             reasoning: serializeReasoning(reasoning),
-            responseMessages: serializeResponseMessages(responseMessages)
+            responseMessages: serializeResponseMessages(responseMessages),
+            turnContext: serializeTurnContext(turnContext)
           })
           .run()
 
@@ -697,6 +725,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           providerName: messagesTable.providerName,
           reasoning: messagesTable.reasoning,
           responseMessages: messagesTable.responseMessages,
+          turnContext: messagesTable.turnContext,
           role: messagesTable.role,
           status: messagesTable.status,
           textBlocks: messagesTable.textBlocks,
@@ -716,6 +745,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           images: serializeMessageImages(message.images),
           reasoning: serializeReasoning(message.reasoning),
           responseMessages: serializeResponseMessages(message.responseMessages),
+          turnContext: serializeTurnContext(message.turnContext),
           textBlocks: serializeMessageTextBlocks(message.textBlocks),
           modelId: message.modelId ?? null,
           parentMessageId: message.parentMessageId ?? null,

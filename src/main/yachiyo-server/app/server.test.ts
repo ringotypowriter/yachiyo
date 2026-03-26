@@ -588,7 +588,7 @@ test('YachiyoServer injects recalled memory into the compiled context before the
       assert.ok(
         mainRequest.messages.some(
           (message) =>
-            message.role === 'system' &&
+            message.role === 'user' &&
             typeof message.content === 'string' &&
             message.content ===
               '<memory>\n- Deploy workflow: Always run the staging smoke test first.\n</memory>'
@@ -1365,7 +1365,7 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
     assert.ok(
       modelRequests[1]?.messages.some(
         (message) =>
-          message.role === 'system' &&
+          message.role === 'user' &&
           typeof message.content === 'string' &&
           message.content.includes('Tool availability changed for this turn:') &&
           message.content.includes('- Disabled: write, edit, webRead.')
@@ -1377,7 +1377,7 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
     assert.ok(
       modelRequests[2]?.messages.some(
         (message) =>
-          message.role === 'system' &&
+          message.role === 'user' &&
           typeof message.content === 'string' &&
           message.content.includes('Tool availability changed for this turn:') &&
           message.content.includes('- Enabled: write.')

@@ -2,6 +2,7 @@ import type {
   MessageFileAttachment,
   MessageImageRecord,
   MessageRecord,
+  MessageTurnContext,
   ThreadMemoryRecallState,
   MessageTextBlockRecord,
   RunRecord,
@@ -49,6 +50,7 @@ export interface StoredMessageRow {
   attachments: string | null
   reasoning: string | null
   responseMessages: string | null
+  turnContext: string | null
   status: MessageRecord['status']
   createdAt: string
   modelId: string | null
@@ -262,6 +264,7 @@ export function toMessageRecord(row: StoredMessageRow): MessageRecord {
   const attachments = parseMessageAttachments(row.attachments)
   const textBlocks = parseMessageTextBlocks(row.textBlocks)
   const responseMessages = parseResponseMessages(row.responseMessages)
+  const turnContext = parseTurnContext(row.turnContext)
 
   return {
     id: row.id,
@@ -274,6 +277,7 @@ export function toMessageRecord(row: StoredMessageRow): MessageRecord {
     ...(attachments ? { attachments } : {}),
     ...(row.reasoning ? { reasoning: row.reasoning } : {}),
     ...(responseMessages ? { responseMessages } : {}),
+    ...(turnContext ? { turnContext } : {}),
     status: row.status,
     createdAt: row.createdAt,
     ...(row.modelId === null ? {} : { modelId: row.modelId }),
@@ -472,6 +476,42 @@ export function parseResponseMessages(value: string | null): unknown[] | undefin
   try {
     const parsed = JSON.parse(value) as unknown[]
     return Array.isArray(parsed) && parsed.length > 0 ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export function serializeTurnContext(turnContext?: MessageTurnContext): string | null {
+  if (!turnContext) {
+    return null
+  }
+
+  const hasReminder = turnContext.reminder?.trim()
+  const hasMemory = turnContext.memoryEntries && turnContext.memoryEntries.length > 0
+
+  if (!hasReminder && !hasMemory) {
+    return null
+  }
+
+  return JSON.stringify(turnContext)
+}
+
+export function parseTurnContext(value: string | null): MessageTurnContext | undefined {
+  if (!value) {
+    return undefined
+  }
+
+  try {
+    const parsed = JSON.parse(value) as MessageTurnContext
+    const hasReminder = typeof parsed.reminder === 'string' && parsed.reminder.trim().length > 0
+    const hasMemory = Array.isArray(parsed.memoryEntries) && parsed.memoryEntries.length > 0
+    if (!hasReminder && !hasMemory) {
+      return undefined
+    }
+    return {
+      ...(hasReminder ? { reminder: parsed.reminder } : {}),
+      ...(hasMemory ? { memoryEntries: parsed.memoryEntries } : {})
+    }
   } catch {
     return undefined
   }

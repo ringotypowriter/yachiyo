@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { parseResponseMessages, serializeResponseMessages } from './storage.ts'
+import {
+  parseResponseMessages,
+  parseTurnContext,
+  serializeResponseMessages,
+  serializeTurnContext
+} from './storage.ts'
 
 test('serializeResponseMessages returns null for undefined', () => {
   assert.equal(serializeResponseMessages(undefined), null)
@@ -126,4 +131,50 @@ test('parseResponseMessages preserves Gemini provider options and tool call IDs'
   assert.deepEqual(firstMsg.content[0].providerOptions, {
     google: { functionCallingConfig: {} }
   })
+})
+
+// --- turnContext serialization ---
+
+test('serializeTurnContext returns null for undefined', () => {
+  assert.equal(serializeTurnContext(undefined), null)
+})
+
+test('serializeTurnContext returns null for empty context', () => {
+  assert.equal(serializeTurnContext({}), null)
+  assert.equal(serializeTurnContext({ reminder: '   ' }), null)
+  assert.equal(serializeTurnContext({ memoryEntries: [] }), null)
+})
+
+test('serializeTurnContext serializes reminder and memoryEntries', () => {
+  const ctx = { reminder: 'tools changed', memoryEntries: ['mem1', 'mem2'] }
+  const serialized = serializeTurnContext(ctx)
+  assert.equal(typeof serialized, 'string')
+  assert.deepEqual(JSON.parse(serialized!), ctx)
+})
+
+test('parseTurnContext returns undefined for null', () => {
+  assert.equal(parseTurnContext(null), undefined)
+})
+
+test('parseTurnContext returns undefined for empty JSON object', () => {
+  assert.equal(parseTurnContext('{}'), undefined)
+})
+
+test('parseTurnContext round-trips with serializeTurnContext', () => {
+  const ctx = { reminder: '<reminder>write disabled</reminder>', memoryEntries: ['entry1'] }
+  const serialized = serializeTurnContext(ctx)
+  const parsed = parseTurnContext(serialized)
+  assert.deepEqual(parsed, ctx)
+})
+
+test('parseTurnContext handles reminder-only context', () => {
+  const ctx = { reminder: 'some reminder' }
+  const parsed = parseTurnContext(serializeTurnContext(ctx))
+  assert.deepEqual(parsed, { reminder: 'some reminder' })
+})
+
+test('parseTurnContext handles memoryEntries-only context', () => {
+  const ctx = { memoryEntries: ['a', 'b'] }
+  const parsed = parseTurnContext(serializeTurnContext(ctx))
+  assert.deepEqual(parsed, { memoryEntries: ['a', 'b'] })
 })

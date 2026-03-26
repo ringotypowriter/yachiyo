@@ -34,7 +34,7 @@ test('compileSoulLayer wraps raw SOUL.md content', () => {
   assert.equal(compileSoulLayer(undefined), null)
 })
 
-test('compileContextLayers preserves user history and orders explicit layers before it', () => {
+test('compileContextLayers places turn context before current user query, after prior history', () => {
   const reminder =
     '<reminder>\nTool availability changed for this turn:\n- Disabled: write.\n</reminder>'
   const soulContent =
@@ -74,6 +74,7 @@ test('compileContextLayers preserves user history and orders explicit layers bef
   })
 
   assert.deepEqual(compiled, [
+    // Durable system layers (stable prefix for prompt caching)
     { role: 'system', content: 'Base persona' },
     {
       role: 'system',
@@ -100,12 +101,15 @@ test('compileContextLayers preserves user history and orders explicit layers bef
       ].join('\n')
     },
     { role: 'system', content: 'Workspace: /tmp/thread-1' },
-    { role: 'system', content: reminder },
+    // Prior history
+    { role: 'assistant', content: 'Previous answer' },
+    // Per-turn context (user role — only one system message supported)
+    { role: 'user', content: reminder },
     {
-      role: 'system',
+      role: 'user',
       content: ['<memory>', '- Remember the preferred repo root.', '</memory>'].join('\n')
     },
-    { role: 'assistant', content: 'Previous answer' },
+    // Current user query
     { role: 'user', content: 'Latest request' }
   ])
 })
@@ -368,5 +372,104 @@ test('empty responseMessages array falls back to plain text', () => {
     { role: 'system', content: 'Base' },
     { role: 'user', content: 'Hello' },
     { role: 'assistant', content: 'Hi!' }
+  ])
+})
+
+test('turn context is placed after tool-history replay and before current query', () => {
+  const toolResponseMessages = [
+    {
+      role: 'assistant',
+      content: [
+        { type: 'tool-call', toolCallId: 'tc-x', toolName: 'read', input: { path: '/f.ts' } }
+      ]
+    },
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'tc-x',
+          toolName: 'read',
+          output: { type: 'text', value: 'code' }
+        }
+      ]
+    },
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Done.' }]
+    }
+  ]
+
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'Base' },
+    hint: { reminder: '<reminder>write disabled</reminder>' },
+    memory: { entries: ['user likes tests'] },
+    history: [
+      { role: 'user', content: 'Read f.ts' },
+      { role: 'assistant', content: 'Done.', responseMessages: toolResponseMessages },
+      { role: 'user', content: 'Now edit it' }
+    ]
+  })
+
+  assert.deepEqual(compiled, [
+    { role: 'system', content: 'Base' },
+    // Prior history with structured tool replay
+    { role: 'user', content: 'Read f.ts' },
+    ...toolResponseMessages,
+    // Turn context before current query
+    { role: 'user', content: '<reminder>write disabled</reminder>' },
+    {
+      role: 'user',
+      content: ['<memory>', '- user likes tests', '</memory>'].join('\n')
+    },
+    // Current user query
+    { role: 'user', content: 'Now edit it' }
+  ])
+})
+
+test('turn context without history goes at the end', () => {
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'Base' },
+    hint: { reminder: 'tools reminder' },
+    history: []
+  })
+
+  assert.deepEqual(compiled, [
+    { role: 'system', content: 'Base' },
+    { role: 'user', content: 'tools reminder' }
+  ])
+})
+
+test('no turn context leaves system layers and history unchanged', () => {
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'Base' },
+    history: [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Hi' },
+      { role: 'user', content: 'Bye' }
+    ]
+  })
+
+  assert.deepEqual(compiled, [
+    { role: 'system', content: 'Base' },
+    { role: 'user', content: 'Hello' },
+    { role: 'assistant', content: 'Hi' },
+    { role: 'user', content: 'Bye' }
+  ])
+})
+
+test('first message in thread: turn context comes before the only user message', () => {
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'Base' },
+    hint: { reminder: 'reminder' },
+    memory: { entries: ['mem1'] },
+    history: [{ role: 'user', content: 'First message' }]
+  })
+
+  assert.deepEqual(compiled, [
+    { role: 'system', content: 'Base' },
+    { role: 'user', content: 'reminder' },
+    { role: 'user', content: ['<memory>', '- mem1', '</memory>'].join('\n') },
+    { role: 'user', content: 'First message' }
   ])
 })

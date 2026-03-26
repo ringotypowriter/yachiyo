@@ -240,16 +240,45 @@ export function compileMemoryLayer(input: MemoryLayerInput | undefined): ModelMe
 }
 
 export function compileContextLayers(input: CompileContextLayersInput): ModelMessage[] {
+  const systemLayers = [
+    compilePersonalityLayer(input.personality),
+    compileSoulLayer(input.soul),
+    compileUserLayer(input.user),
+    compileSkillsLayer(input.skills),
+    compileAgentLayer(input.agent)
+  ].flatMap((message) => (message ? [message] : []))
+
+  const historyMessages = input.history.flatMap(toModelHistoryMessages)
+
+  // Turn context is injected mid-conversation, so it must use the user role —
+  // only one system message (the stable prefix) is supported by most providers.
+  // Hint and memory layers always produce string content.
+  const turnContextLayers: ModelMessage[] = [
+    compileHintLayer(input.hint),
+    compileMemoryLayer(input.memory)
+  ].flatMap((message) =>
+    message ? [{ role: 'user' as const, content: message.content as string }] : []
+  )
+
+  if (turnContextLayers.length === 0) {
+    return removeEmptyMessages([...systemLayers, ...historyMessages])
+  }
+
+  // Place turn context immediately before the current user query (last user message).
+  // This keeps durable system layers and prior history stable for prompt caching,
+  // while per-turn injections sit right before the request they augment.
+  let insertIndex = historyMessages.length
+  for (let i = historyMessages.length - 1; i >= 0; i--) {
+    if (historyMessages[i].role === 'user') {
+      insertIndex = i
+      break
+    }
+  }
+
   return removeEmptyMessages([
-    ...[
-      compilePersonalityLayer(input.personality),
-      compileSoulLayer(input.soul),
-      compileUserLayer(input.user),
-      compileSkillsLayer(input.skills),
-      compileAgentLayer(input.agent),
-      compileHintLayer(input.hint),
-      compileMemoryLayer(input.memory)
-    ].flatMap((message) => (message ? [message] : [])),
-    ...input.history.flatMap(toModelHistoryMessages)
+    ...systemLayers,
+    ...historyMessages.slice(0, insertIndex),
+    ...turnContextLayers,
+    ...historyMessages.slice(insertIndex)
   ])
 }

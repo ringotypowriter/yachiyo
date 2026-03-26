@@ -39,6 +39,7 @@ export const messagesTable = sqliteTable('messages', {
   attachments: text('attachments'),
   reasoning: text('reasoning'),
   responseMessages: text('response_messages'),
+  turnContext: text('turn_context'),
   status: text('status').$type<MessageRecord['status']>().notNull(),
   createdAt: text('created_at').notNull(),
   modelId: text('model_id'),

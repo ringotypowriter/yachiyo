@@ -15,6 +15,7 @@ import type {
   MessageRecord,
   MessageStartedEvent,
   MessageTextBlockRecord,
+  MessageTurnContext,
   ProviderSettings,
   RunCancelledEvent,
   RunCompletedEvent,
@@ -787,6 +788,15 @@ export async function executeServerRun(
       workspacePath,
       enabledSubagentProfiles
     )
+
+    // Persist per-turn injected context on the request message for lossless replay.
+    if (requestMessage && (hiddenQueryReminder || memoryEntries.length > 0)) {
+      const turnContext: MessageTurnContext = {
+        ...(hiddenQueryReminder ? { reminder: hiddenQueryReminder } : {}),
+        ...(memoryEntries.length > 0 ? { memoryEntries } : {})
+      }
+      deps.storage.updateMessage({ ...requestMessage, turnContext })
+    }
 
     const messages = prepareModelMessages({
       personality: {

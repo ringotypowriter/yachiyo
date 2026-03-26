@@ -339,6 +339,12 @@ export interface ThreadRecord {
   modelOverride?: ThreadModelOverride
 }
 
+/** Per-turn injected context (reminder, memory) persisted for lossless replay. */
+export interface MessageTurnContext {
+  reminder?: string
+  memoryEntries?: string[]
+}
+
 export interface MessageRecord {
   id: string
   threadId: string
@@ -351,6 +357,8 @@ export interface MessageRecord {
   reasoning?: string
   /** Structured AI SDK response messages from tool-using runs, stored for lossless history replay. */
   responseMessages?: unknown[]
+  /** Per-turn injected context for this request, persisted separately from user-authored content. */
+  turnContext?: MessageTurnContext
   status: MessageStatus
   createdAt: string
   modelId?: string

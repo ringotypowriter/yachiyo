@@ -1,0 +1,1 @@
+ALTER TABLE `messages` ADD `turn_context` text;
