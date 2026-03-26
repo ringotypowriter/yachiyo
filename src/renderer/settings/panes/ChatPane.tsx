@@ -27,8 +27,29 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
   const [toolModelSelectorOpen, setToolModelSelectorOpen] = useState(false)
   const [toolModelAnchorRect, setToolModelAnchorRect] = useState<DOMRect | null>(null)
 
+  useEffect(() => {
+    if (draft.defaultModel != null) return
+    for (const provider of draft.providers) {
+      const firstModel = provider.modelList.enabled[0]
+      if (firstModel) {
+        onChange({ ...draft, defaultModel: { providerName: provider.name, model: firstModel } })
+        return
+      }
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const defaultModelSelectorRef = useRef<HTMLDivElement>(null)
+  const defaultModelPopupRef = useRef<HTMLDivElement>(null)
+  const defaultModelTriggerRef = useRef<HTMLButtonElement>(null)
+  const [defaultModelSelectorOpen, setDefaultModelSelectorOpen] = useState(false)
+  const [defaultModelAnchorRect, setDefaultModelAnchorRect] = useState<DOMRect | null>(null)
+
   const updateToolModelAnchorRect = (): void => {
     setToolModelAnchorRect(toolModelTriggerRef.current?.getBoundingClientRect() ?? null)
+  }
+
+  const updateDefaultModelAnchorRect = (): void => {
+    setDefaultModelAnchorRect(defaultModelTriggerRef.current?.getBoundingClientRect() ?? null)
   }
 
   useEffect(() => {
@@ -67,6 +88,42 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
     }
   }, [toolModelSelectorOpen])
 
+  useEffect(() => {
+    if (!defaultModelSelectorOpen) {
+      return
+    }
+
+    const handlePointerDown = (event: MouseEvent): void => {
+      const target = event.target
+      if (!(target instanceof Node)) {
+        return
+      }
+
+      if (defaultModelSelectorRef.current?.contains(target)) {
+        return
+      }
+
+      if (defaultModelPopupRef.current?.contains(target)) {
+        return
+      }
+
+      setDefaultModelSelectorOpen(false)
+    }
+
+    const handleViewportChange = (): void => {
+      updateDefaultModelAnchorRect()
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    window.addEventListener('resize', handleViewportChange)
+    window.addEventListener('scroll', handleViewportChange, true)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      window.removeEventListener('resize', handleViewportChange)
+      window.removeEventListener('scroll', handleViewportChange, true)
+    }
+  }, [defaultModelSelectorOpen])
+
   const enabledProviderCount = draft.providers.filter(
     (provider) => provider.modelList.enabled.length > 0
   ).length
@@ -79,6 +136,15 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
     selectedToolProvider && toolModel.model
       ? `${selectedToolProvider.name} - ${formatStoredModelChip(toolModel.model, selectedToolProvider.name).model}`
       : 'Disabled'
+
+  const currentDefaultModel = draft.defaultModel
+  const defaultModelProvider = currentDefaultModel
+    ? (draft.providers.find((p) => p.name === currentDefaultModel.providerName) ?? null)
+    : null
+  const defaultModelLabel =
+    defaultModelProvider && currentDefaultModel?.model
+      ? `${defaultModelProvider.name} - ${formatStoredModelChip(currentDefaultModel.model, defaultModelProvider.name).model}`
+      : ''
 
   return (
     <div className="flex-1 overflow-y-auto px-7 py-6">
@@ -124,6 +190,91 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
                 }
                 ariaLabel="Toggle Enter steering during active runs"
               />
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-[28px] px-5 py-5" style={settingsPanelStyle()}>
+          <div
+            className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+            style={{ color: theme.text.muted }}
+          >
+            Default model
+          </div>
+
+          <div
+            className="mt-3 flex items-center justify-between gap-4 rounded-2xl px-4 py-3"
+            style={{
+              background: theme.background.surfaceLight,
+              border: `1px solid ${theme.border.default}`
+            }}
+          >
+            <div className="min-w-0 space-y-1">
+              <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
+                Model used for new threads
+              </div>
+              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+                {hasEnabledModels
+                  ? 'Per-thread overrides take precedence.'
+                  : 'Enable a model in Providers first.'}
+              </div>
+            </div>
+
+            <div ref={defaultModelSelectorRef} className="relative shrink-0">
+              <button
+                ref={defaultModelTriggerRef}
+                type="button"
+                onClick={() => {
+                  if (!hasEnabledModels) {
+                    return
+                  }
+
+                  updateDefaultModelAnchorRect()
+                  setDefaultModelSelectorOpen((open) => !open)
+                }}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity"
+                style={{
+                  color: theme.text.primary,
+                  opacity: defaultModelSelectorOpen ? 1 : 0.72,
+                  cursor: hasEnabledModels ? 'pointer' : 'default'
+                }}
+                aria-label="Default model selection"
+              >
+                <CircleCheck
+                  size={12}
+                  strokeWidth={1.5}
+                  color={currentDefaultModel ? theme.icon.success : theme.icon.muted}
+                />
+                {defaultModelLabel}
+                {hasEnabledModels ? (
+                  <ChevronDown
+                    size={10}
+                    strokeWidth={1.5}
+                    color={theme.icon.muted}
+                    style={{
+                      transform: defaultModelSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                      transition: 'transform 0.15s ease'
+                    }}
+                  />
+                ) : null}
+              </button>
+
+              {defaultModelSelectorOpen ? (
+                <ModelSelectorPopup
+                  config={draft}
+                  containerRef={defaultModelPopupRef}
+                  currentProviderName={currentDefaultModel?.providerName ?? ''}
+                  currentModel={currentDefaultModel?.model ?? ''}
+                  onSelect={(providerName, model) => {
+                    onChange({ ...draft, defaultModel: { providerName, model } })
+                  }}
+                  onClose={() => setDefaultModelSelectorOpen(false)}
+                  align="right"
+                  anchorRect={defaultModelAnchorRect}
+                  placement="bottom"
+                  portal
+                />
+              ) : null}
             </div>
           </div>
         </section>
