@@ -3,9 +3,9 @@ import { prepareModelMessages } from './messagePrepare.ts'
 import { SYSTEM_PROMPT } from './prompt.ts'
 import type { ModelMessage } from './types.ts'
 
-const HANDOFF_PROMPT = `You are writing the opening message of a new thread that continues work from an older thread.
+const HANDOFF_PROMPT = `Write a visible handoff that opens a new thread continuing work from an older thread.
 
-This message is the canonical record of everything established so far. The user will work from it directly — they should not need to re-read the old thread. That means completeness matters more than brevity. A handoff that omits a key decision forces the user to go back and dig through history.
+This is the canonical record of everything established so far. The user will work from it directly — they should not need to re-read the old thread. That means completeness matters more than brevity. A handoff that omits a key decision forces the user to go back and dig through history.
 
 ## Core principle
 
