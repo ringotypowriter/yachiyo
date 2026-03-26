@@ -263,9 +263,6 @@ export function ThreadConversationGroup({
               ? visibleToolCalls.find((entry) => entry.id === nextItem.toolCallId)
               : null
           const compactBottomSpacing = nextToolCall?.status === 'running'
-          const hasToolCallAfter = timelineItems
-            .slice(index + 1)
-            .some((i) => i.kind === 'tool-call')
           return (
             <div
               key={item.key}
@@ -275,7 +272,7 @@ export function ThreadConversationGroup({
               <AssistantMessageBubble
                 message={activeBranch.message}
                 contentOverride={textBlock.content}
-                showActions={isLastTextBlock && !hasToolCallAfter}
+                showActions={false}
                 showFooter={isLastTextBlock}
                 suppressGeneratingLabel={
                   hasRunningToolCall || activeBranch.message.status === 'streaming'
@@ -308,7 +305,10 @@ export function ThreadConversationGroup({
         return null
       })}
 
-      {activeBranch && timelineItems.at(-1)?.kind === 'tool-call' ? (
+      {activeBranch &&
+      activeAssistantTextBlocks.length > 0 &&
+      activeBranch.message.status !== 'streaming' &&
+      !subagentActive ? (
         <div className="px-6 py-1">
           <MessageActionBar
             align="start"

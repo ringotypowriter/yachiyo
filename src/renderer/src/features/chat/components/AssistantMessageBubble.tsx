@@ -92,27 +92,28 @@ export function AssistantMessageBubble({
         <div className="assistant-message-bubble">
           {showContent && <MessageMarkdown content={content} isStreaming={isStreaming} />}
         </div>
-        {effectiveShowFooter || effectiveShowActions ? (
-          <div className="assistant-message-bubble__footer-row">
-            <div>
-              {effectiveShowFooter &&
-              footer &&
-              (footer.kind !== 'streaming' || shouldShowGeneratingLabel) ? (
-                <MessageMetaRow footer={footer} />
+        {(() => {
+          const hasFooterContent =
+            effectiveShowFooter &&
+            footer !== null &&
+            (footer.kind !== 'streaming' || shouldShowGeneratingLabel)
+          if (!hasFooterContent && !effectiveShowActions) return null
+          return (
+            <div className="assistant-message-bubble__footer-row">
+              <div>{hasFooterContent ? <MessageMetaRow footer={footer!} /> : null}</div>
+              {effectiveShowActions ? (
+                <MessageActionBar
+                  align="start"
+                  content={message.content}
+                  canRetry={canRetry}
+                  onRetry={isStreaming ? undefined : onRetry}
+                  onCreateBranch={onCreateBranch}
+                  onDelete={onDelete}
+                />
               ) : null}
             </div>
-            {effectiveShowActions ? (
-              <MessageActionBar
-                align="start"
-                content={message.content}
-                canRetry={canRetry}
-                onRetry={isStreaming ? undefined : onRetry}
-                onCreateBranch={onCreateBranch}
-                onDelete={onDelete}
-              />
-            ) : null}
-          </div>
-        ) : null}
+          )
+        })()}
       </div>
     </div>
   )
