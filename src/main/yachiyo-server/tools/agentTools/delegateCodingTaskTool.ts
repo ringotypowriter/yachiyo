@@ -156,14 +156,13 @@ async function runSubagent(
   }
 
   const agentLastMessage = lastMessageText.trim() || '(no output)'
-  const result = {
-    status: stopReason === 'cancelled' ? 'cancelled' : 'success',
-    agent_last_message: agentLastMessage,
-    system_instruction: SYSTEM_INSTRUCTION
-  }
+  const text =
+    stopReason === 'cancelled'
+      ? `Agent was cancelled before completing.\n\n${SYSTEM_INSTRUCTION}`
+      : `${agentLastMessage}\n\n${SYSTEM_INSTRUCTION}`
 
   return {
-    content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+    content: [{ type: 'text', text }],
     lastMessage: agentLastMessage
   }
 }

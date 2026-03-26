@@ -323,6 +323,9 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   const subagentActive = useAppStore((state) =>
     threadId ? (state.subagentActiveByThread[threadId] ?? false) : false
   )
+  const subagentStream = useAppStore((state) =>
+    threadId ? (state.subagentProgressByThread[threadId] ?? '') : ''
+  )
   const cancelRunForThread = useAppStore((state) => state.cancelRunForThread)
   const activeRequestMessageId = useAppStore((state) =>
     threadId ? (state.activeRequestMessageIdsByThread[threadId] ?? null) : null
@@ -532,6 +535,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
       {subagentActive && threadId ? (
         <SubagentRunningIndicator
           threadId={threadId}
+          stream={subagentStream}
           onCancel={() => void cancelRunForThread(threadId)}
         />
       ) : null}

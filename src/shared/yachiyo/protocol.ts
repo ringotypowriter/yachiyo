@@ -868,6 +868,11 @@ export interface SubagentFinishedEvent extends RunEvent {
   status: 'success' | 'cancelled'
 }
 
+export interface SubagentProgressEvent extends RunEvent {
+  type: 'subagent.progress'
+  chunk: string
+}
+
 export type YachiyoServerEvent =
   | ThreadCreatedEvent
   | ThreadUpdatedEvent
@@ -891,3 +896,4 @@ export type YachiyoServerEvent =
   | SettingsUpdatedEvent
   | SubagentStartedEvent
   | SubagentFinishedEvent
+  | SubagentProgressEvent

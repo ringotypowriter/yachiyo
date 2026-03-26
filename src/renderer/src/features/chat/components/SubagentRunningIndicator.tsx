@@ -1,16 +1,26 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type React from 'react'
 import { theme } from '@renderer/theme/theme'
 
 interface SubagentRunningIndicatorProps {
   threadId: string
+  stream: string
   onCancel: () => void
 }
 
 export function SubagentRunningIndicator({
+  stream,
   onCancel
 }: SubagentRunningIndicatorProps): React.JSX.Element {
   const [confirming, setConfirming] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (expanded && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [stream, expanded])
 
   function handleCancelClick(): void {
     setConfirming(true)
@@ -36,9 +46,19 @@ export function SubagentRunningIndicator({
             animation: 'yachiyo-generating-pulse 1s ease-in-out infinite'
           }}
         />
-        <span className="text-sm" style={{ color: theme.text.muted }}>
-          Agent is working...
-        </span>
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="text-sm"
+          style={{
+            color: theme.text.muted,
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: 0
+          }}
+        >
+          Agent is working{stream ? (expanded ? ' ▲' : ' ▼') : '...'}
+        </button>
 
         {confirming ? (
           <span className="flex items-center gap-2 ml-1">
@@ -82,6 +102,22 @@ export function SubagentRunningIndicator({
           </button>
         )}
       </div>
+
+      {expanded && stream ? (
+        <div
+          ref={scrollRef}
+          className="mt-1.5 rounded text-xs font-mono whitespace-pre-wrap overflow-y-auto"
+          style={{
+            maxHeight: '200px',
+            background: theme.background.surface,
+            border: `1px solid ${theme.border.contrast}`,
+            color: theme.text.secondary,
+            padding: '8px 10px'
+          }}
+        >
+          {stream}
+        </div>
+      ) : null}
     </div>
   )
 }

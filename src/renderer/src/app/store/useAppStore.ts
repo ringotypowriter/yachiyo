@@ -102,6 +102,7 @@ interface AppState {
   enabledTools: ToolCallName[]
   harnessEvents: Record<string, HarnessRecord[]>
   subagentActiveByThread: Record<string, boolean>
+  subagentProgressByThread: Record<string, string>
   initialized: boolean
   isBootstrapping: boolean
   lastError: string | null
@@ -733,6 +734,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
   harnessEvents: {},
   subagentActiveByThread: {},
+  subagentProgressByThread: {},
   initialized: false,
   isBootstrapping: false,
   lastError: null,
@@ -885,6 +887,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete toolCalls[event.threadId]
         const subagentActiveByThread = { ...state.subagentActiveByThread }
         delete subagentActiveByThread[event.threadId]
+        const subagentProgressByThread = { ...state.subagentProgressByThread }
+        delete subagentProgressByThread[event.threadId]
 
         const activeThreadId =
           state.activeThreadId === event.threadId ? (threads[0]?.id ?? null) : state.activeThreadId
@@ -910,6 +914,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           runPhasesByThread,
           runStatusesByThread,
           subagentActiveByThread,
+          subagentProgressByThread,
           toolCalls,
           threads
         }
@@ -1468,7 +1473,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       if (event.type === 'subagent.started') {
         return {
-          subagentActiveByThread: { ...state.subagentActiveByThread, [event.threadId]: true }
+          subagentActiveByThread: { ...state.subagentActiveByThread, [event.threadId]: true },
+          subagentProgressByThread: { ...state.subagentProgressByThread, [event.threadId]: '' }
+        }
+      }
+
+      if (event.type === 'subagent.progress') {
+        const prev = state.subagentProgressByThread[event.threadId] ?? ''
+        return {
+          subagentProgressByThread: {
+            ...state.subagentProgressByThread,
+            [event.threadId]: prev + event.chunk
+          }
         }
       }
 

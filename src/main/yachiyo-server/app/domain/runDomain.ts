@@ -20,6 +20,7 @@ import type {
   SendChatInput,
   SkillCatalogEntry,
   SettingsConfig,
+  SubagentProgressEvent,
   ThreadRecord,
   ThreadStateReplacedEvent,
   ThreadUpdatedEvent,
@@ -873,6 +874,14 @@ export class YachiyoServerRunDomain {
               currentRun.pendingSteerMessageId = userMessage.id
               currentRun.abortController.abort(toRestartRunReason(userMessage.id))
             },
+            onSubagentProgress: (chunk: string) => {
+              this.deps.emit<SubagentProgressEvent>({
+                type: 'subagent.progress',
+                threadId: input.thread.id,
+                runId: input.runId,
+                chunk
+              })
+            },
             onTerminalState: () => {
               this.activeRuns.delete(input.runId)
               this.activeRunByThread.delete(input.thread.id)
@@ -998,14 +1007,16 @@ export class YachiyoServerRunDomain {
         providerName: settings.providerName
       }
       const currentThread = this.deps.requireThread(input.thread.id)
-      const firstUserMessage =
+      const firstMeaningfulMessage =
         currentThread.title === DEFAULT_THREAD_TITLE
-          ? input.sourceMessages.find((m) => m.role === 'user')
+          ? input.sourceMessages.find((m) => m.role === 'user' || m.role === 'assistant')
           : undefined
-      const handoffFallbackTitle = firstUserMessage
+      const handoffFallbackTitle = firstMeaningfulMessage
         ? deriveThreadTitleFallback({
-            content: firstUserMessage.content,
-            ...(firstUserMessage.images ? { images: firstUserMessage.images } : {})
+            content: firstMeaningfulMessage.content,
+            ...('images' in firstMeaningfulMessage && firstMeaningfulMessage.images
+              ? { images: firstMeaningfulMessage.images }
+              : {})
           })
         : null
       const updatedThread: ThreadRecord = {
@@ -1042,10 +1053,10 @@ export class YachiyoServerRunDomain {
         runId: input.runId
       })
 
-      if (handoffFallbackTitle && firstUserMessage?.content) {
+      if (handoffFallbackTitle && firstMeaningfulMessage?.content) {
         this.scheduleThreadTitleGeneration({
           fallbackTitle: handoffFallbackTitle,
-          query: firstUserMessage.content,
+          query: firstMeaningfulMessage.content,
           runId: input.runId,
           threadId: input.thread.id
         })
