@@ -11,6 +11,8 @@ import type {
 } from '@agentclientprotocol/sdk'
 
 import type { SubagentProfile } from '../../../../shared/yachiyo/protocol.ts'
+import { readLoginShellEnvSync, mergeShellEnv } from '../../../userShellEnv.ts'
+import { filterJsonLines } from './spawnUtils.ts'
 
 const delegateCodingTaskInputSchema = z.object({
   agent_name: z.string().min(1),
@@ -62,20 +64,24 @@ async function runSubagent(
   let stopReason = 'end_turn'
 
   const shellCommand = [profile.command, ...profile.args].join(' ')
-  const proc = spawn('/bin/zsh', ['-lc', shellCommand], {
+  const shellEnv = readLoginShellEnvSync(process.env)
+  const spawnEnv = mergeShellEnv(mergeShellEnv(process.env, shellEnv), profile.env)
+  const shell = spawnEnv.SHELL || '/bin/zsh'
+  const proc = spawn(shell, ['-lc', shellCommand], {
     cwd: ctx.workspacePath,
-    env: { ...process.env, ...profile.env },
-    stdio: ['pipe', 'pipe', 'pipe']
+    env: spawnEnv,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    detached: true
   })
 
   const procExited = new Promise<void>((resolve) => {
-    proc.on('close', () => resolve())
+    proc.on('exit', () => resolve())
     proc.on('error', () => resolve())
   })
 
   const stdinStream = Writable.toWeb(proc.stdin) as unknown as WritableStream<Uint8Array>
   const stdoutStream = Readable.toWeb(proc.stdout) as unknown as ReadableStream<Uint8Array>
-  const stream = ndJsonStream(stdinStream, stdoutStream)
+  const stream = ndJsonStream(stdinStream, filterJsonLines(stdoutStream))
 
   // Forward stderr as progress lines
   proc.stderr.on('data', (chunk: Buffer) => {
@@ -117,11 +123,19 @@ async function runSubagent(
     sessionId = sessionResult.sessionId
 
     // Wire abort: send cancel to agent then kill
+    const killGroup = (): void => {
+      try {
+        process.kill(-proc.pid!, 'SIGKILL')
+      } catch {
+        proc.kill('SIGKILL')
+      }
+    }
+
     const onAbort = (): void => {
       if (sessionId) {
         connection.cancel({ sessionId }).catch(() => {})
       }
-      proc.kill('SIGKILL')
+      killGroup()
     }
     abortSignal?.addEventListener('abort', onAbort, { once: true })
 
@@ -133,7 +147,11 @@ async function runSubagent(
 
     abortSignal?.removeEventListener('abort', onAbort)
   } finally {
-    proc.kill('SIGKILL')
+    try {
+      process.kill(-proc.pid!, 'SIGKILL')
+    } catch {
+      proc.kill('SIGKILL')
+    }
     await procExited
   }
 

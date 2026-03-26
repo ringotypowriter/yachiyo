@@ -9,8 +9,10 @@ import type {
   SubagentProfile,
   TestSubagentProfileResult
 } from '../../../../shared/yachiyo/protocol.ts'
+import { readLoginShellEnvSync, mergeShellEnv } from '../../../userShellEnv.ts'
+import { filterJsonLines } from './spawnUtils.ts'
 
-const TEST_TIMEOUT_MS = 15_000
+const TEST_TIMEOUT_MS = 60_000
 
 export async function testSubagentProfile(
   profile: SubagentProfile
@@ -18,20 +20,27 @@ export async function testSubagentProfile(
   const cwd = homedir()
   const shellCommand = [profile.command, ...profile.args].join(' ')
 
-  const proc = spawn('/bin/zsh', ['-lc', shellCommand], {
+  const shellEnv = readLoginShellEnvSync(process.env)
+  const spawnEnv = mergeShellEnv(mergeShellEnv(process.env, shellEnv), profile.env)
+  const shell = spawnEnv.SHELL || '/bin/zsh'
+
+  const proc = spawn(shell, ['-lc', shellCommand], {
     cwd,
-    env: { ...process.env, ...profile.env },
-    stdio: ['pipe', 'pipe', 'pipe']
+    env: spawnEnv,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    detached: true
   })
 
+  proc.stderr.resume()
+
   const procExited = new Promise<void>((resolve) => {
-    proc.on('close', () => resolve())
+    proc.on('exit', () => resolve())
     proc.on('error', () => resolve())
   })
 
   const stdinStream = Writable.toWeb(proc.stdin) as unknown as WritableStream<Uint8Array>
   const stdoutStream = Readable.toWeb(proc.stdout) as unknown as ReadableStream<Uint8Array>
-  const stream = ndJsonStream(stdinStream, stdoutStream)
+  const stream = ndJsonStream(stdinStream, filterJsonLines(stdoutStream))
 
   const dummyClient = {
     requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -47,7 +56,7 @@ export async function testSubagentProfile(
   const connection = new ClientSideConnection(() => dummyClient, stream)
 
   const timeout = new Promise<TestSubagentProfileResult>((resolve) =>
-    setTimeout(() => resolve({ ok: false, error: 'Timed out after 15 seconds.' }), TEST_TIMEOUT_MS)
+    setTimeout(() => resolve({ ok: false, error: 'Timed out after 60 seconds.' }), TEST_TIMEOUT_MS)
   )
 
   const handshake = (async (): Promise<TestSubagentProfileResult> => {
@@ -62,7 +71,11 @@ export async function testSubagentProfile(
         error: err instanceof Error ? err.message : 'ACP handshake failed.'
       }
     } finally {
-      proc.kill('SIGKILL')
+      try {
+        process.kill(-proc.pid!, 'SIGKILL') // kill entire process group
+      } catch {
+        proc.kill('SIGKILL')
+      }
       await procExited
     }
   })()

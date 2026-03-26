@@ -312,7 +312,7 @@ export function createAgentToolSet(
       onSubagentStarted: dependencies.onSubagentStarted,
       onSubagentFinished: dependencies.onSubagentFinished
     }
-    tools.delegate_coding_task = createDelegateCodingTaskTool(subagentCtx)
+    tools.delegateCodingTask = createDelegateCodingTaskTool(subagentCtx)
   }
 
   return Object.keys(tools).length > 0 ? tools : undefined

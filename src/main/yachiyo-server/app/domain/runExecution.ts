@@ -338,14 +338,14 @@ function buildSubagentContextBlock(
     return [
       '<coding_agents>',
       '⚠️ CRITICAL: The current workspace is NOT a Git repository.',
-      'You CANNOT use the `delegate_coding_task` tool. If the user asks you to delegate a task, inform them that a Git repository must be initialized first to ensure safe YOLO execution.',
+      'You CANNOT use the `delegateCodingTask` tool. If the user asks you to delegate a task, inform them that a Git repository must be initialized first to ensure safe YOLO execution.',
       '</coding_agents>'
     ].join('\n')
   }
 
   const lines = [
     '<coding_agents>',
-    'You can delegate complex coding tasks to the following ACP-compatible agents using the `delegate_coding_task` tool.',
+    'You can delegate complex coding tasks to the following ACP-compatible agents using the `delegateCodingTask` tool.',
     `CRITICAL RULE 1: Agents MUST ONLY operate within the current thread workspace: ${workspacePath}.`,
     '',
     'Git Context:',
@@ -843,7 +843,7 @@ export async function executeServerRun(
                   runId: input.runId,
                   threadId: input.thread.id,
                   requestMessageId: input.requestMessageId,
-                  toolName: 'delegate_coding_task',
+                  toolName: 'delegateCodingTask',
                   status: 'running',
                   inputSummary: agentName,
                   startedAt: subagentStartedAt
@@ -882,7 +882,7 @@ export async function executeServerRun(
                       runId: input.runId,
                       threadId: input.thread.id,
                       requestMessageId: input.requestMessageId,
-                      toolName: 'delegate_coding_task',
+                      toolName: 'delegateCodingTask',
                       inputSummary: agentName,
                       startedAt: subagentStartedAt ?? finishedAt
                     }),

@@ -5,6 +5,11 @@ import type { SettingsConfig, SubagentProfile } from '../../../shared/yachiyo/pr
 import { SettingSwitch } from '../components/primitives'
 import { inputStyle, settingsPanelStyle } from '../components/styles'
 
+interface EnvEntry {
+  key: string
+  value: string
+}
+
 interface ProfileDraft {
   id: string
   name: string
@@ -12,7 +17,7 @@ interface ProfileDraft {
   description: string
   command: string
   argsString: string
-  envString: string
+  env: EnvEntry[]
 }
 
 interface TestState {
@@ -26,7 +31,7 @@ interface Preset {
   description: string
   command: string
   argsString: string
-  envString: string
+  env: EnvEntry[]
 }
 
 const PRESETS: Preset[] = [
@@ -37,7 +42,7 @@ const PRESETS: Preset[] = [
       'Anthropic Claude Code agent via ACP. Best for multi-file refactoring and deep reasoning.',
     command: 'npx',
     argsString: JSON.stringify(['-y', '@zed-industries/claude-agent-acp']),
-    envString: JSON.stringify({ ACP_PERMISSION_MODE: 'acceptEdits' })
+    env: [{ key: 'ACP_PERMISSION_MODE', value: 'acceptEdits' }]
   },
   {
     label: 'Codex',
@@ -45,7 +50,7 @@ const PRESETS: Preset[] = [
     description: 'OpenAI Codex agent via ACP. Excellent for code generation and explanation.',
     command: 'npx',
     argsString: JSON.stringify(['-y', '@zed-industries/codex-acp']),
-    envString: JSON.stringify({ OPENAI_API_KEY: '' })
+    env: [{ key: 'OPENAI_API_KEY', value: '' }]
   }
 ]
 
@@ -62,25 +67,22 @@ function toProfileDraft(p: SubagentProfile): ProfileDraft {
     description: p.description,
     command: p.command,
     argsString: JSON.stringify(p.args),
-    envString: JSON.stringify(p.env)
+    env: Object.entries(p.env).map(([key, value]) => ({ key, value }))
+  }
+}
+
+function parseArgs(s: string): string[] | null {
+  try {
+    const parsed = JSON.parse(s)
+    return Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
   }
 }
 
 function toProfile(d: ProfileDraft): SubagentProfile {
-  let args: string[] = []
-  let env: Record<string, string> = {}
-  try {
-    const parsed = JSON.parse(d.argsString)
-    if (Array.isArray(parsed)) args = parsed
-  } catch {
-    // keep []
-  }
-  try {
-    const parsed = JSON.parse(d.envString)
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) env = parsed
-  } catch {
-    // keep {}
-  }
+  const args = parseArgs(d.argsString) ?? []
+  const env = Object.fromEntries(d.env.filter((e) => e.key.trim()).map((e) => [e.key, e.value]))
   return {
     id: d.id,
     name: d.name.trim(),
@@ -150,7 +152,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
             description: preset.description,
             command: preset.command,
             argsString: preset.argsString,
-            envString: preset.envString
+            env: preset.env
           }
         : {
             id,
@@ -159,10 +161,36 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
             description: '',
             command: '',
             argsString: '[]',
-            envString: '{}'
+            env: []
           }
     ])
     setShowPresetMenu(false)
+  }
+
+  function updateEnvEntry(rowIndex: number, ei: number, field: 'key' | 'value', val: string): void {
+    setRows((prev) =>
+      prev.map((row, i) =>
+        i !== rowIndex
+          ? row
+          : { ...row, env: row.env.map((e, j) => (j === ei ? { ...e, [field]: val } : e)) }
+      )
+    )
+  }
+
+  function removeEnvEntry(rowIndex: number, ei: number): void {
+    setRows((prev) =>
+      prev.map((row, i) =>
+        i !== rowIndex ? row : { ...row, env: row.env.filter((_, j) => j !== ei) }
+      )
+    )
+  }
+
+  function addEnvEntry(rowIndex: number): void {
+    setRows((prev) =>
+      prev.map((row, i) =>
+        i !== rowIndex ? row : { ...row, env: [...row.env, { key: '', value: '' }] }
+      )
+    )
   }
 
   async function testRow(index: number): Promise<void> {
@@ -213,7 +241,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                   className="rounded px-1 py-0.5 text-xs font-mono"
                   style={{ background: theme.background.code }}
                 >
-                  delegate_coding_task
+                  delegateCodingTask
                 </code>{' '}
                 tool.
               </div>
@@ -313,37 +341,87 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                     />
 
                     {/* Row 3: command + args */}
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={row.command}
-                        placeholder="command"
-                        className="rounded-lg px-3 py-1.5 text-sm font-mono outline-none"
-                        style={{ ...inputStyle(), flexBasis: '120px', flexShrink: 0 }}
-                        onChange={(e) => updateRow(index, { command: e.target.value })}
-                        spellCheck={false}
-                      />
-                      <input
-                        type="text"
-                        value={row.argsString}
-                        placeholder='["-y", "@package"]'
-                        className="flex-1 rounded-lg px-3 py-1.5 text-sm font-mono outline-none"
-                        style={inputStyle()}
-                        onChange={(e) => updateRow(index, { argsString: e.target.value })}
-                        spellCheck={false}
-                      />
+                    <div className="space-y-1">
+                      <p className="text-xs px-1 font-medium" style={{ color: theme.text.muted }}>
+                        Command
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={row.command}
+                          placeholder="npx"
+                          className="rounded-lg px-3 py-1.5 text-sm font-mono outline-none"
+                          style={{ ...inputStyle(), flexBasis: '120px', flexShrink: 0 }}
+                          onChange={(e) => updateRow(index, { command: e.target.value })}
+                          spellCheck={false}
+                        />
+                        <input
+                          type="text"
+                          value={row.argsString}
+                          placeholder='["-y", "@package"]'
+                          className="flex-1 rounded-lg px-3 py-1.5 text-sm font-mono outline-none"
+                          style={{
+                            ...inputStyle(),
+                            ...(parseArgs(row.argsString) === null
+                              ? { outline: '1.5px solid #e05252' }
+                              : {})
+                          }}
+                          onChange={(e) => updateRow(index, { argsString: e.target.value })}
+                          spellCheck={false}
+                        />
+                      </div>
+                      {parseArgs(row.argsString) === null && (
+                        <p className="text-xs px-1" style={{ color: '#e05252' }}>
+                          {`Invalid JSON — expected an array like ["-y", "@pkg"]`}
+                        </p>
+                      )}
                     </div>
 
-                    {/* Row 4: env */}
-                    <input
-                      type="text"
-                      value={row.envString}
-                      placeholder='{"ENV_VAR": "value"}'
-                      className="w-full rounded-lg px-3 py-1.5 text-sm font-mono outline-none"
-                      style={inputStyle()}
-                      onChange={(e) => updateRow(index, { envString: e.target.value })}
-                      spellCheck={false}
-                    />
+                    {/* Row 4: env KV pairs */}
+                    <div className="space-y-1.5">
+                      <p className="text-xs px-1 font-medium" style={{ color: theme.text.muted }}>
+                        Environment
+                      </p>
+                      {row.env.map((entry, ei) => (
+                        <div key={ei} className="flex gap-2 items-center">
+                          <input
+                            type="text"
+                            value={entry.key}
+                            placeholder="KEY"
+                            className="rounded-lg px-3 py-1.5 text-sm font-mono outline-none"
+                            style={{ ...inputStyle(), flexBasis: '140px', flexShrink: 0 }}
+                            onChange={(e) => updateEnvEntry(index, ei, 'key', e.target.value)}
+                            spellCheck={false}
+                          />
+                          <input
+                            type="text"
+                            value={entry.value}
+                            placeholder="value"
+                            className="flex-1 rounded-lg px-3 py-1.5 text-sm font-mono outline-none"
+                            style={inputStyle()}
+                            onChange={(e) => updateEnvEntry(index, ei, 'value', e.target.value)}
+                            spellCheck={false}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeEnvEntry(index, ei)}
+                            className="p-1 rounded-lg opacity-40 hover:opacity-70 transition-opacity shrink-0"
+                            aria-label="Remove variable"
+                          >
+                            <Trash2 size={14} strokeWidth={1.6} color={theme.icon.muted} />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => addEnvEntry(index)}
+                        className="flex items-center gap-1 text-xs px-1 py-0.5 opacity-40 hover:opacity-70 transition-opacity"
+                        style={{ color: theme.text.secondary }}
+                      >
+                        <Plus size={11} strokeWidth={2} />
+                        Add variable
+                      </button>
+                    </div>
                   </div>
                 )
               })
