@@ -4534,7 +4534,7 @@ test('YachiyoServer compacts a thread into a new assistant-first thread and allo
       assert.equal(destinationMessages[0]?.role, 'assistant')
       assert.equal(destinationMessages[0]?.parentMessageId, undefined)
       assert.equal(destinationMessages[0]?.content, 'Visible handoff')
-      assert.equal(compacted.thread.title, persistedSourceThread?.title)
+      assert.notEqual(compacted.thread.title, persistedSourceThread?.title)
       assert.equal(
         bootstrap.threads.some((thread) => thread.id === compacted.thread.id),
         true

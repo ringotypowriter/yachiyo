@@ -1009,7 +1009,9 @@ export class YachiyoServerRunDomain {
       const currentThread = this.deps.requireThread(input.thread.id)
       const firstMeaningfulMessage =
         currentThread.title === DEFAULT_THREAD_TITLE
-          ? input.sourceMessages.find((m) => m.role === 'user' || m.role === 'assistant')
+          ? input.sourceMessages.find(
+              (m) => (m.role === 'user' || m.role === 'assistant') && m.content.trim()
+            )
           : undefined
       const handoffFallbackTitle = firstMeaningfulMessage
         ? deriveThreadTitleFallback({

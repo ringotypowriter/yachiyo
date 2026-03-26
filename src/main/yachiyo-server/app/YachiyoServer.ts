@@ -413,13 +413,6 @@ export class YachiyoServer {
         : { threadId: destinationThreadId }
     )
 
-    if (destinationThread.title !== sourceThread.title) {
-      destinationThread = this.threadDomain.renameThread({
-        threadId: destinationThread.id,
-        title: sourceThread.title
-      })
-    }
-
     return this.runDomain.compactThreadToAnotherThread({
       sourceThread,
       destinationThread

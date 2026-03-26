@@ -261,14 +261,14 @@ export class YachiyoServerThreadDomain {
     const messages = this.deps.loadThreadMessages(input.threadId)
 
     const query = messages
-      .filter((m) => m.role === 'user')
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
       .map((m) => m.content.trim())
       .filter(Boolean)
       .join('\n')
       .slice(0, 1000)
 
     if (!query) {
-      throw new Error('No user messages found to generate a title from.')
+      throw new Error('No messages found to generate a title from.')
     }
 
     const result = await this.deps.auxiliaryGeneration.generateText({
