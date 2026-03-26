@@ -1,0 +1,1 @@
+ALTER TABLE `threads` ADD `model_override` text;

@@ -5,6 +5,7 @@ import type {
   ThreadMemoryRecallState,
   MessageTextBlockRecord,
   RunRecord,
+  ThreadModelOverride,
   ThreadRecord,
   ThreadSearchResult,
   ToolCallDetailsSnapshot,
@@ -30,6 +31,7 @@ export interface StoredThreadRow {
   archivedAt: string | null
   starredAt: string | null
   privacyMode: string | null
+  modelOverride: string | null
   updatedAt: string
   createdAt: string
   headMessageId: string | null
@@ -169,6 +171,7 @@ export function toThreadRecord(
     | 'icon'
     | 'id'
     | 'memoryRecallState'
+    | 'modelOverride'
     | 'preview'
     | 'privacyMode'
     | 'queuedFollowUpEnabledTools'
@@ -182,6 +185,7 @@ export function toThreadRecord(
   const queuedFollowUpEnabledTools = parseEnabledTools(row.queuedFollowUpEnabledTools)
   const queuedFollowUpEnabledSkillNames = parseSkillNames(row.queuedFollowUpEnabledSkillNames)
   const memoryRecall = parseThreadMemoryRecallState(row.memoryRecallState)
+  const modelOverride = parseModelOverride(row.modelOverride)
 
   if (row.preview === null) {
     return {
@@ -192,6 +196,7 @@ export function toThreadRecord(
       ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
       ...(row.icon === null ? {} : { icon: row.icon }),
       ...(memoryRecall ? { memoryRecall } : {}),
+      ...(modelOverride ? { modelOverride } : {}),
       ...(row.privacyMode === '1' ? { privacyMode: true } : {}),
       ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
       ...(queuedFollowUpEnabledSkillNames ? { queuedFollowUpEnabledSkillNames } : {}),
@@ -213,6 +218,7 @@ export function toThreadRecord(
     ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
     ...(row.icon === null ? {} : { icon: row.icon }),
     ...(memoryRecall ? { memoryRecall } : {}),
+    ...(modelOverride ? { modelOverride } : {}),
     ...(row.privacyMode === '1' ? { privacyMode: true } : {}),
     ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
     ...(queuedFollowUpEnabledSkillNames ? { queuedFollowUpEnabledSkillNames } : {}),
@@ -224,6 +230,25 @@ export function toThreadRecord(
     preview: row.preview,
     title: row.title,
     updatedAt: row.updatedAt
+  }
+}
+
+export function serializeModelOverride(modelOverride?: ThreadModelOverride): string | null {
+  return modelOverride ? JSON.stringify(modelOverride) : null
+}
+
+export function parseModelOverride(value: string | null): ThreadModelOverride | undefined {
+  if (!value) return undefined
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>
+    if (typeof parsed.providerName === 'string' && typeof parsed.model === 'string') {
+      const providerName = parsed.providerName.trim()
+      const model = parsed.model.trim()
+      if (providerName && model) return { providerName, model }
+    }
+    return undefined
+  } catch {
+    return undefined
   }
 }
 

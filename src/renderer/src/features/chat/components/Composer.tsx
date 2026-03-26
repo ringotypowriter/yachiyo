@@ -1,5 +1,6 @@
 import type React from 'react'
 import { useRef, useCallback, useState, useEffect, useLayoutEffect, useMemo } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import {
   AlertCircle,
   ChevronDown,
@@ -17,6 +18,7 @@ import {
 import {
   DEFAULT_SETTINGS,
   EMPTY_COMPOSER_DRAFT,
+  getEffectiveModel,
   useAppStore,
   type ComposerFileDraft,
   type ComposerImageDraft
@@ -332,6 +334,7 @@ export function Composer({
   const connectionStatus = useAppStore((s) => s.connectionStatus)
   const availableSkills = useAppStore((s) => s.availableSkills)
   const settings = useAppStore((s) => s.settings ?? DEFAULT_SETTINGS)
+  const effectiveModel = useAppStore(useShallow(getEffectiveModel))
   const activeRunId = useAppStore((s) =>
     s.activeThreadId ? (s.activeRunIdsByThread[s.activeThreadId] ?? null) : null
   )
@@ -401,7 +404,7 @@ export function Composer({
   const canAddFiles = draftFiles.length < MAX_COMPOSER_FILES
   const hasActiveRun = activeRunId !== null
   const isModelSelectorLocked = runPhase === 'preparing' || runPhase === 'streaming'
-  const isConfigured = settings.apiKey.trim().length > 0 && settings.model.trim().length > 0
+  const isConfigured = settings.apiKey.trim().length > 0 && effectiveModel.model.trim().length > 0
 
   const defaultEnabledSkillNames = useMemo(
     () => config?.skills?.enabled ?? [],
@@ -1115,8 +1118,8 @@ export function Composer({
   )
 
   const providerLabel =
-    settings.providerName || (settings.provider === 'openai' ? 'OpenAI' : 'Anthropic')
-  const modelLabel = settings.model || 'Configure provider'
+    effectiveModel.providerName || (settings.provider === 'openai' ? 'OpenAI' : 'Anthropic')
+  const modelLabel = effectiveModel.model || 'Configure provider'
   const hasModels =
     config !== null && config.providers.some((provider) => provider.modelList.enabled.length > 0)
 
@@ -1615,8 +1618,8 @@ export function Composer({
           {modelSelectorOpen && config && !isModelSelectorLocked ? (
             <ModelSelectorPopup
               config={config}
-              currentProviderName={settings.providerName}
-              currentModel={settings.model}
+              currentProviderName={effectiveModel.providerName}
+              currentModel={effectiveModel.model}
               onSelect={(providerName, model) => void selectModel(providerName, model)}
               onClose={() => setModelSelectorOpen(false)}
             />

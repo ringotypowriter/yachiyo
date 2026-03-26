@@ -17,6 +17,7 @@ import {
   normalizeSettingsConfig,
   parseSettingsToml,
   stringifySettingsToml,
+  toEffectiveProviderSettings,
   toProviderSettings,
   toToolModelSettings
 } from './settingsStore.ts'
@@ -657,4 +658,170 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
       notifyCodingTaskFinished: true
     }
   )
+})
+
+const PROVIDER_WORK = {
+  id: 'provider-work',
+  name: 'work',
+  type: 'openai' as const,
+  apiKey: 'sk-work',
+  baseUrl: 'https://openrouter.example/v1',
+  project: '',
+  location: '',
+  serviceAccountEmail: '',
+  serviceAccountPrivateKey: '',
+  modelList: { enabled: ['gpt-5', 'gpt-4.1'], disabled: [] }
+}
+
+const PROVIDER_BACKUP = {
+  id: 'provider-backup',
+  name: 'backup',
+  type: 'anthropic' as const,
+  apiKey: 'sk-ant',
+  baseUrl: '',
+  project: '',
+  location: '',
+  serviceAccountEmail: '',
+  serviceAccountPrivateKey: '',
+  modelList: { enabled: ['claude-opus-4-6'], disabled: [] }
+}
+
+test('toProviderSettings uses explicit defaultModel when provider exists', () => {
+  const snapshot = toProviderSettings({
+    providers: [PROVIDER_WORK, PROVIDER_BACKUP],
+    defaultModel: { providerName: 'backup', model: 'claude-opus-4-6' }
+  })
+
+  assert.equal(snapshot.providerName, 'backup')
+  assert.equal(snapshot.provider, 'anthropic')
+  assert.equal(snapshot.model, 'claude-opus-4-6')
+})
+
+test('toProviderSettings falls back to first-provider auto-detection when defaultModel provider is missing', () => {
+  const snapshot = toProviderSettings({
+    providers: [PROVIDER_WORK, PROVIDER_BACKUP],
+    defaultModel: { providerName: 'nonexistent', model: 'some-model' }
+  })
+
+  assert.equal(snapshot.providerName, 'work')
+  assert.equal(snapshot.model, 'gpt-5')
+})
+
+test('toProviderSettings falls back to first-provider auto-detection when defaultModel is absent', () => {
+  const snapshot = toProviderSettings({
+    providers: [PROVIDER_WORK, PROVIDER_BACKUP]
+  })
+
+  assert.equal(snapshot.providerName, 'work')
+  assert.equal(snapshot.model, 'gpt-5')
+})
+
+test('toEffectiveProviderSettings uses thread override when present', () => {
+  const snapshot = toEffectiveProviderSettings(
+    {
+      providers: [PROVIDER_WORK, PROVIDER_BACKUP],
+      defaultModel: { providerName: 'backup', model: 'claude-opus-4-6' }
+    },
+    { providerName: 'work', model: 'gpt-4.1' }
+  )
+
+  assert.equal(snapshot.providerName, 'work')
+  assert.equal(snapshot.model, 'gpt-4.1')
+})
+
+test('toEffectiveProviderSettings falls back to defaultModel when no thread override', () => {
+  const snapshot = toEffectiveProviderSettings({
+    providers: [PROVIDER_WORK, PROVIDER_BACKUP],
+    defaultModel: { providerName: 'backup', model: 'claude-opus-4-6' }
+  })
+
+  assert.equal(snapshot.providerName, 'backup')
+  assert.equal(snapshot.model, 'claude-opus-4-6')
+})
+
+test('toEffectiveProviderSettings falls back to first-provider auto-detection when thread override provider is missing', () => {
+  const snapshot = toEffectiveProviderSettings(
+    {
+      providers: [PROVIDER_WORK, PROVIDER_BACKUP],
+      defaultModel: { providerName: 'backup', model: 'claude-opus-4-6' }
+    },
+    { providerName: 'nonexistent', model: 'ghost-model' }
+  )
+
+  assert.equal(snapshot.providerName, 'backup')
+  assert.equal(snapshot.model, 'claude-opus-4-6')
+})
+
+test('defaultModel round-trips through TOML serialization', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-defaultmodel-'))
+  const settingsPath = join(root, 'config.toml')
+  const store = createSettingsStore(settingsPath)
+
+  try {
+    store.write({
+      providers: [PROVIDER_WORK],
+      defaultModel: { providerName: 'work', model: 'gpt-4.1' }
+    })
+
+    const loaded = store.read()
+    assert.deepEqual(loaded.defaultModel, { providerName: 'work', model: 'gpt-4.1' })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('defaultModel is absent from normalized config when strings are empty', () => {
+  const config = normalizeSettingsConfig({
+    providers: [],
+    defaultModel: { providerName: '', model: '' }
+  })
+
+  assert.equal(config.defaultModel, undefined)
+})
+
+test('old TOML without [defaultModel] section loads without defaultModel', () => {
+  const toml = `enabledTools = ["read","bash"]
+
+[general]
+sidebarVisibility = "expanded"
+notifyRunCompleted = true
+notifyCodingTaskStarted = true
+notifyCodingTaskFinished = true
+
+[chat]
+activeRunEnterBehavior = "enter-steers"
+
+[workspace]
+savedPaths = []
+
+[skills]
+enabled = []
+
+[toolModel]
+mode = "disabled"
+providerId = ""
+providerName = ""
+model = ""
+
+[memory]
+enabled = false
+provider = "nowledge-mem"
+baseUrl = "http://127.0.0.1:14242"
+
+[webSearch]
+defaultProvider = "google-browser"
+
+[webSearch.browserSession]
+sourceBrowser = ""
+sourceProfileName = ""
+importedAt = ""
+lastImportError = ""
+
+[webSearch.exa]
+apiKey = ""
+baseUrl = ""
+`
+
+  const config = parseSettingsToml(toml)
+  assert.equal(config.defaultModel, undefined)
 })

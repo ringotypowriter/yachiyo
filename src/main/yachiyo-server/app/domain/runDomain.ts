@@ -45,6 +45,7 @@ import type { ModelRuntime } from '../../runtime/types.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 import { assertSupportedImages, resolveEnabledTools } from './configDomain.ts'
+import { toEffectiveProviderSettings } from '../../settings/settingsStore.ts'
 import { executeServerRun, type RestartRunReason, type ExecuteRunResult } from './runExecution.ts'
 import {
   buildThreadTitleGenerationMessages,
@@ -832,7 +833,11 @@ export class YachiyoServerRunDomain {
             readUserDocument: this.deps.readUserDocument,
             readThread: this.deps.requireThread,
             readConfig: this.deps.readConfig,
-            readSettings: this.deps.readSettings,
+            readSettings: () =>
+              toEffectiveProviderSettings(
+                this.deps.readConfig(),
+                this.deps.requireThread(currentThread.id).modelOverride
+              ),
             loadThreadMessages: this.deps.loadThreadMessages,
             loadThreadToolCalls: this.deps.loadThreadToolCalls,
             listSkills: this.deps.listSkills,

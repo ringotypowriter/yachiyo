@@ -13,6 +13,7 @@ import type {
   SendChatInput,
   TestMemoryConnectionInput,
   TestSubagentProfileInput,
+  ThreadModelOverride,
   ToolPreferencesInput,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
@@ -65,6 +66,7 @@ const IPC_CHANNELS = {
   updateThreadWorkspace: 'yachiyo:update-thread-workspace',
   upsertProvider: 'yachiyo:upsert-provider',
   setThreadPrivacyMode: 'yachiyo:set-thread-privacy-mode',
+  setThreadModelOverride: 'yachiyo:set-thread-model-override',
   regenerateThreadTitle: 'yachiyo:regenerate-thread-title',
   starThread: 'yachiyo:star-thread',
   readClipboardFilePaths: 'yachiyo:read-clipboard-file-paths'
@@ -238,6 +240,11 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handle(IPC_CHANNELS.setThreadPrivacyMode, (input: { threadId: string; enabled: boolean }) =>
     server!.setThreadPrivacyMode(input)
+  )
+  handle(
+    IPC_CHANNELS.setThreadModelOverride,
+    (input: { threadId: string; modelOverride: ThreadModelOverride | null }) =>
+      server!.setThreadModelOverride(input)
   )
   handle(IPC_CHANNELS.regenerateThreadTitle, (input: { threadId: string }) =>
     server!.regenerateThreadTitle(input)

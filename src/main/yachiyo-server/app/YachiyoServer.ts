@@ -23,6 +23,7 @@ import type {
   TestMemoryConnectionResult,
   TestSubagentProfileInput,
   TestSubagentProfileResult,
+  ThreadModelOverride,
   ThreadRecord,
   ThreadSearchResult,
   ThreadSnapshot,
@@ -457,6 +458,13 @@ export class YachiyoServer {
 
   async setThreadPrivacyMode(input: { threadId: string; enabled: boolean }): Promise<ThreadRecord> {
     return this.threadDomain.setThreadPrivacyMode(input)
+  }
+
+  async setThreadModelOverride(input: {
+    threadId: string
+    modelOverride: ThreadModelOverride | null
+  }): Promise<ThreadRecord> {
+    return this.threadDomain.setThreadModelOverride(input)
   }
 
   async archiveThread(input: { threadId: string }): Promise<void> {

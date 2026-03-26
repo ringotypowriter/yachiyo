@@ -7,6 +7,7 @@ import {
   groupLatestRunsByThread,
   groupToolCallsByThread,
   groupMessagesByThread,
+  serializeModelOverride,
   serializeThreadMemoryRecallState,
   serializeToolCallDetails,
   toRunRecord,
@@ -64,6 +65,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       ? JSON.stringify(nextThread.queuedFollowUpEnabledSkillNames)
       : null
     storedThread.queuedFollowUpMessageId = nextThread.queuedFollowUpMessageId ?? null
+    storedThread.modelOverride = serializeModelOverride(nextThread.modelOverride)
     storedThread.starredAt = nextThread.starredAt ?? null
     storedThread.title = nextThread.title
     storedThread.updatedAt = nextThread.updatedAt
@@ -158,6 +160,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         icon: thread.icon ?? null,
         title: thread.title,
         memoryRecallState: serializeThreadMemoryRecallState(thread.memoryRecall),
+        modelOverride: serializeModelOverride(thread.modelOverride),
         workspacePath: thread.workspacePath ?? null,
         preview: thread.preview ?? null,
         branchFromThreadId: thread.branchFromThreadId ?? null,

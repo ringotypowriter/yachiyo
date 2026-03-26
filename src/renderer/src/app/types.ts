@@ -22,6 +22,7 @@ export type {
   SidebarVisibility,
   SkillCatalogEntry,
   SettingsConfig,
+  ThreadModelOverride,
   ThreadRecord as Thread,
   ToolCallName,
   ToolCallRecord as ToolCall,

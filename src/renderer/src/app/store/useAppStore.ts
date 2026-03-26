@@ -158,6 +158,7 @@ interface AppState {
   createNewThread: () => Promise<void>
   initialize: () => Promise<void>
   selectModel: (providerName: string, model: string) => Promise<void>
+  clearThreadModelOverride: (threadId: string) => Promise<void>
   sendMessage: (mode?: SendChatMode) => Promise<void>
   setEnabledTools: (enabledTools: ToolCallName[]) => Promise<void>
   scrollToMessageId: string | null
@@ -180,6 +181,27 @@ export const DEFAULT_SETTINGS: ProviderSettings = {
   model: '',
   apiKey: '',
   baseUrl: ''
+}
+
+export function getEffectiveModel(
+  state: Pick<AppState, 'activeThreadId' | 'threads' | 'settings'>
+): { providerName: string; model: string } {
+  const thread = state.activeThreadId
+    ? state.threads.find((t) => t.id === state.activeThreadId)
+    : undefined
+  const override = thread?.modelOverride
+  if (override) return override
+  return { providerName: state.settings.providerName, model: state.settings.model }
+}
+
+export function getThreadEffectiveModel(
+  state: Pick<AppState, 'threads' | 'settings'>,
+  threadId: string | null
+): { providerName: string; model: string } {
+  const thread = threadId ? state.threads.find((t) => t.id === threadId) : undefined
+  const override = thread?.modelOverride
+  if (override) return override
+  return { providerName: state.settings.providerName, model: state.settings.model }
 }
 
 function areEnabledToolsEqual(left: ToolCallName[], right: ToolCallName[]): boolean {
@@ -854,7 +876,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         const lastAssistantMessage = [...threadMessages]
           .reverse()
           .find((m) => m.role === 'assistant')
-        const preview = lastAssistantMessage?.content.trim().slice(0, 60) ?? 'Run completed'
+        const lastTextBlock = lastAssistantMessage?.textBlocks?.at(-1)
+        const preview =
+          lastTextBlock?.content.trim().slice(0, 60) ??
+          lastAssistantMessage?.content.trim().slice(0, 60) ??
+          'Run completed'
         notifyIfUnfocused(`run.completed:${event.runId}`, thread?.title ?? 'Yachiyo', preview)
       }
     }
@@ -1827,7 +1853,23 @@ export const useAppStore = create<AppState>((set, get) => ({
       return
     }
 
-    await window.api.yachiyo.saveSettings({ providerName, model })
+    if (state.activeThreadId) {
+      const updatedThread = await window.api.yachiyo.setThreadModelOverride({
+        threadId: state.activeThreadId,
+        modelOverride: { providerName, model }
+      })
+      set((s) => ({ threads: upsertThread(s.threads, updatedThread) }))
+    } else {
+      await window.api.yachiyo.saveSettings({ providerName, model })
+    }
+  },
+
+  clearThreadModelOverride: async (threadId) => {
+    const updatedThread = await window.api.yachiyo.setThreadModelOverride({
+      threadId,
+      modelOverride: null
+    })
+    set((s) => ({ threads: upsertThread(s.threads, updatedThread) }))
   },
 
   sendMessage: async (mode = 'normal') => {

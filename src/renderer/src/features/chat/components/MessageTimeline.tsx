@@ -309,7 +309,7 @@ export function ThreadConversationGroup({
       activeAssistantTextBlocks.length > 0 &&
       activeBranch.message.status !== 'streaming' &&
       !subagentActive ? (
-        <div className="px-6 py-1">
+        <div className="message-bubble-group px-6 py-1">
           <MessageActionBar
             align="start"
             content={activeBranch.message.content}

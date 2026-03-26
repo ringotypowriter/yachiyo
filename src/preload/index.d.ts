@@ -20,6 +20,7 @@ import type {
   TestMemoryConnectionResult,
   TestSubagentProfileInput,
   TestSubagentProfileResult,
+  ThreadModelOverride,
   ThreadSearchResult,
   UserDocument,
   ThreadSnapshot,
@@ -88,6 +89,10 @@ declare global {
         setThreadPrivacyMode: (input: {
           threadId: string
           enabled: boolean
+        }) => Promise<ThreadRecord>
+        setThreadModelOverride: (input: {
+          threadId: string
+          modelOverride: ThreadModelOverride | null
         }) => Promise<ThreadRecord>
         regenerateThreadTitle: (input: { threadId: string }) => Promise<ThreadRecord>
         starThread: (input: { threadId: string; starred: boolean }) => Promise<ThreadRecord>

@@ -14,6 +14,7 @@ import type {
   SendChatInput,
   TestMemoryConnectionInput,
   TestSubagentProfileInput,
+  ThreadModelOverride,
   ThreadRecord,
   ThreadSearchResult,
   UserDocument,
@@ -90,6 +91,10 @@ const api = {
       ipcRenderer.invoke('yachiyo:import-web-search-browser-session', input),
     setThreadPrivacyMode: (input: { threadId: string; enabled: boolean }): Promise<ThreadRecord> =>
       ipcRenderer.invoke('yachiyo:set-thread-privacy-mode', input),
+    setThreadModelOverride: (input: {
+      threadId: string
+      modelOverride: ThreadModelOverride | null
+    }): Promise<ThreadRecord> => ipcRenderer.invoke('yachiyo:set-thread-model-override', input),
     regenerateThreadTitle: (input: { threadId: string }): Promise<ThreadRecord> =>
       ipcRenderer.invoke('yachiyo:regenerate-thread-title', input),
     starThread: (input: { threadId: string; starred: boolean }): Promise<ThreadRecord> =>

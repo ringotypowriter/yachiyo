@@ -25,6 +25,7 @@ import {
   type SkillsConfig,
   type SettingsConfig,
   type SubagentProfile,
+  type ThreadModelOverride,
   type ToolModelConfig,
   type WebSearchConfig,
   type WebSearchProviderId,
@@ -230,6 +231,14 @@ function normalizeProviderConfig(value: unknown, fallback?: ProviderConfig): Pro
   })
 }
 
+function normalizeDefaultModel(value: unknown): ThreadModelOverride | undefined {
+  const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  const providerName = normalizeString(input['providerName'], '')
+  const model = normalizeString(input['model'], '')
+  if (!providerName || !model) return undefined
+  return { providerName, model }
+}
+
 function normalizeToolModelConfig(
   value: unknown,
   fallback: ToolModelConfig = DEFAULT_SETTINGS_CONFIG.toolModel ?? {}
@@ -401,7 +410,10 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
       })
     : DEFAULT_SETTINGS_CONFIG.subagentProfiles
 
+  const defaultModel = normalizeDefaultModel(input['defaultModel'])
+
   return {
+    ...(defaultModel ? { defaultModel } : {}),
     enabledTools: normalizeUserEnabledTools(
       input['enabledTools'],
       DEFAULT_SETTINGS_CONFIG.enabledTools
@@ -489,6 +501,7 @@ export function parseSettingsToml(raw: string): SettingsConfig {
     | 'workspace'
     | 'skills'
     | 'toolModel'
+    | 'defaultModel'
     | 'memory'
     | 'webSearch'
     | 'webSearch.browserSession'
@@ -517,6 +530,12 @@ export function parseSettingsToml(raw: string): SettingsConfig {
     if (line === '[toolModel]') {
       root['toolModel'] = root['toolModel'] ?? {}
       section = 'toolModel'
+      continue
+    }
+
+    if (line === '[defaultModel]') {
+      root['defaultModel'] = root['defaultModel'] ?? {}
+      section = 'defaultModel'
       continue
     }
 
@@ -652,6 +671,20 @@ export function parseSettingsToml(raw: string): SettingsConfig {
       }
 
       toolModel[key] = value
+      continue
+    }
+
+    if (section === 'defaultModel') {
+      const defaultModel =
+        root['defaultModel'] && typeof root['defaultModel'] === 'object'
+          ? (root['defaultModel'] as Record<string, unknown>)
+          : null
+
+      if (!defaultModel) {
+        throw new Error(`Default model settings are not initialized for ${key}.`)
+      }
+
+      defaultModel[key] = value
       continue
     }
 
@@ -830,6 +863,10 @@ export function stringifySettingsToml(config: SettingsConfig): string {
     `providerName = ${stringifyTomlString(toolModel.providerName ?? '')}`,
     `model = ${stringifyTomlString(toolModel.model ?? '')}`,
     '',
+    '[defaultModel]',
+    `providerName = ${stringifyTomlString(normalized.defaultModel?.providerName ?? '')}`,
+    `model = ${stringifyTomlString(normalized.defaultModel?.model ?? '')}`,
+    '',
     '[memory]',
     `enabled = ${memory.enabled ? 'true' : 'false'}`,
     `provider = ${stringifyTomlString(memory.provider ?? DEFAULT_MEMORY_PROVIDER)}`,
@@ -901,23 +938,46 @@ export function stringifySettingsToml(config: SettingsConfig): string {
   return `${lines.join('\n').trim()}\n`
 }
 
+export function toEffectiveProviderSettings(
+  config: SettingsConfig,
+  modelOverride?: ThreadModelOverride
+): ProviderSettings {
+  if (!modelOverride) {
+    return toProviderSettings(config)
+  }
+
+  const provider = config.providers.find((p) => p.name === modelOverride.providerName)
+  if (!provider) {
+    return toProviderSettings(config)
+  }
+
+  return toResolvedProviderSettings(provider, modelOverride.model) ?? toProviderSettings(config)
+}
+
 export function toProviderSettings(config: SettingsConfig): ProviderSettings {
+  const empty: ProviderSettings = {
+    providerName: '',
+    provider: 'anthropic',
+    model: '',
+    apiKey: '',
+    baseUrl: '',
+    project: '',
+    location: '',
+    serviceAccountEmail: '',
+    serviceAccountPrivateKey: ''
+  }
+
+  const { defaultModel } = config
+  if (defaultModel?.providerName && defaultModel?.model) {
+    const provider = config.providers.find((p) => p.name === defaultModel.providerName)
+    if (provider) {
+      return toResolvedProviderSettings(provider, defaultModel.model) ?? empty
+    }
+  }
+
   const provider = resolvePrimaryProvider(config)
   const model = resolvePrimaryModel(provider)
-
-  return (
-    toResolvedProviderSettings(provider, model) ?? {
-      providerName: '',
-      provider: 'anthropic',
-      model: '',
-      apiKey: '',
-      baseUrl: '',
-      project: '',
-      location: '',
-      serviceAccountEmail: '',
-      serviceAccountPrivateKey: ''
-    }
-  )
+  return toResolvedProviderSettings(provider, model) ?? empty
 }
 
 export function toToolModelSettings(config: SettingsConfig): ProviderSettings | null {

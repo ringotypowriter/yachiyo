@@ -18,6 +18,7 @@ export const threadsTable = sqliteTable('threads', {
   archivedAt: text('archived_at'),
   starredAt: text('starred_at'),
   privacyMode: text('privacy_mode'),
+  modelOverride: text('model_override'),
   updatedAt: text('updated_at').notNull(),
   createdAt: text('created_at').notNull()
 })

@@ -8,6 +8,7 @@ import type {
   ThreadArchivedEvent,
   ThreadCreatedEvent,
   ThreadDeletedEvent,
+  ThreadModelOverride,
   ThreadRecord,
   ThreadRestoredEvent,
   ThreadSnapshot,
@@ -644,6 +645,29 @@ export class YachiyoServerThreadDomain {
       delete updatedThread.privacyMode
     }
 
+    this.deps.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: updatedThread.id,
+      thread: updatedThread
+    })
+
+    return updatedThread
+  }
+
+  setThreadModelOverride(input: {
+    threadId: string
+    modelOverride: ThreadModelOverride | null
+  }): ThreadRecord {
+    const thread = this.deps.requireThread(input.threadId)
+    const updatedThread: ThreadRecord = {
+      ...thread,
+      ...(input.modelOverride ? { modelOverride: input.modelOverride } : {})
+    }
+    if (!input.modelOverride) {
+      delete updatedThread.modelOverride
+    }
+
+    this.deps.storage.updateThread(updatedThread)
     this.deps.emit<ThreadUpdatedEvent>({
       type: 'thread.updated',
       threadId: updatedThread.id,

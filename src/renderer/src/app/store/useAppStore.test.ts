@@ -2,7 +2,12 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { DEFAULT_ENABLED_TOOL_NAMES } from '../../../../shared/yachiyo/protocol.ts'
-import { DEFAULT_SETTINGS, useAppStore } from './useAppStore.ts'
+import {
+  DEFAULT_SETTINGS,
+  getEffectiveModel,
+  getThreadEffectiveModel,
+  useAppStore
+} from './useAppStore.ts'
 
 const TIMESTAMP = '2026-03-15T00:00:00.000Z'
 const READY_SETTINGS = {
@@ -795,25 +800,24 @@ test('applyServerEvent starts a new assistant text block after a tool update', (
 test('selectModel ignores changes while a run is active', async () => {
   resetStore()
 
-  const calls: Array<{ providerName: string; model: string }> = []
+  // Use a thread override path (active thread) to verify the guard applies regardless of route
+  const overrideCalls: Array<{ providerName: string; model: string }> = []
   const restoreWindow = withWindowApiMock({
-    saveSettings: async (input) => {
-      calls.push({
-        providerName: input.providerName ?? '',
-        model: input.model ?? ''
-      })
-
-      return {
-        ...DEFAULT_SETTINGS,
-        providerName: input.providerName ?? '',
-        model: input.model ?? ''
+    setThreadModelOverride: async (input) => {
+      if (input.modelOverride) {
+        overrideCalls.push({
+          providerName: input.modelOverride.providerName,
+          model: input.modelOverride.model
+        })
       }
+      return { id: input.threadId, title: 'Thread', updatedAt: TIMESTAMP }
     }
   })
 
   try {
     useAppStore.setState({
       activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', title: 'Thread', updatedAt: TIMESTAMP }],
       runPhase: 'preparing',
       runPhasesByThread: {
         'thread-1': 'preparing'
@@ -825,7 +829,7 @@ test('selectModel ignores changes while a run is active', async () => {
     })
 
     await useAppStore.getState().selectModel('work', 'gpt-5')
-    assert.equal(calls.length, 0)
+    assert.equal(overrideCalls.length, 0)
 
     useAppStore.setState({
       runPhase: 'idle',
@@ -839,7 +843,7 @@ test('selectModel ignores changes while a run is active', async () => {
     })
 
     await useAppStore.getState().selectModel('work', 'gpt-5')
-    assert.deepEqual(calls, [{ providerName: 'work', model: 'gpt-5' }])
+    assert.deepEqual(overrideCalls, [{ providerName: 'work', model: 'gpt-5' }])
   } finally {
     restoreWindow()
   }
@@ -1833,4 +1837,142 @@ test('upsertComposerImage ignores late async updates after the placeholder was r
 
   state = useAppStore.getState()
   assert.deepEqual(state.composerDrafts, {})
+})
+
+test('getEffectiveModel returns thread override when present', () => {
+  const state = {
+    activeThreadId: 'thread-1',
+    threads: [
+      {
+        id: 'thread-1',
+        title: 'Thread one',
+        updatedAt: TIMESTAMP,
+        modelOverride: { providerName: 'work', model: 'gpt-5' }
+      }
+    ],
+    settings: { ...DEFAULT_SETTINGS, providerName: 'backup', model: 'claude-opus-4-6' }
+  }
+
+  assert.deepEqual(getEffectiveModel(state), { providerName: 'work', model: 'gpt-5' })
+})
+
+test('getEffectiveModel falls back to settings when thread has no override', () => {
+  const state = {
+    activeThreadId: 'thread-1',
+    threads: [{ id: 'thread-1', title: 'Thread one', updatedAt: TIMESTAMP }],
+    settings: { ...DEFAULT_SETTINGS, providerName: 'backup', model: 'claude-opus-4-6' }
+  }
+
+  assert.deepEqual(getEffectiveModel(state), { providerName: 'backup', model: 'claude-opus-4-6' })
+})
+
+test('getEffectiveModel falls back to settings when no active thread', () => {
+  const state = {
+    activeThreadId: null,
+    threads: [],
+    settings: { ...DEFAULT_SETTINGS, providerName: 'work', model: 'gpt-5' }
+  }
+
+  assert.deepEqual(getEffectiveModel(state), { providerName: 'work', model: 'gpt-5' })
+})
+
+test('getThreadEffectiveModel uses thread override by thread id', () => {
+  const state = {
+    threads: [
+      {
+        id: 'thread-a',
+        title: 'Thread A',
+        updatedAt: TIMESTAMP,
+        modelOverride: { providerName: 'work', model: 'gpt-4.1' }
+      },
+      {
+        id: 'thread-b',
+        title: 'Thread B',
+        updatedAt: TIMESTAMP
+      }
+    ],
+    settings: { ...DEFAULT_SETTINGS, providerName: 'backup', model: 'claude-opus-4-6' }
+  }
+
+  assert.deepEqual(getThreadEffectiveModel(state, 'thread-a'), {
+    providerName: 'work',
+    model: 'gpt-4.1'
+  })
+  assert.deepEqual(getThreadEffectiveModel(state, 'thread-b'), {
+    providerName: 'backup',
+    model: 'claude-opus-4-6'
+  })
+})
+
+test('selectModel sets thread override when active thread exists', async () => {
+  resetStore()
+
+  const overrideCalls: Array<{ threadId: string; providerName: string; model: string }> = []
+  const restoreWindow = withWindowApiMock({
+    setThreadModelOverride: async (input) => {
+      if (input.modelOverride) {
+        overrideCalls.push({
+          threadId: input.threadId,
+          providerName: input.modelOverride.providerName,
+          model: input.modelOverride.model
+        })
+      }
+      return {
+        id: input.threadId,
+        title: 'Thread',
+        updatedAt: TIMESTAMP,
+        modelOverride: input.modelOverride ?? undefined
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', title: 'Thread', updatedAt: TIMESTAMP }]
+    })
+
+    await useAppStore.getState().selectModel('work', 'gpt-5')
+
+    assert.deepEqual(overrideCalls, [
+      { threadId: 'thread-1', providerName: 'work', model: 'gpt-5' }
+    ])
+    const thread = useAppStore.getState().threads.find((t) => t.id === 'thread-1')
+    assert.deepEqual(thread?.modelOverride, { providerName: 'work', model: 'gpt-5' })
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('clearThreadModelOverride removes thread model override', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    setThreadModelOverride: async (input) => ({
+      id: input.threadId,
+      title: 'Thread',
+      updatedAt: TIMESTAMP
+    })
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Thread',
+          updatedAt: TIMESTAMP,
+          modelOverride: { providerName: 'work', model: 'gpt-5' }
+        }
+      ]
+    })
+
+    await useAppStore.getState().clearThreadModelOverride('thread-1')
+
+    const thread = useAppStore.getState().threads.find((t) => t.id === 'thread-1')
+    assert.equal(thread?.modelOverride, undefined)
+  } finally {
+    restoreWindow()
+  }
 })

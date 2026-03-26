@@ -314,6 +314,11 @@ export interface MessageTextBlockRecord {
   createdAt: string
 }
 
+export interface ThreadModelOverride {
+  providerName: string
+  model: string
+}
+
 export interface ThreadRecord {
   archivedAt?: string
   starredAt?: string
@@ -331,6 +336,7 @@ export interface ThreadRecord {
   branchFromThreadId?: string
   branchFromMessageId?: string
   privacyMode?: boolean
+  modelOverride?: ThreadModelOverride
 }
 
 export interface MessageRecord {
@@ -553,6 +559,7 @@ export function normalizeUserPrompts(value: unknown): UserPrompt[] {
 
 export interface SettingsConfig {
   providers: ProviderConfig[]
+  defaultModel?: ThreadModelOverride
   enabledTools?: ToolCallName[]
   general?: GeneralConfig
   chat?: ChatConfig
