@@ -998,10 +998,21 @@ export class YachiyoServerRunDomain {
         providerName: settings.providerName
       }
       const currentThread = this.deps.requireThread(input.thread.id)
+      const firstUserMessage =
+        currentThread.title === DEFAULT_THREAD_TITLE
+          ? input.sourceMessages.find((m) => m.role === 'user')
+          : undefined
+      const handoffFallbackTitle = firstUserMessage
+        ? deriveThreadTitleFallback({
+            content: firstUserMessage.content,
+            ...(firstUserMessage.images ? { images: firstUserMessage.images } : {})
+          })
+        : null
       const updatedThread: ThreadRecord = {
         ...currentThread,
         headMessageId: assistantMessage.id,
         preview: assistantMessage.content.slice(0, 240),
+        ...(handoffFallbackTitle ? { title: handoffFallbackTitle } : {}),
         updatedAt: timestamp
       }
 
@@ -1030,6 +1041,15 @@ export class YachiyoServerRunDomain {
         threadId: input.thread.id,
         runId: input.runId
       })
+
+      if (handoffFallbackTitle && firstUserMessage?.content) {
+        this.scheduleThreadTitleGeneration({
+          fallbackTitle: handoffFallbackTitle,
+          query: firstUserMessage.content,
+          runId: input.runId,
+          threadId: input.thread.id
+        })
+      }
     } catch (error) {
       const timestamp = this.deps.timestamp()
       const message = error instanceof Error ? error.message : String(error)
