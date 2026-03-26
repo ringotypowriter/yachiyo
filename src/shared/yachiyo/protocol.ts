@@ -394,6 +394,9 @@ export interface GeneralConfig {
   sidebarVisibility?: SidebarVisibility
   uiFontSize?: number
   chatFontSize?: number
+  notifyRunCompleted?: boolean
+  notifyCodingTaskStarted?: boolean
+  notifyCodingTaskFinished?: boolean
 }
 
 export interface UserDocument {

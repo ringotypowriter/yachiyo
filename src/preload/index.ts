@@ -97,6 +97,8 @@ const api = {
     readClipboardFilePaths: (): Promise<
       { filename: string; mediaType: string; dataUrl: string }[]
     > => ipcRenderer.invoke('yachiyo:read-clipboard-file-paths'),
+    showNotification: (input: { title: string; body?: string }): void =>
+      ipcRenderer.send('yachiyo:show-notification', input),
     subscribe: (listener: (event: YachiyoServerEvent) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, payload: YachiyoServerEvent): void => {
         listener(payload)

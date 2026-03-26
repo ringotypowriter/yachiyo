@@ -404,7 +404,7 @@ export class YachiyoServer {
       await this.cloneThreadWorkspace(sourceThread.id, destinationThreadId)
     }
 
-    let destinationThread = await this.threadDomain.createThread(
+    const destinationThread = await this.threadDomain.createThread(
       sourceThread.workspacePath
         ? {
             threadId: destinationThreadId,

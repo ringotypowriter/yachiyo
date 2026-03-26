@@ -30,7 +30,10 @@ test('settings store persists multi-provider config as TOML', async () => {
     const config: Parameters<typeof store.write>[0] = {
       enabledTools: ['read', 'bash'],
       general: {
-        sidebarVisibility: 'collapsed'
+        sidebarVisibility: 'collapsed',
+        notifyRunCompleted: true,
+        notifyCodingTaskStarted: true,
+        notifyCodingTaskFinished: true
       },
       chat: {
         activeRunEnterBehavior: 'enter-queues-follow-up'
@@ -634,7 +637,10 @@ test('toToolModelSettings resolves providers by providerId when the name changes
 
 test('normalizeSettingsConfig falls back to the default sidebar visibility', () => {
   assert.deepEqual(normalizeSettingsConfig({ providers: [] }).general, {
-    sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY
+    sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
+    notifyRunCompleted: true,
+    notifyCodingTaskStarted: true,
+    notifyCodingTaskFinished: true
   })
 
   assert.deepEqual(
@@ -645,7 +651,10 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
       providers: []
     }).general,
     {
-      sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY
+      sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
+      notifyRunCompleted: true,
+      notifyCodingTaskStarted: true,
+      notifyCodingTaskFinished: true
     }
   )
 })

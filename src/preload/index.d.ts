@@ -94,6 +94,7 @@ declare global {
         readClipboardFilePaths: () => Promise<
           { filename: string; mediaType: string; dataUrl: string }[]
         >
+        showNotification: (input: { title: string; body?: string }) => void
         subscribe: (listener: (event: YachiyoServerEvent) => void) => () => void
       }
     }

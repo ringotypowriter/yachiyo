@@ -81,6 +81,26 @@ export const EMPTY_COMPOSER_DRAFT: ComposerDraft = {
   enabledSkillNames: null
 }
 
+const NOTIFICATION_DEDUPE_WINDOW_MS = 10_000
+const recentNotificationKeys = new Map<string, number>()
+
+function shouldShowNotification(key: string): boolean {
+  const now = Date.now()
+
+  for (const [existingKey, timestamp] of recentNotificationKeys) {
+    if (now - timestamp >= NOTIFICATION_DEDUPE_WINDOW_MS) {
+      recentNotificationKeys.delete(existingKey)
+    }
+  }
+
+  if (recentNotificationKeys.has(key)) {
+    return false
+  }
+
+  recentNotificationKeys.set(key, now)
+  return true
+}
+
 interface AppState {
   activeArchivedThreadId: string | null
   activeRunId: string | null
@@ -818,6 +838,53 @@ export const useAppStore = create<AppState>((set, get) => ({
   toolCalls: {},
 
   applyServerEvent: (event) => {
+    const notifyIfUnfocused = (key: string, title: string, body?: string): void => {
+      if (document.hasFocus() || !shouldShowNotification(key)) {
+        return
+      }
+
+      window.api.yachiyo.showNotification({ title, body })
+    }
+
+    if (event.type === 'run.completed') {
+      const { config, threads, messages } = get()
+      if (config?.general?.notifyRunCompleted !== false) {
+        const thread = threads.find((t) => t.id === event.threadId)
+        const threadMessages = messages[event.threadId] ?? []
+        const lastAssistantMessage = [...threadMessages]
+          .reverse()
+          .find((m) => m.role === 'assistant')
+        const preview = lastAssistantMessage?.content.trim().slice(0, 60) ?? 'Run completed'
+        notifyIfUnfocused(`run.completed:${event.runId}`, thread?.title ?? 'Yachiyo', preview)
+      }
+    }
+
+    if (event.type === 'subagent.started') {
+      const { config, threads } = get()
+      if (config?.general?.notifyCodingTaskStarted !== false) {
+        const thread = threads.find((t) => t.id === event.threadId)
+        notifyIfUnfocused(
+          `subagent.started:${event.runId}:${event.agentName}`,
+          thread?.title ?? 'Yachiyo',
+          `${event.agentName} dispatched`
+        )
+      }
+    }
+
+    if (event.type === 'subagent.finished') {
+      const { config, threads } = get()
+      if (config?.general?.notifyCodingTaskFinished !== false) {
+        const thread = threads.find((t) => t.id === event.threadId)
+        notifyIfUnfocused(
+          `subagent.finished:${event.runId}:${event.agentName}:${event.status}`,
+          thread?.title ?? 'Yachiyo',
+          event.status === 'cancelled'
+            ? `${event.agentName} cancelled`
+            : `${event.agentName} finished`
+        )
+      }
+    }
+
     set((state) => {
       if (event.type === 'thread.archived') {
         const threads = removeThread(state.threads, event.threadId)

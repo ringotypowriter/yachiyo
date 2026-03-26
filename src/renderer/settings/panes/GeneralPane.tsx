@@ -191,9 +191,75 @@ export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactN
     )
   }
 
+  const notifyRunCompleted = draft.general?.notifyRunCompleted !== false
+  const notifyCodingTaskStarted = draft.general?.notifyCodingTaskStarted !== false
+  const notifyCodingTaskFinished = draft.general?.notifyCodingTaskFinished !== false
+
   return (
     <div className="flex-1 overflow-y-auto px-7 py-6">
-      <div className="max-w-3xl">
+      <div className="max-w-3xl space-y-4">
+        <section className="rounded-[28px] px-5 py-5" style={settingsPanelStyle()}>
+          <div
+            className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+            style={{ color: theme.text.muted }}
+          >
+            Notifications
+          </div>
+
+          {(
+            [
+              {
+                key: 'notifyRunCompleted',
+                checked: notifyRunCompleted,
+                label: 'Run completed',
+                description: 'Off to silence when the app is in the background.'
+              },
+              {
+                key: 'notifyCodingTaskStarted',
+                checked: notifyCodingTaskStarted,
+                label: 'Coding task started',
+                description: 'Notifies when a subagent picks up a coding task.'
+              },
+              {
+                key: 'notifyCodingTaskFinished',
+                checked: notifyCodingTaskFinished,
+                label: 'Coding task finished',
+                description: 'Notifies when a subagent completes a coding task.'
+              }
+            ] as const
+          ).map(({ key, checked, label, description }) => (
+            <div
+              key={key}
+              className="mt-3 flex items-center justify-between gap-4 rounded-2xl px-4 py-3"
+              style={{
+                background: theme.background.surfaceLight,
+                border: `1px solid ${theme.border.default}`
+              }}
+            >
+              <div className="min-w-0 space-y-1">
+                <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
+                  {label}
+                </div>
+                <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+                  {description}
+                </div>
+              </div>
+              <div className="shrink-0">
+                <SettingSwitch
+                  checked={checked}
+                  onChange={() =>
+                    onChange({
+                      ...draft,
+                      general: { ...draft.general, [key]: !checked }
+                    })
+                  }
+                  ariaLabel={`Toggle ${label} notification`}
+                />
+              </div>
+            </div>
+          ))}
+        </section>
+
         <section className="rounded-[28px] px-5 py-5" style={settingsPanelStyle()}>
           <div
             className="text-[11px] font-semibold uppercase tracking-[0.18em]"

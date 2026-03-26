@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, net, session } from 'electron'
+import { app, BrowserWindow, ipcMain, net, Notification, session } from 'electron'
 
 import type {
   CompactThreadInput,
@@ -24,6 +24,7 @@ import { resolveYachiyoDbPath, resolveYachiyoSettingsPath } from './yachiyo-serv
 import { openThreadWorkspace } from './openThreadWorkspace.ts'
 
 const IPC_CHANNELS = {
+  showNotification: 'yachiyo:show-notification',
   archiveThread: 'yachiyo:archive-thread',
   searchWorkspaceFiles: 'yachiyo:search-workspace-files',
   searchThreadsAndMessages: 'yachiyo:search-threads-and-messages',
@@ -133,6 +134,12 @@ export function registerYachiyoGateway(): YachiyoServer {
   })
   registerFatalRunRecovery()
   server.subscribe(broadcast)
+
+  ipcMain.removeAllListeners(IPC_CHANNELS.showNotification)
+  ipcMain.on(IPC_CHANNELS.showNotification, (_event, input: { title: string; body?: string }) => {
+    if (!Notification.isSupported()) return
+    new Notification({ title: input.title, body: input.body ?? '' }).show()
+  })
 
   handle(IPC_CHANNELS.searchThreadsAndMessages, (input: { query: string }) =>
     server!.searchThreadsAndMessages(input)

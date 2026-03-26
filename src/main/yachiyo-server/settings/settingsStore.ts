@@ -42,7 +42,10 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   providers: [],
   enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
   general: {
-    sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY
+    sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
+    notifyRunCompleted: true,
+    notifyCodingTaskStarted: true,
+    notifyCodingTaskFinished: true
   },
   chat: {
     activeRunEnterBehavior: DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
@@ -139,13 +142,20 @@ function normalizePositiveInt(value: unknown): number | undefined {
   return value
 }
 
+function normalizeOptionalBool(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback
+}
+
 function normalizeGeneralConfig(value: unknown): GeneralConfig {
   const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
   const result: GeneralConfig = {
     sidebarVisibility: normalizeSidebarVisibility(
       input['sidebarVisibility'],
       DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility
-    )
+    ),
+    notifyRunCompleted: normalizeOptionalBool(input['notifyRunCompleted'], true),
+    notifyCodingTaskStarted: normalizeOptionalBool(input['notifyCodingTaskStarted'], true),
+    notifyCodingTaskFinished: normalizeOptionalBool(input['notifyCodingTaskFinished'], true)
   }
   const uiFontSize = normalizePositiveInt(input['uiFontSize'])
   const chatFontSize = normalizePositiveInt(input['chatFontSize'])
@@ -790,6 +800,9 @@ export function stringifySettingsToml(config: SettingsConfig): string {
         DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility
       )
     )}`,
+    `notifyRunCompleted = ${normalized.general?.notifyRunCompleted !== false ? 'true' : 'false'}`,
+    `notifyCodingTaskStarted = ${normalized.general?.notifyCodingTaskStarted !== false ? 'true' : 'false'}`,
+    `notifyCodingTaskFinished = ${normalized.general?.notifyCodingTaskFinished !== false ? 'true' : 'false'}`,
     ...(normalized.general?.uiFontSize != null
       ? [`uiFontSize = ${normalized.general.uiFontSize}`]
       : []),
