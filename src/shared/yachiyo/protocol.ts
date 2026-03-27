@@ -178,6 +178,8 @@ export interface ReadToolCallDetails {
   truncated: boolean
   nextOffset?: number
   remainingLines?: number
+  /** Set for image reads; contains the IANA media type e.g. "image/png". */
+  mediaType?: string
 }
 
 export interface WriteToolCallDetails {

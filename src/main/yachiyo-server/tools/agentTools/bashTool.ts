@@ -18,6 +18,7 @@ import {
   type BashRunner,
   type BashToolInput,
   type BashToolOutput,
+  type ToolContentBlock,
   takeTail,
   textContent,
   toToolModelOutput,
@@ -68,7 +69,7 @@ function buildBashContent(input: {
   exitCode?: number
   outputFilePath?: string
   preliminary?: boolean
-}): { content: { type: 'text'; text: string }[]; truncated: boolean } {
+}): { content: ToolContentBlock[]; truncated: boolean } {
   const baseText = summarizeCombinedBashOutput(input.combinedOutput)
 
   if (baseText.length > 0) {

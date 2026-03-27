@@ -33,15 +33,10 @@ async function withWorkspace(fn: (workspacePath: string) => Promise<void> | void
   }
 }
 
-function flattenToolContent(
-  content: Array<{
-    type: 'text'
-    text: string
-  }>
-): string {
+function flattenToolContent(content: Array<{ type: string; text?: string }>): string {
   return content
     .filter((block) => block.type === 'text')
-    .map((block) => block.text)
+    .map((block) => block.text ?? '')
     .join('')
 }
 

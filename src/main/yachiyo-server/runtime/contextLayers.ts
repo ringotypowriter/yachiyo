@@ -87,10 +87,40 @@ function buildAttachedFilesBlock(
   return ['<attached_files>', ...allEntries, '</attached_files>'].join('\n')
 }
 
+/**
+ * Remove image-data content blocks from tool result messages before history replay.
+ * The original image turn already included a text reference block alongside the image,
+ * so the model retains the path context while base64 blobs are not re-injected.
+ */
+function stripImageDataFromResponseMessages(messages: ModelMessage[]): ModelMessage[] {
+  return messages.map((msg): ModelMessage => {
+    if (msg.role !== 'tool') return msg
+    const filtered = msg.content.map((part) => {
+      if (part.type !== 'tool-result') return part
+      const output = part.output as { type?: string; value?: unknown[] } | undefined
+      if (output?.type !== 'content' || !Array.isArray(output.value)) return part
+      const hasInlineMedia = output.value.some(
+        (block) => (block as { type: string }).type === 'image-data'
+      )
+      if (!hasInlineMedia) return part
+      const filteredValue = output.value.map((block): unknown => {
+        if ((block as { type: string }).type !== 'image-data') return block
+        const b = block as { type: string; mediaType: string }
+        return {
+          type: 'text',
+          text: `[Image (${b.mediaType}) was shown in this turn and is not re-sent to keep context lean.]`
+        }
+      })
+      return { ...part, output: { ...output, value: filteredValue } as typeof part.output }
+    })
+    return { ...msg, content: filtered }
+  })
+}
+
 function toModelHistoryMessages(message: ContextLayerHistoryMessage): ModelMessage[] {
   if (message.role !== 'user') {
     if (message.responseMessages && message.responseMessages.length > 0) {
-      return message.responseMessages as ModelMessage[]
+      return stripImageDataFromResponseMessages(message.responseMessages as ModelMessage[])
     }
     return [
       {

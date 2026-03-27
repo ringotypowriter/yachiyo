@@ -155,6 +155,9 @@ export function summarizeToolOutput(
 
   if (toolName === 'read') {
     const details = (output as ReadToolOutput).details
+    if (details.mediaType) {
+      return `read image (${details.mediaType}, ${details.totalBytes} bytes)`
+    }
     const summary = `lines ${details.startLine}-${details.endLine}`
     return details.truncated ? `${summary} (truncated)` : summary
   }

@@ -99,10 +99,9 @@ export interface AgentToolContext {
   workspacePath: string
 }
 
-export interface ToolContentBlock {
-  type: 'text'
-  text: string
-}
+export type ToolContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image-data'; data: string; mediaType: string }
 
 export interface AgentToolMetadata {
   cwd?: string
@@ -167,7 +166,9 @@ export function expandTilde(targetPath: string): string {
 }
 
 export function resolveToolPath(workspacePath: string, targetPath: string): string {
-  const expanded = expandTilde(targetPath)
+  // Strip surrounding quotes that models sometimes add for paths containing spaces.
+  const unquoted = targetPath.trim().replace(/^(['"`])(.*)\1$/, '$2')
+  const expanded = expandTilde(unquoted)
   return isAbsolute(expanded) ? resolve(expanded) : resolve(workspacePath, expanded)
 }
 
@@ -219,9 +220,13 @@ export function textContent(text: string): ToolContentBlock[] {
   return text.length === 0 ? [] : [{ type: 'text', text }]
 }
 
+export function imageDataContent(data: string, mediaType: string): ToolContentBlock[] {
+  return [{ type: 'image-data', data, mediaType }]
+}
+
 export function flattenToolContent(content: ToolContentBlock[]): string {
   return content
-    .filter((block) => block.type === 'text')
+    .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
     .map((block) => block.text)
     .join('')
 }

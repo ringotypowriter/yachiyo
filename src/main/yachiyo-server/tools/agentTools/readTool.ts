@@ -1,6 +1,7 @@
 import { tool, type Tool } from 'ai'
 
-import { readFile } from 'node:fs/promises'
+import { extname } from 'node:path'
+import { readFile, stat } from 'node:fs/promises'
 
 import type { ReadToolCallDetails } from '../../../../shared/yachiyo/protocol.ts'
 
@@ -12,14 +13,80 @@ import {
   type ReadToolOutput,
   readToolInputSchema,
   resolveToolPath,
+  imageDataContent,
   textContent,
   toToolModelOutput,
   truncateUtf8ByBytes
 } from './shared.ts'
 
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
+  '.tiff': 'image/tiff',
+  '.tif': 'image/tiff',
+  '.avif': 'image/avif',
+  '.heic': 'image/heic',
+  '.heif': 'image/heif',
+  '.ico': 'image/x-icon'
+}
+
+// Known binary formats that cannot be inlined — return a clear error instead of garbled bytes.
+const UNREADABLE_BINARY_EXTENSIONS = new Set([
+  // video
+  '.mp4',
+  '.mov',
+  '.avi',
+  '.mkv',
+  '.webm',
+  '.flv',
+  '.wmv',
+  '.m4v',
+  // audio
+  '.mp3',
+  '.wav',
+  '.aac',
+  '.flac',
+  '.ogg',
+  '.m4a',
+  '.wma',
+  // documents
+  '.pdf',
+  // archives
+  '.zip',
+  '.tar',
+  '.gz',
+  '.bz2',
+  '.xz',
+  '.7z',
+  '.rar',
+  // executables / compiled
+  '.exe',
+  '.dll',
+  '.so',
+  '.dylib',
+  '.bin',
+  '.wasm',
+  // other large binary
+  '.iso',
+  '.dmg',
+  '.pkg'
+])
+
+function detectImageMimeType(filePath: string): string | undefined {
+  return IMAGE_EXTENSIONS[extname(filePath).toLowerCase()]
+}
+
+function isUnreadableBinary(filePath: string): boolean {
+  return UNREADABLE_BINARY_EXTENSIONS.has(extname(filePath).toLowerCase())
+}
+
 export function createTool(context: AgentToolContext): Tool<ReadToolInput, ReadToolOutput> {
   return tool({
-    description: `Read a text file from the current thread workspace or an absolute path. Relative paths resolve from ${context.workspacePath}. Use offset as a 0-based line continuation cursor.`,
+    description: `Read a file from the current thread workspace or an absolute path. Supports text files (with offset/limit pagination) and common image formats (png, jpg, webp, gif, bmp, tiff, avif, heic, ico). Binary formats like video, audio, and PDF are not supported. Relative paths resolve from ${context.workspacePath}. Use offset as a 0-based line continuation cursor for text files.`,
     inputSchema: readToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input) => runReadTool(input, context)
@@ -106,11 +173,55 @@ function createReadErrorResult(path: string, error: string): ReadToolOutput {
   }
 }
 
+async function runImageReadTool(resolvedPath: string, mediaType: string): Promise<ReadToolOutput> {
+  const fileData = await readFile(resolvedPath)
+  const fileStat = await stat(resolvedPath)
+  const base64 = fileData.toString('base64')
+  const filename = resolvedPath.split('/').pop() ?? resolvedPath
+  const summary = `Read image ${filename} (${mediaType}, ${fileStat.size} bytes)`
+
+  const details: ReadToolCallDetails = {
+    path: resolvedPath,
+    startLine: 0,
+    endLine: 0,
+    totalLines: 0,
+    totalBytes: fileStat.size,
+    truncated: false,
+    mediaType
+  }
+
+  return {
+    content: [...imageDataContent(base64, mediaType), ...textContent(summary)],
+    details,
+    metadata: {}
+  }
+}
+
 export async function runReadTool(
   input: ReadToolInput,
   context: AgentToolContext
 ): Promise<ReadToolOutput> {
   const resolvedPath = resolveToolPath(context.workspacePath, input.path)
+
+  if (isUnreadableBinary(resolvedPath)) {
+    const ext = extname(resolvedPath).toLowerCase()
+    return createReadErrorResult(
+      resolvedPath,
+      `Cannot read ${ext} files — binary format not supported for inline reading.`
+    )
+  }
+
+  const imageMimeType = detectImageMimeType(resolvedPath)
+  if (imageMimeType) {
+    try {
+      return await runImageReadTool(resolvedPath, imageMimeType)
+    } catch (error) {
+      return createReadErrorResult(
+        resolvedPath,
+        error instanceof Error ? error.message : 'Unable to read image file.'
+      )
+    }
+  }
 
   try {
     const rawContent = await readFile(resolvedPath, 'utf8')

@@ -31,10 +31,11 @@ test('runSkillsReadTool omits full SKILL.md content by default', async () => {
       }
     )
 
+    const text = result.content.find((b) => b.type === 'text')
     assert.equal(result.details.resolvedCount, 1)
     assert.equal(result.details.skills[0]?.content, undefined)
-    assert.match(result.content[0]?.text ?? '', /Workspace refactor guide/)
-    assert.doesNotMatch(result.content[0]?.text ?? '', /Detailed instructions/)
+    assert.match(text?.type === 'text' ? text.text : '', /Workspace refactor guide/)
+    assert.doesNotMatch(text?.type === 'text' ? text.text : '', /Detailed instructions/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -66,11 +67,12 @@ test('runSkillsReadTool includes full SKILL.md content only when explicitly requ
       }
     )
 
+    const text = result.content.find((b) => b.type === 'text')
     assert.equal(
       result.details.skills[0]?.content,
       '# Workspace Refactor\n\nDetailed instructions.'
     )
-    assert.match(result.content[0]?.text ?? '', /Detailed instructions/)
+    assert.match(text?.type === 'text' ? text.text : '', /Detailed instructions/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

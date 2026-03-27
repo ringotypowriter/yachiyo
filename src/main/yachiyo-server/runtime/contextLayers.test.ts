@@ -473,3 +473,118 @@ test('first message in thread: turn context comes before the only user message',
     { role: 'user', content: 'First message' }
   ])
 })
+
+test('image-data blocks are stripped from tool result responseMessages during history replay', () => {
+  const base64Data =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg=='
+  const responseMessages = [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'tc-img',
+          toolName: 'read',
+          input: { path: '/tmp/photo.png' }
+        }
+      ]
+    },
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'tc-img',
+          toolName: 'read',
+          output: {
+            type: 'content',
+            value: [
+              { type: 'image-data', data: base64Data, mediaType: 'image/png' },
+              { type: 'text', text: 'Read image photo.png (image/png, 67 bytes)' }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'The image shows...' }]
+    }
+  ]
+
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'You are helpful.' },
+    history: [
+      { role: 'user', content: 'Read photo.png' },
+      { role: 'assistant', content: 'The image shows...', responseMessages },
+      { role: 'user', content: 'Describe it more' }
+    ]
+  })
+
+  const toolMsg = compiled.find((m) => m.role === 'tool') as
+    | { role: string; content: Array<{ type: string; output?: unknown }> }
+    | undefined
+  assert.ok(toolMsg, 'tool message should be present')
+
+  const toolResult = toolMsg?.content[0]
+  assert.equal(toolResult?.type, 'tool-result')
+
+  const output = toolResult?.output as {
+    type: string
+    value: Array<{ type: string; text?: string }>
+  }
+  assert.equal(output.type, 'content')
+  assert.ok(
+    !output.value.some((b) => b.type === 'image-data'),
+    'image-data block should be replaced'
+  )
+  const textBlocks = output.value.filter((b) => b.type === 'text')
+  assert.ok(textBlocks.length >= 2, 'should have both the placeholder and the original summary')
+  assert.ok(
+    textBlocks.some((b) => b.text?.includes('not re-sent')),
+    'placeholder should explain the image is omitted'
+  )
+  assert.ok(
+    textBlocks.some((b) => b.text?.includes('Read image')),
+    'original summary text should remain'
+  )
+})
+
+test('tool results without image-data pass through history replay unchanged', () => {
+  const responseMessages = [
+    {
+      role: 'assistant',
+      content: [
+        { type: 'tool-call', toolCallId: 'tc-1', toolName: 'read', input: { path: '/tmp/foo.ts' } }
+      ]
+    },
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'tc-1',
+          toolName: 'read',
+          output: { type: 'content', value: [{ type: 'text', text: 'const x = 1' }] }
+        }
+      ]
+    },
+    { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] }
+  ]
+
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'Base' },
+    history: [
+      { role: 'user', content: 'Read foo.ts' },
+      { role: 'assistant', content: 'Done.', responseMessages },
+      { role: 'user', content: 'Thanks' }
+    ]
+  })
+
+  assert.deepEqual(compiled, [
+    { role: 'system', content: 'Base' },
+    { role: 'user', content: 'Read foo.ts' },
+    ...responseMessages,
+    { role: 'user', content: 'Thanks' }
+  ])
+})
