@@ -299,6 +299,7 @@ interface GitContext {
   hasGit: boolean
   currentBranch?: string
   mainBranch?: string
+  hasAgentsMd?: boolean
 }
 
 async function detectGitContext(workspacePath: string): Promise<GitContext> {
@@ -319,7 +320,15 @@ async function detectGitContext(workspacePath: string): Promise<GitContext> {
     const rawMain = mainResult.status === 'fulfilled' ? mainResult.value.stdout.trim() : undefined
     const mainBranch = rawMain?.replace(/^origin\//, '') ?? 'main'
 
-    return { hasGit: true, currentBranch, mainBranch }
+    let hasAgentsMd = false
+    try {
+      await access(join(workspacePath, 'AGENTS.md'), constants.F_OK)
+      hasAgentsMd = true
+    } catch {
+      // file absent
+    }
+
+    return { hasGit: true, currentBranch, mainBranch, hasAgentsMd }
   } catch {
     return { hasGit: true }
   }
@@ -344,14 +353,21 @@ function buildSubagentContextBlock(
     ].join('\n')
   }
 
+  const gitContextLines = [
+    'Git Context:',
+    `- Current Branch: ${gitCtx.currentBranch ?? 'unknown'}`,
+    `- Main Branch: ${gitCtx.mainBranch ?? 'main'}`
+  ]
+  if (gitCtx.hasAgentsMd) {
+    gitContextLines.push('- AGENTS.md: Yes (check it before delegating — it may contain project-specific rules or constraints for coding agents)')
+  }
+
   const lines = [
     '<coding_agents>',
     'You can delegate complex coding tasks to the following ACP-compatible agents using the `delegateCodingTask` tool.',
     `CRITICAL RULE 1: Agents MUST ONLY operate within the current thread workspace: ${workspacePath}.`,
     '',
-    'Git Context:',
-    `- Current Branch: ${gitCtx.currentBranch ?? 'unknown'}`,
-    `- Main Branch: ${gitCtx.mainBranch ?? 'main'}`,
+    ...gitContextLines,
     '',
     'CRITICAL RULE 2 (PROMPT AUTHORING):',
     'When writing the `prompt` parameter for the delegated agent, you MUST follow these constraints:',
@@ -386,6 +402,7 @@ function buildAgentInstructions(input: {
   soulDocumentPath?: string
   userDocumentPath?: string
   subagentContextBlock?: string
+  isUserSpecifiedWorkspace?: boolean
 }): string {
   const instructions = [
     'You are operating as a tool-using local agent.',
@@ -393,6 +410,12 @@ function buildAgentInstructions(input: {
     `The current thread workspace is ${input.workspacePath}.`,
     'Relative paths should resolve from that workspace unless you intentionally use an absolute path.'
   ]
+
+  if (input.isUserSpecifiedWorkspace) {
+    instructions.push(
+      'The user has loaded a specific project workspace. At the start of your first reply, if the user\'s message is ambiguous or lacks context, proactively explore the project (e.g. read key files, check structure) to gain enough understanding before responding — the user may jump directly into discussing the project without preamble.'
+    )
+  }
 
   if (input.userDocumentPath || input.soulDocumentPath) {
     instructions.push('Durable context files live outside the thread workspace.')
@@ -820,7 +843,8 @@ export async function executeServerRun(
             !input.thread.privacyMode && deps.memoryService.hasHiddenSearchCapability(),
           soulDocumentPath: soulDocument?.filePath,
           userDocumentPath: userDocument?.filePath,
-          subagentContextBlock: subagentContextBlock || undefined
+          subagentContextBlock: subagentContextBlock || undefined,
+          isUserSpecifiedWorkspace: !!input.thread.workspacePath?.trim()
         })
       },
       hint: {
