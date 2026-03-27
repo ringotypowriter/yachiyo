@@ -1,9 +1,9 @@
 import { Check, ChevronDown, Folder, MonitorStop, Plus, Trash2, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { theme } from '@renderer/theme/theme'
+import { theme, alpha } from '@renderer/theme/theme'
 import type { SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
-import { settingsPanelStyle } from '../components/styles'
+import { SettingLabel, SettingSection } from '../components/primitives'
 
 interface DiscoveredApp {
   name: string
@@ -147,7 +147,6 @@ function AppPicker({ value, options, placeholder, onChange }: AppPickerProps): R
     if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect()
       setTriggerRect(rect)
-      // Each option is ~36px tall, plus 8px padding top/bottom + None divider
       const estimatedHeight = (options.length + 1) * 36 + 24
       setOpenUpward(rect.bottom + estimatedHeight > window.innerHeight - 16)
     }
@@ -175,11 +174,11 @@ function AppPicker({ value, options, placeholder, onChange }: AppPickerProps): R
     width: '100%',
     padding: '7px 10px 7px 12px',
     borderRadius: 10,
-    border: `1px solid ${open ? theme.border.accentStrong : triggerHovered ? theme.border.input : theme.border.input}`,
-    background: theme.background.surface,
+    border: 'none',
+    background: open || triggerHovered ? theme.background.hover : alpha('ink', 0.04),
     cursor: 'default',
     textAlign: 'left',
-    transition: 'border-color 120ms',
+    transition: 'background 120ms',
     outline: 'none'
   }
 
@@ -246,10 +245,10 @@ function AppPicker({ value, options, placeholder, onChange }: AppPickerProps): R
               left: triggerRect.left,
               width: triggerRect.width,
               zIndex: 9999,
-              background: theme.background.chatCard,
+              background: theme.background.surface,
               borderRadius: 14,
-              border: `1px solid ${theme.border.default}`,
-              boxShadow: '0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)',
+              border: `1px solid ${theme.border.subtle}`,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06)',
               padding: '4px 0',
               overflow: 'hidden'
             }}
@@ -329,137 +328,124 @@ export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.Re
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-7 py-6">
-      <div className="max-w-3xl space-y-4">
-        <section className="rounded-[28px] px-5 py-5" style={settingsPanelStyle()}>
-          <div
-            className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-            style={{ color: theme.text.muted }}
-          >
-            Workspaces
-          </div>
+    <div className="flex-1 overflow-y-auto pb-6">
+      <SettingSection>
+        <SettingLabel>Saved Folders</SettingLabel>
 
+        {savedPaths.length === 0 ? (
           <div
-            className="mt-3 rounded-2xl overflow-hidden"
+            className="px-7 pb-4 text-sm leading-6"
             style={{
-              background: theme.background.surfaceLight,
-              border: `1px solid ${theme.border.default}`
+              color: theme.text.tertiary,
+              borderTop: `1px solid ${theme.border.subtle}`
             }}
           >
-            {savedPaths.length === 0 ? (
-              <div className="px-4 py-4 text-sm leading-6" style={{ color: theme.text.tertiary }}>
-                No saved folders yet. When you pick a specific workspace from Composer, it will show
-                up here.
+            No saved folders yet. When you pick a specific workspace from Composer, it will show up
+            here.
+          </div>
+        ) : (
+          savedPaths.map((workspacePath) => (
+            <div
+              key={workspacePath}
+              className="flex items-center gap-3 px-7 py-3"
+              style={{ borderTop: `1px solid ${theme.border.subtle}` }}
+            >
+              <div
+                className="shrink-0 rounded-lg flex items-center justify-center"
+                style={{ width: 30, height: 30, background: theme.background.surfaceLight }}
+              >
+                <Folder size={14} strokeWidth={1.7} color={theme.icon.muted} />
               </div>
-            ) : (
-              savedPaths.map((workspacePath) => (
-                <div
-                  key={workspacePath}
-                  className="flex items-center gap-3 px-4 py-3"
-                  style={{ borderTop: `1px solid ${theme.border.subtle}` }}
-                >
-                  <div
-                    className="shrink-0 rounded-lg flex items-center justify-center"
-                    style={{
-                      width: 30,
-                      height: 30,
-                      background: theme.background.surface
-                    }}
-                  >
-                    <Folder size={14} strokeWidth={1.7} color={theme.icon.muted} />
-                  </div>
 
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
-                      {workspacePath.split('/').filter(Boolean).at(-1) ?? workspacePath}
-                    </div>
-                    <div
-                      className="text-sm truncate"
-                      style={{ color: theme.text.tertiary, lineHeight: 1.5 }}
-                    >
-                      {workspacePath}
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => removePath(workspacePath)}
-                    className="shrink-0 rounded-lg p-2 transition-opacity opacity-60 hover:opacity-100"
-                    aria-label={`Remove ${workspacePath}`}
-                  >
-                    <Trash2 size={14} strokeWidth={1.7} color={theme.icon.muted} />
-                  </button>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                  {workspacePath.split('/').filter(Boolean).at(-1) ?? workspacePath}
                 </div>
-              ))
-            )}
+                <div
+                  className="text-xs truncate"
+                  style={{ color: theme.text.tertiary, lineHeight: 1.5 }}
+                >
+                  {workspacePath}
+                </div>
+              </div>
 
-            <div className="px-4 py-3" style={{ borderTop: `1px solid ${theme.border.subtle}` }}>
               <button
                 type="button"
-                onClick={() => {
-                  void (async () => {
-                    const pickedPath = await window.api.yachiyo.pickWorkspaceDirectory()
-                    if (!pickedPath) {
-                      return
-                    }
-
-                    onChange({
-                      ...draft,
-                      workspace: {
-                        ...draft.workspace,
-                        savedPaths: [...new Set([...savedPaths, pickedPath])]
-                      }
-                    })
-                  })()
-                }}
-                className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold"
-                style={{
-                  color: theme.text.primary,
-                  background: theme.background.surface
-                }}
+                onClick={() => removePath(workspacePath)}
+                className="shrink-0 rounded-lg p-2 transition-opacity opacity-60 hover:opacity-100"
+                aria-label={`Remove ${workspacePath}`}
               >
-                <Plus size={14} strokeWidth={2} />
-                Select directory...
+                <Trash2 size={14} strokeWidth={1.7} color={theme.icon.muted} />
               </button>
             </div>
-          </div>
-        </section>
+          ))
+        )}
 
-        <section className="rounded-[28px] px-5 py-5" style={settingsPanelStyle()}>
-          <div
-            className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-            style={{ color: theme.text.muted }}
+        <div className="px-7 py-3" style={{ borderTop: `1px solid ${theme.border.subtle}` }}>
+          <button
+            type="button"
+            onClick={() => {
+              void (async () => {
+                const pickedPath = await window.api.yachiyo.pickWorkspaceDirectory()
+                if (!pickedPath) {
+                  return
+                }
+
+                onChange({
+                  ...draft,
+                  workspace: {
+                    ...draft.workspace,
+                    savedPaths: [...new Set([...savedPaths, pickedPath])]
+                  }
+                })
+              })()
+            }}
+            className="flex items-center gap-1.5 text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
+            style={{ color: theme.text.accent }}
           >
-            Open With
-          </div>
+            <Plus size={14} strokeWidth={2} />
+            Select directory...
+          </button>
+        </div>
+      </SettingSection>
 
-          <div className="mt-3 space-y-3">
-            <div>
-              <div className="text-sm font-medium mb-2" style={{ color: theme.text.secondary }}>
-                Editor
-              </div>
-              <AppPicker
-                value={draft.workspace?.editorApp ?? ''}
-                options={discoveredApps.editors}
-                placeholder="Select an editor…"
-                onChange={(v) => updateWorkspace({ editorApp: v })}
-              />
-            </div>
+      <SettingSection>
+        <SettingLabel>Open With</SettingLabel>
 
-            <div>
-              <div className="text-sm font-medium mb-2" style={{ color: theme.text.secondary }}>
-                Terminal
-              </div>
-              <AppPicker
-                value={draft.workspace?.terminalApp ?? ''}
-                options={discoveredApps.terminals}
-                placeholder="Select a terminal…"
-                onChange={(v) => updateWorkspace({ terminalApp: v })}
-              />
-            </div>
+        <div
+          className="flex items-center justify-between gap-4 px-7 py-3"
+          style={{ borderTop: `1px solid ${theme.border.subtle}` }}
+        >
+          <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+            Editor
           </div>
-        </section>
-      </div>
+          <div style={{ width: 220 }}>
+            <AppPicker
+              value={draft.workspace?.editorApp ?? ''}
+              options={discoveredApps.editors}
+              placeholder="Select an editor…"
+              onChange={(v) => updateWorkspace({ editorApp: v })}
+            />
+          </div>
+        </div>
+
+        <div
+          className="flex items-center justify-between gap-4 px-7 py-3"
+          style={{ borderTop: `1px solid ${theme.border.subtle}` }}
+        >
+          <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+            Terminal
+          </div>
+          <div style={{ width: 220 }}>
+            <AppPicker
+              value={draft.workspace?.terminalApp ?? ''}
+              options={discoveredApps.terminals}
+              placeholder="Select a terminal…"
+              onChange={(v) => updateWorkspace({ terminalApp: v })}
+            />
+          </div>
+        </div>
+      </SettingSection>
     </div>
   )
 }

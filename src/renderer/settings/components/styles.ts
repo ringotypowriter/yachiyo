@@ -1,9 +1,9 @@
-import { theme } from '@renderer/theme/theme'
+import { theme, alpha } from '@renderer/theme/theme'
 
 export function inputStyle(): React.CSSProperties {
   return {
-    background: theme.background.surface,
-    border: `1px solid ${theme.border.input}`,
+    background: alpha('ink', 0.04),
+    border: 'none',
     color: theme.text.primary
   }
 }

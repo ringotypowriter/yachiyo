@@ -1,5 +1,5 @@
-import { Eraser, Loader2, Plus, RefreshCw, Trash2, X } from 'lucide-react'
-import { useState } from 'react'
+import { Eraser, Loader2, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
+import { useDeferredValue, useMemo, useState } from 'react'
 import { theme } from '@renderer/theme/theme'
 import type {
   ProviderConfig,
@@ -17,6 +17,7 @@ import {
 } from '../../../shared/yachiyo/providerConfig.ts'
 import { Field, PlaceholderPane, SettingSwitch } from '../components/primitives'
 import { inputStyle } from '../components/styles'
+import { filterProviderModels } from './providersPaneModel'
 
 interface ModelToggleProps {
   enabled: boolean
@@ -106,8 +107,15 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
   const [fetching, setFetching] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [manualInput, setManualInput] = useState('')
+  const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
 
   const allModels = [...provider.modelList.enabled, ...provider.modelList.disabled]
+  const filteredModelList = useMemo(
+    () => filterProviderModels(provider.modelList, deferredQuery),
+    [provider.modelList, deferredQuery]
+  )
+  const filteredModelCount = filteredModelList.enabled.length + filteredModelList.disabled.length
 
   const handleFetch = async (): Promise<void> => {
     setFetching(true)
@@ -197,11 +205,8 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
             <button
               type="button"
               onClick={handleClearAll}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-opacity"
-              style={{
-                background: theme.background.dangerSurface,
-                color: theme.text.dangerStrong
-              }}
+              className="flex items-center gap-1 text-xs font-medium transition-opacity opacity-50 hover:opacity-100"
+              style={{ color: theme.text.danger }}
               title="Clear all models"
             >
               <Eraser size={12} strokeWidth={2} />
@@ -212,11 +217,8 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
             type="button"
             onClick={() => void handleFetch()}
             disabled={fetching || (provider.type !== 'vertex' && !provider.apiKey.trim())}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-opacity disabled:opacity-40"
-            style={{
-              background: theme.background.accentMuted,
-              color: theme.text.accent
-            }}
+            className="flex items-center gap-1 text-xs font-medium transition-opacity opacity-60 hover:opacity-100 disabled:opacity-20"
+            style={{ color: theme.text.accent }}
             title={
               provider.type !== 'vertex' && !provider.apiKey.trim()
                 ? 'Add an API key first'
@@ -233,6 +235,26 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
         </div>
       </div>
 
+      {fetchError ? (
+        <div
+          className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs"
+          style={{
+            color: theme.text.danger,
+            background: theme.background.surfaceSoft,
+            border: `1px solid ${theme.border.subtle}`
+          }}
+        >
+          <span className="truncate">Fetch failed: {fetchError}</span>
+          <button
+            type="button"
+            onClick={() => setFetchError(null)}
+            className="shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+          >
+            <X size={12} strokeWidth={1.5} />
+          </button>
+        </div>
+      ) : null}
+
       <div
         className="rounded-2xl overflow-hidden"
         style={{
@@ -247,28 +269,59 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
             </span>
           </div>
         ) : (
-          <div className="space-y-1 p-1.5">
-            {provider.modelList.enabled.map((model) => (
-              <div key={model} className="group rounded-xl">
-                <ModelToggle
-                  model={model}
-                  enabled
-                  onToggle={() => handleToggle(model)}
-                  onRemove={() => handleRemoveModel(model)}
+          <>
+            <div className="px-3 pt-3">
+              <label
+                className="flex items-center gap-2 rounded-xl px-3 py-2"
+                style={{
+                  background: theme.background.surface,
+                  border: `1px solid ${theme.border.panel}`
+                }}
+              >
+                <Search size={14} strokeWidth={1.75} color={theme.icon.placeholder} />
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search models"
+                  aria-label="Search provider models"
+                  className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                  style={{ color: theme.text.primary }}
                 />
+              </label>
+            </div>
+
+            {filteredModelCount === 0 ? (
+              <div className="px-4 py-6 text-center">
+                <span className="text-sm" style={{ color: theme.text.muted }}>
+                  No models match "{query.trim()}".
+                </span>
               </div>
-            ))}
-            {provider.modelList.disabled.map((model) => (
-              <div key={model} className="group rounded-xl">
-                <ModelToggle
-                  model={model}
-                  enabled={false}
-                  onToggle={() => handleToggle(model)}
-                  onRemove={() => handleRemoveModel(model)}
-                />
+            ) : (
+              <div className="space-y-1 p-1.5">
+                {filteredModelList.enabled.map((model) => (
+                  <div key={model} className="group rounded-xl">
+                    <ModelToggle
+                      model={model}
+                      enabled
+                      onToggle={() => handleToggle(model)}
+                      onRemove={() => handleRemoveModel(model)}
+                    />
+                  </div>
+                ))}
+                {filteredModelList.disabled.map((model) => (
+                  <div key={model} className="group rounded-xl">
+                    <ModelToggle
+                      model={model}
+                      enabled={false}
+                      onToggle={() => handleToggle(model)}
+                      onRemove={() => handleRemoveModel(model)}
+                    />
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
 
         <div
@@ -303,26 +356,6 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
       {allModels.length > 0 ? (
         <div className="text-xs" style={{ color: theme.text.muted }}>
           {provider.modelList.enabled.length} enabled, {provider.modelList.disabled.length} disabled
-        </div>
-      ) : null}
-
-      {fetchError ? (
-        <div
-          className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs"
-          style={{
-            background: theme.background.dangerSurface,
-            color: theme.text.dangerStrong
-          }}
-        >
-          <span className="shrink-0">Fetch failed:</span>
-          <span className="truncate">{fetchError}</span>
-          <button
-            type="button"
-            onClick={() => setFetchError(null)}
-            className="shrink-0 p-0.5 rounded hover:bg-black/5"
-          >
-            <X size={12} strokeWidth={1.5} />
-          </button>
         </div>
       ) : null}
     </div>
@@ -382,31 +415,11 @@ export function ProvidersPane({
         className="shrink-0 flex flex-col"
         style={{
           width: 250,
-          borderRight: `1px solid ${theme.border.default}`,
-          background: theme.background.sidebar
+          borderRight: `1px solid ${theme.border.subtle}`,
+          background: theme.background.surface
         }}
       >
-        <div className="flex items-center justify-between px-5 py-4">
-          <div>
-            <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
-              Providers
-            </div>
-            <div className="text-xs" style={{ color: theme.text.muted }}>
-              {draft.providers.length} configured
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={handleAddProvider}
-            className="flex items-center gap-1 rounded-full px-2.5 py-1.5 text-xs font-medium"
-            style={{ background: theme.text.accent, color: theme.text.inverse }}
-          >
-            <Plus size={12} strokeWidth={2} />
-            Add
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-3 pb-4">
+        <div className="flex-1 overflow-y-auto py-1">
           {draft.providers.map((provider) => {
             const isSelected = provider.id === selectedProviderId
 
@@ -415,48 +428,62 @@ export function ProvidersPane({
                 key={provider.id}
                 type="button"
                 onClick={() => onSelectProvider(provider.id ?? '')}
-                className="mb-2 w-full rounded-2xl px-3 py-3 text-left transition-all"
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-all mb-0.5 mx-1"
                 style={
                   isSelected
                     ? {
-                        background: theme.background.surfaceFrosted,
-                        boxShadow: theme.shadow.raised
+                        background: theme.background.accentSoft,
+                        color: theme.text.accent,
+                        width: 'calc(100% - 8px)'
                       }
-                    : {
-                        background: theme.background.surfaceSoft
-                      }
+                    : { color: theme.text.secondary, width: 'calc(100% - 8px)' }
                 }
               >
                 <div className="min-w-0">
                   <div
-                    className="truncate text-sm font-semibold"
-                    style={{ color: theme.text.primary, letterSpacing: '-0.2px' }}
+                    className="truncate text-sm font-medium"
+                    style={{ color: isSelected ? theme.text.accent : theme.text.primary }}
                   >
                     {provider.name}
                   </div>
                   <div
-                    className="text-xs uppercase tracking-[0.14em]"
-                    style={{ color: theme.text.muted }}
+                    className="text-xs"
+                    style={{
+                      color: isSelected ? theme.text.accent : theme.text.muted,
+                      opacity: 0.7
+                    }}
                   >
-                    {provider.type}
+                    {provider.type} · {provider.modelList.enabled.length} enabled
                   </div>
-                </div>
-                <div className="mt-3 text-xs" style={{ color: theme.text.tertiary }}>
-                  {provider.modelList.enabled.length} enabled
                 </div>
               </button>
             )
           })}
         </div>
+
+        <div
+          className="shrink-0 px-4 py-3"
+          style={{ borderTop: `1px solid ${theme.border.subtle}` }}
+        >
+          <button
+            type="button"
+            onClick={handleAddProvider}
+            className="flex items-center gap-1 text-xs font-medium transition-opacity opacity-60 hover:opacity-100"
+            style={{ color: theme.text.accent }}
+          >
+            <Plus size={12} strokeWidth={2} />
+            Add provider
+          </button>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-7 py-6">
+      <div className="flex-1 overflow-y-auto">
         {selectedProvider ? (
-          <div key={selectedProvider.id} className="max-w-3xl space-y-6">
-            <div className="flex items-start justify-between gap-4">
+          <div key={selectedProvider.id} className="space-y-5 px-7 pt-5 pb-6">
+            <div className="flex items-center justify-between gap-4">
               <div
-                className="text-2xl font-semibold"
-                style={{ color: theme.text.primary, letterSpacing: '-0.4px' }}
+                className="text-xl font-semibold"
+                style={{ color: theme.text.primary, letterSpacing: '-0.3px' }}
               >
                 {selectedProvider.name}
               </div>
@@ -464,11 +491,8 @@ export function ProvidersPane({
               <button
                 type="button"
                 onClick={handleRemoveProvider}
-                className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium"
-                style={{
-                  background: theme.background.dangerSurface,
-                  color: theme.text.dangerStrong
-                }}
+                className="flex items-center gap-1.5 text-xs font-medium transition-opacity opacity-50 hover:opacity-100"
+                style={{ color: theme.text.danger }}
               >
                 <Trash2 size={12} strokeWidth={1.8} />
                 Remove

@@ -16,7 +16,7 @@ async function runJsonScript(scriptPath: string, inputPath: string): Promise<unk
   const output = await new Promise<string>((resolveOutput, reject) => {
     const child = spawn('python3', [scriptPath, inputPath, '--json'], {
       cwd: rootDir,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe']
     })
     let stdout = ''
     let stderr = ''
@@ -44,7 +44,7 @@ async function runCommandJson(scriptPath: string, args: string[]): Promise<unkno
   const output = await new Promise<string>((resolveOutput, reject) => {
     const child = spawn('python3', [scriptPath, ...args], {
       cwd: rootDir,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe']
     })
     let stdout = ''
     let stderr = ''
@@ -68,7 +68,10 @@ async function runCommandJson(scriptPath: string, args: string[]): Promise<unkno
   return JSON.parse(output)
 }
 
-async function writeZip(path: string, entries: Array<{ name: string; content: string }>): Promise<void> {
+async function writeZip(
+  path: string,
+  entries: Array<{ name: string; content: string }>
+): Promise<void> {
   const archivePath = join(tmpdir(), `zip-${Math.random().toString(36).slice(2)}.py`)
   const payload = JSON.stringify(entries)
   const program = [
@@ -76,13 +79,13 @@ async function writeZip(path: string, entries: Array<{ name: string; content: st
     'entries = json.loads(sys.argv[2])',
     'with zipfile.ZipFile(sys.argv[1], "w") as archive:',
     '    for entry in entries:',
-    '        archive.writestr(entry["name"], entry["content"])',
+    '        archive.writestr(entry["name"], entry["content"])'
   ].join('\n')
   await writeFile(archivePath, program)
   await new Promise<void>((resolveDone, reject) => {
     const child = spawn('python3', [archivePath, path, payload], {
       cwd: rootDir,
-      stdio: ['ignore', 'ignore', 'pipe'],
+      stdio: ['ignore', 'ignore', 'pipe']
     })
     let stderr = ''
     child.stderr.on('data', (chunk: Buffer) => {
@@ -105,7 +108,11 @@ test('docx inspector reports placeholders and structure', async () => {
   try {
     const path = join(dir, 'sample.docx')
     await writeZip(path, [
-      { name: '[Content_Types].xml', content: '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>' },
+      {
+        name: '[Content_Types].xml',
+        content:
+          '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'
+      },
       {
         name: 'word/document.xml',
         content:
@@ -115,11 +122,19 @@ test('docx inspector reports placeholders and structure', async () => {
           '<w:p><w:r><w:t>Hello {{leader}}</w:t></w:r></w:p>' +
           '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>Cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>' +
           '<w:p><w:ins><w:r><w:t>Tracked</w:t></w:r></w:ins></w:p>' +
-          '</w:body></w:document>',
+          '</w:body></w:document>'
       },
-      { name: 'word/comments.xml', content: '<?xml version="1.0"?><w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:comment w:id="0"/></w:comments>' },
-      { name: 'word/header1.xml', content: '<?xml version="1.0"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>' },
-      { name: 'word/media/image1.png', content: 'fake' },
+      {
+        name: 'word/comments.xml',
+        content:
+          '<?xml version="1.0"?><w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:comment w:id="0"/></w:comments>'
+      },
+      {
+        name: 'word/header1.xml',
+        content:
+          '<?xml version="1.0"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>'
+      },
+      { name: 'word/media/image1.png', content: 'fake' }
     ])
 
     const report = (await runJsonScript(
@@ -150,7 +165,11 @@ test('xlsx inspector reports sheets formulas and workbook features', async () =>
   try {
     const path = join(dir, 'sample.xlsx')
     await writeZip(path, [
-      { name: '[Content_Types].xml', content: '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>' },
+      {
+        name: '[Content_Types].xml',
+        content:
+          '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'
+      },
       {
         name: 'xl/workbook.xml',
         content:
@@ -158,7 +177,7 @@ test('xlsx inspector reports sheets formulas and workbook features', async () =>
           '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
           '<sheets><sheet name="Summary" sheetId="1"/><sheet name="Data" sheetId="2"/></sheets>' +
           '<definedNames><definedName name="MyRange">Summary!$A$1</definedName></definedNames>' +
-          '</workbook>',
+          '</workbook>'
       },
       {
         name: 'xl/worksheets/sheet1.xml',
@@ -170,7 +189,7 @@ test('xlsx inspector reports sheets formulas and workbook features', async () =>
           '<dataValidations><dataValidation sqref="A2"/></dataValidations>' +
           '<tableParts count="1"><tablePart r:id="rId1" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/></tableParts>' +
           '<sheetData><row r="1"><c r="B2"><f>SUM(A1:A1)</f></c></row></sheetData>' +
-          '</worksheet>',
+          '</worksheet>'
       },
       {
         name: 'xl/worksheets/sheet2.xml',
@@ -178,14 +197,30 @@ test('xlsx inspector reports sheets formulas and workbook features', async () =>
           '<?xml version="1.0"?>' +
           '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
           '<dimension ref="A1:A3"/><sheetData><row r="1"/><row r="2"/><row r="3"/></sheetData>' +
-          '</worksheet>',
+          '</worksheet>'
       },
-      { name: 'xl/tables/table1.xml', content: '<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>' },
-      { name: 'xl/charts/chart1.xml', content: '<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"/>' },
-      { name: 'xl/drawings/drawing1.xml', content: '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"/>' },
-      { name: 'xl/externalLinks/externalLink1.xml', content: '<externalLink xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>' },
+      {
+        name: 'xl/tables/table1.xml',
+        content: '<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>'
+      },
+      {
+        name: 'xl/charts/chart1.xml',
+        content: '<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"/>'
+      },
+      {
+        name: 'xl/drawings/drawing1.xml',
+        content:
+          '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"/>'
+      },
+      {
+        name: 'xl/externalLinks/externalLink1.xml',
+        content: '<externalLink xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>'
+      },
       { name: 'xl/vbaProject.bin', content: 'fake' },
-      { name: 'xl/calcChain.xml', content: '<calcChain xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>' },
+      {
+        name: 'xl/calcChain.xml',
+        content: '<calcChain xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>'
+      }
     ])
 
     const report = (await runJsonScript(
@@ -217,14 +252,18 @@ test('pptx inspector reports slide text and notes presence', async () => {
   try {
     const path = join(dir, 'sample.pptx')
     await writeZip(path, [
-      { name: '[Content_Types].xml', content: '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>' },
+      {
+        name: '[Content_Types].xml',
+        content:
+          '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'
+      },
       {
         name: 'ppt/presentation.xml',
         content:
           '<?xml version="1.0"?>' +
           '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">' +
           '<p:sldIdLst><p:sldId id="256"/><p:sldId id="257"/></p:sldIdLst>' +
-          '</p:presentation>',
+          '</p:presentation>'
       },
       {
         name: 'ppt/slides/slide1.xml',
@@ -232,7 +271,7 @@ test('pptx inspector reports slide text and notes presence', async () => {
           '<?xml version="1.0"?>' +
           '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' +
           '<p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Title Slide</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>' +
-          '</p:sld>',
+          '</p:sld>'
       },
       {
         name: 'ppt/slides/slide2.xml',
@@ -240,11 +279,17 @@ test('pptx inspector reports slide text and notes presence', async () => {
           '<?xml version="1.0"?>' +
           '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' +
           '<p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Second Slide</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>' +
-          '</p:sld>',
+          '</p:sld>'
       },
-      { name: 'ppt/notesSlides/notesSlide1.xml', content: '<p:notes xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>' },
+      {
+        name: 'ppt/notesSlides/notesSlide1.xml',
+        content: '<p:notes xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>'
+      },
       { name: 'ppt/media/image1.png', content: 'fake' },
-      { name: 'ppt/charts/chart1.xml', content: '<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"/>' },
+      {
+        name: 'ppt/charts/chart1.xml',
+        content: '<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"/>'
+      }
     ])
 
     const report = (await runJsonScript(
@@ -278,7 +323,7 @@ test('pdf inspector reports basic PDF facts', async () => {
       '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj',
       '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >> endobj',
       'trailer << /Root 1 0 R >>',
-      '%%EOF',
+      '%%EOF'
     ]
     await writeFile(path, lines.join('\n'))
 
@@ -311,7 +356,7 @@ test('pdf field lister finds simple AcroForm names', async () => {
       '2 0 obj << /Fields [3 0 R 4 0 R] >> endobj',
       '3 0 obj << /T (full_name) /FT /Tx >> endobj',
       '4 0 obj << /T (accept_terms) /FT /Btn >> endobj',
-      '%%EOF',
+      '%%EOF'
     ]
     await writeFile(path, lines.join('\n'))
 
@@ -341,14 +386,18 @@ test('docx fill template replaces placeholder text in copied output', async () =
     const outputPath = join(dir, 'filled.docx')
     const mapPath = join(dir, 'values.json')
     await writeZip(inputPath, [
-      { name: '[Content_Types].xml', content: '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>' },
+      {
+        name: '[Content_Types].xml',
+        content:
+          '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'
+      },
       {
         name: 'word/document.xml',
         content:
           '<?xml version="1.0"?>' +
           '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
-          '<w:body><w:p><w:r><w:t>Hello {{leader}}</w:t></w:r></w:p></w:body></w:document>',
-      },
+          '<w:body><w:p><w:r><w:t>Hello {{leader}}</w:t></w:r></w:p></w:body></w:document>'
+      }
     ])
     await writeFile(mapPath, JSON.stringify({ '{{leader}}': 'Ringo' }))
 
@@ -382,14 +431,18 @@ test('xlsx export sheet csv writes selected sheet content', async () => {
     const inputPath = join(dir, 'book.xlsx')
     const outputPath = join(dir, 'summary.csv')
     await writeZip(inputPath, [
-      { name: '[Content_Types].xml', content: '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>' },
+      {
+        name: '[Content_Types].xml',
+        content:
+          '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'
+      },
       {
         name: 'xl/workbook.xml',
         content:
           '<?xml version="1.0"?>' +
           '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
           '<sheets><sheet name="Summary" sheetId="1" r:id="rId1"/></sheets>' +
-          '</workbook>',
+          '</workbook>'
       },
       {
         name: 'xl/_rels/workbook.xml.rels',
@@ -397,7 +450,7 @@ test('xlsx export sheet csv writes selected sheet content', async () => {
           '<?xml version="1.0"?>' +
           '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
           '<Relationship Id="rId1" Target="worksheets/sheet1.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"/>' +
-          '</Relationships>',
+          '</Relationships>'
       },
       {
         name: 'xl/sharedStrings.xml',
@@ -405,7 +458,7 @@ test('xlsx export sheet csv writes selected sheet content', async () => {
           '<?xml version="1.0"?>' +
           '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
           '<si><t>Name</t></si><si><t>Value</t></si><si><t>Revenue</t></si>' +
-          '</sst>',
+          '</sst>'
       },
       {
         name: 'xl/worksheets/sheet1.xml',
@@ -416,8 +469,8 @@ test('xlsx export sheet csv writes selected sheet content', async () => {
           '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>' +
           '<row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2"><v>1200</v></c></row>' +
           '</sheetData>' +
-          '</worksheet>',
-      },
+          '</worksheet>'
+      }
     ])
 
     const report = (await runCommandJson(
@@ -444,14 +497,18 @@ test('pptx replace text updates target slide content', async () => {
     const inputPath = join(dir, 'deck.pptx')
     const outputPath = join(dir, 'deck-updated.pptx')
     await writeZip(inputPath, [
-      { name: '[Content_Types].xml', content: '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>' },
+      {
+        name: '[Content_Types].xml',
+        content:
+          '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'
+      },
       {
         name: 'ppt/presentation.xml',
         content:
           '<?xml version="1.0"?>' +
           '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">' +
           '<p:sldIdLst><p:sldId id="256"/></p:sldIdLst>' +
-          '</p:presentation>',
+          '</p:presentation>'
       },
       {
         name: 'ppt/slides/slide1.xml',
@@ -459,8 +516,8 @@ test('pptx replace text updates target slide content', async () => {
           '<?xml version="1.0"?>' +
           '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' +
           '<p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Old title</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>' +
-          '</p:sld>',
-      },
+          '</p:sld>'
+      }
     ])
 
     const report = (await runCommandJson(

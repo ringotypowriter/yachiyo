@@ -47,6 +47,9 @@ const IPC_CHANNELS = {
   enableProviderModel: 'yachiyo:enable-provider-model',
   event: 'yachiyo:event',
   getConfig: 'yachiyo:get-config',
+  getSoulDocument: 'yachiyo:get-soul-document',
+  addSoulTrait: 'yachiyo:add-soul-trait',
+  deleteSoulTrait: 'yachiyo:delete-soul-trait',
   getUserDocument: 'yachiyo:get-user-document',
   getSettings: 'yachiyo:get-settings',
   renameThread: 'yachiyo:rename-thread',
@@ -242,6 +245,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.editMessage, (input: EditMessageInput) => server!.editMessage(input))
   handle(IPC_CHANNELS.cancelRun, (input: { runId: string }) => server!.cancelRun(input))
   handle(IPC_CHANNELS.getConfig, () => server!.getConfig())
+  handle(IPC_CHANNELS.getSoulDocument, () => server!.getSoulDocument())
+  handle(IPC_CHANNELS.addSoulTrait, (input: { trait: string }) => server!.addSoulTrait(input))
+  handle(IPC_CHANNELS.deleteSoulTrait, (input: { trait: string }) => server!.deleteSoulTrait(input))
   handle(IPC_CHANNELS.getUserDocument, () => server!.getUserDocument())
   handle(IPC_CHANNELS.testMemoryConnection, (input: TestMemoryConnectionInput) =>
     server!.testMemoryConnection(input.config)

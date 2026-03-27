@@ -31,6 +31,7 @@ import { CodingAgentsPane } from './panes/CodingAgentsPane'
 import { SkillsPane } from './panes/SkillsPane'
 import { UIPane } from './panes/UIPane'
 import { WorkspacePane } from './panes/WorkspacePane'
+import { AboutPane } from './panes/AboutPane'
 
 type TabId =
   | 'general'
@@ -71,15 +72,7 @@ const TABS: Tab[] = [
     label: 'Memory',
     icon: Brain
   },
-  {
-    id: 'ui',
-    label: 'User Interface',
-    icon: Monitor,
-    subTabs: [
-      { id: 'theme', label: 'Theme' },
-      { id: 'layout', label: 'Layout' }
-    ]
-  },
+  { id: 'ui', label: 'User Interface', icon: Monitor },
   { id: 'about', label: 'About', icon: Info }
 ]
 
@@ -208,7 +201,6 @@ function SettingsApp(): React.ReactNode {
   }, [draft, selectedProviderId])
 
   const active = TABS.find((tab) => tab.id === activeTab)!
-  const ActiveIcon = active.icon
   const validationError = validateConfig(draft)
   const isDirty = JSON.stringify(savedConfig) !== JSON.stringify(draft)
 
@@ -281,8 +273,12 @@ function SettingsApp(): React.ReactNode {
     } else if (activeTab === 'memory') {
       body = <MemoryPane draft={draft} onChange={setDraft} />
     } else if (activeTab === 'ui') {
-      body = <UIPane draft={draft} onChange={setDraft} subTab={activeSubTab['ui'] ?? 'theme'} />
+      body = <UIPane draft={draft} onChange={setDraft} />
     }
+  }
+
+  if (activeTab === 'about') {
+    body = <AboutPane />
   }
 
   return (
@@ -313,10 +309,9 @@ function SettingsApp(): React.ReactNode {
               style={
                 activeTab === id
                   ? {
-                      background: theme.background.surface,
-                      color: theme.text.primary,
-                      fontWeight: 500,
-                      boxShadow: theme.shadow.button
+                      background: theme.background.accentSoft,
+                      color: theme.text.accent,
+                      fontWeight: 500
                     }
                   : { color: theme.text.secondary }
               }
@@ -324,7 +319,7 @@ function SettingsApp(): React.ReactNode {
               <Icon
                 size={16}
                 strokeWidth={1.5}
-                style={{ opacity: activeTab === id ? 1 : 0.65, flexShrink: 0 }}
+                style={{ opacity: activeTab === id ? 1 : 0.6, flexShrink: 0 }}
               />
               {label}
             </button>
@@ -332,20 +327,18 @@ function SettingsApp(): React.ReactNode {
         </nav>
       </div>
 
-      <div className="flex flex-col flex-1 min-w-0" style={{ background: theme.background.canvas }}>
+      <div
+        className="flex flex-col flex-1 min-w-0"
+        style={{ background: theme.background.surface }}
+      >
         <div
-          className="shrink-0 flex items-center gap-2.5 drag-region"
+          className="shrink-0 flex items-center drag-region"
           style={{
             height: '52px',
             padding: '0 28px',
             borderBottom: `1px solid ${theme.border.panel}`
           }}
         >
-          <ActiveIcon
-            size={20}
-            strokeWidth={1.5}
-            style={{ color: theme.icon.default, opacity: 0.75 }}
-          />
           <span
             className="font-semibold text-xl"
             style={{ color: theme.text.primary, letterSpacing: '-0.3px' }}
@@ -389,52 +382,52 @@ function SettingsApp(): React.ReactNode {
           className="shrink-0 no-drag flex items-center justify-between px-5 py-3"
           style={{ borderTop: `1px solid ${theme.border.panel}` }}
         >
-          <span
-            className="text-xs"
-            style={{
-              color: error || validationError ? theme.text.dangerStrong : theme.text.muted
-            }}
-          >
-            {validationError
-              ? validationError
-              : error
-                ? error
-                : saving
-                  ? 'Saving changes...'
-                  : isDirty
-                    ? 'Unsaved changes'
-                    : 'All changes saved'}
-          </span>
+          {isDirty || saving || error || validationError ? (
+            <span
+              className="text-xs"
+              style={{
+                color: error || validationError ? theme.text.dangerStrong : theme.text.muted
+              }}
+            >
+              {validationError
+                ? validationError
+                : error
+                  ? error
+                  : saving
+                    ? 'Saving...'
+                    : 'Unsaved changes'}
+            </span>
+          ) : (
+            <span />
+          )}
           <div className="flex items-center gap-2">
             <button
               onClick={() => window.close()}
-              className="px-4 py-1.5 rounded-lg text-sm font-medium"
-              style={{
-                background: theme.background.surface,
-                border: `1px solid ${theme.border.contrast}`,
-                color: theme.text.primary,
-                cursor: 'pointer'
-              }}
+              className="px-4 py-1.5 rounded-lg text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
+              style={{ background: 'transparent', border: 'none', color: theme.text.secondary, cursor: 'pointer' }}
             >
               Close
             </button>
             <button
               onClick={() => void handleSave()}
               disabled={!isDirty || saving || loading || !draft || Boolean(validationError)}
-              className="px-4 py-1.5 rounded-lg text-sm font-medium"
-              style={{
-                background:
-                  !isDirty || saving || loading || !draft || validationError
-                    ? theme.text.muted
-                    : theme.text.accent,
-                color: theme.text.inverse,
-                opacity: !isDirty || saving || loading || !draft || validationError ? 0.4 : 1,
-                border: '1px solid transparent',
-                cursor:
-                  !isDirty || saving || loading || !draft || validationError
-                    ? 'not-allowed'
-                    : 'pointer'
-              }}
+              className="px-4 py-1.5 rounded-lg text-sm font-medium transition-all"
+              style={
+                !isDirty || saving || loading || !draft || validationError
+                  ? {
+                      background: 'transparent',
+                      color: theme.text.muted,
+                      border: 'none',
+                      cursor: 'not-allowed',
+                      opacity: 0.4
+                    }
+                  : {
+                      background: theme.text.accent,
+                      color: theme.text.inverse,
+                      border: '1px solid transparent',
+                      cursor: 'pointer'
+                    }
+              }
             >
               Save
             </button>

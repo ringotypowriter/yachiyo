@@ -82,12 +82,15 @@ One-sentence use case.
 Read [guide.md](references/guide.md) for the operating guide before non-trivial work.
 
 ## Stable Workflow
+
 ...
 
 ## Good Defaults
+
 ...
 
 ## Verification
+
 ...
 ```
 

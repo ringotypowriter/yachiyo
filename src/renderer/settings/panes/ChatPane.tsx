@@ -9,8 +9,7 @@ import {
 import { formatStoredModelChip } from '../../src/lib/model/modelLabel'
 import { ModelSelectorPopup } from '../../src/features/chat/components/ModelSelectorPopup'
 import { canOpenToolModelPicker } from '../../src/features/chat/lib/modelSelectorState'
-import { SettingSwitch } from '../components/primitives'
-import { settingsPanelStyle } from '../components/styles'
+import { SettingLabel, SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
 
 interface ChatPaneProps {
   draft: SettingsConfig
@@ -147,249 +146,214 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
       : ''
 
   return (
-    <div className="flex-1 overflow-y-auto px-7 py-6">
-      <div className="max-w-3xl space-y-4">
-        <section className="rounded-[28px] px-5 py-5" style={settingsPanelStyle()}>
-          <div
-            className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-            style={{ color: theme.text.muted }}
-          >
-            Active run
-          </div>
+    <div className="flex-1 overflow-y-auto pb-6">
+      <SettingSection>
+        <SettingLabel>Active run</SettingLabel>
 
-          <div
-            className="mt-3 flex items-center justify-between gap-4 rounded-2xl px-4 py-3"
-            style={{
-              background: theme.background.surfaceLight,
-              border: `1px solid ${theme.border.default}`
-            }}
-          >
-            <div className="min-w-0 space-y-1">
-              <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
-                Enter steers during active runs
-              </div>
-              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-                Off = queue follow-up. Alt+Enter swaps.
-              </div>
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Enter steers during active runs
             </div>
-
-            <div className="shrink-0">
-              <SettingSwitch
-                checked={activeRunEnterBehavior === 'enter-steers'}
-                onChange={() =>
-                  onChange({
-                    ...draft,
-                    chat: {
-                      ...draft.chat,
-                      activeRunEnterBehavior:
-                        activeRunEnterBehavior === 'enter-steers'
-                          ? 'enter-queues-follow-up'
-                          : 'enter-steers'
-                    }
-                  })
-                }
-                ariaLabel="Toggle Enter steering during active runs"
-              />
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              Off = queue follow-up. Alt+Enter swaps.
             </div>
           </div>
-        </section>
 
-        <section className="rounded-[28px] px-5 py-5" style={settingsPanelStyle()}>
-          <div
-            className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-            style={{ color: theme.text.muted }}
-          >
-            Default model
-          </div>
-
-          <div
-            className="mt-3 flex items-center justify-between gap-4 rounded-2xl px-4 py-3"
-            style={{
-              background: theme.background.surfaceLight,
-              border: `1px solid ${theme.border.default}`
-            }}
-          >
-            <div className="min-w-0 space-y-1">
-              <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
-                Model used for new threads
-              </div>
-              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-                {hasEnabledModels
-                  ? 'Per-thread overrides take precedence.'
-                  : 'Enable a model in Providers first.'}
-              </div>
-            </div>
-
-            <div ref={defaultModelSelectorRef} className="relative shrink-0">
-              <button
-                ref={defaultModelTriggerRef}
-                type="button"
-                onClick={() => {
-                  if (!hasEnabledModels) {
-                    return
+          <div className="shrink-0">
+            <SettingSwitch
+              checked={activeRunEnterBehavior === 'enter-steers'}
+              onChange={() =>
+                onChange({
+                  ...draft,
+                  chat: {
+                    ...draft.chat,
+                    activeRunEnterBehavior:
+                      activeRunEnterBehavior === 'enter-steers'
+                        ? 'enter-queues-follow-up'
+                        : 'enter-steers'
                   }
+                })
+              }
+              ariaLabel="Toggle Enter steering during active runs"
+            />
+          </div>
+        </SettingRow>
+      </SettingSection>
 
-                  updateDefaultModelAnchorRect()
-                  setDefaultModelSelectorOpen((open) => !open)
-                }}
-                className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity"
-                style={{
-                  color: theme.text.primary,
-                  opacity: defaultModelSelectorOpen ? 1 : 0.72,
-                  cursor: hasEnabledModels ? 'pointer' : 'default'
-                }}
-                aria-label="Default model selection"
-              >
-                <CircleCheck
-                  size={12}
+      <SettingSection>
+        <SettingLabel>Default model</SettingLabel>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Model used for new threads
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              {hasEnabledModels
+                ? 'Per-thread overrides take precedence.'
+                : 'Enable a model in Providers first.'}
+            </div>
+          </div>
+
+          <div ref={defaultModelSelectorRef} className="relative shrink-0">
+            <button
+              ref={defaultModelTriggerRef}
+              type="button"
+              onClick={() => {
+                if (!hasEnabledModels) {
+                  return
+                }
+
+                updateDefaultModelAnchorRect()
+                setDefaultModelSelectorOpen((open) => !open)
+              }}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity"
+              style={{
+                color: theme.text.primary,
+                opacity: defaultModelSelectorOpen ? 1 : 0.72,
+                cursor: hasEnabledModels ? 'pointer' : 'default'
+              }}
+              aria-label="Default model selection"
+            >
+              <CircleCheck
+                size={12}
+                strokeWidth={1.5}
+                color={currentDefaultModel ? theme.icon.success : theme.icon.muted}
+              />
+              {defaultModelLabel}
+              {hasEnabledModels ? (
+                <ChevronDown
+                  size={10}
                   strokeWidth={1.5}
-                  color={currentDefaultModel ? theme.icon.success : theme.icon.muted}
-                />
-                {defaultModelLabel}
-                {hasEnabledModels ? (
-                  <ChevronDown
-                    size={10}
-                    strokeWidth={1.5}
-                    color={theme.icon.muted}
-                    style={{
-                      transform: defaultModelSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                      transition: 'transform 0.15s ease'
-                    }}
-                  />
-                ) : null}
-              </button>
-
-              {defaultModelSelectorOpen ? (
-                <ModelSelectorPopup
-                  config={draft}
-                  containerRef={defaultModelPopupRef}
-                  currentProviderName={currentDefaultModel?.providerName ?? ''}
-                  currentModel={currentDefaultModel?.model ?? ''}
-                  onSelect={(providerName, model) => {
-                    onChange({ ...draft, defaultModel: { providerName, model } })
+                  color={theme.icon.muted}
+                  style={{
+                    transform: defaultModelSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.15s ease'
                   }}
-                  onClose={() => setDefaultModelSelectorOpen(false)}
-                  align="right"
-                  anchorRect={defaultModelAnchorRect}
-                  placement="bottom"
-                  portal
                 />
               ) : null}
+            </button>
+
+            {defaultModelSelectorOpen ? (
+              <ModelSelectorPopup
+                config={draft}
+                containerRef={defaultModelPopupRef}
+                currentProviderName={currentDefaultModel?.providerName ?? ''}
+                currentModel={currentDefaultModel?.model ?? ''}
+                onSelect={(providerName, model) => {
+                  onChange({ ...draft, defaultModel: { providerName, model } })
+                }}
+                onClose={() => setDefaultModelSelectorOpen(false)}
+                align="right"
+                anchorRect={defaultModelAnchorRect}
+                placement="bottom"
+                portal
+              />
+            ) : null}
+          </div>
+        </SettingRow>
+      </SettingSection>
+
+      <SettingSection>
+        <SettingLabel>Tool model</SettingLabel>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Thread titles and small auxiliary tasks
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              {hasEnabledModels
+                ? 'Uses the selected model below.'
+                : 'Enable a model in Providers first.'}
             </div>
           </div>
-        </section>
 
-        <section className="rounded-[28px] px-5 py-5" style={settingsPanelStyle()}>
-          <div
-            className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-            style={{ color: theme.text.muted }}
-          >
-            Tool model
-          </div>
+          <div ref={toolModelSelectorRef} className="relative shrink-0">
+            <button
+              ref={toolModelTriggerRef}
+              type="button"
+              onClick={() => {
+                if (!canOpenToolModelSelector) {
+                  return
+                }
 
-          <div
-            className="mt-3 flex items-center justify-between gap-4 rounded-2xl px-4 py-3"
-            style={{
-              background: theme.background.surfaceLight,
-              border: `1px solid ${theme.border.default}`
-            }}
-          >
-            <div className="min-w-0 space-y-1">
-              <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
-                Thread titles and small auxiliary tasks
-              </div>
-              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-                {hasEnabledModels
-                  ? 'Uses the selected model below.'
-                  : 'Enable a model in Providers first.'}
-              </div>
-            </div>
-
-            <div ref={toolModelSelectorRef} className="relative shrink-0">
-              <button
-                ref={toolModelTriggerRef}
-                type="button"
-                onClick={() => {
-                  if (!canOpenToolModelSelector) {
-                    return
-                  }
-
-                  updateToolModelAnchorRect()
-                  setToolModelSelectorOpen((open) => !open)
-                }}
-                className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity"
-                style={{
-                  color: theme.text.primary,
-                  opacity: toolModelSelectorOpen ? 1 : 0.72,
-                  cursor: canOpenToolModelSelector ? 'pointer' : 'default'
-                }}
-                aria-label="Tool model selection"
-              >
-                <CircleCheck
-                  size={12}
+                updateToolModelAnchorRect()
+                setToolModelSelectorOpen((open) => !open)
+              }}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity"
+              style={{
+                color: theme.text.primary,
+                opacity: toolModelSelectorOpen ? 1 : 0.72,
+                cursor: canOpenToolModelSelector ? 'pointer' : 'default'
+              }}
+              aria-label="Tool model selection"
+            >
+              <CircleCheck
+                size={12}
+                strokeWidth={1.5}
+                color={toolModel.mode === 'custom' ? theme.icon.success : theme.icon.muted}
+              />
+              {toolModelLabel}
+              {canOpenToolModelSelector ? (
+                <ChevronDown
+                  size={10}
                   strokeWidth={1.5}
-                  color={toolModel.mode === 'custom' ? theme.icon.success : theme.icon.muted}
-                />
-                {toolModelLabel}
-                {canOpenToolModelSelector ? (
-                  <ChevronDown
-                    size={10}
-                    strokeWidth={1.5}
-                    color={theme.icon.muted}
-                    style={{
-                      transform: toolModelSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                      transition: 'transform 0.15s ease'
-                    }}
-                  />
-                ) : null}
-              </button>
-
-              {toolModelSelectorOpen ? (
-                <ModelSelectorPopup
-                  config={draft}
-                  containerRef={toolModelPopupRef}
-                  currentProviderName={selectedToolProvider?.name ?? ''}
-                  currentModel={toolModel.model}
-                  leadingOption={{
-                    label: 'Disabled (use fallback)',
-                    isSelected: toolModel.mode !== 'custom',
-                    onSelect: () =>
-                      onChange({
-                        ...draft,
-                        toolModel: {
-                          ...toolModel,
-                          mode: 'disabled',
-                          providerId: '',
-                          providerName: '',
-                          model: ''
-                        }
-                      })
+                  color={theme.icon.muted}
+                  style={{
+                    transform: toolModelSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.15s ease'
                   }}
-                  onSelect={(providerName, model) => {
-                    const provider =
-                      draft.providers.find((entry) => entry.name === providerName) ?? null
+                />
+              ) : null}
+            </button>
+
+            {toolModelSelectorOpen ? (
+              <ModelSelectorPopup
+                config={draft}
+                containerRef={toolModelPopupRef}
+                currentProviderName={selectedToolProvider?.name ?? ''}
+                currentModel={toolModel.model}
+                leadingOption={{
+                  label: 'Disabled (use fallback)',
+                  isSelected: toolModel.mode !== 'custom',
+                  onSelect: () =>
                     onChange({
                       ...draft,
                       toolModel: {
                         ...toolModel,
-                        mode: 'custom',
-                        providerId: provider?.id ?? '',
-                        providerName,
-                        model
+                        mode: 'disabled',
+                        providerId: '',
+                        providerName: '',
+                        model: ''
                       }
                     })
-                  }}
-                  onClose={() => setToolModelSelectorOpen(false)}
-                  align="right"
-                  anchorRect={toolModelAnchorRect}
-                  placement="bottom"
-                  portal
-                />
-              ) : null}
-            </div>
+                }}
+                onSelect={(providerName, model) => {
+                  const provider =
+                    draft.providers.find((entry) => entry.name === providerName) ?? null
+                  onChange({
+                    ...draft,
+                    toolModel: {
+                      ...toolModel,
+                      mode: 'custom',
+                      providerId: provider?.id ?? '',
+                      providerName,
+                      model
+                    }
+                  })
+                }}
+                onClose={() => setToolModelSelectorOpen(false)}
+                align="right"
+                anchorRect={toolModelAnchorRect}
+                placement="bottom"
+                portal
+              />
+            ) : null}
           </div>
-        </section>
-      </div>
+        </SettingRow>
+      </SettingSection>
     </div>
   )
 }

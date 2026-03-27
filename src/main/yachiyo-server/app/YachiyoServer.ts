@@ -30,6 +30,7 @@ import type {
   ThreadSnapshot,
   ToolPreferencesInput,
   UserDocument,
+  SoulDocument as ProtocolSoulDocument,
   WebSearchBrowserImportSource,
   YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol.ts'
@@ -40,7 +41,12 @@ import {
 import { createAuxiliaryGenerationService } from '../runtime/auxiliaryGeneration.ts'
 import { searchWorkspaceFileMentionCandidates } from '../runtime/fileMentions.ts'
 import { createAiSdkModelRuntime } from '../runtime/modelRuntime.ts'
-import { readSoulDocument, type SoulDocument } from '../runtime/soul.ts'
+import {
+  readSoulDocument,
+  upsertDailySoulTrait,
+  removeSoulTrait,
+  type SoulDocument
+} from '../runtime/soul.ts'
 import { readUserDocument, writeUserDocument } from '../runtime/user.ts'
 import type { ModelRuntime } from '../runtime/types.ts'
 import { createSearchService, type SearchService } from '../services/search/searchService.ts'
@@ -86,6 +92,8 @@ export interface YachiyoServerOptions {
   createModelRuntime?: () => ModelRuntime
   searchService?: SearchService
   readSoulDocument?: () => Promise<SoulDocument | null>
+  addSoulTrait?: (trait: string) => Promise<SoulDocument | null>
+  removeSoulTrait?: (trait: string) => Promise<SoulDocument | null>
   readUserDocument?: () => Promise<UserDocument | null>
   saveUserDocument?: (content: string) => Promise<UserDocument | null>
   ensureThreadWorkspace?: (threadId: string) => Promise<string>
@@ -117,6 +125,8 @@ export class YachiyoServer {
   private readonly readUserDocumentFile: () => Promise<UserDocument | null>
   private readonly saveUserDocumentFile: (content: string) => Promise<UserDocument | null>
   private readonly readSoulDocumentFile: () => Promise<SoulDocument | null>
+  private readonly addSoulTraitFile: (trait: string) => Promise<SoulDocument | null>
+  private readonly removeSoulTraitFile: (trait: string) => Promise<SoulDocument | null>
 
   private static logBrowserSearchDiagnostic(event: BrowserSearchDiagnosticEvent): void {
     const details = {
@@ -143,6 +153,8 @@ export class YachiyoServer {
       options.createModelRuntime ??
       (() => createAiSdkModelRuntime({ fetchImpl: options.fetchImpl }))
     this.readSoulDocumentFile = options.readSoulDocument ?? (() => readSoulDocument())
+    this.addSoulTraitFile = options.addSoulTrait ?? ((trait) => upsertDailySoulTrait({ trait }))
+    this.removeSoulTraitFile = options.removeSoulTrait ?? ((trait) => removeSoulTrait({ trait }))
     this.readUserDocumentFile = options.readUserDocument ?? (() => readUserDocument())
     this.saveUserDocumentFile =
       options.saveUserDocument ?? ((content) => writeUserDocument({ content }))
@@ -286,6 +298,41 @@ export class YachiyoServer {
 
   async getConfig(): Promise<SettingsConfig> {
     return this.configDomain.getConfig()
+  }
+
+  private toProtocolSoulDocument(doc: SoulDocument): ProtocolSoulDocument {
+    return {
+      filePath: doc.filePath,
+      evolvedTraits: doc.evolvedTraits,
+      lastUpdated: doc.lastUpdated
+    }
+  }
+
+  async getSoulDocument(): Promise<ProtocolSoulDocument> {
+    const doc = await this.readSoulDocumentFile()
+    if (!doc) {
+      throw new Error('SOUL.md is unavailable.')
+    }
+
+    return this.toProtocolSoulDocument(doc)
+  }
+
+  async addSoulTrait(input: { trait: string }): Promise<ProtocolSoulDocument> {
+    const doc = await this.addSoulTraitFile(input.trait)
+    if (!doc) {
+      throw new Error('Failed to add soul trait.')
+    }
+
+    return this.toProtocolSoulDocument(doc)
+  }
+
+  async deleteSoulTrait(input: { trait: string }): Promise<ProtocolSoulDocument> {
+    const doc = await this.removeSoulTraitFile(input.trait)
+    if (!doc) {
+      throw new Error('Failed to remove soul trait.')
+    }
+
+    return this.toProtocolSoulDocument(doc)
   }
 
   async getUserDocument(): Promise<UserDocument> {

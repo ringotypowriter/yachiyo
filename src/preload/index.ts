@@ -19,6 +19,7 @@ import type {
   ThreadRecord,
   ThreadSearchResult,
   UserDocument,
+  SoulDocument,
   ToolPreferencesInput,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
@@ -66,6 +67,11 @@ const api = {
       ipcRenderer.invoke('yachiyo:select-reply-branch', input),
     cancelRun: (input: { runId: string }) => ipcRenderer.invoke('yachiyo:cancel-run', input),
     getConfig: () => ipcRenderer.invoke('yachiyo:get-config'),
+    getSoulDocument: (): Promise<SoulDocument> => ipcRenderer.invoke('yachiyo:get-soul-document'),
+    addSoulTrait: (input: { trait: string }): Promise<SoulDocument> =>
+      ipcRenderer.invoke('yachiyo:add-soul-trait', input),
+    deleteSoulTrait: (input: { trait: string }): Promise<SoulDocument> =>
+      ipcRenderer.invoke('yachiyo:delete-soul-trait', input),
     getUserDocument: (): Promise<UserDocument> => ipcRenderer.invoke('yachiyo:get-user-document'),
     testMemoryConnection: (input: TestMemoryConnectionInput) =>
       ipcRenderer.invoke('yachiyo:test-memory-connection', input),

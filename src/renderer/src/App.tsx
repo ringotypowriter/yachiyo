@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
+import avatarUrl from '../../../resources/branding.jpeg'
 import { AppMainPanel } from '@renderer/features/layout/components/AppMainPanel'
 import { AppSidebar } from '@renderer/features/layout/components/AppSidebar'
 import { AppSidebarDivider } from '@renderer/features/layout/components/AppSidebarDivider'
@@ -7,6 +8,64 @@ import { useSidebarVisibilityState } from '@renderer/features/layout/hooks/useSi
 import { isCreateNewThreadShortcut } from '@renderer/features/layout/lib/newThreadShortcut'
 import { isOpenSidebarSearchShortcut } from '@renderer/features/layout/lib/findBarShortcut'
 import { ToastPresenter } from '@renderer/features/notifications/components/ToastPresenter'
+
+function ConnectionOverlay({ status }: { status: 'connecting' | 'disconnected' }): React.JSX.Element {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9999,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 16,
+        backdropFilter: 'blur(24px) saturate(1.4)',
+        WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
+        background: 'rgba(255, 255, 255, 0.60)'
+      }}
+    >
+      <div
+        style={{
+          width: 72,
+          height: 72,
+          borderRadius: '50%',
+          overflow: 'hidden',
+          boxShadow: '0 0 0 1px rgba(0,0,0,0.06), 0 4px 20px rgba(0,0,0,0.10)'
+        }}
+      >
+        <img
+          src={avatarUrl}
+          alt="Yachiyo"
+          style={{
+            display: 'block',
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            objectPosition: 'center 15%'
+          }}
+        />
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+        <span
+          style={{
+            fontSize: 14,
+            fontWeight: 500,
+            color: 'rgba(28,28,30,0.85)',
+            letterSpacing: '-0.2px'
+          }}
+        >
+          {status === 'connecting' ? 'Starting up…' : 'Unable to connect'}
+        </span>
+        <span style={{ fontSize: 12, color: 'rgba(28,28,30,0.40)' }}>
+          {status === 'connecting' ? 'Yachiyo is waking up' : 'Waiting for the local server'}
+        </span>
+      </div>
+    </div>
+  )
+}
 
 function App(): React.JSX.Element {
   const {
@@ -18,6 +77,7 @@ function App(): React.JSX.Element {
     sidebarLayout,
     toggleSidebar
   } = useSidebarVisibilityState()
+  const connectionStatus = useAppStore((s) => s.connectionStatus)
   const config = useAppStore((s) => s.config)
   const createNewThread = useAppStore((s) => s.createNewThread)
   const [isSidebarSearchOpen, setIsSidebarSearchOpen] = useState(false)
@@ -122,6 +182,8 @@ function App(): React.JSX.Element {
         />
       </div>
       <ToastPresenter />
+
+      {connectionStatus !== 'connected' && <ConnectionOverlay status={connectionStatus} />}
     </div>
   )
 }

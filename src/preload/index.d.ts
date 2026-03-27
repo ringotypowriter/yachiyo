@@ -24,6 +24,7 @@ import type {
   ThreadModelOverride,
   ThreadSearchResult,
   UserDocument,
+  SoulDocument,
   ThreadSnapshot,
   ThreadRecord,
   ToolPreferencesInput,
@@ -69,6 +70,9 @@ declare global {
         }) => Promise<ThreadRecord>
         cancelRun: (input: { runId: string }) => Promise<void>
         getConfig: () => Promise<SettingsConfig>
+        getSoulDocument: () => Promise<SoulDocument>
+        addSoulTrait: (input: { trait: string }) => Promise<SoulDocument>
+        deleteSoulTrait: (input: { trait: string }) => Promise<SoulDocument>
         getUserDocument: () => Promise<UserDocument>
         testMemoryConnection: (
           input: TestMemoryConnectionInput

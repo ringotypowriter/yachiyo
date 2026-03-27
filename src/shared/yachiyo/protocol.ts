@@ -422,6 +422,12 @@ export interface UserDocument {
   content: string
 }
 
+export interface SoulDocument {
+  filePath: string
+  evolvedTraits: string[]
+  lastUpdated: string
+}
+
 export interface WorkspaceConfig {
   savedPaths?: string[]
   editorApp?: string

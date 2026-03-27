@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
-import { theme } from '@renderer/theme/theme'
-import { settingsPanelStyle } from '../components/styles'
+import { theme, alpha } from '@renderer/theme/theme'
+import { SettingLabel, SettingRow, SettingSection } from '../components/primitives'
 import {
   DEFAULT_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
@@ -17,7 +17,6 @@ const DEFAULT_CHAT_FONT_SIZE = 14
 interface UIPaneProps {
   draft: SettingsConfig
   onChange: (next: SettingsConfig) => void
-  subTab: string
 }
 
 function FontSizeRow({
@@ -41,15 +40,9 @@ function FontSizeRow({
   const canIncrease = currentIndex < steps.length - 1
 
   return (
-    <div
-      className="flex items-center justify-between gap-4 rounded-2xl px-4 py-3"
-      style={{
-        background: theme.background.surfaceLight,
-        border: `1px solid ${theme.border.default}`
-      }}
-    >
-      <div className="min-w-0 space-y-1">
-        <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
+    <SettingRow>
+      <div className="min-w-0 space-y-0.5">
+        <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
           {label}
         </div>
         <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
@@ -62,14 +55,8 @@ function FontSizeRow({
           type="button"
           disabled={!canDecrease}
           onClick={() => canDecrease && onChange(steps[currentIndex - 1])}
-          className="flex items-center justify-center rounded-lg text-sm font-medium transition-opacity disabled:opacity-30"
-          style={{
-            width: 28,
-            height: 28,
-            background: theme.background.surface,
-            border: `1px solid ${theme.border.default}`,
-            color: theme.text.primary
-          }}
+          className="flex items-center justify-center text-sm font-medium transition-opacity disabled:opacity-25 opacity-50 hover:opacity-100"
+          style={{ width: 24, height: 24, background: 'none', border: 'none', color: theme.text.primary, cursor: 'pointer' }}
           aria-label={`Decrease ${label.toLowerCase()}`}
         >
           −
@@ -84,151 +71,130 @@ function FontSizeRow({
           type="button"
           disabled={!canIncrease}
           onClick={() => canIncrease && onChange(steps[currentIndex + 1])}
-          className="flex items-center justify-center rounded-lg text-sm font-medium transition-opacity disabled:opacity-30"
-          style={{
-            width: 28,
-            height: 28,
-            background: theme.background.surface,
-            border: `1px solid ${theme.border.default}`,
-            color: theme.text.primary
-          }}
+          className="flex items-center justify-center text-sm font-medium transition-opacity disabled:opacity-25 opacity-50 hover:opacity-100"
+          style={{ width: 24, height: 24, background: 'none', border: 'none', color: theme.text.primary, cursor: 'pointer' }}
           aria-label={`Increase ${label.toLowerCase()}`}
         >
           +
         </button>
       </div>
-    </div>
+    </SettingRow>
   )
 }
 
-function ThemeSubTab({
-  draft,
-  onChange
-}: {
-  draft: SettingsConfig
-  onChange: (next: SettingsConfig) => void
-}): React.ReactNode {
-  return (
-    <div className="flex-1 overflow-y-auto px-7 py-6">
-      <div className="max-w-3xl">
-        <section className="rounded-[28px] px-5 py-5" style={settingsPanelStyle()}>
-          <div
-            className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-            style={{ color: theme.text.muted }}
-          >
-            Text size
-          </div>
-
-          <div className="mt-3 flex flex-col gap-2">
-            <FontSizeRow
-              label="Interface text"
-              description="Applies to navigation, buttons, and labels."
-              value={draft.general?.uiFontSize}
-              steps={UI_FONT_SIZES}
-              defaultValue={DEFAULT_UI_FONT_SIZE}
-              onChange={(next) =>
-                onChange({
-                  ...draft,
-                  general: { ...draft.general, uiFontSize: next }
-                })
-              }
-            />
-            <FontSizeRow
-              label="Chat text"
-              description="Applies to message content in conversations."
-              value={draft.general?.chatFontSize}
-              steps={CHAT_FONT_SIZES}
-              defaultValue={DEFAULT_CHAT_FONT_SIZE}
-              onChange={(next) =>
-                onChange({
-                  ...draft,
-                  general: { ...draft.general, chatFontSize: next }
-                })
-              }
-            />
-          </div>
-        </section>
-      </div>
-    </div>
-  )
-}
-
-function LayoutSubTab(): React.ReactNode {
+export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
   const [sidebarWidth, setSidebarWidthState] = useState<number>(
     () =>
       parseInt(globalThis.localStorage?.getItem(SIDEBAR_WIDTH_STORAGE_KEY) ?? '', 10) ||
       DEFAULT_SIDEBAR_WIDTH
   )
 
-  const handleChange = (next: number): void => {
+  const handleSidebarWidth = (next: number): void => {
     setSidebarWidthState(next)
     globalThis.localStorage?.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(next))
-    // Broadcast to main window via storage event (cross-window sync)
     window.dispatchEvent(
       new StorageEvent('storage', { key: SIDEBAR_WIDTH_STORAGE_KEY, newValue: String(next) })
     )
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-7 py-6">
-      <div className="max-w-3xl">
-        <section className="rounded-[28px] px-5 py-5" style={settingsPanelStyle()}>
-          <div
-            className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-            style={{ color: theme.text.muted }}
-          >
-            Sidebar
+    <div className="flex-1 overflow-y-auto pb-6">
+      <SettingSection>
+        <SettingLabel>Text size</SettingLabel>
+
+        <FontSizeRow
+          label="Interface text"
+          description="Applies to navigation, buttons, and labels."
+          value={draft.general?.uiFontSize}
+          steps={UI_FONT_SIZES}
+          defaultValue={DEFAULT_UI_FONT_SIZE}
+          onChange={(next) =>
+            onChange({ ...draft, general: { ...draft.general, uiFontSize: next } })
+          }
+        />
+        <FontSizeRow
+          label="Chat text"
+          description="Applies to message content in conversations."
+          value={draft.general?.chatFontSize}
+          steps={CHAT_FONT_SIZES}
+          defaultValue={DEFAULT_CHAT_FONT_SIZE}
+          onChange={(next) =>
+            onChange({ ...draft, general: { ...draft.general, chatFontSize: next } })
+          }
+        />
+      </SettingSection>
+
+      <SettingSection>
+        <SettingLabel>Layout</SettingLabel>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Sidebar width
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              Drag the sidebar edge in the main window, or set a precise value here.
+            </div>
           </div>
 
-          <div
-            className="mt-3 flex items-center justify-between gap-4 rounded-2xl px-4 py-3"
-            style={{
-              background: theme.background.surfaceLight,
-              border: `1px solid ${theme.border.default}`
-            }}
-          >
-            <div className="min-w-0 space-y-1">
-              <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
-                Sidebar width
-              </div>
-              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-                Drag the sidebar edge in the main window, or set a precise value here.
-              </div>
-            </div>
-
-            <div className="flex shrink-0 items-center gap-3">
+          <div className="flex shrink-0 items-center gap-3">
+            <div style={{ position: 'relative', width: 112, height: 20 }}>
+              {/* track */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: 0,
+                  right: 0,
+                  height: 3,
+                  transform: 'translateY(-50%)',
+                  borderRadius: 99,
+                  background: alpha('ink', 0.08),
+                  pointerEvents: 'none'
+                }}
+              />
+              {/* fill */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: 0,
+                  width: `${((sidebarWidth - MIN_SIDEBAR_WIDTH) / (MAX_SIDEBAR_WIDTH - MIN_SIDEBAR_WIDTH)) * 100}%`,
+                  height: 3,
+                  transform: 'translateY(-50%)',
+                  borderRadius: 99,
+                  background: theme.text.accent,
+                  pointerEvents: 'none'
+                }}
+              />
               <input
                 type="range"
                 min={MIN_SIDEBAR_WIDTH}
                 max={MAX_SIDEBAR_WIDTH}
                 step={10}
                 value={sidebarWidth}
-                onChange={(e) => handleChange(parseInt(e.target.value, 10))}
-                className="w-28"
+                onChange={(e) => handleSidebarWidth(parseInt(e.target.value, 10))}
                 aria-label="Sidebar width"
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  opacity: 0,
+                  cursor: 'pointer',
+                  margin: 0
+                }}
               />
-              <span
-                className="text-sm font-medium tabular-nums"
-                style={{ minWidth: 44, textAlign: 'right', color: theme.text.primary }}
-              >
-                {sidebarWidth}px
-              </span>
             </div>
+            <span
+              className="text-sm font-medium tabular-nums"
+              style={{ minWidth: 44, textAlign: 'right', color: theme.text.primary }}
+            >
+              {sidebarWidth}px
+            </span>
           </div>
-        </section>
-      </div>
+        </SettingRow>
+      </SettingSection>
     </div>
   )
-}
-
-export function UIPane({ draft, onChange, subTab }: UIPaneProps): React.ReactNode {
-  if (subTab === 'theme') {
-    return <ThemeSubTab draft={draft} onChange={onChange} />
-  }
-
-  if (subTab === 'layout') {
-    return <LayoutSubTab />
-  }
-
-  return null
 }
