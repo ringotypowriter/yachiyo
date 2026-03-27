@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 import { resolveYachiyoDataDir, resolveYachiyoSettingsPath } from './yachiyo-server/config/paths.ts'
 import { createSettingsStore } from './yachiyo-server/settings/settingsStore.ts'
+import { rewriteBundledCoreSkillMarkdownFiles } from './coreSkillsContent.ts'
 
 const CORE_SKILLS_SUBDIR = join('skills', 'core')
 const MANIFEST_FILE = '.manifest.json'
@@ -16,10 +17,18 @@ interface CoreSkillsManifest {
 
 function resolveBundledCoreSkillsPath(): string {
   // Dev: project root / resources / core-skills
-  // Prod: bundled alongside main process output (out/main/core-skills)
-  return is.dev
-    ? join(app.getAppPath(), 'resources', 'core-skills')
-    : join(__dirname, 'core-skills')
+  // Prod packaged: app resources / core-skills
+  // Prod preview/unpacked: bundled alongside main process output (out/main/core-skills)
+  if (is.dev) {
+    return join(app.getAppPath(), 'resources', 'core-skills')
+  }
+
+  const packagedPath = join(process.resourcesPath, 'core-skills')
+  if (existsSync(packagedPath)) {
+    return packagedPath
+  }
+
+  return join(__dirname, 'core-skills')
 }
 
 function resolveCoreSkillsTargetPath(): string {
@@ -122,7 +131,9 @@ function runSetup(): void {
   const manifest = readManifest(targetPath)
 
   if (manifest?.appVersion === appVersion) {
-    // Already up to date for this version — nothing to do.
+    // Already extracted for this version. Still rewrite markdown in place so
+    // users with older copied docs are repaired without requiring a version bump.
+    rewriteBundledCoreSkillMarkdownFiles(targetPath)
     return
   }
 
@@ -130,6 +141,7 @@ function runSetup(): void {
   // (never touches ~/.yachiyo/skills/custom/ or any sibling directory)
   mkdirSync(targetPath, { recursive: true })
   cpSync(bundledPath, targetPath, { recursive: true })
+  rewriteBundledCoreSkillMarkdownFiles(targetPath)
 
   const allSkillNames = collectBundledSkillNames(bundledPath)
   const previouslyRegistered = new Set(manifest?.registeredSkills ?? [])

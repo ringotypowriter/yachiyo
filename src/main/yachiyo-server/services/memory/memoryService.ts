@@ -858,6 +858,33 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
 
     async testConnection(configOverride?: SettingsConfig): Promise<TestMemoryConnectionResult> {
       const config = configOverride ?? deps.readConfig()
+      const providerId = normalizeMemoryProviderId(config.memory?.provider)
+      if (providerId === 'builtin-memory') {
+        try {
+          const provider = deps.createProvider({
+            ...config,
+            memory: {
+              enabled: true,
+              provider: 'builtin-memory'
+            }
+          })
+          await provider.searchMemories({
+            limit: 1,
+            query: 'Yachiyo memory connection check'
+          })
+
+          return {
+            ok: true,
+            message: 'Built-in memory is ready.'
+          }
+        } catch (error) {
+          return {
+            ok: false,
+            message: toMemoryConnectionFailureMessage(error)
+          }
+        }
+      }
+
       const baseUrl = config.memory?.baseUrl?.trim() ?? ''
       if (!baseUrl) {
         return {

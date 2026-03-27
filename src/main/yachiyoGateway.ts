@@ -4,6 +4,7 @@ import { spawn } from 'child_process'
 import type {
   CompactThreadInput,
   EditMessageInput,
+  GetMemoryTermDocumentInput,
   SearchWorkspaceFilesInput,
   ImportWebSearchBrowserSessionInput,
   ListSkillsInput,
@@ -13,6 +14,7 @@ import type {
   SaveThreadInput,
   SettingsConfig,
   SendChatInput,
+  MemoryTermDocument,
   TestMemoryConnectionInput,
   TestSubagentProfileInput,
   ThreadModelOverride,
@@ -50,6 +52,7 @@ const IPC_CHANNELS = {
   getSoulDocument: 'yachiyo:get-soul-document',
   addSoulTrait: 'yachiyo:add-soul-trait',
   deleteSoulTrait: 'yachiyo:delete-soul-trait',
+  getMemoryTermDocument: 'yachiyo:get-memory-term-document',
   getUserDocument: 'yachiyo:get-user-document',
   getSettings: 'yachiyo:get-settings',
   renameThread: 'yachiyo:rename-thread',
@@ -248,6 +251,11 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.getSoulDocument, () => server!.getSoulDocument())
   handle(IPC_CHANNELS.addSoulTrait, (input: { trait: string }) => server!.addSoulTrait(input))
   handle(IPC_CHANNELS.deleteSoulTrait, (input: { trait: string }) => server!.deleteSoulTrait(input))
+  handle(
+    IPC_CHANNELS.getMemoryTermDocument,
+    (input?: GetMemoryTermDocumentInput): Promise<MemoryTermDocument> =>
+      server!.getMemoryTermDocument(input)
+  )
   handle(IPC_CHANNELS.getUserDocument, () => server!.getUserDocument())
   handle(IPC_CHANNELS.testMemoryConnection, (input: TestMemoryConnectionInput) =>
     server!.testMemoryConnection(input.config)

@@ -38,7 +38,10 @@ test('rewriteBundledCoreSkillMarkdownFiles rewrites markdown files in place', as
       'python3 resources/core-skills/yachiyo-docx/scripts/docx_fill_template.py input.docx output.docx --json\n',
       'utf8'
     )
-    await writeFile(join(skillDir, 'notes.txt'), 'resources/core-skills/yachiyo-docx/scripts/docx_inspect.py')
+    await writeFile(
+      join(skillDir, 'notes.txt'),
+      'resources/core-skills/yachiyo-docx/scripts/docx_inspect.py'
+    )
 
     rewriteBundledCoreSkillMarkdownFiles(root)
 

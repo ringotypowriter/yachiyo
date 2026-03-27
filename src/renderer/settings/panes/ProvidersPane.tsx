@@ -91,7 +91,7 @@ function ModelToggle({ model, enabled, onToggle, onRemove }: ModelToggleProps): 
         <button
           type="button"
           onClick={onRemove}
-          className="p-0.5 rounded opacity-0 group-hover:opacity-40 hover:!opacity-100 transition-opacity"
+          className="p-0.5 rounded opacity-0 group-hover:opacity-40 hover:opacity-100! transition-opacity"
           title="Remove model"
         >
           <X size={12} strokeWidth={1.5} color={theme.icon.muted} />
@@ -460,7 +460,7 @@ export function ProvidersPane({
         </div>
       </div>
 
-      <div className="flex-1 min-w-0 overflow-y-auto">
+      <div className="flex flex-col flex-1 min-w-0 overflow-y-auto">
         {selectedProvider ? (
           <div key={selectedProvider.id} className="space-y-5 px-7 pt-5 pb-6">
             <div className="flex items-center justify-between gap-4">

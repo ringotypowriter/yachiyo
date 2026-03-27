@@ -69,6 +69,7 @@ function createConfiguredService(input: {
   auxiliaryGeneration: AuxiliaryGenerationService
   provider: MemoryProvider
   runtime?: ModelRuntime
+  config?: SettingsConfig
 }): ReturnType<typeof createMemoryService> {
   return createMemoryService({
     auxiliaryGeneration: input.auxiliaryGeneration,
@@ -79,7 +80,7 @@ function createConfiguredService(input: {
         }
       },
     createProvider: () => input.provider,
-    readConfig: () => MEMORY_CONFIG,
+    readConfig: () => input.config ?? MEMORY_CONFIG,
     readSettings: () => ({
       providerName: 'main',
       provider: 'openai',
@@ -414,6 +415,37 @@ test('memory service can test Nowledge Mem connectivity and report missing CLI c
   assert.deepEqual(result, {
     ok: false,
     message: 'Nowledge Mem CLI not found. Install `nmem` on this Mac first.'
+  })
+})
+
+test('memory service can test builtin sqlite memory connectivity without an external base URL', async () => {
+  const service = createConfiguredService({
+    auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"queries":[]}' }),
+    provider: {
+      async createMemories() {
+        return { savedCount: 0 }
+      },
+      async searchMemories() {
+        return []
+      },
+      async updateMemory() {
+        return undefined
+      }
+    },
+    config: {
+      providers: [],
+      memory: {
+        enabled: true,
+        provider: 'builtin-memory'
+      }
+    }
+  })
+
+  const result = await service.testConnection()
+
+  assert.deepEqual(result, {
+    ok: true,
+    message: 'Built-in memory is ready.'
   })
 })
 

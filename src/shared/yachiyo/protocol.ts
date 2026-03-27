@@ -13,7 +13,7 @@ export type ActiveRunEnterBehavior = 'enter-steers' | 'enter-queues-follow-up'
 export type SidebarVisibility = 'expanded' | 'collapsed'
 export type SendChatMode = 'normal' | 'steer' | 'follow-up'
 export type ToolModelMode = 'disabled' | 'custom'
-export type MemoryProviderId = 'nowledge-mem'
+export type MemoryProviderId = 'builtin-memory' | 'nowledge-mem'
 export type WebReadRequestFormat = 'markdown' | 'html'
 export type WebReadContentFormat = WebReadRequestFormat | 'raw'
 export type WebReadExtractor = 'defuddle' | 'linkedom-fallback' | 'none'
@@ -75,7 +75,7 @@ export function normalizeMemoryProviderId(
   value: unknown,
   fallback: MemoryProviderId = DEFAULT_MEMORY_PROVIDER
 ): MemoryProviderId {
-  return value === 'nowledge-mem' ? value : fallback
+  return value === 'builtin-memory' || value === 'nowledge-mem' ? value : fallback
 }
 
 export function normalizeEnabledTools(
@@ -429,6 +429,36 @@ export interface SoulDocument {
   lastUpdated: string
 }
 
+export interface MemoryTermEntry {
+  id: string
+  title: string
+  content: string
+  unitType:
+    | 'fact'
+    | 'preference'
+    | 'decision'
+    | 'plan'
+    | 'procedure'
+    | 'learning'
+    | 'context'
+    | 'event'
+  importance?: number
+  updatedAt: string
+}
+
+export interface MemoryTermTopic {
+  topic: string
+  entryCount: number
+  entries: MemoryTermEntry[]
+}
+
+export interface MemoryTermDocument {
+  provider: MemoryProviderId
+  topicCount: number
+  memoryCount: number
+  topics: MemoryTermTopic[]
+}
+
 export interface WorkspaceConfig {
   savedPaths?: string[]
   editorApp?: string
@@ -601,6 +631,10 @@ export function isMemoryConfigured(
   }
 
   const provider = normalizeMemoryProviderId(config.memory.provider)
+  if (provider === 'builtin-memory') {
+    return true
+  }
+
   const baseUrl = config.memory.baseUrl?.trim() ?? ''
   return provider === 'nowledge-mem' && baseUrl.length > 0
 }
@@ -743,6 +777,10 @@ export interface SaveThreadResult {
   archived: boolean
   savedMemoryCount: number
   thread: ThreadRecord
+}
+
+export interface GetMemoryTermDocumentInput {
+  config?: SettingsConfig
 }
 
 export interface TestMemoryConnectionInput {

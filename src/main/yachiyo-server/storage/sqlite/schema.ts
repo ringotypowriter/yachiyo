@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
+import { integer, real, sqliteTable, text, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
 
 import type { MessageRecord, RunRecord, ToolCallRecord } from '../../../../shared/yachiyo/protocol'
 
@@ -90,4 +90,17 @@ export const toolCallsTable = sqliteTable('tool_calls', {
   details: text('details'),
   startedAt: text('started_at').notNull(),
   finishedAt: text('finished_at')
+})
+
+export const builtinMemoriesTable = sqliteTable('builtin_memories', {
+  id: text('id').primaryKey(),
+  topic: text('topic').notNull(),
+  title: text('title').notNull(),
+  content: text('content').notNull(),
+  labels: text('labels').notNull(),
+  unitType: text('unit_type').notNull(),
+  importance: real('importance'),
+  sourceThreadId: text('source_thread_id'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull()
 })

@@ -5,6 +5,7 @@ import type {
   CompactThreadAccepted,
   CompactThreadInput,
   EditMessageInput,
+  GetMemoryTermDocumentInput,
   FileMentionCandidate,
   ImportWebSearchBrowserSessionInput,
   ListSkillsInput,
@@ -23,6 +24,7 @@ import type {
   TestSubagentProfileResult,
   ThreadModelOverride,
   ThreadSearchResult,
+  MemoryTermDocument,
   UserDocument,
   SoulDocument,
   ThreadSnapshot,
@@ -73,6 +75,7 @@ declare global {
         getSoulDocument: () => Promise<SoulDocument>
         addSoulTrait: (input: { trait: string }) => Promise<SoulDocument>
         deleteSoulTrait: (input: { trait: string }) => Promise<SoulDocument>
+        getMemoryTermDocument: (input?: GetMemoryTermDocumentInput) => Promise<MemoryTermDocument>
         getUserDocument: () => Promise<UserDocument>
         testMemoryConnection: (
           input: TestMemoryConnectionInput

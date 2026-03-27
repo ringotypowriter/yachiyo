@@ -4,6 +4,7 @@ import type {
   CompactThreadInput,
   CompactThreadAccepted,
   EditMessageInput,
+  GetMemoryTermDocumentInput,
   SearchWorkspaceFilesInput,
   ImportWebSearchBrowserSessionInput,
   ListSkillsInput,
@@ -18,6 +19,7 @@ import type {
   ThreadModelOverride,
   ThreadRecord,
   ThreadSearchResult,
+  MemoryTermDocument,
   UserDocument,
   SoulDocument,
   ToolPreferencesInput,
@@ -72,6 +74,8 @@ const api = {
       ipcRenderer.invoke('yachiyo:add-soul-trait', input),
     deleteSoulTrait: (input: { trait: string }): Promise<SoulDocument> =>
       ipcRenderer.invoke('yachiyo:delete-soul-trait', input),
+    getMemoryTermDocument: (input?: GetMemoryTermDocumentInput): Promise<MemoryTermDocument> =>
+      ipcRenderer.invoke('yachiyo:get-memory-term-document', input),
     getUserDocument: (): Promise<UserDocument> => ipcRenderer.invoke('yachiyo:get-user-document'),
     testMemoryConnection: (input: TestMemoryConnectionInput) =>
       ipcRenderer.invoke('yachiyo:test-memory-connection', input),

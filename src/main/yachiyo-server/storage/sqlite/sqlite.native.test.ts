@@ -7,6 +7,7 @@ import test from 'node:test'
 
 import { createSqliteYachiyoStorage } from './database.ts'
 import { createSqliteYachiyoServer } from '../../app/YachiyoServer.ts'
+import { createBuiltinMemoryProvider } from '../../services/memory/builtinMemoryProvider.ts'
 
 const require = createRequire(import.meta.url)
 const BetterSqlite3 = require('better-sqlite3') as
@@ -120,6 +121,7 @@ test('sqlite storage initializes migrations on disk', async () => {
     assert.ok(tables.includes('runs'))
     assert.ok(tables.includes('threads'))
     assert.ok(tables.includes('tool_calls'))
+    assert.ok(tables.includes('builtin_memories'))
     assert.ok(
       db
         .prepare('PRAGMA table_info(messages)')
@@ -201,6 +203,159 @@ test('sqlite storage initializes migrations on disk', async () => {
 
     db.close()
   } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('builtin memory provider stores, updates, and ranks sqlite FTS memories', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-sqlite-native-'))
+  const dbPath = join(root, 'builtin-memory.sqlite')
+
+  try {
+    const storage = createSqliteYachiyoStorage(dbPath)
+    storage.close()
+
+    const provider = createBuiltinMemoryProvider({ dbPath })
+
+    const created = await provider.createMemories({
+      items: [
+        {
+          topic: 'deploy-workflow',
+          title: 'Deploy workflow',
+          content: 'Run the staging smoke test before a production-adjacent deploy review.',
+          unitType: 'procedure',
+          importance: 0.8
+        },
+        {
+          topic: 'branching',
+          title: 'Reply branching workflow',
+          content: 'Reply branching keeps alternate assistant responses attached to one turn.',
+          unitType: 'fact'
+        },
+        {
+          topic: 'branching-notes',
+          title: 'Branching notes',
+          content: 'Notes about threads and experiments.',
+          unitType: 'fact'
+        }
+      ]
+    })
+
+    assert.equal(created.savedCount, 3)
+
+    const deployResults = await provider.searchMemories({
+      limit: 5,
+      query: 'staging smoke test deploy review',
+      label: 'topic:deploy-workflow'
+    })
+
+    assert.equal(deployResults.length, 1)
+    assert.equal(deployResults[0]?.title, 'Deploy workflow')
+    assert.equal(deployResults[0]?.unitType, 'procedure')
+    assert.equal(deployResults[0]?.importance, 0.8)
+    assert.deepEqual(deployResults[0]?.labels, ['topic:deploy-workflow'])
+
+    const branchResults = await provider.searchMemories({
+      limit: 5,
+      query: 'reply branching alternate assistant responses'
+    })
+
+    assert.equal(branchResults[0]?.title, 'Reply branching workflow')
+    assert.equal(branchResults[1]?.title, 'Branching notes')
+    assert.ok(
+      (branchResults[0]?.score ?? 0) > (branchResults[1]?.score ?? 0),
+      'expected stronger FTS hit to produce a higher score'
+    )
+
+    const memoryId = deployResults[0]?.id
+    assert.ok(memoryId, 'expected inserted deploy memory id')
+
+    await provider.updateMemory({
+      id: memoryId,
+      item: {
+        topic: 'deploy-workflow',
+        title: 'Deploy workflow',
+        content: 'Run the native sqlite memory tests before a production-adjacent deploy review.',
+        unitType: 'procedure',
+        importance: 0.9
+      }
+    })
+
+    const updatedResults = await provider.searchMemories({
+      limit: 5,
+      query: 'native sqlite memory tests'
+    })
+
+    assert.equal(updatedResults.length, 1)
+    assert.equal(updatedResults[0]?.id, memoryId)
+    assert.equal(
+      updatedResults[0]?.content,
+      'Run the native sqlite memory tests before a production-adjacent deploy review.'
+    )
+    assert.equal(updatedResults[0]?.importance, 0.9)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('sqlite-backed server exposes builtin memory terms as a hierarchy document', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-sqlite-native-'))
+  const dbPath = join(root, 'hierarchy.sqlite')
+  const settingsPath = join(root, 'config.toml')
+  let server: ReturnType<typeof createSqliteYachiyoServer> | null = null
+
+  try {
+    server = createSqliteYachiyoServer({
+      dbPath,
+      settingsPath
+    })
+
+    const provider = createBuiltinMemoryProvider({ dbPath })
+    await provider.createMemories({
+      items: [
+        {
+          topic: 'deploy-workflow',
+          title: 'Staging smoke test',
+          content: 'Run the staging smoke test before any production-adjacent deploy review.',
+          unitType: 'procedure',
+          importance: 0.8
+        },
+        {
+          topic: 'deploy-workflow',
+          title: 'Deploy owner',
+          content: 'The release owner signs off after the smoke test passes.',
+          unitType: 'fact'
+        },
+        {
+          topic: 'repo-preference',
+          title: 'Repo root',
+          content: 'Use the repository root for Yachiyo commands.',
+          unitType: 'preference'
+        }
+      ]
+    })
+
+    const hierarchy = await server.getMemoryTermDocument({
+      config: {
+        ...(await server.getConfig()),
+        memory: {
+          enabled: true,
+          provider: 'builtin-memory'
+        }
+      }
+    })
+
+    assert.equal(hierarchy.provider, 'builtin-memory')
+    assert.equal(hierarchy.topicCount, 2)
+    assert.equal(hierarchy.memoryCount, 3)
+    assert.equal(hierarchy.topics[0]?.topic, 'deploy-workflow')
+    assert.equal(hierarchy.topics[0]?.entryCount, 2)
+    assert.equal(hierarchy.topics[0]?.entries[0]?.title, 'Deploy owner')
+    assert.equal(hierarchy.topics[0]?.entries[1]?.title, 'Staging smoke test')
+    assert.equal(hierarchy.topics[1]?.topic, 'repo-preference')
+    assert.equal(hierarchy.topics[1]?.entries[0]?.title, 'Repo root')
+  } finally {
+    await server?.close()
     await rm(root, { recursive: true, force: true })
   }
 })

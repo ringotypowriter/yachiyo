@@ -9,6 +9,7 @@ import type {
   CompactThreadInput,
   EditMessageInput,
   FileMentionCandidate,
+  GetMemoryTermDocumentInput,
   ImportWebSearchBrowserSessionInput,
   ListSkillsInput,
   ProviderConfig,
@@ -21,6 +22,7 @@ import type {
   SendChatInput,
   SettingsConfig,
   SkillCatalogEntry,
+  MemoryTermDocument,
   TestMemoryConnectionResult,
   TestSubagentProfileInput,
   TestSubagentProfileResult,
@@ -51,7 +53,9 @@ import { readUserDocument, writeUserDocument } from '../runtime/user.ts'
 import type { ModelRuntime } from '../runtime/types.ts'
 import { createSearchService, type SearchService } from '../services/search/searchService.ts'
 import { createMemoryService, type MemoryService } from '../services/memory/memoryService.ts'
-import { createNowledgeMemProvider } from '../services/memory/nowledgeMemProvider.ts'
+import { readBuiltinMemoryTermDocument } from '../services/memory/builtinMemoryProvider.ts'
+import { createMemoryProviderFactory } from '../services/memory/createMemoryProvider.ts'
+import type { MemoryProvider } from '../services/memory/memoryService.ts'
 import { discoverSkills } from '../services/skills/skillDiscovery.ts'
 import { buildSkillRegistry } from '../services/skills/skillRegistry.ts'
 import { createBrowserWebPageSnapshotLoader } from '../services/webRead/browserWebPageSnapshot.ts'
@@ -96,10 +100,12 @@ export interface YachiyoServerOptions {
   removeSoulTrait?: (trait: string) => Promise<SoulDocument | null>
   readUserDocument?: () => Promise<UserDocument | null>
   saveUserDocument?: (content: string) => Promise<UserDocument | null>
+  readMemoryTermDocument?: () => Promise<MemoryTermDocument>
   ensureThreadWorkspace?: (threadId: string) => Promise<string>
   cloneThreadWorkspace?: (sourceThreadId: string, targetThreadId: string) => Promise<string>
   deleteThreadWorkspace?: (threadId: string) => Promise<void>
   memoryService?: MemoryService
+  createMemoryProvider?: (config: SettingsConfig) => MemoryProvider
 }
 
 export interface SqliteYachiyoServerOptions extends Omit<YachiyoServerOptions, 'storage'> {
@@ -124,6 +130,7 @@ export class YachiyoServer {
   private readonly searchService: SearchService
   private readonly readUserDocumentFile: () => Promise<UserDocument | null>
   private readonly saveUserDocumentFile: (content: string) => Promise<UserDocument | null>
+  private readonly readMemoryTermDocumentFile: (() => Promise<MemoryTermDocument>) | null
   private readonly readSoulDocumentFile: () => Promise<SoulDocument | null>
   private readonly addSoulTraitFile: (trait: string) => Promise<SoulDocument | null>
   private readonly removeSoulTraitFile: (trait: string) => Promise<SoulDocument | null>
@@ -158,6 +165,7 @@ export class YachiyoServer {
     this.readUserDocumentFile = options.readUserDocument ?? (() => readUserDocument())
     this.saveUserDocumentFile =
       options.saveUserDocument ?? ((content) => writeUserDocument({ content }))
+    this.readMemoryTermDocumentFile = options.readMemoryTermDocument ?? null
     const searchService = options.searchService ?? createSearchService()
     const ensureThreadWorkspace = options.ensureThreadWorkspace ?? defaultEnsureThreadWorkspace
     const cloneThreadWorkspace = options.cloneThreadWorkspace ?? defaultCloneThreadWorkspace
@@ -207,7 +215,7 @@ export class YachiyoServer {
       createMemoryService({
         auxiliaryGeneration,
         createModelRuntime,
-        createProvider: (config) => createNowledgeMemProvider(config),
+        createProvider: options.createMemoryProvider ?? createMemoryProviderFactory(),
         readConfig: () => this.configDomain.readConfig(),
         readSettings: () => this.configDomain.readSettings()
       })
@@ -355,6 +363,15 @@ export class YachiyoServer {
     }
 
     return document
+  }
+
+  async getMemoryTermDocument(input?: GetMemoryTermDocumentInput): Promise<MemoryTermDocument> {
+    const provider = (input?.config ?? this.configDomain.readConfig()).memory?.provider
+    if (provider !== 'builtin-memory' || !this.readMemoryTermDocumentFile) {
+      throw new Error('Built-in memory terms are unavailable.')
+    }
+
+    return this.readMemoryTermDocumentFile()
   }
 
   async testMemoryConnection(config: SettingsConfig): Promise<TestMemoryConnectionResult> {
@@ -629,6 +646,13 @@ export class YachiyoServer {
 export function createSqliteYachiyoServer(options: SqliteYachiyoServerOptions): YachiyoServer {
   return new YachiyoServer({
     ...options,
+    createMemoryProvider: createMemoryProviderFactory({
+      builtinDbPath: options.dbPath
+    }),
+    readMemoryTermDocument: async () =>
+      readBuiltinMemoryTermDocument({
+        dbPath: options.dbPath
+      }),
     storage: createSqliteYachiyoStorage(options.dbPath)
   })
 }

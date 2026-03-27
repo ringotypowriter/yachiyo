@@ -115,7 +115,11 @@ function validateConfig(config: SettingsConfig | null): string | null {
     }
   }
 
-  if (config.memory?.enabled && !config.memory.baseUrl?.trim()) {
+  if (
+    config.memory?.enabled &&
+    config.memory.provider === 'nowledge-mem' &&
+    !config.memory.baseUrl?.trim()
+  ) {
     return 'Choose a Nowledge Mem backend URL before enabling Memory.'
   }
 
