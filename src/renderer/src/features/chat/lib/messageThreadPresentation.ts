@@ -31,6 +31,10 @@ export function getVisibleToolCallsForGroup(input: {
   activeRunId?: string | null
 }): ToolCall[] {
   const requestMessageId = input.group.userMessage.id
+  const activeAssistantMessage =
+    input.group.activeBranchIndex >= 0
+      ? input.group.assistantBranches[input.group.activeBranchIndex]?.message
+      : undefined
   const hiddenActiveAssistantId =
     input.group.hideActiveBranchWhilePreparing && input.group.activeBranchIndex >= 0
       ? input.group.assistantBranches[input.group.activeBranchIndex]?.message.id
@@ -61,7 +65,7 @@ export function getVisibleToolCallsForGroup(input: {
       if (!toolCall.assistantMessageId || !knownAssistantIds.has(toolCall.assistantMessageId)) {
         if (toolCall.status === 'running') return true
         if (input.activeRunId) return toolCall.runId === input.activeRunId
-        return visibleAssistantIds.size === 0
+        return !activeAssistantMessage || activeAssistantMessage.status !== 'completed'
       }
 
       if (

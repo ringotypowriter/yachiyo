@@ -742,6 +742,61 @@ test('getVisibleToolCallsForGroup keeps failed branch tool calls visible even wh
   )
 })
 
+test('getVisibleToolCallsForGroup keeps request-only tool calls visible for a stopped assistant branch after cancellation', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-stopped'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'First question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-stopped',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Partial answer',
+        status: 'stopped',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      }
+    ],
+    runPhase: 'idle',
+    activeRequestMessageId: null
+  })
+
+  const toolCalls = getVisibleToolCallsForGroup({
+    group: group!,
+    toolCalls: [
+      {
+        id: 'tool-cancelled',
+        runId: 'run-cancelled',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'failed',
+        inputSummary: 'sleep 15',
+        outputSummary: 'Run cancelled before the tool call finished.',
+        requestMessageId: 'user-1',
+        startedAt: '2026-03-15T00:00:00.500Z',
+        finishedAt: '2026-03-15T00:00:01.500Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    toolCalls.map((toolCall) => toolCall.id),
+    ['tool-cancelled']
+  )
+})
+
 test('getVisibleToolCallsForGroup keeps unresolved assistant-anchored tool calls visible', () => {
   const [group] = buildMessageGroups({
     thread: {
