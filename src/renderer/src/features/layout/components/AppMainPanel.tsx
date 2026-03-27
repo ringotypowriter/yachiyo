@@ -79,7 +79,11 @@ export function AppMainPanel({
   const threads = useAppStore((s) => s.threads)
   const isBootstrapping = useAppStore((s) => s.isBootstrapping)
   const messageCount = messages.length
-  const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null
+  const externalThreads = useAppStore((s) => s.externalThreads)
+  const activeThread =
+    threads.find((t) => t.id === activeThreadId) ??
+    externalThreads.find((t) => t.id === activeThreadId) ??
+    null
   const config = useAppStore((s) => s.config)
   const latestRunsByThread = useAppStore((s) => s.latestRunsByThread)
   const activeArchivedThread =

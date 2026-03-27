@@ -70,6 +70,7 @@ import {
 export interface ExecuteRunInput {
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
+  channelHint?: string
   runId: string
   thread: ThreadRecord
   requestMessageId: string
@@ -359,7 +360,9 @@ function buildSubagentContextBlock(
     `- Main Branch: ${gitCtx.mainBranch ?? 'main'}`
   ]
   if (gitCtx.hasAgentsMd) {
-    gitContextLines.push('- AGENTS.md: Yes (check it before delegating — it may contain project-specific rules or constraints for coding agents)')
+    gitContextLines.push(
+      '- AGENTS.md: Yes (check it before delegating — it may contain project-specific rules or constraints for coding agents)'
+    )
   }
 
   const lines = [
@@ -413,7 +416,7 @@ function buildAgentInstructions(input: {
 
   if (input.isUserSpecifiedWorkspace) {
     instructions.push(
-      'The user has loaded a specific project workspace. At the start of your first reply, if the user\'s message is ambiguous or lacks context, proactively explore the project (e.g. read key files, check structure) to gain enough understanding before responding — the user may jump directly into discussing the project without preamble.'
+      "The user has loaded a specific project workspace. At the start of your first reply, if the user's message is ambiguous or lacks context, proactively explore the project (e.g. read key files, check structure) to gain enough understanding before responding — the user may jump directly into discussing the project without preamble."
     )
   }
 
@@ -848,7 +851,7 @@ export async function executeServerRun(
         })
       },
       hint: {
-        reminder: hiddenQueryReminder
+        reminder: [hiddenQueryReminder, input.channelHint].filter(Boolean).join('\n\n') || undefined
       },
       memory: {
         entries: memoryEntries

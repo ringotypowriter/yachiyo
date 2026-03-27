@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, net, Notification, session } from 'electro
 import { spawn } from 'child_process'
 
 import type {
+  ChannelsConfig,
   CompactThreadInput,
   EditMessageInput,
   GetMemoryTermDocumentInput,
@@ -19,6 +20,7 @@ import type {
   TestSubagentProfileInput,
   ThreadModelOverride,
   ToolPreferencesInput,
+  UpdateChannelUserInput,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
 import {
@@ -28,6 +30,10 @@ import {
 import { resolveYachiyoDbPath, resolveYachiyoSettingsPath } from './yachiyo-server/config/paths.ts'
 import { openThreadWorkspace } from './openThreadWorkspace.ts'
 import { discoverApps } from './appDiscovery.ts'
+import {
+  createTelegramService,
+  type TelegramService
+} from './yachiyo-server/channels/telegramService.ts'
 
 const IPC_CHANNELS = {
   showNotification: 'yachiyo:show-notification',
@@ -83,11 +89,39 @@ const IPC_CHANNELS = {
   readClipboardFilePaths: 'yachiyo:read-clipboard-file-paths',
   readAttachmentFile: 'yachiyo:read-attachment-file',
   listDiscoveredApps: 'yachiyo:list-discovered-apps',
-  openWorkspaceWithApp: 'yachiyo:open-workspace-with-app'
+  openWorkspaceWithApp: 'yachiyo:open-workspace-with-app',
+  loadThreadData: 'yachiyo:load-thread-data',
+  listExternalThreads: 'yachiyo:list-external-threads',
+  listChannelUsers: 'yachiyo:list-channel-users',
+  updateChannelUser: 'yachiyo:update-channel-user',
+  getChannelsConfig: 'yachiyo:get-channels-config',
+  saveChannelsConfig: 'yachiyo:save-channels-config'
 } as const
 
 let server: YachiyoServer | null = null
+let telegramService: TelegramService | null = null
 let fatalRunRecoveryRegistered = false
+
+function applyTelegramConfig(cfg: ChannelsConfig): void {
+  const token = cfg.telegram?.botToken?.trim()
+  const enabled = cfg.telegram?.enabled ?? false
+
+  if (telegramService) {
+    console.log('[telegram] stopping existing service')
+    void telegramService.stop().catch((e) => console.error('[telegram] stop error', e))
+    telegramService = null
+  }
+
+  if (!enabled || !token || !server) {
+    console.log(`[telegram] service not started (enabled=${enabled}, hasToken=${Boolean(token)})`)
+    return
+  }
+
+  console.log('[telegram] starting polling service')
+  telegramService = createTelegramService({ botToken: token, server })
+  telegramService.startPolling()
+  console.log('[telegram] polling started')
+}
 
 function toFatalRunError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error ?? '')
@@ -142,6 +176,11 @@ export function registerYachiyoGateway(): YachiyoServer {
   // so the proxy's re-signed certificates are accepted.
   session.defaultSession.setCertificateVerifyProc((_request, callback) => callback(0))
 
+  // Route global fetch through Electron's net module so third-party libraries
+  // (e.g. the Telegram Chat SDK adapter) also benefit from the proxy/SSL bypass.
+  globalThis.fetch = (input, init?) =>
+    net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init)
+
   server = createSqliteYachiyoServer({
     dbPath: resolveYachiyoDbPath(),
     settingsPath: resolveYachiyoSettingsPath(),
@@ -150,6 +189,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   })
   registerFatalRunRecovery()
   server.subscribe(broadcast)
+
+  // Start the Telegram bot if already configured.
+  applyTelegramConfig(server.getChannelsConfig())
 
   ipcMain.removeAllListeners(IPC_CHANNELS.showNotification)
   ipcMain.on(IPC_CHANNELS.showNotification, (_event, input: { title: string; body?: string }) => {
@@ -303,6 +345,20 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.starThread, (input: { threadId: string; starred: boolean }) =>
     server!.starThread(input)
   )
+  handle(IPC_CHANNELS.loadThreadData, (input: { threadId: string }) =>
+    server!.loadThreadData(input.threadId)
+  )
+  handle(IPC_CHANNELS.listExternalThreads, () => server!.listExternalThreads())
+  handle(IPC_CHANNELS.listChannelUsers, () => server!.listChannelUsers())
+  handle(IPC_CHANNELS.updateChannelUser, (input: UpdateChannelUserInput) =>
+    server!.updateChannelUser(input)
+  )
+  handle(IPC_CHANNELS.getChannelsConfig, () => server!.getChannelsConfig())
+  handle(IPC_CHANNELS.saveChannelsConfig, (input: ChannelsConfig) => {
+    const saved = server!.saveChannelsConfig(input)
+    applyTelegramConfig(saved)
+    return saved
+  })
   handle(IPC_CHANNELS.readClipboardFilePaths, async () => {
     const { clipboard } = await import('electron')
     const { readFile } = await import('node:fs/promises')
@@ -356,6 +412,8 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
 
   app.once('before-quit', () => {
+    void telegramService?.stop().catch(() => {})
+    telegramService = null
     void server?.close()
     server = null
   })

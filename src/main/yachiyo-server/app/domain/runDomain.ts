@@ -67,6 +67,7 @@ interface RunState {
   threadId: string
   requestMessageId?: string
   enabledSkillNames?: string[]
+  channelHint?: string
   abortController: AbortController
   pendingSteerMessageId?: string
   pendingSteerInput?: {
@@ -308,6 +309,7 @@ export class YachiyoServerRunDomain {
         content,
         enabledTools,
         enabledSkillNames,
+        channelHint: input.channelHint,
         images: enrichedImages,
         attachments: fileAttachments,
         messageId,
@@ -460,6 +462,7 @@ export class YachiyoServerRunDomain {
     content: string
     enabledTools: ToolCallName[]
     enabledSkillNames?: string[]
+    channelHint?: string
     images: MessageRecord['images']
     attachments: MessageFileAttachment[]
     messageId: string
@@ -533,6 +536,7 @@ export class YachiyoServerRunDomain {
     this.startActiveRun({
       enabledTools: input.enabledTools,
       enabledSkillNames: input.enabledSkillNames,
+      channelHint: input.channelHint,
       runId: accepted.runId,
       thread: accepted.thread,
       requestMessageId: userMessage.id,
@@ -722,6 +726,7 @@ export class YachiyoServerRunDomain {
   private startActiveRun(input: {
     enabledTools: ToolCallName[]
     enabledSkillNames?: string[]
+    channelHint?: string
     runId: string
     thread: ThreadRecord
     requestMessageId: string
@@ -731,6 +736,7 @@ export class YachiyoServerRunDomain {
       threadId: input.thread.id,
       requestMessageId: input.requestMessageId,
       ...(input.enabledSkillNames ? { enabledSkillNames: [...input.enabledSkillNames] } : {}),
+      ...(input.channelHint ? { channelHint: input.channelHint } : {}),
       abortController: new AbortController(),
       executionPhase: 'generating',
       updateHeadOnComplete: input.updateHeadOnComplete
@@ -740,6 +746,7 @@ export class YachiyoServerRunDomain {
     const runTask = this.runLoop({
       enabledTools: input.enabledTools,
       enabledSkillNames: input.enabledSkillNames,
+      channelHint: input.channelHint,
       runId: input.runId,
       thread: input.thread,
       requestMessageId: input.requestMessageId,
@@ -770,6 +777,7 @@ export class YachiyoServerRunDomain {
   private async runLoop(input: {
     enabledTools: ToolCallName[]
     enabledSkillNames?: string[]
+    channelHint?: string
     runId: string
     thread: ThreadRecord
     requestMessageId: string
@@ -897,6 +905,7 @@ export class YachiyoServerRunDomain {
             abortController,
             enabledTools: input.enabledTools,
             enabledSkillNames: activeRun.enabledSkillNames ?? input.enabledSkillNames,
+            channelHint: activeRun.channelHint ?? input.channelHint,
             previousEnabledTools,
             requestMessageId: currentRequestMessageId,
             runId: input.runId,
@@ -1189,6 +1198,16 @@ export class YachiyoServerRunDomain {
     threadId: string
   }): Promise<void> {
     const thread = this.deps.requireThread(input.threadId)
+    if (thread.source && thread.source !== 'local') {
+      this.logThreadTitleDebug({
+        phase: 'skipped',
+        runId: input.runId,
+        threadId: input.threadId,
+        message: 'Skipped title generation for channel thread.',
+        detail: `source=${thread.source}`
+      })
+      return
+    }
     if (thread.title !== input.fallbackTitle) {
       this.logThreadTitleDebug({
         phase: 'skipped',

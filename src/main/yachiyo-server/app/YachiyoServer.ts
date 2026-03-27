@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 
 import type {
   BootstrapPayload,
+  ChannelUserRecord,
   ChatAccepted,
   CompactThreadAccepted,
   CompactThreadInput,
@@ -22,6 +23,7 @@ import type {
   SendChatInput,
   SettingsConfig,
   SkillCatalogEntry,
+  MessageRecord,
   MemoryTermDocument,
   TestMemoryConnectionResult,
   TestSubagentProfileInput,
@@ -30,7 +32,10 @@ import type {
   ThreadRecord,
   ThreadSearchResult,
   ThreadSnapshot,
+  ChannelsConfig,
+  ToolCallRecord,
   ToolPreferencesInput,
+  UpdateChannelUserInput,
   UserDocument,
   SoulDocument as ProtocolSoulDocument,
   WebSearchBrowserImportSource,
@@ -50,6 +55,7 @@ import {
   type SoulDocument
 } from '../runtime/soul.ts'
 import { readUserDocument, writeUserDocument } from '../runtime/user.ts'
+import { readChannelsConfig, writeChannelsConfig } from '../runtime/channelsConfig.ts'
 import type { ModelRuntime } from '../runtime/types.ts'
 import { createSearchService, type SearchService } from '../services/search/searchService.ts'
 import { createMemoryService, type MemoryService } from '../services/memory/memoryService.ts'
@@ -463,7 +469,14 @@ export class YachiyoServer {
     return this.storage.searchThreadsAndMessages(input)
   }
 
-  async createThread(input: { workspacePath?: string } = {}): Promise<ThreadRecord> {
+  async createThread(
+    input: {
+      workspacePath?: string
+      source?: ThreadRecord['source']
+      channelUserId?: string
+      title?: string
+    } = {}
+  ): Promise<ThreadRecord> {
     return this.threadDomain.createThread(input)
   }
 
@@ -480,14 +493,17 @@ export class YachiyoServer {
       await this.cloneThreadWorkspace(sourceThread.id, destinationThreadId)
     }
 
-    const destinationThread = await this.threadDomain.createThread(
-      sourceThread.workspacePath
-        ? {
-            threadId: destinationThreadId,
-            workspacePath: sourceThread.workspacePath
-          }
-        : { threadId: destinationThreadId }
-    )
+    const destinationThread = await this.threadDomain.createThread({
+      threadId: destinationThreadId,
+      ...(sourceThread.workspacePath ? { workspacePath: sourceThread.workspacePath } : {}),
+      ...(sourceThread.source && sourceThread.source !== 'local'
+        ? { source: sourceThread.source }
+        : {}),
+      ...(sourceThread.channelUserId ? { channelUserId: sourceThread.channelUserId } : {}),
+      ...(sourceThread.source && sourceThread.source !== 'local'
+        ? { title: sourceThread.title }
+        : {})
+    })
 
     return this.runDomain.compactThreadToAnotherThread({
       sourceThread,
@@ -612,6 +628,49 @@ export class YachiyoServer {
 
   async cancelRun(input: { runId: string }): Promise<void> {
     this.runDomain.cancelRun(input)
+  }
+
+  loadThreadData(threadId: string): { messages: MessageRecord[]; toolCalls: ToolCallRecord[] } {
+    return {
+      messages: this.storage.listThreadMessages(threadId),
+      toolCalls: this.storage.listThreadToolCalls(threadId)
+    }
+  }
+
+  listExternalThreads(): ThreadRecord[] {
+    return this.storage.listExternalThreads()
+  }
+
+  findActiveChannelThread(channelUserId: string, maxAgeMs: number): ThreadRecord | undefined {
+    return this.storage.findActiveChannelThread(channelUserId, maxAgeMs)
+  }
+
+  getThreadTotalTokens(threadId: string): number {
+    return this.storage.getThreadTotalTokens(threadId)
+  }
+
+  listChannelUsers(): ChannelUserRecord[] {
+    return this.storage.listChannelUsers()
+  }
+
+  createChannelUser(user: Omit<ChannelUserRecord, 'usedKTokens'>): ChannelUserRecord {
+    return this.storage.createChannelUser(user)
+  }
+
+  updateChannelUser(input: UpdateChannelUserInput): ChannelUserRecord {
+    const updated = this.storage.updateChannelUser(input)
+    if (!updated) {
+      throw new Error(`Unknown channel user: ${input.id}`)
+    }
+    return updated
+  }
+
+  getChannelsConfig(): ChannelsConfig {
+    return readChannelsConfig()
+  }
+
+  saveChannelsConfig(config: ChannelsConfig): ChannelsConfig {
+    return writeChannelsConfig(config)
   }
 
   private requireThread(threadId: string): ThreadRecord {

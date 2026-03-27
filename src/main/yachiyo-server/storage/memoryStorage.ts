@@ -1,4 +1,5 @@
 import type {
+  ChannelUserRecord,
   MessageRecord,
   ThreadSearchResult,
   ToolCallRecord
@@ -22,6 +23,7 @@ import {
 } from './storage.ts'
 
 export function createInMemoryYachiyoStorage(): YachiyoStorage {
+  const channelUsers = new Map<string, ChannelUserRecord>()
   const threads = new Map<string, StoredThreadRow>()
   const messages: MessageRecord[] = []
   const runs = new Map<string, StoredRunRow>()
@@ -177,6 +179,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         starredAt: null,
         privacyMode: thread.privacyMode ? '1' : null,
         headMessageId: thread.headMessageId ?? null,
+        source: thread.source ?? null,
+        channelUserId: thread.channelUserId ?? null,
         updatedAt: thread.updatedAt,
         createdAt
       })
@@ -565,6 +569,57 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       })
 
       return results
+    },
+
+    findActiveChannelThread(channelUserId, maxAgeMs) {
+      const cutoff = new Date(Date.now() - maxAgeMs).toISOString()
+      const match = [...threads.values()]
+        .filter((t) => t.channelUserId === channelUserId && !t.archivedAt && t.updatedAt >= cutoff)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
+      return match ? toThreadRecord(match) : undefined
+    },
+
+    getThreadTotalTokens(threadId) {
+      const completedRuns = [...runs.values()]
+        .filter((r) => r.threadId === threadId && r.status === 'completed' && r.completedAt)
+        .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''))
+      const latest = completedRuns[0]
+      if (!latest) return 0
+      return (latest.totalPromptTokens ?? 0) + (latest.totalCompletionTokens ?? 0)
+    },
+
+    listExternalThreads() {
+      return [...threads.values()]
+        .filter((t) => t.source && t.source !== 'local' && !t.archivedAt)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .map(toThreadRecord)
+    },
+
+    listChannelUsers() {
+      return [...channelUsers.values()]
+    },
+
+    findChannelUser(platform, externalUserId) {
+      return [...channelUsers.values()].find(
+        (u) => u.platform === platform && u.externalUserId === externalUserId
+      )
+    },
+
+    createChannelUser(user) {
+      const record: ChannelUserRecord = { ...user, usedKTokens: 0 }
+      channelUsers.set(record.id, record)
+      return record
+    },
+
+    updateChannelUser({ id, status, usageLimitKTokens, usedKTokens }) {
+      const existing = channelUsers.get(id)
+      if (!existing) return undefined
+
+      if (status !== undefined) existing.status = status
+      if (usageLimitKTokens !== undefined) existing.usageLimitKTokens = usageLimitKTokens
+      if (usedKTokens !== undefined) existing.usedKTokens = usedKTokens
+
+      return { ...existing }
     }
   }
 }

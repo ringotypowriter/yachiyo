@@ -7,7 +7,13 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, like, or } from 'drizzl
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
 import * as schema from './schema.ts'
-import { messagesTable, runsTable, threadsTable, toolCallsTable } from './schema.ts'
+import {
+  channelUsersTable,
+  messagesTable,
+  runsTable,
+  threadsTable,
+  toolCallsTable
+} from './schema.ts'
 import {
   groupLatestRunsByThread,
   groupToolCallsByThread,
@@ -112,6 +118,13 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     },
 
     bootstrap() {
+      // Backfill: threads created by channels before source was persisted.
+      // Their only marker is the "Channel:@user" title pattern with source still 'local'.
+      db.update(threadsTable)
+        .set({ source: 'telegram' })
+        .where(and(like(threadsTable.title, 'Telegram:%'), eq(threadsTable.source, 'local')))
+        .run()
+
       const allThreads = db
         .select({
           archivedAt: threadsTable.archivedAt,
@@ -128,6 +141,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
           queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
+          source: threadsTable.source,
+          channelUserId: threadsTable.channelUserId,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -135,11 +150,16 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .from(threadsTable)
         .orderBy(desc(threadsTable.updatedAt))
         .all()
-      const threads = allThreads.filter((thread) => thread.archivedAt === null).map(toThreadRecord)
-      const archivedThreads = allThreads
+      const localThreads = allThreads.filter(
+        (thread) => (thread.source === null || thread.source === 'local') && !thread.channelUserId
+      )
+      const threads = localThreads
+        .filter((thread) => thread.archivedAt === null)
+        .map(toThreadRecord)
+      const archivedThreads = localThreads
         .filter((thread) => thread.archivedAt !== null)
         .map(toThreadRecord)
-      const threadIds = allThreads.map((thread) => thread.id)
+      const threadIds = localThreads.map((thread) => thread.id)
       const messages =
         threadIds.length === 0
           ? []
@@ -285,6 +305,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
           queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
+          source: threadsTable.source,
+          channelUserId: threadsTable.channelUserId,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -313,6 +335,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
           queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
+          source: threadsTable.source,
+          channelUserId: threadsTable.channelUserId,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -365,6 +389,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
               thread.queuedFollowUpEnabledSkillNames
             ),
             queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
+            source: thread.source ?? 'local',
+            channelUserId: thread.channelUserId ?? null,
             title: thread.title,
             updatedAt: thread.updatedAt,
             workspacePath: thread.workspacePath ?? null
@@ -949,6 +975,134 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       })
 
       return results
+    },
+
+    findActiveChannelThread(channelUserId, maxAgeMs) {
+      const cutoff = new Date(Date.now() - maxAgeMs).toISOString()
+      const rows = db
+        .select()
+        .from(threadsTable)
+        .where(and(eq(threadsTable.channelUserId, channelUserId), isNull(threadsTable.archivedAt)))
+        .orderBy(desc(threadsTable.updatedAt))
+        .all()
+
+      const row = rows.find((r) => r.updatedAt >= cutoff)
+      return row ? toThreadRecord(row) : undefined
+    },
+
+    getThreadTotalTokens(threadId) {
+      const row = db
+        .select({
+          totalPromptTokens: runsTable.totalPromptTokens,
+          totalCompletionTokens: runsTable.totalCompletionTokens
+        })
+        .from(runsTable)
+        .where(and(eq(runsTable.threadId, threadId), eq(runsTable.status, 'completed')))
+        .orderBy(desc(runsTable.completedAt))
+        .limit(1)
+        .get()
+
+      if (!row) return 0
+      return (row.totalPromptTokens ?? 0) + (row.totalCompletionTokens ?? 0)
+    },
+
+    listExternalThreads() {
+      return db
+        .select()
+        .from(threadsTable)
+        .where(and(isNotNull(threadsTable.source), isNull(threadsTable.archivedAt)))
+        .orderBy(desc(threadsTable.updatedAt))
+        .all()
+        .filter((row) => row.source !== 'local')
+        .map(toThreadRecord)
+    },
+
+    listChannelUsers() {
+      return db
+        .select()
+        .from(channelUsersTable)
+        .all()
+        .map((row) => ({
+          id: row.id,
+          platform: row.platform as 'telegram',
+          externalUserId: row.externalUserId,
+          username: row.username,
+          status: row.status,
+          usageLimitKTokens: row.usageLimitKTokens,
+          usedKTokens: row.usedKTokens,
+          workspacePath: row.workspacePath
+        }))
+    },
+
+    findChannelUser(platform, externalUserId) {
+      const row = db
+        .select()
+        .from(channelUsersTable)
+        .where(
+          and(
+            eq(channelUsersTable.platform, platform),
+            eq(channelUsersTable.externalUserId, externalUserId)
+          )
+        )
+        .get()
+
+      if (!row) return undefined
+
+      return {
+        id: row.id,
+        platform: row.platform as 'telegram',
+        externalUserId: row.externalUserId,
+        username: row.username,
+        status: row.status,
+        usageLimitKTokens: row.usageLimitKTokens,
+        usedKTokens: row.usedKTokens,
+        workspacePath: row.workspacePath
+      }
+    },
+
+    createChannelUser(user) {
+      db.insert(channelUsersTable)
+        .values({
+          id: user.id,
+          platform: user.platform,
+          externalUserId: user.externalUserId,
+          username: user.username,
+          status: user.status,
+          usageLimitKTokens: user.usageLimitKTokens,
+          usedKTokens: 0,
+          workspacePath: user.workspacePath
+        })
+        .run()
+
+      return { ...user, usedKTokens: 0 }
+    },
+
+    updateChannelUser({ id, status, usageLimitKTokens, usedKTokens }) {
+      const existing = db.select().from(channelUsersTable).where(eq(channelUsersTable.id, id)).get()
+
+      if (!existing) return undefined
+
+      const updates: Record<string, unknown> = {}
+      if (status !== undefined) updates.status = status
+      if (usageLimitKTokens !== undefined) updates.usageLimitKTokens = usageLimitKTokens
+      if (usedKTokens !== undefined) updates.usedKTokens = usedKTokens
+
+      if (Object.keys(updates).length > 0) {
+        db.update(channelUsersTable).set(updates).where(eq(channelUsersTable.id, id)).run()
+      }
+
+      const updated = db.select().from(channelUsersTable).where(eq(channelUsersTable.id, id)).get()!
+
+      return {
+        id: updated.id,
+        platform: updated.platform as 'telegram',
+        externalUserId: updated.externalUserId,
+        username: updated.username,
+        status: updated.status,
+        usageLimitKTokens: updated.usageLimitKTokens,
+        usedKTokens: updated.usedKTokens,
+        workspacePath: updated.workspacePath
+      }
     }
   }
 }

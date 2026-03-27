@@ -1,6 +1,22 @@
 import { integer, real, sqliteTable, text, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
 
-import type { MessageRecord, RunRecord, ToolCallRecord } from '../../../../shared/yachiyo/protocol'
+import type {
+  ChannelUserStatus,
+  MessageRecord,
+  RunRecord,
+  ToolCallRecord
+} from '../../../../shared/yachiyo/protocol'
+
+export const channelUsersTable = sqliteTable('channel_users', {
+  id: text('id').primaryKey(),
+  platform: text('platform').notNull(),
+  externalUserId: text('external_user_id').notNull(),
+  username: text('username').notNull(),
+  status: text('status').$type<ChannelUserStatus>().notNull().default('pending'),
+  usageLimitKTokens: integer('usage_limit_k_tokens'),
+  usedKTokens: integer('used_k_tokens').notNull().default(0),
+  workspacePath: text('workspace_path').notNull()
+})
 
 export const threadsTable = sqliteTable('threads', {
   id: text('id').primaryKey(),
@@ -20,6 +36,8 @@ export const threadsTable = sqliteTable('threads', {
   starredAt: text('starred_at'),
   privacyMode: text('privacy_mode'),
   modelOverride: text('model_override'),
+  source: text('source').default('local'),
+  channelUserId: text('channel_user_id').references(() => channelUsersTable.id),
   updatedAt: text('updated_at').notNull(),
   createdAt: text('created_at').notNull()
 })

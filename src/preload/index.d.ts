@@ -1,6 +1,8 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
   BootstrapPayload,
+  ChannelsConfig,
+  ChannelUserRecord,
   ChatAccepted,
   CompactThreadAccepted,
   CompactThreadInput,
@@ -25,6 +27,7 @@ import type {
   ThreadModelOverride,
   ThreadSearchResult,
   MemoryTermDocument,
+  UpdateChannelUserInput,
   UserDocument,
   SoulDocument,
   ThreadSnapshot,
@@ -114,6 +117,15 @@ declare global {
           terminals: { name: string; iconDataUrl?: string }[]
         }>
         openWorkspaceWithApp: (input: { threadId: string; appName: string }) => Promise<void>
+        loadThreadData: (input: { threadId: string }) => Promise<{
+          messages: import('../shared/yachiyo/protocol').MessageRecord[]
+          toolCalls: import('../shared/yachiyo/protocol').ToolCallRecord[]
+        }>
+        listExternalThreads: () => Promise<ThreadRecord[]>
+        listChannelUsers: () => Promise<ChannelUserRecord[]>
+        updateChannelUser: (input: UpdateChannelUserInput) => Promise<ChannelUserRecord>
+        getChannelsConfig: () => Promise<ChannelsConfig>
+        saveChannelsConfig: (input: ChannelsConfig) => Promise<ChannelsConfig>
         showNotification: (input: { title: string; body?: string }) => void
         beep: () => void
         subscribe: (listener: (event: YachiyoServerEvent) => void) => () => void

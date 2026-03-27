@@ -419,7 +419,11 @@ export function Composer({
   const hasCustomSkillOverride =
     composerDraft.enabledSkillNames !== null && composerDraft.enabledSkillNames !== undefined
   const enabledSkillCount = effectiveEnabledSkillNames.length
-  const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null
+  const externalThreads = useAppStore((s) => s.externalThreads)
+  const activeThread =
+    threads.find((thread) => thread.id === activeThreadId) ??
+    externalThreads.find((thread) => thread.id === activeThreadId) ??
+    null
   const currentWorkspacePath = activeThread?.workspacePath ?? pendingWorkspacePath
   const isWorkspaceLocked = activeThreadId !== null && (messages[activeThreadId]?.length ?? 0) > 0
   const savedWorkspacePaths = config?.workspace?.savedPaths ?? []

@@ -174,6 +174,8 @@ interface AppState {
   runStatusesByThread: Record<string, RunStatus>
   settings: ProviderSettings
   threads: Thread[]
+  externalThreads: Thread[]
+  showExternalThreads: boolean
   threadListMode: 'active' | 'archived'
   toolCalls: Record<string, ToolCall[]>
 
@@ -194,6 +196,7 @@ interface AppState {
   setPendingWorkspacePath: (workspacePath: string | null) => void
   setThreadWorkspace: (workspacePath: string | null) => Promise<void>
   setThreadListMode: (mode: 'active' | 'archived') => void
+  toggleShowExternalThreads: () => void
   setThreadPrivacyMode: (threadId: string, enabled: boolean) => Promise<void>
   toggleEnabledTool: (toolName: ToolCallName) => Promise<void>
   upsertComposerImage: (image: ComposerImageDraft, threadId?: string | null) => void
@@ -211,9 +214,7 @@ export const DEFAULT_SETTINGS: ProviderSettings = {
 export function getEffectiveModel(
   state: Pick<AppState, 'activeThreadId' | 'threads' | 'settings'>
 ): { providerName: string; model: string } {
-  const thread = state.activeThreadId
-    ? state.threads.find((t) => t.id === state.activeThreadId)
-    : undefined
+  const thread = findThread(state, state.activeThreadId)
   const override = thread?.modelOverride
   if (override) return override
   return { providerName: state.settings.providerName, model: state.settings.model }
@@ -223,7 +224,7 @@ export function getThreadEffectiveModel(
   state: Pick<AppState, 'threads' | 'settings'>,
   threadId: string | null
 ): { providerName: string; model: string } {
-  const thread = threadId ? state.threads.find((t) => t.id === threadId) : undefined
+  const thread = findThread(state, threadId)
   const override = thread?.modelOverride
   if (override) return override
   return { providerName: state.settings.providerName, model: state.settings.model }
@@ -248,7 +249,24 @@ function sortThreads(threads: Thread[]): Thread[] {
   return [...threads].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
 }
 
+function isExternalThread(thread: Thread): boolean {
+  return Boolean(thread.source && thread.source !== 'local')
+}
+
+/** Find a thread by ID across both local and external thread lists. */
+export function findThread(
+  state: { threads: Thread[]; externalThreads?: Thread[] },
+  threadId: string | null
+): Thread | undefined {
+  if (!threadId) return undefined
+  return (
+    state.threads.find((t) => t.id === threadId) ??
+    state.externalThreads?.find((t) => t.id === threadId)
+  )
+}
+
 function upsertThread(threads: Thread[], thread: Thread): Thread[] {
+  if (isExternalThread(thread)) return threads
   return sortThreads([thread, ...threads.filter((item) => item.id !== thread.id)])
 }
 
@@ -653,7 +671,10 @@ async function refreshAvailableSkills(
 
   const requestId = ++availableSkillsRequestId
   const state = get()
-  const activeThread = state.threads.find((thread) => thread.id === state.activeThreadId) ?? null
+  const activeThread =
+    state.threads.find((thread) => thread.id === state.activeThreadId) ??
+    state.externalThreads.find((thread) => thread.id === state.activeThreadId) ??
+    null
   const workspacePath = normalizeWorkspacePath(
     activeThread?.workspacePath ?? state.pendingWorkspacePath
   )
@@ -983,6 +1004,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   runStatusesByThread: {},
   settings: DEFAULT_SETTINGS,
   threads: [],
+  externalThreads: [],
+  showExternalThreads: false,
   threadListMode: 'active',
   toolCalls: {},
 
@@ -1015,8 +1038,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     if (event.type === 'run.completed') {
       const { config, threads, messages } = get()
-      if (config?.general?.notifyRunCompleted !== false) {
-        const thread = threads.find((t) => t.id === event.threadId)
+      const thread = threads.find((t) => t.id === event.threadId)
+      if (thread && config?.general?.notifyRunCompleted !== false) {
         const threadMessages = messages[event.threadId] ?? []
         const lastAssistantMessage = [...threadMessages]
           .reverse()
@@ -1026,23 +1049,18 @@ export const useAppStore = create<AppState>((set, get) => ({
           lastTextBlock?.content.trim().slice(0, 60) ??
           lastAssistantMessage?.content.trim().slice(0, 60) ??
           'Run completed'
-        notifyActivity(
-          `run.completed:${event.runId}`,
-          event.threadId,
-          thread?.title ?? 'Yachiyo',
-          preview
-        )
+        notifyActivity(`run.completed:${event.runId}`, event.threadId, thread.title, preview)
       }
     }
 
     if (event.type === 'subagent.started') {
       const { config, threads } = get()
-      if (config?.general?.notifyCodingTaskStarted !== false) {
-        const thread = threads.find((t) => t.id === event.threadId)
+      const thread = threads.find((t) => t.id === event.threadId)
+      if (thread && config?.general?.notifyCodingTaskStarted !== false) {
         notifyActivity(
           `subagent.started:${event.runId}:${event.agentName}`,
           event.threadId,
-          thread?.title ?? 'Yachiyo',
+          thread.title,
           `${event.agentName} dispatched`
         )
       }
@@ -1050,12 +1068,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     if (event.type === 'subagent.finished') {
       const { config, threads } = get()
-      if (config?.general?.notifyCodingTaskFinished !== false) {
-        const thread = threads.find((t) => t.id === event.threadId)
+      const thread = threads.find((t) => t.id === event.threadId)
+      if (thread && config?.general?.notifyCodingTaskFinished !== false) {
         notifyActivity(
           `subagent.finished:${event.runId}:${event.agentName}:${event.status}`,
           event.threadId,
-          thread?.title ?? 'Yachiyo',
+          thread.title,
           event.status === 'cancelled'
             ? `${event.agentName} cancelled`
             : `${event.agentName} finished`
@@ -2246,6 +2264,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setActiveThread: (id, scrollToMessageId) => {
+    const { messages } = get()
+
     set((state) => {
       const nextState = {
         ...state,
@@ -2261,6 +2281,23 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     })
     void refreshAvailableSkills(set, get)
+
+    // Load messages on-demand for threads not yet in memory (e.g. external threads).
+    console.log(
+      `[setActiveThread] id=${id} hasMessages=${Boolean(messages[id]?.length)} msgCount=${messages[id]?.length ?? 0}`
+    )
+    if (!messages[id]?.length) {
+      console.log(`[setActiveThread] loading thread data for ${id}`)
+      void window.api.yachiyo.loadThreadData({ threadId: id }).then((data) => {
+        console.log(
+          `[setActiveThread] loaded ${data.messages.length} messages, ${data.toolCalls.length} toolCalls for ${id}`
+        )
+        set((state) => ({
+          messages: { ...state.messages, [id]: data.messages },
+          toolCalls: { ...state.toolCalls, [id]: data.toolCalls }
+        }))
+      })
+    }
   },
   clearScrollToMessageId: () => set({ scrollToMessageId: null }),
   setComposerEnabledSkillNames: (enabledSkillNames) =>
@@ -2288,6 +2325,17 @@ export const useAppStore = create<AppState>((set, get) => ({
           : state.activeThreadId,
       threadListMode: mode
     })),
+
+  toggleShowExternalThreads: () => {
+    const { showExternalThreads } = get()
+    if (!showExternalThreads) {
+      void window.api.yachiyo.listExternalThreads().then((records) => {
+        set({ externalThreads: records, showExternalThreads: true })
+      })
+    } else {
+      set({ externalThreads: [], showExternalThreads: false })
+    }
+  },
 
   setComposerValue: (value) =>
     set((state) => {

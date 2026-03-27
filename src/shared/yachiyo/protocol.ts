@@ -1,3 +1,24 @@
+export type ChannelUserStatus = 'pending' | 'allowed' | 'blocked'
+export type ChannelPlatform = 'telegram'
+
+export interface ChannelUserRecord {
+  id: string
+  platform: ChannelPlatform
+  externalUserId: string
+  username: string
+  status: ChannelUserStatus
+  usageLimitKTokens: number | null
+  usedKTokens: number
+  workspacePath: string
+}
+
+export interface UpdateChannelUserInput {
+  id: string
+  status?: ChannelUserStatus
+  usageLimitKTokens?: number | null
+  usedKTokens?: number
+}
+
 export type MessageRole = 'user' | 'assistant'
 export type MessageStatus = 'completed' | 'streaming' | 'failed' | 'stopped'
 export type RunStatus = 'idle' | 'running' | 'completed' | 'failed' | 'cancelled'
@@ -339,6 +360,8 @@ export interface ThreadRecord {
   branchFromMessageId?: string
   privacyMode?: boolean
   modelOverride?: ThreadModelOverride
+  source?: 'local' | ChannelPlatform
+  channelUserId?: string
 }
 
 /** Per-turn injected context (reminder, memory) persisted for lossless replay. */
@@ -608,6 +631,17 @@ export function normalizeUserPrompts(value: unknown): UserPrompt[] {
   return result
 }
 
+export interface TelegramChannelConfig {
+  /** Whether the Telegram bot is active. */
+  enabled: boolean
+  /** Bot API token from @BotFather. Stored in channels.json, never in config.toml. */
+  botToken: string
+}
+
+export interface ChannelsConfig {
+  telegram?: TelegramChannelConfig
+}
+
 export interface SettingsConfig {
   providers: ProviderConfig[]
   defaultModel?: ThreadModelOverride
@@ -732,6 +766,12 @@ export interface SendChatInput {
   enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
   mode?: SendChatMode
+  /**
+   * Optional per-turn hint injected into the hint layer before the model sees
+   * the user message. Used by channel integrations (e.g. Telegram) to enforce
+   * reply-format instructions without polluting stored message content.
+   */
+  channelHint?: string
 }
 
 export interface RetryInput {

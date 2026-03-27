@@ -400,7 +400,11 @@ export function RunInspectionPanel({ threadId }: RunInspectionPanelProps): React
     threadId ? (state.toolCalls[threadId] ?? EMPTY_TOOL_CALLS) : EMPTY_TOOL_CALLS
   )
   const thread = useAppStore((state) =>
-    threadId ? (state.threads.find((t) => t.id === threadId) ?? null) : null
+    threadId
+      ? (state.threads.find((t) => t.id === threadId) ??
+        state.externalThreads.find((t) => t.id === threadId) ??
+        null)
+      : null
   )
   const messageCount = useAppStore((state) =>
     threadId ? (state.messages[threadId]?.length ?? 0) : 0

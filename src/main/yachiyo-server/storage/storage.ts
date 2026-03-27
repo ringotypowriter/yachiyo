@@ -1,4 +1,7 @@
 import type {
+  ChannelPlatform,
+  ChannelUserRecord,
+  ChannelUserStatus,
   MessageFileAttachment,
   MessageImageRecord,
   MessageRecord,
@@ -34,6 +37,8 @@ export interface StoredThreadRow {
   starredAt: string | null
   privacyMode: string | null
   modelOverride: string | null
+  source: string | null
+  channelUserId: string | null
   updatedAt: string
   createdAt: string
   headMessageId: string | null
@@ -165,6 +170,18 @@ export interface YachiyoStorage {
   updateToolCall(toolCall: ToolCallRecord): void
   deleteMessages(input: DeleteMessagesInput): void
   searchThreadsAndMessages(input: { query: string }): ThreadSearchResult[]
+  listExternalThreads(): ThreadRecord[]
+  findActiveChannelThread(channelUserId: string, maxAgeMs: number): ThreadRecord | undefined
+  getThreadTotalTokens(threadId: string): number
+  listChannelUsers(): ChannelUserRecord[]
+  findChannelUser(platform: ChannelPlatform, externalUserId: string): ChannelUserRecord | undefined
+  createChannelUser(user: Omit<ChannelUserRecord, 'usedKTokens'>): ChannelUserRecord
+  updateChannelUser(input: {
+    id: string
+    status?: ChannelUserStatus
+    usageLimitKTokens?: number | null
+    usedKTokens?: number
+  }): ChannelUserRecord | undefined
 }
 
 export function toThreadRecord(
@@ -184,6 +201,8 @@ export function toThreadRecord(
     | 'queuedFollowUpEnabledTools'
     | 'queuedFollowUpEnabledSkillNames'
     | 'queuedFollowUpMessageId'
+    | 'source'
+    | 'channelUserId'
     | 'title'
     | 'updatedAt'
     | 'workspacePath'
@@ -193,6 +212,7 @@ export function toThreadRecord(
   const queuedFollowUpEnabledSkillNames = parseSkillNames(row.queuedFollowUpEnabledSkillNames)
   const memoryRecall = parseThreadMemoryRecallState(row.memoryRecallState)
   const modelOverride = parseModelOverride(row.modelOverride)
+  const source = parseThreadSource(row.source)
 
   if (row.preview === null) {
     return {
@@ -211,6 +231,8 @@ export function toThreadRecord(
         ? {}
         : { queuedFollowUpMessageId: row.queuedFollowUpMessageId }),
       ...(row.workspacePath === null ? {} : { workspacePath: row.workspacePath }),
+      ...(source ? { source } : {}),
+      ...(row.channelUserId === null ? {} : { channelUserId: row.channelUserId }),
       id: row.id,
       title: row.title,
       updatedAt: row.updatedAt
@@ -233,6 +255,8 @@ export function toThreadRecord(
       ? {}
       : { queuedFollowUpMessageId: row.queuedFollowUpMessageId }),
     ...(row.workspacePath === null ? {} : { workspacePath: row.workspacePath }),
+    ...(source ? { source } : {}),
+    ...(row.channelUserId === null ? {} : { channelUserId: row.channelUserId }),
     id: row.id,
     preview: row.preview,
     title: row.title,
@@ -364,6 +388,11 @@ export function parseToolCallDetails(details: string | null): ToolCallDetailsSna
   } catch {
     return undefined
   }
+}
+
+function parseThreadSource(value: string | null): ThreadRecord['source'] | undefined {
+  if (value === 'local' || value === 'telegram') return value
+  return undefined
 }
 
 function parseEnabledTools(value: string | null): ToolCallName[] | undefined {

@@ -784,8 +784,14 @@ export function ThreadList(): React.JSX.Element {
   const setActiveThread = useAppStore((s) => s.setActiveThread)
   const threadListMode = useAppStore((s) => s.threadListMode)
   const threads = useAppStore((s) => s.threads)
+  const externalThreads = useAppStore((s) => s.externalThreads)
+  const showExternalThreads = useAppStore((s) => s.showExternalThreads)
   const config = useAppStore((s) => s.config)
-  const visibleThreads = threadListMode === 'archived' ? archivedThreads : threads
+  const baseThreads = threadListMode === 'archived' ? archivedThreads : threads
+  const visibleThreads =
+    showExternalThreads && threadListMode === 'active'
+      ? [...baseThreads, ...externalThreads]
+      : baseThreads
   const activeId = threadListMode === 'archived' ? activeArchivedThreadId : activeThreadId
   const memoryEnabled = isMemoryConfigured(config)
 

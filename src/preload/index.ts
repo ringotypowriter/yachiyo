@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
+  ChannelsConfig,
+  ChannelUserRecord,
   CompactThreadInput,
   CompactThreadAccepted,
   EditMessageInput,
@@ -20,6 +22,7 @@ import type {
   ThreadRecord,
   ThreadSearchResult,
   MemoryTermDocument,
+  UpdateChannelUserInput,
   UserDocument,
   SoulDocument,
   ToolPreferencesInput,
@@ -122,6 +125,22 @@ const api = {
     }> => ipcRenderer.invoke('yachiyo:list-discovered-apps'),
     openWorkspaceWithApp: (input: { threadId: string; appName: string }): Promise<void> =>
       ipcRenderer.invoke('yachiyo:open-workspace-with-app', input),
+    loadThreadData: (input: {
+      threadId: string
+    }): Promise<{
+      messages: import('../shared/yachiyo/protocol').MessageRecord[]
+      toolCalls: import('../shared/yachiyo/protocol').ToolCallRecord[]
+    }> => ipcRenderer.invoke('yachiyo:load-thread-data', input),
+    listExternalThreads: (): Promise<ThreadRecord[]> =>
+      ipcRenderer.invoke('yachiyo:list-external-threads'),
+    listChannelUsers: (): Promise<ChannelUserRecord[]> =>
+      ipcRenderer.invoke('yachiyo:list-channel-users'),
+    updateChannelUser: (input: UpdateChannelUserInput): Promise<ChannelUserRecord> =>
+      ipcRenderer.invoke('yachiyo:update-channel-user', input),
+    getChannelsConfig: (): Promise<ChannelsConfig> =>
+      ipcRenderer.invoke('yachiyo:get-channels-config'),
+    saveChannelsConfig: (input: ChannelsConfig): Promise<ChannelsConfig> =>
+      ipcRenderer.invoke('yachiyo:save-channels-config', input),
     showNotification: (input: { title: string; body?: string }): void =>
       ipcRenderer.send('yachiyo:show-notification', input),
     beep: (): void => ipcRenderer.send('yachiyo:beep'),

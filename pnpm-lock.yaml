@@ -32,6 +32,12 @@ importers:
       '@ai-sdk/provider-utils':
         specifier: ^4.0.19
         version: 4.0.19(zod@4.3.6)
+      '@chat-adapter/state-memory':
+        specifier: ^4.23.0
+        version: 4.23.0
+      '@chat-adapter/telegram':
+        specifier: ^4.23.0
+        version: 4.23.0
       '@electron-toolkit/preload':
         specifier: ^3.0.2
         version: 3.0.2(electron@39.8.2)
@@ -59,6 +65,9 @@ importers:
       better-sqlite3:
         specifier: ^12.8.0
         version: 12.8.0
+      chat:
+        specifier: ^4.23.0
+        version: 4.23.0
       defuddle:
         specifier: ^0.14.0
         version: 0.14.0(canvas@3.2.2)
@@ -313,6 +322,15 @@ packages:
   '@babel/types@7.29.0':
     resolution: {integrity: sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A==}
     engines: {node: '>=6.9.0'}
+
+  '@chat-adapter/shared@4.23.0':
+    resolution: {integrity: sha512-IDHgrAi3Y8Qptl1kd8zmM6jxWX+lu0cq/uZiURv8jONufWHrVwVr19pN0YK52ASnRlLZkcaNYXoa+mLFGQ2tlw==}
+
+  '@chat-adapter/state-memory@4.23.0':
+    resolution: {integrity: sha512-IlAVV4MGpjdassiI4haNAzWdFl66xFAfqM5DnWAGZdndkQj0LNMigcxhOgyS++yQUUWWvT1yRKwCswenCvxWVw==}
+
+  '@chat-adapter/telegram@4.23.0':
+    resolution: {integrity: sha512-9ntCc+LlwSrb5Y3OFFamAt0eyA+c8V0S5XbA5O12DyPFMmCbe7ibQfbZv9qwYKgxvyBLgPG2RfwYp1ocrDs1/A==}
 
   '@develar/schema-utils@2.6.5':
     resolution: {integrity: sha512-0cp4PsWQ/9avqTVMCtZ+GirikIA36ikvjtHweU4/j8yLtgObI0+JUPhYFScgwlteveGB1rt3Cm8UhN04XayDig==}
@@ -1355,6 +1373,9 @@ packages:
     peerDependencies:
       vite: ^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0
 
+  '@workflow/serde@4.1.0-beta.2':
+    resolution: {integrity: sha512-8kkeoQKLDaKXefjV5dbhBj2aErfKp1Mc4pb6tj8144cF+Em5SPbyMbyLCHp+BVrFfFVCBluCtMx+jjvaFVZGww==}
+
   '@xmldom/xmldom@0.8.11':
     resolution: {integrity: sha512-cQzWCtO6C8TQiYl1ruKNn2U6Ao4o4WBBcbL61yJl84x+j5sOWWFU9X7DpND8XZG3daDppSsigMdfAIl2upQBRw==}
     engines: {node: '>=10.0.0'}
@@ -1607,6 +1628,9 @@ packages:
 
   character-reference-invalid@2.0.1:
     resolution: {integrity: sha512-iBZ4F4wRbyORVsu0jPV7gXkOsGYjGHPmAyv+HiHG8gi5PtC9KI2j1+v8/tlibRvjoWX027ypmG/n0HtO5t7unw==}
+
+  chat@4.23.0:
+    resolution: {integrity: sha512-Gmw8yyDrrH9Vxs+TfxF7FoTENrCzJV4T0FiAh7APGcQPhMMYAhrpq66PKj8azhkUSEyaen8ujbneogoJWiY8vg==}
 
   chownr@1.1.4:
     resolution: {integrity: sha512-jJ0bqzaylmJtVnNgzTeSOs8DPavpbYgEr/b0YL8/2GO3xJEhInFmhKMUnEJQjZumK7KXGFhUy89PrsJWlakBVg==}
@@ -4236,6 +4260,25 @@ snapshots:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.28.5
 
+  '@chat-adapter/shared@4.23.0':
+    dependencies:
+      chat: 4.23.0
+    transitivePeerDependencies:
+      - supports-color
+
+  '@chat-adapter/state-memory@4.23.0':
+    dependencies:
+      chat: 4.23.0
+    transitivePeerDependencies:
+      - supports-color
+
+  '@chat-adapter/telegram@4.23.0':
+    dependencies:
+      '@chat-adapter/shared': 4.23.0
+      chat: 4.23.0
+    transitivePeerDependencies:
+      - supports-color
+
   '@develar/schema-utils@2.6.5':
     dependencies:
       ajv: 6.14.0
@@ -5098,6 +5141,8 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@workflow/serde@4.1.0-beta.2': {}
+
   '@xmldom/xmldom@0.8.11': {}
 
   abbrev@3.0.1: {}
@@ -5425,6 +5470,18 @@ snapshots:
   character-entities@2.0.2: {}
 
   character-reference-invalid@2.0.1: {}
+
+  chat@4.23.0:
+    dependencies:
+      '@workflow/serde': 4.1.0-beta.2
+      mdast-util-to-string: 4.0.0
+      remark-gfm: 4.0.1
+      remark-parse: 11.0.0
+      remark-stringify: 11.0.0
+      remend: 1.2.2
+      unified: 11.0.5
+    transitivePeerDependencies:
+      - supports-color
 
   chownr@1.1.4: {}
 

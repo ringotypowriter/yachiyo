@@ -9,6 +9,7 @@ import {
   Info,
   MessageSquare,
   Monitor,
+  Radio,
   Sparkles,
   Settings2
 } from 'lucide-react'
@@ -32,6 +33,7 @@ import { SkillsPane } from './panes/SkillsPane'
 import { UIPane } from './panes/UIPane'
 import { WorkspacePane } from './panes/WorkspacePane'
 import { AboutPane } from './panes/AboutPane'
+import { ChannelsPane } from './panes/ChannelsPane'
 
 type TabId =
   | 'general'
@@ -43,6 +45,7 @@ type TabId =
   | 'workspace'
   | 'search'
   | 'memory'
+  | 'channels'
   | 'ui'
   | 'about'
 
@@ -72,6 +75,7 @@ const TABS: Tab[] = [
     label: 'Memory',
     icon: Brain
   },
+  { id: 'channels', label: 'Channels', icon: Radio },
   { id: 'ui', label: 'User Interface', icon: Monitor },
   { id: 'about', label: 'About', icon: Info }
 ]
@@ -276,6 +280,8 @@ function SettingsApp(): React.ReactNode {
       body = <SearchPane draft={draft} onChange={setDraft} />
     } else if (activeTab === 'memory') {
       body = <MemoryPane draft={draft} onChange={setDraft} />
+    } else if (activeTab === 'channels') {
+      body = <ChannelsPane />
     } else if (activeTab === 'ui') {
       body = <UIPane draft={draft} onChange={setDraft} />
     }

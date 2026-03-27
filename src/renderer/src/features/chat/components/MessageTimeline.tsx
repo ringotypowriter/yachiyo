@@ -348,7 +348,11 @@ export function ThreadConversationGroup({
 
 export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.Element {
   const thread = useAppStore((state) =>
-    threadId ? (state.threads.find((entry) => entry.id === threadId) ?? null) : null
+    threadId
+      ? (state.threads.find((entry) => entry.id === threadId) ??
+        state.externalThreads.find((entry) => entry.id === threadId) ??
+        null)
+      : null
   )
   const messages = useAppStore((state) =>
     threadId ? (state.messages[threadId] ?? EMPTY_MESSAGES) : EMPTY_MESSAGES

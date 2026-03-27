@@ -1,4 +1,4 @@
-import { Archive, PanelLeft, Search, Settings, SquarePen } from 'lucide-react'
+import { Archive, PanelLeft, Radio, Search, Settings, SquarePen } from 'lucide-react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ConnectionStatusIndicator } from '@renderer/features/layout/components/ConnectionStatusIndicator'
 import { SidebarSearch } from '@renderer/features/search/SidebarSearch'
@@ -36,6 +36,8 @@ export function AppSidebar({
   const createNewThread = useAppStore((s) => s.createNewThread)
   const setActiveThread = useAppStore((s) => s.setActiveThread)
   const setThreadListMode = useAppStore((s) => s.setThreadListMode)
+  const showExternalThreads = useAppStore((s) => s.showExternalThreads)
+  const toggleShowExternalThreads = useAppStore((s) => s.toggleShowExternalThreads)
   const threadListMode = useAppStore((s) => s.threadListMode)
 
   return (
@@ -123,6 +125,21 @@ export function AppSidebar({
                 aria-label="Settings"
               >
                 <Settings size={16} strokeWidth={1.5} />
+              </button>
+            </Tooltip>
+            <Tooltip
+              content={showExternalThreads ? 'Hide external threads' : 'Show external threads'}
+            >
+              <button
+                onClick={toggleShowExternalThreads}
+                className="p-1.5 rounded-md transition-opacity"
+                style={{
+                  color: showExternalThreads ? theme.text.accentStrong : theme.icon.default,
+                  opacity: showExternalThreads ? 0.9 : 0.4
+                }}
+                aria-label={showExternalThreads ? 'Hide external threads' : 'Show external threads'}
+              >
+                <Radio size={16} strokeWidth={1.5} />
               </button>
             </Tooltip>
             <Tooltip
