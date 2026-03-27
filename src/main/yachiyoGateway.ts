@@ -25,6 +25,7 @@ import {
 } from './yachiyo-server/app/YachiyoServer.ts'
 import { resolveYachiyoDbPath, resolveYachiyoSettingsPath } from './yachiyo-server/config/paths.ts'
 import { openThreadWorkspace } from './openThreadWorkspace.ts'
+import { discoverApps } from './appDiscovery.ts'
 
 const IPC_CHANNELS = {
   showNotification: 'yachiyo:show-notification',
@@ -74,7 +75,9 @@ const IPC_CHANNELS = {
   regenerateThreadTitle: 'yachiyo:regenerate-thread-title',
   starThread: 'yachiyo:star-thread',
   readClipboardFilePaths: 'yachiyo:read-clipboard-file-paths',
-  readAttachmentFile: 'yachiyo:read-attachment-file'
+  readAttachmentFile: 'yachiyo:read-attachment-file',
+  listDiscoveredApps: 'yachiyo:list-discovered-apps',
+  openWorkspaceWithApp: 'yachiyo:open-workspace-with-app'
 } as const
 
 let server: YachiyoServer | null = null
@@ -186,6 +189,27 @@ export function registerYachiyoGateway(): YachiyoServer {
     server!
       .openThreadWorkspace(input)
       .then((workspacePath) => openThreadWorkspace(input.threadId, workspacePath))
+  )
+  handle(IPC_CHANNELS.listDiscoveredApps, () => discoverApps())
+  handle(
+    IPC_CHANNELS.openWorkspaceWithApp,
+    async (input: { threadId: string; appName: string }) => {
+      const workspacePath = await server!.openThreadWorkspace({ threadId: input.threadId })
+      await openThreadWorkspace(input.threadId, workspacePath, {
+        openPath: (path) =>
+          new Promise<string>((resolve, reject) => {
+            const child = spawn('open', ['-a', input.appName, path])
+            child.on('close', (code) => {
+              if (code === 0) {
+                resolve('')
+              } else {
+                reject(new Error(`Failed to open "${input.appName}" (exit code ${code})`))
+              }
+            })
+            child.on('error', reject)
+          })
+      })
+    }
   )
   handle(
     IPC_CHANNELS.updateThreadWorkspace,

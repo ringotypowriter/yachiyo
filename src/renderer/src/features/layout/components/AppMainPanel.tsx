@@ -252,6 +252,30 @@ export function AppMainPanel({
     }
   }
 
+  async function handleOpenInEditor(): Promise<void> {
+    if (!activeThread || !config?.workspace?.editorApp) return
+    try {
+      await window.api.yachiyo.openWorkspaceWithApp({
+        threadId: activeThread.id,
+        appName: config.workspace.editorApp
+      })
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to open in editor.')
+    }
+  }
+
+  async function handleOpenInTerminal(): Promise<void> {
+    if (!activeThread || !config?.workspace?.terminalApp) return
+    try {
+      await window.api.yachiyo.openWorkspaceWithApp({
+        threadId: activeThread.id,
+        appName: config.workspace.terminalApp
+      })
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to open in terminal.')
+    }
+  }
+
   function handleSelectThreadOperation(operationKey: ThreadContextOperationKey): void {
     if (!activeThread || threadIsSaving) {
       return
@@ -382,6 +406,8 @@ export function AppMainPanel({
         isStarred={!!activeThread?.starredAt}
         messageCount={messageCount}
         onOpenThreadWorkspace={handleOpenThreadWorkspace}
+        onOpenInEditor={config?.workspace?.editorApp ? handleOpenInEditor : undefined}
+        onOpenInTerminal={config?.workspace?.terminalApp ? handleOpenInTerminal : undefined}
         onSelectThreadOperation={handleSelectThreadOperation}
         onToggleInspectionPanel={() => setIsInspectionPanelOpen((v) => !v)}
         onTogglePrivacyMode={handleTogglePrivacyMode}

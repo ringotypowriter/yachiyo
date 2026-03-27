@@ -102,6 +102,11 @@ declare global {
           { filename: string; mediaType: string; dataUrl: string }[]
         >
         readAttachmentFile: (input: { filePath: string; mediaType: string }) => Promise<string>
+        listDiscoveredApps: () => Promise<{
+          editors: { name: string; iconDataUrl?: string }[]
+          terminals: { name: string; iconDataUrl?: string }[]
+        }>
+        openWorkspaceWithApp: (input: { threadId: string; appName: string }) => Promise<void>
         showNotification: (input: { title: string; body?: string }) => void
         beep: () => void
         subscribe: (listener: (event: YachiyoServerEvent) => void) => () => void

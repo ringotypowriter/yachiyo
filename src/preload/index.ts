@@ -106,6 +106,12 @@ const api = {
     > => ipcRenderer.invoke('yachiyo:read-clipboard-file-paths'),
     readAttachmentFile: (input: { filePath: string; mediaType: string }): Promise<string> =>
       ipcRenderer.invoke('yachiyo:read-attachment-file', input),
+    listDiscoveredApps: (): Promise<{
+      editors: { name: string; iconDataUrl?: string }[]
+      terminals: { name: string; iconDataUrl?: string }[]
+    }> => ipcRenderer.invoke('yachiyo:list-discovered-apps'),
+    openWorkspaceWithApp: (input: { threadId: string; appName: string }): Promise<void> =>
+      ipcRenderer.invoke('yachiyo:open-workspace-with-app', input),
     showNotification: (input: { title: string; body?: string }): void =>
       ipcRenderer.send('yachiyo:show-notification', input),
     beep: (): void => ipcRenderer.send('yachiyo:beep'),

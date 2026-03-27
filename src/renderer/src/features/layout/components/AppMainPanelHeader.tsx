@@ -19,6 +19,8 @@ export interface AppMainPanelHeaderProps {
   isStarred?: boolean
   messageCount: number
   onOpenThreadWorkspace: () => Promise<void>
+  onOpenInEditor?: () => Promise<void>
+  onOpenInTerminal?: () => Promise<void>
   onSelectThreadOperation: (operationKey: ThreadContextOperationKey) => void
   onToggleInspectionPanel: () => void
   onTogglePrivacyMode: () => void
@@ -40,6 +42,8 @@ export function AppMainPanelHeader({
   isStarred,
   messageCount,
   onOpenThreadWorkspace,
+  onOpenInEditor,
+  onOpenInTerminal,
   onSelectThreadOperation,
   onToggleInspectionPanel,
   onTogglePrivacyMode,
@@ -72,7 +76,7 @@ export function AppMainPanelHeader({
         </button>
       ) : null}
 
-      {/* Title: centered when sidebar is hidden, left-aligned when sidebar is open */}
+      {/* Title + workspace buttons — centered when sidebar off, left when sidebar on */}
       <div
         style={{
           position: 'absolute',
@@ -88,13 +92,35 @@ export function AppMainPanelHeader({
         <div style={{ pointerEvents: 'auto', minWidth: 0, overflow: 'hidden' }}>
           <ThreadHeaderTitle
             activeThread={activeThread}
-            isBootstrapping={isBootstrapping}
-            messageCount={messageCount}
+            centered={showSidebarToggle}
             onOpenThreadWorkspace={onOpenThreadWorkspace}
-            showSubtitle={!showSidebarToggle}
+            onOpenInEditor={onOpenInEditor}
+            onOpenInTerminal={onOpenInTerminal}
           />
         </div>
       </div>
+
+      {/* Message count — absolutely centered, only when sidebar is open */}
+      {!showSidebarToggle && activeThread ? (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            pointerEvents: 'none'
+          }}
+        >
+          <span className="text-xs font-medium" style={{ color: theme.text.muted }}>
+            {isBootstrapping
+              ? 'Loading local workspace...'
+              : messageCount > 0
+                ? `${messageCount} message${messageCount !== 1 ? 's' : ''}`
+                : 'No messages yet'}
+          </span>
+        </div>
+      ) : null}
 
       {/* Right zone: actions */}
       <div className="flex items-center gap-1 no-drag ml-auto" style={{ position: 'relative' }}>

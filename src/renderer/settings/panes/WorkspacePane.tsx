@@ -1,7 +1,297 @@
-import { Folder, Plus, Trash2 } from 'lucide-react'
+import { Check, ChevronDown, Folder, MonitorStop, Plus, Trash2, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { theme } from '@renderer/theme/theme'
 import type { SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
 import { settingsPanelStyle } from '../components/styles'
+
+interface DiscoveredApp {
+  name: string
+  iconDataUrl?: string
+}
+
+interface AppPickerProps {
+  value: string
+  options: DiscoveredApp[]
+  placeholder: string
+  onChange: (value: string) => void
+}
+
+function AppPickerOption({
+  app,
+  selected,
+  onSelect
+}: {
+  app: DiscoveredApp
+  selected: boolean
+  onSelect: () => void
+}): React.JSX.Element {
+  const [hovered, setHovered] = useState(false)
+
+  return (
+    <div
+      role="option"
+      aria-selected={selected}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      onPointerDown={(e) => {
+        e.preventDefault()
+        onSelect()
+      }}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '7px 12px',
+        cursor: 'default',
+        borderRadius: 8,
+        margin: '0 4px',
+        background: hovered ? theme.background.surfaceLight : 'transparent',
+        transition: 'background 80ms'
+      }}
+    >
+      {app.iconDataUrl ? (
+        <img
+          src={app.iconDataUrl}
+          width={18}
+          height={18}
+          style={{ borderRadius: 4, flexShrink: 0 }}
+          alt=""
+        />
+      ) : (
+        <div
+          style={{
+            width: 18,
+            height: 18,
+            flexShrink: 0,
+            borderRadius: 4,
+            background: theme.background.surface,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <MonitorStop size={11} color={theme.icon.muted} />
+        </div>
+      )}
+      <span
+        style={{
+          flex: 1,
+          fontSize: 13,
+          fontWeight: selected ? 600 : 400,
+          color: theme.text.primary,
+          lineHeight: 1
+        }}
+      >
+        {app.name}
+      </span>
+      {selected && <Check size={13} strokeWidth={2.5} color={theme.text.accent} />}
+    </div>
+  )
+}
+
+function NoneOption({ onSelect }: { onSelect: () => void }): React.JSX.Element {
+  const [hovered, setHovered] = useState(false)
+
+  return (
+    <div style={{ margin: '4px 4px 0', borderTop: `1px solid ${theme.border.subtle}` }}>
+      <div
+        role="option"
+        aria-selected={false}
+        onPointerEnter={() => setHovered(true)}
+        onPointerLeave={() => setHovered(false)}
+        onPointerDown={(e) => {
+          e.preventDefault()
+          onSelect()
+        }}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '7px 12px',
+          cursor: 'default',
+          borderRadius: 8,
+          margin: '0 0',
+          background: hovered ? theme.background.surfaceLight : 'transparent',
+          transition: 'background 80ms'
+        }}
+      >
+        <div
+          style={{
+            width: 18,
+            height: 18,
+            flexShrink: 0,
+            borderRadius: 4,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <X size={12} strokeWidth={2} color={theme.icon.muted} />
+        </div>
+        <span style={{ fontSize: 13, color: theme.text.muted, lineHeight: 1 }}>None</span>
+      </div>
+    </div>
+  )
+}
+
+function AppPicker({ value, options, placeholder, onChange }: AppPickerProps): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null)
+  const [openUpward, setOpenUpward] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+  const [triggerHovered, setTriggerHovered] = useState(false)
+
+  function handleOpen(): void {
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect()
+      setTriggerRect(rect)
+      // Each option is ~36px tall, plus 8px padding top/bottom + None divider
+      const estimatedHeight = (options.length + 1) * 36 + 24
+      setOpenUpward(rect.bottom + estimatedHeight > window.innerHeight - 16)
+    }
+    setOpen(true)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    function handlePointerDown(e: PointerEvent): void {
+      const target = e.target as Node
+      if (!triggerRef.current?.contains(target) && !dropdownRef.current?.contains(target)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [open])
+
+  const selectedApp = options.find((o) => o.name === value)
+
+  const triggerStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
+    padding: '7px 10px 7px 12px',
+    borderRadius: 10,
+    border: `1px solid ${open ? theme.border.accentStrong : triggerHovered ? theme.border.input : theme.border.input}`,
+    background: theme.background.surface,
+    cursor: 'default',
+    textAlign: 'left',
+    transition: 'border-color 120ms',
+    outline: 'none'
+  }
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        style={triggerStyle}
+        onPointerEnter={() => setTriggerHovered(true)}
+        onPointerLeave={() => setTriggerHovered(false)}
+        onClick={() => (open ? setOpen(false) : handleOpen())}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        {selectedApp?.iconDataUrl ? (
+          <img
+            src={selectedApp.iconDataUrl}
+            width={16}
+            height={16}
+            style={{ borderRadius: 3, flexShrink: 0 }}
+            alt=""
+          />
+        ) : null}
+        <span
+          style={{
+            flex: 1,
+            fontSize: 13,
+            color: value ? theme.text.primary : theme.text.muted,
+            lineHeight: 1
+          }}
+        >
+          {value || placeholder}
+        </span>
+        <ChevronDown
+          size={14}
+          strokeWidth={2}
+          color={theme.icon.muted}
+          style={{
+            flexShrink: 0,
+            transform: open
+              ? openUpward
+                ? 'rotate(0deg)'
+                : 'rotate(180deg)'
+              : openUpward
+                ? 'rotate(180deg)'
+                : 'rotate(0deg)',
+            transition: 'transform 150ms ease'
+          }}
+        />
+      </button>
+
+      {open &&
+        triggerRect &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            role="listbox"
+            style={{
+              position: 'fixed',
+              ...(openUpward
+                ? { bottom: window.innerHeight - triggerRect.top + 6 }
+                : { top: triggerRect.bottom + 6 }),
+              left: triggerRect.left,
+              width: triggerRect.width,
+              zIndex: 9999,
+              background: theme.background.chatCard,
+              borderRadius: 14,
+              border: `1px solid ${theme.border.default}`,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)',
+              padding: '4px 0',
+              overflow: 'hidden'
+            }}
+          >
+            {options.length === 0 ? (
+              <div
+                style={{
+                  padding: '10px 16px',
+                  fontSize: 12,
+                  color: theme.text.muted,
+                  textAlign: 'center'
+                }}
+              >
+                No apps found on your system
+              </div>
+            ) : (
+              options.map((app) => (
+                <AppPickerOption
+                  key={app.name}
+                  app={app}
+                  selected={app.name === value}
+                  onSelect={() => {
+                    onChange(app.name)
+                    setOpen(false)
+                  }}
+                />
+              ))
+            )}
+            {value ? (
+              <NoneOption
+                onSelect={() => {
+                  onChange('')
+                  setOpen(false)
+                }}
+              />
+            ) : null}
+          </div>,
+          document.body
+        )}
+    </>
+  )
+}
 
 interface WorkspacePaneProps {
   draft: SettingsConfig
@@ -10,6 +300,23 @@ interface WorkspacePaneProps {
 
 export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.ReactNode {
   const savedPaths = draft.workspace?.savedPaths ?? []
+  const [discoveredApps, setDiscoveredApps] = useState<{
+    editors: DiscoveredApp[]
+    terminals: DiscoveredApp[]
+  }>({ editors: [], terminals: [] })
+
+  useEffect(() => {
+    void window.api.yachiyo
+      .listDiscoveredApps()
+      .then(setDiscoveredApps)
+      .catch(() => {
+        // Discovery failed — pickers remain empty, no crash
+      })
+  }, [])
+
+  function updateWorkspace(patch: Partial<NonNullable<SettingsConfig['workspace']>>): void {
+    onChange({ ...draft, workspace: { ...draft.workspace, ...patch } })
+  }
 
   const removePath = (workspacePath: string): void => {
     onChange({
@@ -114,6 +421,41 @@ export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.Re
                 <Plus size={14} strokeWidth={2} />
                 Select directory...
               </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-[28px] px-5 py-5" style={settingsPanelStyle()}>
+          <div
+            className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+            style={{ color: theme.text.muted }}
+          >
+            Open With
+          </div>
+
+          <div className="mt-3 space-y-3">
+            <div>
+              <div className="text-sm font-medium mb-2" style={{ color: theme.text.secondary }}>
+                Editor
+              </div>
+              <AppPicker
+                value={draft.workspace?.editorApp ?? ''}
+                options={discoveredApps.editors}
+                placeholder="Select an editor…"
+                onChange={(v) => updateWorkspace({ editorApp: v })}
+              />
+            </div>
+
+            <div>
+              <div className="text-sm font-medium mb-2" style={{ color: theme.text.secondary }}>
+                Terminal
+              </div>
+              <AppPicker
+                value={draft.workspace?.terminalApp ?? ''}
+                options={discoveredApps.terminals}
+                placeholder="Select a terminal…"
+                onChange={(v) => updateWorkspace({ terminalApp: v })}
+              />
             </div>
           </div>
         </section>

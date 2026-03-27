@@ -424,6 +424,8 @@ export interface UserDocument {
 
 export interface WorkspaceConfig {
   savedPaths?: string[]
+  editorApp?: string
+  terminalApp?: string
 }
 
 export interface ToolModelConfig {

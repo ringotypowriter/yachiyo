@@ -170,9 +170,19 @@ function normalizeWorkspaceConfig(
   fallback: WorkspaceConfig = DEFAULT_SETTINGS_CONFIG.workspace ?? {}
 ): WorkspaceConfig {
   const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  const editorApp = normalizeString(
+    input['editorApp'] !== undefined ? input['editorApp'] : (fallback.editorApp ?? ''),
+    ''
+  )
+  const terminalApp = normalizeString(
+    input['terminalApp'] !== undefined ? input['terminalApp'] : (fallback.terminalApp ?? ''),
+    ''
+  )
 
   return {
-    savedPaths: normalizeStringList(input['savedPaths'] ?? fallback.savedPaths)
+    savedPaths: normalizeStringList(input['savedPaths'] ?? fallback.savedPaths),
+    ...(editorApp ? { editorApp } : {}),
+    ...(terminalApp ? { terminalApp } : {})
   }
 }
 
@@ -853,6 +863,8 @@ export function stringifySettingsToml(config: SettingsConfig): string {
     '',
     '[workspace]',
     `savedPaths = ${stringifyTomlStringArray(normalized.workspace?.savedPaths ?? [])}`,
+    `editorApp = ${stringifyTomlString(normalized.workspace?.editorApp ?? '')}`,
+    `terminalApp = ${stringifyTomlString(normalized.workspace?.terminalApp ?? '')}`,
     '',
     '[skills]',
     `enabled = ${stringifyTomlStringArray(normalized.skills?.enabled ?? [])}`,

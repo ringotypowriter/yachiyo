@@ -1,67 +1,92 @@
-import { FolderOpen } from 'lucide-react'
+import { FolderOpen, SquarePen, SquareTerminal } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import type { Thread } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 
 export interface ThreadHeaderTitleProps {
   activeThread: Thread | null
-  isBootstrapping: boolean
-  messageCount: number
+  centered?: boolean
   onOpenThreadWorkspace: () => Promise<void>
-  showSubtitle?: boolean
+  onOpenInEditor?: () => Promise<void>
+  onOpenInTerminal?: () => Promise<void>
 }
 
-function resolveThreadSubtitle(isBootstrapping: boolean, messageCount: number): string {
-  if (isBootstrapping) {
-    return 'Loading local workspace...'
-  }
-
-  if (messageCount > 0) {
-    return `${messageCount} message${messageCount !== 1 ? 's' : ''}`
-  }
-
-  return 'No messages yet'
-}
+const workspaceButtonClass =
+  'no-drag shrink-0 rounded p-1 opacity-60 hover:opacity-100 hover:bg-black/8 transition-all'
+const workspaceButtonStyle = { color: theme.text.secondary }
 
 export function ThreadHeaderTitle({
   activeThread,
-  isBootstrapping,
-  messageCount,
+  centered = false,
   onOpenThreadWorkspace,
-  showSubtitle = true
+  onOpenInEditor,
+  onOpenInTerminal
 }: ThreadHeaderTitleProps): React.JSX.Element {
-  const subtitle = resolveThreadSubtitle(isBootstrapping, messageCount)
+  const workspaceButtons = activeThread ? (
+    <motion.div layout className="flex items-center gap-0.5 shrink-0">
+      <button
+        onClick={() => void onOpenThreadWorkspace()}
+        className={workspaceButtonClass}
+        style={workspaceButtonStyle}
+        title="Open workspace in Finder"
+        aria-label="Open workspace in Finder"
+      >
+        <FolderOpen size={11} strokeWidth={1.7} />
+      </button>
+      {onOpenInTerminal ? (
+        <button
+          onClick={() => void onOpenInTerminal()}
+          className={workspaceButtonClass}
+          style={workspaceButtonStyle}
+          title="Open workspace in terminal"
+          aria-label="Open workspace in terminal"
+        >
+          <SquareTerminal size={11} strokeWidth={1.7} />
+        </button>
+      ) : null}
+      {onOpenInEditor ? (
+        <button
+          onClick={() => void onOpenInEditor()}
+          className={workspaceButtonClass}
+          style={workspaceButtonStyle}
+          title="Open workspace in editor"
+          aria-label="Open workspace in editor"
+        >
+          <SquarePen size={11} strokeWidth={1.7} />
+        </button>
+      ) : null}
+    </motion.div>
+  ) : null
 
   return (
-    <div className="flex flex-col min-w-0">
-      <div className="flex items-center gap-1.5 min-w-0">
+    <motion.div
+      layout
+      className="flex flex-col min-w-0"
+      style={{ alignItems: centered ? 'center' : 'flex-start' }}
+    >
+      {/* Title + inline buttons when sidebar on */}
+      <motion.div layout className="flex items-center gap-1.5 min-w-0">
         {activeThread?.icon ? (
-          <span className="shrink-0 select-none leading-none" style={{ fontSize: '1em' }}>
+          <motion.span
+            layout
+            className="shrink-0 select-none leading-none"
+            style={{ fontSize: '1em' }}
+          >
             {activeThread.icon}
-          </span>
+          </motion.span>
         ) : null}
-        <span
+        <motion.span
+          layout
           className="text-sm font-semibold truncate"
           style={{ color: theme.text.primary, letterSpacing: '-0.2px' }}
         >
           {activeThread?.title ?? 'Start a conversation'}
-        </span>
-        {activeThread ? (
-          <button
-            onClick={() => void onOpenThreadWorkspace()}
-            className="no-drag shrink-0 rounded-md p-1 transition-opacity opacity-55 hover:opacity-100"
-            style={{ color: theme.text.secondary }}
-            title="Open workspace in Finder"
-            aria-label="Open workspace in Finder"
-          >
-            <FolderOpen size={14} strokeWidth={1.7} />
-          </button>
-        ) : null}
-      </div>
-      {showSubtitle ? (
-        <span className="text-xs font-medium" style={{ color: theme.text.muted }}>
-          {subtitle}
-        </span>
-      ) : null}
-    </div>
+        </motion.span>
+        <AnimatePresence>{!centered && workspaceButtons}</AnimatePresence>
+      </motion.div>
+
+      {/* Buttons below title when centered (sidebar off) */}
+      <AnimatePresence>{centered && workspaceButtons}</AnimatePresence>
+    </motion.div>
   )
 }
