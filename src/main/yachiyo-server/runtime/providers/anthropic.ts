@@ -22,12 +22,13 @@ export function createAnthropicLanguageModel(
 }
 
 export function createAnthropicProviderOptions(
+  settings: ProviderSettings,
   mode: 'default' | 'auxiliary'
 ): RuntimeProviderOptions {
   return {
     anthropic: {
       thinking: {
-        ...(mode === 'auxiliary'
+        ...(mode === 'auxiliary' || settings.thinkingEnabled === false
           ? { type: 'disabled' as const }
           : {
               type: 'enabled' as const,

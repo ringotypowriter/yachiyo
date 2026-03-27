@@ -203,6 +203,7 @@ export const DEFAULT_SETTINGS: ProviderSettings = {
   providerName: '',
   provider: 'anthropic',
   model: '',
+  thinkingEnabled: true,
   apiKey: '',
   baseUrl: ''
 }

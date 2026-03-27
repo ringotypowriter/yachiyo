@@ -1,6 +1,6 @@
 import { Eraser, Loader2, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
 import { useDeferredValue, useMemo, useState } from 'react'
-import { theme } from '@renderer/theme/theme'
+import { theme, alpha } from '@renderer/theme/theme'
 import type {
   ProviderConfig,
   ProviderKind,
@@ -15,7 +15,7 @@ import {
   syncToolModelWithProvider,
   toolModelTargetsProvider
 } from '../../../shared/yachiyo/providerConfig.ts'
-import { Field, PlaceholderPane, SettingSwitch } from '../components/primitives'
+import { Field, PlaceholderPane, SettingSwitch, SimpleSelect } from '../components/primitives'
 import { inputStyle } from '../components/styles'
 import { filterProviderModels } from './providersPaneModel'
 
@@ -73,13 +73,16 @@ function withSelectedProvider(
 }
 
 function ModelToggle({ model, enabled, onToggle, onRemove }: ModelToggleProps): React.ReactNode {
+  const [hovered, setHovered] = useState(false)
+
   return (
     <div
-      className="flex items-center justify-between px-3 py-2 rounded-lg transition-colors"
+      className="group flex items-center justify-between px-3 py-2 rounded-lg transition-colors overflow-hidden"
       style={{
-        background: enabled ? theme.background.accentSoft : theme.background.surfaceSoft,
-        boxShadow: `inset 0 0 0 1px ${theme.border.subtle}`
+        background: hovered ? theme.background.hover : 'transparent'
       }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
       <span className="text-sm truncate mr-3" style={{ color: theme.text.primary }}>
         {model}
@@ -88,7 +91,7 @@ function ModelToggle({ model, enabled, onToggle, onRemove }: ModelToggleProps): 
         <button
           type="button"
           onClick={onRemove}
-          className="p-0.5 rounded opacity-0 hover:opacity-100 group-hover:opacity-40 transition-opacity"
+          className="p-0.5 rounded opacity-0 group-hover:opacity-40 hover:!opacity-100 transition-opacity"
           title="Remove model"
         >
           <X size={12} strokeWidth={1.5} color={theme.icon.muted} />
@@ -236,14 +239,7 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
       </div>
 
       {fetchError ? (
-        <div
-          className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs"
-          style={{
-            color: theme.text.danger,
-            background: theme.background.surfaceSoft,
-            border: `1px solid ${theme.border.subtle}`
-          }}
-        >
+        <div className="flex items-center gap-2 text-xs" style={{ color: theme.text.danger }}>
           <span className="truncate">Fetch failed: {fetchError}</span>
           <button
             type="button"
@@ -255,69 +251,56 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
         </div>
       ) : null}
 
-      <div
-        className="rounded-2xl overflow-hidden"
-        style={{
-          border: `1px solid ${theme.border.default}`,
-          background: theme.background.surfaceSoft
-        }}
-      >
+      <div>
         {allModels.length === 0 ? (
-          <div className="px-4 py-6 text-center">
+          <div className="py-6 text-center">
             <span className="text-sm" style={{ color: theme.text.muted }}>
               No models yet. Fetch from API or add manually.
             </span>
           </div>
         ) : (
           <>
-            <div className="px-3 pt-3">
-              <label
-                className="flex items-center gap-2 rounded-xl px-3 py-2"
-                style={{
-                  background: theme.background.surface,
-                  border: `1px solid ${theme.border.panel}`
-                }}
-              >
-                <Search size={14} strokeWidth={1.75} color={theme.icon.placeholder} />
-                <input
-                  type="search"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search models"
-                  aria-label="Search provider models"
-                  className="min-w-0 flex-1 bg-transparent text-sm outline-none"
-                  style={{ color: theme.text.primary }}
-                />
-              </label>
-            </div>
+            <label
+              className="flex items-center gap-2 px-3 py-2 rounded-lg mb-1"
+              style={{ background: alpha('ink', 0.04) }}
+            >
+              <Search size={13} strokeWidth={1.75} color={theme.icon.placeholder} />
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search models"
+                aria-label="Search provider models"
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                style={{ color: theme.text.primary }}
+              />
+            </label>
 
             {filteredModelCount === 0 ? (
-              <div className="px-4 py-6 text-center">
+              <div className="py-6 text-center">
                 <span className="text-sm" style={{ color: theme.text.muted }}>
-                  No models match "{query.trim()}".
+                  No models match &ldquo;{query.trim()}&rdquo;.
                 </span>
               </div>
             ) : (
-              <div className="space-y-1 p-1.5">
+              <div className="space-y-0.5 py-1">
                 {filteredModelList.enabled.map((model) => (
-                  <div key={model} className="group rounded-xl">
-                    <ModelToggle
-                      model={model}
-                      enabled
-                      onToggle={() => handleToggle(model)}
-                      onRemove={() => handleRemoveModel(model)}
-                    />
-                  </div>
+                  <ModelToggle
+                    key={model}
+                    model={model}
+                    enabled
+                    onToggle={() => handleToggle(model)}
+                    onRemove={() => handleRemoveModel(model)}
+                  />
                 ))}
                 {filteredModelList.disabled.map((model) => (
-                  <div key={model} className="group rounded-xl">
-                    <ModelToggle
-                      model={model}
-                      enabled={false}
-                      onToggle={() => handleToggle(model)}
-                      onRemove={() => handleRemoveModel(model)}
-                    />
-                  </div>
+                  <ModelToggle
+                    key={model}
+                    model={model}
+                    enabled={false}
+                    onToggle={() => handleToggle(model)}
+                    onRemove={() => handleRemoveModel(model)}
+                  />
                 ))}
               </div>
             )}
@@ -325,7 +308,7 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
         )}
 
         <div
-          className="flex items-center gap-2 px-3 py-2"
+          className="flex items-center gap-2 py-2"
           style={{ borderTop: `1px solid ${theme.border.subtle}` }}
         >
           <input
@@ -337,7 +320,7 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
                 handleAddManual()
               }
             }}
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400"
+            className="flex-1 bg-transparent text-sm outline-none"
             style={{ color: theme.text.primary }}
             placeholder="Add model name..."
           />
@@ -345,7 +328,7 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
             type="button"
             onClick={handleAddManual}
             disabled={!manualInput.trim()}
-            className="p-1 rounded-md transition-opacity disabled:opacity-30"
+            className="transition-opacity disabled:opacity-25 opacity-50 hover:opacity-100"
             title="Add model"
           >
             <Plus size={14} strokeWidth={2} color={theme.icon.accent} />
@@ -477,7 +460,7 @@ export function ProvidersPane({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-w-0 overflow-y-auto">
         {selectedProvider ? (
           <div key={selectedProvider.id} className="space-y-5 px-7 pt-5 pb-6">
             <div className="flex items-center justify-between gap-4">
@@ -516,24 +499,19 @@ export function ProvidersPane({
               </Field>
 
               <Field label="Type">
-                <select
+                <SimpleSelect<ProviderKind>
                   value={selectedProvider.type}
-                  onChange={(event) =>
-                    handleProviderChange((provider) => ({
-                      ...provider,
-                      type: event.target.value as ProviderKind
-                    }))
-                  }
-                  className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
-                  style={inputStyle()}
-                >
-                  <option value="openai">OpenAI (Chat)</option>
-                  <option value="openai-responses">OpenAI (Responses)</option>
-                  <option value="anthropic">Anthropic</option>
-                  <option value="gemini">Google AI / Gemini</option>
-                  <option value="vertex">Google Vertex AI</option>
-                  <option value="vercel-gateway">Vercel AI Gateway</option>
-                </select>
+                  width="100%"
+                  options={[
+                    { value: 'openai', label: 'OpenAI (Chat)' },
+                    { value: 'openai-responses', label: 'OpenAI (Responses)' },
+                    { value: 'anthropic', label: 'Anthropic' },
+                    { value: 'gemini', label: 'Google AI / Gemini' },
+                    { value: 'vertex', label: 'Google Vertex AI' },
+                    { value: 'vercel-gateway', label: 'Vercel AI Gateway' }
+                  ]}
+                  onChange={(type) => handleProviderChange((provider) => ({ ...provider, type }))}
+                />
               </Field>
 
               {selectedProvider.type === 'vertex' ? (
@@ -660,6 +638,22 @@ export function ProvidersPane({
                   </div>
                 </>
               )}
+
+              <div className="col-span-2 flex items-center justify-between">
+                <span className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                  Thinking when applicable
+                </span>
+                <SettingSwitch
+                  checked={selectedProvider.thinkingEnabled !== false}
+                  onChange={() =>
+                    handleProviderChange((provider) => ({
+                      ...provider,
+                      thinkingEnabled: provider.thinkingEnabled === false
+                    }))
+                  }
+                  ariaLabel="Thinking when applicable"
+                />
+              </div>
             </div>
 
             <ModelListSection provider={selectedProvider} onProviderChange={handleProviderChange} />

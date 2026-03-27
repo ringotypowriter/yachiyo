@@ -668,6 +668,66 @@ test('createAiSdkModelRuntime omits OpenAI reasoningEffort for non-reasoning mod
   })
 })
 
+test('createAiSdkModelRuntime disables OpenAI reasoning when provider thinking is off', async () => {
+  let providerOptions:
+    | {
+        openai?: {
+          reasoningEffort?: string
+          store?: boolean
+        }
+      }
+    | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => ({ modelId: 'gpt-5', provider: 'openai.responses' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: ((input: {
+      providerOptions?: {
+        openai?: {
+          reasoningEffort?: string
+          store?: boolean
+        }
+      }
+    }) => {
+      providerOptions = input.providerOptions
+      return {
+        textStream: (async function* () {
+          yield 'ok'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Think carefully.' }],
+    settings: {
+      providerName: 'work',
+      provider: 'openai-responses',
+      model: 'gpt-5',
+      thinkingEnabled: false,
+      apiKey: 'sk-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
+  assert.deepEqual(providerOptions, {
+    openai: {
+      store: false
+    }
+  })
+})
+
 test('createAiSdkModelRuntime forwards reasoning deltas from fullStream reasoning events', async () => {
   const reasoningDeltas: string[] = []
 
@@ -768,6 +828,70 @@ test('createAiSdkModelRuntime disables Anthropic thinking for auxiliary generati
   }
 
   assert.deepEqual(chunks, ['title'])
+  assert.deepEqual(providerOptions, {
+    anthropic: {
+      thinking: {
+        type: 'disabled'
+      }
+    }
+  })
+})
+
+test('createAiSdkModelRuntime disables Anthropic thinking when provider thinking is off', async () => {
+  let providerOptions:
+    | {
+        anthropic?: {
+          thinking?: {
+            type?: string
+            budgetTokens?: number
+          }
+        }
+      }
+    | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () => {
+      throw new Error('OpenAI should not be used in this test.')
+    },
+    createAnthropicProvider: () =>
+      (() => ({ modelId: 'claude-sonnet-4-5', provider: 'anthropic' })) as never,
+    streamTextImpl: ((input: {
+      providerOptions?: {
+        anthropic?: {
+          thinking?: {
+            type?: string
+            budgetTokens?: number
+          }
+        }
+      }
+    }) => {
+      providerOptions = input.providerOptions
+      return {
+        textStream: (async function* () {
+          yield 'ok'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Think carefully.' }],
+    settings: {
+      providerName: 'claude',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      thinkingEnabled: false,
+      apiKey: 'sk-ant-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
   assert.deepEqual(providerOptions, {
     anthropic: {
       thinking: {
@@ -1166,6 +1290,50 @@ test('createAiSdkModelRuntime uses Google AI provider for gemini', async () => {
   assert.deepEqual(selectedModel, { provider: 'google', modelId: 'gemini-2.5-flash' })
 })
 
+test('createAiSdkModelRuntime disables Gemini thinking when provider thinking is off', async () => {
+  let capturedProviderOptions: Record<string, unknown> | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () => {
+      throw new Error('OpenAI should not be used in this test.')
+    },
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    createGoogleProvider: () => ((modelId: string) => ({ modelId, provider: 'google' })) as never,
+    streamTextImpl: ((input: { providerOptions?: Record<string, unknown> }) => {
+      capturedProviderOptions = input.providerOptions
+      return {
+        textStream: (async function* () {
+          yield 'ok'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Hello' }],
+    settings: {
+      providerName: 'google-ai',
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      thinkingEnabled: false,
+      apiKey: 'AIza_test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
+  assert.deepEqual(capturedProviderOptions, {
+    google: {}
+  })
+})
+
 test('createAiSdkModelRuntime uses Vertex AI provider for vertex', async () => {
   let vertexOptions: { project?: string; location?: string } | undefined
   let selectedModel: { provider: string; modelId: string } | null = null
@@ -1214,6 +1382,52 @@ test('createAiSdkModelRuntime uses Vertex AI provider for vertex', async () => {
   assert.deepEqual(selectedModel, { provider: 'vertex', modelId: 'gemini-2.5-flash-001' })
 })
 
+test('createAiSdkModelRuntime disables Vertex thinking when provider thinking is off', async () => {
+  let capturedProviderOptions: Record<string, unknown> | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () => {
+      throw new Error('OpenAI should not be used in this test.')
+    },
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    createVertexProvider: () => ((modelId: string) => ({ modelId, provider: 'vertex' })) as never,
+    streamTextImpl: ((input: { providerOptions?: Record<string, unknown> }) => {
+      capturedProviderOptions = input.providerOptions
+      return {
+        textStream: (async function* () {
+          yield 'ok'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Hello' }],
+    settings: {
+      providerName: 'my-vertex',
+      provider: 'vertex',
+      model: 'gemini-2.5-flash-001',
+      thinkingEnabled: false,
+      apiKey: '',
+      baseUrl: '',
+      project: 'my-project',
+      location: 'us-central1'
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
+  assert.deepEqual(capturedProviderOptions, {
+    vertex: {}
+  })
+})
+
 test('createAiSdkModelRuntime passes gateway vertex routing for google/ models on vercel-gateway', async () => {
   let capturedProviderOptions: Record<string, unknown> | undefined
 
@@ -1256,6 +1470,54 @@ test('createAiSdkModelRuntime passes gateway vertex routing for google/ models o
   assert.deepEqual(chunks, ['ok'])
   assert.deepEqual((capturedProviderOptions as { gateway?: { order: string[] } })?.gateway, {
     order: ['vertex']
+  })
+})
+
+test('createAiSdkModelRuntime disables gateway thinking config when provider thinking is off', async () => {
+  let capturedProviderOptions: Record<string, unknown> | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () => {
+      throw new Error('OpenAI should not be used in this test.')
+    },
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    createGatewayProvider: () => {
+      return ((modelId: string) => ({ modelId, provider: 'gateway' })) as never
+    },
+    streamTextImpl: ((input: { providerOptions?: Record<string, unknown> }) => {
+      capturedProviderOptions = input.providerOptions
+      return {
+        textStream: (async function* () {
+          yield 'ok'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Hello' }],
+    settings: {
+      providerName: 'vercel',
+      provider: 'vercel-gateway',
+      model: 'google/gemini-3-flash',
+      thinkingEnabled: false,
+      apiKey: 'vgw-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
+  assert.deepEqual(capturedProviderOptions, {
+    gateway: {
+      order: ['vertex']
+    }
   })
 })
 

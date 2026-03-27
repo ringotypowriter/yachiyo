@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import avatarUrl from '../../../resources/branding.jpeg'
 import { AppMainPanel } from '@renderer/features/layout/components/AppMainPanel'
@@ -9,7 +9,13 @@ import { isCreateNewThreadShortcut } from '@renderer/features/layout/lib/newThre
 import { isOpenSidebarSearchShortcut } from '@renderer/features/layout/lib/findBarShortcut'
 import { ToastPresenter } from '@renderer/features/notifications/components/ToastPresenter'
 
-function ConnectionOverlay({ status }: { status: 'connecting' | 'disconnected' }): React.JSX.Element {
+function ConnectionOverlay({
+  status,
+  exiting
+}: {
+  status: 'connecting' | 'disconnected'
+  exiting: boolean
+}): React.JSX.Element {
   return (
     <div
       style={{
@@ -23,16 +29,20 @@ function ConnectionOverlay({ status }: { status: 'connecting' | 'disconnected' }
         gap: 16,
         backdropFilter: 'blur(24px) saturate(1.4)',
         WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
-        background: 'rgba(255, 255, 255, 0.60)'
+        background: 'rgba(255, 255, 255, 0.60)',
+        opacity: exiting ? 0 : 1,
+        transform: exiting ? 'translateY(-16px)' : 'translateY(0)',
+        transition: exiting ? 'opacity 380ms ease, transform 380ms ease' : 'none',
+        pointerEvents: exiting ? 'none' : undefined
       }}
     >
       <div
         style={{
-          width: 72,
-          height: 72,
+          width: 96,
+          height: 96,
           borderRadius: '50%',
           overflow: 'hidden',
-          boxShadow: '0 0 0 1px rgba(0,0,0,0.06), 0 4px 20px rgba(0,0,0,0.10)'
+          boxShadow: '0 0 0 1px rgba(0,0,0,0.06), 0 4px 24px rgba(0,0,0,0.12)'
         }}
       >
         <img
@@ -78,6 +88,37 @@ function App(): React.JSX.Element {
     toggleSidebar
   } = useSidebarVisibilityState()
   const connectionStatus = useAppStore((s) => s.connectionStatus)
+  const [overlayMounted, setOverlayMounted] = useState(() => connectionStatus !== 'connected')
+  const [overlayExiting, setOverlayExiting] = useState(false)
+  const overlayShownAtRef = useRef<number>(0)
+
+  useEffect(() => {
+    if (connectionStatus !== 'connected') {
+      overlayShownAtRef.current = Date.now()
+      const t = setTimeout(() => {
+        setOverlayMounted(true)
+        setOverlayExiting(false)
+      }, 0)
+      return () => clearTimeout(t)
+    }
+
+    const elapsed = Date.now() - overlayShownAtRef.current
+    const delay = Math.max(0, 2000 - elapsed)
+    let removeTimer: ReturnType<typeof setTimeout> | null = null
+
+    const exitTimer = setTimeout(() => {
+      setOverlayExiting(true)
+      removeTimer = setTimeout(() => {
+        setOverlayMounted(false)
+        setOverlayExiting(false)
+      }, 400)
+    }, delay)
+
+    return () => {
+      clearTimeout(exitTimer)
+      if (removeTimer !== null) clearTimeout(removeTimer)
+    }
+  }, [connectionStatus])
   const config = useAppStore((s) => s.config)
   const createNewThread = useAppStore((s) => s.createNewThread)
   const [isSidebarSearchOpen, setIsSidebarSearchOpen] = useState(false)
@@ -183,7 +224,12 @@ function App(): React.JSX.Element {
       </div>
       <ToastPresenter />
 
-      {connectionStatus !== 'connected' && <ConnectionOverlay status={connectionStatus} />}
+      {overlayMounted && (
+        <ConnectionOverlay
+          status={connectionStatus === 'connected' ? 'connecting' : connectionStatus}
+          exiting={overlayExiting}
+        />
+      )}
     </div>
   )
 }

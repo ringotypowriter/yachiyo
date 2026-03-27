@@ -56,7 +56,14 @@ function FontSizeRow({
           disabled={!canDecrease}
           onClick={() => canDecrease && onChange(steps[currentIndex - 1])}
           className="flex items-center justify-center text-sm font-medium transition-opacity disabled:opacity-25 opacity-50 hover:opacity-100"
-          style={{ width: 24, height: 24, background: 'none', border: 'none', color: theme.text.primary, cursor: 'pointer' }}
+          style={{
+            width: 24,
+            height: 24,
+            background: 'none',
+            border: 'none',
+            color: theme.text.primary,
+            cursor: 'pointer'
+          }}
           aria-label={`Decrease ${label.toLowerCase()}`}
         >
           −
@@ -72,7 +79,14 @@ function FontSizeRow({
           disabled={!canIncrease}
           onClick={() => canIncrease && onChange(steps[currentIndex + 1])}
           className="flex items-center justify-center text-sm font-medium transition-opacity disabled:opacity-25 opacity-50 hover:opacity-100"
-          style={{ width: 24, height: 24, background: 'none', border: 'none', color: theme.text.primary, cursor: 'pointer' }}
+          style={{
+            width: 24,
+            height: 24,
+            background: 'none',
+            border: 'none',
+            color: theme.text.primary,
+            cursor: 'pointer'
+          }}
           aria-label={`Increase ${label.toLowerCase()}`}
         >
           +

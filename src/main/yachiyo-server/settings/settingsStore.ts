@@ -222,6 +222,10 @@ function normalizeProviderConfig(value: unknown, fallback?: ProviderConfig): Pro
     type: isLegacyGatewayVertexProvider(input)
       ? 'vercel-gateway'
       : normalizeProviderType(input['type'], fallback?.type ?? 'anthropic'),
+    thinkingEnabled: normalizeOptionalBool(
+      input['thinkingEnabled'],
+      fallback?.thinkingEnabled !== false
+    ),
     apiKey: normalizeString(input['apiKey'], fallback?.apiKey ?? ''),
     baseUrl: normalizeString(input['baseUrl'], fallback?.baseUrl ?? ''),
     project: normalizeString(input['project'], fallback?.project ?? ''),
@@ -354,6 +358,7 @@ function toResolvedProviderSettings(
     providerName: provider.name,
     provider: provider.type,
     model,
+    thinkingEnabled: provider.thinkingEnabled !== false,
     apiKey: provider.apiKey,
     baseUrl: provider.baseUrl,
     project: provider.project,
@@ -911,6 +916,7 @@ export function stringifySettingsToml(config: SettingsConfig): string {
       `id = ${stringifyTomlString(ensureProviderId(provider.id))}`,
       `name = ${stringifyTomlString(provider.name)}`,
       `type = ${stringifyTomlString(provider.type)}`,
+      `thinkingEnabled = ${provider.thinkingEnabled !== false ? 'true' : 'false'}`,
       `apiKey = ${stringifyTomlString(provider.apiKey)}`,
       `baseUrl = ${stringifyTomlString(provider.baseUrl)}`,
       `project = ${stringifyTomlString(provider.project ?? '')}`,
@@ -971,6 +977,7 @@ export function toProviderSettings(config: SettingsConfig): ProviderSettings {
     providerName: '',
     provider: 'anthropic',
     model: '',
+    thinkingEnabled: true,
     apiKey: '',
     baseUrl: '',
     project: '',

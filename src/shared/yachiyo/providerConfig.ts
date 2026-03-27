@@ -27,6 +27,7 @@ export function sanitizeProviderConfig(provider: ProviderConfig): ProviderConfig
     ...provider,
     id: ensureProviderId(provider.id),
     name: provider.name,
+    thinkingEnabled: provider.thinkingEnabled !== false,
     apiKey: provider.apiKey.trim(),
     baseUrl: provider.baseUrl.trim(),
     modelList: {
@@ -77,6 +78,7 @@ export function createProviderConfig(existingNames: readonly string[]): Provider
     id: createProviderId(),
     name: candidate,
     type: 'openai',
+    thinkingEnabled: true,
     apiKey: '',
     baseUrl: '',
     modelList: {

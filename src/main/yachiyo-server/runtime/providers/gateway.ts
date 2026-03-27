@@ -187,7 +187,7 @@ export function createGatewayProviderOptions(settings: ProviderSettings): Runtim
     return {}
   }
 
-  return supportsVercelGatewayThinkingLevel(settings.model)
+  return supportsVercelGatewayThinkingLevel(settings.model) && settings.thinkingEnabled !== false
     ? {
         gateway: {
           order: ['vertex']

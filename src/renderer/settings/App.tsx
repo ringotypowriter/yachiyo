@@ -404,7 +404,12 @@ function SettingsApp(): React.ReactNode {
             <button
               onClick={() => window.close()}
               className="px-4 py-1.5 rounded-lg text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
-              style={{ background: 'transparent', border: 'none', color: theme.text.secondary, cursor: 'pointer' }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: theme.text.secondary,
+                cursor: 'pointer'
+              }}
             >
               Close
             </button>

@@ -27,5 +27,5 @@ export function createProviderOptions(
     return createGatewayProviderOptions(settings)
   }
 
-  return createAnthropicProviderOptions(mode)
+  return createAnthropicProviderOptions(settings, mode)
 }

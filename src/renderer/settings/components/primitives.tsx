@@ -71,7 +71,7 @@ interface SimpleSelectProps<T extends string> {
   value: T
   options: SimpleSelectOption<T>[]
   onChange: (value: T) => void
-  width?: number
+  width?: number | string
 }
 
 export function SimpleSelect<T extends string>({
@@ -123,7 +123,7 @@ export function SimpleSelect<T extends string>({
           alignItems: 'center',
           gap: 6,
           width,
-          padding: '6px 10px 6px 12px',
+          padding: '10px 10px 10px 12px',
           borderRadius: 10,
           border: 'none',
           background: alpha('ink', 0.04),
@@ -132,7 +132,7 @@ export function SimpleSelect<T extends string>({
           outline: 'none'
         }}
       >
-        <span style={{ flex: 1, fontSize: 13, color: theme.text.primary, lineHeight: 1 }}>
+        <span style={{ flex: 1, fontSize: 14, color: theme.text.primary, lineHeight: '20px' }}>
           {selectedLabel}
         </span>
         <ChevronDown

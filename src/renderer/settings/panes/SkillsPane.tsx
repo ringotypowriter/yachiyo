@@ -1,6 +1,6 @@
 import { Search } from 'lucide-react'
 import { useDeferredValue, useMemo, useState } from 'react'
-import { theme } from '@renderer/theme/theme'
+import { theme, alpha } from '@renderer/theme/theme'
 import type { SettingsConfig, SkillCatalogEntry } from '../../../shared/yachiyo/protocol.ts'
 import { normalizeSkillNames } from '../../../shared/yachiyo/protocol.ts'
 import { SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
@@ -27,11 +27,8 @@ export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps
         {availableSkills.length > 0 ? (
           <div className="px-7 py-3" style={{ borderTop: `1px solid ${theme.border.subtle}` }}>
             <label
-              className="flex items-center gap-2 rounded-xl px-3 py-2"
-              style={{
-                background: theme.background.surfaceSoft,
-                border: `1px solid ${theme.border.panel}`
-              }}
+              className="flex items-center gap-2 rounded-lg px-3 py-2"
+              style={{ background: alpha('ink', 0.04) }}
             >
               <Search size={14} strokeWidth={1.75} color={theme.icon.placeholder} />
               <input

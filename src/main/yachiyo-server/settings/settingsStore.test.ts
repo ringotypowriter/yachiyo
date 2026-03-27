@@ -76,6 +76,7 @@ test('settings store persists multi-provider config as TOML', async () => {
           id: 'provider-work',
           name: 'work',
           type: 'openai' as const,
+          thinkingEnabled: true,
           apiKey: 'sk-work',
           baseUrl: 'https://openrouter.example/v1',
           project: '',
@@ -91,6 +92,7 @@ test('settings store persists multi-provider config as TOML', async () => {
           id: 'provider-backup',
           name: 'backup',
           type: 'anthropic' as const,
+          thinkingEnabled: false,
           apiKey: 'sk-ant',
           baseUrl: '',
           project: '',
@@ -138,6 +140,8 @@ test('settings store persists multi-provider config as TOML', async () => {
     assert.match(toml, /apiKey = "exa-key"/)
     assert.match(toml, /\[\[providers\]\]/)
     assert.match(toml, /id = "provider-work"/)
+    assert.match(toml, /thinkingEnabled = true/)
+    assert.match(toml, /thinkingEnabled = false/)
     assert.match(toml, /\[providers\.modelList\]/)
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -212,6 +216,51 @@ test('normalizeSettingsConfig keeps vercel-gateway providers', () => {
   })
 
   assert.equal(normalized.providers[0]?.type, 'vercel-gateway')
+})
+
+test('normalizeSettingsConfig defaults provider thinking to enabled', () => {
+  const normalized = normalizeSettingsConfig({
+    providers: [
+      {
+        id: 'provider-work',
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-openai',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      }
+    ]
+  })
+
+  assert.equal(normalized.providers[0]?.thinkingEnabled, true)
+})
+
+test('toProviderSettings carries provider thinking preference into the runtime snapshot', () => {
+  const snapshot = toProviderSettings({
+    enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+    chat: {
+      activeRunEnterBehavior: 'enter-steers'
+    },
+    providers: [
+      {
+        id: 'provider-work',
+        name: 'work',
+        type: 'openai',
+        thinkingEnabled: false,
+        apiKey: 'sk-openai',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      }
+    ]
+  })
+
+  assert.equal(snapshot.thinkingEnabled, false)
 })
 
 test('normalizeSettingsConfig keeps vertex (true Vertex AI) providers', () => {

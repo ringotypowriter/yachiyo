@@ -4417,6 +4417,42 @@ test('YachiyoServer preserves tool-model settings when saving the active chat mo
   })
 })
 
+test('YachiyoServer persists thinkingEnabled through saveSettings', async () => {
+  await withServer(async ({ server }) => {
+    await server.saveConfig({
+      enabledTools: ['read', 'write', 'edit', 'bash', 'webRead'],
+      defaultModel: {
+        providerName: 'work',
+        model: 'gpt-5'
+      },
+      providers: [
+        {
+          id: 'provider-work',
+          name: 'work',
+          type: 'openai',
+          apiKey: 'sk-openai',
+          baseUrl: 'https://api.openai.com/v1',
+          thinkingEnabled: true,
+          modelList: {
+            enabled: ['gpt-5'],
+            disabled: []
+          }
+        }
+      ]
+    })
+
+    const updated = await server.saveSettings({
+      providerName: 'work',
+      model: 'gpt-5',
+      thinkingEnabled: false
+    })
+
+    assert.equal(updated.thinkingEnabled, false)
+    assert.equal((await server.getSettings()).thinkingEnabled, false)
+    assert.equal((await server.getConfig()).providers[0]?.thinkingEnabled, false)
+  })
+})
+
 test('YachiyoServer persists the active-run input behavior in shared app settings', async () => {
   await withServer(async ({ server, waitForEvent }) => {
     const updatedEvent = waitForEvent('settings.updated')

@@ -393,6 +393,7 @@ export interface ProviderConfig {
   id?: string
   name: string
   type: ProviderKind
+  thinkingEnabled?: boolean
   // Used by openai, openai-responses, anthropic, gemini, vercel-gateway
   apiKey: string
   baseUrl: string
@@ -608,6 +609,7 @@ export interface ProviderSettings {
   providerName: string
   provider: ProviderKind
   model: string
+  thinkingEnabled?: boolean
   // Used by openai, openai-responses, anthropic, gemini, vercel-gateway
   apiKey: string
   baseUrl: string

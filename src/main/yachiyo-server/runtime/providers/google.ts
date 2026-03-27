@@ -34,7 +34,7 @@ export function createGoogleLanguageModel(
 }
 
 export function createGoogleProviderOptions(settings: ProviderSettings): RuntimeProviderOptions {
-  return supportsGeminiThinking(settings.model)
+  return settings.thinkingEnabled !== false && supportsGeminiThinking(settings.model)
     ? {
         google: {
           thinkingConfig: {
