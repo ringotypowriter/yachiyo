@@ -16,7 +16,8 @@ const KNOWN_EDITORS = [
   'Windsurf',
   'Xcode',
   'Nova',
-  'Sublime Text'
+  'Sublime Text',
+  'Obsidian'
 ]
 
 const KNOWN_TERMINALS = ['Ghostty', 'Warp', 'iTerm', 'Terminal', 'Alacritty', 'Hyper', 'kitty']
