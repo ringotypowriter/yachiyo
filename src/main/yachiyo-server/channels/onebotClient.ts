@@ -32,11 +32,25 @@ const RECONNECT_BASE_MS = 3_000
 const RECONNECT_CAP_MS = 30_000
 const ACTION_TIMEOUT_MS = 30_000
 
+/** Response from the `get_image` OneBot action. */
+export interface OneBotImageInfo {
+  /** Local file path where NapCat cached the image. */
+  file: string
+  /** Original filename. */
+  filename: string
+  /** File size in bytes. */
+  size: number
+  /** Download URL (may differ from the CQ code URL). */
+  url: string
+}
+
 export interface OneBotClient {
   connect(): void
   close(): Promise<void>
   onPrivateMessage(handler: PrivateMessageHandler): void
   sendPrivateMessage(userId: number, text: string): Promise<{ messageId: number }>
+  /** Resolve an image file identifier to a local path / download URL. */
+  getImage(file: string): Promise<OneBotImageInfo>
 }
 
 export function createOneBotClient(options: OneBotClientOptions): OneBotClient {
@@ -195,6 +209,16 @@ export function createOneBotClient(options: OneBotClientOptions): OneBotClient {
         auto_escape: true
       })) as { message_id: number }
       return { messageId: result.message_id }
+    },
+
+    async getImage(file: string): Promise<OneBotImageInfo> {
+      const result = (await sendAction('get_image', { file })) as {
+        file: string
+        filename: string
+        size: number
+        url: string
+      }
+      return result
     }
   }
 }

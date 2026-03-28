@@ -27,7 +27,18 @@ export interface ChannelPolicy {
 
   /** Thread reuse window in milliseconds. */
   threadReuseWindowMs: number
+
+  /** Maximum image file size in bytes. @default 5_242_880 (5 MB) */
+  maxImageBytes: number
+
+  /** Maximum number of images accepted per batch. @default 4 */
+  maxImagesPerBatch: number
+
+  /** TTL for channel-sourced images on disk, in milliseconds. @default 604_800_000 (7 days) */
+  imageTtlMs: number
 }
+
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1_000
 
 export const telegramPolicy: ChannelPolicy = {
   platform: 'telegram',
@@ -35,7 +46,10 @@ export const telegramPolicy: ChannelPolicy = {
   extractVisibleReply: extractChannelReply,
   allowedTools: ['read', 'grep', 'glob', 'webRead', 'webSearch'],
   contextTokenLimit: 64_000,
-  threadReuseWindowMs: 24 * 60 * 60 * 1_000
+  threadReuseWindowMs: 24 * 60 * 60 * 1_000,
+  maxImageBytes: 5 * 1024 * 1024,
+  maxImagesPerBatch: 4,
+  imageTtlMs: SEVEN_DAYS_MS
 }
 
 export const qqPolicy: ChannelPolicy = {
@@ -44,7 +58,10 @@ export const qqPolicy: ChannelPolicy = {
   extractVisibleReply: extractChannelReply,
   allowedTools: ['read', 'grep', 'glob', 'webRead', 'webSearch'],
   contextTokenLimit: 64_000,
-  threadReuseWindowMs: 24 * 60 * 60 * 1_000
+  threadReuseWindowMs: 24 * 60 * 60 * 1_000,
+  maxImageBytes: 5 * 1024 * 1024,
+  maxImagesPerBatch: 4,
+  imageTtlMs: SEVEN_DAYS_MS
 }
 
 /** Resolve the channel policy for a given platform. */

@@ -224,6 +224,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   })
   registerFatalRunRecovery()
   server.subscribe(broadcast)
+  server.getTtlReaper().start()
 
   // Start channel services if already configured.
   const channelsConfig = server.getChannelsConfig()

@@ -17,11 +17,13 @@ import { createMemoryState } from '@chat-adapter/state-memory'
 
 import type {
   ChannelUserRecord,
+  MessageImageRecord,
   ThreadModelOverride,
   YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol'
 import type { YachiyoServer } from '../app/YachiyoServer'
 import { telegramPolicy } from './channelPolicy'
+import { attachmentToImageRecord, type ChatSdkAttachment } from './channelImageDownload'
 import { routeTelegramMessage, type TelegramChannelStorage } from './telegram'
 
 import { resolveYachiyoTempWorkspaceRoot } from '../config/paths'
@@ -41,6 +43,7 @@ function randomReplyDelay(): number {
 
 interface PendingBatch {
   messages: string[]
+  imageDownloads: Promise<MessageImageRecord | null>[]
   timer: ReturnType<typeof setTimeout>
   thread: { post: (text: string) => Promise<void> }
   chatId: string
@@ -119,19 +122,36 @@ export function createTelegramService({
     state: createMemoryState()
   })
 
+  /** Start eager image downloads from Chat SDK attachments. */
+  function startImageDownloads(message: {
+    attachments?: ChatSdkAttachment[]
+  }): Promise<MessageImageRecord | null>[] {
+    const attachments = (message.attachments ?? []).filter((a) => a.type === 'image')
+    const capped = attachments.slice(0, policy.maxImagesPerBatch)
+    return capped.map((a) => attachmentToImageRecord(a, { maxBytes: policy.maxImageBytes }))
+  }
+
   // Handle every DM. Since we never call thread.subscribe(), this fires for
   // every incoming message (the thread stays unsubscribed).
   bot.onDirectMessage(
     async (
       thread: unknown,
-      message: { text: string; author: { userId: string; userName: string }; threadId: string }
+      message: {
+        text: string
+        author: { userId: string; userName: string }
+        threadId: string
+        attachments?: ChatSdkAttachment[]
+      }
     ) => {
       const incomingText = message.text ?? ''
       const externalUserId = String(message.author.userId)
       const username = message.author.userName ?? externalUserId
 
+      // Start image downloads eagerly — they overlap with debounce.
+      const imageDownloads = startImageDownloads(message)
+
       console.log(
-        `[telegram] inbound DM from ${username} (${externalUserId}): ${JSON.stringify(incomingText)}`
+        `[telegram] inbound DM from ${username} (${externalUserId}): ${JSON.stringify(incomingText)} (${imageDownloads.length} image(s))`
       )
 
       const result = routeTelegramMessage({ externalUserId, username, text: incomingText }, storage)
@@ -160,7 +180,8 @@ export function createTelegramService({
             thread as { post: (text: string) => Promise<void> },
             chatId,
             result.channelUser,
-            incomingText
+            incomingText,
+            imageDownloads
           )
       }
     }
@@ -175,7 +196,8 @@ export function createTelegramService({
     thread: { post: (text: string) => Promise<void> },
     chatId: string,
     channelUser: ChannelUserRecord,
-    text: string
+    text: string,
+    imageDownloads: Promise<MessageImageRecord | null>[] = []
   ): void {
     const userId = channelUser.id
     const existing = pendingBatches.get(userId)
@@ -183,11 +205,12 @@ export function createTelegramService({
     if (existing) {
       // Append to existing batch, reset the debounce timer.
       existing.messages.push(text)
+      existing.imageDownloads.push(...imageDownloads)
       clearTimeout(existing.timer)
       const delay = randomReplyDelay()
       existing.timer = setTimeout(() => flushBatch(userId), delay)
       console.log(
-        `[telegram] appended to batch for ${channelUser.username} (${existing.messages.length} msgs, next flush in ${Math.round(delay)}ms)`
+        `[telegram] appended to batch for ${channelUser.username} (${existing.messages.length} msgs, ${existing.imageDownloads.length} img(s), next flush in ${Math.round(delay)}ms)`
       )
       return
     }
@@ -199,6 +222,7 @@ export function createTelegramService({
 
     pendingBatches.set(userId, {
       messages: [text],
+      imageDownloads: [...imageDownloads],
       timer,
       thread,
       chatId,
@@ -212,20 +236,26 @@ export function createTelegramService({
   }
 
   /** Flush a user's buffered messages and process them as a single request. */
-  function flushBatch(userId: string): void {
+  async function flushBatch(userId: string): Promise<void> {
     const batch = pendingBatches.get(userId)
     if (!batch) return
     pendingBatches.delete(userId)
 
     const joinedText = batch.messages.join('\n')
+
+    // Resolve all eagerly-started image downloads.
+    const images = (await Promise.all(batch.imageDownloads)).filter(
+      (img): img is MessageImageRecord => img !== null
+    )
+
     console.log(
-      `[telegram] flushing batch for ${batch.channelUser.username}: ${batch.messages.length} message(s)`
+      `[telegram] flushing batch for ${batch.channelUser.username}: ${batch.messages.length} message(s), ${images.length} image(s)`
     )
 
     // handleAllowedMessage manages its own typing loop, so stop the batch one.
     batch.stopTyping()
 
-    void handleAllowedMessage(batch.thread, batch.chatId, batch.channelUser, joinedText)
+    void handleAllowedMessage(batch.thread, batch.chatId, batch.channelUser, joinedText, images)
   }
 
   /** Resolve a user-specific workspace path shared across all their threads. */
@@ -298,11 +328,14 @@ export function createTelegramService({
     thread: { post: (text: string) => Promise<void> },
     chatId: string,
     channelUser: ChannelUserRecord,
-    text: string
+    text: string,
+    images: MessageImageRecord[] = []
   ): Promise<void> {
     const stopTyping = startTypingLoop(chatId)
     try {
-      console.log(`[telegram] handling allowed message for user ${channelUser.username}`)
+      console.log(
+        `[telegram] handling allowed message for user ${channelUser.username} (${images.length} image(s))`
+      )
       const { thread: yachiyoThread, compacted } = await resolveThread(channelUser)
       console.log(
         `[telegram] using thread ${yachiyoThread.id}${compacted ? ' (rolling summary generated)' : ''}`
@@ -314,6 +347,7 @@ export function createTelegramService({
       const accepted = await server.sendChat({
         threadId: yachiyoThread.id,
         content: text,
+        images: images.length > 0 ? images : undefined,
         enabledTools: policy.allowedTools,
         channelHint: policy.replyInstruction
       })
@@ -323,6 +357,15 @@ export function createTelegramService({
         console.warn('[telegram] sendChat returned non-run accepted:', accepted)
         await thread.post('Sorry, something went wrong on my end.')
         return
+      }
+
+      // Register TTL for saved image files so they get cleaned up.
+      if ('userMessage' in accepted) {
+        for (const img of accepted.userMessage.images ?? []) {
+          if (img.workspacePath) {
+            server.getTtlReaper().register(img.workspacePath, policy.imageTtlMs)
+          }
+        }
       }
 
       const rawOutput = await outputPromise

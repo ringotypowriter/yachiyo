@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import type {
   BootstrapPayload,
@@ -43,8 +43,10 @@ import type {
 } from '../../../shared/yachiyo/protocol.ts'
 import {
   resolveYachiyoSettingsPath,
+  resolveYachiyoTempWorkspaceRoot,
   resolveYachiyoWebSearchBrowserSessionPath
 } from '../config/paths.ts'
+import { createTtlReaper, type TtlReaper } from './domain/ttlReaper.ts'
 import { createAuxiliaryGenerationService } from '../runtime/auxiliaryGeneration.ts'
 import { searchWorkspaceFileMentionCandidates } from '../runtime/fileMentions.ts'
 import { createAiSdkModelRuntime } from '../runtime/modelRuntime.ts'
@@ -140,6 +142,7 @@ export class YachiyoServer {
   private readonly readSoulDocumentFile: () => Promise<SoulDocument | null>
   private readonly addSoulTraitFile: (trait: string) => Promise<SoulDocument | null>
   private readonly removeSoulTraitFile: (trait: string) => Promise<SoulDocument | null>
+  private readonly ttlReaper: TtlReaper
 
   private static logBrowserSearchDiagnostic(event: BrowserSearchDiagnosticEvent): void {
     const details = {
@@ -265,6 +268,10 @@ export class YachiyoServer {
       isThreadRunning: (threadId) => this.runDomain.hasActiveThread(threadId),
       auxiliaryGeneration
     })
+
+    this.ttlReaper = createTtlReaper({
+      manifestPath: join(resolveYachiyoTempWorkspaceRoot(), '.yachiyo-ttl.json')
+    })
   }
 
   subscribe(listener: (event: YachiyoServerEvent) => void): () => void {
@@ -274,7 +281,12 @@ export class YachiyoServer {
     }
   }
 
+  getTtlReaper(): TtlReaper {
+    return this.ttlReaper
+  }
+
   async close(): Promise<void> {
+    this.ttlReaper.stop()
     await this.runDomain.close()
     this.storage.close()
   }
