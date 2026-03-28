@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { access, constants } from 'node:fs/promises'
+import { access, constants, readFile } from 'node:fs/promises'
 import { mkdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
@@ -543,6 +543,33 @@ async function ensureResolvedWorkspacePath(
   return workspacePath
 }
 
+const SKILL_MENTION_RE = /^@skills:([a-zA-Z0-9_-]+)(\s|$)/
+
+async function expandSkillMention(
+  content: string,
+  listSkills: RunExecutionDeps['listSkills'],
+  workspacePaths: string[]
+): Promise<string> {
+  const match = SKILL_MENTION_RE.exec(content)
+  if (!match) return content
+
+  const skillName = match[1]
+  const skills = await listSkills(workspacePaths)
+  const skill = skills.find((s) => s.name === skillName)
+  if (!skill) return content
+
+  const skillContent = await readFile(skill.skillFilePath, 'utf8').catch(() => '')
+  const lines: string[] = [
+    `Skill: ${skill.name}`,
+    ...(skill.description ? [`Description: ${skill.description}`] : []),
+    '',
+    skillContent.trim()
+  ]
+  const replacement = lines.join('\n').trim()
+  const remainder = content.slice(match[0].length)
+  return remainder ? `${replacement}\n\n${remainder}` : replacement
+}
+
 function loadRunHistory(
   loadThreadMessages: RunExecutionDeps['loadThreadMessages'],
   threadId: string,
@@ -856,11 +883,26 @@ export async function executeServerRun(
       deps.storage.updateMessage({ ...requestMessage, turnContext })
     }
 
+    const rawContent = requestMessage?.content ?? ''
+    const skillExpandedContent = await expandSkillMention(rawContent, deps.listSkills, [
+      workspacePath
+    ])
+    // File mention augmentation prepends a hidden reference block to the original content.
+    // Skill expansion replaces @skills:name with the skill doc in the user content portion.
+    // When both are active, swap the original content tail in the augmented query with the
+    // skill-expanded version so both augmentations compose correctly.
+    const hasSkillExpansion = skillExpandedContent !== rawContent
+    const modelUserQuery = hasSkillExpansion
+      ? fileMentionResolution.augmentedUserQuery.slice(
+          0,
+          fileMentionResolution.augmentedUserQuery.length - rawContent.length
+        ) + skillExpandedContent
+      : fileMentionResolution.augmentedUserQuery
     const history = loadRunHistory(
       deps.loadThreadMessages,
       input.thread.id,
       input.requestMessageId,
-      fileMentionResolution.augmentedUserQuery,
+      modelUserQuery,
       isExternalChannel ? input.thread.summaryWatermarkMessageId : undefined
     )
 

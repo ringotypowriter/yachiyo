@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises'
-
 import { resolve } from 'node:path'
 
 import type {
@@ -236,28 +234,6 @@ export class YachiyoServerRunDomain {
     }, 0)
   }
 
-  async expandSkillReference(content: string, workspacePaths: string[]): Promise<string> {
-    const match = /^@skills:([a-zA-Z0-9_-]+)(\s|$)/.exec(content)
-    if (!match) return content
-
-    const skillName = match[1]
-    const skills = await this.deps.listSkills(workspacePaths)
-    const skill = skills.find((s) => s.name === skillName)
-    if (!skill) return content
-
-    const skillContent = await readFile(skill.skillFilePath, 'utf8').catch(() => '')
-    const lines: string[] = [
-      `Skill: ${skill.name}`,
-      ...(skill.description ? [`Description: ${skill.description}`] : []),
-      '',
-      skillContent.trim()
-    ]
-    const replacement = lines.join('\n').trim()
-    return content.slice(match[0].length)
-      ? `${replacement}\n\n${content.slice(match[0].length)}`
-      : replacement
-  }
-
   async sendChat(input: SendChatInput): Promise<ChatAccepted> {
     const rawContent = input.content.trim()
     const images = normalizeMessageImages(input.images)
@@ -271,8 +247,7 @@ export class YachiyoServerRunDomain {
         : normalizeSkillNames(input.enabledSkillNames)
 
     const thread = this.deps.requireThread(input.threadId)
-    const workspacePaths = thread.workspacePath ? [thread.workspacePath] : []
-    const content = await this.expandSkillReference(rawContent, workspacePaths)
+    const content = rawContent
 
     if (!hasMessagePayload({ content, images, attachments: input.attachments })) {
       throw new Error('Cannot send an empty message.')
