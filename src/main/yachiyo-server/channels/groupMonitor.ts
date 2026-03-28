@@ -9,7 +9,7 @@
  * The monitor never calls the model directly — it delegates via callbacks.
  */
 
-import type { GroupMessageEntry, GroupReplyDecision } from '../../../shared/yachiyo/protocol.ts'
+import type { GroupMessageEntry } from '../../../shared/yachiyo/protocol.ts'
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -33,10 +33,12 @@ export interface GroupMonitorConfig {
 }
 
 export interface GroupMonitorCallbacks {
-  /** Called each check interval with unprocessed messages. Return a reply decision. */
-  onCheck(recentMessages: GroupMessageEntry[]): Promise<GroupReplyDecision>
-  /** Called when the judge says "reply". Receives the full buffer for context. */
-  onReply(decision: GroupReplyDecision, allRecentMessages: GroupMessageEntry[]): Promise<void>
+  /**
+   * Called each check interval with the full buffer.
+   * The callback handles both decision and reply in a single pass.
+   * Returns true if the model spoke, false if it stayed silent.
+   */
+  onTurn(recentMessages: GroupMessageEntry[]): Promise<boolean>
   /** Notifies the owner whenever the phase changes. */
   onStateChange(newPhase: Phase): void
 }
@@ -59,8 +61,8 @@ export interface GroupMonitor {
 // ---------------------------------------------------------------------------
 
 export const GROUP_MONITOR_DEFAULTS: GroupMonitorConfig = {
-  activeCheckIntervalMs: 30_000,
-  engagedCheckIntervalMs: 10_000,
+  activeCheckIntervalMs: 60_000,
+  engagedCheckIntervalMs: 30_000,
   wakeBufferMs: 30_000,
   dormancyMissCount: 3,
   disengageMissCount: 3,
@@ -108,7 +110,7 @@ export function createGroupMonitor(
   }
 
   function newMessagesSinceLastCheck(): GroupMessageEntry[] {
-    return buffer.slice(cursor)
+    return buffer.slice(cursor).filter((m) => m.senderExternalUserId !== '__self__')
   }
 
   // -------------------------------------------------------------------------
@@ -181,11 +183,10 @@ export function createGroupMonitor(
 
       if (fresh.length === 0) return
 
-      // Ask the judge with full buffer for context (not just fresh messages).
-      const decision = await callbacks.onCheck([...buffer])
+      // Single pass: model decides + speaks (or stays silent) via onTurn.
+      const replied = await callbacks.onTurn([...buffer])
 
-      if (decision.shouldReply) {
-        await callbacks.onReply(decision, [...buffer])
+      if (replied) {
         if (phase !== 'engaged') {
           setPhase('engaged')
           startCheckLoop() // switch to faster interval

@@ -8,8 +8,7 @@
 import type {
   ChannelGroupRecord,
   GroupChannelConfig,
-  GroupMessageEntry,
-  GroupReplyDecision
+  GroupMessageEntry
 } from '../../../shared/yachiyo/protocol.ts'
 import type { GroupPolicyDefaults } from './channelPolicy.ts'
 import {
@@ -24,17 +23,11 @@ import {
 // ---------------------------------------------------------------------------
 
 export interface GroupMonitorRegistryCallbacks {
-  /** Decide whether to reply to the recent messages. */
-  onCheck(
-    group: ChannelGroupRecord,
-    recentMessages: GroupMessageEntry[]
-  ): Promise<GroupReplyDecision>
-  /** Generate + send a reply. Called only when the judge says yes. Receives full buffer for context. */
-  onReply(
-    group: ChannelGroupRecord,
-    decision: GroupReplyDecision,
-    allRecentMessages: GroupMessageEntry[]
-  ): Promise<void>
+  /**
+   * Single-pass callback: model decides + speaks (or stays silent).
+   * Returns true if the model spoke, false if silent.
+   */
+  onTurn(group: ChannelGroupRecord, recentMessages: GroupMessageEntry[]): Promise<boolean>
   /** State-change logger / persistence hook. */
   onStateChange(group: ChannelGroupRecord, newPhase: Phase): void
 }
@@ -83,8 +76,7 @@ export function createGroupMonitorRegistry(
 
       const config = resolveConfig()
       const monitor = createGroupMonitor(config, {
-        onCheck: (messages) => callbacks.onCheck(group, messages),
-        onReply: (decision, allMessages) => callbacks.onReply(group, decision, allMessages),
+        onTurn: (messages) => callbacks.onTurn(group, messages),
         onStateChange: (newPhase) => callbacks.onStateChange(group, newPhase)
       })
 

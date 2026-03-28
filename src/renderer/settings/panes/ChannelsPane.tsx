@@ -253,6 +253,47 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               </div>
             </SettingRow>
           )}
+
+          {modelSelector && (
+            <SettingRow>
+              <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                <span
+                  className="text-sm font-medium shrink-0"
+                  style={{ color: theme.text.primary }}
+                >
+                  Group Model
+                </span>
+                <ModelSelect
+                  value={
+                    telegram?.group?.model
+                      ? `${telegram.group.model.providerName}::${telegram.group.model.model}`
+                      : ''
+                  }
+                  providers={settingsConfig!.providers}
+                  onChange={(val) => {
+                    if (!val) {
+                      patchTelegram({
+                        group: {
+                          ...telegram?.group,
+                          enabled: telegram?.group?.enabled ?? false,
+                          model: undefined
+                        }
+                      })
+                    } else {
+                      const [providerName, model] = val.split('::')
+                      patchTelegram({
+                        group: {
+                          ...telegram?.group,
+                          enabled: telegram?.group?.enabled ?? false,
+                          model: { providerName, model }
+                        }
+                      })
+                    }
+                  }}
+                />
+              </div>
+            </SettingRow>
+          )}
         </SettingSection>
       </div>
     )
@@ -359,6 +400,47 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
                     } else {
                       const [providerName, model] = val.split('::')
                       patchQQ({ model: { providerName, model } })
+                    }
+                  }}
+                />
+              </div>
+            </SettingRow>
+          )}
+
+          {modelSelector && (
+            <SettingRow>
+              <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                <span
+                  className="text-sm font-medium shrink-0"
+                  style={{ color: theme.text.primary }}
+                >
+                  Group Model
+                </span>
+                <ModelSelect
+                  value={
+                    qq?.group?.model
+                      ? `${qq.group.model.providerName}::${qq.group.model.model}`
+                      : ''
+                  }
+                  providers={settingsConfig!.providers}
+                  onChange={(val) => {
+                    if (!val) {
+                      patchQQ({
+                        group: {
+                          ...qq?.group,
+                          enabled: qq?.group?.enabled ?? true,
+                          model: undefined
+                        }
+                      })
+                    } else {
+                      const [providerName, model] = val.split('::')
+                      patchQQ({
+                        group: {
+                          ...qq?.group,
+                          enabled: qq?.group?.enabled ?? true,
+                          model: { providerName, model }
+                        }
+                      })
                     }
                   }}
                 />

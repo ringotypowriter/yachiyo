@@ -72,8 +72,15 @@ function parseGroupConfig(section: Record<string, unknown>): GroupChannelConfig 
   const enabled = bool(group['enabled'])
   if (!enabled) return { enabled: false }
 
+  const groupModel = (() => {
+    const providerName = str(group['model_provider'])
+    const model = str(group['model_name'])
+    return providerName && model ? { providerName, model } : undefined
+  })()
+
   return {
     enabled,
+    ...(groupModel ? { model: groupModel } : {}),
     ...(int(group['active_check_interval_ms']) !== undefined
       ? { activeCheckIntervalMs: int(group['active_check_interval_ms'])! }
       : {}),
@@ -147,6 +154,10 @@ function buildSection(
 
 function buildGroupSection(group: GroupChannelConfig): Record<string, unknown> {
   const section: Record<string, unknown> = { enabled: group.enabled }
+  if (group.model) {
+    section['model_provider'] = group.model.providerName
+    section['model_name'] = group.model.model
+  }
   if (group.activeCheckIntervalMs !== undefined) {
     section['active_check_interval_ms'] = group.activeCheckIntervalMs
   }

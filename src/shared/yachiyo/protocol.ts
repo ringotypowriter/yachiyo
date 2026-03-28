@@ -45,16 +45,6 @@ export interface UpdateChannelGroupInput {
   name?: string
 }
 
-/** Lightweight decision from the group monitor's judge model. */
-export interface GroupReplyDecision {
-  shouldReply: boolean
-  /** Who to address in the reply (person name, or "group" for general). */
-  respondTo?: string
-  topic?: string
-  tone?: string
-  reason: string
-}
-
 /** A single message in the group monitor's recent-message buffer. */
 export interface GroupMessageEntry {
   senderName: string
@@ -71,6 +61,8 @@ export interface GroupMessageEntry {
 /** Per-platform group discussion settings (from channels.toml). */
 export interface GroupChannelConfig {
   enabled: boolean
+  /** Model override for the group probe call. When set, overrides the default tool model. */
+  model?: ThreadModelOverride
   activeCheckIntervalMs?: number
   engagedCheckIntervalMs?: number
   wakeBufferMs?: number

@@ -38,8 +38,7 @@ function fastConfig(overrides: Partial<GroupMonitorConfig> = {}): GroupMonitorCo
 describe('GroupMonitor', () => {
   it('starts in dormant phase', () => {
     const monitor = createGroupMonitor(fastConfig(), {
-      onCheck: async () => ({ shouldReply: false, reason: 'test' }),
-      onReply: async () => {},
+      onTurn: async () => false,
       onStateChange: () => {}
     })
 
@@ -49,8 +48,7 @@ describe('GroupMonitor', () => {
 
   it('buffers messages while dormant', () => {
     const monitor = createGroupMonitor(fastConfig({ wakeBufferMs: 5_000 }), {
-      onCheck: async () => ({ shouldReply: false, reason: 'test' }),
-      onReply: async () => {},
+      onTurn: async () => false,
       onStateChange: () => {}
     })
 
@@ -67,8 +65,7 @@ describe('GroupMonitor', () => {
     const phases: string[] = []
     const config = fastConfig({ wakeBufferMs: 30, activeCheckIntervalMs: 5_000 })
     const monitor = createGroupMonitor(config, {
-      onCheck: async () => ({ shouldReply: false, reason: 'test' }),
-      onReply: async () => {},
+      onTurn: async () => false,
       onStateChange: (p) => phases.push(p)
     })
 
@@ -84,8 +81,7 @@ describe('GroupMonitor', () => {
 
   it('cleans up on stop', () => {
     const monitor = createGroupMonitor(fastConfig({ wakeBufferMs: 5_000 }), {
-      onCheck: async () => ({ shouldReply: false, reason: 'test' }),
-      onReply: async () => {},
+      onTurn: async () => false,
       onStateChange: () => {}
     })
 
@@ -98,8 +94,7 @@ describe('GroupMonitor', () => {
 
   it('respects maxRecentMessages limit', () => {
     const monitor = createGroupMonitor(fastConfig({ maxRecentMessages: 3, wakeBufferMs: 5_000 }), {
-      onCheck: async () => ({ shouldReply: false, reason: 'test' }),
-      onReply: async () => {},
+      onTurn: async () => false,
       onStateChange: () => {}
     })
 

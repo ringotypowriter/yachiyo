@@ -9,8 +9,13 @@
  *      <reply></reply> tags.
  *   5. Collect the full AI output from server events.
  *   6. Parse the <reply> content and send it back to Telegram.
+ *
+ * Group discussion uses the probe+tool pattern: a single auxiliary model call
+ * with a `send_group_message` tool. Raw text = private monologue, tool call = speech.
  */
 
+import { tool, type ToolSet } from 'ai'
+import { z } from 'zod'
 import { Chat } from 'chat'
 import { createTelegramAdapter } from '@chat-adapter/telegram'
 import { createMemoryState } from '@chat-adapter/state-memory'
@@ -27,12 +32,18 @@ import type {
 import type { YachiyoServer } from '../app/YachiyoServer'
 import { telegramPolicy } from './channelPolicy'
 import { attachmentToImageRecord, type ChatSdkAttachment } from './channelImageDownload'
-import { buildGroupReplyInstruction } from './groupContextBuilder'
+import { buildGroupProbeMessages, formatGroupMessages } from './groupContextBuilder'
 import { createGroupMonitorRegistry, type GroupMonitorRegistry } from './groupMonitorRegistry'
-import { formatMessagesForJudge, judgeGroupReply } from './groupReplyJudge'
 import { routeTelegramMessage, type TelegramChannelStorage } from './telegram'
+import { EXTERNAL_SYSTEM_PROMPT } from '../runtime/prompt'
+import { readChannelsConfig } from '../runtime/channelsConfig'
+import { readUserDocument } from '../runtime/user'
+import { createTool as createReadTool } from '../tools/agentTools/readTool'
+import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool'
+import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool'
+import { createTool as createUpdateMemoryTool } from '../tools/agentTools/updateMemoryTool'
 
-import { resolveYachiyoTempWorkspaceRoot } from '../config/paths'
+import { resolveYachiyoTempWorkspaceRoot, YACHIYO_USER_FILE_NAME } from '../config/paths'
 import { join } from 'node:path'
 
 /** Telegram typing indicator expires after ~5 s; resend every 4 s. */
@@ -425,7 +436,7 @@ export function createTelegramService({
   }
 
   // ------------------------------------------------------------------
-  // Group discussion mode
+  // Group discussion mode (probe+tool pattern)
   // ------------------------------------------------------------------
 
   let groupRegistry: GroupMonitorRegistry | null = null
@@ -439,18 +450,21 @@ export function createTelegramService({
     })
   }
 
+  /** Build a map from Telegram externalUserId → role for identity marking. */
+  function buildKnownUsersMap(): Map<string, string> {
+    const map = new Map<string, string>()
+    for (const u of server.listChannelUsers()) {
+      if (u.platform === 'telegram') {
+        map.set(u.externalUserId, u.role)
+      }
+    }
+    return map
+  }
+
   if (groupConfig?.enabled) {
     groupRegistry = createGroupMonitorRegistry(policy.groupDefaults, groupConfig, {
-      async onCheck(group, recentMessages) {
-        const auxService = server.getAuxiliaryGenerationService()
-        return judgeGroupReply(
-          { botName: 'Yachiyo', groupName: group.name, recentMessages },
-          auxService
-        )
-      },
-
-      async onReply(group, decision, allRecentMessages) {
-        await handleGroupReply(group, decision, allRecentMessages)
+      async onTurn(group, recentMessages) {
+        return handleGroupTurn(group, recentMessages)
       },
 
       onStateChange(group, newPhase) {
@@ -464,6 +478,108 @@ export function createTelegramService({
         groupRegistry.startMonitor(group)
       }
     }
+  }
+
+  /**
+   * Single-pass probe+tool handler for group discussion.
+   *
+   * Returns true if the model called `send_group_message` (i.e. spoke),
+   * false if it stayed silent.
+   */
+  async function handleGroupTurn(
+    group: ChannelGroupRecord,
+    recentMessages: GroupMessageEntry[]
+  ): Promise<boolean> {
+    const auxService = server.getAuxiliaryGenerationService()
+    let didSpeak = false
+
+    const sendGroupMessageTool = tool({
+      description:
+        'Send a message to the group chat. Only call this when you genuinely want to speak. Your raw text output is private and never shown to anyone.',
+      inputSchema: z.object({
+        message: z.string().describe('The message to send to the group. Plain text only.')
+      }),
+      execute: async ({ message }) => {
+        try {
+          await sendTelegramMessage(group.externalGroupId, message)
+          console.log(`[telegram-group] sent reply to "${group.name}": ${message.slice(0, 100)}`)
+
+          // Feed the bot's own reply back into the monitor so it sees it.
+          groupRegistry!.routeMessage(group.id, {
+            senderName: 'Yachiyo',
+            senderExternalUserId: '__self__',
+            isMention: false,
+            text: message,
+            timestamp: Date.now() / 1_000
+          })
+
+          didSpeak = true
+          return 'Message sent.'
+        } catch (err) {
+          console.error(`[telegram-group] failed to send message to "${group.name}"`, err)
+          return 'Failed to send message.'
+        }
+      }
+    })
+
+    // Read per-group USER.md (people directory, context notes).
+    const userDocPath = join(group.workspacePath, YACHIYO_USER_FILE_NAME)
+    const groupUserDoc = await readUserDocument({
+      filePath: userDocPath,
+      mode: 'group'
+    })
+
+    // Build agentic tools: read, web_read, web_search, update_memory.
+    const toolContext = { workspacePath: group.workspacePath, sandboxed: true }
+    const probeTools: ToolSet = {
+      send_group_message: sendGroupMessageTool,
+      read: createReadTool(toolContext),
+      web_read: createWebReadTool(toolContext),
+      web_search: createWebSearchTool(toolContext, {
+        webSearchService: server.getWebSearchService()
+      }),
+      update_memory: createUpdateMemoryTool({
+        memoryService: server.getMemoryService(),
+        userDocumentPath: userDocPath
+      })
+    }
+
+    const messages = buildGroupProbeMessages({
+      botName: 'Yachiyo',
+      groupName: group.name,
+      recentMessages,
+      knownUsers: buildKnownUsersMap(),
+      personaSummary: EXTERNAL_SYSTEM_PROMPT,
+      ownerInstruction: readChannelsConfig().guestInstruction,
+      groupUserDocument: groupUserDoc?.content
+    })
+
+    // Resolve model settings: group-specific override → default primary model.
+    const settingsOverride = server.resolveProviderSettings(groupConfig?.model)
+
+    console.log(
+      `[telegram-group] group="${group.name}" probing ${recentMessages.length} message(s) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${formatGroupMessages(recentMessages, 'Yachiyo', buildKnownUsersMap())}`
+    )
+
+    const result = await auxService.generateText({
+      messages,
+      tools: probeTools,
+      settingsOverride
+    })
+
+    if (result.status === 'success') {
+      console.log(
+        `[telegram-group] group="${group.name}" monologue: ${result.text.slice(0, 200)}${result.text.length > 200 ? '…' : ''}`
+      )
+      console.log(`[telegram-group] group="${group.name}" didSpeak=${didSpeak}`)
+    } else {
+      console.warn(
+        `[telegram-group] auxiliary generation ${result.status}:`,
+        'error' in result ? result.error : result.status
+      )
+    }
+
+    return didSpeak
   }
 
   /**
@@ -499,6 +615,10 @@ export function createTelegramService({
 
     if (existing.status !== 'approved') return
 
+    // Skip the bot's own messages echoed back by Telegram —
+    // already fed into the monitor as __self__ from the tool closure.
+    if (botUsername && update.fromUsername.toLowerCase() === botUsername.toLowerCase()) return
+
     const isMention = botUsername
       ? (update.entities ?? []).some(
           (e) =>
@@ -519,81 +639,6 @@ export function createTelegramService({
     groupRegistry.routeMessage(existing.id, entry)
   }
 
-  async function handleGroupReply(
-    group: ChannelGroupRecord,
-    decision: import('../../../shared/yachiyo/protocol').GroupReplyDecision,
-    allRecentMessages: import('../../../shared/yachiyo/protocol').GroupMessageEntry[]
-  ): Promise<void> {
-    try {
-      const groupThread =
-        server.findActiveGroupThread(group.id, policy.groupDefaults.groupThreadReuseWindowMs) ??
-        (await server.createThread({
-          workspacePath: group.workspacePath,
-          source: 'telegram',
-          channelGroupId: group.id,
-          title: `Telegram:${group.name}`
-        }))
-
-      const channelHint = buildGroupReplyInstruction(decision, 'Yachiyo')
-
-      const knownUsers = new Map<string, string>()
-      for (const u of server.listChannelUsers()) {
-        if (u.platform === 'telegram') {
-          knownUsers.set(u.externalUserId, u.role)
-        }
-      }
-
-      const triggerContent = formatMessagesForJudge(allRecentMessages, 'Yachiyo', knownUsers)
-
-      // Collect all images from recent messages for the reply model.
-      const groupImages = allRecentMessages.flatMap((m) => m.images ?? [])
-
-      const outputPromise = collectRunOutput(server, groupThread.id)
-
-      const accepted = await server.sendChat({
-        threadId: groupThread.id,
-        content: triggerContent,
-        images: groupImages.length > 0 ? groupImages : undefined,
-        enabledTools: policy.allowedTools,
-        channelHint
-      })
-
-      if (!('runId' in accepted)) {
-        console.warn('[telegram-group] sendChat returned non-run:', accepted)
-        return
-      }
-
-      const rawOutput = await outputPromise
-      const reply = policy.extractVisibleReply(rawOutput)
-
-      if (reply) {
-        await sendTelegramMessage(group.externalGroupId, reply)
-        console.log(`[telegram-group] sent reply to "${group.name}": ${reply.slice(0, 100)}`)
-
-        // Feed the bot's own reply back into the monitor so the judge sees it.
-        groupRegistry!.routeMessage(group.id, {
-          senderName: 'Yachiyo',
-          senderExternalUserId: '__self__',
-          isMention: false,
-          text: reply,
-          timestamp: Date.now() / 1_000
-        })
-      }
-
-      server.updateLatestAssistantVisibleReply({
-        threadId: groupThread.id,
-        visibleReply: reply
-      })
-    } catch (error) {
-      console.error(`[telegram-group] failed to handle reply for "${group.name}"`, error)
-    }
-  }
-
-  // Expose routeGroupUpdate for external wiring (raw Bot API update handler).
-  // The Chat SDK adapter doesn't forward group messages, so the gateway or a
-  // separate polling loop should call this for each group message update.
-  const _routeGroupUpdate = routeGroupUpdate
-
   return {
     startPolling() {
       console.log('[telegram] startPolling called — initializing Chat SDK')
@@ -613,7 +658,7 @@ export function createTelegramService({
       await bot.shutdown()
     },
     /** Route a raw Telegram group message update. */
-    routeGroupUpdate: _routeGroupUpdate
+    routeGroupUpdate
   }
 }
 

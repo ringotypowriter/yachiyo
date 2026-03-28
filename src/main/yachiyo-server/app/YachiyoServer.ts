@@ -80,7 +80,7 @@ import {
 } from '../services/webSearch/electronBrowserSearchSession.ts'
 import { createGoogleBrowserWebSearchProvider } from '../services/webSearch/providers/googleBrowserWebSearchProvider.ts'
 import { createWebSearchService } from '../services/webSearch/webSearchService.ts'
-import { createSettingsStore } from '../settings/settingsStore.ts'
+import { createSettingsStore, toEffectiveProviderSettings } from '../settings/settingsStore.ts'
 import { createSqliteYachiyoStorage } from '../storage/sqlite/database.ts'
 import type { YachiyoStorage } from '../storage/storage.ts'
 import {
@@ -139,6 +139,7 @@ export class YachiyoServer {
     targetThreadId: string
   ) => Promise<string>
   private readonly searchService: SearchService
+  private readonly webSearchServiceInstance: import('../services/webSearch/webSearchService.ts').WebSearchService
   private readonly readUserDocumentFile: () => Promise<UserDocument | null>
   private readonly saveUserDocumentFile: (content: string) => Promise<UserDocument | null>
   private readonly readMemoryTermDocumentFile: (() => Promise<MemoryTermDocument>) | null
@@ -236,6 +237,7 @@ export class YachiyoServer {
     this.ensureThreadWorkspacePath = ensureThreadWorkspace
     this.cloneThreadWorkspace = cloneThreadWorkspace
     this.searchService = searchService
+    this.webSearchServiceInstance = webSearchService
     this.runDomain = new YachiyoServerRunDomain({
       storage: this.storage,
       createId: this.createId,
@@ -729,6 +731,22 @@ export class YachiyoServer {
 
   getAuxiliaryGenerationService(): import('../runtime/auxiliaryGeneration.ts').AuxiliaryGenerationService {
     return this.auxiliaryGeneration
+  }
+
+  /**
+   * Resolve full provider settings from an optional model override.
+   * Falls back to the default primary model when no override is given.
+   */
+  resolveProviderSettings(modelOverride?: ThreadModelOverride): ProviderSettings {
+    return toEffectiveProviderSettings(this.configDomain.readConfig(), modelOverride)
+  }
+
+  getMemoryService(): MemoryService {
+    return this.memoryService
+  }
+
+  getWebSearchService(): import('../services/webSearch/webSearchService.ts').WebSearchService {
+    return this.webSearchServiceInstance
   }
 
   getChannelsConfig(): ChannelsConfig {

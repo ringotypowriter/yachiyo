@@ -6,9 +6,15 @@
  *   2. Debounce-buffer rapid messages per user (3-8 s random window).
  *   3. Flush buffered texts as a single AI request.
  *   4. Extract <reply> content and send back via OneBot API.
+ *
+ * Group discussion uses the probe+tool pattern: a single auxiliary model call
+ * with a `send_group_message` tool. Raw text = private monologue, tool call = speech.
  */
 
+import { tool, type ToolSet } from 'ai'
+import { z } from 'zod'
 import { join } from 'node:path'
+import { readFile } from 'node:fs/promises'
 
 import type {
   ChannelGroupRecord,
@@ -27,15 +33,19 @@ import {
   ensureVisionSafe,
   fetchImageAsDataUrl
 } from './channelImageDownload.ts'
-import { buildGroupReplyInstruction } from './groupContextBuilder.ts'
+import { buildGroupProbeMessages, formatGroupMessages } from './groupContextBuilder.ts'
 import { createGroupMonitorRegistry, type GroupMonitorRegistry } from './groupMonitorRegistry.ts'
-import { formatMessagesForJudge, judgeGroupReply } from './groupReplyJudge.ts'
 import { parseCQImages, type CQImageRef } from './qqImageParsing.ts'
 import { createOneBotClient, type OneBotClient } from './onebotClient.ts'
-import { readFile } from 'node:fs/promises'
 import { routeQQMessage, type QQChannelStorage } from './qq.ts'
 import { EXTERNAL_SYSTEM_PROMPT } from '../runtime/prompt.ts'
 import { readChannelsConfig } from '../runtime/channelsConfig.ts'
+import { readUserDocument } from '../runtime/user.ts'
+import { YACHIYO_USER_FILE_NAME } from '../config/paths.ts'
+import { createTool as createReadTool } from '../tools/agentTools/readTool.ts'
+import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool.ts'
+import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool.ts'
+import { createTool as createUpdateMemoryTool } from '../tools/agentTools/updateMemoryTool.ts'
 
 /** Minimum debounce delay before flushing a message batch. */
 const REPLY_DELAY_MIN_MS = 3_000
@@ -197,7 +207,7 @@ export function createQQService({
   })
 
   // ------------------------------------------------------------------
-  // Group discussion mode
+  // Group discussion mode (probe+tool pattern)
   // ------------------------------------------------------------------
 
   let groupRegistry: GroupMonitorRegistry | null = null
@@ -234,23 +244,8 @@ export function createQQService({
   // Group monitoring is enabled by default; only skip if explicitly disabled.
   if (groupConfig?.enabled !== false) {
     groupRegistry = createGroupMonitorRegistry(policy.groupDefaults, groupConfig, {
-      async onCheck(group, recentMessages) {
-        const auxService = server.getAuxiliaryGenerationService()
-        return judgeGroupReply(
-          {
-            botName: 'Yachiyo',
-            groupName: group.name,
-            recentMessages,
-            knownUsers: buildKnownUsersMap(),
-            personaSummary: EXTERNAL_SYSTEM_PROMPT,
-            ownerInstruction: readChannelsConfig().guestInstruction
-          },
-          auxService
-        )
-      },
-
-      async onReply(group, decision, allRecentMessages) {
-        await handleGroupReply(group, decision, allRecentMessages)
+      async onTurn(group, recentMessages) {
+        return handleGroupTurn(group, recentMessages)
       },
 
       onStateChange(group, newPhase) {
@@ -264,6 +259,109 @@ export function createQQService({
         groupRegistry.startMonitor(group)
       }
     }
+  }
+
+  /**
+   * Single-pass probe+tool handler for group discussion.
+   *
+   * Returns true if the model called `send_group_message` (i.e. spoke),
+   * false if it stayed silent.
+   */
+  async function handleGroupTurn(
+    group: ChannelGroupRecord,
+    recentMessages: GroupMessageEntry[]
+  ): Promise<boolean> {
+    const auxService = server.getAuxiliaryGenerationService()
+    let didSpeak = false
+
+    // Build the send_group_message tool — closure captures the send logic.
+    const sendGroupMessageTool = tool({
+      description:
+        'Send a message to the group chat. Only call this when you genuinely want to speak. Your raw text output is private and never shown to anyone.',
+      inputSchema: z.object({
+        message: z.string().describe('The message to send to the group. Plain text only.')
+      }),
+      execute: async ({ message }) => {
+        try {
+          await client.sendGroupMessage(Number(group.externalGroupId), message)
+          console.log(`[qq-group] sent reply to group "${group.name}": ${message.slice(0, 100)}`)
+
+          // Feed the bot's own reply back into the monitor so it sees it.
+          groupRegistry!.routeMessage(group.id, {
+            senderName: 'Yachiyo',
+            senderExternalUserId: '__self__',
+            isMention: false,
+            text: message,
+            timestamp: Date.now() / 1_000
+          })
+
+          didSpeak = true
+          return 'Message sent.'
+        } catch (err) {
+          console.error(`[qq-group] failed to send message to "${group.name}"`, err)
+          return 'Failed to send message.'
+        }
+      }
+    })
+
+    // Read per-group USER.md (people directory, context notes).
+    const userDocPath = join(group.workspacePath, YACHIYO_USER_FILE_NAME)
+    const groupUserDoc = await readUserDocument({
+      filePath: userDocPath,
+      mode: 'group'
+    })
+
+    // Build agentic tools: read, web_read, web_search, update_memory.
+    const toolContext = { workspacePath: group.workspacePath, sandboxed: true }
+    const probeTools: ToolSet = {
+      send_group_message: sendGroupMessageTool,
+      read: createReadTool(toolContext),
+      web_read: createWebReadTool(toolContext),
+      web_search: createWebSearchTool(toolContext, {
+        webSearchService: server.getWebSearchService()
+      }),
+      update_memory: createUpdateMemoryTool({
+        memoryService: server.getMemoryService(),
+        userDocumentPath: userDocPath
+      })
+    }
+
+    const messages = buildGroupProbeMessages({
+      botName: 'Yachiyo',
+      groupName: group.name,
+      recentMessages,
+      knownUsers: buildKnownUsersMap(),
+      personaSummary: EXTERNAL_SYSTEM_PROMPT,
+      ownerInstruction: readChannelsConfig().guestInstruction,
+      groupUserDocument: groupUserDoc?.content
+    })
+
+    // Resolve model settings: group-specific override → default primary model.
+    const settingsOverride = server.resolveProviderSettings(groupConfig?.model)
+
+    console.log(
+      `[qq-group] group="${group.name}" probing ${recentMessages.length} message(s) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${formatGroupMessages(recentMessages, 'Yachiyo', buildKnownUsersMap())}`
+    )
+
+    const result = await auxService.generateText({
+      messages,
+      tools: probeTools,
+      settingsOverride
+    })
+
+    if (result.status === 'success') {
+      console.log(
+        `[qq-group] group="${group.name}" monologue: ${result.text.slice(0, 200)}${result.text.length > 200 ? '…' : ''}`
+      )
+      console.log(`[qq-group] group="${group.name}" didSpeak=${didSpeak}`)
+    } else {
+      console.warn(
+        `[qq-group] auxiliary generation ${result.status}:`,
+        'error' in result ? result.error : result.status
+      )
+    }
+
+    return didSpeak
   }
 
   // Always listen for group messages — register pending groups even when
@@ -286,6 +384,10 @@ export function createQQService({
     }
 
     if (existing.status !== 'approved' || !groupRegistry) return
+
+    // Skip the bot's own messages echoed back by the server — already
+    // fed into the monitor as __self__ from the tool closure.
+    if (resolvedBotQQId && String(msg.userId) === resolvedBotQQId) return
 
     const { text: rawText, images: imageRefs } = parseCQImages(msg.rawMessage)
     if (!rawText && imageRefs.length === 0) return
@@ -325,72 +427,6 @@ export function createQQService({
       })
     }
   })
-
-  async function handleGroupReply(
-    group: ChannelGroupRecord,
-    decision: import('../../../shared/yachiyo/protocol.ts').GroupReplyDecision,
-    allRecentMessages: GroupMessageEntry[]
-  ): Promise<void> {
-    try {
-      const groupThread =
-        server.findActiveGroupThread(group.id, policy.groupDefaults.groupThreadReuseWindowMs) ??
-        (await server.createThread({
-          workspacePath: group.workspacePath,
-          source: 'qq',
-          channelGroupId: group.id,
-          title: `QQ群:${group.name}`
-        }))
-
-      const channelHint = buildGroupReplyInstruction(decision, 'Yachiyo')
-      const triggerContent = formatMessagesForJudge(
-        allRecentMessages,
-        'Yachiyo',
-        buildKnownUsersMap()
-      )
-
-      // Collect all images from recent messages for the reply model.
-      const groupImages = allRecentMessages.flatMap((m) => m.images ?? [])
-
-      const outputPromise = collectRunOutput(server, groupThread.id)
-
-      const accepted = await server.sendChat({
-        threadId: groupThread.id,
-        content: triggerContent,
-        images: groupImages.length > 0 ? groupImages : undefined,
-        enabledTools: policy.allowedTools,
-        channelHint
-      })
-
-      if (!('runId' in accepted)) {
-        console.warn('[qq-group] sendChat returned non-run:', accepted)
-        return
-      }
-
-      const rawOutput = await outputPromise
-      const reply = policy.extractVisibleReply(rawOutput)
-
-      if (reply) {
-        await client.sendGroupMessage(Number(group.externalGroupId), reply)
-        console.log(`[qq-group] sent reply to group "${group.name}": ${reply.slice(0, 100)}`)
-
-        // Feed the bot's own reply back into the monitor so the judge sees it.
-        groupRegistry!.routeMessage(group.id, {
-          senderName: 'Yachiyo',
-          senderExternalUserId: '__self__',
-          isMention: false,
-          text: reply,
-          timestamp: Date.now() / 1_000
-        })
-      }
-
-      server.updateLatestAssistantVisibleReply({
-        threadId: groupThread.id,
-        visibleReply: reply
-      })
-    } catch (error) {
-      console.error(`[qq-group] failed to handle group reply for "${group.name}"`, error)
-    }
-  }
 
   function enqueueMessage(
     qqUserId: number,

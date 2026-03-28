@@ -32,15 +32,43 @@ const DEFAULT_GUEST_USER_TEMPLATE = [
   ''
 ].join('\n')
 
+const DEFAULT_GROUP_USER_TEMPLATE = [
+  '# Group',
+  '',
+  'Context notes for this group chat. Yachiyo reads this before every probe.',
+  '',
+  '## People',
+  '',
+  '<!-- Map nicknames to real identities so the model knows who is who. -->',
+  '<!-- Rows with empty notes are fine — just the mapping helps. -->',
+  '',
+  '| Nickname | Identity / Real Name | Notes |',
+  '|----------|----------------------|-------|',
+  '| ExampleUser | Alice | owner, close friend |',
+  '',
+  '## Group Vibe',
+  '',
+  '<!-- Describe the general tone, topics, and dynamics of this group. -->',
+  '',
+  '## Topic Hints',
+  '',
+  '<!-- Anything Yachiyo should know or care about in this group. -->',
+  ''
+].join('\n')
+
 export interface UserDocument {
   filePath: string
   content: string
 }
 
+export type UserDocumentMode = 'owner' | 'guest' | 'group'
+
 export interface ReadUserDocumentInput {
   filePath?: string
   /** When true, use the guest template for new USER.md files. */
   guest?: boolean
+  /** Template mode for auto-created files. Overrides `guest` when set. */
+  mode?: UserDocumentMode
 }
 
 export interface WriteUserDocumentInput {
@@ -74,7 +102,13 @@ export async function readUserDocument(
       throw error
     }
 
-    content = input.guest ? DEFAULT_GUEST_USER_TEMPLATE : buildDefaultUserTemplate()
+    const mode = input.mode ?? (input.guest ? 'guest' : 'owner')
+    content =
+      mode === 'group'
+        ? DEFAULT_GROUP_USER_TEMPLATE
+        : mode === 'guest'
+          ? DEFAULT_GUEST_USER_TEMPLATE
+          : buildDefaultUserTemplate()
     await mkdir(dirname(filePath), { recursive: true })
     await writeFile(filePath, content, 'utf8')
   }

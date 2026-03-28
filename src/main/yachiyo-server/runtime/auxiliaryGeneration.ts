@@ -1,3 +1,5 @@
+import type { ToolSet } from 'ai'
+
 import type { ProviderSettings } from '../../../shared/yachiyo/protocol.ts'
 import type { ModelMessage, ModelRuntime } from './types.ts'
 
@@ -25,6 +27,10 @@ export type AuxiliaryTextGenerationResult =
 export interface AuxiliaryTextGenerationRequest {
   messages: ModelMessage[]
   signal?: AbortSignal
+  /** Optional tools the model can call during generation. */
+  tools?: ToolSet
+  /** Explicit provider settings. When provided, skips the default tool-model lookup. */
+  settingsOverride?: ProviderSettings
 }
 
 export interface AuxiliaryGenerationService {
@@ -61,7 +67,7 @@ export function createAuxiliaryGenerationService(
     async generateText(
       request: AuxiliaryTextGenerationRequest
     ): Promise<AuxiliaryTextGenerationResult> {
-      const settings = deps.readToolModelSettings()
+      const settings = request.settingsOverride ?? deps.readToolModelSettings()
       const unavailableReason = resolveUnavailableReason(settings)
 
       if (unavailableReason) {
@@ -87,7 +93,8 @@ export function createAuxiliaryGenerationService(
           messages: request.messages,
           providerOptionsMode: 'auxiliary',
           settings: resolvedSettings,
-          signal
+          signal,
+          tools: request.tools
         })) {
           text += delta
         }
