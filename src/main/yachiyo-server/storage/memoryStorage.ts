@@ -615,11 +615,16 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       return record
     },
 
-    updateChannelUser({ id, status, usageLimitKTokens, usedKTokens }) {
+    getChannelUser(id) {
+      return channelUsers.get(id) ? { ...channelUsers.get(id)! } : undefined
+    },
+
+    updateChannelUser({ id, status, role, usageLimitKTokens, usedKTokens }) {
       const existing = channelUsers.get(id)
       if (!existing) return undefined
 
       if (status !== undefined) existing.status = status
+      if (role !== undefined) existing.role = role
       if (usageLimitKTokens !== undefined) existing.usageLimitKTokens = usageLimitKTokens
       if (usedKTokens !== undefined) existing.usedKTokens = usedKTokens
 

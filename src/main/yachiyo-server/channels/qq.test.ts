@@ -19,12 +19,12 @@ function createMockStorage(users: ChannelUserRecord[] = []): QQChannelStorage {
 }
 
 describe('routeQQMessage', () => {
-  it('creates a pending user on first contact', () => {
+  it('creates a pending user on first contact but stays silent', () => {
     const storage = createMockStorage()
     const result = routeQQMessage({ userId: '12345', nickname: 'TestUser', text: 'hi' }, storage)
 
-    assert.equal(result.kind, 'pending')
-    assert.ok('reply' in result)
+    assert.equal(result.kind, 'blocked')
+    assert.ok(!('reply' in result))
 
     const user = storage.findChannelUser('qq', '12345')
     assert.ok(user)
@@ -41,6 +41,7 @@ describe('routeQQMessage', () => {
         externalUserId: '12345',
         username: 'TestUser',
         status: 'pending',
+        role: 'guest',
         usageLimitKTokens: null,
         usedKTokens: 0,
         workspacePath: '/tmp/qq-12345'
@@ -62,6 +63,7 @@ describe('routeQQMessage', () => {
         externalUserId: '12345',
         username: 'TestUser',
         status: 'blocked',
+        role: 'guest',
         usageLimitKTokens: null,
         usedKTokens: 0,
         workspacePath: '/tmp/qq-12345'
@@ -80,6 +82,7 @@ describe('routeQQMessage', () => {
         externalUserId: '12345',
         username: 'TestUser',
         status: 'allowed',
+        role: 'guest',
         usageLimitKTokens: null,
         usedKTokens: 0,
         workspacePath: '/tmp/qq-12345'
@@ -99,6 +102,7 @@ describe('routeQQMessage', () => {
         externalUserId: '12345',
         username: 'TestUser',
         status: 'allowed',
+        role: 'guest',
         usageLimitKTokens: 100,
         usedKTokens: 100,
         workspacePath: '/tmp/qq-12345'

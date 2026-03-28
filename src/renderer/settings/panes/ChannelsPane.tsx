@@ -5,17 +5,25 @@ import { theme, alpha } from '@renderer/theme/theme'
 import type {
   ChannelsConfig,
   ChannelUserRecord,
+  ChannelUserRole,
   ChannelUserStatus,
   SettingsConfig
 } from '../../../shared/yachiyo/protocol.ts'
-import { SettingLabel, SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
+import {
+  SettingLabel,
+  SettingRow,
+  SettingSection,
+  SettingSwitch,
+  SimpleSelect
+} from '../components/primitives'
 
-export function ChannelsPane(): React.ReactNode {
+export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.ReactNode {
   const [config, setConfig] = useState<ChannelsConfig>({})
   const [loadingConfig, setLoadingConfig] = useState(true)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const initializedRef = useRef(false)
-  const [showToken, setShowToken] = useState(false)
+  const [showTelegramToken, setShowTelegramToken] = useState(false)
+  const [showQQToken, setShowQQToken] = useState(false)
   const configRef = useRef(config)
 
   const [users, setUsers] = useState<ChannelUserRecord[]>([])
@@ -54,12 +62,32 @@ export function ChannelsPane(): React.ReactNode {
   }, [])
 
   const telegram = config.telegram
-  const enabled = telegram?.enabled ?? false
+  const telegramEnabled = telegram?.enabled ?? false
   const botToken = telegram?.botToken ?? ''
 
-  function patchTelegram(patch: Partial<typeof telegram>): void {
+  const qq = config.qq
+  const qqEnabled = qq?.enabled ?? false
+  const qqWsUrl = qq?.wsUrl ?? ''
+  const qqToken = qq?.token ?? ''
+
+  function patchTelegram(patch: Partial<NonNullable<ChannelsConfig['telegram']>>): void {
     setConfig((c) => {
-      const next = { ...c, telegram: { enabled, botToken, ...c.telegram, ...patch } }
+      const next = {
+        ...c,
+        telegram: { enabled: telegramEnabled, botToken, ...c.telegram, ...patch }
+      }
+      configRef.current = next
+      scheduleSave(next)
+      return next
+    })
+  }
+
+  function patchQQ(patch: Partial<NonNullable<ChannelsConfig['qq']>>): void {
+    setConfig((c) => {
+      const next = {
+        ...c,
+        qq: { enabled: qqEnabled, wsUrl: qqWsUrl, ...c.qq, ...patch }
+      }
       configRef.current = next
       scheduleSave(next)
       return next
@@ -78,6 +106,16 @@ export function ChannelsPane(): React.ReactNode {
     setUpdatingUser(userId)
     try {
       const updated = await window.api.yachiyo.updateChannelUser({ id: userId, status })
+      setUsers((us) => us.map((u) => (u.id === updated.id ? updated : u)))
+    } finally {
+      setUpdatingUser(null)
+    }
+  }
+
+  async function handleRoleChange(userId: string, role: ChannelUserRole): Promise<void> {
+    setUpdatingUser(userId)
+    try {
+      const updated = await window.api.yachiyo.updateChannelUser({ id: userId, role })
       setUsers((us) => us.map((u) => (u.id === updated.id ? updated : u)))
     } finally {
       setUpdatingUser(null)
@@ -107,85 +145,39 @@ export function ChannelsPane(): React.ReactNode {
     )
   }
 
-  return (
-    <div className="flex-1 overflow-y-auto pb-6">
-      {/* ── Telegram ── */}
-      <SettingSection>
-        <SettingLabel>Telegram</SettingLabel>
+  const modelSelector = settingsConfig && settingsConfig.providers.length > 0
 
-        <SettingRow>
-          <div className="min-w-0">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Enable bot
+  if (activeSubTab === 'telegram') {
+    return (
+      <div className="flex-1 overflow-y-auto pb-6">
+        <SettingSection>
+          <SettingRow>
+            <div className="min-w-0">
+              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                Enable bot
+              </div>
+              <div className="text-sm" style={{ color: theme.text.tertiary }}>
+                Let external users chat with your AI over Telegram
+              </div>
             </div>
-            <div className="text-sm" style={{ color: theme.text.tertiary }}>
-              Let external users chat with your AI over Telegram
-            </div>
-          </div>
-          <SettingSwitch
-            ariaLabel="Enable Telegram bot"
-            checked={enabled}
-            onChange={() => patchTelegram({ enabled: !enabled })}
-          />
-        </SettingRow>
-
-        <SettingRow>
-          <div className="flex items-center gap-2.5 flex-1 min-w-0">
-            <span className="text-sm font-medium shrink-0" style={{ color: theme.text.primary }}>
-              Bot token
-            </span>
-            <input
-              type={showToken ? 'text' : 'password'}
-              value={botToken}
-              onChange={(e) => patchTelegram({ botToken: e.target.value })}
-              placeholder="123456:ABC-DEF..."
-              spellCheck={false}
-              className="flex-1 text-sm min-w-0"
-              style={{
-                padding: '6px 10px',
-                borderRadius: 8,
-                border: 'none',
-                background: alpha('ink', 0.04),
-                color: theme.text.primary,
-                outline: 'none',
-                fontFamily: botToken ? 'monospace' : 'inherit'
-              }}
+            <SettingSwitch
+              ariaLabel="Enable Telegram bot"
+              checked={telegramEnabled}
+              onChange={() => patchTelegram({ enabled: !telegramEnabled })}
             />
-            <button
-              type="button"
-              onClick={() => setShowToken((v) => !v)}
-              className="text-xs shrink-0 transition-opacity opacity-50 hover:opacity-100"
-              style={{
-                color: theme.text.secondary,
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              {showToken ? 'Hide' : 'Show'}
-            </button>
-          </div>
-        </SettingRow>
+          </SettingRow>
 
-        {settingsConfig && settingsConfig.providers.length > 0 && (
           <SettingRow>
             <div className="flex items-center gap-2.5 flex-1 min-w-0">
               <span className="text-sm font-medium shrink-0" style={{ color: theme.text.primary }}>
-                Model
+                Bot token
               </span>
-              <select
-                value={
-                  telegram?.model ? `${telegram.model.providerName}::${telegram.model.model}` : ''
-                }
-                onChange={(e) => {
-                  const val = e.target.value
-                  if (!val) {
-                    patchTelegram({ model: undefined })
-                  } else {
-                    const [providerName, model] = val.split('::')
-                    patchTelegram({ model: { providerName, model } })
-                  }
-                }}
+              <input
+                type={showTelegramToken ? 'text' : 'password'}
+                value={botToken}
+                onChange={(e) => patchTelegram({ botToken: e.target.value })}
+                placeholder="123456:ABC-DEF..."
+                spellCheck={false}
                 className="flex-1 text-sm min-w-0"
                 style={{
                   padding: '6px 10px',
@@ -193,24 +185,211 @@ export function ChannelsPane(): React.ReactNode {
                   border: 'none',
                   background: alpha('ink', 0.04),
                   color: theme.text.primary,
-                  outline: 'none'
+                  outline: 'none',
+                  fontFamily: botToken ? 'monospace' : 'inherit'
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowTelegramToken((v) => !v)}
+                className="text-xs shrink-0 transition-opacity opacity-50 hover:opacity-100"
+                style={{
+                  color: theme.text.secondary,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer'
                 }}
               >
-                <option value="">Default (same as chat)</option>
-                {settingsConfig.providers.flatMap((p) =>
-                  p.modelList.enabled.map((m) => (
-                    <option key={`${p.name}::${m}`} value={`${p.name}::${m}`}>
-                      {p.name}: {m}
-                    </option>
-                  ))
-                )}
-              </select>
+                {showTelegramToken ? 'Hide' : 'Show'}
+              </button>
             </div>
           </SettingRow>
-        )}
+
+          {modelSelector && (
+            <SettingRow>
+              <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                <span
+                  className="text-sm font-medium shrink-0"
+                  style={{ color: theme.text.primary }}
+                >
+                  Model
+                </span>
+                <ModelSelect
+                  value={
+                    telegram?.model ? `${telegram.model.providerName}::${telegram.model.model}` : ''
+                  }
+                  providers={settingsConfig!.providers}
+                  onChange={(val) => {
+                    if (!val) {
+                      patchTelegram({ model: undefined })
+                    } else {
+                      const [providerName, model] = val.split('::')
+                      patchTelegram({ model: { providerName, model } })
+                    }
+                  }}
+                />
+              </div>
+            </SettingRow>
+          )}
+        </SettingSection>
+      </div>
+    )
+  }
+
+  if (activeSubTab === 'qq') {
+    return (
+      <div className="flex-1 overflow-y-auto pb-6">
+        <SettingSection>
+          <SettingRow>
+            <div className="min-w-0">
+              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                Enable bot
+              </div>
+              <div className="text-sm" style={{ color: theme.text.tertiary }}>
+                Connect to a NapCatQQ instance via OneBot v11
+              </div>
+            </div>
+            <SettingSwitch
+              ariaLabel="Enable QQ bot"
+              checked={qqEnabled}
+              onChange={() => patchQQ({ enabled: !qqEnabled })}
+            />
+          </SettingRow>
+
+          <SettingRow>
+            <div className="flex items-center gap-2.5 flex-1 min-w-0">
+              <span className="text-sm font-medium shrink-0" style={{ color: theme.text.primary }}>
+                WebSocket URL
+              </span>
+              <input
+                type="text"
+                value={qqWsUrl}
+                onChange={(e) => patchQQ({ wsUrl: e.target.value })}
+                placeholder="ws://localhost:3001"
+                spellCheck={false}
+                className="flex-1 text-sm min-w-0"
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: alpha('ink', 0.04),
+                  color: theme.text.primary,
+                  outline: 'none',
+                  fontFamily: qqWsUrl ? 'monospace' : 'inherit'
+                }}
+              />
+            </div>
+          </SettingRow>
+
+          <SettingRow>
+            <div className="flex items-center gap-2.5 flex-1 min-w-0">
+              <span className="text-sm font-medium shrink-0" style={{ color: theme.text.primary }}>
+                Token
+              </span>
+              <input
+                type={showQQToken ? 'text' : 'password'}
+                value={qqToken}
+                onChange={(e) => patchQQ({ token: e.target.value })}
+                placeholder="Optional"
+                spellCheck={false}
+                className="flex-1 text-sm min-w-0"
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: alpha('ink', 0.04),
+                  color: theme.text.primary,
+                  outline: 'none',
+                  fontFamily: qqToken ? 'monospace' : 'inherit'
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowQQToken((v) => !v)}
+                className="text-xs shrink-0 transition-opacity opacity-50 hover:opacity-100"
+                style={{
+                  color: theme.text.secondary,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                {showQQToken ? 'Hide' : 'Show'}
+              </button>
+            </div>
+          </SettingRow>
+
+          {modelSelector && (
+            <SettingRow>
+              <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                <span
+                  className="text-sm font-medium shrink-0"
+                  style={{ color: theme.text.primary }}
+                >
+                  Model
+                </span>
+                <ModelSelect
+                  value={qq?.model ? `${qq.model.providerName}::${qq.model.model}` : ''}
+                  providers={settingsConfig!.providers}
+                  onChange={(val) => {
+                    if (!val) {
+                      patchQQ({ model: undefined })
+                    } else {
+                      const [providerName, model] = val.split('::')
+                      patchQQ({ model: { providerName, model } })
+                    }
+                  }}
+                />
+              </div>
+            </SettingRow>
+          )}
+        </SettingSection>
+      </div>
+    )
+  }
+
+  // General tab (default)
+  return (
+    <div className="flex-1 overflow-y-auto pb-6">
+      <SettingSection>
+        <SettingLabel>Guest Instruction</SettingLabel>
+
+        <SettingRow>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm" style={{ color: theme.text.tertiary }}>
+              Custom context injected into the system prompt for guest conversations
+            </div>
+          </div>
+        </SettingRow>
+
+        <div className="px-7 pb-3">
+          <textarea
+            value={config.guestInstruction ?? ''}
+            onChange={(e) => {
+              setConfig((c) => {
+                const next = { ...c, guestInstruction: e.target.value }
+                configRef.current = next
+                scheduleSave(next)
+                return next
+              })
+            }}
+            placeholder="Tell the model what guests should know about you, and any rules for guest conversations..."
+            spellCheck={false}
+            rows={4}
+            className="w-full text-sm resize-y"
+            style={{
+              padding: '8px 10px',
+              borderRadius: 8,
+              border: 'none',
+              background: alpha('ink', 0.04),
+              color: theme.text.primary,
+              outline: 'none',
+              lineHeight: 1.5
+            }}
+          />
+        </div>
       </SettingSection>
 
-      {/* ── Users ── */}
       <SettingSection>
         <SettingLabel>Users</SettingLabel>
 
@@ -232,16 +411,167 @@ export function ChannelsPane(): React.ReactNode {
               user={user}
               busy={updatingUser === user.id}
               onStatusChange={(s) => void handleStatusChange(user.id, s)}
+              onRoleChange={(r) => void handleRoleChange(user.id, r)}
               onLimitChange={(v) => void handleLimitChange(user.id, v)}
             />
           ))
         )}
       </SettingSection>
+
+      <SettingSection>
+        <SettingLabel>Memory Privacy</SettingLabel>
+
+        <SettingRow>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Filter keywords
+            </div>
+            <div className="text-sm" style={{ color: theme.text.tertiary }}>
+              Memory search results containing these keywords are hidden from guests
+            </div>
+          </div>
+        </SettingRow>
+
+        <MemoryFilterKeywords
+          keywords={config.memoryFilterKeywords ?? []}
+          onChange={(keywords) => {
+            setConfig((c) => {
+              const next = { ...c, memoryFilterKeywords: keywords }
+              configRef.current = next
+              scheduleSave(next)
+              return next
+            })
+          }}
+        />
+      </SettingSection>
     </div>
   )
 }
 
-// ─── status colors ────────────────────────────────────────────────────────────
+// ─── memory filter keywords ──────────────────────────────────────────────────
+
+function MemoryFilterKeywords({
+  keywords,
+  onChange
+}: {
+  keywords: string[]
+  onChange: (keywords: string[]) => void
+}): React.ReactNode {
+  const [draft, setDraft] = useState('')
+
+  function addKeyword(): void {
+    const trimmed = draft.trim()
+    if (!trimmed || keywords.includes(trimmed)) return
+    onChange([...keywords, trimmed])
+    setDraft('')
+  }
+
+  return (
+    <div className="px-7 pb-2" style={{ borderTop: `1px solid ${theme.border.subtle}` }}>
+      <div className="flex items-center gap-2 py-2.5">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') addKeyword()
+          }}
+          placeholder="Add keyword..."
+          className="flex-1 text-sm min-w-0"
+          style={{
+            padding: '5px 10px',
+            borderRadius: 8,
+            border: 'none',
+            background: alpha('ink', 0.04),
+            color: theme.text.primary,
+            outline: 'none'
+          }}
+        />
+        <button
+          type="button"
+          onClick={addKeyword}
+          className="text-xs font-medium px-2.5 py-1 rounded-md transition-opacity opacity-60 hover:opacity-100"
+          style={{
+            color: theme.text.accent,
+            background: `${theme.text.accent}14`,
+            border: 'none',
+            cursor: 'pointer'
+          }}
+        >
+          Add
+        </button>
+      </div>
+
+      {keywords.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pb-2">
+          {keywords.map((kw) => (
+            <span
+              key={kw}
+              className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md"
+              style={{ background: alpha('ink', 0.06), color: theme.text.secondary }}
+            >
+              {kw}
+              <button
+                type="button"
+                onClick={() => onChange(keywords.filter((k) => k !== kw))}
+                className="opacity-50 hover:opacity-100 transition-opacity"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'inherit',
+                  padding: 0,
+                  lineHeight: 1
+                }}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── shared model selector ───────────────────────────────────────────────────
+
+function ModelSelect({
+  value,
+  providers,
+  onChange
+}: {
+  value: string
+  providers: SettingsConfig['providers']
+  onChange: (value: string) => void
+}): React.ReactNode {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="flex-1 text-sm min-w-0"
+      style={{
+        padding: '6px 10px',
+        borderRadius: 8,
+        border: 'none',
+        background: alpha('ink', 0.04),
+        color: theme.text.primary,
+        outline: 'none'
+      }}
+    >
+      <option value="">Default (same as chat)</option>
+      {providers.flatMap((p) =>
+        p.modelList.enabled.map((m) => (
+          <option key={`${p.name}::${m}`} value={`${p.name}::${m}`}>
+            {p.name}: {m}
+          </option>
+        ))
+      )}
+    </select>
+  )
+}
+
+// ─── status colors ───────────────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<ChannelUserStatus, string> = {
   allowed: '#34c759',
@@ -249,17 +579,19 @@ const STATUS_COLORS: Record<ChannelUserStatus, string> = {
   blocked: '#ff3b30'
 }
 
-// ─── user row ─────────────────────────────────────────────────────────────────
+// ─── user row ────────────────────────────────────────────────────────────────
 
 function ChannelUserRow({
   user,
   busy,
   onStatusChange,
+  onRoleChange,
   onLimitChange
 }: {
   user: ChannelUserRecord
   busy: boolean
   onStatusChange: (status: ChannelUserStatus) => void
+  onRoleChange: (role: ChannelUserRole) => void
   onLimitChange: (value: string) => void
 }): React.ReactNode {
   const [limitDraft, setLimitDraft] = useState(
@@ -291,6 +623,16 @@ function ChannelUserRow({
           </div>
         </div>
       </div>
+
+      <SimpleSelect
+        value={user.role}
+        options={[
+          { value: 'guest', label: 'Guest' },
+          { value: 'owner', label: 'Owner' }
+        ]}
+        onChange={(v) => onRoleChange(v as ChannelUserRole)}
+        width={80}
+      />
 
       <div className="flex items-center gap-1 shrink-0">
         <input

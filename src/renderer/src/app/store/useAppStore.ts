@@ -250,7 +250,9 @@ function sortThreads(threads: Thread[]): Thread[] {
 }
 
 function isExternalThread(thread: Thread): boolean {
-  return Boolean(thread.source && thread.source !== 'local')
+  if (thread.source && thread.source !== 'local') return true
+  if (thread.channelUserId) return true
+  return false
 }
 
 /** Find a thread by ID across both local and external thread lists. */
@@ -1039,7 +1041,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (event.type === 'run.completed') {
       const { config, threads, messages } = get()
       const thread = threads.find((t) => t.id === event.threadId)
-      if (thread && config?.general?.notifyRunCompleted !== false) {
+      if (thread && !isExternalThread(thread) && config?.general?.notifyRunCompleted !== false) {
         const threadMessages = messages[event.threadId] ?? []
         const lastAssistantMessage = [...threadMessages]
           .reverse()
@@ -1056,7 +1058,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (event.type === 'subagent.started') {
       const { config, threads } = get()
       const thread = threads.find((t) => t.id === event.threadId)
-      if (thread && config?.general?.notifyCodingTaskStarted !== false) {
+      if (
+        thread &&
+        !isExternalThread(thread) &&
+        config?.general?.notifyCodingTaskStarted !== false
+      ) {
         notifyActivity(
           `subagent.started:${event.runId}:${event.agentName}`,
           event.threadId,
@@ -1069,7 +1075,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (event.type === 'subagent.finished') {
       const { config, threads } = get()
       const thread = threads.find((t) => t.id === event.threadId)
-      if (thread && config?.general?.notifyCodingTaskFinished !== false) {
+      if (
+        thread &&
+        !isExternalThread(thread) &&
+        config?.general?.notifyCodingTaskFinished !== false
+      ) {
         notifyActivity(
           `subagent.finished:${event.runId}:${event.agentName}:${event.status}`,
           event.threadId,

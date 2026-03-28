@@ -104,14 +104,19 @@ let telegramService: TelegramService | null = null
 let qqService: QQService | null = null
 let fatalRunRecoveryRegistered = false
 
-function applyTelegramConfig(cfg: ChannelsConfig): void {
+async function applyTelegramConfig(cfg: ChannelsConfig): Promise<void> {
   const token = cfg.telegram?.botToken?.trim()
   const enabled = cfg.telegram?.enabled ?? false
 
   if (telegramService) {
     console.log('[telegram] stopping existing service')
-    void telegramService.stop().catch((e) => console.error('[telegram] stop error', e))
+    const old = telegramService
     telegramService = null
+    try {
+      await old.stop()
+    } catch (e) {
+      console.error('[telegram] stop error', e)
+    }
   }
 
   if (!enabled || !token || !server) {
@@ -126,14 +131,19 @@ function applyTelegramConfig(cfg: ChannelsConfig): void {
   console.log('[telegram] polling started')
 }
 
-function applyQQConfig(cfg: ChannelsConfig): void {
+async function applyQQConfig(cfg: ChannelsConfig): Promise<void> {
   const wsUrl = cfg.qq?.wsUrl?.trim()
   const enabled = cfg.qq?.enabled ?? false
 
   if (qqService) {
     console.log('[qq] stopping existing service')
-    void qqService.stop().catch((e) => console.error('[qq] stop error', e))
+    const old = qqService
     qqService = null
+    try {
+      await old.stop()
+    } catch (e) {
+      console.error('[qq] stop error', e)
+    }
   }
 
   if (!enabled || !wsUrl || !server) {
@@ -217,8 +227,8 @@ export function registerYachiyoGateway(): YachiyoServer {
 
   // Start channel services if already configured.
   const channelsConfig = server.getChannelsConfig()
-  applyTelegramConfig(channelsConfig)
-  applyQQConfig(channelsConfig)
+  void applyTelegramConfig(channelsConfig)
+  void applyQQConfig(channelsConfig)
 
   ipcMain.removeAllListeners(IPC_CHANNELS.showNotification)
   ipcMain.on(IPC_CHANNELS.showNotification, (_event, input: { title: string; body?: string }) => {
@@ -381,10 +391,10 @@ export function registerYachiyoGateway(): YachiyoServer {
     server!.updateChannelUser(input)
   )
   handle(IPC_CHANNELS.getChannelsConfig, () => server!.getChannelsConfig())
-  handle(IPC_CHANNELS.saveChannelsConfig, (input: ChannelsConfig) => {
+  handle(IPC_CHANNELS.saveChannelsConfig, async (input: ChannelsConfig) => {
     const saved = server!.saveChannelsConfig(input)
-    applyTelegramConfig(saved)
-    applyQQConfig(saved)
+    await applyTelegramConfig(saved)
+    await applyQQConfig(saved)
     return saved
   })
   handle(IPC_CHANNELS.readClipboardFilePaths, async () => {

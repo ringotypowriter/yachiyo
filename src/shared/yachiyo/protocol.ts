@@ -1,4 +1,5 @@
 export type ChannelUserStatus = 'pending' | 'allowed' | 'blocked'
+export type ChannelUserRole = 'owner' | 'guest'
 export type ChannelPlatform = 'telegram' | 'qq'
 
 export interface ChannelUserRecord {
@@ -7,6 +8,7 @@ export interface ChannelUserRecord {
   externalUserId: string
   username: string
   status: ChannelUserStatus
+  role: ChannelUserRole
   usageLimitKTokens: number | null
   usedKTokens: number
   workspacePath: string
@@ -15,6 +17,7 @@ export interface ChannelUserRecord {
 export interface UpdateChannelUserInput {
   id: string
   status?: ChannelUserStatus
+  role?: ChannelUserRole
   usageLimitKTokens?: number | null
   usedKTokens?: number
 }
@@ -660,6 +663,10 @@ export interface QQChannelConfig {
 export interface ChannelsConfig {
   telegram?: TelegramChannelConfig
   qq?: QQChannelConfig
+  /** Keywords to redact from memory search results in guest conversations. */
+  memoryFilterKeywords?: string[]
+  /** Custom instruction injected into the system prompt for guest conversations. */
+  guestInstruction?: string
 }
 
 export interface SettingsConfig {

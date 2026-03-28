@@ -1,6 +1,7 @@
 import { integer, real, sqliteTable, text, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
 
 import type {
+  ChannelUserRole,
   ChannelUserStatus,
   MessageRecord,
   RunRecord,
@@ -13,6 +14,7 @@ export const channelUsersTable = sqliteTable('channel_users', {
   externalUserId: text('external_user_id').notNull(),
   username: text('username').notNull(),
   status: text('status').$type<ChannelUserStatus>().notNull().default('pending'),
+  role: text('role').$type<ChannelUserRole>().notNull().default('guest'),
   usageLimitKTokens: integer('usage_limit_k_tokens'),
   usedKTokens: integer('used_k_tokens').notNull().default(0),
   workspacePath: text('workspace_path').notNull()

@@ -75,7 +75,16 @@ const TABS: Tab[] = [
     label: 'Memory',
     icon: Brain
   },
-  { id: 'channels', label: 'Channels', icon: Radio },
+  {
+    id: 'channels',
+    label: 'Channels',
+    icon: Radio,
+    subTabs: [
+      { id: 'general', label: 'General' },
+      { id: 'telegram', label: 'Telegram' },
+      { id: 'qq', label: 'QQ' }
+    ]
+  },
   { id: 'ui', label: 'User Interface', icon: Monitor },
   { id: 'about', label: 'About', icon: Info }
 ]
@@ -281,7 +290,7 @@ function SettingsApp(): React.ReactNode {
     } else if (activeTab === 'memory') {
       body = <MemoryPane draft={draft} onChange={setDraft} />
     } else if (activeTab === 'channels') {
-      body = <ChannelsPane />
+      body = <ChannelsPane activeSubTab={activeSubTab['channels'] ?? 'general'} />
     } else if (activeTab === 'ui') {
       body = <UIPane draft={draft} onChange={setDraft} />
     }

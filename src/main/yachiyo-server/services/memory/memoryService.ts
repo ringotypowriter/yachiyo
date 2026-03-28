@@ -114,6 +114,7 @@ export interface MemoryService {
   }): Promise<MemorySearchResult[]>
   testConnection(config?: SettingsConfig): Promise<TestMemoryConnectionResult>
   recallForContext(input: RecallMemoryInput): Promise<RecallForContextResult>
+  createMemory(item: MemoryCandidate, signal?: AbortSignal): Promise<{ savedCount: number }>
   distillCompletedRun(input: DistillRunMemoryInput): Promise<{ savedCount: number }>
   saveThread(input: SaveThreadMemoryInput): Promise<{ savedCount: number }>
 }
@@ -873,6 +874,17 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
         query,
         signal: input.signal
       })
+    },
+
+    async createMemory(
+      item: MemoryCandidate,
+      signal?: AbortSignal
+    ): Promise<{ savedCount: number }> {
+      const provider = resolveProvider()
+      if (!provider) {
+        return { savedCount: 0 }
+      }
+      return provider.createMemories({ items: [item], signal })
     },
 
     async testConnection(configOverride?: SettingsConfig): Promise<TestMemoryConnectionResult> {

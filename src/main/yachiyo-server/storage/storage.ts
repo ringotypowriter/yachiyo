@@ -1,6 +1,7 @@
 import type {
   ChannelPlatform,
   ChannelUserRecord,
+  ChannelUserRole,
   ChannelUserStatus,
   MessageFileAttachment,
   MessageImageRecord,
@@ -179,9 +180,11 @@ export interface YachiyoStorage {
   listChannelUsers(): ChannelUserRecord[]
   findChannelUser(platform: ChannelPlatform, externalUserId: string): ChannelUserRecord | undefined
   createChannelUser(user: Omit<ChannelUserRecord, 'usedKTokens'>): ChannelUserRecord
+  getChannelUser(id: string): ChannelUserRecord | undefined
   updateChannelUser(input: {
     id: string
     status?: ChannelUserStatus
+    role?: ChannelUserRole
     usageLimitKTokens?: number | null
     usedKTokens?: number
   }): ChannelUserRecord | undefined
@@ -405,7 +408,7 @@ export function parseToolCallDetails(details: string | null): ToolCallDetailsSna
 }
 
 function parseThreadSource(value: string | null): ThreadRecord['source'] | undefined {
-  if (value === 'local' || value === 'telegram') return value
+  if (value === 'local' || value === 'telegram' || value === 'qq') return value
   return undefined
 }
 

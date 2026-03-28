@@ -31,9 +31,24 @@ import type { ModelMessage } from './types.ts'
 // External agent instructions — stripped-down variant for channel contexts
 // ---------------------------------------------------------------------------
 
-export function buildExternalAgentInstructions(input: { enabledTools: ToolCallName[] }): string {
+export function buildExternalAgentInstructions(input: {
+  enabledTools: ToolCallName[]
+  guest?: boolean
+  guestInstruction?: string
+}): string {
   const role = [
     'You are in a casual conversation via an external messaging channel.',
+    ...(input.guest
+      ? [
+          'The person you are talking to is a GUEST — someone invited by your owner to chat with you.',
+          'They are NOT the owner. Treat them warmly but keep appropriate boundaries.',
+          'Refer to USER.md in the workspace for what you know about this guest.',
+          'Do not share private details about the owner or system internals.',
+          ...(input.guestInstruction?.trim()
+            ? ['', 'Owner instructions for guest conversations:', input.guestInstruction.trim()]
+            : [])
+        ]
+      : []),
     'Your role here is conversational companion — not coding assistant, not task executor, not technical advisor (unless the user explicitly asks for technical help).',
     '',
     'In this context:',
@@ -70,6 +85,30 @@ export function buildExternalAgentInstructions(input: { enabledTools: ToolCallNa
 
   if (input.enabledTools.includes('read')) {
     tools.push('Use read for reading file contents.')
+  }
+
+  // updateMemory is always available for external channels (not in enabledTools list).
+  tools.push(
+    '',
+    'You also have an updateMemory tool with two modes:',
+    '- mode "profile": Rewrite USER.md with your updated understanding of this person. Include everything you know — the full document replaces the previous one.',
+    '- mode "memory": Save a noteworthy fact or observation to long-term memory (only works when memory is configured).'
+  )
+
+  if (input.guest) {
+    tools.push(
+      '',
+      'IMPORTANT — memory boundaries for guest conversations:',
+      'memory_search returns memories belonging to your OWNER, not the current guest.',
+      'Do NOT use owner memories to identify the guest or assume they apply to the guest.',
+      "The guest's profile is in USER.md (loaded above) — that is the only source of truth about who the guest is.",
+      '',
+      'Privacy rules for owner memories:',
+      '- You may reference factual/technical memories (project decisions, architecture, public knowledge) when relevant to the conversation.',
+      '- Do NOT disclose personal details about the owner (habits, preferences, private notes, personal opinions) unless the owner has explicitly marked them as shareable.',
+      "- When in doubt, do not share. The owner's privacy takes priority over being helpful to the guest.",
+      '- Never quote raw memory content verbatim to the guest. Paraphrase or summarize when appropriate.'
+    )
   }
 
   return [...role, ...tools].join('\n')

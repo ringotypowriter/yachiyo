@@ -17,7 +17,7 @@ describe('buildExternalAgentInstructions', () => {
     assert.ok(result.includes('webSearch'))
     assert.ok(!result.includes('bash'))
     assert.ok(!result.includes('edit'))
-    assert.ok(!result.includes('write'))
+    // 'write' may appear in updateMemory instructions (Rewrite USER.md), that's fine
   })
 
   it('does not include local-agent assumptions', () => {
@@ -27,9 +27,8 @@ describe('buildExternalAgentInstructions', () => {
 
     assert.ok(!result.includes('YOLO'))
     assert.ok(!result.includes('local agent'))
-    assert.ok(!result.includes('USER.md'))
+    // USER.md is now intentionally mentioned via the updateMemory tool
     assert.ok(!result.includes('SOUL.md'))
-    assert.ok(!result.includes('workspace'))
     assert.ok(!result.includes('subagent'))
     assert.ok(!result.includes('skill'))
   })

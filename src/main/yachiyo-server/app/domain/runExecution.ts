@@ -56,6 +56,8 @@ import {
 import { resolveFileMentionsForUserQuery } from '../../runtime/fileMentions.ts'
 import { readSoulDocument, type SoulDocument } from '../../runtime/soul.ts'
 import { readUserDocument, type UserDocument } from '../../runtime/user.ts'
+import { resolveYachiyoUserPath } from '../../config/paths.ts'
+import { readChannelsConfig } from '../../runtime/channelsConfig.ts'
 import type { ModelRuntime, ModelUsage } from '../../runtime/types.ts'
 import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
@@ -64,6 +66,7 @@ import {
   normalizeToolResult,
   summarizeToolInput
 } from '../../tools/agentTools.ts'
+import { createFilteredMemoryService } from '../../tools/agentTools/memorySearchTool.ts'
 import {
   DEFAULT_HARNESS_NAME,
   type CreateId,
@@ -748,9 +751,23 @@ export async function executeServerRun(
     const soulDocument = deps.readSoulDocument
       ? await deps.readSoulDocument()
       : await readSoulDocument()
-    const userDocument = deps.readUserDocument
-      ? await deps.readUserDocument()
-      : await readUserDocument()
+    const isExternalChannel = input.thread.source != null && input.thread.source !== 'local'
+    const channelUser =
+      isExternalChannel && input.thread.channelUserId
+        ? deps.storage.getChannelUser(input.thread.channelUserId)
+        : undefined
+    const isGuest = isExternalChannel && (channelUser?.role ?? 'guest') !== 'owner'
+    if (isExternalChannel) {
+      console.log(
+        `[yachiyo] external channel run: user=${channelUser?.username ?? 'unknown'}, role=${channelUser?.role ?? 'guest'}, isGuest=${isGuest}`
+      )
+    }
+    const guestUserPath = resolveYachiyoUserPath(workspacePath)
+    const userDocument = isGuest
+      ? await readUserDocument({ filePath: guestUserPath, guest: true })
+      : deps.readUserDocument
+        ? await deps.readUserDocument()
+        : await readUserDocument()
     const hiddenQueryReminder = formatQueryReminder(
       [
         ...(input.previousEnabledTools
@@ -774,7 +791,7 @@ export async function executeServerRun(
     })
     let memoryEntries: string[] = []
     let recallDecision: RecallDecisionSnapshot | undefined
-    if (deps.buildMemoryLayerEntries) {
+    if (deps.buildMemoryLayerEntries && !isGuest) {
       try {
         const result = await deps.buildMemoryLayerEntries({
           requestMessageId: input.requestMessageId,
@@ -839,8 +856,6 @@ export async function executeServerRun(
       deps.storage.updateMessage({ ...requestMessage, turnContext })
     }
 
-    const isExternalChannel = input.thread.source != null && input.thread.source !== 'local'
-
     const history = loadRunHistory(
       deps.loadThreadMessages,
       input.thread.id,
@@ -855,7 +870,9 @@ export async function executeServerRun(
           soul: { content: soulDocument?.rawContent ?? '' },
           user: { content: userDocument?.content ?? '' },
           executionContract: buildExternalAgentInstructions({
-            enabledTools: modelEnabledTools
+            enabledTools: modelEnabledTools,
+            guest: isGuest,
+            guestInstruction: isGuest ? readChannelsConfig().guestInstruction : undefined
           }),
           channelInstruction: input.channelHint ?? '',
           rollingSummary: input.thread.rollingSummary,
@@ -898,8 +915,23 @@ export async function executeServerRun(
         fetchImpl: deps.fetchImpl,
         loadBrowserSnapshot: deps.loadBrowserSnapshot,
         searchService: deps.searchService,
-        memoryService: input.thread.privacyMode ? undefined : deps.memoryService,
+        memoryService: input.thread.privacyMode
+          ? undefined
+          : isGuest
+            ? createFilteredMemoryService(
+                deps.memoryService,
+                readChannelsConfig().memoryFilterKeywords ?? []
+              )
+            : deps.memoryService,
         webSearchService: deps.webSearchService,
+        ...(isExternalChannel
+          ? {
+              updateMemoryDeps: {
+                memoryService: deps.memoryService,
+                userDocumentPath: resolveYachiyoUserPath(workspacePath)
+              }
+            }
+          : {}),
         ...(gitCtx.hasGit && enabledSubagentProfiles.length > 0
           ? {
               subagentProfiles: enabledSubagentProfiles,

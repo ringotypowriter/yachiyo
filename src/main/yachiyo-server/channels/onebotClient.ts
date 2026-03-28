@@ -56,10 +56,14 @@ export function createOneBotClient(options: OneBotClientOptions): OneBotClient {
   function openConnection(): void {
     if (ws) return
 
-    const protocols = options.token ? [`Bearer.${options.token}`] : undefined
+    let url = options.url
+    if (options.token) {
+      const sep = url.includes('?') ? '&' : '?'
+      url = `${url}${sep}access_token=${encodeURIComponent(options.token)}`
+    }
 
     try {
-      ws = new WebSocket(options.url, protocols)
+      ws = new WebSocket(url)
     } catch (error) {
       console.error('[onebot] failed to create WebSocket:', error)
       scheduleReconnect()
@@ -80,16 +84,19 @@ export function createOneBotClient(options: OneBotClientOptions): OneBotClient {
       }
     })
 
-    ws.addEventListener('close', () => {
+    ws.addEventListener('close', (event) => {
       ws = null
       if (!intentionallyClosed) {
-        console.log(`[onebot] connection closed, reconnecting in ${reconnectDelay}ms`)
+        console.log(
+          `[onebot] connection closed (code=${event.code}, reason=${event.reason || 'none'}), reconnecting in ${reconnectDelay}ms`
+        )
         scheduleReconnect()
       }
     })
 
     ws.addEventListener('error', (event) => {
-      console.error('[onebot] WebSocket error:', event)
+      const detail = 'message' in event ? (event as { message: string }).message : options.url
+      console.error(`[onebot] WebSocket error (${detail})`)
     })
   }
 

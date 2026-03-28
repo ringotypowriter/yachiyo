@@ -39,7 +39,25 @@ import {
   type StartRunInput,
   type YachiyoStorage
 } from '../storage.ts'
-import type { ThreadSearchResult } from '../../../../shared/yachiyo/protocol.ts'
+import type {
+  ChannelUserRecord,
+  ChannelUserRole,
+  ThreadSearchResult
+} from '../../../../shared/yachiyo/protocol.ts'
+
+function toChannelUserRecord(row: typeof channelUsersTable.$inferSelect): ChannelUserRecord {
+  return {
+    id: row.id,
+    platform: row.platform as ChannelUserRecord['platform'],
+    externalUserId: row.externalUserId,
+    username: row.username,
+    status: row.status,
+    role: (row.role ?? 'guest') as ChannelUserRole,
+    usageLimitKTokens: row.usageLimitKTokens,
+    usedKTokens: row.usedKTokens,
+    workspacePath: row.workspacePath
+  }
+}
 
 const MIGRATIONS_DIR = fileURLToPath(new URL('./drizzle', import.meta.url))
 const require = createRequire(import.meta.url)
@@ -1031,20 +1049,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     },
 
     listChannelUsers() {
-      return db
-        .select()
-        .from(channelUsersTable)
-        .all()
-        .map((row) => ({
-          id: row.id,
-          platform: row.platform as 'telegram',
-          externalUserId: row.externalUserId,
-          username: row.username,
-          status: row.status,
-          usageLimitKTokens: row.usageLimitKTokens,
-          usedKTokens: row.usedKTokens,
-          workspacePath: row.workspacePath
-        }))
+      return db.select().from(channelUsersTable).all().map(toChannelUserRecord)
     },
 
     findChannelUser(platform, externalUserId) {
@@ -1061,16 +1066,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
       if (!row) return undefined
 
-      return {
-        id: row.id,
-        platform: row.platform as 'telegram',
-        externalUserId: row.externalUserId,
-        username: row.username,
-        status: row.status,
-        usageLimitKTokens: row.usageLimitKTokens,
-        usedKTokens: row.usedKTokens,
-        workspacePath: row.workspacePath
-      }
+      return toChannelUserRecord(row)
     },
 
     createChannelUser(user) {
@@ -1081,6 +1077,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           externalUserId: user.externalUserId,
           username: user.username,
           status: user.status,
+          role: user.role,
           usageLimitKTokens: user.usageLimitKTokens,
           usedKTokens: 0,
           workspacePath: user.workspacePath
@@ -1090,13 +1087,19 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       return { ...user, usedKTokens: 0 }
     },
 
-    updateChannelUser({ id, status, usageLimitKTokens, usedKTokens }) {
+    getChannelUser(id) {
+      const row = db.select().from(channelUsersTable).where(eq(channelUsersTable.id, id)).get()
+      return row ? toChannelUserRecord(row) : undefined
+    },
+
+    updateChannelUser({ id, status, role, usageLimitKTokens, usedKTokens }) {
       const existing = db.select().from(channelUsersTable).where(eq(channelUsersTable.id, id)).get()
 
       if (!existing) return undefined
 
       const updates: Record<string, unknown> = {}
       if (status !== undefined) updates.status = status
+      if (role !== undefined) updates.role = role
       if (usageLimitKTokens !== undefined) updates.usageLimitKTokens = usageLimitKTokens
       if (usedKTokens !== undefined) updates.usedKTokens = usedKTokens
 
@@ -1106,16 +1109,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
       const updated = db.select().from(channelUsersTable).where(eq(channelUsersTable.id, id)).get()!
 
-      return {
-        id: updated.id,
-        platform: updated.platform as 'telegram',
-        externalUserId: updated.externalUserId,
-        username: updated.username,
-        status: updated.status,
-        usageLimitKTokens: updated.usageLimitKTokens,
-        usedKTokens: updated.usedKTokens,
-        workspacePath: updated.workspacePath
-      }
+      return toChannelUserRecord(updated)
     }
   }
 }

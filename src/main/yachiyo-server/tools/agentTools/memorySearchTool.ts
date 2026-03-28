@@ -95,3 +95,53 @@ export function createTool(
     }
   })
 }
+
+/**
+ * Wrap a MemoryService so that search results containing any of the given
+ * keywords are stripped. The filtered tool output tells the model how many
+ * results were hidden for privacy.
+ */
+export function createFilteredMemoryService(
+  inner: MemoryService,
+  filterKeywords: string[]
+): MemoryService {
+  if (filterKeywords.length === 0) return inner
+
+  const lowerKeywords = filterKeywords.map((k) => k.toLowerCase())
+
+  function containsFilteredKeyword(result: MemorySearchResult): boolean {
+    const haystack = [result.title ?? '', result.content, ...(result.labels ?? [])]
+      .join(' ')
+      .toLowerCase()
+    return lowerKeywords.some((kw) => haystack.includes(kw))
+  }
+
+  return {
+    ...inner,
+    async searchMemories(input) {
+      const results = await inner.searchMemories(input)
+      const filtered = results.filter((r) => !containsFilteredKeyword(r))
+      const hiddenCount = results.length - filtered.length
+
+      if (hiddenCount > 0 && filtered.length === 0) {
+        return [
+          {
+            id: '_privacy_filter',
+            content: `All ${hiddenCount} result(s) were hidden by the owner's privacy filter.`,
+            title: 'Privacy filter'
+          }
+        ]
+      }
+
+      if (hiddenCount > 0) {
+        filtered.push({
+          id: '_privacy_filter_notice',
+          content: `${hiddenCount} additional result(s) were hidden by the owner's privacy filter.`,
+          title: 'Privacy filter notice'
+        })
+      }
+
+      return filtered
+    }
+  }
+}

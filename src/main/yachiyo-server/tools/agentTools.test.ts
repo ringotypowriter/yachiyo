@@ -88,6 +88,7 @@ test('createAgentToolSet adds hidden memory_search only when memory is configure
       entries: [],
       thread
     }),
+    createMemory: async () => ({ savedCount: 0 }),
     distillCompletedRun: async () => ({ savedCount: 0 }),
     saveThread: async () => ({ savedCount: 0 })
   }
@@ -148,6 +149,7 @@ test('memory_search forwards the abort signal to memory service lookups', async 
       entries: [],
       thread
     }),
+    createMemory: async () => ({ savedCount: 0 }),
     distillCompletedRun: async () => ({ savedCount: 0 }),
     saveThread: async () => ({ savedCount: 0 })
   })

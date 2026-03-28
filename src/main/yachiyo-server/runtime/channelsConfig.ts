@@ -3,24 +3,15 @@
  *
  * Kept intentionally separate from config.toml so channel settings (including
  * bot tokens) never need to touch the main settings normalisation pipeline.
- *
- * File format:
- *
- *   [telegram]
- *   enabled = true
- *   bot_token = "123456:ABC-DEF..."
- *
- *   [qq]
- *   enabled = true
- *   ws_url = "ws://localhost:3001"
- *   token = "optional-secret"
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
+import TOML from 'smol-toml'
+
 import { resolveYachiyoChannelsPath } from '../config/paths.ts'
-import type { ChannelsConfig } from '../../../shared/yachiyo/protocol.ts'
+import type { ChannelsConfig, ThreadModelOverride } from '../../../shared/yachiyo/protocol.ts'
 
 export type { ChannelsConfig }
 
@@ -50,112 +41,108 @@ export function writeChannelsConfig(config: ChannelsConfig, filePath?: string): 
   return config
 }
 
-// ─── TOML parser ──────────────────────────────────────────────────────────────
+// ─── TOML parse ──────────────────────────────────────────────────────────────
+
+function str(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function bool(value: unknown, fallback = false): boolean {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+function parseModel(section: Record<string, unknown>): ThreadModelOverride | undefined {
+  const providerName = str(section['model_provider'])
+  const model = str(section['model_name'])
+  return providerName && model ? { providerName, model } : undefined
+}
 
 export function parseChannelsToml(raw: string): ChannelsConfig {
+  const doc = TOML.parse(raw)
   const config: ChannelsConfig = {}
-  let section = ''
 
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
+  const tg = doc['telegram'] as Record<string, unknown> | undefined
+  if (tg) {
+    config.telegram = {
+      enabled: bool(tg['enabled']),
+      botToken: str(tg['bot_token']),
+      ...(parseModel(tg) ? { model: parseModel(tg) } : {})
+    }
+  }
 
-    const sectionMatch = trimmed.match(/^\[([^\]]+)\]$/)
-    if (sectionMatch) {
-      section = sectionMatch[1].trim()
-      continue
+  const qq = doc['qq'] as Record<string, unknown> | undefined
+  if (qq) {
+    config.qq = {
+      enabled: bool(qq['enabled']),
+      wsUrl: str(qq['ws_url']),
+      ...(str(qq['token']) ? { token: str(qq['token']) } : {}),
+      ...(parseModel(qq) ? { model: parseModel(qq) } : {})
+    }
+  }
+
+  const privacy = doc['privacy'] as Record<string, unknown> | undefined
+  if (privacy) {
+    const gi = privacy['guest_instruction']
+    if (typeof gi === 'string' && gi.trim()) {
+      config.guestInstruction = gi
     }
 
-    const kvMatch = trimmed.match(/^([^=]+)=(.*)$/)
-    if (!kvMatch) continue
-
-    const key = kvMatch[1].trim()
-    const rawVal = kvMatch[2].trim()
-
-    if (section === 'telegram') {
-      if (!config.telegram) {
-        config.telegram = { enabled: false, botToken: '' }
-      }
-      if (key === 'enabled') {
-        config.telegram.enabled = rawVal === 'true'
-      } else if (key === 'bot_token') {
-        config.telegram.botToken = unquote(rawVal)
-      } else if (key === 'model_provider') {
-        if (!config.telegram.model) config.telegram.model = { providerName: '', model: '' }
-        config.telegram.model.providerName = unquote(rawVal)
-      } else if (key === 'model_name') {
-        if (!config.telegram.model) config.telegram.model = { providerName: '', model: '' }
-        config.telegram.model.model = unquote(rawVal)
-      }
-    }
-
-    if (section === 'qq') {
-      if (!config.qq) {
-        config.qq = { enabled: false, wsUrl: '' }
-      }
-      if (key === 'enabled') {
-        config.qq.enabled = rawVal === 'true'
-      } else if (key === 'ws_url') {
-        config.qq.wsUrl = unquote(rawVal)
-      } else if (key === 'token') {
-        config.qq.token = unquote(rawVal)
-      } else if (key === 'model_provider') {
-        if (!config.qq.model) config.qq.model = { providerName: '', model: '' }
-        config.qq.model.providerName = unquote(rawVal)
-      } else if (key === 'model_name') {
-        if (!config.qq.model) config.qq.model = { providerName: '', model: '' }
-        config.qq.model.model = unquote(rawVal)
-      }
+    const kw = privacy['memory_filter_keywords']
+    if (Array.isArray(kw)) {
+      config.memoryFilterKeywords = kw.filter((item): item is string => typeof item === 'string')
     }
   }
 
   return config
 }
 
-// ─── TOML serializer ─────────────────────────────────────────────────────────
+// ─── TOML serialize ──────────────────────────────────────────────────────────
+
+function buildSection(
+  entries: Array<[string, string | boolean | string[] | undefined]>
+): Record<string, unknown> {
+  const section: Record<string, unknown> = {}
+  for (const [key, value] of entries) {
+    if (value !== undefined) section[key] = value
+  }
+  return section
+}
 
 export function stringifyChannelsToml(config: ChannelsConfig): string {
-  const lines: string[] = []
+  const doc: Record<string, unknown> = {}
 
-  if (config.telegram !== undefined) {
-    lines.push('[telegram]')
-    lines.push(`enabled = ${config.telegram.enabled ? 'true' : 'false'}`)
-    lines.push(`bot_token = ${quoteToml(config.telegram.botToken)}`)
-    if (config.telegram.model?.providerName && config.telegram.model?.model) {
-      lines.push(`model_provider = ${quoteToml(config.telegram.model.providerName)}`)
-      lines.push(`model_name = ${quoteToml(config.telegram.model.model)}`)
-    }
+  if (config.telegram) {
+    doc['telegram'] = buildSection([
+      ['enabled', config.telegram.enabled],
+      ['bot_token', config.telegram.botToken],
+      ['model_provider', config.telegram.model?.providerName || undefined],
+      ['model_name', config.telegram.model?.model || undefined]
+    ])
   }
 
-  if (config.qq !== undefined) {
-    if (lines.length > 0) lines.push('')
-    lines.push('[qq]')
-    lines.push(`enabled = ${config.qq.enabled ? 'true' : 'false'}`)
-    lines.push(`ws_url = ${quoteToml(config.qq.wsUrl)}`)
-    if (config.qq.token) {
-      lines.push(`token = ${quoteToml(config.qq.token)}`)
-    }
-    if (config.qq.model?.providerName && config.qq.model?.model) {
-      lines.push(`model_provider = ${quoteToml(config.qq.model.providerName)}`)
-      lines.push(`model_name = ${quoteToml(config.qq.model.model)}`)
-    }
+  if (config.qq) {
+    doc['qq'] = buildSection([
+      ['enabled', config.qq.enabled],
+      ['ws_url', config.qq.wsUrl],
+      ['token', config.qq.token || undefined],
+      ['model_provider', config.qq.model?.providerName || undefined],
+      ['model_name', config.qq.model?.model || undefined]
+    ])
   }
 
-  return lines.join('\n') + (lines.length > 0 ? '\n' : '')
-}
+  const hasPrivacy =
+    config.guestInstruction?.trim() ||
+    (config.memoryFilterKeywords && config.memoryFilterKeywords.length > 0)
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
-
-function quoteToml(value: string): string {
-  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
-}
-
-function unquote(value: string): string {
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    return value.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\')
+  if (hasPrivacy) {
+    doc['privacy'] = buildSection([
+      ['guest_instruction', config.guestInstruction?.trim() || undefined],
+      [
+        'memory_filter_keywords',
+        config.memoryFilterKeywords?.length ? config.memoryFilterKeywords : undefined
+      ]
+    ])
   }
-  return value
+
+  return TOML.stringify(doc)
 }

@@ -618,6 +618,7 @@ test('YachiyoServer injects recalled memory into the compiled context before the
             thread
           }
         },
+        createMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -677,6 +678,7 @@ test('YachiyoServer keeps the compile pipeline working when recall is gated off'
           entries: [],
           thread
         }),
+        createMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -736,6 +738,7 @@ test('YachiyoServer bases recall history on the active branch during retry', asy
             thread
           }
         },
+        createMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -783,6 +786,7 @@ test('YachiyoServer only injects the hidden memory_search runtime tool when memo
           entries: [],
           thread
         }),
+        createMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -825,6 +829,7 @@ test('YachiyoServer only injects the hidden memory_search runtime tool when memo
           entries: [],
           thread
         }),
+        createMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -887,6 +892,7 @@ test('YachiyoServer does not claim there are no tools when hidden memory search 
           entries: [],
           thread
         }),
+        createMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -946,6 +952,7 @@ test('YachiyoServer continues the run when memory recall fails', async () => {
         recallForContext: async () => {
           throw new Error('Cannot connect to Nowledge Mem')
         },
+        createMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -999,6 +1006,7 @@ test('YachiyoServer saveThread uses the explicit memory service and can archive 
           entries: [],
           thread
         }),
+        createMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async ({ thread }) => {
           savedThreadId = thread.id
@@ -1050,6 +1058,7 @@ test('YachiyoServer saveThread clears saving state when memory service throws', 
           entries: [],
           thread
         }),
+        createMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => {
           callCount++
@@ -1101,6 +1110,7 @@ test('YachiyoServer recoverInterruptedSaves reports interrupted save recovery on
           entries: [],
           thread
         }),
+        createMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -1248,6 +1258,7 @@ test('YachiyoServer tests memory connectivity against the provided draft config'
           entries: [],
           thread
         }),
+        createMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }

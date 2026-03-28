@@ -82,16 +82,12 @@ export function createQQService({
     console.log(`[qq] inbound DM from ${nickname} (${userId}): ${JSON.stringify(text)}`)
 
     const result = routeQQMessage({ userId, nickname, text }, storage)
-    console.log(`[qq] route result: ${result.kind}`)
+    console.log(
+      `[qq] route result: ${result.kind}${result.kind === 'allowed' ? ` (role=${result.channelUser.role})` : ''}`
+    )
 
     switch (result.kind) {
       case 'blocked':
-        return
-
-      case 'pending':
-        void client
-          .sendPrivateMessage(msg.userId, result.reply)
-          .catch((e) => console.error('[qq] failed to send pending reply', e))
         return
 
       case 'limit-exceeded':

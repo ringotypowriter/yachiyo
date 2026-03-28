@@ -42,6 +42,10 @@ import {
   createTool as createDelegateCodingTaskTool,
   type DelegateCodingTaskContext
 } from './agentTools/delegateCodingTaskTool.ts'
+import {
+  createTool as createUpdateMemoryTool,
+  type UpdateMemoryDeps
+} from './agentTools/updateMemoryTool.ts'
 
 export type {
   AgentToolMetadata,
@@ -84,6 +88,7 @@ export interface AgentToolDependencies {
   memoryService?: MemoryService
   searchService?: SearchService
   webSearchService?: WebSearchService
+  updateMemoryDeps?: UpdateMemoryDeps
   subagentProfiles?: SubagentProfile[]
   onSubagentProgress?: (chunk: string) => void
   onSubagentStarted?: (agentName: string) => void
@@ -304,6 +309,10 @@ export function createAgentToolSet(
 
   if (dependencies.memoryService?.hasHiddenSearchCapability()) {
     tools.memory_search = createMemorySearchTool(dependencies.memoryService)
+  }
+
+  if (dependencies.updateMemoryDeps) {
+    tools.updateMemory = createUpdateMemoryTool(dependencies.updateMemoryDeps)
   }
 
   const enabledSubagentProfiles = (dependencies.subagentProfiles ?? []).filter((p) => p.enabled)

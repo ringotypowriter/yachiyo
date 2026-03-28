@@ -1,0 +1,1 @@
+ALTER TABLE `channel_users` ADD `role` text DEFAULT 'guest' NOT NULL;

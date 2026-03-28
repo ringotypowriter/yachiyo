@@ -20,7 +20,6 @@ export interface QQIncomingMessage {
 export type QQRouteResult =
   | { kind: 'allowed'; channelUser: ChannelUserRecord }
   | { kind: 'blocked' }
-  | { kind: 'pending'; reply: string }
   | { kind: 'limit-exceeded'; reply: string }
 
 export interface QQChannelStorage {
@@ -28,7 +27,6 @@ export interface QQChannelStorage {
   createChannelUser(user: Omit<ChannelUserRecord, 'usedKTokens'>): ChannelUserRecord
 }
 
-const PENDING_REPLY = '你好！我已经通知主人了，等审批通过后就可以聊啦～'
 const LIMIT_REPLY = '抱歉，你的使用额度已经用完了，请联系主人。'
 
 export function routeQQMessage(msg: QQIncomingMessage, storage: QQChannelStorage): QQRouteResult {
@@ -41,10 +39,13 @@ export function routeQQMessage(msg: QQIncomingMessage, storage: QQChannelStorage
       externalUserId: msg.userId,
       username: msg.nickname,
       status: 'pending',
+      role: 'guest',
       usageLimitKTokens: null,
       workspacePath: join(resolveYachiyoTempWorkspaceRoot(), `qq-${msg.userId}`)
     })
-    return { kind: 'pending', reply: PENDING_REPLY }
+    // Silent on first contact — QQ monitors auto-replies from bots.
+    // User is created as pending; owner approves via settings.
+    return { kind: 'blocked' }
   }
 
   const status: ChannelUserStatus = channelUser.status

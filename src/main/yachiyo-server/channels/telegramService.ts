@@ -136,7 +136,9 @@ export function createTelegramService({
 
       const result = routeTelegramMessage({ externalUserId, username, text: incomingText }, storage)
 
-      console.log(`[telegram] route result: ${result.kind}`)
+      console.log(
+        `[telegram] route result: ${result.kind}${result.kind === 'allowed' ? ` (role=${result.channelUser.role})` : ''}`
+      )
 
       // Extract Telegram chat ID from the SDK thread ID (format: telegram:{chatId})
       const chatId = message.threadId?.replace(/^telegram:/, '') ?? externalUserId

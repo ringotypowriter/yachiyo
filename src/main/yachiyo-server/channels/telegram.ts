@@ -65,6 +65,7 @@ export function routeTelegramMessage(
       externalUserId: msg.externalUserId,
       username: msg.username,
       status: 'pending',
+      role: 'guest',
       usageLimitKTokens: null,
       workspacePath: join(resolveYachiyoTempWorkspaceRoot(), `tg-${msg.username}`)
     })

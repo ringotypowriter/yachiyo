@@ -19,6 +19,19 @@ const DEFAULT_USER_TEMPLATE = [
   ''
 ].join('\n')
 
+const DEFAULT_GUEST_USER_TEMPLATE = [
+  '# USER',
+  '',
+  'This is a guest user invited by the owner.',
+  '',
+  '## Profile',
+  '',
+  '## Preferences',
+  '',
+  '## Notes',
+  ''
+].join('\n')
+
 export interface UserDocument {
   filePath: string
   content: string
@@ -26,6 +39,8 @@ export interface UserDocument {
 
 export interface ReadUserDocumentInput {
   filePath?: string
+  /** When true, use the guest template for new USER.md files. */
+  guest?: boolean
 }
 
 export interface WriteUserDocumentInput {
@@ -59,7 +74,7 @@ export async function readUserDocument(
       throw error
     }
 
-    content = buildDefaultUserTemplate()
+    content = input.guest ? DEFAULT_GUEST_USER_TEMPLATE : buildDefaultUserTemplate()
     await mkdir(dirname(filePath), { recursive: true })
     await writeFile(filePath, content, 'utf8')
   }
