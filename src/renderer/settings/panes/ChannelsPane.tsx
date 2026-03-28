@@ -294,6 +294,30 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               </div>
             </SettingRow>
           )}
+
+          <SettingRow>
+            <div className="min-w-0">
+              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                Group Vision
+              </div>
+              <div className="text-sm" style={{ color: theme.text.tertiary }}>
+                Pass images from group messages to the probe model
+              </div>
+            </div>
+            <SettingSwitch
+              ariaLabel="Enable group vision"
+              checked={telegram?.group?.vision ?? false}
+              onChange={() =>
+                patchTelegram({
+                  group: {
+                    ...telegram?.group,
+                    enabled: telegram?.group?.enabled ?? false,
+                    vision: !(telegram?.group?.vision ?? false)
+                  }
+                })
+              }
+            />
+          </SettingRow>
         </SettingSection>
       </div>
     )
@@ -447,6 +471,30 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               </div>
             </SettingRow>
           )}
+
+          <SettingRow>
+            <div className="min-w-0">
+              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                Group Vision
+              </div>
+              <div className="text-sm" style={{ color: theme.text.tertiary }}>
+                Pass images from group messages to the probe model
+              </div>
+            </div>
+            <SettingSwitch
+              ariaLabel="Enable group vision"
+              checked={qq?.group?.vision ?? false}
+              onChange={() =>
+                patchQQ({
+                  group: {
+                    ...qq?.group,
+                    enabled: qq?.group?.enabled ?? true,
+                    vision: !(qq?.group?.vision ?? false)
+                  }
+                })
+              }
+            />
+          </SettingRow>
         </SettingSection>
       </div>
     )

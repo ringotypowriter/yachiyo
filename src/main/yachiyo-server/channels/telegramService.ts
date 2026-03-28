@@ -593,7 +593,8 @@ export function createTelegramService({
       knownUsers: buildKnownUsersMap(),
       personaSummary: EXTERNAL_SYSTEM_PROMPT,
       ownerInstruction: readChannelsConfig().guestInstruction,
-      groupUserDocument: groupUserDoc?.content
+      groupUserDocument: groupUserDoc?.content,
+      vision: groupConfig?.vision
     })
 
     // Resolve model settings: group-specific override → default primary model.

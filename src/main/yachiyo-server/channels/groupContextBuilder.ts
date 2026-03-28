@@ -11,6 +11,7 @@
  */
 
 import type { GroupMessageEntry } from '../../../shared/yachiyo/protocol.ts'
+import { extractBase64DataUrlPayload } from '../../../shared/yachiyo/messageContent.ts'
 import type { ModelMessage } from '../runtime/types.ts'
 
 // ---------------------------------------------------------------------------
@@ -77,6 +78,8 @@ export interface BuildGroupProbeSystemPromptInput {
   ownerInstruction?: string
   /** Content of the per-group USER.md (people directory, group context, etc.). */
   groupUserDocument?: string
+  /** Whether vision is enabled — changes the image guidance in the prompt. */
+  vision?: boolean
 }
 
 /**
@@ -141,9 +144,9 @@ An @mention is a strong signal, but NOT a command. You're a person, not a servic
 - If someone @mentions you for something boring, trivial, or just to test if you respond → feel free to ignore.
 - You are never obligated to respond just because someone said your name.
 
-## About [image] tags
+## Images
 
-You cannot see images. But you CAN react to the conversation around them — the text, the context, the vibe. Don't use "I can't see the image" as a reason to stay silent. Judge based on what people are SAYING, not what they're sharing.
+${input.vision ? `Images shared in the chat are included as image content parts alongside the messages. You can see them and react to them naturally.` : `You cannot see images. But you CAN react to the conversation around them — the text, the context, the vibe. Don't use "I can't see the image" as a reason to stay silent. Judge based on what people are SAYING, not what they're sharing.`}
 
 ## STAY SILENT if:
 
@@ -173,14 +176,38 @@ You cannot see images. But you CAN react to the conversation around them — the
 export interface BuildGroupProbeMessagesInput extends BuildGroupProbeSystemPromptInput {
   recentMessages: GroupMessageEntry[]
   knownUsers?: Map<string, string>
+  /** When true, include image content parts from recent messages. */
+  vision?: boolean
 }
 
 export function buildGroupProbeMessages(input: BuildGroupProbeMessagesInput): ModelMessage[] {
   const systemPrompt = buildGroupProbeSystemPrompt(input)
-  const userContent = formatGroupMessages(input.recentMessages, input.botName, input.knownUsers)
+  const textContent = formatGroupMessages(input.recentMessages, input.botName, input.knownUsers)
 
-  return [
-    { role: 'system' as const, content: systemPrompt },
-    { role: 'user' as const, content: userContent }
-  ]
+  // Collect image parts when vision is enabled.
+  const imageParts: Array<{ type: 'image'; image: string; mediaType: string }> = []
+  if (input.vision) {
+    for (const msg of input.recentMessages) {
+      for (const img of msg.images ?? []) {
+        const payload = extractBase64DataUrlPayload(img.dataUrl)
+        if (payload) {
+          imageParts.push({
+            type: 'image' as const,
+            image: payload.base64,
+            mediaType: payload.mediaType
+          })
+        }
+      }
+    }
+  }
+
+  const userMessage: ModelMessage =
+    imageParts.length > 0
+      ? {
+          role: 'user' as const,
+          content: [{ type: 'text' as const, text: textContent }, ...imageParts]
+        }
+      : { role: 'user' as const, content: textContent }
+
+  return [{ role: 'system' as const, content: systemPrompt }, userMessage]
 }

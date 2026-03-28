@@ -63,6 +63,8 @@ export interface GroupChannelConfig {
   enabled: boolean
   /** Model override for the group probe call. When set, overrides the default tool model. */
   model?: ThreadModelOverride
+  /** When true, pass images from group messages to the probe model. Default false. */
+  vision?: boolean
   activeCheckIntervalMs?: number
   engagedCheckIntervalMs?: number
   wakeBufferMs?: number

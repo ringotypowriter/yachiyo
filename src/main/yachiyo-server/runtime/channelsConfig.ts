@@ -78,9 +78,12 @@ function parseGroupConfig(section: Record<string, unknown>): GroupChannelConfig 
     return providerName && model ? { providerName, model } : undefined
   })()
 
+  const vision = typeof group['vision'] === 'boolean' ? group['vision'] : undefined
+
   return {
     enabled,
     ...(groupModel ? { model: groupModel } : {}),
+    ...(vision !== undefined ? { vision } : {}),
     ...(int(group['active_check_interval_ms']) !== undefined
       ? { activeCheckIntervalMs: int(group['active_check_interval_ms'])! }
       : {}),
@@ -157,6 +160,9 @@ function buildGroupSection(group: GroupChannelConfig): Record<string, unknown> {
   if (group.model) {
     section['model_provider'] = group.model.providerName
     section['model_name'] = group.model.model
+  }
+  if (group.vision !== undefined) {
+    section['vision'] = group.vision
   }
   if (group.activeCheckIntervalMs !== undefined) {
     section['active_check_interval_ms'] = group.activeCheckIntervalMs
