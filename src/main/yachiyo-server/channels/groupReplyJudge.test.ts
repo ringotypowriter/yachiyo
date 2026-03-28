@@ -19,26 +19,26 @@ function msg(text: string, name = 'Alice', isMention = false): GroupMessageEntry
 }
 
 describe('formatMessagesForJudge', () => {
-  it('defaults unknown users to guest role', () => {
-    const result = formatMessagesForJudge([msg('hello', 'Alice'), msg('world', 'Bob')], 'Yachiyo')
-    assert.equal(
-      result,
-      '<msg from="Alice" role="guest">hello</msg>\n<msg from="Bob" role="guest">world</msg>'
-    )
+  it('defaults unknown users to guest role with timestamp', () => {
+    const result = formatMessagesForJudge([msg('hello', 'Alice')], 'Yachiyo')
+    assert.ok(result.includes('from="Alice"'))
+    assert.ok(result.includes('role="guest"'))
+    assert.ok(result.includes('t="'))
+    assert.ok(result.includes('>hello</msg>'))
   })
 
   it('includes mention attribute when @mentioned', () => {
     const result = formatMessagesForJudge([msg('what do you think?', 'Alice', true)], 'Yachiyo')
-    assert.equal(
-      result,
-      '<msg from="Alice" role="guest" mention="Yachiyo">what do you think?</msg>'
-    )
+    assert.ok(result.includes('mention="Yachiyo"'))
+    assert.ok(result.includes('role="guest"'))
+    assert.ok(result.includes('>what do you think?</msg>'))
   })
 
   it('uses known user role when provided', () => {
     const known = new Map([['1', 'owner']])
     const result = formatMessagesForJudge([msg('hey', 'Alice')], 'Yachiyo', known)
-    assert.equal(result, '<msg from="Alice" role="owner">hey</msg>')
+    assert.ok(result.includes('role="owner"'))
+    assert.ok(!result.includes('role="guest"'))
   })
 
   it('omits role for bot self messages', () => {
@@ -50,7 +50,9 @@ describe('formatMessagesForJudge', () => {
       timestamp: Date.now() / 1_000
     }
     const result = formatMessagesForJudge([m], 'Yachiyo')
-    assert.equal(result, '<msg from="Yachiyo">hello!</msg>')
+    assert.ok(result.includes('from="Yachiyo"'))
+    assert.ok(!result.includes('role='))
+    assert.ok(result.includes('>hello!</msg>'))
   })
 
   it('sanitizes bracket patterns in message text', () => {

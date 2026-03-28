@@ -212,7 +212,7 @@ export function createGroupMonitor(
     buffer.push(entry)
     pruneBuffer()
 
-    // @mention → skip any wake buffer and trigger an immediate check.
+    // @mention → fast-track to judge evaluation (judge can still say NO).
     if (entry.isMention) {
       if (wakeTimer) {
         clearTimeout(wakeTimer)

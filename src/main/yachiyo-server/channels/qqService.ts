@@ -35,6 +35,7 @@ import { createOneBotClient, type OneBotClient } from './onebotClient.ts'
 import { readFile } from 'node:fs/promises'
 import { routeQQMessage, type QQChannelStorage } from './qq.ts'
 import { EXTERNAL_SYSTEM_PROMPT } from '../runtime/prompt.ts'
+import { readChannelsConfig } from '../runtime/channelsConfig.ts'
 
 /** Minimum debounce delay before flushing a message batch. */
 const REPLY_DELAY_MIN_MS = 3_000
@@ -241,7 +242,8 @@ export function createQQService({
             groupName: group.name,
             recentMessages,
             knownUsers: buildKnownUsersMap(),
-            personaSummary: EXTERNAL_SYSTEM_PROMPT
+            personaSummary: EXTERNAL_SYSTEM_PROMPT,
+            ownerInstruction: readChannelsConfig().guestInstruction
           },
           auxService
         )
