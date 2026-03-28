@@ -461,6 +461,40 @@ export function createTelegramService({
     return map
   }
 
+  /** Per-group dedup ring buffer for outgoing messages. */
+  const recentOutgoing = new Map<string, { texts: string[]; timestamps: number[] }>()
+  const DEDUP_WINDOW_MS = 5 * 60 * 1_000
+  const DEDUP_MAX_ENTRIES = 10
+
+  function isDuplicateOutgoing(groupId: string, message: string): boolean {
+    const normalized = message.trim().toLowerCase()
+    const entry = recentOutgoing.get(groupId)
+    if (!entry) return false
+
+    const now = Date.now()
+    while (entry.timestamps.length > 0 && now - entry.timestamps[0] > DEDUP_WINDOW_MS) {
+      entry.timestamps.shift()
+      entry.texts.shift()
+    }
+
+    return entry.texts.some((t) => t === normalized)
+  }
+
+  function recordOutgoing(groupId: string, message: string): void {
+    const normalized = message.trim().toLowerCase()
+    let entry = recentOutgoing.get(groupId)
+    if (!entry) {
+      entry = { texts: [], timestamps: [] }
+      recentOutgoing.set(groupId, entry)
+    }
+    entry.texts.push(normalized)
+    entry.timestamps.push(Date.now())
+    while (entry.texts.length > DEDUP_MAX_ENTRIES) {
+      entry.texts.shift()
+      entry.timestamps.shift()
+    }
+  }
+
   if (groupConfig?.enabled) {
     groupRegistry = createGroupMonitorRegistry(policy.groupDefaults, groupConfig, {
       async onTurn(group, recentMessages) {
@@ -500,8 +534,16 @@ export function createTelegramService({
         message: z.string().describe('The message to send to the group. Plain text only.')
       }),
       execute: async ({ message }) => {
+        if (isDuplicateOutgoing(group.id, message)) {
+          console.log(
+            `[telegram-group] dropped duplicate message for "${group.name}": ${message.slice(0, 80)}`
+          )
+          return 'Message sent.'
+        }
+
         try {
           await sendTelegramMessage(group.externalGroupId, message)
+          recordOutgoing(group.id, message)
           console.log(`[telegram-group] sent reply to "${group.name}": ${message.slice(0, 100)}`)
 
           // Feed the bot's own reply back into the monitor so it sees it.

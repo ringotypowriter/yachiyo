@@ -241,6 +241,45 @@ export function createQQService({
     return map
   }
 
+  /**
+   * Per-group ring buffer of recent outgoing messages for dedup.
+   * Drops messages that are identical (or near-identical) to something
+   * the bot said recently, so chatty models don't repeat themselves.
+   */
+  const recentOutgoing = new Map<string, { texts: string[]; timestamps: number[] }>()
+  const DEDUP_WINDOW_MS = 5 * 60 * 1_000
+  const DEDUP_MAX_ENTRIES = 10
+
+  function isDuplicateOutgoing(groupId: string, message: string): boolean {
+    const normalized = message.trim().toLowerCase()
+    const entry = recentOutgoing.get(groupId)
+    if (!entry) return false
+
+    const now = Date.now()
+    // Prune old entries
+    while (entry.timestamps.length > 0 && now - entry.timestamps[0] > DEDUP_WINDOW_MS) {
+      entry.timestamps.shift()
+      entry.texts.shift()
+    }
+
+    return entry.texts.some((t) => t === normalized)
+  }
+
+  function recordOutgoing(groupId: string, message: string): void {
+    const normalized = message.trim().toLowerCase()
+    let entry = recentOutgoing.get(groupId)
+    if (!entry) {
+      entry = { texts: [], timestamps: [] }
+      recentOutgoing.set(groupId, entry)
+    }
+    entry.texts.push(normalized)
+    entry.timestamps.push(Date.now())
+    while (entry.texts.length > DEDUP_MAX_ENTRIES) {
+      entry.texts.shift()
+      entry.timestamps.shift()
+    }
+  }
+
   // Group monitoring is enabled by default; only skip if explicitly disabled.
   if (groupConfig?.enabled !== false) {
     groupRegistry = createGroupMonitorRegistry(policy.groupDefaults, groupConfig, {
@@ -282,8 +321,16 @@ export function createQQService({
         message: z.string().describe('The message to send to the group. Plain text only.')
       }),
       execute: async ({ message }) => {
+        if (isDuplicateOutgoing(group.id, message)) {
+          console.log(
+            `[qq-group] dropped duplicate message for "${group.name}": ${message.slice(0, 80)}`
+          )
+          return 'Message sent.'
+        }
+
         try {
           await client.sendGroupMessage(Number(group.externalGroupId), message)
+          recordOutgoing(group.id, message)
           console.log(`[qq-group] sent reply to group "${group.name}": ${message.slice(0, 100)}`)
 
           // Feed the bot's own reply back into the monitor so it sees it.
