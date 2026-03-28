@@ -38,6 +38,8 @@ export const threadsTable = sqliteTable('threads', {
   modelOverride: text('model_override'),
   source: text('source').default('local'),
   channelUserId: text('channel_user_id').references(() => channelUsersTable.id),
+  rollingSummary: text('rolling_summary'),
+  summaryWatermarkMessageId: text('summary_watermark_message_id'),
   updatedAt: text('updated_at').notNull(),
   createdAt: text('created_at').notNull()
 })
@@ -58,6 +60,7 @@ export const messagesTable = sqliteTable('messages', {
   reasoning: text('reasoning'),
   responseMessages: text('response_messages'),
   turnContext: text('turn_context'),
+  visibleReply: text('visible_reply'),
   status: text('status').$type<MessageRecord['status']>().notNull(),
   createdAt: text('created_at').notNull(),
   modelId: text('model_id'),

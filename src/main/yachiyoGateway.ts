@@ -118,7 +118,8 @@ function applyTelegramConfig(cfg: ChannelsConfig): void {
   }
 
   console.log('[telegram] starting polling service')
-  telegramService = createTelegramService({ botToken: token, server })
+  const model = cfg.telegram?.model
+  telegramService = createTelegramService({ botToken: token, model, server })
   telegramService.startPolling()
   console.log('[telegram] polling started')
 }

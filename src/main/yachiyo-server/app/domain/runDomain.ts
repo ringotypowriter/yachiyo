@@ -54,6 +54,7 @@ import {
 } from './threadTitle.ts'
 import { resolveRetryRequest } from './threadDomain.ts'
 import { buildCompactThreadHandoffMessages } from '../../runtime/threadHandoff.ts'
+import { buildRollingSummaryMessages } from '../../runtime/rollingSummary.ts'
 import {
   DEFAULT_THREAD_TITLE,
   INTERRUPTED_RUN_ERROR,
@@ -452,6 +453,92 @@ export class YachiyoServerRunDomain {
       sourceThreadId: input.sourceThread.id,
       thread: input.destinationThread
     }
+  }
+
+  /**
+   * Generate a rolling summary for an external channel thread in-place.
+   * Unlike `compactThreadToAnotherThread`, this does not create a new thread —
+   * it stores the summary on the existing thread and sets a watermark so
+   * subsequent runs only replay messages after the watermark.
+   */
+  async compactExternalThread(input: { thread: ThreadRecord }): Promise<{ thread: ThreadRecord }> {
+    if (this.activeRunByThread.has(input.thread.id)) {
+      throw new Error('Cannot compact a thread with an active run.')
+    }
+
+    const sourceMessages = this.deps.loadThreadMessages(input.thread.id)
+    let effectiveMessages = resolveEffectiveThreadMessages(input.thread, sourceMessages)
+
+    // On repeated compactions, only feed the prior rolling summary + messages
+    // after the watermark into the model. This keeps the compaction input bounded
+    // instead of growing monotonically with every compaction cycle.
+    if (input.thread.summaryWatermarkMessageId) {
+      const watermarkIndex = effectiveMessages.findIndex(
+        (m) => m.id === input.thread.summaryWatermarkMessageId
+      )
+      if (watermarkIndex >= 0) {
+        effectiveMessages = effectiveMessages.slice(watermarkIndex + 1)
+      }
+    }
+
+    if (effectiveMessages.length === 0) {
+      return { thread: input.thread }
+    }
+
+    // Respect the thread's model override so Telegram threads pinned to a
+    // specific provider/model use that model for summary generation too.
+    const settings = toEffectiveProviderSettings(this.deps.readConfig(), input.thread.modelOverride)
+    const runtime = this.deps.createModelRuntime()
+    const userDocument = this.deps.readUserDocument ? await this.deps.readUserDocument() : null
+
+    // When re-compacting, prepend the existing rolling summary as context so the
+    // model can produce a unified summary covering the full conversation, not just
+    // the messages since the last watermark.
+    const summaryHistory: MessageRecord[] = []
+    if (input.thread.rollingSummary) {
+      summaryHistory.push({
+        id: '__prior-summary__',
+        threadId: input.thread.id,
+        role: 'assistant',
+        content: input.thread.rollingSummary,
+        visibleReply: input.thread.rollingSummary,
+        status: 'completed',
+        createdAt: effectiveMessages[0]?.createdAt ?? new Date().toISOString()
+      })
+    }
+
+    let buffer = ''
+    for await (const delta of runtime.streamReply({
+      messages: buildRollingSummaryMessages({
+        history: [...summaryHistory, ...effectiveMessages],
+        userDocumentContent: userDocument?.content
+      }),
+      settings,
+      signal: new AbortController().signal
+    })) {
+      if (delta) {
+        buffer += delta
+      }
+    }
+
+    const rollingSummary = buffer.trim()
+    const watermarkMessageId = input.thread.headMessageId
+
+    const updatedThread: ThreadRecord = {
+      ...input.thread,
+      rollingSummary,
+      summaryWatermarkMessageId: watermarkMessageId,
+      updatedAt: this.deps.timestamp()
+    }
+
+    this.deps.storage.updateThread(updatedThread)
+    this.deps.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: updatedThread.id,
+      thread: updatedThread
+    })
+
+    return { thread: updatedThread }
   }
 
   cancelRun(input: { runId: string }): void {

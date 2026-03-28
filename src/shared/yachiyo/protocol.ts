@@ -362,6 +362,10 @@ export interface ThreadRecord {
   modelOverride?: ThreadModelOverride
   source?: 'local' | ChannelPlatform
   channelUserId?: string
+  /** Compact, external-safe summary of the conversation state. Updated at compaction time. */
+  rollingSummary?: string
+  /** Messages up to this ID are covered by rollingSummary. Transcript window starts after. */
+  summaryWatermarkMessageId?: string
 }
 
 /** Per-turn injected context (reminder, memory) persisted for lossless replay. */
@@ -384,6 +388,8 @@ export interface MessageRecord {
   responseMessages?: unknown[]
   /** Per-turn injected context for this request, persisted separately from user-authored content. */
   turnContext?: MessageTurnContext
+  /** Channel-visible reply extracted from raw content. Only set for external-channel assistant messages. */
+  visibleReply?: string
   status: MessageStatus
   createdAt: string
   modelId?: string
@@ -634,8 +640,10 @@ export function normalizeUserPrompts(value: unknown): UserPrompt[] {
 export interface TelegramChannelConfig {
   /** Whether the Telegram bot is active. */
   enabled: boolean
-  /** Bot API token from @BotFather. Stored in channels.json, never in config.toml. */
+  /** Bot API token from @BotFather. Stored in channels.toml, never in config.toml. */
   botToken: string
+  /** Optional model override for Telegram threads. */
+  model?: ThreadModelOverride
 }
 
 export interface ChannelsConfig {

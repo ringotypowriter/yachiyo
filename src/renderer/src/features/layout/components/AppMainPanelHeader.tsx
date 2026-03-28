@@ -14,6 +14,7 @@ export interface AppMainPanelHeaderProps {
   isMemoryEnabled: boolean
   isPrivacyMode: boolean
   isPrivacyToggleLocked: boolean
+  isReadOnly?: boolean
   isSaving?: boolean
   isSidebarToggleDisabled: boolean
   isStarred?: boolean
@@ -37,6 +38,7 @@ export function AppMainPanelHeader({
   isMemoryEnabled,
   isPrivacyMode,
   isPrivacyToggleLocked,
+  isReadOnly = false,
   isSaving,
   isSidebarToggleDisabled,
   isStarred,
@@ -124,7 +126,7 @@ export function AppMainPanelHeader({
 
       {/* Right zone: actions */}
       <div className="flex items-center gap-1 no-drag ml-auto" style={{ position: 'relative' }}>
-        {activeThread ? (
+        {activeThread && !isReadOnly ? (
           <Tooltip
             content={
               <PrivacyTooltipContent
@@ -166,7 +168,7 @@ export function AppMainPanelHeader({
             </button>
           </Tooltip>
         ) : null}
-        {activeThread ? (
+        {activeThread && !isReadOnly ? (
           <Tooltip content={isInspectionPanelOpen ? 'Close run inspector' : 'Open run inspector'}>
             <button
               onClick={onToggleInspectionPanel}

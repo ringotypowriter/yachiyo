@@ -68,6 +68,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       : null
     storedThread.queuedFollowUpMessageId = nextThread.queuedFollowUpMessageId ?? null
     storedThread.modelOverride = serializeModelOverride(nextThread.modelOverride)
+    storedThread.rollingSummary = nextThread.rollingSummary ?? null
+    storedThread.summaryWatermarkMessageId = nextThread.summaryWatermarkMessageId ?? null
     storedThread.starredAt = nextThread.starredAt ?? null
     storedThread.title = nextThread.title
     storedThread.updatedAt = nextThread.updatedAt
@@ -181,6 +183,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         headMessageId: thread.headMessageId ?? null,
         source: thread.source ?? null,
         channelUserId: thread.channelUserId ?? null,
+        rollingSummary: thread.rollingSummary ?? null,
+        summaryWatermarkMessageId: thread.summaryWatermarkMessageId ?? null,
         updatedAt: thread.updatedAt,
         createdAt
       })

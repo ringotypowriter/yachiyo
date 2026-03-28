@@ -75,6 +75,12 @@ export function parseChannelsToml(raw: string): ChannelsConfig {
         config.telegram.enabled = rawVal === 'true'
       } else if (key === 'bot_token') {
         config.telegram.botToken = unquote(rawVal)
+      } else if (key === 'model_provider') {
+        if (!config.telegram.model) config.telegram.model = { providerName: '', model: '' }
+        config.telegram.model.providerName = unquote(rawVal)
+      } else if (key === 'model_name') {
+        if (!config.telegram.model) config.telegram.model = { providerName: '', model: '' }
+        config.telegram.model.model = unquote(rawVal)
       }
     }
   }
@@ -91,6 +97,10 @@ export function stringifyChannelsToml(config: ChannelsConfig): string {
     lines.push('[telegram]')
     lines.push(`enabled = ${config.telegram.enabled ? 'true' : 'false'}`)
     lines.push(`bot_token = ${quoteToml(config.telegram.botToken)}`)
+    if (config.telegram.model?.providerName && config.telegram.model?.model) {
+      lines.push(`model_provider = ${quoteToml(config.telegram.model.providerName)}`)
+      lines.push(`model_name = ${quoteToml(config.telegram.model.model)}`)
+    }
   }
 
   return lines.join('\n') + (lines.length > 0 ? '\n' : '')

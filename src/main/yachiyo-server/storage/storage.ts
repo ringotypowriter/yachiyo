@@ -39,6 +39,8 @@ export interface StoredThreadRow {
   modelOverride: string | null
   source: string | null
   channelUserId: string | null
+  rollingSummary: string | null
+  summaryWatermarkMessageId: string | null
   updatedAt: string
   createdAt: string
   headMessageId: string | null
@@ -56,6 +58,7 @@ export interface StoredMessageRow {
   reasoning: string | null
   responseMessages: string | null
   turnContext: string | null
+  visibleReply: string | null
   status: MessageRecord['status']
   createdAt: string
   modelId: string | null
@@ -203,6 +206,8 @@ export function toThreadRecord(
     | 'queuedFollowUpMessageId'
     | 'source'
     | 'channelUserId'
+    | 'rollingSummary'
+    | 'summaryWatermarkMessageId'
     | 'title'
     | 'updatedAt'
     | 'workspacePath'
@@ -233,6 +238,10 @@ export function toThreadRecord(
       ...(row.workspacePath === null ? {} : { workspacePath: row.workspacePath }),
       ...(source ? { source } : {}),
       ...(row.channelUserId === null ? {} : { channelUserId: row.channelUserId }),
+      ...(row.rollingSummary === null ? {} : { rollingSummary: row.rollingSummary }),
+      ...(row.summaryWatermarkMessageId === null
+        ? {}
+        : { summaryWatermarkMessageId: row.summaryWatermarkMessageId }),
       id: row.id,
       title: row.title,
       updatedAt: row.updatedAt
@@ -257,6 +266,10 @@ export function toThreadRecord(
     ...(row.workspacePath === null ? {} : { workspacePath: row.workspacePath }),
     ...(source ? { source } : {}),
     ...(row.channelUserId === null ? {} : { channelUserId: row.channelUserId }),
+    ...(row.rollingSummary === null ? {} : { rollingSummary: row.rollingSummary }),
+    ...(row.summaryWatermarkMessageId === null
+      ? {}
+      : { summaryWatermarkMessageId: row.summaryWatermarkMessageId }),
     id: row.id,
     preview: row.preview,
     title: row.title,
@@ -302,6 +315,7 @@ export function toMessageRecord(row: StoredMessageRow): MessageRecord {
     ...(row.reasoning ? { reasoning: row.reasoning } : {}),
     ...(responseMessages ? { responseMessages } : {}),
     ...(turnContext ? { turnContext } : {}),
+    ...(row.visibleReply === null ? {} : { visibleReply: row.visibleReply }),
     status: row.status,
     createdAt: row.createdAt,
     ...(row.modelId === null ? {} : { modelId: row.modelId }),

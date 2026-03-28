@@ -143,6 +143,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           source: threadsTable.source,
           channelUserId: threadsTable.channelUserId,
+          rollingSummary: threadsTable.rollingSummary,
+          summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -176,6 +178,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                 reasoning: messagesTable.reasoning,
                 responseMessages: messagesTable.responseMessages,
                 turnContext: messagesTable.turnContext,
+                visibleReply: messagesTable.visibleReply,
                 role: messagesTable.role,
                 status: messagesTable.status,
                 textBlocks: messagesTable.textBlocks,
@@ -307,6 +310,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           source: threadsTable.source,
           channelUserId: threadsTable.channelUserId,
+          rollingSummary: threadsTable.rollingSummary,
+          summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -337,6 +342,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           source: threadsTable.source,
           channelUserId: threadsTable.channelUserId,
+          rollingSummary: threadsTable.rollingSummary,
+          summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -391,6 +398,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
             source: thread.source ?? 'local',
             channelUserId: thread.channelUserId ?? null,
+            rollingSummary: thread.rollingSummary ?? null,
+            summaryWatermarkMessageId: thread.summaryWatermarkMessageId ?? null,
             title: thread.title,
             updatedAt: thread.updatedAt,
             workspacePath: thread.workspacePath ?? null
@@ -506,6 +515,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             thread.queuedFollowUpEnabledSkillNames
           ),
           queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
+          rollingSummary: thread.rollingSummary ?? null,
+          summaryWatermarkMessageId: thread.summaryWatermarkMessageId ?? null,
           title: thread.title,
           updatedAt: thread.updatedAt,
           workspacePath: thread.workspacePath ?? null
@@ -752,6 +763,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           reasoning: messagesTable.reasoning,
           responseMessages: messagesTable.responseMessages,
           turnContext: messagesTable.turnContext,
+          visibleReply: messagesTable.visibleReply,
           role: messagesTable.role,
           status: messagesTable.status,
           textBlocks: messagesTable.textBlocks,
@@ -772,6 +784,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           reasoning: serializeReasoning(message.reasoning),
           responseMessages: serializeResponseMessages(message.responseMessages),
           turnContext: serializeTurnContext(message.turnContext),
+          visibleReply: message.visibleReply ?? null,
           textBlocks: serializeMessageTextBlocks(message.textBlocks),
           modelId: message.modelId ?? null,
           parentMessageId: message.parentMessageId ?? null,

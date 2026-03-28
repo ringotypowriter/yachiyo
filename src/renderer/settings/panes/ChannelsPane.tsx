@@ -5,7 +5,8 @@ import { theme, alpha } from '@renderer/theme/theme'
 import type {
   ChannelsConfig,
   ChannelUserRecord,
-  ChannelUserStatus
+  ChannelUserStatus,
+  SettingsConfig
 } from '../../../shared/yachiyo/protocol.ts'
 import { SettingLabel, SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
 
@@ -20,20 +21,23 @@ export function ChannelsPane(): React.ReactNode {
   const [users, setUsers] = useState<ChannelUserRecord[]>([])
   const [loadingUsers, setLoadingUsers] = useState(true)
   const [updatingUser, setUpdatingUser] = useState<string | null>(null)
+  const [settingsConfig, setSettingsConfig] = useState<SettingsConfig | null>(null)
 
   useEffect(() => {
     let cancelled = false
 
     void Promise.all([
       window.api.yachiyo.getChannelsConfig(),
-      window.api.yachiyo.listChannelUsers()
+      window.api.yachiyo.listChannelUsers(),
+      window.api.yachiyo.getConfig()
     ])
-      .then(([cfg, usrs]) => {
+      .then(([cfg, usrs, settings]) => {
         if (cancelled) return
         setConfig(cfg)
         configRef.current = cfg
         initializedRef.current = true
         setUsers(usrs)
+        setSettingsConfig(settings)
         setLoadingConfig(false)
         setLoadingUsers(false)
       })
@@ -53,7 +57,7 @@ export function ChannelsPane(): React.ReactNode {
   const enabled = telegram?.enabled ?? false
   const botToken = telegram?.botToken ?? ''
 
-  function patchTelegram(patch: Partial<{ enabled: boolean; botToken: string }>): void {
+  function patchTelegram(patch: Partial<typeof telegram>): void {
     setConfig((c) => {
       const next = { ...c, telegram: { enabled, botToken, ...c.telegram, ...patch } }
       configRef.current = next
@@ -162,6 +166,48 @@ export function ChannelsPane(): React.ReactNode {
             </button>
           </div>
         </SettingRow>
+
+        {settingsConfig && settingsConfig.providers.length > 0 && (
+          <SettingRow>
+            <div className="flex items-center gap-2.5 flex-1 min-w-0">
+              <span className="text-sm font-medium shrink-0" style={{ color: theme.text.primary }}>
+                Model
+              </span>
+              <select
+                value={
+                  telegram?.model ? `${telegram.model.providerName}::${telegram.model.model}` : ''
+                }
+                onChange={(e) => {
+                  const val = e.target.value
+                  if (!val) {
+                    patchTelegram({ model: undefined })
+                  } else {
+                    const [providerName, model] = val.split('::')
+                    patchTelegram({ model: { providerName, model } })
+                  }
+                }}
+                className="flex-1 text-sm min-w-0"
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: alpha('ink', 0.04),
+                  color: theme.text.primary,
+                  outline: 'none'
+                }}
+              >
+                <option value="">Default (same as chat)</option>
+                {settingsConfig.providers.flatMap((p) =>
+                  p.modelList.enabled.map((m) => (
+                    <option key={`${p.name}::${m}`} value={`${p.name}::${m}`}>
+                      {p.name}: {m}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+          </SettingRow>
+        )}
       </SettingSection>
 
       {/* ── Users ── */}

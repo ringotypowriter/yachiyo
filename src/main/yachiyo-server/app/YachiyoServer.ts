@@ -511,6 +511,20 @@ export class YachiyoServer {
     })
   }
 
+  /**
+   * Generate a rolling summary for an external channel thread in-place.
+   * The thread continues with the same ID; old messages are covered by the summary.
+   */
+  async compactExternalThread(input: { threadId: string }): Promise<{ thread: ThreadRecord }> {
+    const thread = this.requireThread(input.threadId)
+
+    if (this.runDomain.hasActiveThread(thread.id)) {
+      throw new Error('Cannot compact a thread with an active run.')
+    }
+
+    return this.runDomain.compactExternalThread({ thread })
+  }
+
   async updateThreadWorkspace(input: {
     threadId: string
     workspacePath?: string | null
@@ -671,6 +685,20 @@ export class YachiyoServer {
 
   saveChannelsConfig(config: ChannelsConfig): ChannelsConfig {
     return writeChannelsConfig(config)
+  }
+
+  /**
+   * Store the extracted visible reply on the latest assistant message in a thread.
+   * Used by channel services after reply extraction so rolling summary has clean input.
+   */
+  updateLatestAssistantVisibleReply(input: { threadId: string; visibleReply: string }): void {
+    const messages = this.storage.listThreadMessages(input.threadId)
+    const latest = [...messages]
+      .reverse()
+      .find((m) => m.role === 'assistant' && m.status === 'completed')
+    if (latest) {
+      this.storage.updateMessage({ ...latest, visibleReply: input.visibleReply })
+    }
   }
 
   private requireThread(threadId: string): ThreadRecord {

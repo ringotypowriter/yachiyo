@@ -4,6 +4,7 @@ import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ThreadFindBar } from '@renderer/features/chat/components/ThreadFindBar'
 import { buildFindMatches } from '@renderer/features/chat/lib/threadFindBar'
 import { Composer } from '@renderer/features/chat/components/Composer'
+import { ExternalThreadViewer } from '@renderer/features/chat/components/ExternalThreadViewer'
 import { MessageTimeline } from '@renderer/features/chat/components/MessageTimeline'
 import { ArchivedThreadsPage } from '@renderer/features/layout/components/ArchivedThreadsPage'
 import { AppMainPanelHeader } from '@renderer/features/layout/components/AppMainPanelHeader'
@@ -372,6 +373,37 @@ export function AppMainPanel({
           onDeleteThread={handleDeleteThread}
           onRestoreThread={handleRestoreThread}
         />
+      </div>
+    )
+  }
+
+  const isExternalThread =
+    activeThread != null && activeThread.source != null && activeThread.source !== 'local'
+
+  if (isExternalThread) {
+    return (
+      <div className="flex flex-col flex-1 h-full min-w-0 overflow-hidden" style={cardStyle}>
+        <AppMainPanelHeader
+          activeThread={activeThread}
+          headerPaddingLeft={headerPaddingLeft}
+          isBootstrapping={isBootstrapping}
+          isInspectionPanelOpen={false}
+          isMemoryEnabled={false}
+          isPrivacyMode={false}
+          isPrivacyToggleLocked={true}
+          isReadOnly
+          isSidebarToggleDisabled={isSidebarToggleDisabled}
+          isStarred={!!activeThread?.starredAt}
+          messageCount={messageCount}
+          onOpenThreadWorkspace={handleOpenThreadWorkspace}
+          onSelectThreadOperation={handleSelectThreadOperation}
+          onToggleInspectionPanel={() => {}}
+          onTogglePrivacyMode={() => {}}
+          onToggleSidebar={onToggleSidebar}
+          showSidebarToggle={showSidebarToggle}
+          toggleSidebarTitle={toggleSidebarTitle}
+        />
+        <ExternalThreadViewer threadId={activeThreadId} />
       </div>
     )
   }

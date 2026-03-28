@@ -117,7 +117,7 @@ function stripImageDataFromResponseMessages(messages: ModelMessage[]): ModelMess
   })
 }
 
-function toModelHistoryMessages(message: ContextLayerHistoryMessage): ModelMessage[] {
+export function toModelHistoryMessages(message: ContextLayerHistoryMessage): ModelMessage[] {
   if (message.role !== 'user') {
     if (message.responseMessages && message.responseMessages.length > 0) {
       return stripImageDataFromResponseMessages(message.responseMessages as ModelMessage[])

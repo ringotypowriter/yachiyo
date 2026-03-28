@@ -38,6 +38,10 @@ import type {
 import { isCoreToolName } from '../../../../shared/yachiyo/protocol.ts'
 import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 import { prepareModelMessages } from '../../runtime/messagePrepare.ts'
+import {
+  buildExternalAgentInstructions,
+  compileExternalContextLayers
+} from '../../runtime/externalContextLayers.ts'
 import { SYSTEM_PROMPT } from '../../runtime/prompt.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { RecallDecisionSnapshot } from '../../../../shared/yachiyo/protocol.ts'
@@ -540,17 +544,28 @@ function loadRunHistory(
   loadThreadMessages: RunExecutionDeps['loadThreadMessages'],
   threadId: string,
   requestMessageId: string,
-  requestMessageContentOverride?: string
+  requestMessageContentOverride?: string,
+  /** If set, only messages after this watermark are included (external channel rolling summary). */
+  summaryWatermarkMessageId?: string
 ): Array<Pick<MessageRecord, 'content' | 'images' | 'attachments' | 'role' | 'responseMessages'>> {
-  return collectMessagePath(loadThreadMessages(threadId), requestMessageId).map(
-    ({ content, id, images, attachments, role, responseMessages }) => ({
-      content: id === requestMessageId ? (requestMessageContentOverride ?? content) : content,
-      ...(images ? { images } : {}),
-      ...(attachments ? { attachments } : {}),
-      ...(responseMessages ? { responseMessages } : {}),
-      role
-    })
-  )
+  let messagePath = collectMessagePath(loadThreadMessages(threadId), requestMessageId)
+
+  // For external channels with a rolling summary watermark, trim history to only
+  // messages after the watermark. The rolling summary covers everything before it.
+  if (summaryWatermarkMessageId) {
+    const watermarkIndex = messagePath.findIndex((m) => m.id === summaryWatermarkMessageId)
+    if (watermarkIndex >= 0) {
+      messagePath = messagePath.slice(watermarkIndex + 1)
+    }
+  }
+
+  return messagePath.map(({ content, id, images, attachments, role, responseMessages }) => ({
+    content: id === requestMessageId ? (requestMessageContentOverride ?? content) : content,
+    ...(images ? { images } : {}),
+    ...(attachments ? { attachments } : {}),
+    ...(responseMessages ? { responseMessages } : {}),
+    role
+  }))
 }
 
 function finishPendingToolCalls(
@@ -824,45 +839,55 @@ export async function executeServerRun(
       deps.storage.updateMessage({ ...requestMessage, turnContext })
     }
 
-    const messages = prepareModelMessages({
-      personality: {
-        basePersona: SYSTEM_PROMPT
-      },
-      soul: {
-        content: soulDocument?.rawContent ?? ''
-      },
-      user: {
-        content: userDocument?.content ?? ''
-      },
-      skills: {
-        activeSkills
-      },
-      agent: {
-        instructions: buildAgentInstructions({
-          workspacePath,
-          enabledTools: modelEnabledTools,
-          activeSkills,
-          hasHiddenMemorySearch:
-            !input.thread.privacyMode && deps.memoryService.hasHiddenSearchCapability(),
-          soulDocumentPath: soulDocument?.filePath,
-          userDocumentPath: userDocument?.filePath,
-          subagentContextBlock: subagentContextBlock || undefined,
-          isUserSpecifiedWorkspace: !!input.thread.workspacePath?.trim()
+    const isExternalChannel = input.thread.source != null && input.thread.source !== 'local'
+
+    const history = loadRunHistory(
+      deps.loadThreadMessages,
+      input.thread.id,
+      input.requestMessageId,
+      fileMentionResolution.augmentedUserQuery,
+      isExternalChannel ? input.thread.summaryWatermarkMessageId : undefined
+    )
+
+    const messages = isExternalChannel
+      ? compileExternalContextLayers({
+          personality: { basePersona: SYSTEM_PROMPT },
+          soul: { content: soulDocument?.rawContent ?? '' },
+          user: { content: userDocument?.content ?? '' },
+          executionContract: buildExternalAgentInstructions({
+            enabledTools: modelEnabledTools
+          }),
+          channelInstruction: input.channelHint ?? '',
+          rollingSummary: input.thread.rollingSummary,
+          history,
+          hint: { reminder: hiddenQueryReminder || undefined },
+          memory: { entries: memoryEntries }
         })
-      },
-      hint: {
-        reminder: [hiddenQueryReminder, input.channelHint].filter(Boolean).join('\n\n') || undefined
-      },
-      memory: {
-        entries: memoryEntries
-      },
-      history: loadRunHistory(
-        deps.loadThreadMessages,
-        input.thread.id,
-        input.requestMessageId,
-        fileMentionResolution.augmentedUserQuery
-      )
-    })
+      : prepareModelMessages({
+          personality: { basePersona: SYSTEM_PROMPT },
+          soul: { content: soulDocument?.rawContent ?? '' },
+          user: { content: userDocument?.content ?? '' },
+          skills: { activeSkills },
+          agent: {
+            instructions: buildAgentInstructions({
+              workspacePath,
+              enabledTools: modelEnabledTools,
+              activeSkills,
+              hasHiddenMemorySearch:
+                !input.thread.privacyMode && deps.memoryService.hasHiddenSearchCapability(),
+              soulDocumentPath: soulDocument?.filePath,
+              userDocumentPath: userDocument?.filePath,
+              subagentContextBlock: subagentContextBlock || undefined,
+              isUserSpecifiedWorkspace: !!input.thread.workspacePath?.trim()
+            })
+          },
+          hint: {
+            reminder:
+              [hiddenQueryReminder, input.channelHint].filter(Boolean).join('\n\n') || undefined
+          },
+          memory: { entries: memoryEntries },
+          history
+        })
     const tools = createAgentToolSet(
       {
         enabledTools: modelEnabledTools,
