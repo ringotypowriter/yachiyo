@@ -181,8 +181,8 @@ export function createGroupMonitor(
 
       if (fresh.length === 0) return
 
-      // Ask the judge.
-      const decision = await callbacks.onCheck(fresh)
+      // Ask the judge with full buffer for context (not just fresh messages).
+      const decision = await callbacks.onCheck([...buffer])
 
       if (decision.shouldReply) {
         await callbacks.onReply(decision, [...buffer])

@@ -189,7 +189,9 @@ export function resolveSandboxedToolPath(
   if (result) {
     return { resolved: result }
   }
-  return { error: `Access denied — path is outside the workspace. Only files within ${context.workspacePath} are accessible.` }
+  return {
+    error: `Access denied — path is outside the workspace. Only files within ${context.workspacePath} are accessible.`
+  }
 }
 
 export function resolvePathWithinWorkspace(
