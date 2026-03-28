@@ -545,11 +545,15 @@ export function createTelegramService({
 
       const triggerContent = formatMessagesForJudge(allRecentMessages, 'Yachiyo', knownUsers)
 
+      // Collect all images from recent messages for the reply model.
+      const groupImages = allRecentMessages.flatMap((m) => m.images ?? [])
+
       const outputPromise = collectRunOutput(server, groupThread.id)
 
       const accepted = await server.sendChat({
         threadId: groupThread.id,
         content: triggerContent,
+        images: groupImages.length > 0 ? groupImages : undefined,
         enabledTools: policy.allowedTools,
         channelHint
       })

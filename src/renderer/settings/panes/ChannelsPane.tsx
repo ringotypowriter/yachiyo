@@ -785,7 +785,14 @@ function ChannelGroupRow({
           </>
         )}
         {group.status === 'approved' && (
-          <ActionButton label="Block" color="#ff3b30" onClick={() => onStatusChange('blocked')} />
+          <>
+            <ActionButton
+              label="Disable"
+              color="#ff9500"
+              onClick={() => onStatusChange('pending')}
+            />
+            <ActionButton label="Block" color="#ff3b30" onClick={() => onStatusChange('blocked')} />
+          </>
         )}
         {group.status === 'blocked' && (
           <ActionButton label="Unblock" color="#ff9500" onClick={() => onStatusChange('pending')} />

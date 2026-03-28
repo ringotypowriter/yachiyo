@@ -34,6 +34,7 @@ import { parseCQImages, type CQImageRef } from './qqImageParsing.ts'
 import { createOneBotClient, type OneBotClient } from './onebotClient.ts'
 import { readFile } from 'node:fs/promises'
 import { routeQQMessage, type QQChannelStorage } from './qq.ts'
+import { EXTERNAL_SYSTEM_PROMPT } from '../runtime/prompt.ts'
 
 /** Minimum debounce delay before flushing a message batch. */
 const REPLY_DELAY_MIN_MS = 3_000
@@ -200,6 +201,24 @@ export function createQQService({
 
   let groupRegistry: GroupMonitorRegistry | null = null
 
+  /** Resolve [CQ:at,qq=ID] codes into @Name using known users + bot identity. */
+  function resolveCQAtMentions(text: string): string {
+    return text.replace(/\[CQ:at,qq=(\d+)\]/g, (_match, qqId: string) => {
+      // Bot's own ID
+      if (resolvedBotQQId && qqId === resolvedBotQQId) {
+        return '@Yachiyo'
+      }
+      // Known channel user
+      const user = server
+        .listChannelUsers()
+        .find((u) => u.platform === 'qq' && u.externalUserId === qqId)
+      if (user) {
+        return `@${user.username}`
+      }
+      return `@QQ:${qqId}`
+    })
+  }
+
   /** Build a map from QQ externalUserId → role for identity marking. */
   function buildKnownUsersMap(): Map<string, string> {
     const map = new Map<string, string>()
@@ -221,7 +240,8 @@ export function createQQService({
             botName: 'Yachiyo',
             groupName: group.name,
             recentMessages,
-            knownUsers: buildKnownUsersMap()
+            knownUsers: buildKnownUsersMap(),
+            personaSummary: EXTERNAL_SYSTEM_PROMPT
           },
           auxService
         )
@@ -265,22 +285,43 @@ export function createQQService({
 
     if (existing.status !== 'approved' || !groupRegistry) return
 
-    const { text } = parseCQImages(msg.rawMessage)
-    if (!text) return
+    const { text: rawText, images: imageRefs } = parseCQImages(msg.rawMessage)
+    if (!rawText && imageRefs.length === 0) return
 
     const isMention = resolvedBotQQId
       ? msg.rawMessage.includes(`[CQ:at,qq=${resolvedBotQQId}]`)
       : false
 
-    const entry: GroupMessageEntry = {
-      senderName: msg.nickname,
-      senderExternalUserId: String(msg.userId),
-      isMention,
-      text,
-      timestamp: msg.time
-    }
+    // Resolve [CQ:at,qq=ID] codes into readable @Name so the model
+    // can track who is addressing whom in multi-party conversation.
+    const text = resolveCQAtMentions(rawText)
 
-    groupRegistry.routeMessage(existing.id, entry)
+    // Resolve images eagerly then route with the completed entry.
+    const imagePromises = imageRefs
+      .slice(0, policy.maxImagesPerBatch)
+      .map((ref) => resolveQQImage(ref))
+
+    if (imagePromises.length === 0) {
+      groupRegistry.routeMessage(existing.id, {
+        senderName: msg.nickname,
+        senderExternalUserId: String(msg.userId),
+        isMention,
+        text,
+        timestamp: msg.time
+      })
+    } else {
+      void Promise.all(imagePromises).then((results) => {
+        const images = results.filter((img): img is MessageImageRecord => img !== null)
+        groupRegistry!.routeMessage(existing.id, {
+          senderName: msg.nickname,
+          senderExternalUserId: String(msg.userId),
+          isMention,
+          text,
+          images: images.length > 0 ? images : undefined,
+          timestamp: msg.time
+        })
+      })
+    }
   })
 
   async function handleGroupReply(
@@ -305,11 +346,15 @@ export function createQQService({
         buildKnownUsersMap()
       )
 
+      // Collect all images from recent messages for the reply model.
+      const groupImages = allRecentMessages.flatMap((m) => m.images ?? [])
+
       const outputPromise = collectRunOutput(server, groupThread.id)
 
       const accepted = await server.sendChat({
         threadId: groupThread.id,
         content: triggerContent,
+        images: groupImages.length > 0 ? groupImages : undefined,
         enabledTools: policy.allowedTools,
         channelHint
       })

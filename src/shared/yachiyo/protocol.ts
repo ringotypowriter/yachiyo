@@ -48,6 +48,8 @@ export interface UpdateChannelGroupInput {
 /** Lightweight decision from the group monitor's judge model. */
 export interface GroupReplyDecision {
   shouldReply: boolean
+  /** Who to address in the reply (person name, or "group" for general). */
+  respondTo?: string
   topic?: string
   tone?: string
   reason: string
@@ -60,6 +62,8 @@ export interface GroupMessageEntry {
   /** Whether this message @mentions the bot. */
   isMention: boolean
   text: string
+  /** Resolved images attached to this message (already vision-safe). */
+  images?: MessageImageRecord[]
   /** Unix seconds. */
   timestamp: number
 }

@@ -22,19 +22,34 @@ import { CHANNEL_REPLY_HINT } from './channelReply.ts'
 export function buildGroupReplyInstruction(decision: GroupReplyDecision, botName: string): string {
   const parts: string[] = [CHANNEL_REPLY_HINT]
 
+  const toneGuide: Record<string, string> = {
+    riff: 'Be casual and playful. Build on the vibe, riff off what was said. Keep it fun.',
+    insight: "Add something they haven't considered. Be concise but make them think.",
+    react: 'Short and punchy. An emotional reaction, not an essay.',
+    answer: 'Someone asked a question — answer it directly and helpfully.',
+    tease: 'Light humor. Tease gently, keep it warm. Read the room.'
+  }
+
   parts.push(`\n<group_context>`)
-  parts.push(`You are participating in a group conversation as "${botName}".`)
+  parts.push(
+    `You are "${botName}" in a group chat. You see everything, but each time you speak, you're talking to one person — pick up their thread, respond to their energy, say your piece. Don't try to address the whole room.`
+  )
 
+  if (decision.respondTo) {
+    parts.push(`Right now, you're responding to ${decision.respondTo}.`)
+  }
   if (decision.topic) {
-    parts.push(`The current topic to address: ${decision.topic}`)
+    parts.push(`About: ${decision.topic}`)
   }
-  if (decision.tone) {
-    parts.push(`Suggested tone: ${decision.tone}`)
+  if (decision.tone && toneGuide[decision.tone]) {
+    parts.push(`${toneGuide[decision.tone]}`)
+  } else if (decision.tone) {
+    parts.push(`Tone: ${decision.tone}`)
   }
 
-  parts.push(`Address people by name when responding directly to them.`)
-  parts.push(`Don't reply to everything — only when you have something meaningful to add.`)
-  parts.push(`Keep the group vibe natural. You're one participant, not the host.`)
+  parts.push(
+    `Don't echo what they just said. Don't summarize the conversation. Just respond like you would in a real group chat — one thought, to one person.`
+  )
   parts.push(`</group_context>`)
 
   return parts.join('\n')
