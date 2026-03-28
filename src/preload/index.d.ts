@@ -1,6 +1,7 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
   BootstrapPayload,
+  ChannelGroupRecord,
   ChannelsConfig,
   ChannelUserRecord,
   ChatAccepted,
@@ -27,6 +28,7 @@ import type {
   ThreadModelOverride,
   ThreadSearchResult,
   MemoryTermDocument,
+  UpdateChannelGroupInput,
   UpdateChannelUserInput,
   UserDocument,
   SoulDocument,
@@ -124,6 +126,8 @@ declare global {
         listExternalThreads: () => Promise<ThreadRecord[]>
         listChannelUsers: () => Promise<ChannelUserRecord[]>
         updateChannelUser: (input: UpdateChannelUserInput) => Promise<ChannelUserRecord>
+        listChannelGroups: () => Promise<ChannelGroupRecord[]>
+        updateChannelGroup: (input: UpdateChannelGroupInput) => Promise<ChannelGroupRecord>
         getChannelsConfig: () => Promise<ChannelsConfig>
         saveChannelsConfig: (input: ChannelsConfig) => Promise<ChannelsConfig>
         showNotification: (input: { title: string; body?: string }) => void

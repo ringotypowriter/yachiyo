@@ -16,7 +16,10 @@ import { createTelegramAdapter } from '@chat-adapter/telegram'
 import { createMemoryState } from '@chat-adapter/state-memory'
 
 import type {
+  ChannelGroupRecord,
   ChannelUserRecord,
+  GroupChannelConfig,
+  GroupMessageEntry,
   MessageImageRecord,
   ThreadModelOverride,
   YachiyoServerEvent
@@ -24,6 +27,9 @@ import type {
 import type { YachiyoServer } from '../app/YachiyoServer'
 import { telegramPolicy } from './channelPolicy'
 import { attachmentToImageRecord, type ChatSdkAttachment } from './channelImageDownload'
+import { buildGroupReplyInstruction } from './groupContextBuilder'
+import { createGroupMonitorRegistry, type GroupMonitorRegistry } from './groupMonitorRegistry'
+import { formatMessagesForJudge, judgeGroupReply } from './groupReplyJudge'
 import { routeTelegramMessage, type TelegramChannelStorage } from './telegram'
 
 import { resolveYachiyoTempWorkspaceRoot } from '../config/paths'
@@ -58,6 +64,10 @@ export interface TelegramServiceOptions {
   model?: ThreadModelOverride
   /** The Yachiyo server instance for running AI generation and storage. */
   server: YachiyoServer
+  /** Group discussion config from channels.toml. */
+  groupConfig?: GroupChannelConfig
+  /** Bot's username (without @) for mention detection. */
+  botUsername?: string
 }
 
 export interface TelegramService {
@@ -65,12 +75,28 @@ export interface TelegramService {
   startPolling: () => void
   /** Gracefully shut down the bot. */
   stop: () => Promise<void>
+  /**
+   * Route a raw Telegram group message update.
+   * Call this from the Bot API update handler for group/supergroup messages.
+   * Only active when group config is enabled.
+   */
+  routeGroupUpdate: (update: {
+    chatId: string
+    chatTitle: string
+    fromId: string
+    fromUsername: string
+    text: string
+    date: number
+    entities?: Array<{ type: string; offset: number; length: number }>
+  }) => void
 }
 
 export function createTelegramService({
   botToken,
   model: modelOverride,
-  server
+  server,
+  groupConfig,
+  botUsername
 }: TelegramServiceOptions): TelegramService {
   const apiBase = `https://api.telegram.org/bot${botToken}`
   const policy = telegramPolicy
@@ -398,12 +424,179 @@ export function createTelegramService({
     }
   }
 
+  // ------------------------------------------------------------------
+  // Group discussion mode
+  // ------------------------------------------------------------------
+
+  let groupRegistry: GroupMonitorRegistry | null = null
+
+  /** Send a text message to a Telegram chat via raw Bot API. */
+  async function sendTelegramMessage(chatId: string, text: string): Promise<void> {
+    await fetch(`${apiBase}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text })
+    })
+  }
+
+  if (groupConfig?.enabled) {
+    groupRegistry = createGroupMonitorRegistry(policy.groupDefaults, groupConfig, {
+      async onCheck(group, recentMessages) {
+        const auxService = server.getAuxiliaryGenerationService()
+        return judgeGroupReply(
+          { botName: 'Yachiyo', groupName: group.name, recentMessages },
+          auxService
+        )
+      },
+
+      async onReply(group, decision, allRecentMessages) {
+        await handleGroupReply(group, decision, allRecentMessages)
+      },
+
+      onStateChange(group, newPhase) {
+        console.log(`[telegram-group] "${group.name}" phase → ${newPhase}`)
+      }
+    })
+
+    // Start monitors for already-approved Telegram groups.
+    for (const group of server.listChannelGroups()) {
+      if (group.platform === 'telegram' && group.status === 'approved') {
+        groupRegistry.startMonitor(group)
+      }
+    }
+  }
+
+  /**
+   * Route an incoming Telegram group message.
+   * Call this from the raw Bot API update handler when the adapter doesn't
+   * expose group events.
+   */
+  function routeGroupUpdate(update: {
+    chatId: string
+    chatTitle: string
+    fromId: string
+    fromUsername: string
+    text: string
+    date: number
+    entities?: Array<{ type: string; offset: number; length: number }>
+  }): void {
+    if (!groupRegistry) return
+
+    const existing = server.findChannelGroup('telegram', update.chatId)
+
+    if (!existing) {
+      server.createChannelGroup({
+        id: `tg-group-${update.chatId}`,
+        platform: 'telegram',
+        externalGroupId: update.chatId,
+        name: update.chatTitle || `Telegram Group ${update.chatId}`,
+        status: 'pending',
+        workspacePath: join(resolveYachiyoTempWorkspaceRoot(), `tg-group-${update.chatId}`)
+      })
+      console.log(`[telegram-group] new group ${update.chatId} registered as pending`)
+      return
+    }
+
+    if (existing.status !== 'approved') return
+
+    const isMention = botUsername
+      ? (update.entities ?? []).some(
+          (e) =>
+            e.type === 'mention' &&
+            update.text.slice(e.offset, e.offset + e.length).toLowerCase() ===
+              `@${botUsername.toLowerCase()}`
+        )
+      : false
+
+    const entry: GroupMessageEntry = {
+      senderName: update.fromUsername,
+      senderExternalUserId: update.fromId,
+      isMention,
+      text: update.text,
+      timestamp: update.date
+    }
+
+    groupRegistry.routeMessage(existing.id, entry)
+  }
+
+  async function handleGroupReply(
+    group: ChannelGroupRecord,
+    decision: import('../../../shared/yachiyo/protocol').GroupReplyDecision,
+    allRecentMessages: import('../../../shared/yachiyo/protocol').GroupMessageEntry[]
+  ): Promise<void> {
+    try {
+      const groupThread =
+        server.findActiveGroupThread(group.id, policy.groupDefaults.groupThreadReuseWindowMs) ??
+        (await server.createThread({
+          workspacePath: group.workspacePath,
+          source: 'telegram',
+          channelGroupId: group.id,
+          title: `Telegram:${group.name}`
+        }))
+
+      const channelHint = buildGroupReplyInstruction(decision, 'Yachiyo')
+
+      const knownUsers = new Map<string, string>()
+      for (const u of server.listChannelUsers()) {
+        if (u.platform === 'telegram') {
+          knownUsers.set(u.externalUserId, u.role)
+        }
+      }
+
+      const triggerContent = formatMessagesForJudge(allRecentMessages, 'Yachiyo', knownUsers)
+
+      const outputPromise = collectRunOutput(server, groupThread.id)
+
+      const accepted = await server.sendChat({
+        threadId: groupThread.id,
+        content: triggerContent,
+        enabledTools: policy.allowedTools,
+        channelHint
+      })
+
+      if (!('runId' in accepted)) {
+        console.warn('[telegram-group] sendChat returned non-run:', accepted)
+        return
+      }
+
+      const rawOutput = await outputPromise
+      const reply = policy.extractVisibleReply(rawOutput)
+
+      if (reply) {
+        await sendTelegramMessage(group.externalGroupId, reply)
+        console.log(`[telegram-group] sent reply to "${group.name}": ${reply.slice(0, 100)}`)
+
+        // Feed the bot's own reply back into the monitor so the judge sees it.
+        groupRegistry!.routeMessage(group.id, {
+          senderName: 'Yachiyo',
+          senderExternalUserId: '__self__',
+          isMention: false,
+          text: reply,
+          timestamp: Date.now() / 1_000
+        })
+      }
+
+      server.updateLatestAssistantVisibleReply({
+        threadId: groupThread.id,
+        visibleReply: reply
+      })
+    } catch (error) {
+      console.error(`[telegram-group] failed to handle reply for "${group.name}"`, error)
+    }
+  }
+
+  // Expose routeGroupUpdate for external wiring (raw Bot API update handler).
+  // The Chat SDK adapter doesn't forward group messages, so the gateway or a
+  // separate polling loop should call this for each group message update.
+  const _routeGroupUpdate = routeGroupUpdate
+
   return {
     startPolling() {
       console.log('[telegram] startPolling called — initializing Chat SDK')
       void bot.initialize()
     },
     async stop() {
+      groupRegistry?.stopAll()
       // Discard pending batches on shutdown — stop timers and typing indicators.
       for (const [userId, batch] of pendingBatches) {
         clearTimeout(batch.timer)
@@ -414,7 +607,9 @@ export function createTelegramService({
         )
       }
       await bot.shutdown()
-    }
+    },
+    /** Route a raw Telegram group message update. */
+    routeGroupUpdate: _routeGroupUpdate
   }
 }
 

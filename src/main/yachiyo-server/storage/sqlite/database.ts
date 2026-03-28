@@ -8,6 +8,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
 import * as schema from './schema.ts'
 import {
+  channelGroupsTable,
   channelUsersTable,
   messagesTable,
   runsTable,
@@ -40,6 +41,7 @@ import {
   type YachiyoStorage
 } from '../storage.ts'
 import type {
+  ChannelGroupRecord,
   ChannelUserRecord,
   ChannelUserRole,
   ThreadSearchResult
@@ -56,6 +58,18 @@ function toChannelUserRecord(row: typeof channelUsersTable.$inferSelect): Channe
     usageLimitKTokens: row.usageLimitKTokens,
     usedKTokens: row.usedKTokens,
     workspacePath: row.workspacePath
+  }
+}
+
+function toChannelGroupRecord(row: typeof channelGroupsTable.$inferSelect): ChannelGroupRecord {
+  return {
+    id: row.id,
+    platform: row.platform as ChannelGroupRecord['platform'],
+    externalGroupId: row.externalGroupId,
+    name: row.name,
+    status: row.status,
+    workspacePath: row.workspacePath,
+    createdAt: row.createdAt
   }
 }
 
@@ -161,6 +175,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           source: threadsTable.source,
           channelUserId: threadsTable.channelUserId,
+          channelGroupId: threadsTable.channelGroupId,
           rollingSummary: threadsTable.rollingSummary,
           summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
           title: threadsTable.title,
@@ -197,6 +212,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                 responseMessages: messagesTable.responseMessages,
                 turnContext: messagesTable.turnContext,
                 visibleReply: messagesTable.visibleReply,
+                senderName: messagesTable.senderName,
+                senderExternalUserId: messagesTable.senderExternalUserId,
                 role: messagesTable.role,
                 status: messagesTable.status,
                 textBlocks: messagesTable.textBlocks,
@@ -328,6 +345,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           source: threadsTable.source,
           channelUserId: threadsTable.channelUserId,
+          channelGroupId: threadsTable.channelGroupId,
           rollingSummary: threadsTable.rollingSummary,
           summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
           title: threadsTable.title,
@@ -360,6 +378,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           source: threadsTable.source,
           channelUserId: threadsTable.channelUserId,
+          channelGroupId: threadsTable.channelGroupId,
           rollingSummary: threadsTable.rollingSummary,
           summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
           title: threadsTable.title,
@@ -416,6 +435,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
             source: thread.source ?? 'local',
             channelUserId: thread.channelUserId ?? null,
+            channelGroupId: thread.channelGroupId ?? null,
             rollingSummary: thread.rollingSummary ?? null,
             summaryWatermarkMessageId: thread.summaryWatermarkMessageId ?? null,
             title: thread.title,
@@ -533,6 +553,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             thread.queuedFollowUpEnabledSkillNames
           ),
           queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
+          channelGroupId: thread.channelGroupId ?? null,
           rollingSummary: thread.rollingSummary ?? null,
           summaryWatermarkMessageId: thread.summaryWatermarkMessageId ?? null,
           title: thread.title,
@@ -782,6 +803,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           responseMessages: messagesTable.responseMessages,
           turnContext: messagesTable.turnContext,
           visibleReply: messagesTable.visibleReply,
+          senderName: messagesTable.senderName,
+          senderExternalUserId: messagesTable.senderExternalUserId,
           role: messagesTable.role,
           status: messagesTable.status,
           textBlocks: messagesTable.textBlocks,
@@ -1110,6 +1133,88 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       const updated = db.select().from(channelUsersTable).where(eq(channelUsersTable.id, id)).get()!
 
       return toChannelUserRecord(updated)
+    },
+
+    // ------------------------------------------------------------------
+    // Channel groups (group discussion mode)
+    // ------------------------------------------------------------------
+
+    listChannelGroups() {
+      return db.select().from(channelGroupsTable).all().map(toChannelGroupRecord)
+    },
+
+    findChannelGroup(platform, externalGroupId) {
+      const row = db
+        .select()
+        .from(channelGroupsTable)
+        .where(
+          and(
+            eq(channelGroupsTable.platform, platform),
+            eq(channelGroupsTable.externalGroupId, externalGroupId)
+          )
+        )
+        .get()
+      return row ? toChannelGroupRecord(row) : undefined
+    },
+
+    getChannelGroup(id) {
+      const row = db.select().from(channelGroupsTable).where(eq(channelGroupsTable.id, id)).get()
+      return row ? toChannelGroupRecord(row) : undefined
+    },
+
+    createChannelGroup(group) {
+      const createdAt = new Date().toISOString()
+      db.insert(channelGroupsTable)
+        .values({
+          id: group.id,
+          platform: group.platform,
+          externalGroupId: group.externalGroupId,
+          name: group.name,
+          status: group.status,
+          workspacePath: group.workspacePath,
+          createdAt
+        })
+        .run()
+      return { ...group, createdAt }
+    },
+
+    updateChannelGroup({ id, status, name }) {
+      const existing = db
+        .select()
+        .from(channelGroupsTable)
+        .where(eq(channelGroupsTable.id, id))
+        .get()
+      if (!existing) return undefined
+
+      const updates: Record<string, unknown> = {}
+      if (status !== undefined) updates.status = status
+      if (name !== undefined) updates.name = name
+
+      if (Object.keys(updates).length > 0) {
+        db.update(channelGroupsTable).set(updates).where(eq(channelGroupsTable.id, id)).run()
+      }
+
+      const updated = db
+        .select()
+        .from(channelGroupsTable)
+        .where(eq(channelGroupsTable.id, id))
+        .get()!
+      return toChannelGroupRecord(updated)
+    },
+
+    findActiveGroupThread(channelGroupId, maxAgeMs) {
+      const cutoff = new Date(Date.now() - maxAgeMs).toISOString()
+      const rows = db
+        .select()
+        .from(threadsTable)
+        .where(
+          and(eq(threadsTable.channelGroupId, channelGroupId), isNull(threadsTable.archivedAt))
+        )
+        .orderBy(desc(threadsTable.updatedAt))
+        .all()
+
+      const row = rows.find((r) => r.updatedAt >= cutoff)
+      return row ? toThreadRecord(row) : undefined
     }
   }
 }

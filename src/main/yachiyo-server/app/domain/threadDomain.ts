@@ -137,6 +137,7 @@ export class YachiyoServerThreadDomain {
       workspacePath?: string
       source?: ThreadRecord['source']
       channelUserId?: string
+      channelGroupId?: string
       title?: string
     } = {}
   ): Promise<ThreadRecord> {
@@ -148,7 +149,8 @@ export class YachiyoServerThreadDomain {
       updatedAt: timestamp,
       ...(workspacePath ? { workspacePath } : {}),
       ...(input.source ? { source: input.source } : {}),
-      ...(input.channelUserId ? { channelUserId: input.channelUserId } : {})
+      ...(input.channelUserId ? { channelUserId: input.channelUserId } : {}),
+      ...(input.channelGroupId ? { channelGroupId: input.channelGroupId } : {})
     }
 
     if (workspacePath) {

@@ -9,6 +9,17 @@
 import type { ChannelPlatform, ToolCallName } from '../../../shared/yachiyo/protocol.ts'
 import { CHANNEL_REPLY_HINT, extractChannelReply } from './channelReply.ts'
 
+export interface GroupPolicyDefaults {
+  activeCheckIntervalMs: number
+  engagedCheckIntervalMs: number
+  wakeBufferMs: number
+  dormancyMissCount: number
+  disengageMissCount: number
+  maxRecentMessages: number
+  recentMessageWindowMs: number
+  groupThreadReuseWindowMs: number
+}
+
 export interface ChannelPolicy {
   /** Unique channel identifier. */
   platform: ChannelPlatform
@@ -36,9 +47,24 @@ export interface ChannelPolicy {
 
   /** TTL for channel-sourced images on disk, in milliseconds. @default 604_800_000 (7 days) */
   imageTtlMs: number
+
+  /** Default settings for group discussion monitoring. */
+  groupDefaults: GroupPolicyDefaults
 }
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1_000
+const TEN_MINUTES_MS = 10 * 60 * 1_000
+
+const sharedGroupDefaults: GroupPolicyDefaults = {
+  activeCheckIntervalMs: 30_000,
+  engagedCheckIntervalMs: 10_000,
+  wakeBufferMs: 30_000,
+  dormancyMissCount: 3,
+  disengageMissCount: 3,
+  maxRecentMessages: 50,
+  recentMessageWindowMs: TEN_MINUTES_MS,
+  groupThreadReuseWindowMs: SEVEN_DAYS_MS
+}
 
 export const telegramPolicy: ChannelPolicy = {
   platform: 'telegram',
@@ -49,7 +75,8 @@ export const telegramPolicy: ChannelPolicy = {
   threadReuseWindowMs: 24 * 60 * 60 * 1_000,
   maxImageBytes: 5 * 1024 * 1024,
   maxImagesPerBatch: 4,
-  imageTtlMs: SEVEN_DAYS_MS
+  imageTtlMs: SEVEN_DAYS_MS,
+  groupDefaults: sharedGroupDefaults
 }
 
 export const qqPolicy: ChannelPolicy = {
@@ -61,7 +88,8 @@ export const qqPolicy: ChannelPolicy = {
   threadReuseWindowMs: 24 * 60 * 60 * 1_000,
   maxImageBytes: 5 * 1024 * 1024,
   maxImagesPerBatch: 4,
-  imageTtlMs: SEVEN_DAYS_MS
+  imageTtlMs: SEVEN_DAYS_MS,
+  groupDefaults: sharedGroupDefaults
 }
 
 /** Resolve the channel policy for a given platform. */

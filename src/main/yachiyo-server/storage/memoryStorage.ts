@@ -1,4 +1,5 @@
 import type {
+  ChannelGroupRecord,
   ChannelUserRecord,
   MessageRecord,
   ThreadSearchResult,
@@ -23,6 +24,7 @@ import {
 } from './storage.ts'
 
 export function createInMemoryYachiyoStorage(): YachiyoStorage {
+  const channelGroups = new Map<string, ChannelGroupRecord>()
   const channelUsers = new Map<string, ChannelUserRecord>()
   const threads = new Map<string, StoredThreadRow>()
   const messages: MessageRecord[] = []
@@ -183,6 +185,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         headMessageId: thread.headMessageId ?? null,
         source: thread.source ?? null,
         channelUserId: thread.channelUserId ?? null,
+        channelGroupId: thread.channelGroupId ?? null,
         rollingSummary: thread.rollingSummary ?? null,
         summaryWatermarkMessageId: thread.summaryWatermarkMessageId ?? null,
         updatedAt: thread.updatedAt,
@@ -629,6 +632,48 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       if (usedKTokens !== undefined) existing.usedKTokens = usedKTokens
 
       return { ...existing }
+    },
+
+    // Channel groups (group discussion mode)
+
+    listChannelGroups() {
+      return [...channelGroups.values()]
+    },
+
+    findChannelGroup(platform, externalGroupId) {
+      return [...channelGroups.values()].find(
+        (g) => g.platform === platform && g.externalGroupId === externalGroupId
+      )
+    },
+
+    getChannelGroup(id) {
+      return channelGroups.has(id) ? { ...channelGroups.get(id)! } : undefined
+    },
+
+    createChannelGroup(group) {
+      const record: ChannelGroupRecord = { ...group, createdAt: new Date().toISOString() }
+      channelGroups.set(record.id, record)
+      return record
+    },
+
+    updateChannelGroup({ id, status, name }) {
+      const existing = channelGroups.get(id)
+      if (!existing) return undefined
+
+      if (status !== undefined) existing.status = status
+      if (name !== undefined) existing.name = name
+
+      return { ...existing }
+    },
+
+    findActiveGroupThread(channelGroupId, maxAgeMs) {
+      const cutoff = new Date(Date.now() - maxAgeMs).toISOString()
+      const match = [...threads.values()]
+        .filter(
+          (t) => t.channelGroupId === channelGroupId && !t.archivedAt && t.updatedAt >= cutoff
+        )
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
+      return match ? toThreadRecord(match) : undefined
     }
   }
 }

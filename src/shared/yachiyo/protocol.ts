@@ -22,6 +22,58 @@ export interface UpdateChannelUserInput {
   usedKTokens?: number
 }
 
+// ---------------------------------------------------------------------------
+// Channel Groups (group discussion mode)
+// ---------------------------------------------------------------------------
+
+export type ChannelGroupStatus = 'pending' | 'approved' | 'blocked'
+export type GroupMonitorPhase = 'dormant' | 'active' | 'engaged'
+
+export interface ChannelGroupRecord {
+  id: string
+  platform: ChannelPlatform
+  externalGroupId: string
+  name: string
+  status: ChannelGroupStatus
+  workspacePath: string
+  createdAt: string
+}
+
+export interface UpdateChannelGroupInput {
+  id: string
+  status?: ChannelGroupStatus
+  name?: string
+}
+
+/** Lightweight decision from the group monitor's judge model. */
+export interface GroupReplyDecision {
+  shouldReply: boolean
+  topic?: string
+  tone?: string
+  reason: string
+}
+
+/** A single message in the group monitor's recent-message buffer. */
+export interface GroupMessageEntry {
+  senderName: string
+  senderExternalUserId: string
+  /** Whether this message @mentions the bot. */
+  isMention: boolean
+  text: string
+  /** Unix seconds. */
+  timestamp: number
+}
+
+/** Per-platform group discussion settings (from channels.toml). */
+export interface GroupChannelConfig {
+  enabled: boolean
+  activeCheckIntervalMs?: number
+  engagedCheckIntervalMs?: number
+  wakeBufferMs?: number
+  dormancyMissCount?: number
+  disengageMissCount?: number
+}
+
 export type MessageRole = 'user' | 'assistant'
 export type MessageStatus = 'completed' | 'streaming' | 'failed' | 'stopped'
 export type RunStatus = 'idle' | 'running' | 'completed' | 'failed' | 'cancelled'
@@ -365,6 +417,7 @@ export interface ThreadRecord {
   modelOverride?: ThreadModelOverride
   source?: 'local' | ChannelPlatform
   channelUserId?: string
+  channelGroupId?: string
   /** Compact, external-safe summary of the conversation state. Updated at compaction time. */
   rollingSummary?: string
   /** Messages up to this ID are covered by rollingSummary. Transcript window starts after. */
@@ -393,6 +446,10 @@ export interface MessageRecord {
   turnContext?: MessageTurnContext
   /** Channel-visible reply extracted from raw content. Only set for external-channel assistant messages. */
   visibleReply?: string
+  /** Display name of the sender in a group conversation. Null for DM and bot's own messages. */
+  senderName?: string
+  /** External platform user ID of the sender. Null for DM and bot's own messages. */
+  senderExternalUserId?: string
   status: MessageStatus
   createdAt: string
   modelId?: string
@@ -647,6 +704,8 @@ export interface TelegramChannelConfig {
   botToken: string
   /** Optional model override for Telegram threads. */
   model?: ThreadModelOverride
+  /** Group discussion mode settings. */
+  group?: GroupChannelConfig
 }
 
 export interface QQChannelConfig {
@@ -658,6 +717,8 @@ export interface QQChannelConfig {
   token?: string
   /** Optional model override for QQ threads. */
   model?: ThreadModelOverride
+  /** Group discussion mode settings. */
+  group?: GroupChannelConfig
 }
 
 export interface ChannelsConfig {

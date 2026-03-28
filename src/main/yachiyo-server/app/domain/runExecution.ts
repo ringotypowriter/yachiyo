@@ -908,7 +908,8 @@ export async function executeServerRun(
     const tools = createAgentToolSet(
       {
         enabledTools: modelEnabledTools,
-        workspacePath
+        workspacePath,
+        sandboxed: isExternalChannel
       },
       {
         availableSkills,

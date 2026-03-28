@@ -1,4 +1,6 @@
 import type {
+  ChannelGroupRecord,
+  ChannelGroupStatus,
   ChannelPlatform,
   ChannelUserRecord,
   ChannelUserRole,
@@ -40,6 +42,7 @@ export interface StoredThreadRow {
   modelOverride: string | null
   source: string | null
   channelUserId: string | null
+  channelGroupId: string | null
   rollingSummary: string | null
   summaryWatermarkMessageId: string | null
   updatedAt: string
@@ -60,6 +63,8 @@ export interface StoredMessageRow {
   responseMessages: string | null
   turnContext: string | null
   visibleReply: string | null
+  senderName: string | null
+  senderExternalUserId: string | null
   status: MessageRecord['status']
   createdAt: string
   modelId: string | null
@@ -188,6 +193,21 @@ export interface YachiyoStorage {
     usageLimitKTokens?: number | null
     usedKTokens?: number
   }): ChannelUserRecord | undefined
+
+  // Channel groups (group discussion mode)
+  listChannelGroups(): ChannelGroupRecord[]
+  findChannelGroup(
+    platform: ChannelPlatform,
+    externalGroupId: string
+  ): ChannelGroupRecord | undefined
+  getChannelGroup(id: string): ChannelGroupRecord | undefined
+  createChannelGroup(group: Omit<ChannelGroupRecord, 'createdAt'>): ChannelGroupRecord
+  updateChannelGroup(input: {
+    id: string
+    status?: ChannelGroupStatus
+    name?: string
+  }): ChannelGroupRecord | undefined
+  findActiveGroupThread(channelGroupId: string, maxAgeMs: number): ThreadRecord | undefined
 }
 
 export function toThreadRecord(
@@ -209,6 +229,7 @@ export function toThreadRecord(
     | 'queuedFollowUpMessageId'
     | 'source'
     | 'channelUserId'
+    | 'channelGroupId'
     | 'rollingSummary'
     | 'summaryWatermarkMessageId'
     | 'title'
@@ -241,6 +262,7 @@ export function toThreadRecord(
       ...(row.workspacePath === null ? {} : { workspacePath: row.workspacePath }),
       ...(source ? { source } : {}),
       ...(row.channelUserId === null ? {} : { channelUserId: row.channelUserId }),
+      ...(row.channelGroupId === null ? {} : { channelGroupId: row.channelGroupId }),
       ...(row.rollingSummary === null ? {} : { rollingSummary: row.rollingSummary }),
       ...(row.summaryWatermarkMessageId === null
         ? {}
@@ -319,6 +341,10 @@ export function toMessageRecord(row: StoredMessageRow): MessageRecord {
     ...(responseMessages ? { responseMessages } : {}),
     ...(turnContext ? { turnContext } : {}),
     ...(row.visibleReply === null ? {} : { visibleReply: row.visibleReply }),
+    ...(row.senderName === null ? {} : { senderName: row.senderName }),
+    ...(row.senderExternalUserId === null
+      ? {}
+      : { senderExternalUserId: row.senderExternalUserId }),
     status: row.status,
     createdAt: row.createdAt,
     ...(row.modelId === null ? {} : { modelId: row.modelId }),

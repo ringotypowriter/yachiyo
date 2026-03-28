@@ -20,6 +20,7 @@ import type {
   TestSubagentProfileInput,
   ThreadModelOverride,
   ToolPreferencesInput,
+  UpdateChannelGroupInput,
   UpdateChannelUserInput,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
@@ -96,7 +97,9 @@ const IPC_CHANNELS = {
   listChannelUsers: 'yachiyo:list-channel-users',
   updateChannelUser: 'yachiyo:update-channel-user',
   getChannelsConfig: 'yachiyo:get-channels-config',
-  saveChannelsConfig: 'yachiyo:save-channels-config'
+  saveChannelsConfig: 'yachiyo:save-channels-config',
+  listChannelGroups: 'yachiyo:list-channel-groups',
+  updateChannelGroup: 'yachiyo:update-channel-group'
 } as const
 
 let server: YachiyoServer | null = null
@@ -126,7 +129,13 @@ async function applyTelegramConfig(cfg: ChannelsConfig): Promise<void> {
 
   console.log('[telegram] starting polling service')
   const model = cfg.telegram?.model
-  telegramService = createTelegramService({ botToken: token, model, server })
+  telegramService = createTelegramService({
+    botToken: token,
+    model,
+    server,
+    groupConfig: cfg.telegram?.group,
+    botUsername: undefined // TODO: resolve bot username from Bot API getMe
+  })
   telegramService.startPolling()
   console.log('[telegram] polling started')
 }
@@ -153,7 +162,14 @@ async function applyQQConfig(cfg: ChannelsConfig): Promise<void> {
 
   console.log('[qq] starting QQ service')
   const model = cfg.qq?.model
-  qqService = createQQService({ wsUrl, token: cfg.qq?.token, model, server })
+  qqService = createQQService({
+    wsUrl,
+    token: cfg.qq?.token,
+    model,
+    server,
+    groupConfig: cfg.qq?.group,
+    botQQId: cfg.qq?.token ? undefined : undefined // TODO: resolve bot's own QQ ID for @mention detection
+  })
   qqService.connect()
   console.log('[qq] service started')
 }
@@ -391,6 +407,13 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.updateChannelUser, (input: UpdateChannelUserInput) =>
     server!.updateChannelUser(input)
   )
+  handle(IPC_CHANNELS.listChannelGroups, () => server!.listChannelGroups())
+  handle(IPC_CHANNELS.updateChannelGroup, (input: UpdateChannelGroupInput) => {
+    const updated = server!.updateChannelGroup(input)
+    // Notify running channel services so they can start/stop monitors.
+    qqService?.onGroupStatusChange(updated)
+    return updated
+  })
   handle(IPC_CHANNELS.getChannelsConfig, () => server!.getChannelsConfig())
   handle(IPC_CHANNELS.saveChannelsConfig, async (input: ChannelsConfig) => {
     const saved = server!.saveChannelsConfig(input)

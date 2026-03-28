@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 
 import type {
   BootstrapPayload,
+  ChannelGroupRecord,
   ChannelUserRecord,
   ChatAccepted,
   CompactThreadAccepted,
@@ -35,6 +36,7 @@ import type {
   ChannelsConfig,
   ToolCallRecord,
   ToolPreferencesInput,
+  UpdateChannelGroupInput,
   UpdateChannelUserInput,
   UserDocument,
   SoulDocument as ProtocolSoulDocument,
@@ -125,6 +127,7 @@ export class YachiyoServer {
   private readonly now: () => Date
   private readonly createId: () => string
   private readonly listeners = new Set<(event: YachiyoServerEvent) => void>()
+  private readonly auxiliaryGeneration: import('../runtime/auxiliaryGeneration.ts').AuxiliaryGenerationService
   private readonly memoryService: MemoryService
   private readonly configDomain: YachiyoServerConfigDomain
   private readonly runDomain: YachiyoServerRunDomain
@@ -219,6 +222,7 @@ export class YachiyoServer {
       createModelRuntime,
       readToolModelSettings: () => this.configDomain.readToolModelSettings()
     })
+    this.auxiliaryGeneration = auxiliaryGeneration
     const memoryService =
       options.memoryService ??
       createMemoryService({
@@ -486,6 +490,7 @@ export class YachiyoServer {
       workspacePath?: string
       source?: ThreadRecord['source']
       channelUserId?: string
+      channelGroupId?: string
       title?: string
     } = {}
   ): Promise<ThreadRecord> {
@@ -689,6 +694,41 @@ export class YachiyoServer {
       throw new Error(`Unknown channel user: ${input.id}`)
     }
     return updated
+  }
+
+  // ------------------------------------------------------------------
+  // Channel groups (group discussion mode)
+  // ------------------------------------------------------------------
+
+  listChannelGroups(): ChannelGroupRecord[] {
+    return this.storage.listChannelGroups()
+  }
+
+  findChannelGroup(
+    platform: ChannelGroupRecord['platform'],
+    externalGroupId: string
+  ): ChannelGroupRecord | undefined {
+    return this.storage.findChannelGroup(platform, externalGroupId)
+  }
+
+  createChannelGroup(group: Omit<ChannelGroupRecord, 'createdAt'>): ChannelGroupRecord {
+    return this.storage.createChannelGroup(group)
+  }
+
+  updateChannelGroup(input: UpdateChannelGroupInput): ChannelGroupRecord {
+    const updated = this.storage.updateChannelGroup(input)
+    if (!updated) {
+      throw new Error(`Unknown channel group: ${input.id}`)
+    }
+    return updated
+  }
+
+  findActiveGroupThread(channelGroupId: string, maxAgeMs: number): ThreadRecord | undefined {
+    return this.storage.findActiveGroupThread(channelGroupId, maxAgeMs)
+  }
+
+  getAuxiliaryGenerationService(): import('../runtime/auxiliaryGeneration.ts').AuxiliaryGenerationService {
+    return this.auxiliaryGeneration
   }
 
   getChannelsConfig(): ChannelsConfig {

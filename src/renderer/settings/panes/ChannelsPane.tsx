@@ -3,6 +3,8 @@ import { Loader2 } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
 
 import type {
+  ChannelGroupRecord,
+  ChannelGroupStatus,
   ChannelsConfig,
   ChannelUserRecord,
   ChannelUserRole,
@@ -29,6 +31,9 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
   const [users, setUsers] = useState<ChannelUserRecord[]>([])
   const [loadingUsers, setLoadingUsers] = useState(true)
   const [updatingUser, setUpdatingUser] = useState<string | null>(null)
+  const [groups, setGroups] = useState<ChannelGroupRecord[]>([])
+  const [loadingGroups, setLoadingGroups] = useState(true)
+  const [updatingGroup, setUpdatingGroup] = useState<string | null>(null)
   const [settingsConfig, setSettingsConfig] = useState<SettingsConfig | null>(null)
 
   useEffect(() => {
@@ -37,22 +42,26 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
     void Promise.all([
       window.api.yachiyo.getChannelsConfig(),
       window.api.yachiyo.listChannelUsers(),
+      window.api.yachiyo.listChannelGroups(),
       window.api.yachiyo.getConfig()
     ])
-      .then(([cfg, usrs, settings]) => {
+      .then(([cfg, usrs, grps, settings]) => {
         if (cancelled) return
         setConfig(cfg)
         configRef.current = cfg
         initializedRef.current = true
         setUsers(usrs)
+        setGroups(grps)
         setSettingsConfig(settings)
         setLoadingConfig(false)
         setLoadingUsers(false)
+        setLoadingGroups(false)
       })
       .catch(() => {
         if (!cancelled) {
           setLoadingConfig(false)
           setLoadingUsers(false)
+          setLoadingGroups(false)
         }
       })
 
@@ -134,6 +143,19 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
       setUsers((us) => us.map((u) => (u.id === updated.id ? updated : u)))
     } finally {
       setUpdatingUser(null)
+    }
+  }
+
+  async function handleGroupStatusChange(
+    groupId: string,
+    status: ChannelGroupStatus
+  ): Promise<void> {
+    setUpdatingGroup(groupId)
+    try {
+      const updated = await window.api.yachiyo.updateChannelGroup({ id: groupId, status })
+      setGroups((gs) => gs.map((g) => (g.id === updated.id ? updated : g)))
+    } finally {
+      setUpdatingGroup(null)
     }
   }
 
@@ -419,6 +441,32 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
       </SettingSection>
 
       <SettingSection>
+        <SettingLabel>Groups</SettingLabel>
+
+        {loadingGroups ? (
+          <div className="flex items-center justify-center py-6">
+            <Loader2 size={16} className="animate-spin" style={{ color: theme.text.muted }} />
+          </div>
+        ) : groups.length === 0 ? (
+          <div
+            className="px-7 py-5 text-sm"
+            style={{ color: theme.text.muted, borderTop: `1px solid ${theme.border.subtle}` }}
+          >
+            No groups yet — they appear here when the bot is added to a group.
+          </div>
+        ) : (
+          groups.map((group) => (
+            <ChannelGroupRow
+              key={group.id}
+              group={group}
+              busy={updatingGroup === group.id}
+              onStatusChange={(s) => void handleGroupStatusChange(group.id, s)}
+            />
+          ))
+        )}
+      </SettingSection>
+
+      <SettingSection>
         <SettingLabel>Memory Privacy</SettingLabel>
 
         <SettingRow>
@@ -579,6 +627,17 @@ const STATUS_COLORS: Record<ChannelUserStatus, string> = {
   blocked: '#ff3b30'
 }
 
+const GROUP_STATUS_COLORS: Record<ChannelGroupStatus, string> = {
+  approved: '#34c759',
+  pending: '#ff9500',
+  blocked: '#ff3b30'
+}
+
+const PLATFORM_LABELS: Record<string, string> = {
+  telegram: 'Telegram',
+  qq: 'QQ'
+}
+
 // ─── user row ────────────────────────────────────────────────────────────────
 
 function ChannelUserRow({
@@ -669,6 +728,66 @@ function ChannelUserRow({
           <ActionButton label="Block" color="#ff3b30" onClick={() => onStatusChange('blocked')} />
         )}
         {user.status === 'blocked' && (
+          <ActionButton label="Unblock" color="#ff9500" onClick={() => onStatusChange('pending')} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ChannelGroupRow({
+  group,
+  busy,
+  onStatusChange
+}: {
+  group: ChannelGroupRecord
+  busy: boolean
+  onStatusChange: (status: ChannelGroupStatus) => void
+}): React.ReactNode {
+  return (
+    <div
+      className="flex items-center gap-4 px-7 py-3 transition-opacity"
+      style={{ borderTop: `1px solid ${theme.border.subtle}`, opacity: busy ? 0.5 : 1 }}
+    >
+      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: GROUP_STATUS_COLORS[group.status],
+            flexShrink: 0
+          }}
+        />
+        <div className="min-w-0">
+          <div className="text-sm font-medium truncate" style={{ color: theme.text.primary }}>
+            {group.name}
+          </div>
+        </div>
+      </div>
+
+      <span
+        className="text-xs px-2 py-0.5 rounded shrink-0"
+        style={{ background: alpha('ink', 0.06), color: theme.text.tertiary }}
+      >
+        {PLATFORM_LABELS[group.platform] ?? group.platform}
+      </span>
+
+      <div className="flex items-center gap-1 shrink-0">
+        {group.status === 'pending' && (
+          <>
+            <ActionButton
+              label="Approve"
+              color="#34c759"
+              onClick={() => onStatusChange('approved')}
+            />
+            <ActionButton label="Block" color="#ff3b30" onClick={() => onStatusChange('blocked')} />
+          </>
+        )}
+        {group.status === 'approved' && (
+          <ActionButton label="Block" color="#ff3b30" onClick={() => onStatusChange('blocked')} />
+        )}
+        {group.status === 'blocked' && (
           <ActionButton label="Unblock" color="#ff9500" onClick={() => onStatusChange('pending')} />
         )}
       </div>

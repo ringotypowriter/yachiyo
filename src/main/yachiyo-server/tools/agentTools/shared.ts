@@ -97,6 +97,8 @@ export type SkillsReadToolInput = z.infer<typeof skillsReadToolInputSchema>
 export interface AgentToolContext {
   enabledTools?: ToolCallName[]
   workspacePath: string
+  /** When true, file tools are sandboxed to the workspace — no absolute path escapes. */
+  sandboxed?: boolean
 }
 
 export type ToolContentBlock =
@@ -170,6 +172,24 @@ export function resolveToolPath(workspacePath: string, targetPath: string): stri
   const unquoted = targetPath.trim().replace(/^(['"`])(.*)\1$/, '$2')
   const expanded = expandTilde(unquoted)
   return isAbsolute(expanded) ? resolve(expanded) : resolve(workspacePath, expanded)
+}
+
+/**
+ * Resolve a tool path, respecting the sandbox flag.
+ * When sandboxed, paths that escape the workspace return an error string.
+ */
+export function resolveSandboxedToolPath(
+  context: AgentToolContext,
+  targetPath: string
+): { resolved: string } | { error: string } {
+  if (!context.sandboxed) {
+    return { resolved: resolveToolPath(context.workspacePath, targetPath) }
+  }
+  const result = resolvePathWithinWorkspace(context.workspacePath, targetPath)
+  if (result) {
+    return { resolved: result }
+  }
+  return { error: `Access denied — path is outside the workspace. Only files within ${context.workspacePath} are accessible.` }
 }
 
 export function resolvePathWithinWorkspace(

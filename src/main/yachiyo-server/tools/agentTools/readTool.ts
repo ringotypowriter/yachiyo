@@ -12,7 +12,7 @@ import {
   type ReadToolInput,
   type ReadToolOutput,
   readToolInputSchema,
-  resolveToolPath,
+  resolveSandboxedToolPath,
   imageDataContent,
   textContent,
   toToolModelOutput,
@@ -231,9 +231,11 @@ export async function runReadTool(
   input: ReadToolInput,
   context: AgentToolContext
 ): Promise<ReadToolOutput> {
-  const resolvedPath = await resolveUnicodeSpacePath(
-    resolveToolPath(context.workspacePath, input.path)
-  )
+  const pathResult = resolveSandboxedToolPath(context, input.path)
+  if ('error' in pathResult) {
+    return createReadErrorResult(input.path, pathResult.error)
+  }
+  const resolvedPath = await resolveUnicodeSpacePath(pathResult.resolved)
 
   if (isUnreadableBinary(resolvedPath)) {
     const ext = extname(resolvedPath).toLowerCase()

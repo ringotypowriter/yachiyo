@@ -1214,6 +1214,12 @@ export class YachiyoServerRunDomain {
       return
     }
 
+    // Skip memory distillation for external channel threads — conversations are
+    // short and ephemeral; distilling them pollutes the owner's memory store.
+    if (input.thread.source && input.thread.source !== 'local') {
+      return
+    }
+
     const abortController = new AbortController()
     this.backgroundMemoryTaskControllers.add(abortController)
 

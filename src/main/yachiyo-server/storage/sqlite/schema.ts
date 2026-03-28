@@ -1,6 +1,7 @@
 import { integer, real, sqliteTable, text, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
 
 import type {
+  ChannelGroupStatus,
   ChannelUserRole,
   ChannelUserStatus,
   MessageRecord,
@@ -18,6 +19,16 @@ export const channelUsersTable = sqliteTable('channel_users', {
   usageLimitKTokens: integer('usage_limit_k_tokens'),
   usedKTokens: integer('used_k_tokens').notNull().default(0),
   workspacePath: text('workspace_path').notNull()
+})
+
+export const channelGroupsTable = sqliteTable('channel_groups', {
+  id: text('id').primaryKey(),
+  platform: text('platform').notNull(),
+  externalGroupId: text('external_group_id').notNull(),
+  name: text('name').notNull(),
+  status: text('status').$type<ChannelGroupStatus>().notNull().default('pending'),
+  workspacePath: text('workspace_path').notNull(),
+  createdAt: text('created_at').notNull()
 })
 
 export const threadsTable = sqliteTable('threads', {
@@ -40,6 +51,7 @@ export const threadsTable = sqliteTable('threads', {
   modelOverride: text('model_override'),
   source: text('source').default('local'),
   channelUserId: text('channel_user_id').references(() => channelUsersTable.id),
+  channelGroupId: text('channel_group_id').references(() => channelGroupsTable.id),
   rollingSummary: text('rolling_summary'),
   summaryWatermarkMessageId: text('summary_watermark_message_id'),
   updatedAt: text('updated_at').notNull(),
@@ -63,6 +75,8 @@ export const messagesTable = sqliteTable('messages', {
   responseMessages: text('response_messages'),
   turnContext: text('turn_context'),
   visibleReply: text('visible_reply'),
+  senderName: text('sender_name'),
+  senderExternalUserId: text('sender_external_user_id'),
   status: text('status').$type<MessageRecord['status']>().notNull(),
   createdAt: text('created_at').notNull(),
   modelId: text('model_id'),

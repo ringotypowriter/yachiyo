@@ -8,19 +8,28 @@
  *   4. Extract <reply> content and send back via OneBot API.
  */
 
+import { join } from 'node:path'
+
 import type {
+  ChannelGroupRecord,
   ChannelUserRecord,
+  GroupChannelConfig,
+  GroupMessageEntry,
   MessageImageRecord,
   ThreadModelOverride,
   YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol.ts'
 import type { YachiyoServer } from '../app/YachiyoServer.ts'
+import { resolveYachiyoTempWorkspaceRoot } from '../config/paths.ts'
 import { qqPolicy } from './channelPolicy.ts'
 import {
   detectMediaTypeFromBytes,
   ensureVisionSafe,
   fetchImageAsDataUrl
 } from './channelImageDownload.ts'
+import { buildGroupReplyInstruction } from './groupContextBuilder.ts'
+import { createGroupMonitorRegistry, type GroupMonitorRegistry } from './groupMonitorRegistry.ts'
+import { formatMessagesForJudge, judgeGroupReply } from './groupReplyJudge.ts'
 import { parseCQImages, type CQImageRef } from './qqImageParsing.ts'
 import { createOneBotClient, type OneBotClient } from './onebotClient.ts'
 import { readFile } from 'node:fs/promises'
@@ -52,21 +61,30 @@ export interface QQServiceOptions {
   model?: ThreadModelOverride
   /** The Yachiyo server instance. */
   server: YachiyoServer
+  /** Group discussion config from channels.toml. */
+  groupConfig?: GroupChannelConfig
+  /** Bot's own QQ user ID (to detect @mentions). */
+  botQQId?: string
 }
 
 export interface QQService {
   connect: () => void
   stop: () => Promise<void>
+  /** Notify the service that a group's status changed (approved/blocked). */
+  onGroupStatusChange: (group: ChannelGroupRecord) => void
 }
 
 export function createQQService({
   wsUrl,
   token,
   model: modelOverride,
-  server
+  server,
+  groupConfig,
+  botQQId
 }: QQServiceOptions): QQService {
   const policy = qqPolicy
   const pendingBatches = new Map<string, PendingBatch>()
+  let resolvedBotQQId = botQQId
 
   const storage: QQChannelStorage = {
     findChannelUser(platform, externalUserId) {
@@ -175,6 +193,157 @@ export function createQQService({
         enqueueMessage(msg.userId, result.channelUser, text, imageDownloads)
     }
   })
+
+  // ------------------------------------------------------------------
+  // Group discussion mode
+  // ------------------------------------------------------------------
+
+  let groupRegistry: GroupMonitorRegistry | null = null
+
+  /** Build a map from QQ externalUserId → role for identity marking. */
+  function buildKnownUsersMap(): Map<string, string> {
+    const map = new Map<string, string>()
+    for (const u of server.listChannelUsers()) {
+      if (u.platform === 'qq') {
+        map.set(u.externalUserId, u.role)
+      }
+    }
+    return map
+  }
+
+  // Group monitoring is enabled by default; only skip if explicitly disabled.
+  if (groupConfig?.enabled !== false) {
+    groupRegistry = createGroupMonitorRegistry(policy.groupDefaults, groupConfig, {
+      async onCheck(group, recentMessages) {
+        const auxService = server.getAuxiliaryGenerationService()
+        return judgeGroupReply(
+          {
+            botName: 'Yachiyo',
+            groupName: group.name,
+            recentMessages,
+            knownUsers: buildKnownUsersMap()
+          },
+          auxService
+        )
+      },
+
+      async onReply(group, decision, allRecentMessages) {
+        await handleGroupReply(group, decision, allRecentMessages)
+      },
+
+      onStateChange(group, newPhase) {
+        console.log(`[qq-group] "${group.name}" phase → ${newPhase}`)
+      }
+    })
+
+    // Start monitors for all already-approved groups.
+    for (const group of server.listChannelGroups()) {
+      if (group.platform === 'qq' && group.status === 'approved') {
+        groupRegistry.startMonitor(group)
+      }
+    }
+  }
+
+  // Always listen for group messages — register pending groups even when
+  // group monitoring is disabled, so they show up in settings for approval.
+  client.onGroupMessage((msg) => {
+    const groupId = String(msg.groupId)
+    const existing = server.findChannelGroup('qq', groupId)
+
+    if (!existing) {
+      server.createChannelGroup({
+        id: `qq-group-${groupId}`,
+        platform: 'qq',
+        externalGroupId: groupId,
+        name: `QQ群${groupId}`,
+        status: 'pending',
+        workspacePath: join(resolveYachiyoTempWorkspaceRoot(), `qq-group-${groupId}`)
+      })
+      console.log(`[qq-group] new group ${groupId} registered as pending`)
+      return
+    }
+
+    if (existing.status !== 'approved' || !groupRegistry) return
+
+    const { text } = parseCQImages(msg.rawMessage)
+    if (!text) return
+
+    const isMention = resolvedBotQQId
+      ? msg.rawMessage.includes(`[CQ:at,qq=${resolvedBotQQId}]`)
+      : false
+
+    const entry: GroupMessageEntry = {
+      senderName: msg.nickname,
+      senderExternalUserId: String(msg.userId),
+      isMention,
+      text,
+      timestamp: msg.time
+    }
+
+    groupRegistry.routeMessage(existing.id, entry)
+  })
+
+  async function handleGroupReply(
+    group: ChannelGroupRecord,
+    decision: import('../../../shared/yachiyo/protocol.ts').GroupReplyDecision,
+    allRecentMessages: GroupMessageEntry[]
+  ): Promise<void> {
+    try {
+      const groupThread =
+        server.findActiveGroupThread(group.id, policy.groupDefaults.groupThreadReuseWindowMs) ??
+        (await server.createThread({
+          workspacePath: group.workspacePath,
+          source: 'qq',
+          channelGroupId: group.id,
+          title: `QQ群:${group.name}`
+        }))
+
+      const channelHint = buildGroupReplyInstruction(decision, 'Yachiyo')
+      const triggerContent = formatMessagesForJudge(
+        allRecentMessages,
+        'Yachiyo',
+        buildKnownUsersMap()
+      )
+
+      const outputPromise = collectRunOutput(server, groupThread.id)
+
+      const accepted = await server.sendChat({
+        threadId: groupThread.id,
+        content: triggerContent,
+        enabledTools: policy.allowedTools,
+        channelHint
+      })
+
+      if (!('runId' in accepted)) {
+        console.warn('[qq-group] sendChat returned non-run:', accepted)
+        return
+      }
+
+      const rawOutput = await outputPromise
+      const reply = policy.extractVisibleReply(rawOutput)
+
+      if (reply) {
+        await client.sendGroupMessage(Number(group.externalGroupId), reply)
+        console.log(`[qq-group] sent reply to group "${group.name}": ${reply.slice(0, 100)}`)
+
+        // Feed the bot's own reply back into the monitor so the judge sees it.
+        groupRegistry!.routeMessage(group.id, {
+          senderName: 'Yachiyo',
+          senderExternalUserId: '__self__',
+          isMention: false,
+          text: reply,
+          timestamp: Date.now() / 1_000
+        })
+      }
+
+      server.updateLatestAssistantVisibleReply({
+        threadId: groupThread.id,
+        visibleReply: reply
+      })
+    } catch (error) {
+      console.error(`[qq-group] failed to handle group reply for "${group.name}"`, error)
+    }
+  }
 
   function enqueueMessage(
     qqUserId: number,
@@ -356,15 +525,43 @@ export function createQQService({
   return {
     connect() {
       console.log(`[qq] connecting to NapCat at ${wsUrl}`)
+
+      // Auto-detect the bot's own QQ ID once connected.
+      client.onConnect(() => {
+        if (resolvedBotQQId) return
+        void (async () => {
+          try {
+            const info = await client.getLoginInfo()
+            resolvedBotQQId = String(info.userId)
+            console.log(`[qq] resolved bot QQ ID: ${resolvedBotQQId} (${info.nickname})`)
+          } catch (e) {
+            console.warn('[qq] failed to resolve bot QQ ID:', e)
+          }
+        })()
+      })
+
       client.connect()
     },
     async stop() {
+      groupRegistry?.stopAll()
       for (const [userId, batch] of pendingBatches) {
         clearTimeout(batch.timer)
         pendingBatches.delete(userId)
         console.log(`[qq] discarded pending batch for ${batch.channelUser.username} on shutdown`)
       }
       await client.close()
+    },
+
+    onGroupStatusChange(group) {
+      if (group.platform !== 'qq' || !groupRegistry) return
+
+      if (group.status === 'approved') {
+        groupRegistry.startMonitor(group)
+        console.log(`[qq-group] monitor started for "${group.name}" after approval`)
+      } else {
+        groupRegistry.stopMonitor(group.id)
+        console.log(`[qq-group] monitor stopped for "${group.name}" (status=${group.status})`)
+      }
     }
   }
 }

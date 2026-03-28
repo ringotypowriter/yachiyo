@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
+  ChannelGroupRecord,
   ChannelsConfig,
   ChannelUserRecord,
   CompactThreadInput,
@@ -22,6 +23,7 @@ import type {
   ThreadRecord,
   ThreadSearchResult,
   MemoryTermDocument,
+  UpdateChannelGroupInput,
   UpdateChannelUserInput,
   UserDocument,
   SoulDocument,
@@ -137,6 +139,10 @@ const api = {
       ipcRenderer.invoke('yachiyo:list-channel-users'),
     updateChannelUser: (input: UpdateChannelUserInput): Promise<ChannelUserRecord> =>
       ipcRenderer.invoke('yachiyo:update-channel-user', input),
+    listChannelGroups: (): Promise<ChannelGroupRecord[]> =>
+      ipcRenderer.invoke('yachiyo:list-channel-groups'),
+    updateChannelGroup: (input: UpdateChannelGroupInput): Promise<ChannelGroupRecord> =>
+      ipcRenderer.invoke('yachiyo:update-channel-group', input),
     getChannelsConfig: (): Promise<ChannelsConfig> =>
       ipcRenderer.invoke('yachiyo:get-channels-config'),
     saveChannelsConfig: (input: ChannelsConfig): Promise<ChannelsConfig> =>
