@@ -9,6 +9,11 @@
  *   [telegram]
  *   enabled = true
  *   bot_token = "123456:ABC-DEF..."
+ *
+ *   [qq]
+ *   enabled = true
+ *   ws_url = "ws://localhost:3001"
+ *   token = "optional-secret"
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -83,6 +88,25 @@ export function parseChannelsToml(raw: string): ChannelsConfig {
         config.telegram.model.model = unquote(rawVal)
       }
     }
+
+    if (section === 'qq') {
+      if (!config.qq) {
+        config.qq = { enabled: false, wsUrl: '' }
+      }
+      if (key === 'enabled') {
+        config.qq.enabled = rawVal === 'true'
+      } else if (key === 'ws_url') {
+        config.qq.wsUrl = unquote(rawVal)
+      } else if (key === 'token') {
+        config.qq.token = unquote(rawVal)
+      } else if (key === 'model_provider') {
+        if (!config.qq.model) config.qq.model = { providerName: '', model: '' }
+        config.qq.model.providerName = unquote(rawVal)
+      } else if (key === 'model_name') {
+        if (!config.qq.model) config.qq.model = { providerName: '', model: '' }
+        config.qq.model.model = unquote(rawVal)
+      }
+    }
   }
 
   return config
@@ -100,6 +124,20 @@ export function stringifyChannelsToml(config: ChannelsConfig): string {
     if (config.telegram.model?.providerName && config.telegram.model?.model) {
       lines.push(`model_provider = ${quoteToml(config.telegram.model.providerName)}`)
       lines.push(`model_name = ${quoteToml(config.telegram.model.model)}`)
+    }
+  }
+
+  if (config.qq !== undefined) {
+    if (lines.length > 0) lines.push('')
+    lines.push('[qq]')
+    lines.push(`enabled = ${config.qq.enabled ? 'true' : 'false'}`)
+    lines.push(`ws_url = ${quoteToml(config.qq.wsUrl)}`)
+    if (config.qq.token) {
+      lines.push(`token = ${quoteToml(config.qq.token)}`)
+    }
+    if (config.qq.model?.providerName && config.qq.model?.model) {
+      lines.push(`model_provider = ${quoteToml(config.qq.model.providerName)}`)
+      lines.push(`model_name = ${quoteToml(config.qq.model.model)}`)
     }
   }
 

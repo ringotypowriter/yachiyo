@@ -41,10 +41,11 @@ describe('buildExternalAgentInstructions', () => {
     assert.ok(!result.includes('Available tools:'))
   })
 
-  it('includes anti-hallucination rule', () => {
+  it('includes conversational role definition', () => {
     const result = buildExternalAgentInstructions({ enabledTools: ['read'] })
 
-    assert.ok(result.includes('Never invent'))
+    assert.ok(result.includes('conversational companion'))
+    assert.ok(result.includes('not coding assistant'))
   })
 })
 

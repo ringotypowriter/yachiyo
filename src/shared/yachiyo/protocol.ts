@@ -1,5 +1,5 @@
 export type ChannelUserStatus = 'pending' | 'allowed' | 'blocked'
-export type ChannelPlatform = 'telegram'
+export type ChannelPlatform = 'telegram' | 'qq'
 
 export interface ChannelUserRecord {
   id: string
@@ -646,8 +646,20 @@ export interface TelegramChannelConfig {
   model?: ThreadModelOverride
 }
 
+export interface QQChannelConfig {
+  /** Whether the QQ bot is active. */
+  enabled: boolean
+  /** NapCatQQ forward WebSocket URL (e.g. "ws://localhost:3001"). */
+  wsUrl: string
+  /** Optional auth token for the WS connection. */
+  token?: string
+  /** Optional model override for QQ threads. */
+  model?: ThreadModelOverride
+}
+
 export interface ChannelsConfig {
   telegram?: TelegramChannelConfig
+  qq?: QQChannelConfig
 }
 
 export interface SettingsConfig {

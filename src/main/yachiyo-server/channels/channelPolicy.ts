@@ -38,11 +38,22 @@ export const telegramPolicy: ChannelPolicy = {
   threadReuseWindowMs: 24 * 60 * 60 * 1_000
 }
 
+export const qqPolicy: ChannelPolicy = {
+  platform: 'qq',
+  replyInstruction: CHANNEL_REPLY_HINT,
+  extractVisibleReply: extractChannelReply,
+  allowedTools: ['read', 'grep', 'glob', 'webRead', 'webSearch'],
+  contextTokenLimit: 64_000,
+  threadReuseWindowMs: 24 * 60 * 60 * 1_000
+}
+
 /** Resolve the channel policy for a given platform. */
 export function resolveChannelPolicy(platform: ChannelPlatform): ChannelPolicy {
   switch (platform) {
     case 'telegram':
       return telegramPolicy
+    case 'qq':
+      return qqPolicy
     default:
       throw new Error(`Unknown channel platform: ${platform}`)
   }

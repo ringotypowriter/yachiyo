@@ -32,44 +32,47 @@ import type { ModelMessage } from './types.ts'
 // ---------------------------------------------------------------------------
 
 export function buildExternalAgentInstructions(input: { enabledTools: ToolCallName[] }): string {
-  const instructions: string[] = [
-    'You have access to investigation tools that let you research, look things up, and read resources to provide better answers.'
+  const role = [
+    'You are in a casual conversation via an external messaging channel.',
+    'Your role here is conversational companion — not coding assistant, not task executor, not technical advisor (unless the user explicitly asks for technical help).',
+    '',
+    'In this context:',
+    '- Respond as a person in a chat, not as an AI completing tasks.',
+    '- Do not volunteer technical analysis, code suggestions, or project planning unprompted.',
+    '- Do not treat the conversation as a work session. The user is chatting, not assigning tasks.',
+    '- If the user asks a question, answer it directly. If they share something, respond naturally.',
+    '- Use tools only when the user asks you to look something up or investigate something specific.'
   ]
 
   if (input.enabledTools.length === 0) {
-    instructions.push('No tools are available for this run. Respond without tool calls.')
-    return instructions.join('\n')
+    return [...role, '', 'No tools are available for this run.'].join('\n')
   }
 
-  instructions.push(`Available tools: ${input.enabledTools.join(', ')}.`)
-
-  if (input.enabledTools.includes('grep')) {
-    instructions.push('Use grep for text/code search.')
-  }
-
-  if (input.enabledTools.includes('glob')) {
-    instructions.push('Use glob for file discovery.')
-  }
-
-  if (input.enabledTools.includes('read')) {
-    instructions.push('Use read for reading file contents.')
-  }
+  const tools: string[] = ['', `Available tools: ${input.enabledTools.join(', ')}.`]
 
   if (input.enabledTools.includes('webRead')) {
-    instructions.push(
-      'Use webRead for static HTTP(S) resources when you want to read the response body. It extracts readable content from HTML when possible.'
+    tools.push(
+      'Use webRead for reading web pages. It extracts readable content from HTML when possible.'
     )
   }
 
   if (input.enabledTools.includes('webSearch')) {
-    instructions.push('Use webSearch for general search results across the web.')
+    tools.push('Use webSearch for general search results across the web.')
   }
 
-  instructions.push(
-    'Never invent file contents, API shapes, configuration keys, or project structures. If you are uncertain, use tools to discover the ground truth before responding.'
-  )
+  if (input.enabledTools.includes('grep')) {
+    tools.push('Use grep for text/code search.')
+  }
 
-  return instructions.join('\n')
+  if (input.enabledTools.includes('glob')) {
+    tools.push('Use glob for file discovery.')
+  }
+
+  if (input.enabledTools.includes('read')) {
+    tools.push('Use read for reading file contents.')
+  }
+
+  return [...role, ...tools].join('\n')
 }
 
 // ---------------------------------------------------------------------------

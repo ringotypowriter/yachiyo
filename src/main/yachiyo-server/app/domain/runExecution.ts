@@ -42,7 +42,7 @@ import {
   buildExternalAgentInstructions,
   compileExternalContextLayers
 } from '../../runtime/externalContextLayers.ts'
-import { SYSTEM_PROMPT } from '../../runtime/prompt.ts'
+import { EXTERNAL_SYSTEM_PROMPT, SYSTEM_PROMPT } from '../../runtime/prompt.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { RecallDecisionSnapshot } from '../../../../shared/yachiyo/protocol.ts'
 import { resolveActiveSkills } from '../../services/skills/skillResolver.ts'
@@ -851,7 +851,7 @@ export async function executeServerRun(
 
     const messages = isExternalChannel
       ? compileExternalContextLayers({
-          personality: { basePersona: SYSTEM_PROMPT },
+          personality: { basePersona: EXTERNAL_SYSTEM_PROMPT },
           soul: { content: soulDocument?.rawContent ?? '' },
           user: { content: userDocument?.content ?? '' },
           executionContract: buildExternalAgentInstructions({

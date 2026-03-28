@@ -34,6 +34,7 @@ import {
   createTelegramService,
   type TelegramService
 } from './yachiyo-server/channels/telegramService.ts'
+import { createQQService, type QQService } from './yachiyo-server/channels/qqService.ts'
 
 const IPC_CHANNELS = {
   showNotification: 'yachiyo:show-notification',
@@ -100,6 +101,7 @@ const IPC_CHANNELS = {
 
 let server: YachiyoServer | null = null
 let telegramService: TelegramService | null = null
+let qqService: QQService | null = null
 let fatalRunRecoveryRegistered = false
 
 function applyTelegramConfig(cfg: ChannelsConfig): void {
@@ -122,6 +124,28 @@ function applyTelegramConfig(cfg: ChannelsConfig): void {
   telegramService = createTelegramService({ botToken: token, model, server })
   telegramService.startPolling()
   console.log('[telegram] polling started')
+}
+
+function applyQQConfig(cfg: ChannelsConfig): void {
+  const wsUrl = cfg.qq?.wsUrl?.trim()
+  const enabled = cfg.qq?.enabled ?? false
+
+  if (qqService) {
+    console.log('[qq] stopping existing service')
+    void qqService.stop().catch((e) => console.error('[qq] stop error', e))
+    qqService = null
+  }
+
+  if (!enabled || !wsUrl || !server) {
+    console.log(`[qq] service not started (enabled=${enabled}, hasWsUrl=${Boolean(wsUrl)})`)
+    return
+  }
+
+  console.log('[qq] starting QQ service')
+  const model = cfg.qq?.model
+  qqService = createQQService({ wsUrl, token: cfg.qq?.token, model, server })
+  qqService.connect()
+  console.log('[qq] service started')
 }
 
 function toFatalRunError(error: unknown): string {
@@ -191,8 +215,10 @@ export function registerYachiyoGateway(): YachiyoServer {
   registerFatalRunRecovery()
   server.subscribe(broadcast)
 
-  // Start the Telegram bot if already configured.
-  applyTelegramConfig(server.getChannelsConfig())
+  // Start channel services if already configured.
+  const channelsConfig = server.getChannelsConfig()
+  applyTelegramConfig(channelsConfig)
+  applyQQConfig(channelsConfig)
 
   ipcMain.removeAllListeners(IPC_CHANNELS.showNotification)
   ipcMain.on(IPC_CHANNELS.showNotification, (_event, input: { title: string; body?: string }) => {
@@ -358,6 +384,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.saveChannelsConfig, (input: ChannelsConfig) => {
     const saved = server!.saveChannelsConfig(input)
     applyTelegramConfig(saved)
+    applyQQConfig(saved)
     return saved
   })
   handle(IPC_CHANNELS.readClipboardFilePaths, async () => {
@@ -415,6 +442,8 @@ export function registerYachiyoGateway(): YachiyoServer {
   app.once('before-quit', () => {
     void telegramService?.stop().catch(() => {})
     telegramService = null
+    void qqService?.stop().catch(() => {})
+    qqService = null
     void server?.close()
     server = null
   })

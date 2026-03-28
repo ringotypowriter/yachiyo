@@ -470,12 +470,24 @@ function buildHistoryExcerpt(history: MessageRecord[]): string {
 
 function buildQueryPlanningMessages(input: {
   history: MessageRecord[]
+  isExternalChannel?: boolean
   userQuery: string
 }): ModelMessage[] {
-  return [
-    {
-      role: 'system',
-      content: [
+  const systemLines = input.isExternalChannel
+    ? [
+        'You create retrieval plans for long-term memory recall in a casual conversation context.',
+        'Return JSON only.',
+        'Schema: {"queries":[{"topic":"string","query":"string","reason":"string","weight":0.0}]}',
+        'Produce 0-2 focused semantic queries.',
+        'Each topic must be a short stable canonical topic key, not a sentence.',
+        'Target personal memories: who the user is, their interests, preferences, communication style, relationship context, and things they have shared about themselves.',
+        'Do NOT search for project tasks, code decisions, technical workflows, bugs, or workspace-specific facts.',
+        'Do NOT search for anything related to software development work unless the user is explicitly discussing it.',
+        'Favor queries about the person, not about their work output.',
+        'Avoid time words, temporary status, and conversational framing like "this time", "currently", "we discussed", or "maybe".',
+        'Do not do naive keyword splitting.'
+      ]
+    : [
         'You create retrieval plans for long-term memory recall.',
         'Return JSON only.',
         'Schema: {"queries":[{"topic":"string","query":"string","reason":"string","weight":0.0}]}',
@@ -488,8 +500,10 @@ function buildQueryPlanningMessages(input: {
         'Avoid time words, temporary status, and conversational framing like "this time", "currently", "we discussed", or "maybe".',
         'Do not do naive keyword splitting.',
         'Do not include run-specific chatter, filler, or temporary status language.'
-      ].join('\n')
-    },
+      ]
+
+  return [
+    { role: 'system', content: systemLines.join('\n') },
     {
       role: 'user',
       content: [
@@ -649,7 +663,12 @@ function toMemoryConnectionFailureMessage(error: unknown): string {
 
 async function deriveQueryPlan(
   auxiliaryGeneration: AuxiliaryGenerationService,
-  input: { history: MessageRecord[]; signal?: AbortSignal; userQuery: string }
+  input: {
+    history: MessageRecord[]
+    isExternalChannel?: boolean
+    signal?: AbortSignal
+    userQuery: string
+  }
 ): Promise<MemoryQueryPlanItem[]> {
   const result = await auxiliaryGeneration.generateText({
     messages: buildQueryPlanningMessages(input),
@@ -945,8 +964,10 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
       }
 
       try {
+        const isExternalChannel = input.thread.source != null && input.thread.source !== 'local'
         const queryPlan = await deriveQueryPlan(deps.auxiliaryGeneration, {
           history: input.history,
+          isExternalChannel,
           signal: input.signal,
           userQuery: input.userQuery
         })
