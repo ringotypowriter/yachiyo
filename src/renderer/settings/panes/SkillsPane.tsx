@@ -62,7 +62,7 @@ export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps
               borderTop: `1px solid ${theme.border.subtle}`
             }}
           >
-            No skills match "{query.trim()}".
+            No skills match &ldquo;{query.trim()}&rdquo;.
           </div>
         ) : (
           filteredSkills.map((skill) => {
