@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.5
+
+### Patch Changes
+
+- [`1df4615`](https://github.com/ringotypowriter/yachiyo/commit/1df46159e904c728815b06049a621ba4d8a54757) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Fix Electron Builder
+
 ## 1.0.4
 
 ### Patch Changes
