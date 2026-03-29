@@ -1,11 +1,10 @@
 /**
  * Shared image download utilities for channel integrations.
  *
- * Two entry points:
- *   - `attachmentToImageRecord` — consumes a Chat SDK Attachment (Telegram)
- *   - `fetchImageAsDataUrl`     — fetches an image by URL (QQ / generic)
+ * Main entry point:
+ *   - `fetchImageAsDataUrl` — fetches an image by URL and returns a MessageImageRecord
  *
- * Both return `null` on any failure (timeout, oversized, network) so the
+ * Returns `null` on any failure (timeout, oversized, network) so the
  * caller can gracefully fall back to text-only.
  *
  * Unsupported formats (GIF, BMP, etc.) are auto-converted to PNG via sharp
@@ -29,16 +28,6 @@ const VISION_SAFE_TYPES = new Set([
   'image/heic',
   'image/heif'
 ])
-
-/** Minimal shape of a Chat SDK Attachment we consume. */
-export interface ChatSdkAttachment {
-  fetchData?: () => Promise<Buffer | Blob>
-  data?: Buffer | Blob
-  url?: string
-  name?: string
-  type: string
-  size?: number
-}
 
 /**
  * Detect image media type from file magic bytes.
@@ -124,54 +113,6 @@ export async function ensureVisionSafe(
   console.log(`[channelImage] converting ${mediaType} → image/png`)
   const converted = await sharp(buffer, { animated: false, pages: 1 }).png().toBuffer()
   return { buffer: converted, mediaType: 'image/png' }
-}
-
-/**
- * Convert a Chat SDK Attachment (with fetchData or data) into a MessageImageRecord.
- * Returns `null` if the attachment can't be resolved or exceeds size limits.
- */
-export async function attachmentToImageRecord(
-  attachment: ChatSdkAttachment,
-  opts?: { maxBytes?: number }
-): Promise<MessageImageRecord | null> {
-  const maxBytes = opts?.maxBytes ?? IMAGE_MAX_BYTES
-
-  try {
-    // Early size check if available
-    if (attachment.size && attachment.size > maxBytes) {
-      console.warn(
-        `[channelImage] skipping oversized attachment: ${attachment.size} bytes > ${maxBytes}`
-      )
-      return null
-    }
-
-    let data: Buffer | Blob | undefined = attachment.data
-    if (!data && attachment.fetchData) {
-      data = await attachment.fetchData()
-    }
-    if (!data) return null
-
-    const rawBuffer = Buffer.isBuffer(data) ? data : Buffer.from(await data.arrayBuffer())
-
-    if (rawBuffer.length > maxBytes) {
-      console.warn(
-        `[channelImage] skipping oversized attachment: ${rawBuffer.length} bytes > ${maxBytes}`
-      )
-      return null
-    }
-
-    const detectedType = inferMediaTypeWithBytes(rawBuffer, attachment.name)
-    const { buffer, mediaType } = await ensureVisionSafe(rawBuffer, detectedType)
-
-    return {
-      dataUrl: bufferToDataUrl(buffer, mediaType),
-      mediaType,
-      filename: attachment.name
-    }
-  } catch (err) {
-    console.warn('[channelImage] failed to resolve attachment:', err)
-    return null
-  }
 }
 
 /**

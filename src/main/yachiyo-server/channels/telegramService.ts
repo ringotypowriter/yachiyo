@@ -1,7 +1,7 @@
 /**
- * Telegram bot service using the Chat SDK with @chat-adapter/telegram.
+ * Telegram bot service using Telegraf.
  *
- * Flow for an allowed user:
+ * Flow for an allowed user (DM):
  *   1. Route the message through `routeTelegramMessage` for access control.
  *   2. Buffer rapid messages with a random debounce delay (3-8 s).
  *   3. When the debounce window expires, join buffered texts and run AI generation.
@@ -10,15 +10,14 @@
  *   5. Collect the full AI output from server events.
  *   6. Parse the <reply> content and send it back to Telegram.
  *
- * Group discussion uses the probe+tool pattern: a single auxiliary model call
- * with a `send_group_message` tool. Raw text = private monologue, tool call = speech.
+ * Group messages are routed directly from the Telegraf update handler into
+ * the group monitor registry (probe+tool pattern).
  */
 
 import { tool, type ToolSet } from 'ai'
 import { z } from 'zod'
-import { Chat } from 'chat'
-import { createTelegramAdapter } from '@chat-adapter/telegram'
-import { createMemoryState } from '@chat-adapter/state-memory'
+import { Telegraf } from 'telegraf'
+import type { Message } from 'telegraf/types'
 
 import type {
   ChannelGroupRecord,
@@ -31,7 +30,7 @@ import type {
 } from '../../../shared/yachiyo/protocol'
 import type { YachiyoServer } from '../app/YachiyoServer'
 import { telegramPolicy } from './channelPolicy'
-import { attachmentToImageRecord, type ChatSdkAttachment } from './channelImageDownload'
+import { fetchImageAsDataUrl } from './channelImageDownload'
 import { buildGroupProbeMessages, formatGroupMessages } from './groupContextBuilder'
 import { createGroupMonitorRegistry, type GroupMonitorRegistry } from './groupMonitorRegistry'
 import { routeTelegramMessage, type TelegramChannelStorage } from './telegram'
@@ -63,7 +62,6 @@ interface PendingBatch {
   messages: string[]
   imageDownloads: Promise<MessageImageRecord | null>[]
   timer: ReturnType<typeof setTimeout>
-  thread: { post: (text: string) => Promise<void> }
   chatId: string
   channelUser: ChannelUserRecord
   stopTyping: () => void
@@ -87,20 +85,6 @@ export interface TelegramService {
   startPolling: () => void
   /** Gracefully shut down the bot. */
   stop: () => Promise<void>
-  /**
-   * Route a raw Telegram group message update.
-   * Call this from the Bot API update handler for group/supergroup messages.
-   * Only active when group config is enabled.
-   */
-  routeGroupUpdate: (update: {
-    chatId: string
-    chatTitle: string
-    fromId: string
-    fromUsername: string
-    text: string
-    date: number
-    entities?: Array<{ type: string; offset: number; length: number }>
-  }) => void
 }
 
 export function createTelegramService({
@@ -110,7 +94,6 @@ export function createTelegramService({
   groupConfig,
   botUsername
 }: TelegramServiceOptions): TelegramService {
-  const apiBase = `https://api.telegram.org/bot${botToken}`
   const policy = telegramPolicy
 
   /** Per-user message buffer for debounced reply batching. */
@@ -133,13 +116,11 @@ export function createTelegramService({
     }
   }
 
+  const bot = new Telegraf(botToken)
+
   /** Send "typing…" chat action to the given Telegram chat. */
   function sendTyping(chatId: string): void {
-    void fetch(`${apiBase}/sendChatAction`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, action: 'typing' })
-    }).catch(() => {})
+    void bot.telegram.sendChatAction(chatId, 'typing').catch(() => {})
   }
 
   /** Start a periodic typing indicator; returns a stop function. */
@@ -149,81 +130,146 @@ export function createTelegramService({
     return () => clearInterval(timer)
   }
 
-  const adapter = createTelegramAdapter({
-    botToken,
-    mode: 'polling'
-  })
-
-  const bot = new Chat({
-    userName: 'yachiyo',
-    adapters: { telegram: adapter },
-    state: createMemoryState()
-  })
-
-  /** Start eager image downloads from Chat SDK attachments. */
-  function startImageDownloads(message: {
-    attachments?: ChatSdkAttachment[]
-  }): Promise<MessageImageRecord | null>[] {
-    const attachments = (message.attachments ?? []).filter((a) => a.type === 'image')
-    const capped = attachments.slice(0, policy.maxImagesPerBatch)
-    return capped.map((a) => attachmentToImageRecord(a, { maxBytes: policy.maxImageBytes }))
+  /** Send a text message to a Telegram chat. */
+  async function sendMessage(chatId: string, text: string): Promise<void> {
+    await bot.telegram.sendMessage(chatId, text)
   }
 
-  // Handle every DM. Since we never call thread.subscribe(), this fires for
-  // every incoming message (the thread stays unsubscribed).
-  bot.onDirectMessage(
-    async (
-      thread: unknown,
-      message: {
-        text: string
-        author: { userId: string; userName: string }
-        threadId: string
-        attachments?: ChatSdkAttachment[]
+  /**
+   * Download photos from a Telegram message via Telegraf's getFileLink.
+   * Returns an array of eager download promises (overlapping with debounce).
+   */
+  function startImageDownloads(msg: Message.PhotoMessage): Promise<MessageImageRecord | null>[] {
+    // Telegram sends multiple photo sizes; pick the largest one.
+    const photos = msg.photo
+    if (!photos || photos.length === 0) return []
+
+    const largest = photos[photos.length - 1]
+    const capped = [largest].slice(0, policy.maxImagesPerBatch)
+
+    return capped.map(async (photo) => {
+      try {
+        const fileLink = await bot.telegram.getFileLink(photo.file_id)
+        return fetchImageAsDataUrl(fileLink.href, { maxBytes: policy.maxImageBytes })
+      } catch (err) {
+        console.warn('[telegram] failed to get file link:', err)
+        return null
       }
-    ) => {
-      const incomingText = message.text ?? ''
-      const externalUserId = String(message.author.userId)
-      const username = message.author.userName ?? externalUserId
+    })
+  }
 
-      // Start image downloads eagerly — they overlap with debounce.
-      const imageDownloads = startImageDownloads(message)
+  /** Check if a message is a private (DM) chat. */
+  function isPrivateChat(msg: Message): boolean {
+    return msg.chat.type === 'private'
+  }
 
-      console.log(
-        `[telegram] inbound DM from ${username} (${externalUserId}): ${JSON.stringify(incomingText)} (${imageDownloads.length} image(s))`
-      )
+  /** Check if a message is a group or supergroup chat. */
+  function isGroupChat(msg: Message): boolean {
+    return msg.chat.type === 'group' || msg.chat.type === 'supergroup'
+  }
 
-      const result = routeTelegramMessage({ externalUserId, username, text: incomingText }, storage)
+  // Wire up the Telegraf message handler for both DMs and groups.
+  bot.on('message', (ctx) => {
+    const msg = ctx.message
 
-      console.log(
-        `[telegram] route result: ${result.kind}${result.kind === 'allowed' ? ` (role=${result.channelUser.role})` : ''}`
-      )
-
-      // Extract Telegram chat ID from the SDK thread ID (format: telegram:{chatId})
-      const chatId = message.threadId?.replace(/^telegram:/, '') ?? externalUserId
-
-      switch (result.kind) {
-        case 'blocked':
-          return
-
-        case 'pending':
-          await (thread as { post: (text: string) => Promise<void> }).post(result.reply)
-          return
-
-        case 'limit-exceeded':
-          await (thread as { post: (text: string) => Promise<void> }).post(result.reply)
-          return
-
-        case 'allowed':
-          enqueueMessage(
-            thread as { post: (text: string) => Promise<void> },
-            chatId,
-            result.channelUser,
-            incomingText,
-            imageDownloads
-          )
-      }
+    if (isPrivateChat(msg)) {
+      handleDirectMessage(msg)
+    } else if (isGroupChat(msg)) {
+      handleGroupMessage(msg)
     }
-  )
+  })
+
+  /** Handle an incoming direct message. */
+  function handleDirectMessage(msg: Message): void {
+    const incomingText =
+      'text' in msg ? (msg.text ?? '') : 'caption' in msg ? (msg.caption ?? '') : ''
+    const externalUserId = String(msg.from?.id ?? '')
+    const username = msg.from?.username ?? msg.from?.first_name ?? externalUserId
+
+    // Start image downloads eagerly — they overlap with debounce.
+    const imageDownloads =
+      'photo' in msg && msg.photo ? startImageDownloads(msg as Message.PhotoMessage) : []
+
+    console.log(
+      `[telegram] inbound DM from ${username} (${externalUserId}): ${JSON.stringify(incomingText)} (${imageDownloads.length} image(s))`
+    )
+
+    const result = routeTelegramMessage({ externalUserId, username, text: incomingText }, storage)
+
+    console.log(
+      `[telegram] route result: ${result.kind}${result.kind === 'allowed' ? ` (role=${result.channelUser.role})` : ''}`
+    )
+
+    const chatId = String(msg.chat.id)
+
+    switch (result.kind) {
+      case 'blocked':
+        return
+
+      case 'pending':
+        void sendMessage(chatId, result.reply)
+        return
+
+      case 'limit-exceeded':
+        void sendMessage(chatId, result.reply)
+        return
+
+      case 'allowed':
+        enqueueMessage(chatId, result.channelUser, incomingText, imageDownloads)
+    }
+  }
+
+  /** Handle an incoming group/supergroup message — route into group monitor. */
+  function handleGroupMessage(msg: Message): void {
+    if (!groupRegistry) return
+
+    const chatId = String(msg.chat.id)
+    const chatTitle = 'title' in msg.chat ? (msg.chat.title ?? '') : ''
+    const fromId = String(msg.from?.id ?? '')
+    const fromUsername = msg.from?.username ?? msg.from?.first_name ?? fromId
+    const text = 'text' in msg ? (msg.text ?? '') : 'caption' in msg ? (msg.caption ?? '') : ''
+    const entities = 'entities' in msg ? msg.entities : undefined
+
+    const existing = server.findChannelGroup('telegram', chatId)
+
+    if (!existing) {
+      server.createChannelGroup({
+        id: `tg-group-${chatId}`,
+        platform: 'telegram',
+        externalGroupId: chatId,
+        name: chatTitle || `Telegram Group ${chatId}`,
+        status: 'pending',
+        workspacePath: join(resolveYachiyoTempWorkspaceRoot(), `tg-group-${chatId}`)
+      })
+      console.log(`[telegram-group] new group ${chatId} registered as pending`)
+      return
+    }
+
+    if (existing.status !== 'approved') return
+
+    // Skip the bot's own messages echoed back by Telegram —
+    // already fed into the monitor as __self__ from the tool closure.
+    if (botUsername && fromUsername.toLowerCase() === botUsername.toLowerCase()) return
+
+    const isMention = botUsername
+      ? (entities ?? []).some(
+          (e) =>
+            e.type === 'mention' &&
+            text.slice(e.offset, e.offset + e.length).toLowerCase() ===
+              `@${botUsername.toLowerCase()}`
+        )
+      : false
+
+    const entry: GroupMessageEntry = {
+      senderName: fromUsername,
+      senderExternalUserId: fromId,
+      isMention,
+      text,
+      timestamp: msg.date
+    }
+
+    groupRegistry.routeMessage(existing.id, entry)
+  }
 
   /**
    * Buffer an incoming message and schedule a debounced flush.
@@ -231,7 +277,6 @@ export function createTelegramService({
    * with a fresh random delay — so the bot waits for a natural pause.
    */
   function enqueueMessage(
-    thread: { post: (text: string) => Promise<void> },
     chatId: string,
     channelUser: ChannelUserRecord,
     text: string,
@@ -262,7 +307,6 @@ export function createTelegramService({
       messages: [text],
       imageDownloads: [...imageDownloads],
       timer,
-      thread,
       chatId,
       channelUser,
       stopTyping
@@ -293,7 +337,7 @@ export function createTelegramService({
     // handleAllowedMessage manages its own typing loop, so stop the batch one.
     batch.stopTyping()
 
-    void handleAllowedMessage(batch.thread, batch.chatId, batch.channelUser, joinedText, images)
+    void handleAllowedMessage(batch.chatId, batch.channelUser, joinedText, images)
   }
 
   /** Resolve a user-specific workspace path shared across all their threads. */
@@ -363,7 +407,6 @@ export function createTelegramService({
   }
 
   async function handleAllowedMessage(
-    thread: { post: (text: string) => Promise<void> },
     chatId: string,
     channelUser: ChannelUserRecord,
     text: string,
@@ -393,7 +436,7 @@ export function createTelegramService({
 
       if (!('runId' in accepted)) {
         console.warn('[telegram] sendChat returned non-run accepted:', accepted)
-        await thread.post('Sorry, something went wrong on my end.')
+        await sendMessage(chatId, 'Sorry, something went wrong on my end.')
         return
       }
 
@@ -412,7 +455,7 @@ export function createTelegramService({
       console.log(`[telegram] parsedReply:`, parsedReply)
 
       if (parsedReply) {
-        await thread.post(parsedReply)
+        await sendMessage(chatId, parsedReply)
       }
 
       // Store the visible reply on the assistant message for future summary generation.
@@ -430,7 +473,7 @@ export function createTelegramService({
       }
     } catch (error) {
       console.error('[telegram] failed to handle allowed message', error)
-      await thread.post('Something went wrong. Please try again in a moment.')
+      await sendMessage(chatId, 'Something went wrong. Please try again in a moment.')
     } finally {
       stopTyping()
     }
@@ -441,15 +484,6 @@ export function createTelegramService({
   // ------------------------------------------------------------------
 
   let groupRegistry: GroupMonitorRegistry | null = null
-
-  /** Send a text message to a Telegram chat via raw Bot API. */
-  async function sendTelegramMessage(chatId: string, text: string): Promise<void> {
-    await fetch(`${apiBase}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text })
-    })
-  }
 
   /** Build a map from Telegram externalUserId → role for identity marking. */
   function buildKnownUsersMap(): Map<string, string> {
@@ -553,7 +587,7 @@ export function createTelegramService({
         }
 
         try {
-          await sendTelegramMessage(group.externalGroupId, message)
+          await sendMessage(group.externalGroupId, message)
           recordOutgoing(group.id, message)
           speechThrottle.recordSend(group.id)
           console.log(`[telegram-group] sent reply to "${group.name}": ${message.slice(0, 100)}`)
@@ -637,67 +671,10 @@ export function createTelegramService({
     return didSpeak
   }
 
-  /**
-   * Route an incoming Telegram group message.
-   * Call this from the raw Bot API update handler when the adapter doesn't
-   * expose group events.
-   */
-  function routeGroupUpdate(update: {
-    chatId: string
-    chatTitle: string
-    fromId: string
-    fromUsername: string
-    text: string
-    date: number
-    entities?: Array<{ type: string; offset: number; length: number }>
-  }): void {
-    if (!groupRegistry) return
-
-    const existing = server.findChannelGroup('telegram', update.chatId)
-
-    if (!existing) {
-      server.createChannelGroup({
-        id: `tg-group-${update.chatId}`,
-        platform: 'telegram',
-        externalGroupId: update.chatId,
-        name: update.chatTitle || `Telegram Group ${update.chatId}`,
-        status: 'pending',
-        workspacePath: join(resolveYachiyoTempWorkspaceRoot(), `tg-group-${update.chatId}`)
-      })
-      console.log(`[telegram-group] new group ${update.chatId} registered as pending`)
-      return
-    }
-
-    if (existing.status !== 'approved') return
-
-    // Skip the bot's own messages echoed back by Telegram —
-    // already fed into the monitor as __self__ from the tool closure.
-    if (botUsername && update.fromUsername.toLowerCase() === botUsername.toLowerCase()) return
-
-    const isMention = botUsername
-      ? (update.entities ?? []).some(
-          (e) =>
-            e.type === 'mention' &&
-            update.text.slice(e.offset, e.offset + e.length).toLowerCase() ===
-              `@${botUsername.toLowerCase()}`
-        )
-      : false
-
-    const entry: GroupMessageEntry = {
-      senderName: update.fromUsername,
-      senderExternalUserId: update.fromId,
-      isMention,
-      text: update.text,
-      timestamp: update.date
-    }
-
-    groupRegistry.routeMessage(existing.id, entry)
-  }
-
   return {
     startPolling() {
-      console.log('[telegram] startPolling called — initializing Chat SDK')
-      void bot.initialize()
+      console.log('[telegram] startPolling called — launching Telegraf')
+      void bot.launch({ dropPendingUpdates: true })
     },
     async stop() {
       groupRegistry?.stopAll()
@@ -710,10 +687,8 @@ export function createTelegramService({
           `[telegram] discarded pending batch for ${batch.channelUser.username} on shutdown`
         )
       }
-      await bot.shutdown()
-    },
-    /** Route a raw Telegram group message update. */
-    routeGroupUpdate
+      bot.stop()
+    }
   }
 }
 
