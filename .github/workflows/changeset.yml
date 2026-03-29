@@ -15,8 +15,8 @@ jobs:
       contents: write
       pull-requests: write
     outputs:
-      published: ${{ steps.changeset.outputs.published }}
-      publishedPackages: ${{ steps.changeset.outputs.publishedPackages }}
+      released: ${{ steps.check-tag.outputs.released }}
+      tag: ${{ steps.check-tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -40,6 +40,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Check if tag was created
+        id: check-tag
+        run: |
+          VERSION="v$(node -p "require('./package.json').version")"
+          if git tag --list "$VERSION" | grep -q .; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "released=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Auto-merge version PR
         run: |
           PR=$(gh pr list --head changeset-release/main --json number -q '.[0].number')
@@ -51,14 +62,14 @@ jobs:
 
   build:
     needs: version
-    if: needs.version.outputs.published == 'true'
+    if: needs.version.outputs.released == 'true'
     runs-on: macos-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ fromJson(needs.version.outputs.publishedPackages)[0].version && format('v{0}', fromJson(needs.version.outputs.publishedPackages)[0].version) || github.sha }}
+          ref: ${{ needs.version.outputs.tag }}
 
       - uses: actions/setup-node@v4
         with:
