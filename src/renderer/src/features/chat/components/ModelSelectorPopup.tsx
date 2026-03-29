@@ -67,7 +67,7 @@ export function ModelSelectorPopup({
   containerRef,
   currentProviderName,
   currentModel,
-  leadingOption,
+  leadingOptions,
   onSelect,
   onClose,
   placement = 'top',
@@ -80,11 +80,11 @@ export function ModelSelectorPopup({
   containerRef?: React.RefObject<HTMLDivElement | null>
   currentProviderName: string
   currentModel: string
-  leadingOption?: {
+  leadingOptions?: Array<{
     isSelected: boolean
     label: string
     onSelect: () => void
-  }
+  }>
   onSelect: (providerName: string, model: string) => void
   onClose: () => void
   placement?: 'bottom' | 'top'
@@ -108,9 +108,11 @@ export function ModelSelectorPopup({
     return () => document.removeEventListener('keydown', handler)
   }, [onClose])
 
+  const hasLeadingOptions = leadingOptions != null && leadingOptions.length > 0
+
   const selectorState = resolveModelSelectorState({
     config,
-    hasLeadingOption: leadingOption != null,
+    hasLeadingOption: hasLeadingOptions,
     query
   })
 
@@ -193,16 +195,19 @@ export function ModelSelectorPopup({
 
       {/* List */}
       <div style={{ overflowY: 'auto', flex: 1, paddingBottom: 6 }}>
-        {selectorState.showLeadingOption && leadingOption ? (
+        {selectorState.showLeadingOption && hasLeadingOptions ? (
           <div style={{ paddingTop: 4 }}>
-            <ModelOption
-              model={leadingOption.label}
-              isSelected={leadingOption.isSelected}
-              onSelect={() => {
-                leadingOption.onSelect()
-                onClose()
-              }}
-            />
+            {leadingOptions.map((option) => (
+              <ModelOption
+                key={option.label}
+                model={option.label}
+                isSelected={option.isSelected}
+                onSelect={() => {
+                  option.onSelect()
+                  onClose()
+                }}
+              />
+            ))}
           </div>
         ) : null}
 

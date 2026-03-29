@@ -310,6 +310,61 @@ test('provider show - redacts apiKey', async () => {
   }
 })
 
+test('provider models - lists all enabled models across providers when no argument given', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-provider-'))
+  const settingsPath = join(root, 'config.toml')
+
+  try {
+    const storage = createInMemoryYachiyoStorage()
+
+    const setupServer = new YachiyoServer({
+      storage,
+      settingsPath,
+      ensureThreadWorkspace: async (threadId) => {
+        const p = join(root, '.yachiyo', 'temp-workspace', threadId)
+        await mkdir(p, { recursive: true })
+        return p
+      }
+    })
+    await setupServer.upsertProvider({
+      id: 'prov-a',
+      name: 'provider-a',
+      type: 'openai',
+      apiKey: 'key-a',
+      baseUrl: '',
+      modelList: { enabled: ['gpt-5', 'gpt-5-mini'], disabled: ['gpt-4'] }
+    })
+    await setupServer.upsertProvider({
+      id: 'prov-b',
+      name: 'provider-b',
+      type: 'anthropic',
+      apiKey: 'key-b',
+      baseUrl: '',
+      modelList: { enabled: ['claude-sonnet-4-5'], disabled: [] }
+    })
+    await setupServer.close()
+
+    let stdout = ''
+    await runYachiyoCli(['provider', 'models', '--settings', settingsPath], {
+      stdout: {
+        write(chunk) {
+          stdout += String(chunk)
+          return true
+        }
+      }
+    })
+
+    const result = JSON.parse(stdout) as Array<{ provider: string; model: string }>
+    assert.deepEqual(result, [
+      { provider: 'provider-a', model: 'gpt-5' },
+      { provider: 'provider-a', model: 'gpt-5-mini' },
+      { provider: 'provider-b', model: 'claude-sonnet-4-5' }
+    ])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('provider set-default - moves provider to first position', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-provider-'))
   const settingsPath = join(root, 'config.toml')
@@ -356,11 +411,124 @@ test('provider set-default - moves provider to first position', async () => {
 
     const result = JSON.parse(stdout) as {
       defaultProvider: { name: string }
+      defaultModel: { providerName: string; model: string } | null
       providers: Array<{ name: string }>
     }
     assert.equal(result.defaultProvider.name, 'provider-b', 'provider-b should be new default')
     assert.equal(result.providers[0]?.name, 'provider-b', 'provider-b should be first in list')
     assert.equal(result.providers[1]?.name, 'provider-a')
+    assert.equal(
+      result.defaultModel?.providerName,
+      'provider-b',
+      'defaultModel should point to provider-b'
+    )
+    assert.equal(
+      result.defaultModel?.model,
+      'model-b',
+      'defaultModel should pick first enabled model'
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('provider set-default --model picks the specified model', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-provider-'))
+  const settingsPath = join(root, 'config.toml')
+
+  try {
+    const storage = createInMemoryYachiyoStorage()
+
+    const setupServer = new YachiyoServer({
+      storage,
+      settingsPath,
+      ensureThreadWorkspace: async (threadId) => {
+        const p = join(root, '.yachiyo', 'temp-workspace', threadId)
+        await mkdir(p, { recursive: true })
+        return p
+      }
+    })
+    await setupServer.upsertProvider({
+      id: 'prov-a',
+      name: 'provider-a',
+      type: 'openai',
+      apiKey: 'key-a',
+      baseUrl: '',
+      modelList: { enabled: ['model-x', 'model-y'], disabled: [] }
+    })
+    await setupServer.close()
+
+    let stdout = ''
+    await runYachiyoCli(
+      ['provider', 'set-default', 'provider-a', '--model', 'model-y', '--settings', settingsPath],
+      {
+        stdout: {
+          write(chunk) {
+            stdout += String(chunk)
+            return true
+          }
+        }
+      }
+    )
+
+    const result = JSON.parse(stdout) as {
+      defaultModel: { providerName: string; model: string } | null
+    }
+    assert.equal(result.defaultModel?.providerName, 'provider-a')
+    assert.equal(result.defaultModel?.model, 'model-y', 'should pick the explicit --model value')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('provider set-default --model rejects a model not enabled on the provider', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-provider-'))
+  const settingsPath = join(root, 'config.toml')
+
+  try {
+    const storage = createInMemoryYachiyoStorage()
+
+    const setupServer = new YachiyoServer({
+      storage,
+      settingsPath,
+      ensureThreadWorkspace: async (threadId) => {
+        const p = join(root, '.yachiyo', 'temp-workspace', threadId)
+        await mkdir(p, { recursive: true })
+        return p
+      }
+    })
+    await setupServer.upsertProvider({
+      id: 'prov-a',
+      name: 'provider-a',
+      type: 'openai',
+      apiKey: 'key-a',
+      baseUrl: '',
+      modelList: { enabled: ['model-x'], disabled: [] }
+    })
+    await setupServer.close()
+
+    await assert.rejects(
+      () =>
+        runYachiyoCli(
+          [
+            'provider',
+            'set-default',
+            'provider-a',
+            '--model',
+            'nonexistent-model',
+            '--settings',
+            settingsPath
+          ],
+          {
+            stdout: {
+              write() {
+                return true
+              }
+            }
+          }
+        ),
+      /not enabled on provider/
+    )
   } finally {
     await rm(root, { recursive: true, force: true })
   }

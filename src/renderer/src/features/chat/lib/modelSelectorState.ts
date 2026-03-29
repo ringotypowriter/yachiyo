@@ -16,7 +16,9 @@ export function canOpenToolModelPicker(input: {
   hasEnabledModels: boolean
   toolModelMode: ToolModelMode
 }): boolean {
-  return input.hasEnabledModels || input.toolModelMode === 'custom'
+  return (
+    input.hasEnabledModels || input.toolModelMode === 'custom' || input.toolModelMode === 'default'
+  )
 }
 
 export function filterEnabledModelProviders(

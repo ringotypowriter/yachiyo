@@ -131,10 +131,6 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
     hasEnabledModels,
     toolModelMode: toolModel.mode
   })
-  const toolModelLabel =
-    selectedToolProvider && toolModel.model
-      ? `${selectedToolProvider.name} - ${formatStoredModelChip(toolModel.model, selectedToolProvider.name).model}`
-      : 'Disabled'
 
   const currentDefaultModel = draft.defaultModel
   const defaultModelProvider = currentDefaultModel
@@ -144,6 +140,13 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
     defaultModelProvider && currentDefaultModel?.model
       ? `${defaultModelProvider.name} - ${formatStoredModelChip(currentDefaultModel.model, defaultModelProvider.name).model}`
       : ''
+
+  const toolModelLabel =
+    toolModel.mode === 'custom' && selectedToolProvider && toolModel.model
+      ? `${selectedToolProvider.name} - ${formatStoredModelChip(toolModel.model, selectedToolProvider.name).model}`
+      : toolModel.mode === 'default'
+        ? `Default${defaultModelLabel ? ` — ${defaultModelLabel}` : ''}`
+        : 'Disabled'
 
   return (
     <div className="flex-1 overflow-y-auto pb-6">
@@ -293,7 +296,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
               <CircleCheck
                 size={12}
                 strokeWidth={1.5}
-                color={toolModel.mode === 'custom' ? theme.icon.success : theme.icon.muted}
+                color={toolModel.mode === 'disabled' ? theme.icon.muted : theme.icon.success}
               />
               {toolModelLabel}
               {canOpenToolModelSelector ? (
@@ -315,21 +318,38 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
                 containerRef={toolModelPopupRef}
                 currentProviderName={selectedToolProvider?.name ?? ''}
                 currentModel={toolModel.model}
-                leadingOption={{
-                  label: 'Disabled (use fallback)',
-                  isSelected: toolModel.mode !== 'custom',
-                  onSelect: () =>
-                    onChange({
-                      ...draft,
-                      toolModel: {
-                        ...toolModel,
-                        mode: 'disabled',
-                        providerId: '',
-                        providerName: '',
-                        model: ''
-                      }
-                    })
-                }}
+                leadingOptions={[
+                  {
+                    label: 'Default (same as chat model)',
+                    isSelected: toolModel.mode === 'default',
+                    onSelect: () =>
+                      onChange({
+                        ...draft,
+                        toolModel: {
+                          ...toolModel,
+                          mode: 'default',
+                          providerId: '',
+                          providerName: '',
+                          model: ''
+                        }
+                      })
+                  },
+                  {
+                    label: 'Disabled',
+                    isSelected: toolModel.mode === 'disabled',
+                    onSelect: () =>
+                      onChange({
+                        ...draft,
+                        toolModel: {
+                          ...toolModel,
+                          mode: 'disabled',
+                          providerId: '',
+                          providerName: '',
+                          model: ''
+                        }
+                      })
+                  }
+                ]}
                 onSelect={(providerName, model) => {
                   const provider =
                     draft.providers.find((entry) => entry.name === providerName) ?? null

@@ -28,9 +28,11 @@ The payload must include `name`, `cronExpression`, and `prompt`. All other field
 | `cronExpression` | `string`   | yes      | Standard cron expression (parsed by `cron-parser`) |
 | `prompt`         | `string`   | yes      | The prompt text sent to the assistant on each run  |
 | `workspacePath`  | `string`   | no       | Working directory for the run                      |
-| `modelOverride`  | `object`   | no       | Override the model used (`{chatModel, toolModel}`) |
+| `modelOverride`  | `object`   | no       | Override the model: `{ "providerName": "...", "model": "..." }`. Run `yachiyo provider models` to see available models. |
 | `enabledTools`   | `string[]` | no       | Restrict which tools the agent may use             |
 | `enabled`        | `boolean`  | no       | Defaults to `true`                                 |
+
+> When filling `modelOverride`, always run `yachiyo provider models` first to get valid provider and model names. Do not guess model names from memory.
 
 **Examples:**
 
@@ -48,6 +50,14 @@ yachiyo schedule add --payload '{
   "cronExpression": "0 10 * * 1",
   "prompt": "Run pnpm audit and report any high/critical vulnerabilities.",
   "workspacePath": "/Users/me/projects/my-app"
+}'
+
+# Schedule with a specific model (run `yachiyo provider models` to list available names)
+yachiyo schedule add --payload '{
+  "name": "nightly-review",
+  "cronExpression": "0 2 * * *",
+  "prompt": "Review today'\''s commits and flag anything suspicious.",
+  "modelOverride": { "providerName": "work-openai", "model": "gpt-5" }
 }'
 ```
 

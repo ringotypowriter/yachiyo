@@ -38,6 +38,16 @@ test('keeps the tool-model picker reachable while a custom selection is stranded
   )
 })
 
+test('keeps the tool-model picker reachable in default mode even without enabled models', () => {
+  assert.equal(
+    canOpenToolModelPicker({
+      hasEnabledModels: false,
+      toolModelMode: 'default'
+    }),
+    true
+  )
+})
+
 test('keeps the leading fallback option visible when search filters out every model', () => {
   assert.deepEqual(
     resolveModelSelectorState({

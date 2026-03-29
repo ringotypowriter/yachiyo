@@ -35,41 +35,49 @@ Read [api.md](references/api.md) for the full endpoint reference before making n
 ## Common Tasks
 
 ### Search items
+
 ```bash
 curl -s "http://127.0.0.1:23119/api/users/0/items?q=QUERY&format=json&include=data&limit=20"
 ```
 
 ### Get a specific item
+
 ```bash
 curl -s "http://127.0.0.1:23119/api/users/0/items/ITEMKEY"
 ```
 
 ### List collections
+
 ```bash
 curl -s "http://127.0.0.1:23119/api/users/0/collections"
 ```
 
 ### Get items in a collection
+
 ```bash
 curl -s "http://127.0.0.1:23119/api/users/0/collections/COLLKEY/items?format=json&include=data"
 ```
 
 ### Get notes and attachments for an item
+
 ```bash
 curl -s "http://127.0.0.1:23119/api/users/0/items/ITEMKEY/children"
 ```
 
 ### Get full-text content
+
 ```bash
 curl -s "http://127.0.0.1:23119/api/users/0/items/ITEMKEY/fulltext"
 ```
 
 ### Export citations as BibTeX
+
 ```bash
 curl -s "http://127.0.0.1:23119/api/users/0/items?format=bibtex&itemKey=KEY1,KEY2"
 ```
 
 ### BBT: Search by terms (JSON-RPC)
+
 ```bash
 curl -s -X POST http://127.0.0.1:23119/better-bibtex/json-rpc \
   -H "Content-Type: application/json" \
@@ -77,6 +85,7 @@ curl -s -X POST http://127.0.0.1:23119/better-bibtex/json-rpc \
 ```
 
 ### BBT: Get formatted bibliography
+
 ```bash
 curl -s -X POST http://127.0.0.1:23119/better-bibtex/json-rpc \
   -H "Content-Type: application/json" \

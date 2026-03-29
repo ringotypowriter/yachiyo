@@ -495,7 +495,7 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
         ? resolvedToolProvider
           ? syncToolModelWithProvider(toolModel, resolvedToolProvider)
           : createDisabledToolModelConfig()
-        : toolModel,
+        : toolModel, // 'default' and 'disabled' pass through — no provider resolution needed
     memory: normalizeMemoryConfig(input['memory']),
     webSearch: normalizeWebSearchConfig(input['webSearch']),
     providers: hasProviders ? providers : DEFAULT_SETTINGS_CONFIG.providers,
@@ -1122,6 +1122,11 @@ export function toToolModelSettings(config: SettingsConfig): ProviderSettings | 
     return null
   }
 
+  if (toolModel.mode === 'default') {
+    return toProviderSettings(config)
+  }
+
+  // mode === 'custom'
   const provider = resolveToolModelProvider(normalizedConfig, toolModel)
   return toResolvedProviderSettings(provider, toolModel.model ?? '')
 }

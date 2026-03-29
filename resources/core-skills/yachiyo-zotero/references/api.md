@@ -16,92 +16,92 @@ Mirrors the Zotero Web API v3 URL structure. **Read-only.** Use `userID=0` as sh
 
 ### Metadata
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/` | Version headers, placeholder text |
-| GET | `/api/schema` | Global schema JSON |
-| GET | `/api/itemTypes` | All item types with localized names |
-| GET | `/api/itemFields` | All fields with localized names |
-| GET | `/api/itemTypeFields?itemType=X` | Fields for a specific item type |
-| GET | `/api/itemTypeCreatorTypes?itemType=X` | Creator types for a specific item type |
-| GET | `/api/creatorFields` | firstName, lastName, name |
+| Method | Path                                   | Description                            |
+| ------ | -------------------------------------- | -------------------------------------- |
+| GET    | `/api/`                                | Version headers, placeholder text      |
+| GET    | `/api/schema`                          | Global schema JSON                     |
+| GET    | `/api/itemTypes`                       | All item types with localized names    |
+| GET    | `/api/itemFields`                      | All fields with localized names        |
+| GET    | `/api/itemTypeFields?itemType=X`       | Fields for a specific item type        |
+| GET    | `/api/itemTypeCreatorTypes?itemType=X` | Creator types for a specific item type |
+| GET    | `/api/creatorFields`                   | firstName, lastName, name              |
 
 ### Items
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/users/:uid/items` | All items |
-| GET | `/api/users/:uid/items/top` | Top-level items only |
-| GET | `/api/users/:uid/items/trash` | Trashed items |
-| GET | `/api/users/:uid/items/:key` | Single item |
-| GET | `/api/users/:uid/items/:key/children` | Child items (notes, attachments) |
-| GET | `/api/users/:uid/items/:key/file` | 302 redirect to local file |
-| GET | `/api/users/:uid/items/:key/file/view/url` | File URL as text |
-| GET | `/api/users/:uid/items/:key/fulltext` | Full-text content + stats |
-| GET | `/api/users/:uid/items/tags` | Tags from items |
+| Method | Path                                       | Description                      |
+| ------ | ------------------------------------------ | -------------------------------- |
+| GET    | `/api/users/:uid/items`                    | All items                        |
+| GET    | `/api/users/:uid/items/top`                | Top-level items only             |
+| GET    | `/api/users/:uid/items/trash`              | Trashed items                    |
+| GET    | `/api/users/:uid/items/:key`               | Single item                      |
+| GET    | `/api/users/:uid/items/:key/children`      | Child items (notes, attachments) |
+| GET    | `/api/users/:uid/items/:key/file`          | 302 redirect to local file       |
+| GET    | `/api/users/:uid/items/:key/file/view/url` | File URL as text                 |
+| GET    | `/api/users/:uid/items/:key/fulltext`      | Full-text content + stats        |
+| GET    | `/api/users/:uid/items/tags`               | Tags from items                  |
 
 ### Collections
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/users/:uid/collections` | All collections |
-| GET | `/api/users/:uid/collections/top` | Top-level collections |
-| GET | `/api/users/:uid/collections/:key` | Single collection |
-| GET | `/api/users/:uid/collections/:key/collections` | Child collections |
-| GET | `/api/users/:uid/collections/:key/items` | Items in collection |
-| GET | `/api/users/:uid/collections/:key/items/top` | Top-level items in collection |
+| Method | Path                                           | Description                   |
+| ------ | ---------------------------------------------- | ----------------------------- |
+| GET    | `/api/users/:uid/collections`                  | All collections               |
+| GET    | `/api/users/:uid/collections/top`              | Top-level collections         |
+| GET    | `/api/users/:uid/collections/:key`             | Single collection             |
+| GET    | `/api/users/:uid/collections/:key/collections` | Child collections             |
+| GET    | `/api/users/:uid/collections/:key/items`       | Items in collection           |
+| GET    | `/api/users/:uid/collections/:key/items/top`   | Top-level items in collection |
 
 ### Searches
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/users/:uid/searches` | All saved searches |
-| GET | `/api/users/:uid/searches/:key` | Single saved search |
-| GET | `/api/users/:uid/searches/:key/items` | Execute saved search (live) |
+| Method | Path                                  | Description                 |
+| ------ | ------------------------------------- | --------------------------- |
+| GET    | `/api/users/:uid/searches`            | All saved searches          |
+| GET    | `/api/users/:uid/searches/:key`       | Single saved search         |
+| GET    | `/api/users/:uid/searches/:key/items` | Execute saved search (live) |
 
 ### Tags
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/users/:uid/tags` | All tags |
-| GET | `/api/users/:uid/tags/:tag` | Single tag |
+| Method | Path                        | Description |
+| ------ | --------------------------- | ----------- |
+| GET    | `/api/users/:uid/tags`      | All tags    |
+| GET    | `/api/users/:uid/tags/:tag` | Single tag  |
 
 ### Groups
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/users/:uid/groups` | User's groups |
-| GET | `/api/groups/:gid` | Single group |
-| GET | `/api/groups/:gid/items` | Group items (same item sub-paths apply) |
-| GET | `/api/groups/:gid/collections` | Group collections |
+| Method | Path                           | Description                             |
+| ------ | ------------------------------ | --------------------------------------- |
+| GET    | `/api/users/:uid/groups`       | User's groups                           |
+| GET    | `/api/groups/:gid`             | Single group                            |
+| GET    | `/api/groups/:gid/items`       | Group items (same item sub-paths apply) |
+| GET    | `/api/groups/:gid/collections` | Group collections                       |
 
 ### Query Parameters
 
-| Parameter | Values | Purpose |
-|-----------|--------|---------|
-| `format` | `json`, `keys`, `versions`, `bib`, `bibtex`, `biblatex`, `ris`, `csljson`, `csv` | Output format |
-| `include` | `data`, `bib`, `citation`, or export format names | Additional data in response |
-| `sort` | `dateAdded`, `dateModified`, `title`, `creator`, `itemType`, `date`, `publisher` | Sort field |
-| `direction` | `asc`, `desc` | Sort direction |
-| `start` | integer | Pagination offset |
-| `limit` | integer | Results per page |
-| `since` | version number | Items modified after this version |
-| `q` | string | Quick-search query |
-| `qmode` | `titleCreatorYear` | Search mode |
-| `itemType` | type name(s), `-` prefix to exclude | Filter by type |
-| `tag` | tag name(s), `-` prefix to exclude | Filter by tag |
-| `itemKey` | comma-separated keys | Fetch specific items |
-| `includeTrashed` | `1` | Include deleted items |
-| `style` | CSL style ID | Citation style for bib output |
-| `locale` | language code | Citation locale |
+| Parameter        | Values                                                                           | Purpose                           |
+| ---------------- | -------------------------------------------------------------------------------- | --------------------------------- |
+| `format`         | `json`, `keys`, `versions`, `bib`, `bibtex`, `biblatex`, `ris`, `csljson`, `csv` | Output format                     |
+| `include`        | `data`, `bib`, `citation`, or export format names                                | Additional data in response       |
+| `sort`           | `dateAdded`, `dateModified`, `title`, `creator`, `itemType`, `date`, `publisher` | Sort field                        |
+| `direction`      | `asc`, `desc`                                                                    | Sort direction                    |
+| `start`          | integer                                                                          | Pagination offset                 |
+| `limit`          | integer                                                                          | Results per page                  |
+| `since`          | version number                                                                   | Items modified after this version |
+| `q`              | string                                                                           | Quick-search query                |
+| `qmode`          | `titleCreatorYear`                                                               | Search mode                       |
+| `itemType`       | type name(s), `-` prefix to exclude                                              | Filter by type                    |
+| `tag`            | tag name(s), `-` prefix to exclude                                               | Filter by tag                     |
+| `itemKey`        | comma-separated keys                                                             | Fetch specific items              |
+| `includeTrashed` | `1`                                                                              | Include deleted items             |
+| `style`          | CSL style ID                                                                     | Citation style for bib output     |
+| `locale`         | language code                                                                    | Citation locale                   |
 
 ### Response Headers
 
-| Header | Purpose |
-|--------|---------|
-| `Total-Results` | Total count before pagination |
-| `Last-Modified-Version` | Library or item version |
-| `Link` | Pagination links |
+| Header                  | Purpose                       |
+| ----------------------- | ----------------------------- |
+| `Total-Results`         | Total count before pagination |
+| `Last-Modified-Version` | Library or item version       |
+| `Link`                  | Pagination links              |
 
 ---
 
@@ -109,12 +109,12 @@ Mirrors the Zotero Web API v3 URL structure. **Read-only.** Use `userID=0` as sh
 
 Used by the browser connector. Most useful for integration:
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET/POST | `/connector/ping` | Health check |
-| POST | `/connector/getSelectedCollection` | Current target collection/library |
-| POST | `/connector/saveItems` | Save items from external source |
-| POST | `/connector/import` | Import data |
+| Method   | Path                               | Description                       |
+| -------- | ---------------------------------- | --------------------------------- |
+| GET/POST | `/connector/ping`                  | Health check                      |
+| POST     | `/connector/getSelectedCollection` | Current target collection/library |
+| POST     | `/connector/saveItems`             | Save items from external source   |
+| POST     | `/connector/import`                | Import data                       |
 
 ---
 
@@ -125,7 +125,9 @@ Used by the browser connector. Most useful for integration:
 ```
 GET http://127.0.0.1:23119/better-bibtex/cayw?probe
 ```
+
 Returns `"ready"` if BBT is available. Full picker (programmatic only):
+
 ```
 GET http://127.0.0.1:23119/better-bibtex/cayw?format=biblatex&minimize=1
 ```
@@ -142,6 +144,7 @@ Formats: `biblatex`/`bib`, `bibtex`, `json`/`csljson`, `yaml`/`cslyaml`, `jzon`.
 Optional: `&exportNotes=true`, `&useJournalAbbreviation=true`.
 
 Example — export entire library as BibLaTeX:
+
 ```
 GET http://127.0.0.1:23119/better-bibtex/collection?library.biblatex
 ```
@@ -155,20 +158,20 @@ Supports batch requests (send an array of request objects).
 
 #### Methods
 
-| Method | Parameters | Returns |
-|--------|-----------|---------|
-| `api.ready` | — | `{ zotero, betterbibtex }` versions |
-| `user.groups` | `includeCollections?` | Array of `{ id, name, collections }` |
-| `item.search` | `terms`, `library?` | Items with CSL JSON + citekey |
-| `item.attachments` | `citekey`, `library?` | `[{ path, open, annotations }]` |
-| `item.collections` | `citekeys[]`, `includeParents?` | Citekey → collection hierarchy |
-| `item.notes` | `citekeys[]` | Citekey → notes |
-| `item.bibliography` | `citekeys[]`, `format`, `library?` | Formatted bibliography string |
-| `item.citationkey` | `item_keys[]` or `'selected'` | Item key → citation key |
-| `item.export` | `citekeys[]`, `translator`, `libraryID?` | Exported string |
-| `item.pandoc_filter` | `citekeys[]`, `asCSL`, `libraryID?`, `style`, `locale` | `{ errors, items }` |
-| `collection.scanAUX` | `collection`, `aux` | `{ libraryID, key }` |
-| `autoexport.add` | `collection`, `translator`, `path`, `displayOptions`, `replace` | `{ libraryID, key, id }` |
+| Method               | Parameters                                                      | Returns                              |
+| -------------------- | --------------------------------------------------------------- | ------------------------------------ |
+| `api.ready`          | —                                                               | `{ zotero, betterbibtex }` versions  |
+| `user.groups`        | `includeCollections?`                                           | Array of `{ id, name, collections }` |
+| `item.search`        | `terms`, `library?`                                             | Items with CSL JSON + citekey        |
+| `item.attachments`   | `citekey`, `library?`                                           | `[{ path, open, annotations }]`      |
+| `item.collections`   | `citekeys[]`, `includeParents?`                                 | Citekey → collection hierarchy       |
+| `item.notes`         | `citekeys[]`                                                    | Citekey → notes                      |
+| `item.bibliography`  | `citekeys[]`, `format`, `library?`                              | Formatted bibliography string        |
+| `item.citationkey`   | `item_keys[]` or `'selected'`                                   | Item key → citation key              |
+| `item.export`        | `citekeys[]`, `translator`, `libraryID?`                        | Exported string                      |
+| `item.pandoc_filter` | `citekeys[]`, `asCSL`, `libraryID?`, `style`, `locale`          | `{ errors, items }`                  |
+| `collection.scanAUX` | `collection`, `aux`                                             | `{ libraryID, key }`                 |
+| `autoexport.add`     | `collection`, `translator`, `path`, `displayOptions`, `replace` | `{ libraryID, key, id }`             |
 
 #### Example: Search
 
@@ -187,10 +190,7 @@ Supports batch requests (send an array of request objects).
 {
   "jsonrpc": "2.0",
   "method": "item.bibliography",
-  "params": [
-    ["citekey1", "citekey2"],
-    { "id": "http://www.zotero.org/styles/apa" }
-  ],
+  "params": [["citekey1", "citekey2"], { "id": "http://www.zotero.org/styles/apa" }],
   "id": 1
 }
 ```

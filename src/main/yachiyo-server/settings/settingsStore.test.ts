@@ -653,7 +653,7 @@ test('normalizeSettingsConfig disables a custom tool model when its provider dis
   })
 
   assert.deepEqual(normalized.toolModel, {
-    mode: DEFAULT_TOOL_MODEL_MODE,
+    mode: 'disabled',
     providerId: '',
     providerName: '',
     model: ''
@@ -717,6 +717,61 @@ test('toToolModelSettings resolves providers by providerId when the name changes
 
   assert.equal(snapshot?.providerName, 'backup-renamed')
   assert.equal(snapshot?.model, 'claude-haiku-4-5')
+})
+
+test('normalizeToolModelMode accepts default as a valid mode', () => {
+  const normalized = normalizeSettingsConfig({
+    toolModel: { mode: 'default' },
+    providers: []
+  })
+  assert.equal(normalized.toolModel?.mode, 'default')
+})
+
+test('toToolModelSettings with default mode delegates to the chat default model', () => {
+  const snapshot = toToolModelSettings({
+    enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+    defaultModel: { providerName: 'work', model: 'gpt-5' },
+    toolModel: { mode: 'default' },
+    providers: [
+      {
+        id: 'provider-work',
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-openai',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      }
+    ]
+  })
+
+  assert.equal(snapshot?.providerName, 'work')
+  assert.equal(snapshot?.model, 'gpt-5')
+})
+
+test('toToolModelSettings with default mode and no defaultModel falls back to primary provider', () => {
+  const snapshot = toToolModelSettings({
+    enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+    toolModel: { mode: 'default' },
+    providers: [
+      {
+        id: 'provider-work',
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-openai',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      }
+    ]
+  })
+
+  assert.equal(snapshot?.providerName, 'work')
+  assert.equal(snapshot?.model, 'gpt-5')
 })
 
 test('normalizeSettingsConfig falls back to the default sidebar visibility', () => {

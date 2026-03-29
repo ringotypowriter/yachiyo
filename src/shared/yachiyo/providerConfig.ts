@@ -58,6 +58,15 @@ export function getToolModelConfig(
 
 export function createDisabledToolModelConfig(): Required<ToolModelConfig> {
   return {
+    mode: 'disabled',
+    providerId: '',
+    providerName: '',
+    model: ''
+  }
+}
+
+export function createDefaultModeToolModelConfig(): Required<ToolModelConfig> {
+  return {
     mode: DEFAULT_TOOL_MODEL_MODE,
     providerId: '',
     providerName: '',

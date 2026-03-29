@@ -86,7 +86,7 @@ export type ProviderKind =
 export type ActiveRunEnterBehavior = 'enter-steers' | 'enter-queues-follow-up'
 export type SidebarVisibility = 'expanded' | 'collapsed'
 export type SendChatMode = 'normal' | 'steer' | 'follow-up'
-export type ToolModelMode = 'disabled' | 'custom'
+export type ToolModelMode = 'disabled' | 'default' | 'custom'
 export type MemoryProviderId = 'builtin-memory' | 'nowledge-mem'
 export type WebReadRequestFormat = 'markdown' | 'html'
 export type WebReadContentFormat = WebReadRequestFormat | 'raw'
@@ -143,7 +143,7 @@ export const USER_MANAGED_TOOL_NAMES = [...userManagedToolNames] as ToolCallName
 export const DEFAULT_ENABLED_TOOL_NAMES = [...USER_MANAGED_TOOL_NAMES] as ToolCallName[]
 export const DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR: ActiveRunEnterBehavior = 'enter-steers'
 export const DEFAULT_SIDEBAR_VISIBILITY: SidebarVisibility = 'expanded'
-export const DEFAULT_TOOL_MODEL_MODE: ToolModelMode = 'disabled'
+export const DEFAULT_TOOL_MODEL_MODE: ToolModelMode = 'default'
 
 export function normalizeMemoryProviderId(
   value: unknown,
@@ -240,7 +240,7 @@ export function normalizeToolModelMode(
   value: unknown,
   fallback: ToolModelMode = DEFAULT_TOOL_MODEL_MODE
 ): ToolModelMode {
-  return value === 'disabled' || value === 'custom' ? value : fallback
+  return value === 'disabled' || value === 'default' || value === 'custom' ? value : fallback
 }
 
 export interface ReadToolCallDetails {

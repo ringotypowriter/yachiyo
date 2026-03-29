@@ -42,8 +42,11 @@ All output is JSON unless noted. The app must be running for "send" commands.
   provider show <id-or-name>             Show a single provider by UUID or display name.
   provider update <id-or-name> [--payload <json>]
                                          Merge JSON patch into an existing provider config.
-  provider set-default <id-or-name>      Promote a provider to the default slot.
-  provider models <id-or-name>           Fetch available model IDs from the provider's API.
+  provider set-default <id-or-name> [--model <model>]
+                                         Promote a provider to default and set the active model.
+                                         Without --model, picks the first enabled model.
+  provider models [id-or-name]           Without argument: list all locally enabled models.
+                                         With argument: fetch available model IDs from the provider's API.
 
 ── agent ─────────────────────────────────────────────────────────────
   agent list                             List all registered subagent profiles.
@@ -104,6 +107,7 @@ export interface CliConfigService {
   setDefaultProvider(input: {
     id?: string
     name?: string
+    model?: string
   }): SettingsConfig | Promise<SettingsConfig>
   fetchProviderModels(input: ProviderConfig): Promise<string[]>
 }
@@ -131,7 +135,15 @@ function createDefaultConfigService(settingsPath: string): CliConfigService {
   return new YachiyoServerConfigDomain({ settingsStore, emit: () => {} })
 }
 
-const VALUE_FLAGS = new Set(['--settings', '--soul', '--payload', '--db', '--limit', '--title'])
+const VALUE_FLAGS = new Set([
+  '--settings',
+  '--soul',
+  '--payload',
+  '--db',
+  '--limit',
+  '--title',
+  '--model'
+])
 
 function parseArgs(rawArgs: string[]): { positionals: string[]; flags: Map<string, string> } {
   const positionals: string[] = []
@@ -351,9 +363,11 @@ async function handleProviderCommand(
   if (action === 'set-default') {
     const ref = positionals[1]
     if (!ref) throw new Error('Provider id or name is required: provider set-default <id-or-name>')
-    const config = await configService.setDefaultProvider({ id: ref, name: ref })
+    const model = flags.get('--model')
+    const config = await configService.setDefaultProvider({ id: ref, name: ref, model })
     outputJson(stdout, {
       defaultProvider: config.providers[0] ? sanitizeForOutput(config.providers[0]) : null,
+      defaultModel: config.defaultModel ?? null,
       providers: config.providers.map((p) => sanitizeForOutput(p))
     })
     return
@@ -361,8 +375,16 @@ async function handleProviderCommand(
 
   if (action === 'models') {
     const ref = positionals[1]
-    if (!ref) throw new Error('Provider id or name is required: provider models <id-or-name>')
     const config = await configService.getConfig()
+
+    if (!ref) {
+      const enabled = config.providers.flatMap((p) =>
+        p.modelList.enabled.map((model) => ({ provider: p.name, model }))
+      )
+      outputJson(stdout, enabled)
+      return
+    }
+
     const provider = findProviderByRef(config.providers, ref)
     if (!provider) throw new Error(`Unknown provider: ${ref}`)
     const models = await configService.fetchProviderModels(provider)

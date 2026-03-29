@@ -35,15 +35,27 @@ yachiyo provider update my-openai --payload '{"apiKey":"sk-..."}'
 ### Set the default provider
 
 ```
-yachiyo provider set-default <id-or-name>
+yachiyo provider set-default <id-or-name> [--model <model>]
 ```
 
-Move the specified provider to the top of the list, making it the default for new chats.
+Promote the specified provider to default and set the active model for new chats. Without `--model`, picks the first enabled model from that provider.
 
-### List available models
+This updates both the provider ordering and the `defaultModel` setting.
+
+### List enabled models
+
+```
+yachiyo provider models
+```
+
+List all locally enabled models across all providers. Returns a flat array of `{ provider, model }` objects.
+
+> **Tip:** Use this command to discover available model names when you need to fill `modelOverride` fields (e.g. in schedule payloads or essential presets).
+
+### Fetch available models from API
 
 ```
 yachiyo provider models <id-or-name>
 ```
 
-Fetch and list available models for the specified provider.
+Fetch and list all available models from the specified provider's API (not just locally enabled ones).

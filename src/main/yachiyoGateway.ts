@@ -622,8 +622,9 @@ export function registerYachiyoGateway(): YachiyoServer {
       '.webp': 'image/webp'
     }
 
-    // readFilePaths is macOS-only and may be missing from older type stubs
-    const paths: string[] = (clipboard as unknown as { readFilePaths(): string[] }).readFilePaths()
+    // readFilePaths is macOS-only and not available in every Electron build
+    const readFn = (clipboard as unknown as { readFilePaths?: () => string[] }).readFilePaths
+    const paths: string[] = typeof readFn === 'function' ? readFn.call(clipboard) : []
     const results: { filename: string; mediaType: string; dataUrl: string }[] = []
 
     for (const filePath of paths) {

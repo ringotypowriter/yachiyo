@@ -57,6 +57,7 @@ async function withServer(
 ): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-test-'))
   const settingsPath = join(root, 'config.toml')
+  await writeFile(settingsPath, '[toolModel]\nmode = "disabled"\n', 'utf8')
   const userDocumentPath = join(root, '.yachiyo', 'USER.md')
   const storage = createInMemoryYachiyoStorage()
   const modelRequests: ModelStreamRequest[] = []
@@ -3186,6 +3187,7 @@ test('YachiyoServer emits a replacement snapshot when a queued follow-up is repa
 test('YachiyoServer bootstrap recovers interrupted runs and marks running tool calls as failed', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-recover-test-'))
   const settingsPath = join(root, 'config.toml')
+  await writeFile(settingsPath, '[toolModel]\nmode = "disabled"\n', 'utf8')
   const userDocumentPath = join(root, '.yachiyo', 'USER.md')
   const storage = createInMemoryYachiyoStorage()
   const createdAt = '2026-03-16T09:00:00.000Z'
@@ -3275,6 +3277,7 @@ test('YachiyoServer bootstrap recovers interrupted runs and marks running tool c
 test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queued tool override', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-queued-recover-test-'))
   const settingsPath = join(root, 'config.toml')
+  await writeFile(settingsPath, '[toolModel]\nmode = "disabled"\n', 'utf8')
   const userDocumentPath = join(root, '.yachiyo', 'USER.md')
   const storage = createInMemoryYachiyoStorage()
   const workspacePathForThread = (threadId: string): string =>
@@ -3422,6 +3425,7 @@ test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queu
 test('YachiyoServer keeps a recovered queued follow-up pending when a new run starts immediately after bootstrap', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-queued-race-test-'))
   const settingsPath = join(root, 'config.toml')
+  await writeFile(settingsPath, '[toolModel]\nmode = "disabled"\n', 'utf8')
   const userDocumentPath = join(root, '.yachiyo', 'USER.md')
   const storage = createInMemoryYachiyoStorage()
   const workspacePathForThread = (threadId: string): string =>
@@ -3588,6 +3592,7 @@ test('YachiyoServer keeps a recovered queued follow-up pending when a new run st
 test('YachiyoServer close waits for active runs to persist a terminal status', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-close-test-'))
   const settingsPath = join(root, 'config.toml')
+  await writeFile(settingsPath, '[toolModel]\nmode = "disabled"\n', 'utf8')
   const userDocumentPath = join(root, '.yachiyo', 'USER.md')
   const storage = createInMemoryYachiyoStorage()
   const server = new YachiyoServer({

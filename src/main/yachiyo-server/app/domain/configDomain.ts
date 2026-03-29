@@ -310,7 +310,7 @@ export class YachiyoServerConfigDomain {
     )
   }
 
-  setDefaultProvider(input: { id?: string; name?: string }): SettingsConfig {
+  setDefaultProvider(input: { id?: string; name?: string; model?: string }): SettingsConfig {
     const current = this.readConfig()
     let index = input.id
       ? current.providers.findIndex((p) => providerMatchesReference(p, { id: input.id }))
@@ -323,7 +323,18 @@ export class YachiyoServerConfigDomain {
     }
     const provider = current.providers[index]
     const providers = [provider, ...current.providers.filter((_, i) => i !== index)]
-    return this.persistConfig({ ...current, providers })
+
+    const explicitModel = input.model?.trim()
+    if (explicitModel && !provider.modelList.enabled.includes(explicitModel)) {
+      throw new Error(
+        `Model "${explicitModel}" is not enabled on provider "${provider.name}". ` +
+          `Enabled models: ${provider.modelList.enabled.join(', ') || '(none)'}`
+      )
+    }
+    const model = explicitModel || provider.modelList.enabled[0] || ''
+    const defaultModel = model ? { providerName: provider.name, model } : current.defaultModel
+
+    return this.persistConfig({ ...current, providers, defaultModel })
   }
 
   async fetchProviderModels(input: ProviderConfig): Promise<string[]> {
