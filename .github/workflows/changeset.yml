@@ -14,6 +14,9 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    outputs:
+      published: ${{ steps.changeset.outputs.published }}
+      publishedPackages: ${{ steps.changeset.outputs.publishedPackages }}
     steps:
       - uses: actions/checkout@v4
 
@@ -27,6 +30,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Create release PR or publish
+        id: changeset
         uses: changesets/action@v1
         with:
           title: 'chore: version packages'
@@ -44,3 +48,29 @@ jobs:
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    needs: version
+    if: needs.version.outputs.published == 'true'
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ fromJson(needs.version.outputs.publishedPackages)[0].version && format('v{0}', fromJson(needs.version.outputs.publishedPackages)[0].version) || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and publish
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm run build && pnpm exec electron-builder --mac zip --publish always
