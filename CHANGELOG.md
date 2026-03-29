@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.6
+
+### Patch Changes
+
+- [`bb2dba9`](https://github.com/ringotypowriter/yachiyo/commit/bb2dba9855b0ff916e8ed8d59c6ca43bbd93569c) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Streamline CI release workflow: version, tag, and build in a single run
+
 ## 1.0.5
 
 ### Patch Changes
