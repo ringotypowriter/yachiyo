@@ -8,6 +8,7 @@ import { resolveYachiyoDataDir } from './yachiyo-server/config/paths'
 import { registerYachiyoGateway } from './yachiyoGateway'
 import { setupCLI } from './cliSetup'
 import { setupCoreSkills } from './coreSkillsSetup'
+import { setupAutoUpdate } from './autoUpdate'
 
 const APP_NAME = 'Yachiyo'
 
@@ -135,6 +136,7 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+  setupAutoUpdate()
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the

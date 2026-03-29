@@ -46,6 +46,15 @@ declare global {
     api: {
       openSettings: () => void
       setVibrancy: (enabled: boolean) => void
+      appUpdate: {
+        getStatus: () => Promise<{ state: string; version?: string; error?: string }>
+        check: () => void
+        download: () => void
+        install: () => void
+        onStatus: (
+          listener: (status: { state: string; version?: string; error?: string }) => void
+        ) => () => void
+      }
       yachiyo: {
         searchThreadsAndMessages: (input: { query: string }) => Promise<ThreadSearchResult[]>
         searchWorkspaceFiles: (input: SearchWorkspaceFilesInput) => Promise<FileMentionCandidate[]>

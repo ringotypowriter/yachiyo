@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { theme, alpha } from '@renderer/theme/theme'
 import avatarUrl from '../../../../resources/branding.jpeg'
 
@@ -54,6 +54,15 @@ const thirdPartyDeps: ThirdPartyEntry[] = [
 export function AboutPane(): React.ReactNode {
   const [hovered, setHovered] = useState(false)
   const [showNotices, setShowNotices] = useState(false)
+  const [updateState, setUpdateState] = useState<{
+    state: string
+    version?: string
+  }>({ state: 'idle' })
+
+  useEffect(() => {
+    window.api.appUpdate.getStatus().then(setUpdateState)
+    return window.api.appUpdate.onStatus(setUpdateState)
+  }, [])
 
   return (
     <div className="flex-1 relative overflow-hidden" style={{ userSelect: 'none' }}>
@@ -121,6 +130,43 @@ export function AboutPane(): React.ReactNode {
         <div className="mt-3 text-xs" style={{ color: theme.text.muted }}>
           Apache-2.0 License
         </div>
+
+        {/* Update indicator */}
+        {updateState.state === 'available' && (
+          <button
+            type="button"
+            onClick={() => window.api.appUpdate.download()}
+            className="mt-4 text-xs font-medium px-3 py-1.5 rounded-full"
+            style={{
+              background: alpha('accent', 0.12),
+              color: theme.text.accent,
+              border: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            v{updateState.version} available — download
+          </button>
+        )}
+        {updateState.state === 'downloading' && (
+          <div className="mt-4 text-xs" style={{ color: theme.text.muted }}>
+            Downloading v{updateState.version}...
+          </div>
+        )}
+        {updateState.state === 'ready' && (
+          <button
+            type="button"
+            onClick={() => window.api.appUpdate.install()}
+            className="mt-4 text-xs font-medium px-3 py-1.5 rounded-full"
+            style={{
+              background: alpha('accent', 0.12),
+              color: theme.text.accent,
+              border: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            v{updateState.version} ready — restart to update
+          </button>
+        )}
       </div>
 
       {/* Bottom overlay — notices + toggle, layered above hero */}

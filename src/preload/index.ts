@@ -34,6 +34,27 @@ import type {
 const api = {
   openSettings: () => ipcRenderer.send('open-settings'),
   setVibrancy: (enabled: boolean) => ipcRenderer.send('set-vibrancy', enabled),
+  appUpdate: {
+    getStatus: (): Promise<{ state: string; version?: string; error?: string }> =>
+      ipcRenderer.invoke('app-update:get-status'),
+    check: () => ipcRenderer.send('app-update:check'),
+    download: () => ipcRenderer.send('app-update:download'),
+    install: () => ipcRenderer.send('app-update:install'),
+    onStatus: (
+      listener: (status: { state: string; version?: string; error?: string }) => void
+    ): (() => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        status: { state: string; version?: string; error?: string }
+      ): void => {
+        listener(status)
+      }
+      ipcRenderer.on('app-update:status', handler)
+      return () => {
+        ipcRenderer.off('app-update:status', handler)
+      }
+    }
+  },
   yachiyo: {
     searchThreadsAndMessages: (input: { query: string }): Promise<ThreadSearchResult[]> =>
       ipcRenderer.invoke('yachiyo:search-threads-and-messages', input),

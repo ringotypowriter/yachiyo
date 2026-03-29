@@ -32,21 +32,8 @@ jobs:
           npm version "$NIGHTLY_VERSION" --no-git-tag-version
           echo "NIGHTLY_VERSION=$NIGHTLY_VERSION" >> "$GITHUB_ENV"
 
-      - name: Build
+      - name: Build and publish
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: pnpm run build:mac
-
-      - name: Upload nightly release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: nightly
-          name: 'Nightly (${{ env.NIGHTLY_VERSION }})'
-          body: |
-            Automated nightly build from `main` at ${{ github.sha }}.
-
-            **This is a pre-release build. Use at your own risk.**
-          prerelease: true
-          files: |
-            dist/*.zip
-          make_latest: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm run build && electron-builder --mac zip --publish always

@@ -1,10 +1,19 @@
-import { Archive, PanelLeft, Radio, Search, Settings, SquarePen } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import {
+  Archive,
+  ArrowDownCircle,
+  PanelLeft,
+  Radio,
+  Search,
+  Settings,
+  SquarePen
+} from 'lucide-react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ConnectionStatusIndicator } from '@renderer/features/layout/components/ConnectionStatusIndicator'
 import { SidebarSearch } from '@renderer/features/search/SidebarSearch'
 import { ThreadList } from '@renderer/features/threads/components/ThreadList'
 import { TRAFFIC_LIGHTS_SAFE_ZONE } from '@renderer/lib/sidebarLayout'
-import { theme } from '@renderer/theme/theme'
+import { theme, alpha } from '@renderer/theme/theme'
 import { Tooltip } from '@renderer/components/Tooltip'
 
 export interface AppSidebarProps {
@@ -32,6 +41,20 @@ export function AppSidebar({
   onCloseSearch,
   onSearchSelect
 }: AppSidebarProps): React.JSX.Element {
+  const [updateAvailable, setUpdateAvailable] = useState(false)
+  const [updateVersion, setUpdateVersion] = useState<string>()
+
+  useEffect(() => {
+    window.api.appUpdate.getStatus().then((s) => {
+      setUpdateAvailable(s.state === 'available' || s.state === 'ready')
+      if (s.version) setUpdateVersion(s.version)
+    })
+    return window.api.appUpdate.onStatus((s) => {
+      setUpdateAvailable(s.state === 'available' || s.state === 'ready')
+      if (s.version) setUpdateVersion(s.version)
+    })
+  }, [])
+
   const connectionStatus = useAppStore((s) => s.connectionStatus)
   const createNewThread = useAppStore((s) => s.createNewThread)
   const setActiveThread = useAppStore((s) => s.setActiveThread)
@@ -164,6 +187,24 @@ export function AppSidebar({
             </Tooltip>
           </div>
           <div className="flex-1" />
+          {updateAvailable && (
+            <Tooltip content={`v${updateVersion} available`}>
+              <button
+                onClick={() => window.api.openSettings()}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium mr-1.5 transition-opacity hover:opacity-80"
+                style={{
+                  background: alpha('accent', 0.12),
+                  color: theme.text.accent,
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+                aria-label="Install update"
+              >
+                <ArrowDownCircle size={11} strokeWidth={2} />
+                Update
+              </button>
+            </Tooltip>
+          )}
           <ConnectionStatusIndicator connectionStatus={connectionStatus} />
         </div>
       </div>
