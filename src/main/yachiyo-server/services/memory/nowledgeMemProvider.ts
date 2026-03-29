@@ -5,6 +5,8 @@ import { delimiter, join } from 'node:path'
 import type { SettingsConfig } from '../../../../shared/yachiyo/protocol.ts'
 import { DEFAULT_MEMORY_BASE_URL } from '../../../../shared/yachiyo/protocol.ts'
 import type {
+  CreateThreadInput,
+  DistillThreadInput,
   MemoryCandidate,
   MemoryProvider,
   MemorySearchResult,
@@ -303,6 +305,40 @@ async function runNowledgeMemCommand(
   })
 }
 
+function parseDistillSavedCount(payload: unknown): number {
+  if (!payload || typeof payload !== 'object') {
+    return 0
+  }
+
+  const record = payload as Record<string, unknown>
+
+  if (typeof record['count'] === 'number') {
+    return record['count']
+  }
+
+  if (typeof record['memories_created'] === 'number') {
+    return record['memories_created']
+  }
+
+  if (typeof record['saved'] === 'number') {
+    return record['saved']
+  }
+
+  if (Array.isArray(record['memories'])) {
+    return record['memories'].length
+  }
+
+  if (Array.isArray(record['results'])) {
+    return record['results'].length
+  }
+
+  if (record['skipped'] === true || record['status'] === 'skipped') {
+    return 0
+  }
+
+  return 0
+}
+
 function toCommandEnv(baseUrl: string): NodeJS.ProcessEnv {
   return {
     NMEM_API_URL: baseUrl
@@ -435,6 +471,69 @@ export function createNowledgeMemProvider(
           )}`
         )
       }
+    },
+
+    async createThread(input: CreateThreadInput): Promise<void> {
+      const messagesJson = JSON.stringify(
+        input.messages.map((m) => ({ role: m.role, content: m.content }))
+      )
+      const result = await runCommand({
+        args: [
+          't',
+          'create',
+          '--id',
+          input.threadId,
+          '-t',
+          input.title,
+          '-m',
+          messagesJson,
+          '-s',
+          'yachiyo'
+        ],
+        env,
+        signal: input.signal
+      })
+      const payload = parseJsonPayload(result.stdout) as NowledgeMemCliResponse | string | null
+
+      if (
+        result.exitCode !== 0 ||
+        (payload && typeof payload === 'object' && typeof payload.error === 'string')
+      ) {
+        throw new Error(
+          `Nowledge Mem thread create failed: ${stringifyCommandFailureDetail(
+            payload,
+            result.stderr.trim() || `exit ${result.exitCode}`
+          )}`
+        )
+      }
+    },
+
+    async distillThread(input: DistillThreadInput): Promise<{ savedCount: number }> {
+      const result = await runCommand({
+        args: [
+          't',
+          'distill',
+          input.threadId,
+          ...(input.triage ? ['--triage'] : [])
+        ],
+        env,
+        signal: input.signal
+      })
+      const payload = parseJsonPayload(result.stdout) as NowledgeMemCliResponse | string | null
+
+      if (
+        result.exitCode !== 0 ||
+        (payload && typeof payload === 'object' && typeof payload.error === 'string')
+      ) {
+        throw new Error(
+          `Nowledge Mem thread distill failed: ${stringifyCommandFailureDetail(
+            payload,
+            result.stderr.trim() || `exit ${result.exitCode}`
+          )}`
+        )
+      }
+
+      return { savedCount: parseDistillSavedCount(payload) }
     }
   }
 }

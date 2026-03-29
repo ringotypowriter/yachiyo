@@ -63,6 +63,19 @@ export interface MemoryCandidate {
   unitType: MemoryUnitType
 }
 
+export interface CreateThreadInput {
+  threadId: string
+  title: string
+  messages: Array<{ role: string; content: string }>
+  signal?: AbortSignal
+}
+
+export interface DistillThreadInput {
+  threadId: string
+  triage?: boolean
+  signal?: AbortSignal
+}
+
 export interface MemoryProvider {
   createMemories(input: {
     items: MemoryCandidate[]
@@ -75,6 +88,8 @@ export interface MemoryProvider {
     signal?: AbortSignal
   }): Promise<MemorySearchResult[]>
   updateMemory(input: { id: string; item: MemoryCandidate; signal?: AbortSignal }): Promise<void>
+  createThread?(input: CreateThreadInput): Promise<void>
+  distillThread?(input: DistillThreadInput): Promise<{ savedCount: number }>
 }
 
 export interface RecallMemoryInput {
@@ -1132,6 +1147,25 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
 
       if (input.messages.length === 0) {
         return { savedCount: 0 }
+      }
+
+      if (provider.createThread && provider.distillThread) {
+        const messages = input.messages
+          .filter((m) => m.role === 'user' || m.role === 'assistant')
+          .map((m) => ({ role: m.role, content: m.content }))
+
+        await provider.createThread({
+          threadId: input.thread.id,
+          title: input.thread.title || 'Untitled',
+          messages,
+          signal: input.signal
+        })
+
+        return provider.distillThread({
+          threadId: input.thread.id,
+          triage: true,
+          signal: input.signal
+        })
       }
 
       const settings = deps.readSettings()
