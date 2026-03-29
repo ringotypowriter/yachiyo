@@ -88,8 +88,17 @@ export interface MemoryProvider {
     signal?: AbortSignal
   }): Promise<MemorySearchResult[]>
   updateMemory(input: { id: string; item: MemoryCandidate; signal?: AbortSignal }): Promise<void>
-  createThread?(input: CreateThreadInput): Promise<void>
-  distillThread?(input: DistillThreadInput): Promise<{ savedCount: number }>
+}
+
+export interface ThreadAwareMemoryProvider extends MemoryProvider {
+  createThread(input: CreateThreadInput): Promise<void>
+  distillThread(input: DistillThreadInput): Promise<{ savedCount: number }>
+}
+
+export function isThreadAwareProvider(
+  provider: MemoryProvider
+): provider is ThreadAwareMemoryProvider {
+  return 'createThread' in provider && 'distillThread' in provider
 }
 
 export interface RecallMemoryInput {
@@ -1149,7 +1158,7 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
         return { savedCount: 0 }
       }
 
-      if (provider.createThread && provider.distillThread) {
+      if (isThreadAwareProvider(provider)) {
         const messages = input.messages
           .filter((m) => m.role === 'user' || m.role === 'assistant')
           .map((m) => ({ role: m.role, content: m.content }))

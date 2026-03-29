@@ -8,9 +8,9 @@ import type {
   CreateThreadInput,
   DistillThreadInput,
   MemoryCandidate,
-  MemoryProvider,
   MemorySearchResult,
-  MemoryUnitType
+  MemoryUnitType,
+  ThreadAwareMemoryProvider
 } from './memoryService.ts'
 
 interface NowledgeMemSearchResponseItem {
@@ -348,7 +348,7 @@ function toCommandEnv(baseUrl: string): NodeJS.ProcessEnv {
 export function createNowledgeMemProvider(
   config: SettingsConfig,
   deps: NowledgeMemProviderDeps = {}
-): MemoryProvider {
+): ThreadAwareMemoryProvider {
   const runCommand = deps.runCommand ?? runNowledgeMemCommand
   const baseUrl = normalizeBaseUrl(config)
   const env = toCommandEnv(baseUrl)
