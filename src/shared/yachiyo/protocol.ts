@@ -1180,7 +1180,7 @@ export interface ScheduleRecord {
   updatedAt: string
 }
 
-export type ScheduleRunStatus = 'running' | 'completed' | 'failed'
+export type ScheduleRunStatus = 'running' | 'completed' | 'failed' | 'skipped'
 export type ScheduleResultStatus = 'success' | 'failure'
 
 export interface ScheduleRunRecord {

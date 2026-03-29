@@ -65,6 +65,22 @@ const SYNC_INTERVAL_MS = 60_000
  */
 const MAX_TIMEOUT_MS = 2_147_483_647
 
+/** Quick connectivity probe — resolves true if we can reach the internet. */
+export async function hasInternetConnection(): Promise<boolean> {
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 5_000)
+    const res = await fetch('https://example.com', {
+      method: 'HEAD',
+      signal: controller.signal
+    })
+    clearTimeout(timeout)
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 const SCHEDULE_ICONS = ['⏰', '🕐', '📋', '🗓️', '⚡', '🔄', '🤖', '📌', '🎯', '✨']
 
 function pickScheduleIcon(): string {
@@ -154,6 +170,27 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
 
     if (activeRuns.has(scheduleId)) {
       console.warn(`[schedule] skipping overlapping fire for "${schedule.name}"`)
+      armTimer(schedule)
+      return
+    }
+
+    // Check internet connectivity before committing resources to the run.
+    if (!(await hasInternetConnection())) {
+      const runId = deps.createId()
+      const now = deps.timestamp()
+      deps.storage.createScheduleRun({
+        id: runId,
+        scheduleId,
+        status: 'skipped',
+        startedAt: now
+      })
+      deps.storage.completeScheduleRun({
+        id: runId,
+        status: 'skipped',
+        completedAt: now,
+        error: 'No internet connection.'
+      })
+      console.log(`[schedule] "${schedule.name}" skipped — no internet connection`)
       armTimer(schedule)
       return
     }

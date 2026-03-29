@@ -774,6 +774,9 @@ function HistorySubTab(): React.ReactNode {
 }
 
 function statusBadgeColors(run: ScheduleRunRecord): { bg: string; fg: string } {
+  if (run.status === 'skipped') {
+    return { bg: alpha('ink', 0.04), fg: theme.text.tertiary }
+  }
   if (run.status === 'completed' && run.resultStatus !== 'failure') {
     return { bg: alpha('success', 0.06), fg: theme.text.success }
   }
