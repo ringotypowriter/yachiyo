@@ -42,6 +42,10 @@ linux:
   category: Utility
 appImage:
   artifactName: ${name}-${version}.${ext}
+publish:
+  provider: github
+  owner: ringotypowriter
+  repo: yachiyo
 npmRebuild: false
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/

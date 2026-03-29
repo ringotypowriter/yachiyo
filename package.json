@@ -40,6 +40,8 @@
     "postinstall": "node -e \"console.log('Skipping Electron native rebuild on install. Run pnpm run native:rebuild before Electron runtime or native sqlite tests.')\"",
     "build:unpack": "pnpm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
     "build:win": "pnpm run build && electron-builder --win",
+    "changeset": "changeset",
+    "changeset:version": "changeset version",
     "build:mac": "pnpm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip",
     "build:linux": "pnpm run build && electron-builder --linux"
   },
@@ -52,6 +54,8 @@
     "@ai-sdk/openai": "^3.0.41",
     "@ai-sdk/provider": "^3.0.8",
     "@ai-sdk/provider-utils": "^4.0.19",
+    "@changesets/changelog-github": "^0.6.0",
+    "@changesets/cli": "^2.30.0",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@opentelemetry/api": "^1.9.0",

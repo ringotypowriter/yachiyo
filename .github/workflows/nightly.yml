@@ -1,0 +1,52 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set nightly version
+        run: |
+          NIGHTLY_VERSION="$(node -p "require('./package.json').version")-nightly.$(date -u +%Y%m%d%H%M)"
+          npm version "$NIGHTLY_VERSION" --no-git-tag-version
+          echo "NIGHTLY_VERSION=$NIGHTLY_VERSION" >> "$GITHUB_ENV"
+
+      - name: Build
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: pnpm run build:mac
+
+      - name: Upload nightly release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: 'Nightly (${{ env.NIGHTLY_VERSION }})'
+          body: |
+            Automated nightly build from `main` at ${{ github.sha }}.
+
+            **This is a pre-release build. Use at your own risk.**
+          prerelease: true
+          files: |
+            dist/*.zip
+          make_latest: false
