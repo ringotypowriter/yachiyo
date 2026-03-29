@@ -1,23 +1,23 @@
 /**
- * Telegram bot service using Telegraf.
+ * Discord bot service using discord.js.
  *
  * Flow for an allowed user (DM):
- *   1. Route the message through `routeTelegramMessage` for access control.
+ *   1. Route the message through `routeDiscordMessage` for access control.
  *   2. Buffer rapid messages with a random debounce delay (3-8 s).
  *   3. When the debounce window expires, join buffered texts and run AI generation.
  *   4. Inject channel reply instruction so the model wraps its reply in
  *      <reply></reply> tags.
  *   5. Collect the full AI output from server events.
- *   6. Parse the <reply> content and send it back to Telegram.
+ *   6. Parse the <reply> content and send it back to Discord.
  *
- * Group messages are routed directly from the Telegraf update handler into
- * the group monitor registry (probe+tool pattern).
+ * Guild text channel messages are routed into the group monitor registry
+ * (probe+tool pattern) — same architecture as Telegram and QQ groups.
  */
 
 import { tool, type ToolSet } from 'ai'
 import { z } from 'zod'
-import { Telegraf } from 'telegraf'
-import type { Message } from 'telegraf/types'
+import { Client, Events, GatewayIntentBits, Partials, type Message } from 'discord.js'
+import { join } from 'node:path'
 
 import type {
   ChannelGroupRecord,
@@ -27,296 +27,279 @@ import type {
   MessageImageRecord,
   ThreadModelOverride,
   YachiyoServerEvent
-} from '../../../shared/yachiyo/protocol'
-import type { YachiyoServer } from '../app/YachiyoServer'
-import { telegramPolicy } from './channelPolicy'
-import { fetchImageAsDataUrl } from './channelImageDownload'
-import { buildGroupProbeMessages, formatGroupMessages } from './groupContextBuilder'
-import { createGroupMonitorRegistry, type GroupMonitorRegistry } from './groupMonitorRegistry'
-import { routeTelegramMessage, type TelegramChannelStorage } from './telegram'
-import { EXTERNAL_SYSTEM_PROMPT } from '../runtime/prompt'
-import { readChannelsConfig } from '../runtime/channelsConfig'
-import { readUserDocument } from '../runtime/user'
-import { createSpeechThrottle } from './groupSpeechThrottle'
-import { createTool as createReadTool } from '../tools/agentTools/readTool'
-import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool'
-import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool'
-import { createTool as createUpdateMemoryTool } from '../tools/agentTools/updateMemoryTool'
+} from '../../../shared/yachiyo/protocol.ts'
+import type { YachiyoServer } from '../app/YachiyoServer.ts'
+import { discordPolicy } from './channelPolicy.ts'
+import { fetchImageAsDataUrl } from './channelImageDownload.ts'
+import { buildGroupProbeMessages, formatGroupMessages } from './groupContextBuilder.ts'
+import { createGroupMonitorRegistry, type GroupMonitorRegistry } from './groupMonitorRegistry.ts'
+import { routeDiscordMessage, type DiscordChannelStorage } from './discord.ts'
+import { EXTERNAL_SYSTEM_PROMPT } from '../runtime/prompt.ts'
+import { readChannelsConfig } from '../runtime/channelsConfig.ts'
+import { readUserDocument } from '../runtime/user.ts'
+import { createSpeechThrottle } from './groupSpeechThrottle.ts'
+import { createTool as createReadTool } from '../tools/agentTools/readTool.ts'
+import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool.ts'
+import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool.ts'
+import { createTool as createUpdateMemoryTool } from '../tools/agentTools/updateMemoryTool.ts'
 
-import { resolveYachiyoTempWorkspaceRoot, YACHIYO_USER_FILE_NAME } from '../config/paths'
-import { join } from 'node:path'
+import { resolveYachiyoTempWorkspaceRoot, YACHIYO_USER_FILE_NAME } from '../config/paths.ts'
 
-/** Telegram typing indicator expires after ~5 s; resend every 4 s. */
-const TYPING_INTERVAL_MS = 4_000
+/** Discord typing indicator lasts ~10 s; resend every 8 s. */
+const TYPING_INTERVAL_MS = 8_000
 
 /** Minimum debounce delay before flushing a message batch. */
 const REPLY_DELAY_MIN_MS = 3_000
 /** Maximum debounce delay before flushing a message batch. */
 const REPLY_DELAY_MAX_MS = 8_000
 
+/** Discord message length limit. */
+const DISCORD_MAX_MESSAGE_LENGTH = 2000
+
 function randomReplyDelay(): number {
   return REPLY_DELAY_MIN_MS + Math.random() * (REPLY_DELAY_MAX_MS - REPLY_DELAY_MIN_MS)
+}
+
+/**
+ * Split a long message into chunks that fit within Discord's 2000-char limit.
+ * Tries to break at newlines when possible.
+ */
+function splitMessage(text: string): string[] {
+  if (text.length <= DISCORD_MAX_MESSAGE_LENGTH) return [text]
+
+  const chunks: string[] = []
+  let remaining = text
+
+  while (remaining.length > 0) {
+    if (remaining.length <= DISCORD_MAX_MESSAGE_LENGTH) {
+      chunks.push(remaining)
+      break
+    }
+
+    let splitAt = remaining.lastIndexOf('\n', DISCORD_MAX_MESSAGE_LENGTH)
+    if (splitAt <= 0) splitAt = DISCORD_MAX_MESSAGE_LENGTH
+
+    chunks.push(remaining.slice(0, splitAt))
+    remaining = remaining.slice(splitAt).replace(/^\n/, '')
+  }
+
+  return chunks
 }
 
 interface PendingBatch {
   messages: string[]
   imageDownloads: Promise<MessageImageRecord | null>[]
   timer: ReturnType<typeof setTimeout>
-  chatId: string
+  channelId: string
   channelUser: ChannelUserRecord
   stopTyping: () => void
 }
 
-export interface TelegramServiceOptions {
-  /** Telegram Bot API token. */
+export interface DiscordServiceOptions {
+  /** Discord bot token. */
   botToken: string
-  /** Optional model override for Telegram threads. */
+  /** Optional model override for Discord threads. */
   model?: ThreadModelOverride
   /** The Yachiyo server instance for running AI generation and storage. */
   server: YachiyoServer
   /** Group discussion config from channels.toml. */
   groupConfig?: GroupChannelConfig
-  /** Bot's username (without @) for mention detection. */
-  botUsername?: string
 }
 
-export interface TelegramService {
-  /** Start long-polling. */
-  startPolling: () => void
+export interface DiscordService {
+  /** Log in and connect to the Discord gateway. */
+  connect: () => void
   /** Gracefully shut down the bot. */
   stop: () => Promise<void>
+  /** Notify the service that a group's status changed (approved/blocked). */
+  onGroupStatusChange: (group: ChannelGroupRecord) => void
 }
 
-export function createTelegramService({
+export function createDiscordService({
   botToken,
   model: modelOverride,
   server,
-  groupConfig,
-  botUsername
-}: TelegramServiceOptions): TelegramService {
-  const policy = telegramPolicy
+  groupConfig
+}: DiscordServiceOptions): DiscordService {
+  const policy = discordPolicy
 
   /** Per-user message buffer for debounced reply batching. */
   const pendingBatches = new Map<string, PendingBatch>()
 
-  const storage: TelegramChannelStorage = {
+  /** Resolved bot user ID (set after login). */
+  let botUserId: string | null = null
+
+  const storage: DiscordChannelStorage = {
     findChannelUser(platform, externalUserId) {
-      const found = server
+      return server
         .listChannelUsers()
         .find((u) => u.platform === platform && u.externalUserId === externalUserId)
-      console.log(
-        `[telegram] findChannelUser platform=${platform} id=${externalUserId} →`,
-        found ? `found (${found.status})` : 'not found'
-      )
-      return found
     },
     createChannelUser(user) {
-      console.log(`[telegram] createChannelUser`, user)
       return server.createChannelUser(user)
     }
   }
 
-  const bot = new Telegraf(botToken)
-
-  /** Send "typing…" chat action to the given Telegram chat. */
-  function sendTyping(chatId: string): void {
-    void bot.telegram.sendChatAction(chatId, 'typing').catch(() => {})
-  }
+  const client = new Client({
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.DirectMessages,
+      GatewayIntentBits.MessageContent
+    ],
+    // Partials.Channel is required for DM delivery on cold start —
+    // discord.js v14 does not cache DM channels by default.
+    partials: [Partials.Channel]
+  })
 
   /** Start a periodic typing indicator; returns a stop function. */
-  function startTypingLoop(chatId: string): () => void {
-    sendTyping(chatId)
-    const timer = setInterval(() => sendTyping(chatId), TYPING_INTERVAL_MS)
+  function startTypingLoop(channelId: string): () => void {
+    const channel = client.channels.cache.get(channelId)
+    const sendTyping = (): void => {
+      if (channel && 'sendTyping' in channel) {
+        void (channel as { sendTyping: () => Promise<void> }).sendTyping().catch(() => {})
+      }
+    }
+    sendTyping()
+    const timer = setInterval(sendTyping, TYPING_INTERVAL_MS)
     return () => clearInterval(timer)
   }
 
-  /** Send a text message to a Telegram chat. */
-  async function sendMessage(chatId: string, text: string): Promise<void> {
-    await bot.telegram.sendMessage(chatId, text)
+  /** Send a text message to a Discord channel, splitting if necessary. */
+  async function sendMessage(channelId: string, text: string): Promise<void> {
+    const channel = client.channels.cache.get(channelId)
+    if (!channel || !('send' in channel)) return
+
+    const chunks = splitMessage(text)
+    for (const chunk of chunks) {
+      await (channel as { send: (content: string) => Promise<unknown> }).send(chunk)
+    }
   }
 
-  /** Download a single Telegram file by file_id via getFileLink. */
-  function downloadByFileId(fileId: string): Promise<MessageImageRecord | null> {
-    return bot.telegram
-      .getFileLink(fileId)
-      .then((link) => fetchImageAsDataUrl(link.href, { maxBytes: policy.maxImageBytes }))
-      .catch((err) => {
-        console.warn('[telegram] failed to get file link:', err)
-        return null
-      })
+  /** Image extensions to accept when Discord omits contentType. */
+  const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'heif'])
+
+  /** Check if a Discord attachment is likely an image (contentType or extension). */
+  function isImageAttachment(a: { contentType: string | null; name: string | null }): boolean {
+    if (a.contentType?.startsWith('image/')) return true
+    const ext = a.name?.split('.').pop()?.toLowerCase()
+    return ext ? IMAGE_EXTENSIONS.has(ext) : false
   }
 
   /**
-   * Extract image file IDs from a Telegram message.
-   *
-   * Handles compressed photos, image documents, animations (GIF), and
-   * webp stickers so that all common visual media reaches the vision pipeline.
+   * Download image attachments from a Discord message.
+   * Returns an array of eager download promises.
    */
   function startImageDownloads(msg: Message): Promise<MessageImageRecord | null>[] {
-    const fileIds: string[] = []
-
-    // Compressed photos — pick the largest size.
-    if ('photo' in msg && msg.photo && msg.photo.length > 0) {
-      fileIds.push(msg.photo[msg.photo.length - 1].file_id)
-    }
-
-    // Image files sent as documents (uncompressed).
-    if ('document' in msg && msg.document?.mime_type?.startsWith('image/')) {
-      fileIds.push(msg.document.file_id)
-    }
-
-    // Animations (GIF / MP4 GIF) — converted to PNG first frame by ensureVisionSafe.
-    if ('animation' in msg && msg.animation) {
-      fileIds.push(msg.animation.file_id)
-    }
-
-    // Static webp stickers only — animated .tgs (Lottie) and video stickers
-    // are not raster images and would produce invalid data for the vision model.
-    if (
-      'sticker' in msg &&
-      msg.sticker &&
-      msg.sticker.is_animated === false &&
-      !msg.sticker.is_video
-    ) {
-      fileIds.push(msg.sticker.file_id)
-    }
-
-    return fileIds.slice(0, policy.maxImagesPerBatch).map((id) => downloadByFileId(id))
+    const imageAttachments = [...msg.attachments.values()].filter(isImageAttachment)
+    const capped = imageAttachments.slice(0, policy.maxImagesPerBatch)
+    return capped.map((a) => fetchImageAsDataUrl(a.url, { maxBytes: policy.maxImageBytes }))
   }
 
-  /** Check if a message is a private (DM) chat. */
-  function isPrivateChat(msg: Message): boolean {
-    return msg.chat.type === 'private'
-  }
+  // Wire up the Discord message handler.
+  client.on(Events.MessageCreate, (msg) => {
+    // Ignore messages from bots (including self).
+    if (msg.author.bot) return
 
-  /** Check if a message is a group or supergroup chat. */
-  function isGroupChat(msg: Message): boolean {
-    return msg.chat.type === 'group' || msg.chat.type === 'supergroup'
-  }
-
-  // Wire up the Telegraf message handler for both DMs and groups.
-  bot.on('message', (ctx) => {
-    const msg = ctx.message
-
-    if (isPrivateChat(msg)) {
+    if (msg.channel.isDMBased()) {
       handleDirectMessage(msg)
-    } else if (isGroupChat(msg)) {
-      handleGroupMessage(msg)
+    } else if (msg.guild) {
+      handleGuildMessage(msg)
     }
   })
 
   /** Handle an incoming direct message. */
   function handleDirectMessage(msg: Message): void {
-    const incomingText =
-      'text' in msg ? (msg.text ?? '') : 'caption' in msg ? (msg.caption ?? '') : ''
-    const externalUserId = String(msg.from?.id ?? '')
-    const username = msg.from?.username ?? msg.from?.first_name ?? externalUserId
+    const incomingText = msg.content ?? ''
+    const externalUserId = msg.author.id
+    const username = msg.author.username
 
-    // Start image downloads eagerly — they overlap with debounce.
     const imageDownloads = startImageDownloads(msg)
 
     console.log(
-      `[telegram] inbound DM from ${username} (${externalUserId}): ${JSON.stringify(incomingText)} (${imageDownloads.length} image(s))`
+      `[discord] inbound DM from ${username} (${externalUserId}): ${JSON.stringify(incomingText)} (${imageDownloads.length} image(s))`
     )
 
-    const result = routeTelegramMessage({ externalUserId, username, text: incomingText }, storage)
+    const result = routeDiscordMessage({ externalUserId, username, text: incomingText }, storage)
 
     console.log(
-      `[telegram] route result: ${result.kind}${result.kind === 'allowed' ? ` (role=${result.channelUser.role})` : ''}`
+      `[discord] route result: ${result.kind}${result.kind === 'allowed' ? ` (role=${result.channelUser.role})` : ''}`
     )
 
-    const chatId = String(msg.chat.id)
+    const channelId = msg.channel.id
 
     switch (result.kind) {
       case 'blocked':
         return
 
       case 'pending':
-        void sendMessage(chatId, result.reply)
+        void sendMessage(channelId, result.reply)
         return
 
       case 'limit-exceeded':
-        void sendMessage(chatId, result.reply)
+        void sendMessage(channelId, result.reply)
         return
 
       case 'allowed':
-        enqueueMessage(chatId, result.channelUser, incomingText, imageDownloads)
+        enqueueMessage(channelId, result.channelUser, incomingText, imageDownloads)
     }
   }
 
-  /** Handle an incoming group/supergroup message — route into group monitor. */
-  function handleGroupMessage(msg: Message): void {
+  /** Handle an incoming guild (server) text channel message — route into group monitor. */
+  function handleGuildMessage(msg: Message): void {
     if (!groupRegistry) return
 
-    const chatId = String(msg.chat.id)
-    const chatTitle = 'title' in msg.chat ? (msg.chat.title ?? '') : ''
-    const fromId = String(msg.from?.id ?? '')
-    const fromUsername = msg.from?.username ?? msg.from?.first_name ?? fromId
-    const text = 'text' in msg ? (msg.text ?? '') : 'caption' in msg ? (msg.caption ?? '') : ''
+    const channelId = msg.channel.id
+    const channelName =
+      'name' in msg.channel ? (msg.channel.name ?? `Channel ${channelId}`) : `Channel ${channelId}`
+    const guildName = msg.guild?.name ?? ''
+    const groupDisplayName = guildName ? `${guildName}#${channelName}` : channelName
+    const fromId = msg.author.id
+    const fromUsername = msg.author.username
+    const text = msg.content ?? ''
 
-    // Merge entities and caption_entities — mentions on media captions live in
-    // caption_entities, not entities.
-    const entities = [
-      ...('entities' in msg ? (msg.entities ?? []) : []),
-      ...('caption_entities' in msg ? (msg.caption_entities ?? []) : [])
-    ]
-
-    // Skip service updates and unsupported media that carry no text —
-    // joins, title changes, voice notes, etc. should not wake the group
-    // monitor or spend a probe turn on blank content.
-    const hasMedia =
-      ('photo' in msg && msg.photo) ||
-      ('document' in msg && msg.document?.mime_type?.startsWith('image/')) ||
-      ('animation' in msg && msg.animation) ||
-      ('sticker' in msg &&
-        msg.sticker &&
-        msg.sticker.is_animated === false &&
-        !msg.sticker.is_video)
-    if (!text && !hasMedia) return
-
-    const existing = server.findChannelGroup('telegram', chatId)
+    const existing = server.findChannelGroup('discord', channelId)
 
     if (!existing) {
       server.createChannelGroup({
-        id: `tg-group-${chatId}`,
-        platform: 'telegram',
-        externalGroupId: chatId,
-        name: chatTitle || `Telegram Group ${chatId}`,
+        id: `dc-group-${channelId}`,
+        platform: 'discord',
+        externalGroupId: channelId,
+        name: groupDisplayName,
         status: 'pending',
-        workspacePath: join(resolveYachiyoTempWorkspaceRoot(), `tg-group-${chatId}`)
+        workspacePath: join(resolveYachiyoTempWorkspaceRoot(), `dc-group-${channelId}`)
       })
-      console.log(`[telegram-group] new group ${chatId} registered as pending`)
+      console.log(
+        `[discord-group] new channel ${channelId} (${groupDisplayName}) registered as pending`
+      )
       return
     }
 
     if (existing.status !== 'approved') return
 
-    // Skip the bot's own messages echoed back by Telegram —
-    // already fed into the monitor as __self__ from the tool closure.
-    if (botUsername && fromUsername.toLowerCase() === botUsername.toLowerCase()) return
+    // Skip the bot's own messages — already fed into the monitor as __self__.
+    if (botUserId && fromId === botUserId) return
 
-    const isMention = botUsername
-      ? entities.some(
-          (e) =>
-            e.type === 'mention' &&
-            text.slice(e.offset, e.offset + e.length).toLowerCase() ===
-              `@${botUsername.toLowerCase()}`
-        )
-      : false
+    const hasImages = msg.attachments.some(isImageAttachment)
 
-    // When there are no images to download, route immediately.
-    if (!hasMedia) {
+    // Skip messages with no text and no images — service events, embeds-only, etc.
+    if (!text && !hasImages) return
+
+    const isMention = botUserId ? msg.mentions.users.has(botUserId) : false
+
+    // When there are no images, route immediately.
+    if (!hasImages) {
       groupRegistry.routeMessage(existing.id, {
         senderName: fromUsername,
         senderExternalUserId: fromId,
         isMention,
         text,
-        timestamp: msg.date
+        timestamp: Math.floor(msg.createdTimestamp / 1_000)
       })
       return
     }
 
-    // Resolve images eagerly, then route with the completed entry.
+    // Resolve image attachments eagerly, then route with the completed entry.
     const imagePromises = startImageDownloads(msg)
     void Promise.all(imagePromises).then((results) => {
       const images = results.filter((img): img is MessageImageRecord => img !== null)
@@ -326,18 +309,16 @@ export function createTelegramService({
         isMention,
         text,
         images: images.length > 0 ? images : undefined,
-        timestamp: msg.date
+        timestamp: Math.floor(msg.createdTimestamp / 1_000)
       })
     })
   }
 
   /**
    * Buffer an incoming message and schedule a debounced flush.
-   * If the user sends more messages before the timer fires, the timer resets
-   * with a fresh random delay — so the bot waits for a natural pause.
    */
   function enqueueMessage(
-    chatId: string,
+    channelId: string,
     channelUser: ChannelUserRecord,
     text: string,
     imageDownloads: Promise<MessageImageRecord | null>[] = []
@@ -346,20 +327,18 @@ export function createTelegramService({
     const existing = pendingBatches.get(userId)
 
     if (existing) {
-      // Append to existing batch, reset the debounce timer.
       existing.messages.push(text)
       existing.imageDownloads.push(...imageDownloads)
       clearTimeout(existing.timer)
       const delay = randomReplyDelay()
       existing.timer = setTimeout(() => flushBatch(userId), delay)
       console.log(
-        `[telegram] appended to batch for ${channelUser.username} (${existing.messages.length} msgs, ${existing.imageDownloads.length} img(s), next flush in ${Math.round(delay)}ms)`
+        `[discord] appended to batch for ${channelUser.username} (${existing.messages.length} msgs, ${existing.imageDownloads.length} img(s), next flush in ${Math.round(delay)}ms)`
       )
       return
     }
 
-    // Start a new batch with a typing indicator.
-    const stopTyping = startTypingLoop(chatId)
+    const stopTyping = startTypingLoop(channelId)
     const delay = randomReplyDelay()
     const timer = setTimeout(() => flushBatch(userId), delay)
 
@@ -367,14 +346,12 @@ export function createTelegramService({
       messages: [text],
       imageDownloads: [...imageDownloads],
       timer,
-      chatId,
+      channelId,
       channelUser,
       stopTyping
     })
 
-    console.log(
-      `[telegram] new batch for ${channelUser.username} (flush in ${Math.round(delay)}ms)`
-    )
+    console.log(`[discord] new batch for ${channelUser.username} (flush in ${Math.round(delay)}ms)`)
   }
 
   /** Flush a user's buffered messages and process them as a single request. */
@@ -385,36 +362,33 @@ export function createTelegramService({
 
     const joinedText = batch.messages.join('\n')
 
-    // Resolve all eagerly-started image downloads.
     const images = (await Promise.all(batch.imageDownloads)).filter(
       (img): img is MessageImageRecord => img !== null
     )
 
     console.log(
-      `[telegram] flushing batch for ${batch.channelUser.username}: ${batch.messages.length} message(s), ${images.length} image(s)`
+      `[discord] flushing batch for ${batch.channelUser.username}: ${batch.messages.length} message(s), ${images.length} image(s)`
     )
 
-    // handleAllowedMessage manages its own typing loop, so stop the batch one.
     batch.stopTyping()
 
-    void handleAllowedMessage(batch.chatId, batch.channelUser, joinedText, images)
+    void handleAllowedMessage(batch.channelId, batch.channelUser, joinedText, images)
   }
 
   /** Resolve a user-specific workspace path shared across all their threads. */
   function resolveUserWorkspace(username: string): string {
-    return join(resolveYachiyoTempWorkspaceRoot(), `tg-${username}`)
+    return join(resolveYachiyoTempWorkspaceRoot(), `dc-${username}`)
   }
 
   /** Find or create the right thread for this channel user. */
   async function resolveThread(channelUser: ChannelUserRecord): Promise<{
-    thread: import('../../../shared/yachiyo/protocol').ThreadRecord
+    thread: import('../../../shared/yachiyo/protocol.ts').ThreadRecord
     compacted: boolean
   }> {
     const workspace = resolveUserWorkspace(channelUser.username)
     const existing = server.findActiveChannelThread(channelUser.id, policy.threadReuseWindowMs)
 
     if (existing) {
-      // Reconcile model override so config changes take effect on reused threads.
       let thread = existing
       const currentOverride = existing.modelOverride
       const wantedOverride =
@@ -428,21 +402,20 @@ export function createTelegramService({
           modelOverride: wantedOverride
         })
         console.log(
-          `[telegram] reconciled model override on thread ${existing.id}:`,
+          `[discord] reconciled model override on thread ${existing.id}:`,
           wantedOverride ?? 'cleared'
         )
       }
 
       const totalTokens = server.getThreadTotalTokens(thread.id)
-      console.log(`[telegram] existing thread ${thread.id} — ${totalTokens} tokens`)
+      console.log(`[discord] existing thread ${thread.id} — ${totalTokens} tokens`)
 
       if (totalTokens < policy.contextTokenLimit) {
         return { thread, compacted: false }
       }
 
-      // Context limit reached — generate rolling summary in-place.
       console.log(
-        `[telegram] thread ${thread.id} exceeded ${policy.contextTokenLimit} tokens, generating rolling summary`
+        `[discord] thread ${thread.id} exceeded ${policy.contextTokenLimit} tokens, generating rolling summary`
       )
       const { thread: compactedThread } = await server.compactExternalThread({
         threadId: existing.id
@@ -450,12 +423,11 @@ export function createTelegramService({
       return { thread: compactedThread, compacted: true }
     }
 
-    // No reusable thread — create a fresh one.
     let thread = await server.createThread({
       workspacePath: workspace,
-      source: 'telegram',
+      source: 'discord',
       channelUserId: channelUser.id,
-      title: `Telegram:@${channelUser.username}`
+      title: `Discord:@${channelUser.username}`
     })
     if (modelOverride?.providerName && modelOverride?.model) {
       thread = await server.setThreadModelOverride({
@@ -467,22 +439,21 @@ export function createTelegramService({
   }
 
   async function handleAllowedMessage(
-    chatId: string,
+    channelId: string,
     channelUser: ChannelUserRecord,
     text: string,
     images: MessageImageRecord[] = []
   ): Promise<void> {
-    const stopTyping = startTypingLoop(chatId)
+    const stopTyping = startTypingLoop(channelId)
     try {
       console.log(
-        `[telegram] handling allowed message for user ${channelUser.username} (${images.length} image(s))`
+        `[discord] handling allowed message for user ${channelUser.username} (${images.length} image(s))`
       )
       const { thread: yachiyoThread, compacted } = await resolveThread(channelUser)
       console.log(
-        `[telegram] using thread ${yachiyoThread.id}${compacted ? ' (rolling summary generated)' : ''}`
+        `[discord] using thread ${yachiyoThread.id}${compacted ? ' (rolling summary generated)' : ''}`
       )
 
-      // Subscribe BEFORE sendChat so we don't miss early events.
       const outputPromise = collectRunOutput(server, yachiyoThread.id)
 
       const accepted = await server.sendChat({
@@ -492,15 +463,14 @@ export function createTelegramService({
         enabledTools: policy.allowedTools,
         channelHint: policy.replyInstruction
       })
-      console.log(`[telegram] sendChat accepted:`, accepted)
+      console.log(`[discord] sendChat accepted:`, accepted)
 
       if (!('runId' in accepted)) {
-        console.warn('[telegram] sendChat returned non-run accepted:', accepted)
-        await sendMessage(chatId, 'Sorry, something went wrong on my end.')
+        console.warn('[discord] sendChat returned non-run accepted:', accepted)
+        await sendMessage(channelId, 'Sorry, something went wrong on my end.')
         return
       }
 
-      // Register TTL for saved image files so they get cleaned up.
       if ('userMessage' in accepted) {
         for (const img of accepted.userMessage.images ?? []) {
           if (img.workspacePath) {
@@ -510,30 +480,28 @@ export function createTelegramService({
       }
 
       const rawOutput = await outputPromise
-      console.log(`[telegram] rawOutput:`, rawOutput.slice(0, 200))
+      console.log(`[discord] rawOutput:`, rawOutput.slice(0, 200))
       const parsedReply = policy.extractVisibleReply(rawOutput)
-      console.log(`[telegram] parsedReply:`, parsedReply)
+      console.log(`[discord] parsedReply:`, parsedReply)
 
       if (parsedReply) {
-        await sendMessage(chatId, parsedReply)
+        await sendMessage(channelId, parsedReply)
       }
 
-      // Store the visible reply on the assistant message for future summary generation.
       server.updateLatestAssistantVisibleReply({
         threadId: yachiyoThread.id,
         visibleReply: parsedReply
       })
 
-      // Record token usage against the channel user.
       const totalTokens = server.getThreadTotalTokens(yachiyoThread.id)
       if (totalTokens > 0) {
         const kTokens = Math.ceil(totalTokens / 1000)
         server.updateChannelUser({ id: channelUser.id, usedKTokens: kTokens })
-        console.log(`[telegram] updated usedKTokens for ${channelUser.username}: ${kTokens}k`)
+        console.log(`[discord] updated usedKTokens for ${channelUser.username}: ${kTokens}k`)
       }
     } catch (error) {
-      console.error('[telegram] failed to handle allowed message', error)
-      await sendMessage(chatId, 'Something went wrong. Please try again in a moment.')
+      console.error('[discord] failed to handle allowed message', error)
+      await sendMessage(channelId, 'Something went wrong. Please try again in a moment.')
     } finally {
       stopTyping()
     }
@@ -545,11 +513,11 @@ export function createTelegramService({
 
   let groupRegistry: GroupMonitorRegistry | null = null
 
-  /** Build a map from Telegram externalUserId → role for identity marking. */
+  /** Build a map from Discord externalUserId → role for identity marking. */
   function buildKnownUsersMap(): Map<string, string> {
     const map = new Map<string, string>()
     for (const u of server.listChannelUsers()) {
-      if (u.platform === 'telegram') {
+      if (u.platform === 'discord') {
         map.set(u.externalUserId, u.role)
       }
     }
@@ -599,13 +567,13 @@ export function createTelegramService({
       },
 
       onStateChange(group, newPhase) {
-        console.log(`[telegram-group] "${group.name}" phase → ${newPhase}`)
+        console.log(`[discord-group] "${group.name}" phase → ${newPhase}`)
       }
     })
 
-    // Start monitors for already-approved Telegram groups.
+    // Start monitors for already-approved Discord groups.
     for (const group of server.listChannelGroups()) {
-      if (group.platform === 'telegram' && group.status === 'approved') {
+      if (group.platform === 'discord' && group.status === 'approved') {
         groupRegistry.startMonitor(group)
       }
     }
@@ -631,14 +599,9 @@ export function createTelegramService({
         message: z.string().describe('The message to send to the group. Plain text only.')
       }),
       execute: async ({ message }) => {
-        if (message.includes('\n')) {
-          console.log(`[telegram-group] rejected multi-line message for "${group.name}"`)
-          return 'Rejected: message must be a single line. Do not include line breaks.'
-        }
-
         if (isDuplicateOutgoing(group.id, message)) {
           console.log(
-            `[telegram-group] dropped duplicate message for "${group.name}": ${message.slice(0, 80)}`
+            `[discord-group] dropped duplicate message for "${group.name}": ${message.slice(0, 80)}`
           )
           return 'Message sent.'
         }
@@ -646,7 +609,7 @@ export function createTelegramService({
         if (speechThrottle.shouldDrop(group.id)) {
           const rate = speechThrottle.getDropRate(group.id)
           console.log(
-            `[telegram-group] throttled message for "${group.name}" (drop rate ${Math.round(rate * 100)}%): ${message.slice(0, 80)}`
+            `[discord-group] throttled message for "${group.name}" (drop rate ${Math.round(rate * 100)}%): ${message.slice(0, 80)}`
           )
           return 'Message sent.'
         }
@@ -655,7 +618,7 @@ export function createTelegramService({
           await sendMessage(group.externalGroupId, message)
           recordOutgoing(group.id, message)
           speechThrottle.recordSend(group.id)
-          console.log(`[telegram-group] sent reply to "${group.name}": ${message.slice(0, 100)}`)
+          console.log(`[discord-group] sent reply to "${group.name}": ${message.slice(0, 100)}`)
 
           // Feed the bot's own reply back into the monitor so it sees it.
           groupRegistry!.routeMessage(group.id, {
@@ -669,7 +632,7 @@ export function createTelegramService({
           didSpeak = true
           return 'Message sent.'
         } catch (err) {
-          console.error(`[telegram-group] failed to send message to "${group.name}"`, err)
+          console.error(`[discord-group] failed to send message to "${group.name}"`, err)
           return 'Failed to send message.'
         }
       }
@@ -708,11 +671,10 @@ export function createTelegramService({
       vision: groupConfig?.vision
     })
 
-    // Resolve model settings: group-specific override → default primary model.
     const settingsOverride = server.resolveProviderSettings(groupConfig?.model)
 
     console.log(
-      `[telegram-group] group="${group.name}" probing ${recentMessages.length} message(s) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${formatGroupMessages(recentMessages, 'Yachiyo', buildKnownUsersMap())}`
+      `[discord-group] group="${group.name}" probing ${recentMessages.length} message(s) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${formatGroupMessages(recentMessages, 'Yachiyo', buildKnownUsersMap())}`
     )
 
     const result = await auxService.generateText({
@@ -723,12 +685,12 @@ export function createTelegramService({
 
     if (result.status === 'success') {
       console.log(
-        `[telegram-group] group="${group.name}" monologue: ${result.text.slice(0, 200)}${result.text.length > 200 ? '…' : ''}`
+        `[discord-group] group="${group.name}" monologue: ${result.text.slice(0, 200)}${result.text.length > 200 ? '…' : ''}`
       )
-      console.log(`[telegram-group] group="${group.name}" didSpeak=${didSpeak}`)
+      console.log(`[discord-group] group="${group.name}" didSpeak=${didSpeak}`)
     } else {
       console.warn(
-        `[telegram-group] auxiliary generation ${result.status}:`,
+        `[discord-group] auxiliary generation ${result.status}:`,
         'error' in result ? result.error : result.status
       )
     }
@@ -737,22 +699,37 @@ export function createTelegramService({
   }
 
   return {
-    startPolling() {
-      console.log('[telegram] startPolling called — launching Telegraf')
-      void bot.launch({ dropPendingUpdates: true })
+    connect() {
+      console.log('[discord] logging in to Discord gateway')
+      client.once(Events.ClientReady, (readyClient) => {
+        botUserId = readyClient.user.id
+        console.log(`[discord] logged in as ${readyClient.user.tag} (${botUserId})`)
+      })
+      void client.login(botToken)
     },
     async stop() {
       groupRegistry?.stopAll()
-      // Discard pending batches on shutdown — stop timers and typing indicators.
       for (const [userId, batch] of pendingBatches) {
         clearTimeout(batch.timer)
         batch.stopTyping()
         pendingBatches.delete(userId)
         console.log(
-          `[telegram] discarded pending batch for ${batch.channelUser.username} on shutdown`
+          `[discord] discarded pending batch for ${batch.channelUser.username} on shutdown`
         )
       }
-      bot.stop()
+      await client.destroy()
+    },
+
+    onGroupStatusChange(group) {
+      if (group.platform !== 'discord' || !groupRegistry) return
+
+      if (group.status === 'approved') {
+        groupRegistry.startMonitor(group)
+        console.log(`[discord-group] monitor started for "${group.name}" after approval`)
+      } else {
+        groupRegistry.stopMonitor(group.id)
+        console.log(`[discord-group] monitor stopped for "${group.name}" (status=${group.status})`)
+      }
     }
   }
 }

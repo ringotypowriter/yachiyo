@@ -82,7 +82,8 @@ const TABS: Tab[] = [
     subTabs: [
       { id: 'general', label: 'General' },
       { id: 'telegram', label: 'Telegram' },
-      { id: 'qq', label: 'QQ' }
+      { id: 'qq', label: 'QQ' },
+      { id: 'discord', label: 'Discord' }
     ]
   },
   { id: 'ui', label: 'User Interface', icon: Monitor },

@@ -1,6 +1,6 @@
 export type ChannelUserStatus = 'pending' | 'allowed' | 'blocked'
 export type ChannelUserRole = 'owner' | 'guest'
-export type ChannelPlatform = 'telegram' | 'qq'
+export type ChannelPlatform = 'telegram' | 'qq' | 'discord'
 
 export interface ChannelUserRecord {
   id: string
@@ -721,6 +721,17 @@ export interface QQChannelConfig {
   group?: GroupChannelConfig
 }
 
+export interface DiscordChannelConfig {
+  /** Whether the Discord bot is active. */
+  enabled: boolean
+  /** Discord bot token from the Developer Portal. */
+  botToken: string
+  /** Optional model override for Discord threads. */
+  model?: ThreadModelOverride
+  /** Group discussion mode settings (server text channels). */
+  group?: GroupChannelConfig
+}
+
 export interface ImageToTextConfig {
   /** When true, images in group messages are pre-described as alt text. Default false. */
   enabled?: boolean
@@ -731,6 +742,7 @@ export interface ImageToTextConfig {
 export interface ChannelsConfig {
   telegram?: TelegramChannelConfig
   qq?: QQChannelConfig
+  discord?: DiscordChannelConfig
   /** Keywords to redact from memory search results in guest conversations. */
   memoryFilterKeywords?: string[]
   /** Custom instruction injected into the system prompt for guest conversations. */

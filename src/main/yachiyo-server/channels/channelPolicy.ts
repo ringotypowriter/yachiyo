@@ -92,6 +92,19 @@ export const qqPolicy: ChannelPolicy = {
   groupDefaults: sharedGroupDefaults
 }
 
+export const discordPolicy: ChannelPolicy = {
+  platform: 'discord',
+  replyInstruction: CHANNEL_REPLY_HINT,
+  extractVisibleReply: extractChannelReply,
+  allowedTools: ['read', 'grep', 'glob', 'webRead', 'webSearch'],
+  contextTokenLimit: 64_000,
+  threadReuseWindowMs: 24 * 60 * 60 * 1_000,
+  maxImageBytes: 8 * 1024 * 1024,
+  maxImagesPerBatch: 4,
+  imageTtlMs: SEVEN_DAYS_MS,
+  groupDefaults: sharedGroupDefaults
+}
+
 /** Resolve the channel policy for a given platform. */
 export function resolveChannelPolicy(platform: ChannelPlatform): ChannelPolicy {
   switch (platform) {
@@ -99,6 +112,8 @@ export function resolveChannelPolicy(platform: ChannelPlatform): ChannelPolicy {
       return telegramPolicy
     case 'qq':
       return qqPolicy
+    case 'discord':
+      return discordPolicy
     default:
       throw new Error(`Unknown channel platform: ${platform}`)
   }

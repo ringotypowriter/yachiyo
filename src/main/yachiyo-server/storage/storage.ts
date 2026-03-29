@@ -438,7 +438,8 @@ export function parseToolCallDetails(details: string | null): ToolCallDetailsSna
 }
 
 function parseThreadSource(value: string | null): ThreadRecord['source'] | undefined {
-  if (value === 'local' || value === 'telegram' || value === 'qq') return value
+  if (value === 'local' || value === 'telegram' || value === 'qq' || value === 'discord')
+    return value
   return undefined
 }
 

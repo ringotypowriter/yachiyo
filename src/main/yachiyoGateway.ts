@@ -36,6 +36,10 @@ import {
   type TelegramService
 } from './yachiyo-server/channels/telegramService.ts'
 import { createQQService, type QQService } from './yachiyo-server/channels/qqService.ts'
+import {
+  createDiscordService,
+  type DiscordService
+} from './yachiyo-server/channels/discordService.ts'
 
 const IPC_CHANNELS = {
   showNotification: 'yachiyo:show-notification',
@@ -105,6 +109,7 @@ const IPC_CHANNELS = {
 let server: YachiyoServer | null = null
 let telegramService: TelegramService | null = null
 let qqService: QQService | null = null
+let discordService: DiscordService | null = null
 let fatalRunRecoveryRegistered = false
 
 async function applyTelegramConfig(cfg: ChannelsConfig): Promise<void> {
@@ -174,6 +179,38 @@ async function applyQQConfig(cfg: ChannelsConfig): Promise<void> {
   console.log('[qq] service started')
 }
 
+async function applyDiscordConfig(cfg: ChannelsConfig): Promise<void> {
+  const token = cfg.discord?.botToken?.trim()
+  const enabled = cfg.discord?.enabled ?? false
+
+  if (discordService) {
+    console.log('[discord] stopping existing service')
+    const old = discordService
+    discordService = null
+    try {
+      await old.stop()
+    } catch (e) {
+      console.error('[discord] stop error', e)
+    }
+  }
+
+  if (!enabled || !token || !server) {
+    console.log(`[discord] service not started (enabled=${enabled}, hasToken=${Boolean(token)})`)
+    return
+  }
+
+  console.log('[discord] starting service')
+  const model = cfg.discord?.model
+  discordService = createDiscordService({
+    botToken: token,
+    model,
+    server,
+    groupConfig: cfg.discord?.group
+  })
+  discordService.connect()
+  console.log('[discord] service started')
+}
+
 function toFatalRunError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error ?? '')
   const trimmed = message.trim()
@@ -228,7 +265,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   session.defaultSession.setCertificateVerifyProc((_request, callback) => callback(0))
 
   // Route global fetch through Electron's net module so third-party libraries
-  // (e.g. the Telegram Chat SDK adapter) also benefit from the proxy/SSL bypass.
+  // (e.g. Telegraf, discord.js) also benefit from the proxy/SSL bypass.
   globalThis.fetch = (input, init?) =>
     net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init)
 
@@ -246,6 +283,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   const channelsConfig = server.getChannelsConfig()
   void applyTelegramConfig(channelsConfig)
   void applyQQConfig(channelsConfig)
+  void applyDiscordConfig(channelsConfig)
 
   ipcMain.removeAllListeners(IPC_CHANNELS.showNotification)
   ipcMain.on(IPC_CHANNELS.showNotification, (_event, input: { title: string; body?: string }) => {
@@ -412,6 +450,7 @@ export function registerYachiyoGateway(): YachiyoServer {
     const updated = server!.updateChannelGroup(input)
     // Notify running channel services so they can start/stop monitors.
     qqService?.onGroupStatusChange(updated)
+    discordService?.onGroupStatusChange(updated)
     return updated
   })
   handle(IPC_CHANNELS.getChannelsConfig, () => server!.getChannelsConfig())
@@ -419,6 +458,7 @@ export function registerYachiyoGateway(): YachiyoServer {
     const saved = server!.saveChannelsConfig(input)
     await applyTelegramConfig(saved)
     await applyQQConfig(saved)
+    await applyDiscordConfig(saved)
     return saved
   })
   handle(IPC_CHANNELS.readClipboardFilePaths, async () => {
@@ -478,6 +518,8 @@ export function registerYachiyoGateway(): YachiyoServer {
     telegramService = null
     void qqService?.stop().catch(() => {})
     qqService = null
+    void discordService?.stop().catch(() => {})
+    discordService = null
     void server?.close()
     server = null
   })

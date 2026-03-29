@@ -70,7 +70,6 @@ function parseGroupConfig(section: Record<string, unknown>): GroupChannelConfig 
   if (!group) return undefined
 
   const enabled = bool(group['enabled'])
-  if (!enabled) return { enabled: false }
 
   const groupModel = (() => {
     const providerName = str(group['model_provider'])
@@ -124,6 +123,16 @@ export function parseChannelsToml(raw: string): ChannelsConfig {
       ...(str(qq['token']) ? { token: str(qq['token']) } : {}),
       ...(parseModel(qq) ? { model: parseModel(qq) } : {}),
       ...(parseGroupConfig(qq) ? { group: parseGroupConfig(qq) } : {})
+    }
+  }
+
+  const dc = doc['discord'] as Record<string, unknown> | undefined
+  if (dc) {
+    config.discord = {
+      enabled: bool(dc['enabled']),
+      botToken: str(dc['bot_token']),
+      ...(parseModel(dc) ? { model: parseModel(dc) } : {}),
+      ...(parseGroupConfig(dc) ? { group: parseGroupConfig(dc) } : {})
     }
   }
 
@@ -220,6 +229,19 @@ export function stringifyChannelsToml(config: ChannelsConfig): string {
       qqSection['group'] = buildGroupSection(config.qq.group)
     }
     doc['qq'] = qqSection
+  }
+
+  if (config.discord) {
+    const dcSection = buildSection([
+      ['enabled', config.discord.enabled],
+      ['bot_token', config.discord.botToken],
+      ['model_provider', config.discord.model?.providerName || undefined],
+      ['model_name', config.discord.model?.model || undefined]
+    ])
+    if (config.discord.group) {
+      dcSection['group'] = buildGroupSection(config.discord.group)
+    }
+    doc['discord'] = dcSection
   }
 
   const hasPrivacy =

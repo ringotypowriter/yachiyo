@@ -324,6 +324,11 @@ export function createQQService({
         message: z.string().describe('The message to send to the group. Plain text only.')
       }),
       execute: async ({ message }) => {
+        if (message.includes('\n')) {
+          console.log(`[qq-group] rejected multi-line message for "${group.name}"`)
+          return 'Rejected: message must be a single line. Do not include line breaks.'
+        }
+
         if (isDuplicateOutgoing(group.id, message)) {
           console.log(
             `[qq-group] dropped duplicate message for "${group.name}": ${message.slice(0, 80)}`

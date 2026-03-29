@@ -26,6 +26,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
   const initializedRef = useRef(false)
   const [showTelegramToken, setShowTelegramToken] = useState(false)
   const [showQQToken, setShowQQToken] = useState(false)
+  const [showDiscordToken, setShowDiscordToken] = useState(false)
   const configRef = useRef(config)
 
   const [users, setUsers] = useState<ChannelUserRecord[]>([])
@@ -79,6 +80,10 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
   const qqWsUrl = qq?.wsUrl ?? ''
   const qqToken = qq?.token ?? ''
 
+  const discord = config.discord
+  const discordEnabled = discord?.enabled ?? false
+  const discordBotToken = discord?.botToken ?? ''
+
   function patchTelegram(patch: Partial<NonNullable<ChannelsConfig['telegram']>>): void {
     setConfig((c) => {
       const next = {
@@ -96,6 +101,18 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
       const next = {
         ...c,
         qq: { enabled: qqEnabled, wsUrl: qqWsUrl, ...c.qq, ...patch }
+      }
+      configRef.current = next
+      scheduleSave(next)
+      return next
+    })
+  }
+
+  function patchDiscord(patch: Partial<NonNullable<ChannelsConfig['discord']>>): void {
+    setConfig((c) => {
+      const next = {
+        ...c,
+        discord: { enabled: discordEnabled, botToken: discordBotToken, ...c.discord, ...patch }
       }
       configRef.current = next
       scheduleSave(next)
@@ -500,6 +517,183 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
     )
   }
 
+  if (activeSubTab === 'discord') {
+    return (
+      <div className="flex-1 overflow-y-auto pb-6">
+        <SettingSection>
+          <SettingRow>
+            <div className="min-w-0">
+              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                Enable bot
+              </div>
+              <div className="text-sm" style={{ color: theme.text.tertiary }}>
+                Connect a Discord bot to your server channels and DMs
+              </div>
+            </div>
+            <SettingSwitch
+              ariaLabel="Enable Discord bot"
+              checked={discordEnabled}
+              onChange={() => patchDiscord({ enabled: !discordEnabled })}
+            />
+          </SettingRow>
+
+          <SettingRow>
+            <div className="flex items-center gap-2.5 flex-1 min-w-0">
+              <span className="text-sm font-medium shrink-0" style={{ color: theme.text.primary }}>
+                Bot token
+              </span>
+              <input
+                type={showDiscordToken ? 'text' : 'password'}
+                value={discordBotToken}
+                onChange={(e) => patchDiscord({ botToken: e.target.value })}
+                placeholder="MTIzNDU2Nzg5..."
+                spellCheck={false}
+                className="flex-1 text-sm min-w-0"
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: alpha('ink', 0.04),
+                  color: theme.text.primary,
+                  outline: 'none',
+                  fontFamily: discordBotToken ? 'monospace' : 'inherit'
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowDiscordToken((v) => !v)}
+                className="text-xs shrink-0 transition-opacity opacity-50 hover:opacity-100"
+                style={{
+                  color: theme.text.secondary,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                {showDiscordToken ? 'Hide' : 'Show'}
+              </button>
+            </div>
+          </SettingRow>
+
+          {modelSelector && (
+            <SettingRow>
+              <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                <span
+                  className="text-sm font-medium shrink-0"
+                  style={{ color: theme.text.primary }}
+                >
+                  Model
+                </span>
+                <ModelSelect
+                  value={
+                    discord?.model ? `${discord.model.providerName}::${discord.model.model}` : ''
+                  }
+                  providers={settingsConfig!.providers}
+                  onChange={(val) => {
+                    if (!val) {
+                      patchDiscord({ model: undefined })
+                    } else {
+                      const [providerName, model] = val.split('::')
+                      patchDiscord({ model: { providerName, model } })
+                    }
+                  }}
+                />
+              </div>
+            </SettingRow>
+          )}
+
+          <SettingRow>
+            <div className="min-w-0">
+              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                Group Discussion
+              </div>
+              <div className="text-sm" style={{ color: theme.text.tertiary }}>
+                Monitor approved server channels and participate in conversations
+              </div>
+            </div>
+            <SettingSwitch
+              ariaLabel="Enable Discord group discussion"
+              checked={discord?.group?.enabled ?? false}
+              onChange={() =>
+                patchDiscord({
+                  group: {
+                    ...discord?.group,
+                    enabled: !(discord?.group?.enabled ?? false)
+                  }
+                })
+              }
+            />
+          </SettingRow>
+
+          {modelSelector && (
+            <SettingRow>
+              <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                <span
+                  className="text-sm font-medium shrink-0"
+                  style={{ color: theme.text.primary }}
+                >
+                  Group Model
+                </span>
+                <ModelSelect
+                  value={
+                    discord?.group?.model
+                      ? `${discord.group.model.providerName}::${discord.group.model.model}`
+                      : ''
+                  }
+                  providers={settingsConfig!.providers}
+                  onChange={(val) => {
+                    if (!val) {
+                      patchDiscord({
+                        group: {
+                          ...discord?.group,
+                          enabled: discord?.group?.enabled ?? false,
+                          model: undefined
+                        }
+                      })
+                    } else {
+                      const [providerName, model] = val.split('::')
+                      patchDiscord({
+                        group: {
+                          ...discord?.group,
+                          enabled: discord?.group?.enabled ?? false,
+                          model: { providerName, model }
+                        }
+                      })
+                    }
+                  }}
+                />
+              </div>
+            </SettingRow>
+          )}
+
+          <SettingRow>
+            <div className="min-w-0">
+              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                Group Vision
+              </div>
+              <div className="text-sm" style={{ color: theme.text.tertiary }}>
+                Pass images from group messages to the probe model
+              </div>
+            </div>
+            <SettingSwitch
+              ariaLabel="Enable group vision"
+              checked={discord?.group?.vision ?? false}
+              onChange={() =>
+                patchDiscord({
+                  group: {
+                    ...discord?.group,
+                    enabled: discord?.group?.enabled ?? false,
+                    vision: !(discord?.group?.vision ?? false)
+                  }
+                })
+              }
+            />
+          </SettingRow>
+        </SettingSection>
+      </div>
+    )
+  }
+
   // General tab (default)
   return (
     <div className="flex-1 overflow-y-auto pb-6">
@@ -836,7 +1030,8 @@ const GROUP_STATUS_COLORS: Record<ChannelGroupStatus, string> = {
 
 const PLATFORM_LABELS: Record<string, string> = {
   telegram: 'Telegram',
-  qq: 'QQ'
+  qq: 'QQ',
+  discord: 'Discord'
 }
 
 // ─── user row ────────────────────────────────────────────────────────────────
