@@ -765,6 +765,7 @@ export interface EssentialPreset {
   iconType: 'emoji' | 'image'
   label?: string
   workspacePath?: string
+  privacyMode?: boolean
   modelOverride?: ThreadModelOverride
   order: number
 }

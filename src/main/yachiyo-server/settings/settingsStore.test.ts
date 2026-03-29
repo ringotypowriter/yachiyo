@@ -160,6 +160,40 @@ test('settings store returns the default config when the file is missing', async
   }
 })
 
+test('settings store preserves essential privacy mode', () => {
+  const config = normalizeSettingsConfig({
+    providers: [
+      {
+        id: 'provider-work',
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-openai',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      }
+    ],
+    essentials: [
+      {
+        id: 'essential-private',
+        icon: '🔒',
+        iconType: 'emoji',
+        label: 'Private',
+        privacyMode: true,
+        order: 0
+      }
+    ]
+  })
+
+  const toml = stringifySettingsToml(config)
+  const parsed = parseSettingsToml(toml)
+
+  assert.match(toml, /privacyMode = true/)
+  assert.equal(parsed.essentials?.[0]?.privacyMode, true)
+})
+
 test('toProviderSettings resolves the active provider snapshot', () => {
   const snapshot = toProviderSettings({
     enabledTools: DEFAULT_ENABLED_TOOL_NAMES,

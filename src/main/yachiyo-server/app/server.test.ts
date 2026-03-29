@@ -1163,6 +1163,19 @@ test('YachiyoServer setThreadPrivacyMode updates the thread timestamp and persis
   )
 })
 
+test('YachiyoServer createThread persists privacy mode when requested', async () => {
+  await withServer(async ({ server }) => {
+    const thread = await server.createThread({ privacyMode: true })
+
+    assert.equal(thread.privacyMode, true)
+
+    const bootstrap = await server.bootstrap()
+    const storedThread = bootstrap.threads.find((entry) => entry.id === thread.id)
+
+    assert.equal(storedThread?.privacyMode, true)
+  })
+})
+
 test('YachiyoServer starThread preserves thread recency while persisting star state', async () => {
   let tick = 0
 

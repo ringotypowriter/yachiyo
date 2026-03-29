@@ -1659,6 +1659,90 @@ test('sendMessage keeps draft text and images when the first send fails after au
   }
 })
 
+test('sendMessage creates a privacy-mode thread from an essential preset', async () => {
+  resetStore()
+
+  const createThreadCalls: Array<
+    { workspacePath?: string; createdFromEssentialId?: string; privacyMode?: boolean } | undefined
+  > = []
+  const restoreWindow = withWindowApiMock({
+    createThread: async (input) => {
+      createThreadCalls.push(input)
+      return {
+        id: 'thread-1',
+        title: 'New Chat',
+        updatedAt: TIMESTAMP,
+        ...(input?.privacyMode ? { privacyMode: true } : {})
+      }
+    },
+    sendChat: async (input) => ({
+      kind: 'run-started',
+      runId: 'run-1',
+      thread: {
+        id: input.threadId,
+        title: 'New Chat',
+        updatedAt: TIMESTAMP,
+        privacyMode: true
+      },
+      userMessage: {
+        id: 'user-1',
+        threadId: input.threadId,
+        role: 'user',
+        content: input.content,
+        status: 'completed',
+        createdAt: TIMESTAMP
+      }
+    }),
+    setThreadIcon: async (input) => ({
+      id: input.threadId,
+      title: 'New Chat',
+      updatedAt: TIMESTAMP,
+      icon: input.icon ?? undefined,
+      privacyMode: true
+    })
+  })
+
+  try {
+    useAppStore.setState({
+      activeEssentialId: 'essential-private',
+      composerDrafts: {
+        __new__: {
+          text: 'Keep this private',
+          images: [],
+          files: []
+        }
+      },
+      config: {
+        providers: [],
+        essentials: [
+          {
+            id: 'essential-private',
+            icon: '🔒',
+            iconType: 'emoji',
+            label: 'Private',
+            privacyMode: true,
+            order: 0
+          }
+        ]
+      },
+      settings: READY_SETTINGS
+    })
+
+    await useAppStore.getState().sendMessage()
+
+    const state = useAppStore.getState()
+    assert.deepEqual(createThreadCalls, [
+      {
+        createdFromEssentialId: 'essential-private',
+        privacyMode: true
+      }
+    ])
+    assert.equal(state.threads[0]?.privacyMode, true)
+  } finally {
+    restoreWindow()
+  }
+})
+
 test('createNewThread preserves the drafted workspace selection', async () => {
   resetStore()
 

@@ -153,6 +153,7 @@ export class YachiyoServerThreadDomain {
       channelGroupId?: string
       title?: string
       createdFromEssentialId?: string
+      privacyMode?: boolean
     } = {}
   ): Promise<ThreadRecord> {
     const timestamp = this.deps.timestamp()
@@ -167,6 +168,7 @@ export class YachiyoServerThreadDomain {
       ...(input.source ? { source: input.source } : {}),
       ...(input.channelUserId ? { channelUserId: input.channelUserId } : {}),
       ...(input.channelGroupId ? { channelGroupId: input.channelGroupId } : {}),
+      ...(input.privacyMode ? { privacyMode: true } : {}),
       ...(input.createdFromEssentialId
         ? { createdFromEssentialId: input.createdFromEssentialId }
         : {})

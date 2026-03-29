@@ -75,8 +75,11 @@ const api = {
       ipcRenderer.invoke('yachiyo:create-branch', input),
     compactThreadToAnotherThread: (input: CompactThreadInput): Promise<CompactThreadAccepted> =>
       ipcRenderer.invoke('yachiyo:compact-thread-to-another-thread', input),
-    createThread: (input?: { workspacePath?: string; createdFromEssentialId?: string }) =>
-      ipcRenderer.invoke('yachiyo:create-thread', input),
+    createThread: (input?: {
+      workspacePath?: string
+      createdFromEssentialId?: string
+      privacyMode?: boolean
+    }) => ipcRenderer.invoke('yachiyo:create-thread', input),
     deleteThread: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:delete-thread', input),
     deleteMessage: (input: { threadId: string; messageId: string }) =>

@@ -409,7 +409,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.bootstrap, () => server!.bootstrap())
   handle(
     IPC_CHANNELS.createThread,
-    (input?: { workspacePath?: string; createdFromEssentialId?: string }) =>
+    (input?: { workspacePath?: string; createdFromEssentialId?: string; privacyMode?: boolean }) =>
       server!.createThread(input)
   )
   handle(IPC_CHANNELS.createBranch, (input: { threadId: string; messageId: string }) =>

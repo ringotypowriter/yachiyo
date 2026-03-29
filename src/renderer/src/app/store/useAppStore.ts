@@ -2132,17 +2132,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     if (!threadId) {
       const essentialId = currentState.activeEssentialId
+      const essential = essentialId
+        ? currentState.config?.essentials?.find((entry) => entry.id === essentialId)
+        : undefined
       const pendingModel = currentState.pendingModelOverride
       const thread = await window.api.yachiyo.createThread({
         ...(workspacePath ? { workspacePath } : {}),
-        ...(essentialId ? { createdFromEssentialId: essentialId } : {})
+        ...(essentialId ? { createdFromEssentialId: essentialId } : {}),
+        ...(essential?.privacyMode ? { privacyMode: true } : {})
       })
 
       // Commit local state first so the thread is visible even if setup calls fail.
       if (pendingModel) thread.modelOverride = pendingModel
-      if (essentialId) {
-        const essential = currentState.config?.essentials?.find((e) => e.id === essentialId)
-        if (essential?.icon && essential.iconType === 'emoji') thread.icon = essential.icon
+      if (essential?.privacyMode) {
+        thread.privacyMode = true
+      }
+      if (essential?.icon && essential.iconType === 'emoji') {
+        thread.icon = essential.icon
       }
 
       set((state) => ({
@@ -2175,13 +2181,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           .setThreadModelOverride({ threadId: thread.id, modelOverride: pendingModel })
           .catch(() => {})
       }
-      if (essentialId) {
-        const essential = currentState.config?.essentials?.find((e) => e.id === essentialId)
-        if (essential?.icon && essential.iconType === 'emoji') {
-          window.api.yachiyo
-            .setThreadIcon({ threadId: thread.id, icon: essential.icon })
-            .catch(() => {})
-        }
+      if (essential?.icon && essential.iconType === 'emoji') {
+        window.api.yachiyo
+          .setThreadIcon({ threadId: thread.id, icon: essential.icon })
+          .catch(() => {})
       }
     }
 

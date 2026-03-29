@@ -410,6 +410,7 @@ function normalizeEssentialPreset(value: unknown): EssentialPreset | null {
   const iconType = input['iconType'] === 'image' ? 'image' : 'emoji'
   const label = normalizeString(input['label'], '') || undefined
   const workspacePath = normalizeString(input['workspacePath'], '') || undefined
+  const privacyMode = typeof input['privacyMode'] === 'boolean' ? input['privacyMode'] : undefined
   const order = typeof input['order'] === 'number' ? input['order'] : 0
 
   let modelOverride: ThreadModelOverride | undefined
@@ -422,7 +423,16 @@ function normalizeEssentialPreset(value: unknown): EssentialPreset | null {
     }
   }
 
-  return { id, icon, iconType, label, workspacePath, modelOverride, order }
+  return {
+    id,
+    icon,
+    iconType,
+    label,
+    workspacePath,
+    ...(privacyMode === undefined ? {} : { privacyMode }),
+    modelOverride,
+    order
+  }
 }
 
 function normalizeEssentials(value: unknown): EssentialPreset[] {
@@ -1043,6 +1053,9 @@ export function stringifySettingsToml(config: SettingsConfig): string {
       `iconType = ${stringifyTomlString(essential.iconType)}`,
       `label = ${stringifyTomlString(essential.label ?? '')}`,
       `workspacePath = ${stringifyTomlString(essential.workspacePath ?? '')}`,
+      ...(essential.privacyMode === undefined
+        ? []
+        : [`privacyMode = ${essential.privacyMode ? 'true' : 'false'}`]),
       `order = ${essential.order}`
     )
     if (essential.modelOverride) {

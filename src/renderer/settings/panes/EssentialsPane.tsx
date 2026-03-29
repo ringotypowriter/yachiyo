@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef } from 'react'
 import { ArrowDown, ArrowUp, Plus, Smile, Trash2, Upload } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { inputStyle } from '../components/styles'
-import { SettingLabel, SimpleSelect } from '../components/primitives'
+import { SettingLabel, SettingSwitch, SimpleSelect } from '../components/primitives'
 import type {
   EssentialPreset,
   SettingsConfig,
@@ -264,6 +264,21 @@ function EssentialEditor({
               </div>
             </div>
           </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-xs font-medium" style={{ color: theme.text.secondary }}>
+                Privacy mode
+              </div>
+            </div>
+            <SettingSwitch
+              checked={essential.privacyMode === true}
+              onChange={() =>
+                onUpdate({ ...essential, privacyMode: essential.privacyMode !== true })
+              }
+              ariaLabel={`Toggle privacy mode for ${essential.label ?? 'this essential'}`}
+            />
+          </div>
         </div>
 
         {/* Actions */}
@@ -346,6 +361,7 @@ export function EssentialsPane({ draft, onChange }: EssentialsPaneProps): React.
       id: tempId(),
       icon: '',
       iconType: 'emoji',
+      privacyMode: false,
       order: essentials.length
     }
     onChange({ ...draft, essentials: [...essentials, newEssential] })

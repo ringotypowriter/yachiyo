@@ -70,6 +70,7 @@ declare global {
         createThread: (input?: {
           workspacePath?: string
           createdFromEssentialId?: string
+          privacyMode?: boolean
         }) => Promise<ThreadRecord>
         deleteThread: (input: { threadId: string }) => Promise<void>
         deleteMessage: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>
