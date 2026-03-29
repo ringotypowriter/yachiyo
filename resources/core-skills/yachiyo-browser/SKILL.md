@@ -1,7 +1,6 @@
 ---
 name: yachiyo-browser
 description: Use this skill for browser automation with the `agent-browser` CLI: opening pages, taking snapshots, clicking and filling elements, handling login state, capturing screenshots, extracting page data, and verifying web flows. Re-snapshot after page changes, use isolated sessions when needed, and always close the browser session when done.
-license: Original clean-room skill for Yachiyo. No third-party skill content included.
 ---
 
 # Yachiyo Browser

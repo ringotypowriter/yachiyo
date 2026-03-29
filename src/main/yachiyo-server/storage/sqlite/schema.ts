@@ -57,6 +57,7 @@ export const threadsTable = sqliteTable('threads', {
   rollingSummary: text('rolling_summary'),
   summaryWatermarkMessageId: text('summary_watermark_message_id'),
   readAt: text('read_at'),
+  createdFromEssentialId: text('created_from_essential_id'),
   updatedAt: text('updated_at').notNull(),
   createdAt: text('created_at').notNull()
 })

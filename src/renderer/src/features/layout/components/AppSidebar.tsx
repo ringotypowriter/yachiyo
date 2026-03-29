@@ -9,6 +9,7 @@ import {
   SquarePen
 } from 'lucide-react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
+import { EssentialsBar } from '@renderer/features/essentials/components/EssentialsBar'
 import { ConnectionStatusIndicator } from '@renderer/features/layout/components/ConnectionStatusIndicator'
 import { SidebarSearch } from '@renderer/features/search/SidebarSearch'
 import { ThreadList } from '@renderer/features/threads/components/ThreadList'
@@ -123,6 +124,8 @@ export function AppSidebar({
           </Tooltip>
         </div>
       </div>
+
+      <EssentialsBar />
 
       {isSearchOpen ? (
         <SidebarSearch

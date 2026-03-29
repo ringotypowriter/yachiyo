@@ -395,6 +395,8 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   )
   const scrollToMessageId = useAppStore((state) => state.scrollToMessageId)
   const clearScrollToMessageId = useAppStore((state) => state.clearScrollToMessageId)
+  const activeEssentialId = useAppStore((state) => state.activeEssentialId)
+  const essentials = useAppStore((state) => state.config?.essentials)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const messageGroups = thread
@@ -490,11 +492,39 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   }
 
   if (!threadId) {
+    const activeEssential = activeEssentialId
+      ? essentials?.find((e) => e.id === activeEssentialId)
+      : null
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <p className="text-sm" style={{ color: theme.text.muted }}>
-          Start a new thread or type below to create one automatically.
-        </p>
+      <div className="flex-1 flex flex-col items-center justify-center gap-3">
+        {activeEssential ? (
+          <>
+            {activeEssential.iconType === 'image' ? (
+              <img
+                src={activeEssential.icon}
+                alt={activeEssential.label ?? ''}
+                style={{ width: 120, height: 120, borderRadius: '50%', objectFit: 'cover' }}
+              />
+            ) : (
+              <span style={{ fontSize: 96, lineHeight: 1 }}>{activeEssential.icon}</span>
+            )}
+            <p className="text-xs" style={{ color: theme.text.muted }}>
+              Creation with
+            </p>
+            {activeEssential.label && (
+              <p
+                className="text-base font-bold tracking-widest uppercase"
+                style={{ color: theme.text.primary }}
+              >
+                {activeEssential.label}
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-sm" style={{ color: theme.text.muted }}>
+            Start a new thread or type below to create one automatically.
+          </p>
+        )}
       </div>
     )
   }

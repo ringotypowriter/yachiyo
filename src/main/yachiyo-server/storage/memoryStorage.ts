@@ -190,6 +190,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         rollingSummary: thread.rollingSummary ?? null,
         summaryWatermarkMessageId: thread.summaryWatermarkMessageId ?? null,
         readAt: thread.readAt ?? null,
+        createdFromEssentialId: thread.createdFromEssentialId ?? null,
         updatedAt: thread.updatedAt,
         createdAt
       })

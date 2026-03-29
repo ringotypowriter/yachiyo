@@ -13,6 +13,7 @@ import type {
   SettingsConfig,
   SkillCatalogEntry,
   Thread,
+  ThreadModelOverride,
   ToolCallName,
   ToolCall,
   YachiyoServerEvent
@@ -158,6 +159,8 @@ interface AppState {
   messages: Record<string, Message[]>
   pendingAssistantMessages: Record<string, PendingAssistantMessage>
   pendingSteerMessages: Record<string, PendingSteerMessage>
+  activeEssentialId: string | null
+  pendingModelOverride: ThreadModelOverride | null
   pendingWorkspacePath: string | null
   regenerateThreadTitle: (threadId: string) => Promise<void>
   renameThread: (threadId: string, title: string) => Promise<void>
@@ -182,6 +185,7 @@ interface AppState {
   applyServerEvent: (event: YachiyoServerEvent) => void
   cancelActiveRun: () => Promise<void>
   createNewThread: () => Promise<void>
+  createNewThreadFromEssential: (essentialId: string) => void
   initialize: () => Promise<void>
   selectModel: (providerName: string, model: string) => Promise<void>
   clearThreadModelOverride: (threadId: string) => Promise<void>
@@ -212,11 +216,12 @@ export const DEFAULT_SETTINGS: ProviderSettings = {
 }
 
 export function getEffectiveModel(
-  state: Pick<AppState, 'activeThreadId' | 'threads' | 'settings'>
+  state: Pick<AppState, 'activeThreadId' | 'threads' | 'settings' | 'pendingModelOverride'>
 ): { providerName: string; model: string } {
   const thread = findThread(state, state.activeThreadId)
   const override = thread?.modelOverride
   if (override) return override
+  if (!state.activeThreadId && state.pendingModelOverride) return state.pendingModelOverride
   return { providerName: state.settings.providerName, model: state.settings.model }
 }
 
@@ -844,7 +849,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }),
   messages: {},
+  activeEssentialId: null,
   pendingAssistantMessages: {},
+  pendingModelOverride: null,
   pendingSteerMessages: {},
   pendingWorkspacePath: null,
   restoreThread: async (threadId) => {
@@ -1163,10 +1170,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         const subagentProgressByThread = { ...state.subagentProgressByThread }
         delete subagentProgressByThread[event.threadId]
 
-        const activeThreadId =
-          state.activeThreadId === event.threadId ? (threads[0]?.id ?? null) : state.activeThreadId
+        const deletingActiveThread = state.activeThreadId === event.threadId
+        const activeThreadId = deletingActiveThread
+          ? (threads[0]?.id ?? null)
+          : state.activeThreadId
         const nextState = {
           ...state,
+          ...(deletingActiveThread
+            ? { activeEssentialId: null, pendingModelOverride: null, pendingWorkspacePath: null }
+            : {}),
           activeArchivedThreadId:
             state.activeArchivedThreadId === event.threadId
               ? (archivedThreads[0]?.id ?? null)
@@ -1821,6 +1833,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         const nextState = {
           ...state,
           activeThreadId: reusableThread.id,
+          activeEssentialId: null,
+          pendingModelOverride: null,
           pendingWorkspacePath: null,
           threadListMode: 'active' as const
         }
@@ -1842,6 +1856,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         ...state,
         activeArchivedThreadId: state.activeArchivedThreadId,
         activeThreadId: thread.id,
+        activeEssentialId: null,
+        pendingModelOverride: null,
         composerDrafts: removeComposerDraft(state.composerDrafts, null),
         pendingWorkspacePath: null,
         threadListMode: 'active' as const,
@@ -1862,6 +1878,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     })
     await refreshAvailableSkills(set, get)
+  },
+
+  createNewThreadFromEssential: (essentialId) => {
+    const config = get().config
+    const essential = config?.essentials?.find((e) => e.id === essentialId)
+    if (!essential) return
+
+    set((state) => ({
+      activeThreadId: null,
+      activeEssentialId: essentialId,
+      pendingWorkspacePath: normalizeWorkspacePath(essential.workspacePath ?? null),
+      pendingModelOverride: essential.modelOverride ?? null,
+      composerDrafts: removeComposerDraft(state.composerDrafts, null),
+      threadListMode: 'active' as const
+    }))
+    void refreshAvailableSkills(set, get)
   },
 
   initialize: async () => {
@@ -2052,6 +2084,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         modelOverride: { providerName, model }
       })
       set((s) => ({ threads: upsertThread(s.threads, updatedThread) }))
+    } else if (state.activeEssentialId) {
+      set({ pendingModelOverride: { providerName, model } })
     } else {
       await window.api.yachiyo.saveSettings({ providerName, model })
     }
@@ -2097,11 +2131,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     if (!threadId) {
-      const thread = await window.api.yachiyo.createThread(
-        workspacePath ? { workspacePath } : undefined
-      )
+      const essentialId = currentState.activeEssentialId
+      const pendingModel = currentState.pendingModelOverride
+      const thread = await window.api.yachiyo.createThread({
+        ...(workspacePath ? { workspacePath } : {}),
+        ...(essentialId ? { createdFromEssentialId: essentialId } : {})
+      })
+
+      // Commit local state first so the thread is visible even if setup calls fail.
+      if (pendingModel) thread.modelOverride = pendingModel
+      if (essentialId) {
+        const essential = currentState.config?.essentials?.find((e) => e.id === essentialId)
+        if (essential?.icon && essential.iconType === 'emoji') thread.icon = essential.icon
+      }
+
       set((state) => ({
         activeThreadId: thread.id,
+        activeEssentialId: null,
+        pendingModelOverride: null,
         pendingWorkspacePath: null,
         threadListMode: 'active' as const,
         composerDrafts: moveComposerDraft(
@@ -2120,6 +2167,22 @@ export const useAppStore = create<AppState>((set, get) => ({
         threads: upsertThread(state.threads, thread)
       }))
       threadId = thread.id
+
+      // Best-effort: persist model/icon to server. Failures are non-fatal —
+      // the thread is already stored locally with the correct values.
+      if (pendingModel) {
+        window.api.yachiyo
+          .setThreadModelOverride({ threadId: thread.id, modelOverride: pendingModel })
+          .catch(() => {})
+      }
+      if (essentialId) {
+        const essential = currentState.config?.essentials?.find((e) => e.id === essentialId)
+        if (essential?.icon && essential.iconType === 'emoji') {
+          window.api.yachiyo
+            .setThreadIcon({ threadId: thread.id, icon: essential.icon })
+            .catch(() => {})
+        }
+      }
     }
 
     const editingMessage = currentState.editingMessage
@@ -2280,6 +2343,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       const nextState = {
         ...state,
         activeThreadId: id,
+        activeEssentialId: null,
+        pendingModelOverride: null,
+        pendingWorkspacePath: null,
         editingMessage: state.editingMessage?.threadId === id ? state.editingMessage : null,
         threadListMode: 'active' as const,
         scrollToMessageId: scrollToMessageId ?? null

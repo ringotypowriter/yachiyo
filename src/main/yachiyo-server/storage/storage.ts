@@ -50,6 +50,7 @@ export interface StoredThreadRow {
   rollingSummary: string | null
   summaryWatermarkMessageId: string | null
   readAt: string | null
+  createdFromEssentialId: string | null
   updatedAt: string
   createdAt: string
   headMessageId: string | null
@@ -272,6 +273,7 @@ export function toThreadRecord(
     | 'rollingSummary'
     | 'summaryWatermarkMessageId'
     | 'readAt'
+    | 'createdFromEssentialId'
     | 'title'
     | 'updatedAt'
     | 'workspacePath'
@@ -308,6 +310,9 @@ export function toThreadRecord(
         ? {}
         : { summaryWatermarkMessageId: row.summaryWatermarkMessageId }),
       ...(row.readAt === null ? {} : { readAt: row.readAt }),
+      ...(row.createdFromEssentialId === null
+        ? {}
+        : { createdFromEssentialId: row.createdFromEssentialId }),
       id: row.id,
       title: row.title,
       updatedAt: row.updatedAt

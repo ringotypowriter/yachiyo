@@ -526,6 +526,7 @@ export class YachiyoServer {
       channelUserId?: string
       channelGroupId?: string
       title?: string
+      createdFromEssentialId?: string
     } = {}
   ): Promise<ThreadRecord> {
     return this.threadDomain.createThread(input)

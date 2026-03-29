@@ -36,7 +36,11 @@ import {
   resolveYachiyoSocketPath,
   resolveYachiyoTempWorkspaceRoot
 } from './yachiyo-server/config/paths.ts'
-import { startCommandSocket, type CommandSocketHandle, type SendChannelInput } from './commandSocket.ts'
+import {
+  startCommandSocket,
+  type CommandSocketHandle,
+  type SendChannelInput
+} from './commandSocket.ts'
 import { openThreadWorkspace } from './openThreadWorkspace.ts'
 import { discoverApps } from './appDiscovery.ts'
 import {
@@ -403,8 +407,10 @@ export function registerYachiyoGateway(): YachiyoServer {
     server!.searchWorkspaceFiles(input)
   )
   handle(IPC_CHANNELS.bootstrap, () => server!.bootstrap())
-  handle(IPC_CHANNELS.createThread, (input?: { workspacePath?: string }) =>
-    server!.createThread(input)
+  handle(
+    IPC_CHANNELS.createThread,
+    (input?: { workspacePath?: string; createdFromEssentialId?: string }) =>
+      server!.createThread(input)
   )
   handle(IPC_CHANNELS.createBranch, (input: { threadId: string; messageId: string }) =>
     server!.createBranch(input)

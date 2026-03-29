@@ -510,12 +510,7 @@ export function createNowledgeMemProvider(
 
     async distillThread(input: DistillThreadInput): Promise<{ savedCount: number }> {
       const result = await runCommand({
-        args: [
-          't',
-          'distill',
-          input.threadId,
-          ...(input.triage ? ['--triage'] : [])
-        ],
+        args: ['t', 'distill', input.threadId, ...(input.triage ? ['--triage'] : [])],
         env,
         signal: input.signal
       })

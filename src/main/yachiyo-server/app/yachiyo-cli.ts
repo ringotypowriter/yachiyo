@@ -702,9 +702,7 @@ async function handleChannelCommand(
       return
     }
 
-    throw new Error(
-      `Unknown channel action: ${action ?? '(none)'}. Expected: users, groups`
-    )
+    throw new Error(`Unknown channel action: ${action ?? '(none)'}. Expected: users, groups`)
   } finally {
     storage.close()
   }

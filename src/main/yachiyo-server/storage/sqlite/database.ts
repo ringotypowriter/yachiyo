@@ -184,6 +184,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           rollingSummary: threadsTable.rollingSummary,
           summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
           readAt: threadsTable.readAt,
+          createdFromEssentialId: threadsTable.createdFromEssentialId,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -355,6 +356,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           rollingSummary: threadsTable.rollingSummary,
           summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
           readAt: threadsTable.readAt,
+          createdFromEssentialId: threadsTable.createdFromEssentialId,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -389,6 +391,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           rollingSummary: threadsTable.rollingSummary,
           summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
           readAt: threadsTable.readAt,
+          createdFromEssentialId: threadsTable.createdFromEssentialId,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -446,6 +449,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             channelGroupId: thread.channelGroupId ?? null,
             rollingSummary: thread.rollingSummary ?? null,
             summaryWatermarkMessageId: thread.summaryWatermarkMessageId ?? null,
+            createdFromEssentialId: thread.createdFromEssentialId ?? null,
             title: thread.title,
             updatedAt: thread.updatedAt,
             workspacePath: thread.workspacePath ?? null

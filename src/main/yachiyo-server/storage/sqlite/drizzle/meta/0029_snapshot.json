@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "cb5aac66-3ea7-416b-9290-622f90af3a9a",
-  "prevId": "a96c8b13-d9e9-4b1f-af3b-54be388c5e60",
+  "id": "a4fc086f-d005-478e-af2d-e94453c468f2",
+  "prevId": "cb5aac66-3ea7-416b-9290-622f90af3a9a",
   "tables": {
     "builtin_memories": {
       "name": "builtin_memories",
@@ -875,6 +875,13 @@
         },
         "read_at": {
           "name": "read_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_from_essential_id": {
+          "name": "created_from_essential_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

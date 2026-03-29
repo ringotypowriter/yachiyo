@@ -6,6 +6,7 @@ import {
   Compass,
   Cpu,
   FolderOpen,
+  Grid2X2,
   Hash,
   Info,
   MessageSquare,
@@ -35,12 +36,14 @@ import { UIPane } from './panes/UIPane'
 import { WorkspacePane } from './panes/WorkspacePane'
 import { AboutPane } from './panes/AboutPane'
 import { ChannelsPane } from './panes/ChannelsPane'
+import { EssentialsPane } from './panes/EssentialsPane'
 import { SchedulePane } from './panes/SchedulePane'
 
 type TabId =
   | 'general'
   | 'providers'
   | 'chat'
+  | 'essentials'
   | 'skills'
   | 'coding-agents'
   | 'prompts'
@@ -68,6 +71,7 @@ const TABS: Tab[] = [
   { id: 'general', label: 'General', icon: Settings2 },
   { id: 'providers', label: 'Providers', icon: Cpu },
   { id: 'chat', label: 'Chat', icon: MessageSquare },
+  { id: 'essentials', label: 'Essentials', icon: Grid2X2 },
   { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'coding-agents', label: 'Coding', icon: Bot },
   { id: 'prompts', label: 'Prompts', icon: Hash },
@@ -290,6 +294,8 @@ function SettingsApp(): React.ReactNode {
       )
     } else if (activeTab === 'chat') {
       body = <ChatPane draft={draft} onChange={setDraft} />
+    } else if (activeTab === 'essentials') {
+      body = <EssentialsPane draft={draft} onChange={setDraft} />
     } else if (activeTab === 'skills') {
       body = <SkillsPane availableSkills={availableSkills} draft={draft} onChange={setDraft} />
     } else if (activeTab === 'coding-agents') {

@@ -152,6 +152,7 @@ export class YachiyoServerThreadDomain {
       channelUserId?: string
       channelGroupId?: string
       title?: string
+      createdFromEssentialId?: string
     } = {}
   ): Promise<ThreadRecord> {
     const timestamp = this.deps.timestamp()
@@ -165,7 +166,10 @@ export class YachiyoServerThreadDomain {
       ...(workspacePath ? { workspacePath } : {}),
       ...(input.source ? { source: input.source } : {}),
       ...(input.channelUserId ? { channelUserId: input.channelUserId } : {}),
-      ...(input.channelGroupId ? { channelGroupId: input.channelGroupId } : {})
+      ...(input.channelGroupId ? { channelGroupId: input.channelGroupId } : {}),
+      ...(input.createdFromEssentialId
+        ? { createdFromEssentialId: input.createdFromEssentialId }
+        : {})
     }
 
     if (workspacePath) {

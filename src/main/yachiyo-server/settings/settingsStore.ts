@@ -16,6 +16,7 @@ import {
   normalizeToolModelMode,
   normalizeUserPrompts,
   type BrowserBackedWebSearchSessionConfig,
+  type EssentialPreset,
   type ExaWebSearchConfig,
   type GeneralConfig,
   type MemoryConfig,
@@ -399,6 +400,39 @@ function normalizeSubagentProfile(value: unknown): SubagentProfile | null {
   }
 }
 
+function normalizeEssentialPreset(value: unknown): EssentialPreset | null {
+  if (!value || typeof value !== 'object') return null
+  const input = value as Record<string, unknown>
+  const id = normalizeString(input['id'], '')
+  const icon = normalizeString(input['icon'], '')
+  if (!id) return null
+
+  const iconType = input['iconType'] === 'image' ? 'image' : 'emoji'
+  const label = normalizeString(input['label'], '') || undefined
+  const workspacePath = normalizeString(input['workspacePath'], '') || undefined
+  const order = typeof input['order'] === 'number' ? input['order'] : 0
+
+  let modelOverride: ThreadModelOverride | undefined
+  if (input['modelOverride'] && typeof input['modelOverride'] === 'object') {
+    const mo = input['modelOverride'] as Record<string, unknown>
+    const providerName = normalizeString(mo['providerName'], '')
+    const model = normalizeString(mo['model'], '')
+    if (providerName && model) {
+      modelOverride = { providerName, model }
+    }
+  }
+
+  return { id, icon, iconType, label, workspacePath, modelOverride, order }
+}
+
+function normalizeEssentials(value: unknown): EssentialPreset[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    const preset = normalizeEssentialPreset(item)
+    return preset ? [preset] : []
+  })
+}
+
 export function normalizeSettingsConfig(value: unknown): SettingsConfig {
   const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
   const hasProviders = Array.isArray(input['providers'])
@@ -427,6 +461,8 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
 
   const defaultModel = normalizeDefaultModel(input['defaultModel'])
 
+  const essentials = normalizeEssentials(input['essentials'])
+
   return {
     ...(defaultModel ? { defaultModel } : {}),
     enabledTools: normalizeUserEnabledTools(
@@ -454,7 +490,8 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
     webSearch: normalizeWebSearchConfig(input['webSearch']),
     providers: hasProviders ? providers : DEFAULT_SETTINGS_CONFIG.providers,
     prompts: normalizeUserPrompts(input['prompts']),
-    subagentProfiles
+    subagentProfiles,
+    ...(essentials.length > 0 ? { essentials } : {})
   }
 }
 
@@ -506,9 +543,11 @@ export function parseSettingsToml(raw: string): SettingsConfig {
   const providers: Array<Record<string, unknown>> = []
   const prompts: Array<Record<string, unknown>> = []
   const subagentProfiles: Array<Record<string, unknown>> = []
+  const essentials: Array<Record<string, unknown>> = []
   let currentProvider: Record<string, unknown> | null = null
   let currentPrompt: Record<string, unknown> | null = null
   let currentSubagentProfile: Record<string, unknown> | null = null
+  let currentEssential: Record<string, unknown> | null = null
   let section:
     | 'root'
     | 'general'
@@ -524,7 +563,9 @@ export function parseSettingsToml(raw: string): SettingsConfig {
     | 'provider'
     | 'provider.modelList'
     | 'prompt'
-    | 'subagentProfile' = 'root'
+    | 'subagentProfile'
+    | 'essential'
+    | 'essential.modelOverride' = 'root'
 
   for (const rawLine of raw.split(/\r?\n/u)) {
     const line = stripTomlComment(rawLine).trim()
@@ -631,6 +672,22 @@ export function parseSettingsToml(raw: string): SettingsConfig {
       currentSubagentProfile = {}
       subagentProfiles.push(currentSubagentProfile)
       section = 'subagentProfile'
+      continue
+    }
+
+    if (line === '[[essentials]]') {
+      currentEssential = {}
+      essentials.push(currentEssential)
+      section = 'essential'
+      continue
+    }
+
+    if (line === '[essentials.modelOverride]') {
+      if (!currentEssential) {
+        throw new Error('Encountered [essentials.modelOverride] before [[essentials]].')
+      }
+      currentEssential['modelOverride'] = currentEssential['modelOverride'] ?? {}
+      section = 'essential.modelOverride'
       continue
     }
 
@@ -804,6 +861,29 @@ export function parseSettingsToml(raw: string): SettingsConfig {
       continue
     }
 
+    if (section === 'essential') {
+      if (!currentEssential) {
+        throw new Error(`Essential entry is not initialized for ${key}.`)
+      }
+      currentEssential[key] = value
+      continue
+    }
+
+    if (section === 'essential.modelOverride') {
+      if (!currentEssential) {
+        throw new Error(`Essential entry is not initialized for ${key}.`)
+      }
+      const mo =
+        currentEssential['modelOverride'] && typeof currentEssential['modelOverride'] === 'object'
+          ? (currentEssential['modelOverride'] as Record<string, unknown>)
+          : null
+      if (!mo) {
+        throw new Error(`Essential model override is not initialized for ${key}.`)
+      }
+      mo[key] = value
+      continue
+    }
+
     const modelList =
       currentProvider && typeof currentProvider['modelList'] === 'object'
         ? (currentProvider['modelList'] as Record<string, unknown>)
@@ -820,7 +900,8 @@ export function parseSettingsToml(raw: string): SettingsConfig {
     ...root,
     providers,
     prompts,
-    subagentProfiles
+    subagentProfiles,
+    essentials
   })
 }
 
@@ -951,6 +1032,27 @@ export function stringifySettingsToml(config: SettingsConfig): string {
       `args = ${stringifyTomlStringArray(profile.args)}`,
       `env = ${JSON.stringify(profile.env)}`
     )
+  }
+
+  for (const essential of normalized.essentials ?? []) {
+    lines.push(
+      '',
+      '[[essentials]]',
+      `id = ${stringifyTomlString(essential.id)}`,
+      `icon = ${stringifyTomlString(essential.icon)}`,
+      `iconType = ${stringifyTomlString(essential.iconType)}`,
+      `label = ${stringifyTomlString(essential.label ?? '')}`,
+      `workspacePath = ${stringifyTomlString(essential.workspacePath ?? '')}`,
+      `order = ${essential.order}`
+    )
+    if (essential.modelOverride) {
+      lines.push(
+        '',
+        '[essentials.modelOverride]',
+        `providerName = ${stringifyTomlString(essential.modelOverride.providerName)}`,
+        `model = ${stringifyTomlString(essential.modelOverride.model)}`
+      )
+    }
   }
 
   return `${lines.join('\n').trim()}\n`

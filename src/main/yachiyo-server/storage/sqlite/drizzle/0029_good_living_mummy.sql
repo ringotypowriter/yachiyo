@@ -1,0 +1,1 @@
+ALTER TABLE `threads` ADD `created_from_essential_id` text;

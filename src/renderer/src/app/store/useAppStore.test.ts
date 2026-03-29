@@ -1842,6 +1842,7 @@ test('upsertComposerImage ignores late async updates after the placeholder was r
 test('getEffectiveModel returns thread override when present', () => {
   const state = {
     activeThreadId: 'thread-1',
+    pendingModelOverride: null,
     threads: [
       {
         id: 'thread-1',
@@ -1859,6 +1860,7 @@ test('getEffectiveModel returns thread override when present', () => {
 test('getEffectiveModel falls back to settings when thread has no override', () => {
   const state = {
     activeThreadId: 'thread-1',
+    pendingModelOverride: null,
     threads: [{ id: 'thread-1', title: 'Thread one', updatedAt: TIMESTAMP }],
     settings: { ...DEFAULT_SETTINGS, providerName: 'backup', model: 'claude-opus-4-6' }
   }
@@ -1869,11 +1871,26 @@ test('getEffectiveModel falls back to settings when thread has no override', () 
 test('getEffectiveModel falls back to settings when no active thread', () => {
   const state = {
     activeThreadId: null,
+    pendingModelOverride: null,
     threads: [],
     settings: { ...DEFAULT_SETTINGS, providerName: 'work', model: 'gpt-5' }
   }
 
   assert.deepEqual(getEffectiveModel(state), { providerName: 'work', model: 'gpt-5' })
+})
+
+test('getEffectiveModel returns pendingModelOverride when no active thread', () => {
+  const state = {
+    activeThreadId: null,
+    pendingModelOverride: { providerName: 'essential-provider', model: 'essential-model' },
+    threads: [],
+    settings: { ...DEFAULT_SETTINGS, providerName: 'work', model: 'gpt-5' }
+  }
+
+  assert.deepEqual(getEffectiveModel(state), {
+    providerName: 'essential-provider',
+    model: 'essential-model'
+  })
 })
 
 test('getThreadEffectiveModel uses thread override by thread id', () => {

@@ -424,6 +424,8 @@ export interface ThreadRecord {
   summaryWatermarkMessageId?: string
   /** When the user last viewed this archived thread. Null = unread. */
   readAt?: string
+  /** Essential preset that spawned this thread. */
+  createdFromEssentialId?: string
 }
 
 /** Per-turn injected context (reminder, memory) persisted for lossless replay. */
@@ -753,6 +755,20 @@ export interface ChannelsConfig {
   imageToText?: ImageToTextConfig
 }
 
+// ---------------------------------------------------------------------------
+// Essentials (preset thread launchers)
+// ---------------------------------------------------------------------------
+
+export interface EssentialPreset {
+  id: string
+  icon: string
+  iconType: 'emoji' | 'image'
+  label?: string
+  workspacePath?: string
+  modelOverride?: ThreadModelOverride
+  order: number
+}
+
 export interface SettingsConfig {
   providers: ProviderConfig[]
   defaultModel?: ThreadModelOverride
@@ -766,6 +782,7 @@ export interface SettingsConfig {
   webSearch?: WebSearchConfig
   prompts?: UserPrompt[]
   subagentProfiles?: SubagentProfile[]
+  essentials?: EssentialPreset[]
 }
 
 export function isMemoryConfigured(

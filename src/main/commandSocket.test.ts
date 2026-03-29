@@ -161,10 +161,7 @@ test('commandSocket - ignores send-channel with missing id', async () => {
     })
 
     await new Promise((r) => setTimeout(r, 50))
-    await sendToSocket(
-      socketPath,
-      JSON.stringify({ type: 'send-channel', message: 'hi' })
-    )
+    await sendToSocket(socketPath, JSON.stringify({ type: 'send-channel', message: 'hi' }))
     await new Promise((r) => setTimeout(r, 50))
 
     assert.equal(calls.length, 0)
@@ -188,10 +185,7 @@ test('commandSocket - ignores send-channel with missing message', async () => {
     })
 
     await new Promise((r) => setTimeout(r, 50))
-    await sendToSocket(
-      socketPath,
-      JSON.stringify({ type: 'send-channel', id: 'user-1' })
-    )
+    await sendToSocket(socketPath, JSON.stringify({ type: 'send-channel', id: 'user-1' }))
     await new Promise((r) => setTimeout(r, 50))
 
     assert.equal(calls.length, 0)
