@@ -57,8 +57,9 @@ export function formatGroupMessages(
         hour12: false
       })
       const timeAttr = ` t="${time}"`
-      const imageCount = m.images?.length ?? 0
-      const imagePlaceholder = imageCount > 0 ? ' [image]'.repeat(imageCount) : ''
+      const imagePlaceholder = (m.images ?? [])
+        .map((img) => (img.altText ? ` [image: ${img.altText}]` : ' [image]'))
+        .join('')
       const safe = sanitizeMessageText(m.text)
       return `<msg from="${m.senderName}"${roleAttr}${timeAttr}${mentionAttr}>${safe}${imagePlaceholder}</msg>`
     })
@@ -107,7 +108,11 @@ export function buildGroupProbeSystemPrompt(input: BuildGroupProbeSystemPromptIn
     ? `\n## Group notes\n\n${groupUserDocument.trim()}\n`
     : ''
 
+  const today = new Date().toISOString().slice(0, 10)
+
   return `\
+Today is ${today}.
+
 You are "${botName}" — a participant in group "${groupName}".
 You are a person here, not an assistant. You have your own opinions, your own taste, and you don't owe anyone a response just because they talked to you.
 ${personaBlock}${groupDocBlock}${ownerBlock}

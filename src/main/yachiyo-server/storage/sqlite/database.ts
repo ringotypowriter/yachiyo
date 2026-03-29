@@ -10,6 +10,7 @@ import * as schema from './schema.ts'
 import {
   channelGroupsTable,
   channelUsersTable,
+  imageAltTextsTable,
   messagesTable,
   runsTable,
   threadsTable,
@@ -1215,6 +1216,22 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
       const row = rows.find((r) => r.updatedAt >= cutoff)
       return row ? toThreadRecord(row) : undefined
+    },
+
+    getImageAltText(imageHash) {
+      const row = db
+        .select()
+        .from(imageAltTextsTable)
+        .where(eq(imageAltTextsTable.imageHash, imageHash))
+        .get()
+      return row ? { imageHash: row.imageHash, altText: row.altText } : undefined
+    },
+
+    saveImageAltText(imageHash, altText) {
+      db.insert(imageAltTextsTable)
+        .values({ imageHash, altText, createdAt: new Date().toISOString() })
+        .onConflictDoNothing()
+        .run()
     }
   }
 }

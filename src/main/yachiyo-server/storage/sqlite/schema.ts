@@ -129,6 +129,12 @@ export const toolCallsTable = sqliteTable('tool_calls', {
   finishedAt: text('finished_at')
 })
 
+export const imageAltTextsTable = sqliteTable('image_alt_texts', {
+  imageHash: text('image_hash').primaryKey(),
+  altText: text('alt_text').notNull(),
+  createdAt: text('created_at').notNull()
+})
+
 export const builtinMemoriesTable = sqliteTable('builtin_memories', {
   id: text('id').primaryKey(),
   topic: text('topic').notNull(),

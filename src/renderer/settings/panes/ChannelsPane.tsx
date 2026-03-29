@@ -504,6 +504,77 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
   return (
     <div className="flex-1 overflow-y-auto pb-6">
       <SettingSection>
+        <SettingLabel>Image to Text</SettingLabel>
+
+        <SettingRow>
+          <div className="min-w-0">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Enable
+            </div>
+            <div className="text-sm" style={{ color: theme.text.tertiary }}>
+              Pre-describe images in group messages as alt text
+            </div>
+          </div>
+          <SettingSwitch
+            ariaLabel="Enable image to text"
+            checked={config.imageToText?.enabled ?? false}
+            onChange={() => {
+              setConfig((c) => {
+                const next = {
+                  ...c,
+                  imageToText: {
+                    ...c.imageToText,
+                    enabled: !(c.imageToText?.enabled ?? false)
+                  }
+                }
+                configRef.current = next
+                scheduleSave(next)
+                return next
+              })
+            }}
+          />
+        </SettingRow>
+
+        {modelSelector && (
+          <SettingRow>
+            <div className="flex items-center gap-2.5 flex-1 min-w-0">
+              <span className="text-sm font-medium shrink-0" style={{ color: theme.text.primary }}>
+                Model
+              </span>
+              <ModelSelect
+                value={
+                  config.imageToText?.model
+                    ? `${config.imageToText.model.providerName}::${config.imageToText.model.model}`
+                    : ''
+                }
+                providers={settingsConfig!.providers}
+                onChange={(val) => {
+                  setConfig((c) => {
+                    const next = {
+                      ...c,
+                      imageToText: {
+                        ...c.imageToText,
+                        enabled: c.imageToText?.enabled ?? false,
+                        model: val
+                          ? {
+                              providerName: val.split('::')[0],
+                              model: val.split('::')[1]
+                            }
+                          : undefined
+                      }
+                    }
+                    configRef.current = next
+                    scheduleSave(next)
+                    return next
+                  })
+                }}
+              />
+            </div>
+          </SettingRow>
+        )}
+      </SettingSection>
+
+      <SettingSection>
         <SettingLabel>Guest Instruction</SettingLabel>
 
         <SettingRow>

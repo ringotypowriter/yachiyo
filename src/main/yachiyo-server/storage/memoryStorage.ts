@@ -30,6 +30,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const messages: MessageRecord[] = []
   const runs = new Map<string, StoredRunRow>()
   const toolCalls = new Map<string, StoredToolCallRow>()
+  const imageAltTexts = new Map<string, { imageHash: string; altText: string }>()
 
   const readThread = (threadId: string): StoredThreadRow | undefined => {
     const thread = threads.get(threadId)
@@ -674,6 +675,14 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         )
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
       return match ? toThreadRecord(match) : undefined
+    },
+
+    getImageAltText(imageHash) {
+      return imageAltTexts.get(imageHash)
+    },
+
+    saveImageAltText(imageHash, altText) {
+      imageAltTexts.set(imageHash, { imageHash, altText })
     }
   }
 }

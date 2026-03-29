@@ -62,6 +62,10 @@ import { readUserDocument, writeUserDocument } from '../runtime/user.ts'
 import { readChannelsConfig, writeChannelsConfig } from '../runtime/channelsConfig.ts'
 import type { ModelRuntime } from '../runtime/types.ts'
 import { createSearchService, type SearchService } from '../services/search/searchService.ts'
+import {
+  createImageToTextService,
+  type ImageToTextService
+} from '../services/imageToText/imageToTextService.ts'
 import { createMemoryService, type MemoryService } from '../services/memory/memoryService.ts'
 import { readBuiltinMemoryTermDocument } from '../services/memory/builtinMemoryProvider.ts'
 import { createMemoryProviderFactory } from '../services/memory/createMemoryProvider.ts'
@@ -140,6 +144,7 @@ export class YachiyoServer {
   ) => Promise<string>
   private readonly searchService: SearchService
   private readonly webSearchServiceInstance: import('../services/webSearch/webSearchService.ts').WebSearchService
+  private readonly imageToTextServiceInstance: ImageToTextService
   private readonly readUserDocumentFile: () => Promise<UserDocument | null>
   private readonly saveUserDocumentFile: (content: string) => Promise<UserDocument | null>
   private readonly readMemoryTermDocumentFile: (() => Promise<MemoryTermDocument>) | null
@@ -224,6 +229,21 @@ export class YachiyoServer {
       readToolModelSettings: () => this.configDomain.readToolModelSettings()
     })
     this.auxiliaryGeneration = auxiliaryGeneration
+    this.imageToTextServiceInstance = createImageToTextService({
+      auxService: auxiliaryGeneration,
+      resolveSettings: () => {
+        const channelsConfig = readChannelsConfig()
+        const settingsConfig = this.configDomain.readConfig()
+        const imageToTextModel = channelsConfig.imageToText?.model
+        // Fall back to tool model settings when no override is configured.
+        return imageToTextModel
+          ? toEffectiveProviderSettings(settingsConfig, imageToTextModel)
+          : (this.configDomain.readToolModelSettings() ??
+              toEffectiveProviderSettings(settingsConfig, undefined))
+      },
+      lookupByHash: (hash) => this.storage.getImageAltText(hash),
+      persist: (hash, altText) => this.storage.saveImageAltText(hash, altText)
+    })
     const memoryService =
       options.memoryService ??
       createMemoryService({
@@ -747,6 +767,10 @@ export class YachiyoServer {
 
   getWebSearchService(): import('../services/webSearch/webSearchService.ts').WebSearchService {
     return this.webSearchServiceInstance
+  }
+
+  getImageToTextService(): ImageToTextService {
+    return this.imageToTextServiceInstance
   }
 
   getChannelsConfig(): ChannelsConfig {

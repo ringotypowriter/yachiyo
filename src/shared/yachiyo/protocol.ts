@@ -376,6 +376,8 @@ export interface MessageImageRecord {
   mediaType: string
   filename?: string
   workspacePath?: string
+  /** Pre-generated alt text description from the image-to-text service. */
+  altText?: string
 }
 
 export interface MessageFileAttachment {
@@ -719,6 +721,13 @@ export interface QQChannelConfig {
   group?: GroupChannelConfig
 }
 
+export interface ImageToTextConfig {
+  /** When true, images in group messages are pre-described as alt text. Default false. */
+  enabled?: boolean
+  /** Model override for the vision model. Falls back to tool model when unset. */
+  model?: ThreadModelOverride
+}
+
 export interface ChannelsConfig {
   telegram?: TelegramChannelConfig
   qq?: QQChannelConfig
@@ -726,6 +735,8 @@ export interface ChannelsConfig {
   memoryFilterKeywords?: string[]
   /** Custom instruction injected into the system prompt for guest conversations. */
   guestInstruction?: string
+  /** Image-to-text description service settings. */
+  imageToText?: ImageToTextConfig
 }
 
 export interface SettingsConfig {

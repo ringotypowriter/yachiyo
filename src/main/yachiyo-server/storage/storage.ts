@@ -208,6 +208,10 @@ export interface YachiyoStorage {
     name?: string
   }): ChannelGroupRecord | undefined
   findActiveGroupThread(channelGroupId: string, maxAgeMs: number): ThreadRecord | undefined
+
+  // Image alt text cache
+  getImageAltText(imageHash: string): { imageHash: string; altText: string } | undefined
+  saveImageAltText(imageHash: string, altText: string): void
 }
 
 export function toThreadRecord(

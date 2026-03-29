@@ -140,6 +140,16 @@ export function parseChannelsToml(raw: string): ChannelsConfig {
     }
   }
 
+  const i2t = doc['image_to_text'] as Record<string, unknown> | undefined
+  if (i2t) {
+    const providerName = str(i2t['model_provider'])
+    const model = str(i2t['model_name'])
+    config.imageToText = {
+      enabled: bool(i2t['enabled']),
+      ...(providerName && model ? { model: { providerName, model } } : {})
+    }
+  }
+
   return config
 }
 
@@ -223,6 +233,14 @@ export function stringifyChannelsToml(config: ChannelsConfig): string {
         'memory_filter_keywords',
         config.memoryFilterKeywords?.length ? config.memoryFilterKeywords : undefined
       ]
+    ])
+  }
+
+  if (config.imageToText) {
+    doc['image_to_text'] = buildSection([
+      ['enabled', config.imageToText.enabled],
+      ['model_provider', config.imageToText.model?.providerName || undefined],
+      ['model_name', config.imageToText.model?.model || undefined]
     ])
   }
 

@@ -474,8 +474,22 @@ export function createQQService({
         timestamp: msg.time
       })
     } else {
-      void Promise.all(imagePromises).then((results) => {
+      void Promise.all(imagePromises).then(async (results) => {
         const images = results.filter((img): img is MessageImageRecord => img !== null)
+
+        // Generate alt text for images when image-to-text is enabled
+        // (skip when vision is on — raw images go to the model directly).
+        const channelsConfig = server.getChannelsConfig()
+        if (groupConfig?.vision !== true && channelsConfig.imageToText?.enabled) {
+          const i2t = server.getImageToTextService()
+          await Promise.all(
+            images.map(async (img) => {
+              const result = await i2t.describe(img.dataUrl, text)
+              if (result) img.altText = result.altText
+            })
+          )
+        }
+
         groupRegistry!.routeMessage(existing.id, {
           senderName: msg.nickname,
           senderExternalUserId: String(msg.userId),
