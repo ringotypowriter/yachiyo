@@ -881,6 +881,12 @@ export interface SendChatInput {
    * reply-format instructions without polluting stored message content.
    */
   channelHint?: string
+  /**
+   * Optional extra tools merged into the agent tool set for this run only.
+   * Used by schedule service to inject `reportScheduleResult` without
+   * polluting the core tool registry.
+   */
+  extraTools?: Record<string, unknown>
 }
 
 export interface RetryInput {
@@ -1136,3 +1142,58 @@ export type YachiyoServerEvent =
   | SubagentStartedEvent
   | SubagentFinishedEvent
   | SubagentProgressEvent
+
+// ---------------------------------------------------------------------------
+// Schedule
+// ---------------------------------------------------------------------------
+
+export interface ScheduleRecord {
+  id: string
+  name: string
+  cronExpression: string
+  prompt: string
+  workspacePath?: string
+  modelOverride?: ThreadModelOverride
+  enabledTools?: ToolCallName[]
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export type ScheduleRunStatus = 'running' | 'completed' | 'failed'
+export type ScheduleResultStatus = 'success' | 'failure'
+
+export interface ScheduleRunRecord {
+  id: string
+  scheduleId: string
+  threadId?: string
+  status: ScheduleRunStatus
+  resultStatus?: ScheduleResultStatus
+  resultSummary?: string
+  error?: string
+  promptTokens?: number
+  completionTokens?: number
+  startedAt: string
+  completedAt?: string
+}
+
+export interface CreateScheduleInput {
+  name: string
+  cronExpression: string
+  prompt: string
+  workspacePath?: string
+  modelOverride?: ThreadModelOverride
+  enabledTools?: ToolCallName[]
+  enabled?: boolean
+}
+
+export interface UpdateScheduleInput {
+  id: string
+  name?: string
+  cronExpression?: string
+  prompt?: string
+  workspacePath?: string | null
+  modelOverride?: ThreadModelOverride | null
+  enabledTools?: ToolCallName[] | null
+  enabled?: boolean
+}

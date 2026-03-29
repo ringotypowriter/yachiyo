@@ -121,7 +121,14 @@ function App(): React.JSX.Element {
   }, [connectionStatus])
   const config = useAppStore((s) => s.config)
   const createNewThread = useAppStore((s) => s.createNewThread)
+  const setActiveArchivedThread = useAppStore((s) => s.setActiveArchivedThread)
   const [isSidebarSearchOpen, setIsSidebarSearchOpen] = useState(false)
+
+  useEffect(() => {
+    return window.api.onNavigateToArchivedThread((threadId) => {
+      setActiveArchivedThread(threadId)
+    })
+  }, [setActiveArchivedThread])
   const [pendingFindQuery, setPendingFindQuery] = useState<string | null>(null)
 
   useEffect(() => {

@@ -78,6 +78,7 @@ export interface ExecuteRunInput {
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
   channelHint?: string
+  extraTools?: import('ai').ToolSet
   runId: string
   thread: ThreadRecord
   requestMessageId: string
@@ -1062,7 +1063,8 @@ export async function executeServerRun(
                 }
               }
             }
-          : {})
+          : {}),
+        ...(input.extraTools ? { extraTools: input.extraTools } : {})
       }
     )
     deps.onEnabledToolsUsed(input.enabledTools)

@@ -97,6 +97,8 @@ export interface AgentToolDependencies {
     status: 'success' | 'cancelled',
     lastMessage?: string
   ) => void
+  /** Extra tools merged into the tool set (e.g. schedule-only tools). */
+  extraTools?: ToolSet
 }
 
 function isToolFailure(output: unknown): output is AgentToolOutput {
@@ -325,6 +327,10 @@ export function createAgentToolSet(
       onSubagentFinished: dependencies.onSubagentFinished
     }
     tools.delegateCodingTask = createDelegateCodingTaskTool(subagentCtx)
+  }
+
+  if (dependencies.extraTools) {
+    Object.assign(tools, dependencies.extraTools)
   }
 
   return Object.keys(tools).length > 0 ? tools : undefined

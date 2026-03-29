@@ -12,6 +12,10 @@ import type {
   ThreadMemoryRecallState,
   MessageTextBlockRecord,
   RunRecord,
+  ScheduleRecord,
+  ScheduleResultStatus,
+  ScheduleRunRecord,
+  ScheduleRunStatus,
   ThreadModelOverride,
   ThreadRecord,
   ThreadSearchResult,
@@ -212,6 +216,30 @@ export interface YachiyoStorage {
   // Image alt text cache
   getImageAltText(imageHash: string): { imageHash: string; altText: string } | undefined
   saveImageAltText(imageHash: string, altText: string): void
+
+  // Schedules
+  listSchedules(): ScheduleRecord[]
+  getSchedule(id: string): ScheduleRecord | undefined
+  createSchedule(schedule: ScheduleRecord): void
+  updateSchedule(schedule: ScheduleRecord): void
+  deleteSchedule(id: string): void
+
+  // Schedule runs
+  createScheduleRun(run: ScheduleRunRecord): void
+  completeScheduleRun(input: {
+    id: string
+    status: ScheduleRunStatus
+    threadId?: string
+    resultStatus?: ScheduleResultStatus
+    resultSummary?: string
+    error?: string
+    completedAt: string
+    promptTokens?: number
+    completionTokens?: number
+  }): void
+  listScheduleRuns(scheduleId: string, limit?: number): ScheduleRunRecord[]
+  listRecentScheduleRuns(limit?: number): ScheduleRunRecord[]
+  recoverInterruptedScheduleRuns(input: { completedAt: string; error: string }): void
 }
 
 export function toThreadRecord(
@@ -443,7 +471,7 @@ function parseThreadSource(value: string | null): ThreadRecord['source'] | undef
   return undefined
 }
 
-function parseEnabledTools(value: string | null): ToolCallName[] | undefined {
+export function parseEnabledTools(value: string | null): ToolCallName[] | undefined {
   if (value === null) {
     return undefined
   }
@@ -680,4 +708,71 @@ export function groupLatestRunsByThread(runs: RunRecord[]): Record<string, RunRe
   }
 
   return latestRunsByThread
+}
+
+// ---------------------------------------------------------------------------
+// Schedule row ↔ record converters
+// ---------------------------------------------------------------------------
+
+export interface StoredScheduleRow {
+  id: string
+  name: string
+  cronExpression: string
+  prompt: string
+  workspacePath: string | null
+  modelOverride: string | null
+  enabledTools: string | null
+  enabled: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface StoredScheduleRunRow {
+  id: string
+  scheduleId: string
+  threadId: string | null
+  status: ScheduleRunStatus
+  resultStatus: string | null
+  resultSummary: string | null
+  error: string | null
+  promptTokens: number | null
+  completionTokens: number | null
+  startedAt: string
+  completedAt: string | null
+}
+
+export function toScheduleRecord(row: StoredScheduleRow): ScheduleRecord {
+  const modelOverride = parseModelOverride(row.modelOverride)
+  const enabledTools = parseEnabledTools(row.enabledTools)
+
+  return {
+    id: row.id,
+    name: row.name,
+    cronExpression: row.cronExpression,
+    prompt: row.prompt,
+    ...(row.workspacePath ? { workspacePath: row.workspacePath } : {}),
+    ...(modelOverride ? { modelOverride } : {}),
+    ...(enabledTools ? { enabledTools } : {}),
+    enabled: row.enabled === 1,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  }
+}
+
+export function toScheduleRunRecord(row: StoredScheduleRunRow): ScheduleRunRecord {
+  return {
+    id: row.id,
+    scheduleId: row.scheduleId,
+    ...(row.threadId ? { threadId: row.threadId } : {}),
+    status: row.status,
+    ...(row.resultStatus === 'success' || row.resultStatus === 'failure'
+      ? { resultStatus: row.resultStatus }
+      : {}),
+    ...(row.resultSummary ? { resultSummary: row.resultSummary } : {}),
+    ...(row.error ? { error: row.error } : {}),
+    ...(row.promptTokens != null ? { promptTokens: row.promptTokens } : {}),
+    ...(row.completionTokens != null ? { completionTokens: row.completionTokens } : {}),
+    startedAt: row.startedAt,
+    ...(row.completedAt ? { completedAt: row.completedAt } : {})
+  }
 }

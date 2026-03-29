@@ -2,10 +2,12 @@ import { randomUUID } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 
 import type {
+  CreateScheduleInput,
   ProviderConfig,
   SettingsConfig,
   SubagentProfile
 } from '../../../shared/yachiyo/protocol.ts'
+import { ScheduleDomain } from './domain/scheduleDomain.ts'
 import { providerMatchesReference } from '../../../shared/yachiyo/providerConfig.ts'
 import {
   resolveYachiyoDbPath,
@@ -49,6 +51,13 @@ Namespaces:
   config set <path> <value>
 
   thread search <query> [--limit <n>] [--json]
+
+  schedule list [--json]
+  schedule add --payload <json>
+  schedule remove <id>
+  schedule enable <id>
+  schedule disable <id>
+  schedule runs [<id>] [--limit <n>] [--json]
 
 Flags:
   --settings <path> Settings file path (default: ~/.yachiyo/config.toml)
@@ -539,6 +548,11 @@ export async function runYachiyoCli(
     return
   }
 
+  if (namespace === 'schedule') {
+    await handleScheduleCommand(positionals.slice(1), flags, dbPath, stdout)
+    return
+  }
+
   if (namespace !== 'provider' && namespace !== 'config' && namespace !== 'agent') {
     throw new Error(
       `Unknown namespace: ${namespace}. Expected: soul, provider, agent, config, thread`
@@ -559,6 +573,102 @@ export async function runYachiyoCli(
   }
 
   await handleConfigCommand(positionals.slice(1), configService, stdout)
+}
+
+async function handleScheduleCommand(
+  positionals: string[],
+  flags: Map<string, string>,
+  dbPath: string,
+  stdout: Pick<typeof process.stdout, 'write'>
+): Promise<void> {
+  const { createSqliteYachiyoStorage } = await import('../storage/sqlite/database.ts')
+  const storage = createSqliteYachiyoStorage(dbPath)
+  const domain = new ScheduleDomain({
+    storage,
+    createId: () => randomUUID(),
+    timestamp: () => new Date().toISOString()
+  })
+
+  const action = positionals[0]
+  const useJson = flags.get('--json') === 'true'
+
+  if (action === 'list') {
+    const schedules = domain.listSchedules()
+    if (useJson) {
+      outputJson(stdout, schedules)
+    } else {
+      for (const s of schedules) {
+        stdout.write(`${s.enabled ? '✓' : '✗'} ${s.name} [${s.cronExpression}] id=${s.id}\n`)
+      }
+      if (schedules.length === 0) stdout.write('No schedules.\n')
+    }
+    storage.close()
+    return
+  }
+
+  if (action === 'add') {
+    const payloadRaw = flags.get('--payload')
+    if (!payloadRaw) throw new Error('--payload is required for schedule add')
+    const input = JSON.parse(payloadRaw) as CreateScheduleInput
+    const schedule = domain.createSchedule(input)
+    outputJson(stdout, sanitizeForOutput(schedule))
+    storage.close()
+    return
+  }
+
+  if (action === 'remove') {
+    const id = positionals[1]
+    if (!id) throw new Error('ID is required: schedule remove <id>')
+    domain.deleteSchedule(id)
+    stdout.write(`Deleted schedule: ${id}\n`)
+    storage.close()
+    return
+  }
+
+  if (action === 'enable') {
+    const id = positionals[1]
+    if (!id) throw new Error('ID is required: schedule enable <id>')
+    domain.enableSchedule(id)
+    stdout.write(`Enabled schedule: ${id}\n`)
+    storage.close()
+    return
+  }
+
+  if (action === 'disable') {
+    const id = positionals[1]
+    if (!id) throw new Error('ID is required: schedule disable <id>')
+    domain.disableSchedule(id)
+    stdout.write(`Disabled schedule: ${id}\n`)
+    storage.close()
+    return
+  }
+
+  if (action === 'runs') {
+    const scheduleId = positionals[1]
+    const limitRaw = flags.get('--limit')
+    const limit = limitRaw ? parseInt(limitRaw, 10) : 20
+    const runs = scheduleId
+      ? domain.listScheduleRuns(scheduleId, limit)
+      : domain.listRecentScheduleRuns(limit)
+
+    if (useJson) {
+      outputJson(stdout, runs)
+    } else {
+      for (const r of runs) {
+        const status = r.resultStatus ?? r.status
+        const summary = r.resultSummary ? ` — ${r.resultSummary.slice(0, 80)}` : ''
+        stdout.write(`[${status}] ${r.startedAt}${summary}\n`)
+      }
+      if (runs.length === 0) stdout.write('No runs.\n')
+    }
+    storage.close()
+    return
+  }
+
+  storage.close()
+  throw new Error(
+    `Unknown schedule action: ${action ?? '(none)'}. Expected: list, add, remove, enable, disable, runs`
+  )
 }
 
 async function main(): Promise<void> {

@@ -6,6 +6,8 @@ import type {
   ChannelUserStatus,
   MessageRecord,
   RunRecord,
+  ScheduleResultStatus,
+  ScheduleRunStatus,
   ToolCallRecord
 } from '../../../../shared/yachiyo/protocol'
 
@@ -133,6 +135,35 @@ export const imageAltTextsTable = sqliteTable('image_alt_texts', {
   imageHash: text('image_hash').primaryKey(),
   altText: text('alt_text').notNull(),
   createdAt: text('created_at').notNull()
+})
+
+export const schedulesTable = sqliteTable('schedules', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  cronExpression: text('cron_expression').notNull(),
+  prompt: text('prompt').notNull(),
+  workspacePath: text('workspace_path'),
+  modelOverride: text('model_override'),
+  enabledTools: text('enabled_tools'),
+  enabled: integer('enabled').notNull().default(1),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull()
+})
+
+export const scheduleRunsTable = sqliteTable('schedule_runs', {
+  id: text('id').primaryKey(),
+  scheduleId: text('schedule_id')
+    .notNull()
+    .references(() => schedulesTable.id, { onDelete: 'cascade' }),
+  threadId: text('thread_id').references(() => threadsTable.id, { onDelete: 'set null' }),
+  status: text('status').$type<ScheduleRunStatus>().notNull(),
+  resultStatus: text('result_status').$type<ScheduleResultStatus>(),
+  resultSummary: text('result_summary'),
+  error: text('error'),
+  promptTokens: integer('prompt_tokens'),
+  completionTokens: integer('completion_tokens'),
+  startedAt: text('started_at').notNull(),
+  completedAt: text('completed_at')
 })
 
 export const builtinMemoriesTable = sqliteTable('builtin_memories', {

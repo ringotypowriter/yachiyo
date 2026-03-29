@@ -13,6 +13,8 @@ import {
   imageAltTextsTable,
   messagesTable,
   runsTable,
+  scheduleRunsTable,
+  schedulesTable,
   threadsTable,
   toolCallsTable
 } from './schema.ts'
@@ -33,6 +35,8 @@ import {
   serializeResponseMessages,
   serializeTurnContext,
   toRunRecord,
+  toScheduleRecord,
+  toScheduleRunRecord,
   toToolCallRecord,
   toThreadRecord,
   type CompleteRunInput,
@@ -1231,6 +1235,127 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       db.insert(imageAltTextsTable)
         .values({ imageHash, altText, createdAt: new Date().toISOString() })
         .onConflictDoNothing()
+        .run()
+    },
+
+    // -----------------------------------------------------------------------
+    // Schedules
+    // -----------------------------------------------------------------------
+
+    listSchedules() {
+      return db
+        .select()
+        .from(schedulesTable)
+        .orderBy(asc(schedulesTable.name))
+        .all()
+        .map(toScheduleRecord)
+    },
+
+    getSchedule(id) {
+      const row = db.select().from(schedulesTable).where(eq(schedulesTable.id, id)).get()
+      return row ? toScheduleRecord(row) : undefined
+    },
+
+    createSchedule(schedule) {
+      db.insert(schedulesTable)
+        .values({
+          id: schedule.id,
+          name: schedule.name,
+          cronExpression: schedule.cronExpression,
+          prompt: schedule.prompt,
+          workspacePath: schedule.workspacePath ?? null,
+          modelOverride: serializeModelOverride(schedule.modelOverride),
+          enabledTools: serializeEnabledTools(schedule.enabledTools),
+          enabled: schedule.enabled ? 1 : 0,
+          createdAt: schedule.createdAt,
+          updatedAt: schedule.updatedAt
+        })
+        .run()
+    },
+
+    updateSchedule(schedule) {
+      db.update(schedulesTable)
+        .set({
+          name: schedule.name,
+          cronExpression: schedule.cronExpression,
+          prompt: schedule.prompt,
+          workspacePath: schedule.workspacePath ?? null,
+          modelOverride: serializeModelOverride(schedule.modelOverride),
+          enabledTools: serializeEnabledTools(schedule.enabledTools),
+          enabled: schedule.enabled ? 1 : 0,
+          updatedAt: schedule.updatedAt
+        })
+        .where(eq(schedulesTable.id, schedule.id))
+        .run()
+    },
+
+    deleteSchedule(id) {
+      db.delete(schedulesTable).where(eq(schedulesTable.id, id)).run()
+    },
+
+    // -----------------------------------------------------------------------
+    // Schedule runs
+    // -----------------------------------------------------------------------
+
+    createScheduleRun(run) {
+      db.insert(scheduleRunsTable)
+        .values({
+          id: run.id,
+          scheduleId: run.scheduleId,
+          threadId: run.threadId ?? null,
+          status: run.status,
+          resultStatus: run.resultStatus ?? null,
+          resultSummary: run.resultSummary ?? null,
+          error: run.error ?? null,
+          promptTokens: run.promptTokens ?? null,
+          completionTokens: run.completionTokens ?? null,
+          startedAt: run.startedAt,
+          completedAt: run.completedAt ?? null
+        })
+        .run()
+    },
+
+    completeScheduleRun(input) {
+      db.update(scheduleRunsTable)
+        .set({
+          status: input.status,
+          ...(input.threadId ? { threadId: input.threadId } : {}),
+          ...(input.resultStatus ? { resultStatus: input.resultStatus } : {}),
+          ...(input.resultSummary ? { resultSummary: input.resultSummary } : {}),
+          ...(input.error ? { error: input.error } : {}),
+          ...(input.promptTokens != null ? { promptTokens: input.promptTokens } : {}),
+          ...(input.completionTokens != null ? { completionTokens: input.completionTokens } : {}),
+          completedAt: input.completedAt
+        })
+        .where(eq(scheduleRunsTable.id, input.id))
+        .run()
+    },
+
+    listScheduleRuns(scheduleId, limit = 50) {
+      return db
+        .select()
+        .from(scheduleRunsTable)
+        .where(eq(scheduleRunsTable.scheduleId, scheduleId))
+        .orderBy(desc(scheduleRunsTable.startedAt))
+        .limit(limit)
+        .all()
+        .map(toScheduleRunRecord)
+    },
+
+    listRecentScheduleRuns(limit = 50) {
+      return db
+        .select()
+        .from(scheduleRunsTable)
+        .orderBy(desc(scheduleRunsTable.startedAt))
+        .limit(limit)
+        .all()
+        .map(toScheduleRunRecord)
+    },
+
+    recoverInterruptedScheduleRuns({ completedAt, error }) {
+      db.update(scheduleRunsTable)
+        .set({ status: 'failed', error, completedAt })
+        .where(eq(scheduleRunsTable.status, 'running'))
         .run()
     }
   }

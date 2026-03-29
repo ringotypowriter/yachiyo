@@ -33,6 +33,15 @@ import type {
 
 const api = {
   openSettings: () => ipcRenderer.send('open-settings'),
+  navigateToArchivedThread: (threadId: string) =>
+    ipcRenderer.send('navigate-to-archived-thread', threadId),
+  onNavigateToArchivedThread: (listener: (threadId: string) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, threadId: string): void => {
+      listener(threadId)
+    }
+    ipcRenderer.on('navigate-to-archived-thread', handler)
+    return () => ipcRenderer.off('navigate-to-archived-thread', handler)
+  },
   setVibrancy: (enabled: boolean) => ipcRenderer.send('set-vibrancy', enabled),
   appUpdate: {
     getStatus: (): Promise<{ state: string; version?: string; error?: string }> =>
@@ -167,6 +176,36 @@ const api = {
       ipcRenderer.invoke('yachiyo:get-channels-config'),
     saveChannelsConfig: (input: ChannelsConfig): Promise<ChannelsConfig> =>
       ipcRenderer.invoke('yachiyo:save-channels-config', input),
+
+    // Schedules
+    listSchedules: (): Promise<import('../shared/yachiyo/protocol').ScheduleRecord[]> =>
+      ipcRenderer.invoke('yachiyo:list-schedules'),
+    createSchedule: (
+      input: import('../shared/yachiyo/protocol').CreateScheduleInput
+    ): Promise<import('../shared/yachiyo/protocol').ScheduleRecord> =>
+      ipcRenderer.invoke('yachiyo:create-schedule', input),
+    updateSchedule: (
+      input: import('../shared/yachiyo/protocol').UpdateScheduleInput
+    ): Promise<import('../shared/yachiyo/protocol').ScheduleRecord> =>
+      ipcRenderer.invoke('yachiyo:update-schedule', input),
+    deleteSchedule: (input: { id: string }): Promise<void> =>
+      ipcRenderer.invoke('yachiyo:delete-schedule', input),
+    enableSchedule: (input: { id: string }): Promise<boolean> =>
+      ipcRenderer.invoke('yachiyo:enable-schedule', input),
+    disableSchedule: (input: {
+      id: string
+    }): Promise<import('../shared/yachiyo/protocol').ScheduleRecord> =>
+      ipcRenderer.invoke('yachiyo:disable-schedule', input),
+    listScheduleRuns: (input: {
+      scheduleId: string
+      limit?: number
+    }): Promise<import('../shared/yachiyo/protocol').ScheduleRunRecord[]> =>
+      ipcRenderer.invoke('yachiyo:list-schedule-runs', input),
+    listRecentScheduleRuns: (input?: {
+      limit?: number
+    }): Promise<import('../shared/yachiyo/protocol').ScheduleRunRecord[]> =>
+      ipcRenderer.invoke('yachiyo:list-recent-schedule-runs', input),
+
     showNotification: (input: { title: string; body?: string }): void =>
       ipcRenderer.send('yachiyo:show-notification', input),
     beep: (): void => ipcRenderer.send('yachiyo:beep'),

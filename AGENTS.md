@@ -36,7 +36,7 @@ Follow `.editorconfig` and Prettier: 2-space indentation, LF endings, single quo
   - Use a compact mode toggle only for small binary mode switches.
   - Use radio choices only when explicit comparison between multiple mutually exclusive options is necessary.
   - Use dropdowns/selectors for “choose one from many”, including “disabled” as one option when appropriate.
-- If the app already has a canonical control for a meaningfully identical interaction, reuse or adapt that control instead of inventing a second settings-only version.
+- If the app already has a canonical control for a meaningfully identical interaction, reuse or adapt that control instead of inventing a second settings-only version. For dropdowns/selectors, always use `SimpleSelect` from `primitives.tsx` — never raw `<select>` elements.
 - For model selection UX, do not dump every known model into the picker. Show only explicitly enabled/selectable models unless the product requirement says otherwise.
 - For overlays inside settings or other scrollable panels, do not leave popups trapped in local stacking/scroll contexts. Use proper floating-layer behavior so the selector reads as an overlay, not as content embedded inside the page.
 - Default toward fewer words. Prefer label + short consequence over label + explanation + repeated explanation.

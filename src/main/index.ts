@@ -100,6 +100,19 @@ app.whenReady().then(() => {
   })
   registerYachiyoGateway()
 
+  ipcMain.on('navigate-to-archived-thread', (_event, threadId: string) => {
+    // Forward to the main window, then close settings.
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win !== settingsWindow && !win.isDestroyed()) {
+        win.webContents.send('navigate-to-archived-thread', threadId)
+        win.focus()
+      }
+    }
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.close()
+    }
+  })
+
   ipcMain.on('open-settings', () => {
     if (settingsWindow && !settingsWindow.isDestroyed()) {
       settingsWindow.focus()

@@ -1,0 +1,285 @@
+import { describe, it } from 'node:test'
+import assert from 'node:assert/strict'
+
+import { ScheduleDomain } from './scheduleDomain.ts'
+import type { ScheduleRecord, ScheduleRunRecord } from '../../../../shared/yachiyo/protocol.ts'
+
+interface MockStorage {
+  schedules: Map<string, ScheduleRecord>
+  runs: ScheduleRunRecord[]
+  listSchedules: () => ScheduleRecord[]
+  getSchedule: (id: string) => ScheduleRecord | undefined
+  createSchedule: (s: ScheduleRecord) => void
+  updateSchedule: (s: ScheduleRecord) => void
+  deleteSchedule: (id: string) => void
+  createScheduleRun: (r: ScheduleRunRecord) => void
+  completeScheduleRun: () => void
+  listScheduleRuns: () => ScheduleRunRecord[]
+  listRecentScheduleRuns: () => ScheduleRunRecord[]
+  recoverInterruptedScheduleRuns: () => void
+}
+
+function createMockStorage(): MockStorage {
+  const schedules = new Map<string, ScheduleRecord>()
+  const runs: ScheduleRunRecord[] = []
+
+  return {
+    schedules,
+    runs,
+    listSchedules: () => [...schedules.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    getSchedule: (id: string) => schedules.get(id),
+    createSchedule: (s: ScheduleRecord) => {
+      schedules.set(s.id, s)
+    },
+    updateSchedule: (s: ScheduleRecord) => {
+      schedules.set(s.id, s)
+    },
+    deleteSchedule: (id: string) => {
+      schedules.delete(id)
+    },
+    createScheduleRun: (r: ScheduleRunRecord) => {
+      runs.push(r)
+    },
+    completeScheduleRun: () => {
+      // no-op for test
+    },
+    listScheduleRuns: () => runs,
+    listRecentScheduleRuns: () => runs,
+    recoverInterruptedScheduleRuns: () => {
+      // no-op for test
+    }
+  }
+}
+
+function createDomain(storage: MockStorage = createMockStorage()): {
+  domain: ScheduleDomain
+  storage: MockStorage
+} {
+  let idCounter = 0
+  return {
+    domain: new ScheduleDomain({
+      storage: storage as never,
+      createId: () => `test-${++idCounter}`,
+      timestamp: () => '2026-01-01T00:00:00.000Z'
+    }),
+    storage
+  }
+}
+
+describe('ScheduleDomain', () => {
+  describe('createSchedule', () => {
+    it('creates a schedule with valid cron expression', () => {
+      const { domain } = createDomain()
+      const schedule = domain.createSchedule({
+        name: 'Daily Report',
+        cronExpression: '0 9 * * *',
+        prompt: 'Generate daily report'
+      })
+
+      assert.equal(schedule.name, 'Daily Report')
+      assert.equal(schedule.cronExpression, '0 9 * * *')
+      assert.equal(schedule.prompt, 'Generate daily report')
+      assert.equal(schedule.enabled, true)
+      assert.equal(schedule.id, 'test-1')
+    })
+
+    it('rejects invalid cron expression', () => {
+      const { domain } = createDomain()
+      assert.throws(
+        () =>
+          domain.createSchedule({
+            name: 'Bad',
+            cronExpression: 'not a cron',
+            prompt: 'test'
+          }),
+        /invalid cron expression/i
+      )
+    })
+
+    it('rejects empty name', () => {
+      const { domain } = createDomain()
+      assert.throws(
+        () =>
+          domain.createSchedule({
+            name: '  ',
+            cronExpression: '0 9 * * *',
+            prompt: 'test'
+          }),
+        /name/i
+      )
+    })
+
+    it('rejects empty prompt', () => {
+      const { domain } = createDomain()
+      assert.throws(
+        () =>
+          domain.createSchedule({
+            name: 'Test',
+            cronExpression: '0 9 * * *',
+            prompt: '  '
+          }),
+        /prompt/i
+      )
+    })
+
+    it('respects enabled=false override', () => {
+      const { domain } = createDomain()
+      const schedule = domain.createSchedule({
+        name: 'Disabled',
+        cronExpression: '0 9 * * *',
+        prompt: 'test',
+        enabled: false
+      })
+
+      assert.equal(schedule.enabled, false)
+    })
+
+    it('stores optional fields', () => {
+      const { domain } = createDomain()
+      const schedule = domain.createSchedule({
+        name: 'With Options',
+        cronExpression: '*/5 * * * *',
+        prompt: 'do stuff',
+        workspacePath: '/tmp/test',
+        modelOverride: { providerName: 'openai', model: 'gpt-4o' },
+        enabledTools: ['read', 'bash']
+      })
+
+      assert.equal(schedule.workspacePath, '/tmp/test')
+      assert.deepEqual(schedule.modelOverride, { providerName: 'openai', model: 'gpt-4o' })
+      assert.deepEqual(schedule.enabledTools, ['read', 'bash'])
+    })
+  })
+
+  describe('updateSchedule', () => {
+    it('updates existing schedule fields', () => {
+      const { domain } = createDomain()
+      domain.createSchedule({
+        name: 'Original',
+        cronExpression: '0 9 * * *',
+        prompt: 'original prompt'
+      })
+
+      const updated = domain.updateSchedule({
+        id: 'test-1',
+        name: 'Updated',
+        prompt: 'new prompt'
+      })
+
+      assert.equal(updated.name, 'Updated')
+      assert.equal(updated.prompt, 'new prompt')
+      assert.equal(updated.cronExpression, '0 9 * * *') // unchanged
+    })
+
+    it('throws for non-existent schedule', () => {
+      const { domain } = createDomain()
+      assert.throws(() => domain.updateSchedule({ id: 'nope' }), /not found/i)
+    })
+
+    it('validates new cron expression', () => {
+      const { domain } = createDomain()
+      domain.createSchedule({
+        name: 'Test',
+        cronExpression: '0 9 * * *',
+        prompt: 'test'
+      })
+
+      assert.throws(
+        () => domain.updateSchedule({ id: 'test-1', cronExpression: 'bad' }),
+        /invalid cron expression/i
+      )
+    })
+
+    it('clears optional fields with null', () => {
+      const { domain } = createDomain()
+      domain.createSchedule({
+        name: 'Test',
+        cronExpression: '0 9 * * *',
+        prompt: 'test',
+        workspacePath: '/tmp/ws',
+        modelOverride: { providerName: 'openai', model: 'gpt-4o' }
+      })
+
+      const updated = domain.updateSchedule({
+        id: 'test-1',
+        workspacePath: null,
+        modelOverride: null
+      })
+
+      assert.equal(updated.workspacePath, undefined)
+      assert.equal(updated.modelOverride, undefined)
+    })
+
+    it('rejects blank name on update', () => {
+      const { domain } = createDomain()
+      domain.createSchedule({
+        name: 'Test',
+        cronExpression: '0 9 * * *',
+        prompt: 'test'
+      })
+
+      assert.throws(() => domain.updateSchedule({ id: 'test-1', name: '  ' }), /name/i)
+    })
+
+    it('rejects blank prompt on update', () => {
+      const { domain } = createDomain()
+      domain.createSchedule({
+        name: 'Test',
+        cronExpression: '0 9 * * *',
+        prompt: 'test'
+      })
+
+      assert.throws(() => domain.updateSchedule({ id: 'test-1', prompt: '' }), /prompt/i)
+    })
+  })
+
+  describe('deleteSchedule', () => {
+    it('deletes existing schedule', () => {
+      const { domain, storage } = createDomain()
+      domain.createSchedule({
+        name: 'ToDelete',
+        cronExpression: '0 9 * * *',
+        prompt: 'test'
+      })
+      assert.equal(storage.schedules.size, 1)
+
+      domain.deleteSchedule('test-1')
+      assert.equal(storage.schedules.size, 0)
+    })
+
+    it('throws for non-existent schedule', () => {
+      const { domain } = createDomain()
+      assert.throws(() => domain.deleteSchedule('nope'), /not found/i)
+    })
+  })
+
+  describe('enableSchedule / disableSchedule', () => {
+    it('toggles enabled state', () => {
+      const { domain } = createDomain()
+      domain.createSchedule({
+        name: 'Toggle',
+        cronExpression: '0 9 * * *',
+        prompt: 'test'
+      })
+
+      const disabled = domain.disableSchedule('test-1')
+      assert.equal(disabled.enabled, false)
+
+      const enabled = domain.enableSchedule('test-1')
+      assert.equal(enabled, true)
+    })
+  })
+
+  describe('listSchedules', () => {
+    it('returns all schedules sorted by name', () => {
+      const { domain } = createDomain()
+      domain.createSchedule({ name: 'Zeta', cronExpression: '0 9 * * *', prompt: 'z' })
+      domain.createSchedule({ name: 'Alpha', cronExpression: '0 9 * * *', prompt: 'a' })
+
+      const list = domain.listSchedules()
+      assert.equal(list.length, 2)
+      assert.equal(list[0].name, 'Alpha')
+      assert.equal(list[1].name, 'Zeta')
+    })
+  })
+})

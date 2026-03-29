@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   Bot,
   Brain,
+  Clock,
   Compass,
   Cpu,
   FolderOpen,
@@ -34,6 +35,7 @@ import { UIPane } from './panes/UIPane'
 import { WorkspacePane } from './panes/WorkspacePane'
 import { AboutPane } from './panes/AboutPane'
 import { ChannelsPane } from './panes/ChannelsPane'
+import { SchedulePane } from './panes/SchedulePane'
 
 type TabId =
   | 'general'
@@ -46,6 +48,7 @@ type TabId =
   | 'search'
   | 'memory'
   | 'channels'
+  | 'schedules'
   | 'ui'
   | 'about'
 
@@ -84,6 +87,15 @@ const TABS: Tab[] = [
       { id: 'telegram', label: 'Telegram' },
       { id: 'qq', label: 'QQ' },
       { id: 'discord', label: 'Discord' }
+    ]
+  },
+  {
+    id: 'schedules',
+    label: 'Schedules',
+    icon: Clock,
+    subTabs: [
+      { id: 'list', label: 'Schedules' },
+      { id: 'history', label: 'History' }
     ]
   },
   { id: 'ui', label: 'User Interface', icon: Monitor },
@@ -292,6 +304,13 @@ function SettingsApp(): React.ReactNode {
       body = <MemoryPane draft={draft} onChange={setDraft} />
     } else if (activeTab === 'channels') {
       body = <ChannelsPane activeSubTab={activeSubTab['channels'] ?? 'general'} />
+    } else if (activeTab === 'schedules') {
+      body = (
+        <SchedulePane
+          activeSubTab={activeSubTab['schedules'] ?? 'list'}
+          onNavigateToTab={(tab) => setActiveTab(tab as TabId)}
+        />
+      )
     } else if (activeTab === 'ui') {
       body = <UIPane draft={draft} onChange={setDraft} />
     }

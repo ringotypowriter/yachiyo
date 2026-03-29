@@ -9,6 +9,7 @@ import type {
   ChatAccepted,
   CompactThreadAccepted,
   CompactThreadInput,
+  CreateScheduleInput,
   EditMessageInput,
   FileMentionCandidate,
   GetMemoryTermDocumentInput,
@@ -20,6 +21,8 @@ import type {
   RetryInput,
   SaveThreadInput,
   SaveThreadResult,
+  ScheduleRecord,
+  ScheduleRunRecord,
   SearchWorkspaceFilesInput,
   SendChatInput,
   SettingsConfig,
@@ -38,6 +41,7 @@ import type {
   ToolPreferencesInput,
   UpdateChannelGroupInput,
   UpdateChannelUserInput,
+  UpdateScheduleInput,
   UserDocument,
   SoulDocument as ProtocolSoulDocument,
   WebSearchBrowserImportSource,
@@ -48,6 +52,7 @@ import {
   resolveYachiyoTempWorkspaceRoot,
   resolveYachiyoWebSearchBrowserSessionPath
 } from '../config/paths.ts'
+import { ScheduleDomain } from './domain/scheduleDomain.ts'
 import { createTtlReaper, type TtlReaper } from './domain/ttlReaper.ts'
 import { createAuxiliaryGenerationService } from '../runtime/auxiliaryGeneration.ts'
 import { searchWorkspaceFileMentionCandidates } from '../runtime/fileMentions.ts'
@@ -151,6 +156,7 @@ export class YachiyoServer {
   private readonly readSoulDocumentFile: () => Promise<SoulDocument | null>
   private readonly addSoulTraitFile: (trait: string) => Promise<SoulDocument | null>
   private readonly removeSoulTraitFile: (trait: string) => Promise<SoulDocument | null>
+  private readonly scheduleDomain: ScheduleDomain
   private readonly ttlReaper: TtlReaper
 
   private static logBrowserSearchDiagnostic(event: BrowserSearchDiagnosticEvent): void {
@@ -293,6 +299,12 @@ export class YachiyoServer {
       loadThreadMessages: (threadId) => this.storage.listThreadMessages(threadId),
       isThreadRunning: (threadId) => this.runDomain.hasActiveThread(threadId),
       auxiliaryGeneration
+    })
+
+    this.scheduleDomain = new ScheduleDomain({
+      storage: this.storage,
+      createId: this.createId,
+      timestamp: this.timestamp.bind(this)
     })
 
     this.ttlReaper = createTtlReaper({
@@ -793,6 +805,56 @@ export class YachiyoServer {
     if (latest) {
       this.storage.updateMessage({ ...latest, visibleReply: input.visibleReply })
     }
+  }
+
+  /** Expose storage for schedule service (and future internal callers). */
+  getStorage(): import('../storage/storage.ts').YachiyoStorage {
+    return this.storage
+  }
+
+  /** Generate a new unique ID. */
+  generateId(): string {
+    return this.createId()
+  }
+
+  // ---------------------------------------------------------------------------
+  // Schedules
+  // ---------------------------------------------------------------------------
+
+  listSchedules(): ScheduleRecord[] {
+    return this.scheduleDomain.listSchedules()
+  }
+
+  getSchedule(id: string): ScheduleRecord {
+    return this.scheduleDomain.getSchedule(id)
+  }
+
+  createSchedule(input: CreateScheduleInput): ScheduleRecord {
+    return this.scheduleDomain.createSchedule(input)
+  }
+
+  updateSchedule(input: UpdateScheduleInput): ScheduleRecord {
+    return this.scheduleDomain.updateSchedule(input)
+  }
+
+  deleteSchedule(id: string): void {
+    this.scheduleDomain.deleteSchedule(id)
+  }
+
+  enableSchedule(id: string): boolean {
+    return this.scheduleDomain.enableSchedule(id)
+  }
+
+  disableSchedule(id: string): ScheduleRecord {
+    return this.scheduleDomain.disableSchedule(id)
+  }
+
+  listScheduleRuns(scheduleId: string, limit?: number): ScheduleRunRecord[] {
+    return this.scheduleDomain.listScheduleRuns(scheduleId, limit)
+  }
+
+  listRecentScheduleRuns(limit?: number): ScheduleRunRecord[] {
+    return this.scheduleDomain.listRecentScheduleRuns(limit)
   }
 
   private requireThread(threadId: string): ThreadRecord {

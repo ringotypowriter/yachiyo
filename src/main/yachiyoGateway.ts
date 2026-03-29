@@ -4,6 +4,7 @@ import { spawn } from 'child_process'
 import type {
   ChannelsConfig,
   CompactThreadInput,
+  CreateScheduleInput,
   EditMessageInput,
   GetMemoryTermDocumentInput,
   SearchWorkspaceFilesInput,
@@ -22,13 +23,18 @@ import type {
   ToolPreferencesInput,
   UpdateChannelGroupInput,
   UpdateChannelUserInput,
+  UpdateScheduleInput,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
 import {
   createSqliteYachiyoServer,
   type YachiyoServer
 } from './yachiyo-server/app/YachiyoServer.ts'
-import { resolveYachiyoDbPath, resolveYachiyoSettingsPath } from './yachiyo-server/config/paths.ts'
+import {
+  resolveYachiyoDbPath,
+  resolveYachiyoSettingsPath,
+  resolveYachiyoTempWorkspaceRoot
+} from './yachiyo-server/config/paths.ts'
 import { openThreadWorkspace } from './openThreadWorkspace.ts'
 import { discoverApps } from './appDiscovery.ts'
 import {
@@ -40,6 +46,10 @@ import {
   createDiscordService,
   type DiscordService
 } from './yachiyo-server/channels/discordService.ts'
+import {
+  createScheduleService,
+  type ScheduleService
+} from './yachiyo-server/services/scheduleService.ts'
 
 const IPC_CHANNELS = {
   showNotification: 'yachiyo:show-notification',
@@ -103,13 +113,22 @@ const IPC_CHANNELS = {
   getChannelsConfig: 'yachiyo:get-channels-config',
   saveChannelsConfig: 'yachiyo:save-channels-config',
   listChannelGroups: 'yachiyo:list-channel-groups',
-  updateChannelGroup: 'yachiyo:update-channel-group'
+  updateChannelGroup: 'yachiyo:update-channel-group',
+  listSchedules: 'yachiyo:list-schedules',
+  createSchedule: 'yachiyo:create-schedule',
+  updateSchedule: 'yachiyo:update-schedule',
+  deleteSchedule: 'yachiyo:delete-schedule',
+  enableSchedule: 'yachiyo:enable-schedule',
+  disableSchedule: 'yachiyo:disable-schedule',
+  listScheduleRuns: 'yachiyo:list-schedule-runs',
+  listRecentScheduleRuns: 'yachiyo:list-recent-schedule-runs'
 } as const
 
 let server: YachiyoServer | null = null
 let telegramService: TelegramService | null = null
 let qqService: QQService | null = null
 let discordService: DiscordService | null = null
+let scheduleService: ScheduleService | null = null
 let fatalRunRecoveryRegistered = false
 
 async function applyTelegramConfig(cfg: ChannelsConfig): Promise<void> {
@@ -284,6 +303,24 @@ export function registerYachiyoGateway(): YachiyoServer {
   void applyTelegramConfig(channelsConfig)
   void applyQQConfig(channelsConfig)
   void applyDiscordConfig(channelsConfig)
+
+  // Start schedule service
+  scheduleService?.stop()
+  scheduleService = createScheduleService({
+    server: {
+      createThread: (input) => server!.createThread(input),
+      setThreadModelOverride: (input) => server!.setThreadModelOverride(input),
+      setThreadIcon: (input) => server!.setThreadIcon(input),
+      sendChat: (input) => server!.sendChat(input as never),
+      archiveThread: (input) => server!.archiveThread(input),
+      subscribe: (listener) => server!.subscribe(listener)
+    },
+    storage: server.getStorage(),
+    createId: () => server!.generateId(),
+    timestamp: () => new Date().toISOString(),
+    tempWorkspaceDir: resolveYachiyoTempWorkspaceRoot()
+  })
+  scheduleService.start()
 
   ipcMain.removeAllListeners(IPC_CHANNELS.showNotification)
   ipcMain.on(IPC_CHANNELS.showNotification, (_event, input: { title: string; body?: string }) => {
@@ -461,6 +498,39 @@ export function registerYachiyoGateway(): YachiyoServer {
     await applyDiscordConfig(saved)
     return saved
   })
+  // Schedule CRUD
+  handle(IPC_CHANNELS.listSchedules, () => server!.listSchedules())
+  handle(IPC_CHANNELS.createSchedule, (input: CreateScheduleInput) => {
+    const schedule = server!.createSchedule(input)
+    scheduleService?.reload()
+    return schedule
+  })
+  handle(IPC_CHANNELS.updateSchedule, (input: UpdateScheduleInput) => {
+    const schedule = server!.updateSchedule(input)
+    scheduleService?.reload()
+    return schedule
+  })
+  handle(IPC_CHANNELS.deleteSchedule, (input: { id: string }) => {
+    server!.deleteSchedule(input.id)
+    scheduleService?.reload()
+  })
+  handle(IPC_CHANNELS.enableSchedule, (input: { id: string }) => {
+    const result = server!.enableSchedule(input.id)
+    scheduleService?.reload()
+    return result
+  })
+  handle(IPC_CHANNELS.disableSchedule, (input: { id: string }) => {
+    const result = server!.disableSchedule(input.id)
+    scheduleService?.reload()
+    return result
+  })
+  handle(IPC_CHANNELS.listScheduleRuns, (input: { scheduleId: string; limit?: number }) =>
+    server!.listScheduleRuns(input.scheduleId, input.limit)
+  )
+  handle(IPC_CHANNELS.listRecentScheduleRuns, (input?: { limit?: number }) =>
+    server!.listRecentScheduleRuns(input?.limit)
+  )
+
   handle(IPC_CHANNELS.readClipboardFilePaths, async () => {
     const { clipboard } = await import('electron')
     const { readFile } = await import('node:fs/promises')

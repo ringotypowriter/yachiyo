@@ -683,6 +683,38 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
     saveImageAltText(imageHash, altText) {
       imageAltTexts.set(imageHash, { imageHash, altText })
+    },
+
+    // Schedules — stub implementations for in-memory storage (used in tests)
+    listSchedules() {
+      return []
+    },
+    getSchedule() {
+      return undefined
+    },
+    createSchedule() {
+      // no-op for in-memory stub
+    },
+    updateSchedule() {
+      // no-op for in-memory stub
+    },
+    deleteSchedule() {
+      // no-op for in-memory stub
+    },
+    createScheduleRun() {
+      // no-op for in-memory stub
+    },
+    completeScheduleRun() {
+      // no-op for in-memory stub
+    },
+    listScheduleRuns() {
+      return []
+    },
+    listRecentScheduleRuns() {
+      return []
+    },
+    recoverInterruptedScheduleRuns() {
+      // no-op for in-memory stub
     }
   }
 }

@@ -286,6 +286,7 @@ export class YachiyoServerRunDomain {
         enabledTools,
         enabledSkillNames,
         channelHint: input.channelHint,
+        extraTools: input.extraTools as import('ai').ToolSet | undefined,
         images: enrichedImages,
         attachments: fileAttachments,
         messageId,
@@ -525,6 +526,7 @@ export class YachiyoServerRunDomain {
     enabledTools: ToolCallName[]
     enabledSkillNames?: string[]
     channelHint?: string
+    extraTools?: import('ai').ToolSet
     images: MessageRecord['images']
     attachments: MessageFileAttachment[]
     messageId: string
@@ -599,6 +601,7 @@ export class YachiyoServerRunDomain {
       enabledTools: input.enabledTools,
       enabledSkillNames: input.enabledSkillNames,
       channelHint: input.channelHint,
+      extraTools: input.extraTools,
       runId: accepted.runId,
       thread: accepted.thread,
       requestMessageId: userMessage.id,
@@ -789,6 +792,7 @@ export class YachiyoServerRunDomain {
     enabledTools: ToolCallName[]
     enabledSkillNames?: string[]
     channelHint?: string
+    extraTools?: import('ai').ToolSet
     runId: string
     thread: ThreadRecord
     requestMessageId: string
@@ -809,6 +813,7 @@ export class YachiyoServerRunDomain {
       enabledTools: input.enabledTools,
       enabledSkillNames: input.enabledSkillNames,
       channelHint: input.channelHint,
+      extraTools: input.extraTools,
       runId: input.runId,
       thread: input.thread,
       requestMessageId: input.requestMessageId,
@@ -840,6 +845,7 @@ export class YachiyoServerRunDomain {
     enabledTools: ToolCallName[]
     enabledSkillNames?: string[]
     channelHint?: string
+    extraTools?: import('ai').ToolSet
     runId: string
     thread: ThreadRecord
     requestMessageId: string
@@ -968,6 +974,7 @@ export class YachiyoServerRunDomain {
             enabledTools: input.enabledTools,
             enabledSkillNames: activeRun.enabledSkillNames ?? input.enabledSkillNames,
             channelHint: activeRun.channelHint ?? input.channelHint,
+            extraTools: input.extraTools,
             previousEnabledTools,
             requestMessageId: currentRequestMessageId,
             runId: input.runId,

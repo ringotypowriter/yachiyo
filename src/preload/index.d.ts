@@ -7,6 +7,7 @@ import type {
   ChatAccepted,
   CompactThreadAccepted,
   CompactThreadInput,
+  CreateScheduleInput,
   EditMessageInput,
   GetMemoryTermDocumentInput,
   FileMentionCandidate,
@@ -18,6 +19,8 @@ import type {
   RetryAccepted,
   SaveThreadInput,
   SaveThreadResult,
+  ScheduleRecord,
+  ScheduleRunRecord,
   SearchWorkspaceFilesInput,
   SettingsConfig,
   SendChatInput,
@@ -30,6 +33,7 @@ import type {
   MemoryTermDocument,
   UpdateChannelGroupInput,
   UpdateChannelUserInput,
+  UpdateScheduleInput,
   UserDocument,
   SoulDocument,
   ThreadSnapshot,
@@ -45,6 +49,8 @@ declare global {
     electron: ElectronAPI
     api: {
       openSettings: () => void
+      navigateToArchivedThread: (threadId: string) => void
+      onNavigateToArchivedThread: (listener: (threadId: string) => void) => () => void
       setVibrancy: (enabled: boolean) => void
       appUpdate: {
         getStatus: () => Promise<{ state: string; version?: string; error?: string }>
@@ -138,6 +144,20 @@ declare global {
         updateChannelGroup: (input: UpdateChannelGroupInput) => Promise<ChannelGroupRecord>
         getChannelsConfig: () => Promise<ChannelsConfig>
         saveChannelsConfig: (input: ChannelsConfig) => Promise<ChannelsConfig>
+
+        // Schedules
+        listSchedules: () => Promise<ScheduleRecord[]>
+        createSchedule: (input: CreateScheduleInput) => Promise<ScheduleRecord>
+        updateSchedule: (input: UpdateScheduleInput) => Promise<ScheduleRecord>
+        deleteSchedule: (input: { id: string }) => Promise<void>
+        enableSchedule: (input: { id: string }) => Promise<boolean>
+        disableSchedule: (input: { id: string }) => Promise<ScheduleRecord>
+        listScheduleRuns: (input: {
+          scheduleId: string
+          limit?: number
+        }) => Promise<ScheduleRunRecord[]>
+        listRecentScheduleRuns: (input?: { limit?: number }) => Promise<ScheduleRunRecord[]>
+
         showNotification: (input: { title: string; body?: string }) => void
         beep: () => void
         subscribe: (listener: (event: YachiyoServerEvent) => void) => () => void

@@ -9,9 +9,13 @@ function copyDrizzleMigrations(): { name: string; closeBundle: () => void } {
     name: 'copy-drizzle-migrations',
     closeBundle() {
       const src = resolve('src/main/yachiyo-server/storage/sqlite/drizzle')
-      const dest = resolve('out/main/drizzle')
-      mkdirSync(dest, { recursive: true })
-      cpSync(src, dest, { recursive: true })
+      // Copy to both out/main/drizzle (for the main entry) and
+      // out/main/chunks/drizzle (for code-split chunks that resolve
+      // './drizzle' relative to __filename inside the chunks/ directory).
+      for (const dest of [resolve('out/main/drizzle'), resolve('out/main/chunks/drizzle')]) {
+        mkdirSync(dest, { recursive: true })
+        cpSync(src, dest, { recursive: true })
+      }
     }
   }
 }
