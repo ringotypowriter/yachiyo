@@ -49,8 +49,7 @@ declare global {
       appUpdate: {
         getStatus: () => Promise<{ state: string; version?: string; error?: string }>
         check: () => void
-        download: () => void
-        install: () => void
+        openRelease: () => void
         onStatus: (
           listener: (status: { state: string; version?: string; error?: string }) => void
         ) => () => void

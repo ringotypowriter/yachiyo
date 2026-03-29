@@ -131,36 +131,38 @@ export function AboutPane(): React.ReactNode {
           Apache-2.0 License
         </div>
 
-        {/* Update indicator — z-20 to stay above the footer overlay */}
-        {updateState.state === 'available' && (
+        {/* Check for updates */}
+        {(updateState.state === 'idle' || updateState.state === 'error') && (
           <button
             type="button"
-            onClick={() => window.api.appUpdate.download()}
+            onClick={() => window.api.appUpdate.check()}
             className="mt-4 text-xs font-medium px-3 py-1.5 rounded-full"
             style={{
               position: 'relative',
               zIndex: 20,
-              background: alpha('accent', 0.12),
-              color: theme.text.accent,
+              background: alpha('ink', 0.05),
+              color: theme.text.secondary,
               border: 'none',
               cursor: 'pointer'
             }}
           >
-            v{updateState.version} available — download
+            {updateState.state === 'error' ? 'Retry update check' : 'Check for updates'}
           </button>
         )}
-        {updateState.state === 'downloading' && (
+        {updateState.state === 'checking' && (
           <div
             className="mt-4 text-xs"
             style={{ position: 'relative', zIndex: 20, color: theme.text.muted }}
           >
-            Downloading v{updateState.version}...
+            Checking for updates...
           </div>
         )}
-        {updateState.state === 'ready' && (
+
+        {/* Update available — open release page */}
+        {updateState.state === 'available' && (
           <button
             type="button"
-            onClick={() => window.api.appUpdate.install()}
+            onClick={() => window.api.appUpdate.openRelease()}
             className="mt-4 text-xs font-medium px-3 py-1.5 rounded-full"
             style={{
               position: 'relative',
@@ -171,7 +173,7 @@ export function AboutPane(): React.ReactNode {
               cursor: 'pointer'
             }}
           >
-            v{updateState.version} ready — restart to update
+            v{updateState.version} available — view release
           </button>
         )}
       </div>
