@@ -33,12 +33,12 @@ yachiyo config set chat.activeRunEnterBehavior '"enter-queues-follow-up"'
 
 ## Common Paths
 
-| Path                        | Type     | Description                                          |
-| --------------------------- | -------- | ---------------------------------------------------- |
-| `defaultModel.providerName` | `string` | Active provider name for new chats                   |
-| `defaultModel.model`        | `string` | Active model for new chats                           |
+| Path                        | Type     | Description                                            |
+| --------------------------- | -------- | ------------------------------------------------------ |
+| `defaultModel.providerName` | `string` | Active provider name for new chats                     |
+| `defaultModel.model`        | `string` | Active model for new chats                             |
 | `toolModel.mode`            | `string` | Tool model mode: `"default"`, `"custom"`, `"disabled"` |
-| `skills.enabled`            | `array`  | List of enabled skill names                          |
-| `providers.N.name`          | `string` | Name of the N-th provider (zero-indexed)             |
+| `skills.enabled`            | `array`  | List of enabled skill names                            |
+| `providers.N.name`          | `string` | Name of the N-th provider (zero-indexed)               |
 
 > To change the default provider and model, prefer `yachiyo provider set-default <name> [--model <model>]` over editing these paths directly. To discover valid model names, run `yachiyo provider models`.

@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
+import TOML from 'smol-toml'
+
 import {
   DEFAULT_WEB_SEARCH_PROVIDER,
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
@@ -505,570 +507,164 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
   }
 }
 
-function stripTomlComment(line: string): string {
-  let inString = false
-  let escaped = false
+/**
+ * Quote a TOML bare key only when it contains characters that are not
+ * allowed in a bare key (A-Za-z0-9, `-`, `_`).  Keys like `foo.bar`
+ * must be quoted to avoid being interpreted as dotted paths.
+ */
+function tomlKey(key: string): string {
+  return /^[A-Za-z0-9_-]+$/u.test(key) ? key : JSON.stringify(key)
+}
 
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index]
-
-    if (char === '"' && !escaped) {
-      inString = !inString
-    } else if (char === '#' && !inString) {
-      return line.slice(0, index)
+/**
+ * Fix legacy config files that serialized the `env` field as raw JSON
+ * (`env = {"KEY":"value"}`) instead of a TOML inline table.
+ * smol-toml rejects JSON objects, so we rewrite them to TOML syntax first.
+ *
+ * The regex allows an optional trailing TOML comment (`# ...`) after the
+ * JSON object, since the old hand-written parser stripped comments before
+ * value parsing.
+ */
+function fixLegacyJsonEnv(raw: string): string {
+  return raw.replace(
+    /^(\s*env\s*=\s*)(\{.*\})\s*(?:#.*)?$/gm,
+    (_match, prefix: string, rest: string) => {
+      let obj: Record<string, unknown>
+      try {
+        obj = JSON.parse(rest) as Record<string, unknown>
+      } catch {
+        return `${prefix}${rest}`
+      }
+      const pairs = Object.entries(obj)
+        .filter(([, v]) => typeof v === 'string')
+        .map(([k, v]) => `${tomlKey(k)} = ${JSON.stringify(v)}`)
+        .join(', ')
+      return `${prefix}{ ${pairs} }`
     }
-
-    escaped = char === '\\' && !escaped
-  }
-
-  return line
-}
-
-function parseTomlString(value: string): string {
-  return JSON.parse(value)
-}
-
-function parseTomlStringArray(value: string): string[] {
-  const parsed = JSON.parse(value)
-  return Array.isArray(parsed)
-    ? parsed.map((item) => normalizeString(item, '')).filter(Boolean)
-    : []
-}
-
-function parseTomlValue(value: string): unknown {
-  const trimmed = value.trim()
-  if (trimmed === 'true') {
-    return true
-  }
-
-  if (trimmed === 'false') {
-    return false
-  }
-
-  return trimmed.startsWith('[') ? parseTomlStringArray(trimmed) : parseTomlString(trimmed)
+  )
 }
 
 export function parseSettingsToml(raw: string): SettingsConfig {
-  const root: Record<string, unknown> = {}
-  const providers: Array<Record<string, unknown>> = []
-  const prompts: Array<Record<string, unknown>> = []
-  const subagentProfiles: Array<Record<string, unknown>> = []
-  const essentials: Array<Record<string, unknown>> = []
-  let currentProvider: Record<string, unknown> | null = null
-  let currentPrompt: Record<string, unknown> | null = null
-  let currentSubagentProfile: Record<string, unknown> | null = null
-  let currentEssential: Record<string, unknown> | null = null
-  let section:
-    | 'root'
-    | 'general'
-    | 'chat'
-    | 'workspace'
-    | 'skills'
-    | 'toolModel'
-    | 'defaultModel'
-    | 'memory'
-    | 'webSearch'
-    | 'webSearch.browserSession'
-    | 'webSearch.exa'
-    | 'provider'
-    | 'provider.modelList'
-    | 'prompt'
-    | 'subagentProfile'
-    | 'essential'
-    | 'essential.modelOverride' = 'root'
-
-  for (const rawLine of raw.split(/\r?\n/u)) {
-    const line = stripTomlComment(rawLine).trim()
-    if (!line) continue
-
-    if (line === '[general]') {
-      root['general'] = root['general'] ?? {}
-      section = 'general'
-      continue
-    }
-
-    if (line === '[chat]') {
-      root['chat'] = root['chat'] ?? {}
-      section = 'chat'
-      continue
-    }
-
-    if (line === '[toolModel]') {
-      root['toolModel'] = root['toolModel'] ?? {}
-      section = 'toolModel'
-      continue
-    }
-
-    if (line === '[defaultModel]') {
-      root['defaultModel'] = root['defaultModel'] ?? {}
-      section = 'defaultModel'
-      continue
-    }
-
-    if (line === '[skills]') {
-      root['skills'] = root['skills'] ?? {}
-      section = 'skills'
-      continue
-    }
-
-    if (line === '[workspace]') {
-      root['workspace'] = root['workspace'] ?? {}
-      section = 'workspace'
-      continue
-    }
-
-    if (line === '[memory]') {
-      root['memory'] = root['memory'] ?? {}
-      section = 'memory'
-      continue
-    }
-
-    if (line === '[webSearch]') {
-      root['webSearch'] = root['webSearch'] ?? {}
-      section = 'webSearch'
-      continue
-    }
-
-    if (line === '[webSearch.browserSession]') {
-      const webSearch =
-        root['webSearch'] && typeof root['webSearch'] === 'object'
-          ? (root['webSearch'] as Record<string, unknown>)
-          : null
-      if (!webSearch) {
-        throw new Error('Encountered [webSearch.browserSession] before [webSearch].')
-      }
-      webSearch['browserSession'] = webSearch['browserSession'] ?? {}
-      section = 'webSearch.browserSession'
-      continue
-    }
-
-    if (line === '[webSearch.exa]') {
-      const webSearch =
-        root['webSearch'] && typeof root['webSearch'] === 'object'
-          ? (root['webSearch'] as Record<string, unknown>)
-          : null
-      if (!webSearch) {
-        throw new Error('Encountered [webSearch.exa] before [webSearch].')
-      }
-      webSearch['exa'] = webSearch['exa'] ?? {}
-      section = 'webSearch.exa'
-      continue
-    }
-
-    if (line === '[[providers]]') {
-      currentProvider = {}
-      providers.push(currentProvider)
-      section = 'provider'
-      continue
-    }
-
-    if (line === '[providers.modelList]') {
-      if (!currentProvider) {
-        throw new Error('Encountered [providers.modelList] before [[providers]].')
-      }
-      currentProvider['modelList'] = currentProvider['modelList'] ?? {}
-      section = 'provider.modelList'
-      continue
-    }
-
-    if (line === '[[prompts]]') {
-      currentPrompt = {}
-      prompts.push(currentPrompt)
-      section = 'prompt'
-      continue
-    }
-
-    if (line === '[[subagentProfiles]]') {
-      currentSubagentProfile = {}
-      subagentProfiles.push(currentSubagentProfile)
-      section = 'subagentProfile'
-      continue
-    }
-
-    if (line === '[[essentials]]') {
-      currentEssential = {}
-      essentials.push(currentEssential)
-      section = 'essential'
-      continue
-    }
-
-    if (line === '[essentials.modelOverride]') {
-      if (!currentEssential) {
-        throw new Error('Encountered [essentials.modelOverride] before [[essentials]].')
-      }
-      currentEssential['modelOverride'] = currentEssential['modelOverride'] ?? {}
-      section = 'essential.modelOverride'
-      continue
-    }
-
-    const match = /^([A-Za-z][A-Za-z0-9]*)\s*=\s*(.+)$/u.exec(line)
-    if (!match) {
-      throw new Error(`Unsupported TOML line: ${rawLine}`)
-    }
-
-    const [, key, rawValue] = match
-    const value = parseTomlValue(rawValue.trim())
-
-    if (section === 'root') {
-      root[key] = value
-      continue
-    }
-
-    if (section === 'general') {
-      const general =
-        root['general'] && typeof root['general'] === 'object'
-          ? (root['general'] as Record<string, unknown>)
-          : null
-
-      if (!general) {
-        throw new Error(`General settings are not initialized for ${key}.`)
-      }
-
-      general[key] = value
-      continue
-    }
-
-    if (section === 'chat') {
-      const chat =
-        root['chat'] && typeof root['chat'] === 'object'
-          ? (root['chat'] as Record<string, unknown>)
-          : null
-
-      if (!chat) {
-        throw new Error(`Chat settings are not initialized for ${key}.`)
-      }
-
-      chat[key] = value
-      continue
-    }
-
-    if (section === 'toolModel') {
-      const toolModel =
-        root['toolModel'] && typeof root['toolModel'] === 'object'
-          ? (root['toolModel'] as Record<string, unknown>)
-          : null
-
-      if (!toolModel) {
-        throw new Error(`Tool model settings are not initialized for ${key}.`)
-      }
-
-      toolModel[key] = value
-      continue
-    }
-
-    if (section === 'defaultModel') {
-      const defaultModel =
-        root['defaultModel'] && typeof root['defaultModel'] === 'object'
-          ? (root['defaultModel'] as Record<string, unknown>)
-          : null
-
-      if (!defaultModel) {
-        throw new Error(`Default model settings are not initialized for ${key}.`)
-      }
-
-      defaultModel[key] = value
-      continue
-    }
-
-    if (section === 'skills') {
-      const skills =
-        root['skills'] && typeof root['skills'] === 'object'
-          ? (root['skills'] as Record<string, unknown>)
-          : null
-
-      if (!skills) {
-        throw new Error(`Skill settings are not initialized for ${key}.`)
-      }
-
-      skills[key] = value
-      continue
-    }
-
-    if (section === 'workspace') {
-      const workspace =
-        root['workspace'] && typeof root['workspace'] === 'object'
-          ? (root['workspace'] as Record<string, unknown>)
-          : null
-
-      if (!workspace) {
-        throw new Error(`Workspace settings are not initialized for ${key}.`)
-      }
-
-      workspace[key] = value
-      continue
-    }
-
-    if (section === 'memory') {
-      const memory =
-        root['memory'] && typeof root['memory'] === 'object'
-          ? (root['memory'] as Record<string, unknown>)
-          : null
-
-      if (!memory) {
-        throw new Error(`Memory settings are not initialized for ${key}.`)
-      }
-
-      memory[key] = value
-      continue
-    }
-
-    if (section === 'webSearch') {
-      const webSearch =
-        root['webSearch'] && typeof root['webSearch'] === 'object'
-          ? (root['webSearch'] as Record<string, unknown>)
-          : null
-      if (!webSearch) {
-        throw new Error(`Web search settings are not initialized for ${key}.`)
-      }
-      webSearch[key] = value
-      continue
-    }
-
-    if (section === 'webSearch.browserSession' || section === 'webSearch.exa') {
-      const webSearch =
-        root['webSearch'] && typeof root['webSearch'] === 'object'
-          ? (root['webSearch'] as Record<string, unknown>)
-          : null
-      const nested =
-        webSearch &&
-        typeof webSearch[section === 'webSearch.browserSession' ? 'browserSession' : 'exa'] ===
-          'object'
-          ? (webSearch[section === 'webSearch.browserSession' ? 'browserSession' : 'exa'] as Record<
-              string,
-              unknown
-            >)
-          : null
-
-      if (!nested) {
-        throw new Error(`Web search nested settings are not initialized for ${key}.`)
-      }
-
-      nested[key] = value
-      continue
-    }
-
-    if (section === 'provider') {
-      if (!currentProvider) {
-        throw new Error(`Provider entry is not initialized for ${key}.`)
-      }
-      currentProvider[key] = value
-      continue
-    }
-
-    if (section === 'prompt') {
-      if (!currentPrompt) {
-        throw new Error(`Prompt entry is not initialized for ${key}.`)
-      }
-      currentPrompt[key] = value
-      continue
-    }
-
-    if (section === 'subagentProfile') {
-      if (!currentSubagentProfile) {
-        throw new Error(`SubagentProfile entry is not initialized for ${key}.`)
-      }
-      currentSubagentProfile[key] = value
-      continue
-    }
-
-    if (section === 'essential') {
-      if (!currentEssential) {
-        throw new Error(`Essential entry is not initialized for ${key}.`)
-      }
-      currentEssential[key] = value
-      continue
-    }
-
-    if (section === 'essential.modelOverride') {
-      if (!currentEssential) {
-        throw new Error(`Essential entry is not initialized for ${key}.`)
-      }
-      const mo =
-        currentEssential['modelOverride'] && typeof currentEssential['modelOverride'] === 'object'
-          ? (currentEssential['modelOverride'] as Record<string, unknown>)
-          : null
-      if (!mo) {
-        throw new Error(`Essential model override is not initialized for ${key}.`)
-      }
-      mo[key] = value
-      continue
-    }
-
-    const modelList =
-      currentProvider && typeof currentProvider['modelList'] === 'object'
-        ? (currentProvider['modelList'] as Record<string, unknown>)
-        : null
-
-    if (!modelList) {
-      throw new Error(`Provider model list is not initialized for ${key}.`)
-    }
-
-    modelList[key] = value
-  }
-
-  return normalizeSettingsConfig({
-    ...root,
-    providers,
-    prompts,
-    subagentProfiles,
-    essentials
-  })
-}
-
-function stringifyTomlString(value: string): string {
-  return JSON.stringify(value)
-}
-
-function stringifyTomlStringArray(values: string[]): string {
-  return JSON.stringify(values)
+  const doc = TOML.parse(fixLegacyJsonEnv(raw))
+  return normalizeSettingsConfig(doc)
 }
 
 export function stringifySettingsToml(config: SettingsConfig): string {
   const normalized = normalizeSettingsConfig(config)
   const toolModel = normalizeToolModelConfig(normalized.toolModel)
   const memory = normalizeMemoryConfig(normalized.memory)
-  const lines: string[] = [
-    `enabledTools = ${stringifyTomlStringArray(
-      normalizeUserEnabledTools(normalized.enabledTools, DEFAULT_SETTINGS_CONFIG.enabledTools)
-    )}`,
-    '',
-    '[general]',
-    `sidebarVisibility = ${stringifyTomlString(
-      normalizeSidebarVisibility(
-        normalized.general?.sidebarVisibility,
-        DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility
-      )
-    )}`,
-    `notifyRunCompleted = ${normalized.general?.notifyRunCompleted !== false ? 'true' : 'false'}`,
-    `notifyCodingTaskStarted = ${normalized.general?.notifyCodingTaskStarted !== false ? 'true' : 'false'}`,
-    `notifyCodingTaskFinished = ${normalized.general?.notifyCodingTaskFinished !== false ? 'true' : 'false'}`,
-    ...(normalized.general?.uiFontSize != null
-      ? [`uiFontSize = ${normalized.general.uiFontSize}`]
-      : []),
-    ...(normalized.general?.chatFontSize != null
-      ? [`chatFontSize = ${normalized.general.chatFontSize}`]
-      : []),
-    '',
-    '[chat]',
-    `activeRunEnterBehavior = ${stringifyTomlString(
-      normalizeActiveRunEnterBehavior(
+
+  const general: Record<string, unknown> = {
+    sidebarVisibility: normalizeSidebarVisibility(
+      normalized.general?.sidebarVisibility,
+      DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility
+    ),
+    notifyRunCompleted: normalized.general?.notifyRunCompleted !== false,
+    notifyCodingTaskStarted: normalized.general?.notifyCodingTaskStarted !== false,
+    notifyCodingTaskFinished: normalized.general?.notifyCodingTaskFinished !== false
+  }
+  if (normalized.general?.uiFontSize != null) general.uiFontSize = normalized.general.uiFontSize
+  if (normalized.general?.chatFontSize != null)
+    general.chatFontSize = normalized.general.chatFontSize
+
+  const doc: Record<string, unknown> = {
+    enabledTools: normalizeUserEnabledTools(
+      normalized.enabledTools,
+      DEFAULT_SETTINGS_CONFIG.enabledTools
+    ),
+    general,
+    chat: {
+      activeRunEnterBehavior: normalizeActiveRunEnterBehavior(
         normalized.chat?.activeRunEnterBehavior,
         DEFAULT_SETTINGS_CONFIG.chat?.activeRunEnterBehavior
       )
-    )}`,
-    '',
-    '[workspace]',
-    `savedPaths = ${stringifyTomlStringArray(normalized.workspace?.savedPaths ?? [])}`,
-    `editorApp = ${stringifyTomlString(normalized.workspace?.editorApp ?? '')}`,
-    `terminalApp = ${stringifyTomlString(normalized.workspace?.terminalApp ?? '')}`,
-    '',
-    '[skills]',
-    `enabled = ${stringifyTomlStringArray(normalized.skills?.enabled ?? [])}`,
-    '',
-    '[toolModel]',
-    `mode = ${stringifyTomlString(toolModel.mode ?? DEFAULT_TOOL_MODEL_MODE)}`,
-    `providerId = ${stringifyTomlString(toolModel.providerId ?? '')}`,
-    `providerName = ${stringifyTomlString(toolModel.providerName ?? '')}`,
-    `model = ${stringifyTomlString(toolModel.model ?? '')}`,
-    '',
-    '[defaultModel]',
-    `providerName = ${stringifyTomlString(normalized.defaultModel?.providerName ?? '')}`,
-    `model = ${stringifyTomlString(normalized.defaultModel?.model ?? '')}`,
-    '',
-    '[memory]',
-    `enabled = ${memory.enabled ? 'true' : 'false'}`,
-    `provider = ${stringifyTomlString(memory.provider ?? DEFAULT_MEMORY_PROVIDER)}`,
-    `baseUrl = ${stringifyTomlString(memory.baseUrl ?? DEFAULT_MEMORY_BASE_URL)}`,
-    '',
-    '[webSearch]',
-    `defaultProvider = ${stringifyTomlString(
-      normalizeWebSearchProviderId(normalized.webSearch?.defaultProvider)
-    )}`,
-    '',
-    '[webSearch.browserSession]',
-    `sourceBrowser = ${stringifyTomlString(normalized.webSearch?.browserSession?.sourceBrowser ?? '')}`,
-    `sourceProfileName = ${stringifyTomlString(
-      normalized.webSearch?.browserSession?.sourceProfileName ?? ''
-    )}`,
-    `importedAt = ${stringifyTomlString(normalized.webSearch?.browserSession?.importedAt ?? '')}`,
-    `lastImportError = ${stringifyTomlString(
-      normalized.webSearch?.browserSession?.lastImportError ?? ''
-    )}`,
-    '',
-    '[webSearch.exa]',
-    `apiKey = ${stringifyTomlString(normalized.webSearch?.exa?.apiKey ?? '')}`,
-    `baseUrl = ${stringifyTomlString(normalized.webSearch?.exa?.baseUrl ?? '')}`
-  ]
-
-  for (const provider of normalized.providers) {
-    lines.push(
-      '',
-      '[[providers]]',
-      `id = ${stringifyTomlString(ensureProviderId(provider.id))}`,
-      `name = ${stringifyTomlString(provider.name)}`,
-      `type = ${stringifyTomlString(provider.type)}`,
-      `thinkingEnabled = ${provider.thinkingEnabled !== false ? 'true' : 'false'}`,
-      `apiKey = ${stringifyTomlString(provider.apiKey)}`,
-      `baseUrl = ${stringifyTomlString(provider.baseUrl)}`,
-      `project = ${stringifyTomlString(provider.project ?? '')}`,
-      `location = ${stringifyTomlString(provider.location ?? '')}`,
-      `serviceAccountEmail = ${stringifyTomlString(provider.serviceAccountEmail ?? '')}`,
-      `serviceAccountPrivateKey = ${stringifyTomlString(provider.serviceAccountPrivateKey ?? '')}`,
-      '',
-      '[providers.modelList]',
-      `enabled = ${stringifyTomlStringArray(provider.modelList.enabled)}`,
-      `disabled = ${stringifyTomlStringArray(provider.modelList.disabled)}`
-    )
+    },
+    workspace: {
+      savedPaths: normalized.workspace?.savedPaths ?? [],
+      editorApp: normalized.workspace?.editorApp ?? '',
+      terminalApp: normalized.workspace?.terminalApp ?? ''
+    },
+    skills: {
+      enabled: normalized.skills?.enabled ?? []
+    },
+    toolModel: {
+      mode: toolModel.mode ?? DEFAULT_TOOL_MODEL_MODE,
+      providerId: toolModel.providerId ?? '',
+      providerName: toolModel.providerName ?? '',
+      model: toolModel.model ?? ''
+    },
+    defaultModel: {
+      providerName: normalized.defaultModel?.providerName ?? '',
+      model: normalized.defaultModel?.model ?? ''
+    },
+    memory: {
+      enabled: memory.enabled,
+      provider: memory.provider ?? DEFAULT_MEMORY_PROVIDER,
+      baseUrl: memory.baseUrl ?? DEFAULT_MEMORY_BASE_URL
+    },
+    webSearch: {
+      defaultProvider: normalizeWebSearchProviderId(normalized.webSearch?.defaultProvider),
+      browserSession: {
+        sourceBrowser: normalized.webSearch?.browserSession?.sourceBrowser ?? '',
+        sourceProfileName: normalized.webSearch?.browserSession?.sourceProfileName ?? '',
+        importedAt: normalized.webSearch?.browserSession?.importedAt ?? '',
+        lastImportError: normalized.webSearch?.browserSession?.lastImportError ?? ''
+      },
+      exa: {
+        apiKey: normalized.webSearch?.exa?.apiKey ?? '',
+        baseUrl: normalized.webSearch?.exa?.baseUrl ?? ''
+      }
+    },
+    providers: normalized.providers.map((provider) => ({
+      id: ensureProviderId(provider.id),
+      name: provider.name,
+      type: provider.type,
+      thinkingEnabled: provider.thinkingEnabled !== false,
+      apiKey: provider.apiKey,
+      baseUrl: provider.baseUrl,
+      project: provider.project ?? '',
+      location: provider.location ?? '',
+      serviceAccountEmail: provider.serviceAccountEmail ?? '',
+      serviceAccountPrivateKey: provider.serviceAccountPrivateKey ?? '',
+      modelList: {
+        enabled: provider.modelList.enabled,
+        disabled: provider.modelList.disabled
+      }
+    })),
+    prompts: (normalized.prompts ?? []).map((prompt) => ({
+      keycode: prompt.keycode,
+      text: prompt.text
+    })),
+    subagentProfiles: (normalized.subagentProfiles ?? []).map((profile) => ({
+      id: profile.id,
+      name: profile.name,
+      enabled: profile.enabled,
+      description: profile.description,
+      command: profile.command,
+      args: profile.args,
+      env: profile.env
+    })),
+    essentials: (normalized.essentials ?? []).map((essential) => {
+      const entry: Record<string, unknown> = {
+        id: essential.id,
+        icon: essential.icon,
+        iconType: essential.iconType,
+        label: essential.label ?? '',
+        workspacePath: essential.workspacePath ?? '',
+        order: essential.order
+      }
+      if (essential.privacyMode !== undefined) entry.privacyMode = essential.privacyMode
+      if (essential.modelOverride) {
+        entry.modelOverride = {
+          providerName: essential.modelOverride.providerName,
+          model: essential.modelOverride.model
+        }
+      }
+      return entry
+    })
   }
 
-  for (const prompt of normalized.prompts ?? []) {
-    lines.push(
-      '',
-      '[[prompts]]',
-      `keycode = ${stringifyTomlString(prompt.keycode)}`,
-      `text = ${stringifyTomlString(prompt.text)}`
-    )
-  }
-
-  for (const profile of normalized.subagentProfiles ?? []) {
-    lines.push(
-      '',
-      '[[subagentProfiles]]',
-      `id = ${stringifyTomlString(profile.id)}`,
-      `name = ${stringifyTomlString(profile.name)}`,
-      `enabled = ${profile.enabled ? 'true' : 'false'}`,
-      `description = ${stringifyTomlString(profile.description)}`,
-      `command = ${stringifyTomlString(profile.command)}`,
-      `args = ${stringifyTomlStringArray(profile.args)}`,
-      `env = ${JSON.stringify(profile.env)}`
-    )
-  }
-
-  for (const essential of normalized.essentials ?? []) {
-    lines.push(
-      '',
-      '[[essentials]]',
-      `id = ${stringifyTomlString(essential.id)}`,
-      `icon = ${stringifyTomlString(essential.icon)}`,
-      `iconType = ${stringifyTomlString(essential.iconType)}`,
-      `label = ${stringifyTomlString(essential.label ?? '')}`,
-      `workspacePath = ${stringifyTomlString(essential.workspacePath ?? '')}`,
-      ...(essential.privacyMode === undefined
-        ? []
-        : [`privacyMode = ${essential.privacyMode ? 'true' : 'false'}`]),
-      `order = ${essential.order}`
-    )
-    if (essential.modelOverride) {
-      lines.push(
-        '',
-        '[essentials.modelOverride]',
-        `providerName = ${stringifyTomlString(essential.modelOverride.providerName)}`,
-        `model = ${stringifyTomlString(essential.modelOverride.model)}`
-      )
-    }
-  }
-
-  return `${lines.join('\n').trim()}\n`
+  return TOML.stringify(doc)
 }
 
 export function toEffectiveProviderSettings(

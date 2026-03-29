@@ -112,17 +112,17 @@ test('settings store persists multi-provider config as TOML', async () => {
     assert.deepEqual(store.read(), config)
 
     const toml = await readFile(settingsPath, 'utf8')
-    assert.match(toml, /enabledTools = \["read","bash"\]/)
+    assert.match(toml, /enabledTools = \[.*"read".*"bash".*\]/)
     assert.match(toml, /\[general\]/)
     assert.match(toml, /sidebarVisibility = "collapsed"/)
     assert.match(toml, /activeRunEnterBehavior = "enter-queues-follow-up"/)
     assert.match(toml, /\[workspace\]/)
     assert.match(
       toml,
-      /savedPaths = \["\/Users\/ringo\/projects\/yachiyo","\/Users\/ringo\/projects\/handshake"\]/
+      /savedPaths = \[.*"\/Users\/ringo\/projects\/yachiyo".*"\/Users\/ringo\/projects\/handshake".*\]/
     )
     assert.match(toml, /\[skills\]/)
-    assert.match(toml, /enabled = \["workspace-refactor","release-checklist"\]/)
+    assert.match(toml, /enabled = \[.*"workspace-refactor".*"release-checklist".*\]/)
     assert.match(toml, /\[toolModel\]/)
     assert.match(toml, /mode = "custom"/)
     assert.match(toml, /providerId = "provider-backup"/)
@@ -962,4 +962,121 @@ baseUrl = ""
 
   const config = parseSettingsToml(toml)
   assert.equal(config.defaultModel, undefined)
+})
+
+test('legacy JSON env with braces in values round-trips through parseSettingsToml', () => {
+  const toml = `enabledTools = [ "read", "bash" ]
+
+[general]
+sidebarVisibility = "expanded"
+notifyRunCompleted = true
+notifyCodingTaskStarted = true
+notifyCodingTaskFinished = true
+
+[chat]
+activeRunEnterBehavior = "enter-steers"
+
+[workspace]
+savedPaths = []
+editorApp = ""
+terminalApp = ""
+
+[skills]
+enabled = []
+
+[toolModel]
+mode = "disabled"
+providerId = ""
+providerName = ""
+model = ""
+
+[defaultModel]
+providerName = ""
+model = ""
+
+[memory]
+enabled = false
+provider = "nowledge-mem"
+baseUrl = "http://127.0.0.1:14242"
+
+[webSearch]
+defaultProvider = "google-browser"
+
+[webSearch.browserSession]
+sourceBrowser = ""
+sourceProfileName = ""
+importedAt = ""
+lastImportError = ""
+
+[webSearch.exa]
+apiKey = ""
+baseUrl = ""
+
+[[subagentProfiles]]
+id = "agent-tpl"
+name = "Template Agent"
+enabled = true
+description = "agent with braces in env"
+command = "node"
+args = [ "index.js" ]
+env = {"PROMPT":"Hello {name}, welcome to {place}","EXTRA":"val}ue"}
+`
+
+  const config = parseSettingsToml(toml)
+  const profile = config.subagentProfiles?.find((p) => p.id === 'agent-tpl')
+  assert.ok(profile)
+  assert.equal(profile.env['PROMPT'], 'Hello {name}, welcome to {place}')
+  assert.equal(profile.env['EXTRA'], 'val}ue')
+})
+
+test('legacy JSON env with dotted keys preserves literal key names', () => {
+  const toml = `[[subagentProfiles]]
+id = "dotted"
+name = "Dotted"
+enabled = true
+description = ""
+command = "node"
+args = []
+env = {"app.config.key":"val","NORMAL":"ok"}
+`
+
+  const config = parseSettingsToml(toml)
+  const profile = config.subagentProfiles?.find((p) => p.id === 'dotted')
+  assert.ok(profile)
+  assert.equal(profile.env['app.config.key'], 'val')
+  assert.equal(profile.env['NORMAL'], 'ok')
+})
+
+test('legacy JSON env with trailing TOML comment is parsed correctly', () => {
+  const toml = `[[subagentProfiles]]
+id = "commented"
+name = "Commented"
+enabled = true
+description = ""
+command = "node"
+args = []
+env = {"KEY":"value"} # deployment note
+`
+
+  const config = parseSettingsToml(toml)
+  const profile = config.subagentProfiles?.find((p) => p.id === 'commented')
+  assert.ok(profile)
+  assert.equal(profile.env['KEY'], 'value')
+})
+
+test('legacy JSON env on indented lines is parsed correctly', () => {
+  const toml = `[[subagentProfiles]]
+  id = "indented"
+  name = "Indented"
+  enabled = true
+  description = ""
+  command = "node"
+  args = []
+  env = {"FOO":"bar"}
+`
+
+  const config = parseSettingsToml(toml)
+  const profile = config.subagentProfiles?.find((p) => p.id === 'indented')
+  assert.ok(profile)
+  assert.equal(profile.env['FOO'], 'bar')
 })

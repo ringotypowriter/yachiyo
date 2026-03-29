@@ -22,15 +22,15 @@ The payload must include `name`, `cronExpression`, and `prompt`. All other field
 
 **Payload fields:**
 
-| Field            | Type       | Required | Description                                        |
-| ---------------- | ---------- | -------- | -------------------------------------------------- |
-| `name`           | `string`   | yes      | Human-readable name for the schedule               |
-| `cronExpression` | `string`   | yes      | Standard cron expression (parsed by `cron-parser`) |
-| `prompt`         | `string`   | yes      | The prompt text sent to the assistant on each run  |
-| `workspacePath`  | `string`   | no       | Working directory for the run                      |
+| Field            | Type       | Required | Description                                                                                                             |
+| ---------------- | ---------- | -------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `name`           | `string`   | yes      | Human-readable name for the schedule                                                                                    |
+| `cronExpression` | `string`   | yes      | Standard cron expression (parsed by `cron-parser`)                                                                      |
+| `prompt`         | `string`   | yes      | The prompt text sent to the assistant on each run                                                                       |
+| `workspacePath`  | `string`   | no       | Working directory for the run                                                                                           |
 | `modelOverride`  | `object`   | no       | Override the model: `{ "providerName": "...", "model": "..." }`. Run `yachiyo provider models` to see available models. |
-| `enabledTools`   | `string[]` | no       | Restrict which tools the agent may use             |
-| `enabled`        | `boolean`  | no       | Defaults to `true`                                 |
+| `enabledTools`   | `string[]` | no       | Restrict which tools the agent may use                                                                                  |
+| `enabled`        | `boolean`  | no       | Defaults to `true`                                                                                                      |
 
 > When filling `modelOverride`, always run `yachiyo provider models` first to get valid provider and model names. Do not guess model names from memory.
 
