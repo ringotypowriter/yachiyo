@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { connect } from 'node:net'
 import { pathToFileURL } from 'node:url'
 
 import type {
@@ -12,6 +13,7 @@ import { providerMatchesReference } from '../../../shared/yachiyo/providerConfig
 import {
   resolveYachiyoDbPath,
   resolveYachiyoSettingsPath,
+  resolveYachiyoSocketPath,
   resolveYachiyoSoulPath
 } from '../config/paths.ts'
 import {
@@ -59,6 +61,8 @@ Namespaces:
   schedule disable <id>
   schedule runs [<id>] [--limit <n>] [--json]
 
+  send <message> [--title <title>]
+
 Flags:
   --settings <path> Settings file path (default: ~/.yachiyo/config.toml)
   --soul <path>     Soul file path (default: ~/.yachiyo/SOUL.md)
@@ -84,6 +88,7 @@ export interface RunYachiyoCliOptions {
   upsertDailySoulTrait?: (input: UpsertDailySoulTraitInput) => Promise<SoulDocument | null>
   removeSoulTrait?: (input: RemoveSoulTraitInput) => Promise<SoulDocument | null>
   searchMessages?: (dbPath: string, query: string, limit: number) => MessageSearchHit[]
+  sendNotification?: (socketPath: string, payload: { title: string; body?: string }) => Promise<void>
   stdout?: Pick<typeof process.stdout, 'write'>
   stderr?: Pick<typeof process.stderr, 'write'>
 }
@@ -93,7 +98,7 @@ function createDefaultConfigService(settingsPath: string): CliConfigService {
   return new YachiyoServerConfigDomain({ settingsStore, emit: () => {} })
 }
 
-const VALUE_FLAGS = new Set(['--settings', '--soul', '--payload', '--db', '--limit'])
+const VALUE_FLAGS = new Set(['--settings', '--soul', '--payload', '--db', '--limit', '--title'])
 
 function parseArgs(rawArgs: string[]): { positionals: string[]; flags: Map<string, string> } {
   const positionals: string[] = []
@@ -553,9 +558,14 @@ export async function runYachiyoCli(
     return
   }
 
+  if (namespace === 'send') {
+    await handleSendCommand(positionals.slice(1), flags, stdout, options)
+    return
+  }
+
   if (namespace !== 'provider' && namespace !== 'config' && namespace !== 'agent') {
     throw new Error(
-      `Unknown namespace: ${namespace}. Expected: soul, provider, agent, config, thread, schedule`
+      `Unknown namespace: ${namespace}. Expected: soul, provider, agent, config, thread, schedule, send`
     )
   }
 
@@ -573,6 +583,45 @@ export async function runYachiyoCli(
   }
 
   await handleConfigCommand(positionals.slice(1), configService, stdout)
+}
+
+function defaultSendNotification(
+  socketPath: string,
+  payload: { title: string; body?: string }
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const client = connect(socketPath, () => {
+      client.end(JSON.stringify(payload))
+    })
+    client.on('close', () => resolve())
+    client.on('error', (err) => {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ECONNREFUSED') {
+        reject(new Error('Yachiyo app is not running. Start the app first to send notifications.'))
+      } else {
+        reject(err)
+      }
+    })
+  })
+}
+
+async function handleSendCommand(
+  positionals: string[],
+  flags: Map<string, string>,
+  stdout: Pick<typeof process.stdout, 'write'>,
+  options: RunYachiyoCliOptions
+): Promise<void> {
+  const body = positionals[0]
+  if (!body?.trim()) {
+    throw new Error('Message is required: send <message> [--title <title>]')
+  }
+
+  const title = flags.get('--title') ?? 'Yachiyo'
+  const socketPath = resolveYachiyoSocketPath()
+  const send = options.sendNotification ?? defaultSendNotification
+
+  await send(socketPath, { title, body })
+  stdout.write(`Notification sent.\n`)
 }
 
 async function handleScheduleCommand(

@@ -33,8 +33,13 @@ import {
 import {
   resolveYachiyoDbPath,
   resolveYachiyoSettingsPath,
+  resolveYachiyoSocketPath,
   resolveYachiyoTempWorkspaceRoot
 } from './yachiyo-server/config/paths.ts'
+import {
+  startNotificationSocket,
+  type NotificationSocketHandle
+} from './notificationSocket.ts'
 import { openThreadWorkspace } from './openThreadWorkspace.ts'
 import { discoverApps } from './appDiscovery.ts'
 import {
@@ -129,6 +134,7 @@ let telegramService: TelegramService | null = null
 let qqService: QQService | null = null
 let discordService: DiscordService | null = null
 let scheduleService: ScheduleService | null = null
+let notificationSocket: NotificationSocketHandle | null = null
 let fatalRunRecoveryRegistered = false
 
 async function applyTelegramConfig(cfg: ChannelsConfig): Promise<void> {
@@ -313,6 +319,10 @@ export function registerYachiyoGateway(): YachiyoServer {
       setThreadIcon: (input) => server!.setThreadIcon(input),
       sendChat: (input) => server!.sendChat(input as never),
       archiveThread: (input) => server!.archiveThread(input),
+      showNotification: (input) => {
+        if (!Notification.isSupported()) return
+        new Notification({ title: input.title, body: input.body ?? '' }).show()
+      },
       subscribe: (listener) => server!.subscribe(listener)
     },
     storage: server.getStorage(),
@@ -332,6 +342,16 @@ export function registerYachiyoGateway(): YachiyoServer {
   ipcMain.on(IPC_CHANNELS.beep, () => {
     if (process.platform === 'darwin') {
       spawn('afplay', ['-v', '0.4', '/System/Library/Sounds/Glass.aiff'], { detached: true })
+    }
+  })
+
+  // Unix socket for CLI-originated notifications
+  void notificationSocket?.close()
+  notificationSocket = startNotificationSocket({
+    socketPath: resolveYachiyoSocketPath(),
+    onNotification: (input) => {
+      if (!Notification.isSupported()) return
+      new Notification({ title: input.title, body: input.body ?? '' }).show()
     }
   })
 
@@ -590,6 +610,8 @@ export function registerYachiyoGateway(): YachiyoServer {
     qqService = null
     void discordService?.stop().catch(() => {})
     discordService = null
+    void notificationSocket?.close()
+    notificationSocket = null
     void server?.close()
     server = null
   })

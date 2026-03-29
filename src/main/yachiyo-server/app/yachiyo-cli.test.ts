@@ -1050,6 +1050,83 @@ test('agent enable - sets enabled=true after disable', async () => {
   }
 })
 
+// ---------------------------------------------------------------------------
+// Send (notification) tests
+// ---------------------------------------------------------------------------
+
+test('send - delivers notification via sendNotification', async () => {
+  const sent: Array<{ title: string; body?: string }> = []
+  let stdout = ''
+
+  await runYachiyoCli(['send', 'Build completed'], {
+    stdout: {
+      write(chunk) {
+        stdout += String(chunk)
+        return true
+      }
+    },
+    sendNotification: async (_socketPath, payload) => {
+      sent.push(payload)
+    }
+  })
+
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0]?.title, 'Yachiyo')
+  assert.equal(sent[0]?.body, 'Build completed')
+  assert.ok(stdout.includes('Notification sent'))
+})
+
+test('send - custom title via --title flag', async () => {
+  const sent: Array<{ title: string; body?: string }> = []
+
+  await runYachiyoCli(['send', 'Tests passed', '--title', 'CI Result'], {
+    stdout: {
+      write() {
+        return true
+      }
+    },
+    sendNotification: async (_socketPath, payload) => {
+      sent.push(payload)
+    }
+  })
+
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0]?.title, 'CI Result')
+  assert.equal(sent[0]?.body, 'Tests passed')
+})
+
+test('send - missing message throws', async () => {
+  await assert.rejects(
+    () =>
+      runYachiyoCli(['send'], {
+        stdout: {
+          write() {
+            return true
+          }
+        },
+        sendNotification: async () => {}
+      }),
+    /Message is required/
+  )
+})
+
+test('send - propagates connection error', async () => {
+  await assert.rejects(
+    () =>
+      runYachiyoCli(['send', 'hello'], {
+        stdout: {
+          write() {
+            return true
+          }
+        },
+        sendNotification: async () => {
+          throw new Error('Yachiyo app is not running. Start the app first to send notifications.')
+        }
+      }),
+    /not running/
+  )
+})
+
 test('agent enable - unknown agent throws', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-agent-'))
   const settingsPath = join(root, 'config.toml')
