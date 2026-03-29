@@ -124,6 +124,19 @@ function deriveBranchTitle(thread: ThreadRecord, branchPoint: MessageRecord): st
   return titleSource ? titleSource.slice(0, 60) : DEFAULT_THREAD_TITLE
 }
 
+function channelSourceIcon(source?: ThreadRecord['source']): string | undefined {
+  switch (source) {
+    case 'telegram':
+      return '✈️'
+    case 'qq':
+      return '🐧'
+    case 'discord':
+      return '🦇'
+    default:
+      return undefined
+  }
+}
+
 export class YachiyoServerThreadDomain {
   private readonly deps: ThreadDomainDeps
 
@@ -143,10 +156,12 @@ export class YachiyoServerThreadDomain {
   ): Promise<ThreadRecord> {
     const timestamp = this.deps.timestamp()
     const workspacePath = input.workspacePath?.trim() ? resolve(input.workspacePath) : undefined
+    const defaultIcon = channelSourceIcon(input.source)
     const thread: ThreadRecord = {
       id: input.threadId ?? this.deps.createId(),
       title: input.title ?? DEFAULT_THREAD_TITLE,
       updatedAt: timestamp,
+      ...(defaultIcon ? { icon: defaultIcon } : {}),
       ...(workspacePath ? { workspacePath } : {}),
       ...(input.source ? { source: input.source } : {}),
       ...(input.channelUserId ? { channelUserId: input.channelUserId } : {}),
