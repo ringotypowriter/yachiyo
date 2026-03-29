@@ -124,6 +124,12 @@ body {
   background: rgb(var(--yachiyo-rgb-surface));
   border-color: rgb(var(--yachiyo-rgb-ink) / 0.06);
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  overflow-x: auto !important;
+}
+
+.streamdown-content [data-streamdown='code-block-body'] pre {
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 /* Table card: remove outer border, keep inner table border only */
