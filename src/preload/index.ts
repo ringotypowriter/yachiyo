@@ -205,6 +205,10 @@ const api = {
       limit?: number
     }): Promise<import('../shared/yachiyo/protocol').ScheduleRunRecord[]> =>
       ipcRenderer.invoke('yachiyo:list-recent-schedule-runs', input),
+    markThreadAsRead: (input: {
+      threadId: string
+    }): Promise<import('../shared/yachiyo/protocol').ThreadRecord> =>
+      ipcRenderer.invoke('yachiyo:mark-thread-as-read', input),
 
     showNotification: (input: { title: string; body?: string }): void =>
       ipcRenderer.send('yachiyo:show-notification', input),

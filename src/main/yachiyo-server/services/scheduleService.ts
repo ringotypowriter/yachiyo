@@ -30,7 +30,8 @@ export interface ScheduleServerApi {
     channelHint?: string
   }): Promise<{ runId: string }>
   setThreadIcon(input: { threadId: string; icon: string }): Promise<ThreadRecord>
-  archiveThread(input: { threadId: string }): Promise<void>
+  archiveThread(input: { threadId: string; unread?: boolean }): Promise<void>
+  showNotification(input: { title: string; body?: string }): void
   subscribe(listener: (event: YachiyoServerEvent) => void): () => void
 }
 
@@ -276,10 +277,16 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
         completionTokens: result.completionTokens
       })
 
+      const resultLabel = capturedResult?.status ?? result.status
       console.log(
         `[schedule] "${schedule.name}" ${result.status}` +
           (capturedResult ? `: ${capturedResult.status} — ${capturedResult.summary}` : '')
       )
+
+      deps.server.showNotification({
+        title: `${schedule.name} — ${resultLabel}`,
+        body: capturedResult?.summary ?? (result.error ? `Error: ${result.error}` : undefined)
+      })
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
       console.error(`[schedule] "${schedule.name}" execution error:`, errorMessage)
@@ -290,6 +297,11 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
         error: errorMessage,
         completedAt: deps.timestamp()
       })
+
+      deps.server.showNotification({
+        title: `${schedule.name} — failed`,
+        body: errorMessage
+      })
     } finally {
       // Auto-archive the schedule thread to keep the sidebar clean.
       // Archive does not touch the workspace path.
@@ -298,7 +310,7 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
       if (threadId) {
         const tid = threadId
         setTimeout(() => {
-          void deps.server.archiveThread({ threadId: tid }).catch(() => {
+          void deps.server.archiveThread({ threadId: tid, unread: true }).catch(() => {
             // Thread may already be archived or deleted — not critical.
           })
         }, 500)

@@ -15,15 +15,9 @@ import { collectMessagePath } from '../../../../../shared/yachiyo/threadTree.ts'
 
 export interface ArchivedThreadsPageProps {
   activeThread: Thread | null
-  onDeleteThread: (thread: Thread) => Promise<void>
-  onRestoreThread: (thread: Thread) => Promise<void>
 }
 
-export function ArchivedThreadsPage({
-  activeThread,
-  onDeleteThread,
-  onRestoreThread
-}: ArchivedThreadsPageProps): React.JSX.Element {
+export function ArchivedThreadsPage({ activeThread }: ArchivedThreadsPageProps): React.JSX.Element {
   if (!activeThread) {
     return (
       <div className="flex flex-1 items-center justify-center px-8">
@@ -32,67 +26,14 @@ export function ArchivedThreadsPage({
             Archived threads
           </div>
           <div className="mt-2 text-sm leading-6" style={{ color: theme.text.muted }}>
-            Select an archived thread from the sidebar to restore it or delete it permanently.
+            Select an archived thread from the sidebar to view it.
           </div>
         </div>
       </div>
     )
   }
 
-  return (
-    <div className="flex flex-col flex-1 min-h-0">
-      <ArchivedActionBar
-        thread={activeThread}
-        onRestore={() => void onRestoreThread(activeThread)}
-        onDelete={() => void onDeleteThread(activeThread)}
-      />
-      <ArchivedTimeline threadId={activeThread.id} headMessageId={activeThread.headMessageId} />
-    </div>
-  )
-}
-
-function ArchivedActionBar({
-  thread,
-  onRestore,
-  onDelete
-}: {
-  thread: Thread
-  onRestore: () => void
-  onDelete: () => void
-}): React.JSX.Element {
-  return (
-    <div
-      className="flex items-center gap-3 shrink-0 px-5 py-2.5"
-      style={{ borderBottom: `1px solid ${theme.border.default}` }}
-    >
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate" style={{ color: theme.text.primary }}>
-          {thread.title}
-        </div>
-      </div>
-      <button
-        onClick={onRestore}
-        className="rounded-full px-3.5 py-1.5 text-xs font-medium cursor-pointer"
-        style={{
-          background: theme.text.primary,
-          color: theme.background.canvas
-        }}
-      >
-        Restore
-      </button>
-      <button
-        onClick={onDelete}
-        className="rounded-full px-3.5 py-1.5 text-xs font-medium cursor-pointer"
-        style={{
-          background: theme.background.dangerSurface,
-          color: theme.text.dangerStrong,
-          border: `1px solid ${theme.border.danger}`
-        }}
-      >
-        Delete
-      </button>
-    </div>
-  )
+  return <ArchivedTimeline threadId={activeThread.id} headMessageId={activeThread.headMessageId} />
 }
 
 const EMPTY_MESSAGES: Message[] = []

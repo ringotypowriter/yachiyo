@@ -331,22 +331,27 @@ export class YachiyoServerThreadDomain {
     return updatedThread
   }
 
-  archiveThread(input: { threadId: string }): void {
+  archiveThread(input: { threadId: string; unread?: boolean }): void {
     const thread = this.deps.requireThread(input.threadId)
     if (this.deps.isThreadRunning(thread.id)) {
       throw new Error('Cannot archive a thread with an active run.')
     }
     const timestamp = this.deps.timestamp()
+    // Manual archive (default) → readAt = now (user already knows about it).
+    // System archive (unread: true) → readAt = null (user hasn't seen it yet).
+    const readAt = input.unread ? undefined : timestamp
     const archivedThread: ThreadRecord = {
       ...thread,
       archivedAt: timestamp,
-      updatedAt: timestamp
+      updatedAt: timestamp,
+      ...(readAt ? { readAt } : {})
     }
 
     this.deps.storage.archiveThread({
       threadId: thread.id,
       archivedAt: timestamp,
-      updatedAt: timestamp
+      updatedAt: timestamp,
+      readAt: readAt ?? null
     })
 
     this.deps.emit<ThreadArchivedEvent>({
@@ -354,6 +359,24 @@ export class YachiyoServerThreadDomain {
       threadId: thread.id,
       thread: archivedThread
     })
+  }
+
+  markThreadAsRead(input: { threadId: string }): ThreadRecord {
+    const thread =
+      this.deps.storage.getArchivedThread(input.threadId) ??
+      this.deps.storage.getThread(input.threadId)
+    if (!thread) throw new Error(`Unknown thread: ${input.threadId}`)
+    if (thread.readAt) return thread
+
+    const timestamp = this.deps.timestamp()
+    const updated = { ...thread, readAt: timestamp }
+    this.deps.storage.markThreadAsRead({ threadId: input.threadId, readAt: timestamp })
+
+    // Do NOT emit thread.updated here — the generic handler removes the
+    // thread from archivedThreads and moves it to active threads, which
+    // makes it vanish from the archive sidebar. The caller (store action)
+    // handles the local state update via the IPC return value instead.
+    return updated
   }
 
   async saveThread(input: SaveThreadInput): Promise<SaveThreadResult> {

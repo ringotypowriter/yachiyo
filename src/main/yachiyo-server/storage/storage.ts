@@ -49,6 +49,7 @@ export interface StoredThreadRow {
   channelGroupId: string | null
   rollingSummary: string | null
   summaryWatermarkMessageId: string | null
+  readAt: string | null
   updatedAt: string
   createdAt: string
   headMessageId: string | null
@@ -163,7 +164,13 @@ export interface YachiyoStorage {
   renameThread(input: { threadId: string; title: string; updatedAt: string }): void
   setThreadIcon(input: { threadId: string; icon: string | null; updatedAt: string }): void
   starThread(input: { threadId: string; starredAt: string | null }): void
-  archiveThread(input: { threadId: string; archivedAt: string; updatedAt: string }): void
+  archiveThread(input: {
+    threadId: string
+    archivedAt: string
+    updatedAt: string
+    readAt?: string | null
+  }): void
+  markThreadAsRead(input: { threadId: string; readAt: string }): void
   restoreThread(input: { threadId: string; updatedAt: string }): void
   beginThreadSave(input: { threadId: string; savingStartedAt: string }): void
   clearThreadSave(input: { threadId: string }): void
@@ -264,6 +271,7 @@ export function toThreadRecord(
     | 'channelGroupId'
     | 'rollingSummary'
     | 'summaryWatermarkMessageId'
+    | 'readAt'
     | 'title'
     | 'updatedAt'
     | 'workspacePath'
@@ -299,6 +307,7 @@ export function toThreadRecord(
       ...(row.summaryWatermarkMessageId === null
         ? {}
         : { summaryWatermarkMessageId: row.summaryWatermarkMessageId }),
+      ...(row.readAt === null ? {} : { readAt: row.readAt }),
       id: row.id,
       title: row.title,
       updatedAt: row.updatedAt
@@ -327,6 +336,7 @@ export function toThreadRecord(
     ...(row.summaryWatermarkMessageId === null
       ? {}
       : { summaryWatermarkMessageId: row.summaryWatermarkMessageId }),
+    ...(row.readAt === null ? {} : { readAt: row.readAt }),
     id: row.id,
     preview: row.preview,
     title: row.title,

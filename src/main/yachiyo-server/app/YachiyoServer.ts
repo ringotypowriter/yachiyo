@@ -623,8 +623,12 @@ export class YachiyoServer {
     return this.threadDomain.setThreadModelOverride(input)
   }
 
-  async archiveThread(input: { threadId: string }): Promise<void> {
+  async archiveThread(input: { threadId: string; unread?: boolean }): Promise<void> {
     this.threadDomain.archiveThread(input)
+  }
+
+  markThreadAsRead(input: { threadId: string }): ThreadRecord {
+    return this.threadDomain.markThreadAsRead(input)
   }
 
   async restoreThread(input: { threadId: string }): Promise<ThreadRecord> {

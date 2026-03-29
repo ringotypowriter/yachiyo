@@ -8,10 +8,7 @@ import test from 'node:test'
 
 import { startNotificationSocket } from './notificationSocket.ts'
 
-function sendToSocket(
-  socketPath: string,
-  data: string
-): Promise<void> {
+function sendToSocket(socketPath: string, data: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const client = connect(socketPath, () => {
       client.end(data)

@@ -1,0 +1,1 @@
+ALTER TABLE `threads` ADD `read_at` text;

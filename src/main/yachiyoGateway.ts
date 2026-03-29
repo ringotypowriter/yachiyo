@@ -36,10 +36,7 @@ import {
   resolveYachiyoSocketPath,
   resolveYachiyoTempWorkspaceRoot
 } from './yachiyo-server/config/paths.ts'
-import {
-  startNotificationSocket,
-  type NotificationSocketHandle
-} from './notificationSocket.ts'
+import { startNotificationSocket, type NotificationSocketHandle } from './notificationSocket.ts'
 import { openThreadWorkspace } from './openThreadWorkspace.ts'
 import { discoverApps } from './appDiscovery.ts'
 import {
@@ -126,7 +123,8 @@ const IPC_CHANNELS = {
   enableSchedule: 'yachiyo:enable-schedule',
   disableSchedule: 'yachiyo:disable-schedule',
   listScheduleRuns: 'yachiyo:list-schedule-runs',
-  listRecentScheduleRuns: 'yachiyo:list-recent-schedule-runs'
+  listRecentScheduleRuns: 'yachiyo:list-recent-schedule-runs',
+  markThreadAsRead: 'yachiyo:mark-thread-as-read'
 } as const
 
 let server: YachiyoServer | null = null
@@ -549,6 +547,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handle(IPC_CHANNELS.listRecentScheduleRuns, (input?: { limit?: number }) =>
     server!.listRecentScheduleRuns(input?.limit)
+  )
+  handle(IPC_CHANNELS.markThreadAsRead, (input: { threadId: string }) =>
+    server!.markThreadAsRead(input)
   )
 
   handle(IPC_CHANNELS.readClipboardFilePaths, async () => {

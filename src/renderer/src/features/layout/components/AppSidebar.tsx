@@ -62,6 +62,9 @@ export function AppSidebar({
   const showExternalThreads = useAppStore((s) => s.showExternalThreads)
   const toggleShowExternalThreads = useAppStore((s) => s.toggleShowExternalThreads)
   const threadListMode = useAppStore((s) => s.threadListMode)
+  const unreadArchivedCount = useAppStore(
+    (s) => s.archivedThreads.filter((t) => t.archivedAt && !t.readAt).length
+  )
 
   return (
     <div
@@ -172,7 +175,7 @@ export function AppSidebar({
                 onClick={() =>
                   setThreadListMode(threadListMode === 'archived' ? 'active' : 'archived')
                 }
-                className="p-1.5 rounded-md transition-opacity"
+                className="relative p-1.5 rounded-md transition-opacity"
                 style={{
                   color:
                     threadListMode === 'archived' ? theme.text.accentStrong : theme.icon.default,
@@ -183,6 +186,20 @@ export function AppSidebar({
                 }
               >
                 <Archive size={16} strokeWidth={1.5} />
+                {unreadArchivedCount > 0 && threadListMode !== 'archived' && (
+                  <span
+                    className="absolute -top-0.5 -right-0.5 flex items-center justify-center rounded-full text-[9px] font-bold leading-none"
+                    style={{
+                      minWidth: 14,
+                      height: 14,
+                      padding: '0 3px',
+                      background: theme.text.accent,
+                      color: theme.text.inverse
+                    }}
+                  >
+                    {unreadArchivedCount > 99 ? '99+' : unreadArchivedCount}
+                  </span>
+                )}
               </button>
             </Tooltip>
           </div>

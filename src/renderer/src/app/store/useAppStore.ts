@@ -2321,7 +2321,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }),
 
-  setActiveArchivedThread: (id) => set({ activeArchivedThreadId: id, threadListMode: 'archived' }),
+  setActiveArchivedThread: (id) => {
+    set({ activeArchivedThreadId: id, threadListMode: 'archived' })
+    // Mark as read when the user opens an archived thread.
+    void window.api.yachiyo.markThreadAsRead({ threadId: id }).then((updated) => {
+      set((state) => ({
+        archivedThreads: state.archivedThreads.map((t) => (t.id === id ? updated : t))
+      }))
+    })
+  },
 
   setThreadListMode: (mode) =>
     set((state) => ({

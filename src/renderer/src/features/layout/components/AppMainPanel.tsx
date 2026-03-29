@@ -12,6 +12,8 @@ import { RunInspectionPanel } from '@renderer/features/runs/components/RunInspec
 import { RunStatusStrip } from '@renderer/features/runs/components/RunStatusStrip'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import { isOpenFindBarShortcut } from '@renderer/features/layout/lib/findBarShortcut'
+import { MessageSquare, Trash2 } from 'lucide-react'
+import { Tooltip } from '@renderer/components/Tooltip'
 import { theme } from '@renderer/theme/theme'
 import { isMemoryConfigured } from '../../../../../shared/yachiyo/protocol.ts'
 
@@ -359,20 +361,47 @@ export function AppMainPanel({
             borderBottom: `1px solid ${theme.border.default}`
           }}
         >
-          <div className="min-w-0">
-            <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
-              Archived
-            </div>
-            <div className="text-xs font-medium" style={{ color: theme.text.muted }}>
-              {archivedThreads.length} thread{archivedThreads.length !== 1 ? 's' : ''}
-            </div>
+          <div className="flex-1 min-w-0">
+            {activeArchivedThread ? (
+              <div className="text-sm font-semibold truncate" style={{ color: theme.text.primary }}>
+                {activeArchivedThread.icon ? `${activeArchivedThread.icon} ` : ''}
+                {activeArchivedThread.title}
+              </div>
+            ) : (
+              <>
+                <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
+                  Archived
+                </div>
+                <div className="text-xs font-medium" style={{ color: theme.text.muted }}>
+                  {archivedThreads.length} thread{archivedThreads.length !== 1 ? 's' : ''}
+                </div>
+              </>
+            )}
           </div>
+          {activeArchivedThread && (
+            <div className="flex items-center gap-1 no-drag">
+              <Tooltip content="Continue chat">
+                <button
+                  onClick={() => void handleRestoreThread(activeArchivedThread)}
+                  className="p-1.5 rounded-md cursor-pointer transition-opacity hover:opacity-70"
+                  style={{ color: theme.icon.default }}
+                >
+                  <MessageSquare size={15} strokeWidth={1.5} />
+                </button>
+              </Tooltip>
+              <Tooltip content="Delete permanently">
+                <button
+                  onClick={() => void handleDeleteThread(activeArchivedThread)}
+                  className="p-1.5 rounded-md cursor-pointer transition-opacity hover:opacity-70"
+                  style={{ color: theme.text.danger }}
+                >
+                  <Trash2 size={15} strokeWidth={1.5} />
+                </button>
+              </Tooltip>
+            </div>
+          )}
         </div>
-        <ArchivedThreadsPage
-          activeThread={activeArchivedThread}
-          onDeleteThread={handleDeleteThread}
-          onRestoreThread={handleRestoreThread}
-        />
+        <ArchivedThreadsPage activeThread={activeArchivedThread} />
       </div>
     )
   }

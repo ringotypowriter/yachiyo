@@ -56,6 +56,7 @@ export const threadsTable = sqliteTable('threads', {
   channelGroupId: text('channel_group_id').references(() => channelGroupsTable.id),
   rollingSummary: text('rolling_summary'),
   summaryWatermarkMessageId: text('summary_watermark_message_id'),
+  readAt: text('read_at'),
   updatedAt: text('updated_at').notNull(),
   createdAt: text('created_at').notNull()
 })

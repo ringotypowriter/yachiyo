@@ -157,6 +157,7 @@ declare global {
           limit?: number
         }) => Promise<ScheduleRunRecord[]>
         listRecentScheduleRuns: (input?: { limit?: number }) => Promise<ScheduleRunRecord[]>
+        markThreadAsRead: (input: { threadId: string }) => Promise<ThreadRecord>
 
         showNotification: (input: { title: string; body?: string }) => void
         beep: () => void

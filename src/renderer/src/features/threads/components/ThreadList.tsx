@@ -153,6 +153,8 @@ function ThreadListItem({
   const displayedTitle = useTitleAnimation(thread.title, renamingTitle)
 
   const isHighlighted = isSelectMode ? isSelected : isActive
+  const isUnreadArchived =
+    threadListMode === 'archived' && Boolean(thread.archivedAt) && !thread.readAt
 
   function handleIconClick(e: React.MouseEvent): void {
     e.stopPropagation()
@@ -339,9 +341,19 @@ function ThreadListItem({
                 opacity: isHighlighted ? 1 : 0.8
               }}
             />
+          ) : isUnreadArchived ? (
+            <span
+              aria-label="Unread"
+              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full"
+              style={{
+                width: '8px',
+                height: '8px',
+                background: theme.text.accent
+              }}
+            />
           ) : null}
         </button>
-        {!isSelectMode ? (
+        {!isSelectMode && !isUnreadArchived ? (
           <button
             title={isStarred ? 'Unstar' : 'Star'}
             onClick={(e) => {

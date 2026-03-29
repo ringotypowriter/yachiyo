@@ -189,6 +189,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         channelGroupId: thread.channelGroupId ?? null,
         rollingSummary: thread.rollingSummary ?? null,
         summaryWatermarkMessageId: thread.summaryWatermarkMessageId ?? null,
+        readAt: thread.readAt ?? null,
         updatedAt: thread.updatedAt,
         createdAt
       })
@@ -221,7 +222,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       thread.starredAt = starredAt
     },
 
-    archiveThread({ threadId, archivedAt, updatedAt }) {
+    archiveThread({ threadId, archivedAt, updatedAt, readAt }) {
       const thread = readThread(threadId)
       if (!thread) {
         return
@@ -229,6 +230,14 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
       thread.archivedAt = archivedAt
       thread.updatedAt = updatedAt
+      thread.readAt = readAt ?? null
+    },
+
+    markThreadAsRead({ threadId, readAt }) {
+      const thread = readThread(threadId)
+      if (thread) {
+        thread.readAt = readAt
+      }
     },
 
     restoreThread({ threadId, updatedAt }) {

@@ -183,6 +183,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           channelGroupId: threadsTable.channelGroupId,
           rollingSummary: threadsTable.rollingSummary,
           summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
+          readAt: threadsTable.readAt,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -353,6 +354,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           channelGroupId: threadsTable.channelGroupId,
           rollingSummary: threadsTable.rollingSummary,
           summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
+          readAt: threadsTable.readAt,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -386,6 +388,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           channelGroupId: threadsTable.channelGroupId,
           rollingSummary: threadsTable.rollingSummary,
           summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
+          readAt: threadsTable.readAt,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -486,14 +489,20 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .run()
     },
 
-    archiveThread({ threadId, archivedAt, updatedAt }) {
+    archiveThread({ threadId, archivedAt, updatedAt, readAt }) {
       db.update(threadsTable)
         .set({
           archivedAt,
-          updatedAt
+          updatedAt,
+          // null = unread (system-initiated), timestamp = read (user-initiated)
+          readAt: readAt ?? null
         })
         .where(eq(threadsTable.id, threadId))
         .run()
+    },
+
+    markThreadAsRead({ threadId, readAt }) {
+      db.update(threadsTable).set({ readAt }).where(eq(threadsTable.id, threadId)).run()
     },
 
     restoreThread({ threadId, updatedAt }) {

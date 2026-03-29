@@ -88,7 +88,10 @@ export interface RunYachiyoCliOptions {
   upsertDailySoulTrait?: (input: UpsertDailySoulTraitInput) => Promise<SoulDocument | null>
   removeSoulTrait?: (input: RemoveSoulTraitInput) => Promise<SoulDocument | null>
   searchMessages?: (dbPath: string, query: string, limit: number) => MessageSearchHit[]
-  sendNotification?: (socketPath: string, payload: { title: string; body?: string }) => Promise<void>
+  sendNotification?: (
+    socketPath: string,
+    payload: { title: string; body?: string }
+  ) => Promise<void>
   stdout?: Pick<typeof process.stdout, 'write'>
   stderr?: Pick<typeof process.stderr, 'write'>
 }

@@ -422,6 +422,8 @@ export interface ThreadRecord {
   rollingSummary?: string
   /** Messages up to this ID are covered by rollingSummary. Transcript window starts after. */
   summaryWatermarkMessageId?: string
+  /** When the user last viewed this archived thread. Null = unread. */
+  readAt?: string
 }
 
 /** Per-turn injected context (reminder, memory) persisted for lossless replay. */
