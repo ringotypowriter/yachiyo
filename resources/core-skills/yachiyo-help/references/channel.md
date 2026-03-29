@@ -64,26 +64,26 @@ List all registered channel groups across platforms.
 
 ### Channel User
 
-| Field              | Description                                    |
-| ------------------ | ---------------------------------------------- |
-| `id`               | Internal UUID. Pass this to `send channel`.    |
-| `platform`         | `telegram`, `qq`, or `discord`                 |
-| `externalUserId`   | User's ID on the external platform             |
-| `username`         | Display name                                   |
-| `status`           | `pending`, `allowed`, or `blocked`             |
-| `role`             | `owner` or `guest`                             |
-| `usageLimitKTokens`| Token quota (null = unlimited)                 |
-| `usedKTokens`      | Accumulated token usage                        |
-| `workspacePath`    | Local workspace directory for this user        |
+| Field               | Description                                 |
+| ------------------- | ------------------------------------------- |
+| `id`                | Internal UUID. Pass this to `send channel`. |
+| `platform`          | `telegram`, `qq`, or `discord`              |
+| `externalUserId`    | User's ID on the external platform          |
+| `username`          | Display name                                |
+| `status`            | `pending`, `allowed`, or `blocked`          |
+| `role`              | `owner` or `guest`                          |
+| `usageLimitKTokens` | Token quota (null = unlimited)              |
+| `usedKTokens`       | Accumulated token usage                     |
+| `workspacePath`     | Local workspace directory for this user     |
 
 ### Channel Group
 
-| Field              | Description                                    |
-| ------------------ | ---------------------------------------------- |
-| `id`               | Internal UUID. Pass this to `send channel`.    |
-| `platform`         | `telegram`, `qq`, or `discord`                 |
-| `externalGroupId`  | Group's ID on the external platform            |
-| `name`             | Display name                                   |
-| `status`           | `pending`, `approved`, or `blocked`            |
-| `workspacePath`    | Local workspace directory for this group       |
-| `createdAt`        | ISO timestamp when the group was registered    |
+| Field             | Description                                 |
+| ----------------- | ------------------------------------------- |
+| `id`              | Internal UUID. Pass this to `send channel`. |
+| `platform`        | `telegram`, `qq`, or `discord`              |
+| `externalGroupId` | Group's ID on the external platform         |
+| `name`            | Display name                                |
+| `status`          | `pending`, `approved`, or `blocked`         |
+| `workspacePath`   | Local workspace directory for this group    |
+| `createdAt`       | ISO timestamp when the group was registered |

@@ -26,30 +26,30 @@ yachiyo <namespace> <subcommand> [args...] [flags...]
 
 ## Namespaces
 
-| Namespace  | Purpose                              | Reference                                    |
-| ---------- | ------------------------------------ | -------------------------------------------- |
-| `soul`     | Manage evolving persona traits       | [soul.md](references/soul.md)                |
-| `provider` | Manage AI providers                  | [providers.md](references/providers.md)      |
-| `agent`    | Manage coding agent profiles         | [agents.md](references/agents.md)            |
-| `config`   | Read and write configuration         | [config.md](references/config.md)            |
-| `thread`   | Search historical conversations      | [threads.md](references/threads.md)          |
-| `schedule` | Manage scheduled tasks               | [schedule.md](references/schedule.md)        |
-| `channel`  | List channel users and groups        | [channel.md](references/channel.md)          |
-| `send`     | Send notifications and channel messages | [send.md](references/send.md)            |
+| Namespace  | Purpose                                 | Reference                               |
+| ---------- | --------------------------------------- | --------------------------------------- |
+| `soul`     | Manage evolving persona traits          | [soul.md](references/soul.md)           |
+| `provider` | Manage AI providers                     | [providers.md](references/providers.md) |
+| `agent`    | Manage coding agent profiles            | [agents.md](references/agents.md)       |
+| `config`   | Read and write configuration            | [config.md](references/config.md)       |
+| `thread`   | Search historical conversations         | [threads.md](references/threads.md)     |
+| `schedule` | Manage scheduled tasks                  | [schedule.md](references/schedule.md)   |
+| `channel`  | List channel users and groups           | [channel.md](references/channel.md)     |
+| `send`     | Send notifications and channel messages | [send.md](references/send.md)           |
 
 ## Global Flags
 
-| Flag                | Description                                                         |
-| ------------------- | ------------------------------------------------------------------- |
-| `--payload <json>`  | Supply a JSON body for mutation commands                            |
-| `--limit <n>`       | Max results for listing commands                                    |
-| `--json`            | Output raw JSON for programmatic parsing                            |
+| Flag               | Description                              |
+| ------------------ | ---------------------------------------- |
+| `--payload <json>` | Supply a JSON body for mutation commands |
+| `--limit <n>`      | Max results for listing commands         |
+| `--json`           | Output raw JSON for programmatic parsing |
 
 ## Key Paths
 
 | Path                        | Purpose                                                    |
 | --------------------------- | ---------------------------------------------------------- |
 | `~/.yachiyo/config.toml`    | All settings: providers, tools, skills, memory, web search |
-| `~/.yachiyo/SOUL.md`        | Assistant persona and evolving trait log                    |
+| `~/.yachiyo/SOUL.md`        | Assistant persona and evolving trait log                   |
 | `~/.yachiyo/USER.md`        | User profile — who you are, your context, working style    |
 | `~/.yachiyo/yachiyo.sqlite` | Thread and message database                                |
