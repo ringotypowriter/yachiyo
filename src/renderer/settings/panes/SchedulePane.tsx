@@ -576,13 +576,15 @@ function ScheduleForm({
     setError(null)
     setSubmitting(true)
     try {
+      const isEdit = !!initial
       await onSubmit({
         name: name.trim(),
         cronExpression: cron.trim(),
         prompt: prompt.trim(),
-        ...(modelOverride ? { modelOverride } : {}),
-        ...(workspacePath ? { workspacePath } : {})
-      })
+        // On edit, explicitly send null to clear; on create, just omit.
+        modelOverride: modelOverride ?? (isEdit ? null : undefined),
+        workspacePath: workspacePath ?? (isEdit ? null : undefined)
+      } as CreateScheduleInput)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -789,13 +791,15 @@ function RunRow({
   scheduleName?: string
 }): React.ReactNode {
   const badge = statusBadgeColors(run)
-  const hasThread = !!run.threadId
+  // Only allow navigation when the run finished (thread is archived).
+  // Running threads aren't archived yet, and restored threads are no longer in the archive.
+  const canNavigate = !!run.threadId && run.status !== 'running'
 
   return (
     <div
-      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg${hasThread ? ' cursor-pointer' : ''}`}
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg${canNavigate ? ' cursor-pointer' : ''}`}
       style={{ background: alpha('ink', 0.02) }}
-      onClick={hasThread ? () => window.api.navigateToArchivedThread(run.threadId!) : undefined}
+      onClick={canNavigate ? () => window.api.navigateToArchivedThread(run.threadId!) : undefined}
     >
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">

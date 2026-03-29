@@ -6,11 +6,12 @@
  * action bar. Messages are loaded on demand the first time the thread is selected.
  */
 
-import { useEffect, useRef } from 'react'
+import { useMemo, useEffect, useRef } from 'react'
 import type { Thread, Message } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { theme, alpha } from '@renderer/theme/theme'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
+import { collectMessagePath } from '../../../../../shared/yachiyo/threadTree.ts'
 
 export interface ArchivedThreadsPageProps {
   activeThread: Thread | null
@@ -45,7 +46,7 @@ export function ArchivedThreadsPage({
         onRestore={() => void onRestoreThread(activeThread)}
         onDelete={() => void onDeleteThread(activeThread)}
       />
-      <ArchivedTimeline threadId={activeThread.id} />
+      <ArchivedTimeline threadId={activeThread.id} headMessageId={activeThread.headMessageId} />
     </div>
   )
 }
@@ -96,7 +97,13 @@ function ArchivedActionBar({
 
 const EMPTY_MESSAGES: Message[] = []
 
-function ArchivedTimeline({ threadId }: { threadId: string }): React.JSX.Element {
+function ArchivedTimeline({
+  threadId,
+  headMessageId
+}: {
+  threadId: string
+  headMessageId?: string
+}): React.JSX.Element {
   const messages = useAppStore((state) => state.messages[threadId] ?? EMPTY_MESSAGES)
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -115,7 +122,16 @@ function ArchivedTimeline({ threadId }: { threadId: string }): React.JSX.Element
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const visibleMessages = messages.filter((m) => m.role === 'user' || m.role === 'assistant')
+  // Walk the active branch from headMessageId to show the correct reply path,
+  // not every branch. Falls back to flat filter if no head is set.
+  const visibleMessages = useMemo(() => {
+    if (headMessageId && messages.length > 0) {
+      return collectMessagePath(messages, headMessageId).filter(
+        (m) => m.role === 'user' || m.role === 'assistant'
+      )
+    }
+    return messages.filter((m) => m.role === 'user' || m.role === 'assistant')
+  }, [messages, headMessageId])
 
   if (visibleMessages.length === 0) {
     return (

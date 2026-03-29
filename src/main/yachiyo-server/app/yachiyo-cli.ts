@@ -555,7 +555,7 @@ export async function runYachiyoCli(
 
   if (namespace !== 'provider' && namespace !== 'config' && namespace !== 'agent') {
     throw new Error(
-      `Unknown namespace: ${namespace}. Expected: soul, provider, agent, config, thread`
+      `Unknown namespace: ${namespace}. Expected: soul, provider, agent, config, thread, schedule`
     )
   }
 
