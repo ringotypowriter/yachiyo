@@ -33,11 +33,6 @@ export function resolveThreadContextOperations(input: {
       },
       {
         disabled: input.isSaving,
-        key: 'regenerate-title',
-        label: 'Regenerate Title'
-      },
-      {
-        disabled: input.isSaving,
         key: 'delete',
         label: 'Delete',
         tone: 'danger'

@@ -9,7 +9,7 @@ import {
   Star,
   Trash2
 } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ThreadContextOperation } from '@renderer/features/threads/lib/threadContextOperations'
 import { theme } from '@renderer/theme/theme'
@@ -70,6 +70,9 @@ export function ThreadContextMenuPopup({
   operations,
   position
 }: ThreadContextMenuPopupProps): React.JSX.Element {
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [resolvedTop, setResolvedTop] = useState(position.top)
+
   useEffect(() => {
     const handlePointerDown = (): void => onClose()
     const handleEscape = (event: KeyboardEvent): void => {
@@ -87,14 +90,27 @@ export function ThreadContextMenuPopup({
     }
   }, [onClose])
 
+  useEffect(() => {
+    const el = menuRef.current
+    if (!el) return
+    const menuHeight = el.offsetHeight
+    const margin = 12
+    if (position.top + menuHeight > window.innerHeight - margin) {
+      setResolvedTop(Math.max(margin, position.top - menuHeight))
+    } else {
+      setResolvedTop(position.top)
+    }
+  }, [position.top, operations.length])
+
   return createPortal(
     <div
+      ref={menuRef}
       onMouseDown={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.preventDefault()}
       className="no-drag"
       style={{
         position: 'fixed',
-        top: Math.max(12, Math.min(position.top, window.innerHeight - 12)),
+        top: resolvedTop,
         left: Math.max(12, Math.min(position.left, window.innerWidth - 196)),
         width: 184,
         padding: 6,
