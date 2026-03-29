@@ -42,7 +42,7 @@ export default defineConfig({
           index: resolve('src/main/index.ts'),
           'yachiyo-cli': resolve('src/main/yachiyo-server/app/yachiyo-cli.ts')
         },
-        external: ['better-sqlite3', 'sharp']
+        external: ['better-sqlite3', 'sharp', 'zlib-sync']
       }
     },
     plugins: [copyDrizzleMigrations(), copyCoreSkills()]
