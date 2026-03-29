@@ -35,3 +35,12 @@ jobs:
           publish: pnpm changeset tag
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Auto-merge version PR
+        run: |
+          PR=$(gh pr list --head changeset-release/main --json number -q '.[0].number')
+          if [ -n "$PR" ]; then
+            gh pr merge "$PR" --squash --admin
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
