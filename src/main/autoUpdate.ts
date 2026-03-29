@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { is } from '@electron-toolkit/utils'
 
@@ -78,7 +78,9 @@ function setupProd(): void {
   })
 
   ipcMain.on('app-update:install', () => {
-    autoUpdater.quitAndInstall()
+    autoUpdater.autoInstallOnAppQuit = true
+    app.relaunch()
+    app.exit(0)
   })
 
   ipcMain.on('app-update:check', () => {

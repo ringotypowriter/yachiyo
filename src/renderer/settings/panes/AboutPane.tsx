@@ -131,13 +131,15 @@ export function AboutPane(): React.ReactNode {
           Apache-2.0 License
         </div>
 
-        {/* Update indicator */}
+        {/* Update indicator — z-20 to stay above the footer overlay */}
         {updateState.state === 'available' && (
           <button
             type="button"
             onClick={() => window.api.appUpdate.download()}
             className="mt-4 text-xs font-medium px-3 py-1.5 rounded-full"
             style={{
+              position: 'relative',
+              zIndex: 20,
               background: alpha('accent', 0.12),
               color: theme.text.accent,
               border: 'none',
@@ -148,7 +150,10 @@ export function AboutPane(): React.ReactNode {
           </button>
         )}
         {updateState.state === 'downloading' && (
-          <div className="mt-4 text-xs" style={{ color: theme.text.muted }}>
+          <div
+            className="mt-4 text-xs"
+            style={{ position: 'relative', zIndex: 20, color: theme.text.muted }}
+          >
             Downloading v{updateState.version}...
           </div>
         )}
@@ -158,6 +163,8 @@ export function AboutPane(): React.ReactNode {
             onClick={() => window.api.appUpdate.install()}
             className="mt-4 text-xs font-medium px-3 py-1.5 rounded-full"
             style={{
+              position: 'relative',
+              zIndex: 20,
               background: alpha('accent', 0.12),
               color: theme.text.accent,
               border: 'none',
