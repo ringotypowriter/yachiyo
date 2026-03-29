@@ -13,12 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
     outputs:
-      released: ${{ steps.check-tag.outputs.released }}
-      tag: ${{ steps.check-tag.outputs.tag }}
+      released: ${{ steps.version-and-tag.outputs.released }}
+      tag: ${{ steps.version-and-tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -29,34 +30,34 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Create release PR or publish
-        id: changeset
-        uses: changesets/action@v1
-        with:
-          title: 'chore: version packages'
-          commit: 'chore: version packages'
-          version: pnpm changeset version
-          publish: pnpm changeset tag
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check if tag was created
-        id: check-tag
+      - name: Version, tag, and push
+        id: version-and-tag
         run: |
-          VERSION="v$(node -p "require('./package.json').version")"
-          if git tag --list "$VERSION" | grep -q .; then
-            echo "released=true" >> "$GITHUB_OUTPUT"
-            echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
-          else
+          # Check if there are changeset files to consume
+          CHANGESETS=$(ls .changeset/*.md 2>/dev/null | grep -v README.md || true)
+          if [ -z "$CHANGESETS" ]; then
+            echo "No changesets found, skipping."
             echo "released=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-      - name: Auto-merge version PR
-        run: |
-          PR=$(gh pr list --head changeset-release/main --json number -q '.[0].number')
-          if [ -n "$PR" ]; then
-            gh pr merge "$PR" --squash --admin
-          fi
+          # Consume changesets: bump version + update changelog
+          pnpm changeset version
+
+          # Read the new version
+          VERSION="v$(node -p "require('./package.json').version")"
+          echo "New version: $VERSION"
+
+          # Commit directly to main
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: version packages"
+          git tag "$VERSION"
+          git push origin main --follow-tags
+
+          echo "released=true" >> "$GITHUB_OUTPUT"
+          echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
