@@ -16,9 +16,9 @@ import type { GroupMessageEntry } from '../../../shared/yachiyo/protocol.ts'
 // ---------------------------------------------------------------------------
 
 export interface GroupMonitorConfig {
-  /** Check interval while active (default 30 000 ms). */
+  /** Check interval while active (default 60 000 ms). */
   activeCheckIntervalMs: number
-  /** Check interval while engaged (default 10 000 ms). */
+  /** Check interval while engaged (default 30 000 ms). */
   engagedCheckIntervalMs: number
   /** Buffer time after wake before the first check (default 30 000 ms). */
   wakeBufferMs: number
@@ -63,7 +63,7 @@ export interface GroupMonitor {
 export const GROUP_MONITOR_DEFAULTS: GroupMonitorConfig = {
   activeCheckIntervalMs: 60_000,
   engagedCheckIntervalMs: 30_000,
-  wakeBufferMs: 30_000,
+  wakeBufferMs: 60_000,
   dormancyMissCount: 3,
   disengageMissCount: 3,
   maxRecentMessages: 50,

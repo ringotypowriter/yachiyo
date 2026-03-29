@@ -166,7 +166,13 @@ ${input.vision ? `Images shared in the chat are included as image content parts 
 - The energy is casual and playful — a quip or reaction would land well.
 - The conversation shifted to a new topic you have genuine insight on.
 - The owner (role="owner") is steering the conversation toward you.
-- People are riffing on something fun and your character would naturally have a take.`
+- People are riffing on something fun and your character would naturally have a take.
+
+## Speech throttle
+
+There is a system-level throttle on your outgoing messages. The more you speak in a short window, the higher the chance your next message gets silently dropped — you won't know it was dropped, but the group won't see it. If you stay silent for a while, your send rate recovers to 100%.
+
+The practical rule: **space out your replies.** Don't try to respond to every message or every topic. Pick the ONE moment that matters most and speak there. If you spoke recently, strongly prefer silence — even if someone says something interesting. There will always be another chance.`
 }
 
 // ---------------------------------------------------------------------------

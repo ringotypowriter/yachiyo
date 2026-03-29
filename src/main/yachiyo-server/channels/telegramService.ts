@@ -38,6 +38,7 @@ import { routeTelegramMessage, type TelegramChannelStorage } from './telegram'
 import { EXTERNAL_SYSTEM_PROMPT } from '../runtime/prompt'
 import { readChannelsConfig } from '../runtime/channelsConfig'
 import { readUserDocument } from '../runtime/user'
+import { createSpeechThrottle } from './groupSpeechThrottle'
 import { createTool as createReadTool } from '../tools/agentTools/readTool'
 import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool'
 import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool'
@@ -461,6 +462,8 @@ export function createTelegramService({
     return map
   }
 
+  const speechThrottle = createSpeechThrottle()
+
   /** Per-group dedup ring buffer for outgoing messages. */
   const recentOutgoing = new Map<string, { texts: string[]; timestamps: number[] }>()
   const DEDUP_WINDOW_MS = 5 * 60 * 1_000
@@ -541,9 +544,18 @@ export function createTelegramService({
           return 'Message sent.'
         }
 
+        if (speechThrottle.shouldDrop(group.id)) {
+          const rate = speechThrottle.getDropRate(group.id)
+          console.log(
+            `[telegram-group] throttled message for "${group.name}" (drop rate ${Math.round(rate * 100)}%): ${message.slice(0, 80)}`
+          )
+          return 'Message sent.'
+        }
+
         try {
           await sendTelegramMessage(group.externalGroupId, message)
           recordOutgoing(group.id, message)
+          speechThrottle.recordSend(group.id)
           console.log(`[telegram-group] sent reply to "${group.name}": ${message.slice(0, 100)}`)
 
           // Feed the bot's own reply back into the monitor so it sees it.

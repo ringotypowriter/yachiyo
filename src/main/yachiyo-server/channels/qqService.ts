@@ -42,6 +42,7 @@ import { EXTERNAL_SYSTEM_PROMPT } from '../runtime/prompt.ts'
 import { readChannelsConfig } from '../runtime/channelsConfig.ts'
 import { readUserDocument } from '../runtime/user.ts'
 import { YACHIYO_USER_FILE_NAME } from '../config/paths.ts'
+import { createSpeechThrottle } from './groupSpeechThrottle.ts'
 import { createTool as createReadTool } from '../tools/agentTools/readTool.ts'
 import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool.ts'
 import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool.ts'
@@ -241,6 +242,8 @@ export function createQQService({
     return map
   }
 
+  const speechThrottle = createSpeechThrottle()
+
   /**
    * Per-group ring buffer of recent outgoing messages for dedup.
    * Drops messages that are identical (or near-identical) to something
@@ -328,9 +331,18 @@ export function createQQService({
           return 'Message sent.'
         }
 
+        if (speechThrottle.shouldDrop(group.id)) {
+          const rate = speechThrottle.getDropRate(group.id)
+          console.log(
+            `[qq-group] throttled message for "${group.name}" (drop rate ${Math.round(rate * 100)}%): ${message.slice(0, 80)}`
+          )
+          return 'Message sent.'
+        }
+
         try {
           await client.sendGroupMessage(Number(group.externalGroupId), message)
           recordOutgoing(group.id, message)
+          speechThrottle.recordSend(group.id)
           console.log(`[qq-group] sent reply to group "${group.name}": ${message.slice(0, 100)}`)
 
           // Feed the bot's own reply back into the monitor so it sees it.
