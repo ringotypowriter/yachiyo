@@ -22,12 +22,12 @@ Output: `Notification sent.`
 
 ### `send channel <id> <message>`
 
-Send a chat message to a channel user or group by their internal UUID. The app resolves or creates a thread for the target and runs inference. Fire-and-forget — the CLI exits immediately without waiting for the model response.
+Send a text message directly to a channel user or group on their external platform (Telegram, QQ, Discord) as the bot. The message goes straight to the platform — no thread is created and no inference is run. Fire-and-forget.
 
 | Argument    | Description                                              |
 | ----------- | -------------------------------------------------------- |
 | `<id>`      | Internal UUID of a channel user or group (required)      |
-| `<message>` | The message content to send (required)                   |
+| `<message>` | The message text to deliver (required)                   |
 
 Get valid IDs from `channel users` or `channel groups`:
 
@@ -36,7 +36,7 @@ Get valid IDs from `channel users` or `channel groups`:
 yachiyo channel users --json
 yachiyo channel groups --json
 
-# 2. Send a message
+# 2. Send a message directly to their platform
 yachiyo send channel a1b2c3d4-... "Hello from the CLI"
 ```
 
@@ -46,5 +46,5 @@ Output: `Message sent.`
 
 - Both commands communicate via the Unix domain socket at `~/.yachiyo/yachiyo.sock`.
 - If the app is not running, the command fails with: `Yachiyo app is not running. Start the app first.`
-- `send channel` reuses an existing active thread for the target (within a 24-hour window) or creates a new one.
-- The model response is delivered within the app — the CLI does not receive it.
+- `send channel` requires the corresponding channel service (Telegram/QQ/Discord) to be running. If the service for the target's platform is not active, the send fails silently (logged server-side).
+- For QQ users, the message is sent as a private message. For QQ groups, it is sent as a group message.

@@ -85,6 +85,10 @@ export interface QQService {
   stop: () => Promise<void>
   /** Notify the service that a group's status changed (approved/blocked). */
   onGroupStatusChange: (group: ChannelGroupRecord) => void
+  /** Send a private message to a QQ user by numeric user ID. */
+  sendPrivateMessage: (userId: number, text: string) => Promise<void>
+  /** Send a message to a QQ group by numeric group ID. */
+  sendGroupMessage: (groupId: number, text: string) => Promise<void>
 }
 
 export function createQQService({
@@ -724,6 +728,14 @@ export function createQQService({
         groupRegistry.stopMonitor(group.id)
         console.log(`[qq-group] monitor stopped for "${group.name}" (status=${group.status})`)
       }
+    },
+
+    async sendPrivateMessage(userId: number, text: string) {
+      await client.sendPrivateMessage(userId, text)
+    },
+
+    async sendGroupMessage(groupId: number, text: string) {
+      await client.sendGroupMessage(groupId, text)
     }
   }
 }

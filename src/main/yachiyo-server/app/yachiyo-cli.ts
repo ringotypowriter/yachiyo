@@ -84,8 +84,9 @@ All output is JSON unless noted. The app must be running for "send" commands.
 ── send (requires running app) ───────────────────────────────────────
   send notification <message> [--title <title>]
                                          Push a native OS notification. Default title="Yachiyo". Fire-and-forget.
-  send channel <id> <message>            Send a chat message to a channel user or group by internal UUID.
-                                         The app resolves or creates a thread and runs inference. Fire-and-forget.
+  send channel <id> <message>            Send a text message directly to a channel user or group on their
+                                         external platform (Telegram/QQ/Discord) as the bot. No thread or
+                                         inference — the message goes straight out. Fire-and-forget.
                                          Get valid IDs from "channel users" or "channel groups".
 
 ── Global flags ──────────────────────────────────────────────────────

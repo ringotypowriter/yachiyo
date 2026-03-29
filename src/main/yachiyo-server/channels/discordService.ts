@@ -113,6 +113,8 @@ export interface DiscordService {
   stop: () => Promise<void>
   /** Notify the service that a group's status changed (approved/blocked). */
   onGroupStatusChange: (group: ChannelGroupRecord) => void
+  /** Send a text message to a Discord channel by channel ID. */
+  sendMessage: (channelId: string, text: string) => Promise<void>
 }
 
 export function createDiscordService({
@@ -730,7 +732,9 @@ export function createDiscordService({
         groupRegistry.stopMonitor(group.id)
         console.log(`[discord-group] monitor stopped for "${group.name}" (status=${group.status})`)
       }
-    }
+    },
+
+    sendMessage
   }
 }
 

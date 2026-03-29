@@ -277,8 +277,6 @@ function handle<Args extends unknown[], Result>(
   ipcMain.handle(channel, async (_event, ...args: Args) => listener(...args))
 }
 
-const CHANNEL_THREAD_REUSE_WINDOW_MS = 24 * 60 * 60 * 1000 // 24 hours
-
 function handleSendChannel(input: SendChannelInput): void {
   if (!server) {
     console.error('[send-channel] server is not running')
@@ -294,41 +292,28 @@ function handleSendChannel(input: SendChannelInput): void {
     return
   }
 
+  const platform = channelUser?.platform ?? channelGroup!.platform
+  const externalId = channelUser?.externalUserId ?? channelGroup!.externalGroupId
+
   void (async () => {
-    let threadId: string
-
-    if (channelUser) {
-      const existing = server!.findActiveChannelThread(
-        channelUser.id,
-        CHANNEL_THREAD_REUSE_WINDOW_MS
-      )
-      if (existing) {
-        threadId = existing.id
+    if (platform === 'telegram') {
+      if (!telegramService) throw new Error('Telegram service is not running')
+      await telegramService.sendMessage(externalId, input.message)
+    } else if (platform === 'qq') {
+      if (!qqService) throw new Error('QQ service is not running')
+      const numericId = Number(externalId)
+      if (channelUser) {
+        await qqService.sendPrivateMessage(numericId, input.message)
       } else {
-        const thread = await server!.createThread({
-          source: channelUser.platform,
-          channelUserId: channelUser.id,
-          title: `CLI:${channelUser.username}`
-        })
-        threadId = thread.id
+        await qqService.sendGroupMessage(numericId, input.message)
       }
+    } else if (platform === 'discord') {
+      if (!discordService) throw new Error('Discord service is not running')
+      await discordService.sendMessage(externalId, input.message)
     } else {
-      const group = channelGroup!
-      const existing = server!.findActiveGroupThread(group.id, CHANNEL_THREAD_REUSE_WINDOW_MS)
-      if (existing) {
-        threadId = existing.id
-      } else {
-        const thread = await server!.createThread({
-          source: group.platform,
-          channelGroupId: group.id,
-          title: `CLI:${group.name}`
-        })
-        threadId = thread.id
-      }
+      throw new Error(`Unsupported platform: ${platform}`)
     }
-
-    await server!.sendChat({ threadId, content: input.message })
-    console.log(`[send-channel] sent to thread ${threadId}`)
+    console.log(`[send-channel] sent to ${platform}:${externalId}`)
   })().catch((err) => {
     console.error('[send-channel] failed:', err)
   })

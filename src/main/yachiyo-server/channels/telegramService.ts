@@ -85,6 +85,8 @@ export interface TelegramService {
   startPolling: () => void
   /** Gracefully shut down the bot. */
   stop: () => Promise<void>
+  /** Send a text message to a Telegram chat by chat ID. */
+  sendMessage: (chatId: string, text: string) => Promise<void>
 }
 
 export function createTelegramService({
@@ -753,7 +755,8 @@ export function createTelegramService({
         )
       }
       bot.stop()
-    }
+    },
+    sendMessage
   }
 }
 
