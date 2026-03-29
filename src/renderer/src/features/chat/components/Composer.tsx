@@ -27,10 +27,7 @@ import type { FileMentionCandidate } from '@renderer/app/types'
 import { getComposerActionState } from '@renderer/features/chat/lib/composerActionState'
 import { resolveComposerEnterAction } from '@renderer/features/chat/lib/composerEnterBehavior'
 import { theme } from '@renderer/theme/theme'
-import {
-  DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
-  isMemoryConfigured
-} from '../../../../../shared/yachiyo/protocol.ts'
+import { DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR } from '../../../../../shared/yachiyo/protocol.ts'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import { ModelSelectorPopup } from './ModelSelectorPopup'
 import { SlashCommandPopup } from './SlashCommandPopup'
@@ -479,7 +476,6 @@ export function Composer({
   )
 
   const userPrompts = useMemo(() => config?.prompts ?? [], [config?.prompts])
-  const memoryEnabled = isMemoryConfigured(config)
   const canRunThreadOperations = activeThreadId !== null
   const allSlashCommands = useMemo<SlashCommand[]>(
     () => [
@@ -493,12 +489,12 @@ export function Composer({
             }
           ]
         : []),
-      ...(canRunThreadOperations && memoryEnabled
+      ...(canRunThreadOperations
         ? [
             {
-              key: 'save',
-              label: 'Save Thread',
-              description: 'Save to long-term memory',
+              key: 'archive',
+              label: 'Archive',
+              description: 'Archive this thread',
               type: 'action' as const
             }
           ]
@@ -520,7 +516,7 @@ export function Composer({
           ]
         : [])
     ],
-    [canRunThreadOperations, memoryEnabled, userPrompts, availableSkills]
+    [canRunThreadOperations, userPrompts, availableSkills]
   )
   const matchingSlashCommands = useMemo<SlashCommand[]>(() => {
     if (skillQuery !== null) {
@@ -969,7 +965,7 @@ export function Composer({
         }
 
         setComposerValue('')
-        const opKey = command.key === 'save' ? 'save-thread' : 'compact-to-another-thread'
+        const opKey = command.key === 'archive' ? 'archive' : 'compact-to-another-thread'
         onSelectThreadOperation?.(opKey as ThreadContextOperationKey)
       } else if (command.type === 'skill-prefix') {
         setComposerValue('/skills:')

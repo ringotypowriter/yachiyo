@@ -8,6 +8,7 @@ import {
   resolveThreadContextOperations,
   type ThreadContextOperationKey
 } from '@renderer/features/threads/lib/threadContextOperations'
+import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { theme } from '@renderer/theme/theme'
 import { isMemoryConfigured } from '../../../../../shared/yachiyo/protocol.ts'
 
@@ -107,7 +108,6 @@ function groupThreadsByDate(threads: Thread[]): Array<{ label: string; threads: 
 function ThreadListItem({
   isActive,
   hasActiveRun,
-  isMemoryEnabled,
   isSaving,
   isSelectMode,
   isSelected,
@@ -123,7 +123,6 @@ function ThreadListItem({
 }: {
   isActive: boolean
   hasActiveRun: boolean
-  isMemoryEnabled: boolean
   isSaving: boolean
   isSelectMode: boolean
   isSelected: boolean
@@ -145,7 +144,6 @@ function ThreadListItem({
   const titleInputRef = useRef<HTMLInputElement>(null)
   const operations = resolveThreadContextOperations({
     isArchived: threadListMode === 'archived',
-    isMemoryEnabled: isMemoryEnabled && !thread.privacyMode,
     isSaving,
     isStarred
   })
@@ -434,6 +432,7 @@ function ThreadListContent({
 }): React.JSX.Element {
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [archiveTarget, setArchiveTarget] = useState<Thread | null>(null)
 
   function exitSelectMode(): void {
     setSelectMode(false)
@@ -483,25 +482,13 @@ function ThreadListContent({
       }
 
       if (operationKey === 'archive') {
-        if (window.confirm(`Archive "${thread.title}"?`)) {
-          await archiveThread(thread.id)
-        }
+        setArchiveTarget(thread)
         return
       }
 
       if (operationKey === 'compact-to-another-thread') {
         setActiveThread(thread.id)
         await compactThreadToAnotherThread()
-        return
-      }
-
-      if (operationKey === 'save-thread') {
-        if (savingThreadIds.has(thread.id)) return
-        await saveThread(thread.id, {
-          archiveAfterSave: window.confirm(
-            `Archive "${thread.title}" after saving it to long-term memory?`
-          )
-        })
         return
       }
 
@@ -601,6 +588,23 @@ function ThreadListContent({
     }
   }
 
+  async function handleArchiveConfirm(choice: string): Promise<void> {
+    if (!archiveTarget) return
+    const thread = archiveTarget
+    setArchiveTarget(null)
+
+    try {
+      if (choice === 'archive') {
+        await archiveThread(thread.id)
+      } else if (choice === 'save-and-archive') {
+        if (savingThreadIds.has(thread.id)) return
+        await saveThread(thread.id, { archiveAfterSave: true })
+      }
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to archive the thread.')
+    }
+  }
+
   function renderThreadItem(thread: Thread): React.JSX.Element {
     return (
       <ThreadListItem
@@ -608,7 +612,6 @@ function ThreadListContent({
         thread={thread}
         isActive={thread.id === activeId}
         hasActiveRun={latestRunsByThread[thread.id]?.status === 'running'}
-        isMemoryEnabled={memoryEnabled}
         isSaving={savingThreadIds.has(thread.id)}
         isSelectMode={selectMode}
         isSelected={selectedIds.has(thread.id)}
@@ -772,6 +775,25 @@ function ThreadListContent({
           visibleThreads.map(renderThreadItem)
         )}
       </div>
+      {archiveTarget && (
+        <ConfirmDialog
+          title={`Archive "${archiveTarget.title}"?`}
+          actions={[
+            { key: 'archive', label: 'Archive', tone: 'accent' },
+            ...(memoryEnabled && !archiveTarget.privacyMode
+              ? [
+                  {
+                    key: 'save-and-archive' as const,
+                    label: 'Save Memory & Archive' as const
+                  }
+                ]
+              : []),
+            { key: 'cancel', label: 'Cancel' }
+          ]}
+          onSelect={(key) => void handleArchiveConfirm(key)}
+          onClose={() => setArchiveTarget(null)}
+        />
+      )}
     </div>
   )
 }

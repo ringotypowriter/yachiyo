@@ -11,7 +11,6 @@ export interface AppMainPanelHeaderProps {
   headerPaddingLeft: number
   isBootstrapping: boolean
   isInspectionPanelOpen: boolean
-  isMemoryEnabled: boolean
   isPrivacyMode: boolean
   isPrivacyToggleLocked: boolean
   isReadOnly?: boolean
@@ -35,7 +34,6 @@ export function AppMainPanelHeader({
   headerPaddingLeft,
   isBootstrapping,
   isInspectionPanelOpen,
-  isMemoryEnabled,
   isPrivacyMode,
   isPrivacyToggleLocked,
   isReadOnly = false,
@@ -186,7 +184,6 @@ export function AppMainPanelHeader({
         ) : null}
         <ThreadHeaderActions
           activeThread={activeThread}
-          isMemoryEnabled={isMemoryEnabled}
           isRenameDisabled={false}
           isSaving={isSaving}
           isStarred={isStarred}

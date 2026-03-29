@@ -13,6 +13,7 @@ import { RunStatusStrip } from '@renderer/features/runs/components/RunStatusStri
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import { isOpenFindBarShortcut } from '@renderer/features/layout/lib/findBarShortcut'
 import { MessageSquare, Trash2 } from 'lucide-react'
+import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { theme } from '@renderer/theme/theme'
 import { isMemoryConfigured } from '../../../../../shared/yachiyo/protocol.ts'
@@ -97,6 +98,7 @@ export function AppMainPanel({
   const toolCalls = useAppStore((s) =>
     activeThreadId ? (s.toolCalls[activeThreadId] ?? EMPTY_TOOL_CALLS) : EMPTY_TOOL_CALLS
   )
+  const [archiveTarget, setArchiveTarget] = useState<Thread | null>(null)
   const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null)
   const [isInspectionPanelOpen, setIsInspectionPanelOpen] = useState(false)
   const [findOpen, setFindOpen] = useState(false)
@@ -199,13 +201,18 @@ export function AppMainPanel({
     }
   }
 
-  async function handleArchiveThread(thread: Thread): Promise<void> {
-    if (!window.confirm(`Archive "${thread.title}"?`)) {
-      return
-    }
+  async function handleArchiveConfirm(choice: string): Promise<void> {
+    if (!archiveTarget) return
+    const thread = archiveTarget
+    setArchiveTarget(null)
 
     try {
-      await archiveThread(thread.id)
+      if (choice === 'archive') {
+        await archiveThread(thread.id)
+      } else if (choice === 'save-and-archive') {
+        if (threadIsSaving) return
+        await saveThread(thread.id, { archiveAfterSave: true })
+      }
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'Failed to archive the thread.')
     }
@@ -294,7 +301,7 @@ export function AppMainPanel({
     }
 
     if (operationKey === 'archive') {
-      void handleArchiveThread(activeThread)
+      setArchiveTarget(activeThread)
       return
     }
 
@@ -306,21 +313,6 @@ export function AppMainPanel({
           window.alert(
             error instanceof Error ? error.message : 'Failed to compact into another thread.'
           )
-        }
-      })()
-      return
-    }
-
-    if (operationKey === 'save-thread') {
-      void (async () => {
-        try {
-          await saveThread(activeThread.id, {
-            archiveAfterSave: window.confirm(
-              `Archive "${activeThread.title}" after saving it to long-term memory?`
-            )
-          })
-        } catch (error) {
-          window.alert(error instanceof Error ? error.message : 'Failed to save the thread.')
         }
       })()
       return
@@ -417,7 +409,6 @@ export function AppMainPanel({
           headerPaddingLeft={headerPaddingLeft}
           isBootstrapping={isBootstrapping}
           isInspectionPanelOpen={false}
-          isMemoryEnabled={false}
           isPrivacyMode={false}
           isPrivacyToggleLocked={true}
           isReadOnly
@@ -463,7 +454,6 @@ export function AppMainPanel({
         headerPaddingLeft={headerPaddingLeft}
         isBootstrapping={isBootstrapping}
         isInspectionPanelOpen={isInspectionPanelOpen}
-        isMemoryEnabled={memoryEnabled}
         isPrivacyMode={activeThread?.privacyMode ?? false}
         isPrivacyToggleLocked={messageCount > 0}
         isSaving={threadIsSaving}
@@ -506,6 +496,20 @@ export function AppMainPanel({
           </div>
         )}
       </div>
+      {archiveTarget && (
+        <ConfirmDialog
+          title={`Archive "${archiveTarget.title}"?`}
+          actions={[
+            { key: 'archive', label: 'Archive', tone: 'accent' },
+            ...(memoryEnabled
+              ? [{ key: 'save-and-archive' as const, label: 'Save Memory & Archive' as const }]
+              : []),
+            { key: 'cancel', label: 'Cancel' }
+          ]}
+          onSelect={(key) => void handleArchiveConfirm(key)}
+          onClose={() => setArchiveTarget(null)}
+        />
+      )}
     </div>
   )
 }

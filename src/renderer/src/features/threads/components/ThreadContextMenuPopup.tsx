@@ -1,6 +1,5 @@
 import {
   Archive,
-  BookMarked,
   ListChecks,
   PenLine,
   RotateCcw,
@@ -43,10 +42,6 @@ function resolveOperationIcon(operationKey: ThreadContextOperation['key']): Reac
 
   if (operationKey === 'compact-to-another-thread') {
     return <SendHorizonal size={14} strokeWidth={1.7} />
-  }
-
-  if (operationKey === 'save-thread') {
-    return <BookMarked size={14} strokeWidth={1.7} />
   }
 
   if (operationKey === 'restore') {

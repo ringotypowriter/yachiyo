@@ -10,7 +10,6 @@ import { theme } from '@renderer/theme/theme'
 
 export interface ThreadHeaderActionsProps {
   activeThread: Thread | null
-  isMemoryEnabled: boolean
   isRenameDisabled: boolean
   isSaving?: boolean
   isStarred?: boolean
@@ -19,7 +18,6 @@ export interface ThreadHeaderActionsProps {
 
 export function ThreadHeaderActions({
   activeThread,
-  isMemoryEnabled,
   isRenameDisabled,
   isSaving,
   isStarred,
@@ -33,7 +31,6 @@ export function ThreadHeaderActions({
 
   const operations = resolveThreadContextOperations({
     isArchived: false,
-    isMemoryEnabled,
     isRenameDisabled,
     isSaving,
     isStarred

@@ -3,7 +3,6 @@ export type ThreadContextOperationKey =
   | 'rename'
   | 'regenerate-title'
   | 'compact-to-another-thread'
-  | 'save-thread'
   | 'archive'
   | 'restore'
   | 'delete'
@@ -19,7 +18,6 @@ export interface ThreadContextOperation {
 
 export function resolveThreadContextOperations(input: {
   isArchived: boolean
-  isMemoryEnabled?: boolean
   isRenameDisabled?: boolean
   isSaving?: boolean
   isStarred?: boolean
@@ -61,15 +59,6 @@ export function resolveThreadContextOperations(input: {
       key: 'compact-to-another-thread',
       label: 'Handoff'
     },
-    ...(input.isMemoryEnabled
-      ? [
-          {
-            disabled: input.isSaving,
-            key: 'save-thread' as const,
-            label: input.isSaving ? 'Saving…' : 'Save Thread'
-          }
-        ]
-      : []),
     {
       disabled: input.isSaving,
       key: 'archive',
