@@ -1054,11 +1054,11 @@ test('agent enable - sets enabled=true after disable', async () => {
 // Send (notification) tests
 // ---------------------------------------------------------------------------
 
-test('send - delivers notification via sendNotification', async () => {
+test('send notification - delivers notification via sendNotification', async () => {
   const sent: Array<{ title: string; body?: string }> = []
   let stdout = ''
 
-  await runYachiyoCli(['send', 'Build completed'], {
+  await runYachiyoCli(['send', 'notification', 'Build completed'], {
     stdout: {
       write(chunk) {
         stdout += String(chunk)
@@ -1076,10 +1076,10 @@ test('send - delivers notification via sendNotification', async () => {
   assert.ok(stdout.includes('Notification sent'))
 })
 
-test('send - custom title via --title flag', async () => {
+test('send notification - custom title via --title flag', async () => {
   const sent: Array<{ title: string; body?: string }> = []
 
-  await runYachiyoCli(['send', 'Tests passed', '--title', 'CI Result'], {
+  await runYachiyoCli(['send', 'notification', 'Tests passed', '--title', 'CI Result'], {
     stdout: {
       write() {
         return true
@@ -1095,10 +1095,10 @@ test('send - custom title via --title flag', async () => {
   assert.equal(sent[0]?.body, 'Tests passed')
 })
 
-test('send - missing message throws', async () => {
+test('send notification - missing message throws', async () => {
   await assert.rejects(
     () =>
-      runYachiyoCli(['send'], {
+      runYachiyoCli(['send', 'notification'], {
         stdout: {
           write() {
             return true
@@ -1110,10 +1110,10 @@ test('send - missing message throws', async () => {
   )
 })
 
-test('send - propagates connection error', async () => {
+test('send notification - propagates connection error', async () => {
   await assert.rejects(
     () =>
-      runYachiyoCli(['send', 'hello'], {
+      runYachiyoCli(['send', 'notification', 'hello'], {
         stdout: {
           write() {
             return true
@@ -1124,6 +1124,90 @@ test('send - propagates connection error', async () => {
         }
       }),
     /not running/
+  )
+})
+
+test('send channel - delivers message via sendChannel', async () => {
+  const calls: Array<{ type: string; id: string; message: string }> = []
+  let stdout = ''
+
+  await runYachiyoCli(['send', 'channel', 'user-abc', 'Hello from CLI'], {
+    stdout: {
+      write(chunk) {
+        stdout += String(chunk)
+        return true
+      }
+    },
+    sendChannel: async (_socketPath, payload) => {
+      calls.push(payload)
+    }
+  })
+
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0]?.type, 'send-channel')
+  assert.equal(calls[0]?.id, 'user-abc')
+  assert.equal(calls[0]?.message, 'Hello from CLI')
+  assert.ok(stdout.includes('Message sent'))
+})
+
+test('send channel - missing id throws', async () => {
+  await assert.rejects(
+    () =>
+      runYachiyoCli(['send', 'channel'], {
+        stdout: {
+          write() {
+            return true
+          }
+        },
+        sendChannel: async () => {}
+      }),
+    /Channel user or group ID is required/
+  )
+})
+
+test('send channel - missing message throws', async () => {
+  await assert.rejects(
+    () =>
+      runYachiyoCli(['send', 'channel', 'user-abc'], {
+        stdout: {
+          write() {
+            return true
+          }
+        },
+        sendChannel: async () => {}
+      }),
+    /Message is required/
+  )
+})
+
+test('send channel - propagates connection error', async () => {
+  await assert.rejects(
+    () =>
+      runYachiyoCli(['send', 'channel', 'user-abc', 'hi'], {
+        stdout: {
+          write() {
+            return true
+          }
+        },
+        sendChannel: async () => {
+          throw new Error('Yachiyo app is not running. Start the app first.')
+        }
+      }),
+    /not running/
+  )
+})
+
+test('send - unknown subcommand throws', async () => {
+  await assert.rejects(
+    () =>
+      runYachiyoCli(['send', 'foobar'], {
+        stdout: {
+          write() {
+            return true
+          }
+        }
+      }),
+    /Unknown send subcommand.*Expected: notification, channel/
   )
 })
 

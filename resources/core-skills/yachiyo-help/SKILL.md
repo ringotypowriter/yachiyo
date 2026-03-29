@@ -1,6 +1,6 @@
 ---
 name: yachiyo-help
-description: Complete reference for the Yachiyo CLI — soul traits, provider management, agent profiles, config, thread search, and scheduled tasks
+description: Complete reference for the Yachiyo CLI — soul traits, provider management, agent profiles, config, thread search, scheduled tasks, channel users/groups, and send commands
 ---
 
 # Yachiyo Help
@@ -15,6 +15,8 @@ Read the detailed reference for each namespace before running unfamiliar command
 - [config.md](references/config.md) — Read and write configuration values
 - [threads.md](references/threads.md) — Search historical conversations
 - [schedule.md](references/schedule.md) — Manage scheduled tasks and view run history
+- [channel.md](references/channel.md) — List channel users and groups
+- [send.md](references/send.md) — Send notifications and channel messages
 
 ## Usage
 
@@ -24,14 +26,16 @@ yachiyo <namespace> <subcommand> [args...] [flags...]
 
 ## Namespaces
 
-| Namespace  | Purpose                         | Reference                                    |
-| ---------- | ------------------------------- | -------------------------------------------- |
-| `soul`     | Manage evolving persona traits  | [soul.md](references/soul.md)                |
-| `provider` | Manage AI providers             | [providers.md](references/providers.md)      |
-| `agent`    | Manage coding agent profiles    | [agents.md](references/agents.md)            |
-| `config`   | Read and write configuration    | [config.md](references/config.md)            |
-| `thread`   | Search historical conversations | [threads.md](references/threads.md)          |
-| `schedule` | Manage scheduled tasks          | [schedule.md](references/schedule.md)        |
+| Namespace  | Purpose                              | Reference                                    |
+| ---------- | ------------------------------------ | -------------------------------------------- |
+| `soul`     | Manage evolving persona traits       | [soul.md](references/soul.md)                |
+| `provider` | Manage AI providers                  | [providers.md](references/providers.md)      |
+| `agent`    | Manage coding agent profiles         | [agents.md](references/agents.md)            |
+| `config`   | Read and write configuration         | [config.md](references/config.md)            |
+| `thread`   | Search historical conversations      | [threads.md](references/threads.md)          |
+| `schedule` | Manage scheduled tasks               | [schedule.md](references/schedule.md)        |
+| `channel`  | List channel users and groups        | [channel.md](references/channel.md)          |
+| `send`     | Send notifications and channel messages | [send.md](references/send.md)            |
 
 ## Global Flags
 

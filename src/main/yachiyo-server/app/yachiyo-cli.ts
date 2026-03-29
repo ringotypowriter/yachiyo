@@ -30,46 +30,71 @@ import { searchMessages as defaultSearchMessages, type MessageSearchHit } from '
 
 const USAGE = `Usage: yachiyo <namespace> <subcommand> [args...] [flags...]
 
-Namespaces:
-  soul traits list
-  soul traits add <trait>
-  soul traits remove <index-or-text>
+All output is JSON unless noted. The app must be running for "send" commands.
 
-  provider list
-  provider show <id-or-name>
+── soul ──────────────────────────────────────────────────────────────
+  soul traits list                       List evolved personality traits (JSON array of {index, trait}).
+  soul traits add <trait>                Append a daily trait. Returns updated list.
+  soul traits remove <index-or-text>     Remove trait by numeric index or exact text. Returns updated list.
+
+── provider ──────────────────────────────────────────────────────────
+  provider list                          List all configured LLM providers (apiKey is redacted).
+  provider show <id-or-name>             Show a single provider by UUID or display name.
   provider update <id-or-name> [--payload <json>]
-  provider set-default <id-or-name>
-  provider models <id-or-name>
+                                         Merge JSON patch into an existing provider config.
+  provider set-default <id-or-name>      Promote a provider to the default slot.
+  provider models <id-or-name>           Fetch available model IDs from the provider's API.
 
-  agent list
-  agent show <id-or-name>
-  agent add --payload <json>
+── agent ─────────────────────────────────────────────────────────────
+  agent list                             List all registered subagent profiles.
+  agent show <id-or-name>                Show a single subagent profile.
+  agent add --payload <json>             Register a new subagent. Requires "name" and "command" in payload.
   agent update <id-or-name> [--payload <json>]
-  agent remove <id-or-name>
-  agent enable <id-or-name>
-  agent disable <id-or-name>
+                                         Merge JSON patch into an existing subagent profile.
+  agent remove <id-or-name>              Unregister a subagent profile.
+  agent enable <id-or-name>              Enable a disabled subagent.
+  agent disable <id-or-name>             Disable a subagent without removing it.
 
-  config get [path]
-  config set <path> <value>
+── config ────────────────────────────────────────────────────────────
+  config get [path]                      Read the full settings object, or a dot-separated path (e.g. "providers.0.name").
+  config set <path> <value>              Write a value at a dot-separated path. Value is parsed as JSON; plain strings are kept as-is.
 
+── thread ────────────────────────────────────────────────────────────
   thread search <query> [--limit <n>] [--json]
+                                         Full-text search across message history. Default limit=5.
+                                         Without --json, prints human-readable lines.
 
-  schedule list [--json]
-  schedule add --payload <json>
-  schedule remove <id>
-  schedule enable <id>
-  schedule disable <id>
+── schedule ──────────────────────────────────────────────────────────
+  schedule list [--json]                 List all cron schedules. Without --json, prints a compact summary.
+  schedule add --payload <json>          Create a new schedule. Payload must include cronExpression, name, prompt, etc.
+  schedule remove <id>                   Delete a schedule by UUID.
+  schedule enable <id>                   Enable a disabled schedule.
+  schedule disable <id>                  Disable a schedule without removing it.
   schedule runs [<id>] [--limit <n>] [--json]
+                                         List recent schedule runs. Optionally filter by schedule UUID.
 
-  send <message> [--title <title>]
+── channel ───────────────────────────────────────────────────────────
+  channel users [--json]                 List registered channel users with their IDs, platforms, and statuses.
+                                         Use the "id" field with "send channel" to send a message.
+                                         Without --json, prints a compact summary.
+  channel groups [--json]                List registered channel groups with their IDs, platforms, and statuses.
+                                         Use the "id" field with "send channel" to send a message.
+                                         Without --json, prints a compact summary.
 
-Flags:
-  --settings <path> Settings file path (default: ~/.yachiyo/config.toml)
-  --soul <path>     Soul file path (default: ~/.yachiyo/SOUL.md)
-  --db <path>       Database file path (default: ~/.yachiyo/yachiyo.sqlite)
-  --payload <json>  JSON payload for mutation commands
-  --limit <n>       Max results to return (default: 5)
-  --json            Output raw JSON array`
+── send (requires running app) ───────────────────────────────────────
+  send notification <message> [--title <title>]
+                                         Push a native OS notification. Default title="Yachiyo". Fire-and-forget.
+  send channel <id> <message>            Send a chat message to a channel user or group by internal UUID.
+                                         The app resolves or creates a thread and runs inference. Fire-and-forget.
+                                         Get valid IDs from "channel users" or "channel groups".
+
+── Global flags ──────────────────────────────────────────────────────
+  --settings <path>   Settings file path      (default: ~/.yachiyo/config.toml)
+  --soul <path>       Soul document path      (default: ~/.yachiyo/SOUL.md)
+  --db <path>         Database file path       (default: ~/.yachiyo/yachiyo.sqlite)
+  --payload <json>    JSON payload for mutation commands
+  --limit <n>         Max results to return    (default: 5)
+  --json              Output raw JSON instead of human-readable text`
 
 export interface CliConfigService {
   getConfig(): SettingsConfig | Promise<SettingsConfig>
@@ -91,6 +116,10 @@ export interface RunYachiyoCliOptions {
   sendNotification?: (
     socketPath: string,
     payload: { title: string; body?: string }
+  ) => Promise<void>
+  sendChannel?: (
+    socketPath: string,
+    payload: { type: 'send-channel'; id: string; message: string }
   ) => Promise<void>
   stdout?: Pick<typeof process.stdout, 'write'>
   stderr?: Pick<typeof process.stderr, 'write'>
@@ -561,6 +590,11 @@ export async function runYachiyoCli(
     return
   }
 
+  if (namespace === 'channel') {
+    await handleChannelCommand(positionals.slice(1), flags, dbPath, stdout)
+    return
+  }
+
   if (namespace === 'send') {
     await handleSendCommand(positionals.slice(1), flags, stdout, options)
     return
@@ -568,7 +602,7 @@ export async function runYachiyoCli(
 
   if (namespace !== 'provider' && namespace !== 'config' && namespace !== 'agent') {
     throw new Error(
-      `Unknown namespace: ${namespace}. Expected: soul, provider, agent, config, thread, schedule, send`
+      `Unknown namespace: ${namespace}. Expected: soul, provider, agent, config, thread, schedule, channel, send\n\n${USAGE}`
     )
   }
 
@@ -608,23 +642,113 @@ function defaultSendNotification(
   })
 }
 
+function defaultSendChannel(
+  socketPath: string,
+  payload: { type: 'send-channel'; id: string; message: string }
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const client = connect(socketPath, () => {
+      client.end(JSON.stringify(payload))
+    })
+    client.on('close', () => resolve())
+    client.on('error', (err) => {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ECONNREFUSED') {
+        reject(new Error('Yachiyo app is not running. Start the app first.'))
+      } else {
+        reject(err)
+      }
+    })
+  })
+}
+
+async function handleChannelCommand(
+  positionals: string[],
+  flags: Map<string, string>,
+  dbPath: string,
+  stdout: Pick<typeof process.stdout, 'write'>
+): Promise<void> {
+  const action = positionals[0]
+  const useJson = flags.get('--json') === 'true'
+
+  const { createSqliteYachiyoStorage } = await import('../storage/sqlite/database.ts')
+  const storage = createSqliteYachiyoStorage(dbPath)
+
+  try {
+    if (action === 'users') {
+      const users = storage.listChannelUsers()
+      if (useJson) {
+        outputJson(stdout, users)
+      } else {
+        for (const u of users) {
+          stdout.write(`[${u.status}] ${u.platform}:${u.username} id=${u.id}\n`)
+        }
+        if (users.length === 0) stdout.write('No channel users.\n')
+      }
+      return
+    }
+
+    if (action === 'groups') {
+      const groups = storage.listChannelGroups()
+      if (useJson) {
+        outputJson(stdout, groups)
+      } else {
+        for (const g of groups) {
+          stdout.write(`[${g.status}] ${g.platform}:${g.name} id=${g.id}\n`)
+        }
+        if (groups.length === 0) stdout.write('No channel groups.\n')
+      }
+      return
+    }
+
+    throw new Error(
+      `Unknown channel action: ${action ?? '(none)'}. Expected: users, groups`
+    )
+  } finally {
+    storage.close()
+  }
+}
+
 async function handleSendCommand(
   positionals: string[],
   flags: Map<string, string>,
   stdout: Pick<typeof process.stdout, 'write'>,
   options: RunYachiyoCliOptions
 ): Promise<void> {
-  const body = positionals[0]
-  if (!body?.trim()) {
-    throw new Error('Message is required: send <message> [--title <title>]')
+  const subcommand = positionals[0]
+
+  if (subcommand === 'notification') {
+    const body = positionals[1]
+    if (!body?.trim()) {
+      throw new Error('Message is required: send notification <message> [--title <title>]')
+    }
+    const title = flags.get('--title') ?? 'Yachiyo'
+    const socketPath = resolveYachiyoSocketPath()
+    const send = options.sendNotification ?? defaultSendNotification
+    await send(socketPath, { title, body })
+    stdout.write(`Notification sent.\n`)
+    return
   }
 
-  const title = flags.get('--title') ?? 'Yachiyo'
-  const socketPath = resolveYachiyoSocketPath()
-  const send = options.sendNotification ?? defaultSendNotification
+  if (subcommand === 'channel') {
+    const id = positionals[1]
+    const message = positionals[2]
+    if (!id?.trim()) {
+      throw new Error('Channel user or group ID is required: send channel <id> <message>')
+    }
+    if (!message?.trim()) {
+      throw new Error('Message is required: send channel <id> <message>')
+    }
+    const socketPath = resolveYachiyoSocketPath()
+    const send = options.sendChannel ?? defaultSendChannel
+    await send(socketPath, { type: 'send-channel', id, message })
+    stdout.write(`Message sent.\n`)
+    return
+  }
 
-  await send(socketPath, { title, body })
-  stdout.write(`Notification sent.\n`)
+  throw new Error(
+    `Unknown send subcommand: ${subcommand ?? '(none)'}. Expected: notification, channel`
+  )
 }
 
 async function handleScheduleCommand(

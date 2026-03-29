@@ -36,7 +36,7 @@ import {
   resolveYachiyoSocketPath,
   resolveYachiyoTempWorkspaceRoot
 } from './yachiyo-server/config/paths.ts'
-import { startNotificationSocket, type NotificationSocketHandle } from './notificationSocket.ts'
+import { startCommandSocket, type CommandSocketHandle, type SendChannelInput } from './commandSocket.ts'
 import { openThreadWorkspace } from './openThreadWorkspace.ts'
 import { discoverApps } from './appDiscovery.ts'
 import {
@@ -132,7 +132,7 @@ let telegramService: TelegramService | null = null
 let qqService: QQService | null = null
 let discordService: DiscordService | null = null
 let scheduleService: ScheduleService | null = null
-let notificationSocket: NotificationSocketHandle | null = null
+let commandSocket: CommandSocketHandle | null = null
 let fatalRunRecoveryRegistered = false
 
 async function applyTelegramConfig(cfg: ChannelsConfig): Promise<void> {
@@ -277,6 +277,63 @@ function handle<Args extends unknown[], Result>(
   ipcMain.handle(channel, async (_event, ...args: Args) => listener(...args))
 }
 
+const CHANNEL_THREAD_REUSE_WINDOW_MS = 24 * 60 * 60 * 1000 // 24 hours
+
+function handleSendChannel(input: SendChannelInput): void {
+  if (!server) {
+    console.error('[send-channel] server is not running')
+    return
+  }
+
+  const storage = server.getStorage()
+  const channelUser = storage.getChannelUser(input.id)
+  const channelGroup = channelUser ? undefined : storage.getChannelGroup(input.id)
+
+  if (!channelUser && !channelGroup) {
+    console.error(`[send-channel] unknown channel user or group: ${input.id}`)
+    return
+  }
+
+  void (async () => {
+    let threadId: string
+
+    if (channelUser) {
+      const existing = server!.findActiveChannelThread(
+        channelUser.id,
+        CHANNEL_THREAD_REUSE_WINDOW_MS
+      )
+      if (existing) {
+        threadId = existing.id
+      } else {
+        const thread = await server!.createThread({
+          source: channelUser.platform,
+          channelUserId: channelUser.id,
+          title: `CLI:${channelUser.username}`
+        })
+        threadId = thread.id
+      }
+    } else {
+      const group = channelGroup!
+      const existing = server!.findActiveGroupThread(group.id, CHANNEL_THREAD_REUSE_WINDOW_MS)
+      if (existing) {
+        threadId = existing.id
+      } else {
+        const thread = await server!.createThread({
+          source: group.platform,
+          channelGroupId: group.id,
+          title: `CLI:${group.name}`
+        })
+        threadId = thread.id
+      }
+    }
+
+    await server!.sendChat({ threadId, content: input.message })
+    console.log(`[send-channel] sent to thread ${threadId}`)
+  })().catch((err) => {
+    console.error('[send-channel] failed:', err)
+  })
+}
+
 export function registerYachiyoGateway(): YachiyoServer {
   if (server) {
     return server
@@ -343,14 +400,15 @@ export function registerYachiyoGateway(): YachiyoServer {
     }
   })
 
-  // Unix socket for CLI-originated notifications
-  void notificationSocket?.close()
-  notificationSocket = startNotificationSocket({
+  // Unix domain socket for CLI commands (notifications, send-channel, etc.)
+  void commandSocket?.close()
+  commandSocket = startCommandSocket({
     socketPath: resolveYachiyoSocketPath(),
     onNotification: (input) => {
       if (!Notification.isSupported()) return
       new Notification({ title: input.title, body: input.body ?? '' }).show()
-    }
+    },
+    onSendChannel: (input) => handleSendChannel(input)
   })
 
   handle(IPC_CHANNELS.searchThreadsAndMessages, (input: { query: string }) =>
@@ -611,8 +669,8 @@ export function registerYachiyoGateway(): YachiyoServer {
     qqService = null
     void discordService?.stop().catch(() => {})
     discordService = null
-    void notificationSocket?.close()
-    notificationSocket = null
+    void commandSocket?.close()
+    commandSocket = null
     void server?.close()
     server = null
   })
