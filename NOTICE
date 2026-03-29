@@ -1,0 +1,100 @@
+Yachiyo
+Copyright 2025-2026 Ringo
+
+This product includes software developed by Ringo.
+
+Licensed under the Apache License, Version 2.0.
+See LICENSE for the full license text.
+
+================================================================================
+BRANDING AND VISUAL ASSETS
+================================================================================
+
+The Yachiyo name, logo, and all visual branding assets (including but not
+limited to files in the resources/ and build/ directories related to app icons
+and branding imagery) are NOT covered by the Apache 2.0 license.
+
+All rights to the Yachiyo branding and visual identity are reserved by Ringo.
+These assets may not be used, modified, or redistributed without explicit
+written permission from the copyright holder.
+
+================================================================================
+THIRD-PARTY SOFTWARE NOTICES
+================================================================================
+
+This product includes or depends on the following third-party software:
+
+--- Apache-2.0 Licensed ---
+
+@agentclientprotocol/sdk - Copyright Agent Client Protocol contributors
+@ai-sdk/anthropic - Copyright Vercel, Inc.
+@ai-sdk/gateway - Copyright Vercel, Inc.
+@ai-sdk/google - Copyright Vercel, Inc.
+@ai-sdk/google-vertex - Copyright Vercel, Inc.
+@ai-sdk/openai - Copyright Vercel, Inc.
+@ai-sdk/provider - Copyright Vercel, Inc.
+@ai-sdk/provider-utils - Copyright Vercel, Inc.
+@opentelemetry/api - Copyright The OpenTelemetry Authors
+@vercel/oidc - Copyright Vercel, Inc.
+ai (Vercel AI SDK) - Copyright Vercel, Inc.
+discord.js - Copyright Amish Shah and discord.js contributors
+drizzle-orm - Copyright Drizzle Team
+sharp - Copyright Lovell Fuller and sharp contributors
+streamdown - Copyright Streamdown contributors
+
+--- MIT Licensed ---
+
+@electron-toolkit/preload - Copyright Alex Wei
+@electron-toolkit/utils - Copyright Alex Wei
+@standard-schema/spec - Copyright Standard Schema contributors
+@tanstack/react-query - Copyright Tanner Linsley
+better-sqlite3 - Copyright Joshua Wise
+defuddle - Copyright Defuddle contributors
+drizzle-kit - Copyright Drizzle Team
+eventsource-parser - Copyright Espen Hovlandsdal
+framer-motion - Copyright Framer B.V.
+htmlparser2 - Copyright Felix Boehm
+ignore - Copyright Kael Zhang
+telegraf - Copyright Vitaly Domnikov
+zod - Copyright Colin McDonnell
+zustand - Copyright Paul Henschel
+
+--- ISC Licensed ---
+
+linkedom - Copyright Andrea Giammarchi
+lucide-react - Copyright Lucide contributors
+
+--- BSD-3-Clause Licensed ---
+
+smol-toml - Copyright Squirrel Chat and smol-toml contributors
+
+--- (AFL-2.1 OR BSD-3-Clause) Licensed ---
+
+json-schema - Copyright Kris Zyp
+
+--- React (dev dependency, bundled in renderer) ---
+
+react - Copyright Meta Platforms, Inc. and affiliates (MIT)
+react-dom - Copyright Meta Platforms, Inc. and affiliates (MIT)
+
+--- Build tooling (dev dependencies, not distributed) ---
+
+electron - Copyright GitHub Inc. (MIT)
+electron-builder - Copyright Vladimir Krivosheev (MIT)
+electron-vite - Copyright Alex Wei (MIT)
+tailwindcss - Copyright Tailwind Labs, Inc. (MIT)
+typescript - Copyright Microsoft Corporation (Apache-2.0)
+vite - Copyright Evan You and Vite contributors (MIT)
+eslint - Copyright OpenJS Foundation and eslint contributors (MIT)
+prettier - Copyright James Long and Prettier contributors (MIT)
+
+================================================================================
+
+The above list covers the direct dependencies of this project. Each package
+may have its own transitive dependencies with their own licenses. For a
+complete listing, inspect the node_modules directory or run:
+
+  npx license-checker --production
+
+Full license texts for each dependency can be found in their respective
+directories under node_modules/.

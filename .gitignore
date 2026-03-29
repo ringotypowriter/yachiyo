@@ -1,10 +1,16 @@
 node_modules
 dist
 out
+tmp/
 .DS_Store
 .eslintcache
 *.tsbuildinfo
 *.log*
+__pycache__/
 .alma-snapshots
+.alma/
 .pnpm-store
+.vscode/
 .claude/settings.local.json
+other_resources/
+docs/
