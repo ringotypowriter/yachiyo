@@ -47,4 +47,4 @@ publish:
   owner: ringotypowriter
   repo: yachiyo
   releaseType: release
-npmRebuild: false
+npmRebuild: true
