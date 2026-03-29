@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.4
+
+### Patch Changes
+
+- [`254747a`](https://github.com/ringotypowriter/yachiyo/commit/254747ac9c0e87cdb54707bf9b68c7d4415464bd) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - CLI Enchantment & Config Refactor
+
 ## 1.0.3
 
 ### Patch Changes
