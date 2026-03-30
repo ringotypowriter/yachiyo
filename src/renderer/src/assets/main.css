@@ -74,6 +74,14 @@ body {
   -webkit-app-region: no-drag;
 }
 
+/* Portals (createPortal to document.body) must opt out of the drag region.
+   Electron's -webkit-app-region:drag bleeds through z-index layers, so any
+   overlay rendered on top of the titlebar needs an explicit no-drag.
+   All portals land as direct children of <body> outside #root. */
+body > div:not(#root) {
+  -webkit-app-region: no-drag;
+}
+
 /* Streamdown overrides */
 .streamdown-content {
   font-size: calc(var(--yachiyo-font-size-chat, 14px) / var(--yachiyo-ui-zoom, 1));
