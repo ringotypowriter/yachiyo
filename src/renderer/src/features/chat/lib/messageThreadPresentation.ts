@@ -47,7 +47,7 @@ export function getVisibleToolCallsForGroup(input: {
       .filter(
         (branch) =>
           (!input.group.hideActiveBranchWhilePreparing && branch.isActive) ||
-          branch.message.status !== 'completed'
+          branch.message.status === 'streaming'
       )
       .map((branch) => branch.message.id)
   )

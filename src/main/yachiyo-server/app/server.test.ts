@@ -3000,9 +3000,11 @@ test('YachiyoServer cancels an active run without persisting partial assistant o
     const bootstrap = await server.bootstrap()
     const messages = bootstrap.messagesByThread[thread.id] ?? []
 
-    assert.equal(messages.length, 1)
+    assert.equal(messages.length, 2)
     assert.equal(messages[0]?.role, 'user')
     assert.equal(messages[0]?.content, 'Please cancel me halfway. cancel me')
+    assert.equal(messages[1]?.role, 'assistant')
+    assert.equal(messages[1]?.status, 'stopped')
   })
 })
 
@@ -3402,7 +3404,7 @@ test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queu
 
       assert.deepEqual(
         (recoveredBootstrap.messagesByThread[thread.id] ?? []).map((message) => message.content),
-        ['First question', 'Recovered queued follow-up', 'Recovered reply']
+        ['First question', 'Recovered queued follow-up', '', 'Recovered reply']
       )
       assert.match(
         String(resumedRequests[0]?.messages.at(-1)?.content ?? ''),
@@ -4565,8 +4567,13 @@ test('YachiyoServer can retry directly from a user request that has no assistant
       let bootstrap = await server.bootstrap()
       const [userMessage] = bootstrap.messagesByThread[thread.id] ?? []
 
-      assert.equal(bootstrap.messagesByThread[thread.id]?.length, 1)
+      assert.equal(bootstrap.messagesByThread[thread.id]?.length, 2)
       assert.equal(userMessage?.role, 'user')
+
+      const stoppedMessage = (bootstrap.messagesByThread[thread.id] ?? []).find(
+        (message) => message.role === 'assistant' && message.status === 'stopped'
+      )
+      assert.ok(stoppedMessage, 'cancelled run should persist a stopped assistant message')
 
       const retried = await server.retryMessage({
         threadId: thread.id,
@@ -4576,11 +4583,13 @@ test('YachiyoServer can retry directly from a user request that has no assistant
 
       bootstrap = await server.bootstrap()
       const assistantReply = (bootstrap.messagesByThread[thread.id] ?? []).find(
-        (message) => message.parentMessageId === userMessage?.id && message.role === 'assistant'
+        (message) =>
+          message.parentMessageId === userMessage?.id &&
+          message.role === 'assistant' &&
+          message.content === 'Hello world'
       )
 
       assert.equal(retried.requestMessageId, userMessage?.id)
-      assert.equal(retried.sourceAssistantMessageId, undefined)
       assert.equal(assistantReply?.content, 'Hello world')
     },
     {

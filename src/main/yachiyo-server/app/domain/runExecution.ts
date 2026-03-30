@@ -1415,6 +1415,60 @@ export async function executeServerRun(
         threadId: input.thread.id
       })
 
+      if (input.requestMessageId) {
+        const currentThread = deps.readThread(input.thread.id)
+        const stoppedMessage: MessageRecord = {
+          id: messageId,
+          threadId: input.thread.id,
+          parentMessageId: input.requestMessageId,
+          role: 'assistant',
+          content: buffer,
+          ...(textBlocks.length > 0 ? { textBlocks } : {}),
+          status: 'stopped',
+          createdAt: timestamp,
+          modelId: settings.model,
+          providerName: settings.providerName
+        }
+        const updatedThread: ThreadRecord = {
+          ...currentThread,
+          updatedAt: timestamp,
+          ...(buffer ? { preview: buffer.slice(0, 240) } : {})
+        }
+        deps.storage.saveThreadMessage({
+          thread: currentThread,
+          updatedThread,
+          message: stoppedMessage
+        })
+        deps.emit<MessageCompletedEvent>({
+          type: 'message.completed',
+          threadId: input.thread.id,
+          runId: input.runId,
+          message: stoppedMessage
+        })
+        deps.emit<ThreadUpdatedEvent>({
+          type: 'thread.updated',
+          threadId: input.thread.id,
+          thread: updatedThread
+        })
+
+        // Bind all tool calls from this run to the stopped assistant message.
+        // Unlike the normal completion path where completeRun sets
+        // assistantMessageId in storage first, here we must do it explicitly.
+        for (const [toolCallId, toolCall] of toolCalls.entries()) {
+          if (toolCall.runId === input.runId && toolCall.assistantMessageId !== messageId) {
+            const bound: ToolCallRecord = { ...toolCall, assistantMessageId: messageId }
+            toolCalls.set(toolCallId, bound)
+            deps.storage.updateToolCall(bound)
+            deps.emit<ToolCallUpdatedEvent>({
+              type: 'tool.updated',
+              threadId: input.thread.id,
+              runId: input.runId,
+              toolCall: bound
+            })
+          }
+        }
+      }
+
       deps.storage.cancelRun({
         runId: input.runId,
         completedAt: timestamp

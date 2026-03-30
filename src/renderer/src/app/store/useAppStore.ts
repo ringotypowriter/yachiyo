@@ -332,6 +332,34 @@ function upsertToolCall(toolCalls: ToolCall[], toolCall: ToolCall): ToolCall[] {
   return next.sort((left, right) => left.startedAt.localeCompare(right.startedAt))
 }
 
+function terminateRunToolCalls(
+  allToolCalls: Record<string, ToolCall[]>,
+  threadId: string,
+  runId: string,
+  assistantMessageId: string | undefined
+): Record<string, ToolCall[]> {
+  const threadToolCalls = allToolCalls[threadId]
+  if (!threadToolCalls) return allToolCalls
+
+  let changed = false
+  const next = threadToolCalls.map((toolCall) => {
+    if (toolCall.runId !== runId) return toolCall
+
+    const needsFailStatus = toolCall.status === 'running'
+    const needsBind = assistantMessageId && !toolCall.assistantMessageId
+    if (!needsFailStatus && !needsBind) return toolCall
+
+    changed = true
+    return {
+      ...toolCall,
+      ...(needsFailStatus ? { status: 'failed' as const } : {}),
+      ...(needsBind ? { assistantMessageId } : {})
+    }
+  })
+
+  return changed ? { ...allToolCalls, [threadId]: next } : allToolCalls
+}
+
 function upsertLatestRun(
   latestRunsByThread: Record<string, RunRecord>,
   run: RunRecord
@@ -1659,6 +1687,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           pendingSteerMessages: state.activeRunIdsByThread[event.threadId]
             ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
             : state.pendingSteerMessages,
+          toolCalls: terminateRunToolCalls(
+            state.toolCalls,
+            event.threadId,
+            event.runId,
+            pending?.messageId
+          ),
           runPhasesByThread: setThreadRunPhaseValue(
             state.runPhasesByThread,
             event.threadId,
@@ -1732,6 +1766,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           pendingSteerMessages: state.activeRunIdsByThread[event.threadId]
             ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
             : state.pendingSteerMessages,
+          toolCalls: terminateRunToolCalls(
+            state.toolCalls,
+            event.threadId,
+            event.runId,
+            pending?.messageId
+          ),
           runPhasesByThread: setThreadRunPhaseValue(
             state.runPhasesByThread,
             event.threadId,

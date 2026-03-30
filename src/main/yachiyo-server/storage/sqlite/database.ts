@@ -793,6 +793,11 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         })
         .where(eq(runsTable.id, runId))
         .run()
+
+      db.update(toolCallsTable)
+        .set({ status: 'failed', finishedAt: completedAt })
+        .where(and(eq(toolCallsTable.runId, runId), eq(toolCallsTable.status, 'running')))
+        .run()
     },
 
     failRun({ runId, completedAt, error }) {
@@ -803,6 +808,11 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           status: 'failed'
         })
         .where(eq(runsTable.id, runId))
+        .run()
+
+      db.update(toolCallsTable)
+        .set({ status: 'failed', finishedAt: completedAt })
+        .where(and(eq(toolCallsTable.runId, runId), eq(toolCallsTable.status, 'running')))
         .run()
     },
 

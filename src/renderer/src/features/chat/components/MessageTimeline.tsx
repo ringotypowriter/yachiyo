@@ -329,8 +329,16 @@ export function ThreadConversationGroup({
               threadIsSaving
             })}
             onRetry={() => onRetry(activeBranch.message.id)}
-            onCreateBranch={() => onCreateBranch(activeBranch.message.id)}
-            onDelete={() => onDelete(activeBranch.message.id)}
+            onCreateBranch={
+              !threadHasActiveRun && !threadIsSaving
+                ? () => onCreateBranch(activeBranch.message.id)
+                : undefined
+            }
+            onDelete={
+              !threadHasActiveRun && !threadIsSaving
+                ? () => onDelete(activeBranch.message.id)
+                : undefined
+            }
           />
         </div>
       ) : null}

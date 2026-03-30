@@ -478,20 +478,22 @@ export class YachiyoServerThreadDomain {
       throw new Error('Cannot switch reply branches while this thread is running.')
     }
 
-    const { sourceAssistantMessage } = resolveRetryRequest(
-      thread,
-      this.loadThreadMessages(thread.id),
-      input.assistantMessageId
-    )
-    if (!sourceAssistantMessage) {
-      throw new Error('This message cannot be used as a reply branch.')
-    }
-
     const messages = this.loadThreadMessages(thread.id)
-    const nextHeadMessageId =
-      pickLatestLeafId(messages, sourceAssistantMessage.id) ?? sourceAssistantMessage.id
-    const previewSource = messages.find((message) => message.id === nextHeadMessageId)
-    const preview = previewSource ? summarizeMessageInput(previewSource) : ''
+    const target = messages.find((message) => message.id === input.assistantMessageId)
+
+    let nextHeadMessageId: string
+    let preview = ''
+
+    if (target) {
+      nextHeadMessageId = pickLatestLeafId(messages, target.id) ?? target.id
+      const previewSource = messages.find((message) => message.id === nextHeadMessageId)
+      preview = previewSource ? summarizeMessageInput(previewSource) : ''
+    } else {
+      // The assistant message exists only in the frontend (e.g. cancelled run
+      // that was never persisted). Accept the ID so the frontend can still
+      // navigate to the branch it already holds in memory.
+      nextHeadMessageId = input.assistantMessageId
+    }
     const timestamp = this.deps.timestamp()
     const updatedThread: ThreadRecord = {
       ...thread,

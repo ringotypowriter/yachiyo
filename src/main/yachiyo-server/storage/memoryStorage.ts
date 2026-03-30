@@ -418,6 +418,13 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
       run.status = 'cancelled'
       run.completedAt = completedAt
+
+      for (const toolCall of toolCalls.values()) {
+        if (toolCall.runId === runId && toolCall.status === 'running') {
+          toolCall.status = 'failed'
+          toolCall.finishedAt = completedAt
+        }
+      }
     },
 
     failRun({ runId, completedAt, error }) {
@@ -429,6 +436,13 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       run.status = 'failed'
       run.error = error
       run.completedAt = completedAt
+
+      for (const toolCall of toolCalls.values()) {
+        if (toolCall.runId === runId && toolCall.status === 'running') {
+          toolCall.status = 'failed'
+          toolCall.finishedAt = completedAt
+        }
+      }
     },
 
     listThreadMessages(threadId) {
