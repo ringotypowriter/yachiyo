@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, net, Notification, session } from 'electron'
 import { spawn } from 'child_process'
+import { join } from 'node:path'
 
 import type {
   ChannelsConfig,
@@ -31,6 +32,7 @@ import {
   type YachiyoServer
 } from './yachiyo-server/app/YachiyoServer.ts'
 import {
+  resolveYachiyoDataDir,
   resolveYachiyoDbPath,
   resolveYachiyoSettingsPath,
   resolveYachiyoSocketPath,
@@ -128,7 +130,8 @@ const IPC_CHANNELS = {
   disableSchedule: 'yachiyo:disable-schedule',
   listScheduleRuns: 'yachiyo:list-schedule-runs',
   listRecentScheduleRuns: 'yachiyo:list-recent-schedule-runs',
-  markThreadAsRead: 'yachiyo:mark-thread-as-read'
+  markThreadAsRead: 'yachiyo:mark-thread-as-read',
+  openSkillsFolder: 'yachiyo:open-skills-folder'
 } as const
 
 let server: YachiyoServer | null = null
@@ -540,6 +543,13 @@ export function registerYachiyoGateway(): YachiyoServer {
     server!.listWebSearchBrowserImportSources()
   )
   handle(IPC_CHANNELS.listSkills, (input: ListSkillsInput | undefined) => server!.listSkills(input))
+  handle(IPC_CHANNELS.openSkillsFolder, async () => {
+    const { shell } = await import('electron')
+    const { mkdir } = await import('node:fs/promises')
+    const skillsDir = join(resolveYachiyoDataDir(), 'skills')
+    await mkdir(skillsDir, { recursive: true })
+    await shell.openPath(skillsDir)
+  })
   handle(IPC_CHANNELS.importWebSearchBrowserSession, (input: ImportWebSearchBrowserSessionInput) =>
     server!.importWebSearchBrowserSession(input)
   )

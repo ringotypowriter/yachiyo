@@ -116,6 +116,7 @@ declare global {
         disableProviderModel: (input: { name: string; model: string }) => Promise<SettingsConfig>
         fetchProviderModels: (input: ProviderConfig) => Promise<string[]>
         listSkills: (input?: ListSkillsInput) => Promise<SkillCatalogEntry[]>
+        openSkillsFolder: () => Promise<void>
         listWebSearchBrowserImportSources: () => Promise<WebSearchBrowserImportSource[]>
         importWebSearchBrowserSession: (
           input: ImportWebSearchBrowserSessionInput

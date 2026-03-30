@@ -136,6 +136,7 @@ const api = {
     fetchProviderModels: (input: ProviderConfig) =>
       ipcRenderer.invoke('yachiyo:fetch-provider-models', input),
     listSkills: (input?: ListSkillsInput) => ipcRenderer.invoke('yachiyo:list-skills', input),
+    openSkillsFolder: () => ipcRenderer.invoke('yachiyo:open-skills-folder'),
     listWebSearchBrowserImportSources: () =>
       ipcRenderer.invoke('yachiyo:list-web-search-browser-import-sources'),
     importWebSearchBrowserSession: (input: ImportWebSearchBrowserSessionInput) =>
