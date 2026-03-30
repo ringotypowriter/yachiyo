@@ -67,6 +67,12 @@ export interface OneBotClient {
   getLoginInfo(): Promise<{ userId: number; nickname: string }>
   /** Resolve an image file identifier to a local path / download URL. */
   getImage(file: string): Promise<OneBotImageInfo>
+  /**
+   * Show "对方正在输入..." typing indicator to a private chat user.
+   * NapCat extension — only works for C2C (private) messages.
+   * @param eventType 1 = typing, 0 = cancel
+   */
+  setInputStatus(userId: number, eventType: number): Promise<void>
 }
 
 export function createOneBotClient(options: OneBotClientOptions): OneBotClient {
@@ -279,6 +285,13 @@ export function createOneBotClient(options: OneBotClientOptions): OneBotClient {
         url: string
       }
       return result
+    },
+
+    async setInputStatus(userId: number, eventType: number): Promise<void> {
+      await sendAction('set_input_status', {
+        user_id: userId,
+        event_type: eventType
+      })
     }
   }
 }

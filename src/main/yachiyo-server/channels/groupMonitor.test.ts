@@ -229,6 +229,33 @@ describe('GroupMonitor', () => {
     monitor.stop()
   })
 
+  it('time-prunes aged-out new messages even while restored messages exist', () => {
+    const staleTimestamp = Date.now() / 1_000 - 999_999
+    const restoredMessages: GroupMessageEntry[] = [
+      makeMessage('restored', 'Alice', { timestamp: staleTimestamp })
+    ]
+
+    // Use a very short window so new messages age out quickly.
+    const monitor = createGroupMonitor(
+      fastConfig({ recentMessageWindowMs: 1, wakeBufferMs: 5_000 }),
+      {
+        onTurn: async () => false,
+        onStateChange: () => {}
+      },
+      { phase: 'dormant', buffer: restoredMessages }
+    )
+
+    // Add a new message with an already-stale timestamp.
+    const agedTimestamp = Date.now() / 1_000 - 10
+    monitor.onMessage(makeMessage('aged-new', 'Bob', { timestamp: agedTimestamp }))
+
+    // The restored message stays (protected), but the aged new message is evicted.
+    const msgs = monitor.getRecentMessages()
+    assert.equal(msgs.length, 1)
+    assert.equal(msgs[0].text, 'restored')
+    monitor.stop()
+  })
+
   it('restored messages are treated as already seen', async () => {
     const turnCalls: number[] = []
     const now = Date.now() / 1_000

@@ -112,6 +112,8 @@ export function createTelegramService({
 
   /** Per-user message buffer for debounced reply batching. */
   const pendingBatches = new Map<string, PendingBatch>()
+  /** Per-user promise chain so messages are processed sequentially. */
+  const userRunChain = new Map<string, Promise<void>>()
 
   const storage: TelegramChannelStorage = {
     findChannelUser(platform, externalUserId) {
@@ -411,7 +413,15 @@ export function createTelegramService({
     // handleAllowedMessage manages its own typing loop, so stop the batch one.
     batch.stopTyping()
 
-    void handleAllowedMessage(batch.chatId, batch.channelUser, joinedText, images)
+    const channelUserId = batch.channelUser.id
+    const prev = userRunChain.get(channelUserId) ?? Promise.resolve()
+    const next = prev.then(() =>
+      handleAllowedMessage(batch.chatId, batch.channelUser, joinedText, images)
+    )
+    userRunChain.set(
+      channelUserId,
+      next.catch(() => {})
+    )
   }
 
   /** Resolve a user-specific workspace path shared across all their threads. */
@@ -839,6 +849,11 @@ function collectRunOutput(server: YachiyoServer, threadId: string): Promise<stri
       if (event.type === 'run.failed') {
         unsubscribe()
         reject(new Error((event as YachiyoServerEvent & { error?: string }).error ?? 'Run failed'))
+      }
+
+      if (event.type === 'run.cancelled') {
+        unsubscribe()
+        resolve('')
       }
     })
   })

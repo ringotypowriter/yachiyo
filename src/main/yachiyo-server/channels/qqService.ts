@@ -111,6 +111,8 @@ export function createQQService({
 }: QQServiceOptions): QQService {
   const policy = qqPolicy
   const pendingBatches = new Map<string, PendingBatch>()
+  /** Per-user promise chain so messages are processed sequentially. */
+  const userRunChain = new Map<string, Promise<void>>()
   let resolvedBotQQId = botQQId
 
   const storage: QQChannelStorage = {
@@ -125,6 +127,21 @@ export function createQQService({
   }
 
   const client: OneBotClient = createOneBotClient({ url: wsUrl, token })
+
+  /**
+   * Send "typing…" indicator to a private chat user.
+   * QQ only needs a single fire — resending resets the animation.
+   */
+  function sendTyping(qqUserId: number): void {
+    void client.setInputStatus(qqUserId, 1).catch((err) => {
+      console.warn('[qq] set_input_status failed:', err)
+    })
+  }
+
+  /** Clear the typing indicator for a private chat user. */
+  function stopTyping(qqUserId: number): void {
+    void client.setInputStatus(qqUserId, 0).catch(() => {})
+  }
 
   /**
    * Resolve a CQ image reference via OneBot `get_image` API.
@@ -573,6 +590,7 @@ export function createQQService({
       return
     }
 
+    sendTyping(qqUserId)
     const delay = randomReplyDelay()
     const timer = setTimeout(() => flushBatch(userId), delay)
 
@@ -603,7 +621,15 @@ export function createQQService({
       `[qq] flushing batch for ${batch.channelUser.username}: ${batch.messages.length} message(s), ${images.length} image(s)`
     )
 
-    void handleAllowedMessage(batch.qqUserId, batch.channelUser, joinedText, images)
+    const channelUserId = batch.channelUser.id
+    const prev = userRunChain.get(channelUserId) ?? Promise.resolve()
+    const next = prev.then(() =>
+      handleAllowedMessage(batch.qqUserId, batch.channelUser, joinedText, images)
+    )
+    userRunChain.set(
+      channelUserId,
+      next.catch(() => {})
+    )
   }
 
   async function resolveThread(channelUser: ChannelUserRecord): Promise<{
@@ -668,6 +694,7 @@ export function createQQService({
     text: string,
     images: MessageImageRecord[] = []
   ): Promise<void> {
+    sendTyping(qqUserId)
     try {
       console.log(
         `[qq] handling allowed message for user ${channelUser.username} (${images.length} image(s))`
@@ -726,6 +753,8 @@ export function createQQService({
     } catch (error) {
       console.error('[qq] failed to handle allowed message', error)
       await client.sendPrivateMessage(qqUserId, '出了点问题，请稍后再试。').catch(() => {})
+    } finally {
+      stopTyping(qqUserId)
     }
   }
 
@@ -802,6 +831,11 @@ function collectRunOutput(server: YachiyoServer, threadId: string): Promise<stri
       if (event.type === 'run.failed') {
         unsubscribe()
         reject(new Error((event as YachiyoServerEvent & { error?: string }).error ?? 'Run failed'))
+      }
+
+      if (event.type === 'run.cancelled') {
+        unsubscribe()
+        resolve('')
       }
     })
   })

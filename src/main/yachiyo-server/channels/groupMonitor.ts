@@ -129,17 +129,18 @@ export function createGroupMonitor(
   // -------------------------------------------------------------------------
 
   function pruneBuffer(): void {
-    // Time-based eviction: disabled while restored messages are present.
-    // They're kept intentionally for cross-restart context continuity;
-    // the <gap> marker in the context builder handles time discontinuity.
-    if (restoredMessageCount === 0) {
-      const cutoff = Date.now() / 1_000 - config.recentMessageWindowMs / 1_000
-      while (buffer.length > 0 && buffer[0].timestamp < cutoff) {
-        buffer.shift()
-        cursor = Math.max(0, cursor - 1)
-      }
+    const cutoff = Date.now() / 1_000 - config.recentMessageWindowMs / 1_000
+    // Time-based eviction: skip the protected restored block at the front,
+    // but still evict aged-out new messages after it. Once all restored
+    // messages are displaced by count, this becomes a normal front-eviction.
+    while (
+      buffer.length > restoredMessageCount &&
+      buffer[restoredMessageCount].timestamp < cutoff
+    ) {
+      buffer.splice(restoredMessageCount, 1)
+      if (cursor > restoredMessageCount) cursor--
     }
-    // Count-based eviction always applies.
+    // Count-based eviction from front (displaces oldest first, including restored).
     while (buffer.length > config.maxRecentMessages) {
       if (restoredMessageCount > 0) restoredMessageCount--
       buffer.shift()
