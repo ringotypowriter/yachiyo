@@ -695,8 +695,77 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
   }
 
   // General tab (default)
+  const verbosity = config.groupVerbosity ?? 0
+  const checkIntervalSec = Math.round((config.groupCheckIntervalMs ?? 30_000) / 1_000)
+
   return (
     <div className="flex-1 overflow-y-auto pb-6">
+      <SettingSection>
+        <SettingLabel>Group Discussion</SettingLabel>
+
+        <SettingRow>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Verbosity
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <SettingSlider
+              min={0}
+              max={1}
+              step={0.05}
+              value={verbosity}
+              onChange={(v) => {
+                setConfig((c) => {
+                  const next = { ...c, groupVerbosity: v }
+                  configRef.current = next
+                  scheduleSave(next)
+                  return next
+                })
+              }}
+              aria-label="Verbosity"
+            />
+            <span
+              className="text-sm font-medium tabular-nums"
+              style={{ minWidth: 36, textAlign: 'right', color: theme.text.primary }}
+            >
+              {Math.round(verbosity * 100)}%
+            </span>
+          </div>
+        </SettingRow>
+
+        <SettingRow>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Check interval
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <SettingSlider
+              min={5}
+              max={120}
+              step={5}
+              value={checkIntervalSec}
+              onChange={(v) => {
+                setConfig((c) => {
+                  const next = { ...c, groupCheckIntervalMs: v * 1_000 }
+                  configRef.current = next
+                  scheduleSave(next)
+                  return next
+                })
+              }}
+              aria-label="Check interval"
+            />
+            <span
+              className="text-sm font-medium tabular-nums"
+              style={{ minWidth: 36, textAlign: 'right', color: theme.text.primary }}
+            >
+              {checkIntervalSec}s
+            </span>
+          </div>
+        </SettingRow>
+      </SettingSection>
+
       <SettingSection>
         <SettingLabel>Image to Text</SettingLabel>
 
@@ -1216,5 +1285,75 @@ function ActionButton({
     >
       {label}
     </button>
+  )
+}
+
+// ─── styled slider ────────────────────────────────────────────────────────────
+
+function SettingSlider({
+  min,
+  max,
+  step,
+  value,
+  onChange,
+  'aria-label': ariaLabel
+}: {
+  min: number
+  max: number
+  step: number
+  value: number
+  onChange: (value: number) => void
+  'aria-label': string
+}): React.ReactNode {
+  const pct = ((value - min) / (max - min)) * 100
+  return (
+    <div style={{ position: 'relative', width: 112, height: 20 }}>
+      {/* track */}
+      <div
+        style={{
+          position: 'absolute',
+          top: '50%',
+          left: 0,
+          right: 0,
+          height: 3,
+          transform: 'translateY(-50%)',
+          borderRadius: 99,
+          background: alpha('ink', 0.08),
+          pointerEvents: 'none'
+        }}
+      />
+      {/* fill */}
+      <div
+        style={{
+          position: 'absolute',
+          top: '50%',
+          left: 0,
+          width: `${pct}%`,
+          height: 3,
+          transform: 'translateY(-50%)',
+          borderRadius: 99,
+          background: theme.text.accent,
+          pointerEvents: 'none'
+        }}
+      />
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        aria-label={ariaLabel}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          opacity: 0,
+          cursor: 'pointer',
+          margin: 0
+        }}
+      />
+    </div>
   )
 }

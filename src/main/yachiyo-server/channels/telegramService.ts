@@ -78,6 +78,10 @@ export interface TelegramServiceOptions {
   groupConfig?: GroupChannelConfig
   /** Bot's username (without @) for mention detection. */
   botUsername?: string
+  /** Global speech throttle verbosity (0–1). */
+  groupVerbosity?: number
+  /** Global override for active-phase check interval (ms). */
+  groupCheckIntervalMs?: number
 }
 
 export interface TelegramService {
@@ -85,6 +89,8 @@ export interface TelegramService {
   startPolling: () => void
   /** Gracefully shut down the bot. */
   stop: () => Promise<void>
+  /** Notify the service that a group's status changed (approved/blocked). */
+  onGroupStatusChange: (group: ChannelGroupRecord) => void
   /** Send a text message to a Telegram chat by chat ID. */
   sendMessage: (chatId: string, text: string) => Promise<void>
 }
@@ -94,7 +100,9 @@ export function createTelegramService({
   model: modelOverride,
   server,
   groupConfig,
-  botUsername
+  botUsername,
+  groupVerbosity,
+  groupCheckIntervalMs
 }: TelegramServiceOptions): TelegramService {
   const policy = telegramPolicy
 
@@ -558,7 +566,7 @@ export function createTelegramService({
     return map
   }
 
-  const speechThrottle = createSpeechThrottle()
+  const speechThrottle = createSpeechThrottle(groupVerbosity ?? 0)
 
   /** Per-group dedup ring buffer for outgoing messages. */
   const recentOutgoing = new Map<string, { texts: string[]; timestamps: number[] }>()
@@ -595,15 +603,20 @@ export function createTelegramService({
   }
 
   if (groupConfig?.enabled) {
-    groupRegistry = createGroupMonitorRegistry(policy.groupDefaults, groupConfig, {
-      async onTurn(group, recentMessages) {
-        return handleGroupTurn(group, recentMessages)
-      },
+    groupRegistry = createGroupMonitorRegistry(
+      policy.groupDefaults,
+      groupConfig,
+      {
+        async onTurn(group, recentMessages) {
+          return handleGroupTurn(group, recentMessages)
+        },
 
-      onStateChange(group, newPhase) {
-        console.log(`[telegram-group] "${group.name}" phase → ${newPhase}`)
-      }
-    })
+        onStateChange(group, newPhase) {
+          console.log(`[telegram-group] "${group.name}" phase → ${newPhase}`)
+        }
+      },
+      groupCheckIntervalMs
+    )
 
     // Start monitors for already-approved Telegram groups.
     for (const group of server.listChannelGroups()) {
@@ -755,6 +768,17 @@ export function createTelegramService({
         )
       }
       bot.stop()
+    },
+    onGroupStatusChange(group) {
+      if (group.platform !== 'telegram' || !groupRegistry) return
+
+      if (group.status === 'approved') {
+        groupRegistry.startMonitor(group)
+        console.log(`[telegram-group] monitor started for "${group.name}" after approval`)
+      } else {
+        groupRegistry.stopMonitor(group.id)
+        console.log(`[telegram-group] monitor stopped for "${group.name}" (status=${group.status})`)
+      }
     },
     sendMessage
   }

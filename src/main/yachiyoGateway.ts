@@ -170,7 +170,9 @@ async function applyTelegramConfig(cfg: ChannelsConfig): Promise<void> {
     model,
     server,
     groupConfig: cfg.telegram?.group,
-    botUsername: undefined // TODO: resolve bot username from Bot API getMe
+    botUsername: undefined, // TODO: resolve bot username from Bot API getMe
+    groupVerbosity: cfg.groupVerbosity,
+    groupCheckIntervalMs: cfg.groupCheckIntervalMs
   })
   telegramService.startPolling()
   console.log('[telegram] polling started')
@@ -204,7 +206,9 @@ async function applyQQConfig(cfg: ChannelsConfig): Promise<void> {
     model,
     server,
     groupConfig: cfg.qq?.group,
-    botQQId: cfg.qq?.token ? undefined : undefined // TODO: resolve bot's own QQ ID for @mention detection
+    botQQId: cfg.qq?.token ? undefined : undefined, // TODO: resolve bot's own QQ ID for @mention detection
+    groupVerbosity: cfg.groupVerbosity,
+    groupCheckIntervalMs: cfg.groupCheckIntervalMs
   })
   qqService.connect()
   console.log('[qq] service started')
@@ -236,7 +240,9 @@ async function applyDiscordConfig(cfg: ChannelsConfig): Promise<void> {
     botToken: token,
     model,
     server,
-    groupConfig: cfg.discord?.group
+    groupConfig: cfg.discord?.group,
+    groupVerbosity: cfg.groupVerbosity,
+    groupCheckIntervalMs: cfg.groupCheckIntervalMs
   })
   discordService.connect()
   console.log('[discord] service started')
@@ -413,6 +419,7 @@ export function registerYachiyoGateway(): YachiyoServer {
       }
       try {
         const updated = server.updateChannelGroup(input)
+        telegramService?.onGroupStatusChange(updated)
         qqService?.onGroupStatusChange(updated)
         discordService?.onGroupStatusChange(updated)
         console.log(
@@ -584,6 +591,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.updateChannelGroup, (input: UpdateChannelGroupInput) => {
     const updated = server!.updateChannelGroup(input)
     // Notify running channel services so they can start/stop monitors.
+    telegramService?.onGroupStatusChange(updated)
     qqService?.onGroupStatusChange(updated)
     discordService?.onGroupStatusChange(updated)
     return updated

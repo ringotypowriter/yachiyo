@@ -52,14 +52,18 @@ export interface GroupMonitorRegistry {
 export function createGroupMonitorRegistry(
   policyDefaults: GroupPolicyDefaults,
   configOverrides: GroupChannelConfig | undefined,
-  callbacks: GroupMonitorRegistryCallbacks
+  callbacks: GroupMonitorRegistryCallbacks,
+  globalCheckIntervalMs?: number
 ): GroupMonitorRegistry {
   const monitors = new Map<string, { monitor: GroupMonitor; group: ChannelGroupRecord }>()
 
   function resolveConfig(): GroupMonitorConfig {
+    const activeMs =
+      configOverrides?.activeCheckIntervalMs ??
+      globalCheckIntervalMs ??
+      policyDefaults.activeCheckIntervalMs
     return {
-      activeCheckIntervalMs:
-        configOverrides?.activeCheckIntervalMs ?? policyDefaults.activeCheckIntervalMs,
+      activeCheckIntervalMs: activeMs,
       engagedCheckIntervalMs:
         configOverrides?.engagedCheckIntervalMs ?? policyDefaults.engagedCheckIntervalMs,
       wakeBufferMs: configOverrides?.wakeBufferMs ?? policyDefaults.wakeBufferMs,

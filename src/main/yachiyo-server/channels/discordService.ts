@@ -104,6 +104,10 @@ export interface DiscordServiceOptions {
   server: YachiyoServer
   /** Group discussion config from channels.toml. */
   groupConfig?: GroupChannelConfig
+  /** Global speech throttle verbosity (0–1). */
+  groupVerbosity?: number
+  /** Global override for active-phase check interval (ms). */
+  groupCheckIntervalMs?: number
 }
 
 export interface DiscordService {
@@ -121,7 +125,9 @@ export function createDiscordService({
   botToken,
   model: modelOverride,
   server,
-  groupConfig
+  groupConfig,
+  groupVerbosity,
+  groupCheckIntervalMs
 }: DiscordServiceOptions): DiscordService {
   const policy = discordPolicy
 
@@ -526,7 +532,7 @@ export function createDiscordService({
     return map
   }
 
-  const speechThrottle = createSpeechThrottle()
+  const speechThrottle = createSpeechThrottle(groupVerbosity ?? 0)
 
   /** Per-group dedup ring buffer for outgoing messages. */
   const recentOutgoing = new Map<string, { texts: string[]; timestamps: number[] }>()
@@ -563,15 +569,20 @@ export function createDiscordService({
   }
 
   if (groupConfig?.enabled) {
-    groupRegistry = createGroupMonitorRegistry(policy.groupDefaults, groupConfig, {
-      async onTurn(group, recentMessages) {
-        return handleGroupTurn(group, recentMessages)
-      },
+    groupRegistry = createGroupMonitorRegistry(
+      policy.groupDefaults,
+      groupConfig,
+      {
+        async onTurn(group, recentMessages) {
+          return handleGroupTurn(group, recentMessages)
+        },
 
-      onStateChange(group, newPhase) {
-        console.log(`[discord-group] "${group.name}" phase → ${newPhase}`)
-      }
-    })
+        onStateChange(group, newPhase) {
+          console.log(`[discord-group] "${group.name}" phase → ${newPhase}`)
+        }
+      },
+      groupCheckIntervalMs
+    )
 
     // Start monitors for already-approved Discord groups.
     for (const group of server.listChannelGroups()) {

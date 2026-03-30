@@ -159,6 +159,18 @@ export function parseChannelsToml(raw: string): ChannelsConfig {
     }
   }
 
+  const group = doc['group'] as Record<string, unknown> | undefined
+  if (group) {
+    const verbosity = group['verbosity']
+    if (typeof verbosity === 'number' && Number.isFinite(verbosity)) {
+      config.groupVerbosity = Math.max(0, Math.min(1, verbosity))
+    }
+    const checkInterval = int(group['check_interval_ms'])
+    if (checkInterval !== undefined) {
+      config.groupCheckIntervalMs = checkInterval
+    }
+  }
+
   return config
 }
 
@@ -264,6 +276,15 @@ export function stringifyChannelsToml(config: ChannelsConfig): string {
       ['model_provider', config.imageToText.model?.providerName || undefined],
       ['model_name', config.imageToText.model?.model || undefined]
     ])
+  }
+
+  const hasGroup = config.groupVerbosity !== undefined || config.groupCheckIntervalMs !== undefined
+  if (hasGroup) {
+    const groupSection: Record<string, unknown> = {}
+    if (config.groupVerbosity !== undefined) groupSection['verbosity'] = config.groupVerbosity
+    if (config.groupCheckIntervalMs !== undefined)
+      groupSection['check_interval_ms'] = config.groupCheckIntervalMs
+    doc['group'] = groupSection
   }
 
   return TOML.stringify(doc)

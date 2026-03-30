@@ -78,6 +78,10 @@ export interface QQServiceOptions {
   groupConfig?: GroupChannelConfig
   /** Bot's own QQ user ID (to detect @mentions). */
   botQQId?: string
+  /** Global speech throttle verbosity (0–1). */
+  groupVerbosity?: number
+  /** Global override for active-phase check interval (ms). */
+  groupCheckIntervalMs?: number
 }
 
 export interface QQService {
@@ -97,7 +101,9 @@ export function createQQService({
   model: modelOverride,
   server,
   groupConfig,
-  botQQId
+  botQQId,
+  groupVerbosity,
+  groupCheckIntervalMs
 }: QQServiceOptions): QQService {
   const policy = qqPolicy
   const pendingBatches = new Map<string, PendingBatch>()
@@ -246,7 +252,7 @@ export function createQQService({
     return map
   }
 
-  const speechThrottle = createSpeechThrottle()
+  const speechThrottle = createSpeechThrottle(groupVerbosity ?? 0)
 
   /**
    * Per-group ring buffer of recent outgoing messages for dedup.
@@ -289,15 +295,20 @@ export function createQQService({
 
   // Group monitoring is enabled by default; only skip if explicitly disabled.
   if (groupConfig?.enabled !== false) {
-    groupRegistry = createGroupMonitorRegistry(policy.groupDefaults, groupConfig, {
-      async onTurn(group, recentMessages) {
-        return handleGroupTurn(group, recentMessages)
-      },
+    groupRegistry = createGroupMonitorRegistry(
+      policy.groupDefaults,
+      groupConfig,
+      {
+        async onTurn(group, recentMessages) {
+          return handleGroupTurn(group, recentMessages)
+        },
 
-      onStateChange(group, newPhase) {
-        console.log(`[qq-group] "${group.name}" phase → ${newPhase}`)
-      }
-    })
+        onStateChange(group, newPhase) {
+          console.log(`[qq-group] "${group.name}" phase → ${newPhase}`)
+        }
+      },
+      groupCheckIntervalMs
+    )
 
     // Start monitors for all already-approved groups.
     for (const group of server.listChannelGroups()) {
