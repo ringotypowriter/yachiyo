@@ -35,6 +35,7 @@ export function buildExternalAgentInstructions(input: {
   enabledTools: ToolCallName[]
   guest?: boolean
   guestInstruction?: string
+  maxToolSteps?: number
 }): string {
   const role = [
     'You are in a casual conversation via an external messaging channel.',
@@ -111,7 +112,17 @@ export function buildExternalAgentInstructions(input: {
     )
   }
 
-  return [...role, ...tools].join('\n')
+  const discipline: string[] = [
+    '',
+    "After using tools, always synthesize a direct response to the user's original question. Never end your turn with only tool calls and no user-facing text."
+  ]
+  if (input.maxToolSteps != null) {
+    discipline.push(
+      `You have a turn budget of ${input.maxToolSteps} generation rounds. Each round may include multiple parallel tool calls.`
+    )
+  }
+
+  return [...role, ...tools, ...discipline].join('\n')
 }
 
 // ---------------------------------------------------------------------------

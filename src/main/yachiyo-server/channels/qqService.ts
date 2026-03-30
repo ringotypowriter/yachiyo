@@ -28,6 +28,7 @@ import type {
 import type { YachiyoServer } from '../app/YachiyoServer.ts'
 import { resolveYachiyoTempWorkspaceRoot } from '../config/paths.ts'
 import { qqPolicy } from './channelPolicy.ts'
+import { createChannelReplyTool } from './channelReply.ts'
 import {
   detectMediaTypeFromBytes,
   ensureVisionSafe,
@@ -704,14 +705,25 @@ export function createQQService({
         `[qq] using thread ${yachiyoThread.id}${compacted ? ' (rolling summary generated)' : ''}`
       )
 
-      const outputPromise = collectRunOutput(server, yachiyoThread.id)
+      // Collect all replies sent via the reply tool for visibleReply storage.
+      const replies: string[] = []
+      const replyTool = createChannelReplyTool({
+        onReply: async (message) => {
+          console.log(`[qq] reply tool called: ${message.slice(0, 100)}`)
+          replies.push(message)
+          await client.sendPrivateMessage(qqUserId, message)
+        }
+      })
+
+      const runDonePromise = collectRunOutput(server, yachiyoThread.id)
 
       const accepted = await server.sendChat({
         threadId: yachiyoThread.id,
         content: text,
         images: images.length > 0 ? images : undefined,
         enabledTools: policy.allowedTools,
-        channelHint: policy.replyInstruction
+        channelHint: policy.replyInstruction,
+        extraTools: { reply: replyTool }
       })
       console.log(`[qq] sendChat accepted:`, accepted)
 
@@ -730,18 +742,27 @@ export function createQQService({
         }
       }
 
-      const rawOutput = await outputPromise
-      console.log(`[qq] rawOutput:`, rawOutput.slice(0, 200))
-      const parsedReply = policy.extractVisibleReply(rawOutput)
-      console.log(`[qq] parsedReply:`, parsedReply)
+      const rawOutput = await runDonePromise
 
-      if (parsedReply) {
-        await client.sendPrivateMessage(qqUserId, parsedReply)
+      // Fallback: if the model never called the reply tool, send the raw output directly.
+      // Dedup: skip if the extracted text was already sent via the reply tool.
+      if (rawOutput.trim()) {
+        const fallback = rawOutput.trim()
+        if (fallback && !replies.includes(fallback)) {
+          console.log(
+            `[qq] sending ${replies.length === 0 ? 'fallback' : 'deduped final'}: ${fallback.slice(0, 100)}`
+          )
+          await client.sendPrivateMessage(qqUserId, fallback)
+          replies.push(fallback)
+        }
       }
+
+      const visibleReply = replies.join('\n')
+      console.log(`[qq] run complete, ${replies.length} reply(s): ${visibleReply.slice(0, 200)}`)
 
       server.updateLatestAssistantVisibleReply({
         threadId: yachiyoThread.id,
-        visibleReply: parsedReply
+        visibleReply
       })
 
       const totalTokens = server.getThreadTotalTokens(yachiyoThread.id)
@@ -828,14 +849,15 @@ function collectRunOutput(server: YachiyoServer, threadId: string): Promise<stri
         return
       }
 
-      if (event.type === 'run.failed') {
-        unsubscribe()
-        reject(new Error((event as YachiyoServerEvent & { error?: string }).error ?? 'Run failed'))
-      }
-
       if (event.type === 'run.cancelled') {
         unsubscribe()
         resolve('')
+        return
+      }
+
+      if (event.type === 'run.failed') {
+        unsubscribe()
+        reject(new Error((event as YachiyoServerEvent & { error?: string }).error ?? 'Run failed'))
       }
     })
   })

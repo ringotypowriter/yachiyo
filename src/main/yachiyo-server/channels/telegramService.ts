@@ -30,6 +30,7 @@ import type {
 } from '../../../shared/yachiyo/protocol'
 import type { YachiyoServer } from '../app/YachiyoServer'
 import { telegramPolicy } from './channelPolicy'
+import { createChannelReplyTool } from './channelReply'
 import { fetchImageAsDataUrl } from './channelImageDownload'
 import { buildGroupProbeMessages, formatGroupMessages } from './groupContextBuilder'
 import {
@@ -506,15 +507,24 @@ export function createTelegramService({
         `[telegram] using thread ${yachiyoThread.id}${compacted ? ' (rolling summary generated)' : ''}`
       )
 
-      // Subscribe BEFORE sendChat so we don't miss early events.
-      const outputPromise = collectRunOutput(server, yachiyoThread.id)
+      const replies: string[] = []
+      const replyTool = createChannelReplyTool({
+        onReply: async (message) => {
+          console.log(`[telegram] reply tool called: ${message.slice(0, 100)}`)
+          replies.push(message)
+          await sendMessage(chatId, message)
+        }
+      })
+
+      const runDonePromise = collectRunOutput(server, yachiyoThread.id)
 
       const accepted = await server.sendChat({
         threadId: yachiyoThread.id,
         content: text,
         images: images.length > 0 ? images : undefined,
         enabledTools: policy.allowedTools,
-        channelHint: policy.replyInstruction
+        channelHint: policy.replyInstruction,
+        extraTools: { reply: replyTool }
       })
       console.log(`[telegram] sendChat accepted:`, accepted)
 
@@ -533,19 +543,29 @@ export function createTelegramService({
         }
       }
 
-      const rawOutput = await outputPromise
-      console.log(`[telegram] rawOutput:`, rawOutput.slice(0, 200))
-      const parsedReply = policy.extractVisibleReply(rawOutput)
-      console.log(`[telegram] parsedReply:`, parsedReply)
+      const rawOutput = await runDonePromise
 
-      if (parsedReply) {
-        await sendMessage(chatId, parsedReply)
+      // Always try to send the raw output as final response, deduped against reply tool messages.
+      if (rawOutput.trim()) {
+        const fallback = rawOutput.trim()
+        if (fallback && !replies.includes(fallback)) {
+          console.log(
+            `[telegram] sending ${replies.length === 0 ? 'fallback' : 'deduped final'}: ${fallback.slice(0, 100)}`
+          )
+          await sendMessage(chatId, fallback)
+          replies.push(fallback)
+        }
       }
+
+      const visibleReply = replies.join('\n')
+      console.log(
+        `[telegram] run complete, ${replies.length} reply(s): ${visibleReply.slice(0, 200)}`
+      )
 
       // Store the visible reply on the assistant message for future summary generation.
       server.updateLatestAssistantVisibleReply({
         threadId: yachiyoThread.id,
-        visibleReply: parsedReply
+        visibleReply
       })
 
       // Record token usage against the channel user.
@@ -824,10 +844,6 @@ export function createTelegramService({
   }
 }
 
-/**
- * Subscribe to server events for `threadId` and resolve with the complete
- * assistant text once the run finishes (completed or failed).
- */
 function collectRunOutput(server: YachiyoServer, threadId: string): Promise<string> {
   return new Promise((resolve, reject) => {
     let buffer = ''
@@ -846,14 +862,15 @@ function collectRunOutput(server: YachiyoServer, threadId: string): Promise<stri
         return
       }
 
-      if (event.type === 'run.failed') {
-        unsubscribe()
-        reject(new Error((event as YachiyoServerEvent & { error?: string }).error ?? 'Run failed'))
-      }
-
       if (event.type === 'run.cancelled') {
         unsubscribe()
         resolve('')
+        return
+      }
+
+      if (event.type === 'run.failed') {
+        unsubscribe()
+        reject(new Error((event as YachiyoServerEvent & { error?: string }).error ?? 'Run failed'))
       }
     })
   })

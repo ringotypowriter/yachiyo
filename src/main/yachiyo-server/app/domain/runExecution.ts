@@ -6,6 +6,11 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 
+const MEMORY_RECALL_TIMEOUT_MS = 15_000
+const DEFAULT_MAX_TOOL_STEPS = 100
+const OWNER_DM_MAX_TOOL_STEPS = 30
+const EXTERNAL_CHANNEL_MAX_TOOL_STEPS = 10
+
 import type {
   HarnessFinishedEvent,
   HarnessStartedEvent,
@@ -415,6 +420,7 @@ function buildAgentInstructions(input: {
   userDocumentPath?: string
   subagentContextBlock?: string
   isUserSpecifiedWorkspace?: boolean
+  maxToolSteps?: number
 }): string {
   const instructions = [
     'You are operating as a tool-using local agent.',
@@ -523,6 +529,16 @@ function buildAgentInstructions(input: {
   instructions.push(
     'Never invent file contents, API shapes, configuration keys, or project structures. If you are uncertain about any of these, use tools to discover the ground truth before proceeding.'
   )
+
+  // Response Discipline
+  instructions.push(
+    "After completing tool work, always synthesize a direct response to the user's original question. Never end your turn with only tool calls and no user-facing text."
+  )
+  if (input.maxToolSteps != null) {
+    instructions.push(
+      `You have a turn budget of ${input.maxToolSteps} generation rounds for this conversation turn. Each round may include multiple parallel tool calls. Plan tool usage efficiently — prefer targeted reads over broad exploration.`
+    )
+  }
 
   const parts: string[] = [instructions.join('\n')]
   if (input.subagentContextBlock) {
@@ -652,6 +668,165 @@ function bindCompletedToolCallsToAssistant(
   }
 }
 
+function buildInterruptedToolCallInput(toolCall: ToolCallRecord): unknown {
+  if (toolCall.toolName === 'bash') {
+    return {
+      command:
+        toolCall.details && 'command' in toolCall.details
+          ? toolCall.details.command
+          : toolCall.inputSummary
+    }
+  }
+
+  if (toolCall.toolName === 'webRead') {
+    return {
+      url:
+        toolCall.details && 'requestedUrl' in toolCall.details
+          ? toolCall.details.requestedUrl
+          : toolCall.inputSummary
+    }
+  }
+
+  if (toolCall.toolName === 'webSearch') {
+    return {
+      query:
+        toolCall.details && 'query' in toolCall.details
+          ? toolCall.details.query
+          : toolCall.inputSummary
+    }
+  }
+
+  if (toolCall.toolName === 'skillsRead') {
+    return {
+      names:
+        toolCall.details && 'requestedNames' in toolCall.details
+          ? toolCall.details.requestedNames
+          : toolCall.inputSummary
+              .split(',')
+              .map((name) => name.trim())
+              .filter(Boolean)
+    }
+  }
+
+  if (toolCall.toolName === 'grep' || toolCall.toolName === 'glob') {
+    return {
+      pattern:
+        toolCall.details && 'pattern' in toolCall.details
+          ? toolCall.details.pattern
+          : toolCall.inputSummary
+    }
+  }
+
+  if (
+    toolCall.toolName === 'read' ||
+    toolCall.toolName === 'write' ||
+    toolCall.toolName === 'edit'
+  ) {
+    return {
+      path:
+        toolCall.details && 'path' in toolCall.details
+          ? toolCall.details.path
+          : toolCall.inputSummary
+    }
+  }
+
+  return toolCall.inputSummary
+}
+
+function buildInterruptedToolCallOutput(toolCall: ToolCallRecord): unknown {
+  if (toolCall.error) {
+    return {
+      type: 'content',
+      value: [{ type: 'text', text: toolCall.error }]
+    }
+  }
+
+  if (toolCall.toolName === 'bash' && toolCall.details && 'stdout' in toolCall.details) {
+    const stdout = toolCall.details.stdout.trim()
+    const stderr = 'stderr' in toolCall.details ? toolCall.details.stderr.trim() : ''
+    const blocks = [
+      ...(stdout ? [{ type: 'text', text: stdout }] : []),
+      ...(stderr ? [{ type: 'text', text: stderr }] : [])
+    ]
+
+    if (blocks.length > 0) {
+      return {
+        type: 'content',
+        value: blocks
+      }
+    }
+  }
+
+  if (toolCall.outputSummary) {
+    return {
+      type: 'content',
+      value: [{ type: 'text', text: toolCall.outputSummary }]
+    }
+  }
+
+  return {
+    type: 'content',
+    value: [{ type: 'text', text: 'tool completed' }]
+  }
+}
+
+function buildInterruptedResponseMessages(input: {
+  buffer: string
+  reasoningBuffer: string
+  toolCalls: Map<string, ToolCallRecord>
+}): unknown[] | undefined {
+  const completedToolCalls = [...input.toolCalls.values()]
+    .filter((toolCall) => toolCall.finishedAt)
+    .sort((left, right) => {
+      const leftStep = left.stepIndex ?? 0
+      const rightStep = right.stepIndex ?? 0
+      return leftStep - rightStep || left.startedAt.localeCompare(right.startedAt)
+    })
+
+  if (completedToolCalls.length === 0 && !input.buffer && !input.reasoningBuffer) {
+    return undefined
+  }
+
+  const assistantContent: unknown[] = []
+  if (input.reasoningBuffer) {
+    assistantContent.push({ type: 'reasoning', text: input.reasoningBuffer })
+  }
+  if (input.buffer) {
+    assistantContent.push({ type: 'text', text: input.buffer })
+  }
+  for (const toolCall of completedToolCalls) {
+    assistantContent.push({
+      type: 'tool-call',
+      toolCallId: toolCall.id,
+      toolName: toolCall.toolName,
+      input: buildInterruptedToolCallInput(toolCall)
+    })
+  }
+
+  const responseMessages: unknown[] = [
+    {
+      role: 'assistant',
+      content: assistantContent
+    }
+  ]
+
+  for (const toolCall of completedToolCalls) {
+    responseMessages.push({
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: toolCall.id,
+          toolName: toolCall.toolName,
+          output: buildInterruptedToolCallOutput(toolCall)
+        }
+      ]
+    })
+  }
+
+  return responseMessages
+}
+
 function persistTerminalAssistantMessage(
   deps: Pick<RunExecutionDeps, 'readThread' | 'storage'>,
   input: {
@@ -701,6 +876,7 @@ export async function executeServerRun(
   const messageId = deps.createId()
   const toolCalls = new Map<string, ToolCallRecord>()
   const runningToolCallIds = new Set<string>()
+  let stepCount = 0
   let subagentToolCallId: string | undefined
   let subagentStartedAt: string | undefined
   let buffer = ''
@@ -790,6 +966,11 @@ export async function executeServerRun(
         `[yachiyo] external channel run: user=${channelUser?.username ?? 'unknown'}, role=${channelUser?.role ?? 'guest'}, isGuest=${isGuest}, isOwnerDm=${isOwnerDm}`
       )
     }
+    const maxToolSteps = isExternalChannel
+      ? isOwnerDm
+        ? OWNER_DM_MAX_TOOL_STEPS
+        : EXTERNAL_CHANNEL_MAX_TOOL_STEPS
+      : DEFAULT_MAX_TOOL_STEPS
     // Owner DMs use the owner's configured full tool set; all other runs use whatever
     // the caller passed in (which for channel services is policy.allowedTools).
     const modelEnabledTools = resolveModelEnabledTools({
@@ -831,7 +1012,10 @@ export async function executeServerRun(
       try {
         const result = await deps.buildMemoryLayerEntries({
           requestMessageId: input.requestMessageId,
-          signal: input.abortController.signal,
+          signal: AbortSignal.any([
+            input.abortController.signal,
+            AbortSignal.timeout(MEMORY_RECALL_TIMEOUT_MS)
+          ]),
           thread: input.thread,
           userQuery: requestMessage?.content ?? ''
         })
@@ -924,7 +1108,8 @@ export async function executeServerRun(
             executionContract: buildExternalAgentInstructions({
               enabledTools: modelEnabledTools,
               guest: isGuest,
-              guestInstruction: isGuest ? readChannelsConfig().guestInstruction : undefined
+              guestInstruction: isGuest ? readChannelsConfig().guestInstruction : undefined,
+              maxToolSteps
             }),
             channelInstruction: input.channelHint ?? '',
             rollingSummary: input.thread.rollingSummary,
@@ -948,7 +1133,8 @@ export async function executeServerRun(
                   soulDocumentPath: soulDocument?.filePath,
                   userDocumentPath: userDocument?.filePath,
                   subagentContextBlock: subagentContextBlock || undefined,
-                  isUserSpecifiedWorkspace: !!input.thread.workspacePath?.trim()
+                  isUserSpecifiedWorkspace: !!input.thread.workspacePath?.trim(),
+                  maxToolSteps
                 }),
                 // For owner DMs the channel transport contract (reply tags, plain-text,
                 // length limits) must stay in the system prefix so it applies every turn.
@@ -1091,6 +1277,9 @@ export async function executeServerRun(
         ...(input.extraTools ? { extraTools: input.extraTools } : {})
       }
     )
+    console.log(
+      `[yachiyo][run] toolSet: ${tools ? Object.keys(tools).join(', ') : 'none'}, extraTools: ${input.extraTools ? Object.keys(input.extraTools).join(', ') : 'none'}`
+    )
     deps.onEnabledToolsUsed(input.enabledTools)
 
     let lastUsage: ModelUsage | undefined
@@ -1099,6 +1288,7 @@ export async function executeServerRun(
       messages,
       settings,
       signal: input.abortController.signal,
+      maxToolSteps,
       ...(tools ? { tools } : {}),
       onFinish: (usage) => {
         lastUsage = usage
@@ -1122,6 +1312,7 @@ export async function executeServerRun(
         runningToolCallIds.add(event.toolCall.toolCallId)
         shouldStartNewTextBlock = true
         setExecutionPhase('tool-running')
+        stepCount++
 
         const toolCall: ToolCallRecord = {
           id: event.toolCall.toolCallId,
@@ -1134,7 +1325,9 @@ export async function executeServerRun(
             event.toolCall.toolName as ToolCallName,
             event.toolCall.input
           ),
-          startedAt: deps.timestamp()
+          startedAt: deps.timestamp(),
+          stepIndex: stepCount,
+          stepBudget: maxToolSteps
         }
 
         toolCalls.set(toolCall.id, toolCall)
@@ -1285,6 +1478,11 @@ export async function executeServerRun(
 
     flushSafeSteerPointAfterTool()
 
+    console.log(
+      `[yachiyo][run] stream finished: runId=${input.runId}, finishReason=${lastUsage?.finishReason ?? 'unknown'}, ` +
+        `steps=${stepCount}, bufferLen=${buffer.length}, rawOutput=${JSON.stringify(buffer.slice(0, 300))}`
+    )
+
     throwIfAborted(input.abortController.signal)
 
     const timestamp = deps.timestamp()
@@ -1361,7 +1559,10 @@ export async function executeServerRun(
       const timestamp = deps.timestamp()
 
       if (isRestartRunReason(restartReason)) {
-        if (buffer.length > 0 && input.requestMessageId) {
+        if (
+          input.requestMessageId &&
+          (buffer.length > 0 || reasoningBuffer.length > 0 || toolCalls.size > 0)
+        ) {
           const currentThread = deps.readThread(input.thread.id)
           const partialAssistantMessage: MessageRecord = {
             id: messageId,
@@ -1370,6 +1571,16 @@ export async function executeServerRun(
             role: 'assistant',
             content: buffer,
             ...(textBlocks.length > 0 ? { textBlocks } : {}),
+            ...(reasoningBuffer ? { reasoning: reasoningBuffer } : {}),
+            ...(toolCalls.size > 0
+              ? {
+                  responseMessages: buildInterruptedResponseMessages({
+                    buffer,
+                    reasoningBuffer,
+                    toolCalls
+                  })
+                }
+              : {}),
             status: 'stopped',
             createdAt: timestamp,
             modelId: settings.model,
@@ -1391,6 +1602,24 @@ export async function executeServerRun(
             runId: input.runId,
             assistantMessageId: messageId
           })
+
+          const steerMessageId = restartReason.nextRequestMessageId
+          const steerMessage = deps
+            .loadThreadMessages(input.thread.id)
+            .find((message) => message.id === steerMessageId && message.role === 'user')
+          if (steerMessage && steerMessage.parentMessageId !== messageId) {
+            const reparentedSteerMessage: MessageRecord = {
+              ...steerMessage,
+              parentMessageId: messageId
+            }
+            deps.storage.updateMessage(reparentedSteerMessage)
+            deps.emit<MessageCompletedEvent>({
+              type: 'message.completed',
+              threadId: input.thread.id,
+              runId: input.runId,
+              message: reparentedSteerMessage
+            })
+          }
         }
 
         deps.emit<HarnessFinishedEvent>({

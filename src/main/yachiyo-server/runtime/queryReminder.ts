@@ -33,11 +33,12 @@ export function buildToolAvailabilityReminderSection(input: {
   }
 }
 
-export function buildCurrentTimeSection(): QueryReminderSection {
+export function buildCurrentTimeSection(now: Date = new Date()): QueryReminderSection {
+  const iso = now.toISOString()
   return {
     key: 'current-time',
-    title: 'Current local time',
-    lines: [new Date().toLocaleString()]
+    title: 'Current date and time',
+    lines: [`Date: ${iso.slice(0, 10)}`, `Time: ${iso.slice(11, 19)} UTC`]
   }
 }
 

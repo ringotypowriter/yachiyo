@@ -83,7 +83,9 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             request.providerOptionsMode
           ),
           providerOptions,
-          ...(request.tools ? { tools: request.tools, stopWhen: stepCountIs(100) } : {}),
+          ...(request.tools
+            ? { tools: request.tools, stopWhen: stepCountIs(request.maxToolSteps ?? 100) }
+            : {}),
           ...(request.onToolCallStart
             ? { experimental_onToolCallStart: request.onToolCallStart }
             : {}),
@@ -93,16 +95,25 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
         if ('fullStream' in result && result.fullStream) {
           for await (const part of result.fullStream as AsyncIterable<{
             errorText?: string
+            finishReason?: string
             input?: unknown
             inputTextDelta?: string
+            isContinued?: boolean
             output?: unknown
             error?: unknown
             preliminary?: boolean
+            stepNumber?: number
             text?: string
             toolCallId?: string
             toolName?: string
             type: string
           }>) {
+            if (part.type === 'step-finish' || part.type === 'finish') {
+              console.log(
+                `[yachiyo][stream] ${part.type}: finishReason=${part.finishReason ?? 'unknown'}, step=${part.stepNumber ?? '?'}, isContinued=${part.isContinued ?? false}`
+              )
+            }
+
             if (part.type === 'error') {
               throw part.error instanceof Error
                 ? part.error
@@ -253,6 +264,15 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               result.totalUsage as PromiseLike<AiSdkUsage>,
               responsePromise
             ])
+            // Resolve finishReason separately so it can't block the critical path.
+            let finishReason: string | undefined
+            try {
+              if ('finishReason' in result) {
+                finishReason = await Promise.resolve(result.finishReason as PromiseLike<string>)
+              }
+            } catch {
+              // Provider didn't expose a usable finishReason — not critical.
+            }
             if (usage.inputTokens != null && usage.outputTokens != null) {
               const responseMessages = response?.messages
               request.onFinish({
@@ -260,6 +280,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                 completionTokens: usage.outputTokens,
                 totalPromptTokens: total.inputTokens ?? usage.inputTokens,
                 totalCompletionTokens: total.outputTokens ?? usage.outputTokens,
+                ...(finishReason ? { finishReason } : {}),
                 ...(Array.isArray(responseMessages) && responseMessages.length > 0
                   ? { responseMessages }
                   : {})

@@ -25,6 +25,8 @@ export interface ModelUsage {
   completionTokens: number
   totalPromptTokens: number
   totalCompletionTokens: number
+  /** AI SDK finish reason: 'stop' | 'length' | 'content-filter' | 'tool-calls' | 'error' | 'other' | 'unknown'. */
+  finishReason?: string
   /** Structured response messages from the AI SDK (assistant + tool messages), for lossless history replay. */
   responseMessages?: unknown[]
 }
@@ -34,6 +36,7 @@ export interface ModelStreamRequest {
   settings: ProviderSettings
   signal: AbortSignal
   providerOptionsMode?: ModelProviderOptionsMode
+  maxToolSteps?: number
   tools?: ToolSet
   onToolCallStart?: GenerateTextOnToolCallStartCallback<ToolSet>
   onToolCallFinish?: GenerateTextOnToolCallFinishCallback<ToolSet>

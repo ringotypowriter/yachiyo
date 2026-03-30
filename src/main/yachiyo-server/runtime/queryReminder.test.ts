@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildToolAvailabilityReminderSection, formatQueryReminder } from './queryReminder.ts'
+import {
+  buildCurrentTimeSection,
+  buildToolAvailabilityReminderSection,
+  formatQueryReminder
+} from './queryReminder.ts'
 
 test('formatQueryReminder wraps multiple sections into one extensible reminder block', () => {
   const reminder = formatQueryReminder([
@@ -51,4 +55,12 @@ test('buildToolAvailabilityReminderSection only emits changed tools', () => {
     }),
     null
   )
+})
+
+test('buildCurrentTimeSection includes an explicit date line', () => {
+  assert.deepEqual(buildCurrentTimeSection(new Date('2026-03-30T12:34:56.000Z')), {
+    key: 'current-time',
+    title: 'Current date and time',
+    lines: ['Date: 2026-03-30', 'Time: 12:34:56 UTC']
+  })
 })

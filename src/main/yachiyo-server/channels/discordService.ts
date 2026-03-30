@@ -30,6 +30,7 @@ import type {
 } from '../../../shared/yachiyo/protocol.ts'
 import type { YachiyoServer } from '../app/YachiyoServer.ts'
 import { discordPolicy } from './channelPolicy.ts'
+import { createChannelReplyTool } from './channelReply.ts'
 import { fetchImageAsDataUrl } from './channelImageDownload.ts'
 import { buildGroupProbeMessages, formatGroupMessages } from './groupContextBuilder.ts'
 import {
@@ -476,14 +477,24 @@ export function createDiscordService({
         `[discord] using thread ${yachiyoThread.id}${compacted ? ' (rolling summary generated)' : ''}`
       )
 
-      const outputPromise = collectRunOutput(server, yachiyoThread.id)
+      const replies: string[] = []
+      const replyTool = createChannelReplyTool({
+        onReply: async (message) => {
+          console.log(`[discord] reply tool called: ${message.slice(0, 100)}`)
+          replies.push(message)
+          await sendMessage(channelId, message)
+        }
+      })
+
+      const runDonePromise = collectRunOutput(server, yachiyoThread.id)
 
       const accepted = await server.sendChat({
         threadId: yachiyoThread.id,
         content: text,
         images: images.length > 0 ? images : undefined,
         enabledTools: policy.allowedTools,
-        channelHint: policy.replyInstruction
+        channelHint: policy.replyInstruction,
+        extraTools: { reply: replyTool }
       })
       console.log(`[discord] sendChat accepted:`, accepted)
 
@@ -501,18 +512,28 @@ export function createDiscordService({
         }
       }
 
-      const rawOutput = await outputPromise
-      console.log(`[discord] rawOutput:`, rawOutput.slice(0, 200))
-      const parsedReply = policy.extractVisibleReply(rawOutput)
-      console.log(`[discord] parsedReply:`, parsedReply)
+      const rawOutput = await runDonePromise
 
-      if (parsedReply) {
-        await sendMessage(channelId, parsedReply)
+      // Always try to send the raw output as final response, deduped against reply tool messages.
+      if (rawOutput.trim()) {
+        const fallback = rawOutput.trim()
+        if (fallback && !replies.includes(fallback)) {
+          console.log(
+            `[discord] sending ${replies.length === 0 ? 'fallback' : 'deduped final'}: ${fallback.slice(0, 100)}`
+          )
+          await sendMessage(channelId, fallback)
+          replies.push(fallback)
+        }
       }
+
+      const visibleReply = replies.join('\n')
+      console.log(
+        `[discord] run complete, ${replies.length} reply(s): ${visibleReply.slice(0, 200)}`
+      )
 
       server.updateLatestAssistantVisibleReply({
         threadId: yachiyoThread.id,
-        visibleReply: parsedReply
+        visibleReply
       })
 
       const totalTokens = server.getThreadTotalTokens(yachiyoThread.id)
@@ -789,10 +810,6 @@ export function createDiscordService({
   }
 }
 
-/**
- * Subscribe to server events for `threadId` and resolve with the complete
- * assistant text once the run finishes (completed or failed).
- */
 function collectRunOutput(server: YachiyoServer, threadId: string): Promise<string> {
   return new Promise((resolve, reject) => {
     let buffer = ''
@@ -811,14 +828,15 @@ function collectRunOutput(server: YachiyoServer, threadId: string): Promise<stri
         return
       }
 
-      if (event.type === 'run.failed') {
-        unsubscribe()
-        reject(new Error((event as YachiyoServerEvent & { error?: string }).error ?? 'Run failed'))
-      }
-
       if (event.type === 'run.cancelled') {
         unsubscribe()
         resolve('')
+        return
+      }
+
+      if (event.type === 'run.failed') {
+        unsubscribe()
+        reject(new Error((event as YachiyoServerEvent & { error?: string }).error ?? 'Run failed'))
       }
     })
   })

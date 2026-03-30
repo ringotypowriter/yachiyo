@@ -475,6 +475,10 @@ export interface ToolCallRecord {
   details?: ToolCallDetailsSnapshot
   startedAt: string
   finishedAt?: string
+  /** 1-based index of this tool call within the current run. */
+  stepIndex?: number
+  /** Total tool step budget for this run. */
+  stepBudget?: number
 }
 
 export interface ProviderModelList {

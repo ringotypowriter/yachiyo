@@ -2284,6 +2284,28 @@ test('YachiyoServer delays steer restart until the running tool call finishes', 
 
       assert.equal(firstRequest?.signal.aborted, true)
       assert.equal(requests.length, 2)
+      assert.ok(
+        requests[1]?.messages.some(
+          (message) =>
+            message.role === 'assistant' &&
+            Array.isArray(message.content) &&
+            message.content.some(
+              (part) => part.type === 'text' && part.text === 'Checking the workspace'
+            )
+        ),
+        'restart prompt should keep the interrupted assistant turn'
+      )
+      assert.ok(
+        requests[1]?.messages.some(
+          (message) =>
+            message.role === 'tool' &&
+            Array.isArray(message.content) &&
+            message.content.some(
+              (part) => part.type === 'tool-result' && part.toolCallId === 'tool-bash-1'
+            )
+        ),
+        'restart prompt should keep the tool result'
+      )
       assert.deepEqual(requests[1]?.messages.at(-1), {
         role: 'user',
         content: 'Actually summarize the result instead'
@@ -2296,14 +2318,27 @@ test('YachiyoServer delays steer restart until the running tool call finishes', 
         toolUpdates.map((toolCall) => toolCall.status),
         ['running', 'completed', 'completed']
       )
-      assert.equal(messages.length, 3)
-      assert.equal(messages[1]?.content, 'Actually summarize the result instead')
-      assert.equal(messages[1]?.parentMessageId, accepted.userMessage.id)
-      assert.equal(messages[2]?.content, 'Steered reply')
-      assert.equal(messages[2]?.parentMessageId, messages[1]?.id)
+      const stoppedAssistant = messages.find(
+        (message) => message.role === 'assistant' && message.status === 'stopped'
+      )
+      const steerMessage = messages.find(
+        (message) =>
+          message.role === 'user' && message.content === 'Actually summarize the result instead'
+      )
+      const finalAssistant = messages.find(
+        (message) => message.role === 'assistant' && message.content === 'Steered reply'
+      )
+
+      assert.equal(messages[0]?.content, 'List the workspace files.')
+      assert.ok(stoppedAssistant)
+      assert.ok(steerMessage)
+      assert.ok(finalAssistant)
+      assert.equal(stoppedAssistant?.content, 'Checking the workspace')
+      assert.equal(steerMessage?.parentMessageId, stoppedAssistant?.id)
+      assert.equal(finalAssistant?.parentMessageId, steerMessage?.id)
       assert.equal(toolUpdates[0]?.assistantMessageId, undefined)
       assert.equal(toolUpdates[1]?.assistantMessageId, undefined)
-      assert.equal(toolUpdates[2]?.assistantMessageId, messages[2]?.id)
+      assert.equal(toolUpdates[2]?.assistantMessageId, finalAssistant?.id)
       unsubscribe()
     },
     {
@@ -2314,6 +2349,8 @@ test('YachiyoServer delays steer restart until the running tool call finishes', 
           if (attempt === 0) {
             attempt += 1
             firstRequest = request
+
+            yield 'Checking the workspace'
 
             request.onToolCallStart?.({
               abortSignal: request.signal,
