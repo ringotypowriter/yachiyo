@@ -73,6 +73,7 @@ import {
   type EmitServerEvent,
   type Timestamp
 } from './shared.ts'
+import { resolveEnabledTools } from './configDomain.ts'
 
 export interface ExecuteRunInput {
   enabledTools: ToolCallName[]
@@ -772,10 +773,6 @@ export async function executeServerRun(
         ? { enabledSkillNames: input.enabledSkillNames }
         : {})
     })
-    const modelEnabledTools = resolveModelEnabledTools({
-      activeSkills,
-      enabledTools: input.enabledTools
-    })
     const soulDocument = deps.readSoulDocument
       ? await deps.readSoulDocument()
       : await readSoulDocument()
@@ -785,11 +782,22 @@ export async function executeServerRun(
         ? deps.storage.getChannelUser(input.thread.channelUserId)
         : undefined
     const isGuest = isExternalChannel && (channelUser?.role ?? 'guest') !== 'owner'
+    // Owner DM: an external DM (no channelGroupId) where the user is the owner.
+    // These get the full local agent toolset — no sandboxing, no stripped instructions.
+    const isOwnerDm = isExternalChannel && !isGuest && !input.thread.channelGroupId
     if (isExternalChannel) {
       console.log(
-        `[yachiyo] external channel run: user=${channelUser?.username ?? 'unknown'}, role=${channelUser?.role ?? 'guest'}, isGuest=${isGuest}`
+        `[yachiyo] external channel run: user=${channelUser?.username ?? 'unknown'}, role=${channelUser?.role ?? 'guest'}, isGuest=${isGuest}, isOwnerDm=${isOwnerDm}`
       )
     }
+    // Owner DMs use the owner's configured full tool set; all other runs use whatever
+    // the caller passed in (which for channel services is policy.allowedTools).
+    const modelEnabledTools = resolveModelEnabledTools({
+      activeSkills,
+      enabledTools: isOwnerDm
+        ? resolveEnabledTools(undefined, deps.readConfig().enabledTools)
+        : input.enabledTools
+    })
     const guestUserPath = resolveYachiyoUserPath(workspacePath)
     const userDocument = isGuest
       ? await readUserDocument({ filePath: guestUserPath, guest: true })
@@ -907,52 +915,69 @@ export async function executeServerRun(
       isExternalChannel ? input.thread.summaryWatermarkMessageId : undefined
     )
 
-    const messages = isExternalChannel
-      ? compileExternalContextLayers({
-          personality: { basePersona: EXTERNAL_SYSTEM_PROMPT },
-          soul: { content: soulDocument?.rawContent ?? '' },
-          user: { content: userDocument?.content ?? '' },
-          executionContract: buildExternalAgentInstructions({
-            enabledTools: modelEnabledTools,
-            guest: isGuest,
-            guestInstruction: isGuest ? readChannelsConfig().guestInstruction : undefined
-          }),
-          channelInstruction: input.channelHint ?? '',
-          rollingSummary: input.thread.rollingSummary,
-          history,
-          hint: { reminder: hiddenQueryReminder || undefined },
-          memory: { entries: memoryEntries }
-        })
-      : prepareModelMessages({
-          personality: { basePersona: SYSTEM_PROMPT },
-          soul: { content: soulDocument?.rawContent ?? '' },
-          user: { content: userDocument?.content ?? '' },
-          skills: { activeSkills },
-          agent: {
-            instructions: buildAgentInstructions({
-              workspacePath,
+    const messages =
+      isExternalChannel && !isOwnerDm
+        ? compileExternalContextLayers({
+            personality: { basePersona: EXTERNAL_SYSTEM_PROMPT },
+            soul: { content: soulDocument?.rawContent ?? '' },
+            user: { content: userDocument?.content ?? '' },
+            executionContract: buildExternalAgentInstructions({
               enabledTools: modelEnabledTools,
-              activeSkills,
-              hasHiddenMemorySearch:
-                !input.thread.privacyMode && deps.memoryService.hasHiddenSearchCapability(),
-              soulDocumentPath: soulDocument?.filePath,
-              userDocumentPath: userDocument?.filePath,
-              subagentContextBlock: subagentContextBlock || undefined,
-              isUserSpecifiedWorkspace: !!input.thread.workspacePath?.trim()
-            })
-          },
-          hint: {
-            reminder:
-              [hiddenQueryReminder, input.channelHint].filter(Boolean).join('\n\n') || undefined
-          },
-          memory: { entries: memoryEntries },
-          history
-        })
+              guest: isGuest,
+              guestInstruction: isGuest ? readChannelsConfig().guestInstruction : undefined
+            }),
+            channelInstruction: input.channelHint ?? '',
+            rollingSummary: input.thread.rollingSummary,
+            history,
+            hint: { reminder: hiddenQueryReminder || undefined },
+            memory: { entries: memoryEntries }
+          })
+        : prepareModelMessages({
+            personality: { basePersona: SYSTEM_PROMPT },
+            soul: { content: soulDocument?.rawContent ?? '' },
+            user: { content: userDocument?.content ?? '' },
+            skills: { activeSkills },
+            agent: {
+              instructions: [
+                buildAgentInstructions({
+                  workspacePath,
+                  enabledTools: modelEnabledTools,
+                  activeSkills,
+                  hasHiddenMemorySearch:
+                    !input.thread.privacyMode && deps.memoryService.hasHiddenSearchCapability(),
+                  soulDocumentPath: soulDocument?.filePath,
+                  userDocumentPath: userDocument?.filePath,
+                  subagentContextBlock: subagentContextBlock || undefined,
+                  isUserSpecifiedWorkspace: !!input.thread.workspacePath?.trim()
+                }),
+                // For owner DMs the channel transport contract (reply tags, plain-text,
+                // length limits) must stay in the system prefix so it applies every turn.
+                ...(isOwnerDm && input.channelHint?.trim() ? [input.channelHint.trim()] : [])
+              ].join('\n\n')
+            },
+            hint: {
+              reminder: hiddenQueryReminder || undefined
+            },
+            memory: { entries: memoryEntries },
+            // For owner DMs with a rolling summary (thread has been compacted), prepend
+            // the summary as a synthetic user message so local context compilation,
+            // which has no dedicated rollingSummary field, still sees the earlier context.
+            history:
+              isOwnerDm && input.thread.rollingSummary?.trim()
+                ? [
+                    {
+                      role: 'user' as const,
+                      content: `<conversation_summary>\n${input.thread.rollingSummary.trim()}\n</conversation_summary>`
+                    },
+                    ...history
+                  ]
+                : history
+          })
     const tools = createAgentToolSet(
       {
         enabledTools: modelEnabledTools,
         workspacePath,
-        sandboxed: isExternalChannel
+        sandboxed: isExternalChannel && !isOwnerDm
       },
       {
         availableSkills,
