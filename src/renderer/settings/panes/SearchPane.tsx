@@ -1,4 +1,4 @@
-import { Loader2 } from 'lucide-react'
+import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { theme } from '@renderer/theme/theme'
 
@@ -7,7 +7,8 @@ import {
   type SettingsConfig,
   type WebSearchBrowserImportSource
 } from '../../../shared/yachiyo/protocol.ts'
-import { SettingRow, SettingSection, SimpleSelect } from '../components/primitives'
+import { SettingLabel, SettingRow, SettingSection, SimpleSelect } from '../components/primitives'
+import { inputStyle } from '../components/styles'
 
 interface SearchPaneProps {
   draft: SettingsConfig
@@ -17,11 +18,13 @@ interface SearchPaneProps {
 export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNode {
   const defaultProvider = draft.webSearch?.defaultProvider ?? DEFAULT_WEB_SEARCH_PROVIDER
   const browserSession = draft.webSearch?.browserSession
+  const exaApiKey = draft.webSearch?.exa?.apiKey ?? ''
   const [importSources, setImportSources] = useState<WebSearchBrowserImportSource[]>([])
   const [selectedProfileName, setSelectedProfileName] = useState('')
   const [loadingSources, setLoadingSources] = useState(true)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showApiKey, setShowApiKey] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -89,14 +92,14 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
               Default search provider
             </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Browser-backed now. API-backed providers can join this picker later.
-            </div>
           </div>
 
           <SimpleSelect
             value={defaultProvider}
-            options={[{ value: 'google-browser', label: 'Google (browser-backed)' }]}
+            options={[
+              { value: 'google-browser', label: 'Google' },
+              { value: 'exa', label: 'Exa' }
+            ]}
             onChange={(v) =>
               onChange({
                 ...draft,
@@ -106,6 +109,50 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
           />
         </SettingRow>
       </SettingSection>
+
+      {defaultProvider === 'exa' && (
+        <SettingSection>
+          <SettingLabel>Exa</SettingLabel>
+
+          <SettingRow>
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              API Key
+            </div>
+            <div className="relative flex items-center" style={{ width: 240 }}>
+              <input
+                type={showApiKey ? 'text' : 'password'}
+                value={exaApiKey}
+                onChange={(e) =>
+                  onChange({
+                    ...draft,
+                    webSearch: {
+                      ...draft.webSearch,
+                      exa: { ...draft.webSearch?.exa, apiKey: e.target.value }
+                    }
+                  })
+                }
+                className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                style={inputStyle()}
+                placeholder="your-exa-api-key"
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiKey((v) => !v)}
+                className="absolute right-2.5 shrink-0 opacity-40 hover:opacity-80 transition-opacity"
+                aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
+              >
+                {showApiKey ? (
+                  <EyeOff size={14} color={theme.icon.muted} />
+                ) : (
+                  <Eye size={14} color={theme.icon.muted} />
+                )}
+              </button>
+            </div>
+          </SettingRow>
+        </SettingSection>
+      )}
 
       <SettingSection>
         <div className="px-7 pt-5 pb-3">
