@@ -1179,6 +1179,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete activeRequestMessageIdsByThread[event.threadId]
         const threads = removeThread(state.threads, event.threadId)
         const archivedThreads = removeThread(state.archivedThreads, event.threadId)
+        const externalThreads = removeThread(state.externalThreads, event.threadId)
         const messages = { ...state.messages }
         delete messages[event.threadId]
         const harnessEvents = { ...state.harnessEvents }
@@ -1228,6 +1229,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           runStatusesByThread,
           subagentActiveByThread,
           subagentProgressByThread,
+          externalThreads,
           toolCalls,
           threads
         }

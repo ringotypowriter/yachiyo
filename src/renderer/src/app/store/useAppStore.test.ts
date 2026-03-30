@@ -36,6 +36,8 @@ function resetStore(): void {
     isBootstrapping: false,
     lastError: null,
     latestRunsByThread: {},
+    externalThreads: [],
+    showExternalThreads: false,
     runsByThread: {},
     messages: {},
     pendingAssistantMessages: {},
@@ -531,6 +533,43 @@ test('applyServerEvent moves archived threads between active and archived collec
     ['thread-2']
   )
   assert.equal(state.activeThreadId, 'thread-2')
+})
+
+test('applyServerEvent removes deleted external threads from the cached sidebar list', () => {
+  resetStore()
+
+  useAppStore.setState({
+    externalThreads: [
+      {
+        id: 'external-thread',
+        title: 'External thread',
+        updatedAt: TIMESTAMP,
+        source: 'discord'
+      },
+      {
+        id: 'external-thread-2',
+        title: 'External thread 2',
+        updatedAt: '2026-03-15T00:00:01.000Z',
+        source: 'discord'
+      }
+    ],
+    showExternalThreads: true
+  })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'thread.deleted',
+    eventId: 'event-external-thread-deleted',
+    timestamp: '2026-03-15T00:00:02.000Z',
+    threadId: 'external-thread'
+  })
+
+  const state = useAppStore.getState()
+
+  assert.deepEqual(
+    state.externalThreads.map((thread) => thread.id),
+    ['external-thread-2']
+  )
+  assert.equal(state.showExternalThreads, true)
 })
 
 test('applyServerEvent retargets the active request when an active thread head moves to a steer user', () => {
