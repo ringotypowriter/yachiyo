@@ -123,6 +123,7 @@ const IPC_CHANNELS = {
   saveChannelsConfig: 'yachiyo:save-channels-config',
   listChannelGroups: 'yachiyo:list-channel-groups',
   updateChannelGroup: 'yachiyo:update-channel-group',
+  clearGroupMonitorBuffer: 'yachiyo:clear-group-monitor-buffer',
   listSchedules: 'yachiyo:list-schedules',
   createSchedule: 'yachiyo:create-schedule',
   updateSchedule: 'yachiyo:update-schedule',
@@ -343,8 +344,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   // so the proxy's re-signed certificates are accepted.
   session.defaultSession.setCertificateVerifyProc((_request, callback) => callback(0))
 
-  // Route global fetch through Electron's net module so third-party libraries
-  // (e.g. Telegraf, discord.js) also benefit from the proxy/SSL bypass.
+  // Route global fetch through Electron's net module so libraries using the
+  // global fetch (e.g. discord.js) benefit from the proxy/SSL bypass.
+  // Note: Telegraf uses node-fetch internally and needs its own proxy agent.
   globalThis.fetch = (input, init?) =>
     net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init)
 
@@ -595,6 +597,9 @@ export function registerYachiyoGateway(): YachiyoServer {
     qqService?.onGroupStatusChange(updated)
     discordService?.onGroupStatusChange(updated)
     return updated
+  })
+  handle(IPC_CHANNELS.clearGroupMonitorBuffer, (input: { groupId: string }) => {
+    server!.getStorage().deleteGroupMonitorBuffer(input.groupId)
   })
   handle(IPC_CHANNELS.getChannelsConfig, () => server!.getChannelsConfig())
   handle(IPC_CHANNELS.saveChannelsConfig, async (input: ChannelsConfig) => {

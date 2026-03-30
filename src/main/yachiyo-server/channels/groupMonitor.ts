@@ -45,6 +45,11 @@ export interface GroupMonitorCallbacks {
 
 export type Phase = 'dormant' | 'active' | 'engaged'
 
+export interface GroupMonitorRestoreState {
+  phase: Phase
+  buffer: GroupMessageEntry[]
+}
+
 export interface GroupMonitor {
   /** Feed an inbound group message into the buffer. */
   onMessage(entry: GroupMessageEntry): void
@@ -52,6 +57,8 @@ export interface GroupMonitor {
   getPhase(): Phase
   /** All buffered recent messages (read-only snapshot). */
   getRecentMessages(): GroupMessageEntry[]
+  /** Snapshot current state for persistence. */
+  getSnapshot(): { phase: Phase; buffer: GroupMessageEntry[] }
   /** Tear down all timers. */
   stop(): void
 }
@@ -76,7 +83,8 @@ export const GROUP_MONITOR_DEFAULTS: GroupMonitorConfig = {
 
 export function createGroupMonitor(
   config: GroupMonitorConfig,
-  callbacks: GroupMonitorCallbacks
+  callbacks: GroupMonitorCallbacks,
+  restoreState?: GroupMonitorRestoreState
 ): GroupMonitor {
   let phase: Phase = 'dormant'
   let missCount = 0
@@ -93,17 +101,47 @@ export function createGroupMonitor(
    */
   let cursor = 0
 
+  /**
+   * Number of messages in the buffer that came from a persisted restore.
+   * While > 0, time-based eviction is skipped — restored messages survive
+   * for cross-restart context continuity (the `<gap>` marker in the context
+   * builder handles the time discontinuity). Count-based eviction still
+   * applies, decrementing this counter as old messages get pushed out.
+   * Once all restored messages are displaced by new ones, normal time-based
+   * eviction resumes.
+   */
+  let restoredMessageCount = 0
+
+  // Restore persisted buffer if provided. Starts dormant regardless of saved
+  // phase — the monitor re-activates naturally on the next inbound message.
+  if (restoreState && restoreState.buffer.length > 0) {
+    buffer.push(...restoreState.buffer)
+    // Only enforce count cap — no time-based eviction for restored messages.
+    while (buffer.length > config.maxRecentMessages) {
+      buffer.shift()
+    }
+    restoredMessageCount = buffer.length
+    cursor = buffer.length
+  }
+
   // -------------------------------------------------------------------------
   // Buffer helpers
   // -------------------------------------------------------------------------
 
   function pruneBuffer(): void {
-    const cutoff = Date.now() / 1_000 - config.recentMessageWindowMs / 1_000
-    while (buffer.length > 0 && buffer[0].timestamp < cutoff) {
-      buffer.shift()
-      cursor = Math.max(0, cursor - 1)
+    // Time-based eviction: disabled while restored messages are present.
+    // They're kept intentionally for cross-restart context continuity;
+    // the <gap> marker in the context builder handles time discontinuity.
+    if (restoredMessageCount === 0) {
+      const cutoff = Date.now() / 1_000 - config.recentMessageWindowMs / 1_000
+      while (buffer.length > 0 && buffer[0].timestamp < cutoff) {
+        buffer.shift()
+        cursor = Math.max(0, cursor - 1)
+      }
     }
+    // Count-based eviction always applies.
     while (buffer.length > config.maxRecentMessages) {
+      if (restoredMessageCount > 0) restoredMessageCount--
       buffer.shift()
       cursor = Math.max(0, cursor - 1)
     }
@@ -245,6 +283,7 @@ export function createGroupMonitor(
     phase = 'dormant'
     missCount = 0
     cursor = 0
+    restoredMessageCount = 0
     buffer.length = 0
   }
 
@@ -252,6 +291,7 @@ export function createGroupMonitor(
     onMessage,
     getPhase: () => phase,
     getRecentMessages: () => [...buffer],
+    getSnapshot: () => ({ phase, buffer: [...buffer] }),
     stop
   }
 }

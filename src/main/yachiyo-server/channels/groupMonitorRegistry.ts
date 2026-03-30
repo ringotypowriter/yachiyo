@@ -15,6 +15,7 @@ import {
   createGroupMonitor,
   type GroupMonitor,
   type GroupMonitorConfig,
+  type GroupMonitorRestoreState,
   type Phase
 } from './groupMonitor.ts'
 
@@ -32,6 +33,12 @@ export interface GroupMonitorRegistryCallbacks {
   onStateChange(group: ChannelGroupRecord, newPhase: Phase): void
 }
 
+export interface GroupMonitorPersistence {
+  save(groupId: string, phase: Phase, buffer: GroupMessageEntry[]): void
+  load(groupId: string): GroupMonitorRestoreState | undefined
+  delete(groupId: string): void
+}
+
 export interface GroupMonitorRegistry {
   /** Start monitoring an approved group. Idempotent — safe to call if already running. */
   startMonitor(group: ChannelGroupRecord): void
@@ -43,6 +50,8 @@ export interface GroupMonitorRegistry {
   stopAll(): void
   /** Check whether a monitor is currently active for a group. */
   hasMonitor(groupId: string): boolean
+  /** Read-only snapshot of a monitor's buffer (empty if no monitor for this group). */
+  getRecentMessages(groupId: string): GroupMessageEntry[]
 }
 
 // ---------------------------------------------------------------------------
@@ -53,9 +62,11 @@ export function createGroupMonitorRegistry(
   policyDefaults: GroupPolicyDefaults,
   configOverrides: GroupChannelConfig | undefined,
   callbacks: GroupMonitorRegistryCallbacks,
-  globalCheckIntervalMs?: number
+  globalCheckIntervalMs?: number,
+  persistence?: GroupMonitorPersistence
 ): GroupMonitorRegistry {
   const monitors = new Map<string, { monitor: GroupMonitor; group: ChannelGroupRecord }>()
+  const saveDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   function resolveConfig(): GroupMonitorConfig {
     const activeMs =
@@ -74,15 +85,56 @@ export function createGroupMonitorRegistry(
     }
   }
 
+  function persistSnapshot(groupId: string, monitor: GroupMonitor): void {
+    if (!persistence) return
+    const { phase, buffer } = monitor.getSnapshot()
+    persistence.save(groupId, phase, buffer)
+  }
+
+  function scheduleDebouncedSave(groupId: string, monitor: GroupMonitor): void {
+    if (!persistence) return
+    const existing = saveDebounceTimers.get(groupId)
+    if (existing) clearTimeout(existing)
+    saveDebounceTimers.set(
+      groupId,
+      setTimeout(() => {
+        saveDebounceTimers.delete(groupId)
+        persistSnapshot(groupId, monitor)
+      }, 5_000)
+    )
+  }
+
+  function clearDebouncedSave(groupId: string): void {
+    const timer = saveDebounceTimers.get(groupId)
+    if (timer) {
+      clearTimeout(timer)
+      saveDebounceTimers.delete(groupId)
+    }
+  }
+
   return {
     startMonitor(group) {
       if (monitors.has(group.id)) return
 
       const config = resolveConfig()
-      const monitor = createGroupMonitor(config, {
-        onTurn: (messages) => callbacks.onTurn(group, messages),
-        onStateChange: (newPhase) => callbacks.onStateChange(group, newPhase)
-      })
+      const restoreState = persistence?.load(group.id)
+      if (restoreState) {
+        console.log(
+          `[group-monitor] restoring ${restoreState.buffer.length} buffered messages for "${group.name}"`
+        )
+      }
+
+      const monitor = createGroupMonitor(
+        config,
+        {
+          onTurn: (messages) => callbacks.onTurn(group, messages),
+          onStateChange: (newPhase) => {
+            callbacks.onStateChange(group, newPhase)
+            persistSnapshot(group.id, monitor)
+          }
+        },
+        restoreState
+      )
 
       monitors.set(group.id, { monitor, group })
       console.log(`[group-monitor] started monitor for group "${group.name}" (${group.id})`)
@@ -92,6 +144,8 @@ export function createGroupMonitorRegistry(
       const entry = monitors.get(groupId)
       if (!entry) return
 
+      clearDebouncedSave(groupId)
+      persistSnapshot(groupId, entry.monitor)
       entry.monitor.stop()
       monitors.delete(groupId)
       console.log(`[group-monitor] stopped monitor for group "${entry.group.name}" (${groupId})`)
@@ -102,10 +156,13 @@ export function createGroupMonitorRegistry(
       if (!entry) return
 
       entry.monitor.onMessage(message)
+      scheduleDebouncedSave(groupId, entry.monitor)
     },
 
     stopAll() {
       for (const [id, entry] of monitors) {
+        clearDebouncedSave(id)
+        persistSnapshot(id, entry.monitor)
         entry.monitor.stop()
         monitors.delete(id)
       }
@@ -114,6 +171,11 @@ export function createGroupMonitorRegistry(
 
     hasMonitor(groupId) {
       return monitors.has(groupId)
+    },
+
+    getRecentMessages(groupId) {
+      const entry = monitors.get(groupId)
+      return entry ? entry.monitor.getRecentMessages() : []
     }
   }
 }

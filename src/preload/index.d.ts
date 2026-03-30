@@ -150,6 +150,7 @@ declare global {
         updateChannelUser: (input: UpdateChannelUserInput) => Promise<ChannelUserRecord>
         listChannelGroups: () => Promise<ChannelGroupRecord[]>
         updateChannelGroup: (input: UpdateChannelGroupInput) => Promise<ChannelGroupRecord>
+        clearGroupMonitorBuffer: (groupId: string) => Promise<void>
         getChannelsConfig: () => Promise<ChannelsConfig>
         saveChannelsConfig: (input: ChannelsConfig) => Promise<ChannelsConfig>
 

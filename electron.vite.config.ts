@@ -36,7 +36,8 @@ export default defineConfig({
   main: {
     resolve: {
       alias: {
-        canvas: resolve('src/main/shims/canvas.ts')
+        canvas: resolve('src/main/shims/canvas.ts'),
+        'node-fetch': resolve('src/main/shims/node-fetch.ts')
       }
     },
     build: {

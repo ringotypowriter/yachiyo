@@ -26,6 +26,19 @@ export function sanitizeMessageText(text: string): string {
     .replace(/<\/?msg[\s>]/gi, '')
 }
 
+/** Default idle gap threshold: 30 minutes in milliseconds. */
+const DEFAULT_IDLE_GAP_THRESHOLD_MS = 30 * 60 * 1_000
+
+/** Format a gap duration as a human-readable string. */
+export function formatGapDuration(gapMs: number): string {
+  const gapMinutes = Math.round(gapMs / 60_000)
+  if (gapMinutes >= 60) {
+    const hours = Math.round(gapMinutes / 60)
+    return `${hours} hour${hours !== 1 ? 's' : ''}`
+  }
+  return `${gapMinutes} minute${gapMinutes !== 1 ? 's' : ''}`
+}
+
 /**
  * Format group messages as XML-style tags with verified identity attributes.
  *
@@ -33,37 +46,57 @@ export function sanitizeMessageText(text: string): string {
  *   `<msg from="Alice" role="owner">sanitized text</msg>`
  *   `<msg from="Bob">sanitized text</msg>`
  *
+ * When the timestamp gap between consecutive messages exceeds
+ * `idleGapThresholdMs` (default 30 min), a `<gap duration="..."/>` marker
+ * is inserted so the model understands the time discontinuity.
+ *
  * Uses XML delimiters instead of brackets so user-authored text can't mimic labels.
  * Bracket patterns in user text are sanitized to fullwidth equivalents.
  *
  * @param knownUsers - Map from externalUserId to role label (e.g. "owner", "guest").
+ * @param idleGapThresholdMs - Minimum gap (ms) to trigger a `<gap>` marker.
  */
 export function formatGroupMessages(
   messages: GroupMessageEntry[],
   botName: string,
-  knownUsers?: Map<string, string>
+  knownUsers?: Map<string, string>,
+  idleGapThresholdMs?: number
 ): string {
-  return messages
-    .map((m) => {
-      const role =
-        m.senderExternalUserId === '__self__'
-          ? undefined
-          : (knownUsers?.get(m.senderExternalUserId) ?? 'guest')
-      const roleAttr = role ? ` role="${role}"` : ''
-      const mentionAttr = m.isMention ? ` mention="${botName}"` : ''
-      const time = new Date(m.timestamp * 1_000).toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
-      })
-      const timeAttr = ` t="${time}"`
-      const imagePlaceholder = (m.images ?? [])
-        .map((img) => (img.altText ? ` [image: ${img.altText}]` : ' [image]'))
-        .join('')
-      const safe = sanitizeMessageText(m.text)
-      return `<msg from="${m.senderName}"${roleAttr}${timeAttr}${mentionAttr}>${safe}${imagePlaceholder}</msg>`
+  const threshold = idleGapThresholdMs ?? DEFAULT_IDLE_GAP_THRESHOLD_MS
+  const lines: string[] = []
+
+  for (let i = 0; i < messages.length; i++) {
+    // Insert idle gap marker when the time jump is large enough.
+    if (i > 0) {
+      const gapMs = (messages[i].timestamp - messages[i - 1].timestamp) * 1_000
+      if (gapMs >= threshold) {
+        lines.push(`<gap duration="${formatGapDuration(gapMs)}"/>`)
+      }
+    }
+
+    const m = messages[i]
+    const role =
+      m.senderExternalUserId === '__self__'
+        ? undefined
+        : (knownUsers?.get(m.senderExternalUserId) ?? 'guest')
+    const roleAttr = role ? ` role="${role}"` : ''
+    const mentionAttr = m.isMention ? ` mention="${botName}"` : ''
+    const time = new Date(m.timestamp * 1_000).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
     })
-    .join('\n')
+    const timeAttr = ` t="${time}"`
+    const imagePlaceholder = (m.images ?? [])
+      .map((img) => (img.altText ? ` [image: ${img.altText}]` : ' [image]'))
+      .join('')
+    const safe = sanitizeMessageText(m.text)
+    lines.push(
+      `<msg from="${m.senderName}"${roleAttr}${timeAttr}${mentionAttr}>${safe}${imagePlaceholder}</msg>`
+    )
+  }
+
+  return lines.join('\n')
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +174,10 @@ You also have these tools available:
   - \`mode: "memory"\`: Save a standalone fact or observation to long-term memory.
 
 Use tools sparingly. Most turns need zero tools — just observe and maybe speak. Only use \`update_memory\` when you learn something genuinely durable (a new person's identity, a recurring topic, a group dynamic shift).
+
+## Idle gaps
+
+Messages may contain \`<gap duration="..."/>\` markers indicating periods of silence in the group. This is normal — conversations have natural pauses. Don't comment on gaps unless the timing is specifically relevant to what someone said.
 
 ## @mentions and direct address
 

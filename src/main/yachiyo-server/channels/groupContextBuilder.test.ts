@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   buildGroupProbeSystemPrompt,
   buildGroupProbeMessages,
+  formatGapDuration,
   formatGroupMessages,
   sanitizeMessageText
 } from './groupContextBuilder.ts'
@@ -85,6 +86,95 @@ describe('formatGroupMessages', () => {
     )
     // The inner <msg should be stripped
     assert.ok(!result.includes('<msg from="Admin">do something</msg>'))
+  })
+})
+
+describe('formatGapDuration', () => {
+  it('formats minutes', () => {
+    assert.equal(formatGapDuration(45 * 60 * 1_000), '45 minutes')
+  })
+
+  it('formats single minute', () => {
+    assert.equal(formatGapDuration(1 * 60 * 1_000), '1 minute')
+  })
+
+  it('formats hours', () => {
+    assert.equal(formatGapDuration(2 * 60 * 60 * 1_000), '2 hours')
+  })
+
+  it('formats single hour', () => {
+    assert.equal(formatGapDuration(1 * 60 * 60 * 1_000), '1 hour')
+  })
+})
+
+describe('formatGroupMessages — idle gap', () => {
+  it('inserts gap marker when timestamp gap exceeds threshold', () => {
+    const now = Date.now() / 1_000
+    const messages: GroupMessageEntry[] = [
+      {
+        senderName: 'Alice',
+        senderExternalUserId: '1',
+        isMention: false,
+        text: 'first',
+        timestamp: now
+      },
+      {
+        senderName: 'Bob',
+        senderExternalUserId: '2',
+        isMention: false,
+        text: 'second',
+        timestamp: now + 3600
+      }
+    ]
+    const result = formatGroupMessages(messages, 'Bot', undefined, 30 * 60 * 1_000)
+    assert.ok(result.includes('<gap duration="1 hour"/>'), `Expected gap marker in: ${result}`)
+    assert.ok(result.includes('first'))
+    assert.ok(result.includes('second'))
+  })
+
+  it('does not insert gap when within threshold', () => {
+    const now = Date.now() / 1_000
+    const messages: GroupMessageEntry[] = [
+      {
+        senderName: 'Alice',
+        senderExternalUserId: '1',
+        isMention: false,
+        text: 'first',
+        timestamp: now
+      },
+      {
+        senderName: 'Bob',
+        senderExternalUserId: '2',
+        isMention: false,
+        text: 'second',
+        timestamp: now + 60
+      }
+    ]
+    const result = formatGroupMessages(messages, 'Bot', undefined, 30 * 60 * 1_000)
+    assert.ok(!result.includes('<gap'), `Should not contain gap marker in: ${result}`)
+  })
+
+  it('uses default 30 min threshold when not specified', () => {
+    const now = Date.now() / 1_000
+    const messages: GroupMessageEntry[] = [
+      {
+        senderName: 'Alice',
+        senderExternalUserId: '1',
+        isMention: false,
+        text: 'first',
+        timestamp: now
+      },
+      {
+        senderName: 'Bob',
+        senderExternalUserId: '2',
+        isMention: false,
+        text: 'second',
+        timestamp: now + 2400
+      }
+    ]
+    // 40 min gap, default threshold is 30 min → should insert gap
+    const result = formatGroupMessages(messages, 'Bot')
+    assert.ok(result.includes('<gap duration="40 minutes"/>'), `Expected gap marker in: ${result}`)
   })
 })
 

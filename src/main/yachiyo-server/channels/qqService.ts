@@ -34,7 +34,11 @@ import {
   fetchImageAsDataUrl
 } from './channelImageDownload.ts'
 import { buildGroupProbeMessages, formatGroupMessages } from './groupContextBuilder.ts'
-import { createGroupMonitorRegistry, type GroupMonitorRegistry } from './groupMonitorRegistry.ts'
+import {
+  createGroupMonitorRegistry,
+  type GroupMonitorPersistence,
+  type GroupMonitorRegistry
+} from './groupMonitorRegistry.ts'
 import { parseCQImages, type CQImageRef } from './qqImageParsing.ts'
 import { createOneBotClient, type OneBotClient } from './onebotClient.ts'
 import { routeQQMessage, type QQChannelStorage } from './qq.ts'
@@ -295,6 +299,25 @@ export function createQQService({
 
   // Group monitoring is enabled by default; only skip if explicitly disabled.
   if (groupConfig?.enabled !== false) {
+    const bufferPersistence: GroupMonitorPersistence = {
+      save(groupId, phase, buffer) {
+        server.getStorage().saveGroupMonitorBuffer({
+          groupId,
+          phase,
+          buffer,
+          savedAt: new Date().toISOString()
+        })
+      },
+      load(groupId) {
+        const data = server.getStorage().loadGroupMonitorBuffer(groupId)
+        if (!data) return undefined
+        return { phase: data.phase as 'dormant' | 'active' | 'engaged', buffer: data.buffer }
+      },
+      delete(groupId) {
+        server.getStorage().deleteGroupMonitorBuffer(groupId)
+      }
+    }
+
     groupRegistry = createGroupMonitorRegistry(
       policy.groupDefaults,
       groupConfig,
@@ -307,13 +330,20 @@ export function createQQService({
           console.log(`[qq-group] "${group.name}" phase → ${newPhase}`)
         }
       },
-      groupCheckIntervalMs
+      groupCheckIntervalMs,
+      bufferPersistence
     )
 
     // Start monitors for all already-approved groups.
     for (const group of server.listChannelGroups()) {
       if (group.platform === 'qq' && group.status === 'approved') {
         groupRegistry.startMonitor(group)
+        // Seed dedup from restored __self__ messages so the bot doesn't repeat itself.
+        for (const msg of groupRegistry.getRecentMessages(group.id)) {
+          if (msg.senderExternalUserId === '__self__') {
+            recordOutgoing(group.id, msg.text)
+          }
+        }
       }
     }
   }

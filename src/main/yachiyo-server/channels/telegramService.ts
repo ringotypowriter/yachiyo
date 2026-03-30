@@ -32,7 +32,11 @@ import type { YachiyoServer } from '../app/YachiyoServer'
 import { telegramPolicy } from './channelPolicy'
 import { fetchImageAsDataUrl } from './channelImageDownload'
 import { buildGroupProbeMessages, formatGroupMessages } from './groupContextBuilder'
-import { createGroupMonitorRegistry, type GroupMonitorRegistry } from './groupMonitorRegistry'
+import {
+  createGroupMonitorRegistry,
+  type GroupMonitorPersistence,
+  type GroupMonitorRegistry
+} from './groupMonitorRegistry'
 import { routeTelegramMessage, type TelegramChannelStorage } from './telegram'
 import { EXTERNAL_SYSTEM_PROMPT } from '../runtime/prompt'
 import { readChannelsConfig } from '../runtime/channelsConfig'
@@ -603,6 +607,25 @@ export function createTelegramService({
   }
 
   if (groupConfig?.enabled) {
+    const bufferPersistence: GroupMonitorPersistence = {
+      save(groupId, phase, buffer) {
+        server.getStorage().saveGroupMonitorBuffer({
+          groupId,
+          phase,
+          buffer,
+          savedAt: new Date().toISOString()
+        })
+      },
+      load(groupId) {
+        const data = server.getStorage().loadGroupMonitorBuffer(groupId)
+        if (!data) return undefined
+        return { phase: data.phase as 'dormant' | 'active' | 'engaged', buffer: data.buffer }
+      },
+      delete(groupId) {
+        server.getStorage().deleteGroupMonitorBuffer(groupId)
+      }
+    }
+
     groupRegistry = createGroupMonitorRegistry(
       policy.groupDefaults,
       groupConfig,
@@ -615,13 +638,20 @@ export function createTelegramService({
           console.log(`[telegram-group] "${group.name}" phase → ${newPhase}`)
         }
       },
-      groupCheckIntervalMs
+      groupCheckIntervalMs,
+      bufferPersistence
     )
 
     // Start monitors for already-approved Telegram groups.
     for (const group of server.listChannelGroups()) {
       if (group.platform === 'telegram' && group.status === 'approved') {
         groupRegistry.startMonitor(group)
+        // Seed dedup from restored __self__ messages so the bot doesn't repeat itself.
+        for (const msg of groupRegistry.getRecentMessages(group.id)) {
+          if (msg.senderExternalUserId === '__self__') {
+            recordOutgoing(group.id, msg.text)
+          }
+        }
       }
     }
   }

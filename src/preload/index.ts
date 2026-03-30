@@ -180,6 +180,8 @@ const api = {
       ipcRenderer.invoke('yachiyo:list-channel-groups'),
     updateChannelGroup: (input: UpdateChannelGroupInput): Promise<ChannelGroupRecord> =>
       ipcRenderer.invoke('yachiyo:update-channel-group', input),
+    clearGroupMonitorBuffer: (groupId: string): Promise<void> =>
+      ipcRenderer.invoke('yachiyo:clear-group-monitor-buffer', { groupId }),
     getChannelsConfig: (): Promise<ChannelsConfig> =>
       ipcRenderer.invoke('yachiyo:get-channels-config'),
     saveChannelsConfig: (input: ChannelsConfig): Promise<ChannelsConfig> =>

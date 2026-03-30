@@ -32,7 +32,11 @@ import type { YachiyoServer } from '../app/YachiyoServer.ts'
 import { discordPolicy } from './channelPolicy.ts'
 import { fetchImageAsDataUrl } from './channelImageDownload.ts'
 import { buildGroupProbeMessages, formatGroupMessages } from './groupContextBuilder.ts'
-import { createGroupMonitorRegistry, type GroupMonitorRegistry } from './groupMonitorRegistry.ts'
+import {
+  createGroupMonitorRegistry,
+  type GroupMonitorPersistence,
+  type GroupMonitorRegistry
+} from './groupMonitorRegistry.ts'
 import { routeDiscordMessage, type DiscordChannelStorage } from './discord.ts'
 import { EXTERNAL_SYSTEM_PROMPT } from '../runtime/prompt.ts'
 import { readChannelsConfig } from '../runtime/channelsConfig.ts'
@@ -569,6 +573,25 @@ export function createDiscordService({
   }
 
   if (groupConfig?.enabled) {
+    const bufferPersistence: GroupMonitorPersistence = {
+      save(groupId, phase, buffer) {
+        server.getStorage().saveGroupMonitorBuffer({
+          groupId,
+          phase,
+          buffer,
+          savedAt: new Date().toISOString()
+        })
+      },
+      load(groupId) {
+        const data = server.getStorage().loadGroupMonitorBuffer(groupId)
+        if (!data) return undefined
+        return { phase: data.phase as 'dormant' | 'active' | 'engaged', buffer: data.buffer }
+      },
+      delete(groupId) {
+        server.getStorage().deleteGroupMonitorBuffer(groupId)
+      }
+    }
+
     groupRegistry = createGroupMonitorRegistry(
       policy.groupDefaults,
       groupConfig,
@@ -581,13 +604,20 @@ export function createDiscordService({
           console.log(`[discord-group] "${group.name}" phase → ${newPhase}`)
         }
       },
-      groupCheckIntervalMs
+      groupCheckIntervalMs,
+      bufferPersistence
     )
 
     // Start monitors for already-approved Discord groups.
     for (const group of server.listChannelGroups()) {
       if (group.platform === 'discord' && group.status === 'approved') {
         groupRegistry.startMonitor(group)
+        // Seed dedup from restored __self__ messages so the bot doesn't repeat itself.
+        for (const msg of groupRegistry.getRecentMessages(group.id)) {
+          if (msg.senderExternalUserId === '__self__') {
+            recordOutgoing(group.id, msg.text)
+          }
+        }
       }
     }
   }

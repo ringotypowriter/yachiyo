@@ -10,6 +10,7 @@ import * as schema from './schema.ts'
 import {
   channelGroupsTable,
   channelUsersTable,
+  groupMonitorBuffersTable,
   imageAltTextsTable,
   messagesTable,
   runsTable,
@@ -31,6 +32,8 @@ import {
   serializeThreadMemoryRecallState,
   serializeToolCallDetails,
   toMessageRecord,
+  serializeGroupMonitorBuffer,
+  parseGroupMonitorBuffer,
   serializeReasoning,
   serializeResponseMessages,
   serializeTurnContext,
@@ -1380,6 +1383,47 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .set({ status: 'failed', error, completedAt })
         .where(eq(scheduleRunsTable.status, 'running'))
         .run()
+    },
+
+    // -----------------------------------------------------------------------
+    // Group monitor buffer persistence
+    // -----------------------------------------------------------------------
+
+    saveGroupMonitorBuffer({ groupId, phase, buffer, savedAt }) {
+      db.insert(groupMonitorBuffersTable)
+        .values({
+          groupId,
+          phase,
+          buffer: serializeGroupMonitorBuffer(buffer),
+          savedAt
+        })
+        .onConflictDoUpdate({
+          target: groupMonitorBuffersTable.groupId,
+          set: {
+            phase,
+            buffer: serializeGroupMonitorBuffer(buffer),
+            savedAt
+          }
+        })
+        .run()
+    },
+
+    loadGroupMonitorBuffer(groupId) {
+      const row = db
+        .select()
+        .from(groupMonitorBuffersTable)
+        .where(eq(groupMonitorBuffersTable.groupId, groupId))
+        .get()
+      if (!row) return undefined
+      return {
+        phase: row.phase,
+        buffer: parseGroupMonitorBuffer(row.buffer),
+        savedAt: row.savedAt
+      }
+    },
+
+    deleteGroupMonitorBuffer(groupId) {
+      db.delete(groupMonitorBuffersTable).where(eq(groupMonitorBuffersTable.groupId, groupId)).run()
     }
   }
 }

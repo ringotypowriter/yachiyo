@@ -168,6 +168,15 @@ export const scheduleRunsTable = sqliteTable('schedule_runs', {
   completedAt: text('completed_at')
 })
 
+export const groupMonitorBuffersTable = sqliteTable('group_monitor_buffers', {
+  groupId: text('group_id')
+    .primaryKey()
+    .references(() => channelGroupsTable.id, { onDelete: 'cascade' }),
+  phase: text('phase').notNull().default('dormant'),
+  buffer: text('buffer').notNull(),
+  savedAt: text('saved_at').notNull()
+})
+
 export const builtinMemoriesTable = sqliteTable('builtin_memories', {
   id: text('id').primaryKey(),
   topic: text('topic').notNull(),

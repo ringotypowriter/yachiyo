@@ -176,6 +176,10 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
     }
   }
 
+  async function handleClearGroupMessages(groupId: string): Promise<void> {
+    await window.api.yachiyo.clearGroupMonitorBuffer(groupId)
+  }
+
   if (loadingConfig) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -925,6 +929,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               group={group}
               busy={updatingGroup === group.id}
               onStatusChange={(s) => void handleGroupStatusChange(group.id, s)}
+              onClearMessages={() => void handleClearGroupMessages(group.id)}
             />
           ))
         )}
@@ -1203,11 +1208,13 @@ function ChannelUserRow({
 function ChannelGroupRow({
   group,
   busy,
-  onStatusChange
+  onStatusChange,
+  onClearMessages
 }: {
   group: ChannelGroupRecord
   busy: boolean
   onStatusChange: (status: ChannelGroupStatus) => void
+  onClearMessages: () => void
 }): React.ReactNode {
   return (
     <div
@@ -1239,6 +1246,11 @@ function ChannelGroupRow({
       </span>
 
       <div className="flex items-center gap-1 shrink-0">
+        <ActionButton
+          label="Clear Messages"
+          color={theme.text.tertiary}
+          onClick={onClearMessages}
+        />
         {group.status === 'pending' && (
           <>
             <ActionButton

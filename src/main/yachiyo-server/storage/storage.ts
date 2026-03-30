@@ -5,6 +5,7 @@ import type {
   ChannelUserRecord,
   ChannelUserRole,
   ChannelUserStatus,
+  GroupMessageEntry,
   MessageFileAttachment,
   MessageImageRecord,
   MessageRecord,
@@ -248,6 +249,18 @@ export interface YachiyoStorage {
   listScheduleRuns(scheduleId: string, limit?: number): ScheduleRunRecord[]
   listRecentScheduleRuns(limit?: number): ScheduleRunRecord[]
   recoverInterruptedScheduleRuns(input: { completedAt: string; error: string }): void
+
+  // Group monitor buffer persistence
+  saveGroupMonitorBuffer(input: {
+    groupId: string
+    phase: string
+    buffer: GroupMessageEntry[]
+    savedAt: string
+  }): void
+  loadGroupMonitorBuffer(
+    groupId: string
+  ): { phase: string; buffer: GroupMessageEntry[]; savedAt: string } | undefined
+  deleteGroupMonitorBuffer(groupId: string): void
 }
 
 export function toThreadRecord(
@@ -711,6 +724,46 @@ export function groupToolCallsByThread(
     string,
     ToolCallRecord[]
   >
+}
+
+// ---------------------------------------------------------------------------
+// Group monitor buffer serialization
+// ---------------------------------------------------------------------------
+
+/** Strip base64 image data but preserve alt text metadata for context continuity. */
+export function serializeGroupMonitorBuffer(buffer: GroupMessageEntry[]): string {
+  const stripped = buffer.map((entry) => {
+    const images = entry.images
+      ?.map((img) =>
+        img.altText ? { dataUrl: '', mediaType: img.mediaType, altText: img.altText } : null
+      )
+      .filter((img) => img !== null)
+    return {
+      senderName: entry.senderName,
+      senderExternalUserId: entry.senderExternalUserId,
+      isMention: entry.isMention,
+      text: entry.text,
+      timestamp: entry.timestamp,
+      ...(images && images.length > 0 ? { images } : {})
+    }
+  })
+  return JSON.stringify(stripped)
+}
+
+export function parseGroupMonitorBuffer(value: string): GroupMessageEntry[] {
+  try {
+    const parsed = JSON.parse(value) as GroupMessageEntry[]
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (entry) =>
+        typeof entry.senderName === 'string' &&
+        typeof entry.senderExternalUserId === 'string' &&
+        typeof entry.text === 'string' &&
+        typeof entry.timestamp === 'number'
+    )
+  } catch {
+    return []
+  }
 }
 
 export function groupLatestRunsByThread(runs: RunRecord[]): Record<string, RunRecord> {

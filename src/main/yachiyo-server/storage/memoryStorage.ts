@@ -1,6 +1,7 @@
 import type {
   ChannelGroupRecord,
   ChannelUserRecord,
+  GroupMessageEntry,
   MessageRecord,
   ThreadSearchResult,
   ToolCallRecord
@@ -31,6 +32,10 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const runs = new Map<string, StoredRunRow>()
   const toolCalls = new Map<string, StoredToolCallRow>()
   const imageAltTexts = new Map<string, { imageHash: string; altText: string }>()
+  const groupMonitorBuffers = new Map<
+    string,
+    { phase: string; buffer: GroupMessageEntry[]; savedAt: string }
+  >()
 
   const readThread = (threadId: string): StoredThreadRow | undefined => {
     const thread = threads.get(threadId)
@@ -739,6 +744,32 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     },
     recoverInterruptedScheduleRuns() {
       // no-op for in-memory stub
+    },
+
+    // Group monitor buffer persistence
+    saveGroupMonitorBuffer({ groupId, phase, buffer, savedAt }) {
+      const stripped = buffer.map((entry) => {
+        const images = entry.images
+          ?.map((img) =>
+            img.altText ? { dataUrl: '', mediaType: img.mediaType, altText: img.altText } : null
+          )
+          .filter((img) => img !== null)
+        return {
+          senderName: entry.senderName,
+          senderExternalUserId: entry.senderExternalUserId,
+          isMention: entry.isMention,
+          text: entry.text,
+          timestamp: entry.timestamp,
+          ...(images && images.length > 0 ? { images } : {})
+        }
+      })
+      groupMonitorBuffers.set(groupId, { phase, buffer: stripped as GroupMessageEntry[], savedAt })
+    },
+    loadGroupMonitorBuffer(groupId) {
+      return groupMonitorBuffers.get(groupId)
+    },
+    deleteGroupMonitorBuffer(groupId) {
+      groupMonitorBuffers.delete(groupId)
     }
   }
 }
