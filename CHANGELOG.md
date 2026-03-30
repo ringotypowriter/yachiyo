@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.7
+
+### Patch Changes
+
+- [`14f39ce`](https://github.com/ringotypowriter/yachiyo/commit/14f39ce1c383892329f94cda8242f8b7a8af30ac) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - AppSign, Schedule Improve & Core-Skills Update
+
 ## 1.0.6
 
 ### Patch Changes
