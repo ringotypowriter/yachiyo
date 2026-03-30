@@ -92,14 +92,14 @@ end tell'
 
 ### Agent-specific key bindings
 
-| Action              | Claude Code       | Codex            | Aider           |
-| ------------------- | ----------------- | ---------------- | --------------- |
-| Submit prompt       | Enter             | Enter            | Enter           |
-| Cancel generation   | Escape            | Ctrl+C           | Ctrl+C          |
-| Accept all changes  | y + Enter         | y + Enter        | y + Enter       |
-| Reject changes      | n + Enter         | n + Enter        | n + Enter       |
-| Exit agent          | /exit or Ctrl+D   | Ctrl+C twice     | /exit or Ctrl+D |
-| Clear context       | /clear            | —                | /clear          |
+| Action             | Claude Code     | Codex        | Aider           |
+| ------------------ | --------------- | ------------ | --------------- |
+| Submit prompt      | Enter           | Enter        | Enter           |
+| Cancel generation  | Escape          | Ctrl+C       | Ctrl+C          |
+| Accept all changes | y + Enter       | y + Enter    | y + Enter       |
+| Reject changes     | n + Enter       | n + Enter    | n + Enter       |
+| Exit agent         | /exit or Ctrl+D | Ctrl+C twice | /exit or Ctrl+D |
+| Clear context      | /clear          | —            | /clear          |
 
 ## Multiline prompts
 

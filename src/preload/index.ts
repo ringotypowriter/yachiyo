@@ -47,6 +47,8 @@ const api = {
     getStatus: (): Promise<{ state: string; version?: string; error?: string }> =>
       ipcRenderer.invoke('app-update:get-status'),
     check: () => ipcRenderer.send('app-update:check'),
+    download: () => ipcRenderer.send('app-update:download'),
+    install: () => ipcRenderer.send('app-update:install'),
     openRelease: () => ipcRenderer.send('app-update:open-release'),
     onStatus: (
       listener: (status: { state: string; version?: string; error?: string }) => void

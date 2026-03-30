@@ -134,14 +134,14 @@ end tell'
 
 ## Comparison of strategies
 
-| Strategy       | Reliability | TUI-safe | Setup effort | Best for                          |
-| -------------- | ----------- | -------- | ------------ | --------------------------------- |
-| File handoff   | High        | Yes      | Low          | Collecting final results          |
-| `tee` pipe     | High        | No*      | Low          | Full session logging              |
-| `script`       | High        | Yes      | Low          | Full session recording            |
-| Clipboard      | Low         | Yes      | None         | Quick one-off reads               |
-| Git diff       | High        | Yes      | None         | Observing code changes            |
-| Status prompt  | Medium      | Yes      | None         | Progress checks during long tasks |
+| Strategy      | Reliability | TUI-safe | Setup effort | Best for                          |
+| ------------- | ----------- | -------- | ------------ | --------------------------------- |
+| File handoff  | High        | Yes      | Low          | Collecting final results          |
+| `tee` pipe    | High        | No\*     | Low          | Full session logging              |
+| `script`      | High        | Yes      | Low          | Full session recording            |
+| Clipboard     | Low         | Yes      | None         | Quick one-off reads               |
+| Git diff      | High        | Yes      | None         | Observing code changes            |
+| Status prompt | Medium      | Yes      | None         | Progress checks during long tasks |
 
 \* `tee` may disable some TUI features depending on the agent.
 

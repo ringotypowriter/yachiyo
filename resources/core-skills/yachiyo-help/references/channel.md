@@ -65,9 +65,9 @@ List all registered channel groups across platforms.
 
 Change only a group channel's monitor status.
 
-| Argument   | Description |
-| ---------- | ----------- |
-| `<id>`     | Internal UUID of a channel group (required) |
+| Argument   | Description                                                                           |
+| ---------- | ------------------------------------------------------------------------------------- |
+| `<id>`     | Internal UUID of a channel group (required)                                           |
 | `<status>` | Target status. Accepted values: `approved`, `approval`, `pending`, `blocked`, `block` |
 
 Examples:

@@ -6,13 +6,13 @@ Identify which Ghostty terminals have coding agents (Claude Code, Codex, Aider, 
 
 TUI coding agents can be identified by their terminal `name` property, which reflects the foreground process:
 
-| Agent        | Likely `name` contains | Notes                              |
-| ------------ | ---------------------- | ---------------------------------- |
-| Claude Code  | `claude`               | The `claude` CLI process           |
-| OpenAI Codex | `codex`                | The `codex` CLI process            |
-| Aider        | `aider`                | Python-based, shows `aider`        |
-| Goose        | `goose`                | Shows `goose session`              |
-| Amp          | `amp`                  | Shows `amp`                        |
+| Agent        | Likely `name` contains | Notes                       |
+| ------------ | ---------------------- | --------------------------- |
+| Claude Code  | `claude`               | The `claude` CLI process    |
+| OpenAI Codex | `codex`                | The `codex` CLI process     |
+| Aider        | `aider`                | Python-based, shows `aider` |
+| Goose        | `goose`                | Shows `goose session`       |
+| Amp          | `amp`                  | Shows `amp`                 |
 
 The `name` depends on shell integration — if the shell sets the terminal title to the running command (common with fish, zsh with precmd, etc.), this works reliably.
 

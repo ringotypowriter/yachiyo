@@ -47,11 +47,11 @@ export function AppSidebar({
 
   useEffect(() => {
     window.api.appUpdate.getStatus().then((s) => {
-      setUpdateAvailable(s.state === 'available')
+      setUpdateAvailable(s.state === 'available' || s.state === 'ready')
       if (s.version) setUpdateVersion(s.version)
     })
     return window.api.appUpdate.onStatus((s) => {
-      setUpdateAvailable(s.state === 'available')
+      setUpdateAvailable(s.state === 'available' || s.state === 'ready')
       if (s.version) setUpdateVersion(s.version)
     })
   }, [])

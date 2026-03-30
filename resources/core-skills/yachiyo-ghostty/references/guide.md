@@ -15,21 +15,21 @@ application "Ghostty"
 
 ### Object Properties
 
-| Object      | Property            | Type    | Description                          |
-| ----------- | ------------------- | ------- | ------------------------------------ |
-| application | name                | text    | App name ("Ghostty")                 |
-| application | frontmost           | boolean | Whether Ghostty is the active app    |
-| application | version             | text    | Ghostty version string               |
-| window      | id                  | text    | Unique window identifier             |
-| window      | name                | text    | Window title                         |
-| window      | selected tab        | tab     | Currently active tab                 |
-| tab         | id                  | text    | Unique tab identifier                |
-| tab         | name                | text    | Tab title                            |
-| tab         | index               | integer | Tab position (1-based)               |
-| tab         | selected            | boolean | Whether this tab is active           |
-| terminal    | id                  | text    | Unique terminal surface identifier   |
-| terminal    | name                | text    | Terminal title (usually the process) |
-| terminal    | working directory   | text    | Current working directory (POSIX)    |
+| Object      | Property          | Type    | Description                          |
+| ----------- | ----------------- | ------- | ------------------------------------ |
+| application | name              | text    | App name ("Ghostty")                 |
+| application | frontmost         | boolean | Whether Ghostty is the active app    |
+| application | version           | text    | Ghostty version string               |
+| window      | id                | text    | Unique window identifier             |
+| window      | name              | text    | Window title                         |
+| window      | selected tab      | tab     | Currently active tab                 |
+| tab         | id                | text    | Unique tab identifier                |
+| tab         | name              | text    | Tab title                            |
+| tab         | index             | integer | Tab position (1-based)               |
+| tab         | selected          | boolean | Whether this tab is active           |
+| terminal    | id                | text    | Unique terminal surface identifier   |
+| terminal    | name              | text    | Terminal title (usually the process) |
+| terminal    | working directory | text    | Current working directory (POSIX)    |
 
 ## Commands
 
@@ -330,10 +330,10 @@ end tell'
 
 ## Troubleshooting
 
-| Problem | Cause | Fix |
-| ------- | ----- | --- |
-| "Ghostty got an error: AppleScript is not enabled" | Config `macos-applescript = false` | Set `macos-applescript = true` in Ghostty config |
-| macOS permission dialog keeps appearing | TCC prompt for automation | Grant permission in System Settings > Privacy > Automation |
-| Terminal ID not found | Terminal was closed or ID is stale | Re-list terminals to get fresh IDs |
-| `name` is empty or generic | Terminal title not set by shell | Check shell integration / `PROMPT_COMMAND` setup |
-| `working directory` is empty | Shell integration not reporting CWD | Enable Ghostty shell integration or set `OSC 7` in shell config |
+| Problem                                            | Cause                               | Fix                                                             |
+| -------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------- |
+| "Ghostty got an error: AppleScript is not enabled" | Config `macos-applescript = false`  | Set `macos-applescript = true` in Ghostty config                |
+| macOS permission dialog keeps appearing            | TCC prompt for automation           | Grant permission in System Settings > Privacy > Automation      |
+| Terminal ID not found                              | Terminal was closed or ID is stale  | Re-list terminals to get fresh IDs                              |
+| `name` is empty or generic                         | Terminal title not set by shell     | Check shell integration / `PROMPT_COMMAND` setup                |
+| `working directory` is empty                       | Shell integration not reporting CWD | Enable Ghostty shell integration or set `OSC 7` in shell config |

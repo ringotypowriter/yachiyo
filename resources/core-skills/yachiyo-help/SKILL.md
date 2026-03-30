@@ -26,16 +26,16 @@ yachiyo <namespace> <subcommand> [args...] [flags...]
 
 ## Namespaces
 
-| Namespace  | Purpose                                 | Reference                               |
-| ---------- | --------------------------------------- | --------------------------------------- |
-| `soul`     | Manage evolving persona traits          | [soul.md](references/soul.md)           |
-| `provider` | Manage AI providers                     | [providers.md](references/providers.md) |
-| `agent`    | Manage coding agent profiles            | [agents.md](references/agents.md)       |
-| `config`   | Read and write configuration            | [config.md](references/config.md)       |
-| `thread`   | Search historical conversations         | [threads.md](references/threads.md)     |
-| `schedule` | Manage scheduled tasks                  | [schedule.md](references/schedule.md)   |
+| Namespace  | Purpose                                                   | Reference                               |
+| ---------- | --------------------------------------------------------- | --------------------------------------- |
+| `soul`     | Manage evolving persona traits                            | [soul.md](references/soul.md)           |
+| `provider` | Manage AI providers                                       | [providers.md](references/providers.md) |
+| `agent`    | Manage coding agent profiles                              | [agents.md](references/agents.md)       |
+| `config`   | Read and write configuration                              | [config.md](references/config.md)       |
+| `thread`   | Search historical conversations                           | [threads.md](references/threads.md)     |
+| `schedule` | Manage scheduled tasks                                    | [schedule.md](references/schedule.md)   |
 | `channel`  | List channel users/groups and change group monitor status | [channel.md](references/channel.md)     |
-| `send`     | Send notifications and channel messages | [send.md](references/send.md)           |
+| `send`     | Send notifications and channel messages                   | [send.md](references/send.md)           |
 
 ## Global Flags
 

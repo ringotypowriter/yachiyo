@@ -191,10 +191,10 @@ end tell'
 
 ## Coordination patterns summary
 
-| Pattern          | Description                                          | When to use                              |
-| ---------------- | ---------------------------------------------------- | ---------------------------------------- |
-| Fan-out          | Send different tasks to different agents              | Parallelize independent work             |
-| Broadcast        | Send the same command to all agents                   | Sync, status check, or teardown          |
-| Poll             | Periodically check agent `name` for status            | Wait for completion before next step     |
-| File handoff     | Agent writes result to a file, orchestrator reads it  | Collect output despite no buffer access  |
-| Sequential relay | One agent finishes, then prompt the next with context | Dependent tasks (design → implement)     |
+| Pattern          | Description                                           | When to use                             |
+| ---------------- | ----------------------------------------------------- | --------------------------------------- |
+| Fan-out          | Send different tasks to different agents              | Parallelize independent work            |
+| Broadcast        | Send the same command to all agents                   | Sync, status check, or teardown         |
+| Poll             | Periodically check agent `name` for status            | Wait for completion before next step    |
+| File handoff     | Agent writes result to a file, orchestrator reads it  | Collect output despite no buffer access |
+| Sequential relay | One agent finishes, then prompt the next with context | Dependent tasks (design → implement)    |
