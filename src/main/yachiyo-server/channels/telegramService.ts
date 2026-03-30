@@ -47,6 +47,7 @@ import { createTool as createReadTool } from '../tools/agentTools/readTool'
 import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool'
 import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool'
 import { createTool as createUpdateMemoryTool } from '../tools/agentTools/updateMemoryTool'
+import { notifyAutoCompact } from './autoCompactNotice'
 
 import { resolveYachiyoTempWorkspaceRoot, YACHIYO_USER_FILE_NAME } from '../config/paths'
 import { join } from 'node:path'
@@ -506,6 +507,9 @@ export function createTelegramService({
       console.log(
         `[telegram] using thread ${yachiyoThread.id}${compacted ? ' (rolling summary generated)' : ''}`
       )
+      if (compacted) {
+        await notifyAutoCompact(sendMessage, chatId)
+      }
 
       const replies: string[] = []
       const replyTool = createChannelReplyTool({

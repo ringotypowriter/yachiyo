@@ -52,6 +52,7 @@ import { createTool as createReadTool } from '../tools/agentTools/readTool.ts'
 import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool.ts'
 import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool.ts'
 import { createTool as createUpdateMemoryTool } from '../tools/agentTools/updateMemoryTool.ts'
+import { notifyAutoCompact } from './autoCompactNotice.ts'
 
 /** Minimum debounce delay before flushing a message batch. */
 const REPLY_DELAY_MIN_MS = 3_000
@@ -704,6 +705,9 @@ export function createQQService({
       console.log(
         `[qq] using thread ${yachiyoThread.id}${compacted ? ' (rolling summary generated)' : ''}`
       )
+      if (compacted) {
+        await notifyAutoCompact(client.sendPrivateMessage, qqUserId)
+      }
 
       // Collect all replies sent via the reply tool for visibleReply storage.
       const replies: string[] = []

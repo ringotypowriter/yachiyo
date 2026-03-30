@@ -47,6 +47,7 @@ import { createTool as createReadTool } from '../tools/agentTools/readTool.ts'
 import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool.ts'
 import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool.ts'
 import { createTool as createUpdateMemoryTool } from '../tools/agentTools/updateMemoryTool.ts'
+import { notifyAutoCompact } from './autoCompactNotice.ts'
 
 import { resolveYachiyoTempWorkspaceRoot, YACHIYO_USER_FILE_NAME } from '../config/paths.ts'
 
@@ -476,6 +477,9 @@ export function createDiscordService({
       console.log(
         `[discord] using thread ${yachiyoThread.id}${compacted ? ' (rolling summary generated)' : ''}`
       )
+      if (compacted) {
+        await notifyAutoCompact(sendMessage, channelId)
+      }
 
       const replies: string[] = []
       const replyTool = createChannelReplyTool({
