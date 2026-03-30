@@ -14,3 +14,5 @@ __pycache__/
 .claude/settings.local.json
 other_resources/
 docs/
+
+*.p12
