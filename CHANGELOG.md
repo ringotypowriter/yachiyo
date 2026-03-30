@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.8
+
+### Patch Changes
+
+- [`512cfd8`](https://github.com/ringotypowriter/yachiyo/commit/512cfd8830abc51d1865ebc5db0e1c5e8f9c21b2) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Bug Fix - Retry Branches
+
 ## 1.0.7
 
 ### Patch Changes

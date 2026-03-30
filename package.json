@@ -1,6 +1,6 @@
 {
   "name": "yachiyo",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Yachiyo",
   "main": "./out/main/index.js",
   "packageManager": "pnpm@10.30.3",
