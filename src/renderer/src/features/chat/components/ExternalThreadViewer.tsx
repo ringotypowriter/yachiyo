@@ -1,17 +1,18 @@
 /**
  * Read-only viewer for external channel threads (Telegram, etc.).
  *
- * Renders a clean chronological message list with no action bars, no branching,
- * and no composer. For assistant messages, shows `visibleReply` (the extracted
- * clean text the channel user actually received) when available.
+ * Renders a chronological message list with tool call rows, no action bars,
+ * no branching, and no composer. For assistant messages, shows `visibleReply`
+ * (the extracted clean text the channel user actually received) when available.
  */
 
 import type React from 'react'
 import { useEffect, useRef } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
-import type { Message } from '@renderer/app/types'
+import type { Message, ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
+import { ToolCallRow } from './ToolCallRow.tsx'
 
 function ExternalUserBubble({ message }: { message: Message }): React.JSX.Element {
   return (
@@ -37,27 +38,42 @@ function ExternalUserBubble({ message }: { message: Message }): React.JSX.Elemen
   )
 }
 
-function ExternalAssistantBubble({ message }: { message: Message }): React.JSX.Element {
+function ExternalAssistantBubble({
+  message,
+  toolCalls
+}: {
+  message: Message
+  toolCalls: ToolCall[]
+}): React.JSX.Element {
   const content = message.visibleReply ?? message.content
 
-  if (!content.trim()) return <></>
-
   return (
-    <div className="flex flex-col gap-2 px-6 py-1">
-      <div className="w-full">
-        <div className="assistant-message-bubble">
-          <MessageMarkdown content={content} isStreaming={false} />
+    <div className="flex flex-col gap-0 px-0 py-1">
+      {toolCalls.map((tc) => (
+        <ToolCallRow key={tc.id} toolCall={tc} />
+      ))}
+      {content.trim() ? (
+        <div className="px-6">
+          <div className="w-full">
+            <div className="assistant-message-bubble">
+              <MessageMarkdown content={content} isStreaming={false} />
+            </div>
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   )
 }
 
 const EMPTY_MESSAGES: Message[] = []
+const EMPTY_TOOL_CALLS: ToolCall[] = []
 
 export function ExternalThreadViewer({ threadId }: { threadId: string | null }): React.JSX.Element {
   const messages = useAppStore((state) =>
     threadId ? (state.messages[threadId] ?? EMPTY_MESSAGES) : EMPTY_MESSAGES
+  )
+  const toolCalls = useAppStore((state) =>
+    threadId ? (state.toolCalls[threadId] ?? EMPTY_TOOL_CALLS) : EMPTY_TOOL_CALLS
   )
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -100,13 +116,30 @@ export function ExternalThreadViewer({ threadId }: { threadId: string | null }):
     )
   }
 
+  // Build a map of tool calls keyed by their request message ID for grouping
+  // with the corresponding assistant response.
+  const toolCallsByRequestId = new Map<string, ToolCall[]>()
+  for (const tc of toolCalls) {
+    const key = tc.requestMessageId ?? ''
+    const list = toolCallsByRequestId.get(key)
+    if (list) {
+      list.push(tc)
+    } else {
+      toolCallsByRequestId.set(key, [tc])
+    }
+  }
+
   return (
     <div className="flex-1 overflow-y-auto overflow-x-hidden py-4">
       {visibleMessages.map((message) =>
         message.role === 'user' ? (
           <ExternalUserBubble key={message.id} message={message} />
         ) : (
-          <ExternalAssistantBubble key={message.id} message={message} />
+          <ExternalAssistantBubble
+            key={message.id}
+            message={message}
+            toolCalls={toolCallsByRequestId.get(message.parentMessageId ?? '') ?? EMPTY_TOOL_CALLS}
+          />
         )
       )}
       <div ref={bottomRef} />

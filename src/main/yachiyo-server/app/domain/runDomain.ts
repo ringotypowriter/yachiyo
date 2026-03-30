@@ -583,6 +583,15 @@ export class YachiyoServerRunDomain {
       threadId: accepted.thread.id,
       thread: accepted.thread
     })
+    // Emit user message so the renderer can display it in real-time
+    // (especially important for external/channel threads where sendChat is
+    // called server-side and the renderer doesn't receive the IPC response).
+    this.deps.emit<MessageCompletedEvent>({
+      type: 'message.completed',
+      threadId: accepted.thread.id,
+      runId: accepted.runId,
+      message: userMessage
+    })
     this.deps.emit<RunCreatedEvent>({
       type: 'run.created',
       threadId: accepted.thread.id,
@@ -652,6 +661,7 @@ export class YachiyoServerRunDomain {
       images: input.images,
       attachments: input.attachments,
       messageId: input.messageId,
+      runId: input.activeRunId,
       runState: activeRun,
       thread: input.thread,
       timestamp: this.deps.timestamp()
@@ -717,6 +727,12 @@ export class YachiyoServerRunDomain {
       threadId: updatedThread.id,
       thread: updatedThread
     })
+    this.deps.emit<MessageCompletedEvent>({
+      type: 'message.completed',
+      threadId: updatedThread.id,
+      runId: activeRunId,
+      message: userMessage
+    })
 
     return {
       kind: 'active-run-follow-up',
@@ -754,6 +770,7 @@ export class YachiyoServerRunDomain {
     images: MessageRecord['images']
     attachments: MessageFileAttachment[]
     messageId: string
+    runId: string
     runState: RunState
     thread: ThreadRecord
     timestamp: string
@@ -782,6 +799,12 @@ export class YachiyoServerRunDomain {
       type: 'thread.updated',
       threadId: updatedThread.id,
       thread: updatedThread
+    })
+    this.deps.emit<MessageCompletedEvent>({
+      type: 'message.completed',
+      threadId: updatedThread.id,
+      runId: input.runId,
+      message: userMessage
     })
 
     return {
@@ -942,6 +965,7 @@ export class YachiyoServerRunDomain {
                 images: currentRun.pendingSteerInput.images,
                 attachments: currentRun.pendingSteerInput.attachments,
                 messageId: currentRun.pendingSteerInput.messageId,
+                runId: input.runId,
                 runState: currentRun,
                 thread: currentThread,
                 timestamp: currentRun.pendingSteerInput.timestamp
