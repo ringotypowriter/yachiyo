@@ -875,10 +875,17 @@ test('channel groups set-status falls back to storage when app is not running', 
     workspacePath: '/tmp/group-workspace'
   })
 
+  let stderr = ''
   await runYachiyoCli(['channel', 'groups', 'set-status', 'group-1', 'block'], {
     createStorage: () => storage,
     stdout: {
       write() {
+        return true
+      }
+    },
+    stderr: {
+      write(chunk) {
+        stderr += String(chunk)
         return true
       }
     },
@@ -888,6 +895,10 @@ test('channel groups set-status falls back to storage when app is not running', 
   })
 
   assert.equal(storage.getChannelGroup('group-1')?.status, 'blocked')
+  assert.match(
+    stderr,
+    /Updated the stored group status, but the running app was not notified. Restart Yachiyo to apply it immediately\./
+  )
 })
 
 test('channel groups set-status propagates unexpected uds errors', async () => {

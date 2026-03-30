@@ -779,6 +779,7 @@ async function handleChannelCommand(
       if (subcommand === 'set-status') {
         const id = positionals[2]
         const rawStatus = positionals[3]
+        let liveAppNotified = true
         if (!id?.trim()) {
           throw new Error('Group ID is required: channel groups set-status <id> <status>')
         }
@@ -804,11 +805,18 @@ async function handleChannelCommand(
           if (!canFallback) {
             throw error
           }
+          liveAppNotified = false
         }
 
         const updated = channelStorage.updateChannelGroup({ id, status })
         if (!updated) {
           throw new Error(`Unknown channel group: ${id}`)
+        }
+
+        if (!liveAppNotified) {
+          options.stderr?.write(
+            'Updated the stored group status, but the running app was not notified. Restart Yachiyo to apply it immediately.\n'
+          )
         }
 
         outputJson(stdout, updated)
