@@ -1,8 +1,8 @@
 import {
   Archive,
   ListChecks,
+  MessageSquare,
   PenLine,
-  RotateCcw,
   SendHorizonal,
   Sparkles,
   Star,
@@ -45,7 +45,7 @@ function resolveOperationIcon(operationKey: ThreadContextOperation['key']): Reac
   }
 
   if (operationKey === 'restore') {
-    return <RotateCcw size={14} strokeWidth={1.7} />
+    return <MessageSquare size={14} strokeWidth={1.7} />
   }
 
   if (operationKey === 'star') {

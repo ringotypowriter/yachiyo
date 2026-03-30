@@ -16,6 +16,10 @@ export interface ThreadHeaderActionsProps {
   onSelectOperation: (operationKey: ThreadContextOperationKey) => void
 }
 
+function isExternalThread(thread: Thread): boolean {
+  return thread.source != null && thread.source !== 'local'
+}
+
 export function ThreadHeaderActions({
   activeThread,
   isRenameDisabled,
@@ -31,6 +35,7 @@ export function ThreadHeaderActions({
 
   const operations = resolveThreadContextOperations({
     isArchived: false,
+    isExternal: isExternalThread(activeThread),
     isRenameDisabled,
     isSaving,
     isStarred

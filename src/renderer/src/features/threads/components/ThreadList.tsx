@@ -142,8 +142,10 @@ function ThreadListItem({
   const [isHovered, setIsHovered] = useState(false)
   const iconInputRef = useRef<HTMLInputElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
+  const isExternal = thread.source != null && thread.source !== 'local'
   const operations = resolveThreadContextOperations({
     isArchived: threadListMode === 'archived',
+    isExternal,
     isSaving,
     isStarred
   })

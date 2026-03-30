@@ -58,3 +58,17 @@ test('archived thread operations do not include regenerate-title', () => {
     ['restore', 'delete']
   )
 })
+
+test('external thread operations do not include regenerate-title or archive', () => {
+  const operations = resolveThreadContextOperations({
+    isArchived: false,
+    isExternal: true
+  })
+
+  assert.ok(!operations.some((op) => op.key === 'regenerate-title'))
+  assert.ok(!operations.some((op) => op.key === 'archive'))
+  assert.deepEqual(
+    operations.map((op) => op.key),
+    ['star', 'rename', 'compact-to-another-thread', 'delete']
+  )
+})

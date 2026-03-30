@@ -18,6 +18,7 @@ export interface ThreadContextOperation {
 
 export function resolveThreadContextOperations(input: {
   isArchived: boolean
+  isExternal?: boolean
   isRenameDisabled?: boolean
   isSaving?: boolean
   isStarred?: boolean
@@ -27,7 +28,7 @@ export function resolveThreadContextOperations(input: {
       {
         disabled: input.isSaving,
         key: 'restore',
-        label: 'Restore'
+        label: 'Continue Chat'
       },
       {
         disabled: input.isSaving,
@@ -38,7 +39,7 @@ export function resolveThreadContextOperations(input: {
     ]
   }
 
-  return [
+  const operations: ThreadContextOperation[] = [
     {
       disabled: input.isSaving,
       key: input.isStarred ? 'unstar' : 'star',
@@ -48,27 +49,37 @@ export function resolveThreadContextOperations(input: {
       disabled: input.isSaving || input.isRenameDisabled,
       key: 'rename',
       label: 'Rename'
-    },
-    {
+    }
+  ]
+
+  if (!input.isExternal) {
+    operations.push({
       disabled: input.isSaving,
       key: 'regenerate-title',
       label: 'Regenerate Title'
-    },
-    {
-      disabled: input.isSaving,
-      key: 'compact-to-another-thread',
-      label: 'Handoff'
-    },
-    {
+    })
+  }
+
+  operations.push({
+    disabled: input.isSaving,
+    key: 'compact-to-another-thread',
+    label: 'Handoff'
+  })
+
+  if (!input.isExternal) {
+    operations.push({
       disabled: input.isSaving,
       key: 'archive',
       label: 'Archive'
-    },
-    {
-      disabled: input.isSaving,
-      key: 'delete',
-      label: 'Delete',
-      tone: 'danger'
-    }
-  ]
+    })
+  }
+
+  operations.push({
+    disabled: input.isSaving,
+    key: 'delete',
+    label: 'Delete',
+    tone: 'danger'
+  })
+
+  return operations
 }
