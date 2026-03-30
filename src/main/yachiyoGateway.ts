@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, net, Notification, session } from 'electron'
+import { is } from '@electron-toolkit/utils'
 import { spawn } from 'child_process'
 import { join } from 'node:path'
 
@@ -352,10 +353,14 @@ export function registerYachiyoGateway(): YachiyoServer {
   server.getTtlReaper().start()
 
   // Start channel services if already configured.
-  const channelsConfig = server.getChannelsConfig()
-  void applyTelegramConfig(channelsConfig)
-  void applyQQConfig(channelsConfig)
-  void applyDiscordConfig(channelsConfig)
+  // In dev mode, channels are skipped by default to avoid unintended outbound
+  // connections. Set YACHIYO_DEV_CHANNELS=1 (or run `pnpm dev:channels`) to opt in.
+  if (!is.dev || process.env['YACHIYO_DEV_CHANNELS']) {
+    const channelsConfig = server.getChannelsConfig()
+    void applyTelegramConfig(channelsConfig)
+    void applyQQConfig(channelsConfig)
+    void applyDiscordConfig(channelsConfig)
+  }
 
   // Start schedule service
   scheduleService?.stop()

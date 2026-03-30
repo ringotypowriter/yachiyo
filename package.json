@@ -36,6 +36,7 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "start": "pnpm run native:rebuild && electron-vite preview",
     "dev": "pnpm run native:rebuild && (electron-vite dev; tput reset)",
+    "dev:channels": "pnpm run native:rebuild && (YACHIYO_DEV_CHANNELS=1 electron-vite dev; tput reset)",
     "build": "pnpm run native:rebuild && pnpm run typecheck && electron-vite build",
     "postinstall": "node -e \"console.log('Skipping Electron native rebuild on install. Run pnpm run native:rebuild before Electron runtime or native sqlite tests.')\"",
     "build:unpack": "pnpm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
