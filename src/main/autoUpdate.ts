@@ -1,9 +1,10 @@
-import { BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { is } from '@electron-toolkit/utils'
 
 import { resolveYachiyoSettingsPath } from './yachiyo-server/config/paths'
 import { createSettingsStore } from './yachiyo-server/settings/settingsStore'
+import { restartForUpdate } from './updateRestart'
 import type { UpdateChannel } from '../shared/yachiyo/protocol'
 
 export interface UpdateStatus {
@@ -110,7 +111,8 @@ function setupProd(): void {
   })
 
   ipcMain.on('app-update:install', () => {
-    autoUpdater.quitAndInstall(false, true)
+    autoUpdater.autoInstallOnAppQuit = true
+    restartForUpdate(app)
   })
 
   ipcMain.on('app-update:open-release', () => {
