@@ -88,6 +88,7 @@ import {
   type BrowserSearchDiagnosticEvent
 } from '../services/webSearch/electronBrowserSearchSession.ts'
 import { createGoogleBrowserWebSearchProvider } from '../services/webSearch/providers/googleBrowserWebSearchProvider.ts'
+import { createExaWebSearchProvider } from '../services/webSearch/providers/exaWebSearchProvider.ts'
 import { createWebSearchService } from '../services/webSearch/webSearchService.ts'
 import { createSettingsStore, toEffectiveProviderSettings } from '../settings/settingsStore.ts'
 import { createSqliteYachiyoStorage } from '../storage/sqlite/database.ts'
@@ -210,6 +211,10 @@ export class YachiyoServer {
       providers: [
         createGoogleBrowserWebSearchProvider({
           browserSession: this.browserSearchSession
+        }),
+        createExaWebSearchProvider({
+          readConfig: () => this.configDomain.readConfig(),
+          fetchImpl: options.fetchImpl
         })
       ],
       readConfig: () => this.configDomain.readConfig()

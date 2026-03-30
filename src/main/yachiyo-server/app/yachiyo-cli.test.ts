@@ -784,6 +784,196 @@ test('config get - redacts provider apiKey in nested path', async () => {
 })
 
 // ---------------------------------------------------------------------------
+// Channel group monitor status tests
+// ---------------------------------------------------------------------------
+
+test('channel groups set-status updates only group monitor status', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  const group = storage.createChannelGroup({
+    id: 'group-1',
+    platform: 'discord',
+    externalGroupId: 'discord-channel-1',
+    name: 'Guild Ops',
+    status: 'pending',
+    workspacePath: '/tmp/group-workspace'
+  })
+
+  let stdout = ''
+  await runYachiyoCli(['channel', 'groups', 'set-status', group.id, 'approval', '--json'], {
+    createStorage: () => storage,
+    sendChannelGroupStatus: async () => {
+      throw new Error('Yachiyo app is not running. Start the app first.')
+    },
+    stdout: {
+      write(chunk) {
+        stdout += String(chunk)
+        return true
+      }
+    }
+  })
+
+  const updated = JSON.parse(stdout) as { id: string; status: string }
+  assert.equal(updated.id, group.id)
+  assert.equal(updated.status, 'approved')
+
+  let listStdout = ''
+  await runYachiyoCli(['channel', 'groups', '--json'], {
+    createStorage: () => storage,
+    stdout: {
+      write(chunk) {
+        listStdout += String(chunk)
+        return true
+      }
+    }
+  })
+
+  const groups = JSON.parse(listStdout) as Array<{ id: string; status: string }>
+  assert.deepEqual(
+    groups.map((entry) => ({ id: entry.id, status: entry.status })),
+    [{ id: 'group-1', status: 'approved' }]
+  )
+})
+
+test('channel groups set-status syncs through uds when app is running', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createChannelGroup({
+    id: 'group-1',
+    platform: 'discord',
+    externalGroupId: 'discord-channel-1',
+    name: 'Guild Ops',
+    status: 'pending',
+    workspacePath: '/tmp/group-workspace'
+  })
+
+  const calls: Array<{ type: string; id: string; status: string }> = []
+  await runYachiyoCli(['channel', 'groups', 'set-status', 'group-1', 'approval'], {
+    createStorage: () => storage,
+    stdout: {
+      write() {
+        return true
+      }
+    },
+    sendChannelGroupStatus: async (_socketPath, payload) => {
+      calls.push(payload)
+    }
+  })
+
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0]?.type, 'update-channel-group-status')
+  assert.equal(calls[0]?.id, 'group-1')
+  assert.equal(calls[0]?.status, 'approved')
+})
+
+test('channel groups set-status falls back to storage when app is not running', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createChannelGroup({
+    id: 'group-1',
+    platform: 'qq',
+    externalGroupId: 'qq-group-1',
+    name: 'QQ Squad',
+    status: 'pending',
+    workspacePath: '/tmp/group-workspace'
+  })
+
+  await runYachiyoCli(['channel', 'groups', 'set-status', 'group-1', 'block'], {
+    createStorage: () => storage,
+    stdout: {
+      write() {
+        return true
+      }
+    },
+    sendChannelGroupStatus: async () => {
+      throw new Error('Yachiyo app is not running. Start the app first.')
+    }
+  })
+
+  assert.equal(storage.getChannelGroup('group-1')?.status, 'blocked')
+})
+
+test('channel groups set-status propagates unexpected uds errors', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createChannelGroup({
+    id: 'group-1',
+    platform: 'qq',
+    externalGroupId: 'qq-group-1',
+    name: 'QQ Squad',
+    status: 'pending',
+    workspacePath: '/tmp/group-workspace'
+  })
+
+  await assert.rejects(
+    () =>
+      runYachiyoCli(['channel', 'groups', 'set-status', 'group-1', 'pending'], {
+        createStorage: () => storage,
+        stdout: {
+          write() {
+            return true
+          }
+        },
+        sendChannelGroupStatus: async () => {
+          throw new Error('socket write failed')
+        }
+      }),
+    /socket write failed/
+  )
+})
+
+test('channel groups set-status rejects a channel user id', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createChannelUser({
+    id: 'user-1',
+    platform: 'telegram',
+    externalUserId: 'tg-user-1',
+    username: 'alice',
+    status: 'pending',
+    role: 'guest',
+    usageLimitKTokens: null,
+    workspacePath: '/tmp/user-workspace'
+  })
+
+  await assert.rejects(
+    () =>
+      runYachiyoCli(['channel', 'groups', 'set-status', 'user-1', 'block'], {
+        createStorage: () => storage,
+        sendChannelGroupStatus: async () => {
+          throw new Error('Yachiyo app is not running. Start the app first.')
+        },
+        stdout: {
+          write() {
+            return true
+          }
+        }
+      }),
+    /Unknown channel group/
+  )
+})
+
+test('channel groups set-status rejects unknown statuses', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createChannelGroup({
+    id: 'group-1',
+    platform: 'qq',
+    externalGroupId: 'qq-group-1',
+    name: 'QQ Squad',
+    status: 'pending',
+    workspacePath: '/tmp/group-workspace'
+  })
+
+  await assert.rejects(
+    () =>
+      runYachiyoCli(['channel', 'groups', 'set-status', 'group-1', 'allowed'], {
+        createStorage: () => storage,
+        stdout: {
+          write() {
+            return true
+          }
+        }
+      }),
+    /Expected one of: approved, approval, pending, blocked, block/
+  )
+})
+
+// ---------------------------------------------------------------------------
 // Error handling tests
 // ---------------------------------------------------------------------------
 

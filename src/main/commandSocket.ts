@@ -6,10 +6,16 @@ export interface SendChannelInput {
   message: string
 }
 
+export interface UpdateChannelGroupStatusInput {
+  id: string
+  status: 'pending' | 'approved' | 'blocked'
+}
+
 export interface CommandSocketOptions {
   socketPath: string
   onNotification: (input: { title: string; body?: string }) => void
   onSendChannel: (input: SendChannelInput) => void
+  onUpdateChannelGroupStatus: (input: UpdateChannelGroupStatusInput) => void
 }
 
 export interface CommandSocketHandle {
@@ -22,7 +28,7 @@ interface TypedMessage {
 }
 
 export function startCommandSocket(options: CommandSocketOptions): CommandSocketHandle {
-  const { socketPath, onNotification, onSendChannel } = options
+  const { socketPath, onNotification, onSendChannel, onUpdateChannelGroupStatus } = options
 
   // Clean up stale socket file from a previous crash
   if (existsSync(socketPath)) {
@@ -68,6 +74,15 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
         if (typeof id !== 'string' || !id.trim()) return
         if (typeof msg !== 'string' || !msg.trim()) return
         onSendChannel({ id, message: msg })
+        return
+      }
+
+      if (type === 'update-channel-group-status') {
+        const id = message.id
+        const status = message.status
+        if (typeof id !== 'string' || !id.trim()) return
+        if (status !== 'pending' && status !== 'approved' && status !== 'blocked') return
+        onUpdateChannelGroupStatus({ id, status })
       }
     })
   })

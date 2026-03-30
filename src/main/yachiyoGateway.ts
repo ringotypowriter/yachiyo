@@ -397,7 +397,23 @@ export function registerYachiyoGateway(): YachiyoServer {
       if (!Notification.isSupported()) return
       new Notification({ title: input.title, body: input.body ?? '' }).show()
     },
-    onSendChannel: (input) => handleSendChannel(input)
+    onSendChannel: (input) => handleSendChannel(input),
+    onUpdateChannelGroupStatus: (input) => {
+      if (!server) {
+        console.error('[channel-group-status] server is not running')
+        return
+      }
+      try {
+        const updated = server.updateChannelGroup(input)
+        qqService?.onGroupStatusChange(updated)
+        discordService?.onGroupStatusChange(updated)
+        console.log(
+          `[channel-group-status] updated ${updated.platform}:${updated.name} -> ${updated.status}`
+        )
+      } catch (error) {
+        console.error('[channel-group-status] failed:', error)
+      }
+    }
   })
 
   handle(IPC_CHANNELS.searchThreadsAndMessages, (input: { query: string }) =>

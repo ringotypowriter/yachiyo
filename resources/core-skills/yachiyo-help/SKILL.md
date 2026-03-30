@@ -1,6 +1,6 @@
 ---
 name: yachiyo-help
-description: Complete reference for the Yachiyo CLI — soul traits, provider management, agent profiles, config, thread search, scheduled tasks, channel users/groups, and send commands
+description: Complete reference for the Yachiyo CLI — soul traits, provider management, agent profiles, config, thread search, scheduled tasks, channel users/groups, group monitor status control, and send commands
 ---
 
 # Yachiyo Help
@@ -15,7 +15,7 @@ Read the detailed reference for each namespace before running unfamiliar command
 - [config.md](references/config.md) — Read and write configuration values
 - [threads.md](references/threads.md) — Search historical conversations
 - [schedule.md](references/schedule.md) — Manage scheduled tasks and view run history
-- [channel.md](references/channel.md) — List channel users and groups
+- [channel.md](references/channel.md) — List channel users/groups and change group monitor status
 - [send.md](references/send.md) — Send notifications and channel messages
 
 ## Usage
@@ -34,7 +34,7 @@ yachiyo <namespace> <subcommand> [args...] [flags...]
 | `config`   | Read and write configuration            | [config.md](references/config.md)       |
 | `thread`   | Search historical conversations         | [threads.md](references/threads.md)     |
 | `schedule` | Manage scheduled tasks                  | [schedule.md](references/schedule.md)   |
-| `channel`  | List channel users and groups           | [channel.md](references/channel.md)     |
+| `channel`  | List channel users/groups and change group monitor status | [channel.md](references/channel.md)     |
 | `send`     | Send notifications and channel messages | [send.md](references/send.md)           |
 
 ## Global Flags

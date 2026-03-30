@@ -3,6 +3,7 @@ import { connect } from 'node:net'
 import { pathToFileURL } from 'node:url'
 
 import type {
+  ChannelGroupStatus,
   CreateScheduleInput,
   ProviderConfig,
   SettingsConfig,
@@ -27,6 +28,7 @@ import {
 import { createSettingsStore } from '../settings/settingsStore.ts'
 import { YachiyoServerConfigDomain } from './domain/configDomain.ts'
 import { searchMessages as defaultSearchMessages, type MessageSearchHit } from './threadSearch.ts'
+import type { YachiyoStorage } from '../storage/storage.ts'
 
 const USAGE = `Usage: yachiyo <namespace> <subcommand> [args...] [flags...]
 
@@ -83,6 +85,9 @@ All output is JSON unless noted. The app must be running for "send" commands.
   channel groups [--json]                List registered channel groups with their IDs, platforms, and statuses.
                                          Use the "id" field with "send channel" to send a message.
                                          Without --json, prints a compact summary.
+  channel groups set-status <id> <status>
+                                         Update only a group channel's monitor status.
+                                         Accepted statuses: approved|approval, pending, blocked|block.
 
 ── send (requires running app) ───────────────────────────────────────
   send notification <message> [--title <title>]
@@ -114,6 +119,7 @@ export interface CliConfigService {
 
 export interface RunYachiyoCliOptions {
   createConfigService?: (settingsPath: string) => CliConfigService
+  createStorage?: (dbPath: string) => YachiyoStorage
   readSoulDocument?: (input: { filePath: string }) => Promise<SoulDocument | null>
   upsertDailySoulTrait?: (input: UpsertDailySoulTraitInput) => Promise<SoulDocument | null>
   removeSoulTrait?: (input: RemoveSoulTraitInput) => Promise<SoulDocument | null>
@@ -125,6 +131,14 @@ export interface RunYachiyoCliOptions {
   sendChannel?: (
     socketPath: string,
     payload: { type: 'send-channel'; id: string; message: string }
+  ) => Promise<void>
+  sendChannelGroupStatus?: (
+    socketPath: string,
+    payload: {
+      type: 'update-channel-group-status'
+      id: string
+      status: ChannelGroupStatus
+    }
   ) => Promise<void>
   stdout?: Pick<typeof process.stdout, 'write'>
   stderr?: Pick<typeof process.stderr, 'write'>
@@ -548,6 +562,24 @@ function formatSearchResultsText(hits: MessageSearchHit[]): string {
     .join('\n')
 }
 
+function parseChannelGroupStatus(raw: string): ChannelGroupStatus {
+  switch (raw.trim().toLowerCase()) {
+    case 'approved':
+    case 'approval':
+    case 'approve':
+      return 'approved'
+    case 'pending':
+      return 'pending'
+    case 'blocked':
+    case 'block':
+      return 'blocked'
+    default:
+      throw new Error(
+        `Invalid group monitor status: ${raw}. Expected one of: approved, approval, pending, blocked, block`
+      )
+  }
+}
+
 function handleThreadCommand(
   positionals: string[],
   flags: Map<string, string>,
@@ -614,7 +646,7 @@ export async function runYachiyoCli(
   }
 
   if (namespace === 'channel') {
-    await handleChannelCommand(positionals.slice(1), flags, dbPath, stdout)
+    await handleChannelCommand(positionals.slice(1), flags, dbPath, stdout, options)
     return
   }
 
@@ -685,21 +717,51 @@ function defaultSendChannel(
   })
 }
 
+function defaultSendChannelGroupStatus(
+  socketPath: string,
+  payload: {
+    type: 'update-channel-group-status'
+    id: string
+    status: ChannelGroupStatus
+  }
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const client = connect(socketPath, () => {
+      client.end(JSON.stringify(payload))
+    })
+    client.on('close', () => resolve())
+    client.on('error', (err) => {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ECONNREFUSED') {
+        reject(new Error('Yachiyo app is not running. Start the app first.'))
+      } else {
+        reject(err)
+      }
+    })
+  })
+}
+
 async function handleChannelCommand(
   positionals: string[],
   flags: Map<string, string>,
   dbPath: string,
-  stdout: Pick<typeof process.stdout, 'write'>
+  stdout: Pick<typeof process.stdout, 'write'>,
+  options: RunYachiyoCliOptions
 ): Promise<void> {
   const action = positionals[0]
   const useJson = flags.get('--json') === 'true'
 
-  const { createSqliteYachiyoStorage } = await import('../storage/sqlite/database.ts')
-  const storage = createSqliteYachiyoStorage(dbPath)
+  const storage =
+    options.createStorage ??
+    (async () => {
+      const { createSqliteYachiyoStorage } = await import('../storage/sqlite/database.ts')
+      return createSqliteYachiyoStorage(dbPath)
+    })
+  const channelStorage = typeof storage === 'function' ? await storage(dbPath) : storage
 
   try {
     if (action === 'users') {
-      const users = storage.listChannelUsers()
+      const users = channelStorage.listChannelUsers()
       if (useJson) {
         outputJson(stdout, users)
       } else {
@@ -712,7 +774,54 @@ async function handleChannelCommand(
     }
 
     if (action === 'groups') {
-      const groups = storage.listChannelGroups()
+      const subcommand = positionals[1]
+
+      if (subcommand === 'set-status') {
+        const id = positionals[2]
+        const rawStatus = positionals[3]
+        if (!id?.trim()) {
+          throw new Error('Group ID is required: channel groups set-status <id> <status>')
+        }
+        if (!rawStatus?.trim()) {
+          throw new Error('Status is required: channel groups set-status <id> <status>')
+        }
+
+        const status = parseChannelGroupStatus(rawStatus)
+        const socketPath = resolveYachiyoSocketPath()
+        const sendStatus = options.sendChannelGroupStatus ?? defaultSendChannelGroupStatus
+
+        try {
+          await sendStatus(socketPath, { type: 'update-channel-group-status', id, status })
+        } catch (error) {
+          const code =
+            error && typeof error === 'object' ? (error as NodeJS.ErrnoException).code : ''
+          const message = error instanceof Error ? error.message : String(error)
+          const canFallback =
+            code === 'ENOENT' ||
+            code === 'ECONNREFUSED' ||
+            code === 'EPERM' ||
+            message.includes('not running')
+          if (!canFallback) {
+            throw error
+          }
+        }
+
+        const updated = channelStorage.updateChannelGroup({ id, status })
+        if (!updated) {
+          throw new Error(`Unknown channel group: ${id}`)
+        }
+
+        outputJson(stdout, updated)
+        return
+      }
+
+      if (subcommand !== undefined) {
+        throw new Error(
+          `Unknown channel groups action: ${subcommand}. Expected: set-status or no subcommand`
+        )
+      }
+
+      const groups = channelStorage.listChannelGroups()
       if (useJson) {
         outputJson(stdout, groups)
       } else {
@@ -726,7 +835,7 @@ async function handleChannelCommand(
 
     throw new Error(`Unknown channel action: ${action ?? '(none)'}. Expected: users, groups`)
   } finally {
-    storage.close()
+    channelStorage.close()
   }
 }
 

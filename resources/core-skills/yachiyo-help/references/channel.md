@@ -1,6 +1,7 @@
-# channel — List channel users and groups
+# channel — List channel users/groups and change group monitor status
 
 Discover registered channel users and groups. Use the `id` field from the output with `send channel` to deliver messages.
+For group channels, you can also change the monitor status directly from the CLI.
 
 ## Commands
 
@@ -60,6 +61,32 @@ List all registered channel groups across platforms.
 ]
 ```
 
+### `channel groups set-status <id> <status>`
+
+Change only a group channel's monitor status.
+
+| Argument   | Description |
+| ---------- | ----------- |
+| `<id>`     | Internal UUID of a channel group (required) |
+| `<status>` | Target status. Accepted values: `approved`, `approval`, `pending`, `blocked`, `block` |
+
+Examples:
+
+```bash
+# Approve a pending group and start its live monitor immediately if the app is running
+yachiyo channel groups set-status x9y8z7w6-... approval
+
+# Stop monitoring a group
+yachiyo channel groups set-status x9y8z7w6-... block
+```
+
+Behavior:
+
+- If the Yachiyo app is running, the CLI sends the status change over the Unix domain socket at `~/.yachiyo/yachiyo.sock`.
+- A live app applies the update immediately, so `approval` starts the group monitor right away and `block`/`blocked` stops it right away.
+- If the app is not running, the CLI falls back to updating the saved database record directly.
+- This command only accepts group IDs. Passing a channel user ID fails with `Unknown channel group`.
+
 ## Fields
 
 ### Channel User
@@ -87,3 +114,10 @@ List all registered channel groups across platforms.
 | `status`          | `pending`, `approved`, or `blocked`         |
 | `workspacePath`   | Local workspace directory for this group    |
 | `createdAt`       | ISO timestamp when the group was registered |
+
+## Notes
+
+- Channel users and channel groups use different status vocabularies.
+- Users use `pending`, `allowed`, `blocked`.
+- Groups use `pending`, `approved`, `blocked`.
+- `channel groups set-status` is group-only and maps the human-friendly alias `approval` to `approved`.

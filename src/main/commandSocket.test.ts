@@ -19,6 +19,7 @@ function sendToSocket(socketPath: string, data: string): Promise<void> {
 }
 
 const noopSendChannel = (): void => {}
+const noopUpdateChannelGroupStatus = (): void => {}
 
 test('commandSocket - receives notification (backward compat, no type field)', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-cmd-'))
@@ -29,7 +30,8 @@ test('commandSocket - receives notification (backward compat, no type field)', a
     const handle = startCommandSocket({
       socketPath,
       onNotification: (input) => received.push(input),
-      onSendChannel: noopSendChannel
+      onSendChannel: noopSendChannel,
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -55,7 +57,8 @@ test('commandSocket - receives typed notification', async () => {
     const handle = startCommandSocket({
       socketPath,
       onNotification: (input) => received.push(input),
-      onSendChannel: noopSendChannel
+      onSendChannel: noopSendChannel,
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -80,7 +83,8 @@ test('commandSocket - ignores malformed JSON', async () => {
     const handle = startCommandSocket({
       socketPath,
       onNotification: (input) => received.push(input),
-      onSendChannel: noopSendChannel
+      onSendChannel: noopSendChannel,
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -104,7 +108,8 @@ test('commandSocket - ignores notification without title', async () => {
     const handle = startCommandSocket({
       socketPath,
       onNotification: (input) => received.push(input),
-      onSendChannel: noopSendChannel
+      onSendChannel: noopSendChannel,
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -128,7 +133,8 @@ test('commandSocket - dispatches send-channel', async () => {
     const handle = startCommandSocket({
       socketPath,
       onNotification: () => {},
-      onSendChannel: (input) => calls.push(input)
+      onSendChannel: (input) => calls.push(input),
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -157,7 +163,8 @@ test('commandSocket - ignores send-channel with missing id', async () => {
     const handle = startCommandSocket({
       socketPath,
       onNotification: () => {},
-      onSendChannel: (input) => calls.push(input)
+      onSendChannel: (input) => calls.push(input),
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -181,7 +188,8 @@ test('commandSocket - ignores send-channel with missing message', async () => {
     const handle = startCommandSocket({
       socketPath,
       onNotification: () => {},
-      onSendChannel: (input) => calls.push(input)
+      onSendChannel: (input) => calls.push(input),
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -206,7 +214,8 @@ test('commandSocket - handles multiple sequential messages', async () => {
     const handle = startCommandSocket({
       socketPath,
       onNotification: (input) => notifications.push(input),
-      onSendChannel: (input) => channels.push(input)
+      onSendChannel: (input) => channels.push(input),
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -236,7 +245,8 @@ test('commandSocket - close removes socket file', async () => {
     const handle = startCommandSocket({
       socketPath,
       onNotification: () => {},
-      onSendChannel: noopSendChannel
+      onSendChannel: noopSendChannel,
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -257,7 +267,8 @@ test('commandSocket - cleans up stale socket file on start', async () => {
     const handle1 = startCommandSocket({
       socketPath,
       onNotification: () => {},
-      onSendChannel: noopSendChannel
+      onSendChannel: noopSendChannel,
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
     })
     await new Promise((r) => setTimeout(r, 50))
     await handle1.close()
@@ -266,7 +277,8 @@ test('commandSocket - cleans up stale socket file on start', async () => {
     const handle2 = startCommandSocket({
       socketPath,
       onNotification: (input) => received.push(input),
-      onSendChannel: noopSendChannel
+      onSendChannel: noopSendChannel,
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
     })
     await new Promise((r) => setTimeout(r, 50))
 
@@ -277,6 +289,64 @@ test('commandSocket - cleans up stale socket file on start', async () => {
     assert.equal(received[0]?.title, 'After restart')
 
     await handle2.close()
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('commandSocket - dispatches update-channel-group-status', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cmd-'))
+  const socketPath = join(root, 'test.sock')
+
+  try {
+    const calls: Array<{ id: string; status: string }> = []
+    const handle = startCommandSocket({
+      socketPath,
+      onNotification: () => {},
+      onSendChannel: noopSendChannel,
+      onUpdateChannelGroupStatus: (input) => calls.push(input)
+    })
+
+    await new Promise((r) => setTimeout(r, 50))
+    await sendToSocket(
+      socketPath,
+      JSON.stringify({ type: 'update-channel-group-status', id: 'group-1', status: 'approved' })
+    )
+    await new Promise((r) => setTimeout(r, 50))
+
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0]?.id, 'group-1')
+    assert.equal(calls[0]?.status, 'approved')
+
+    await handle.close()
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('commandSocket - ignores update-channel-group-status with invalid status', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cmd-'))
+  const socketPath = join(root, 'test.sock')
+
+  try {
+    const calls: Array<{ id: string; status: string }> = []
+    const handle = startCommandSocket({
+      socketPath,
+      onNotification: () => {},
+      onSendChannel: noopSendChannel,
+      onUpdateChannelGroupStatus: (input) => calls.push(input)
+    })
+
+    await new Promise((r) => setTimeout(r, 50))
+    await sendToSocket(
+      socketPath,
+      JSON.stringify({ type: 'update-channel-group-status', id: 'group-1', status: 'allowed' })
+    )
+    await new Promise((r) => setTimeout(r, 50))
+
+    assert.equal(calls.length, 0)
+
+    await handle.close()
   } finally {
     await rm(root, { recursive: true, force: true })
   }
