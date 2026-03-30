@@ -2,6 +2,10 @@ import { BrowserWindow, ipcMain, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { is } from '@electron-toolkit/utils'
 
+import { resolveYachiyoSettingsPath } from './yachiyo-server/config/paths'
+import { createSettingsStore } from './yachiyo-server/settings/settingsStore'
+import type { UpdateChannel } from '../shared/yachiyo/protocol'
+
 export interface UpdateStatus {
   state: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'
   version?: string
@@ -15,6 +19,16 @@ function broadcast(status: UpdateStatus): void {
   currentStatus = status
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send('app-update:status', status)
+  }
+}
+
+function readInitialChannel(): UpdateChannel {
+  try {
+    const store = createSettingsStore(resolveYachiyoSettingsPath())
+    const config = store.read()
+    return config.general?.updateChannel ?? 'stable'
+  } catch {
+    return 'stable'
   }
 }
 
@@ -42,14 +56,20 @@ function setupDevMock(): void {
     shell.openExternal('https://github.com/ringotypowriter/yachiyo/releases/latest')
   })
 
+  ipcMain.on('app-update:set-channel', () => {
+    // No-op in dev mode
+  })
+
   // Simulate finding an update on launch
   setTimeout(() => broadcast({ state: 'checking' }), 2000)
   setTimeout(() => broadcast({ state: 'available', version: '99.0.0' }), 3000)
 }
 
 function setupProd(): void {
+  const channel = readInitialChannel()
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.allowPrerelease = channel === 'nightly'
 
   autoUpdater.on('checking-for-update', () => {
     broadcast({ state: 'checking' })
@@ -99,6 +119,15 @@ function setupProd(): void {
       ? `https://github.com/ringotypowriter/yachiyo/releases/tag/v${version}`
       : 'https://github.com/ringotypowriter/yachiyo/releases/latest'
     shell.openExternal(url)
+  })
+
+  ipcMain.on('app-update:set-channel', (_event, channel: UpdateChannel) => {
+    const allowPre = channel === 'nightly'
+    if (autoUpdater.allowPrerelease !== allowPre) {
+      autoUpdater.allowPrerelease = allowPre
+      broadcast({ state: 'idle' })
+      autoUpdater.checkForUpdates()
+    }
   })
 
   // Check on launch, then every 4 hours

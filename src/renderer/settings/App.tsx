@@ -255,6 +255,10 @@ function SettingsApp(): React.ReactNode {
           ? current
           : (next.providers[0]?.id ?? '')
       )
+
+      // Sync update channel to the running auto-updater after persisting
+      const channel = next.general?.updateChannel ?? 'stable'
+      window.api.appUpdate.setChannel(channel)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Failed to save settings.')
     } finally {

@@ -58,6 +58,7 @@ declare global {
         download: () => void
         install: () => void
         openRelease: () => void
+        setChannel: (channel: 'stable' | 'nightly') => void
         onStatus: (
           listener: (status: { state: string; version?: string; error?: string }) => void
         ) => () => void

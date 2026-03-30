@@ -161,6 +161,10 @@ function normalizeGeneralConfig(value: unknown): GeneralConfig {
     notifyCodingTaskStarted: normalizeOptionalBool(input['notifyCodingTaskStarted'], true),
     notifyCodingTaskFinished: normalizeOptionalBool(input['notifyCodingTaskFinished'], true)
   }
+  const rawChannel = input['updateChannel']
+  if (rawChannel === 'stable' || rawChannel === 'nightly') {
+    result.updateChannel = rawChannel
+  }
   const uiFontSize = normalizePositiveInt(input['uiFontSize'])
   const chatFontSize = normalizePositiveInt(input['chatFontSize'])
   if (uiFontSize !== undefined) result.uiFontSize = uiFontSize
@@ -563,6 +567,8 @@ export function stringifySettingsToml(config: SettingsConfig): string {
     notifyCodingTaskStarted: normalized.general?.notifyCodingTaskStarted !== false,
     notifyCodingTaskFinished: normalized.general?.notifyCodingTaskFinished !== false
   }
+  if (normalized.general?.updateChannel != null)
+    general.updateChannel = normalized.general.updateChannel
   if (normalized.general?.uiFontSize != null) general.uiFontSize = normalized.general.uiFontSize
   if (normalized.general?.chatFontSize != null)
     general.chatFontSize = normalized.general.chatFontSize

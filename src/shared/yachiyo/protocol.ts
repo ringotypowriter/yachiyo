@@ -502,10 +502,13 @@ export interface ChatConfig {
   activeRunEnterBehavior?: ActiveRunEnterBehavior
 }
 
+export type UpdateChannel = 'stable' | 'nightly'
+
 export interface GeneralConfig {
   sidebarVisibility?: SidebarVisibility
   uiFontSize?: number
   chatFontSize?: number
+  updateChannel?: UpdateChannel
   notifyRunCompleted?: boolean
   notifyCodingTaskStarted?: boolean
   notifyCodingTaskFinished?: boolean

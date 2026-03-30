@@ -4,10 +4,17 @@ import { DEFAULT_SIDEBAR_VISIBILITY } from '../../../shared/yachiyo/protocol.ts'
 import type {
   SettingsConfig,
   SoulDocument,
+  UpdateChannel,
   UserDocument
 } from '../../../shared/yachiyo/protocol.ts'
 import { theme, alpha } from '@renderer/theme/theme'
-import { SettingLabel, SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
+import {
+  SettingLabel,
+  SettingRow,
+  SettingSection,
+  SettingSwitch,
+  SimpleSelect
+} from '../components/primitives'
 import {
   hasPendingUserDocumentChanges,
   loadUserDocument,
@@ -392,12 +399,47 @@ export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactN
     )
   }
 
+  const updateChannel: UpdateChannel = draft.general?.updateChannel ?? 'stable'
   const notifyRunCompleted = draft.general?.notifyRunCompleted !== false
   const notifyCodingTaskStarted = draft.general?.notifyCodingTaskStarted !== false
   const notifyCodingTaskFinished = draft.general?.notifyCodingTaskFinished !== false
 
   return (
     <div className="flex-1 overflow-y-auto pb-6">
+      <SettingSection>
+        <SettingLabel>Updates</SettingLabel>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Update channel
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              {updateChannel === 'nightly'
+                ? 'Includes pre-releases and stable releases.'
+                : 'Only checks for stable releases.'}
+            </div>
+          </div>
+
+          <div className="shrink-0">
+            <SimpleSelect
+              value={updateChannel}
+              options={[
+                { value: 'stable' as const, label: 'Stable' },
+                { value: 'nightly' as const, label: 'Nightly' }
+              ]}
+              onChange={(channel) =>
+                onChange({
+                  ...draft,
+                  general: { ...draft.general, updateChannel: channel }
+                })
+              }
+              width={120}
+            />
+          </div>
+        </SettingRow>
+      </SettingSection>
+
       <SettingSection>
         <SettingLabel>Notifications</SettingLabel>
 
