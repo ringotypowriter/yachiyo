@@ -94,7 +94,7 @@ export interface RestartRunReason {
 }
 
 export type ExecuteRunResult =
-  | { kind: 'completed' }
+  | { kind: 'completed'; totalPromptTokens?: number }
   | { kind: 'failed' }
   | { kind: 'cancelled' }
   | { kind: 'restarted'; nextRequestMessageId: string }
@@ -912,7 +912,7 @@ export async function executeServerRun(
       input.thread.id,
       input.requestMessageId,
       modelUserQuery,
-      isExternalChannel ? input.thread.summaryWatermarkMessageId : undefined
+      input.thread.summaryWatermarkMessageId
     )
 
     const messages =
@@ -959,19 +959,18 @@ export async function executeServerRun(
               reminder: hiddenQueryReminder || undefined
             },
             memory: { entries: memoryEntries },
-            // For owner DMs with a rolling summary (thread has been compacted), prepend
-            // the summary as a synthetic user message so local context compilation,
+            // For threads with a rolling summary (owner DMs or auto-compacted local threads),
+            // prepend the summary as a synthetic user message so local context compilation,
             // which has no dedicated rollingSummary field, still sees the earlier context.
-            history:
-              isOwnerDm && input.thread.rollingSummary?.trim()
-                ? [
-                    {
-                      role: 'user' as const,
-                      content: `<conversation_summary>\n${input.thread.rollingSummary.trim()}\n</conversation_summary>`
-                    },
-                    ...history
-                  ]
-                : history
+            history: input.thread.rollingSummary?.trim()
+              ? [
+                  {
+                    role: 'user' as const,
+                    content: `<conversation_summary>\n${input.thread.rollingSummary.trim()}\n</conversation_summary>`
+                  },
+                  ...history
+                ]
+              : history
           })
     const tools = createAgentToolSet(
       {
@@ -1353,7 +1352,7 @@ export async function executeServerRun(
       runId: input.runId,
       ...lastUsage
     })
-    return { kind: 'completed' }
+    return { kind: 'completed', totalPromptTokens: lastUsage?.totalPromptTokens }
   } catch (error) {
     clearSafeSteerTimer()
 

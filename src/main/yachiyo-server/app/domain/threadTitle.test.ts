@@ -28,18 +28,26 @@ describe('buildTitleQuery', () => {
 
   it('includes document filename in placeholder', () => {
     const attachments = [{ filename: 'report.pdf' }]
-    assert.equal(buildTitleQuery('Review this', undefined, attachments), 'Review this [document:report.pdf]')
+    assert.equal(
+      buildTitleQuery('Review this', undefined, attachments),
+      'Review this [document:report.pdf]'
+    )
   })
 
   it('trims long document basename to 30 chars, preserving extension', () => {
     // basename 'a-very-long-document-filename-that-exceeds-the-cap' slice(0,30) = 'a-very-long-document-filename-'
     const attachments = [{ filename: 'a-very-long-document-filename-that-exceeds-the-cap.pdf' }]
-    assert.equal(buildTitleQuery('Here', undefined, attachments), 'Here [document:a-very-long-document-filename-.pdf]')
+    assert.equal(
+      buildTitleQuery('Here', undefined, attachments),
+      'Here [document:a-very-long-document-filename-.pdf]'
+    )
   })
 
   it('trims long image basename to 30 chars, preserving extension', () => {
     // basename 'my-super-duper-long-screenshot-name' slice(0,30) = 'my-super-duper-long-screenshot'
-    const images = [{ mediaType: 'image/jpeg', filename: 'my-super-duper-long-screenshot-name.jpg' }]
+    const images = [
+      { mediaType: 'image/jpeg', filename: 'my-super-duper-long-screenshot-name.jpg' }
+    ]
     assert.equal(buildTitleQuery('', images), '[image:my-super-duper-long-screenshot.jpg]')
   })
 
