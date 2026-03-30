@@ -47,6 +47,7 @@ import { toEffectiveProviderSettings } from '../../settings/settingsStore.ts'
 import { executeServerRun, type RestartRunReason, type ExecuteRunResult } from './runExecution.ts'
 import {
   buildThreadTitleGenerationMessages,
+  buildTitleQuery,
   deriveThreadTitleFallback,
   parseGeneratedTitleAndIcon
 } from './threadTitle.ts'
@@ -591,7 +592,7 @@ export class YachiyoServerRunDomain {
     if (fallbackTitle && fallbackTitle !== DEFAULT_THREAD_TITLE && input.content) {
       this.scheduleThreadTitleGeneration({
         fallbackTitle,
-        query: input.content,
+        query: buildTitleQuery(input.content, input.images, input.attachments),
         runId: accepted.runId,
         threadId: accepted.thread.id
       })
@@ -1141,7 +1142,11 @@ export class YachiyoServerRunDomain {
       if (handoffFallbackTitle && firstMeaningfulMessage?.content) {
         this.scheduleThreadTitleGeneration({
           fallbackTitle: handoffFallbackTitle,
-          query: firstMeaningfulMessage.content,
+          query: buildTitleQuery(
+            firstMeaningfulMessage.content,
+            firstMeaningfulMessage.images,
+            firstMeaningfulMessage.attachments
+          ),
           runId: input.runId,
           threadId: input.thread.id
         })

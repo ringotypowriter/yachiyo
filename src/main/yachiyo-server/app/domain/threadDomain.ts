@@ -33,7 +33,11 @@ import {
   type EmitServerEvent,
   type Timestamp
 } from './shared.ts'
-import { buildThreadTitleGenerationMessages, parseGeneratedTitleAndIcon } from './threadTitle.ts'
+import {
+  buildThreadTitleGenerationMessages,
+  buildTitleQuery,
+  parseGeneratedTitleAndIcon
+} from './threadTitle.ts'
 
 interface ThreadDomainDeps {
   storage: YachiyoStorage
@@ -294,7 +298,7 @@ export class YachiyoServerThreadDomain {
 
     const query = messages
       .filter((m) => m.role === 'user' || m.role === 'assistant')
-      .map((m) => m.content.trim())
+      .map((m) => buildTitleQuery(m.content, m.images, m.attachments))
       .filter(Boolean)
       .join('\n')
       .slice(0, 1000)

@@ -3,6 +3,51 @@ import { summarizeMessageInput } from '../../../../shared/yachiyo/messageContent
 import type { ModelMessage } from '../../runtime/types.ts'
 
 export const MAX_THREAD_TITLE_LENGTH = 60
+const MAX_ATTACHMENT_BASENAME_LENGTH = 30
+
+function sanitizeFilename(filename: string): string {
+  // Truncate at the first control character (newline, tab, null byte, etc.) to
+  // prevent prompt injection when filenames are embedded in title-generation
+  // messages. Stripping instead of truncating would silently join the legitimate
+  // prefix to the injected suffix.
+  const controlIndex = filename.search(/[\p{Cc}\p{Cf}]/u)
+  return (controlIndex >= 0 ? filename.slice(0, controlIndex) : filename).trim()
+}
+
+function trimFilename(filename: string): string {
+  const safe = sanitizeFilename(filename)
+  const dotIndex = safe.lastIndexOf('.')
+  if (dotIndex <= 0) return safe.slice(0, MAX_ATTACHMENT_BASENAME_LENGTH)
+  const basename = safe.slice(0, dotIndex)
+  const ext = safe.slice(dotIndex)
+  return basename.slice(0, MAX_ATTACHMENT_BASENAME_LENGTH) + ext
+}
+
+function extFromMediaType(mediaType: string): string {
+  const sub = (mediaType.split('/')[1] ?? mediaType).split('+')[0].split(';')[0].toLowerCase()
+  return sub === 'jpeg' ? 'jpg' : sub
+}
+
+export function buildTitleQuery(
+  content: string,
+  images?: { mediaType: string; filename?: string }[],
+  attachments?: { filename: string }[]
+): string {
+  const parts: string[] = []
+  const text = content.trim()
+  if (text) parts.push(text)
+
+  for (const img of images ?? []) {
+    const label = img.filename ? trimFilename(img.filename) : extFromMediaType(img.mediaType)
+    parts.push(`[image:${label}]`)
+  }
+
+  for (const att of attachments ?? []) {
+    parts.push(`[document:${trimFilename(att.filename)}]`)
+  }
+
+  return parts.join(' ')
+}
 
 export function deriveThreadTitleFallback(
   message: Pick<MessageRecord, 'content' | 'images'>
