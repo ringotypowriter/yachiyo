@@ -1228,6 +1228,37 @@ test('YachiyoServer createThread persists privacy mode when requested', async ()
   })
 })
 
+test('YachiyoServer rejects ACP rebinding once a thread already has history', async () => {
+  await withServer(async ({ server, completeRun }) => {
+    await server.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: { enabled: ['gpt-5'], disabled: [] }
+    })
+
+    const thread = await server.createThread()
+    const accepted = await server.sendChat({ threadId: thread.id, content: 'Keep this context' })
+    assertAcceptedHasUserMessage(accepted)
+    await completeRun(accepted.runId)
+
+    await assert.rejects(
+      () =>
+        server.setThreadRuntimeBinding({
+          threadId: thread.id,
+          runtimeBinding: {
+            kind: 'acp',
+            profileId: 'agent-1',
+            profileName: 'ACP Agent',
+            sessionStatus: 'new'
+          }
+        }),
+      /ACP agents can only be attached before messages have been sent/
+    )
+  })
+})
+
 test('YachiyoServer starThread preserves thread recency while persisting star state', async () => {
   let tick = 0
 

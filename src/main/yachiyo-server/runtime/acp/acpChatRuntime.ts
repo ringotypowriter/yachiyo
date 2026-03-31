@@ -37,6 +37,8 @@ export interface AcpChatRunDeps {
   readConfig: () => SettingsConfig
   loadThreadMessages: (threadId: string) => MessageRecord[]
   ensureThreadWorkspace: (threadId: string) => Promise<string>
+  launchAcpProcess?: typeof launchAcpProcess
+  runAcpSession?: typeof runAcpSession
   onTerminalState?: () => void
 }
 
@@ -101,13 +103,19 @@ export async function runAcpChatThread(
   })
 
   let buffer = ''
+  const resumeSessionId =
+    runtimeBinding.sessionStatus === 'active' && runtimeBinding.sessionId !== undefined
+      ? runtimeBinding.sessionId
+      : undefined
+  const startAcpProcess = deps.launchAcpProcess ?? launchAcpProcess
+  const executeAcpSession = deps.runAcpSession ?? runAcpSession
 
   try {
     if (input.abortController.signal.aborted) {
       throw new Error('Aborted before ACP session started')
     }
 
-    const { proc, stream, procExited } = launchAcpProcess(profile, workspacePath)
+    const { proc, stream, procExited } = startAcpProcess(profile, workspacePath)
 
     const adapter = createAcpStreamAdapter({
       onProgress: (chunk) => {
@@ -124,12 +132,7 @@ export async function runAcpChatThread(
 
     proc.stderr?.on('data', (data: Buffer) => adapter.onStderr(data))
 
-    const resumeSessionId =
-      runtimeBinding.sessionStatus === 'active' && runtimeBinding.sessionId !== undefined
-        ? runtimeBinding.sessionId
-        : undefined
-
-    const sessionResult = await runAcpSession(
+    const sessionResult = await executeAcpSession(
       stream,
       proc,
       procExited,
@@ -143,7 +146,12 @@ export async function runAcpChatThread(
     )
 
     if (input.abortController.signal.aborted) {
-      return emitCancelledAndReturn(deps, input, harnessId)
+      return emitCancelledAndReturn(deps, input, {
+        buffer,
+        harnessId,
+        messageId,
+        modelId: profile.name
+      })
     }
 
     const timestamp = deps.timestamp()
@@ -211,11 +219,34 @@ export async function runAcpChatThread(
     return { kind: 'completed' }
   } catch (error) {
     if (input.abortController.signal.aborted) {
-      return emitCancelledAndReturn(deps, input, harnessId)
+      return emitCancelledAndReturn(deps, input, {
+        buffer,
+        harnessId,
+        messageId,
+        modelId: profile.name
+      })
     }
 
     const errMsg = error instanceof Error ? error.message : String(error)
     const timestamp = deps.timestamp()
+    const currentThread = deps.readThread(input.thread.id)
+    const updatedThread: ThreadRecord = {
+      ...currentThread,
+      updatedAt: timestamp,
+      ...(resumeSessionId
+        ? {
+            runtimeBinding: {
+              kind: 'acp',
+              profileId: runtimeBinding.profileId,
+              profileName: runtimeBinding.profileName ?? profile.name,
+              sessionStatus: 'expired',
+              ...(runtimeBinding.lastSessionBoundAt
+                ? { lastSessionBoundAt: runtimeBinding.lastSessionBoundAt }
+                : {})
+            }
+          }
+        : {})
+    }
 
     const failedMessage: MessageRecord = {
       id: messageId,
@@ -227,11 +258,13 @@ export async function runAcpChatThread(
       createdAt: timestamp
     }
 
-    const currentThread = deps.readThread(input.thread.id)
-    const threadSnapshot = { ...currentThread, updatedAt: timestamp }
+    if (resumeSessionId) {
+      deps.storage.updateThread(updatedThread)
+    }
+
     deps.storage.saveThreadMessage({
       thread: currentThread,
-      updatedThread: threadSnapshot,
+      updatedThread,
       message: failedMessage
     })
     deps.storage.failRun({ runId: input.runId, completedAt: timestamp, error: errMsg })
@@ -243,6 +276,13 @@ export async function runAcpChatThread(
       runId: input.runId,
       message: failedMessage
     })
+    if (resumeSessionId) {
+      deps.emit<ThreadUpdatedEvent>({
+        type: 'thread.updated',
+        threadId: input.thread.id,
+        thread: updatedThread
+      })
+    }
     deps.emit<HarnessFinishedEvent>({
       type: 'harness.finished',
       threadId: input.thread.id,
@@ -265,15 +305,57 @@ export async function runAcpChatThread(
 function emitCancelledAndReturn(
   deps: AcpChatRunDeps,
   input: AcpChatRunInput,
-  harnessId: string
+  options: {
+    buffer: string
+    harnessId: string
+    messageId: string
+    modelId: string
+  }
 ): ExecuteRunResult {
-  deps.storage.cancelRun({ runId: input.runId, completedAt: deps.timestamp() })
+  const timestamp = deps.timestamp()
+  if (options.buffer.length > 0) {
+    const currentThread = deps.readThread(input.thread.id)
+    const stoppedMessage: MessageRecord = {
+      id: options.messageId,
+      threadId: input.thread.id,
+      parentMessageId: input.requestMessageId,
+      role: 'assistant',
+      content: options.buffer,
+      status: 'stopped',
+      createdAt: timestamp,
+      modelId: options.modelId,
+      providerName: 'acp'
+    }
+    const updatedThread: ThreadRecord = {
+      ...currentThread,
+      updatedAt: timestamp,
+      preview: options.buffer.slice(0, 240)
+    }
+    deps.storage.saveThreadMessage({
+      thread: currentThread,
+      updatedThread,
+      message: stoppedMessage
+    })
+    deps.emit<MessageCompletedEvent>({
+      type: 'message.completed',
+      threadId: input.thread.id,
+      runId: input.runId,
+      message: stoppedMessage
+    })
+    deps.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: input.thread.id,
+      thread: updatedThread
+    })
+  }
+
+  deps.storage.cancelRun({ runId: input.runId, completedAt: timestamp })
   deps.onTerminalState?.()
   deps.emit<HarnessFinishedEvent>({
     type: 'harness.finished',
     threadId: input.thread.id,
     runId: input.runId,
-    harnessId,
+    harnessId: options.harnessId,
     name: DEFAULT_HARNESS_NAME,
     status: 'cancelled'
   })

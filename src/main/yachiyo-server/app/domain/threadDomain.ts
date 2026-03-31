@@ -755,6 +755,15 @@ export class YachiyoServerThreadDomain {
     runtimeBinding: ThreadRuntimeBinding | null
   }): ThreadRecord {
     const thread = this.deps.requireThread(input.threadId)
+    if (
+      input.runtimeBinding?.kind === 'acp' &&
+      this.deps.loadThreadMessages(thread.id).length > 0
+    ) {
+      throw new Error(
+        'ACP agents can only be attached before messages have been sent. Start a new thread to use ACP.'
+      )
+    }
+
     const updatedThread: ThreadRecord = {
       ...thread,
       updatedAt: this.deps.timestamp(),

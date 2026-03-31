@@ -1212,7 +1212,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         const nextState = {
           ...state,
           ...(deletingActiveThread
-            ? { activeEssentialId: null, pendingModelOverride: null, pendingAcpBinding: null, pendingWorkspacePath: null }
+            ? {
+                activeEssentialId: null,
+                pendingModelOverride: null,
+                pendingAcpBinding: null,
+                pendingWorkspacePath: null
+              }
             : {}),
           activeArchivedThreadId:
             state.activeArchivedThreadId === event.threadId

@@ -359,6 +359,7 @@ export function Composer({
   const removeComposerFile = useAppStore((s) => s.removeComposerFile)
   const sendMessage = useAppStore((s) => s.sendMessage)
   const selectModel = useAppStore((s) => s.selectModel)
+  const pushToast = useAppStore((s) => s.pushToast)
   const setComposerEnabledSkillNames = useAppStore((s) => s.setComposerEnabledSkillNames)
   const setComposerValue = useAppStore((s) => s.setComposerValue)
   const setThreadWorkspace = useAppStore((s) => s.setThreadWorkspace)
@@ -384,6 +385,7 @@ export function Composer({
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false)
   const [workspaceHintHovered, setWorkspaceHintHovered] = useState(false)
   const [workspaceHintPinned, setWorkspaceHintPinned] = useState(false)
+  const [isBackendSwitchPending, setIsBackendSwitchPending] = useState(false)
   const [isComposing, setIsComposing] = useState(false)
   const [isTextareaFocused, setIsTextareaFocused] = useState(false)
   const [dismissedSlashQuery, setDismissedSlashQuery] = useState<string | null>(null)
@@ -411,10 +413,6 @@ export function Composer({
   const canAddImages = draftImages.length < MAX_COMPOSER_IMAGES
   const canAddFiles = draftFiles.length < MAX_COMPOSER_FILES
   const hasActiveRun = activeRunId !== null
-  const isModelSelectorLocked = runPhase === 'preparing' || runPhase === 'streaming'
-  const isConfigured =
-    (settings.apiKey.trim().length > 0 && effectiveModel.model.trim().length > 0) ||
-    effectiveAcpBinding !== null
 
   const defaultEnabledSkillNames = useMemo(
     () => config?.skills?.enabled ?? [],
@@ -429,19 +427,28 @@ export function Composer({
     threads.find((thread) => thread.id === activeThreadId) ??
     externalThreads.find((thread) => thread.id === activeThreadId) ??
     null
+  const activeThreadMessageCount =
+    activeThreadId !== null ? (messages[activeThreadId]?.length ?? 0) : 0
   const currentWorkspacePath = activeThread?.workspacePath ?? pendingWorkspacePath
   const activeAcpBinding =
     activeThread?.runtimeBinding?.kind === 'acp' ? activeThread.runtimeBinding : null
   // For a brand-new thread (no activeThreadId yet) the user may have picked an ACP agent
   // from the model selector. Show it in the toolbar and allow send until a thread exists.
-  const effectiveAcpBinding = activeAcpBinding ?? (activeThreadId === null ? pendingAcpBinding : null)
-  const isWorkspaceLocked = activeThreadId !== null && (messages[activeThreadId]?.length ?? 0) > 0
+  const effectiveAcpBinding =
+    activeAcpBinding ?? (activeThreadId === null ? pendingAcpBinding : null)
+  const isModelSelectorLocked =
+    isBackendSwitchPending || runPhase === 'preparing' || runPhase === 'streaming'
+  const isConfigured =
+    (settings.apiKey.trim().length > 0 && effectiveModel.model.trim().length > 0) ||
+    effectiveAcpBinding !== null
+  const isWorkspaceLocked = activeThreadId !== null && activeThreadMessageCount > 0
   const savedWorkspacePaths = config?.workspace?.savedPaths ?? []
   const workspaceHint = getWorkspaceHint({
     isWorkspaceLocked,
     workspacePath: currentWorkspacePath
   })
   const showWorkspaceHint = !workspaceSelectorOpen && (workspaceHintHovered || workspaceHintPinned)
+  const threadIsBusy = threadIsSaving || isBackendSwitchPending
 
   const slashMatch = SLASH_PATTERN.exec(composerValue)
   const skillPrefixMatch = SKILL_PREFIX_PATTERN.exec(composerValue)
@@ -673,13 +680,35 @@ export function Composer({
     setDismissedSlashQuery(activeQuery)
   }, [activeQuery])
 
+  const runBackendSwitch = useCallback(async (action: () => Promise<void>): Promise<void> => {
+    setIsBackendSwitchPending(true)
+    try {
+      await action()
+    } finally {
+      setIsBackendSwitchPending(false)
+    }
+  }, [])
+
+  const notifyAcpRebindBlocked = useCallback((): void => {
+    if (!activeThreadId) {
+      return
+    }
+
+    pushToast({
+      threadId: activeThreadId,
+      title: 'Start a new ACP thread',
+      body: 'ACP agents can only be attached before a thread has any messages.',
+      eventKey: `acp-bind-blocked:${activeThreadId}`
+    })
+  }, [activeThreadId, pushToast])
+
   const { canSend, showStopButton } = getComposerActionState({
     connectionStatus,
     hasActiveRun,
     hasFailedImages: hasFailedImages || hasFailedFiles,
     hasLoadingImages: hasLoadingImages || hasLoadingFiles,
     hasPayload,
-    threadIsSaving,
+    threadIsSaving: threadIsBusy,
     isConfigured
   })
   const activeRunEnterBehavior =
@@ -713,6 +742,13 @@ export function Composer({
       return {
         tone: 'muted' as const,
         text: hasLoadingFiles ? 'Preparing file...' : 'Preparing image...'
+      }
+    }
+
+    if (isBackendSwitchPending) {
+      return {
+        tone: 'muted' as const,
+        text: 'Saving backend selection...'
       }
     }
 
@@ -1702,26 +1738,37 @@ export function Composer({
               currentProviderName={effectiveModel.providerName}
               currentModel={effectiveModel.model}
               currentAcpProfileId={effectiveAcpBinding?.profileId ?? null}
-              onSelect={(providerName, model) => {
-                void selectModel(providerName, model)
-                if (activeAcpBinding && activeThreadId) {
-                  void window.api.yachiyo.setThreadRuntimeBinding({
-                    threadId: activeThreadId,
-                    runtimeBinding: null
-                  })
-                }
+              onSelect={async (providerName, model) => {
+                await runBackendSwitch(async () => {
+                  await selectModel(providerName, model)
+                  if (activeAcpBinding && activeThreadId) {
+                    await window.api.yachiyo.setThreadRuntimeBinding({
+                      threadId: activeThreadId,
+                      runtimeBinding: null
+                    })
+                  }
+                })
                 setPendingAcpBinding(null)
               }}
-              onSelectAcpAgent={(agent: AcpAgentEntry) => {
+              onSelectAcpAgent={async (agent: AcpAgentEntry) => {
+                if (activeThreadId && activeThreadMessageCount > 0) {
+                  if (activeAcpBinding?.profileId !== agent.id) {
+                    notifyAcpRebindBlocked()
+                  }
+                  return
+                }
+
                 if (activeThreadId) {
-                  void window.api.yachiyo.setThreadRuntimeBinding({
-                    threadId: activeThreadId,
-                    runtimeBinding: {
-                      kind: 'acp',
-                      profileId: agent.id,
-                      profileName: agent.name,
-                      sessionStatus: 'new'
-                    }
+                  await runBackendSwitch(async () => {
+                    await window.api.yachiyo.setThreadRuntimeBinding({
+                      threadId: activeThreadId,
+                      runtimeBinding: {
+                        kind: 'acp',
+                        profileId: agent.id,
+                        profileName: agent.name,
+                        sessionStatus: 'new'
+                      }
+                    })
                   })
                 } else {
                   setPendingAcpBinding({

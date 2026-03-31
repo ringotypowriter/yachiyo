@@ -8,10 +8,12 @@ import { resolveModelSelectorState, type AcpAgentEntry } from '../lib/modelSelec
 
 function ModelOption({
   model,
+  disabled = false,
   isSelected,
   onSelect
 }: {
   model: string
+  disabled?: boolean
   isSelected: boolean
   onSelect: () => void
 }): React.ReactNode {
@@ -19,6 +21,7 @@ function ModelOption({
 
   return (
     <button
+      disabled={disabled}
       onClick={onSelect}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -33,10 +36,11 @@ function ModelOption({
             ? theme.background.hover
             : 'transparent',
         border: 'none',
-        cursor: 'pointer',
+        cursor: disabled ? 'progress' : 'pointer',
         gap: 6,
         textAlign: 'left',
-        transition: 'background 0.1s'
+        transition: 'background 0.1s',
+        opacity: disabled ? 0.65 : 1
       }}
     >
       <span
@@ -62,10 +66,12 @@ function ModelOption({
 
 function AcpAgentOption({
   agent,
+  disabled = false,
   isSelected,
   onSelect
 }: {
   agent: AcpAgentEntry
+  disabled?: boolean
   isSelected: boolean
   onSelect: () => void
 }): React.ReactNode {
@@ -73,6 +79,7 @@ function AcpAgentOption({
 
   return (
     <button
+      disabled={disabled}
       onClick={onSelect}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -87,10 +94,11 @@ function AcpAgentOption({
             ? theme.background.hover
             : 'transparent',
         border: 'none',
-        cursor: 'pointer',
+        cursor: disabled ? 'progress' : 'pointer',
         gap: 6,
         textAlign: 'left',
-        transition: 'background 0.1s'
+        transition: 'background 0.1s',
+        opacity: disabled ? 0.65 : 1
       }}
     >
       <span
@@ -163,16 +171,32 @@ export function ModelSelectorPopup({
     label: string
     onSelect: () => void
   }>
-  onSelect: (providerName: string, model: string) => void
-  onSelectAcpAgent?: (agent: AcpAgentEntry) => void
+  onSelect: (providerName: string, model: string) => Promise<void> | void
+  onSelectAcpAgent?: (agent: AcpAgentEntry) => Promise<void> | void
   onClose: () => void
   placement?: 'bottom' | 'top'
   portal?: boolean
   width?: number
 }): React.ReactNode {
   const [query, setQuery] = useState('')
+  const [selectionPending, setSelectionPending] = useState(false)
   const [visible, setVisible] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleSelection = (action: () => Promise<void> | void): void => {
+    if (selectionPending) {
+      return
+    }
+
+    setSelectionPending(true)
+    void Promise.resolve(action())
+      .then(() => {
+        onClose()
+      })
+      .catch(() => {
+        setSelectionPending(false)
+      })
+  }
 
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true))
@@ -181,11 +205,11 @@ export function ModelSelectorPopup({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && !selectionPending) onClose()
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [onClose])
+  }, [onClose, selectionPending])
 
   const hasLeadingOptions = leadingOptions != null && leadingOptions.length > 0
 
@@ -259,6 +283,7 @@ export function ModelSelectorPopup({
         <Search size={14} strokeWidth={1.5} color={theme.icon.placeholder} />
         <input
           ref={inputRef}
+          disabled={selectionPending}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search models..."
@@ -269,7 +294,8 @@ export function ModelSelectorPopup({
             outline: 'none',
             fontSize: 13,
             color: theme.text.primary,
-            letterSpacing: '-0.1px'
+            letterSpacing: '-0.1px',
+            opacity: selectionPending ? 0.65 : 1
           }}
         />
       </div>
@@ -281,11 +307,11 @@ export function ModelSelectorPopup({
             {leadingOptions.map((option) => (
               <ModelOption
                 key={option.label}
+                disabled={selectionPending}
                 model={option.label}
                 isSelected={option.isSelected}
                 onSelect={() => {
-                  option.onSelect()
-                  onClose()
+                  handleSelection(option.onSelect)
                 }}
               />
             ))}
@@ -322,6 +348,7 @@ export function ModelSelectorPopup({
                 {provider.models.map((model) => (
                   <ModelOption
                     key={model}
+                    disabled={selectionPending}
                     model={model}
                     isSelected={
                       !currentAcpProfileId &&
@@ -329,8 +356,7 @@ export function ModelSelectorPopup({
                       model === currentModel
                     }
                     onSelect={() => {
-                      onSelect(provider.name, model)
-                      onClose()
+                      handleSelection(() => onSelect(provider.name, model))
                     }}
                   />
                 ))}
@@ -354,10 +380,10 @@ export function ModelSelectorPopup({
                   <AcpAgentOption
                     key={agent.id}
                     agent={agent}
+                    disabled={selectionPending}
                     isSelected={agent.id === currentAcpProfileId}
                     onSelect={() => {
-                      onSelectAcpAgent?.(agent)
-                      onClose()
+                      handleSelection(() => onSelectAcpAgent?.(agent))
                     }}
                   />
                 ))}
