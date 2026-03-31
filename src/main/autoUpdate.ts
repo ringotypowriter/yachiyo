@@ -1,10 +1,9 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { BrowserWindow, ipcMain, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { is } from '@electron-toolkit/utils'
 
 import { resolveYachiyoSettingsPath } from './yachiyo-server/config/paths'
 import { createSettingsStore } from './yachiyo-server/settings/settingsStore'
-import { restartForUpdate } from './updateRestart'
 import type { UpdateChannel } from '../shared/yachiyo/protocol'
 
 export interface UpdateStatus {
@@ -69,7 +68,7 @@ function setupDevMock(): void {
 function setupProd(): void {
   const channel = readInitialChannel()
   autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.autoInstallOnAppQuit = false
   autoUpdater.allowPrerelease = channel === 'nightly'
 
   autoUpdater.on('checking-for-update', () => {
@@ -111,8 +110,7 @@ function setupProd(): void {
   })
 
   ipcMain.on('app-update:install', () => {
-    autoUpdater.autoInstallOnAppQuit = true
-    restartForUpdate(app)
+    autoUpdater.quitAndInstall()
   })
 
   ipcMain.on('app-update:open-release', () => {
