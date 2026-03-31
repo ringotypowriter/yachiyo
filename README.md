@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="resources/icon.png" alt="Yachiyo" width="120" />
+
 # Yachiyo
 
 An open-source alternative to [Alma](http://alma.now/).<br>
