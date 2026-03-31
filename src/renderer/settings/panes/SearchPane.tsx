@@ -7,6 +7,7 @@ import {
   type SettingsConfig,
   type WebSearchBrowserImportSource
 } from '../../../shared/yachiyo/protocol.ts'
+import { imeSafeChange } from '../components/imeUtils'
 import { SettingLabel, SettingRow, SettingSection, SimpleSelect } from '../components/primitives'
 import { inputStyle } from '../components/styles'
 
@@ -122,15 +123,15 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
               <input
                 type={showApiKey ? 'text' : 'password'}
                 value={exaApiKey}
-                onChange={(e) =>
+                onChange={imeSafeChange((value) =>
                   onChange({
                     ...draft,
                     webSearch: {
                       ...draft.webSearch,
-                      exa: { ...draft.webSearch?.exa, apiKey: e.target.value }
+                      exa: { ...draft.webSearch?.exa, apiKey: value }
                     }
                   })
-                }
+                )}
                 className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                 style={inputStyle()}
                 placeholder="your-exa-api-key"

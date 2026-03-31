@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef } from 'react'
 import { ArrowDown, ArrowUp, Plus, Smile, Trash2, Upload } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { inputStyle } from '../components/styles'
+import { imeSafeChange } from '../components/imeUtils'
 import { SettingSwitch, SimpleSelect } from '../components/primitives'
 import type {
   EssentialPreset,
@@ -213,7 +214,9 @@ function EssentialEditor({
               type="text"
               placeholder="e.g. Work, Daily, Code..."
               value={essential.label ?? ''}
-              onChange={(e) => onUpdate({ ...essential, label: e.target.value || undefined })}
+              onChange={imeSafeChange((value) =>
+                onUpdate({ ...essential, label: value || undefined })
+              )}
               className="w-full mt-1 rounded-md px-2.5 py-1.5 text-sm outline-none"
               style={inputStyle()}
             />

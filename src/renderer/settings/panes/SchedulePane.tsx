@@ -3,6 +3,7 @@ import { Plus, Trash2, Clock, CalendarClock } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { theme, alpha } from '@renderer/theme/theme'
 import { inputStyle } from '../components/styles'
+import { imeSafeChange } from '../components/imeUtils'
 import { SettingSwitch, SimpleSelect } from '../components/primitives'
 import type {
   ScheduleRecord,
@@ -606,7 +607,7 @@ function ScheduleForm({
           style={inputStyle()}
           placeholder="Name"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={imeSafeChange(setName)}
           autoFocus
         />
         <div className="flex items-center gap-1.5">
@@ -615,7 +616,7 @@ function ScheduleForm({
             style={{ ...inputStyle(), width: 150 }}
             placeholder="Cron (e.g. 0 9 * * *)"
             value={cron}
-            onChange={(e) => setCron(e.target.value)}
+            onChange={imeSafeChange(setCron)}
           />
           <CronQuickPick onPick={setCron} />
         </div>
@@ -630,7 +631,7 @@ function ScheduleForm({
         style={{ ...inputStyle(), minHeight: 80 }}
         placeholder="Prompt — what should the model do?"
         value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
+        onChange={imeSafeChange(setPrompt)}
       />
       <div className="flex gap-3">
         <div className="flex-1 min-w-0">

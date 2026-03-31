@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { CheckCircle, ChevronDown, Loader, Plus, Trash2, XCircle } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import type { SettingsConfig, SubagentProfile } from '../../../shared/yachiyo/protocol.ts'
+import { imeSafeChange } from '../components/imeUtils'
 import { SettingLabel, SettingSection, SettingSwitch } from '../components/primitives'
 import { inputStyle } from '../components/styles'
 
@@ -310,7 +311,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                     placeholder="Agent name"
                     className="flex-1 rounded-lg px-3 py-1.5 text-sm font-medium outline-none"
                     style={inputStyle()}
-                    onChange={(e) => updateRow(index, { name: e.target.value })}
+                    onChange={imeSafeChange((value) => updateRow(index, { name: value }))}
                     spellCheck={false}
                   />
                   <button
@@ -372,7 +373,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                   rows={2}
                   className="w-full rounded-lg px-3 py-2 text-sm resize-none outline-none leading-relaxed"
                   style={inputStyle()}
-                  onChange={(e) => updateRow(index, { description: e.target.value })}
+                  onChange={imeSafeChange((value) => updateRow(index, { description: value }))}
                 />
 
                 {/* Command + args */}
@@ -387,7 +388,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                       placeholder="npx"
                       className="rounded-lg px-3 py-1.5 text-sm font-mono outline-none"
                       style={{ ...inputStyle(), flexBasis: '120px', flexShrink: 0 }}
-                      onChange={(e) => updateRow(index, { command: e.target.value })}
+                      onChange={imeSafeChange((value) => updateRow(index, { command: value }))}
                       spellCheck={false}
                     />
                     <input
@@ -401,7 +402,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                           ? { outline: '1.5px solid #e05252' }
                           : {})
                       }}
-                      onChange={(e) => updateRow(index, { argsString: e.target.value })}
+                      onChange={imeSafeChange((value) => updateRow(index, { argsString: value }))}
                       spellCheck={false}
                     />
                   </div>
@@ -425,7 +426,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                         placeholder="KEY"
                         className="rounded-lg px-3 py-1.5 text-sm font-mono outline-none"
                         style={{ ...inputStyle(), flexBasis: '140px', flexShrink: 0 }}
-                        onChange={(e) => updateEnvEntry(index, ei, 'key', e.target.value)}
+                        onChange={imeSafeChange((value) => updateEnvEntry(index, ei, 'key', value))}
                         spellCheck={false}
                       />
                       <input
@@ -434,7 +435,9 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                         placeholder="value"
                         className="flex-1 rounded-lg px-3 py-1.5 text-sm font-mono outline-none"
                         style={inputStyle()}
-                        onChange={(e) => updateEnvEntry(index, ei, 'value', e.target.value)}
+                        onChange={imeSafeChange((value) =>
+                          updateEnvEntry(index, ei, 'value', value)
+                        )}
                         spellCheck={false}
                       />
                       <button

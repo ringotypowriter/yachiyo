@@ -19,6 +19,7 @@ import {
   SettingSwitch,
   SimpleSelect
 } from '../components/primitives'
+import { imeSafeChange } from '../components/imeUtils'
 
 export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.ReactNode {
   const [config, setConfig] = useState<ChannelsConfig>({})
@@ -219,7 +220,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               <input
                 type={showTelegramToken ? 'text' : 'password'}
                 value={botToken}
-                onChange={(e) => patchTelegram({ botToken: e.target.value })}
+                onChange={imeSafeChange((value) => patchTelegram({ botToken: value }))}
                 placeholder="123456:ABC-DEF..."
                 spellCheck={false}
                 className="flex-1 text-sm min-w-0"
@@ -349,7 +350,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               <input
                 type="text"
                 value={qqWsUrl}
-                onChange={(e) => patchQQ({ wsUrl: e.target.value })}
+                onChange={imeSafeChange((value) => patchQQ({ wsUrl: value }))}
                 placeholder="ws://localhost:3001"
                 spellCheck={false}
                 className="flex-1 text-sm min-w-0"
@@ -374,7 +375,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               <input
                 type={showQQToken ? 'text' : 'password'}
                 value={qqToken}
-                onChange={(e) => patchQQ({ token: e.target.value })}
+                onChange={imeSafeChange((value) => patchQQ({ token: value }))}
                 placeholder="Optional"
                 spellCheck={false}
                 className="flex-1 text-sm min-w-0"
@@ -502,7 +503,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               <input
                 type={showDiscordToken ? 'text' : 'password'}
                 value={discordBotToken}
-                onChange={(e) => patchDiscord({ botToken: e.target.value })}
+                onChange={imeSafeChange((value) => patchDiscord({ botToken: value }))}
                 placeholder="MTIzNDU2Nzg5..."
                 spellCheck={false}
                 className="flex-1 text-sm min-w-0"
@@ -860,14 +861,14 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
         <div className="px-7 pb-3">
           <textarea
             value={config.guestInstruction ?? ''}
-            onChange={(e) => {
+            onChange={imeSafeChange((value) => {
               setConfig((c) => {
-                const next = { ...c, guestInstruction: e.target.value }
+                const next = { ...c, guestInstruction: value }
                 configRef.current = next
                 scheduleSave(next)
                 return next
               })
-            }}
+            })}
             placeholder="Tell the model what guests should know about you, and any rules for guest conversations..."
             spellCheck={false}
             rows={4}
@@ -994,8 +995,9 @@ function MemoryFilterKeywords({
         <input
           type="text"
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={imeSafeChange(setDraft)}
           onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing) return
             if (e.key === 'Enter') addKeyword()
           }}
           placeholder="Add keyword..."
@@ -1174,9 +1176,10 @@ function ChannelUserRow({
           inputMode="numeric"
           placeholder="∞"
           value={limitDraft}
-          onChange={(e) => setLimitDraft(e.target.value)}
+          onChange={imeSafeChange(setLimitDraft)}
           onBlur={() => onLimitChange(limitDraft)}
           onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing) return
             if (e.key === 'Enter') onLimitChange(limitDraft)
           }}
           className="text-sm text-right"

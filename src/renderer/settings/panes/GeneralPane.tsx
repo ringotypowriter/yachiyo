@@ -8,6 +8,7 @@ import type {
   UserDocument
 } from '../../../shared/yachiyo/protocol.ts'
 import { theme, alpha } from '@renderer/theme/theme'
+import { imeSafeChange } from '../components/imeUtils'
 import {
   SettingLabel,
   SettingRow,
@@ -247,7 +248,7 @@ export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactN
         <div className="px-7 pb-4">
           <textarea
             value={userDraft}
-            onChange={(event) => setUserDraft(event.target.value)}
+            onChange={imeSafeChange(setUserDraft)}
             className="min-h-120 w-full resize-y rounded-xl px-4 py-3 text-sm leading-6 outline-none"
             style={{
               color: theme.text.primary,
@@ -359,8 +360,9 @@ export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactN
                 ref={newTraitInputRef}
                 type="text"
                 value={newTrait}
-                onChange={(e) => setNewTrait(e.target.value)}
+                onChange={imeSafeChange(setNewTrait)}
                 onKeyDown={(e) => {
+                  if (e.nativeEvent.isComposing) return
                   if (e.key === 'Enter') {
                     void handleAddTrait()
                   }

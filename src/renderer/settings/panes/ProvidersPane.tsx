@@ -15,6 +15,7 @@ import {
   syncToolModelWithProvider,
   toolModelTargetsProvider
 } from '../../../shared/yachiyo/providerConfig.ts'
+import { imeSafeChange } from '../components/imeUtils'
 import { Field, PlaceholderPane, SettingSwitch, SimpleSelect } from '../components/primitives'
 import { inputStyle } from '../components/styles'
 import { filterProviderModels } from './providersPaneModel'
@@ -268,7 +269,7 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
               <input
                 type="search"
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={imeSafeChange(setQuery)}
                 placeholder="Search models"
                 aria-label="Search provider models"
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none"
@@ -313,8 +314,9 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
         >
           <input
             value={manualInput}
-            onChange={(event) => setManualInput(event.target.value)}
+            onChange={imeSafeChange(setManualInput)}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return
               if (event.key === 'Enter') {
                 event.preventDefault()
                 handleAddManual()
@@ -486,12 +488,12 @@ export function ProvidersPane({
               <Field label="Name">
                 <input
                   value={selectedProvider.name}
-                  onChange={(event) =>
+                  onChange={imeSafeChange((value) =>
                     handleProviderChange((provider) => ({
                       ...provider,
-                      name: event.target.value
+                      name: value
                     }))
-                  }
+                  )}
                   className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                   style={inputStyle()}
                   placeholder="work-openai"
@@ -519,12 +521,12 @@ export function ProvidersPane({
                   <Field label="Project ID">
                     <input
                       value={selectedProvider.project ?? ''}
-                      onChange={(event) =>
+                      onChange={imeSafeChange((value) =>
                         handleProviderChange((provider) => ({
                           ...provider,
-                          project: event.target.value
+                          project: value
                         }))
-                      }
+                      )}
                       className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                       style={inputStyle()}
                       placeholder="my-gcp-project"
@@ -534,12 +536,12 @@ export function ProvidersPane({
                   <Field label="Location">
                     <input
                       value={selectedProvider.location ?? ''}
-                      onChange={(event) =>
+                      onChange={imeSafeChange((value) =>
                         handleProviderChange((provider) => ({
                           ...provider,
-                          location: event.target.value
+                          location: value
                         }))
-                      }
+                      )}
                       className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                       style={inputStyle()}
                       placeholder="us-central1"
@@ -550,12 +552,12 @@ export function ProvidersPane({
                     <Field label="Service Account Email">
                       <input
                         value={selectedProvider.serviceAccountEmail ?? ''}
-                        onChange={(event) =>
+                        onChange={imeSafeChange((value) =>
                           handleProviderChange((provider) => ({
                             ...provider,
-                            serviceAccountEmail: event.target.value
+                            serviceAccountEmail: value
                           }))
-                        }
+                        )}
                         className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                         style={inputStyle()}
                         placeholder="sa@my-project.iam.gserviceaccount.com (optional — uses ADC if empty)"
@@ -567,15 +569,15 @@ export function ProvidersPane({
                     <Field label="Service Account Private Key">
                       <textarea
                         value={selectedProvider.serviceAccountPrivateKey ?? ''}
-                        onChange={(event) => {
+                        onChange={imeSafeChange((raw) => {
                           // Auto-convert literal \n sequences (from JSON service account files)
                           // into real newlines so the key is stored correctly.
-                          const value = event.target.value.replace(/\\n/g, '\n')
+                          const value = raw.replace(/\\n/g, '\n')
                           handleProviderChange((provider) => ({
                             ...provider,
                             serviceAccountPrivateKey: value
                           }))
-                        }}
+                        })}
                         rows={4}
                         className="w-full rounded-xl px-3 py-2.5 text-sm outline-none font-mono"
                         style={inputStyle()}
@@ -591,12 +593,12 @@ export function ProvidersPane({
                       <input
                         type="password"
                         value={selectedProvider.apiKey}
-                        onChange={(event) =>
+                        onChange={imeSafeChange((value) =>
                           handleProviderChange((provider) => ({
                             ...provider,
-                            apiKey: event.target.value
+                            apiKey: value
                           }))
-                        }
+                        )}
                         className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                         style={inputStyle()}
                         placeholder={
@@ -616,12 +618,12 @@ export function ProvidersPane({
                     <Field label="Base URL">
                       <input
                         value={selectedProvider.baseUrl}
-                        onChange={(event) =>
+                        onChange={imeSafeChange((value) =>
                           handleProviderChange((provider) => ({
                             ...provider,
-                            baseUrl: event.target.value
+                            baseUrl: value
                           }))
-                        }
+                        )}
                         className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                         style={inputStyle()}
                         placeholder={

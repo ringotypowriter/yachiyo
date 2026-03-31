@@ -2,6 +2,7 @@ import { Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { MemoryTermDocument, SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
 import { theme } from '@renderer/theme/theme'
+import { imeSafeChange } from '../components/imeUtils'
 import { SettingRow, SettingSection, SettingSwitch, SimpleSelect } from '../components/primitives'
 import { inputStyle } from '../components/styles'
 import { loadMemoryTermDocument } from './memoryTermDocumentModel'
@@ -337,9 +338,9 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
             <div className="flex items-center gap-3 pt-4">
               <input
                 value={memory.baseUrl ?? ''}
-                onChange={(event) =>
-                  onChange({ ...draft, memory: { ...memory, baseUrl: event.target.value } })
-                }
+                onChange={imeSafeChange((value) =>
+                  onChange({ ...draft, memory: { ...memory, baseUrl: value } })
+                )}
                 className="min-w-0 flex-1 rounded-xl px-3 py-2 text-sm outline-none"
                 style={inputStyle()}
                 placeholder="http://127.0.0.1:14242"

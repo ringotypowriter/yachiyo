@@ -3,6 +3,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import type { SettingsConfig, UserPrompt } from '../../../shared/yachiyo/protocol.ts'
 import { normalizeUserPrompts } from '../../../shared/yachiyo/protocol.ts'
+import { imeSafeChange } from '../components/imeUtils'
 import { SettingSection } from '../components/primitives'
 import { inputStyle } from '../components/styles'
 
@@ -125,7 +126,7 @@ export function PromptsPane({ draft, onChange }: PromptsProps): React.ReactNode 
                       placeholder="keycode"
                       className="flex-1 rounded-lg px-2 py-1 text-xs font-mono outline-none"
                       style={inputStyle()}
-                      onChange={(e) => updateRow(index, { keycode: e.target.value })}
+                      onChange={imeSafeChange((value) => updateRow(index, { keycode: value }))}
                       onBlur={(e) => validateKeycode(e.target.value, index)}
                       spellCheck={false}
                     />
@@ -153,7 +154,7 @@ export function PromptsPane({ draft, onChange }: PromptsProps): React.ReactNode 
                 rows={3}
                 className="w-full rounded-lg px-3 py-2 text-sm resize-none outline-none leading-relaxed"
                 style={inputStyle()}
-                onChange={(e) => updateRow(index, { text: e.target.value })}
+                onChange={imeSafeChange((value) => updateRow(index, { text: value }))}
               />
             </div>
           ))
