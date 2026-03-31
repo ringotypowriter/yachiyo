@@ -45,14 +45,19 @@ export function collectMessagePathFromMaps<T extends MessageTreeNode>(
   targetMessageId: string
 ): T[] {
   const path: T[] = []
+  const visited = new Set<string>()
   let currentId: string | undefined = targetMessageId
 
   while (currentId) {
+    if (visited.has(currentId)) {
+      break
+    }
     const current = maps.byId.get(currentId)
     if (!current) {
       break
     }
 
+    visited.add(currentId)
     path.push(current)
     currentId = current.parentMessageId
   }
@@ -95,13 +100,15 @@ function findLatestLeafFromMaps<T extends MessageTreeNode>(
 
   let latestLeaf = root
   const stack = [root]
+  const visited = new Set<string>()
 
   while (stack.length > 0) {
     const current = stack.pop()
-    if (!current) {
+    if (!current || visited.has(current.id)) {
       continue
     }
 
+    visited.add(current.id)
     const children = maps.childrenByParent.get(current.id) ?? []
     if (children.length === 0) {
       if (current.createdAt.localeCompare(latestLeaf.createdAt) >= 0) {
@@ -139,12 +146,18 @@ export function pickReplacementHeadId(
 
   const originalMaps = buildMessageTreeMaps(originalMessages)
   const remainingMaps = buildMessageTreeMaps(remainingMessages)
+  const visitedAncestors = new Set<string>()
 
   let ancestorId = previousHeadMessageId
     ? originalMaps.byId.get(previousHeadMessageId)?.parentMessageId
     : undefined
 
   while (ancestorId) {
+    if (visitedAncestors.has(ancestorId)) {
+      break
+    }
+
+    visitedAncestors.add(ancestorId)
     if (remainingMaps.byId.has(ancestorId)) {
       return findLatestLeafFromMaps(remainingMaps, ancestorId)?.id ?? ancestorId
     }
