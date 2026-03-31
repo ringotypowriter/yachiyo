@@ -1584,6 +1584,68 @@ test('YachiyoServer keeps @file mentions visible in chat while injecting hidden 
   })
 })
 
+test('YachiyoServer keeps @folder mentions visible in chat while injecting a shallow hidden directory listing for the model', async () => {
+  await withServer(async ({ server, completeRun, modelRequests, workspacePathForThread }) => {
+    await server.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    })
+
+    const thread = await server.createThread()
+    const workspacePath = workspacePathForThread(thread.id)
+    await mkdir(join(workspacePath, 'src', 'components', 'nested'), { recursive: true })
+    await writeFile(
+      join(workspacePath, 'src', 'components', 'Composer.tsx'),
+      'export function Composer() { return null }\n',
+      'utf8'
+    )
+    await writeFile(
+      join(workspacePath, 'src', 'components', '.secret.ts'),
+      'export const secret = true\n',
+      'utf8'
+    )
+    await writeFile(
+      join(workspacePath, 'src', 'components', 'nested', 'deep.ts'),
+      'export const deep = true\n',
+      'utf8'
+    )
+
+    const accepted = await server.sendChat({
+      threadId: thread.id,
+      content: 'Check @!src/components before changing it.'
+    })
+    await completeRun(accepted.runId)
+
+    const bootstrap = await server.bootstrap()
+    assert.equal(
+      bootstrap.messagesByThread[thread.id]?.[0]?.content,
+      'Check @!src/components before changing it.'
+    )
+
+    const request = modelRequests.at(-1)
+    assert.ok(request)
+    assert.match(String(request.messages.at(-1)?.content ?? ''), /<file_mentions>/)
+    assert.match(
+      String(request.messages.at(-1)?.content ?? ''),
+      /<referenced_directory path="src\/components">/
+    )
+    assert.match(String(request.messages.at(-1)?.content ?? ''), /Composer\.tsx/)
+    assert.match(String(request.messages.at(-1)?.content ?? ''), /\.secret\.ts/)
+    assert.match(String(request.messages.at(-1)?.content ?? ''), /nested\//)
+    assert.doesNotMatch(String(request.messages.at(-1)?.content ?? ''), /deep\.ts/)
+    assert.match(
+      String(request.messages.at(-1)?.content ?? ''),
+      /Check @!src\/components before changing it\.$/
+    )
+  })
+})
+
 test('YachiyoServer fails runs cleanly when thread workspace initialization fails', async () => {
   let workspaceInitializationAttempts = 0
 

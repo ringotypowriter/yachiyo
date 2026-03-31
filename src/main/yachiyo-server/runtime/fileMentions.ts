@@ -9,6 +9,10 @@ const MAX_FILE_MENTION_COUNT = 8
 const DEFAULT_CANDIDATE_LIMIT = 8
 const DEFAULT_INLINE_MAX_BYTES = 6_000
 const DEFAULT_INLINE_MAX_LINES = 120
+const DEFAULT_INLINE_MAX_DIRECTORY_BYTES = 4_000
+const DEFAULT_INLINE_MAX_DIRECTORY_ENTRIES = 80
+const DEFAULT_FUZZY_SCAN_MAX_DIRECTORIES = 200
+const DEFAULT_FUZZY_SCAN_MAX_CANDIDATES = 32
 
 export interface ParsedFileMention {
   raw: string
@@ -19,8 +23,10 @@ export interface ParsedFileMention {
 export interface ResolvedFileMention {
   raw: string
   query: string
+  includeIgnored?: boolean
   kind: 'resolved' | 'ambiguous' | 'missing'
   resolvedPath?: string
+  resolvedKind?: 'file' | 'directory'
   candidatePaths: string[]
 }
 
@@ -184,19 +190,19 @@ export function parseFileMentions(content: string): ParsedFileMention[] {
   return mentions
 }
 
-async function resolveExactWorkspaceFile(
+async function resolveExactWorkspacePath(
   workspacePath: string,
   query: string,
   ignoreRules: WorkspaceIgnoreRule[],
   includeIgnored?: boolean
-): Promise<string | null> {
+): Promise<{ path: string; kind: 'file' | 'directory' } | null> {
   const targetPath = resolveWorkspaceBoundPath(workspacePath, query)
   if (!targetPath) {
     return null
   }
   const targetStat = await stat(targetPath).catch(() => null)
 
-  if (!targetStat?.isFile()) {
+  if (!targetStat || (!targetStat.isFile() && !targetStat.isDirectory())) {
     return null
   }
 
@@ -205,13 +211,41 @@ async function resolveExactWorkspaceFile(
     return null
   }
 
-  return relativePath
+  return {
+    path: relativePath,
+    kind: targetStat.isDirectory() ? 'directory' : 'file'
+  }
 }
 
 async function isWorkspaceFile(workspacePath: string, candidatePath: string): Promise<boolean> {
   const absolutePath = resolve(workspacePath, candidatePath)
   const candidateStat = await stat(absolutePath).catch(() => null)
   return candidateStat?.isFile() ?? false
+}
+
+async function resolveWorkspacePathKind(
+  workspacePath: string,
+  candidatePath: string
+): Promise<'file' | 'directory' | null> {
+  const absolutePath = resolveWorkspaceBoundPath(workspacePath, candidatePath)
+  if (!absolutePath) {
+    return null
+  }
+
+  const candidateStat = await stat(absolutePath).catch(() => null)
+  if (!candidateStat) {
+    return null
+  }
+
+  if (candidateStat.isDirectory()) {
+    return 'directory'
+  }
+
+  if (candidateStat.isFile()) {
+    return 'file'
+  }
+
+  return null
 }
 
 function buildGlobPatterns(query: string): string[] {
@@ -230,51 +264,29 @@ function buildGlobPatterns(query: string): string[] {
   return toUnique(basePatterns)
 }
 
-export async function searchWorkspaceFileMentionCandidates(input: {
+async function searchWorkspacePathsByGlob(input: {
   query: string
   workspacePath: string
   searchService: SearchService
   includeIgnored?: boolean
-  limit?: number
+  limit: number
 }): Promise<string[]> {
-  const ignoreRules = await loadWorkspaceIgnoreRules(input.workspacePath)
-  const exactMatch = await resolveExactWorkspaceFile(
-    input.workspacePath,
-    input.query,
-    ignoreRules,
-    input.includeIgnored
-  )
-  const candidates = exactMatch ? [exactMatch] : []
-  const candidateLimit = input.limit ?? DEFAULT_CANDIDATE_LIMIT
-
   if (input.includeIgnored) {
     const matcherList = buildGlobPatterns(input.query).map(createGlobMatcher)
     const workspaceFiles = await findWorkspaceFilesByGlob(
       input.workspacePath,
       matcherList,
-      candidateLimit
+      input.limit
     )
 
-    for (const filePath of workspaceFiles) {
-      const relativePath = toWorkspaceRelativePath(input.workspacePath, filePath)
-      if (!relativePath || candidates.includes(relativePath)) {
-        continue
-      }
-      if (!matcherList.some((matcher) => matcher(relativePath))) {
-        continue
-      }
-
-      candidates.push(relativePath)
-      if (candidates.length >= candidateLimit) {
-        break
-      }
-    }
-
-    return candidates.slice(0, candidateLimit)
+    return workspaceFiles
+      .map((filePath) => toWorkspaceRelativePath(input.workspacePath, filePath))
+      .filter((relativePath): relativePath is string => Boolean(relativePath))
   }
 
+  const candidates: string[] = []
   for (const pattern of buildGlobPatterns(input.query)) {
-    if (candidates.length >= candidateLimit) {
+    if (candidates.length >= input.limit) {
       break
     }
 
@@ -282,7 +294,7 @@ export async function searchWorkspaceFileMentionCandidates(input: {
       cwd: input.workspacePath,
       pattern,
       path: '.',
-      limit: candidateLimit
+      limit: input.limit
     })
 
     for (const path of result.paths) {
@@ -296,20 +308,333 @@ export async function searchWorkspaceFileMentionCandidates(input: {
       if (!(await isWorkspaceFile(input.workspacePath, normalizedPath))) {
         continue
       }
-      if (isIgnoredWorkspacePath(normalizedPath, ignoreRules, input.includeIgnored)) {
-        continue
-      }
       if (!candidates.includes(normalizedPath)) {
         candidates.push(normalizedPath)
       }
 
-      if (candidates.length >= candidateLimit) {
+      if (candidates.length >= input.limit) {
         break
       }
     }
   }
 
-  return candidates.slice(0, candidateLimit)
+  return candidates
+}
+
+async function searchWorkspaceFuzzyCandidates(input: {
+  query: string
+  workspacePath: string
+  ignoreRules: WorkspaceIgnoreRule[]
+  includeIgnored?: boolean
+  limit: number
+}): Promise<string[]> {
+  const candidates: string[] = []
+  const queue: Array<{ path: string; score: number }> = [{ path: input.workspacePath, score: 0 }]
+  const maxDirectories = DEFAULT_FUZZY_SCAN_MAX_DIRECTORIES
+  const maxCandidates = Math.max(input.limit * 4, DEFAULT_FUZZY_SCAN_MAX_CANDIDATES)
+  let visitedDirectories = 0
+
+  while (
+    queue.length > 0 &&
+    visitedDirectories < maxDirectories &&
+    candidates.length < maxCandidates
+  ) {
+    queue.sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))
+    const current = queue.shift()
+    if (!current) {
+      break
+    }
+
+    const entries = await readdir(current.path, { withFileTypes: true }).catch(() => [])
+    visitedDirectories += 1
+
+    for (const entry of entries) {
+      if (entry.name === '.git') {
+        continue
+      }
+
+      const entryPath = join(current.path, entry.name)
+      const relativePath = toWorkspaceRelativePath(input.workspacePath, entryPath)
+      if (!relativePath) {
+        continue
+      }
+
+      if (isIgnoredWorkspacePath(relativePath, input.ignoreRules, input.includeIgnored)) {
+        continue
+      }
+
+      const score = scoreWorkspaceFileMentionCandidate(input.query, relativePath)
+      if (score !== null && !candidates.includes(relativePath)) {
+        candidates.push(relativePath)
+        if (candidates.length >= maxCandidates) {
+          break
+        }
+      }
+
+      if (entry.isDirectory()) {
+        queue.push({
+          path: entryPath,
+          score: score ?? scoreFuzzySubstring(basename(input.query), entry.name) ?? 0
+        })
+      }
+    }
+  }
+
+  return candidates
+}
+
+function scoreFuzzySubstring(query: string, target: string): number | null {
+  const exactIndex = target.indexOf(query)
+  if (exactIndex >= 0) {
+    return 9_000 - exactIndex * 40 - (target.length - query.length)
+  }
+
+  const positions: number[] = []
+  let searchIndex = 0
+  for (const char of query) {
+    const foundIndex = target.indexOf(char, searchIndex)
+    if (foundIndex < 0) {
+      return null
+    }
+    positions.push(foundIndex)
+    searchIndex = foundIndex + 1
+  }
+
+  const start = positions[0] ?? 0
+  const end = positions[positions.length - 1] ?? start
+  const span = end - start + 1
+  let consecutiveMatches = 0
+  for (let index = 1; index < positions.length; index += 1) {
+    if (positions[index] === positions[index - 1] + 1) {
+      consecutiveMatches += 1
+    }
+  }
+
+  return (
+    6_000 -
+    start * 30 -
+    (span - query.length) * 20 -
+    (target.length - query.length) * 3 +
+    consecutiveMatches * 35
+  )
+}
+
+function scoreFuzzySegments(query: string, candidatePath: string): number | null {
+  const querySegments = query.split('/').filter(Boolean)
+  if (querySegments.length < 2) {
+    return null
+  }
+
+  const candidateSegments = candidatePath.split('/')
+  let nextCandidateIndex = 0
+  let totalScore = 0
+  let firstMatchIndex = -1
+  let lastMatchIndex = -1
+
+  for (const querySegment of querySegments) {
+    let bestIndex = -1
+    let bestScore = Number.NEGATIVE_INFINITY
+    for (let index = nextCandidateIndex; index < candidateSegments.length; index += 1) {
+      const segmentScore = scoreFuzzySubstring(querySegment, candidateSegments[index])
+      if (segmentScore === null || segmentScore <= bestScore) {
+        continue
+      }
+
+      bestIndex = index
+      bestScore = segmentScore
+    }
+
+    if (bestIndex < 0) {
+      return null
+    }
+
+    if (firstMatchIndex < 0) {
+      firstMatchIndex = bestIndex
+    }
+    lastMatchIndex = bestIndex
+    totalScore += bestScore
+    nextCandidateIndex = bestIndex + 1
+  }
+
+  const skippedSegments =
+    firstMatchIndex >= 0 && lastMatchIndex >= 0
+      ? lastMatchIndex - firstMatchIndex + 1 - querySegments.length
+      : 0
+
+  return totalScore + 2_500 - firstMatchIndex * 80 - skippedSegments * 120
+}
+
+function scoreWorkspaceFileMentionCandidate(query: string, candidatePath: string): number | null {
+  const normalizedQuery = normalizeRelativePath(query.trim()).toLowerCase()
+  const normalizedCandidate = normalizeRelativePath(candidatePath).toLowerCase()
+
+  if (!normalizedQuery) {
+    return 0
+  }
+
+  if (normalizedCandidate === normalizedQuery) {
+    return 100_000 - normalizedCandidate.length
+  }
+
+  const basenameScore = scoreFuzzySubstring(
+    basename(normalizedQuery),
+    basename(normalizedCandidate)
+  )
+  const pathScore = scoreFuzzySubstring(normalizedQuery, normalizedCandidate)
+  const segmentScore = scoreFuzzySegments(normalizedQuery, normalizedCandidate)
+  const scores = [
+    basenameScore === null ? null : basenameScore + 2_000,
+    pathScore,
+    segmentScore
+  ].filter((value): value is number => value !== null)
+
+  if (scores.length === 0) {
+    return null
+  }
+
+  return Math.max(...scores)
+}
+
+function rankWorkspaceFileMentionCandidates(
+  query: string,
+  candidatePaths: string[],
+  limit: number
+): string[] {
+  if (!query.trim()) {
+    return candidatePaths.slice(0, limit)
+  }
+
+  return toUnique(candidatePaths)
+    .map((candidatePath) => ({
+      candidatePath,
+      score: scoreWorkspaceFileMentionCandidate(query, candidatePath)
+    }))
+    .filter(
+      (candidate): candidate is { candidatePath: string; score: number } => candidate.score !== null
+    )
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.candidatePath.length - right.candidatePath.length ||
+        left.candidatePath.localeCompare(right.candidatePath)
+    )
+    .slice(0, limit)
+    .map((candidate) => candidate.candidatePath)
+}
+
+export async function searchWorkspaceFileMentionCandidates(input: {
+  query: string
+  workspacePath: string
+  searchService: SearchService
+  includeIgnored?: boolean
+  limit?: number
+}): Promise<string[]> {
+  const ignoreRules = await loadWorkspaceIgnoreRules(input.workspacePath)
+  const normalizedQuery = normalizeRelativePath(input.query.trim())
+  const exactMatch = await resolveExactWorkspacePath(
+    input.workspacePath,
+    normalizedQuery,
+    ignoreRules,
+    input.includeIgnored
+  )
+  const candidates = exactMatch ? [exactMatch.path] : []
+  const candidateLimit = input.limit ?? DEFAULT_CANDIDATE_LIMIT
+
+  if (!normalizedQuery) {
+    if (input.includeIgnored) {
+      const matcherList = buildGlobPatterns(normalizedQuery).map(createGlobMatcher)
+      const workspaceFiles = await findWorkspaceFilesByGlob(
+        input.workspacePath,
+        matcherList,
+        candidateLimit
+      )
+
+      for (const filePath of workspaceFiles) {
+        const relativePath = toWorkspaceRelativePath(input.workspacePath, filePath)
+        if (!relativePath || candidates.includes(relativePath)) {
+          continue
+        }
+        if (!matcherList.some((matcher) => matcher(relativePath))) {
+          continue
+        }
+
+        candidates.push(relativePath)
+        if (candidates.length >= candidateLimit) {
+          break
+        }
+      }
+
+      return candidates.slice(0, candidateLimit)
+    }
+
+    for (const pattern of buildGlobPatterns(normalizedQuery)) {
+      if (candidates.length >= candidateLimit) {
+        break
+      }
+
+      const result = await input.searchService.glob({
+        cwd: input.workspacePath,
+        pattern,
+        path: '.',
+        limit: candidateLimit
+      })
+
+      for (const path of result.paths) {
+        const normalizedPath = toWorkspaceRelativePath(
+          input.workspacePath,
+          resolve(input.workspacePath, path)
+        )
+        if (!normalizedPath) {
+          continue
+        }
+        if (!(await isWorkspaceFile(input.workspacePath, normalizedPath))) {
+          continue
+        }
+        if (isIgnoredWorkspacePath(normalizedPath, ignoreRules, input.includeIgnored)) {
+          continue
+        }
+        if (!candidates.includes(normalizedPath)) {
+          candidates.push(normalizedPath)
+        }
+
+        if (candidates.length >= candidateLimit) {
+          break
+        }
+      }
+    }
+
+    return candidates.slice(0, candidateLimit)
+  }
+
+  const matchedPaths = await searchWorkspacePathsByGlob({
+    query: normalizedQuery,
+    workspacePath: input.workspacePath,
+    searchService: input.searchService,
+    includeIgnored: input.includeIgnored,
+    limit: candidateLimit
+  })
+  for (const candidatePath of matchedPaths) {
+    if (isIgnoredWorkspacePath(candidatePath, ignoreRules, input.includeIgnored)) {
+      continue
+    }
+    if (!candidates.includes(candidatePath)) {
+      candidates.push(candidatePath)
+    }
+  }
+
+  const fuzzyCandidates = await searchWorkspaceFuzzyCandidates({
+    query: normalizedQuery,
+    workspacePath: input.workspacePath,
+    ignoreRules,
+    includeIgnored: input.includeIgnored,
+    limit: candidateLimit
+  })
+
+  return rankWorkspaceFileMentionCandidates(
+    normalizedQuery,
+    [...candidates, ...fuzzyCandidates],
+    candidateLimit
+  )
 }
 
 async function findWorkspaceFilesByGlob(
@@ -393,7 +718,11 @@ async function maybeInlineResolvedFile(input: {
   maxBytes?: number
   maxLines?: number
 }): Promise<{ path: string; content: string } | null> {
-  if (input.mention.kind !== 'resolved' || !input.mention.resolvedPath) {
+  if (
+    input.mention.kind !== 'resolved' ||
+    input.mention.resolvedKind !== 'file' ||
+    !input.mention.resolvedPath
+  ) {
     return null
   }
 
@@ -422,9 +751,110 @@ async function maybeInlineResolvedFile(input: {
   }
 }
 
+async function maybeInlineResolvedDirectory(input: {
+  mention: ResolvedFileMention
+  workspacePath: string
+  ignoreRules: WorkspaceIgnoreRule[]
+  maxBytes?: number
+  maxEntries?: number
+}): Promise<{ path: string; content: string } | null> {
+  if (
+    input.mention.kind !== 'resolved' ||
+    input.mention.resolvedKind !== 'directory' ||
+    !input.mention.resolvedPath
+  ) {
+    return null
+  }
+
+  const absolutePath = resolve(input.workspacePath, input.mention.resolvedPath)
+  const directoryEntries = await readdir(absolutePath, { withFileTypes: true }).catch(() => null)
+  if (!directoryEntries) {
+    return null
+  }
+
+  const maxBytes = input.maxBytes ?? DEFAULT_INLINE_MAX_DIRECTORY_BYTES
+  const maxEntries = input.maxEntries ?? DEFAULT_INLINE_MAX_DIRECTORY_ENTRIES
+
+  const lines = directoryEntries
+    .filter((entry) => entry.name !== '.git')
+    .filter((entry) => input.mention.includeIgnored || !entry.name.startsWith('.'))
+    .map((entry) => {
+      const childRelativePath = toWorkspaceRelativePath(
+        input.workspacePath,
+        join(absolutePath, entry.name)
+      )
+      if (!childRelativePath) {
+        return null
+      }
+
+      if (
+        isIgnoredWorkspacePath(childRelativePath, input.ignoreRules, input.mention.includeIgnored)
+      ) {
+        return null
+      }
+
+      if (entry.isDirectory()) {
+        return `${entry.name}/`
+      }
+
+      if (entry.isFile()) {
+        return entry.name
+      }
+
+      return null
+    })
+    .filter((line): line is string => line !== null)
+    .sort((left, right) => left.localeCompare(right))
+
+  if (lines.length === 0) {
+    return {
+      path: input.mention.resolvedPath,
+      content: '(empty)'
+    }
+  }
+
+  const visibleLines: string[] = []
+  let bytes = 0
+  let remainingCount = 0
+
+  for (const line of lines) {
+    if (visibleLines.length >= maxEntries) {
+      remainingCount += 1
+      continue
+    }
+
+    const addition = visibleLines.length === 0 ? line : `\n${line}`
+    const nextBytes = bytes + Buffer.byteLength(addition, 'utf8')
+    if (nextBytes > maxBytes) {
+      remainingCount += 1
+      continue
+    }
+
+    visibleLines.push(line)
+    bytes = nextBytes
+  }
+
+  if (remainingCount > 0) {
+    const summary = `... (${remainingCount} more entr${remainingCount === 1 ? 'y' : 'ies'})`
+    const summaryBytes = Buffer.byteLength(
+      visibleLines.length === 0 ? summary : `\n${summary}`,
+      'utf8'
+    )
+
+    if (bytes + summaryBytes <= maxBytes) {
+      visibleLines.push(summary)
+    }
+  }
+
+  return {
+    path: input.mention.resolvedPath,
+    content: visibleLines.join('\n')
+  }
+}
+
 function buildHiddenReferenceBlock(input: {
   mentions: ResolvedFileMention[]
-  inlinedFile?: { path: string; content: string } | null
+  inlinedReference?: { kind: 'file' | 'directory'; path: string; content: string } | null
 }): string {
   const lines = ['<file_mentions>']
 
@@ -444,16 +874,19 @@ function buildHiddenReferenceBlock(input: {
 
   lines.push('</file_mentions>')
 
-  if (!input.inlinedFile) {
+  if (!input.inlinedReference) {
     return lines.join('\n')
   }
+
+  const tagName =
+    input.inlinedReference.kind === 'directory' ? 'referenced_directory' : 'referenced_file'
 
   return [
     lines.join('\n'),
     '',
-    `<referenced_file path="${input.inlinedFile.path}">`,
-    input.inlinedFile.content,
-    '</referenced_file>'
+    `<${tagName} path="${input.inlinedReference.path}">`,
+    input.inlinedReference.content,
+    `</${tagName}>`
   ].join('\n')
 }
 
@@ -474,7 +907,7 @@ export async function resolveFileMentionsForUserQuery(input: {
   const ignoreRules = await loadWorkspaceIgnoreRules(input.workspacePath)
 
   for (const mention of parsedMentions) {
-    const exactMatch = await resolveExactWorkspaceFile(
+    const exactMatch = await resolveExactWorkspacePath(
       input.workspacePath,
       mention.query,
       ignoreRules,
@@ -484,8 +917,9 @@ export async function resolveFileMentionsForUserQuery(input: {
       mentions.push({
         ...mention,
         kind: 'resolved',
-        resolvedPath: exactMatch,
-        candidatePaths: [exactMatch]
+        resolvedPath: exactMatch.path,
+        resolvedKind: exactMatch.kind,
+        candidatePaths: [exactMatch.path]
       })
       continue
     }
@@ -507,10 +941,12 @@ export async function resolveFileMentionsForUserQuery(input: {
     })
 
     if (candidates.length === 1) {
+      const resolvedKind = await resolveWorkspacePathKind(input.workspacePath, candidates[0])
       mentions.push({
         ...mention,
         kind: 'resolved',
         resolvedPath: candidates[0],
+        ...(resolvedKind ? { resolvedKind } : {}),
         candidatePaths: candidates
       })
       continue
@@ -524,21 +960,26 @@ export async function resolveFileMentionsForUserQuery(input: {
   }
 
   const resolvedMentions = mentions.filter((mention) => mention.kind === 'resolved')
-  const inlinedFile =
+  const inlinedReference =
     resolvedMentions.length === 1 && mentions.length === 1
-      ? await maybeInlineResolvedFile({
+      ? ((await maybeInlineResolvedFile({
           mention: resolvedMentions[0],
           workspacePath: input.workspacePath
-        })
+        }).then((reference) => (reference ? { kind: 'file' as const, ...reference } : null))) ??
+        (await maybeInlineResolvedDirectory({
+          mention: resolvedMentions[0],
+          workspacePath: input.workspacePath,
+          ignoreRules
+        }).then((reference) => (reference ? { kind: 'directory' as const, ...reference } : null))))
       : null
 
   return {
     mentions,
-    inlinedPath: inlinedFile?.path,
+    inlinedPath: inlinedReference?.path,
     augmentedUserQuery: [
       buildHiddenReferenceBlock({
         mentions,
-        ...(inlinedFile ? { inlinedFile } : {})
+        ...(inlinedReference ? { inlinedReference } : {})
       }),
       '',
       input.content

@@ -385,9 +385,11 @@ export function Composer({
   const [dismissedSlashQuery, setDismissedSlashQuery] = useState<string | null>(null)
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [fileMentionMatchesState, setFileMentionMatchesState] = useState<{
+    status: 'idle' | 'ready' | 'error'
     key: string | null
     matches: FileMentionCandidate[]
   }>({
+    status: 'idle',
     key: null,
     matches: []
   })
@@ -446,8 +448,12 @@ export function Composer({
   const fileMentionQuery =
     fileMentionMatch && !fileMentionMatch[3].startsWith('skills:') ? fileMentionMatch[3] : null
   const fileMentionIncludeIgnored = fileMentionMatch?.[2] === '!'
-  const fileMentionRequestKey =
+  const fileMentionQueryKey =
     fileMentionQuery === null ? null : `${fileMentionIncludeIgnored ? '!' : ''}${fileMentionQuery}`
+  const fileMentionSearchScopeKey =
+    activeThreadId !== null ? `thread:${activeThreadId}` : `workspace:${currentWorkspacePath ?? ''}`
+  const fileMentionRequestKey =
+    fileMentionQueryKey === null ? null : `${fileMentionSearchScopeKey}\n${fileMentionQueryKey}`
   // Only show chip when skill tag is confirmed (has trailing space/content) and popup is not active
   const skillTagMatch = skillQuery === null ? SKILL_TAG_PATTERN.exec(composerValue) : null
   const activeSkillTag = skillTagMatch ? skillTagMatch[1] : null
@@ -466,6 +472,8 @@ export function Composer({
         : [],
     [fileMentionMatchesState, fileMentionRequestKey]
   )
+  const isFileMentionSearchPending =
+    fileMentionRequestKey !== null && fileMentionMatchesState.key !== fileMentionRequestKey
   const confirmedFileTagsKey = confirmedFileTags.join('\n')
   const validatedFileTags = useMemo(
     () =>
@@ -534,7 +542,7 @@ export function Composer({
       return fileMentionMatches.map((match) => ({
         key: `file:${match.path}`,
         label: match.path,
-        description: 'Workspace file',
+        description: 'Workspace path',
         type: 'file' as const
       }))
     }
@@ -561,7 +569,6 @@ export function Composer({
     }
 
     let cancelled = false
-    const requestKey = `${fileMentionIncludeIgnored ? '!' : ''}${fileMentionQuery}`
     void window.api.yachiyo
       .searchWorkspaceFiles({
         query: fileMentionQuery,
@@ -572,7 +579,8 @@ export function Composer({
       .then((matches) => {
         if (!cancelled) {
           setFileMentionMatchesState({
-            key: requestKey,
+            status: 'ready',
+            key: fileMentionRequestKey,
             matches
           })
         }
@@ -580,7 +588,8 @@ export function Composer({
       .catch(() => {
         if (!cancelled) {
           setFileMentionMatchesState({
-            key: requestKey,
+            status: 'error',
+            key: fileMentionRequestKey,
             matches: []
           })
         }
@@ -589,7 +598,13 @@ export function Composer({
     return () => {
       cancelled = true
     }
-  }, [activeThreadId, currentWorkspacePath, fileMentionIncludeIgnored, fileMentionQuery])
+  }, [
+    activeThreadId,
+    currentWorkspacePath,
+    fileMentionIncludeIgnored,
+    fileMentionQuery,
+    fileMentionRequestKey
+  ])
 
   useEffect(() => {
     if (confirmedFileTags.length === 0) {
@@ -1194,7 +1209,11 @@ export function Composer({
             onSelect={handleSlashCommandSelect}
             onClose={dismissSlashPopup}
             emptyState={
-              fileMentionQuery !== null ? 'No files found in the current workspace.' : undefined
+              fileMentionQuery !== null
+                ? isFileMentionSearchPending
+                  ? 'Searching workspace...'
+                  : 'No files found in the current workspace.'
+                : undefined
             }
           />
         ) : null}

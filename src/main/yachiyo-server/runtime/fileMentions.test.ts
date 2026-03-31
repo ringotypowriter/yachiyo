@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
@@ -21,11 +21,33 @@ async function withWorkspace(
 
   try {
     await mkdir(join(workspacePath, 'src', 'nested'), { recursive: true })
+    await mkdir(join(workspacePath, 'src', 'components'), { recursive: true })
+    await mkdir(join(workspacePath, 'src', 'components', 'nested'), { recursive: true })
     await mkdir(join(workspacePath, 'packages', 'app', 'dist'), { recursive: true })
     await writeFile(join(workspacePath, 'src', 'app.ts'), 'export const app = true\n', 'utf8')
     await writeFile(
       join(workspacePath, 'src', 'nested', 'tiny.ts'),
       ['export const tiny = true', 'export const answer = 42'].join('\n'),
+      'utf8'
+    )
+    await writeFile(
+      join(workspacePath, 'src', 'components', 'Composer.tsx'),
+      'export function Composer() { return null }\n',
+      'utf8'
+    )
+    await writeFile(
+      join(workspacePath, 'src', 'components', 'Compressor.ts'),
+      'export const compressor = true\n',
+      'utf8'
+    )
+    await writeFile(
+      join(workspacePath, 'src', 'components', 'nested', 'deep.ts'),
+      'export const deep = true\n',
+      'utf8'
+    )
+    await writeFile(
+      join(workspacePath, 'src', 'components', '.secret.ts'),
+      'export const secret = true\n',
       'utf8'
     )
     await writeFile(
@@ -82,6 +104,67 @@ test('searchWorkspaceFileMentionCandidates finds workspace-relative matches with
     })
 
     assert.deepEqual(results, ['src/nested/tiny.ts'])
+  })
+})
+
+test('searchWorkspaceFileMentionCandidates supports fuzzy basename matches', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    const results = await searchWorkspaceFileMentionCandidates({
+      query: 'cmpsr.tsx',
+      workspacePath,
+      searchService
+    })
+
+    assert.deepEqual(results, ['src/components/Composer.tsx'])
+  })
+})
+
+test('searchWorkspaceFileMentionCandidates supports fuzzy path-segment matches', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    const results = await searchWorkspaceFileMentionCandidates({
+      query: 'src/cmp/cmpsr.tsx',
+      workspacePath,
+      searchService
+    })
+
+    assert.deepEqual(results, ['src/components/Composer.tsx'])
+  })
+})
+
+test('searchWorkspaceFileMentionCandidates ranks the closest fuzzy match first', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    const results = await searchWorkspaceFileMentionCandidates({
+      query: 'cmpsr',
+      workspacePath,
+      searchService
+    })
+
+    assert.equal(results[0], 'src/components/Composer.tsx')
+    assert.equal(results.includes('src/components/Compressor.ts'), true)
+  })
+})
+
+test('searchWorkspaceFileMentionCandidates can return folders', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    const results = await searchWorkspaceFileMentionCandidates({
+      query: 'src/components',
+      workspacePath,
+      searchService
+    })
+
+    assert.equal(results[0], 'src/components')
+  })
+})
+
+test('searchWorkspaceFileMentionCandidates can fuzzy-match folders without an exact path hit', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    const results = await searchWorkspaceFileMentionCandidates({
+      query: 'src/cmp',
+      workspacePath,
+      searchService
+    })
+
+    assert.equal(results[0], 'src/components')
   })
 })
 
@@ -163,6 +246,82 @@ test('resolveFileMentionsForUserQuery inlines a single short file ahead of the u
     assert.match(result.augmentedUserQuery, /<referenced_file path="src\/nested\/tiny\.ts">/)
     assert.match(result.augmentedUserQuery, /export const tiny = true/)
     assert.match(result.augmentedUserQuery, /Please inspect @src\/nested\/tiny\.ts$/)
+  })
+})
+
+test('resolveFileMentionsForUserQuery inlines a shallow directory listing for folder mentions', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    const result = await resolveFileMentionsForUserQuery({
+      content: 'Inspect @src/components before editing.',
+      workspacePath,
+      searchService
+    })
+
+    assert.equal(result.mentions[0]?.kind, 'resolved')
+    assert.equal(result.mentions[0]?.resolvedKind, 'directory')
+    assert.equal(result.inlinedPath, 'src/components')
+    assert.match(result.augmentedUserQuery, /<referenced_directory path="src\/components">/)
+    assert.match(result.augmentedUserQuery, /Composer\.tsx/)
+    assert.match(result.augmentedUserQuery, /Compressor\.ts/)
+    assert.match(result.augmentedUserQuery, /nested\//)
+    assert.doesNotMatch(result.augmentedUserQuery, /deep\.ts/)
+    assert.doesNotMatch(result.augmentedUserQuery, /\.secret\.ts/)
+    assert.match(result.augmentedUserQuery, /Inspect @src\/components before editing\.$/)
+  })
+})
+
+test('resolveFileMentionsForUserQuery shows hidden directory entries only for @! folder mentions', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    const hiddenResult = await resolveFileMentionsForUserQuery({
+      content: 'Inspect @src/components',
+      workspacePath,
+      searchService
+    })
+    const bypassResult = await resolveFileMentionsForUserQuery({
+      content: 'Inspect @!src/components',
+      workspacePath,
+      searchService
+    })
+
+    assert.doesNotMatch(hiddenResult.augmentedUserQuery, /\.secret\.ts/)
+    assert.match(bypassResult.augmentedUserQuery, /\.secret\.ts/)
+  })
+})
+
+test('resolveFileMentionsForUserQuery caps large directory listings before inlining them', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    const crowdedPath = join(workspacePath, 'src', 'crowded')
+    await mkdir(crowdedPath, { recursive: true })
+
+    await Promise.all(
+      Array.from({ length: 120 }, (_, index) =>
+        writeFile(
+          join(crowdedPath, `item-${String(index).padStart(3, '0')}.ts`),
+          'export {}\n',
+          'utf8'
+        )
+      )
+    )
+
+    const result = await resolveFileMentionsForUserQuery({
+      content: 'Inspect @src/crowded',
+      workspacePath,
+      searchService
+    })
+
+    assert.equal(result.mentions[0]?.resolvedKind, 'directory')
+    assert.match(result.augmentedUserQuery, /<referenced_directory path="src\/crowded">/)
+    assert.match(result.augmentedUserQuery, /\.\.\. \(\d+ more entries\)/)
+    assert.match(result.augmentedUserQuery, /item-000\.ts/)
+    assert.doesNotMatch(result.augmentedUserQuery, /item-119\.ts/)
+
+    const renderedLines = result.augmentedUserQuery
+      .split('\n')
+      .filter((line) => line.startsWith('item-') || line.startsWith('... ('))
+    assert.ok(renderedLines.length <= 81)
+
+    const allChildren = await readdir(crowdedPath)
+    assert.equal(allChildren.length, 120)
   })
 })
 
