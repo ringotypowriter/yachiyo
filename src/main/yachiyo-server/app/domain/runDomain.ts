@@ -43,7 +43,10 @@ import type { WebSearchService } from '../../services/webSearch/webSearchService
 import type { BrowserWebPageSnapshotLoader } from '../../services/webRead/browserWebPageSnapshot.ts'
 import type { ModelRuntime } from '../../runtime/types.ts'
 import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../storage/storage.ts'
-import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
+import {
+  collectMessagePath,
+  wouldCreateParentCycle
+} from '../../../../shared/yachiyo/threadTree.ts'
 import { assertSupportedImages, resolveEnabledTools } from './configDomain.ts'
 import { toEffectiveProviderSettings } from '../../settings/settingsStore.ts'
 import { executeServerRun, type RestartRunReason, type ExecuteRunResult } from './runExecution.ts'
@@ -1713,9 +1716,10 @@ export class YachiyoServerRunDomain {
       return null
     }
 
-    const queuedMessage = this.deps
-      .loadThreadMessages(threadId)
-      .find((message) => message.id === queuedMessageId && message.role === 'user')
+    const threadMessages = this.deps.loadThreadMessages(threadId)
+    const queuedMessage = threadMessages.find(
+      (message) => message.id === queuedMessageId && message.role === 'user'
+    )
     if (!queuedMessage) {
       const clearedThread: ThreadRecord = {
         ...thread,
@@ -1729,7 +1733,22 @@ export class YachiyoServerRunDomain {
       return null
     }
 
-    const reparentedQueuedMessage = withParentMessageId(queuedMessage, thread.headMessageId)
+    const wouldCycleQueuedFollowUpParent = wouldCreateParentCycle(
+      threadMessages,
+      queuedMessage.id,
+      thread.headMessageId
+    )
+    if (wouldCycleQueuedFollowUpParent) {
+      console.warn('[yachiyo][thread-tree] skipped cyclic queued follow-up reparent', {
+        messageId: queuedMessage.id,
+        threadHeadMessageId: thread.headMessageId,
+        threadId
+      })
+    }
+    const nextQueuedParentMessageId = wouldCycleQueuedFollowUpParent
+      ? queuedMessage.parentMessageId
+      : thread.headMessageId
+    const reparentedQueuedMessage = withParentMessageId(queuedMessage, nextQueuedParentMessageId)
     if (reparentedQueuedMessage.parentMessageId !== queuedMessage.parentMessageId) {
       this.deps.storage.updateMessage(reparentedQueuedMessage)
     }

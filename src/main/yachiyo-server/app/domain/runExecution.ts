@@ -45,7 +45,10 @@ import {
   isCoreToolName,
   normalizeOptionalMaxChatToken
 } from '../../../../shared/yachiyo/protocol.ts'
-import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
+import {
+  collectMessagePath,
+  wouldCreateParentCycle
+} from '../../../../shared/yachiyo/threadTree.ts'
 import { prepareModelMessages } from '../../runtime/messagePrepare.ts'
 import {
   buildExternalAgentInstructions,
@@ -1709,13 +1712,29 @@ export async function executeServerRun(
           })
 
           const steerMessageId = restartReason.nextRequestMessageId
-          const steerMessage = deps
-            .loadThreadMessages(input.thread.id)
-            .find((message) => message.id === steerMessageId && message.role === 'user')
-          if (steerMessage && steerMessage.parentMessageId !== messageId) {
+          const threadMessages = deps.loadThreadMessages(input.thread.id)
+          const steerMessage = threadMessages.find(
+            (message) => message.id === steerMessageId && message.role === 'user'
+          )
+          const wouldCycleSteerParent =
+            steerMessage && wouldCreateParentCycle(threadMessages, steerMessage.id, messageId)
+          if (wouldCycleSteerParent) {
+            console.warn('[yachiyo][thread-tree] skipped cyclic steer reparent', {
+              messageId: steerMessageId,
+              parentMessageId: messageId,
+              threadId: input.thread.id
+            })
+          }
+          const nextSteerParentMessageId =
+            steerMessage && !wouldCycleSteerParent ? messageId : undefined
+          if (
+            steerMessage &&
+            nextSteerParentMessageId &&
+            steerMessage.parentMessageId !== nextSteerParentMessageId
+          ) {
             const reparentedSteerMessage: MessageRecord = {
               ...steerMessage,
-              parentMessageId: messageId
+              parentMessageId: nextSteerParentMessageId
             }
             deps.storage.updateMessage(reparentedSteerMessage)
             deps.emit<MessageCompletedEvent>({

@@ -89,6 +89,22 @@ export function collectDescendantIds<T extends MessageTreeNode>(
   return descendantIds
 }
 
+export function wouldCreateParentCycle<T extends MessageTreeNode>(
+  messages: T[],
+  messageId: string,
+  parentMessageId: string | undefined
+): boolean {
+  if (!parentMessageId) {
+    return false
+  }
+
+  if (messageId === parentMessageId) {
+    return true
+  }
+
+  return collectMessagePath(messages, parentMessageId).some((message) => message.id === messageId)
+}
+
 function findLatestLeafFromMaps<T extends MessageTreeNode>(
   maps: MessageTreeMaps<T>,
   rootMessageId: string

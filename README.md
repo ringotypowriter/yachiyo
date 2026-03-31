@@ -11,6 +11,7 @@ Only what's necessary for a cyber-assistant that lives in your computer.
 </div>
 
 ## Why Yachiyo?
+
 Because your AI assistant should be yours — not a platform, not a marketplace, not a maze of configuration files.
 
 Most AI clients want to become ecosystems. They invent protocols, build plugin stores, and lock you into their infrastructure. Yachiyo does the opposite: it gives you a capable assistant that lives in your filesystem, respects your privacy, and gets out of your way.
