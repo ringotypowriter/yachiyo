@@ -38,6 +38,7 @@ import {
   formatGroupMessages,
   selectGroupProbeRecentMessages
 } from './groupContextBuilder'
+import { describeGroupImages } from './groupImageDescriptions'
 import {
   createGroupMonitorRegistry,
   type GroupMonitorPersistence,
@@ -343,8 +344,14 @@ export function createTelegramService({
 
     // Resolve images eagerly, then route with the completed entry.
     const imagePromises = startImageDownloads(msg)
-    void Promise.all(imagePromises).then((results) => {
+    void Promise.all(imagePromises).then(async (results) => {
       const images = results.filter((img): img is MessageImageRecord => img !== null)
+      await describeGroupImages({
+        server,
+        text,
+        images,
+        logLabel: 'telegram-group'
+      })
       groupRegistry!.routeMessage(existing.id, {
         senderName: fromUsername,
         senderExternalUserId: fromId,
@@ -795,8 +802,7 @@ export function createTelegramService({
       knownUsers: buildKnownUsersMap(),
       personaSummary: EXTERNAL_SYSTEM_PROMPT,
       ownerInstruction: readChannelsConfig().guestInstruction,
-      groupUserDocument: groupUserDoc?.content,
-      vision: groupConfig?.vision
+      groupUserDocument: groupUserDoc?.content
     })
 
     console.log(

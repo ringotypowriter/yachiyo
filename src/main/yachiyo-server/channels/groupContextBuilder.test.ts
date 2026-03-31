@@ -266,6 +266,23 @@ describe('buildGroupProbeMessages', () => {
     assert.ok((messages[0].content as string).includes('TestGroup'))
   })
 
+  it('keeps group probe image context as text only', () => {
+    const messages = buildGroupProbeMessages({
+      botName: 'Yachiyo',
+      groupName: 'TestGroup',
+      recentMessages: [
+        {
+          ...msg('look'),
+          images: [
+            { dataUrl: 'data:image/png;base64,abc', mediaType: 'image/png', altText: 'a cat' }
+          ]
+        }
+      ]
+    })
+    assert.equal(typeof messages[1].content, 'string')
+    assert.ok((messages[1].content as string).includes('[image: a cat]'))
+  })
+
   it('selectGroupProbeRecentMessages keeps the newest suffix for a capped window', () => {
     const recentMessages = [msg('one'), msg('two'), msg('three'), msg('four')]
     const result = selectGroupProbeRecentMessages(recentMessages, 2)

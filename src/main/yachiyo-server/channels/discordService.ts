@@ -38,6 +38,7 @@ import {
   formatGroupMessages,
   selectGroupProbeRecentMessages
 } from './groupContextBuilder.ts'
+import { describeGroupImages } from './groupImageDescriptions.ts'
 import {
   createGroupMonitorRegistry,
   type GroupMonitorPersistence,
@@ -324,8 +325,14 @@ export function createDiscordService({
 
     // Resolve image attachments eagerly, then route with the completed entry.
     const imagePromises = startImageDownloads(msg)
-    void Promise.all(imagePromises).then((results) => {
+    void Promise.all(imagePromises).then(async (results) => {
       const images = results.filter((img): img is MessageImageRecord => img !== null)
+      await describeGroupImages({
+        server,
+        text,
+        images,
+        logLabel: 'discord-group'
+      })
       groupRegistry!.routeMessage(existing.id, {
         senderName: fromUsername,
         senderExternalUserId: fromId,
@@ -756,8 +763,7 @@ export function createDiscordService({
       knownUsers: buildKnownUsersMap(),
       personaSummary: EXTERNAL_SYSTEM_PROMPT,
       ownerInstruction: readChannelsConfig().guestInstruction,
-      groupUserDocument: groupUserDoc?.content,
-      vision: groupConfig?.vision
+      groupUserDocument: groupUserDoc?.content
     })
 
     console.log(
