@@ -233,15 +233,29 @@ function collectRecordedToolCallIds(
 
 function normalizeCompletedToolCalls(
   responseMessages: RecoveryResponseMessage[],
-  completedToolCallIds: Set<string>
+  completedToolCalls: Map<string, ToolCallRecord>
 ): RecoveryResponseMessage[] {
   const normalizedMessages: RecoveryResponseMessage[] = []
 
   for (const message of responseMessages) {
     if (message.role === 'assistant') {
-      const content = message.content.filter(
-        (part) => part.type !== 'tool-call' || completedToolCallIds.has(part.toolCallId)
-      )
+      const content = message.content.flatMap((part): RecoveryAssistantPart[] => {
+        if (part.type !== 'tool-call') {
+          return [part]
+        }
+
+        const completedToolCall = completedToolCalls.get(part.toolCallId)
+        if (!completedToolCall) {
+          return []
+        }
+
+        return [
+          {
+            ...part,
+            input: buildInterruptedToolCallInput(completedToolCall)
+          }
+        ]
+      })
       if (content.length > 0) {
         normalizedMessages.push({
           ...message,
@@ -251,7 +265,19 @@ function normalizeCompletedToolCalls(
       continue
     }
 
-    const content = message.content.filter((part) => completedToolCallIds.has(part.toolCallId))
+    const content = message.content.flatMap((part): RecoveryToolResultPart[] => {
+      const completedToolCall = completedToolCalls.get(part.toolCallId)
+      if (!completedToolCall) {
+        return []
+      }
+
+      return [
+        {
+          ...part,
+          output: buildInterruptedToolCallOutput(completedToolCall)
+        }
+      ]
+    })
     if (content.length > 0) {
       normalizedMessages.push({
         ...message,
@@ -434,13 +460,15 @@ export function buildRecoveryResponseMessages(input: {
   const completedToolCalls = [...input.toolCalls]
     .filter((toolCall) => toolCall.finishedAt && toolCall.status === 'completed')
     .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
-  const completedToolCallIds = new Set(completedToolCalls.map((toolCall) => toolCall.id))
+  const completedToolCallsById = new Map(
+    completedToolCalls.map((toolCall) => [toolCall.id, toolCall] as const)
+  )
 
   if (input.checkpoint.responseMessages?.length) {
     return appendMissingCompletedToolCalls(
       normalizeCompletedToolCalls(
         cloneRecoveryResponseMessages(input.checkpoint.responseMessages) ?? [],
-        completedToolCallIds
+        completedToolCallsById
       ),
       completedToolCalls
     )
