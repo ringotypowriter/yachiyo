@@ -105,12 +105,26 @@ export function AboutPane(): React.ReactNode {
         </div>
 
         {/* App name */}
-        <div
+        <a
+          href="https://github.com/ringotypowriter/yachiyo"
+          target="_blank"
+          rel="noopener noreferrer"
           className="mt-5 text-2xl font-semibold"
-          style={{ color: theme.text.primary, letterSpacing: '-0.4px' }}
+          style={{
+            color: theme.text.primary,
+            letterSpacing: '-0.4px',
+            textDecoration: 'none',
+            cursor: 'pointer'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = theme.text.accent
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = theme.text.primary
+          }}
         >
           Yachiyo
-        </div>
+        </a>
 
         {/* Version */}
         <div className="mt-1.5 text-xs font-mono" style={{ color: theme.text.muted }}>
