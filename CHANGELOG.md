@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.11
+
+### Patch Changes
+
+- [`4a4142c`](https://github.com/ringotypowriter/yachiyo/commit/4a4142c5bacc9ad1702d21c54e8d250a0043b082) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Config Refactor & IME Fix
+
 ## 1.0.10
 
 ### Patch Changes
