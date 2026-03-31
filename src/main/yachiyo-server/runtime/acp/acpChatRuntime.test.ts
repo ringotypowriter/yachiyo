@@ -8,9 +8,11 @@ import test from 'node:test'
 import { createInMemoryYachiyoStorage } from '../../storage/memoryStorage.ts'
 import { runAcpChatThread } from './acpChatRuntime.ts'
 import type { AcpChatRunDeps, AcpChatRunInput } from './acpChatRuntime.ts'
+import type { AcpLaunchResult } from './acpLauncher.ts'
 import type {
   MessageRecord,
   SettingsConfig,
+  SubagentProfile,
   ThreadRecord
 } from '../../../../shared/yachiyo/protocol.ts'
 import type { YachiyoServerEvent } from '../../../../shared/yachiyo/protocol.ts'
@@ -33,7 +35,7 @@ function makeThread(
   }
 }
 
-function makeProfile() {
+function makeProfile(): SubagentProfile {
   return {
     id: 'agent-1',
     name: 'Test Agent',
@@ -45,7 +47,7 @@ function makeProfile() {
   }
 }
 
-function makeConfig(workspacePath: string): SettingsConfig {
+function makeConfig(): SettingsConfig {
   return {
     apiKey: '',
     providerName: '',
@@ -106,7 +108,7 @@ function makeDeps(
       if (!t) throw new Error(`Thread ${threadId} not found`)
       return t
     },
-    readConfig: () => makeConfig(workspacePath),
+    readConfig: () => makeConfig(),
     loadThreadMessages: (threadId: string) => storage.listThreadMessages(threadId),
     ensureThreadWorkspace: async () => workspacePath,
     emittedEvents
@@ -116,7 +118,7 @@ function makeDeps(
   }
 }
 
-function makeFakeLaunchResult() {
+function makeFakeLaunchResult(): AcpLaunchResult {
   return {
     proc: {
       stderr: new EventEmitter(),
