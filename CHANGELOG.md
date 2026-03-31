@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.10
+
+### Patch Changes
+
+- [`fd35f12`](https://github.com/ringotypowriter/yachiyo/commit/fd35f12caac4e8b89d6a58994decc26ff772946f) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Auto update
+
 ## 1.0.9
 
 ### Patch Changes
