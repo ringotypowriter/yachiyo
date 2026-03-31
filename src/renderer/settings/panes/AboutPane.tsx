@@ -58,6 +58,7 @@ export function AboutPane(): React.ReactNode {
     state: string
     version?: string
     percent?: number
+    error?: string
   }>({ state: 'idle' })
 
   useEffect(() => {
@@ -132,25 +133,36 @@ export function AboutPane(): React.ReactNode {
           Apache-2.0 License
         </div>
 
-        {/* Update status — fixed height to prevent layout shift */}
+        {/* Update status */}
         <div
-          className="mt-4 flex items-center justify-center"
-          style={{ height: 28, flexShrink: 0 }}
+          className="mt-4 flex flex-col items-center justify-center gap-1"
+          style={{ minHeight: 28, flexShrink: 0 }}
         >
           {(updateState.state === 'idle' || updateState.state === 'error') && (
-            <button
-              type="button"
-              onClick={() => window.api.appUpdate.check()}
-              className="text-xs font-medium px-3 py-1.5 rounded-full"
-              style={{
-                background: alpha('ink', 0.05),
-                color: theme.text.secondary,
-                border: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              {updateState.state === 'error' ? 'Retry update check' : 'Check for updates'}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => window.api.appUpdate.check()}
+                className="text-xs font-medium px-3 py-1.5 rounded-full"
+                style={{
+                  background: alpha('ink', 0.05),
+                  color: theme.text.secondary,
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                {updateState.state === 'error' ? 'Retry update check' : 'Check for updates'}
+              </button>
+              {updateState.state === 'error' && updateState.error && (
+                <span
+                  className="text-[11px] text-center px-4"
+                  style={{ color: theme.text.muted, maxWidth: 260 }}
+                  title={updateState.error}
+                >
+                  {updateState.error}
+                </span>
+              )}
+            </>
           )}
           {updateState.state === 'checking' && (
             <span className="text-xs" style={{ color: theme.text.muted }}>

@@ -425,12 +425,13 @@ export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactN
                 { value: 'stable' as const, label: 'Stable' },
                 { value: 'nightly' as const, label: 'Nightly' }
               ]}
-              onChange={(channel) =>
+              onChange={(channel) => {
                 onChange({
                   ...draft,
                   general: { ...draft.general, updateChannel: channel }
                 })
-              }
+                window.api.appUpdate.setChannel(channel)
+              }}
               width={120}
             />
           </div>
