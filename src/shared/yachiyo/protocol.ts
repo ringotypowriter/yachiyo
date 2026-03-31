@@ -701,6 +701,7 @@ export interface SubagentProfile {
 
 export interface FileMentionCandidate {
   path: string
+  includeIgnored?: boolean
 }
 
 export interface SearchWorkspaceFilesInput {

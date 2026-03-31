@@ -199,7 +199,7 @@ interface AppState {
   setComposerValue: (value: string) => void
   setComposerEnabledSkillNames: (enabledSkillNames: string[] | null) => void
   setPendingWorkspacePath: (workspacePath: string | null) => void
-  setThreadWorkspace: (workspacePath: string | null) => Promise<void>
+  setThreadWorkspace: (workspacePath: string | null, threadId?: string | null) => Promise<void>
   setThreadListMode: (mode: 'active' | 'archived') => void
   toggleShowExternalThreads: () => void
   setThreadPrivacyMode: (threadId: string, enabled: boolean) => Promise<void>
@@ -2547,8 +2547,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     void refreshAvailableSkills(set, get)
   },
 
-  setThreadWorkspace: async (workspacePath) => {
-    const threadId = get().activeThreadId
+  setThreadWorkspace: async (workspacePath, targetThreadId) => {
+    const threadId = targetThreadId ?? get().activeThreadId
     if (!threadId) {
       set({
         pendingWorkspacePath: normalizeWorkspacePath(workspacePath)
@@ -2562,11 +2562,25 @@ export const useAppStore = create<AppState>((set, get) => ({
         threadId,
         workspacePath: normalizeWorkspacePath(workspacePath)
       })
-      set((state) => ({
-        lastError: null,
-        threads: upsertThread(state.threads, thread)
-      }))
-      await refreshAvailableSkills(set, get)
+      set((state) => {
+        const nextState: Partial<AppState> = {
+          lastError: null
+        }
+
+        if (isExternalThread(thread)) {
+          nextState.externalThreads = sortThreads([
+            thread,
+            ...state.externalThreads.filter((item) => item.id !== thread.id)
+          ])
+        } else {
+          nextState.threads = upsertThread(state.threads, thread)
+        }
+
+        return nextState
+      })
+      if (get().activeThreadId === threadId) {
+        await refreshAvailableSkills(set, get)
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to change the workspace.'
       set({ lastError: message })

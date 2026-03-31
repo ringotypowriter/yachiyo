@@ -10,6 +10,7 @@ export interface ConfirmDialogAction {
 
 export interface ConfirmDialogProps {
   title: string
+  description?: string
   actions: ConfirmDialogAction[]
   onSelect: (key: string) => void
   onClose: () => void
@@ -17,6 +18,7 @@ export interface ConfirmDialogProps {
 
 export function ConfirmDialog({
   title,
+  description,
   actions,
   onSelect,
   onClose
@@ -74,6 +76,14 @@ export function ConfirmDialog({
         >
           {title}
         </p>
+        {description ? (
+          <p
+            className="text-xs m-0 text-center"
+            style={{ color: theme.text.muted, lineHeight: 1.55 }}
+          >
+            {description}
+          </p>
+        ) : null}
         <div className="flex flex-col gap-1.5">
           {actions.map((action) => (
             <button

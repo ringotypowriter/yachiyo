@@ -1741,6 +1741,41 @@ test('YachiyoServer allows setting a specific workspace before the first send an
   )
 })
 
+test('YachiyoServer surfaces ignored workspace matches for the picker as @! candidates', async () => {
+  await withServer(async ({ server, workspacePathForThread }) => {
+    const thread = await server.createThread()
+    const workspacePath = workspacePathForThread(thread.id)
+
+    await mkdir(join(workspacePath, 'docs'), { recursive: true })
+    await writeFile(join(workspacePath, '.gitignore'), 'docs/\n', 'utf8')
+    await writeFile(join(workspacePath, 'docs', 'ACP_CAPABILITY_GAP.md'), '# Gap\n', 'utf8')
+
+    const results = await server.searchWorkspaceFiles({
+      threadId: thread.id,
+      query: 'docs/ACP'
+    })
+
+    assert.deepEqual(results, [{ path: 'docs/ACP_CAPABILITY_GAP.md', includeIgnored: true }])
+  })
+})
+
+test('YachiyoServer does not surface exact ignored path matches for bare @file validation', async () => {
+  await withServer(async ({ server, workspacePathForThread }) => {
+    const thread = await server.createThread()
+    const workspacePath = workspacePathForThread(thread.id)
+
+    await writeFile(join(workspacePath, '.gitignore'), 'secret.txt\n', 'utf8')
+    await writeFile(join(workspacePath, 'secret.txt'), 'top secret\n', 'utf8')
+
+    const results = await server.searchWorkspaceFiles({
+      threadId: thread.id,
+      query: 'secret.txt'
+    })
+
+    assert.deepEqual(results, [])
+  })
+})
+
 test('YachiyoServer creates a per-thread workspace, persists structured tool details, and updates the same tool call through its lifecycle', async () => {
   let toolWorkspacePath = ''
 
@@ -6142,6 +6177,75 @@ test('YachiyoServer compacts a thread into a new assistant-first thread and allo
 
           yield 'Hello'
           yield ' world'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer allows changing a fresh handoff thread workspace before the first user continuation', async () => {
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const inheritedWorkspace = join(tmpdir(), 'yachiyo-handoff-inherited-workspace')
+      const sourceThread = await server.createThread({
+        workspacePath: inheritedWorkspace
+      })
+      const sourceAccepted = await server.sendChat({
+        threadId: sourceThread.id,
+        content: 'Prepare a handoff.'
+      })
+      await completeRun(sourceAccepted.runId)
+
+      const compacted = await server.compactThreadToAnotherThread({
+        threadId: sourceThread.id
+      })
+      await completeRun(compacted.runId)
+
+      const replacementWorkspace = join(tmpdir(), 'yachiyo-handoff-replacement-workspace')
+      const updatedThread = await server.updateThreadWorkspace({
+        threadId: compacted.thread.id,
+        workspacePath: replacementWorkspace
+      })
+      assert.equal(updatedThread.workspacePath, replacementWorkspace)
+
+      const continuation = await server.sendChat({
+        threadId: compacted.thread.id,
+        content: 'Continue from the handoff.'
+      })
+      await completeRun(continuation.runId)
+
+      await assert.rejects(
+        server.updateThreadWorkspace({
+          threadId: compacted.thread.id,
+          workspacePath: inheritedWorkspace
+        }),
+        /before the first message is sent/
+      )
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest): AsyncIterable<string> {
+          const lastMessage = request.messages.at(-1)
+          const lastMessageText =
+            typeof lastMessage?.content === 'string' ? lastMessage.content : ''
+
+          if (/visible handoff/i.test(lastMessageText)) {
+            yield 'Visible handoff'
+            return
+          }
+
+          yield 'Hello world'
         }
       })
     }

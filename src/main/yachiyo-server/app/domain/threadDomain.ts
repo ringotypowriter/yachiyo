@@ -24,6 +24,7 @@ import {
   pickReplacementHeadId,
   sortMessagesByCreatedAt
 } from '../../../../shared/yachiyo/threadTree.ts'
+import { canChangeThreadWorkspace } from '../../../../shared/yachiyo/threadWorkspaceRules.ts'
 import type { AuxiliaryGenerationService } from '../../runtime/auxiliaryGeneration.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
@@ -206,11 +207,12 @@ export class YachiyoServerThreadDomain {
 
     const messages = this.loadThreadMessages(thread.id)
     const threadCreatedAt = this.deps.storage.getThreadCreatedAt(thread.id)
-    const hasThreadLocalMessages =
-      messages.length > 0 &&
-      (!threadCreatedAt ||
-        messages.some((message) => message.createdAt.localeCompare(threadCreatedAt) >= 0))
-    if (hasThreadLocalMessages) {
+    if (
+      !canChangeThreadWorkspace({
+        messages,
+        threadCreatedAt
+      })
+    ) {
       throw new Error('Workspace can only be changed before the first message is sent.')
     }
 

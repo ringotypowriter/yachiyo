@@ -1055,6 +1055,61 @@ test('setEnabledTools persists one shared tool preference across thread switches
   }
 })
 
+test('setThreadWorkspace updates only the matching thread collection', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    updateThreadWorkspace: async ({ threadId, workspacePath }) => ({
+      id: threadId,
+      title: threadId === 'thread-1' ? 'Local thread' : 'External thread',
+      updatedAt: '2026-03-15T00:00:02.000Z',
+      ...(workspacePath ? { workspacePath } : {}),
+      source: threadId === 'thread-1' ? 'local' : 'discord'
+    })
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', title: 'Local thread', updatedAt: TIMESTAMP }],
+      externalThreads: [
+        {
+          id: 'external-thread',
+          title: 'External thread',
+          updatedAt: TIMESTAMP,
+          source: 'discord'
+        }
+      ]
+    })
+
+    await useAppStore.getState().setThreadWorkspace('/tmp/local-workspace', 'thread-1')
+
+    let state = useAppStore.getState()
+    assert.equal(
+      state.threads.find((thread) => thread.id === 'thread-1')?.workspacePath,
+      '/tmp/local-workspace'
+    )
+    assert.deepEqual(
+      state.externalThreads.map((thread) => thread.id),
+      ['external-thread']
+    )
+
+    await useAppStore.getState().setThreadWorkspace('/tmp/external-workspace', 'external-thread')
+
+    state = useAppStore.getState()
+    assert.equal(
+      state.externalThreads.find((thread) => thread.id === 'external-thread')?.workspacePath,
+      '/tmp/external-workspace'
+    )
+    assert.deepEqual(
+      state.threads.map((thread) => thread.id),
+      ['thread-1']
+    )
+  } finally {
+    restoreWindow()
+  }
+})
+
 test('setActiveThread derives run state from the selected thread only', () => {
   resetStore()
 

@@ -37,7 +37,12 @@ import { ToolSelectorPopup } from './ToolSelectorPopup'
 import { WorkspaceSelectorPopup } from './WorkspaceSelectorPopup'
 import { SmoothCaretOverlay } from './SmoothCaretOverlay'
 import { formatTokenCount } from '@renderer/lib/formatTokenCount'
+import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { Tooltip } from '@renderer/components/Tooltip'
+import {
+  canChangeThreadWorkspace,
+  isFreshHandoffWorkspaceThread
+} from '../../../../../shared/yachiyo/threadWorkspaceRules.ts'
 
 const NEW_THREAD_DRAFT_KEY = '__new__'
 const MAX_COMPOSER_IMAGES = 4
@@ -65,6 +70,13 @@ const SLASH_PATTERN = /^\/([a-zA-Z0-9-]*)$/
 const SKILL_PREFIX_PATTERN = /^\/skills:([a-zA-Z0-9_-]*)$/
 const AT_SKILL_PREFIX_PATTERN = /^@skills:([a-zA-Z0-9_-]*)$/
 const FILE_MENTION_PATTERN = /(^|\s)@(!?)([A-Za-z0-9._/-]*)$/
+
+interface PendingWorkspaceChangeConfirmation {
+  threadId: string | null
+  currentWorkspacePath: string | null
+  nextWorkspacePath: string | null
+  saveWorkspacePath?: string
+}
 
 function renderComposerTextHighlights(
   text: string,
@@ -157,7 +169,11 @@ async function resolveValidatedFileTags(input: {
         limit: 8
       })
 
-      if (matches.some((match) => match.path === query)) {
+      if (
+        matches.some(
+          (match) => match.path === query && Boolean(match.includeIgnored) === includeIgnored
+        )
+      ) {
         validated.push(fileTag)
       }
     })
@@ -380,6 +396,8 @@ export function Composer({
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false)
   const [workspaceHintHovered, setWorkspaceHintHovered] = useState(false)
   const [workspaceHintPinned, setWorkspaceHintPinned] = useState(false)
+  const [pendingWorkspaceChangeConfirmation, setPendingWorkspaceChangeConfirmation] =
+    useState<PendingWorkspaceChangeConfirmation | null>(null)
   const [isComposing, setIsComposing] = useState(false)
   const [isTextareaFocused, setIsTextareaFocused] = useState(false)
   const [dismissedSlashQuery, setDismissedSlashQuery] = useState<string | null>(null)
@@ -423,9 +441,24 @@ export function Composer({
     threads.find((thread) => thread.id === activeThreadId) ??
     externalThreads.find((thread) => thread.id === activeThreadId) ??
     null
+  const activeThreadMessages = activeThreadId !== null ? (messages[activeThreadId] ?? []) : []
   const currentWorkspacePath = activeThread?.workspacePath ?? pendingWorkspacePath
-  const isWorkspaceLocked = activeThreadId !== null && (messages[activeThreadId]?.length ?? 0) > 0
-  const savedWorkspacePaths = config?.workspace?.savedPaths ?? []
+  const isFreshHandoffWorkspace =
+    activeThreadId !== null &&
+    isFreshHandoffWorkspaceThread({
+      messages: activeThreadMessages,
+      threadCreatedAt: null
+    })
+  const isWorkspaceLocked =
+    activeThreadId !== null &&
+    !canChangeThreadWorkspace({
+      messages: activeThreadMessages,
+      threadCreatedAt: null
+    })
+  const savedWorkspacePaths = useMemo(
+    () => config?.workspace?.savedPaths ?? [],
+    [config?.workspace]
+  )
   const workspaceHint = getWorkspaceHint({
     isWorkspaceLocked,
     workspacePath: currentWorkspacePath
@@ -485,6 +518,42 @@ export function Composer({
 
   const userPrompts = useMemo(() => config?.prompts ?? [], [config?.prompts])
   const canRunThreadOperations = activeThreadId !== null
+
+  const commitWorkspaceSelection = useCallback(
+    async (selection: PendingWorkspaceChangeConfirmation): Promise<void> => {
+      if (selection.saveWorkspacePath && config) {
+        const nextSavedPaths = [...new Set([...savedWorkspacePaths, selection.saveWorkspacePath])]
+        await window.api.yachiyo.saveConfig({
+          ...config,
+          workspace: {
+            ...config.workspace,
+            savedPaths: nextSavedPaths
+          }
+        })
+      }
+
+      if (selection.currentWorkspacePath === selection.nextWorkspacePath) {
+        return
+      }
+
+      await setThreadWorkspace(selection.nextWorkspacePath, selection.threadId)
+    },
+    [config, savedWorkspacePaths, setThreadWorkspace]
+  )
+
+  const requestWorkspaceSelection = useCallback(
+    (selection: PendingWorkspaceChangeConfirmation): void => {
+      const workspaceChanged = selection.currentWorkspacePath !== selection.nextWorkspacePath
+
+      if (isFreshHandoffWorkspace && workspaceChanged) {
+        setPendingWorkspaceChangeConfirmation(selection)
+        return
+      }
+
+      void commitWorkspaceSelection(selection)
+    },
+    [commitWorkspaceSelection, isFreshHandoffWorkspace]
+  )
   const allSlashCommands = useMemo<SlashCommand[]>(
     () => [
       ...(canRunThreadOperations
@@ -540,9 +609,9 @@ export function Composer({
     }
     if (fileMentionQuery !== null) {
       return fileMentionMatches.map((match) => ({
-        key: `file:${match.path}`,
-        label: match.path,
-        description: 'Workspace path',
+        key: `file:${match.includeIgnored ? '!' : ''}${match.path}`,
+        label: `${match.includeIgnored ? '!' : ''}${match.path}`,
+        description: match.includeIgnored ? 'Ignored workspace path' : 'Workspace path',
         type: 'file' as const
       }))
     }
@@ -988,12 +1057,13 @@ export function Composer({
         const skillName = command.key.slice('skills:'.length)
         setComposerValue(`@skills:${skillName} `)
       } else if (command.type === 'file') {
-        const filePath = command.key.slice('file:'.length)
+        const encodedPath = command.key.slice('file:'.length)
+        const filePath = encodedPath.startsWith('!') ? encodedPath.slice(1) : encodedPath
         setComposerValue(
           composerValue.replace(
             FILE_MENTION_PATTERN,
             (_match, prefix: string, ignoreMarker: string) =>
-              `${prefix}@${ignoreMarker}${filePath} `
+              `${prefix}@${encodedPath.startsWith('!') || ignoreMarker === '!' ? '!' : ''}${filePath} `
           )
         )
       } else {
@@ -1608,7 +1678,11 @@ export function Composer({
               currentWorkspacePath={currentWorkspacePath}
               savedPaths={savedWorkspacePaths}
               onSelectWorkspace={(workspacePath) => {
-                void setThreadWorkspace(workspacePath)
+                requestWorkspaceSelection({
+                  threadId: activeThreadId,
+                  currentWorkspacePath,
+                  nextWorkspacePath: workspacePath
+                })
               }}
               onChooseDirectory={() => {
                 void (async () => {
@@ -1617,24 +1691,40 @@ export function Composer({
                     return
                   }
 
-                  if (config) {
-                    const nextSavedPaths = [...new Set([...savedWorkspacePaths, pickedPath])]
-                    await window.api.yachiyo.saveConfig({
-                      ...config,
-                      workspace: {
-                        ...config.workspace,
-                        savedPaths: nextSavedPaths
-                      }
-                    })
-                  }
-
-                  await setThreadWorkspace(pickedPath)
+                  requestWorkspaceSelection({
+                    threadId: activeThreadId,
+                    currentWorkspacePath,
+                    nextWorkspacePath: pickedPath,
+                    saveWorkspacePath: pickedPath
+                  })
                 })()
               }}
               onClose={() => setWorkspaceSelectorOpen(false)}
             />
           ) : null}
         </div>
+
+        {pendingWorkspaceChangeConfirmation ? (
+          <ConfirmDialog
+            title="Switch this handoff thread to a different workspace?"
+            description="This thread started from a handoff and inherited the previous workspace. Changing it now will detach the handoff from that inherited folder."
+            actions={[
+              { key: 'keep', label: 'Keep inherited workspace' },
+              { key: 'switch', label: 'Switch workspace', tone: 'accent' }
+            ]}
+            onClose={() => setPendingWorkspaceChangeConfirmation(null)}
+            onSelect={(key) => {
+              if (key !== 'switch') {
+                setPendingWorkspaceChangeConfirmation(null)
+                return
+              }
+
+              const selection = pendingWorkspaceChangeConfirmation
+              setPendingWorkspaceChangeConfirmation(null)
+              void commitWorkspaceSelection(selection)
+            }}
+          />
+        ) : null}
 
         <div ref={modelSelectorRef} style={{ position: 'relative' }}>
           <button
