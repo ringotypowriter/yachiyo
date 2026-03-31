@@ -3,7 +3,6 @@ import { useDeferredValue, useMemo, useState } from 'react'
 import { theme, alpha } from '@renderer/theme/theme'
 import type { SettingsConfig, SkillCatalogEntry } from '../../../shared/yachiyo/protocol.ts'
 import { normalizeSkillNames } from '../../../shared/yachiyo/protocol.ts'
-import { imeSafeChange } from '../components/imeUtils'
 import { SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
 import { filterSkills } from './skillsPaneModel'
 
@@ -38,7 +37,7 @@ export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps
               <input
                 type="search"
                 value={query}
-                onChange={imeSafeChange(setQuery)}
+                onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search skills"
                 aria-label="Search skills"
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none"

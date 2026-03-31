@@ -1,13 +1,21 @@
+// keyCode 229 is the IME processing sentinel — fired on some browsers/platforms
+// when a key event is still being handled by the input method.
+const IME_PROCESSING_KEY_CODE = 229
+
 /**
- * Wraps an onChange handler to skip events fired during IME composition.
- * Use this on every <input> and <textarea> that updates state on change,
- * so that intermediate composition characters don't land as real values.
+ * Wraps an Enter key handler with IME composition guard.
+ * Skips the action when the key event is part of IME composition,
+ * preventing premature submission of half-composed characters.
+ * Matches the same guard used in the chat composer (isComposing + keyCode 229).
  */
-export function imeSafeChange(
-  handler: (value: string) => void
-): (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void {
+export function imeSafeEnter(
+  handler: () => void
+): (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => void {
   return (e) => {
-    if ((e.nativeEvent as InputEvent).isComposing) return
-    handler(e.target.value)
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === IME_PROCESSING_KEY_CODE) return
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handler()
+    }
   }
 }

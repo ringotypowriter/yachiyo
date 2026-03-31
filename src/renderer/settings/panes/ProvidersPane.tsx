@@ -15,7 +15,7 @@ import {
   syncToolModelWithProvider,
   toolModelTargetsProvider
 } from '../../../shared/yachiyo/providerConfig.ts'
-import { imeSafeChange } from '../components/imeUtils'
+import { imeSafeEnter } from '../components/imeUtils'
 import { Field, PlaceholderPane, SettingSwitch, SimpleSelect } from '../components/primitives'
 import { inputStyle } from '../components/styles'
 import { filterProviderModels } from './providersPaneModel'
@@ -269,7 +269,7 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
               <input
                 type="search"
                 value={query}
-                onChange={imeSafeChange(setQuery)}
+                onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search models"
                 aria-label="Search provider models"
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none"
@@ -314,14 +314,8 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
         >
           <input
             value={manualInput}
-            onChange={imeSafeChange(setManualInput)}
-            onKeyDown={(event) => {
-              if (event.nativeEvent.isComposing) return
-              if (event.key === 'Enter') {
-                event.preventDefault()
-                handleAddManual()
-              }
-            }}
+            onChange={(e) => setManualInput(e.target.value)}
+            onKeyDown={imeSafeEnter(() => handleAddManual())}
             className="flex-1 bg-transparent text-sm outline-none"
             style={{ color: theme.text.primary }}
             placeholder="Add model name..."
@@ -488,12 +482,12 @@ export function ProvidersPane({
               <Field label="Name">
                 <input
                   value={selectedProvider.name}
-                  onChange={imeSafeChange((value) =>
+                  onChange={(e) =>
                     handleProviderChange((provider) => ({
                       ...provider,
-                      name: value
+                      name: e.target.value
                     }))
-                  )}
+                  }
                   className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                   style={inputStyle()}
                   placeholder="work-openai"
@@ -521,12 +515,12 @@ export function ProvidersPane({
                   <Field label="Project ID">
                     <input
                       value={selectedProvider.project ?? ''}
-                      onChange={imeSafeChange((value) =>
+                      onChange={(e) =>
                         handleProviderChange((provider) => ({
                           ...provider,
-                          project: value
+                          project: e.target.value
                         }))
-                      )}
+                      }
                       className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                       style={inputStyle()}
                       placeholder="my-gcp-project"
@@ -536,12 +530,12 @@ export function ProvidersPane({
                   <Field label="Location">
                     <input
                       value={selectedProvider.location ?? ''}
-                      onChange={imeSafeChange((value) =>
+                      onChange={(e) =>
                         handleProviderChange((provider) => ({
                           ...provider,
-                          location: value
+                          location: e.target.value
                         }))
-                      )}
+                      }
                       className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                       style={inputStyle()}
                       placeholder="us-central1"
@@ -552,12 +546,12 @@ export function ProvidersPane({
                     <Field label="Service Account Email">
                       <input
                         value={selectedProvider.serviceAccountEmail ?? ''}
-                        onChange={imeSafeChange((value) =>
+                        onChange={(e) =>
                           handleProviderChange((provider) => ({
                             ...provider,
-                            serviceAccountEmail: value
+                            serviceAccountEmail: e.target.value
                           }))
-                        )}
+                        }
                         className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                         style={inputStyle()}
                         placeholder="sa@my-project.iam.gserviceaccount.com (optional — uses ADC if empty)"
@@ -569,15 +563,15 @@ export function ProvidersPane({
                     <Field label="Service Account Private Key">
                       <textarea
                         value={selectedProvider.serviceAccountPrivateKey ?? ''}
-                        onChange={imeSafeChange((raw) => {
+                        onChange={(e) => {
                           // Auto-convert literal \n sequences (from JSON service account files)
                           // into real newlines so the key is stored correctly.
-                          const value = raw.replace(/\\n/g, '\n')
+                          const value = e.target.value.replace(/\\n/g, '\n')
                           handleProviderChange((provider) => ({
                             ...provider,
                             serviceAccountPrivateKey: value
                           }))
-                        })}
+                        }}
                         rows={4}
                         className="w-full rounded-xl px-3 py-2.5 text-sm outline-none font-mono"
                         style={inputStyle()}
@@ -593,12 +587,12 @@ export function ProvidersPane({
                       <input
                         type="password"
                         value={selectedProvider.apiKey}
-                        onChange={imeSafeChange((value) =>
+                        onChange={(e) =>
                           handleProviderChange((provider) => ({
                             ...provider,
-                            apiKey: value
+                            apiKey: e.target.value
                           }))
-                        )}
+                        }
                         className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                         style={inputStyle()}
                         placeholder={
@@ -618,12 +612,12 @@ export function ProvidersPane({
                     <Field label="Base URL">
                       <input
                         value={selectedProvider.baseUrl}
-                        onChange={imeSafeChange((value) =>
+                        onChange={(e) =>
                           handleProviderChange((provider) => ({
                             ...provider,
-                            baseUrl: value
+                            baseUrl: e.target.value
                           }))
-                        )}
+                        }
                         className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                         style={inputStyle()}
                         placeholder={

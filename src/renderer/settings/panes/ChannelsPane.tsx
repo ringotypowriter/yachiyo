@@ -19,7 +19,7 @@ import {
   SettingSwitch,
   SimpleSelect
 } from '../components/primitives'
-import { imeSafeChange } from '../components/imeUtils'
+import { imeSafeEnter } from '../components/imeUtils'
 
 export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.ReactNode {
   const [config, setConfig] = useState<ChannelsConfig>({})
@@ -220,7 +220,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               <input
                 type={showTelegramToken ? 'text' : 'password'}
                 value={botToken}
-                onChange={imeSafeChange((value) => patchTelegram({ botToken: value }))}
+                onChange={(e) => patchTelegram({ botToken: e.target.value })}
                 placeholder="123456:ABC-DEF..."
                 spellCheck={false}
                 className="flex-1 text-sm min-w-0"
@@ -350,7 +350,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               <input
                 type="text"
                 value={qqWsUrl}
-                onChange={imeSafeChange((value) => patchQQ({ wsUrl: value }))}
+                onChange={(e) => patchQQ({ wsUrl: e.target.value })}
                 placeholder="ws://localhost:3001"
                 spellCheck={false}
                 className="flex-1 text-sm min-w-0"
@@ -375,7 +375,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               <input
                 type={showQQToken ? 'text' : 'password'}
                 value={qqToken}
-                onChange={imeSafeChange((value) => patchQQ({ token: value }))}
+                onChange={(e) => patchQQ({ token: e.target.value })}
                 placeholder="Optional"
                 spellCheck={false}
                 className="flex-1 text-sm min-w-0"
@@ -503,7 +503,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               <input
                 type={showDiscordToken ? 'text' : 'password'}
                 value={discordBotToken}
-                onChange={imeSafeChange((value) => patchDiscord({ botToken: value }))}
+                onChange={(e) => patchDiscord({ botToken: e.target.value })}
                 placeholder="MTIzNDU2Nzg5..."
                 spellCheck={false}
                 className="flex-1 text-sm min-w-0"
@@ -861,14 +861,14 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
         <div className="px-7 pb-3">
           <textarea
             value={config.guestInstruction ?? ''}
-            onChange={imeSafeChange((value) => {
+            onChange={(e) => {
               setConfig((c) => {
-                const next = { ...c, guestInstruction: value }
+                const next = { ...c, guestInstruction: e.target.value }
                 configRef.current = next
                 scheduleSave(next)
                 return next
               })
-            })}
+            }}
             placeholder="Tell the model what guests should know about you, and any rules for guest conversations..."
             spellCheck={false}
             rows={4}
@@ -995,11 +995,8 @@ function MemoryFilterKeywords({
         <input
           type="text"
           value={draft}
-          onChange={imeSafeChange(setDraft)}
-          onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing) return
-            if (e.key === 'Enter') addKeyword()
-          }}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={imeSafeEnter(() => addKeyword())}
           placeholder="Add keyword..."
           className="flex-1 text-sm min-w-0"
           style={{
@@ -1176,12 +1173,9 @@ function ChannelUserRow({
           inputMode="numeric"
           placeholder="∞"
           value={limitDraft}
-          onChange={imeSafeChange(setLimitDraft)}
+          onChange={(e) => setLimitDraft(e.target.value)}
           onBlur={() => onLimitChange(limitDraft)}
-          onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing) return
-            if (e.key === 'Enter') onLimitChange(limitDraft)
-          }}
+          onKeyDown={imeSafeEnter(() => onLimitChange(limitDraft))}
           className="text-sm text-right"
           style={{
             width: 52,
