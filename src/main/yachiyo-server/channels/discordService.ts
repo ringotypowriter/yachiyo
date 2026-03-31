@@ -29,7 +29,7 @@ import type {
   ThreadModelOverride
 } from '../../../shared/yachiyo/protocol.ts'
 import type { YachiyoServer } from '../app/YachiyoServer.ts'
-import { discordPolicy } from './channelPolicy.ts'
+import { discordPolicy, type ChannelPolicy } from './channelPolicy.ts'
 import { fetchImageAsDataUrl } from './channelImageDownload.ts'
 import { createDirectMessageService, resolveDirectMessageThread } from './directMessageService.ts'
 import { handleDmSlashCommand } from './dmSlashCommands.ts'
@@ -104,6 +104,8 @@ export interface DiscordServiceOptions {
   groupVerbosity?: number
   /** Global override for active-phase check interval (ms). */
   groupCheckIntervalMs?: number
+  /** Effective policy with config overrides applied. Defaults to discordPolicy. */
+  policy?: ChannelPolicy
 }
 
 export interface DiscordService {
@@ -123,9 +125,10 @@ export function createDiscordService({
   server,
   groupConfig,
   groupVerbosity,
-  groupCheckIntervalMs
+  groupCheckIntervalMs,
+  policy: policyOverride
 }: DiscordServiceOptions): DiscordService {
-  const policy = discordPolicy
+  const policy = policyOverride ?? discordPolicy
 
   const groupProbeMessageCountLimit = new Map<string, number>()
 
@@ -592,7 +595,7 @@ export function createDiscordService({
         currentMessageCount: probeRecentMessages.length,
         availableMessageCount: recentMessages.length,
         totalPromptTokens: result.usage?.totalPromptTokens,
-        contextTokenLimit: policy.contextTokenLimit
+        contextTokenLimit: policy.groupContextTokenLimit
       })
       const previousMessageCountLimit = groupProbeMessageCountLimit.get(group.id)
       if (nextMessageCountLimit == null) {

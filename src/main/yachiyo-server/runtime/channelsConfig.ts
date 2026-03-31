@@ -169,6 +169,14 @@ export function parseChannelsToml(raw: string): ChannelsConfig {
     if (checkInterval !== undefined) {
       config.groupCheckIntervalMs = checkInterval
     }
+    const dmCompact = int(group['dm_compact_token_threshold_k'])
+    if (dmCompact !== undefined) {
+      config.dmCompactTokenThresholdK = dmCompact
+    }
+    const groupWindow = int(group['group_context_window_k'])
+    if (groupWindow !== undefined) {
+      config.groupContextWindowK = groupWindow
+    }
   }
 
   return config
@@ -278,12 +286,20 @@ export function stringifyChannelsToml(config: ChannelsConfig): string {
     ])
   }
 
-  const hasGroup = config.groupVerbosity !== undefined || config.groupCheckIntervalMs !== undefined
+  const hasGroup =
+    config.groupVerbosity !== undefined ||
+    config.groupCheckIntervalMs !== undefined ||
+    config.dmCompactTokenThresholdK !== undefined ||
+    config.groupContextWindowK !== undefined
   if (hasGroup) {
     const groupSection: Record<string, unknown> = {}
     if (config.groupVerbosity !== undefined) groupSection['verbosity'] = config.groupVerbosity
     if (config.groupCheckIntervalMs !== undefined)
       groupSection['check_interval_ms'] = config.groupCheckIntervalMs
+    if (config.dmCompactTokenThresholdK !== undefined)
+      groupSection['dm_compact_token_threshold_k'] = config.dmCompactTokenThresholdK
+    if (config.groupContextWindowK !== undefined)
+      groupSection['group_context_window_k'] = config.groupContextWindowK
     doc['group'] = groupSection
   }
 

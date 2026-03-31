@@ -27,7 +27,7 @@ import type {
 } from '../../../shared/yachiyo/protocol.ts'
 import type { YachiyoServer } from '../app/YachiyoServer.ts'
 import { resolveYachiyoTempWorkspaceRoot } from '../config/paths.ts'
-import { qqPolicy } from './channelPolicy.ts'
+import { qqPolicy, type ChannelPolicy } from './channelPolicy.ts'
 import { createDirectMessageService, resolveDirectMessageThread } from './directMessageService.ts'
 import { handleDmSlashCommand } from './dmSlashCommands.ts'
 import {
@@ -78,6 +78,8 @@ export interface QQServiceOptions {
   groupVerbosity?: number
   /** Global override for active-phase check interval (ms). */
   groupCheckIntervalMs?: number
+  /** Effective policy with config overrides applied. Defaults to qqPolicy. */
+  policy?: ChannelPolicy
 }
 
 export interface QQService {
@@ -99,9 +101,10 @@ export function createQQService({
   groupConfig,
   botQQId,
   groupVerbosity,
-  groupCheckIntervalMs
+  groupCheckIntervalMs,
+  policy: policyOverride
 }: QQServiceOptions): QQService {
-  const policy = qqPolicy
+  const policy = policyOverride ?? qqPolicy
   const groupProbeMessageCountLimit = new Map<string, number>()
   let resolvedBotQQId = botQQId
 
@@ -534,7 +537,7 @@ export function createQQService({
         currentMessageCount: probeRecentMessages.length,
         availableMessageCount: recentMessages.length,
         totalPromptTokens,
-        contextTokenLimit: policy.contextTokenLimit
+        contextTokenLimit: policy.groupContextTokenLimit
       })
       const previousMessageCountLimit = groupProbeMessageCountLimit.get(group.id)
       if (nextMessageCountLimit == null) {

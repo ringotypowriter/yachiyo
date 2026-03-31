@@ -56,6 +56,12 @@ import {
   type DiscordService
 } from './yachiyo-server/channels/discordService.ts'
 import {
+  applyChannelsConfigToPolicy,
+  telegramPolicy,
+  qqPolicy,
+  discordPolicy
+} from './yachiyo-server/channels/channelPolicy.ts'
+import {
   createScheduleService,
   type ScheduleService
 } from './yachiyo-server/services/scheduleService.ts'
@@ -173,7 +179,8 @@ async function applyTelegramConfig(cfg: ChannelsConfig): Promise<void> {
     groupConfig: cfg.telegram?.group,
     botUsername: undefined, // TODO: resolve bot username from Bot API getMe
     groupVerbosity: cfg.groupVerbosity,
-    groupCheckIntervalMs: cfg.groupCheckIntervalMs
+    groupCheckIntervalMs: cfg.groupCheckIntervalMs,
+    policy: applyChannelsConfigToPolicy(telegramPolicy, cfg)
   })
   telegramService.startPolling()
   console.log('[telegram] polling started')
@@ -209,7 +216,8 @@ async function applyQQConfig(cfg: ChannelsConfig): Promise<void> {
     groupConfig: cfg.qq?.group,
     botQQId: cfg.qq?.token ? undefined : undefined, // TODO: resolve bot's own QQ ID for @mention detection
     groupVerbosity: cfg.groupVerbosity,
-    groupCheckIntervalMs: cfg.groupCheckIntervalMs
+    groupCheckIntervalMs: cfg.groupCheckIntervalMs,
+    policy: applyChannelsConfigToPolicy(qqPolicy, cfg)
   })
   qqService.connect()
   console.log('[qq] service started')
@@ -243,7 +251,8 @@ async function applyDiscordConfig(cfg: ChannelsConfig): Promise<void> {
     server,
     groupConfig: cfg.discord?.group,
     groupVerbosity: cfg.groupVerbosity,
-    groupCheckIntervalMs: cfg.groupCheckIntervalMs
+    groupCheckIntervalMs: cfg.groupCheckIntervalMs,
+    policy: applyChannelsConfigToPolicy(discordPolicy, cfg)
   })
   discordService.connect()
   console.log('[discord] service started')

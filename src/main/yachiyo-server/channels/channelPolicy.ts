@@ -6,7 +6,11 @@
  * plug in their own policy while reusing the same conversation context model.
  */
 
-import type { ChannelPlatform, ToolCallName } from '../../../shared/yachiyo/protocol.ts'
+import type {
+  ChannelPlatform,
+  ChannelsConfig,
+  ToolCallName
+} from '../../../shared/yachiyo/protocol.ts'
 import { CHANNEL_REPLY_HINT, extractChannelReply } from './channelReply.ts'
 
 export interface GroupPolicyDefaults {
@@ -33,8 +37,11 @@ export interface ChannelPolicy {
   /** Read-only tools safe to expose to this channel's users. */
   allowedTools: ToolCallName[]
 
-  /** Token budget before triggering compaction to rolling summary. */
+  /** Token budget before triggering DM compaction to rolling summary. */
   contextTokenLimit: number
+
+  /** Token budget for the group probe sliding window. */
+  groupContextTokenLimit: number
 
   /** Thread reuse window in milliseconds. */
   threadReuseWindowMs: number
@@ -72,6 +79,7 @@ export const telegramPolicy: ChannelPolicy = {
   extractVisibleReply: extractChannelReply,
   allowedTools: ['read', 'grep', 'glob', 'webRead', 'webSearch'],
   contextTokenLimit: 64_000,
+  groupContextTokenLimit: 64_000,
   threadReuseWindowMs: 24 * 60 * 60 * 1_000,
   maxImageBytes: 5 * 1024 * 1024,
   maxImagesPerBatch: 4,
@@ -85,6 +93,7 @@ export const qqPolicy: ChannelPolicy = {
   extractVisibleReply: extractChannelReply,
   allowedTools: ['read', 'grep', 'glob', 'webRead', 'webSearch'],
   contextTokenLimit: 64_000,
+  groupContextTokenLimit: 64_000,
   threadReuseWindowMs: 24 * 60 * 60 * 1_000,
   maxImageBytes: 5 * 1024 * 1024,
   maxImagesPerBatch: 4,
@@ -98,6 +107,7 @@ export const discordPolicy: ChannelPolicy = {
   extractVisibleReply: extractChannelReply,
   allowedTools: ['read', 'grep', 'glob', 'webRead', 'webSearch'],
   contextTokenLimit: 64_000,
+  groupContextTokenLimit: 64_000,
   threadReuseWindowMs: 24 * 60 * 60 * 1_000,
   maxImageBytes: 8 * 1024 * 1024,
   maxImagesPerBatch: 4,
@@ -116,5 +126,21 @@ export function resolveChannelPolicy(platform: ChannelPlatform): ChannelPolicy {
       return discordPolicy
     default:
       throw new Error(`Unknown channel platform: ${platform}`)
+  }
+}
+
+/**
+ * Apply user-configurable token limits from ChannelsConfig onto a base policy.
+ * Call this once per service creation in yachiyoGateway before passing the
+ * policy to the service constructor.
+ */
+export function applyChannelsConfigToPolicy(
+  base: ChannelPolicy,
+  cfg: Pick<ChannelsConfig, 'dmCompactTokenThresholdK' | 'groupContextWindowK'>
+): ChannelPolicy {
+  return {
+    ...base,
+    contextTokenLimit: (cfg.dmCompactTokenThresholdK ?? 64) * 1_000,
+    groupContextTokenLimit: (cfg.groupContextWindowK ?? 64) * 1_000
   }
 }

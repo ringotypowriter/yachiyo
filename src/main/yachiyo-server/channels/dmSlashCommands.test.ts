@@ -233,7 +233,7 @@ describe('handleDmSlashCommand', () => {
     })
   })
 
-  it('returns false for unknown commands without sending anything', async () => {
+  it('replies with an error for unknown commands and does not fall through', async () => {
     const channelUser = createChannelUser()
     const sent: string[] = []
 
@@ -245,7 +245,33 @@ describe('handleDmSlashCommand', () => {
 
     const handled = await handleDmSlashCommand(options, 'chat-1', channelUser, '/unknown', '')
 
-    assert.equal(handled, false)
-    assert.equal(sent.length, 0)
+    assert.equal(handled, true)
+    assert.equal(sent.length, 1)
+    assert.ok(sent[0].includes('/unknown'), `reply should mention the bad command, got: ${sent[0]}`)
+    assert.ok(
+      sent[0].toLowerCase().includes('unknown') || sent[0].toLowerCase().includes('/help'),
+      `reply should hint at /help, got: ${sent[0]}`
+    )
+  })
+
+  describe('/help', () => {
+    it('sends a list of all available commands', async () => {
+      const channelUser = createChannelUser()
+      const sent: string[] = []
+
+      const options = makeOptions<string>({
+        sendMessage: async (_target, text) => {
+          sent.push(text)
+        }
+      })
+
+      const handled = await handleDmSlashCommand(options, 'chat-1', channelUser, '/help', '')
+
+      assert.equal(handled, true)
+      assert.equal(sent.length, 1)
+      for (const cmd of ['/new', '/status', '/compact', '/help']) {
+        assert.ok(sent[0].includes(cmd), `reply should mention ${cmd}, got: ${sent[0]}`)
+      }
+    })
   })
 })

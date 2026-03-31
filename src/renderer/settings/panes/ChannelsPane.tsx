@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
+import { inputStyle } from '../components/styles'
 
 import type {
   ChannelGroupRecord,
@@ -315,30 +316,6 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               </div>
             </SettingRow>
           )}
-
-          <SettingRow>
-            <div className="min-w-0">
-              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                Group Vision
-              </div>
-              <div className="text-sm" style={{ color: theme.text.tertiary }}>
-                Pass images from group messages to the probe model
-              </div>
-            </div>
-            <SettingSwitch
-              ariaLabel="Enable group vision"
-              checked={telegram?.group?.vision ?? false}
-              onChange={() =>
-                patchTelegram({
-                  group: {
-                    ...telegram?.group,
-                    enabled: telegram?.group?.enabled ?? false,
-                    vision: !(telegram?.group?.vision ?? false)
-                  }
-                })
-              }
-            />
-          </SettingRow>
         </SettingSection>
       </div>
     )
@@ -492,30 +469,6 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               </div>
             </SettingRow>
           )}
-
-          <SettingRow>
-            <div className="min-w-0">
-              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                Group Vision
-              </div>
-              <div className="text-sm" style={{ color: theme.text.tertiary }}>
-                Pass images from group messages to the probe model
-              </div>
-            </div>
-            <SettingSwitch
-              ariaLabel="Enable group vision"
-              checked={qq?.group?.vision ?? false}
-              onChange={() =>
-                patchQQ({
-                  group: {
-                    ...qq?.group,
-                    enabled: qq?.group?.enabled ?? true,
-                    vision: !(qq?.group?.vision ?? false)
-                  }
-                })
-              }
-            />
-          </SettingRow>
         </SettingSection>
       </div>
     )
@@ -669,30 +622,6 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               </div>
             </SettingRow>
           )}
-
-          <SettingRow>
-            <div className="min-w-0">
-              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                Group Vision
-              </div>
-              <div className="text-sm" style={{ color: theme.text.tertiary }}>
-                Pass images from group messages to the probe model
-              </div>
-            </div>
-            <SettingSwitch
-              ariaLabel="Enable group vision"
-              checked={discord?.group?.vision ?? false}
-              onChange={() =>
-                patchDiscord({
-                  group: {
-                    ...discord?.group,
-                    enabled: discord?.group?.enabled ?? false,
-                    vision: !(discord?.group?.vision ?? false)
-                  }
-                })
-              }
-            />
-          </SettingRow>
         </SettingSection>
       </div>
     )
@@ -701,9 +630,85 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
   // General tab (default)
   const verbosity = config.groupVerbosity ?? 0
   const checkIntervalSec = Math.round((config.groupCheckIntervalMs ?? 30_000) / 1_000)
+  const dmCompactTokenThresholdK = config.dmCompactTokenThresholdK ?? 64
+  const groupContextWindowK = config.groupContextWindowK ?? 64
 
   return (
     <div className="flex-1 overflow-y-auto pb-6">
+      <SettingSection>
+        <SettingLabel>Token Limits</SettingLabel>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              DM compact threshold
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              Compact DM thread history above this token count.
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={dmCompactTokenThresholdK}
+              onChange={(e) => {
+                const raw = parseInt(e.target.value, 10)
+                if (!isNaN(raw) && raw > 0) {
+                  setConfig((c) => {
+                    const next = { ...c, dmCompactTokenThresholdK: raw }
+                    configRef.current = next
+                    scheduleSave(next)
+                    return next
+                  })
+                }
+              }}
+              className="w-16 rounded-lg px-2 py-1 text-sm text-right outline-none"
+              style={inputStyle()}
+            />
+            <span className="text-sm" style={{ color: theme.text.secondary }}>
+              K
+            </span>
+          </div>
+        </SettingRow>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Group context window
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              Sliding window budget for group probe messages.
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={groupContextWindowK}
+              onChange={(e) => {
+                const raw = parseInt(e.target.value, 10)
+                if (!isNaN(raw) && raw > 0) {
+                  setConfig((c) => {
+                    const next = { ...c, groupContextWindowK: raw }
+                    configRef.current = next
+                    scheduleSave(next)
+                    return next
+                  })
+                }
+              }}
+              className="w-16 rounded-lg px-2 py-1 text-sm text-right outline-none"
+              style={inputStyle()}
+            />
+            <span className="text-sm" style={{ color: theme.text.secondary }}>
+              K
+            </span>
+          </div>
+        </SettingRow>
+      </SettingSection>
+
       <SettingSection>
         <SettingLabel>Group Discussion</SettingLabel>
 

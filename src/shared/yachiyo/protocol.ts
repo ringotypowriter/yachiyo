@@ -770,6 +770,16 @@ export interface ChannelsConfig {
    * Overridden by per-platform `activeCheckIntervalMs` when set.
    */
   groupCheckIntervalMs?: number
+  /**
+   * Token budget (in K) before a DM thread triggers rolling compaction.
+   * Default: 64 (= 64 000 tokens).
+   */
+  dmCompactTokenThresholdK?: number
+  /**
+   * Token budget (in K) for the group probe sliding window.
+   * Default: 64 (= 64 000 tokens).
+   */
+  groupContextWindowK?: number
 }
 
 // ---------------------------------------------------------------------------

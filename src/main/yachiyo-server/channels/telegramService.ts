@@ -29,7 +29,7 @@ import type {
   ThreadModelOverride
 } from '../../../shared/yachiyo/protocol'
 import type { YachiyoServer } from '../app/YachiyoServer'
-import { telegramPolicy } from './channelPolicy'
+import { telegramPolicy, type ChannelPolicy } from './channelPolicy'
 import { fetchImageAsDataUrl } from './channelImageDownload'
 import { createDirectMessageService, resolveDirectMessageThread } from './directMessageService.ts'
 import { handleDmSlashCommand } from './dmSlashCommands.ts'
@@ -78,6 +78,8 @@ export interface TelegramServiceOptions {
   groupVerbosity?: number
   /** Global override for active-phase check interval (ms). */
   groupCheckIntervalMs?: number
+  /** Effective policy with config overrides applied. Defaults to telegramPolicy. */
+  policy?: ChannelPolicy
 }
 
 export interface TelegramService {
@@ -98,9 +100,10 @@ export function createTelegramService({
   groupConfig,
   botUsername,
   groupVerbosity,
-  groupCheckIntervalMs
+  groupCheckIntervalMs,
+  policy: policyOverride
 }: TelegramServiceOptions): TelegramService {
-  const policy = telegramPolicy
+  const policy = policyOverride ?? telegramPolicy
 
   const groupProbeMessageCountLimit = new Map<string, number>()
 
@@ -617,7 +620,7 @@ export function createTelegramService({
         currentMessageCount: probeRecentMessages.length,
         availableMessageCount: recentMessages.length,
         totalPromptTokens: result.usage?.totalPromptTokens,
-        contextTokenLimit: policy.contextTokenLimit
+        contextTokenLimit: policy.groupContextTokenLimit
       })
       const previousMessageCountLimit = groupProbeMessageCountLimit.get(group.id)
       if (nextMessageCountLimit == null) {
