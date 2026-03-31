@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.12
+
+### Patch Changes
+
+- [`6b64fa2`](https://github.com/ringotypowriter/yachiyo/commit/6b64fa2ad1268e998c2aab1209ea4c2bc94e1826) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Agent Recovery Enchantment & File Mention
+
 ## 1.0.11
 
 ### Patch Changes
