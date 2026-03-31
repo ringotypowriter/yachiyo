@@ -38,6 +38,7 @@ import {
   type GroupMonitorPersistence,
   type GroupMonitorRegistry
 } from './groupMonitorRegistry'
+import { connectWithRetry } from './connectionRetry.ts'
 import { routeTelegramMessage, type TelegramChannelStorage } from './telegram'
 import { EXTERNAL_SYSTEM_PROMPT } from '../runtime/prompt'
 import { readChannelsConfig } from '../runtime/channelsConfig'
@@ -818,7 +819,11 @@ export function createTelegramService({
   return {
     startPolling() {
       console.log('[telegram] startPolling called — launching Telegraf')
-      void bot.launch({ dropPendingUpdates: true })
+      void connectWithRetry(() => bot.launch({ dropPendingUpdates: true }), {
+        label: 'telegram',
+        baseDelayMs: 3_000,
+        maxDelayMs: 30_000
+      })
     },
     async stop() {
       groupRegistry?.stopAll()

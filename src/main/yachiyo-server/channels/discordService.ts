@@ -38,6 +38,7 @@ import {
   type GroupMonitorPersistence,
   type GroupMonitorRegistry
 } from './groupMonitorRegistry.ts'
+import { connectWithRetry } from './connectionRetry.ts'
 import { routeDiscordMessage, type DiscordChannelStorage } from './discord.ts'
 import { EXTERNAL_SYSTEM_PROMPT } from '../runtime/prompt.ts'
 import { readChannelsConfig } from '../runtime/channelsConfig.ts'
@@ -783,7 +784,11 @@ export function createDiscordService({
         botUserId = readyClient.user.id
         console.log(`[discord] logged in as ${readyClient.user.tag} (${botUserId})`)
       })
-      void client.login(botToken)
+      void connectWithRetry(() => client.login(botToken).then(() => {}), {
+        label: 'discord',
+        baseDelayMs: 3_000,
+        maxDelayMs: 30_000
+      })
     },
     async stop() {
       groupRegistry?.stopAll()

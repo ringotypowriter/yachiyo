@@ -223,7 +223,15 @@ export function createGroupMonitor(
       if (fresh.length === 0) return
 
       // Single pass: model decides + speaks (or stays silent) via onTurn.
-      const replied = await callbacks.onTurn([...buffer])
+      let replied: boolean
+      try {
+        replied = await callbacks.onTurn([...buffer])
+      } catch (error) {
+        // Connection or API failure — skip this turn without changing phase.
+        // The monitor stays alive and will retry on the next check interval.
+        console.error('[group-monitor] onTurn failed, skipping turn:', error)
+        return
+      }
 
       if (replied) {
         if (phase !== 'engaged') {

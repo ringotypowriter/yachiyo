@@ -256,6 +256,71 @@ describe('GroupMonitor', () => {
     monitor.stop()
   })
 
+  it('survives onTurn throwing — logs error and continues next check', async () => {
+    const turnCalls: number[] = []
+    const phases: string[] = []
+    let failCount = 0
+
+    const config = fastConfig({ wakeBufferMs: 10, activeCheckIntervalMs: 40 })
+    const monitor = createGroupMonitor(config, {
+      onTurn: async (msgs) => {
+        turnCalls.push(msgs.length)
+        if (failCount < 1) {
+          failCount++
+          throw new Error('API down')
+        }
+        return false
+      },
+      onStateChange: (p) => phases.push(p)
+    })
+
+    // Send a message to trigger wake → active → first check (which throws)
+    monitor.onMessage(makeMessage('hello'))
+
+    // Wait for wake buffer + first failed check
+    await new Promise((r) => setTimeout(r, 60))
+
+    assert.ok(turnCalls.length >= 1, `Expected at least 1 onTurn call, got ${turnCalls.length}`)
+
+    // Send another message so the next check interval sees fresh content
+    monitor.onMessage(makeMessage('world'))
+
+    // Wait for next check interval
+    await new Promise((r) => setTimeout(r, 80))
+
+    // onTurn should have been called again despite the earlier throw
+    assert.ok(turnCalls.length >= 2, `Expected at least 2 onTurn calls, got ${turnCalls.length}`)
+    // Monitor should still be in a valid phase (not stuck)
+    assert.ok(
+      ['active', 'dormant'].includes(monitor.getPhase()),
+      `Expected active or dormant, got ${monitor.getPhase()}`
+    )
+    monitor.stop()
+  })
+
+  it('does not change phase when onTurn throws', async () => {
+    const phases: string[] = []
+
+    const config = fastConfig({ wakeBufferMs: 10, activeCheckIntervalMs: 30 })
+    const monitor = createGroupMonitor(config, {
+      onTurn: async () => {
+        throw new Error('network error')
+      },
+      onStateChange: (p) => phases.push(p)
+    })
+
+    monitor.onMessage(makeMessage('trigger'))
+
+    // Wait for wake + a check
+    await new Promise((r) => setTimeout(r, 80))
+
+    // Should have transitioned to active (from wake), but NOT to engaged or dormant
+    // because the onTurn error should not affect phase transitions
+    assert.ok(phases.includes('active'), `Expected 'active' in phases, got: ${phases}`)
+    assert.ok(!phases.includes('engaged'), `Should not be engaged when onTurn always throws`)
+    monitor.stop()
+  })
+
   it('restored messages are treated as already seen', async () => {
     const turnCalls: number[] = []
     const now = Date.now() / 1_000
