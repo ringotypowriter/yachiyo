@@ -1,7 +1,7 @@
 import { tool, type Tool } from 'ai'
 import { spawn } from 'node:child_process'
 import { access as fsAccess } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { z } from 'zod'
 
@@ -230,7 +230,7 @@ export function createTool(
         return { content: [{ type: 'text', text: error }], error }
       }
 
-      // Resolve effective workspace: validate against the allowed list
+      // Resolve effective workspace: validate against the allowed list and require Git
       let effectiveCtx = ctx
       if (input.workspace) {
         const requested = resolve(input.workspace)
@@ -244,6 +244,13 @@ export function createTool(
           .catch(() => false)
         if (!exists) {
           const error = `Workspace directory does not exist: "${requested}".`
+          return { content: [{ type: 'text', text: error }], error }
+        }
+        const hasGit = await fsAccess(join(requested, '.git'))
+          .then(() => true)
+          .catch(() => false)
+        if (!hasGit) {
+          const error = `Workspace "${requested}" is not a Git repository. A Git repository is required for safe YOLO execution.`
           return { content: [{ type: 'text', text: error }], error }
         }
         effectiveCtx = { ...ctx, workspacePath: requested }

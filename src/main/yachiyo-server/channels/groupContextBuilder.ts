@@ -88,7 +88,7 @@ export function formatGroupMessages(
     })
     const timeAttr = ` t="${time}"`
     const imagePlaceholder = (m.images ?? [])
-      .map((img) => (img.altText ? ` [image: ${img.altText}]` : ' [image]'))
+      .map((img) => (img.altText ? ` [image: ${img.altText}]` : ' [image: transcribing…]'))
       .join('')
     const safe = sanitizeMessageText(m.text)
     lines.push(
@@ -188,7 +188,13 @@ An @mention is a strong signal, but NOT a command. You're a person, not a servic
 
 ## Images
 
-${input.vision ? `Images shared in the chat are included as image content parts alongside the messages. You can see them and react to them naturally.` : `You cannot see images. But you CAN react to the conversation around them — the text, the context, the vibe. Don't use "I can't see the image" as a reason to stay silent. Judge based on what people are SAYING, not what they're sharing.`}
+${
+  input.vision
+    ? `Images shared in the chat are included as image content parts alongside the messages. You can see them and react to them naturally.`
+    : `Images in the chat appear as \`[image: description]\` inline tags — AI-generated text descriptions of what was shared. If you see \`[image: transcribing…]\`, the description is still being processed.
+
+**Never tell anyone you "cannot see" an image.** You have the description, and that is enough. If the description is still pending, engage with the conversation context around the image instead.`
+}
 
 ## STAY SILENT if:
 
@@ -228,6 +234,13 @@ export interface BuildGroupProbeMessagesInput extends BuildGroupProbeSystemPromp
   vision?: boolean
 }
 
+export interface DeriveNextGroupProbeMessageCountInput {
+  currentMessageCount: number
+  availableMessageCount: number
+  totalPromptTokens?: number
+  contextTokenLimit: number
+}
+
 export function buildGroupProbeMessages(input: BuildGroupProbeMessagesInput): ModelMessage[] {
   const systemPrompt = buildGroupProbeSystemPrompt(input)
   const textContent = formatGroupMessages(input.recentMessages, input.botName, input.knownUsers)
@@ -258,4 +271,54 @@ export function buildGroupProbeMessages(input: BuildGroupProbeMessagesInput): Mo
       : { role: 'user' as const, content: textContent }
 
   return [{ role: 'system' as const, content: systemPrompt }, userMessage]
+}
+
+export function selectGroupProbeRecentMessages(
+  recentMessages: GroupMessageEntry[],
+  messageCountLimit?: number
+): GroupMessageEntry[] {
+  if (messageCountLimit == null || messageCountLimit >= recentMessages.length) {
+    return recentMessages
+  }
+
+  if (messageCountLimit <= 0) {
+    return []
+  }
+
+  return recentMessages.slice(-messageCountLimit)
+}
+
+export function deriveNextGroupProbeMessageCount(
+  input: DeriveNextGroupProbeMessageCountInput
+): number | undefined {
+  const { currentMessageCount, availableMessageCount, totalPromptTokens, contextTokenLimit } = input
+
+  if (currentMessageCount <= 0 || availableMessageCount <= 0) {
+    return undefined
+  }
+
+  if (totalPromptTokens == null || totalPromptTokens <= 0) {
+    return undefined
+  }
+
+  const scaledCount = Math.floor((currentMessageCount * contextTokenLimit) / totalPromptTokens)
+
+  if (totalPromptTokens > contextTokenLimit) {
+    if (currentMessageCount <= 1) {
+      return 1
+    }
+
+    return Math.max(1, Math.min(currentMessageCount - 1, scaledCount))
+  }
+
+  if (currentMessageCount >= availableMessageCount) {
+    return undefined
+  }
+
+  const expandedCount = Math.max(currentMessageCount + 1, scaledCount)
+  if (expandedCount >= availableMessageCount) {
+    return undefined
+  }
+
+  return expandedCount
 }

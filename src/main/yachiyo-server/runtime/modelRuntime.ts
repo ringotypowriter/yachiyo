@@ -84,7 +84,10 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
           ),
           providerOptions,
           ...(request.tools
-            ? { tools: request.tools, stopWhen: stepCountIs(request.maxToolSteps ?? 100) }
+            ? {
+                tools: request.tools,
+                stopWhen: stepCountIs(request.maxToolSteps ?? 100)
+              }
             : {}),
           ...(request.onToolCallStart
             ? { experimental_onToolCallStart: request.onToolCallStart }

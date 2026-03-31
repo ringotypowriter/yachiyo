@@ -1,7 +1,7 @@
 import type { ToolSet } from 'ai'
 
 import type { ProviderSettings } from '../../../shared/yachiyo/protocol.ts'
-import type { ModelMessage, ModelRuntime } from './types.ts'
+import type { ModelMessage, ModelRuntime, ModelUsage } from './types.ts'
 
 export type AuxiliaryGenerationUnavailableReason =
   | 'not-configured'
@@ -13,6 +13,7 @@ export type AuxiliaryTextGenerationResult =
       status: 'success'
       settings: ProviderSettings
       text: string
+      usage?: ModelUsage
     }
   | {
       status: 'unavailable'
@@ -87,6 +88,7 @@ export function createAuxiliaryGenerationService(
       const runtime = deps.createModelRuntime()
       const resolvedSettings = settings
       let text = ''
+      let usage: ModelUsage | undefined
 
       try {
         for await (const delta of runtime.streamReply({
@@ -94,7 +96,10 @@ export function createAuxiliaryGenerationService(
           providerOptionsMode: 'auxiliary',
           settings: resolvedSettings,
           signal,
-          tools: request.tools
+          tools: request.tools,
+          onFinish: (finishUsage) => {
+            usage = finishUsage
+          }
         })) {
           text += delta
         }
@@ -102,7 +107,8 @@ export function createAuxiliaryGenerationService(
         return {
           status: 'success',
           settings: resolvedSettings,
-          text
+          text,
+          ...(usage ? { usage } : {})
         }
       } catch (error) {
         return {

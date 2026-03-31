@@ -32,7 +32,12 @@ import type { YachiyoServer } from '../app/YachiyoServer'
 import { telegramPolicy } from './channelPolicy'
 import { createChannelReplyTool } from './channelReply'
 import { fetchImageAsDataUrl } from './channelImageDownload'
-import { buildGroupProbeMessages, formatGroupMessages } from './groupContextBuilder'
+import {
+  buildGroupProbeMessages,
+  deriveNextGroupProbeMessageCount,
+  formatGroupMessages,
+  selectGroupProbeRecentMessages
+} from './groupContextBuilder'
 import {
   createGroupMonitorRegistry,
   type GroupMonitorPersistence,
@@ -117,6 +122,7 @@ export function createTelegramService({
   const pendingBatches = new Map<string, PendingBatch>()
   /** Per-user promise chain so messages are processed sequentially. */
   const userRunChain = new Map<string, Promise<void>>()
+  const groupProbeMessageCountLimit = new Map<string, number>()
 
   const storage: TelegramChannelStorage = {
     findChannelUser(platform, externalUserId) {
@@ -777,23 +783,24 @@ export function createTelegramService({
       })
     }
 
+    // Resolve model settings: group-specific override -> default primary model.
+    const settingsOverride = server.resolveProviderSettings(groupConfig?.model)
+
+    const messageCountLimit = groupProbeMessageCountLimit.get(group.id)
+    const probeRecentMessages = selectGroupProbeRecentMessages(recentMessages, messageCountLimit)
     const messages = buildGroupProbeMessages({
       botName: 'Yachiyo',
       groupName: group.name,
-      recentMessages,
+      recentMessages: probeRecentMessages,
       knownUsers: buildKnownUsersMap(),
       personaSummary: EXTERNAL_SYSTEM_PROMPT,
       ownerInstruction: readChannelsConfig().guestInstruction,
       groupUserDocument: groupUserDoc?.content,
-      vision: groupConfig?.vision,
-      contextTokenLimit: policy.contextTokenLimit
+      vision: groupConfig?.vision
     })
 
-    // Resolve model settings: group-specific override → default primary model.
-    const settingsOverride = server.resolveProviderSettings(groupConfig?.model)
-
     console.log(
-      `[telegram-group] group="${group.name}" probing ${recentMessages.length} message(s) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${formatGroupMessages(recentMessages, 'Yachiyo', buildKnownUsersMap())}`
+      `[telegram-group] group="${group.name}" probing ${probeRecentMessages.length}/${recentMessages.length} message(s) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${formatGroupMessages(probeRecentMessages, 'Yachiyo', buildKnownUsersMap())}`
     )
 
     const result = await auxService.generateText({
@@ -803,6 +810,23 @@ export function createTelegramService({
     })
 
     if (result.status === 'success') {
+      const nextMessageCountLimit = deriveNextGroupProbeMessageCount({
+        currentMessageCount: probeRecentMessages.length,
+        availableMessageCount: recentMessages.length,
+        totalPromptTokens: result.usage?.totalPromptTokens,
+        contextTokenLimit: policy.contextTokenLimit
+      })
+      const previousMessageCountLimit = groupProbeMessageCountLimit.get(group.id)
+      if (nextMessageCountLimit == null) {
+        groupProbeMessageCountLimit.delete(group.id)
+      } else {
+        groupProbeMessageCountLimit.set(group.id, nextMessageCountLimit)
+      }
+      if (previousMessageCountLimit !== nextMessageCountLimit) {
+        console.log(
+          `[telegram-group] group="${group.name}" moved token window ${previousMessageCountLimit ?? 'full'} -> ${nextMessageCountLimit ?? 'full'} message(s) after promptTokens=${result.usage?.totalPromptTokens ?? 'unknown'}`
+        )
+      }
       console.log(
         `[telegram-group] group="${group.name}" monologue: ${result.text.slice(0, 200)}${result.text.length > 200 ? '…' : ''}`
       )

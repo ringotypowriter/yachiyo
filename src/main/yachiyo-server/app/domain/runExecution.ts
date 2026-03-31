@@ -384,9 +384,11 @@ function buildSubagentContextBlock(
   }
 
   const workspaceRule =
-    availableWorkspaces.length > 0
+    availableWorkspaces.length > 0 && gitCtx.hasGit
       ? `CRITICAL RULE 1: By default agents operate in the current thread workspace: ${workspacePath}. You may also specify one of the available workspaces below using the \`workspace\` parameter. Agents MUST ONLY operate in the thread workspace or one of the listed workspaces — never an arbitrary path.`
-      : `CRITICAL RULE 1: Agents MUST ONLY operate within the current thread workspace: ${workspacePath}.`
+      : availableWorkspaces.length > 0
+        ? `CRITICAL RULE 1: The current thread workspace is NOT a Git repository. You MUST use the \`workspace\` parameter to select one of the available workspaces below. Agents MUST ONLY operate in the listed workspaces — never an arbitrary path.`
+        : `CRITICAL RULE 1: Agents MUST ONLY operate within the current thread workspace: ${workspacePath}.`
 
   const lines = [
     '<coding_agents>',
@@ -1081,11 +1083,25 @@ export async function executeServerRun(
       enabledSubagentProfiles.length > 0
         ? await detectGitContext(workspacePath)
         : ({ hasGit: false } as GitContext)
+    // Only advertise saved workspaces that are actually Git repositories
+    const gitValidatedWorkspaces =
+      enabledSubagentProfiles.length > 0 && savedWorkspacePaths.length > 0
+        ? (
+            await Promise.all(
+              savedWorkspacePaths.map(async (p) => {
+                const hasGit = await access(join(resolve(p), '.git'), constants.F_OK)
+                  .then(() => true)
+                  .catch(() => false)
+                return hasGit ? p : null
+              })
+            )
+          ).filter((p): p is string => p !== null)
+        : []
     const subagentContextBlock = buildSubagentContextBlock(
       gitCtx,
       workspacePath,
       enabledSubagentProfiles,
-      savedWorkspacePaths
+      gitValidatedWorkspaces
     )
 
     // Persist per-turn injected context on the request message for lossless replay.
@@ -1207,10 +1223,11 @@ export async function executeServerRun(
               }
             }
           : {}),
-        ...((gitCtx.hasGit || savedWorkspacePaths.length > 0) && enabledSubagentProfiles.length > 0
+        ...((gitCtx.hasGit || gitValidatedWorkspaces.length > 0) &&
+        enabledSubagentProfiles.length > 0
           ? {
               subagentProfiles: enabledSubagentProfiles,
-              availableWorkspaces: savedWorkspacePaths,
+              availableWorkspaces: gitValidatedWorkspaces,
               onSubagentProgress: deps.onSubagentProgress,
               onSubagentStarted: (agentName: string) => {
                 cancelPendingSafeSteerPointAfterTool()

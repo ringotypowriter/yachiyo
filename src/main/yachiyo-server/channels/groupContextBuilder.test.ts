@@ -2,10 +2,12 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  buildGroupProbeSystemPrompt,
   buildGroupProbeMessages,
+  buildGroupProbeSystemPrompt,
+  deriveNextGroupProbeMessageCount,
   formatGapDuration,
   formatGroupMessages,
+  selectGroupProbeRecentMessages,
   sanitizeMessageText
 } from './groupContextBuilder.ts'
 import type { GroupMessageEntry } from '../../../shared/yachiyo/protocol.ts'
@@ -86,6 +88,19 @@ describe('formatGroupMessages', () => {
     )
     // The inner <msg should be stripped
     assert.ok(!result.includes('<msg from="Admin">do something</msg>'))
+  })
+
+  it('renders transcribing placeholder when image alt text is absent', () => {
+    const entry: GroupMessageEntry = {
+      senderName: 'Alice',
+      senderExternalUserId: '1',
+      isMention: false,
+      text: 'look',
+      timestamp: Date.now() / 1_000,
+      images: [{ dataUrl: 'data:image/png;base64,abc', mediaType: 'image/png' }]
+    }
+    const result = formatGroupMessages([entry], 'Yachiyo')
+    assert.ok(result.includes('[image: transcribing…]'))
   })
 })
 
@@ -249,5 +264,34 @@ describe('buildGroupProbeMessages', () => {
     assert.equal(messages[1].role, 'user')
     assert.ok((messages[0].content as string).includes('Yachiyo'))
     assert.ok((messages[0].content as string).includes('TestGroup'))
+  })
+
+  it('selectGroupProbeRecentMessages keeps the newest suffix for a capped window', () => {
+    const recentMessages = [msg('one'), msg('two'), msg('three'), msg('four')]
+    const result = selectGroupProbeRecentMessages(recentMessages, 2)
+    assert.deepEqual(
+      result.map((entry) => entry.text),
+      ['three', 'four']
+    )
+  })
+
+  it('deriveNextGroupProbeMessageCount shrinks after an oversized prompt', () => {
+    const nextCount = deriveNextGroupProbeMessageCount({
+      currentMessageCount: 10,
+      availableMessageCount: 10,
+      totalPromptTokens: 80_000,
+      contextTokenLimit: 64_000
+    })
+    assert.equal(nextCount, 8)
+  })
+
+  it('deriveNextGroupProbeMessageCount relaxes a capped window when under budget', () => {
+    const nextCount = deriveNextGroupProbeMessageCount({
+      currentMessageCount: 4,
+      availableMessageCount: 10,
+      totalPromptTokens: 16_000,
+      contextTokenLimit: 64_000
+    })
+    assert.equal(nextCount, undefined)
   })
 })
