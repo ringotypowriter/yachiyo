@@ -25,13 +25,13 @@ import type {
   GroupChannelConfig,
   GroupMessageEntry,
   MessageImageRecord,
-  ThreadModelOverride,
-  YachiyoServerEvent
+  ThreadRecord,
+  ThreadModelOverride
 } from '../../../shared/yachiyo/protocol.ts'
 import type { YachiyoServer } from '../app/YachiyoServer.ts'
 import { discordPolicy } from './channelPolicy.ts'
-import { createChannelReplyTool } from './channelReply.ts'
 import { fetchImageAsDataUrl } from './channelImageDownload.ts'
+import { createDirectMessageService, resolveDirectMessageThread } from './directMessageService.ts'
 import {
   buildGroupProbeMessages,
   deriveNextGroupProbeMessageCount,
@@ -61,17 +61,8 @@ import { resolveYachiyoTempWorkspaceRoot, YACHIYO_USER_FILE_NAME } from '../conf
 /** Discord typing indicator lasts ~10 s; resend every 8 s. */
 const TYPING_INTERVAL_MS = 8_000
 
-/** Minimum debounce delay before flushing a message batch. */
-const REPLY_DELAY_MIN_MS = 3_000
-/** Maximum debounce delay before flushing a message batch. */
-const REPLY_DELAY_MAX_MS = 8_000
-
 /** Discord message length limit. */
 const DISCORD_MAX_MESSAGE_LENGTH = 2000
-
-function randomReplyDelay(): number {
-  return REPLY_DELAY_MIN_MS + Math.random() * (REPLY_DELAY_MAX_MS - REPLY_DELAY_MIN_MS)
-}
 
 /**
  * Split a long message into chunks that fit within Discord's 2000-char limit.
@@ -97,15 +88,6 @@ function splitMessage(text: string): string[] {
   }
 
   return chunks
-}
-
-interface PendingBatch {
-  messages: string[]
-  imageDownloads: Promise<MessageImageRecord | null>[]
-  timer: ReturnType<typeof setTimeout>
-  channelId: string
-  channelUser: ChannelUserRecord
-  stopTyping: () => void
 }
 
 export interface DiscordServiceOptions {
@@ -144,10 +126,6 @@ export function createDiscordService({
 }: DiscordServiceOptions): DiscordService {
   const policy = discordPolicy
 
-  /** Per-user message buffer for debounced reply batching. */
-  const pendingBatches = new Map<string, PendingBatch>()
-  /** Per-user promise chain so messages are processed sequentially. */
-  const userRunChain = new Map<string, Promise<void>>()
   const groupProbeMessageCountLimit = new Map<string, number>()
 
   /** Resolved bot user ID (set after login). */
@@ -199,6 +177,42 @@ export function createDiscordService({
       await (channel as { send: (content: string) => Promise<unknown> }).send(chunk)
     }
   }
+
+  function resolveUserWorkspace(username: string): string {
+    return join(resolveYachiyoTempWorkspaceRoot(), `dc-${username}`)
+  }
+
+  async function resolveThread(
+    channelUser: ChannelUserRecord
+  ): Promise<{ thread: ThreadRecord; compacted: boolean }> {
+    return resolveDirectMessageThread({
+      logLabel: 'discord',
+      server,
+      channelUser,
+      policy,
+      modelOverride,
+      createThread: async (): Promise<ThreadRecord> =>
+        server.createThread({
+          workspacePath: resolveUserWorkspace(channelUser.username),
+          source: 'discord',
+          channelUserId: channelUser.id,
+          title: `Discord:@${channelUser.username}`
+        })
+    })
+  }
+
+  const directMessages = createDirectMessageService<string>({
+    logLabel: 'discord',
+    server,
+    policy,
+    resolveThread,
+    sendMessage,
+    startBatchIndicator: startTypingLoop,
+    startHandlingIndicator: startTypingLoop,
+    onCompacted: (channelId) => notifyAutoCompact(sendMessage, channelId),
+    nonRunReply: 'Sorry, something went wrong on my end.',
+    errorReply: 'Something went wrong. Please try again in a moment.'
+  })
 
   /** Image extensions to accept when Discord omits contentType. */
   const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'heif'])
@@ -265,7 +279,7 @@ export function createDiscordService({
         return
 
       case 'allowed':
-        enqueueMessage(channelId, result.channelUser, incomingText, imageDownloads)
+        directMessages.enqueueMessage(channelId, result.channelUser, incomingText, imageDownloads)
     }
   }
 
@@ -342,230 +356,6 @@ export function createDiscordService({
         timestamp: Math.floor(msg.createdTimestamp / 1_000)
       })
     })
-  }
-
-  /**
-   * Buffer an incoming message and schedule a debounced flush.
-   */
-  function enqueueMessage(
-    channelId: string,
-    channelUser: ChannelUserRecord,
-    text: string,
-    imageDownloads: Promise<MessageImageRecord | null>[] = []
-  ): void {
-    const userId = channelUser.id
-    const existing = pendingBatches.get(userId)
-
-    if (existing) {
-      existing.messages.push(text)
-      existing.imageDownloads.push(...imageDownloads)
-      clearTimeout(existing.timer)
-      const delay = randomReplyDelay()
-      existing.timer = setTimeout(() => flushBatch(userId), delay)
-      console.log(
-        `[discord] appended to batch for ${channelUser.username} (${existing.messages.length} msgs, ${existing.imageDownloads.length} img(s), next flush in ${Math.round(delay)}ms)`
-      )
-      return
-    }
-
-    const stopTyping = startTypingLoop(channelId)
-    const delay = randomReplyDelay()
-    const timer = setTimeout(() => flushBatch(userId), delay)
-
-    pendingBatches.set(userId, {
-      messages: [text],
-      imageDownloads: [...imageDownloads],
-      timer,
-      channelId,
-      channelUser,
-      stopTyping
-    })
-
-    console.log(`[discord] new batch for ${channelUser.username} (flush in ${Math.round(delay)}ms)`)
-  }
-
-  /** Flush a user's buffered messages and process them as a single request. */
-  async function flushBatch(userId: string): Promise<void> {
-    const batch = pendingBatches.get(userId)
-    if (!batch) return
-    pendingBatches.delete(userId)
-
-    const joinedText = batch.messages.join('\n')
-
-    const images = (await Promise.all(batch.imageDownloads)).filter(
-      (img): img is MessageImageRecord => img !== null
-    )
-
-    console.log(
-      `[discord] flushing batch for ${batch.channelUser.username}: ${batch.messages.length} message(s), ${images.length} image(s)`
-    )
-
-    batch.stopTyping()
-
-    const channelUserId = batch.channelUser.id
-    const prev = userRunChain.get(channelUserId) ?? Promise.resolve()
-    const next = prev.then(() =>
-      handleAllowedMessage(batch.channelId, batch.channelUser, joinedText, images)
-    )
-    userRunChain.set(
-      channelUserId,
-      next.catch(() => {})
-    )
-  }
-
-  /** Resolve a user-specific workspace path shared across all their threads. */
-  function resolveUserWorkspace(username: string): string {
-    return join(resolveYachiyoTempWorkspaceRoot(), `dc-${username}`)
-  }
-
-  /** Find or create the right thread for this channel user. */
-  async function resolveThread(channelUser: ChannelUserRecord): Promise<{
-    thread: import('../../../shared/yachiyo/protocol.ts').ThreadRecord
-    compacted: boolean
-  }> {
-    const workspace = resolveUserWorkspace(channelUser.username)
-    const existing = server.findActiveChannelThread(channelUser.id, policy.threadReuseWindowMs)
-
-    if (existing) {
-      let thread = existing
-      const currentOverride = existing.modelOverride
-      const wantedOverride =
-        modelOverride?.providerName && modelOverride?.model ? modelOverride : null
-      const overrideChanged =
-        (currentOverride?.providerName ?? '') !== (wantedOverride?.providerName ?? '') ||
-        (currentOverride?.model ?? '') !== (wantedOverride?.model ?? '')
-      if (overrideChanged) {
-        thread = await server.setThreadModelOverride({
-          threadId: existing.id,
-          modelOverride: wantedOverride
-        })
-        console.log(
-          `[discord] reconciled model override on thread ${existing.id}:`,
-          wantedOverride ?? 'cleared'
-        )
-      }
-
-      const totalTokens = server.getThreadTotalTokens(thread.id)
-      console.log(`[discord] existing thread ${thread.id} — ${totalTokens} tokens`)
-
-      if (totalTokens < policy.contextTokenLimit) {
-        return { thread, compacted: false }
-      }
-
-      console.log(
-        `[discord] thread ${thread.id} exceeded ${policy.contextTokenLimit} tokens, generating rolling summary`
-      )
-      const { thread: compactedThread } = await server.compactExternalThread({
-        threadId: existing.id
-      })
-      return { thread: compactedThread, compacted: true }
-    }
-
-    let thread = await server.createThread({
-      workspacePath: workspace,
-      source: 'discord',
-      channelUserId: channelUser.id,
-      title: `Discord:@${channelUser.username}`
-    })
-    if (modelOverride?.providerName && modelOverride?.model) {
-      thread = await server.setThreadModelOverride({
-        threadId: thread.id,
-        modelOverride
-      })
-    }
-    return { thread, compacted: false }
-  }
-
-  async function handleAllowedMessage(
-    channelId: string,
-    channelUser: ChannelUserRecord,
-    text: string,
-    images: MessageImageRecord[] = []
-  ): Promise<void> {
-    const stopTyping = startTypingLoop(channelId)
-    try {
-      console.log(
-        `[discord] handling allowed message for user ${channelUser.username} (${images.length} image(s))`
-      )
-      const { thread: yachiyoThread, compacted } = await resolveThread(channelUser)
-      console.log(
-        `[discord] using thread ${yachiyoThread.id}${compacted ? ' (rolling summary generated)' : ''}`
-      )
-      if (compacted) {
-        await notifyAutoCompact(sendMessage, channelId)
-      }
-
-      const replies: string[] = []
-      const replyTool = createChannelReplyTool({
-        onReply: async (message) => {
-          console.log(`[discord] reply tool called: ${message.slice(0, 100)}`)
-          replies.push(message)
-          await sendMessage(channelId, message)
-        }
-      })
-
-      const runDonePromise = collectRunOutput(server, yachiyoThread.id)
-
-      const accepted = await server.sendChat({
-        threadId: yachiyoThread.id,
-        content: text,
-        images: images.length > 0 ? images : undefined,
-        enabledTools: policy.allowedTools,
-        channelHint: policy.replyInstruction,
-        extraTools: { reply: replyTool }
-      })
-      console.log(`[discord] sendChat accepted:`, accepted)
-
-      if (!('runId' in accepted)) {
-        console.warn('[discord] sendChat returned non-run accepted:', accepted)
-        await sendMessage(channelId, 'Sorry, something went wrong on my end.')
-        return
-      }
-
-      if ('userMessage' in accepted) {
-        for (const img of accepted.userMessage.images ?? []) {
-          if (img.workspacePath) {
-            server.getTtlReaper().register(img.workspacePath, policy.imageTtlMs)
-          }
-        }
-      }
-
-      const rawOutput = await runDonePromise
-
-      // Always try to send the raw output as final response, deduped against reply tool messages.
-      if (rawOutput.trim()) {
-        const fallback = rawOutput.trim()
-        if (fallback && !replies.includes(fallback)) {
-          console.log(
-            `[discord] sending ${replies.length === 0 ? 'fallback' : 'deduped final'}: ${fallback.slice(0, 100)}`
-          )
-          await sendMessage(channelId, fallback)
-          replies.push(fallback)
-        }
-      }
-
-      const visibleReply = replies.join('\n')
-      console.log(
-        `[discord] run complete, ${replies.length} reply(s): ${visibleReply.slice(0, 200)}`
-      )
-
-      server.updateLatestAssistantVisibleReply({
-        threadId: yachiyoThread.id,
-        visibleReply
-      })
-
-      const totalTokens = server.getThreadTotalTokens(yachiyoThread.id)
-      if (totalTokens > 0) {
-        const kTokens = Math.ceil(totalTokens / 1000)
-        server.updateChannelUser({ id: channelUser.id, usedKTokens: kTokens })
-        console.log(`[discord] updated usedKTokens for ${channelUser.username}: ${kTokens}k`)
-      }
-    } catch (error) {
-      console.error('[discord] failed to handle allowed message', error)
-      await sendMessage(channelId, 'Something went wrong. Please try again in a moment.')
-    } finally {
-      stopTyping()
-    }
   }
 
   // ------------------------------------------------------------------
@@ -823,14 +613,7 @@ export function createDiscordService({
     },
     async stop() {
       groupRegistry?.stopAll()
-      for (const [userId, batch] of pendingBatches) {
-        clearTimeout(batch.timer)
-        batch.stopTyping()
-        pendingBatches.delete(userId)
-        console.log(
-          `[discord] discarded pending batch for ${batch.channelUser.username} on shutdown`
-        )
-      }
+      directMessages.stop()
       await client.destroy()
     },
 
@@ -848,36 +631,4 @@ export function createDiscordService({
 
     sendMessage
   }
-}
-
-function collectRunOutput(server: YachiyoServer, threadId: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let buffer = ''
-
-    const unsubscribe = server.subscribe((event: YachiyoServerEvent) => {
-      if (!('threadId' in event) || event.threadId !== threadId) return
-
-      if (event.type === 'message.delta') {
-        buffer += (event as YachiyoServerEvent & { delta?: string }).delta ?? ''
-        return
-      }
-
-      if (event.type === 'run.completed') {
-        unsubscribe()
-        resolve(buffer)
-        return
-      }
-
-      if (event.type === 'run.cancelled') {
-        unsubscribe()
-        resolve('')
-        return
-      }
-
-      if (event.type === 'run.failed') {
-        unsubscribe()
-        reject(new Error((event as YachiyoServerEvent & { error?: string }).error ?? 'Run failed'))
-      }
-    })
-  })
 }

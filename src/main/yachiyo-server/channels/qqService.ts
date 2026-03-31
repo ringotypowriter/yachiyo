@@ -22,13 +22,13 @@ import type {
   GroupChannelConfig,
   GroupMessageEntry,
   MessageImageRecord,
-  ThreadModelOverride,
-  YachiyoServerEvent
+  ThreadRecord,
+  ThreadModelOverride
 } from '../../../shared/yachiyo/protocol.ts'
 import type { YachiyoServer } from '../app/YachiyoServer.ts'
 import { resolveYachiyoTempWorkspaceRoot } from '../config/paths.ts'
 import { qqPolicy } from './channelPolicy.ts'
-import { createChannelReplyTool } from './channelReply.ts'
+import { createDirectMessageService, resolveDirectMessageThread } from './directMessageService.ts'
 import {
   detectMediaTypeFromBytes,
   ensureVisionSafe,
@@ -59,23 +59,6 @@ import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool
 import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool.ts'
 import { createTool as createUpdateMemoryTool } from '../tools/agentTools/updateMemoryTool.ts'
 import { notifyAutoCompact } from './autoCompactNotice.ts'
-
-/** Minimum debounce delay before flushing a message batch. */
-const REPLY_DELAY_MIN_MS = 3_000
-/** Maximum debounce delay before flushing a message batch. */
-const REPLY_DELAY_MAX_MS = 8_000
-
-function randomReplyDelay(): number {
-  return REPLY_DELAY_MIN_MS + Math.random() * (REPLY_DELAY_MAX_MS - REPLY_DELAY_MIN_MS)
-}
-
-interface PendingBatch {
-  messages: string[]
-  imageDownloads: Promise<MessageImageRecord | null>[]
-  timer: ReturnType<typeof setTimeout>
-  qqUserId: number
-  channelUser: ChannelUserRecord
-}
 
 export interface QQServiceOptions {
   /** NapCatQQ forward WebSocket URL. */
@@ -118,9 +101,6 @@ export function createQQService({
   groupCheckIntervalMs
 }: QQServiceOptions): QQService {
   const policy = qqPolicy
-  const pendingBatches = new Map<string, PendingBatch>()
-  /** Per-user promise chain so messages are processed sequentially. */
-  const userRunChain = new Map<string, Promise<void>>()
   const groupProbeMessageCountLimit = new Map<string, number>()
   let resolvedBotQQId = botQQId
 
@@ -151,6 +131,47 @@ export function createQQService({
   function stopTyping(qqUserId: number): void {
     void client.setInputStatus(qqUserId, 0).catch(() => {})
   }
+
+  async function sendPrivateMessage(userId: number, text: string): Promise<void> {
+    await client.sendPrivateMessage(userId, text)
+  }
+
+  async function resolveThread(
+    channelUser: ChannelUserRecord
+  ): Promise<{ thread: ThreadRecord; compacted: boolean }> {
+    return resolveDirectMessageThread({
+      logLabel: 'qq',
+      server,
+      channelUser,
+      policy,
+      modelOverride,
+      createThread: async (): Promise<ThreadRecord> =>
+        server.createThread({
+          workspacePath: channelUser.workspacePath,
+          source: 'qq',
+          channelUserId: channelUser.id,
+          title: `QQ:${channelUser.username}`
+        })
+    })
+  }
+
+  const directMessages = createDirectMessageService<number>({
+    logLabel: 'qq',
+    server,
+    policy,
+    resolveThread,
+    sendMessage: sendPrivateMessage,
+    startBatchIndicator: (qqUserId) => {
+      sendTyping(qqUserId)
+    },
+    startHandlingIndicator: (qqUserId) => {
+      sendTyping(qqUserId)
+      return () => stopTyping(qqUserId)
+    },
+    onCompacted: (qqUserId) => notifyAutoCompact(sendPrivateMessage, qqUserId),
+    nonRunReply: '抱歉，出了点问题。',
+    errorReply: '出了点问题，请稍后再试。'
+  })
 
   /**
    * Resolve a CQ image reference via OneBot `get_image` API.
@@ -243,7 +264,7 @@ export function createQQService({
         return
 
       case 'allowed':
-        enqueueMessage(msg.userId, result.channelUser, text, imageDownloads)
+        directMessages.enqueueMessage(msg.userId, result.channelUser, text, imageDownloads)
     }
   })
 
@@ -487,10 +508,11 @@ export function createQQService({
     })
 
     if (result.status === 'success') {
+      const totalPromptTokens = result.usage?.totalPromptTokens
       const nextMessageCountLimit = deriveNextGroupProbeMessageCount({
         currentMessageCount: probeRecentMessages.length,
         availableMessageCount: recentMessages.length,
-        totalPromptTokens: result.usage?.totalPromptTokens,
+        totalPromptTokens,
         contextTokenLimit: policy.contextTokenLimit
       })
       const previousMessageCountLimit = groupProbeMessageCountLimit.get(group.id)
@@ -499,9 +521,17 @@ export function createQQService({
       } else {
         groupProbeMessageCountLimit.set(group.id, nextMessageCountLimit)
       }
+      const promptUsageK =
+        totalPromptTokens != null && totalPromptTokens > 0
+          ? `${(totalPromptTokens / 1000).toFixed(1)}k`
+          : 'unknown'
+      const currentMessageWindow = nextMessageCountLimit ?? recentMessages.length
+      console.log(
+        `[qq-group] group="${group.name}" probe usage=${promptUsageK}, probed=${probeRecentMessages.length}/${recentMessages.length} message(s), window now=${currentMessageWindow}/${recentMessages.length}`
+      )
       if (previousMessageCountLimit !== nextMessageCountLimit) {
         console.log(
-          `[qq-group] group="${group.name}" moved token window ${previousMessageCountLimit ?? 'full'} -> ${nextMessageCountLimit ?? 'full'} message(s) after promptTokens=${result.usage?.totalPromptTokens ?? 'unknown'}`
+          `[qq-group] group="${group.name}" moved token window ${previousMessageCountLimit ?? 'full'} -> ${nextMessageCountLimit ?? 'full'} message(s) after promptTokens=${promptUsageK}`
         )
       }
       console.log(
@@ -591,218 +621,6 @@ export function createQQService({
     }
   })
 
-  function enqueueMessage(
-    qqUserId: number,
-    channelUser: ChannelUserRecord,
-    text: string,
-    imageDownloads: Promise<MessageImageRecord | null>[] = []
-  ): void {
-    const userId = channelUser.id
-    const existing = pendingBatches.get(userId)
-
-    if (existing) {
-      existing.messages.push(text)
-      existing.imageDownloads.push(...imageDownloads)
-      clearTimeout(existing.timer)
-      const delay = randomReplyDelay()
-      existing.timer = setTimeout(() => flushBatch(userId), delay)
-      console.log(
-        `[qq] appended to batch for ${channelUser.username} (${existing.messages.length} msgs, ${existing.imageDownloads.length} img(s), next flush in ${Math.round(delay)}ms)`
-      )
-      return
-    }
-
-    sendTyping(qqUserId)
-    const delay = randomReplyDelay()
-    const timer = setTimeout(() => flushBatch(userId), delay)
-
-    pendingBatches.set(userId, {
-      messages: [text],
-      imageDownloads: [...imageDownloads],
-      timer,
-      qqUserId,
-      channelUser
-    })
-
-    console.log(`[qq] new batch for ${channelUser.username} (flush in ${Math.round(delay)}ms)`)
-  }
-
-  async function flushBatch(userId: string): Promise<void> {
-    const batch = pendingBatches.get(userId)
-    if (!batch) return
-    pendingBatches.delete(userId)
-
-    const joinedText = batch.messages.join('\n')
-
-    // Resolve all eagerly-started image downloads.
-    const images = (await Promise.all(batch.imageDownloads)).filter(
-      (img): img is MessageImageRecord => img !== null
-    )
-
-    console.log(
-      `[qq] flushing batch for ${batch.channelUser.username}: ${batch.messages.length} message(s), ${images.length} image(s)`
-    )
-
-    const channelUserId = batch.channelUser.id
-    const prev = userRunChain.get(channelUserId) ?? Promise.resolve()
-    const next = prev.then(() =>
-      handleAllowedMessage(batch.qqUserId, batch.channelUser, joinedText, images)
-    )
-    userRunChain.set(
-      channelUserId,
-      next.catch(() => {})
-    )
-  }
-
-  async function resolveThread(channelUser: ChannelUserRecord): Promise<{
-    thread: import('../../../shared/yachiyo/protocol.ts').ThreadRecord
-    compacted: boolean
-  }> {
-    const existing = server.findActiveChannelThread(channelUser.id, policy.threadReuseWindowMs)
-
-    if (existing) {
-      let thread = existing
-      const currentOverride = existing.modelOverride
-      const wantedOverride =
-        modelOverride?.providerName && modelOverride?.model ? modelOverride : null
-      const overrideChanged =
-        (currentOverride?.providerName ?? '') !== (wantedOverride?.providerName ?? '') ||
-        (currentOverride?.model ?? '') !== (wantedOverride?.model ?? '')
-      if (overrideChanged) {
-        thread = await server.setThreadModelOverride({
-          threadId: existing.id,
-          modelOverride: wantedOverride
-        })
-        console.log(
-          `[qq] reconciled model override on thread ${existing.id}:`,
-          wantedOverride ?? 'cleared'
-        )
-      }
-
-      const totalTokens = server.getThreadTotalTokens(thread.id)
-      console.log(`[qq] existing thread ${thread.id} — ${totalTokens} tokens`)
-
-      if (totalTokens < policy.contextTokenLimit) {
-        return { thread, compacted: false }
-      }
-
-      console.log(
-        `[qq] thread ${thread.id} exceeded ${policy.contextTokenLimit} tokens, generating rolling summary`
-      )
-      const { thread: compactedThread } = await server.compactExternalThread({
-        threadId: thread.id
-      })
-      return { thread: compactedThread, compacted: true }
-    }
-
-    let thread = await server.createThread({
-      workspacePath: channelUser.workspacePath,
-      source: 'qq',
-      channelUserId: channelUser.id,
-      title: `QQ:${channelUser.username}`
-    })
-    if (modelOverride?.providerName && modelOverride?.model) {
-      thread = await server.setThreadModelOverride({
-        threadId: thread.id,
-        modelOverride
-      })
-    }
-    return { thread, compacted: false }
-  }
-
-  async function handleAllowedMessage(
-    qqUserId: number,
-    channelUser: ChannelUserRecord,
-    text: string,
-    images: MessageImageRecord[] = []
-  ): Promise<void> {
-    sendTyping(qqUserId)
-    try {
-      console.log(
-        `[qq] handling allowed message for user ${channelUser.username} (${images.length} image(s))`
-      )
-      const { thread: yachiyoThread, compacted } = await resolveThread(channelUser)
-      console.log(
-        `[qq] using thread ${yachiyoThread.id}${compacted ? ' (rolling summary generated)' : ''}`
-      )
-      if (compacted) {
-        await notifyAutoCompact(client.sendPrivateMessage, qqUserId)
-      }
-
-      // Collect all replies sent via the reply tool for visibleReply storage.
-      const replies: string[] = []
-      const replyTool = createChannelReplyTool({
-        onReply: async (message) => {
-          console.log(`[qq] reply tool called: ${message.slice(0, 100)}`)
-          replies.push(message)
-          await client.sendPrivateMessage(qqUserId, message)
-        }
-      })
-
-      const runDonePromise = collectRunOutput(server, yachiyoThread.id)
-
-      const accepted = await server.sendChat({
-        threadId: yachiyoThread.id,
-        content: text,
-        images: images.length > 0 ? images : undefined,
-        enabledTools: policy.allowedTools,
-        channelHint: policy.replyInstruction,
-        extraTools: { reply: replyTool }
-      })
-      console.log(`[qq] sendChat accepted:`, accepted)
-
-      if (!('runId' in accepted)) {
-        console.warn('[qq] sendChat returned non-run accepted:', accepted)
-        await client.sendPrivateMessage(qqUserId, '抱歉，出了点问题。')
-        return
-      }
-
-      // Register TTL for saved image files so they get cleaned up.
-      if ('userMessage' in accepted) {
-        for (const img of accepted.userMessage.images ?? []) {
-          if (img.workspacePath) {
-            server.getTtlReaper().register(img.workspacePath, policy.imageTtlMs)
-          }
-        }
-      }
-
-      const rawOutput = await runDonePromise
-
-      // Fallback: if the model never called the reply tool, send the raw output directly.
-      // Dedup: skip if the extracted text was already sent via the reply tool.
-      if (rawOutput.trim()) {
-        const fallback = rawOutput.trim()
-        if (fallback && !replies.includes(fallback)) {
-          console.log(
-            `[qq] sending ${replies.length === 0 ? 'fallback' : 'deduped final'}: ${fallback.slice(0, 100)}`
-          )
-          await client.sendPrivateMessage(qqUserId, fallback)
-          replies.push(fallback)
-        }
-      }
-
-      const visibleReply = replies.join('\n')
-      console.log(`[qq] run complete, ${replies.length} reply(s): ${visibleReply.slice(0, 200)}`)
-
-      server.updateLatestAssistantVisibleReply({
-        threadId: yachiyoThread.id,
-        visibleReply
-      })
-
-      const totalTokens = server.getThreadTotalTokens(yachiyoThread.id)
-      if (totalTokens > 0) {
-        const kTokens = Math.ceil(totalTokens / 1000)
-        server.updateChannelUser({ id: channelUser.id, usedKTokens: kTokens })
-        console.log(`[qq] updated usedKTokens for ${channelUser.username}: ${kTokens}k`)
-      }
-    } catch (error) {
-      console.error('[qq] failed to handle allowed message', error)
-      await client.sendPrivateMessage(qqUserId, '出了点问题，请稍后再试。').catch(() => {})
-    } finally {
-      stopTyping(qqUserId)
-    }
-  }
-
   return {
     connect() {
       console.log(`[qq] connecting to NapCat at ${wsUrl}`)
@@ -825,11 +643,7 @@ export function createQQService({
     },
     async stop() {
       groupRegistry?.stopAll()
-      for (const [userId, batch] of pendingBatches) {
-        clearTimeout(batch.timer)
-        pendingBatches.delete(userId)
-        console.log(`[qq] discarded pending batch for ${batch.channelUser.username} on shutdown`)
-      }
+      directMessages.stop()
       await client.close()
     },
 
@@ -845,44 +659,10 @@ export function createQQService({
       }
     },
 
-    async sendPrivateMessage(userId: number, text: string) {
-      await client.sendPrivateMessage(userId, text)
-    },
+    sendPrivateMessage,
 
     async sendGroupMessage(groupId: number, text: string) {
       await client.sendGroupMessage(groupId, text)
     }
   }
-}
-
-function collectRunOutput(server: YachiyoServer, threadId: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let buffer = ''
-
-    const unsubscribe = server.subscribe((event: YachiyoServerEvent) => {
-      if (!('threadId' in event) || event.threadId !== threadId) return
-
-      if (event.type === 'message.delta') {
-        buffer += (event as YachiyoServerEvent & { delta?: string }).delta ?? ''
-        return
-      }
-
-      if (event.type === 'run.completed') {
-        unsubscribe()
-        resolve(buffer)
-        return
-      }
-
-      if (event.type === 'run.cancelled') {
-        unsubscribe()
-        resolve('')
-        return
-      }
-
-      if (event.type === 'run.failed') {
-        unsubscribe()
-        reject(new Error((event as YachiyoServerEvent & { error?: string }).error ?? 'Run failed'))
-      }
-    })
-  })
 }

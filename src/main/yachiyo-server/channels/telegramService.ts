@@ -25,13 +25,13 @@ import type {
   GroupChannelConfig,
   GroupMessageEntry,
   MessageImageRecord,
-  ThreadModelOverride,
-  YachiyoServerEvent
+  ThreadRecord,
+  ThreadModelOverride
 } from '../../../shared/yachiyo/protocol'
 import type { YachiyoServer } from '../app/YachiyoServer'
 import { telegramPolicy } from './channelPolicy'
-import { createChannelReplyTool } from './channelReply'
 import { fetchImageAsDataUrl } from './channelImageDownload'
+import { createDirectMessageService, resolveDirectMessageThread } from './directMessageService.ts'
 import {
   buildGroupProbeMessages,
   deriveNextGroupProbeMessageCount,
@@ -61,24 +61,6 @@ import { join } from 'node:path'
 
 /** Telegram typing indicator expires after ~5 s; resend every 4 s. */
 const TYPING_INTERVAL_MS = 4_000
-
-/** Minimum debounce delay before flushing a message batch. */
-const REPLY_DELAY_MIN_MS = 3_000
-/** Maximum debounce delay before flushing a message batch. */
-const REPLY_DELAY_MAX_MS = 8_000
-
-function randomReplyDelay(): number {
-  return REPLY_DELAY_MIN_MS + Math.random() * (REPLY_DELAY_MAX_MS - REPLY_DELAY_MIN_MS)
-}
-
-interface PendingBatch {
-  messages: string[]
-  imageDownloads: Promise<MessageImageRecord | null>[]
-  timer: ReturnType<typeof setTimeout>
-  chatId: string
-  channelUser: ChannelUserRecord
-  stopTyping: () => void
-}
 
 export interface TelegramServiceOptions {
   /** Telegram Bot API token. */
@@ -119,10 +101,6 @@ export function createTelegramService({
 }: TelegramServiceOptions): TelegramService {
   const policy = telegramPolicy
 
-  /** Per-user message buffer for debounced reply batching. */
-  const pendingBatches = new Map<string, PendingBatch>()
-  /** Per-user promise chain so messages are processed sequentially. */
-  const userRunChain = new Map<string, Promise<void>>()
   const groupProbeMessageCountLimit = new Map<string, number>()
 
   const storage: TelegramChannelStorage = {
@@ -160,6 +138,42 @@ export function createTelegramService({
   async function sendMessage(chatId: string, text: string): Promise<void> {
     await bot.telegram.sendMessage(chatId, text)
   }
+
+  function resolveUserWorkspace(username: string): string {
+    return join(resolveYachiyoTempWorkspaceRoot(), `tg-${username}`)
+  }
+
+  async function resolveThread(
+    channelUser: ChannelUserRecord
+  ): Promise<{ thread: ThreadRecord; compacted: boolean }> {
+    return resolveDirectMessageThread({
+      logLabel: 'telegram',
+      server,
+      channelUser,
+      policy,
+      modelOverride,
+      createThread: async (): Promise<ThreadRecord> =>
+        server.createThread({
+          workspacePath: resolveUserWorkspace(channelUser.username),
+          source: 'telegram',
+          channelUserId: channelUser.id,
+          title: `Telegram:@${channelUser.username}`
+        })
+    })
+  }
+
+  const directMessages = createDirectMessageService<string>({
+    logLabel: 'telegram',
+    server,
+    policy,
+    resolveThread,
+    sendMessage,
+    startBatchIndicator: startTypingLoop,
+    startHandlingIndicator: startTypingLoop,
+    onCompacted: (chatId) => notifyAutoCompact(sendMessage, chatId),
+    nonRunReply: 'Sorry, something went wrong on my end.',
+    errorReply: 'Something went wrong. Please try again in a moment.'
+  })
 
   /** Download a single Telegram file by file_id via getFileLink. */
   function downloadByFileId(fileId: string): Promise<MessageImageRecord | null> {
@@ -266,7 +280,7 @@ export function createTelegramService({
         return
 
       case 'allowed':
-        enqueueMessage(chatId, result.channelUser, incomingText, imageDownloads)
+        directMessages.enqueueMessage(chatId, result.channelUser, incomingText, imageDownloads)
     }
   }
 
@@ -361,244 +375,6 @@ export function createTelegramService({
         timestamp: msg.date
       })
     })
-  }
-
-  /**
-   * Buffer an incoming message and schedule a debounced flush.
-   * If the user sends more messages before the timer fires, the timer resets
-   * with a fresh random delay — so the bot waits for a natural pause.
-   */
-  function enqueueMessage(
-    chatId: string,
-    channelUser: ChannelUserRecord,
-    text: string,
-    imageDownloads: Promise<MessageImageRecord | null>[] = []
-  ): void {
-    const userId = channelUser.id
-    const existing = pendingBatches.get(userId)
-
-    if (existing) {
-      // Append to existing batch, reset the debounce timer.
-      existing.messages.push(text)
-      existing.imageDownloads.push(...imageDownloads)
-      clearTimeout(existing.timer)
-      const delay = randomReplyDelay()
-      existing.timer = setTimeout(() => flushBatch(userId), delay)
-      console.log(
-        `[telegram] appended to batch for ${channelUser.username} (${existing.messages.length} msgs, ${existing.imageDownloads.length} img(s), next flush in ${Math.round(delay)}ms)`
-      )
-      return
-    }
-
-    // Start a new batch with a typing indicator.
-    const stopTyping = startTypingLoop(chatId)
-    const delay = randomReplyDelay()
-    const timer = setTimeout(() => flushBatch(userId), delay)
-
-    pendingBatches.set(userId, {
-      messages: [text],
-      imageDownloads: [...imageDownloads],
-      timer,
-      chatId,
-      channelUser,
-      stopTyping
-    })
-
-    console.log(
-      `[telegram] new batch for ${channelUser.username} (flush in ${Math.round(delay)}ms)`
-    )
-  }
-
-  /** Flush a user's buffered messages and process them as a single request. */
-  async function flushBatch(userId: string): Promise<void> {
-    const batch = pendingBatches.get(userId)
-    if (!batch) return
-    pendingBatches.delete(userId)
-
-    const joinedText = batch.messages.join('\n')
-
-    // Resolve all eagerly-started image downloads.
-    const images = (await Promise.all(batch.imageDownloads)).filter(
-      (img): img is MessageImageRecord => img !== null
-    )
-
-    console.log(
-      `[telegram] flushing batch for ${batch.channelUser.username}: ${batch.messages.length} message(s), ${images.length} image(s)`
-    )
-
-    // handleAllowedMessage manages its own typing loop, so stop the batch one.
-    batch.stopTyping()
-
-    const channelUserId = batch.channelUser.id
-    const prev = userRunChain.get(channelUserId) ?? Promise.resolve()
-    const next = prev.then(() =>
-      handleAllowedMessage(batch.chatId, batch.channelUser, joinedText, images)
-    )
-    userRunChain.set(
-      channelUserId,
-      next.catch(() => {})
-    )
-  }
-
-  /** Resolve a user-specific workspace path shared across all their threads. */
-  function resolveUserWorkspace(username: string): string {
-    return join(resolveYachiyoTempWorkspaceRoot(), `tg-${username}`)
-  }
-
-  /** Find or create the right thread for this channel user. */
-  async function resolveThread(channelUser: ChannelUserRecord): Promise<{
-    thread: import('../../../shared/yachiyo/protocol').ThreadRecord
-    compacted: boolean
-  }> {
-    const workspace = resolveUserWorkspace(channelUser.username)
-    const existing = server.findActiveChannelThread(channelUser.id, policy.threadReuseWindowMs)
-
-    if (existing) {
-      // Reconcile model override so config changes take effect on reused threads.
-      let thread = existing
-      const currentOverride = existing.modelOverride
-      const wantedOverride =
-        modelOverride?.providerName && modelOverride?.model ? modelOverride : null
-      const overrideChanged =
-        (currentOverride?.providerName ?? '') !== (wantedOverride?.providerName ?? '') ||
-        (currentOverride?.model ?? '') !== (wantedOverride?.model ?? '')
-      if (overrideChanged) {
-        thread = await server.setThreadModelOverride({
-          threadId: existing.id,
-          modelOverride: wantedOverride
-        })
-        console.log(
-          `[telegram] reconciled model override on thread ${existing.id}:`,
-          wantedOverride ?? 'cleared'
-        )
-      }
-
-      const totalTokens = server.getThreadTotalTokens(thread.id)
-      console.log(`[telegram] existing thread ${thread.id} — ${totalTokens} tokens`)
-
-      if (totalTokens < policy.contextTokenLimit) {
-        return { thread, compacted: false }
-      }
-
-      // Context limit reached — generate rolling summary in-place.
-      console.log(
-        `[telegram] thread ${thread.id} exceeded ${policy.contextTokenLimit} tokens, generating rolling summary`
-      )
-      const { thread: compactedThread } = await server.compactExternalThread({
-        threadId: existing.id
-      })
-      return { thread: compactedThread, compacted: true }
-    }
-
-    // No reusable thread — create a fresh one.
-    let thread = await server.createThread({
-      workspacePath: workspace,
-      source: 'telegram',
-      channelUserId: channelUser.id,
-      title: `Telegram:@${channelUser.username}`
-    })
-    if (modelOverride?.providerName && modelOverride?.model) {
-      thread = await server.setThreadModelOverride({
-        threadId: thread.id,
-        modelOverride
-      })
-    }
-    return { thread, compacted: false }
-  }
-
-  async function handleAllowedMessage(
-    chatId: string,
-    channelUser: ChannelUserRecord,
-    text: string,
-    images: MessageImageRecord[] = []
-  ): Promise<void> {
-    const stopTyping = startTypingLoop(chatId)
-    try {
-      console.log(
-        `[telegram] handling allowed message for user ${channelUser.username} (${images.length} image(s))`
-      )
-      const { thread: yachiyoThread, compacted } = await resolveThread(channelUser)
-      console.log(
-        `[telegram] using thread ${yachiyoThread.id}${compacted ? ' (rolling summary generated)' : ''}`
-      )
-      if (compacted) {
-        await notifyAutoCompact(sendMessage, chatId)
-      }
-
-      const replies: string[] = []
-      const replyTool = createChannelReplyTool({
-        onReply: async (message) => {
-          console.log(`[telegram] reply tool called: ${message.slice(0, 100)}`)
-          replies.push(message)
-          await sendMessage(chatId, message)
-        }
-      })
-
-      const runDonePromise = collectRunOutput(server, yachiyoThread.id)
-
-      const accepted = await server.sendChat({
-        threadId: yachiyoThread.id,
-        content: text,
-        images: images.length > 0 ? images : undefined,
-        enabledTools: policy.allowedTools,
-        channelHint: policy.replyInstruction,
-        extraTools: { reply: replyTool }
-      })
-      console.log(`[telegram] sendChat accepted:`, accepted)
-
-      if (!('runId' in accepted)) {
-        console.warn('[telegram] sendChat returned non-run accepted:', accepted)
-        await sendMessage(chatId, 'Sorry, something went wrong on my end.')
-        return
-      }
-
-      // Register TTL for saved image files so they get cleaned up.
-      if ('userMessage' in accepted) {
-        for (const img of accepted.userMessage.images ?? []) {
-          if (img.workspacePath) {
-            server.getTtlReaper().register(img.workspacePath, policy.imageTtlMs)
-          }
-        }
-      }
-
-      const rawOutput = await runDonePromise
-
-      // Always try to send the raw output as final response, deduped against reply tool messages.
-      if (rawOutput.trim()) {
-        const fallback = rawOutput.trim()
-        if (fallback && !replies.includes(fallback)) {
-          console.log(
-            `[telegram] sending ${replies.length === 0 ? 'fallback' : 'deduped final'}: ${fallback.slice(0, 100)}`
-          )
-          await sendMessage(chatId, fallback)
-          replies.push(fallback)
-        }
-      }
-
-      const visibleReply = replies.join('\n')
-      console.log(
-        `[telegram] run complete, ${replies.length} reply(s): ${visibleReply.slice(0, 200)}`
-      )
-
-      // Store the visible reply on the assistant message for future summary generation.
-      server.updateLatestAssistantVisibleReply({
-        threadId: yachiyoThread.id,
-        visibleReply
-      })
-
-      // Record token usage against the channel user.
-      const totalTokens = server.getThreadTotalTokens(yachiyoThread.id)
-      if (totalTokens > 0) {
-        const kTokens = Math.ceil(totalTokens / 1000)
-        server.updateChannelUser({ id: channelUser.id, usedKTokens: kTokens })
-        console.log(`[telegram] updated usedKTokens for ${channelUser.username}: ${kTokens}k`)
-      }
-    } catch (error) {
-      console.error('[telegram] failed to handle allowed message', error)
-      await sendMessage(chatId, 'Something went wrong. Please try again in a moment.')
-    } finally {
-      stopTyping()
-    }
   }
 
   // ------------------------------------------------------------------
@@ -858,15 +634,7 @@ export function createTelegramService({
     },
     async stop() {
       groupRegistry?.stopAll()
-      // Discard pending batches on shutdown — stop timers and typing indicators.
-      for (const [userId, batch] of pendingBatches) {
-        clearTimeout(batch.timer)
-        batch.stopTyping()
-        pendingBatches.delete(userId)
-        console.log(
-          `[telegram] discarded pending batch for ${batch.channelUser.username} on shutdown`
-        )
-      }
+      directMessages.stop()
       bot.stop()
     },
     onGroupStatusChange(group) {
@@ -882,36 +650,4 @@ export function createTelegramService({
     },
     sendMessage
   }
-}
-
-function collectRunOutput(server: YachiyoServer, threadId: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let buffer = ''
-
-    const unsubscribe = server.subscribe((event: YachiyoServerEvent) => {
-      if (!('threadId' in event) || event.threadId !== threadId) return
-
-      if (event.type === 'message.delta') {
-        buffer += (event as YachiyoServerEvent & { delta?: string }).delta ?? ''
-        return
-      }
-
-      if (event.type === 'run.completed') {
-        unsubscribe()
-        resolve(buffer)
-        return
-      }
-
-      if (event.type === 'run.cancelled') {
-        unsubscribe()
-        resolve('')
-        return
-      }
-
-      if (event.type === 'run.failed') {
-        unsubscribe()
-        reject(new Error((event as YachiyoServerEvent & { error?: string }).error ?? 'Run failed'))
-      }
-    })
-  })
 }
