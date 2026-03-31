@@ -2,7 +2,7 @@ import type { MessageRecord } from '../../../../shared/yachiyo/protocol.ts'
 import { summarizeMessageInput } from '../../../../shared/yachiyo/messageContent.ts'
 import type { ModelMessage } from '../../runtime/types.ts'
 
-export const MAX_THREAD_TITLE_LENGTH = 60
+export const MAX_THREAD_TITLE_LENGTH = 32
 const MAX_ATTACHMENT_BASENAME_LENGTH = 30
 
 function sanitizeFilename(filename: string): string {

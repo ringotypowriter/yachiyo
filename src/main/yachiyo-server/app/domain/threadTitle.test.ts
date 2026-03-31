@@ -1,6 +1,11 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildTitleQuery } from './threadTitle.ts'
+import {
+  buildThreadTitleGenerationMessages,
+  buildTitleQuery,
+  MAX_THREAD_TITLE_LENGTH,
+  sanitizeGeneratedThreadTitle
+} from './threadTitle.ts'
 
 describe('buildTitleQuery', () => {
   it('returns plain content when no attachments', () => {
@@ -74,5 +79,25 @@ describe('buildTitleQuery', () => {
     // '\r\n' is in the middle of the filename — truncate there, losing the extension
     const images = [{ mediaType: 'image/jpeg', filename: 'photo\r\n.jpg' }]
     assert.equal(buildTitleQuery('', images), '[image:photo]')
+  })
+})
+
+describe('thread title generation', () => {
+  it('tells the model to keep the title under the configured max length', () => {
+    const messages = buildThreadTitleGenerationMessages('Plan the MVP')
+    assert.equal(messages.length, 1)
+    assert.match(
+      typeof messages[0]?.content === 'string' ? messages[0].content : '',
+      new RegExp(`Keep the title under ${MAX_THREAD_TITLE_LENGTH} characters\\.`, 'u')
+    )
+  })
+
+  it('truncates generated titles to the configured max length', () => {
+    const longTitle = 'This generated thread title is definitely much too long'
+    assert.equal(
+      sanitizeGeneratedThreadTitle(longTitle),
+      longTitle.slice(0, MAX_THREAD_TITLE_LENGTH).trim()
+    )
+    assert.equal(sanitizeGeneratedThreadTitle(longTitle)?.length, MAX_THREAD_TITLE_LENGTH)
   })
 })
