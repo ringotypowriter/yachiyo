@@ -163,6 +163,7 @@ export interface RunRecoveryCheckpoint {
   content: string
   textBlocks?: MessageTextBlockRecord[]
   reasoning?: string
+  responseMessages?: unknown[]
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
   channelHint?: string
@@ -181,6 +182,7 @@ export interface StoredRunRecoveryCheckpointRow {
   content: string
   textBlocks: string | null
   reasoning: string | null
+  responseMessages: string | null
   enabledTools: string
   enabledSkillNames: string | null
   channelHint: string | null
@@ -637,6 +639,7 @@ export function toRunRecoveryCheckpoint(
   row: StoredRunRecoveryCheckpointRow
 ): RunRecoveryCheckpoint {
   const textBlocks = parseMessageTextBlocks(row.textBlocks)
+  const responseMessages = parseResponseMessages(row.responseMessages)
   const enabledTools = parseEnabledTools(row.enabledTools) ?? []
   const enabledSkillNames = parseSkillNames(row.enabledSkillNames)
 
@@ -648,6 +651,7 @@ export function toRunRecoveryCheckpoint(
     content: row.content,
     ...(textBlocks ? { textBlocks } : {}),
     ...(row.reasoning ? { reasoning: row.reasoning } : {}),
+    ...(responseMessages ? { responseMessages } : {}),
     enabledTools,
     ...(enabledSkillNames ? { enabledSkillNames } : {}),
     ...(row.channelHint ? { channelHint: row.channelHint } : {}),
@@ -670,6 +674,7 @@ export function toStoredRunRecoveryCheckpointRow(
     content: checkpoint.content,
     textBlocks: serializeMessageTextBlocks(checkpoint.textBlocks),
     reasoning: serializeReasoning(checkpoint.reasoning),
+    responseMessages: serializeResponseMessages(checkpoint.responseMessages),
     enabledTools: JSON.stringify(checkpoint.enabledTools),
     enabledSkillNames: checkpoint.enabledSkillNames
       ? JSON.stringify(checkpoint.enabledSkillNames)

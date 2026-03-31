@@ -85,7 +85,17 @@ import {
   type Timestamp
 } from './shared.ts'
 import { resolveEnabledTools } from './configDomain.ts'
-import { buildRecoveryHistory, buildRecoveryResponseMessages } from './runRecovery.ts'
+import {
+  appendRecoveryReasoningDelta,
+  appendRecoveryTextDelta,
+  appendRecoveryToolCall,
+  appendRecoveryToolResult,
+  buildRecoveryHistory,
+  buildRecoveryResponseMessages,
+  clearRecoveryReasoningParts,
+  cloneRecoveryResponseMessages,
+  type RecoveryResponseMessage
+} from './runRecovery.ts'
 
 export interface ExecuteRunInput {
   enabledTools: ToolCallName[]
@@ -755,44 +765,6 @@ function consumeDuplicatePrefix(input: { prefix: string; pending: string; delta:
   }
 }
 
-function buildRecoveredAssistantResponseMessages(input: {
-  priorResponseMessages?: unknown[]
-  currentResponseMessages?: unknown[]
-  fullContent: string
-  previousContent: string
-}): unknown[] | undefined {
-  const prior = input.priorResponseMessages ?? []
-  const current = input.currentResponseMessages ?? []
-  const continuation = input.fullContent.slice(input.previousContent.length)
-
-  if (current.length > 0) {
-    return [...prior, ...current]
-  }
-
-  if (prior.length > 0) {
-    return continuation
-      ? [
-          ...prior,
-          {
-            role: 'assistant',
-            content: [{ type: 'text', text: continuation }]
-          }
-        ]
-      : prior
-  }
-
-  if (!continuation) {
-    return undefined
-  }
-
-  return [
-    {
-      role: 'assistant',
-      content: [{ type: 'text', text: continuation }]
-    }
-  ]
-}
-
 function persistTerminalAssistantMessage(
   deps: Pick<RunExecutionDeps, 'readThread' | 'storage'>,
   input: {
@@ -861,6 +833,11 @@ export async function executeServerRun(
   let duplicateTextPrefix = recoveryCheckpoint?.content ?? ''
   let pendingDuplicateText = ''
   const recoveryCreatedAt = recoveryCheckpoint?.createdAt ?? deps.timestamp()
+  let recoveryResponseMessages: RecoveryResponseMessage[] =
+    (buildRecoveryResponseMessages({
+      checkpoint: recoveryCheckpoint ?? { content: buffer },
+      toolCalls: [...toolCalls.values()]
+    }) as RecoveryResponseMessage[] | undefined) ?? []
 
   const persistRecoveryCheckpoint = (
     options: {
@@ -880,6 +857,9 @@ export async function executeServerRun(
       content: buffer,
       ...(textBlocks.length > 0 ? { textBlocks } : {}),
       ...(reasoningBuffer ? { reasoning: reasoningBuffer } : {}),
+      ...(recoveryResponseMessages.length > 0
+        ? { responseMessages: recoveryResponseMessages }
+        : {}),
       enabledTools: [...input.enabledTools],
       ...(input.enabledSkillNames ? { enabledSkillNames: [...input.enabledSkillNames] } : {}),
       ...(input.channelHint ? { channelHint: input.channelHint } : {}),
@@ -1245,6 +1225,12 @@ export async function executeServerRun(
                 }
                 toolCalls.set(toolCall.id, toolCall)
                 deps.storage.createToolCall(toolCall)
+                appendRecoveryToolCall(recoveryResponseMessages, {
+                  toolCallId: toolCall.id,
+                  toolName: toolCall.toolName,
+                  toolInput: { summary: agentName }
+                })
+                persistRecoveryCheckpoint()
                 deps.emit<ToolCallUpdatedEvent>({
                   type: 'tool.updated',
                   threadId: input.thread.id,
@@ -1287,6 +1273,25 @@ export async function executeServerRun(
                   }
                   toolCalls.set(toolCall.id, toolCall)
                   deps.storage.updateToolCall(toolCall)
+                  if (!startedToolCall) {
+                    appendRecoveryToolCall(recoveryResponseMessages, {
+                      toolCallId: toolCall.id,
+                      toolName: toolCall.toolName,
+                      toolInput: { summary: agentName }
+                    })
+                  }
+                  appendRecoveryToolResult(recoveryResponseMessages, {
+                    toolCallId: toolCall.id,
+                    toolName: toolCall.toolName,
+                    ...(status === 'cancelled'
+                      ? { error: outputSummary }
+                      : {
+                          output: {
+                            content: [{ type: 'text', text: outputSummary }]
+                          }
+                        })
+                  })
+                  persistRecoveryCheckpoint()
                   deps.emit<ToolCallUpdatedEvent>({
                     type: 'tool.updated',
                     threadId: input.thread.id,
@@ -1334,6 +1339,19 @@ export async function executeServerRun(
       },
       onRetry: (attempt, maxAttempts, delayMs, error) => {
         reasoningBuffer = ''
+        const normalizedResponseMessages = buildRecoveryResponseMessages({
+          checkpoint: {
+            content: buffer,
+            ...(recoveryResponseMessages.length > 0
+              ? { responseMessages: clearRecoveryReasoningParts(recoveryResponseMessages) }
+              : {})
+          },
+          toolCalls: [...toolCalls.values()]
+        }) as RecoveryResponseMessage[] | undefined
+        recoveryResponseMessages =
+          normalizedResponseMessages ??
+          cloneRecoveryResponseMessages(recoveryCheckpoint?.responseMessages) ??
+          []
         persistRecoveryCheckpoint()
         deps.emit<RunRetryingEvent>({
           type: 'run.retrying',
@@ -1347,6 +1365,7 @@ export async function executeServerRun(
       },
       onReasoningDelta: (reasoningDelta) => {
         reasoningBuffer += reasoningDelta
+        appendRecoveryReasoningDelta(recoveryResponseMessages, reasoningDelta)
         persistRecoveryCheckpoint()
         deps.emit<MessageReasoningDeltaEvent>({
           type: 'message.reasoning.delta',
@@ -1385,6 +1404,11 @@ export async function executeServerRun(
 
         toolCalls.set(toolCall.id, toolCall)
         deps.storage.createToolCall(toolCall)
+        appendRecoveryToolCall(recoveryResponseMessages, {
+          toolCallId: toolCall.id,
+          toolName: toolCall.toolName,
+          toolInput: event.toolCall.input
+        })
         persistRecoveryCheckpoint()
         deps.emit<ToolCallUpdatedEvent>({
           type: 'tool.updated',
@@ -1475,7 +1499,18 @@ export async function executeServerRun(
             deps.storage.updateToolCall(toolCall)
           } else {
             deps.storage.createToolCall(toolCall)
+            appendRecoveryToolCall(recoveryResponseMessages, {
+              toolCallId: toolCall.id,
+              toolName,
+              toolInput: event.toolCall.input
+            })
           }
+          appendRecoveryToolResult(recoveryResponseMessages, {
+            toolCallId: toolCall.id,
+            toolName,
+            output: event.output,
+            error: event.error
+          })
           persistRecoveryCheckpoint()
           deps.emit<ToolCallUpdatedEvent>({
             type: 'tool.updated',
@@ -1525,6 +1560,7 @@ export async function executeServerRun(
       }
 
       buffer += deduped.delta
+      appendRecoveryTextDelta(recoveryResponseMessages, deduped.delta)
       const nextTextBlockState = appendMessageDeltaToTextBlocks({
         textBlocks,
         delta: deduped.delta,
@@ -1554,19 +1590,10 @@ export async function executeServerRun(
     throwIfAborted(input.abortController.signal)
 
     const timestamp = deps.timestamp()
-    const priorResponseMessages = recoveryCheckpoint
-      ? buildRecoveryResponseMessages({
-          checkpoint: recoveryCheckpoint,
-          toolCalls: recoveredToolCalls
-        })
-      : undefined
     const responseMessages = recoveryCheckpoint
-      ? buildRecoveredAssistantResponseMessages({
-          priorResponseMessages,
-          currentResponseMessages: lastUsage?.responseMessages,
-          fullContent: buffer,
-          previousContent: recoveryCheckpoint.content
-        })
+      ? recoveryResponseMessages.length > 0
+        ? recoveryResponseMessages
+        : undefined
       : lastUsage?.responseMessages
     const assistantMessage: MessageRecord = {
       id: messageId,
@@ -1654,15 +1681,9 @@ export async function executeServerRun(
             content: buffer,
             ...(textBlocks.length > 0 ? { textBlocks } : {}),
             ...(reasoningBuffer ? { reasoning: reasoningBuffer } : {}),
-            ...(toolCalls.size > 0
+            ...(recoveryResponseMessages.length > 0
               ? {
-                  responseMessages: buildRecoveryResponseMessages({
-                    checkpoint: {
-                      content: buffer,
-                      ...(reasoningBuffer ? { reasoning: reasoningBuffer } : {})
-                    },
-                    toolCalls: [...toolCalls.values()]
-                  })
+                  responseMessages: recoveryResponseMessages
                 }
               : {}),
             status: 'stopped',

@@ -1,5 +1,302 @@
+import type { AgentToolOutput } from '../../tools/agentTools.ts'
 import type { MessageRecord, ToolCallRecord } from '../../../../shared/yachiyo/protocol.ts'
 import type { RunRecoveryCheckpoint } from '../../storage/storage.ts'
+
+interface RecoveryAssistantReasoningPart {
+  type: 'reasoning'
+  text: string
+}
+
+interface RecoveryAssistantTextPart {
+  type: 'text'
+  text: string
+}
+
+interface RecoveryAssistantToolCallPart {
+  type: 'tool-call'
+  toolCallId: string
+  toolName: ToolCallRecord['toolName']
+  input: unknown
+}
+
+type RecoveryAssistantPart =
+  | RecoveryAssistantReasoningPart
+  | RecoveryAssistantTextPart
+  | RecoveryAssistantToolCallPart
+
+interface RecoveryAssistantMessage {
+  role: 'assistant'
+  content: RecoveryAssistantPart[]
+}
+
+interface RecoveryToolResultPart {
+  type: 'tool-result'
+  toolCallId: string
+  toolName: ToolCallRecord['toolName']
+  output: unknown
+}
+
+interface RecoveryToolMessage {
+  role: 'tool'
+  content: RecoveryToolResultPart[]
+}
+
+export type RecoveryResponseMessage = RecoveryAssistantMessage | RecoveryToolMessage
+
+interface RecordedToolCallIds {
+  toolCalls: Set<string>
+  toolResults: Set<string>
+}
+
+function ensureAssistantMessage(
+  responseMessages: RecoveryResponseMessage[]
+): RecoveryAssistantMessage {
+  const lastMessage = responseMessages.at(-1)
+  if (lastMessage?.role === 'assistant') {
+    return lastMessage
+  }
+
+  const assistantMessage: RecoveryAssistantMessage = {
+    role: 'assistant',
+    content: []
+  }
+  responseMessages.push(assistantMessage)
+  return assistantMessage
+}
+
+function appendAssistantTextPart(
+  responseMessages: RecoveryResponseMessage[],
+  part: RecoveryAssistantReasoningPart | RecoveryAssistantTextPart
+): RecoveryResponseMessage[] {
+  if (!part.text) {
+    return responseMessages
+  }
+
+  const assistantMessage = ensureAssistantMessage(responseMessages)
+  const lastPart = assistantMessage.content.at(-1)
+
+  if (lastPart?.type === part.type) {
+    lastPart.text += part.text
+    return responseMessages
+  }
+
+  assistantMessage.content.push(part)
+  return responseMessages
+}
+
+function toRecoveryToolResultOutput(input: { output?: unknown; error?: unknown }): unknown {
+  const toolOutput = input.output as Partial<AgentToolOutput> | undefined
+
+  if (Array.isArray(toolOutput?.content)) {
+    return {
+      type: 'content',
+      value: structuredClone(toolOutput.content)
+    }
+  }
+
+  const errorMessage =
+    input.error instanceof Error
+      ? input.error.message
+      : typeof input.error === 'string'
+        ? input.error
+        : typeof toolOutput?.error === 'string'
+          ? toolOutput.error
+          : undefined
+
+  if (errorMessage) {
+    return {
+      type: 'content',
+      value: [{ type: 'text', text: errorMessage }]
+    }
+  }
+
+  return {
+    type: 'content',
+    value: [{ type: 'text', text: 'tool completed' }]
+  }
+}
+
+export function cloneRecoveryResponseMessages(
+  responseMessages?: unknown[]
+): RecoveryResponseMessage[] | undefined {
+  return responseMessages?.length
+    ? (structuredClone(responseMessages) as RecoveryResponseMessage[])
+    : undefined
+}
+
+export function appendRecoveryReasoningDelta(
+  responseMessages: RecoveryResponseMessage[],
+  reasoningDelta: string
+): RecoveryResponseMessage[] {
+  return appendAssistantTextPart(responseMessages, { type: 'reasoning', text: reasoningDelta })
+}
+
+export function appendRecoveryTextDelta(
+  responseMessages: RecoveryResponseMessage[],
+  delta: string
+): RecoveryResponseMessage[] {
+  return appendAssistantTextPart(responseMessages, { type: 'text', text: delta })
+}
+
+export function appendRecoveryToolCall(
+  responseMessages: RecoveryResponseMessage[],
+  input: {
+    toolCallId: string
+    toolName: ToolCallRecord['toolName']
+    toolInput: unknown
+  }
+): RecoveryResponseMessage[] {
+  const assistantMessage = ensureAssistantMessage(responseMessages)
+  assistantMessage.content.push({
+    type: 'tool-call',
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    input: structuredClone(input.toolInput)
+  })
+  return responseMessages
+}
+
+export function appendRecoveryToolResult(
+  responseMessages: RecoveryResponseMessage[],
+  input: {
+    toolCallId: string
+    toolName: ToolCallRecord['toolName']
+    output?: unknown
+    error?: unknown
+  }
+): RecoveryResponseMessage[] {
+  responseMessages.push({
+    role: 'tool',
+    content: [
+      {
+        type: 'tool-result',
+        toolCallId: input.toolCallId,
+        toolName: input.toolName,
+        output: toRecoveryToolResultOutput({
+          output: input.output,
+          error: input.error
+        })
+      }
+    ]
+  })
+  return responseMessages
+}
+
+export function clearRecoveryReasoningParts(
+  responseMessages: RecoveryResponseMessage[]
+): RecoveryResponseMessage[] {
+  const normalizedMessages: RecoveryResponseMessage[] = []
+
+  for (const message of responseMessages) {
+    if (message.role !== 'assistant') {
+      normalizedMessages.push(message)
+      continue
+    }
+
+    const content = message.content.filter((part) => part.type !== 'reasoning')
+    if (content.length > 0) {
+      normalizedMessages.push({
+        ...message,
+        content
+      })
+    }
+  }
+
+  return normalizedMessages
+}
+
+function collectRecordedToolCallIds(
+  responseMessages: RecoveryResponseMessage[]
+): RecordedToolCallIds {
+  const toolCalls = new Set<string>()
+  const toolResults = new Set<string>()
+
+  for (const message of responseMessages) {
+    if (message.role === 'assistant') {
+      for (const part of message.content) {
+        if (part.type === 'tool-call') {
+          toolCalls.add(part.toolCallId)
+        }
+      }
+      continue
+    }
+
+    for (const part of message.content) {
+      if (part.type === 'tool-result') {
+        toolResults.add(part.toolCallId)
+      }
+    }
+  }
+
+  return { toolCalls, toolResults }
+}
+
+function normalizeCompletedToolCalls(
+  responseMessages: RecoveryResponseMessage[],
+  completedToolCallIds: Set<string>
+): RecoveryResponseMessage[] {
+  const normalizedMessages: RecoveryResponseMessage[] = []
+
+  for (const message of responseMessages) {
+    if (message.role === 'assistant') {
+      const content = message.content.filter(
+        (part) => part.type !== 'tool-call' || completedToolCallIds.has(part.toolCallId)
+      )
+      if (content.length > 0) {
+        normalizedMessages.push({
+          ...message,
+          content
+        })
+      }
+      continue
+    }
+
+    const content = message.content.filter((part) => completedToolCallIds.has(part.toolCallId))
+    if (content.length > 0) {
+      normalizedMessages.push({
+        ...message,
+        content
+      })
+    }
+  }
+
+  return normalizedMessages
+}
+
+function appendMissingCompletedToolCalls(
+  responseMessages: RecoveryResponseMessage[],
+  completedToolCalls: ToolCallRecord[]
+): RecoveryResponseMessage[] {
+  const recordedToolCallIds = collectRecordedToolCallIds(responseMessages)
+
+  for (const toolCall of completedToolCalls) {
+    if (!recordedToolCallIds.toolCalls.has(toolCall.id)) {
+      appendRecoveryToolCall(responseMessages, {
+        toolCallId: toolCall.id,
+        toolName: toolCall.toolName,
+        toolInput: buildInterruptedToolCallInput(toolCall)
+      })
+      recordedToolCallIds.toolCalls.add(toolCall.id)
+    }
+
+    if (!recordedToolCallIds.toolResults.has(toolCall.id)) {
+      responseMessages.push({
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: toolCall.id,
+            toolName: toolCall.toolName,
+            output: buildInterruptedToolCallOutput(toolCall)
+          }
+        ]
+      })
+      recordedToolCallIds.toolResults.add(toolCall.id)
+    }
+  }
+
+  return responseMessages
+}
 
 function buildInterruptedToolCallInput(toolCall: ToolCallRecord): unknown {
   const details = toolCall.details
@@ -131,12 +428,23 @@ function buildInterruptedToolCallOutput(toolCall: ToolCallRecord): unknown {
 }
 
 export function buildRecoveryResponseMessages(input: {
-  checkpoint: Pick<RunRecoveryCheckpoint, 'content' | 'reasoning'>
+  checkpoint: Pick<RunRecoveryCheckpoint, 'content' | 'reasoning' | 'responseMessages'>
   toolCalls: ToolCallRecord[]
 }): unknown[] | undefined {
   const completedToolCalls = [...input.toolCalls]
     .filter((toolCall) => toolCall.finishedAt && toolCall.status === 'completed')
     .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+  const completedToolCallIds = new Set(completedToolCalls.map((toolCall) => toolCall.id))
+
+  if (input.checkpoint.responseMessages?.length) {
+    return appendMissingCompletedToolCalls(
+      normalizeCompletedToolCalls(
+        cloneRecoveryResponseMessages(input.checkpoint.responseMessages) ?? [],
+        completedToolCallIds
+      ),
+      completedToolCalls
+    )
+  }
 
   if (completedToolCalls.length === 0 && !input.checkpoint.content && !input.checkpoint.reasoning) {
     return undefined

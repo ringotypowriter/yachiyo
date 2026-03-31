@@ -232,6 +232,13 @@
       "when": 1774951084695,
       "tag": "0032_wakeful_ricochet",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1774954348979,
+      "tag": "0033_bouncy_impossible_man",
+      "breakpoints": true
     }
   ]
 }
