@@ -25,7 +25,8 @@ import {
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
   normalizeUserEnabledTools,
-  normalizeSkillNames
+  normalizeSkillNames,
+  type ThreadRuntimeBinding
 } from '../../../../shared/yachiyo/protocol.ts'
 import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 
@@ -161,6 +162,7 @@ interface AppState {
   pendingSteerMessages: Record<string, PendingSteerMessage>
   activeEssentialId: string | null
   pendingModelOverride: ThreadModelOverride | null
+  pendingAcpBinding: ThreadRuntimeBinding | null
   pendingWorkspacePath: string | null
   regenerateThreadTitle: (threadId: string) => Promise<void>
   renameThread: (threadId: string, title: string) => Promise<void>
@@ -199,6 +201,7 @@ interface AppState {
   setComposerValue: (value: string) => void
   setComposerEnabledSkillNames: (enabledSkillNames: string[] | null) => void
   setPendingWorkspacePath: (workspacePath: string | null) => void
+  setPendingAcpBinding: (binding: ThreadRuntimeBinding | null) => void
   setThreadWorkspace: (workspacePath: string | null) => Promise<void>
   setThreadListMode: (mode: 'active' | 'archived') => void
   toggleShowExternalThreads: () => void
@@ -882,6 +885,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeEssentialId: null,
   pendingAssistantMessages: {},
   pendingModelOverride: null,
+  pendingAcpBinding: null,
   pendingSteerMessages: {},
   pendingWorkspacePath: null,
   restoreThread: async (threadId) => {
@@ -1208,7 +1212,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         const nextState = {
           ...state,
           ...(deletingActiveThread
-            ? { activeEssentialId: null, pendingModelOverride: null, pendingWorkspacePath: null }
+            ? { activeEssentialId: null, pendingModelOverride: null, pendingAcpBinding: null, pendingWorkspacePath: null }
             : {}),
           activeArchivedThreadId:
             state.activeArchivedThreadId === event.threadId
@@ -1926,6 +1930,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           activeThreadId: reusableThread.id,
           activeEssentialId: null,
           pendingModelOverride: null,
+          pendingAcpBinding: null,
           pendingWorkspacePath: null,
           threadListMode: 'active' as const
         }
@@ -1949,6 +1954,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeThreadId: thread.id,
         activeEssentialId: null,
         pendingModelOverride: null,
+        pendingAcpBinding: null,
         composerDrafts: removeComposerDraft(state.composerDrafts, null),
         pendingWorkspacePath: null,
         threadListMode: 'active' as const,
@@ -2227,6 +2233,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? currentState.config?.essentials?.find((entry) => entry.id === essentialId)
         : undefined
       const pendingModel = currentState.pendingModelOverride
+      const pendingAcp = currentState.pendingAcpBinding
       const thread = await window.api.yachiyo.createThread({
         ...(workspacePath ? { workspacePath } : {}),
         ...(essentialId ? { createdFromEssentialId: essentialId } : {}),
@@ -2235,6 +2242,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       // Commit local state first so the thread is visible even if setup calls fail.
       if (pendingModel) thread.modelOverride = pendingModel
+      if (pendingAcp) thread.runtimeBinding = pendingAcp
       if (essential?.privacyMode) {
         thread.privacyMode = true
       }
@@ -2246,6 +2254,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeThreadId: thread.id,
         activeEssentialId: null,
         pendingModelOverride: null,
+        pendingAcpBinding: null,
         pendingWorkspacePath: null,
         threadListMode: 'active' as const,
         composerDrafts: moveComposerDraft(
@@ -2276,6 +2285,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         window.api.yachiyo
           .setThreadIcon({ threadId: thread.id, icon: essential.icon })
           .catch(() => {})
+      }
+
+      // ACP binding must be persisted server-side before sendChat, because the
+      // run router reads it from storage to decide whether to use the ACP path.
+      if (pendingAcp) {
+        const updatedThread = await window.api.yachiyo.setThreadRuntimeBinding({
+          threadId: thread.id,
+          runtimeBinding: pendingAcp
+        })
+        set((s) => ({ threads: upsertThread(s.threads, updatedThread) }))
       }
     }
 
@@ -2439,6 +2458,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeThreadId: id,
         activeEssentialId: null,
         pendingModelOverride: null,
+        pendingAcpBinding: null,
         pendingWorkspacePath: null,
         editingMessage: state.editingMessage?.threadId === id ? state.editingMessage : null,
         threadListMode: 'active' as const,
@@ -2526,6 +2546,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         }))
       }
     }),
+
+  setPendingAcpBinding: (binding) => {
+    set({ pendingAcpBinding: binding })
+  },
 
   setPendingWorkspacePath: (workspacePath) => {
     set({

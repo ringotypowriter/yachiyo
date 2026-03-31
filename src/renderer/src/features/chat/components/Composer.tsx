@@ -5,6 +5,7 @@ import {
   AlertCircle,
   ChevronDown,
   CircleCheck,
+  Cpu,
   FileText,
   Folder,
   Paperclip,
@@ -30,6 +31,7 @@ import { theme } from '@renderer/theme/theme'
 import { DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR } from '../../../../../shared/yachiyo/protocol.ts'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import { ModelSelectorPopup } from './ModelSelectorPopup'
+import type { AcpAgentEntry } from '../lib/modelSelectorState'
 import { SlashCommandPopup } from './SlashCommandPopup'
 import type { SlashCommand } from './SlashCommandPopup'
 import { SkillsSelectorPopup } from './SkillsSelectorPopup'
@@ -341,6 +343,8 @@ export function Composer({
   const config = useAppStore((s) => s.config)
   const messages = useAppStore((s) => s.messages)
   const pendingWorkspacePath = useAppStore((s) => s.pendingWorkspacePath)
+  const pendingAcpBinding = useAppStore((s) => s.pendingAcpBinding)
+  const setPendingAcpBinding = useAppStore((s) => s.setPendingAcpBinding)
   const runPhase = useAppStore((s) =>
     s.activeThreadId ? (s.runPhasesByThread[s.activeThreadId] ?? 'idle') : 'idle'
   )
@@ -408,7 +412,9 @@ export function Composer({
   const canAddFiles = draftFiles.length < MAX_COMPOSER_FILES
   const hasActiveRun = activeRunId !== null
   const isModelSelectorLocked = runPhase === 'preparing' || runPhase === 'streaming'
-  const isConfigured = settings.apiKey.trim().length > 0 && effectiveModel.model.trim().length > 0
+  const isConfigured =
+    (settings.apiKey.trim().length > 0 && effectiveModel.model.trim().length > 0) ||
+    effectiveAcpBinding !== null
 
   const defaultEnabledSkillNames = useMemo(
     () => config?.skills?.enabled ?? [],
@@ -424,6 +430,11 @@ export function Composer({
     externalThreads.find((thread) => thread.id === activeThreadId) ??
     null
   const currentWorkspacePath = activeThread?.workspacePath ?? pendingWorkspacePath
+  const activeAcpBinding =
+    activeThread?.runtimeBinding?.kind === 'acp' ? activeThread.runtimeBinding : null
+  // For a brand-new thread (no activeThreadId yet) the user may have picked an ACP agent
+  // from the model selector. Show it in the toolbar and allow send until a thread exists.
+  const effectiveAcpBinding = activeAcpBinding ?? (activeThreadId === null ? pendingAcpBinding : null)
   const isWorkspaceLocked = activeThreadId !== null && (messages[activeThreadId]?.length ?? 0) > 0
   const savedWorkspacePaths = config?.workspace?.savedPaths ?? []
   const workspaceHint = getWorkspaceHint({
@@ -1157,6 +1168,9 @@ export function Composer({
   const modelLabel = effectiveModel.model || 'Configure provider'
   const hasModels =
     config !== null && config.providers.some((provider) => provider.modelList.enabled.length > 0)
+  const hasAcpAgents =
+    config !== null && (config.subagentProfiles ?? []).some((p) => p.enabled && p.showInChatPicker)
+  const canOpenModelPicker = hasModels || hasAcpAgents
 
   return (
     <div className="flex flex-col" style={{ borderTop: `1px solid ${theme.border.panel}` }}>
@@ -1639,7 +1653,7 @@ export function Composer({
         <div ref={modelSelectorRef} style={{ position: 'relative' }}>
           <button
             onClick={() => {
-              if (!hasModels || isModelSelectorLocked) {
+              if (!canOpenModelPicker || isModelSelectorLocked) {
                 return
               }
 
@@ -1652,18 +1666,24 @@ export function Composer({
             style={{
               color: theme.text.primary,
               opacity: modelSelectorOpen ? 1 : 0.6,
-              cursor: hasModels && !isModelSelectorLocked ? 'pointer' : 'default'
+              cursor: canOpenModelPicker && !isModelSelectorLocked ? 'pointer' : 'default'
             }}
             aria-label="Model selection"
             type="button"
           >
-            <CircleCheck
-              size={12}
-              strokeWidth={1.5}
-              color={isConfigured ? theme.icon.success : theme.icon.muted}
-            />
-            {providerLabel} - {modelLabel}
-            {hasModels ? (
+            {activeAcpBinding ? (
+              <Cpu size={12} strokeWidth={1.5} color={theme.icon.accent} />
+            ) : (
+              <CircleCheck
+                size={12}
+                strokeWidth={1.5}
+                color={isConfigured ? theme.icon.success : theme.icon.muted}
+              />
+            )}
+            {effectiveAcpBinding
+              ? (effectiveAcpBinding.profileName ?? effectiveAcpBinding.profileId ?? 'ACP Agent')
+              : `${providerLabel} - ${modelLabel}`}
+            {canOpenModelPicker ? (
               <ChevronDown
                 size={10}
                 strokeWidth={1.5}
@@ -1681,7 +1701,37 @@ export function Composer({
               config={config}
               currentProviderName={effectiveModel.providerName}
               currentModel={effectiveModel.model}
-              onSelect={(providerName, model) => void selectModel(providerName, model)}
+              currentAcpProfileId={effectiveAcpBinding?.profileId ?? null}
+              onSelect={(providerName, model) => {
+                void selectModel(providerName, model)
+                if (activeAcpBinding && activeThreadId) {
+                  void window.api.yachiyo.setThreadRuntimeBinding({
+                    threadId: activeThreadId,
+                    runtimeBinding: null
+                  })
+                }
+                setPendingAcpBinding(null)
+              }}
+              onSelectAcpAgent={(agent: AcpAgentEntry) => {
+                if (activeThreadId) {
+                  void window.api.yachiyo.setThreadRuntimeBinding({
+                    threadId: activeThreadId,
+                    runtimeBinding: {
+                      kind: 'acp',
+                      profileId: agent.id,
+                      profileName: agent.name,
+                      sessionStatus: 'new'
+                    }
+                  })
+                } else {
+                  setPendingAcpBinding({
+                    kind: 'acp',
+                    profileId: agent.id,
+                    profileName: agent.name,
+                    sessionStatus: 'new'
+                  })
+                }
+              }}
               onClose={() => setModelSelectorOpen(false)}
             />
           ) : null}

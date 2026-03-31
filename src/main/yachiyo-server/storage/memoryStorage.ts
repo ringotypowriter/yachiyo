@@ -11,6 +11,7 @@ import {
   groupToolCallsByThread,
   groupMessagesByThread,
   serializeModelOverride,
+  serializeRuntimeBinding,
   serializeThreadMemoryRecallState,
   serializeToolCallDetails,
   toRunRecord,
@@ -78,6 +79,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     storedThread.modelOverride = serializeModelOverride(nextThread.modelOverride)
     storedThread.rollingSummary = nextThread.rollingSummary ?? null
     storedThread.summaryWatermarkMessageId = nextThread.summaryWatermarkMessageId ?? null
+    storedThread.runtimeBinding = serializeRuntimeBinding(nextThread.runtimeBinding)
     storedThread.starredAt = nextThread.starredAt ?? null
     storedThread.title = nextThread.title
     storedThread.updatedAt = nextThread.updatedAt
@@ -196,6 +198,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         summaryWatermarkMessageId: thread.summaryWatermarkMessageId ?? null,
         readAt: thread.readAt ?? null,
         createdFromEssentialId: thread.createdFromEssentialId ?? null,
+        runtimeBinding: serializeRuntimeBinding(thread.runtimeBinding),
         updatedAt: thread.updatedAt,
         createdAt
       })

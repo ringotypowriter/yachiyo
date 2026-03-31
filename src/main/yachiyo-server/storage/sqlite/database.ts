@@ -30,6 +30,7 @@ import {
   serializeMessageImages,
   serializeMessageTextBlocks,
   serializeThreadMemoryRecallState,
+  serializeRuntimeBinding,
   serializeToolCallDetails,
   toMessageRecord,
   serializeGroupMonitorBuffer,
@@ -188,6 +189,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
           readAt: threadsTable.readAt,
           createdFromEssentialId: threadsTable.createdFromEssentialId,
+          runtimeBinding: threadsTable.runtimeBinding,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -360,6 +362,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
           readAt: threadsTable.readAt,
           createdFromEssentialId: threadsTable.createdFromEssentialId,
+          runtimeBinding: threadsTable.runtimeBinding,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -395,6 +398,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
           readAt: threadsTable.readAt,
           createdFromEssentialId: threadsTable.createdFromEssentialId,
+          runtimeBinding: threadsTable.runtimeBinding,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -455,7 +459,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             createdFromEssentialId: thread.createdFromEssentialId ?? null,
             title: thread.title,
             updatedAt: thread.updatedAt,
-            workspacePath: thread.workspacePath ?? null
+            workspacePath: thread.workspacePath ?? null,
+            runtimeBinding: serializeRuntimeBinding(thread.runtimeBinding)
           })
           .run()
 
@@ -579,7 +584,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           summaryWatermarkMessageId: thread.summaryWatermarkMessageId ?? null,
           title: thread.title,
           updatedAt: thread.updatedAt,
-          workspacePath: thread.workspacePath ?? null
+          workspacePath: thread.workspacePath ?? null,
+          runtimeBinding: serializeRuntimeBinding(thread.runtimeBinding)
         })
         .where(eq(threadsTable.id, thread.id))
         .run()
@@ -759,6 +765,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
               updatedThread.queuedFollowUpEnabledSkillNames
             ),
             queuedFollowUpMessageId: updatedThread.queuedFollowUpMessageId ?? null,
+            runtimeBinding: serializeRuntimeBinding(updatedThread.runtimeBinding),
             title: updatedThread.title,
             updatedAt: updatedThread.updatedAt,
             workspacePath: updatedThread.workspacePath ?? null

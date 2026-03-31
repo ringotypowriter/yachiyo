@@ -45,6 +45,7 @@ import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 import { assertSupportedImages, resolveEnabledTools } from './configDomain.ts'
 import { toEffectiveProviderSettings } from '../../settings/settingsStore.ts'
 import { executeServerRun, type RestartRunReason, type ExecuteRunResult } from './runExecution.ts'
+import { runAcpChatThread } from '../../runtime/acp/acpChatRuntime.ts'
 import {
   buildThreadTitleGenerationMessages,
   buildTitleQuery,
@@ -892,6 +893,34 @@ export class YachiyoServerRunDomain {
         const abortController = new AbortController()
         activeRun.abortController = abortController
         activeRun.requestMessageId = currentRequestMessageId
+
+        if (currentThread.runtimeBinding?.kind === 'acp') {
+          result = await runAcpChatThread(
+            {
+              storage: this.deps.storage,
+              createId: this.deps.createId,
+              timestamp: this.deps.timestamp,
+              emit: this.deps.emit,
+              readThread: this.deps.requireThread,
+              readConfig: this.deps.readConfig,
+              loadThreadMessages: this.deps.loadThreadMessages,
+              ensureThreadWorkspace: this.deps.ensureThreadWorkspace,
+              onTerminalState: () => {
+                this.activeRuns.delete(input.runId)
+                this.activeRunByThread.delete(input.thread.id)
+                this.activeRunTasks.delete(input.runId)
+              }
+            },
+            {
+              runId: input.runId,
+              thread: currentThread,
+              requestMessageId: currentRequestMessageId,
+              abortController,
+              updateHeadOnComplete: input.updateHeadOnComplete
+            }
+          )
+          break
+        }
 
         result = await executeServerRun(
           {

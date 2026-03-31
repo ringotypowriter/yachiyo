@@ -29,6 +29,7 @@ import type {
   TestSubagentProfileInput,
   TestSubagentProfileResult,
   ThreadModelOverride,
+  ThreadRuntimeBinding,
   ThreadSearchResult,
   MemoryTermDocument,
   UpdateChannelGroupInput,
@@ -129,6 +130,10 @@ declare global {
         setThreadModelOverride: (input: {
           threadId: string
           modelOverride: ThreadModelOverride | null
+        }) => Promise<ThreadRecord>
+        setThreadRuntimeBinding: (input: {
+          threadId: string
+          runtimeBinding: ThreadRuntimeBinding | null
         }) => Promise<ThreadRecord>
         regenerateThreadTitle: (input: { threadId: string }) => Promise<ThreadRecord>
         starThread: (input: { threadId: string; starred: boolean }) => Promise<ThreadRecord>

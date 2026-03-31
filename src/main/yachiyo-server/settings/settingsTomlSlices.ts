@@ -228,7 +228,16 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
           description: profile.description,
           command: profile.command,
           args: profile.args,
-          env: profile.env
+          env: profile.env,
+          ...(profile.showInChatPicker !== undefined
+            ? { showInChatPicker: profile.showInChatPicker }
+            : {}),
+          ...(profile.allowDirectChat !== undefined
+            ? { allowDirectChat: profile.allowDirectChat }
+            : {}),
+          ...(profile.allowDelegation !== undefined
+            ? { allowDelegation: profile.allowDelegation }
+            : {})
         }))
       }
     }

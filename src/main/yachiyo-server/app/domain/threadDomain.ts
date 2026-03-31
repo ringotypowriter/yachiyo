@@ -11,6 +11,7 @@ import type {
   ThreadModelOverride,
   ThreadRecord,
   ThreadRestoredEvent,
+  ThreadRuntimeBinding,
   ThreadSnapshot,
   ThreadStateReplacedEvent,
   ThreadUpdatedEvent,
@@ -737,6 +738,30 @@ export class YachiyoServerThreadDomain {
     }
     if (!input.modelOverride) {
       delete updatedThread.modelOverride
+    }
+
+    this.deps.storage.updateThread(updatedThread)
+    this.deps.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: updatedThread.id,
+      thread: updatedThread
+    })
+
+    return updatedThread
+  }
+
+  setThreadRuntimeBinding(input: {
+    threadId: string
+    runtimeBinding: ThreadRuntimeBinding | null
+  }): ThreadRecord {
+    const thread = this.deps.requireThread(input.threadId)
+    const updatedThread: ThreadRecord = {
+      ...thread,
+      updatedAt: this.deps.timestamp(),
+      ...(input.runtimeBinding ? { runtimeBinding: input.runtimeBinding } : {})
+    }
+    if (!input.runtimeBinding) {
+      delete updatedThread.runtimeBinding
     }
 
     this.deps.storage.updateThread(updatedThread)

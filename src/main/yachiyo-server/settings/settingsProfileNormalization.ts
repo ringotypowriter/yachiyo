@@ -42,6 +42,13 @@ function normalizeSubagentProfile(value: unknown): SubagentProfile | null {
     }
   }
 
+  const showInChatPicker =
+    typeof input['showInChatPicker'] === 'boolean' ? input['showInChatPicker'] : undefined
+  const allowDirectChat =
+    typeof input['allowDirectChat'] === 'boolean' ? input['allowDirectChat'] : undefined
+  const allowDelegation =
+    typeof input['allowDelegation'] === 'boolean' ? input['allowDelegation'] : undefined
+
   return {
     id,
     name,
@@ -49,7 +56,10 @@ function normalizeSubagentProfile(value: unknown): SubagentProfile | null {
     description: normalizeString(input['description'], ''),
     command: normalizeString(input['command'], ''),
     args,
-    env
+    env,
+    ...(showInChatPicker !== undefined ? { showInChatPicker } : {}),
+    ...(allowDirectChat !== undefined ? { allowDirectChat } : {}),
+    ...(allowDelegation !== undefined ? { allowDelegation } : {})
   }
 }
 
