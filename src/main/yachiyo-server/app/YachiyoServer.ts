@@ -348,11 +348,13 @@ export class YachiyoServer {
     const recoveredInterruptedSaveThreadIds = this.recoverInterruptedSaves()
     await Promise.all([this.readSoulDocumentFile(), this.readUserDocumentFile()])
     const recoveredQueuedFollowUps = this.runDomain.prepareRecoveredQueuedFollowUps()
+    const recoveredRuns = this.runDomain.prepareRecoveredRuns()
 
     const { archivedThreads, threads, messagesByThread, toolCallsByThread, latestRunsByThread } =
       this.storage.bootstrap()
 
     this.runDomain.scheduleRecoveredQueuedFollowUps(recoveredQueuedFollowUps)
+    this.runDomain.scheduleRecoveredRuns(recoveredRuns)
 
     return {
       threads,

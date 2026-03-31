@@ -418,7 +418,7 @@ test('sqlite-backed server persists state across reopen', async () => {
     const bootstrap = await reopened.bootstrap()
 
     assert.equal(bootstrap.threads.length, 1)
-    assert.equal(bootstrap.threads[0]?.title, 'Persist this thread')
+    assert.equal(bootstrap.threads[0]?.title, 'Hello from sqlite')
     assert.equal(bootstrap.threads[0]?.preview, 'Hello from sqlite')
     assert.equal(
       bootstrap.threads[0]?.headMessageId,

@@ -155,10 +155,50 @@ export interface StoredRunRow {
   totalCompletionTokens: number | null
 }
 
+export interface RunRecoveryCheckpoint {
+  runId: string
+  threadId: string
+  requestMessageId: string
+  assistantMessageId: string
+  content: string
+  textBlocks?: MessageTextBlockRecord[]
+  reasoning?: string
+  enabledTools: ToolCallName[]
+  enabledSkillNames?: string[]
+  channelHint?: string
+  updateHeadOnComplete: boolean
+  createdAt: string
+  updatedAt: string
+  recoveryAttempts: number
+  lastError?: string
+}
+
+export interface StoredRunRecoveryCheckpointRow {
+  runId: string
+  threadId: string
+  requestMessageId: string
+  assistantMessageId: string
+  content: string
+  textBlocks: string | null
+  reasoning: string | null
+  enabledTools: string
+  enabledSkillNames: string | null
+  channelHint: string | null
+  updateHeadOnComplete: string
+  createdAt: string
+  updatedAt: string
+  recoveryAttempts: number
+  lastError: string | null
+}
+
 export interface YachiyoStorage {
   close(): void
   bootstrap(): BootstrapState
   recoverInterruptedRuns(input: { finishedAt: string; error: string }): void
+  listRunRecoveryCheckpoints(): RunRecoveryCheckpoint[]
+  getRunRecoveryCheckpoint(runId: string): RunRecoveryCheckpoint | undefined
+  upsertRunRecoveryCheckpoint(checkpoint: RunRecoveryCheckpoint): void
+  deleteRunRecoveryCheckpoint(runId: string): void
   getThread(threadId: string): ThreadRecord | undefined
   getArchivedThread(threadId: string): ThreadRecord | undefined
   getThreadCreatedAt(threadId: string): string | undefined
@@ -590,6 +630,56 @@ export function toRunRecord(row: StoredRunRow): RunRecord {
     id: row.id,
     status: row.status,
     threadId: row.threadId
+  }
+}
+
+export function toRunRecoveryCheckpoint(
+  row: StoredRunRecoveryCheckpointRow
+): RunRecoveryCheckpoint {
+  const textBlocks = parseMessageTextBlocks(row.textBlocks)
+  const enabledTools = parseEnabledTools(row.enabledTools) ?? []
+  const enabledSkillNames = parseSkillNames(row.enabledSkillNames)
+
+  return {
+    runId: row.runId,
+    threadId: row.threadId,
+    requestMessageId: row.requestMessageId,
+    assistantMessageId: row.assistantMessageId,
+    content: row.content,
+    ...(textBlocks ? { textBlocks } : {}),
+    ...(row.reasoning ? { reasoning: row.reasoning } : {}),
+    enabledTools,
+    ...(enabledSkillNames ? { enabledSkillNames } : {}),
+    ...(row.channelHint ? { channelHint: row.channelHint } : {}),
+    updateHeadOnComplete: row.updateHeadOnComplete === '1',
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    recoveryAttempts: row.recoveryAttempts,
+    ...(row.lastError ? { lastError: row.lastError } : {})
+  }
+}
+
+export function toStoredRunRecoveryCheckpointRow(
+  checkpoint: RunRecoveryCheckpoint
+): StoredRunRecoveryCheckpointRow {
+  return {
+    runId: checkpoint.runId,
+    threadId: checkpoint.threadId,
+    requestMessageId: checkpoint.requestMessageId,
+    assistantMessageId: checkpoint.assistantMessageId,
+    content: checkpoint.content,
+    textBlocks: serializeMessageTextBlocks(checkpoint.textBlocks),
+    reasoning: serializeReasoning(checkpoint.reasoning),
+    enabledTools: JSON.stringify(checkpoint.enabledTools),
+    enabledSkillNames: checkpoint.enabledSkillNames
+      ? JSON.stringify(checkpoint.enabledSkillNames)
+      : null,
+    channelHint: checkpoint.channelHint ?? null,
+    updateHeadOnComplete: checkpoint.updateHeadOnComplete ? '1' : '0',
+    createdAt: checkpoint.createdAt,
+    updatedAt: checkpoint.updatedAt,
+    recoveryAttempts: checkpoint.recoveryAttempts,
+    lastError: checkpoint.lastError ?? null
   }
 }
 

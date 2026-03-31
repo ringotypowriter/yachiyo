@@ -13,6 +13,7 @@ import {
   groupMonitorBuffersTable,
   imageAltTextsTable,
   messagesTable,
+  runRecoveryCheckpointsTable,
   runsTable,
   scheduleRunsTable,
   schedulesTable,
@@ -31,6 +32,8 @@ import {
   serializeMessageTextBlocks,
   serializeThreadMemoryRecallState,
   serializeToolCallDetails,
+  toRunRecoveryCheckpoint,
+  toStoredRunRecoveryCheckpointRow,
   toMessageRecord,
   serializeGroupMonitorBuffer,
   parseGroupMonitorBuffer,
@@ -45,6 +48,7 @@ import {
   type CompleteRunInput,
   type CreateThreadInput,
   type DeleteMessagesInput,
+  type RunRecoveryCheckpoint,
   type StartRunInput,
   type YachiyoStorage
 } from '../storage.ts'
@@ -295,6 +299,13 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     },
 
     recoverInterruptedRuns({ error, finishedAt }) {
+      const recoverableRunIds = new Set(
+        db
+          .select({ runId: runRecoveryCheckpointsTable.runId })
+          .from(runRecoveryCheckpointsTable)
+          .all()
+          .map((row) => row.runId)
+      )
       const interruptedRuns = db
         .select({
           id: runsTable.id
@@ -308,22 +319,25 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       }
 
       const interruptedRunIds = interruptedRuns.map((run) => run.id)
+      const failedRunIds = interruptedRunIds.filter((runId) => !recoverableRunIds.has(runId))
 
       db.transaction((tx) => {
-        tx.update(runsTable)
-          .set({
-            completedAt: finishedAt,
-            error,
-            status: 'failed'
-          })
-          .where(inArray(runsTable.id, interruptedRunIds))
-          .run()
+        if (failedRunIds.length > 0) {
+          tx.update(runsTable)
+            .set({
+              completedAt: finishedAt,
+              error,
+              status: 'failed'
+            })
+            .where(inArray(runsTable.id, failedRunIds))
+            .run()
+        }
 
         tx.update(toolCallsTable)
           .set({
-            error,
+            error: 'Tool execution was interrupted before completion.',
             finishedAt,
-            outputSummary: error,
+            outputSummary: 'Tool execution was interrupted before completion.',
             status: 'failed'
           })
           .where(
@@ -334,6 +348,40 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           )
           .run()
       })
+    },
+
+    listRunRecoveryCheckpoints() {
+      return db
+        .select()
+        .from(runRecoveryCheckpointsTable)
+        .orderBy(asc(runRecoveryCheckpointsTable.updatedAt))
+        .all()
+        .map(toRunRecoveryCheckpoint)
+    },
+
+    getRunRecoveryCheckpoint(runId) {
+      const checkpoint = db
+        .select()
+        .from(runRecoveryCheckpointsTable)
+        .where(eq(runRecoveryCheckpointsTable.runId, runId))
+        .get()
+      return checkpoint ? toRunRecoveryCheckpoint(checkpoint) : undefined
+    },
+
+    upsertRunRecoveryCheckpoint(checkpoint) {
+      db.insert(runRecoveryCheckpointsTable)
+        .values(toStoredRunRecoveryCheckpointRow(checkpoint as RunRecoveryCheckpoint))
+        .onConflictDoUpdate({
+          target: runRecoveryCheckpointsTable.runId,
+          set: toStoredRunRecoveryCheckpointRow(checkpoint as RunRecoveryCheckpoint)
+        })
+        .run()
+    },
+
+    deleteRunRecoveryCheckpoint(runId) {
+      db.delete(runRecoveryCheckpointsTable)
+        .where(eq(runRecoveryCheckpointsTable.runId, runId))
+        .run()
     },
 
     getThread(threadId) {
@@ -727,6 +775,10 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       totalCompletionTokens
     }: CompleteRunInput) {
       db.transaction((tx) => {
+        tx.delete(runRecoveryCheckpointsTable)
+          .where(eq(runRecoveryCheckpointsTable.runId, runId))
+          .run()
+
         const {
           textBlocks,
           reasoning,
@@ -789,6 +841,10 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     },
 
     cancelRun({ runId, completedAt }) {
+      db.delete(runRecoveryCheckpointsTable)
+        .where(eq(runRecoveryCheckpointsTable.runId, runId))
+        .run()
+
       db.update(runsTable)
         .set({
           completedAt,
@@ -804,6 +860,10 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     },
 
     failRun({ runId, completedAt, error }) {
+      db.delete(runRecoveryCheckpointsTable)
+        .where(eq(runRecoveryCheckpointsTable.runId, runId))
+        .run()
+
       db.update(runsTable)
         .set({
           completedAt,

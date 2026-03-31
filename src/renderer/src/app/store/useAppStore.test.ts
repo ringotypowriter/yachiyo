@@ -316,6 +316,67 @@ test('applyServerEvent preserves compiled context sources after the run complete
   assert.deepEqual(state.latestRunsByThread['thread-1']?.contextSources, contextSources)
 })
 
+test('applyServerEvent ignores stale completion events after the next run starts', () => {
+  resetStore()
+  useAppStore.setState({ activeThreadId: 'thread-1' })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'run.created',
+    eventId: 'event-run-created-1',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    requestMessageId: 'user-1'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'message.started',
+    eventId: 'event-message-started-1',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    messageId: 'assistant-1',
+    parentMessageId: 'user-1'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'message.delta',
+    eventId: 'event-message-delta-1',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    messageId: 'assistant-1',
+    delta: 'Checking the workspace.'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'run.created',
+    eventId: 'event-run-created-2',
+    timestamp: '2026-03-15T00:00:01.000Z',
+    threadId: 'thread-1',
+    runId: 'run-2',
+    requestMessageId: 'user-2'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'run.completed',
+    eventId: 'event-run-completed-1',
+    timestamp: '2026-03-15T00:00:02.000Z',
+    threadId: 'thread-1',
+    runId: 'run-1'
+  })
+
+  const state = useAppStore.getState()
+
+  assert.equal(state.activeRunId, 'run-2')
+  assert.equal(state.activeRunIdsByThread['thread-1'], 'run-2')
+  assert.equal(state.activeRequestMessageId, 'user-2')
+  assert.equal(state.activeRequestMessageIdsByThread['thread-1'], 'user-2')
+  assert.equal(state.activeRunThreadId, 'thread-1')
+  assert.equal(state.runPhase, 'preparing')
+  assert.equal(state.runPhasesByThread['thread-1'], 'preparing')
+  assert.equal(state.runStatus, 'running')
+  assert.equal(state.runStatusesByThread['thread-1'], 'running')
+  assert.equal(state.latestRunsByThread['thread-1']?.id, 'run-1')
+  assert.equal(state.latestRunsByThread['thread-1']?.status, 'completed')
+})
+
 test('applyServerEvent supports assistant-first runs without a request message id', () => {
   resetStore()
   useAppStore.setState({ activeThreadId: 'thread-compact' })

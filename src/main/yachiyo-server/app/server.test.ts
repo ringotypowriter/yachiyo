@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import test from 'node:test'
 
 import { YachiyoServer } from './YachiyoServer.ts'
+import { RETRY_MAX_ATTEMPTS } from '../runtime/modelRuntime.ts'
 import type { ModelStreamRequest } from '../runtime/types.ts'
 import type { SoulDocument } from '../runtime/soul.ts'
 import { readUserDocument, writeUserDocument } from '../runtime/user.ts'
@@ -2156,6 +2157,89 @@ test('steer during generation preserves partial assistant content as a stopped m
   )
 })
 
+test('steer before any output does not emit a retrying state', async () => {
+  let attempt = 0
+  const retryEvents: Array<{ attempt: number; error: string }> = []
+
+  await withServer(
+    async ({ server, completeRun, waitForEvent }) => {
+      await server.upsertProvider({
+        name: 'default',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: { enabled: ['gpt-5'], disabled: [] }
+      })
+
+      const unsubscribe = server.subscribe((event) => {
+        if (event.type !== 'run.retrying') {
+          return
+        }
+
+        retryEvents.push({
+          attempt: event.attempt,
+          error: event.error
+        })
+      })
+
+      try {
+        const thread = await server.createThread()
+        const accepted = await server.sendChat({
+          threadId: thread.id,
+          content: 'Start the run'
+        })
+
+        await waitForEvent('message.started')
+
+        const steerAccepted = await server.sendChat({
+          threadId: thread.id,
+          content: 'Do this instead',
+          mode: 'steer'
+        })
+
+        await completeRun(accepted.runId)
+
+        const bootstrap = await server.bootstrap()
+        const messages = bootstrap.messagesByThread[thread.id] ?? []
+
+        assert.equal(steerAccepted.kind, 'active-run-steer')
+        assert.deepEqual(retryEvents, [])
+        assert.equal(messages.length, 3)
+        assert.equal(messages[0]?.content, 'Start the run')
+        assert.equal(messages[1]?.content, 'Do this instead')
+        assert.equal(messages[2]?.content, 'Steered reply')
+      } finally {
+        unsubscribe()
+      }
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          if (attempt === 0) {
+            attempt += 1
+            await new Promise((_, reject) => {
+              const abort = (): void => {
+                reject(request.signal.reason ?? new Error('Aborted'))
+              }
+
+              if (request.signal.aborted) {
+                abort()
+                return
+              }
+
+              request.signal.addEventListener('abort', abort, { once: true })
+            })
+            return
+          }
+
+          yield 'Steered'
+          yield ' reply'
+        }
+      })
+    }
+  )
+})
+
 test('YachiyoServer restarts on steer even when the runtime returns normally after abort was requested', async () => {
   const requests: ModelStreamRequest[] = []
   let attempt = 0
@@ -2536,6 +2620,201 @@ test('YachiyoServer delays steer restart until the running tool call finishes', 
 
           yield 'Steered'
           yield ' reply'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer recovers a committed transport failure and resumes from preserved tool history', async () => {
+  const requests: ModelStreamRequest[] = []
+  let attempt = 0
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Inspect the workspace and finish the answer.'
+      })
+      assertAcceptedHasUserMessage(accepted)
+
+      await completeRun(accepted.runId)
+
+      const bootstrap = await server.bootstrap()
+      const messages = bootstrap.messagesByThread[thread.id] ?? []
+      const toolCalls = bootstrap.toolCallsByThread[thread.id] ?? []
+      const finalAssistant = messages.find(
+        (message) =>
+          message.role === 'assistant' && message.parentMessageId === accepted.userMessage.id
+      )
+
+      assert.equal(requests.length, 2)
+      assert.ok(
+        requests[1]?.messages.some(
+          (message) =>
+            message.role === 'assistant' &&
+            Array.isArray(message.content) &&
+            message.content.some(
+              (part) => part.type === 'text' && part.text === 'Checking the workspace. '
+            )
+        ),
+        'recovery prompt should keep the partial assistant text'
+      )
+      assert.ok(
+        requests[1]?.messages.some(
+          (message) =>
+            message.role === 'tool' &&
+            Array.isArray(message.content) &&
+            message.content.some(
+              (part) => part.type === 'tool-result' && part.toolCallId === 'tool-bash-recover-1'
+            )
+        ),
+        'recovery prompt should keep the completed tool result'
+      )
+      assert.deepEqual(requests[1]?.messages.at(-1), {
+        role: 'user',
+        content:
+          'The previous assistant response was interrupted by a recoverable transport failure. Continue the same task from the preserved assistant work above. Do not repeat completed tool calls unless you need fresh information. Continue from the partial answer instead of restarting it.'
+      })
+      assert.equal(toolCalls.length, 1)
+      assert.equal(toolCalls[0]?.status, 'completed')
+      assert.equal(toolCalls[0]?.outputSummary, 'exit 0')
+      assert.equal(finalAssistant?.content, 'Checking the workspace. Final answer.')
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          if (attempt === 0) {
+            attempt += 1
+
+            yield 'Checking the workspace. '
+
+            request.onToolCallStart?.({
+              abortSignal: request.signal,
+              experimental_context: undefined,
+              functionId: undefined,
+              messages: request.messages,
+              metadata: undefined,
+              model: undefined,
+              stepNumber: 0,
+              toolCall: {
+                input: { command: 'pwd' },
+                toolCallId: 'tool-bash-recover-1',
+                toolName: 'bash'
+              }
+            } as never)
+
+            request.onToolCallFinish?.({
+              abortSignal: request.signal,
+              durationMs: 3,
+              experimental_context: undefined,
+              functionId: undefined,
+              messages: request.messages,
+              metadata: undefined,
+              model: undefined,
+              stepNumber: 0,
+              success: true,
+              output: {
+                content: [{ type: 'text', text: '/tmp/workspace\n' }],
+                details: {
+                  command: 'pwd',
+                  cwd: '/tmp/workspace',
+                  exitCode: 0,
+                  stderr: '',
+                  stdout: '/tmp/workspace\n'
+                },
+                metadata: {
+                  cwd: '/tmp/workspace',
+                  exitCode: 0
+                }
+              },
+              toolCall: {
+                input: { command: 'pwd' },
+                toolCallId: 'tool-bash-recover-1',
+                toolName: 'bash'
+              }
+            } as never)
+
+            const error = new Error('net::ERR_CONNECTION_CLOSED') as Error & {
+              status?: number
+            }
+            error.status = 0
+            throw error
+          }
+
+          yield 'Final answer.'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer preserves fresh continuation text when a recovered run does not replay the prefix', async () => {
+  let attempt = 0
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Continue from the saved work without repeating it.'
+      })
+      assertAcceptedHasUserMessage(accepted)
+
+      await completeRun(accepted.runId)
+
+      const bootstrap = await server.bootstrap()
+      const finalAssistant = (bootstrap.messagesByThread[thread.id] ?? []).find(
+        (message) =>
+          message.role === 'assistant' && message.parentMessageId === accepted.userMessage.id
+      )
+
+      assert.equal(
+        finalAssistant?.content,
+        'Checking the workspace. Continuing from the saved work.'
+      )
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply() {
+          if (attempt === 0) {
+            attempt += 1
+            yield 'Checking the workspace. '
+
+            const error = new Error('net::ERR_CONNECTION_CLOSED') as Error & {
+              status?: number
+            }
+            error.status = 0
+            throw error
+          }
+
+          yield 'C'
+          yield 'ontinuing from the saved work.'
         }
       })
     }
@@ -3426,6 +3705,290 @@ test('YachiyoServer bootstrap recovers interrupted runs and marks running tool c
   }
 })
 
+test('YachiyoServer bootstrap resumes an interrupted run from its persisted recovery checkpoint', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-recover-resume-test-'))
+  const settingsPath = join(root, 'config.toml')
+  await writeFile(settingsPath, '[toolModel]\nmode = "disabled"\n', 'utf8')
+  const userDocumentPath = join(root, '.yachiyo', 'USER.md')
+  const workspacePathForThread = (threadId: string): string =>
+    join(root, '.yachiyo', 'temp-workspace', threadId)
+  const storage = createInMemoryYachiyoStorage()
+  const createdAt = '2026-03-16T09:00:00.000Z'
+  const interruptedAt = '2026-03-17T09:30:00.000Z'
+
+  try {
+    await mkdir(workspacePathForThread('thread-1'), { recursive: true })
+
+    storage.createThread({
+      thread: {
+        id: 'thread-1',
+        title: 'Interrupted thread',
+        updatedAt: createdAt,
+        headMessageId: 'user-1'
+      },
+      createdAt,
+      messages: [
+        {
+          id: 'user-1',
+          threadId: 'thread-1',
+          role: 'user',
+          content: 'Inspect the workspace and finish the answer.',
+          status: 'completed',
+          createdAt
+        }
+      ]
+    })
+    storage.startRun({
+      runId: 'run-1',
+      thread: {
+        id: 'thread-1',
+        title: 'Interrupted thread',
+        updatedAt: createdAt,
+        headMessageId: 'user-1'
+      },
+      updatedThread: {
+        id: 'thread-1',
+        title: 'Interrupted thread',
+        updatedAt: createdAt,
+        headMessageId: 'user-1'
+      },
+      requestMessageId: 'user-1',
+      createdAt
+    })
+    storage.createToolCall({
+      id: 'tool-bash-bootstrap-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      requestMessageId: 'user-1',
+      toolName: 'bash',
+      status: 'completed',
+      inputSummary: 'pwd',
+      outputSummary: 'exit 0',
+      cwd: '/tmp/workspace',
+      details: {
+        command: 'pwd',
+        cwd: '/tmp/workspace',
+        exitCode: 0,
+        stderr: '',
+        stdout: '/tmp/workspace\n'
+      },
+      startedAt: createdAt,
+      finishedAt: createdAt
+    })
+    storage.upsertRunRecoveryCheckpoint({
+      runId: 'run-1',
+      threadId: 'thread-1',
+      requestMessageId: 'user-1',
+      assistantMessageId: 'assistant-recovery-1',
+      content: 'Checking the workspace. ',
+      enabledTools: ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'webRead', 'webSearch'],
+      updateHeadOnComplete: true,
+      createdAt,
+      updatedAt: interruptedAt,
+      recoveryAttempts: 1,
+      lastError: 'net::ERR_CONNECTION_CLOSED'
+    })
+
+    const resumedServer = new YachiyoServer({
+      storage,
+      settingsPath,
+      now: () => new Date(interruptedAt),
+      readSoulDocument: async () => null,
+      readUserDocument: () => readUserDocument({ filePath: userDocumentPath }),
+      saveUserDocument: (content) => writeUserDocument({ filePath: userDocumentPath, content }),
+      ensureThreadWorkspace: async (threadId) => {
+        const workspacePath = workspacePathForThread(threadId)
+        await mkdir(workspacePath, { recursive: true })
+        return workspacePath
+      },
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          resumedRequests.push(request)
+          yield 'Final answer.'
+        }
+      })
+    })
+    const waiter = createServerEventWaiter(resumedServer)
+
+    await resumedServer.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    })
+    const resumedRequests: ModelStreamRequest[] = []
+
+    try {
+      await resumedServer.bootstrap()
+      await waiter.waitForEvent('run.completed', (event) => event.runId === 'run-1')
+
+      const bootstrap = await resumedServer.bootstrap()
+      const finalAssistant = (bootstrap.messagesByThread['thread-1'] ?? []).find(
+        (message) => message.role === 'assistant' && message.parentMessageId === 'user-1'
+      )
+
+      assert.equal(bootstrap.latestRunsByThread['thread-1']?.status, 'completed')
+      assert.equal(resumedRequests.length, 1)
+      assert.ok(
+        resumedRequests[0]?.messages.some(
+          (message) =>
+            message.role === 'assistant' &&
+            Array.isArray(message.content) &&
+            message.content.some(
+              (part) => part.type === 'text' && part.text === 'Checking the workspace. '
+            )
+        )
+      )
+      assert.ok(
+        resumedRequests[0]?.messages.some(
+          (message) =>
+            message.role === 'tool' &&
+            Array.isArray(message.content) &&
+            message.content.some(
+              (part) => part.type === 'tool-result' && part.toolCallId === 'tool-bash-bootstrap-1'
+            )
+        )
+      )
+      assert.equal(finalAssistant?.content, 'Checking the workspace. Final answer.')
+    } finally {
+      waiter.close()
+      await resumedServer.close()
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('YachiyoServer stops recovery after the final allowed committed retry attempt', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-recover-limit-test-'))
+  const settingsPath = join(root, 'config.toml')
+  await writeFile(settingsPath, '[toolModel]\nmode = "disabled"\n', 'utf8')
+  const userDocumentPath = join(root, '.yachiyo', 'USER.md')
+  const workspacePathForThread = (threadId: string): string =>
+    join(root, '.yachiyo', 'temp-workspace', threadId)
+  const storage = createInMemoryYachiyoStorage()
+  const createdAt = '2026-03-16T09:00:00.000Z'
+  const interruptedAt = '2026-03-17T09:30:00.000Z'
+  const resumedRequests: ModelStreamRequest[] = []
+
+  try {
+    await mkdir(workspacePathForThread('thread-1'), { recursive: true })
+
+    storage.createThread({
+      thread: {
+        id: 'thread-1',
+        title: 'Interrupted thread',
+        updatedAt: createdAt,
+        headMessageId: 'user-1'
+      },
+      createdAt,
+      messages: [
+        {
+          id: 'user-1',
+          threadId: 'thread-1',
+          role: 'user',
+          content: 'Inspect the workspace and finish the answer.',
+          status: 'completed',
+          createdAt
+        }
+      ]
+    })
+    storage.startRun({
+      runId: 'run-1',
+      thread: {
+        id: 'thread-1',
+        title: 'Interrupted thread',
+        updatedAt: createdAt,
+        headMessageId: 'user-1'
+      },
+      updatedThread: {
+        id: 'thread-1',
+        title: 'Interrupted thread',
+        updatedAt: createdAt,
+        headMessageId: 'user-1'
+      },
+      requestMessageId: 'user-1',
+      createdAt
+    })
+    storage.upsertRunRecoveryCheckpoint({
+      runId: 'run-1',
+      threadId: 'thread-1',
+      requestMessageId: 'user-1',
+      assistantMessageId: 'assistant-recovery-1',
+      content: 'Checking the workspace. ',
+      enabledTools: ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'webRead', 'webSearch'],
+      updateHeadOnComplete: true,
+      createdAt,
+      updatedAt: interruptedAt,
+      recoveryAttempts: RETRY_MAX_ATTEMPTS - 1,
+      lastError: 'net::ERR_CONNECTION_CLOSED'
+    })
+
+    const resumedServer = new YachiyoServer({
+      storage,
+      settingsPath,
+      now: () => new Date(interruptedAt),
+      readSoulDocument: async () => null,
+      readUserDocument: () => readUserDocument({ filePath: userDocumentPath }),
+      saveUserDocument: (content) => writeUserDocument({ filePath: userDocumentPath, content }),
+      ensureThreadWorkspace: async (threadId) => {
+        const workspacePath = workspacePathForThread(threadId)
+        await mkdir(workspacePath, { recursive: true })
+        return workspacePath
+      },
+      createModelRuntime: () => ({
+        streamReply(request: ModelStreamRequest): AsyncIterable<string> {
+          resumedRequests.push(request)
+          const iterator: AsyncIterator<string> & AsyncIterable<string> = {
+            next() {
+              const error = new Error('net::ERR_CONNECTION_CLOSED') as Error & { status?: number }
+              error.status = 0
+              return Promise.reject(error)
+            },
+            [Symbol.asyncIterator]() {
+              return iterator
+            }
+          }
+          return iterator
+        }
+      })
+    })
+    const waiter = createServerEventWaiter(resumedServer)
+
+    await resumedServer.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    })
+
+    try {
+      await resumedServer.bootstrap()
+      await waiter.waitForEvent('run.failed', (event) => event.runId === 'run-1')
+
+      const bootstrap = await resumedServer.bootstrap()
+
+      assert.equal(resumedRequests.length, 1)
+      assert.equal(bootstrap.latestRunsByThread['thread-1']?.status, 'failed')
+      assert.equal(bootstrap.latestRunsByThread['thread-1']?.error, 'net::ERR_CONNECTION_CLOSED')
+      assert.equal(storage.getRunRecoveryCheckpoint('run-1'), undefined)
+    } finally {
+      waiter.close()
+      await resumedServer.close()
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queued tool override', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-queued-recover-test-'))
   const settingsPath = join(root, 'config.toml')
@@ -4259,8 +4822,9 @@ test('YachiyoServer can switch the active thread branch between sibling replies'
   )
 })
 
-test('YachiyoServer preserves failed retry branches that only produced tool calls', async () => {
+test('YachiyoServer recovers retry branches that only produced tool calls', async () => {
   let runAttempt = 0
+  const requests: ModelStreamRequest[] = []
 
   await withServer(
     async ({ server, completeRun }) => {
@@ -4275,65 +4839,60 @@ test('YachiyoServer preserves failed retry branches that only produced tool call
       let bootstrap = await server.bootstrap()
       const [userMessage, firstAssistant] = bootstrap.messagesByThread[thread.id] ?? []
 
-      const failedRetryRun = await server.retryMessage({
+      const recoveredRetryRun = await server.retryMessage({
         threadId: thread.id,
         messageId: firstAssistant!.id
       })
-      await assert.rejects(completeRun(failedRetryRun.runId), /Tool-backed retry failure/)
+      await completeRun(recoveredRetryRun.runId)
 
       bootstrap = await server.bootstrap()
 
-      const failedRetryAssistant = (bootstrap.messagesByThread[thread.id] ?? []).find(
-        (message) =>
-          message.parentMessageId === userMessage?.id &&
-          message.role === 'assistant' &&
-          message.status === 'failed'
-      )
-      const failedRetryToolCalls = (bootstrap.toolCallsByThread[thread.id] ?? []).filter(
-        (toolCall) => toolCall.runId === failedRetryRun.runId
-      )
-
-      assert.ok(failedRetryAssistant)
-      assert.equal(failedRetryAssistant?.content, '')
-      assert.deepEqual(
-        failedRetryToolCalls.map((toolCall) => toolCall.assistantMessageId),
-        [failedRetryAssistant?.id]
-      )
-
-      const successfulRetryRun = await server.retryMessage({
-        threadId: thread.id,
-        messageId: failedRetryAssistant!.id
-      })
-      await completeRun(successfulRetryRun.runId)
-
-      bootstrap = await server.bootstrap()
-      const successfulRetryAssistant = (bootstrap.messagesByThread[thread.id] ?? []).find(
+      const recoveredRetryAssistant = (bootstrap.messagesByThread[thread.id] ?? []).find(
         (message) =>
           message.parentMessageId === userMessage?.id &&
           message.role === 'assistant' &&
           message.status === 'completed' &&
           message.id !== firstAssistant?.id
       )
-      const persistedFailedRetryToolCalls = (bootstrap.toolCallsByThread[thread.id] ?? []).filter(
-        (toolCall) => toolCall.runId === failedRetryRun.runId
+      const recoveredRetryToolCalls = (bootstrap.toolCallsByThread[thread.id] ?? []).filter(
+        (toolCall) => toolCall.runId === recoveredRetryRun.runId
       )
 
-      assert.ok(successfulRetryAssistant)
+      assert.ok(
+        requests[2]?.messages.some(
+          (message) =>
+            message.role === 'assistant' &&
+            Array.isArray(message.content) &&
+            message.content.some(
+              (part) =>
+                part.type === 'tool-call' &&
+                part.toolCallId === 'tool-retry-failed-1' &&
+                'input' in part &&
+                typeof part.input === 'object' &&
+                part.input !== null &&
+                'path' in part.input &&
+                part.input.path === '/tmp/notes.txt'
+            )
+        )
+      )
+      assert.ok(recoveredRetryAssistant)
+      assert.equal(recoveredRetryAssistant?.content, 'Recovered answer')
       assert.deepEqual(
-        persistedFailedRetryToolCalls.map((toolCall) => toolCall.assistantMessageId),
-        [failedRetryAssistant?.id]
+        recoveredRetryToolCalls.map((toolCall) => toolCall.assistantMessageId),
+        [recoveredRetryAssistant?.id]
       )
 
       const switched = await server.selectReplyBranch({
         threadId: thread.id,
-        assistantMessageId: failedRetryAssistant!.id
+        assistantMessageId: recoveredRetryAssistant!.id
       })
 
-      assert.equal(switched.headMessageId, failedRetryAssistant?.id)
+      assert.equal(switched.headMessageId, recoveredRetryAssistant?.id)
     },
     {
       createModelRuntime: () => ({
         async *streamReply(request: ModelStreamRequest): AsyncIterable<string> {
+          requests.push(request)
           runAttempt += 1
 
           if (runAttempt === 1) {

@@ -109,6 +109,32 @@ export const runsTable = sqliteTable('runs', {
   totalCompletionTokens: integer('total_completion_tokens')
 })
 
+export const runRecoveryCheckpointsTable = sqliteTable('run_recovery_checkpoints', {
+  runId: text('run_id')
+    .primaryKey()
+    .references(() => runsTable.id, { onDelete: 'cascade' }),
+  threadId: text('thread_id')
+    .notNull()
+    .references(() => threadsTable.id, { onDelete: 'cascade' }),
+  requestMessageId: text('request_message_id')
+    .notNull()
+    .references(() => messagesTable.id, {
+      onDelete: 'cascade'
+    }),
+  assistantMessageId: text('assistant_message_id').notNull(),
+  content: text('content').notNull(),
+  textBlocks: text('text_blocks'),
+  reasoning: text('reasoning'),
+  enabledTools: text('enabled_tools').notNull(),
+  enabledSkillNames: text('enabled_skill_names'),
+  channelHint: text('channel_hint'),
+  updateHeadOnComplete: text('update_head_on_complete').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  recoveryAttempts: integer('recovery_attempts').notNull().default(0),
+  lastError: text('last_error')
+})
+
 export const toolCallsTable = sqliteTable('tool_calls', {
   id: text('id').primaryKey(),
   runId: text('run_id')
