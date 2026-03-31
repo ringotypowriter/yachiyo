@@ -785,7 +785,8 @@ export function createTelegramService({
       personaSummary: EXTERNAL_SYSTEM_PROMPT,
       ownerInstruction: readChannelsConfig().guestInstruction,
       groupUserDocument: groupUserDoc?.content,
-      vision: groupConfig?.vision
+      vision: groupConfig?.vision,
+      contextTokenLimit: policy.contextTokenLimit
     })
 
     // Resolve model settings: group-specific override → default primary model.

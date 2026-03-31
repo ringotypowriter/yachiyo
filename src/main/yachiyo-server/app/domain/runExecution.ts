@@ -352,14 +352,15 @@ async function detectGitContext(workspacePath: string): Promise<GitContext> {
 function buildSubagentContextBlock(
   gitCtx: GitContext,
   workspacePath: string,
-  profiles: SubagentProfile[]
+  profiles: SubagentProfile[],
+  availableWorkspaces: string[] = []
 ): string {
   const enabledProfiles = profiles.filter((p) => p.enabled)
   if (enabledProfiles.length === 0) {
     return ''
   }
 
-  if (!gitCtx.hasGit) {
+  if (!gitCtx.hasGit && availableWorkspaces.length === 0) {
     return [
       '<coding_agents>',
       '⚠️ CRITICAL: The current workspace is NOT a Git repository.',
@@ -368,23 +369,42 @@ function buildSubagentContextBlock(
     ].join('\n')
   }
 
-  const gitContextLines = [
-    'Git Context:',
-    `- Current Branch: ${gitCtx.currentBranch ?? 'unknown'}`,
-    `- Main Branch: ${gitCtx.mainBranch ?? 'main'}`
-  ]
-  if (gitCtx.hasAgentsMd) {
+  const gitContextLines: string[] = []
+  if (gitCtx.hasGit) {
     gitContextLines.push(
-      '- AGENTS.md: Yes (check it before delegating — it may contain project-specific rules or constraints for coding agents)'
+      'Git Context:',
+      `- Current Branch: ${gitCtx.currentBranch ?? 'unknown'}`,
+      `- Main Branch: ${gitCtx.mainBranch ?? 'main'}`
     )
+    if (gitCtx.hasAgentsMd) {
+      gitContextLines.push(
+        '- AGENTS.md: Yes (check it before delegating — it may contain project-specific rules or constraints for coding agents)'
+      )
+    }
   }
+
+  const workspaceRule =
+    availableWorkspaces.length > 0
+      ? `CRITICAL RULE 1: By default agents operate in the current thread workspace: ${workspacePath}. You may also specify one of the available workspaces below using the \`workspace\` parameter. Agents MUST ONLY operate in the thread workspace or one of the listed workspaces — never an arbitrary path.`
+      : `CRITICAL RULE 1: Agents MUST ONLY operate within the current thread workspace: ${workspacePath}.`
 
   const lines = [
     '<coding_agents>',
     'You can delegate complex coding tasks to the following ACP-compatible agents using the `delegateCodingTask` tool.',
-    `CRITICAL RULE 1: Agents MUST ONLY operate within the current thread workspace: ${workspacePath}.`,
+    workspaceRule,
     '',
-    ...gitContextLines,
+    ...gitContextLines
+  ]
+
+  if (availableWorkspaces.length > 0) {
+    lines.push('')
+    lines.push('Available Workspaces (use the `workspace` parameter to select):')
+    for (const ws of availableWorkspaces) {
+      lines.push(`- ${ws}`)
+    }
+  }
+
+  lines.push(
     '',
     'CRITICAL RULE 2 (PROMPT AUTHORING):',
     'When writing the `prompt` parameter for the delegated agent, you MUST follow these constraints:',
@@ -401,7 +421,7 @@ function buildSubagentContextBlock(
     '- Never invent, guess, infer, or transform a `session_id`.',
     '',
     'Available Agents:'
-  ]
+  )
 
   for (const profile of enabledProfiles) {
     lines.push(`- Name: "${profile.name}" (Description: ${profile.description})`)
@@ -1054,9 +1074,9 @@ export async function executeServerRun(
         recallDecision
       })
     })
-    const enabledSubagentProfiles = (deps.readConfig().subagentProfiles ?? []).filter(
-      (p) => p.enabled
-    )
+    const config = deps.readConfig()
+    const enabledSubagentProfiles = (config.subagentProfiles ?? []).filter((p) => p.enabled)
+    const savedWorkspacePaths = config.workspace?.savedPaths ?? []
     const gitCtx =
       enabledSubagentProfiles.length > 0
         ? await detectGitContext(workspacePath)
@@ -1064,7 +1084,8 @@ export async function executeServerRun(
     const subagentContextBlock = buildSubagentContextBlock(
       gitCtx,
       workspacePath,
-      enabledSubagentProfiles
+      enabledSubagentProfiles,
+      savedWorkspacePaths
     )
 
     // Persist per-turn injected context on the request message for lossless replay.
@@ -1186,9 +1207,10 @@ export async function executeServerRun(
               }
             }
           : {}),
-        ...(gitCtx.hasGit && enabledSubagentProfiles.length > 0
+        ...((gitCtx.hasGit || savedWorkspacePaths.length > 0) && enabledSubagentProfiles.length > 0
           ? {
               subagentProfiles: enabledSubagentProfiles,
+              availableWorkspaces: savedWorkspacePaths,
               onSubagentProgress: deps.onSubagentProgress,
               onSubagentStarted: (agentName: string) => {
                 cancelPendingSafeSteerPointAfterTool()

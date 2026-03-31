@@ -747,7 +747,8 @@ export function createDiscordService({
       personaSummary: EXTERNAL_SYSTEM_PROMPT,
       ownerInstruction: readChannelsConfig().guestInstruction,
       groupUserDocument: groupUserDoc?.content,
-      vision: groupConfig?.vision
+      vision: groupConfig?.vision,
+      contextTokenLimit: policy.contextTokenLimit
     })
 
     const settingsOverride = server.resolveProviderSettings(groupConfig?.model)

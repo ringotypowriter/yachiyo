@@ -1,5 +1,7 @@
 import { tool, type Tool } from 'ai'
 import { spawn } from 'node:child_process'
+import { access as fsAccess } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { z } from 'zod'
 
@@ -17,6 +19,12 @@ import { filterJsonLines } from './spawnUtils.ts'
 const delegateCodingTaskInputSchema = z.object({
   agent_name: z.string().min(1),
   prompt: z.string().min(1),
+  workspace: z
+    .string()
+    .optional()
+    .describe(
+      'Optional workspace path for the coding agent to operate in. Must be one of the listed available workspaces. If omitted, the agent runs in the current thread workspace.'
+    ),
   session_id: z
     .string()
     .optional()
@@ -35,6 +43,7 @@ interface DelegateCodingTaskOutput {
 
 export interface DelegateCodingTaskContext {
   workspacePath: string
+  availableWorkspaces: string[]
   profiles: SubagentProfile[]
   onProgress?: (chunk: string) => void
   onSubagentStarted?: (agentName: string) => void
@@ -221,13 +230,32 @@ export function createTool(
         return { content: [{ type: 'text', text: error }], error }
       }
 
+      // Resolve effective workspace: validate against the allowed list
+      let effectiveCtx = ctx
+      if (input.workspace) {
+        const requested = resolve(input.workspace)
+        const allowed = ctx.availableWorkspaces.map((p) => resolve(p))
+        if (!allowed.includes(requested)) {
+          const error = `Workspace "${input.workspace}" is not in the allowed workspace list. Available: ${ctx.availableWorkspaces.join(', ')}`
+          return { content: [{ type: 'text', text: error }], error }
+        }
+        const exists = await fsAccess(requested)
+          .then(() => true)
+          .catch(() => false)
+        if (!exists) {
+          const error = `Workspace directory does not exist: "${requested}".`
+          return { content: [{ type: 'text', text: error }], error }
+        }
+        effectiveCtx = { ...ctx, workspacePath: requested }
+      }
+
       ctx.onSubagentStarted?.(input.agent_name)
       ctx.onProgress?.(`> ${input.prompt}\n${'─'.repeat(40)}\n`)
       try {
         const { lastMessage, ...result } = await runSubagent(
           profile,
           input.prompt,
-          ctx,
+          effectiveCtx,
           options.abortSignal,
           input.session_id || undefined
         )

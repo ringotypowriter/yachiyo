@@ -90,6 +90,8 @@ export interface AgentToolDependencies {
   webSearchService?: WebSearchService
   updateMemoryDeps?: UpdateMemoryDeps
   subagentProfiles?: SubagentProfile[]
+  /** Workspace paths the coding agent is allowed to operate in (from config savedPaths). */
+  availableWorkspaces?: string[]
   onSubagentProgress?: (chunk: string) => void
   onSubagentStarted?: (agentName: string) => void
   onSubagentFinished?: (
@@ -321,6 +323,7 @@ export function createAgentToolSet(
   if (enabledSubagentProfiles.length > 0) {
     const subagentCtx: DelegateCodingTaskContext = {
       workspacePath: context.workspacePath,
+      availableWorkspaces: dependencies.availableWorkspaces ?? [],
       profiles: enabledSubagentProfiles,
       onProgress: dependencies.onSubagentProgress,
       onSubagentStarted: dependencies.onSubagentStarted,
