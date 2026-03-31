@@ -32,6 +32,7 @@ import type { YachiyoServer } from '../app/YachiyoServer'
 import { telegramPolicy } from './channelPolicy'
 import { fetchImageAsDataUrl } from './channelImageDownload'
 import { createDirectMessageService, resolveDirectMessageThread } from './directMessageService.ts'
+import { handleDmSlashCommand } from './dmSlashCommands.ts'
 import {
   buildGroupProbeMessages,
   deriveNextGroupProbeMessageCount,
@@ -172,7 +173,27 @@ export function createTelegramService({
     startHandlingIndicator: startTypingLoop,
     onCompacted: (chatId) => notifyAutoCompact(sendMessage, chatId),
     nonRunReply: 'Sorry, something went wrong on my end.',
-    errorReply: 'Something went wrong. Please try again in a moment.'
+    errorReply: 'Something went wrong. Please try again in a moment.',
+    handleSlashCommand: (chatId, channelUser, command, args) =>
+      handleDmSlashCommand(
+        {
+          server,
+          threadReuseWindowMs: policy.threadReuseWindowMs,
+          contextTokenLimit: policy.contextTokenLimit,
+          createFreshThread: (user) =>
+            server.createThread({
+              workspacePath: resolveUserWorkspace(user.username),
+              source: 'telegram',
+              channelUserId: user.id,
+              title: `Telegram:@${user.username}`
+            }),
+          sendMessage
+        },
+        chatId,
+        channelUser,
+        command,
+        args
+      )
   })
 
   /** Download a single Telegram file by file_id via getFileLink. */

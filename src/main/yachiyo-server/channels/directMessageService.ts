@@ -131,6 +131,17 @@ export interface DirectMessageServiceOptions<TTarget> {
   replyDelayMs?(): number
   nonRunReply: string
   errorReply: string
+  /**
+   * Optional handler for slash commands (messages starting with `/` that have no images).
+   * Return `true` if the command was handled and the normal batch flow should be skipped.
+   * Return `false` to fall through to the standard batch-and-send flow.
+   */
+  handleSlashCommand?(
+    target: TTarget,
+    channelUser: ChannelUserRecord,
+    command: string,
+    args: string
+  ): Promise<boolean>
 }
 
 export interface DirectMessageService<TTarget> {
@@ -325,6 +336,48 @@ export function createDirectMessageService<TTarget>(
     )
   }
 
+  function enqueueToBatch(
+    target: TTarget,
+    channelUser: ChannelUserRecord,
+    text: string,
+    imageDownloads: Promise<MessageImageRecord | null>[]
+  ): void {
+    const existing = pendingBatches.get(channelUser.id)
+
+    if (existing) {
+      existing.messages.push(text)
+      existing.imageDownloads.push(...imageDownloads)
+      clearTimeout(existing.timer)
+      const delay = replyDelayMs()
+      existing.timer = setTimeout(() => {
+        void flushBatch(channelUser.id)
+      }, delay)
+      console.log(
+        `[${options.logLabel}] appended to batch for ${channelUser.username} (${existing.messages.length} msgs, ${existing.imageDownloads.length} img(s), next flush in ${Math.round(delay)}ms)`
+      )
+      return
+    }
+
+    const stopBatchIndicator = options.startBatchIndicator?.(target) ?? (() => {})
+    const delay = replyDelayMs()
+    const timer = setTimeout(() => {
+      void flushBatch(channelUser.id)
+    }, delay)
+
+    pendingBatches.set(channelUser.id, {
+      messages: [text],
+      imageDownloads: [...imageDownloads],
+      timer,
+      target,
+      channelUser,
+      stopBatchIndicator
+    })
+
+    console.log(
+      `[${options.logLabel}] new batch for ${channelUser.username} (flush in ${Math.round(delay)}ms)`
+    )
+  }
+
   return {
     enqueueMessage(
       target: TTarget,
@@ -332,40 +385,42 @@ export function createDirectMessageService<TTarget>(
       text: string,
       imageDownloads: Promise<MessageImageRecord | null>[] = []
     ): void {
-      const existing = pendingBatches.get(channelUser.id)
+      const trimmed = text.trim()
+      if (
+        options.handleSlashCommand &&
+        imageDownloads.length === 0 &&
+        !trimmed.includes('\n') &&
+        trimmed.startsWith('/')
+      ) {
+        // Cancel any pending batch so it cannot spill into a new thread.
+        const pending = pendingBatches.get(channelUser.id)
+        if (pending) {
+          clearTimeout(pending.timer)
+          pending.stopBatchIndicator()
+          pendingBatches.delete(channelUser.id)
+          console.log(
+            `[${options.logLabel}] discarded pending batch for ${channelUser.username} on slash command`
+          )
+        }
 
-      if (existing) {
-        existing.messages.push(text)
-        existing.imageDownloads.push(...imageDownloads)
-        clearTimeout(existing.timer)
-        const delay = replyDelayMs()
-        existing.timer = setTimeout(() => {
-          void flushBatch(channelUser.id)
-        }, delay)
-        console.log(
-          `[${options.logLabel}] appended to batch for ${channelUser.username} (${existing.messages.length} msgs, ${existing.imageDownloads.length} img(s), next flush in ${Math.round(delay)}ms)`
-        )
+        const spaceIdx = trimmed.indexOf(' ')
+        const command = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx)
+        const args = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim()
+        void options
+          .handleSlashCommand(target, channelUser, command, args)
+          .then((handled) => {
+            if (!handled) {
+              enqueueToBatch(target, channelUser, text, imageDownloads)
+            }
+          })
+          .catch((err) => {
+            console.error(`[${options.logLabel}] slash command handler failed`, err)
+            void options.sendMessage(target, options.errorReply).catch(() => {})
+          })
         return
       }
 
-      const stopBatchIndicator = options.startBatchIndicator?.(target) ?? (() => {})
-      const delay = replyDelayMs()
-      const timer = setTimeout(() => {
-        void flushBatch(channelUser.id)
-      }, delay)
-
-      pendingBatches.set(channelUser.id, {
-        messages: [text],
-        imageDownloads: [...imageDownloads],
-        timer,
-        target,
-        channelUser,
-        stopBatchIndicator
-      })
-
-      console.log(
-        `[${options.logLabel}] new batch for ${channelUser.username} (flush in ${Math.round(delay)}ms)`
-      )
+      enqueueToBatch(target, channelUser, text, imageDownloads)
     },
 
     stop(): void {

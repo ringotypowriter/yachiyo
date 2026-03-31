@@ -29,6 +29,7 @@ import type { YachiyoServer } from '../app/YachiyoServer.ts'
 import { resolveYachiyoTempWorkspaceRoot } from '../config/paths.ts'
 import { qqPolicy } from './channelPolicy.ts'
 import { createDirectMessageService, resolveDirectMessageThread } from './directMessageService.ts'
+import { handleDmSlashCommand } from './dmSlashCommands.ts'
 import {
   detectMediaTypeFromBytes,
   ensureVisionSafe,
@@ -170,7 +171,27 @@ export function createQQService({
     },
     onCompacted: (qqUserId) => notifyAutoCompact(sendPrivateMessage, qqUserId),
     nonRunReply: '抱歉，出了点问题。',
-    errorReply: '出了点问题，请稍后再试。'
+    errorReply: '出了点问题，请稍后再试。',
+    handleSlashCommand: (qqUserId, channelUser, command, args) =>
+      handleDmSlashCommand(
+        {
+          server,
+          threadReuseWindowMs: policy.threadReuseWindowMs,
+          contextTokenLimit: policy.contextTokenLimit,
+          createFreshThread: (user) =>
+            server.createThread({
+              workspacePath: user.workspacePath,
+              source: 'qq',
+              channelUserId: user.id,
+              title: `QQ:${user.username}`
+            }),
+          sendMessage: sendPrivateMessage
+        },
+        qqUserId,
+        channelUser,
+        command,
+        args
+      )
   })
 
   /**

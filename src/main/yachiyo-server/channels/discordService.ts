@@ -32,6 +32,7 @@ import type { YachiyoServer } from '../app/YachiyoServer.ts'
 import { discordPolicy } from './channelPolicy.ts'
 import { fetchImageAsDataUrl } from './channelImageDownload.ts'
 import { createDirectMessageService, resolveDirectMessageThread } from './directMessageService.ts'
+import { handleDmSlashCommand } from './dmSlashCommands.ts'
 import {
   buildGroupProbeMessages,
   deriveNextGroupProbeMessageCount,
@@ -211,7 +212,27 @@ export function createDiscordService({
     startHandlingIndicator: startTypingLoop,
     onCompacted: (channelId) => notifyAutoCompact(sendMessage, channelId),
     nonRunReply: 'Sorry, something went wrong on my end.',
-    errorReply: 'Something went wrong. Please try again in a moment.'
+    errorReply: 'Something went wrong. Please try again in a moment.',
+    handleSlashCommand: (channelId, channelUser, command, args) =>
+      handleDmSlashCommand(
+        {
+          server,
+          threadReuseWindowMs: policy.threadReuseWindowMs,
+          contextTokenLimit: policy.contextTokenLimit,
+          createFreshThread: (user) =>
+            server.createThread({
+              workspacePath: resolveUserWorkspace(user.username),
+              source: 'discord',
+              channelUserId: user.id,
+              title: `Discord:@${user.username}`
+            }),
+          sendMessage
+        },
+        channelId,
+        channelUser,
+        command,
+        args
+      )
   })
 
   /** Image extensions to accept when Discord omits contentType. */

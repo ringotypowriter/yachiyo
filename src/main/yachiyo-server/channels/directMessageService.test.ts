@@ -232,4 +232,312 @@ describe('createDirectMessageService', () => {
     assert.deepEqual(visibleReplies, ['Shared reply'])
     assert.deepEqual(tokenUpdates, [{ id: channelUser.id, usedKTokens: 2 }])
   })
+
+  it('intercepts slash commands and skips the batch when handler returns true', async () => {
+    const channelUser = createChannelUser()
+    const handledCommands: Array<{ command: string; args: string }> = []
+    let sendChatCalled = false
+
+    const server: DirectMessageServer = {
+      subscribe: (listener) => {
+        void listener
+        return () => {}
+      },
+      async sendChat() {
+        sendChatCalled = true
+        throw new Error('sendChat should not be called')
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      async compactExternalThread() {
+        throw new Error('should not be called')
+      },
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'test',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread: createThread('t1'), compacted: false }),
+      sendMessage: async () => {},
+      nonRunReply: 'non-run',
+      errorReply: 'error',
+      handleSlashCommand: async (_target, _user, command, args) => {
+        handledCommands.push({ command, args })
+        return true
+      }
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, '/new')
+
+    await delay(20)
+
+    assert.equal(sendChatCalled, false)
+    assert.deepEqual(handledCommands, [{ command: '/new', args: '' }])
+  })
+
+  it('falls through to normal batch when slash handler returns false', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-fallthrough')
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    let sendChatCalled = false
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input) {
+        sendChatCalled = true
+        assert.equal(input.content, '/unknown-cmd')
+        queueMicrotask(() => {
+          for (const l of listeners) {
+            l({
+              type: 'run.completed',
+              eventId: 'e1',
+              timestamp: '2026-03-31T00:00:00.000Z',
+              threadId: thread.id,
+              runId: 'r1'
+            })
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'r1',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      async compactExternalThread() {
+        throw new Error('should not be called')
+      },
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'test',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, compacted: false }),
+      sendMessage: async () => {},
+      nonRunReply: 'non-run',
+      errorReply: 'error',
+      handleSlashCommand: async () => false
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, '/unknown-cmd')
+
+    await delay(20)
+
+    assert.equal(sendChatCalled, true)
+  })
+
+  it('does not intercept slash-like text that has images attached', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-images')
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    let handlerCalled = false
+    let sendChatCalled = false
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input) {
+        sendChatCalled = true
+        assert.equal(input.content, '/new')
+        queueMicrotask(() => {
+          for (const l of listeners) {
+            l({
+              type: 'run.completed',
+              eventId: 'e1',
+              timestamp: '2026-03-31T00:00:00.000Z',
+              threadId: thread.id,
+              runId: 'r1'
+            })
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'r1',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      async compactExternalThread() {
+        throw new Error('should not be called')
+      },
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'test',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, compacted: false }),
+      sendMessage: async () => {},
+      nonRunReply: 'non-run',
+      errorReply: 'error',
+      handleSlashCommand: async () => {
+        handlerCalled = true
+        return true
+      }
+    })
+
+    // /new with an image attached — should NOT be treated as a slash command
+    const fakeImage = Promise.resolve({
+      dataUrl: 'data:image/png;base64,abc',
+      mediaType: 'image/png' as const
+    })
+    directMessages.enqueueMessage('chat-1', channelUser, '/new', [fakeImage])
+
+    await delay(20)
+
+    assert.equal(handlerCalled, false)
+    assert.equal(sendChatCalled, true)
+  })
+
+  it('discards a pending batch when a slash command arrives', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-discard')
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    const sentContents: string[] = []
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input) {
+        sentContents.push(input.content)
+        queueMicrotask(() => {
+          for (const l of listeners) {
+            l({
+              type: 'run.completed',
+              eventId: 'e1',
+              timestamp: '2026-03-31T00:00:00.000Z',
+              threadId: thread.id,
+              runId: 'r1'
+            })
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'r1',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      async compactExternalThread() {
+        throw new Error('should not be called')
+      },
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    let commandHandled = false
+    const directMessages = createDirectMessageService({
+      logLabel: 'test',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 50, // long enough to observe discard
+      resolveThread: async () => ({ thread, compacted: false }),
+      sendMessage: async () => {},
+      nonRunReply: 'non-run',
+      errorReply: 'error',
+      handleSlashCommand: async () => {
+        commandHandled = true
+        return true
+      }
+    })
+
+    // Enqueue a normal message (starts batch with 50ms delay)
+    directMessages.enqueueMessage('chat-1', channelUser, 'hello')
+    // Then immediately send /new — should cancel the pending batch
+    directMessages.enqueueMessage('chat-1', channelUser, '/new')
+
+    await delay(100)
+
+    assert.equal(commandHandled, true)
+    // The "hello" batch should have been discarded, not sent to AI
+    assert.deepEqual(sentContents, [])
+  })
+
+  it('sends errorReply to the user when the slash command handler throws', async () => {
+    const channelUser = createChannelUser()
+    const sentMessages: string[] = []
+
+    const server: DirectMessageServer = {
+      subscribe: (listener) => {
+        void listener
+        return () => {}
+      },
+      async sendChat() {
+        throw new Error('sendChat should not be called')
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      async compactExternalThread() {
+        throw new Error('should not be called')
+      },
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'test',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread: createThread('t1'), compacted: false }),
+      sendMessage: async (_target, text) => {
+        sentMessages.push(text)
+      },
+      nonRunReply: 'non-run',
+      errorReply: 'something went wrong',
+      handleSlashCommand: async () => {
+        throw new Error('backend failure')
+      }
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, '/compact')
+
+    await delay(20)
+
+    assert.deepEqual(sentMessages, ['something went wrong'])
+  })
 })
