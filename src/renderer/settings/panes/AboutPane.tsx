@@ -132,68 +132,67 @@ export function AboutPane(): React.ReactNode {
           Apache-2.0 License
         </div>
 
-        {/* Check for updates */}
-        {(updateState.state === 'idle' || updateState.state === 'error') && (
-          <button
-            type="button"
-            onClick={() => window.api.appUpdate.check()}
-            className="mt-4 text-xs font-medium px-3 py-1.5 rounded-full"
-            style={{
-              background: alpha('ink', 0.05),
-              color: theme.text.secondary,
-              border: 'none',
-              cursor: 'pointer'
-            }}
-          >
-            {updateState.state === 'error' ? 'Retry update check' : 'Check for updates'}
-          </button>
-        )}
-        {updateState.state === 'checking' && (
-          <div className="mt-4 text-xs" style={{ color: theme.text.muted }}>
-            Checking for updates...
-          </div>
-        )}
-
-        {/* Update available — trigger download */}
-        {updateState.state === 'available' && (
-          <button
-            type="button"
-            onClick={() => window.api.appUpdate.download()}
-            className="mt-4 text-xs font-medium px-3 py-1.5 rounded-full"
-            style={{
-              background: alpha('accent', 0.12),
-              color: theme.text.accent,
-              border: 'none',
-              cursor: 'pointer'
-            }}
-          >
-            v{updateState.version} available — download
-          </button>
-        )}
-
-        {/* Downloading — progress */}
-        {updateState.state === 'downloading' && (
-          <div className="mt-4 text-xs" style={{ color: theme.text.muted }}>
-            Downloading{updateState.percent !== undefined ? ` ${updateState.percent}%` : '…'}
-          </div>
-        )}
-
-        {/* Ready — restart to install */}
-        {updateState.state === 'ready' && (
-          <button
-            type="button"
-            onClick={() => window.api.appUpdate.install()}
-            className="mt-4 text-xs font-medium px-3 py-1.5 rounded-full"
-            style={{
-              background: alpha('accent', 0.12),
-              color: theme.text.accent,
-              border: 'none',
-              cursor: 'pointer'
-            }}
-          >
-            Restart to install v{updateState.version}
-          </button>
-        )}
+        {/* Update status — fixed height to prevent layout shift */}
+        <div
+          className="mt-4 flex items-center justify-center"
+          style={{ height: 28, flexShrink: 0 }}
+        >
+          {(updateState.state === 'idle' || updateState.state === 'error') && (
+            <button
+              type="button"
+              onClick={() => window.api.appUpdate.check()}
+              className="text-xs font-medium px-3 py-1.5 rounded-full"
+              style={{
+                background: alpha('ink', 0.05),
+                color: theme.text.secondary,
+                border: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              {updateState.state === 'error' ? 'Retry update check' : 'Check for updates'}
+            </button>
+          )}
+          {updateState.state === 'checking' && (
+            <span className="text-xs" style={{ color: theme.text.muted }}>
+              Checking for updates...
+            </span>
+          )}
+          {updateState.state === 'available' && (
+            <button
+              type="button"
+              onClick={() => window.api.appUpdate.download()}
+              className="text-xs font-medium px-3 py-1.5 rounded-full"
+              style={{
+                background: alpha('accent', 0.12),
+                color: theme.text.accent,
+                border: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              v{updateState.version} available — download
+            </button>
+          )}
+          {updateState.state === 'downloading' && (
+            <span className="text-xs" style={{ color: theme.text.muted }}>
+              Downloading{updateState.percent !== undefined ? ` ${updateState.percent}%` : '…'}
+            </span>
+          )}
+          {updateState.state === 'ready' && (
+            <button
+              type="button"
+              onClick={() => window.api.appUpdate.install()}
+              className="text-xs font-medium px-3 py-1.5 rounded-full"
+              style={{
+                background: alpha('accent', 0.12),
+                color: theme.text.accent,
+                border: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              Restart to install v{updateState.version}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Bottom overlay — notices + toggle, layered above hero */}
