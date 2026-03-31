@@ -1339,6 +1339,7 @@ export async function executeServerRun(
         lastUsage = usage
       },
       onRetry: (attempt, maxAttempts, delayMs, error) => {
+        reasoningBuffer = ''
         deps.emit<RunRetryingEvent>({
           type: 'run.retrying',
           threadId: input.thread.id,

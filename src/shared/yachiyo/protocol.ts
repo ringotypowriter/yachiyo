@@ -413,6 +413,15 @@ export interface ThreadModelOverride {
   model: string
 }
 
+export interface ThreadRuntimeBinding {
+  kind: 'llm' | 'acp'
+  profileId?: string
+  profileName?: string
+  sessionId?: string
+  sessionStatus?: 'new' | 'active' | 'expired'
+  lastSessionBoundAt?: string
+}
+
 export interface ThreadRecord {
   archivedAt?: string
   starredAt?: string
@@ -442,6 +451,8 @@ export interface ThreadRecord {
   readAt?: string
   /** Essential preset that spawned this thread. */
   createdFromEssentialId?: string
+  /** Backend runtime binding: stores kind, ACP profile, and session state. */
+  runtimeBinding?: ThreadRuntimeBinding
 }
 
 /** Per-turn injected context (reminder, memory) persisted for lossless replay. */
@@ -683,6 +694,9 @@ export interface SubagentProfile {
   command: string
   args: string[]
   env: Record<string, string>
+  showInChatPicker?: boolean
+  allowDelegation?: boolean
+  allowDirectChat?: boolean
 }
 
 export interface FileMentionCandidate {

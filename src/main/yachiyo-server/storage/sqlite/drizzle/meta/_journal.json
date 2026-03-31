@@ -218,6 +218,13 @@
       "when": 1774871178109,
       "tag": "0030_oval_namorita",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1774947592173,
+      "tag": "0031_square_multiple_man",
+      "breakpoints": true
     }
   ]
 }

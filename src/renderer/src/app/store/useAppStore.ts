@@ -1558,7 +1558,28 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       if (event.type === 'run.retrying') {
+        const pending = state.pendingAssistantMessages[event.runId]
+        const nextThreadMessages = pending
+          ? (state.messages[event.threadId] ?? []).map((message) => {
+              if (message.id !== pending.messageId || message.reasoning === undefined) {
+                return message
+              }
+
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              const { reasoning: _reasoning, ...nextMessage } = message
+              return nextMessage
+            })
+          : undefined
+
         return {
+          ...(nextThreadMessages
+            ? {
+                messages: {
+                  ...state.messages,
+                  [event.threadId]: nextThreadMessages
+                }
+              }
+            : {}),
           retryInfoByThread: {
             ...state.retryInfoByThread,
             [event.threadId]: {

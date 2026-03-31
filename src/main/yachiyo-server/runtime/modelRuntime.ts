@@ -27,6 +27,14 @@ const RETRY_MAX_DELAY_MS = 30_000
 function isRetryableError(error: unknown): boolean {
   if (error instanceof Error && error.name === 'AbortError') return false
 
+  const explicitRetryable =
+    typeof (error as { isRetryable?: unknown })?.isRetryable === 'boolean'
+      ? ((error as { isRetryable: boolean }).isRetryable as boolean)
+      : undefined
+  if (explicitRetryable !== undefined) {
+    return explicitRetryable
+  }
+
   const status =
     typeof (error as { status?: unknown })?.status === 'number'
       ? ((error as { status: number }).status as number)
@@ -35,6 +43,7 @@ function isRetryableError(error: unknown): boolean {
         : undefined
 
   if (status !== undefined) {
+    if (status === 0) return true
     // Auth & validation — not retryable
     if (status === 400 || status === 401 || status === 403 || status === 404) return false
     // Rate limit & server errors — retryable
@@ -50,6 +59,7 @@ function isRetryableError(error: unknown): boolean {
     code === 'ETIMEDOUT' ||
     code === 'ECONNREFUSED' ||
     code === 'ENOTFOUND' ||
+    code === 'ERR_CONNECTION_CLOSED' ||
     code === 'UND_ERR_SOCKET' ||
     code === 'UND_ERR_CONNECT_TIMEOUT'
   ) {
@@ -57,7 +67,11 @@ function isRetryableError(error: unknown): boolean {
   }
 
   const message = error instanceof Error ? error.message : String(error)
-  if (/ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|fetch failed|socket hang up/i.test(message)) {
+  if (
+    /ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|ERR_CONNECTION_CLOSED|fetch failed|socket hang up/i.test(
+      message
+    )
+  ) {
     return true
   }
 
@@ -122,8 +136,8 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
       let retryDelay = RETRY_BASE_DELAY_MS
 
       for (let attempt = 1; attempt <= RETRY_MAX_ATTEMPTS; attempt++) {
-        // Once any observable output (text, reasoning, tool activity) has been
-        // forwarded to the caller, the stream is committed and must not be retried.
+        // Once user-visible assistant text or tool activity has started, the
+        // attempt is committed and must not be retried.
         let streamCommitted = false
 
         try {
@@ -184,7 +198,6 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                   part.type === 'reasoning-part-finish') &&
                 readTextDelta(part)
               ) {
-                streamCommitted = true
                 request.onReasoningDelta?.(readTextDelta(part) as string)
                 continue
               }
@@ -375,8 +388,8 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             })
           }
 
-          // If any output was forwarded (text, reasoning, tool calls), the stream
-          // is committed — retrying would duplicate side effects.
+          // Once assistant text or tool activity was forwarded, retrying would
+          // duplicate user-visible output or side effects.
           if (streamCommitted || attempt >= RETRY_MAX_ATTEMPTS || !isRetryableError(error)) {
             throw error
           }

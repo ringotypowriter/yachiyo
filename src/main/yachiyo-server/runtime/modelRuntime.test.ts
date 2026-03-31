@@ -1875,6 +1875,32 @@ test('streamReply retries on ECONNRESET even without code property (message-only
   assert.equal(getCallCount(), 2)
 })
 
+test('streamReply retries on net::ERR_CONNECTION_CLOSED when the transport reports status 0', async () => {
+  const err = new Error('net::ERR_CONNECTION_CLOSED')
+  ;(err as { status?: number }).status = 0
+  const { runtime, defaultSettings, getCallCount } = createRetryTestRuntime([
+    { error: err },
+    { chunks: ['recovered'] }
+  ])
+
+  const retryEvents: number[] = []
+  const chunks: string[] = []
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'hi' }],
+    settings: defaultSettings,
+    signal: new AbortController().signal,
+    onRetry: (attempt) => {
+      retryEvents.push(attempt)
+    }
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['recovered'])
+  assert.equal(getCallCount(), 2)
+  assert.deepEqual(retryEvents, [1])
+})
+
 function createFullStreamRetryRuntime(
   callResults: Array<{
     error?: Error
@@ -1953,7 +1979,7 @@ test('streamReply does not retry after tool-input-available has fired (P1: tool 
   assert.equal(getCallCount(), 1)
 })
 
-test('streamReply does not retry after reasoning deltas have been emitted (P2: stale reasoning)', async () => {
+test('streamReply retries after reasoning deltas when assistant text has not started yet', async () => {
   const networkErr = new Error('socket hang up')
 
   const { runtime, defaultSettings, getCallCount } = createFullStreamRetryRuntime([
@@ -1962,29 +1988,35 @@ test('streamReply does not retry after reasoning deltas have been emitted (P2: s
         { type: 'reasoning-delta', textDelta: 'Let me think...' },
         { type: 'error', error: networkErr }
       ]
+    },
+    {
+      streamEvents: [
+        { type: 'reasoning-delta', textDelta: 'Retrying from scratch...' },
+        { type: 'text-delta', textDelta: 'Recovered answer' }
+      ]
     }
   ])
 
+  const retryEvents: number[] = []
   const reasoningDeltas: string[] = []
+  const chunks: string[] = []
 
-  await assert.rejects(
-    async () => {
-      for await (const chunk of runtime.streamReply({
-        messages: [{ role: 'user', content: 'hi' }],
-        settings: defaultSettings,
-        signal: new AbortController().signal,
-        onReasoningDelta: (delta) => {
-          reasoningDeltas.push(delta)
-        }
-      })) {
-        void chunk
-      }
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'hi' }],
+    settings: defaultSettings,
+    signal: new AbortController().signal,
+    onRetry: (attempt) => {
+      retryEvents.push(attempt)
     },
-    { message: 'socket hang up' }
-  )
+    onReasoningDelta: (delta) => {
+      reasoningDeltas.push(delta)
+    }
+  })) {
+    chunks.push(chunk)
+  }
 
-  // Reasoning was forwarded before the error
-  assert.deepEqual(reasoningDeltas, ['Let me think...'])
-  // Must NOT have retried — only 1 call total
-  assert.equal(getCallCount(), 1)
+  assert.deepEqual(retryEvents, [1])
+  assert.deepEqual(reasoningDeltas, ['Let me think...', 'Retrying from scratch...'])
+  assert.deepEqual(chunks, ['Recovered answer'])
+  assert.equal(getCallCount(), 2)
 })

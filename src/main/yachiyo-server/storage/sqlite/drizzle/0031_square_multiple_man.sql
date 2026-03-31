@@ -1,0 +1,1 @@
+ALTER TABLE `threads` ADD `runtime_binding` text;

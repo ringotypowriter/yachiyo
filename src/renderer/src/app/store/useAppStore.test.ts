@@ -145,6 +145,60 @@ test('applyServerEvent keeps a stopped placeholder when a run is cancelled befor
   ])
 })
 
+test('applyServerEvent clears pending reasoning when a run starts retrying', () => {
+  resetStore()
+
+  useAppStore.getState().applyServerEvent({
+    type: 'run.created',
+    eventId: 'event-run-created',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    requestMessageId: 'user-1'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'message.started',
+    eventId: 'event-message-started',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    messageId: 'message-1',
+    parentMessageId: 'user-1'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'message.reasoning.delta',
+    eventId: 'event-message-reasoning',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    messageId: 'message-1',
+    delta: 'Let me think...'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'run.retrying',
+    eventId: 'event-run-retrying',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    attempt: 1,
+    maxAttempts: 10,
+    delayMs: 1000,
+    error: 'net::ERR_CONNECTION_CLOSED'
+  })
+
+  const state = useAppStore.getState()
+  const message = state.messages['thread-1']?.find((entry) => entry.id === 'message-1')
+
+  assert.equal(message?.reasoning, undefined)
+  assert.deepEqual(state.retryInfoByThread, {
+    'thread-1': {
+      attempt: 1,
+      maxAttempts: 10,
+      error: 'net::ERR_CONNECTION_CLOSED'
+    }
+  })
+})
+
 test('applyServerEvent stores recalled memory on the matching run', () => {
   resetStore()
 
