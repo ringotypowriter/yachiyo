@@ -1082,6 +1082,14 @@ export interface RunCompletedEvent extends RunEvent {
   totalCompletionTokens?: number
 }
 
+export interface RunRetryingEvent extends RunEvent {
+  type: 'run.retrying'
+  attempt: number
+  maxAttempts: number
+  delayMs: number
+  error: string
+}
+
 export interface RunFailedEvent extends RunEvent {
   type: 'run.failed'
   error: string
@@ -1166,6 +1174,7 @@ export type YachiyoServerEvent =
   | RunMemoryRecalledEvent
   | RunContextCompiledEvent
   | RunCompletedEvent
+  | RunRetryingEvent
   | RunFailedEvent
   | RunCancelledEvent
   | MessageStartedEvent

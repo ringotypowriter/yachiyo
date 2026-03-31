@@ -28,6 +28,7 @@ import type {
   RunContextSourceSummary,
   RunFailedEvent,
   RunMemoryRecalledEvent,
+  RunRetryingEvent,
   SkillCatalogEntry,
   SkillSummary,
   SettingsConfig,
@@ -1331,6 +1332,17 @@ export async function executeServerRun(
       ...(tools ? { tools } : {}),
       onFinish: (usage) => {
         lastUsage = usage
+      },
+      onRetry: (attempt, maxAttempts, delayMs, error) => {
+        deps.emit<RunRetryingEvent>({
+          type: 'run.retrying',
+          threadId: input.thread.id,
+          runId: input.runId,
+          attempt,
+          maxAttempts,
+          delayMs,
+          error: error instanceof Error ? error.message : String(error)
+        })
       },
       onReasoningDelta: (reasoningDelta) => {
         reasoningBuffer += reasoningDelta

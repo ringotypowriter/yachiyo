@@ -42,6 +42,7 @@ export interface ModelStreamRequest {
   onToolCallFinish?: GenerateTextOnToolCallFinishCallback<ToolSet>
   onToolCallUpdate?: (event: ModelToolCallUpdateEvent) => void
   onReasoningDelta?: (delta: string) => void
+  onRetry?: (attempt: number, maxAttempts: number, delayMs: number, error: unknown) => void
   onFinish?: (usage: ModelUsage) => void
 }
 

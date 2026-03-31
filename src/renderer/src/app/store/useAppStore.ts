@@ -168,6 +168,7 @@ interface AppState {
   starThread: (threadId: string, starred: boolean) => Promise<void>
   restoreThread: (threadId: string) => Promise<void>
   retryMessage: (messageId: string) => Promise<void>
+  retryInfoByThread: Record<string, { attempt: number; maxAttempts: number; error: string }>
   runPhasesByThread: Record<string, 'idle' | 'preparing' | 'streaming'>
   savingThreadIds: Set<string>
   saveThread: (threadId: string, options?: { archiveAfterSave?: boolean }) => Promise<void>
@@ -864,6 +865,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   lastError: null,
   latestRunsByThread: {},
   runsByThread: {},
+  retryInfoByThread: {},
   runPhasesByThread: {},
   removeComposerImage: (imageId, threadId) =>
     set((state) => {
@@ -1496,6 +1498,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             : message
         )
 
+        const retryInfoByThread = { ...state.retryInfoByThread }
+        delete retryInfoByThread[event.threadId]
+
         const nextState = {
           ...state,
           messages: {
@@ -1506,6 +1511,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             ...state.pendingAssistantMessages,
             [event.runId]: nextPendingAssistantMessage
           },
+          retryInfoByThread,
           runPhasesByThread: setThreadRunPhaseValue(
             state.runPhasesByThread,
             event.threadId,
@@ -1551,6 +1557,19 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
 
+      if (event.type === 'run.retrying') {
+        return {
+          retryInfoByThread: {
+            ...state.retryInfoByThread,
+            [event.threadId]: {
+              attempt: event.attempt,
+              maxAttempts: event.maxAttempts,
+              error: event.error
+            }
+          }
+        }
+      }
+
       if (event.type === 'run.completed') {
         const pendingAssistantMessages = { ...state.pendingAssistantMessages }
         delete pendingAssistantMessages[event.runId]
@@ -1558,6 +1577,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete activeRunIdsByThread[event.threadId]
         const activeRequestMessageIdsByThread = { ...state.activeRequestMessageIdsByThread }
         delete activeRequestMessageIdsByThread[event.threadId]
+        const retryInfoByThread = { ...state.retryInfoByThread }
+        delete retryInfoByThread[event.threadId]
         const existingLatestRun =
           state.latestRunsByThread[event.threadId]?.id === event.runId
             ? state.latestRunsByThread[event.threadId]
@@ -1567,6 +1588,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...state,
           activeRequestMessageIdsByThread,
           activeRunIdsByThread,
+          retryInfoByThread,
           latestRunsByThread: upsertLatestRun(state.latestRunsByThread, {
             id: event.runId,
             threadId: event.threadId,
@@ -1640,6 +1662,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete activeRunIdsByThread[event.threadId]
         const activeRequestMessageIdsByThread = { ...state.activeRequestMessageIdsByThread }
         delete activeRequestMessageIdsByThread[event.threadId]
+        const retryInfoByThread = { ...state.retryInfoByThread }
+        delete retryInfoByThread[event.threadId]
         const existingLatestRun =
           state.latestRunsByThread[event.threadId]?.id === event.runId
             ? state.latestRunsByThread[event.threadId]
@@ -1648,6 +1672,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         const nextState = {
           ...state,
           activeRequestMessageIdsByThread,
+          retryInfoByThread,
           activeRunIdsByThread,
           lastError: event.error,
           latestRunsByThread: upsertLatestRun(state.latestRunsByThread, {
@@ -1721,6 +1746,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete activeRunIdsByThread[event.threadId]
         const activeRequestMessageIdsByThread = { ...state.activeRequestMessageIdsByThread }
         delete activeRequestMessageIdsByThread[event.threadId]
+        const retryInfoByThread = { ...state.retryInfoByThread }
+        delete retryInfoByThread[event.threadId]
         const existingLatestRun =
           state.latestRunsByThread[event.threadId]?.id === event.runId
             ? state.latestRunsByThread[event.threadId]
@@ -1730,6 +1757,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...state,
           activeRequestMessageIdsByThread,
           activeRunIdsByThread,
+          retryInfoByThread,
           latestRunsByThread: upsertLatestRun(state.latestRunsByThread, {
             id: event.runId,
             threadId: event.threadId,

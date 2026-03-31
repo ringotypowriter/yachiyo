@@ -13,7 +13,7 @@ import { findRunMemorySummary } from '../lib/runMemoryPresentation.ts'
 import { buildConversationGroupTimelineItems } from '../lib/messageTimelineLayout.ts'
 import { UserMessageBubble } from './UserMessageBubble'
 import { AssistantMessageBubble } from './AssistantMessageBubble'
-import { GeneratingRow } from './GeneratingRow'
+import { GeneratingRow, type RetryInfo } from './GeneratingRow'
 import { SubagentRunningIndicator } from './SubagentRunningIndicator'
 import { PreparingBubble } from './PreparingBubble'
 import { RunEventRow } from './RunEventRow'
@@ -131,6 +131,7 @@ export function ThreadConversationGroup({
   runs,
   subagentActive,
   subagentStream,
+  retryInfo,
   onCancelSubagent,
   onCreateBranch,
   onEdit,
@@ -147,6 +148,7 @@ export function ThreadConversationGroup({
   runs: RunRecord[]
   subagentActive: boolean
   subagentStream: string
+  retryInfo?: RetryInfo
   onCancelSubagent: () => void
   onCreateBranch: (messageId: string) => Promise<void>
   onEdit: (messageId: string) => void
@@ -289,10 +291,13 @@ export function ThreadConversationGroup({
         }
 
         if (item.kind === 'generating') {
-          return <GeneratingRow key="generating" />
+          return <GeneratingRow key="generating" retryInfo={retryInfo} />
         }
 
         if (item.kind === 'preparing') {
+          if (retryInfo) {
+            return <GeneratingRow key="preparing" retryInfo={retryInfo} />
+          }
           return (
             <div key="preparing" className="message-response-cluster">
               <div className="message-response-cluster__preparing">
@@ -388,6 +393,9 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   )
   const subagentStream = useAppStore((state) =>
     threadId ? (state.subagentProgressByThread[threadId] ?? '') : ''
+  )
+  const retryInfo = useAppStore((state) =>
+    threadId ? (state.retryInfoByThread[threadId] ?? undefined) : undefined
   )
   const cancelRunForThread = useAppStore((state) => state.cancelRunForThread)
   const activeRequestMessageId = useAppStore((state) =>
@@ -620,6 +628,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
               runs={runs}
               subagentActive={isActiveGroup && subagentActive}
               subagentStream={subagentStream}
+              retryInfo={isActiveGroup ? retryInfo : undefined}
               onCancelSubagent={() => void cancelRunForThread(threadId)}
               onCreateBranch={handleCreateBranch}
               onEdit={handleEdit}

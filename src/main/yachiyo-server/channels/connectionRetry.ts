@@ -63,7 +63,7 @@ export async function connectWithRetry(
   }
 }
 
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       const err = new Error('Aborted')

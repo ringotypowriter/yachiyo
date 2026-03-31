@@ -1628,3 +1628,321 @@ test('fetchModels allows vertex model fetching via ADC', async () => {
   assert.equal(authorizationHeader, 'Bearer adc-token')
   assert.deepEqual(models, ['gemini-2.5-flash-001', 'gemini-2.5-pro-001'])
 })
+
+// ---------------------------------------------------------------------------
+// Retry with exponential backoff
+// ---------------------------------------------------------------------------
+
+function createRetryTestRuntime(callResults: Array<{ error?: Error; chunks?: string[] }>): {
+  runtime: ReturnType<typeof createAiSdkModelRuntime>
+  defaultSettings: {
+    providerName: string
+    provider: 'openai'
+    model: string
+    apiKey: string
+    baseUrl: string
+  }
+  getCallCount: () => number
+} {
+  let callIndex = 0
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        chat: (modelId: string) => ({ modelId, provider: 'openai.chat' }) as never
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('unused')
+    },
+    streamTextImpl: (() => {
+      const result = callResults[callIndex++]
+      if (!result) throw new Error('No more call results configured')
+      if (result.error) throw result.error
+      return {
+        textStream: (async function* () {
+          for (const chunk of result.chunks ?? []) yield chunk
+        })()
+      }
+    }) as never
+  })
+
+  const defaultSettings = {
+    providerName: 'test',
+    provider: 'openai' as const,
+    model: 'gpt-4o',
+    apiKey: 'sk-test',
+    baseUrl: ''
+  }
+
+  return { runtime, defaultSettings, getCallCount: () => callIndex }
+}
+
+test('streamReply retries on retryable error and succeeds', async () => {
+  const err = new Error('Service Unavailable')
+  ;(err as { status?: number }).status = 503
+  const { runtime, defaultSettings, getCallCount } = createRetryTestRuntime([
+    { error: err },
+    { error: err },
+    { chunks: ['Hello'] }
+  ])
+
+  const retryEvents: Array<{ attempt: number; maxAttempts: number }> = []
+  const chunks: string[] = []
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'hi' }],
+    settings: defaultSettings,
+    signal: new AbortController().signal,
+    onRetry: (attempt, maxAttempts) => {
+      retryEvents.push({ attempt, maxAttempts })
+    }
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['Hello'])
+  assert.equal(getCallCount(), 3)
+  assert.equal(retryEvents.length, 2)
+  assert.equal(retryEvents[0].attempt, 1)
+  assert.equal(retryEvents[1].attempt, 2)
+  assert.equal(retryEvents[0].maxAttempts, 10)
+})
+
+test('streamReply does not retry on auth error (401)', async () => {
+  const err = new Error('Unauthorized')
+  ;(err as { status?: number }).status = 401
+  const { runtime, defaultSettings, getCallCount } = createRetryTestRuntime([{ error: err }])
+
+  await assert.rejects(
+    async () => {
+      for await (const chunk of runtime.streamReply({
+        messages: [{ role: 'user', content: 'hi' }],
+        settings: defaultSettings,
+        signal: new AbortController().signal
+      })) {
+        void chunk
+      }
+    },
+    { message: 'Unauthorized' }
+  )
+
+  assert.equal(getCallCount(), 1)
+})
+
+test('streamReply does not retry on AbortError', async () => {
+  const err = new Error('Aborted')
+  err.name = 'AbortError'
+  const { runtime, defaultSettings, getCallCount } = createRetryTestRuntime([{ error: err }])
+
+  await assert.rejects(
+    async () => {
+      for await (const chunk of runtime.streamReply({
+        messages: [{ role: 'user', content: 'hi' }],
+        settings: defaultSettings,
+        signal: new AbortController().signal
+      })) {
+        void chunk
+      }
+    },
+    { name: 'AbortError' }
+  )
+
+  assert.equal(getCallCount(), 1)
+})
+
+test('streamReply passes maxRetries: 0 to AI SDK (disables built-in retries)', async () => {
+  let capturedMaxRetries: number | undefined
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        chat: (modelId: string) => ({ modelId, provider: 'openai.chat' }) as never
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('unused')
+    },
+    streamTextImpl: ((input: { maxRetries?: number }) => {
+      capturedMaxRetries = input.maxRetries
+      return {
+        textStream: (async function* () {
+          yield 'ok'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'hi' }],
+    settings: {
+      providerName: 'test',
+      provider: 'openai',
+      model: 'gpt-4o',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.equal(capturedMaxRetries, 0)
+  assert.deepEqual(chunks, ['ok'])
+})
+
+test('streamReply retries on ECONNRESET (Node.js network error with code property)', async () => {
+  const err = new Error('read ECONNRESET')
+  ;(err as { code?: string }).code = 'ECONNRESET'
+  const { runtime, defaultSettings, getCallCount } = createRetryTestRuntime([
+    { error: err },
+    { chunks: ['recovered'] }
+  ])
+
+  const retryEvents: number[] = []
+  const chunks: string[] = []
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'hi' }],
+    settings: defaultSettings,
+    signal: new AbortController().signal,
+    onRetry: (attempt) => {
+      retryEvents.push(attempt)
+    }
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['recovered'])
+  assert.equal(getCallCount(), 2)
+  assert.deepEqual(retryEvents, [1])
+})
+
+test('streamReply retries on ECONNRESET even without code property (message-only match)', async () => {
+  const err = new Error('request to https://api.example.com failed, reason: read ECONNRESET')
+  const { runtime, defaultSettings, getCallCount } = createRetryTestRuntime([
+    { error: err },
+    { chunks: ['ok'] }
+  ])
+
+  const chunks: string[] = []
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'hi' }],
+    settings: defaultSettings,
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
+  assert.equal(getCallCount(), 2)
+})
+
+function createFullStreamRetryRuntime(
+  callResults: Array<{
+    error?: Error
+    streamEvents?: Array<{ type: string; [key: string]: unknown }>
+  }>
+): {
+  runtime: ReturnType<typeof createAiSdkModelRuntime>
+  defaultSettings: {
+    providerName: string
+    provider: 'openai'
+    model: string
+    apiKey: string
+    baseUrl: string
+  }
+  getCallCount: () => number
+} {
+  let callIndex = 0
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        chat: (modelId: string) => ({ modelId, provider: 'openai.chat' }) as never
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('unused')
+    },
+    streamTextImpl: (() => {
+      const result = callResults[callIndex++]
+      if (!result) throw new Error('No more call results configured')
+      if (result.error) throw result.error
+      return {
+        fullStream: (async function* () {
+          for (const event of result.streamEvents ?? []) yield event
+        })()
+      }
+    }) as never
+  })
+
+  const defaultSettings = {
+    providerName: 'test',
+    provider: 'openai' as const,
+    model: 'gpt-4o',
+    apiKey: 'sk-test',
+    baseUrl: ''
+  }
+
+  return { runtime, defaultSettings, getCallCount: () => callIndex }
+}
+
+test('streamReply does not retry after tool-input-available has fired (P1: tool side-effects)', async () => {
+  const networkErr = new Error('read ECONNRESET')
+  ;(networkErr as { code?: string }).code = 'ECONNRESET'
+
+  const { runtime, defaultSettings, getCallCount } = createFullStreamRetryRuntime([
+    {
+      streamEvents: [
+        { type: 'tool-input-available', toolCallId: 'tc1', toolName: 'bash', input: { cmd: 'ls' } },
+        { type: 'error', error: networkErr }
+      ]
+    }
+  ])
+
+  await assert.rejects(
+    async () => {
+      for await (const chunk of runtime.streamReply({
+        messages: [{ role: 'user', content: 'hi' }],
+        settings: defaultSettings,
+        signal: new AbortController().signal
+      })) {
+        void chunk
+      }
+    },
+    { message: 'read ECONNRESET' }
+  )
+
+  // Must NOT have retried — only 1 call total
+  assert.equal(getCallCount(), 1)
+})
+
+test('streamReply does not retry after reasoning deltas have been emitted (P2: stale reasoning)', async () => {
+  const networkErr = new Error('socket hang up')
+
+  const { runtime, defaultSettings, getCallCount } = createFullStreamRetryRuntime([
+    {
+      streamEvents: [
+        { type: 'reasoning-delta', textDelta: 'Let me think...' },
+        { type: 'error', error: networkErr }
+      ]
+    }
+  ])
+
+  const reasoningDeltas: string[] = []
+
+  await assert.rejects(
+    async () => {
+      for await (const chunk of runtime.streamReply({
+        messages: [{ role: 'user', content: 'hi' }],
+        settings: defaultSettings,
+        signal: new AbortController().signal,
+        onReasoningDelta: (delta) => {
+          reasoningDeltas.push(delta)
+        }
+      })) {
+        void chunk
+      }
+    },
+    { message: 'socket hang up' }
+  )
+
+  // Reasoning was forwarded before the error
+  assert.deepEqual(reasoningDeltas, ['Let me think...'])
+  // Must NOT have retried — only 1 call total
+  assert.equal(getCallCount(), 1)
+})
