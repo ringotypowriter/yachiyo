@@ -17,6 +17,7 @@ export interface ThreadContextOperation {
 }
 
 export function resolveThreadContextOperations(input: {
+  includeSelectMode?: boolean
   isArchived: boolean
   isExternal?: boolean
   isRenameDisabled?: boolean
@@ -25,6 +26,15 @@ export function resolveThreadContextOperations(input: {
 }): ThreadContextOperation[] {
   if (input.isArchived) {
     return [
+      ...(input.includeSelectMode
+        ? ([
+            {
+              disabled: input.isSaving,
+              key: 'enter-select-mode',
+              label: 'Select'
+            }
+          ] satisfies ThreadContextOperation[])
+        : []),
       {
         disabled: input.isSaving,
         key: 'restore',
@@ -45,6 +55,15 @@ export function resolveThreadContextOperations(input: {
       key: input.isStarred ? 'unstar' : 'star',
       label: input.isStarred ? 'Unstar' : 'Star'
     },
+    ...(input.includeSelectMode
+      ? ([
+          {
+            disabled: input.isSaving,
+            key: 'enter-select-mode',
+            label: 'Select'
+          }
+        ] satisfies ThreadContextOperation[])
+      : []),
     {
       disabled: input.isSaving || input.isRenameDisabled,
       key: 'rename',

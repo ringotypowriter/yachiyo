@@ -3,12 +3,30 @@ import test from 'node:test'
 
 import { resolveThreadContextOperations } from './threadContextOperations.ts'
 
-test('thread context operations for active threads include expected keys', () => {
+test('thread context operations omit select mode by default', () => {
   assert.deepEqual(
     resolveThreadContextOperations({
       isArchived: false
     }).map((operation) => operation.key),
     ['star', 'rename', 'regenerate-title', 'compact-to-another-thread', 'archive', 'delete']
+  )
+})
+
+test('thread context operations include select mode when requested', () => {
+  assert.deepEqual(
+    resolveThreadContextOperations({
+      includeSelectMode: true,
+      isArchived: false
+    }).map((operation) => operation.key),
+    [
+      'star',
+      'enter-select-mode',
+      'rename',
+      'regenerate-title',
+      'compact-to-another-thread',
+      'archive',
+      'delete'
+    ]
   )
 })
 
@@ -59,6 +77,18 @@ test('archived thread operations do not include regenerate-title', () => {
   )
 })
 
+test('archived thread operations include select mode when requested', () => {
+  const operations = resolveThreadContextOperations({
+    includeSelectMode: true,
+    isArchived: true
+  })
+
+  assert.deepEqual(
+    operations.map((op) => op.key),
+    ['enter-select-mode', 'restore', 'delete']
+  )
+})
+
 test('external thread operations do not include regenerate-title or archive', () => {
   const operations = resolveThreadContextOperations({
     isArchived: false,
@@ -70,5 +100,18 @@ test('external thread operations do not include regenerate-title or archive', ()
   assert.deepEqual(
     operations.map((op) => op.key),
     ['star', 'rename', 'compact-to-another-thread', 'delete']
+  )
+})
+
+test('external thread operations include select mode when requested', () => {
+  const operations = resolveThreadContextOperations({
+    includeSelectMode: true,
+    isArchived: false,
+    isExternal: true
+  })
+
+  assert.deepEqual(
+    operations.map((op) => op.key),
+    ['star', 'enter-select-mode', 'rename', 'compact-to-another-thread', 'delete']
   )
 })

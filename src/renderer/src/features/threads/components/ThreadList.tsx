@@ -144,6 +144,7 @@ function ThreadListItem({
   const titleInputRef = useRef<HTMLInputElement>(null)
   const isExternal = thread.source != null && thread.source !== 'local'
   const operations = resolveThreadContextOperations({
+    includeSelectMode: true,
     isArchived: threadListMode === 'archived',
     isExternal,
     isSaving,
@@ -435,6 +436,7 @@ function ThreadListContent({
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [archiveTarget, setArchiveTarget] = useState<Thread | null>(null)
+  const [bulkArchiveIds, setBulkArchiveIds] = useState<string[] | null>(null)
 
   function exitSelectMode(): void {
     setSelectMode(false)
@@ -517,7 +519,19 @@ function ThreadListContent({
 
   async function handleBulkArchive(): Promise<void> {
     const ids = [...selectedIds]
-    if (!window.confirm(`Archive ${ids.length} thread${ids.length !== 1 ? 's' : ''}?`)) return
+    if (ids.length === 0) return
+    setBulkArchiveIds(ids)
+  }
+
+  async function handleBulkArchiveConfirm(choice: string): Promise<void> {
+    if (choice !== 'archive' || !bulkArchiveIds) {
+      setBulkArchiveIds(null)
+      return
+    }
+
+    const ids = bulkArchiveIds
+    setBulkArchiveIds(null)
+
     try {
       for (const id of ids) {
         await archiveThread(id)
@@ -794,6 +808,17 @@ function ThreadListContent({
           ]}
           onSelect={(key) => void handleArchiveConfirm(key)}
           onClose={() => setArchiveTarget(null)}
+        />
+      )}
+      {bulkArchiveIds && (
+        <ConfirmDialog
+          title={`Archive ${bulkArchiveIds.length} thread${bulkArchiveIds.length !== 1 ? 's' : ''}?`}
+          actions={[
+            { key: 'archive', label: 'Archive', tone: 'accent' },
+            { key: 'cancel', label: 'Cancel' }
+          ]}
+          onSelect={(key) => void handleBulkArchiveConfirm(key)}
+          onClose={() => setBulkArchiveIds(null)}
         />
       )}
     </div>
