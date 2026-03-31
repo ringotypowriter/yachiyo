@@ -3,6 +3,7 @@ import { summarizeMessageInput } from '../../../../shared/yachiyo/messageContent
 import type { ModelMessage } from '../../runtime/types.ts'
 
 export const MAX_THREAD_TITLE_LENGTH = 32
+export const THREAD_TITLE_MAX_TOKEN = 128
 const MAX_ATTACHMENT_BASENAME_LENGTH = 30
 
 function sanitizeFilename(filename: string): string {

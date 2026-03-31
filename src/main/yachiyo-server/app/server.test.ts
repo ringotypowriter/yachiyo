@@ -502,8 +502,10 @@ test('YachiyoServer can refine the fallback thread title with the configured too
         assert.equal(bootstrap.threads[0]?.title, 'MVP execution plan')
         assert.equal(requests.length, 2)
         assert.equal(mainRequest?.settings.model, 'gpt-5')
+        assert.equal(mainRequest?.max_token, undefined)
         assert.equal(auxiliaryRequest?.settings.model, 'gpt-5-mini')
         assert.equal(auxiliaryRequest?.providerOptionsMode, 'auxiliary')
+        assert.equal(auxiliaryRequest?.max_token, 128)
         assert.equal(auxiliaryRequest?.messages.length, 1)
         assert.match(
           typeof auxiliaryRequest?.messages[0]?.content === 'string'
@@ -556,6 +558,55 @@ test('YachiyoServer can refine the fallback thread title with the configured too
       })
     }
   )
+})
+
+test('YachiyoServer applies configured chat max token to local thread runs', async () => {
+  await withServer(async ({ server, completeRun, modelRequests }) => {
+    await server.saveConfig({
+      ...(await server.getConfig()),
+      chat: {
+        activeRunEnterBehavior: 'enter-steers',
+        maxChatToken: 512
+      }
+    })
+
+    const thread = await server.createThread()
+    const accepted = await server.sendChat({
+      threadId: thread.id,
+      content: 'Keep it short.'
+    })
+
+    await completeRun(accepted.runId)
+
+    const mainRequest = modelRequests.find((request) => request.providerOptionsMode !== 'auxiliary')
+    assert.equal(mainRequest?.max_token, 512)
+  })
+})
+
+test('YachiyoServer applies configured chat max token to external DM thread runs', async () => {
+  await withServer(async ({ server, completeRun, modelRequests }) => {
+    await server.saveConfig({
+      ...(await server.getConfig()),
+      chat: {
+        activeRunEnterBehavior: 'enter-steers',
+        maxChatToken: 640
+      }
+    })
+
+    const thread = await server.createThread({
+      source: 'telegram',
+      channelUserId: 'tg-user-1'
+    })
+    const accepted = await server.sendChat({
+      threadId: thread.id,
+      content: 'Reply in DM.'
+    })
+
+    await completeRun(accepted.runId)
+
+    const mainRequest = modelRequests.find((request) => request.providerOptionsMode !== 'auxiliary')
+    assert.equal(mainRequest?.max_token, 640)
+  })
 })
 
 test('YachiyoServer injects recalled memory into the compiled context before the main run', async () => {

@@ -9,10 +9,13 @@ import {
   DEFAULT_MEMORY_BASE_URL,
   DEFAULT_MEMORY_PROVIDER,
   DEFAULT_ENABLED_TOOL_NAMES,
+  DEFAULT_MAX_CHAT_TOKEN,
   DEFAULT_SIDEBAR_VISIBILITY,
   DEFAULT_TOOL_MODEL_MODE,
   normalizeMemoryProviderId,
   normalizeActiveRunEnterBehavior,
+  normalizeMaxChatToken,
+  normalizeOptionalMaxChatToken,
   normalizeUserEnabledTools,
   normalizeSidebarVisibility,
   normalizeToolModelMode,
@@ -52,7 +55,8 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
     notifyCodingTaskFinished: true
   },
   chat: {
-    activeRunEnterBehavior: DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
+    activeRunEnterBehavior: DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
+    maxChatToken: DEFAULT_MAX_CHAT_TOKEN
   },
   workspace: {
     savedPaths: []
@@ -492,7 +496,16 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
           ? (input['chat'] as Record<string, unknown>)['activeRunEnterBehavior']
           : undefined,
         DEFAULT_SETTINGS_CONFIG.chat?.activeRunEnterBehavior
-      )
+      ),
+      ...(input['chat'] &&
+      typeof input['chat'] === 'object' &&
+      'maxChatToken' in (input['chat'] as Record<string, unknown>)
+        ? {
+            maxChatToken: normalizeOptionalMaxChatToken(
+              (input['chat'] as Record<string, unknown>)['maxChatToken']
+            )
+          }
+        : {})
     },
     workspace: normalizeWorkspaceConfig(input['workspace']),
     skills: normalizeSkillsConfig(input['skills']),
@@ -583,7 +596,15 @@ export function stringifySettingsToml(config: SettingsConfig): string {
       activeRunEnterBehavior: normalizeActiveRunEnterBehavior(
         normalized.chat?.activeRunEnterBehavior,
         DEFAULT_SETTINGS_CONFIG.chat?.activeRunEnterBehavior
-      )
+      ),
+      ...(normalized.chat?.maxChatToken != null
+        ? {
+            maxChatToken: normalizeMaxChatToken(
+              normalized.chat.maxChatToken,
+              DEFAULT_SETTINGS_CONFIG.chat?.maxChatToken
+            )
+          }
+        : {})
     },
     workspace: {
       savedPaths: normalized.workspace?.savedPaths ?? [],

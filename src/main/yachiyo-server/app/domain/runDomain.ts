@@ -49,6 +49,7 @@ import {
   buildThreadTitleGenerationMessages,
   buildTitleQuery,
   deriveThreadTitleFallback,
+  THREAD_TITLE_MAX_TOKEN,
   parseGeneratedTitleAndIcon
 } from './threadTitle.ts'
 import { resolveRetryRequest } from './threadDomain.ts'
@@ -1439,6 +1440,7 @@ export class YachiyoServerRunDomain {
 
     const result = await this.deps.auxiliaryGeneration.generateText({
       messages: buildThreadTitleGenerationMessages(input.query),
+      max_token: THREAD_TITLE_MAX_TOKEN,
       signal: input.signal
     })
 

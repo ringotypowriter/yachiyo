@@ -586,6 +586,7 @@ export function createDiscordService({
 
     const result = await auxService.generateText({
       messages,
+      max_token: server.resolveMaxChatToken(),
       tools: probeTools,
       settingsOverride
     })

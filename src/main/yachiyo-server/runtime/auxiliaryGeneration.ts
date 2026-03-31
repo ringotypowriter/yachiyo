@@ -28,6 +28,7 @@ export type AuxiliaryTextGenerationResult =
 export interface AuxiliaryTextGenerationRequest {
   messages: ModelMessage[]
   signal?: AbortSignal
+  max_token?: number
   /** Optional tools the model can call during generation. */
   tools?: ToolSet
   /** Explicit provider settings. When provided, skips the default tool-model lookup. */
@@ -93,6 +94,7 @@ export function createAuxiliaryGenerationService(
       try {
         for await (const delta of runtime.streamReply({
           messages: request.messages,
+          max_token: request.max_token,
           providerOptionsMode: 'auxiliary',
           settings: resolvedSettings,
           signal,

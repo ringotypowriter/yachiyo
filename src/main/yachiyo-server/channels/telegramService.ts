@@ -611,6 +611,7 @@ export function createTelegramService({
 
     const result = await auxService.generateText({
       messages,
+      max_token: server.resolveMaxChatToken(),
       tools: probeTools,
       settingsOverride
     })

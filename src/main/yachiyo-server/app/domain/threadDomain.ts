@@ -36,6 +36,7 @@ import {
 import {
   buildThreadTitleGenerationMessages,
   buildTitleQuery,
+  THREAD_TITLE_MAX_TOKEN,
   parseGeneratedTitleAndIcon
 } from './threadTitle.ts'
 
@@ -308,7 +309,8 @@ export class YachiyoServerThreadDomain {
     }
 
     const result = await this.deps.auxiliaryGeneration.generateText({
-      messages: buildThreadTitleGenerationMessages(query)
+      messages: buildThreadTitleGenerationMessages(query),
+      max_token: THREAD_TITLE_MAX_TOKEN
     })
 
     if (result.status === 'unavailable') {

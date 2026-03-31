@@ -35,6 +35,7 @@ export interface ModelStreamRequest {
   messages: ModelMessage[]
   settings: ProviderSettings
   signal: AbortSignal
+  max_token?: number
   providerOptionsMode?: ModelProviderOptionsMode
   maxToolSteps?: number
   tools?: ToolSet

@@ -137,6 +137,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               request.providerOptionsMode
             ),
             providerOptions,
+            ...(request.max_token != null ? { maxOutputTokens: request.max_token } : {}),
             ...(request.tools
               ? {
                   tools: request.tools,

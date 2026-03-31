@@ -246,6 +246,48 @@ test('createAiSdkModelRuntime preserves legacy openai reasoning models', async (
   })
 })
 
+test('createAiSdkModelRuntime forwards max_token as maxOutputTokens', async () => {
+  let maxOutputTokens: number | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        chat: (modelId: string) => ({ modelId, provider: 'openai.chat' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: ((input: { maxOutputTokens?: number }) => {
+      maxOutputTokens = input.maxOutputTokens
+      return {
+        textStream: (async function* () {
+          yield 'ok'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Limit this reply.' }],
+    settings: {
+      providerName: 'work',
+      provider: 'openai',
+      model: 'gpt-4o',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal,
+    max_token: 64
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
+  assert.equal(maxOutputTokens, 64)
+})
+
 test('createAiSdkModelRuntime uses AI SDK streaming with Anthropic thinking enabled', async () => {
   let anthropicOptions: { apiKey?: string; baseURL?: string } | undefined
   let selectedModel: { provider: string; modelId: string } | null = null

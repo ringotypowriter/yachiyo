@@ -144,6 +144,7 @@ export const DEFAULT_ENABLED_TOOL_NAMES = [...USER_MANAGED_TOOL_NAMES] as ToolCa
 export const DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR: ActiveRunEnterBehavior = 'enter-steers'
 export const DEFAULT_SIDEBAR_VISIBILITY: SidebarVisibility = 'expanded'
 export const DEFAULT_TOOL_MODEL_MODE: ToolModelMode = 'default'
+export const DEFAULT_MAX_CHAT_TOKEN = 2048
 
 export function normalizeMemoryProviderId(
   value: unknown,
@@ -241,6 +242,21 @@ export function normalizeToolModelMode(
   fallback: ToolModelMode = DEFAULT_TOOL_MODEL_MODE
 ): ToolModelMode {
   return value === 'disabled' || value === 'default' || value === 'custom' ? value : fallback
+}
+
+export function normalizeMaxChatToken(
+  value: unknown,
+  fallback: number = DEFAULT_MAX_CHAT_TOKEN
+): number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback
+}
+
+export function normalizeOptionalMaxChatToken(value: unknown): number | undefined {
+  if (value == null) {
+    return undefined
+  }
+
+  return normalizeMaxChatToken(value)
 }
 
 export interface ReadToolCallDetails {
@@ -504,6 +520,7 @@ export interface ProviderConfig {
 
 export interface ChatConfig {
   activeRunEnterBehavior?: ActiveRunEnterBehavior
+  maxChatToken?: number
 }
 
 export type UpdateChannel = 'stable' | 'nightly'

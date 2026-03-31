@@ -431,24 +431,23 @@ function SettingsApp(): React.ReactNode {
           className="shrink-0 no-drag flex items-center justify-between px-5 py-3"
           style={{ borderTop: `1px solid ${theme.border.panel}` }}
         >
-          {isDirty || saving || error || validationError ? (
-            <span
-              className="text-xs"
-              style={{
-                color: error || validationError ? theme.text.dangerStrong : theme.text.muted
-              }}
-            >
-              {validationError
-                ? validationError
-                : error
-                  ? error
-                  : saving
-                    ? 'Saving...'
-                    : 'Unsaved changes'}
-            </span>
-          ) : (
-            <span />
-          )}
+          <span
+            className="text-xs"
+            style={{
+              minHeight: 16,
+              lineHeight: '16px',
+              color: error || validationError ? theme.text.dangerStrong : theme.text.muted,
+              visibility: isDirty || saving || error || validationError ? 'visible' : 'hidden'
+            }}
+          >
+            {validationError
+              ? validationError
+              : error
+                ? error
+                : saving
+                  ? 'Saving...'
+                  : 'Unsaved changes'}
+          </span>
           <div className="flex items-center gap-2">
             <button
               onClick={() => window.close()}
@@ -466,22 +465,22 @@ function SettingsApp(): React.ReactNode {
               onClick={() => void handleSave()}
               disabled={!isDirty || saving || loading || !draft || Boolean(validationError)}
               className="px-4 py-1.5 rounded-lg text-sm font-medium transition-all"
-              style={
-                !isDirty || saving || loading || !draft || validationError
+              style={{
+                minHeight: 36,
+                border: '1px solid transparent',
+                ...(!isDirty || saving || loading || !draft || validationError
                   ? {
                       background: 'transparent',
                       color: theme.text.muted,
-                      border: 'none',
                       cursor: 'not-allowed',
                       opacity: 0.4
                     }
                   : {
                       background: theme.text.accent,
                       color: theme.text.inverse,
-                      border: '1px solid transparent',
                       cursor: 'pointer'
-                    }
-              }
+                    })
+              }}
             >
               Save
             </button>

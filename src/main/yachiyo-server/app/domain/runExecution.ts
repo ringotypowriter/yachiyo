@@ -41,7 +41,10 @@ import type {
   ToolCallRecord,
   ToolCallUpdatedEvent
 } from '../../../../shared/yachiyo/protocol.ts'
-import { isCoreToolName } from '../../../../shared/yachiyo/protocol.ts'
+import {
+  isCoreToolName,
+  normalizeOptionalMaxChatToken
+} from '../../../../shared/yachiyo/protocol.ts'
 import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 import { prepareModelMessages } from '../../runtime/messagePrepare.ts'
 import {
@@ -895,6 +898,7 @@ export async function executeServerRun(
   input: ExecuteRunInput
 ): Promise<ExecuteRunResult> {
   const settings = deps.readSettings()
+  const maxChatToken = normalizeOptionalMaxChatToken(deps.readConfig().chat?.maxChatToken)
   const harnessId = deps.createId()
   const messageId = deps.createId()
   const toolCalls = new Map<string, ToolCallRecord>()
@@ -1327,6 +1331,7 @@ export async function executeServerRun(
     for await (const delta of runtime.streamReply({
       messages,
       settings,
+      max_token: maxChatToken,
       signal: input.abortController.signal,
       maxToolSteps,
       ...(tools ? { tools } : {}),
