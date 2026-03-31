@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.9
+
+### Patch Changes
+
+- [`43fff4b`](https://github.com/ringotypowriter/yachiyo/commit/43fff4b42b69d7a1b8827c6e6d4c42bdbf2caf1d) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - External Chat Refactor & Group Context Improvement
+
 ## 1.0.8
 
 ### Patch Changes
