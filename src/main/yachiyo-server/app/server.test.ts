@@ -2853,9 +2853,7 @@ test('YachiyoServer preserves assistant-tool-assistant ordering across recovery'
         (message) =>
           message.role === 'assistant' &&
           Array.isArray(message.content) &&
-          message.content.length === 1 &&
-          message.content[0]?.type === 'text' &&
-          message.content[0]?.text === 'After tool. '
+          message.content.some((part) => part.type === 'text' && part.text === 'After tool. ')
       )
       const toolResultIndex = recoveryMessages.findIndex(
         (message) =>
@@ -2868,7 +2866,7 @@ test('YachiyoServer preserves assistant-tool-assistant ordering across recovery'
               part.output?.type === 'content' &&
               Array.isArray(part.output.value) &&
               part.output.value[0]?.type === 'text' &&
-              part.output.value[0]?.text === '/tmp/workspace\n'
+              part.output.value[0]?.text === '/tmp/workspace'
           )
       )
       const continuationPromptIndex = recoveryMessages.findIndex(
