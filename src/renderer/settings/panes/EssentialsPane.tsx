@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef } from 'react'
 import { ArrowDown, ArrowUp, Plus, Smile, Trash2, Upload } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { inputStyle } from '../components/styles'
-import { SettingLabel, SettingSwitch, SimpleSelect } from '../components/primitives'
+import { SettingSwitch, SimpleSelect } from '../components/primitives'
 import type {
   EssentialPreset,
   SettingsConfig,
@@ -381,27 +381,26 @@ export function EssentialsPane({ draft, onChange }: EssentialsPaneProps): React.
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <SettingLabel
-        action={
-          <button
-            type="button"
-            onClick={addEssential}
-            disabled={essentials.length >= MAX_ESSENTIALS}
-            className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-30 disabled:cursor-not-allowed"
-            style={{
-              background: alpha('accent', 0.1),
-              color: theme.text.accent,
-              border: 'none',
-              cursor: 'pointer'
-            }}
-          >
-            <Plus size={12} strokeWidth={2} />
-            Add ({essentials.length}/{MAX_ESSENTIALS})
-          </button>
-        }
+      <div
+        className="flex items-center justify-end px-7 py-3"
+        style={{ borderTop: `1px solid ${theme.border.subtle}` }}
       >
-        Essentials
-      </SettingLabel>
+        <button
+          type="button"
+          onClick={addEssential}
+          disabled={essentials.length >= MAX_ESSENTIALS}
+          className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-30 disabled:cursor-not-allowed"
+          style={{
+            background: alpha('accent', 0.1),
+            color: theme.text.accent,
+            border: 'none',
+            cursor: 'pointer'
+          }}
+        >
+          <Plus size={12} strokeWidth={2} />
+          Add ({essentials.length}/{MAX_ESSENTIALS})
+        </button>
+      </div>
 
       <div className="px-7 pb-5 flex flex-col gap-3">
         {essentials.length === 0 ? (

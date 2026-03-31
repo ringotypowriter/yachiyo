@@ -90,7 +90,7 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Default search provider
+              Search Provider
             </div>
           </div>
 

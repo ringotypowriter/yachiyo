@@ -3,7 +3,7 @@ import { useDeferredValue, useMemo, useState } from 'react'
 import { theme, alpha } from '@renderer/theme/theme'
 import type { SettingsConfig, SkillCatalogEntry } from '../../../shared/yachiyo/protocol.ts'
 import { normalizeSkillNames } from '../../../shared/yachiyo/protocol.ts'
-import { SettingLabel, SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
+import { SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
 import { filterSkills } from './skillsPaneModel'
 
 interface SkillsPaneProps {
@@ -24,25 +24,13 @@ export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps
   return (
     <div className="flex-1 overflow-y-auto pb-6">
       <SettingSection>
-        <SettingLabel
-          action={
-            <button
-              onClick={() => window.api.yachiyo.openSkillsFolder()}
-              className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors"
-              style={{ color: theme.text.secondary }}
-              title="Open skills folder"
-            >
-              <FolderOpen size={12} strokeWidth={1.75} />
-              Open Folder
-            </button>
-          }
-        >
-          Skills
-        </SettingLabel>
         {availableSkills.length > 0 ? (
-          <div className="px-7 py-3" style={{ borderTop: `1px solid ${theme.border.subtle}` }}>
+          <div
+            className="flex items-center gap-2 px-7 py-3"
+            style={{ borderTop: `1px solid ${theme.border.subtle}` }}
+          >
             <label
-              className="flex items-center gap-2 rounded-lg px-3 py-2"
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2"
               style={{ background: alpha('ink', 0.04) }}
             >
               <Search size={14} strokeWidth={1.75} color={theme.icon.placeholder} />
@@ -56,6 +44,15 @@ export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps
                 style={{ color: theme.text.primary }}
               />
             </label>
+            <button
+              onClick={() => window.api.yachiyo.openSkillsFolder()}
+              className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors"
+              style={{ color: theme.text.secondary }}
+              title="Open skills folder"
+            >
+              <FolderOpen size={12} strokeWidth={1.75} />
+              Open Folder
+            </button>
           </div>
         ) : null}
 

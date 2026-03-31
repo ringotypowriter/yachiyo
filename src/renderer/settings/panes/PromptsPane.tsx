@@ -3,7 +3,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import type { SettingsConfig, UserPrompt } from '../../../shared/yachiyo/protocol.ts'
 import { normalizeUserPrompts } from '../../../shared/yachiyo/protocol.ts'
-import { SettingLabel, SettingSection } from '../components/primitives'
+import { SettingSection } from '../components/primitives'
 import { inputStyle } from '../components/styles'
 
 const KEYCODE_RE = /^[a-zA-Z][a-zA-Z0-9-]*$/
@@ -81,21 +81,20 @@ export function PromptsPane({ draft, onChange }: PromptsProps): React.ReactNode 
   return (
     <div className="flex-1 overflow-y-auto pb-6">
       <SettingSection>
-        <SettingLabel
-          action={
-            <button
-              type="button"
-              onClick={addRow}
-              className="flex items-center gap-1 text-xs font-medium transition-opacity opacity-60 hover:opacity-100"
-              style={{ color: theme.text.accent }}
-            >
-              <Plus size={13} strokeWidth={1.8} />
-              Add prompt
-            </button>
-          }
+        <div
+          className="flex items-center justify-between px-7 py-3"
+          style={{ borderTop: `1px solid ${theme.border.subtle}` }}
         >
-          Prompts
-        </SettingLabel>
+          <button
+            type="button"
+            onClick={addRow}
+            className="flex items-center gap-1 text-xs font-medium transition-opacity opacity-60 hover:opacity-100"
+            style={{ color: theme.text.accent }}
+          >
+            <Plus size={13} strokeWidth={1.8} />
+            Add prompt
+          </button>
+        </div>
 
         {rows.length === 0 ? (
           <div

@@ -239,7 +239,7 @@ function DropdownOption({
 }
 
 export function SettingSection({ children }: { children: React.ReactNode }): React.ReactNode {
-  return <section>{children}</section>
+  return <section className="mt-6 first:mt-0">{children}</section>
 }
 
 export function SettingLabel({ children, action }: SettingLabelProps): React.ReactNode {
@@ -298,13 +298,13 @@ export function SettingSwitch({
       aria-label={ariaLabel}
       disabled={disabled}
       onClick={onChange}
-      className="relative h-[22px] w-[38px] rounded-full transition-all disabled:cursor-not-allowed disabled:opacity-40"
+      className="relative h-5.5 w-9.5 rounded-full transition-all disabled:cursor-not-allowed disabled:opacity-40"
       style={{
         background: checked ? theme.text.accent : theme.border.strong
       }}
     >
       <span
-        className="absolute top-[2px] rounded-full transition-all"
+        className="absolute top-0.5 rounded-full transition-all"
         style={{
           width: 18,
           height: 18,
