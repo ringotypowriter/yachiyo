@@ -1,0 +1,21 @@
+echo "🔍 Running pre-commit checks..."
+
+# Format staged files
+echo "📝 Formatting staged files..."
+pnpm exec lint-staged
+
+# Run typecheck
+echo "🔎 Running typecheck..."
+pnpm run typecheck || {
+  echo "❌ Typecheck failed. Please fix type errors before committing."
+  exit 1
+}
+
+# Run lint
+echo "🧹 Running lint..."
+pnpm run lint || {
+  echo "❌ Lint failed. Please fix lint errors before committing."
+  exit 1
+}
+
+echo "✅ All pre-commit checks passed!"

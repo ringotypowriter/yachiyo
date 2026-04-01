@@ -14,7 +14,13 @@
   "author": "Ringo",
   "license": "Apache-2.0",
   "homepage": "https://github.com/ringotypowriter/yachiyo",
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,mjs,cjs,json,md,yaml,yml}": [
+      "prettier --write"
+    ]
+  },
   "scripts": {
+    "prepare": "husky",
     "db:check": "drizzle-kit check --config drizzle.config.ts",
     "db:drop": "drizzle-kit drop --config drizzle.config.ts",
     "db:export": "drizzle-kit export --config drizzle.config.ts",
@@ -103,6 +109,8 @@
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
     "prettier": "^3.7.4",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
