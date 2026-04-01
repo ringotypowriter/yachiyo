@@ -214,8 +214,103 @@ test('sqlite storage initializes migrations on disk', async () => {
         .all()
         .some((row) => row.name === 'assistant_message_id')
     )
+    assert.ok(
+      db
+        .prepare('PRAGMA table_info(tool_calls)')
+        .all()
+        .some((row) => row.name === 'step_index')
+    )
+    assert.ok(
+      db
+        .prepare('PRAGMA table_info(tool_calls)')
+        .all()
+        .some((row) => row.name === 'step_budget')
+    )
 
     db.close()
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('sqlite storage preserves tool step order across reload', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-sqlite-native-'))
+  const dbPath = join(root, 'tool-step-order.sqlite')
+
+  try {
+    const storage = createSqliteYachiyoStorage(dbPath)
+    storage.createThread({
+      thread: {
+        id: 'thread-1',
+        title: 'Thread',
+        updatedAt: '2026-03-20T00:00:00.000Z'
+      },
+      createdAt: '2026-03-20T00:00:00.000Z',
+      messages: [
+        {
+          id: 'user-1',
+          threadId: 'thread-1',
+          role: 'user',
+          content: 'Question',
+          status: 'completed',
+          createdAt: '2026-03-20T00:00:00.000Z'
+        }
+      ]
+    })
+    storage.startRun({
+      runId: 'run-1',
+      thread: {
+        id: 'thread-1',
+        title: 'Thread',
+        updatedAt: '2026-03-20T00:00:00.000Z'
+      },
+      updatedThread: {
+        id: 'thread-1',
+        title: 'Thread',
+        updatedAt: '2026-03-20T00:00:00.000Z'
+      },
+      requestMessageId: 'user-1',
+      createdAt: '2026-03-20T00:00:00.500Z'
+    })
+    storage.createToolCall({
+      id: 'tool-2',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      requestMessageId: 'user-1',
+      toolName: 'write',
+      status: 'completed',
+      inputSummary: 'second',
+      startedAt: '2026-03-20T00:00:01.000Z',
+      finishedAt: '2026-03-20T00:00:01.500Z',
+      stepIndex: 2,
+      stepBudget: 10
+    })
+    storage.createToolCall({
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      requestMessageId: 'user-1',
+      toolName: 'read',
+      status: 'completed',
+      inputSummary: 'first',
+      startedAt: '2026-03-20T00:00:01.000Z',
+      finishedAt: '2026-03-20T00:00:01.250Z',
+      stepIndex: 1,
+      stepBudget: 10
+    })
+    storage.close()
+
+    const reloaded = createSqliteYachiyoStorage(dbPath)
+    const toolCalls = reloaded.listThreadToolCalls('thread-1')
+    reloaded.close()
+
+    assert.deepEqual(
+      toolCalls.map((toolCall) => ({ id: toolCall.id, stepIndex: toolCall.stepIndex })),
+      [
+        { id: 'tool-1', stepIndex: 1 },
+        { id: 'tool-2', stepIndex: 2 }
+      ]
+    )
   } finally {
     await rm(root, { recursive: true, force: true })
   }

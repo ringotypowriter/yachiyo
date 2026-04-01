@@ -27,6 +27,7 @@ import {
   normalizeUserEnabledTools,
   normalizeSkillNames
 } from '../../../../shared/yachiyo/protocol.ts'
+import { sortToolCallsChronologically } from '../../../../shared/yachiyo/toolCallOrder.ts'
 import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 
 interface PendingAssistantMessage {
@@ -330,7 +331,7 @@ function replaceMessage(
 
 function upsertToolCall(toolCalls: ToolCall[], toolCall: ToolCall): ToolCall[] {
   const next = [...toolCalls.filter((item) => item.id !== toolCall.id), toolCall]
-  return next.sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+  return sortToolCallsChronologically(next)
 }
 
 function terminateRunToolCalls(

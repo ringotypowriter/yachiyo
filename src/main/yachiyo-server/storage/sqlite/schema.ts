@@ -158,7 +158,9 @@ export const toolCallsTable = sqliteTable('tool_calls', {
   error: text('error'),
   details: text('details'),
   startedAt: text('started_at').notNull(),
-  finishedAt: text('finished_at')
+  finishedAt: text('finished_at'),
+  stepIndex: integer('step_index'),
+  stepBudget: integer('step_budget')
 })
 
 export const imageAltTextsTable = sqliteTable('image_alt_texts', {

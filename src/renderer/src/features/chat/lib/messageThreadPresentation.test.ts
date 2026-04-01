@@ -679,6 +679,80 @@ test('getVisibleToolCallsForGroup keeps tool calls with the active branch and hi
   )
 })
 
+test('getVisibleToolCallsForGroup keeps recovered tool calls in assistant response order', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-1'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'First question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-1',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Recovered answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:03.000Z',
+        responseMessages: [
+          {
+            role: 'assistant',
+            content: [
+              { type: 'tool-call', toolCallId: 'tool-earlier', toolName: 'read', input: {} },
+              { type: 'tool-call', toolCallId: 'tool-later', toolName: 'write', input: {} }
+            ]
+          }
+        ]
+      }
+    ],
+    runPhase: 'idle',
+    activeRequestMessageId: null
+  })
+
+  const toolCalls = getVisibleToolCallsForGroup({
+    group: group!,
+    toolCalls: [
+      {
+        id: 'tool-later',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'write',
+        status: 'completed',
+        inputSummary: 'later',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-1',
+        startedAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'tool-earlier',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'earlier',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-1',
+        startedAt: '2026-03-15T00:00:01.000Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    toolCalls.map((toolCall) => toolCall.id),
+    ['tool-earlier', 'tool-later']
+  )
+})
+
 test('getVisibleToolCallsForGroup keeps failed branch tool calls visible even when an older reply stays active', () => {
   const [group] = buildMessageGroups({
     thread: {

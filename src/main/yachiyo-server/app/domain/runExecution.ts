@@ -1216,6 +1216,7 @@ export async function executeServerRun(
                 setExecutionPhase('tool-running')
                 subagentToolCallId = deps.createId()
                 subagentStartedAt = deps.timestamp()
+                stepCount++
                 const toolCall: ToolCallRecord = {
                   id: subagentToolCallId,
                   runId: input.runId,
@@ -1224,7 +1225,9 @@ export async function executeServerRun(
                   toolName: 'delegateCodingTask',
                   status: 'running',
                   inputSummary: agentName,
-                  startedAt: subagentStartedAt
+                  startedAt: subagentStartedAt,
+                  stepIndex: stepCount,
+                  stepBudget: maxToolSteps
                 }
                 toolCalls.set(toolCall.id, toolCall)
                 deps.storage.createToolCall(toolCall)
@@ -1268,7 +1271,9 @@ export async function executeServerRun(
                       requestMessageId: input.requestMessageId,
                       toolName: 'delegateCodingTask',
                       inputSummary: agentName,
-                      startedAt: subagentStartedAt ?? finishedAt
+                      startedAt: subagentStartedAt ?? finishedAt,
+                      stepIndex: ++stepCount,
+                      stepBudget: maxToolSteps
                     }),
                     status: status === 'cancelled' ? 'failed' : 'completed',
                     outputSummary,
@@ -1494,6 +1499,8 @@ export async function executeServerRun(
                 ...(normalized?.details ? { details: normalized.details } : {}),
                 ...(errorMessage ? { error: errorMessage } : {}),
                 startedAt: finishedAt,
+                stepIndex: ++stepCount,
+                stepBudget: maxToolSteps,
                 finishedAt
               }
 

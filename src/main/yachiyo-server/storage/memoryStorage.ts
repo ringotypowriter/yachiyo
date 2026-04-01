@@ -27,6 +27,7 @@ import {
   type StoredThreadRow,
   type YachiyoStorage
 } from './storage.ts'
+import { sortToolCallsChronologically } from '../../../shared/yachiyo/toolCallOrder.ts'
 
 export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const channelGroups = new Map<string, ChannelGroupRecord>()
@@ -60,7 +61,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const sortByCreatedAt = <T extends { createdAt: string }>(items: T[]): T[] =>
     [...items].sort((left, right) => left.createdAt.localeCompare(right.createdAt))
   const sortToolCalls = (items: ToolCallRecord[]): ToolCallRecord[] =>
-    [...items].sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+    sortToolCallsChronologically(items)
   const toToolCallRecordWithRun = (row: StoredToolCallRow): ToolCallRecord => toToolCallRecord(row)
   const applyThreadSnapshot = (
     storedThread: StoredThreadRow,
@@ -520,6 +521,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         requestMessageId: toolCall.requestMessageId ?? null,
         runId: toolCall.runId,
         startedAt: toolCall.startedAt,
+        stepBudget: toolCall.stepBudget ?? null,
+        stepIndex: toolCall.stepIndex ?? null,
         status: toolCall.status,
         threadId: toolCall.threadId,
         toolName: toolCall.toolName
@@ -543,6 +546,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         requestMessageId: toolCall.requestMessageId ?? null,
         runId: toolCall.runId,
         startedAt: toolCall.startedAt,
+        stepBudget: toolCall.stepBudget ?? null,
+        stepIndex: toolCall.stepIndex ?? null,
         status: toolCall.status,
         threadId: toolCall.threadId,
         toolName: toolCall.toolName

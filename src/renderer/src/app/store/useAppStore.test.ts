@@ -875,6 +875,69 @@ test('applyServerEvent upserts live tool activity for the current thread', () =>
   assert.equal(state.toolCalls['thread-1']?.[0]?.cwd, '/tmp/thread-1')
 })
 
+test('applyServerEvent keeps same-timestamp tool calls stable across recovery-style updates', () => {
+  resetStore()
+
+  useAppStore.getState().applyServerEvent({
+    type: 'tool.updated',
+    eventId: 'event-tool-1-started',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    toolCall: {
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'read',
+      status: 'running',
+      inputSummary: 'first',
+      startedAt: TIMESTAMP,
+      stepIndex: 1
+    }
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'tool.updated',
+    eventId: 'event-tool-2-started',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    toolCall: {
+      id: 'tool-2',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'write',
+      status: 'running',
+      inputSummary: 'second',
+      startedAt: TIMESTAMP,
+      stepIndex: 2
+    }
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'tool.updated',
+    eventId: 'event-tool-1-recovered',
+    timestamp: '2026-03-15T00:00:01.000Z',
+    threadId: 'thread-1',
+    runId: 'run-1',
+    toolCall: {
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'read',
+      status: 'failed',
+      inputSummary: 'first',
+      outputSummary: 'Tool execution was interrupted before completion.',
+      startedAt: TIMESTAMP,
+      finishedAt: '2026-03-15T00:00:01.000Z',
+      stepIndex: 1
+    }
+  })
+
+  assert.deepEqual(
+    useAppStore.getState().toolCalls['thread-1']?.map((toolCall) => toolCall.id),
+    ['tool-1', 'tool-2']
+  )
+})
+
 test('applyServerEvent starts a new assistant text block after a tool update', () => {
   resetStore()
 

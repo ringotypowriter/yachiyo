@@ -138,6 +138,8 @@ export interface StoredToolCallRow {
   details: string | null
   startedAt: string
   finishedAt: string | null
+  stepIndex: number | null
+  stepBudget: number | null
 }
 
 export interface StoredRunRow {
@@ -469,6 +471,8 @@ export function toToolCallRecord(row: StoredToolCallRow): ToolCallRecord {
     ...(row.requestMessageId === null ? {} : { requestMessageId: row.requestMessageId }),
     runId: row.runId,
     startedAt: row.startedAt,
+    ...(row.stepIndex === null ? {} : { stepIndex: row.stepIndex }),
+    ...(row.stepBudget === null ? {} : { stepBudget: row.stepBudget }),
     status: row.status,
     threadId: row.threadId,
     toolName: row.toolName
