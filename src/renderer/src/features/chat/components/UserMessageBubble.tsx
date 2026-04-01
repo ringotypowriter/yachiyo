@@ -1,6 +1,6 @@
 import type React from 'react'
 import { FileText } from 'lucide-react'
-import type { Message } from '@renderer/app/types'
+import type { Message, Thread } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { canRetryUserMessage } from '../lib/messageActionState'
 import { MessageActionBar } from './MessageActionBar'
@@ -47,10 +47,12 @@ interface UserMessageBubbleProps {
   message: Message
   pending?: boolean
   threadHasActiveRun?: boolean
+  threadCapabilities: NonNullable<Thread['capabilities']>
+  threadIsSaving?: boolean
   onEdit?: () => void
   onRetry?: () => Promise<void> | void
-  onCreateBranch: () => Promise<void> | void
-  onDelete: () => Promise<void> | void
+  onCreateBranch?: () => Promise<void> | void
+  onDelete?: () => Promise<void> | void
 }
 
 export function UserMessageBubble({
@@ -58,12 +60,18 @@ export function UserMessageBubble({
   message,
   pending = false,
   threadHasActiveRun = false,
+  threadCapabilities,
+  threadIsSaving = false,
   onEdit,
   onRetry,
   onCreateBranch,
   onDelete
 }: UserMessageBubbleProps): React.JSX.Element {
-  const canRetry = canRetryUserMessage({ threadHasActiveRun })
+  const canRetry = canRetryUserMessage({
+    threadCapabilities,
+    threadHasActiveRun,
+    threadIsSaving
+  })
 
   return (
     <div className="flex justify-end px-6 py-1">

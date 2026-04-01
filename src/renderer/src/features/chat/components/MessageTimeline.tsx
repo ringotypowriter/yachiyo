@@ -1,8 +1,9 @@
 import React, { useEffect, useRef } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { HarnessRecord } from '@renderer/app/store/useAppStore'
-import type { Message, RunRecord, ToolCall } from '@renderer/app/types'
+import type { Message, RunRecord, Thread, ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
+import { getThreadCapabilities } from '../../../../../shared/yachiyo/protocol.ts'
 import {
   buildMessageGroups,
   getRootAssistantMessages,
@@ -21,7 +22,14 @@ import { RunMemoryRecallRow } from './RunMemoryRecallRow'
 import { ReplyBranchNavigation } from './ReplyBranchNavigation'
 import { ToolCallRow } from './ToolCallRow'
 import { ThinkingBlock } from './ThinkingBlock'
-import { canRetryAssistantMessage, resolveRetryTargetMessageId } from '../lib/messageActionState'
+import {
+  canCreateBranch,
+  canDeleteMessage,
+  canEditUserMessage,
+  canRetryAssistantMessage,
+  canSelectReplyBranch,
+  resolveRetryTargetMessageId
+} from '../lib/messageActionState'
 import { MessageActionBar } from './MessageActionBar'
 
 interface MessageTimelineProps {
@@ -133,6 +141,7 @@ export function ThreadConversationGroup({
   subagentStream,
   retryInfo,
   onCancelSubagent,
+  threadCapabilities,
   onCreateBranch,
   onEdit,
   onRetry,
@@ -150,6 +159,7 @@ export function ThreadConversationGroup({
   subagentStream: string
   retryInfo?: RetryInfo
   onCancelSubagent: () => void
+  threadCapabilities: NonNullable<Thread['capabilities']>
   onCreateBranch: (messageId: string) => Promise<void>
   onEdit: (messageId: string) => void
   onRetry: (messageId: string) => Promise<void>
@@ -202,20 +212,40 @@ export function ThreadConversationGroup({
   const textBlocksById = new Map(
     activeAssistantTextBlocks.map((textBlock) => [textBlock.id, textBlock])
   )
-  const canSelectPreviousReply = !threadHasActiveRun && !threadIsSaving && Boolean(previousBranch)
-  const canSelectNextReply = !threadHasActiveRun && !threadIsSaving && Boolean(nextBranch)
+  const canBranchMessages = canCreateBranch({
+    threadCapabilities,
+    threadHasActiveRun,
+    threadIsSaving
+  })
+  const canEditMessages = canEditUserMessage({
+    threadCapabilities,
+    threadHasActiveRun,
+    threadIsSaving
+  })
+  const canDeleteMessages = canDeleteMessage({
+    threadCapabilities,
+    threadHasActiveRun,
+    threadIsSaving
+  })
+  const canSwitchReplyBranches = canSelectReplyBranch({
+    threadCapabilities,
+    threadHasActiveRun,
+    threadIsSaving
+  })
+  const canSelectPreviousReply = canSwitchReplyBranches && Boolean(previousBranch)
+  const canSelectNextReply = canSwitchReplyBranches && Boolean(nextBranch)
 
   return (
     <div className="flex flex-col gap-2" data-thread-id={threadId}>
       <UserMessageBubble
         message={group.userMessage}
-        threadHasActiveRun={threadHasActiveRun || threadIsSaving}
-        onEdit={
-          !threadHasActiveRun && !threadIsSaving ? () => onEdit(group.userMessage.id) : undefined
-        }
-        onRetry={() => onRetry(retryTargetMessageId)}
-        onCreateBranch={() => onCreateBranch(group.userMessage.id)}
-        onDelete={() => onDelete(group.userMessage.id)}
+        threadHasActiveRun={threadHasActiveRun}
+        threadCapabilities={threadCapabilities}
+        threadIsSaving={threadIsSaving}
+        onEdit={canEditMessages ? () => onEdit(group.userMessage.id) : undefined}
+        onRetry={threadCapabilities.canRetry ? () => onRetry(retryTargetMessageId) : undefined}
+        onCreateBranch={canBranchMessages ? () => onCreateBranch(group.userMessage.id) : undefined}
+        onDelete={canDeleteMessages ? () => onDelete(group.userMessage.id) : undefined}
       />
 
       {responseCount > 1 ? (
@@ -225,10 +255,12 @@ export function ThreadConversationGroup({
             canSelectPreviousReply={canSelectPreviousReply}
             canSelectNextReply={canSelectNextReply}
             onSelectPreviousReply={
-              previousBranch ? () => onSelectReplyBranch(previousBranch.message.id) : undefined
+              canSelectPreviousReply
+                ? () => onSelectReplyBranch(previousBranch!.message.id)
+                : undefined
             }
             onSelectNextReply={
-              nextBranch ? () => onSelectReplyBranch(nextBranch.message.id) : undefined
+              canSelectNextReply ? () => onSelectReplyBranch(nextBranch!.message.id) : undefined
             }
           />
         </div>
@@ -330,20 +362,17 @@ export function ThreadConversationGroup({
             content={activeBranch.message.content}
             canRetry={canRetryAssistantMessage({
               messageStatus: activeBranch.message.status,
+              threadCapabilities,
               threadHasActiveRun,
               threadIsSaving
             })}
-            onRetry={() => onRetry(activeBranch.message.id)}
+            onRetry={
+              threadCapabilities.canRetry ? () => onRetry(activeBranch.message.id) : undefined
+            }
             onCreateBranch={
-              !threadHasActiveRun && !threadIsSaving
-                ? () => onCreateBranch(activeBranch.message.id)
-                : undefined
+              canBranchMessages ? () => onCreateBranch(activeBranch.message.id) : undefined
             }
-            onDelete={
-              !threadHasActiveRun && !threadIsSaving
-                ? () => onDelete(activeBranch.message.id)
-                : undefined
-            }
+            onDelete={canDeleteMessages ? () => onDelete(activeBranch.message.id) : undefined}
           />
         </div>
       ) : null}
@@ -446,6 +475,13 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     toolCalls
   })
   const rootAssistantMessages = getRootAssistantMessages(messages)
+  const threadCapabilities = thread ? getThreadCapabilities(thread) : null
+  const threadHasActiveRun = activeRunId !== null
+  const threadActionContext = threadCapabilities
+    ? { threadCapabilities, threadHasActiveRun, threadIsSaving }
+    : null
+  const canBranchHere = threadActionContext ? canCreateBranch(threadActionContext) : false
+  const canDeleteHere = threadActionContext ? canDeleteMessage(threadActionContext) : false
   const timeline = buildTimeline(
     messageGroups,
     rootAssistantMessages,
@@ -563,21 +599,31 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
         }
 
         if (item.kind === 'queued-follow-up') {
+          if (!threadCapabilities) {
+            return null
+          }
+
           return (
             <div key={item.key} data-message-id={item.key}>
               <UserMessageBubble
                 label="Queued follow-up"
                 message={item.data}
-                threadHasActiveRun={activeRunId !== null || threadIsSaving}
-                onRetry={() => handleRetry(item.data.id)}
-                onCreateBranch={() => handleCreateBranch(item.data.id)}
-                onDelete={() => handleDelete(item.data.id)}
+                threadHasActiveRun={threadHasActiveRun}
+                threadCapabilities={threadCapabilities}
+                threadIsSaving={threadIsSaving}
+                onRetry={threadCapabilities.canRetry ? () => handleRetry(item.data.id) : undefined}
+                onCreateBranch={canBranchHere ? () => handleCreateBranch(item.data.id) : undefined}
+                onDelete={canDeleteHere ? () => handleDelete(item.data.id) : undefined}
               />
             </div>
           )
         }
 
         if (item.kind === 'pending-steer') {
+          if (!threadCapabilities) {
+            return null
+          }
+
           return (
             <div key={item.key} data-message-id={item.key}>
               <UserMessageBubble
@@ -585,6 +631,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
                 pending
                 message={item.data}
                 threadHasActiveRun
+                threadCapabilities={threadCapabilities}
                 onRetry={() => undefined}
                 onCreateBranch={() => undefined}
                 onDelete={() => undefined}
@@ -616,6 +663,10 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
         }
 
         const isActiveGroup = item.data.userMessage.id === activeRequestMessageId
+        if (!threadCapabilities) {
+          return null
+        }
+
         return (
           <div key={item.key} data-message-id={item.key}>
             <ThreadConversationGroup
@@ -623,13 +674,14 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
               group={item.data}
               toolCalls={inlineToolCalls}
               activeRunId={activeRunId}
-              threadHasActiveRun={activeRunId !== null}
+              threadHasActiveRun={threadHasActiveRun}
               threadIsSaving={threadIsSaving}
               runs={runs}
               subagentActive={isActiveGroup && subagentActive}
               subagentStream={subagentStream}
               retryInfo={isActiveGroup ? retryInfo : undefined}
               onCancelSubagent={() => void cancelRunForThread(threadId)}
+              threadCapabilities={threadCapabilities}
               onCreateBranch={handleCreateBranch}
               onEdit={handleEdit}
               onRetry={handleRetry}

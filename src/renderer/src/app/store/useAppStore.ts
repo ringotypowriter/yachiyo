@@ -1563,7 +1563,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       if (event.type === 'tool.updated') {
         const pending = state.pendingAssistantMessages[event.runId]
-        return {
+        const currentPhase = state.runPhasesByThread[event.threadId]
+        const nextState = {
+          ...state,
           pendingAssistantMessages: pending
             ? {
                 ...state.pendingAssistantMessages,
@@ -1576,7 +1578,15 @@ export const useAppStore = create<AppState>((set, get) => ({
           toolCalls: {
             ...state.toolCalls,
             [event.threadId]: upsertToolCall(state.toolCalls[event.threadId] ?? [], event.toolCall)
-          }
+          },
+          runPhasesByThread:
+            currentPhase === 'preparing'
+              ? setThreadRunPhaseValue(state.runPhasesByThread, event.threadId, 'streaming')
+              : state.runPhasesByThread
+        }
+        return {
+          ...nextState,
+          ...deriveActiveThreadRunState(nextState)
         }
       }
 

@@ -11,3 +11,7 @@ export type Timestamp = () => string
 export type EmitServerEvent = <TEvent extends YachiyoServerEvent>(
   event: Omit<TEvent, 'eventId' | 'timestamp'>
 ) => void
+
+export function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
+}

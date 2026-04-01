@@ -26,7 +26,11 @@ import type {
   ToolCallRecord,
   ToolCallStatus
 } from '../../../shared/yachiyo/protocol'
-import { normalizeEnabledTools, normalizeSkillNames } from '../../../shared/yachiyo/protocol.ts'
+import {
+  normalizeEnabledTools,
+  normalizeSkillNames,
+  withThreadCapabilities
+} from '../../../shared/yachiyo/protocol.ts'
 import { normalizeMessageImages } from '../../../shared/yachiyo/messageContent.ts'
 
 export interface StoredThreadRow {
@@ -205,6 +209,7 @@ export interface YachiyoStorage {
   getRunRecoveryCheckpoint(runId: string): RunRecoveryCheckpoint | undefined
   upsertRunRecoveryCheckpoint(checkpoint: RunRecoveryCheckpoint): void
   deleteRunRecoveryCheckpoint(runId: string): void
+  getRun(runId: string): RunRecord | undefined
   getThread(threadId: string): ThreadRecord | undefined
   getArchivedThread(threadId: string): ThreadRecord | undefined
   getThreadCreatedAt(threadId: string): string | undefined
@@ -347,7 +352,7 @@ export function toThreadRecord(
   const source = parseThreadSource(row.source)
 
   if (row.preview === null) {
-    return {
+    return withThreadCapabilities({
       ...(row.archivedAt === null ? {} : { archivedAt: row.archivedAt }),
       ...(row.starredAt === null ? {} : { starredAt: row.starredAt }),
       ...(row.branchFromMessageId === null ? {} : { branchFromMessageId: row.branchFromMessageId }),
@@ -378,10 +383,10 @@ export function toThreadRecord(
       id: row.id,
       title: row.title,
       updatedAt: row.updatedAt
-    }
+    })
   }
 
-  return {
+  return withThreadCapabilities({
     ...(row.archivedAt === null ? {} : { archivedAt: row.archivedAt }),
     ...(row.starredAt === null ? {} : { starredAt: row.starredAt }),
     ...(row.branchFromMessageId === null ? {} : { branchFromMessageId: row.branchFromMessageId }),
@@ -409,7 +414,7 @@ export function toThreadRecord(
     preview: row.preview,
     title: row.title,
     updatedAt: row.updatedAt
-  }
+  })
 }
 
 export function serializeModelOverride(modelOverride?: ThreadModelOverride): string | null {

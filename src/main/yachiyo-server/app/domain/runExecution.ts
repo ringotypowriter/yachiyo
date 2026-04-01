@@ -83,6 +83,7 @@ import {
 import { createFilteredMemoryService } from '../../tools/agentTools/memorySearchTool.ts'
 import {
   DEFAULT_HARNESS_NAME,
+  isAbortError,
   type CreateId,
   type EmitServerEvent,
   type Timestamp
@@ -124,7 +125,7 @@ export type ExecuteRunResult =
   | { kind: 'failed' }
   | { kind: 'cancelled' }
   | { kind: 'restarted'; nextRequestMessageId: string }
-  | { kind: 'recovering'; checkpoint: RunRecoveryCheckpoint }
+  | { kind: 'recovering'; checkpoint: RunRecoveryCheckpoint; harnessId: string }
 
 export interface RunExecutionDeps {
   storage: YachiyoStorage
@@ -166,10 +167,6 @@ export interface RunExecutionDeps {
     status: 'success' | 'cancelled',
     lastMessage?: string
   ) => void
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
 }
 
 function appendMessageDeltaToTextBlocks(input: {
@@ -1884,7 +1881,8 @@ export async function executeServerRun(
         })
         return {
           kind: 'recovering',
-          checkpoint
+          checkpoint,
+          harnessId
         }
       }
     }

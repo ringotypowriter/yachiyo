@@ -224,6 +224,25 @@ test('runAcpChatThread persists a stopped assistant message when cancellation ha
 
   deps.launchAcpProcess = () => makeFakeLaunchResult()
   deps.runAcpSession = async (_stream, _proc, _procExited, _cwd, _prompt, adapter) => {
+    await adapter.yoloClient.sessionUpdate({
+      sessionId: 'session-1',
+      update: {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'tool-1',
+        title: 'read',
+        status: 'running'
+      }
+    } as never)
+    await adapter.yoloClient.sessionUpdate({
+      sessionId: 'session-1',
+      update: {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'tool-1',
+        title: 'read',
+        status: 'completed',
+        content: [{ type: 'content', content: { type: 'text', text: 'partial' } }]
+      }
+    } as never)
     adapter.onStderr(Buffer.from('partial reply'))
     abortController.abort()
     throw new Error('Aborted mid-stream')
@@ -244,6 +263,8 @@ test('runAcpChatThread persists a stopped assistant message when cancellation ha
   assert.equal(stoppedMessage?.status, 'stopped')
   assert.equal(stoppedMessage?.content, 'partial reply')
   assert.equal(stoppedMessage?.providerName, 'acp')
+  const storedToolCall = deps.storage.listThreadToolCalls('thread-1')[0]
+  assert.equal(storedToolCall?.assistantMessageId, stoppedMessage?.id)
 
   const storedThread = deps.storage.getThread('thread-1')
   assert.equal(storedThread?.preview, 'partial reply')
@@ -253,4 +274,151 @@ test('runAcpChatThread persists a stopped assistant message when cancellation ha
     ),
     true
   )
+})
+
+test('runAcpChatThread persists ACP tool-call bindings on successful completion', async () => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'acp-test-'))
+  const deps = makeDeps(workspacePath)
+
+  deps.launchAcpProcess = () => makeFakeLaunchResult()
+  deps.runAcpSession = async (_stream, _proc, _procExited, _cwd, _prompt, adapter) => {
+    await adapter.yoloClient.sessionUpdate({
+      sessionId: 'session-1',
+      update: {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'tool-1',
+        title: 'read',
+        status: 'running'
+      }
+    } as never)
+    await adapter.yoloClient.sessionUpdate({
+      sessionId: 'session-1',
+      update: {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'tool-1',
+        title: 'read',
+        status: 'completed',
+        content: [{ type: 'content', content: { type: 'text', text: 'done' } }]
+      }
+    } as never)
+
+    return {
+      sessionId: 'session-1',
+      lastMessageText: 'final reply',
+      stopReason: 'end_turn'
+    }
+  }
+
+  const result = await runAcpChatThread(deps, {
+    runId: 'run-1',
+    thread: makeThread(workspacePath),
+    requestMessageId: 'msg-req',
+    abortController: new AbortController(),
+    updateHeadOnComplete: true
+  })
+
+  assert.equal(result.kind, 'completed')
+
+  const completedMessage = deps.storage.listThreadMessages('thread-1').at(-1)
+  const storedToolCall = deps.storage.listThreadToolCalls('thread-1')[0]
+  assert.equal(storedToolCall?.assistantMessageId, completedMessage?.id)
+})
+
+test('runAcpChatThread anchors tool calls to a stopped message even when no text was streamed', async () => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'acp-test-'))
+  const deps = makeDeps(workspacePath)
+  const abortController = new AbortController()
+
+  deps.launchAcpProcess = () => makeFakeLaunchResult()
+  deps.runAcpSession = async (_stream, _proc, _procExited, _cwd, _prompt, adapter) => {
+    await adapter.yoloClient.sessionUpdate({
+      sessionId: 'session-1',
+      update: {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'tool-1',
+        title: 'bash',
+        status: 'running'
+      }
+    } as never)
+    abortController.abort()
+    throw new Error('Aborted mid-tool')
+  }
+
+  const result = await runAcpChatThread(deps, {
+    runId: 'run-1',
+    thread: makeThread(workspacePath),
+    requestMessageId: 'msg-req',
+    abortController,
+    updateHeadOnComplete: true
+  })
+
+  assert.equal(result.kind, 'cancelled')
+
+  const messages = deps.storage.listThreadMessages('thread-1')
+  const stoppedMessage = messages.at(-1)
+  assert.equal(stoppedMessage?.status, 'stopped')
+  assert.equal(stoppedMessage?.content, '')
+
+  const storedToolCall = deps.storage.listThreadToolCalls('thread-1')[0]
+  assert.equal(storedToolCall?.assistantMessageId, stoppedMessage?.id)
+  assert.equal(storedToolCall?.status, 'failed')
+})
+
+test('runAcpChatThread does not inject synthetic newlines into the persisted buffer', async () => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'acp-test-'))
+  const deps = makeDeps(workspacePath)
+  const abortController = new AbortController()
+
+  deps.launchAcpProcess = () => makeFakeLaunchResult()
+  deps.runAcpSession = async (_stream, _proc, _procExited, _cwd, _prompt, adapter) => {
+    await adapter.yoloClient.sessionUpdate({
+      sessionId: 'session-1',
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'Hello' }
+      }
+    } as never)
+    await adapter.yoloClient.sessionUpdate({
+      sessionId: 'session-1',
+      update: {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'tool-1',
+        title: 'read',
+        status: 'running'
+      }
+    } as never)
+    await adapter.yoloClient.sessionUpdate({
+      sessionId: 'session-1',
+      update: {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'tool-1',
+        title: 'read',
+        status: 'completed',
+        content: [{ type: 'content', content: { type: 'text', text: 'ok' } }]
+      }
+    } as never)
+    await adapter.yoloClient.sessionUpdate({
+      sessionId: 'session-1',
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: ' world' }
+      }
+    } as never)
+    abortController.abort()
+    throw new Error('Aborted after interleaved text')
+  }
+
+  const result = await runAcpChatThread(deps, {
+    runId: 'run-1',
+    thread: makeThread(workspacePath),
+    requestMessageId: 'msg-req',
+    abortController,
+    updateHeadOnComplete: true
+  })
+
+  assert.equal(result.kind, 'cancelled')
+
+  const messages = deps.storage.listThreadMessages('thread-1')
+  const stoppedMessage = messages.at(-1)
+  assert.equal(stoppedMessage?.content, 'Hello world')
 })

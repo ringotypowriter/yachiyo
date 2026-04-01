@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { z } from 'zod'
 
 import type { SubagentProfile } from '../../../../shared/yachiyo/protocol.ts'
+import { isAbortError } from '../../app/domain/shared.ts'
 import { launchAcpProcess } from '../../runtime/acp/acpLauncher.ts'
 import { createAcpStreamAdapter } from '../../runtime/acp/acpStreamAdapter.ts'
 import { runAcpSession } from '../../runtime/acp/acpSessionClient.ts'
@@ -44,6 +45,8 @@ export interface DelegateCodingTaskContext {
     status: 'success' | 'cancelled',
     lastMessage?: string
   ) => void
+  launchAcpProcess?: typeof launchAcpProcess
+  runAcpSession?: typeof runAcpSession
 }
 
 const SYSTEM_INSTRUCTION =
@@ -57,11 +60,13 @@ async function runSubagent(
   resumeSessionId?: string
 ): Promise<DelegateCodingTaskOutput & { lastMessage: string }> {
   const adapter = createAcpStreamAdapter({ onProgress: ctx.onProgress })
-  const { proc, stream, procExited } = launchAcpProcess(profile, ctx.workspacePath)
+  const startAcpProcess = ctx.launchAcpProcess ?? launchAcpProcess
+  const executeAcpSession = ctx.runAcpSession ?? runAcpSession
+  const { proc, stream, procExited } = startAcpProcess(profile, ctx.workspacePath)
 
   proc.stderr?.on('data', (chunk: Buffer) => adapter.onStderr(chunk))
 
-  const { sessionId, stopReason, lastMessageText } = await runAcpSession(
+  const { sessionId, stopReason, lastMessageText } = await executeAcpSession(
     stream,
     proc,
     procExited,
@@ -139,6 +144,11 @@ export function createTool(
         return result
       } catch (err) {
         ctx.onSubagentFinished?.(input.agent_name, 'cancelled')
+        if (options.abortSignal?.aborted || isAbortError(err)) {
+          const abortErr = err instanceof Error ? err : new Error('Subagent execution aborted.')
+          abortErr.name = 'AbortError'
+          throw abortErr
+        }
         const error = err instanceof Error ? err.message : 'Subagent execution failed.'
         return { content: [{ type: 'text', text: error }], error }
       }

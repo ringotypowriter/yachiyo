@@ -17,6 +17,10 @@ import type {
   ThreadUpdatedEvent,
   ToolCallRecord
 } from '../../../../shared/yachiyo/protocol.ts'
+import {
+  getThreadCapabilities,
+  withThreadCapabilities
+} from '../../../../shared/yachiyo/protocol.ts'
 import { summarizeMessageInput } from '../../../../shared/yachiyo/messageContent.ts'
 import {
   collectDescendantIds,
@@ -166,7 +170,7 @@ export class YachiyoServerThreadDomain {
     const timestamp = this.deps.timestamp()
     const workspacePath = input.workspacePath?.trim() ? resolve(input.workspacePath) : undefined
     const defaultIcon = channelSourceIcon(input.source)
-    const thread: ThreadRecord = {
+    const thread = withThreadCapabilities({
       id: input.threadId ?? this.deps.createId(),
       title: input.title ?? DEFAULT_THREAD_TITLE,
       updatedAt: timestamp,
@@ -179,7 +183,7 @@ export class YachiyoServerThreadDomain {
       ...(input.createdFromEssentialId
         ? { createdFromEssentialId: input.createdFromEssentialId }
         : {})
-    }
+    })
 
     if (workspacePath) {
       await mkdir(workspacePath, { recursive: true })
@@ -483,6 +487,9 @@ export class YachiyoServerThreadDomain {
 
   selectReplyBranch(input: { threadId: string; assistantMessageId: string }): ThreadRecord {
     const thread = this.deps.requireThread(input.threadId)
+    if (!getThreadCapabilities(thread).canSelectReplyBranch) {
+      throw new Error('ACP threads do not support reply branch navigation.')
+    }
     if (this.deps.isThreadRunning(thread.id)) {
       throw new Error('Cannot switch reply branches while this thread is running.')
     }
@@ -527,6 +534,9 @@ export class YachiyoServerThreadDomain {
 
   async createBranch(input: { threadId: string; messageId: string }): Promise<ThreadSnapshot> {
     const thread = this.deps.requireThread(input.threadId)
+    if (!getThreadCapabilities(thread).canCreateBranch) {
+      throw new Error('ACP threads do not support branching.')
+    }
     if (this.deps.isThreadRunning(thread.id)) {
       throw new Error('Cannot branch a thread with an active run.')
     }
@@ -561,7 +571,7 @@ export class YachiyoServerThreadDomain {
     })
     const previewSource = clonedMessages.at(-1)
     const preview = previewSource ? summarizeMessageInput(previewSource) : ''
-    const branchThread: ThreadRecord = {
+    const branchThread = withThreadCapabilities({
       id: threadId,
       title: deriveBranchTitle(thread, branchPoint),
       updatedAt: timestamp,
@@ -570,7 +580,7 @@ export class YachiyoServerThreadDomain {
       ...(thread.workspacePath ? { workspacePath: thread.workspacePath } : {}),
       ...(preview ? { preview: preview.slice(0, 240) } : {}),
       ...(previewSource ? { headMessageId: previewSource.id } : {})
-    }
+    })
 
     if (!thread.workspacePath) {
       await this.deps.cloneThreadWorkspace(thread.id, branchThread.id)
@@ -603,6 +613,9 @@ export class YachiyoServerThreadDomain {
 
   deleteMessageFromHere(input: { threadId: string; messageId: string }): ThreadSnapshot {
     const thread = this.deps.requireThread(input.threadId)
+    if (!getThreadCapabilities(thread).canDelete) {
+      throw new Error('ACP threads do not support deleting messages.')
+    }
     if (this.deps.isThreadRunning(thread.id)) {
       throw new Error('Cannot edit history while this thread is running.')
     }
@@ -766,14 +779,15 @@ export class YachiyoServerThreadDomain {
       )
     }
 
-    const updatedThread: ThreadRecord = {
+    const nextThread: ThreadRecord = {
       ...thread,
       updatedAt: this.deps.timestamp(),
       ...(input.runtimeBinding ? { runtimeBinding: input.runtimeBinding } : {})
     }
     if (!input.runtimeBinding) {
-      delete updatedThread.runtimeBinding
+      delete nextThread.runtimeBinding
     }
+    const updatedThread = withThreadCapabilities(nextThread)
 
     this.deps.storage.updateThread(updatedThread)
     this.deps.emit<ThreadUpdatedEvent>({

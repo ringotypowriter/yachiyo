@@ -14,7 +14,9 @@ import type {
   SettingsConfig,
   ThreadRecord,
   ThreadRuntimeBinding,
-  ThreadUpdatedEvent
+  ThreadUpdatedEvent,
+  ToolCallRecord,
+  ToolCallUpdatedEvent
 } from '../../../../shared/yachiyo/protocol.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import {
@@ -109,6 +111,7 @@ export async function runAcpChatThread(
       : undefined
   const startAcpProcess = deps.launchAcpProcess ?? launchAcpProcess
   const executeAcpSession = deps.runAcpSession ?? runAcpSession
+  const activeToolCalls = new Map<string, ToolCallRecord>()
 
   try {
     if (input.abortController.signal.aborted) {
@@ -116,6 +119,7 @@ export async function runAcpChatThread(
     }
 
     const { proc, stream, procExited } = startAcpProcess(profile, workspacePath)
+    let toolStepIndex = 0
 
     const adapter = createAcpStreamAdapter({
       onProgress: (chunk) => {
@@ -126,6 +130,62 @@ export async function runAcpChatThread(
           runId: input.runId,
           messageId,
           delta: chunk
+        })
+      },
+      onToolCall: (acpToolCall) => {
+        toolStepIndex += 1
+        const acpStatus = acpToolCall.status
+        const yachiyoStatus =
+          acpStatus === 'completed' ? 'completed' : acpStatus === 'failed' ? 'failed' : 'running'
+        const record: ToolCallRecord = {
+          id: `${input.runId}:${acpToolCall.toolCallId}`,
+          runId: input.runId,
+          threadId: input.thread.id,
+          requestMessageId: input.requestMessageId,
+          toolName: acpToolCall.title,
+          status: yachiyoStatus,
+          inputSummary: acpToolCall.title,
+          startedAt: deps.timestamp(),
+          stepIndex: toolStepIndex,
+          ...(yachiyoStatus !== 'running' ? { finishedAt: deps.timestamp() } : {})
+        }
+        activeToolCalls.set(acpToolCall.toolCallId, record)
+        deps.storage.createToolCall(record)
+        deps.emit<ToolCallUpdatedEvent>({
+          type: 'tool.updated',
+          threadId: input.thread.id,
+          runId: input.runId,
+          toolCall: record
+        })
+      },
+      onToolCallUpdate: (update) => {
+        const existing = activeToolCalls.get(update.toolCallId)
+        if (!existing) return
+        const acpStatus = update.status ?? undefined
+        const yachiyoStatus =
+          acpStatus === 'completed'
+            ? 'completed'
+            : acpStatus === 'failed'
+              ? 'failed'
+              : existing.status
+        const isTerminal = yachiyoStatus === 'completed' || yachiyoStatus === 'failed'
+        const outputSummary = extractTextFromAcpContent(update.content) ?? existing.outputSummary
+        const updatedTitle = update.title ?? existing.toolName
+        const updated: ToolCallRecord = {
+          ...existing,
+          toolName: updatedTitle,
+          inputSummary: updatedTitle,
+          status: yachiyoStatus,
+          ...(outputSummary !== undefined ? { outputSummary } : {}),
+          ...(isTerminal && !existing.finishedAt ? { finishedAt: deps.timestamp() } : {})
+        }
+        activeToolCalls.set(update.toolCallId, updated)
+        deps.storage.updateToolCall(updated)
+        deps.emit<ToolCallUpdatedEvent>({
+          type: 'tool.updated',
+          threadId: input.thread.id,
+          runId: input.runId,
+          toolCall: updated
         })
       }
     })
@@ -150,7 +210,8 @@ export async function runAcpChatThread(
         buffer,
         harnessId,
         messageId,
-        modelId: profile.name
+        modelId: profile.name,
+        activeToolCalls
       })
     }
 
@@ -191,6 +252,14 @@ export async function runAcpChatThread(
     deps.storage.completeRun({ runId: input.runId, updatedThread, assistantMessage })
     deps.onTerminalState?.()
 
+    bindActiveToolCallsToAssistant(deps, activeToolCalls, {
+      threadId: input.thread.id,
+      runId: input.runId,
+      assistantMessageId: messageId,
+      finishedAt: timestamp,
+      failRunningToolCalls: true
+    })
+
     deps.emit<MessageCompletedEvent>({
       type: 'message.completed',
       threadId: input.thread.id,
@@ -223,7 +292,8 @@ export async function runAcpChatThread(
         buffer,
         harnessId,
         messageId,
-        modelId: profile.name
+        modelId: profile.name,
+        activeToolCalls
       })
     }
 
@@ -266,6 +336,13 @@ export async function runAcpChatThread(
       thread: currentThread,
       updatedThread,
       message: failedMessage
+    })
+    bindActiveToolCallsToAssistant(deps, activeToolCalls, {
+      threadId: input.thread.id,
+      runId: input.runId,
+      assistantMessageId: messageId,
+      finishedAt: timestamp,
+      failRunningToolCalls: true
     })
     deps.storage.failRun({ runId: input.runId, completedAt: timestamp, error: errMsg })
     deps.onTerminalState?.()
@@ -310,10 +387,12 @@ function emitCancelledAndReturn(
     harnessId: string
     messageId: string
     modelId: string
+    activeToolCalls?: Map<string, ToolCallRecord>
   }
 ): ExecuteRunResult {
   const timestamp = deps.timestamp()
-  if (options.buffer.length > 0) {
+  const hasContent = options.buffer.length > 0 || (options.activeToolCalls?.size ?? 0) > 0
+  if (hasContent) {
     const currentThread = deps.readThread(input.thread.id)
     const stoppedMessage: MessageRecord = {
       id: options.messageId,
@@ -335,6 +414,13 @@ function emitCancelledAndReturn(
       thread: currentThread,
       updatedThread,
       message: stoppedMessage
+    })
+    bindActiveToolCallsToAssistant(deps, options.activeToolCalls ?? new Map(), {
+      threadId: input.thread.id,
+      runId: input.runId,
+      assistantMessageId: options.messageId,
+      finishedAt: timestamp,
+      failRunningToolCalls: true
     })
     deps.emit<MessageCompletedEvent>({
       type: 'message.completed',
@@ -365,4 +451,46 @@ function emitCancelledAndReturn(
     runId: input.runId
   })
   return { kind: 'cancelled' }
+}
+
+function bindActiveToolCallsToAssistant(
+  deps: Pick<AcpChatRunDeps, 'storage' | 'emit'>,
+  activeToolCalls: Map<string, ToolCallRecord>,
+  input: {
+    threadId: string
+    runId: string
+    assistantMessageId: string
+    finishedAt: string
+    failRunningToolCalls: boolean
+  }
+): void {
+  for (const toolCall of activeToolCalls.values()) {
+    const needsTerminalStatus =
+      input.failRunningToolCalls && toolCall.status !== 'completed' && toolCall.status !== 'failed'
+    const bound: ToolCallRecord = {
+      ...toolCall,
+      assistantMessageId: input.assistantMessageId,
+      ...(needsTerminalStatus ? { status: 'failed' as const, finishedAt: input.finishedAt } : {})
+    }
+    deps.storage.updateToolCall(bound)
+    deps.emit<ToolCallUpdatedEvent>({
+      type: 'tool.updated',
+      threadId: input.threadId,
+      runId: input.runId,
+      toolCall: bound
+    })
+  }
+}
+
+function extractTextFromAcpContent(
+  content: Array<{ type: string; content?: { type: string; text?: string } }> | null | undefined
+): string | undefined {
+  if (!content || content.length === 0) return undefined
+  const texts = content
+    .filter((item) => item.type === 'content' && item.content?.type === 'text')
+    .map((item) => item.content?.text ?? '')
+    .filter(Boolean)
+  if (texts.length === 0) return undefined
+  const joined = texts.join('\n')
+  return joined.length > 240 ? joined.slice(0, 237) + '...' : joined
 }

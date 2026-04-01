@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import type {
   ChatAccepted,
   CompactThreadAccepted,
+  HarnessFinishedEvent,
   MessageCompletedEvent,
   MessageDeltaEvent,
   MessageReasoningDeltaEvent,
@@ -33,7 +34,7 @@ import {
   normalizeMessageImages,
   summarizeMessageInput
 } from '../../../../shared/yachiyo/messageContent.ts'
-import { normalizeSkillNames } from '../../../../shared/yachiyo/protocol.ts'
+import { getThreadCapabilities, normalizeSkillNames } from '../../../../shared/yachiyo/protocol.ts'
 import type { AuxiliaryGenerationService } from '../../runtime/auxiliaryGeneration.ts'
 import type { SoulDocument } from '../../runtime/soul.ts'
 import type { UserDocument } from '../../runtime/user.ts'
@@ -62,10 +63,13 @@ import { resolveRetryRequest } from './threadDomain.ts'
 import { buildCompactThreadHandoffMessages } from '../../runtime/threadHandoff.ts'
 import { buildRollingSummaryMessages } from '../../runtime/rollingSummary.ts'
 import { AUTO_COMPACT_TOKEN_THRESHOLD } from '../../runtime/autoCompact.ts'
+import { sleep } from '../../channels/connectionRetry.ts'
 import {
+  DEFAULT_HARNESS_NAME,
   DEFAULT_THREAD_TITLE,
   INTERRUPTED_RUN_ERROR,
   SHUTDOWN_RUN_ERROR,
+  isAbortError,
   type CreateId,
   type EmitServerEvent,
   type Timestamp
@@ -77,6 +81,7 @@ interface RunState {
   enabledSkillNames?: string[]
   channelHint?: string
   recoveryCheckpoint?: RunRecoveryCheckpoint
+  recoveringHarnessId?: string
   abortController: AbortController
   pendingSteerMessageId?: string
   pendingSteerInput?: {
@@ -129,10 +134,6 @@ function toRestartRunReason(nextRequestMessageId: string): RestartRunReason {
   }
 }
 
-function sleep(delayMs: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, delayMs))
-}
-
 function withParentMessageId(message: MessageRecord, parentMessageId?: string): MessageRecord {
   const rest = { ...message }
   delete rest.parentMessageId
@@ -141,10 +142,6 @@ function withParentMessageId(message: MessageRecord, parentMessageId?: string): 
     ...rest,
     ...(parentMessageId ? { parentMessageId } : {})
   }
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
 }
 
 function resolveEffectiveThreadMessages(
@@ -222,6 +219,54 @@ export class YachiyoServerRunDomain {
     this.backgroundMemoryTasks.clear()
   }
 
+  private bindTerminalToolCallsToAssistant(input: {
+    threadId: string
+    runId: string
+    assistantMessageId: string
+  }): void {
+    const toolCalls = this.deps
+      .loadThreadToolCalls(input.threadId)
+      .filter(
+        (toolCall) =>
+          toolCall.runId === input.runId &&
+          toolCall.status !== 'running' &&
+          toolCall.assistantMessageId !== input.assistantMessageId
+      )
+
+    for (const toolCall of toolCalls) {
+      const updatedToolCall: ToolCallRecord = {
+        ...toolCall,
+        assistantMessageId: input.assistantMessageId
+      }
+      this.deps.storage.updateToolCall(updatedToolCall)
+      this.deps.emit<ToolCallUpdatedEvent>({
+        type: 'tool.updated',
+        threadId: input.threadId,
+        runId: input.runId,
+        toolCall: updatedToolCall
+      })
+    }
+  }
+
+  private emitCancelledHarnessFinished(input: {
+    threadId: string
+    runId: string
+    harnessId?: string
+  }): void {
+    if (!input.harnessId) {
+      return
+    }
+
+    this.deps.emit<HarnessFinishedEvent>({
+      type: 'harness.finished',
+      threadId: input.threadId,
+      runId: input.runId,
+      harnessId: input.harnessId,
+      name: DEFAULT_HARNESS_NAME,
+      status: 'cancelled'
+    })
+  }
+
   recoverInterruptedRuns(error: string = INTERRUPTED_RUN_ERROR): void {
     this.deps.storage.recoverInterruptedRuns({
       error,
@@ -237,9 +282,17 @@ export class YachiyoServerRunDomain {
   }
 
   prepareRecoveredRuns(): RunRecoveryCheckpoint[] {
-    return this.deps.storage
-      .listRunRecoveryCheckpoints()
-      .filter((checkpoint) => !this.activeRunByThread.has(checkpoint.threadId))
+    return this.deps.storage.listRunRecoveryCheckpoints().filter((checkpoint) => {
+      if (this.activeRunByThread.has(checkpoint.threadId)) {
+        return false
+      }
+      const run = this.deps.storage.getRun(checkpoint.runId)
+      if (!run || run.status !== 'running') {
+        this.deps.storage.deleteRunRecoveryCheckpoint(checkpoint.runId)
+        return false
+      }
+      return true
+    })
   }
 
   scheduleRecoveredQueuedFollowUps(threadIds: string[]): void {
@@ -361,6 +414,9 @@ export class YachiyoServerRunDomain {
 
   async retryMessage(input: RetryInput): Promise<RetryAccepted> {
     const thread = this.deps.requireThread(input.threadId)
+    if (!getThreadCapabilities(thread).canRetry) {
+      throw new Error('ACP threads do not support retry.')
+    }
     if (this.activeRunByThread.has(thread.id)) {
       throw new Error('This thread already has an active run.')
     }
@@ -550,7 +606,26 @@ export class YachiyoServerRunDomain {
   }
 
   cancelRun(input: { runId: string }): void {
-    this.activeRuns.get(input.runId)?.abortController.abort()
+    const activeRun = this.activeRuns.get(input.runId)
+    if (activeRun) {
+      activeRun.abortController.abort()
+      return
+    }
+
+    const persistedRun = this.deps.storage.getRun(input.runId)
+    if (!persistedRun || persistedRun.status !== 'running') {
+      return
+    }
+
+    this.deps.storage.cancelRun({
+      runId: input.runId,
+      completedAt: this.deps.timestamp()
+    })
+    this.deps.emit<RunCancelledEvent>({
+      type: 'run.cancelled',
+      threadId: persistedRun.threadId,
+      runId: input.runId
+    })
   }
 
   private startFreshRun(input: {
@@ -1154,13 +1229,83 @@ export class YachiyoServerRunDomain {
 
         if (result.kind === 'recovering') {
           activeRun.recoveryCheckpoint = result.checkpoint
-          await sleep(
-            Math.min(1_000 * 2 ** Math.max(0, result.checkpoint.recoveryAttempts - 1), 30_000)
-          )
+          activeRun.recoveringHarnessId = result.harnessId
+          try {
+            await sleep(
+              Math.min(1_000 * 2 ** Math.max(0, result.checkpoint.recoveryAttempts - 1), 30_000),
+              activeRun.abortController.signal
+            )
+          } catch (error) {
+            if (!isAbortError(error)) {
+              throw error
+            }
+
+            const timestamp = this.deps.timestamp()
+            const checkpoint = activeRun.recoveryCheckpoint
+            if (
+              checkpoint &&
+              (checkpoint.content || checkpoint.reasoning || checkpoint.textBlocks?.length)
+            ) {
+              const stoppedMessage: MessageRecord = {
+                id: checkpoint.assistantMessageId,
+                threadId: checkpoint.threadId,
+                parentMessageId: checkpoint.requestMessageId,
+                role: 'assistant',
+                content: checkpoint.content,
+                ...(checkpoint.reasoning ? { reasoning: checkpoint.reasoning } : {}),
+                ...(checkpoint.textBlocks?.length ? { textBlocks: checkpoint.textBlocks } : {}),
+                status: 'stopped',
+                createdAt: timestamp
+              }
+              const latestThread = this.deps.requireThread(checkpoint.threadId)
+              const updatedThread: ThreadRecord = {
+                ...latestThread,
+                updatedAt: timestamp
+              }
+              this.deps.storage.saveThreadMessage({
+                thread: latestThread,
+                updatedThread,
+                message: stoppedMessage
+              })
+              this.bindTerminalToolCallsToAssistant({
+                threadId: checkpoint.threadId,
+                runId: input.runId,
+                assistantMessageId: checkpoint.assistantMessageId
+              })
+              this.deps.emit<MessageCompletedEvent>({
+                type: 'message.completed',
+                threadId: checkpoint.threadId,
+                runId: input.runId,
+                message: stoppedMessage
+              })
+              this.deps.emit<ThreadUpdatedEvent>({
+                type: 'thread.updated',
+                threadId: checkpoint.threadId,
+                thread: updatedThread
+              })
+            }
+            this.deps.storage.cancelRun({
+              runId: input.runId,
+              completedAt: timestamp
+            })
+            this.emitCancelledHarnessFinished({
+              threadId: input.thread.id,
+              runId: input.runId,
+              harnessId: activeRun.recoveringHarnessId
+            })
+            this.deps.emit<RunCancelledEvent>({
+              type: 'run.cancelled',
+              threadId: input.thread.id,
+              runId: input.runId
+            })
+            result = { kind: 'cancelled' }
+            break
+          }
           continue
         }
 
         activeRun.recoveryCheckpoint = undefined
+        activeRun.recoveringHarnessId = undefined
 
         if (result.kind === 'completed') {
           const threadMessages = this.deps.loadThreadMessages(currentThread.id)
@@ -1199,6 +1344,46 @@ export class YachiyoServerRunDomain {
         currentRequestMessageId = nextRequestMessageId
         currentThread = this.deps.requireThread(input.thread.id)
         this.emitThreadStateReplaced(currentThread.id)
+      }
+    } catch (error) {
+      const persistedRun = this.deps.storage.getRun(input.runId)
+
+      if (!persistedRun || persistedRun.status !== 'running') {
+        throw error
+      }
+
+      const timestamp = this.deps.timestamp()
+
+      if (isAbortError(error)) {
+        this.deps.storage.cancelRun({
+          runId: input.runId,
+          completedAt: timestamp
+        })
+        this.emitCancelledHarnessFinished({
+          threadId: input.thread.id,
+          runId: input.runId,
+          harnessId: this.activeRuns.get(input.runId)?.recoveringHarnessId
+        })
+        this.deps.emit<RunCancelledEvent>({
+          type: 'run.cancelled',
+          threadId: input.thread.id,
+          runId: input.runId
+        })
+        result = { kind: 'cancelled' }
+      } else {
+        const message = error instanceof Error ? error.message : String(error)
+        this.deps.storage.failRun({
+          runId: input.runId,
+          completedAt: timestamp,
+          error: message
+        })
+        this.deps.emit<RunFailedEvent>({
+          type: 'run.failed',
+          threadId: input.thread.id,
+          runId: input.runId,
+          error: message
+        })
+        result = { kind: 'failed' }
       }
     } finally {
       this.activeRuns.delete(input.runId)

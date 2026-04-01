@@ -189,6 +189,11 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       runRecoveryCheckpoints.delete(runId)
     },
 
+    getRun(runId) {
+      const run = runs.get(runId)
+      return run ? toRunRecord(run) : undefined
+    },
+
     getThread(threadId) {
       const thread = readThread(threadId)
       return thread ? toThreadRecord(thread) : undefined

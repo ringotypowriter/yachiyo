@@ -16,6 +16,23 @@ export interface AcpSessionResult {
   stopReason: string
 }
 
+function raceAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise
+  if (signal.aborted) {
+    return Promise.reject(new DOMException('The operation was aborted', 'AbortError'))
+  }
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      signal.addEventListener(
+        'abort',
+        () => reject(new DOMException('The operation was aborted', 'AbortError')),
+        { once: true }
+      )
+    })
+  ])
+}
+
 export async function runAcpSession(
   stream: ReturnType<typeof ndJsonStream>,
   proc: ChildProcess,
@@ -38,24 +55,37 @@ export async function runAcpSession(
     }
   }
 
-  try {
-    if (abortSignal?.aborted) {
-      throw new Error('Aborted before start')
+  const onAbort = (): void => {
+    if (sessionId) {
+      connection.cancel({ sessionId }).catch(() => {})
     }
+    killGroup()
+  }
+  abortSignal?.addEventListener('abort', onAbort, { once: true })
 
-    await connection.initialize({
-      protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: {}
-    })
+  try {
+    await raceAbort(
+      connection.initialize({
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: {}
+      }),
+      abortSignal
+    )
 
     if (resumeSessionId !== undefined) {
       try {
-        await connection.unstable_resumeSession({
-          cwd,
-          sessionId: resumeSessionId,
-          mcpServers: []
-        })
+        await raceAbort(
+          connection.unstable_resumeSession({
+            cwd,
+            sessionId: resumeSessionId,
+            mcpServers: []
+          }),
+          abortSignal
+        )
       } catch (resumeErr) {
+        if (resumeErr instanceof DOMException && resumeErr.name === 'AbortError') {
+          throw resumeErr
+        }
         const detail = resumeErr instanceof Error ? resumeErr.message : String(resumeErr)
         throw new Error(
           `Session resume failed for session_id "${resumeSessionId}": ${detail}. ` +
@@ -64,27 +94,26 @@ export async function runAcpSession(
       }
       sessionId = resumeSessionId
     } else {
-      const sessionResult = await connection.newSession({
-        cwd,
-        mcpServers: []
-      })
+      const sessionResult = await raceAbort(
+        connection.newSession({
+          cwd,
+          mcpServers: []
+        }),
+        abortSignal
+      )
       sessionId = sessionResult.sessionId
     }
 
-    const onAbort = (): void => {
-      connection.cancel({ sessionId }).catch(() => {})
-      killGroup()
-    }
-    abortSignal?.addEventListener('abort', onAbort, { once: true })
-
-    const promptResult = await connection.prompt({
-      sessionId,
-      prompt: [{ type: 'text', text: prompt }]
-    })
+    const promptResult = await raceAbort(
+      connection.prompt({
+        sessionId,
+        prompt: [{ type: 'text', text: prompt }]
+      }),
+      abortSignal
+    )
     stopReason = promptResult.stopReason
-
-    abortSignal?.removeEventListener('abort', onAbort)
   } finally {
+    abortSignal?.removeEventListener('abort', onAbort)
     killGroup()
     await procExited
   }

@@ -48,7 +48,10 @@ import type {
   WebSearchBrowserImportSource,
   YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol.ts'
-import { normalizeOptionalMaxChatToken } from '../../../shared/yachiyo/protocol.ts'
+import {
+  getThreadCapabilities,
+  normalizeOptionalMaxChatToken
+} from '../../../shared/yachiyo/protocol.ts'
 import {
   resolveYachiyoSettingsPath,
   resolveYachiyoTempWorkspaceRoot,
@@ -711,6 +714,10 @@ export class YachiyoServer {
       throw new Error('Cannot send an empty message.')
     }
     assertSupportedImages(images)
+    const thread = this.requireThread(input.threadId)
+    if (!getThreadCapabilities(thread).canEdit) {
+      throw new Error('ACP threads do not support editing messages.')
+    }
 
     this.threadDomain.deleteMessageFromHere({
       threadId: input.threadId,

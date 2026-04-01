@@ -17,6 +17,7 @@ import type {
   UserDocument,
   YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol.ts'
+import { withThreadCapabilities } from '../../../shared/yachiyo/protocol.ts'
 
 function assertAcceptedHasUserMessage(
   accepted: ChatAccepted
@@ -27,6 +28,7 @@ function assertAcceptedHasUserMessage(
 async function withServer(
   fn: (input: {
     server: YachiyoServer
+    storage: ReturnType<typeof createInMemoryYachiyoStorage>
     completeRun: (runId: string) => Promise<void>
     modelRequests: ModelStreamRequest[]
     waitForEvent: (type: string) => Promise<unknown>
@@ -230,6 +232,7 @@ async function withServer(
   try {
     await fn({
       server,
+      storage,
       workspacePathForThread,
       completeRun: (runId) =>
         new Promise<void>((resolve, reject) => {
@@ -1257,6 +1260,129 @@ test('YachiyoServer rejects ACP rebinding once a thread already has history', as
         }),
       /ACP agents can only be attached before messages have been sent/
     )
+  })
+})
+
+test('YachiyoServer exposes thread capabilities and blocks ACP-only leaked run semantics', async () => {
+  await withServer(async ({ server, storage }) => {
+    const createdAt = '2026-03-15T00:00:00.000Z'
+
+    storage.createThread({
+      thread: withThreadCapabilities({
+        id: 'thread-acp',
+        title: 'ACP thread',
+        updatedAt: createdAt,
+        headMessageId: 'assistant-1',
+        runtimeBinding: {
+          kind: 'acp',
+          profileId: 'agent-1',
+          profileName: 'ACP Agent',
+          sessionStatus: 'active'
+        }
+      }),
+      createdAt,
+      messages: [
+        {
+          id: 'user-1',
+          threadId: 'thread-acp',
+          role: 'user',
+          content: 'hello',
+          status: 'completed',
+          createdAt
+        },
+        {
+          id: 'assistant-1',
+          threadId: 'thread-acp',
+          parentMessageId: 'user-1',
+          role: 'assistant',
+          content: 'hi',
+          status: 'completed',
+          createdAt: '2026-03-15T00:00:01.000Z'
+        }
+      ]
+    })
+
+    const bootstrap = await server.bootstrap()
+    const thread = bootstrap.threads.find((entry) => entry.id === 'thread-acp')
+
+    assert.deepEqual(thread?.capabilities, {
+      canRetry: false,
+      canCreateBranch: false,
+      canSelectReplyBranch: false,
+      canEdit: false,
+      canDelete: false
+    })
+
+    await assert.rejects(
+      server.retryMessage({
+        threadId: 'thread-acp',
+        messageId: 'assistant-1'
+      }),
+      /ACP threads do not support retry/
+    )
+
+    await assert.rejects(
+      server.createBranch({
+        threadId: 'thread-acp',
+        messageId: 'assistant-1'
+      }),
+      /ACP threads do not support branching/
+    )
+
+    await assert.rejects(
+      server.selectReplyBranch({
+        threadId: 'thread-acp',
+        assistantMessageId: 'assistant-1'
+      }),
+      /ACP threads do not support reply branch navigation/
+    )
+
+    await assert.rejects(
+      server.editMessage({
+        threadId: 'thread-acp',
+        messageId: 'user-1',
+        content: 'edited'
+      }),
+      /ACP threads do not support editing messages/
+    )
+
+    await assert.rejects(
+      server.deleteMessageFromHere({
+        threadId: 'thread-acp',
+        messageId: 'assistant-1'
+      }),
+      /ACP threads do not support deleting messages/
+    )
+  })
+})
+
+test('YachiyoServer restores interactive capabilities after removing an ACP binding', async () => {
+  await withServer(async ({ server }) => {
+    const thread = await server.createThread()
+
+    const acpThread = await server.setThreadRuntimeBinding({
+      threadId: thread.id,
+      runtimeBinding: {
+        kind: 'acp',
+        profileId: 'agent-1',
+        profileName: 'ACP Agent',
+        sessionStatus: 'new'
+      }
+    })
+    assert.equal(acpThread.capabilities?.canRetry, false)
+    assert.equal(acpThread.capabilities?.canEdit, false)
+
+    const llmThread = await server.setThreadRuntimeBinding({
+      threadId: thread.id,
+      runtimeBinding: null
+    })
+    assert.deepEqual(llmThread.capabilities, {
+      canRetry: true,
+      canCreateBranch: true,
+      canSelectReplyBranch: true,
+      canEdit: true,
+      canDelete: true
+    })
   })
 })
 
@@ -6045,6 +6171,112 @@ test('YachiyoServer can retry directly from a user request that has no assistant
 
           yield 'Hello'
           yield ' world'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer binds recovered tool calls and closes the harness when retry backoff is cancelled', async () => {
+  let attempt = 0
+
+  await withServer(
+    async ({ server, completeRun, waitForEvent }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Retry and then cancel me.'
+      })
+
+      const retryingEvent = (await waitForEvent('run.retrying')) as {
+        type: 'run.retrying'
+        runId: string
+      }
+      assert.equal(retryingEvent.runId, accepted.runId)
+
+      await server.cancelRun({ runId: accepted.runId })
+      const harnessFinished = (await waitForEvent('harness.finished')) as {
+        type: 'harness.finished'
+        status: string
+      }
+      assert.equal(harnessFinished.status, 'cancelled')
+      await completeRun(accepted.runId)
+
+      const bootstrap = await server.bootstrap()
+      const stoppedMessage = (bootstrap.messagesByThread[thread.id] ?? []).find(
+        (message) => message.role === 'assistant' && message.status === 'stopped'
+      )
+      const toolCall = (bootstrap.toolCallsByThread[thread.id] ?? [])[0]
+
+      assert.ok(stoppedMessage)
+      assert.equal(toolCall?.status, 'completed')
+      assert.equal(toolCall?.assistantMessageId, stoppedMessage?.id)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest): AsyncIterable<string> {
+          attempt += 1
+
+          if (attempt === 1) {
+            request.onToolCallStart?.({
+              abortSignal: request.signal,
+              experimental_context: undefined,
+              functionId: undefined,
+              messages: request.messages,
+              metadata: undefined,
+              model: undefined,
+              stepNumber: 0,
+              toolCall: {
+                input: { path: 'notes.txt' },
+                toolCallId: 'tool-retry-cancel-1',
+                toolName: 'read'
+              }
+            } as never)
+            request.onToolCallFinish?.({
+              abortSignal: request.signal,
+              durationMs: 1,
+              experimental_context: undefined,
+              functionId: undefined,
+              messages: request.messages,
+              metadata: undefined,
+              model: undefined,
+              stepNumber: 0,
+              success: true,
+              output: {
+                content: [{ type: 'text', text: 'partial' }],
+                details: {
+                  endLine: 1,
+                  path: '/tmp/notes.txt',
+                  startLine: 1,
+                  totalBytes: 7,
+                  totalLines: 1,
+                  truncated: false
+                },
+                metadata: {}
+              },
+              toolCall: {
+                input: { path: 'notes.txt' },
+                toolCallId: 'tool-retry-cancel-1',
+                toolName: 'read'
+              }
+            } as never)
+
+            yield 'Partial answer'
+            throw Object.assign(new Error('temporary upstream failure'), { status: 500 })
+          }
+
+          yield 'Recovered answer'
         }
       })
     }

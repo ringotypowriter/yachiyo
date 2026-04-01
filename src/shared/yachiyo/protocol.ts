@@ -422,6 +422,14 @@ export interface ThreadRuntimeBinding {
   lastSessionBoundAt?: string
 }
 
+export interface ThreadCapabilities {
+  canRetry: boolean
+  canCreateBranch: boolean
+  canSelectReplyBranch: boolean
+  canEdit: boolean
+  canDelete: boolean
+}
+
 export interface ThreadRecord {
   archivedAt?: string
   starredAt?: string
@@ -453,6 +461,40 @@ export interface ThreadRecord {
   createdFromEssentialId?: string
   /** Backend runtime binding: stores kind, ACP profile, and session state. */
   runtimeBinding?: ThreadRuntimeBinding
+  /** Derived thread action flags for UI and domain policy checks. */
+  capabilities?: ThreadCapabilities
+}
+
+export function deriveThreadCapabilities(
+  runtimeBinding?: ThreadRuntimeBinding
+): ThreadCapabilities {
+  const actionEnabled = runtimeBinding?.kind !== 'acp'
+
+  return {
+    canRetry: actionEnabled,
+    canCreateBranch: actionEnabled,
+    canSelectReplyBranch: actionEnabled,
+    canEdit: actionEnabled,
+    canDelete: actionEnabled
+  }
+}
+
+export function getThreadCapabilities(
+  thread: Pick<ThreadRecord, 'capabilities' | 'runtimeBinding'>
+): ThreadCapabilities {
+  return thread.capabilities ?? deriveThreadCapabilities(thread.runtimeBinding)
+}
+
+export function withThreadCapabilities<T extends object>(
+  thread: T & {
+    runtimeBinding?: ThreadRuntimeBinding
+    capabilities?: ThreadCapabilities
+  }
+): Omit<T, 'capabilities'> & { capabilities: ThreadCapabilities } {
+  return {
+    ...thread,
+    capabilities: deriveThreadCapabilities(thread.runtimeBinding)
+  }
 }
 
 /** Per-turn injected context (reminder, memory) persisted for lossless replay. */

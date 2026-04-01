@@ -390,6 +390,12 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .run()
     },
 
+    getRun(runId) {
+      const run = db.select().from(runsTable).where(eq(runsTable.id, runId)).get()
+
+      return run ? toRunRecord(run) : undefined
+    },
+
     getThread(threadId) {
       const thread = db
         .select({

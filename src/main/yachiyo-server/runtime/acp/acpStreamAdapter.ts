@@ -1,11 +1,15 @@
 import type {
   RequestPermissionRequest,
   RequestPermissionResponse,
-  SessionNotification
+  SessionNotification,
+  ToolCall,
+  ToolCallUpdate
 } from '@agentclientprotocol/sdk'
 
 export interface AcpProgressCallbacks {
   onProgress?: (chunk: string) => void
+  onToolCall?: (toolCall: ToolCall & { sessionUpdate: 'tool_call' }) => void
+  onToolCallUpdate?: (update: ToolCallUpdate & { sessionUpdate: 'tool_call_update' }) => void
 }
 
 export interface AcpYoloClient {
@@ -43,12 +47,19 @@ export function createAcpStreamAdapter(callbacks: AcpProgressCallbacks): AcpStre
         const update = params.update
         if (update.sessionUpdate === 'agent_message_chunk' && update.content.type === 'text') {
           if (!wasStreamingText && hadAnyProgress) {
-            callbacks.onProgress?.('\n')
+            lastMessageText += '\n'
           }
           wasStreamingText = true
           hadAnyProgress = true
           lastMessageText += update.content.text
           callbacks.onProgress?.(update.content.text)
+        } else if (update.sessionUpdate === 'tool_call') {
+          wasStreamingText = false
+          hadAnyProgress = true
+          callbacks.onToolCall?.(update)
+        } else if (update.sessionUpdate === 'tool_call_update') {
+          wasStreamingText = false
+          callbacks.onToolCallUpdate?.(update)
         } else {
           wasStreamingText = false
         }
