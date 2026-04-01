@@ -1547,93 +1547,97 @@ export function Composer({
           <Paperclip size={16} strokeWidth={1.5} color={theme.icon.muted} />
         </button>
 
-        <div ref={toolSelectorRef} style={{ position: 'relative' }}>
-          <button
-            type="button"
-            onClick={() => {
-              setModelSelectorOpen(false)
-              setSkillsSelectorOpen(false)
-              setWorkspaceSelectorOpen(false)
-              setToolSelectorOpen((open) => !open)
-            }}
-            className="relative p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity"
-            aria-label="Tools"
-            aria-expanded={toolSelectorOpen}
-            aria-haspopup="menu"
-          >
-            <Wrench
-              size={16}
-              strokeWidth={1.5}
-              color={enabledTools.length > 0 ? theme.icon.accent : theme.icon.muted}
-            />
-            {enabledTools.length > 0 ? (
-              <span
-                className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center"
-                style={{ fontSize: '8px', background: theme.text.accent }}
-              >
-                {enabledTools.length}
-              </span>
-            ) : null}
-          </button>
-
-          {toolSelectorOpen ? (
-            <ToolSelectorPopup
-              enabledTools={enabledTools}
-              hasActiveRun={hasActiveRun}
-              onToggle={(toolName) => void toggleEnabledTool(toolName)}
-              onClose={() => setToolSelectorOpen(false)}
-            />
-          ) : null}
-        </div>
-
-        <div ref={skillsSelectorRef} style={{ position: 'relative' }}>
-          <button
-            type="button"
-            onClick={() => {
-              setModelSelectorOpen(false)
-              setToolSelectorOpen(false)
-              setWorkspaceSelectorOpen(false)
-              setSkillsSelectorOpen((open) => !open)
-            }}
-            className="relative p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity"
-            aria-label="Skills"
-            aria-expanded={skillsSelectorOpen}
-            aria-haspopup="menu"
-          >
-            <Sparkles
-              size={16}
-              strokeWidth={1.5}
-              color={enabledSkillCount > 0 ? theme.icon.accent : theme.icon.muted}
-            />
-            {enabledSkillCount > 0 ? (
-              <span
-                className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center"
-                style={{ fontSize: '8px', background: theme.text.accent }}
-              >
-                {enabledSkillCount}
-              </span>
-            ) : null}
-          </button>
-
-          {skillsSelectorOpen ? (
-            <SkillsSelectorPopup
-              availableSkills={availableSkills}
-              effectiveEnabledSkillNames={effectiveEnabledSkillNames}
-              hasCustomOverride={hasCustomSkillOverride}
-              onReset={() => setComposerEnabledSkillNames(null)}
-              onToggle={(skillName) => {
-                const current = hasCustomSkillOverride
-                  ? effectiveEnabledSkillNames
-                  : defaultEnabledSkillNames
-                const next = current.includes(skillName)
-                  ? current.filter((name) => name !== skillName)
-                  : [...current, skillName]
-                setComposerEnabledSkillNames(next)
+        {!effectiveAcpBinding && (
+          <div ref={toolSelectorRef} style={{ position: 'relative' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setModelSelectorOpen(false)
+                setSkillsSelectorOpen(false)
+                setWorkspaceSelectorOpen(false)
+                setToolSelectorOpen((open) => !open)
               }}
-              onClose={() => setSkillsSelectorOpen(false)}
-            />
-          ) : null}
-        </div>
+              className="relative p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity"
+              aria-label="Tools"
+              aria-expanded={toolSelectorOpen}
+              aria-haspopup="menu"
+            >
+              <Wrench
+                size={16}
+                strokeWidth={1.5}
+                color={enabledTools.length > 0 ? theme.icon.accent : theme.icon.muted}
+              />
+              {enabledTools.length > 0 ? (
+                <span
+                  className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center"
+                  style={{ fontSize: '8px', background: theme.text.accent }}
+                >
+                  {enabledTools.length}
+                </span>
+              ) : null}
+            </button>
+
+            {toolSelectorOpen ? (
+              <ToolSelectorPopup
+                enabledTools={enabledTools}
+                hasActiveRun={hasActiveRun}
+                onToggle={(toolName) => void toggleEnabledTool(toolName)}
+                onClose={() => setToolSelectorOpen(false)}
+              />
+            ) : null}
+          </div>
+        )}
+
+        {!effectiveAcpBinding && (
+          <div ref={skillsSelectorRef} style={{ position: 'relative' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setModelSelectorOpen(false)
+                setToolSelectorOpen(false)
+                setWorkspaceSelectorOpen(false)
+                setSkillsSelectorOpen((open) => !open)
+              }}
+              className="relative p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity"
+              aria-label="Skills"
+              aria-expanded={skillsSelectorOpen}
+              aria-haspopup="menu"
+            >
+              <Sparkles
+                size={16}
+                strokeWidth={1.5}
+                color={enabledSkillCount > 0 ? theme.icon.accent : theme.icon.muted}
+              />
+              {enabledSkillCount > 0 ? (
+                <span
+                  className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center"
+                  style={{ fontSize: '8px', background: theme.text.accent }}
+                >
+                  {enabledSkillCount}
+                </span>
+              ) : null}
+            </button>
+
+            {skillsSelectorOpen ? (
+              <SkillsSelectorPopup
+                availableSkills={availableSkills}
+                effectiveEnabledSkillNames={effectiveEnabledSkillNames}
+                hasCustomOverride={hasCustomSkillOverride}
+                onReset={() => setComposerEnabledSkillNames(null)}
+                onToggle={(skillName) => {
+                  const current = hasCustomSkillOverride
+                    ? effectiveEnabledSkillNames
+                    : defaultEnabledSkillNames
+                  const next = current.includes(skillName)
+                    ? current.filter((name) => name !== skillName)
+                    : [...current, skillName]
+                  setComposerEnabledSkillNames(next)
+                }}
+                onClose={() => setSkillsSelectorOpen(false)}
+              />
+            ) : null}
+          </div>
+        )}
 
         <div
           ref={workspaceSelectorRef}

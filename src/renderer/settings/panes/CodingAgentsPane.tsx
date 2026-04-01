@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { CheckCircle, ChevronDown, Loader, Plus, Trash2, XCircle } from 'lucide-react'
+import { Check, CheckCircle, ChevronDown, Loader, Plus, Trash2, XCircle } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import type { SettingsConfig, SubagentProfile } from '../../../shared/yachiyo/protocol.ts'
 import { SettingLabel, SettingSection, SettingSwitch } from '../components/primitives'
@@ -14,6 +14,7 @@ interface ProfileDraft {
   id: string
   name: string
   enabled: boolean
+  showInChatPicker: boolean
   description: string
   command: string
   argsString: string
@@ -64,6 +65,7 @@ function toProfileDraft(p: SubagentProfile): ProfileDraft {
     id: p.id,
     name: p.name,
     enabled: p.enabled,
+    showInChatPicker: p.showInChatPicker ?? false,
     description: p.description,
     command: p.command,
     argsString: JSON.stringify(p.args),
@@ -87,6 +89,7 @@ function toProfile(d: ProfileDraft): SubagentProfile {
     id: d.id,
     name: d.name.trim(),
     enabled: d.enabled,
+    showInChatPicker: d.showInChatPicker,
     description: d.description,
     command: d.command.trim(),
     args,
@@ -148,6 +151,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
         ? {
             id,
             enabled: true,
+            showInChatPicker: false,
             name: preset.name,
             description: preset.description,
             command: preset.command,
@@ -158,6 +162,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
             id,
             name: '',
             enabled: true,
+            showInChatPicker: false,
             description: '',
             command: '',
             argsString: '[]',
@@ -313,6 +318,29 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                     onChange={(e) => updateRow(index, { name: e.target.value })}
                     spellCheck={false}
                   />
+                  <button
+                    type="button"
+                    onClick={() => updateRow(index, { showInChatPicker: !row.showInChatPicker })}
+                    className="shrink-0 flex items-center gap-1.5 text-xs font-medium transition-opacity"
+                    style={{
+                      color: row.showInChatPicker ? theme.text.accent : theme.text.tertiary,
+                      opacity: row.showInChatPicker ? 1 : 0.5
+                    }}
+                    aria-label={`Show ${row.name || 'agent'} in chat picker`}
+                  >
+                    <span
+                      className="inline-flex items-center justify-center rounded-full transition-colors"
+                      style={{
+                        width: 14,
+                        height: 14,
+                        border: `1.5px solid currentColor`,
+                        background: row.showInChatPicker ? 'currentColor' : 'transparent'
+                      }}
+                    >
+                      {row.showInChatPicker && <Check size={8} strokeWidth={3} color="white" />}
+                    </span>
+                    Picker
+                  </button>
                   <button
                     type="button"
                     disabled={!canTest || test.status === 'running'}
