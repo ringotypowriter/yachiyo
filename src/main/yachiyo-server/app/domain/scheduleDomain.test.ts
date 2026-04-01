@@ -78,9 +78,46 @@ describe('ScheduleDomain', () => {
 
       assert.equal(schedule.name, 'Daily Report')
       assert.equal(schedule.cronExpression, '0 9 * * *')
+      assert.equal(schedule.runAt, undefined)
       assert.equal(schedule.prompt, 'Generate daily report')
       assert.equal(schedule.enabled, true)
       assert.equal(schedule.id, 'test-1')
+    })
+
+    it('creates a one-off schedule with runAt', () => {
+      const { domain } = createDomain()
+      const schedule = domain.createSchedule({
+        name: 'One-off Task',
+        runAt: '2099-06-01T09:00:00.000Z',
+        prompt: 'Do the thing once'
+      })
+
+      assert.equal(schedule.name, 'One-off Task')
+      assert.equal(schedule.runAt, '2099-06-01T09:00:00.000Z')
+      assert.equal(schedule.cronExpression, undefined)
+      assert.equal(schedule.enabled, true)
+    })
+
+    it('rejects neither cronExpression nor runAt', () => {
+      const { domain } = createDomain()
+      assert.throws(
+        () => domain.createSchedule({ name: 'Bad', prompt: 'test' }),
+        /cronExpression or runAt/i
+      )
+    })
+
+    it('rejects both cronExpression and runAt', () => {
+      const { domain } = createDomain()
+      assert.throws(
+        () =>
+          domain.createSchedule({
+            name: 'Conflict',
+            cronExpression: '0 9 * * *',
+            runAt: '2099-06-01T09:00:00.000Z',
+            prompt: 'test'
+          }),
+        /not both/i
+      )
     })
 
     it('rejects invalid cron expression', () => {
@@ -93,6 +130,19 @@ describe('ScheduleDomain', () => {
             prompt: 'test'
           }),
         /invalid cron expression/i
+      )
+    })
+
+    it('rejects invalid runAt datetime', () => {
+      const { domain } = createDomain()
+      assert.throws(
+        () =>
+          domain.createSchedule({
+            name: 'Bad',
+            runAt: 'not-a-date',
+            prompt: 'test'
+          }),
+        /invalid runAt/i
       )
     })
 
@@ -208,6 +258,57 @@ describe('ScheduleDomain', () => {
 
       assert.equal(updated.workspacePath, undefined)
       assert.equal(updated.modelOverride, undefined)
+    })
+
+    it('converts cron schedule to one-off by setting runAt and clearing cronExpression', () => {
+      const { domain } = createDomain()
+      domain.createSchedule({
+        name: 'Switch',
+        cronExpression: '0 9 * * *',
+        prompt: 'test'
+      })
+
+      const updated = domain.updateSchedule({
+        id: 'test-1',
+        cronExpression: null,
+        runAt: '2099-12-31T23:59:00.000Z'
+      })
+
+      assert.equal(updated.cronExpression, undefined)
+      assert.equal(updated.runAt, '2099-12-31T23:59:00.000Z')
+    })
+
+    it('rejects update that leaves schedule with no scheduling mode', () => {
+      const { domain } = createDomain()
+      domain.createSchedule({
+        name: 'Test',
+        cronExpression: '0 9 * * *',
+        prompt: 'test'
+      })
+
+      assert.throws(
+        () => domain.updateSchedule({ id: 'test-1', cronExpression: null }),
+        /cronExpression or runAt/i
+      )
+    })
+
+    it('rejects update that leaves schedule with both scheduling modes', () => {
+      const { domain } = createDomain()
+      domain.createSchedule({
+        name: 'Test',
+        runAt: '2099-06-01T09:00:00.000Z',
+        prompt: 'test'
+      })
+
+      assert.throws(
+        () =>
+          domain.updateSchedule({
+            id: 'test-1',
+            cronExpression: '0 9 * * *'
+            // runAt still present on existing record
+          }),
+        /both/i
+      )
     })
 
     it('rejects blank name on update', () => {

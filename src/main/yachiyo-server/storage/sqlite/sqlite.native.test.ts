@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -32,8 +32,22 @@ const SqliteDatabase = ((BetterSqlite3 as { default?: unknown }).default ?? Bett
   exec(sql: string): void
   prepare(sql: string): {
     all(): Array<{ name: string }>
+    get(...params: unknown[]): Record<string, unknown> | undefined
     run(...params: unknown[]): void
   }
+}
+
+async function readMigrationTimestamp(tag: string): Promise<number> {
+  const journal = JSON.parse(
+    await readFile(new URL('./drizzle/meta/_journal.json', import.meta.url), 'utf8')
+  ) as {
+    entries: Array<{ tag: string; when: number }>
+  }
+  const entry = journal.entries.find((item) => item.tag === tag)
+  if (!entry) {
+    throw new Error(`Missing migration journal entry for ${tag}`)
+  }
+  return entry.when
 }
 
 interface RunCompletionTracker {
@@ -202,6 +216,74 @@ test('sqlite storage initializes migrations on disk', async () => {
     )
 
     db.close()
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('0034 migration preserves recurring schedules without inventing run_at values', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-sqlite-native-'))
+  const dbPath = join(root, 'schedule-migration.sqlite')
+
+  try {
+    const previousMigrationAt = await readMigrationTimestamp('0033_bouncy_impossible_man')
+    const db = new SqliteDatabase(dbPath)
+
+    db.exec(`
+      CREATE TABLE "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY,
+        hash text NOT NULL,
+        created_at numeric
+      );
+      CREATE TABLE "schedules" (
+        "id" text PRIMARY KEY NOT NULL,
+        "name" text NOT NULL,
+        "cron_expression" text,
+        "prompt" text NOT NULL,
+        "workspace_path" text,
+        "model_override" text,
+        "enabled_tools" text,
+        "enabled" integer DEFAULT 1 NOT NULL,
+        "created_at" text NOT NULL,
+        "updated_at" text NOT NULL
+      );
+    `)
+
+    db.prepare('INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES (?, ?)').run(
+      'pre-0034',
+      previousMigrationAt
+    )
+    db.prepare(
+      'INSERT INTO "schedules" ("id", "name", "cron_expression", "prompt", "workspace_path", "model_override", "enabled_tools", "enabled", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(
+      'schedule-1',
+      'Daily report',
+      '0 9 * * *',
+      'Send the report',
+      null,
+      null,
+      null,
+      1,
+      '2026-01-01T00:00:00.000Z',
+      '2026-01-01T00:00:00.000Z'
+    )
+    db.close()
+
+    const storage = createSqliteYachiyoStorage(dbPath)
+    const schedule = storage.getSchedule('schedule-1')
+
+    assert.equal(schedule?.cronExpression, '0 9 * * *')
+    assert.equal(schedule?.runAt, undefined)
+
+    storage.close()
+
+    const migratedDb = new SqliteDatabase(dbPath)
+    const row = migratedDb
+      .prepare('SELECT cron_expression, run_at FROM schedules WHERE id = ?')
+      .get('schedule-1')
+    assert.equal(row?.['cron_expression'], '0 9 * * *')
+    assert.equal(row?.['run_at'], null)
+    migratedDb.close()
   } finally {
     await rm(root, { recursive: true, force: true })
   }

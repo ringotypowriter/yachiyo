@@ -8,6 +8,11 @@ import type {
 } from '../../../../shared/yachiyo/protocol.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 
+function validateRunAt(runAt: string): void {
+  const ts = Date.parse(runAt)
+  if (isNaN(ts)) throw new Error(`Invalid runAt datetime: "${runAt}"`)
+}
+
 export interface ScheduleDomainDeps {
   storage: Pick<
     YachiyoStorage,
@@ -51,13 +56,21 @@ export class ScheduleDomain {
     const prompt = input.prompt.trim()
     if (!prompt) throw new Error('Schedule prompt must not be empty.')
 
-    validateCronExpression(input.cronExpression)
+    const hasCron = Boolean(input.cronExpression?.trim())
+    const hasRunAt = Boolean(input.runAt?.trim())
+    if (!hasCron && !hasRunAt) throw new Error('Either cronExpression or runAt must be provided.')
+    if (hasCron && hasRunAt)
+      throw new Error('Only one of cronExpression or runAt may be provided, not both.')
+
+    if (hasCron) validateCronExpression(input.cronExpression!)
+    if (hasRunAt) validateRunAt(input.runAt!)
 
     const now = this.timestamp()
     const schedule: ScheduleRecord = {
       id: this.createId(),
       name,
-      cronExpression: input.cronExpression.trim(),
+      ...(hasCron ? { cronExpression: input.cronExpression!.trim() } : {}),
+      ...(hasRunAt ? { runAt: input.runAt!.trim() } : {}),
       prompt,
       ...(input.workspacePath ? { workspacePath: input.workspacePath } : {}),
       ...(input.modelOverride ? { modelOverride: input.modelOverride } : {}),
@@ -83,20 +96,43 @@ export class ScheduleDomain {
       throw new Error('Schedule prompt must not be empty.')
     }
 
-    if (input.cronExpression !== undefined) {
+    if (input.cronExpression != null && input.cronExpression.trim()) {
       validateCronExpression(input.cronExpression)
+    }
+
+    if (input.runAt != null && input.runAt.trim()) {
+      validateRunAt(input.runAt)
     }
 
     const updated: ScheduleRecord = {
       ...existing,
       ...(input.name !== undefined ? { name: input.name.trim() } : {}),
-      ...(input.cronExpression !== undefined
-        ? { cronExpression: input.cronExpression.trim() }
-        : {}),
       ...(input.prompt !== undefined ? { prompt: input.prompt.trim() } : {}),
       ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
       updatedAt: this.timestamp()
     }
+
+    // cronExpression: null = clear, string = set, undefined = keep
+    if (input.cronExpression === null) {
+      delete updated.cronExpression
+    } else if (input.cronExpression !== undefined) {
+      updated.cronExpression = input.cronExpression.trim()
+    }
+
+    // runAt: null = clear, string = set, undefined = keep
+    if (input.runAt === null) {
+      delete updated.runAt
+    } else if (input.runAt !== undefined) {
+      updated.runAt = input.runAt.trim()
+    }
+
+    // Validate the resulting record still has exactly one scheduling mode
+    const hasCron = Boolean(updated.cronExpression)
+    const hasRunAt = Boolean(updated.runAt)
+    if (!hasCron && !hasRunAt)
+      throw new Error('Schedule must have either cronExpression or runAt after update.')
+    if (hasCron && hasRunAt)
+      throw new Error('Schedule cannot have both cronExpression and runAt after update.')
 
     // Handle nullable fields — null means clear, undefined means keep
     if (input.workspacePath === null) {

@@ -170,7 +170,8 @@ export const imageAltTextsTable = sqliteTable('image_alt_texts', {
 export const schedulesTable = sqliteTable('schedules', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
-  cronExpression: text('cron_expression').notNull(),
+  cronExpression: text('cron_expression'),
+  runAt: text('run_at'),
   prompt: text('prompt').notNull(),
   workspacePath: text('workspace_path'),
   modelOverride: text('model_override'),

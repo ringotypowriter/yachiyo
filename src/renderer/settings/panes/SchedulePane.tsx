@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Plus, Trash2, Clock, CalendarClock } from 'lucide-react'
+import { Plus, Trash2, Clock, CalendarClock, CalendarDays } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { theme, alpha } from '@renderer/theme/theme'
 import { inputStyle } from '../components/styles'
 import { SettingSwitch, SimpleSelect } from '../components/primitives'
 import type {
+  CreateScheduleInput,
   ScheduleRecord,
   ScheduleRunRecord,
   SettingsConfig,
-  ThreadModelOverride,
-  CreateScheduleInput
+  ThreadModelOverride
 } from '../../../shared/yachiyo/protocol'
+import { buildScheduleFormSubmitInput, type ScheduleFormSubmitInput } from './schedulePaneModel'
 
 // ---------------------------------------------------------------------------
 // Human-friendly cron helpers
@@ -315,6 +316,333 @@ function CronQuickPick({ onPick }: CronQuickPickProps): React.ReactNode {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Date-time picker widget
+// ---------------------------------------------------------------------------
+
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December'
+] as const
+
+const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as const
+
+function buildCalendarGrid(year: number, month: number): (number | null)[] {
+  const firstDow = new Date(year, month, 1).getDay()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const grid: (number | null)[] = Array(firstDow).fill(null)
+  for (let d = 1; d <= daysInMonth; d++) grid.push(d)
+  while (grid.length % 7 !== 0) grid.push(null)
+  return grid
+}
+
+function DateTimePick({
+  value,
+  onPick
+}: {
+  value: string
+  onPick: (dt: string) => void
+}): React.ReactNode {
+  const [open, setOpen] = useState(false)
+  const [popupPos, setPopupPos] = useState<{ top: number; left: number; flipUp: boolean } | null>(
+    null
+  )
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  const [viewYear, setViewYear] = useState(new Date().getFullYear())
+  const [viewMonth, setViewMonth] = useState(new Date().getMonth())
+  const [selYear, setSelYear] = useState<number | null>(null)
+  const [selMonth, setSelMonth] = useState<number | null>(null)
+  const [selDay, setSelDay] = useState<number | null>(null)
+  const [hour, setHour] = useState(9)
+  const [minute, setMinute] = useState(0)
+
+  const POPUP_H = 340
+
+  function handleOpen(): void {
+    const parsed = value ? new Date(value.replace(' ', 'T')) : null
+    const base = parsed && !isNaN(parsed.getTime()) ? parsed : new Date()
+    setViewYear(base.getFullYear())
+    setViewMonth(base.getMonth())
+    if (parsed && !isNaN(parsed.getTime())) {
+      setSelYear(parsed.getFullYear())
+      setSelMonth(parsed.getMonth())
+      setSelDay(parsed.getDate())
+      setHour(parsed.getHours())
+      setMinute(Math.round(parsed.getMinutes() / 5) * 5)
+    } else {
+      setSelYear(null)
+      setSelMonth(null)
+      setSelDay(null)
+      setHour(9)
+      setMinute(0)
+    }
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      const flipUp = r.bottom + 6 + POPUP_H > window.innerHeight
+      setPopupPos({ top: flipUp ? r.top - POPUP_H - 6 : r.bottom + 6, left: r.right, flipUp })
+    }
+    setOpen(true)
+  }
+
+  function handleApply(): void {
+    if (selYear == null || selMonth == null || selDay == null) return
+    const pad = (n: number): string => String(n).padStart(2, '0')
+    onPick(`${selYear}-${pad(selMonth + 1)}-${pad(selDay)} ${pad(hour)}:${pad(minute)}`)
+    setOpen(false)
+  }
+
+  function prevMonth(): void {
+    if (viewMonth === 0) {
+      setViewYear((y) => y - 1)
+      setViewMonth(11)
+    } else setViewMonth((m) => m - 1)
+  }
+  function nextMonth(): void {
+    if (viewMonth === 11) {
+      setViewYear((y) => y + 1)
+      setViewMonth(0)
+    } else setViewMonth((m) => m + 1)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    function handlePointerDown(e: PointerEvent): void {
+      const target = e.target as Node
+      if (!btnRef.current?.contains(target) && !panelRef.current?.contains(target)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [open])
+
+  const grid = buildCalendarGrid(viewYear, viewMonth)
+  const today = new Date()
+  const isSelected = (d: number): boolean =>
+    d === selDay && viewMonth === selMonth && viewYear === selYear
+  const isToday = (d: number): boolean =>
+    d === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear()
+
+  const preview =
+    selYear != null && selMonth != null && selDay != null
+      ? `${selYear}-${String(selMonth + 1).padStart(2, '0')}-${String(selDay).padStart(2, '0')} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+      : '—'
+
+  const navBtn = (onClick: () => void, label: string): React.ReactNode => (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        color: theme.text.secondary,
+        borderRadius: 6,
+        width: 24,
+        height: 24,
+        fontSize: 14,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}
+    >
+      {label}
+    </button>
+  )
+
+  const stepBtn = (onClick: () => void, label: string): React.ReactNode => (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        background: alpha('ink', 0.05),
+        border: 'none',
+        cursor: 'pointer',
+        color: theme.text.secondary,
+        borderRadius: 5,
+        width: 22,
+        height: 22,
+        fontSize: 13,
+        lineHeight: 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0
+      }}
+    >
+      {label}
+    </button>
+  )
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        title="Date & time picker"
+        className="flex items-center justify-center rounded-md cursor-pointer shrink-0"
+        style={{
+          width: 32,
+          height: 32,
+          background: open ? alpha('accent', 0.12) : alpha('ink', 0.04),
+          color: open ? theme.text.accent : theme.text.tertiary,
+          border: 'none'
+        }}
+        onClick={() => (open ? setOpen(false) : handleOpen())}
+      >
+        <CalendarDays size={15} />
+      </button>
+
+      {open &&
+        popupPos &&
+        createPortal(
+          <div
+            ref={panelRef}
+            style={{
+              position: 'fixed',
+              top: popupPos.top,
+              left: popupPos.left,
+              transform: 'translateX(-100%)',
+              zIndex: 9999,
+              background: theme.background.surface,
+              borderRadius: 12,
+              border: `1px solid ${theme.border.subtle}`,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06)',
+              padding: 10,
+              width: 240
+            }}
+          >
+            {/* Month navigation */}
+            <div className="flex items-center justify-between mb-2">
+              {navBtn(prevMonth, '‹')}
+              <span className="text-xs font-medium" style={{ color: theme.text.primary }}>
+                {MONTH_NAMES[viewMonth]} {viewYear}
+              </span>
+              {navBtn(nextMonth, '›')}
+            </div>
+
+            {/* Weekday labels */}
+            <div className="grid grid-cols-7 mb-1">
+              {WEEKDAY_LABELS.map((l) => (
+                <span
+                  key={l}
+                  className="text-center text-[10px] font-medium py-0.5"
+                  style={{ color: theme.text.tertiary }}
+                >
+                  {l}
+                </span>
+              ))}
+            </div>
+
+            {/* Day grid */}
+            <div className="grid grid-cols-7 gap-0.5">
+              {grid.map((day, i) =>
+                day == null ? (
+                  <span key={i} />
+                ) : (
+                  <button
+                    key={i}
+                    type="button"
+                    className="rounded-md text-[12px] py-1 cursor-pointer"
+                    style={{
+                      background: isSelected(day) ? alpha('accent', 0.16) : 'transparent',
+                      color: isSelected(day)
+                        ? theme.text.accent
+                        : isToday(day)
+                          ? theme.text.accent
+                          : theme.text.primary,
+                      fontWeight: isSelected(day) || isToday(day) ? 600 : 400,
+                      border:
+                        isToday(day) && !isSelected(day)
+                          ? `1px solid ${alpha('accent', 0.3)}`
+                          : '1px solid transparent'
+                    }}
+                    onClick={() => {
+                      setSelYear(viewYear)
+                      setSelMonth(viewMonth)
+                      setSelDay(day)
+                    }}
+                  >
+                    {day}
+                  </button>
+                )
+              )}
+            </div>
+
+            {/* Time steppers */}
+            <div
+              className="flex items-center gap-2 mt-3 pt-2.5"
+              style={{ borderTop: `1px solid ${alpha('ink', 0.06)}` }}
+            >
+              <span className="text-xs shrink-0" style={{ color: theme.text.secondary }}>
+                Time
+              </span>
+              <div className="flex items-center gap-1 flex-1">
+                {stepBtn(() => setHour((h) => (h + 23) % 24), '−')}
+                <span
+                  className="flex-1 text-center text-xs font-medium tabular-nums"
+                  style={{ color: theme.text.primary }}
+                >
+                  {String(hour).padStart(2, '0')}
+                </span>
+                {stepBtn(() => setHour((h) => (h + 1) % 24), '+')}
+              </div>
+              <span className="text-xs font-medium" style={{ color: theme.text.tertiary }}>
+                :
+              </span>
+              <div className="flex items-center gap-1 flex-1">
+                {stepBtn(() => setMinute((m) => (m - 5 + 60) % 60), '−')}
+                <span
+                  className="flex-1 text-center text-xs font-medium tabular-nums"
+                  style={{ color: theme.text.primary }}
+                >
+                  {String(minute).padStart(2, '0')}
+                </span>
+                {stepBtn(() => setMinute((m) => (m + 5) % 60), '+')}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div
+              className="flex items-center justify-between pt-2 mt-2"
+              style={{ borderTop: `1px solid ${alpha('ink', 0.06)}` }}
+            >
+              <code className="text-[11px]" style={{ color: theme.text.tertiary }}>
+                {preview}
+              </code>
+              <button
+                type="button"
+                className="px-3 py-1 rounded-md text-xs font-medium cursor-pointer"
+                style={{
+                  background: selDay != null ? alpha('accent', 0.12) : alpha('ink', 0.06),
+                  color: selDay != null ? theme.text.accent : theme.text.tertiary,
+                  border: 'none',
+                  cursor: selDay != null ? 'pointer' : 'default'
+                }}
+                onClick={handleApply}
+              >
+                Apply
+              </button>
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
+  )
+}
+
 interface SchedulePaneProps {
   activeSubTab: string
   onNavigateToTab?: (tab: string) => void
@@ -381,8 +709,8 @@ function ScheduleListSubTab({
   )
 
   const handleCreate = useCallback(
-    async (input: CreateScheduleInput) => {
-      await window.api.yachiyo.createSchedule(input)
+    async (input: ScheduleFormSubmitInput) => {
+      await window.api.yachiyo.createSchedule(input as CreateScheduleInput)
       setAdding(false)
       triggerRefresh()
     },
@@ -390,7 +718,7 @@ function ScheduleListSubTab({
   )
 
   const handleUpdate = useCallback(
-    async (input: CreateScheduleInput & { id: string }) => {
+    async (input: ScheduleFormSubmitInput & { id: string }) => {
       const { id, ...fields } = input
       await window.api.yachiyo.updateSchedule({ id, ...fields })
       setEditingId(null)
@@ -500,7 +828,9 @@ function ScheduleRow({
         </div>
         <div className="flex items-center gap-2 mt-0.5">
           <span className="text-xs" style={{ color: theme.text.tertiary }}>
-            {cronToHuman(schedule.cronExpression)}
+            {schedule.runAt
+              ? `Once: ${new Date(schedule.runAt).toLocaleString()}`
+              : cronToHuman(schedule.cronExpression ?? '')}
           </span>
           {schedule.modelOverride && (
             <span className="text-xs" style={{ color: theme.text.tertiary }}>
@@ -542,13 +872,23 @@ function ScheduleForm({
   submitLabel = 'Create'
 }: {
   initial?: ScheduleRecord
-  onSubmit: (input: CreateScheduleInput) => Promise<void>
+  onSubmit: (input: ScheduleFormSubmitInput) => Promise<void>
   onCancel: () => void
   onNavigateToTab?: (tab: string) => void
   submitLabel?: string
 }): React.ReactNode {
+  const [mode, setMode] = useState<'recurring' | 'one-off'>(
+    initial?.runAt ? 'one-off' : 'recurring'
+  )
+  const isOneOff = mode === 'one-off'
   const [name, setName] = useState(initial?.name ?? '')
   const [cron, setCron] = useState(initial?.cronExpression ?? '')
+  const [runAt, setRunAt] = useState(() => {
+    if (!initial?.runAt) return ''
+    const d = new Date(initial.runAt)
+    const pad = (n: number): string => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  })
   const [prompt, setPrompt] = useState(initial?.prompt ?? '')
   const [modelOverride, setModelOverride] = useState<ThreadModelOverride | undefined>(
     initial?.modelOverride
@@ -569,22 +909,25 @@ function ScheduleForm({
   }, [])
 
   const handleSubmit = async (): Promise<void> => {
-    if (!name.trim() || !cron.trim() || !prompt.trim()) {
-      setError('All fields are required.')
+    const submission = buildScheduleFormSubmitInput({
+      initial,
+      mode,
+      name,
+      cron,
+      runAt,
+      prompt,
+      modelOverride,
+      workspacePath
+    })
+    if (!submission.ok) {
+      setError(submission.error)
       return
     }
+
     setError(null)
     setSubmitting(true)
     try {
-      const isEdit = !!initial
-      await onSubmit({
-        name: name.trim(),
-        cronExpression: cron.trim(),
-        prompt: prompt.trim(),
-        // On edit, explicitly send null to clear; on create, just omit.
-        modelOverride: modelOverride ?? (isEdit ? null : undefined),
-        workspacePath: workspacePath ?? (isEdit ? null : undefined)
-      } as CreateScheduleInput)
+      await onSubmit(submission.input)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -600,27 +943,66 @@ function ScheduleForm({
 
   return (
     <div className="flex flex-col gap-3 p-3 rounded-lg" style={{ background: alpha('ink', 0.03) }}>
-      <div className="flex gap-3">
+      <div className="flex gap-2 items-center">
+        {/* 1/3 — Name */}
         <input
-          className="flex-1 rounded-md px-2.5 py-1.5 text-sm outline-none"
-          style={inputStyle()}
+          className="rounded-md px-2.5 py-1.5 text-sm outline-none min-w-0"
+          style={{ ...inputStyle(), flex: '1 1 0%' }}
           placeholder="Name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           autoFocus
         />
-        <div className="flex items-center gap-1.5">
-          <input
-            className="rounded-md px-2.5 py-1.5 text-sm outline-none"
-            style={{ ...inputStyle(), width: 150 }}
-            placeholder="Cron (e.g. 0 9 * * *)"
-            value={cron}
-            onChange={(e) => setCron(e.target.value)}
-          />
-          <CronQuickPick onPick={setCron} />
+        {/* 1/3 — Mode toggle */}
+        <div
+          className="flex rounded-md text-xs"
+          style={{ flex: '1 1 0%', background: alpha('ink', 0.06), padding: 2 }}
+        >
+          {(['recurring', 'one-off'] as const).map((m) => (
+            <button
+              key={m}
+              className="flex-1 py-1 rounded cursor-pointer"
+              style={{
+                background: mode === m ? alpha('ink', 0.12) : 'transparent',
+                color: mode === m ? theme.text.primary : theme.text.secondary,
+                border: 'none',
+                fontWeight: mode === m ? 500 : 400,
+                letterSpacing: '0.01em'
+              }}
+              onClick={() => setMode(m)}
+            >
+              {m === 'recurring' ? 'Recurring' : 'One-off'}
+            </button>
+          ))}
+        </div>
+        {/* 1/3 — Schedule input */}
+        <div className="flex items-center gap-1.5 min-w-0" style={{ flex: '1 1 0%' }}>
+          {isOneOff ? (
+            <>
+              <input
+                className="flex-1 rounded-md px-2.5 py-1.5 text-sm outline-none min-w-0"
+                style={inputStyle()}
+                placeholder="e.g. 2026-04-15 09:00"
+                value={runAt}
+                onChange={(e) => setRunAt(e.target.value)}
+              />
+              <DateTimePick value={runAt} onPick={setRunAt} />
+            </>
+          ) : (
+            <>
+              <input
+                className="flex-1 rounded-md px-2.5 py-1.5 text-sm outline-none min-w-0"
+                style={inputStyle()}
+                placeholder="Cron (e.g. 0 9 * * *)"
+                value={cron}
+                onChange={(e) => setCron(e.target.value)}
+              />
+              <CronQuickPick onPick={setCron} />
+            </>
+          )}
         </div>
       </div>
-      {cron.trim() && cronToHuman(cron.trim()) !== cron.trim() && (
+      {!isOneOff && cron.trim() && cronToHuman(cron.trim()) !== cron.trim() && (
         <span className="text-xs -mt-1" style={{ color: theme.text.tertiary }}>
           {cronToHuman(cron.trim())}
         </span>

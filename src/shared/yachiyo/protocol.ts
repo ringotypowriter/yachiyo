@@ -1238,7 +1238,10 @@ export type YachiyoServerEvent =
 export interface ScheduleRecord {
   id: string
   name: string
-  cronExpression: string
+  /** Cron expression for recurring schedules. Exactly one of cronExpression or runAt must be set. */
+  cronExpression?: string
+  /** ISO datetime for one-off schedules. The schedule is disabled after it fires or is skipped. */
+  runAt?: string
   prompt: string
   workspacePath?: string
   modelOverride?: ThreadModelOverride
@@ -1267,7 +1270,10 @@ export interface ScheduleRunRecord {
 
 export interface CreateScheduleInput {
   name: string
-  cronExpression: string
+  /** Cron expression for recurring schedules. Exactly one of cronExpression or runAt must be provided. */
+  cronExpression?: string
+  /** ISO datetime for a one-off schedule. Exactly one of cronExpression or runAt must be provided. */
+  runAt?: string
   prompt: string
   workspacePath?: string
   modelOverride?: ThreadModelOverride
@@ -1278,7 +1284,10 @@ export interface CreateScheduleInput {
 export interface UpdateScheduleInput {
   id: string
   name?: string
-  cronExpression?: string
+  /** Pass null to clear and switch to one-off mode (requires also setting runAt). */
+  cronExpression?: string | null
+  /** Pass null to clear and switch to recurring mode (requires also setting cronExpression). */
+  runAt?: string | null
   prompt?: string
   workspacePath?: string | null
   modelOverride?: ThreadModelOverride | null

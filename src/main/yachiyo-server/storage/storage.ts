@@ -880,7 +880,8 @@ export function groupLatestRunsByThread(runs: RunRecord[]): Record<string, RunRe
 export interface StoredScheduleRow {
   id: string
   name: string
-  cronExpression: string
+  cronExpression: string | null
+  runAt: string | null
   prompt: string
   workspacePath: string | null
   modelOverride: string | null
@@ -911,7 +912,8 @@ export function toScheduleRecord(row: StoredScheduleRow): ScheduleRecord {
   return {
     id: row.id,
     name: row.name,
-    cronExpression: row.cronExpression,
+    ...(row.cronExpression ? { cronExpression: row.cronExpression } : {}),
+    ...(row.runAt ? { runAt: row.runAt } : {}),
     prompt: row.prompt,
     ...(row.workspacePath ? { workspacePath: row.workspacePath } : {}),
     ...(modelOverride ? { modelOverride } : {}),

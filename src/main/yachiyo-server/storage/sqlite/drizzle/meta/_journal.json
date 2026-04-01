@@ -239,6 +239,13 @@
       "when": 1774954348979,
       "tag": "0033_bouncy_impossible_man",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1775016201388,
+      "tag": "0034_handy_zzzax",
+      "breakpoints": true
     }
   ]
 }

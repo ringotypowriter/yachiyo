@@ -1347,7 +1347,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .values({
           id: schedule.id,
           name: schedule.name,
-          cronExpression: schedule.cronExpression,
+          cronExpression: schedule.cronExpression ?? null,
+          runAt: schedule.runAt ?? null,
           prompt: schedule.prompt,
           workspacePath: schedule.workspacePath ?? null,
           modelOverride: serializeModelOverride(schedule.modelOverride),
@@ -1363,7 +1364,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       db.update(schedulesTable)
         .set({
           name: schedule.name,
-          cronExpression: schedule.cronExpression,
+          cronExpression: schedule.cronExpression ?? null,
+          runAt: schedule.runAt ?? null,
           prompt: schedule.prompt,
           workspacePath: schedule.workspacePath ?? null,
           modelOverride: serializeModelOverride(schedule.modelOverride),
