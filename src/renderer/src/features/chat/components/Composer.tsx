@@ -783,14 +783,16 @@ export function Composer({
   const activeRunEnterBehavior =
     config?.chat?.activeRunEnterBehavior ?? DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
   const primarySendMode = hasActiveRun
-    ? activeRunEnterBehavior === 'enter-steers'
-      ? 'steer'
-      : 'follow-up'
+    ? effectiveAcpBinding !== null || activeRunEnterBehavior !== 'enter-steers'
+      ? 'follow-up'
+      : 'steer'
     : 'normal'
   const activeRunHint =
-    activeRunEnterBehavior === 'enter-steers'
-      ? 'Enter to steer, Option+Enter to queue follow-up.'
-      : 'Option+Enter to steer, Enter to queue follow-up.'
+    effectiveAcpBinding !== null
+      ? 'Enter to queue follow-up.'
+      : activeRunEnterBehavior === 'enter-steers'
+        ? 'Enter to steer, Option+Enter to queue follow-up.'
+        : 'Option+Enter to steer, Enter to queue follow-up.'
 
   const composerStatus = (() => {
     if (connectionStatus !== 'connected') {

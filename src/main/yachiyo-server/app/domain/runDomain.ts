@@ -18,6 +18,7 @@ import type {
   RunFailedEvent,
   RunCreatedEvent,
   SendChatInput,
+  SendChatMode,
   SkillCatalogEntry,
   SettingsConfig,
   SubagentProgressEvent,
@@ -362,7 +363,10 @@ export class YachiyoServerRunDomain {
         : []
 
     const activeRunId = this.activeRunByThread.get(thread.id)
-    const mode = input.mode ?? 'normal'
+    const rawMode = input.mode ?? 'normal'
+    // ACP threads do not support steer; any steer is treated as follow-up instead.
+    const mode: SendChatMode =
+      rawMode === 'steer' && thread.runtimeBinding?.kind === 'acp' ? 'follow-up' : rawMode
 
     if (!activeRunId) {
       return this.startFreshRun({
