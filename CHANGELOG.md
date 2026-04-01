@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.14
+
+### Patch Changes
+
+- [`8c26914`](https://github.com/ringotypowriter/yachiyo/commit/8c26914bf16cdd5fb5a5717f30f63021908d0419) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - prompt test & ci pass
+
 ## 1.0.13
 
 ### Patch Changes
