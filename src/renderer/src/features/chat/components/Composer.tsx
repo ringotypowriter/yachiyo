@@ -12,6 +12,7 @@ import {
   SendHorizonal,
   Sparkles,
   Square,
+  TriangleAlert,
   Wrench,
   X
 } from 'lucide-react'
@@ -1814,13 +1815,35 @@ export function Composer({
                     ) : null}
                   </>
                 ) : null}
+                {(latestRun.totalPromptTokens ?? latestRun.promptTokens) > 128_000 ? (
+                  <div
+                    style={{
+                      marginTop: 4,
+                      paddingTop: 6,
+                      borderTop: `1px solid ${theme.border.default}`,
+                      color: '#f59e0b',
+                      fontSize: 11,
+                      lineHeight: 1.4
+                    }}
+                  >
+                    Context is over 128K. Use{' '}
+                    <span style={{ fontFamily: 'monospace' }}>/handoff</span> to compact and
+                    continue in a new thread.
+                  </div>
+                ) : null}
               </div>
             }
           >
             <span
-              className="text-xs px-1.5"
+              className="text-xs px-1.5 flex items-center gap-1"
               style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
             >
+              {(latestRun.totalPromptTokens ?? latestRun.promptTokens) > 128_000 ? (
+                <TriangleAlert
+                  size={11}
+                  style={{ color: '#f59e0b', flexShrink: 0, opacity: 1, display: 'block' }}
+                />
+              ) : null}
               {formatTokenCount(latestRun.promptTokens)}
             </span>
           </Tooltip>
