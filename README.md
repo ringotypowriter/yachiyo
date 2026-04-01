@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="resources/icon.png" alt="Yachiyo" width="120" />
+
 # Yachiyo
 
 An open-source alternative to [Alma](http://alma.now/).<br>
@@ -7,6 +9,22 @@ No MCP, no plugin marketplace, skills-only.<br>
 Only what's necessary for a cyber-assistant that lives in your computer.
 
 </div>
+
+## Why Yachiyo?
+
+Because your AI assistant should be yours — not a platform, not a marketplace, not a maze of configuration files.
+
+Most AI clients want to become ecosystems. They invent protocols, build plugin stores, and lock you into their infrastructure. Yachiyo does the opposite: it gives you a capable assistant that lives in your filesystem, respects your privacy, and gets out of your way.
+
+Skills are just Markdown. Drop a SKILL.md file in your workspace and it works. No runtime. No API surface. No 47-step setup. If you can write a README, you can extend Yachiyo.
+
+No vendor lock-in. Claude today, Gemini tomorrow, your own local model next week. Switch per-message if you want. Your history stays local in SQLite — not in someone else's cloud.
+
+Reply branching. Conversations aren't linear. Branch from any point, explore different paths, navigate the tree. It's how you actually think.
+
+Channels, not silos. One local instance serves Telegram, Discord, and QQ simultaneously with shared context and access control.
+
+No MCP. No telemetry. No plugin marketplace. Just what's necessary for a cyber-assistant that lives in your computer.
 
 ---
 

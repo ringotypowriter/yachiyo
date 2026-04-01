@@ -438,10 +438,11 @@ test('runGrepTool maps normalized search results into structured details and sum
 test('resolveGlobInput splits tilde/absolute patterns into path + basename', () => {
   const home = process.env.HOME ?? '/Users/test'
   const workspace = '/workspace'
+  const normalizeDir = (value: string): string => value.replace(/\/+$/, '') || '/'
 
   // ~/.aerospace* → dir: home, pattern: .aerospace*
   const tildeResult = resolveGlobInput('~/.aerospace*', undefined, workspace)
-  assert.equal(tildeResult.searchPath, home)
+  assert.equal(normalizeDir(tildeResult.searchPath), normalizeDir(home))
   assert.equal(tildeResult.pattern, '.aerospace*')
 
   // /Users/foo/.config → dir: /Users/foo, pattern: .config

@@ -14,16 +14,21 @@ import {
   serializeRuntimeBinding,
   serializeThreadMemoryRecallState,
   serializeToolCallDetails,
+  toRunRecoveryCheckpoint,
+  toStoredRunRecoveryCheckpointRow,
   toRunRecord,
   toToolCallRecord,
   toThreadRecord,
   type CompleteRunInput,
+  type RunRecoveryCheckpoint,
   type StartRunInput,
+  type StoredRunRecoveryCheckpointRow,
   type StoredRunRow,
   type StoredToolCallRow,
   type StoredThreadRow,
   type YachiyoStorage
 } from './storage.ts'
+import { sortToolCallsChronologically } from '../../../shared/yachiyo/toolCallOrder.ts'
 
 export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const channelGroups = new Map<string, ChannelGroupRecord>()
@@ -31,6 +36,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const threads = new Map<string, StoredThreadRow>()
   const messages: MessageRecord[] = []
   const runs = new Map<string, StoredRunRow>()
+  const runRecoveryCheckpoints = new Map<string, StoredRunRecoveryCheckpointRow>()
   const toolCalls = new Map<string, StoredToolCallRow>()
   const imageAltTexts = new Map<string, { imageHash: string; altText: string }>()
   const groupMonitorBuffers = new Map<
@@ -56,7 +62,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const sortByCreatedAt = <T extends { createdAt: string }>(items: T[]): T[] =>
     [...items].sort((left, right) => left.createdAt.localeCompare(right.createdAt))
   const sortToolCalls = (items: ToolCallRecord[]): ToolCallRecord[] =>
-    [...items].sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+    sortToolCallsChronologically(items)
   const toToolCallRecordWithRun = (row: StoredToolCallRow): ToolCallRecord => toToolCallRecord(row)
   const applyThreadSnapshot = (
     storedThread: StoredThreadRow,
@@ -123,6 +129,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     },
 
     recoverInterruptedRuns({ error, finishedAt }) {
+      const recoverableRunIds = new Set(runRecoveryCheckpoints.keys())
       const interruptedRunIds = [...runs.values()]
         .filter((run) => run.status === 'running')
         .map((run) => run.id)
@@ -132,6 +139,10 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
 
       for (const runId of interruptedRunIds) {
+        if (recoverableRunIds.has(runId)) {
+          continue
+        }
+
         const run = runs.get(runId)
         if (!run) {
           continue
@@ -148,10 +159,34 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         }
 
         toolCall.status = 'failed'
-        toolCall.error = error
-        toolCall.outputSummary = error
+        toolCall.error = recoverableRunIds.has(toolCall.runId)
+          ? 'Tool execution was interrupted before completion.'
+          : error
+        toolCall.outputSummary = toolCall.error
         toolCall.finishedAt = finishedAt
       }
+    },
+
+    listRunRecoveryCheckpoints() {
+      return [...runRecoveryCheckpoints.values()]
+        .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt))
+        .map(toRunRecoveryCheckpoint)
+    },
+
+    getRunRecoveryCheckpoint(runId) {
+      const checkpoint = runRecoveryCheckpoints.get(runId)
+      return checkpoint ? toRunRecoveryCheckpoint(checkpoint) : undefined
+    },
+
+    upsertRunRecoveryCheckpoint(checkpoint) {
+      runRecoveryCheckpoints.set(
+        checkpoint.runId,
+        toStoredRunRecoveryCheckpointRow(checkpoint as RunRecoveryCheckpoint)
+      )
+    },
+
+    deleteRunRecoveryCheckpoint(runId) {
+      runRecoveryCheckpoints.delete(runId)
     },
 
     getThread(threadId) {
@@ -294,6 +329,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       )
       for (const runId of deletedRunIds) {
         runs.delete(runId)
+        runRecoveryCheckpoints.delete(runId)
       }
 
       for (const [toolCallId, toolCall] of toolCalls.entries()) {
@@ -389,6 +425,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     }: CompleteRunInput) {
       const thread = threads.get(updatedThread.id)
       const run = runs.get(runId)
+      runRecoveryCheckpoints.delete(runId)
 
       messages.push(assistantMessage)
 
@@ -423,6 +460,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       if (!run) {
         return
       }
+      runRecoveryCheckpoints.delete(runId)
 
       run.status = 'cancelled'
       run.completedAt = completedAt
@@ -440,6 +478,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       if (!run) {
         return
       }
+      runRecoveryCheckpoints.delete(runId)
 
       run.status = 'failed'
       run.error = error
@@ -485,6 +524,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         requestMessageId: toolCall.requestMessageId ?? null,
         runId: toolCall.runId,
         startedAt: toolCall.startedAt,
+        stepBudget: toolCall.stepBudget ?? null,
+        stepIndex: toolCall.stepIndex ?? null,
         status: toolCall.status,
         threadId: toolCall.threadId,
         toolName: toolCall.toolName
@@ -508,6 +549,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         requestMessageId: toolCall.requestMessageId ?? null,
         runId: toolCall.runId,
         startedAt: toolCall.startedAt,
+        stepBudget: toolCall.stepBudget ?? null,
+        stepIndex: toolCall.stepIndex ?? null,
         status: toolCall.status,
         threadId: toolCall.threadId,
         toolName: toolCall.toolName

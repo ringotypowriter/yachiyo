@@ -15,23 +15,32 @@ import { prepareModelMessages } from './messagePrepare.ts'
 import { SYSTEM_PROMPT } from './prompt.ts'
 import type { ModelMessage } from './types.ts'
 
-const ROLLING_SUMMARY_PROMPT = `Summarize the current state of this conversation for seamless continuation.
+const ROLLING_SUMMARY_PROMPT = `You have been working on the task described above but have not yet completed it.
 
-Capture:
-- The active topic and what the conversation is about
-- Established facts, decisions, and conclusions the user knows about
-- Unresolved questions or pending items
-- The user's current intent or what they were working toward
+Write a continuation summary so that you — or another instance of yourself — can resume this task seamlessly in a new context window where the full conversation history will no longer be available. Write as if handing off mid-task to a colleague who needs to pick up exactly where you left off.
 
-Do NOT include:
-- Tool calls, tool results, or internal reasoning traces
-- File paths, workspace details, or system internals
-- Formatting artifacts or transport-layer details (e.g. <reply> tags)
-- Anything the user did not directly see or establish
+Structure your summary as follows:
+
+**1. User's Last Query**
+Copy or closely paraphrase the user's most recent request or question. This is the active thread — the resuming agent must address this first without asking for clarification again.
+
+**2. Task Overview**
+The user's core goal and success criteria. Any constraints, preferences, or scope limits they specified.
+
+**3. Current State**
+What has already been completed. Files created, modified, or analyzed (with paths). Key outputs or artifacts produced so far.
+
+**4. Key Discoveries**
+Technical constraints or requirements uncovered during the work. Decisions made and their rationale. Errors encountered and how they were resolved. Approaches tried that did not work, and why.
+
+**5. Next Steps**
+Concrete actions needed to complete the task, in priority order. Any blockers or open questions that need resolution first.
+
+**6. Context to Preserve**
+User preferences, style requirements, domain-specific details, and any explicit promises made.
 
 Write in the same language as the conversation.
-Be compact — aim for under 800 tokens.
-Output only the summary, with no preamble or meta-commentary.`
+Be concise but complete — err on the side of including anything that prevents duplicate work or repeated mistakes. Wrap your summary in <summary></summary> tags.`
 
 function toHistoryMessage(
   message: MessageRecord

@@ -70,8 +70,9 @@ All output is JSON unless noted. The app must be running for "send" commands.
                                          Without --json, prints human-readable lines.
 
 ── schedule ──────────────────────────────────────────────────────────
-  schedule list [--json]                 List all cron schedules. Without --json, prints a compact summary.
-  schedule add --payload <json>          Create a new schedule. Payload must include cronExpression, name, prompt, etc.
+  schedule list [--json]                 List all schedules. Without --json, prints a compact summary.
+  schedule add --payload <json>          Create a new schedule. Payload must include name and prompt, plus either
+                                         cronExpression (recurring) or runAt (ISO datetime, one-off).
   schedule remove <id>                   Delete a schedule by UUID.
   schedule enable <id>                   Enable a disabled schedule.
   schedule disable <id>                  Disable a schedule without removing it.
@@ -912,7 +913,8 @@ async function handleScheduleCommand(
       outputJson(stdout, schedules)
     } else {
       for (const s of schedules) {
-        stdout.write(`${s.enabled ? '✓' : '✗'} ${s.name} [${s.cronExpression}] id=${s.id}\n`)
+        const scheduleLabel = s.runAt ? `@${s.runAt}` : (s.cronExpression ?? '?')
+        stdout.write(`${s.enabled ? '✓' : '✗'} ${s.name} [${scheduleLabel}] id=${s.id}\n`)
       }
       if (schedules.length === 0) stdout.write('No schedules.\n')
     }

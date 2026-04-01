@@ -15,69 +15,15 @@ import {
   toSerializableError
 } from './providers/gateway.ts'
 import { createProviderOptions } from './providers/providerOptions.ts'
+import { isRetryableModelError } from './retryableModelError.ts'
 import { sleep } from '../channels/connectionRetry.ts'
 
 /** Disable AI SDK's built-in retry — we handle retries ourselves. */
 const SDK_MAX_RETRIES = 0
 
-const RETRY_MAX_ATTEMPTS = 10
+export const RETRY_MAX_ATTEMPTS = 10
 const RETRY_BASE_DELAY_MS = 1_000
 const RETRY_MAX_DELAY_MS = 30_000
-
-function isRetryableError(error: unknown): boolean {
-  if (error instanceof Error && error.name === 'AbortError') return false
-
-  const explicitRetryable =
-    typeof (error as { isRetryable?: unknown })?.isRetryable === 'boolean'
-      ? ((error as { isRetryable: boolean }).isRetryable as boolean)
-      : undefined
-  if (explicitRetryable !== undefined) {
-    return explicitRetryable
-  }
-
-  const status =
-    typeof (error as { status?: unknown })?.status === 'number'
-      ? ((error as { status: number }).status as number)
-      : typeof (error as { statusCode?: unknown })?.statusCode === 'number'
-        ? ((error as { statusCode: number }).statusCode as number)
-        : undefined
-
-  if (status !== undefined) {
-    if (status === 0) return true
-    // Auth & validation — not retryable
-    if (status === 400 || status === 401 || status === 403 || status === 404) return false
-    // Rate limit & server errors — retryable
-    if (status === 429 || status >= 500) return true
-  }
-
-  const code =
-    typeof (error as { code?: unknown })?.code === 'string'
-      ? (error as { code: string }).code
-      : undefined
-  if (
-    code === 'ECONNRESET' ||
-    code === 'ETIMEDOUT' ||
-    code === 'ECONNREFUSED' ||
-    code === 'ENOTFOUND' ||
-    code === 'ERR_CONNECTION_CLOSED' ||
-    code === 'UND_ERR_SOCKET' ||
-    code === 'UND_ERR_CONNECT_TIMEOUT'
-  ) {
-    return true
-  }
-
-  const message = error instanceof Error ? error.message : String(error)
-  if (
-    /ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|ERR_CONNECTION_CLOSED|fetch failed|socket hang up/i.test(
-      message
-    )
-  ) {
-    return true
-  }
-
-  // Default: retryable (better to retry than not)
-  return status === undefined
-}
 
 function readTextDelta(part: { delta?: string; text?: string; textDelta?: string }): string | null {
   return part.delta ?? part.textDelta ?? part.text ?? null
@@ -375,6 +321,10 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
           // Stream completed successfully — exit the retry loop.
           return
         } catch (error) {
+          if (request.signal.aborted) {
+            throw error
+          }
+
           if (shouldLogGatewayDiagnostics(request.settings)) {
             logGatewayDiagnostics('streamReply-error', {
               error: toSerializableError(error),
@@ -390,7 +340,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
 
           // Once assistant text or tool activity was forwarded, retrying would
           // duplicate user-visible output or side effects.
-          if (streamCommitted || attempt >= RETRY_MAX_ATTEMPTS || !isRetryableError(error)) {
+          if (streamCommitted || attempt >= RETRY_MAX_ATTEMPTS || !isRetryableModelError(error)) {
             throw error
           }
 

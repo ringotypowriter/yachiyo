@@ -316,6 +316,67 @@ test('applyServerEvent preserves compiled context sources after the run complete
   assert.deepEqual(state.latestRunsByThread['thread-1']?.contextSources, contextSources)
 })
 
+test('applyServerEvent ignores stale completion events after the next run starts', () => {
+  resetStore()
+  useAppStore.setState({ activeThreadId: 'thread-1' })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'run.created',
+    eventId: 'event-run-created-1',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    requestMessageId: 'user-1'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'message.started',
+    eventId: 'event-message-started-1',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    messageId: 'assistant-1',
+    parentMessageId: 'user-1'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'message.delta',
+    eventId: 'event-message-delta-1',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    messageId: 'assistant-1',
+    delta: 'Checking the workspace.'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'run.created',
+    eventId: 'event-run-created-2',
+    timestamp: '2026-03-15T00:00:01.000Z',
+    threadId: 'thread-1',
+    runId: 'run-2',
+    requestMessageId: 'user-2'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'run.completed',
+    eventId: 'event-run-completed-1',
+    timestamp: '2026-03-15T00:00:02.000Z',
+    threadId: 'thread-1',
+    runId: 'run-1'
+  })
+
+  const state = useAppStore.getState()
+
+  assert.equal(state.activeRunId, 'run-2')
+  assert.equal(state.activeRunIdsByThread['thread-1'], 'run-2')
+  assert.equal(state.activeRequestMessageId, 'user-2')
+  assert.equal(state.activeRequestMessageIdsByThread['thread-1'], 'user-2')
+  assert.equal(state.activeRunThreadId, 'thread-1')
+  assert.equal(state.runPhase, 'preparing')
+  assert.equal(state.runPhasesByThread['thread-1'], 'preparing')
+  assert.equal(state.runStatus, 'running')
+  assert.equal(state.runStatusesByThread['thread-1'], 'running')
+  assert.equal(state.latestRunsByThread['thread-1']?.id, 'run-1')
+  assert.equal(state.latestRunsByThread['thread-1']?.status, 'completed')
+})
+
 test('applyServerEvent supports assistant-first runs without a request message id', () => {
   resetStore()
   useAppStore.setState({ activeThreadId: 'thread-compact' })
@@ -814,6 +875,69 @@ test('applyServerEvent upserts live tool activity for the current thread', () =>
   assert.equal(state.toolCalls['thread-1']?.[0]?.cwd, '/tmp/thread-1')
 })
 
+test('applyServerEvent keeps same-timestamp tool calls stable across recovery-style updates', () => {
+  resetStore()
+
+  useAppStore.getState().applyServerEvent({
+    type: 'tool.updated',
+    eventId: 'event-tool-1-started',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    toolCall: {
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'read',
+      status: 'running',
+      inputSummary: 'first',
+      startedAt: TIMESTAMP,
+      stepIndex: 1
+    }
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'tool.updated',
+    eventId: 'event-tool-2-started',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    toolCall: {
+      id: 'tool-2',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'write',
+      status: 'running',
+      inputSummary: 'second',
+      startedAt: TIMESTAMP,
+      stepIndex: 2
+    }
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'tool.updated',
+    eventId: 'event-tool-1-recovered',
+    timestamp: '2026-03-15T00:00:01.000Z',
+    threadId: 'thread-1',
+    runId: 'run-1',
+    toolCall: {
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'read',
+      status: 'failed',
+      inputSummary: 'first',
+      outputSummary: 'Tool execution was interrupted before completion.',
+      startedAt: TIMESTAMP,
+      finishedAt: '2026-03-15T00:00:01.000Z',
+      stepIndex: 1
+    }
+  })
+
+  assert.deepEqual(
+    useAppStore.getState().toolCalls['thread-1']?.map((toolCall) => toolCall.id),
+    ['tool-1', 'tool-2']
+  )
+})
+
 test('applyServerEvent starts a new assistant text block after a tool update', () => {
   resetStore()
 
@@ -989,6 +1113,61 @@ test('setEnabledTools persists one shared tool preference across thread switches
     state = useAppStore.getState()
     assert.equal(state.activeThreadId, 'thread-2')
     assert.deepEqual(state.enabledTools, ['read', 'bash'])
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('setThreadWorkspace updates only the matching thread collection', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    updateThreadWorkspace: async ({ threadId, workspacePath }) => ({
+      id: threadId,
+      title: threadId === 'thread-1' ? 'Local thread' : 'External thread',
+      updatedAt: '2026-03-15T00:00:02.000Z',
+      ...(workspacePath ? { workspacePath } : {}),
+      source: threadId === 'thread-1' ? 'local' : 'discord'
+    })
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', title: 'Local thread', updatedAt: TIMESTAMP }],
+      externalThreads: [
+        {
+          id: 'external-thread',
+          title: 'External thread',
+          updatedAt: TIMESTAMP,
+          source: 'discord'
+        }
+      ]
+    })
+
+    await useAppStore.getState().setThreadWorkspace('/tmp/local-workspace', 'thread-1')
+
+    let state = useAppStore.getState()
+    assert.equal(
+      state.threads.find((thread) => thread.id === 'thread-1')?.workspacePath,
+      '/tmp/local-workspace'
+    )
+    assert.deepEqual(
+      state.externalThreads.map((thread) => thread.id),
+      ['external-thread']
+    )
+
+    await useAppStore.getState().setThreadWorkspace('/tmp/external-workspace', 'external-thread')
+
+    state = useAppStore.getState()
+    assert.equal(
+      state.externalThreads.find((thread) => thread.id === 'external-thread')?.workspacePath,
+      '/tmp/external-workspace'
+    )
+    assert.deepEqual(
+      state.threads.map((thread) => thread.id),
+      ['thread-1']
+    )
   } finally {
     restoreWindow()
   }

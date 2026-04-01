@@ -349,11 +349,13 @@ export class YachiyoServer {
     const recoveredInterruptedSaveThreadIds = this.recoverInterruptedSaves()
     await Promise.all([this.readSoulDocumentFile(), this.readUserDocumentFile()])
     const recoveredQueuedFollowUps = this.runDomain.prepareRecoveredQueuedFollowUps()
+    const recoveredRuns = this.runDomain.prepareRecoveredRuns()
 
     const { archivedThreads, threads, messagesByThread, toolCallsByThread, latestRunsByThread } =
       this.storage.bootstrap()
 
     this.runDomain.scheduleRecoveredQueuedFollowUps(recoveredQueuedFollowUps)
+    this.runDomain.scheduleRecoveredRuns(recoveredRuns)
 
     return {
       threads,
@@ -511,7 +513,7 @@ export class YachiyoServer {
       return []
     }
 
-    const paths = await searchWorkspaceFileMentionCandidates({
+    const directPaths = await searchWorkspaceFileMentionCandidates({
       query,
       includeIgnored: input.includeIgnored,
       workspacePath: resolve(workspacePath),
@@ -519,7 +521,24 @@ export class YachiyoServer {
       limit: input.limit
     })
 
-    return paths.map((path) => ({ path }))
+    if (directPaths.length > 0 || input.includeIgnored) {
+      return directPaths.map((path) => ({
+        path,
+        ...(input.includeIgnored ? { includeIgnored: true } : {})
+      }))
+    }
+
+    const ignoredPaths = await searchWorkspaceFileMentionCandidates({
+      query,
+      includeIgnored: true,
+      workspacePath: resolve(workspacePath),
+      searchService: this.searchService,
+      limit: input.limit
+    })
+
+    return ignoredPaths
+      .filter((path) => path !== query)
+      .map((path) => ({ path, includeIgnored: true }))
   }
 
   searchThreadsAndMessages(input: { query: string }): ThreadSearchResult[] {

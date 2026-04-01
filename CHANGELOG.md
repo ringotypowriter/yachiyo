@@ -1,5 +1,23 @@
 # yachiyo
 
+## 1.0.14
+
+### Patch Changes
+
+- [`8c26914`](https://github.com/ringotypowriter/yachiyo/commit/8c26914bf16cdd5fb5a5717f30f63021908d0419) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - prompt test & ci pass
+
+## 1.0.13
+
+### Patch Changes
+
+- [`0b254bf`](https://github.com/ringotypowriter/yachiyo/commit/0b254bfbb4980dc87c9d064683c283d31ec94845) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - One-Off Schedules & Compact Prompt Improvement
+
+## 1.0.12
+
+### Patch Changes
+
+- [`6b64fa2`](https://github.com/ringotypowriter/yachiyo/commit/6b64fa2ad1268e998c2aab1209ea4c2bc94e1826) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Agent Recovery Enchantment & File Mention
+
 ## 1.0.11
 
 ### Patch Changes

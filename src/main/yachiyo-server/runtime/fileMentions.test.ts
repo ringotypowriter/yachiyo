@@ -144,6 +144,73 @@ test('searchWorkspaceFileMentionCandidates ranks the closest fuzzy match first',
   })
 })
 
+test('searchWorkspaceFileMentionCandidates prefers aligned path matches for path-like queries', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    await mkdir(join(workspacePath, 'docs'), { recursive: true })
+    await mkdir(join(workspacePath, 'node_modules', 'jackspeak'), { recursive: true })
+    await mkdir(join(workspacePath, 'node_modules', 'safe-compare'), { recursive: true })
+    await writeFile(join(workspacePath, 'docs', 'ACP_CAPABILITY_GAP.md'), '# Gap\n', 'utf8')
+    await writeFile(
+      join(workspacePath, 'node_modules', 'jackspeak', 'package.json'),
+      '{}\n',
+      'utf8'
+    )
+    await writeFile(
+      join(workspacePath, 'node_modules', 'safe-compare', 'index.js'),
+      'export {}\n',
+      'utf8'
+    )
+
+    const results = await searchWorkspaceFileMentionCandidates({
+      query: 'doc/ACP',
+      workspacePath,
+      searchService,
+      includeIgnored: true
+    })
+
+    assert.equal(results[0], 'docs/ACP_CAPABILITY_GAP.md')
+  })
+})
+
+test('searchWorkspaceFileMentionCandidates scopes ignored path queries to the matching directory', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    await mkdir(join(workspacePath, 'docs'), { recursive: true })
+    await mkdir(join(workspacePath, 'node_modules', 'pkg', 'docs'), { recursive: true })
+    await writeFile(join(workspacePath, 'docs', 'ACP_CAPABILITY_GAP.md'), '# Gap\n', 'utf8')
+    await writeFile(
+      join(workspacePath, 'node_modules', 'pkg', 'docs', 'README.md'),
+      '# Package\n',
+      'utf8'
+    )
+
+    const results = await searchWorkspaceFileMentionCandidates({
+      query: 'docs/',
+      workspacePath,
+      searchService,
+      includeIgnored: true
+    })
+
+    assert.equal(results.includes('docs/ACP_CAPABILITY_GAP.md'), true)
+    assert.equal(
+      results.some((path) => path.includes('node_modules/pkg/docs/README.md')),
+      false
+    )
+  })
+})
+
+test('searchWorkspaceFileMentionCandidates keeps visible scoped path hits under their parent directory', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    const results = await searchWorkspaceFileMentionCandidates({
+      query: 'src/components/',
+      workspacePath,
+      searchService
+    })
+
+    assert.equal(results.includes('src/components/Composer.tsx'), true)
+    assert.equal(results.includes('src/components/Compressor.ts'), true)
+  })
+})
+
 test('searchWorkspaceFileMentionCandidates can return folders', async () => {
   await withWorkspace(async ({ searchService, workspacePath }) => {
     const results = await searchWorkspaceFileMentionCandidates({
@@ -230,6 +297,37 @@ test('searchWorkspaceFileMentionCandidates can bypass nested .gitignore files wi
     })
 
     assert.deepEqual(results, ['packages/app/dist/ignored.js'])
+  })
+})
+
+test('searchWorkspaceFileMentionCandidates reloads .gitignore rules between searches', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    await writeFile(join(workspacePath, '.gitignore'), '', 'utf8')
+
+    const visibleBeforeIgnore = await searchWorkspaceFileMentionCandidates({
+      query: 'secret.txt',
+      workspacePath,
+      searchService
+    })
+    assert.deepEqual(visibleBeforeIgnore, ['secret.txt'])
+
+    await writeFile(join(workspacePath, '.gitignore'), 'secret.txt\n', 'utf8')
+
+    const hiddenAfterIgnore = await searchWorkspaceFileMentionCandidates({
+      query: 'secret.txt',
+      workspacePath,
+      searchService
+    })
+    assert.deepEqual(hiddenAfterIgnore, [])
+
+    await writeFile(join(workspacePath, '.gitignore'), '', 'utf8')
+
+    const visibleAfterUnignore = await searchWorkspaceFileMentionCandidates({
+      query: 'secret.txt',
+      workspacePath,
+      searchService
+    })
+    assert.deepEqual(visibleAfterUnignore, ['secret.txt'])
   })
 })
 

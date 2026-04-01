@@ -49,6 +49,10 @@ Follow `.editorconfig` and Prettier: 2-space indentation, LF endings, single quo
 
 This repo uses `node:test`. Keep tests next to the code they verify using `*.test.ts`; reserve `*.native.test.ts` for Electron/sqlite coverage only. Default tests should prefer in-memory storage so they stay fast and do not depend on native modules. Add or update tests for new CLI commands, storage behavior, protocol changes, and state transformation helpers.
 
+## Icon Usage
+
+- **Never hand-draw SVG icons.** Always use Lucide React (`lucide-react`) for icons first. Only fall back to inline SVG if the required icon genuinely does not exist in Lucide.
+
 ## Tool Defaults
 
 - Newly added agent tools must be enabled by default unless the product requirement explicitly says otherwise.

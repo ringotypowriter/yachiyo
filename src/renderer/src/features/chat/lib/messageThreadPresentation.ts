@@ -4,6 +4,7 @@ import {
   collectMessagePath,
   sortMessagesByCreatedAt
 } from '../../../../../shared/yachiyo/threadTree.ts'
+import { compareToolCallsChronologically } from '../../../../../shared/yachiyo/toolCallOrder.ts'
 
 export interface MessageGroupBranch {
   message: Message
@@ -23,6 +24,45 @@ export function getRootAssistantMessages(messages: Message[]): Message[] {
   return sortMessagesByCreatedAt(
     messages.filter((message) => message.role === 'assistant' && !message.parentMessageId)
   )
+}
+
+function collectResponseMessageToolOrder(responseMessages?: unknown[]): Map<string, number> {
+  if (!responseMessages?.length) {
+    return new Map()
+  }
+
+  const toolOrder = new Map<string, number>()
+
+  for (const message of responseMessages) {
+    if (
+      !message ||
+      typeof message !== 'object' ||
+      !('role' in message) ||
+      message.role !== 'assistant' ||
+      !('content' in message) ||
+      !Array.isArray(message.content)
+    ) {
+      continue
+    }
+
+    for (const part of message.content) {
+      if (
+        !part ||
+        typeof part !== 'object' ||
+        !('type' in part) ||
+        part.type !== 'tool-call' ||
+        !('toolCallId' in part) ||
+        typeof part.toolCallId !== 'string' ||
+        toolOrder.has(part.toolCallId)
+      ) {
+        continue
+      }
+
+      toolOrder.set(part.toolCallId, toolOrder.size)
+    }
+  }
+
+  return toolOrder
 }
 
 export function getVisibleToolCallsForGroup(input: {
@@ -50,6 +90,9 @@ export function getVisibleToolCallsForGroup(input: {
           branch.message.status === 'streaming'
       )
       .map((branch) => branch.message.id)
+  )
+  const responseMessageToolOrder = collectResponseMessageToolOrder(
+    activeAssistantMessage?.responseMessages
   )
 
   return input.toolCalls
@@ -82,7 +125,16 @@ export function getVisibleToolCallsForGroup(input: {
 
       return visibleAssistantIds.has(toolCall.assistantMessageId)
     })
-    .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+    .sort((left, right) => {
+      const leftResponseOrder = responseMessageToolOrder.get(left.id)
+      const rightResponseOrder = responseMessageToolOrder.get(right.id)
+
+      if (leftResponseOrder !== undefined && rightResponseOrder !== undefined) {
+        return leftResponseOrder - rightResponseOrder
+      }
+
+      return compareToolCallsChronologically(left, right)
+    })
 }
 
 export function partitionToolCallsForGroups(input: {

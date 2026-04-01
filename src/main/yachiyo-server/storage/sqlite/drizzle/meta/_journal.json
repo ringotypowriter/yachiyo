@@ -225,6 +225,34 @@
       "when": 1774947592173,
       "tag": "0031_square_multiple_man",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1774951084695,
+      "tag": "0032_wakeful_ricochet",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1774954348979,
+      "tag": "0033_bouncy_impossible_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1775016201388,
+      "tag": "0034_handy_zzzax",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1775023746749,
+      "tag": "0035_puzzling_randall_flagg",
+      "breakpoints": true
     }
   ]
 }

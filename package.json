@@ -1,6 +1,6 @@
 {
   "name": "yachiyo",
-  "version": "1.0.11",
+  "version": "1.0.14",
   "description": "Yachiyo",
   "main": "./out/main/index.js",
   "packageManager": "pnpm@10.30.3",
@@ -79,6 +79,7 @@
     "json-schema": "^0.4.0",
     "linkedom": "^0.18.12",
     "lucide-react": "^0.577.0",
+    "match-sorter": "^8.2.0",
     "sharp": "^0.34.5",
     "smol-toml": "^1.6.1",
     "streamdown": "^2.4.0",

@@ -1,0 +1,20 @@
+CREATE TABLE `run_recovery_checkpoints` (
+	`run_id` text PRIMARY KEY NOT NULL,
+	`thread_id` text NOT NULL,
+	`request_message_id` text NOT NULL,
+	`assistant_message_id` text NOT NULL,
+	`content` text NOT NULL,
+	`text_blocks` text,
+	`reasoning` text,
+	`enabled_tools` text NOT NULL,
+	`enabled_skill_names` text,
+	`channel_hint` text,
+	`update_head_on_complete` text NOT NULL,
+	`created_at` text NOT NULL,
+	`updated_at` text NOT NULL,
+	`recovery_attempts` integer DEFAULT 0 NOT NULL,
+	`last_error` text,
+	FOREIGN KEY (`run_id`) REFERENCES `runs`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`request_message_id`) REFERENCES `messages`(`id`) ON UPDATE no action ON DELETE cascade
+);

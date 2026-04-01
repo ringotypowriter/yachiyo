@@ -45,7 +45,10 @@ import {
   isCoreToolName,
   normalizeOptionalMaxChatToken
 } from '../../../../shared/yachiyo/protocol.ts'
-import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
+import {
+  collectMessagePath,
+  wouldCreateParentCycle
+} from '../../../../shared/yachiyo/threadTree.ts'
 import { prepareModelMessages } from '../../runtime/messagePrepare.ts'
 import {
   buildExternalAgentInstructions,
@@ -68,8 +71,10 @@ import { readUserDocument, type UserDocument } from '../../runtime/user.ts'
 import { resolveYachiyoUserPath } from '../../config/paths.ts'
 import { readChannelsConfig } from '../../runtime/channelsConfig.ts'
 import type { ModelRuntime, ModelUsage } from '../../runtime/types.ts'
+import { RETRY_MAX_ATTEMPTS } from '../../runtime/modelRuntime.ts'
+import { isRetryableModelError } from '../../runtime/retryableModelError.ts'
 import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
-import type { YachiyoStorage } from '../../storage/storage.ts'
+import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../storage/storage.ts'
 import {
   createAgentToolSet,
   normalizeToolResult,
@@ -83,12 +88,24 @@ import {
   type Timestamp
 } from './shared.ts'
 import { resolveEnabledTools } from './configDomain.ts'
+import {
+  appendRecoveryReasoningDelta,
+  appendRecoveryTextDelta,
+  appendRecoveryToolCall,
+  appendRecoveryToolResult,
+  buildRecoveryHistory,
+  buildRecoveryResponseMessages,
+  clearRecoveryReasoningParts,
+  cloneRecoveryResponseMessages,
+  type RecoveryResponseMessage
+} from './runRecovery.ts'
 
 export interface ExecuteRunInput {
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
   channelHint?: string
   extraTools?: import('ai').ToolSet
+  recoveryCheckpoint?: RunRecoveryCheckpoint
   runId: string
   thread: ThreadRecord
   requestMessageId: string
@@ -107,6 +124,7 @@ export type ExecuteRunResult =
   | { kind: 'failed' }
   | { kind: 'cancelled' }
   | { kind: 'restarted'; nextRequestMessageId: string }
+  | { kind: 'recovering'; checkpoint: RunRecoveryCheckpoint }
 
 export interface RunExecutionDeps {
   storage: YachiyoStorage
@@ -694,163 +712,60 @@ function bindCompletedToolCallsToAssistant(
   }
 }
 
-function buildInterruptedToolCallInput(toolCall: ToolCallRecord): unknown {
-  if (toolCall.toolName === 'bash') {
-    return {
-      command:
-        toolCall.details && 'command' in toolCall.details
-          ? toolCall.details.command
-          : toolCall.inputSummary
-    }
-  }
-
-  if (toolCall.toolName === 'webRead') {
-    return {
-      url:
-        toolCall.details && 'requestedUrl' in toolCall.details
-          ? toolCall.details.requestedUrl
-          : toolCall.inputSummary
-    }
-  }
-
-  if (toolCall.toolName === 'webSearch') {
-    return {
-      query:
-        toolCall.details && 'query' in toolCall.details
-          ? toolCall.details.query
-          : toolCall.inputSummary
-    }
-  }
-
-  if (toolCall.toolName === 'skillsRead') {
-    return {
-      names:
-        toolCall.details && 'requestedNames' in toolCall.details
-          ? toolCall.details.requestedNames
-          : toolCall.inputSummary
-              .split(',')
-              .map((name) => name.trim())
-              .filter(Boolean)
-    }
-  }
-
-  if (toolCall.toolName === 'grep' || toolCall.toolName === 'glob') {
-    return {
-      pattern:
-        toolCall.details && 'pattern' in toolCall.details
-          ? toolCall.details.pattern
-          : toolCall.inputSummary
-    }
-  }
-
-  if (
-    toolCall.toolName === 'read' ||
-    toolCall.toolName === 'write' ||
-    toolCall.toolName === 'edit'
-  ) {
-    return {
-      path:
-        toolCall.details && 'path' in toolCall.details
-          ? toolCall.details.path
-          : toolCall.inputSummary
-    }
-  }
-
-  return toolCall.inputSummary
+function upsertRunRecoveryCheckpoint(
+  deps: Pick<RunExecutionDeps, 'storage'>,
+  checkpoint: RunRecoveryCheckpoint
+): void {
+  deps.storage.upsertRunRecoveryCheckpoint(checkpoint)
 }
 
-function buildInterruptedToolCallOutput(toolCall: ToolCallRecord): unknown {
-  if (toolCall.error) {
+function restorePersistedRunToolCalls(
+  loadThreadToolCalls: RunExecutionDeps['loadThreadToolCalls'],
+  threadId: string,
+  runId: string
+): Map<string, ToolCallRecord> {
+  return new Map(
+    loadThreadToolCalls(threadId)
+      .filter((toolCall) => toolCall.runId === runId)
+      .map((toolCall) => [toolCall.id, toolCall] as const)
+  )
+}
+
+function consumeDuplicatePrefix(input: { prefix: string; pending: string; delta: string }): {
+  prefix: string
+  pending: string
+  delta: string
+} {
+  if (!input.prefix || !input.delta) {
+    return input
+  }
+
+  const candidate = input.pending + input.delta
+  if (!candidate) {
+    return input
+  }
+
+  if (candidate.length <= input.prefix.length && input.prefix.startsWith(candidate)) {
     return {
-      type: 'content',
-      value: [{ type: 'text', text: toolCall.error }]
+      prefix: candidate === input.prefix ? '' : input.prefix,
+      pending: candidate === input.prefix ? '' : candidate,
+      delta: ''
     }
   }
 
-  if (toolCall.toolName === 'bash' && toolCall.details && 'stdout' in toolCall.details) {
-    const stdout = toolCall.details.stdout.trim()
-    const stderr = 'stderr' in toolCall.details ? toolCall.details.stderr.trim() : ''
-    const blocks = [
-      ...(stdout ? [{ type: 'text', text: stdout }] : []),
-      ...(stderr ? [{ type: 'text', text: stderr }] : [])
-    ]
-
-    if (blocks.length > 0) {
-      return {
-        type: 'content',
-        value: blocks
-      }
-    }
-  }
-
-  if (toolCall.outputSummary) {
+  if (candidate.startsWith(input.prefix)) {
     return {
-      type: 'content',
-      value: [{ type: 'text', text: toolCall.outputSummary }]
+      prefix: '',
+      pending: '',
+      delta: candidate.slice(input.prefix.length)
     }
   }
 
   return {
-    type: 'content',
-    value: [{ type: 'text', text: 'tool completed' }]
+    prefix: '',
+    pending: '',
+    delta: candidate
   }
-}
-
-function buildInterruptedResponseMessages(input: {
-  buffer: string
-  reasoningBuffer: string
-  toolCalls: Map<string, ToolCallRecord>
-}): unknown[] | undefined {
-  const completedToolCalls = [...input.toolCalls.values()]
-    .filter((toolCall) => toolCall.finishedAt)
-    .sort((left, right) => {
-      const leftStep = left.stepIndex ?? 0
-      const rightStep = right.stepIndex ?? 0
-      return leftStep - rightStep || left.startedAt.localeCompare(right.startedAt)
-    })
-
-  if (completedToolCalls.length === 0 && !input.buffer && !input.reasoningBuffer) {
-    return undefined
-  }
-
-  const assistantContent: unknown[] = []
-  if (input.reasoningBuffer) {
-    assistantContent.push({ type: 'reasoning', text: input.reasoningBuffer })
-  }
-  if (input.buffer) {
-    assistantContent.push({ type: 'text', text: input.buffer })
-  }
-  for (const toolCall of completedToolCalls) {
-    assistantContent.push({
-      type: 'tool-call',
-      toolCallId: toolCall.id,
-      toolName: toolCall.toolName,
-      input: buildInterruptedToolCallInput(toolCall)
-    })
-  }
-
-  const responseMessages: unknown[] = [
-    {
-      role: 'assistant',
-      content: assistantContent
-    }
-  ]
-
-  for (const toolCall of completedToolCalls) {
-    responseMessages.push({
-      role: 'tool',
-      content: [
-        {
-          type: 'tool-result',
-          toolCallId: toolCall.id,
-          toolName: toolCall.toolName,
-          output: buildInterruptedToolCallOutput(toolCall)
-        }
-      ]
-    })
-  }
-
-  return responseMessages
 }
 
 function persistTerminalAssistantMessage(
@@ -900,19 +815,66 @@ export async function executeServerRun(
   const settings = deps.readSettings()
   const maxChatToken = normalizeOptionalMaxChatToken(deps.readConfig().chat?.maxChatToken)
   const harnessId = deps.createId()
-  const messageId = deps.createId()
-  const toolCalls = new Map<string, ToolCallRecord>()
+  const recoveryCheckpoint = input.recoveryCheckpoint
+  const messageId = recoveryCheckpoint?.assistantMessageId ?? deps.createId()
+  const toolCalls = recoveryCheckpoint
+    ? restorePersistedRunToolCalls(deps.loadThreadToolCalls, input.thread.id, input.runId)
+    : new Map<string, ToolCallRecord>()
   const runningToolCallIds = new Set<string>()
-  let stepCount = 0
+  let stepCount = Math.max(0, ...[...toolCalls.values()].map((toolCall) => toolCall.stepIndex ?? 0))
   let subagentToolCallId: string | undefined
   let subagentStartedAt: string | undefined
-  let buffer = ''
-  let reasoningBuffer = ''
-  let textBlocks: MessageTextBlockRecord[] = []
-  let shouldStartNewTextBlock = true
+  let buffer = recoveryCheckpoint?.content ?? ''
+  let reasoningBuffer = recoveryCheckpoint?.reasoning ?? ''
+  let textBlocks: MessageTextBlockRecord[] = recoveryCheckpoint?.textBlocks
+    ? [...recoveryCheckpoint.textBlocks]
+    : []
+  let shouldStartNewTextBlock = textBlocks.length === 0
   let executionPhase: 'generating' | 'tool-running' = 'generating'
   let awaitingSafeSteerPointAfterTool = false
   let safeSteerTimer: ReturnType<typeof setTimeout> | null = null
+  let duplicateTextPrefix = recoveryCheckpoint?.content ?? ''
+  let pendingDuplicateText = ''
+  const recoveryCreatedAt = recoveryCheckpoint?.createdAt ?? deps.timestamp()
+  let recoveryResponseMessages: RecoveryResponseMessage[] =
+    (buildRecoveryResponseMessages({
+      checkpoint: recoveryCheckpoint ?? { content: buffer },
+      toolCalls: [...toolCalls.values()]
+    }) as RecoveryResponseMessage[] | undefined) ?? []
+
+  const persistRecoveryCheckpoint = (
+    options: {
+      lastError?: string
+      recoveryAttempts?: number
+    } = {}
+  ): RunRecoveryCheckpoint | undefined => {
+    if (!input.requestMessageId) {
+      return undefined
+    }
+
+    const checkpoint: RunRecoveryCheckpoint = {
+      runId: input.runId,
+      threadId: input.thread.id,
+      requestMessageId: input.requestMessageId,
+      assistantMessageId: messageId,
+      content: buffer,
+      ...(textBlocks.length > 0 ? { textBlocks } : {}),
+      ...(reasoningBuffer ? { reasoning: reasoningBuffer } : {}),
+      ...(recoveryResponseMessages.length > 0
+        ? { responseMessages: recoveryResponseMessages }
+        : {}),
+      enabledTools: [...input.enabledTools],
+      ...(input.enabledSkillNames ? { enabledSkillNames: [...input.enabledSkillNames] } : {}),
+      ...(input.channelHint ? { channelHint: input.channelHint } : {}),
+      updateHeadOnComplete: input.updateHeadOnComplete,
+      createdAt: recoveryCreatedAt,
+      updatedAt: deps.timestamp(),
+      recoveryAttempts: options.recoveryAttempts ?? recoveryCheckpoint?.recoveryAttempts ?? 0,
+      ...(options.lastError ? { lastError: options.lastError } : {})
+    }
+    upsertRunRecoveryCheckpoint(deps, checkpoint)
+    return checkpoint
+  }
 
   const clearSafeSteerTimer = (): void => {
     if (!safeSteerTimer) {
@@ -954,13 +916,16 @@ export async function executeServerRun(
     harnessId,
     name: DEFAULT_HARNESS_NAME
   })
-  deps.emit<MessageStartedEvent>({
-    type: 'message.started',
-    threadId: input.thread.id,
-    runId: input.runId,
-    messageId,
-    parentMessageId: input.requestMessageId
-  })
+  if (!recoveryCheckpoint) {
+    deps.emit<MessageStartedEvent>({
+      type: 'message.started',
+      threadId: input.thread.id,
+      runId: input.runId,
+      messageId,
+      parentMessageId: input.requestMessageId
+    })
+  }
+  persistRecoveryCheckpoint()
 
   try {
     const workspacePath = await ensureResolvedWorkspacePath(
@@ -1140,6 +1105,18 @@ export async function executeServerRun(
       modelUserQuery,
       input.thread.summaryWatermarkMessageId
     )
+    const recoveredToolCalls = recoveryCheckpoint
+      ? deps
+          .loadThreadToolCalls(input.thread.id)
+          .filter((toolCall) => toolCall.runId === input.runId)
+      : []
+    const recoveryHistory = recoveryCheckpoint
+      ? buildRecoveryHistory({
+          checkpoint: recoveryCheckpoint,
+          toolCalls: recoveredToolCalls
+        })
+      : []
+    const contextHistory = [...history, ...recoveryHistory]
 
     const messages =
       isExternalChannel && !isOwnerDm
@@ -1155,7 +1132,7 @@ export async function executeServerRun(
             }),
             channelInstruction: input.channelHint ?? '',
             rollingSummary: input.thread.rollingSummary,
-            history,
+            history: contextHistory,
             hint: { reminder: hiddenQueryReminder || undefined },
             memory: { entries: memoryEntries }
           })
@@ -1196,9 +1173,9 @@ export async function executeServerRun(
                     role: 'user' as const,
                     content: `<conversation_summary>\n${input.thread.rollingSummary.trim()}\n</conversation_summary>`
                   },
-                  ...history
+                  ...contextHistory
                 ]
-              : history
+              : contextHistory
           })
     const tools = createAgentToolSet(
       {
@@ -1239,6 +1216,7 @@ export async function executeServerRun(
                 setExecutionPhase('tool-running')
                 subagentToolCallId = deps.createId()
                 subagentStartedAt = deps.timestamp()
+                stepCount++
                 const toolCall: ToolCallRecord = {
                   id: subagentToolCallId,
                   runId: input.runId,
@@ -1247,10 +1225,18 @@ export async function executeServerRun(
                   toolName: 'delegateCodingTask',
                   status: 'running',
                   inputSummary: agentName,
-                  startedAt: subagentStartedAt
+                  startedAt: subagentStartedAt,
+                  stepIndex: stepCount,
+                  stepBudget: maxToolSteps
                 }
                 toolCalls.set(toolCall.id, toolCall)
                 deps.storage.createToolCall(toolCall)
+                appendRecoveryToolCall(recoveryResponseMessages, {
+                  toolCallId: toolCall.id,
+                  toolName: toolCall.toolName,
+                  toolInput: { summary: agentName }
+                })
+                persistRecoveryCheckpoint()
                 deps.emit<ToolCallUpdatedEvent>({
                   type: 'tool.updated',
                   threadId: input.thread.id,
@@ -1285,7 +1271,9 @@ export async function executeServerRun(
                       requestMessageId: input.requestMessageId,
                       toolName: 'delegateCodingTask',
                       inputSummary: agentName,
-                      startedAt: subagentStartedAt ?? finishedAt
+                      startedAt: subagentStartedAt ?? finishedAt,
+                      stepIndex: ++stepCount,
+                      stepBudget: maxToolSteps
                     }),
                     status: status === 'cancelled' ? 'failed' : 'completed',
                     outputSummary,
@@ -1293,6 +1281,25 @@ export async function executeServerRun(
                   }
                   toolCalls.set(toolCall.id, toolCall)
                   deps.storage.updateToolCall(toolCall)
+                  if (!startedToolCall) {
+                    appendRecoveryToolCall(recoveryResponseMessages, {
+                      toolCallId: toolCall.id,
+                      toolName: toolCall.toolName,
+                      toolInput: { summary: agentName }
+                    })
+                  }
+                  appendRecoveryToolResult(recoveryResponseMessages, {
+                    toolCallId: toolCall.id,
+                    toolName: toolCall.toolName,
+                    ...(status === 'cancelled'
+                      ? { error: outputSummary }
+                      : {
+                          output: {
+                            content: [{ type: 'text', text: outputSummary }]
+                          }
+                        })
+                  })
+                  persistRecoveryCheckpoint()
                   deps.emit<ToolCallUpdatedEvent>({
                     type: 'tool.updated',
                     threadId: input.thread.id,
@@ -1340,6 +1347,20 @@ export async function executeServerRun(
       },
       onRetry: (attempt, maxAttempts, delayMs, error) => {
         reasoningBuffer = ''
+        const normalizedResponseMessages = buildRecoveryResponseMessages({
+          checkpoint: {
+            content: buffer,
+            ...(recoveryResponseMessages.length > 0
+              ? { responseMessages: clearRecoveryReasoningParts(recoveryResponseMessages) }
+              : {})
+          },
+          toolCalls: [...toolCalls.values()]
+        }) as RecoveryResponseMessage[] | undefined
+        recoveryResponseMessages =
+          normalizedResponseMessages ??
+          cloneRecoveryResponseMessages(recoveryCheckpoint?.responseMessages) ??
+          []
+        persistRecoveryCheckpoint()
         deps.emit<RunRetryingEvent>({
           type: 'run.retrying',
           threadId: input.thread.id,
@@ -1352,6 +1373,8 @@ export async function executeServerRun(
       },
       onReasoningDelta: (reasoningDelta) => {
         reasoningBuffer += reasoningDelta
+        appendRecoveryReasoningDelta(recoveryResponseMessages, reasoningDelta)
+        persistRecoveryCheckpoint()
         deps.emit<MessageReasoningDeltaEvent>({
           type: 'message.reasoning.delta',
           threadId: input.thread.id,
@@ -1389,6 +1412,12 @@ export async function executeServerRun(
 
         toolCalls.set(toolCall.id, toolCall)
         deps.storage.createToolCall(toolCall)
+        appendRecoveryToolCall(recoveryResponseMessages, {
+          toolCallId: toolCall.id,
+          toolName: toolCall.toolName,
+          toolInput: event.toolCall.input
+        })
+        persistRecoveryCheckpoint()
         deps.emit<ToolCallUpdatedEvent>({
           type: 'tool.updated',
           threadId: input.thread.id,
@@ -1422,6 +1451,7 @@ export async function executeServerRun(
 
         toolCalls.set(toolCall.id, toolCall)
         deps.storage.updateToolCall(toolCall)
+        persistRecoveryCheckpoint()
         deps.emit<ToolCallUpdatedEvent>({
           type: 'tool.updated',
           threadId: input.thread.id,
@@ -1469,6 +1499,8 @@ export async function executeServerRun(
                 ...(normalized?.details ? { details: normalized.details } : {}),
                 ...(errorMessage ? { error: errorMessage } : {}),
                 startedAt: finishedAt,
+                stepIndex: ++stepCount,
+                stepBudget: maxToolSteps,
                 finishedAt
               }
 
@@ -1477,7 +1509,19 @@ export async function executeServerRun(
             deps.storage.updateToolCall(toolCall)
           } else {
             deps.storage.createToolCall(toolCall)
+            appendRecoveryToolCall(recoveryResponseMessages, {
+              toolCallId: toolCall.id,
+              toolName,
+              toolInput: event.toolCall.input
+            })
           }
+          appendRecoveryToolResult(recoveryResponseMessages, {
+            toolCallId: toolCall.id,
+            toolName,
+            output: event.output,
+            error: event.error
+          })
+          persistRecoveryCheckpoint()
           deps.emit<ToolCallUpdatedEvent>({
             type: 'tool.updated',
             threadId: input.thread.id,
@@ -1514,22 +1558,35 @@ export async function executeServerRun(
       throwIfAborted(input.abortController.signal)
 
       if (!delta) continue
-      buffer += delta
+      const deduped = consumeDuplicatePrefix({
+        prefix: duplicateTextPrefix,
+        pending: pendingDuplicateText,
+        delta
+      })
+      duplicateTextPrefix = deduped.prefix
+      pendingDuplicateText = deduped.pending
+      if (!deduped.delta) {
+        continue
+      }
+
+      buffer += deduped.delta
+      appendRecoveryTextDelta(recoveryResponseMessages, deduped.delta)
       const nextTextBlockState = appendMessageDeltaToTextBlocks({
         textBlocks,
-        delta,
+        delta: deduped.delta,
         timestamp: deps.timestamp(),
         createId: deps.createId,
         shouldStartNewBlock: shouldStartNewTextBlock
       })
       textBlocks = nextTextBlockState.textBlocks
       shouldStartNewTextBlock = nextTextBlockState.shouldStartNewBlock
+      persistRecoveryCheckpoint()
       deps.emit<MessageDeltaEvent>({
         type: 'message.delta',
         threadId: input.thread.id,
         runId: input.runId,
         messageId,
-        delta
+        delta: deduped.delta
       })
     }
 
@@ -1543,6 +1600,11 @@ export async function executeServerRun(
     throwIfAborted(input.abortController.signal)
 
     const timestamp = deps.timestamp()
+    const responseMessages = recoveryCheckpoint
+      ? recoveryResponseMessages.length > 0
+        ? recoveryResponseMessages
+        : undefined
+      : lastUsage?.responseMessages
     const assistantMessage: MessageRecord = {
       id: messageId,
       threadId: input.thread.id,
@@ -1551,7 +1613,7 @@ export async function executeServerRun(
       content: buffer,
       ...(textBlocks.length > 0 ? { textBlocks } : {}),
       ...(reasoningBuffer ? { reasoning: reasoningBuffer } : {}),
-      ...(lastUsage?.responseMessages ? { responseMessages: lastUsage.responseMessages } : {}),
+      ...(responseMessages ? { responseMessages } : {}),
       status: 'completed',
       createdAt: timestamp,
       modelId: settings.model,
@@ -1629,13 +1691,9 @@ export async function executeServerRun(
             content: buffer,
             ...(textBlocks.length > 0 ? { textBlocks } : {}),
             ...(reasoningBuffer ? { reasoning: reasoningBuffer } : {}),
-            ...(toolCalls.size > 0
+            ...(recoveryResponseMessages.length > 0
               ? {
-                  responseMessages: buildInterruptedResponseMessages({
-                    buffer,
-                    reasoningBuffer,
-                    toolCalls
-                  })
+                  responseMessages: recoveryResponseMessages
                 }
               : {}),
             status: 'stopped',
@@ -1661,13 +1719,29 @@ export async function executeServerRun(
           })
 
           const steerMessageId = restartReason.nextRequestMessageId
-          const steerMessage = deps
-            .loadThreadMessages(input.thread.id)
-            .find((message) => message.id === steerMessageId && message.role === 'user')
-          if (steerMessage && steerMessage.parentMessageId !== messageId) {
+          const threadMessages = deps.loadThreadMessages(input.thread.id)
+          const steerMessage = threadMessages.find(
+            (message) => message.id === steerMessageId && message.role === 'user'
+          )
+          const wouldCycleSteerParent =
+            steerMessage && wouldCreateParentCycle(threadMessages, steerMessage.id, messageId)
+          if (wouldCycleSteerParent) {
+            console.warn('[yachiyo][thread-tree] skipped cyclic steer reparent', {
+              messageId: steerMessageId,
+              parentMessageId: messageId,
+              threadId: input.thread.id
+            })
+          }
+          const nextSteerParentMessageId =
+            steerMessage && !wouldCycleSteerParent ? messageId : undefined
+          if (
+            steerMessage &&
+            nextSteerParentMessageId &&
+            steerMessage.parentMessageId !== nextSteerParentMessageId
+          ) {
             const reparentedSteerMessage: MessageRecord = {
               ...steerMessage,
-              parentMessageId: messageId
+              parentMessageId: nextSteerParentMessageId
             }
             deps.storage.updateMessage(reparentedSteerMessage)
             deps.emit<MessageCompletedEvent>({
@@ -1679,6 +1753,7 @@ export async function executeServerRun(
           }
         }
 
+        deps.storage.deleteRunRecoveryCheckpoint(input.runId)
         deps.emit<HarnessFinishedEvent>({
           type: 'harness.finished',
           threadId: input.thread.id,
@@ -1777,6 +1852,43 @@ export async function executeServerRun(
     }
 
     const message = error instanceof Error ? error.message : 'Unknown model runtime error'
+    const nextRecoveryAttempt = (recoveryCheckpoint?.recoveryAttempts ?? 0) + 1
+    if (
+      input.requestMessageId &&
+      isRetryableModelError(error) &&
+      nextRecoveryAttempt < RETRY_MAX_ATTEMPTS &&
+      (buffer.length > 0 || reasoningBuffer.length > 0 || toolCalls.size > 0)
+    ) {
+      runningToolCallIds.clear()
+      setExecutionPhase('generating')
+      finishPendingToolCalls(deps, toolCalls, {
+        error: 'Tool execution was interrupted before completion.',
+        finishedAt: deps.timestamp(),
+        runId: input.runId,
+        threadId: input.thread.id
+      })
+
+      const checkpoint = persistRecoveryCheckpoint({
+        lastError: message,
+        recoveryAttempts: nextRecoveryAttempt
+      })
+      if (checkpoint) {
+        deps.emit<RunRetryingEvent>({
+          type: 'run.retrying',
+          threadId: input.thread.id,
+          runId: input.runId,
+          attempt: checkpoint.recoveryAttempts,
+          maxAttempts: RETRY_MAX_ATTEMPTS,
+          delayMs: Math.min(1_000 * 2 ** Math.max(0, checkpoint.recoveryAttempts - 1), 30_000),
+          error: message
+        })
+        return {
+          kind: 'recovering',
+          checkpoint
+        }
+      }
+    }
+
     const timestamp = deps.timestamp()
     finishPendingToolCalls(deps, toolCalls, {
       error: message,

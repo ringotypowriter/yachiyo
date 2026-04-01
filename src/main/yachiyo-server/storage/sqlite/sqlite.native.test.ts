@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -32,8 +32,22 @@ const SqliteDatabase = ((BetterSqlite3 as { default?: unknown }).default ?? Bett
   exec(sql: string): void
   prepare(sql: string): {
     all(): Array<{ name: string }>
+    get(...params: unknown[]): Record<string, unknown> | undefined
     run(...params: unknown[]): void
   }
+}
+
+async function readMigrationTimestamp(tag: string): Promise<number> {
+  const journal = JSON.parse(
+    await readFile(new URL('./drizzle/meta/_journal.json', import.meta.url), 'utf8')
+  ) as {
+    entries: Array<{ tag: string; when: number }>
+  }
+  const entry = journal.entries.find((item) => item.tag === tag)
+  if (!entry) {
+    throw new Error(`Missing migration journal entry for ${tag}`)
+  }
+  return entry.when
 }
 
 interface RunCompletionTracker {
@@ -200,8 +214,171 @@ test('sqlite storage initializes migrations on disk', async () => {
         .all()
         .some((row) => row.name === 'assistant_message_id')
     )
+    assert.ok(
+      db
+        .prepare('PRAGMA table_info(tool_calls)')
+        .all()
+        .some((row) => row.name === 'step_index')
+    )
+    assert.ok(
+      db
+        .prepare('PRAGMA table_info(tool_calls)')
+        .all()
+        .some((row) => row.name === 'step_budget')
+    )
 
     db.close()
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('sqlite storage preserves tool step order across reload', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-sqlite-native-'))
+  const dbPath = join(root, 'tool-step-order.sqlite')
+
+  try {
+    const storage = createSqliteYachiyoStorage(dbPath)
+    storage.createThread({
+      thread: {
+        id: 'thread-1',
+        title: 'Thread',
+        updatedAt: '2026-03-20T00:00:00.000Z'
+      },
+      createdAt: '2026-03-20T00:00:00.000Z',
+      messages: [
+        {
+          id: 'user-1',
+          threadId: 'thread-1',
+          role: 'user',
+          content: 'Question',
+          status: 'completed',
+          createdAt: '2026-03-20T00:00:00.000Z'
+        }
+      ]
+    })
+    storage.startRun({
+      runId: 'run-1',
+      thread: {
+        id: 'thread-1',
+        title: 'Thread',
+        updatedAt: '2026-03-20T00:00:00.000Z'
+      },
+      updatedThread: {
+        id: 'thread-1',
+        title: 'Thread',
+        updatedAt: '2026-03-20T00:00:00.000Z'
+      },
+      requestMessageId: 'user-1',
+      createdAt: '2026-03-20T00:00:00.500Z'
+    })
+    storage.createToolCall({
+      id: 'tool-2',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      requestMessageId: 'user-1',
+      toolName: 'write',
+      status: 'completed',
+      inputSummary: 'second',
+      startedAt: '2026-03-20T00:00:01.000Z',
+      finishedAt: '2026-03-20T00:00:01.500Z',
+      stepIndex: 2,
+      stepBudget: 10
+    })
+    storage.createToolCall({
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      requestMessageId: 'user-1',
+      toolName: 'read',
+      status: 'completed',
+      inputSummary: 'first',
+      startedAt: '2026-03-20T00:00:01.000Z',
+      finishedAt: '2026-03-20T00:00:01.250Z',
+      stepIndex: 1,
+      stepBudget: 10
+    })
+    storage.close()
+
+    const reloaded = createSqliteYachiyoStorage(dbPath)
+    const toolCalls = reloaded.listThreadToolCalls('thread-1')
+    reloaded.close()
+
+    assert.deepEqual(
+      toolCalls.map((toolCall) => ({ id: toolCall.id, stepIndex: toolCall.stepIndex })),
+      [
+        { id: 'tool-1', stepIndex: 1 },
+        { id: 'tool-2', stepIndex: 2 }
+      ]
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('0034 migration preserves recurring schedules without inventing run_at values', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-sqlite-native-'))
+  const dbPath = join(root, 'schedule-migration.sqlite')
+
+  try {
+    const previousMigrationAt = await readMigrationTimestamp('0033_bouncy_impossible_man')
+    const db = new SqliteDatabase(dbPath)
+
+    db.exec(`
+      CREATE TABLE "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY,
+        hash text NOT NULL,
+        created_at numeric
+      );
+      CREATE TABLE "schedules" (
+        "id" text PRIMARY KEY NOT NULL,
+        "name" text NOT NULL,
+        "cron_expression" text,
+        "prompt" text NOT NULL,
+        "workspace_path" text,
+        "model_override" text,
+        "enabled_tools" text,
+        "enabled" integer DEFAULT 1 NOT NULL,
+        "created_at" text NOT NULL,
+        "updated_at" text NOT NULL
+      );
+    `)
+
+    db.prepare('INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES (?, ?)').run(
+      'pre-0034',
+      previousMigrationAt
+    )
+    db.prepare(
+      'INSERT INTO "schedules" ("id", "name", "cron_expression", "prompt", "workspace_path", "model_override", "enabled_tools", "enabled", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(
+      'schedule-1',
+      'Daily report',
+      '0 9 * * *',
+      'Send the report',
+      null,
+      null,
+      null,
+      1,
+      '2026-01-01T00:00:00.000Z',
+      '2026-01-01T00:00:00.000Z'
+    )
+    db.close()
+
+    const storage = createSqliteYachiyoStorage(dbPath)
+    const schedule = storage.getSchedule('schedule-1')
+
+    assert.equal(schedule?.cronExpression, '0 9 * * *')
+    assert.equal(schedule?.runAt, undefined)
+
+    storage.close()
+
+    const migratedDb = new SqliteDatabase(dbPath)
+    const row = migratedDb
+      .prepare('SELECT cron_expression, run_at FROM schedules WHERE id = ?')
+      .get('schedule-1')
+    assert.equal(row?.['cron_expression'], '0 9 * * *')
+    assert.equal(row?.['run_at'], null)
+    migratedDb.close()
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -418,7 +595,7 @@ test('sqlite-backed server persists state across reopen', async () => {
     const bootstrap = await reopened.bootstrap()
 
     assert.equal(bootstrap.threads.length, 1)
-    assert.equal(bootstrap.threads[0]?.title, 'Persist this thread')
+    assert.equal(bootstrap.threads[0]?.title, 'Hello from sqlite')
     assert.equal(bootstrap.threads[0]?.preview, 'Hello from sqlite')
     assert.equal(
       bootstrap.threads[0]?.headMessageId,

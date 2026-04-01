@@ -41,6 +41,8 @@ export interface ScheduleServiceDeps {
     YachiyoStorage,
     | 'listSchedules'
     | 'getSchedule'
+    | 'updateSchedule'
+    | 'deleteSchedule'
     | 'createScheduleRun'
     | 'completeScheduleRun'
     | 'recoverInterruptedScheduleRuns'
@@ -102,7 +104,10 @@ export interface ScheduleService {
 /** Build a fingerprint string from the schedule set so we can detect DB-level changes. */
 function scheduleFingerprint(schedules: ScheduleRecord[]): string {
   return schedules
-    .map((s) => `${s.id}:${s.enabled ? '1' : '0'}:${s.cronExpression}:${s.updatedAt}`)
+    .map(
+      (s) =>
+        `${s.id}:${s.enabled ? '1' : '0'}:${s.cronExpression ?? ''}:${s.runAt ?? ''}:${s.updatedAt}`
+    )
     .sort()
     .join('|')
 }
@@ -110,8 +115,24 @@ function scheduleFingerprint(schedules: ScheduleRecord[]): string {
 export function createScheduleService(deps: ScheduleServiceDeps): ScheduleService {
   const timers = new Map<string, ScheduleTimer>()
   const activeRuns = new Set<string>()
+  const pendingImmediateRuns = new Set<string>()
   let syncTimer: ReturnType<typeof setInterval> | null = null
   let lastFingerprint = ''
+
+  function disarmOneOffSchedule(scheduleId: string, reason: 'completed' | 'skipped'): void {
+    clearTimer(scheduleId)
+
+    const schedule = deps.storage.getSchedule(scheduleId)
+    if (!schedule?.runAt) return
+    if (!schedule.enabled) return
+
+    deps.storage.updateSchedule({
+      ...schedule,
+      enabled: false,
+      updatedAt: deps.timestamp()
+    })
+    console.log(`[schedule] one-off "${schedule.name}" ${reason} and disabled`)
+  }
 
   function armTimer(schedule: ScheduleRecord): void {
     clearTimer(schedule.id)
@@ -119,13 +140,28 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
     if (!schedule.enabled) return
 
     try {
-      const cron = CronExpressionParser.parse(schedule.cronExpression, {
-        tz: Intl.DateTimeFormat().resolvedOptions().timeZone
-      })
-      const next = cron.next()
-      const fireAt = next.getTime()
-
-      armTimerAt(schedule.id, fireAt)
+      if (schedule.runAt) {
+        // One-off: fire at the exact datetime
+        const fireAt = Date.parse(schedule.runAt)
+        if (isNaN(fireAt)) {
+          console.error(`[schedule] invalid runAt for "${schedule.name}": ${schedule.runAt}`)
+          return
+        }
+        if (fireAt <= Date.now()) {
+          // Already past — queue one fire, but guard against reloads queuing duplicates.
+          requestImmediateFire(schedule.id)
+        } else {
+          armTimerAt(schedule.id, fireAt)
+        }
+      } else if (schedule.cronExpression) {
+        const cron = CronExpressionParser.parse(schedule.cronExpression, {
+          tz: Intl.DateTimeFormat().resolvedOptions().timeZone
+        })
+        const next = cron.next()
+        armTimerAt(schedule.id, next.getTime())
+      } else {
+        console.error(`[schedule] "${schedule.name}" has neither cronExpression nor runAt`)
+      }
     } catch (err) {
       console.error(`[schedule] failed to arm timer for "${schedule.name}":`, err)
     }
@@ -162,6 +198,17 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
       clearTimeout(timer.timeout)
     }
     timers.clear()
+    pendingImmediateRuns.clear()
+  }
+
+  function requestImmediateFire(scheduleId: string): void {
+    if (activeRuns.has(scheduleId) || pendingImmediateRuns.has(scheduleId)) return
+
+    pendingImmediateRuns.add(scheduleId)
+    queueMicrotask(() => {
+      if (!pendingImmediateRuns.delete(scheduleId)) return
+      void fireSchedule(scheduleId)
+    })
   }
 
   async function fireSchedule(scheduleId: string): Promise<void> {
@@ -170,7 +217,9 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
 
     if (activeRuns.has(scheduleId)) {
       console.warn(`[schedule] skipping overlapping fire for "${schedule.name}"`)
-      armTimer(schedule)
+      if (!schedule.runAt) {
+        armTimer(schedule)
+      }
       return
     }
 
@@ -191,7 +240,12 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
         error: 'No internet connection.'
       })
       console.log(`[schedule] "${schedule.name}" skipped — no internet connection`)
-      armTimer(schedule)
+      const fresh = deps.storage.getSchedule(scheduleId)
+      if (fresh?.runAt) {
+        disarmOneOffSchedule(scheduleId, 'skipped')
+      } else if (fresh) {
+        armTimer(fresh)
+      }
       return
     }
 
@@ -354,9 +408,15 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
       }
 
       activeRuns.delete(scheduleId)
-      // Re-arm for next fire
+      // One-off schedules fire once, then stay disabled so run history remains visible.
       const fresh = deps.storage.getSchedule(scheduleId)
-      if (fresh) armTimer(fresh)
+      if (fresh) {
+        if (fresh.runAt) {
+          disarmOneOffSchedule(scheduleId, 'completed')
+        } else {
+          armTimer(fresh)
+        }
+      }
     }
   }
 

@@ -5,6 +5,7 @@ import type {
   CompactThreadAccepted,
   MessageCompletedEvent,
   MessageDeltaEvent,
+  MessageReasoningDeltaEvent,
   MessageFileAttachment,
   MessageRecord,
   MessageStartedEvent,
@@ -22,6 +23,7 @@ import type {
   ThreadRecord,
   ThreadStateReplacedEvent,
   ThreadUpdatedEvent,
+  ToolCallUpdatedEvent,
   ToolCallRecord,
   ToolCallName
 } from '../../../../shared/yachiyo/protocol.ts'
@@ -40,8 +42,11 @@ import type { SearchService } from '../../services/search/searchService.ts'
 import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
 import type { BrowserWebPageSnapshotLoader } from '../../services/webRead/browserWebPageSnapshot.ts'
 import type { ModelRuntime } from '../../runtime/types.ts'
-import type { YachiyoStorage } from '../../storage/storage.ts'
-import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
+import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../storage/storage.ts'
+import {
+  collectMessagePath,
+  wouldCreateParentCycle
+} from '../../../../shared/yachiyo/threadTree.ts'
 import { assertSupportedImages, resolveEnabledTools } from './configDomain.ts'
 import { toEffectiveProviderSettings } from '../../settings/settingsStore.ts'
 import { executeServerRun, type RestartRunReason, type ExecuteRunResult } from './runExecution.ts'
@@ -71,6 +76,7 @@ interface RunState {
   requestMessageId?: string
   enabledSkillNames?: string[]
   channelHint?: string
+  recoveryCheckpoint?: RunRecoveryCheckpoint
   abortController: AbortController
   pendingSteerMessageId?: string
   pendingSteerInput?: {
@@ -121,6 +127,10 @@ function toRestartRunReason(nextRequestMessageId: string): RestartRunReason {
     type: 'restart',
     nextRequestMessageId
   }
+}
+
+function sleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs))
 }
 
 function withParentMessageId(message: MessageRecord, parentMessageId?: string): MessageRecord {
@@ -226,6 +236,12 @@ export class YachiyoServerRunDomain {
       .map((thread) => thread.id)
   }
 
+  prepareRecoveredRuns(): RunRecoveryCheckpoint[] {
+    return this.deps.storage
+      .listRunRecoveryCheckpoints()
+      .filter((checkpoint) => !this.activeRunByThread.has(checkpoint.threadId))
+  }
+
   scheduleRecoveredQueuedFollowUps(threadIds: string[]): void {
     if (threadIds.length === 0) {
       return
@@ -234,6 +250,18 @@ export class YachiyoServerRunDomain {
     setTimeout(() => {
       for (const threadId of threadIds) {
         this.startQueuedFollowUpIfPresent(threadId)
+      }
+    }, 0)
+  }
+
+  scheduleRecoveredRuns(checkpoints: RunRecoveryCheckpoint[]): void {
+    if (checkpoints.length === 0) {
+      return
+    }
+
+    setTimeout(() => {
+      for (const checkpoint of checkpoints) {
+        this.startRecoveredRun(checkpoint)
       }
     }, 0)
   }
@@ -820,6 +848,7 @@ export class YachiyoServerRunDomain {
     enabledSkillNames?: string[]
     channelHint?: string
     extraTools?: import('ai').ToolSet
+    recoveryCheckpoint?: RunRecoveryCheckpoint
     runId: string
     thread: ThreadRecord
     requestMessageId: string
@@ -830,6 +859,7 @@ export class YachiyoServerRunDomain {
       requestMessageId: input.requestMessageId,
       ...(input.enabledSkillNames ? { enabledSkillNames: [...input.enabledSkillNames] } : {}),
       ...(input.channelHint ? { channelHint: input.channelHint } : {}),
+      ...(input.recoveryCheckpoint ? { recoveryCheckpoint: input.recoveryCheckpoint } : {}),
       abortController: new AbortController(),
       executionPhase: 'generating',
       updateHeadOnComplete: input.updateHeadOnComplete
@@ -841,12 +871,91 @@ export class YachiyoServerRunDomain {
       enabledSkillNames: input.enabledSkillNames,
       channelHint: input.channelHint,
       extraTools: input.extraTools,
+      recoveryCheckpoint: input.recoveryCheckpoint,
       runId: input.runId,
       thread: input.thread,
       requestMessageId: input.requestMessageId,
       updateHeadOnComplete: input.updateHeadOnComplete
     })
     this.activeRunTasks.set(input.runId, runTask)
+    void runTask
+  }
+
+  private startRecoveredRun(checkpoint: RunRecoveryCheckpoint): void {
+    if (this.isClosing || this.activeRunByThread.has(checkpoint.threadId)) {
+      return
+    }
+
+    const thread = this.deps.requireThread(checkpoint.threadId)
+    const toolCalls = this.deps
+      .loadThreadToolCalls(thread.id)
+      .filter((toolCall) => toolCall.runId === checkpoint.runId)
+
+    this.deps.emit<RunCreatedEvent>({
+      type: 'run.created',
+      threadId: checkpoint.threadId,
+      runId: checkpoint.runId,
+      requestMessageId: checkpoint.requestMessageId
+    })
+    this.deps.emit<MessageStartedEvent>({
+      type: 'message.started',
+      threadId: checkpoint.threadId,
+      runId: checkpoint.runId,
+      messageId: checkpoint.assistantMessageId,
+      parentMessageId: checkpoint.requestMessageId
+    })
+    if (checkpoint.reasoning) {
+      this.deps.emit<MessageReasoningDeltaEvent>({
+        type: 'message.reasoning.delta',
+        threadId: checkpoint.threadId,
+        runId: checkpoint.runId,
+        messageId: checkpoint.assistantMessageId,
+        delta: checkpoint.reasoning
+      })
+    }
+    if (checkpoint.content) {
+      this.deps.emit<MessageDeltaEvent>({
+        type: 'message.delta',
+        threadId: checkpoint.threadId,
+        runId: checkpoint.runId,
+        messageId: checkpoint.assistantMessageId,
+        delta: checkpoint.content
+      })
+    }
+    for (const toolCall of toolCalls) {
+      this.deps.emit<ToolCallUpdatedEvent>({
+        type: 'tool.updated',
+        threadId: checkpoint.threadId,
+        runId: checkpoint.runId,
+        toolCall
+      })
+    }
+
+    this.activeRuns.set(checkpoint.runId, {
+      threadId: checkpoint.threadId,
+      requestMessageId: checkpoint.requestMessageId,
+      ...(checkpoint.enabledSkillNames
+        ? { enabledSkillNames: [...checkpoint.enabledSkillNames] }
+        : {}),
+      ...(checkpoint.channelHint ? { channelHint: checkpoint.channelHint } : {}),
+      recoveryCheckpoint: checkpoint,
+      abortController: new AbortController(),
+      executionPhase: 'generating',
+      updateHeadOnComplete: checkpoint.updateHeadOnComplete
+    })
+    this.activeRunByThread.set(checkpoint.threadId, checkpoint.runId)
+
+    const runTask = this.runLoop({
+      enabledTools: checkpoint.enabledTools,
+      enabledSkillNames: checkpoint.enabledSkillNames,
+      channelHint: checkpoint.channelHint,
+      recoveryCheckpoint: checkpoint,
+      runId: checkpoint.runId,
+      thread,
+      requestMessageId: checkpoint.requestMessageId,
+      updateHeadOnComplete: checkpoint.updateHeadOnComplete
+    })
+    this.activeRunTasks.set(checkpoint.runId, runTask)
     void runTask
   }
 
@@ -873,6 +982,7 @@ export class YachiyoServerRunDomain {
     enabledSkillNames?: string[]
     channelHint?: string
     extraTools?: import('ai').ToolSet
+    recoveryCheckpoint?: RunRecoveryCheckpoint
     runId: string
     thread: ThreadRecord
     requestMessageId: string
@@ -1032,6 +1142,7 @@ export class YachiyoServerRunDomain {
             channelHint: activeRun.channelHint ?? input.channelHint,
             extraTools: input.extraTools,
             previousEnabledTools,
+            recoveryCheckpoint: activeRun.recoveryCheckpoint ?? input.recoveryCheckpoint,
             requestMessageId: currentRequestMessageId,
             runId: input.runId,
             thread: currentThread,
@@ -1040,6 +1151,16 @@ export class YachiyoServerRunDomain {
         )
 
         previousEnabledTools = input.enabledTools
+
+        if (result.kind === 'recovering') {
+          activeRun.recoveryCheckpoint = result.checkpoint
+          await sleep(
+            Math.min(1_000 * 2 ** Math.max(0, result.checkpoint.recoveryAttempts - 1), 30_000)
+          )
+          continue
+        }
+
+        activeRun.recoveryCheckpoint = undefined
 
         if (result.kind === 'completed') {
           const threadMessages = this.deps.loadThreadMessages(currentThread.id)
@@ -1624,9 +1745,10 @@ export class YachiyoServerRunDomain {
       return null
     }
 
-    const queuedMessage = this.deps
-      .loadThreadMessages(threadId)
-      .find((message) => message.id === queuedMessageId && message.role === 'user')
+    const threadMessages = this.deps.loadThreadMessages(threadId)
+    const queuedMessage = threadMessages.find(
+      (message) => message.id === queuedMessageId && message.role === 'user'
+    )
     if (!queuedMessage) {
       const clearedThread: ThreadRecord = {
         ...thread,
@@ -1640,7 +1762,22 @@ export class YachiyoServerRunDomain {
       return null
     }
 
-    const reparentedQueuedMessage = withParentMessageId(queuedMessage, thread.headMessageId)
+    const wouldCycleQueuedFollowUpParent = wouldCreateParentCycle(
+      threadMessages,
+      queuedMessage.id,
+      thread.headMessageId
+    )
+    if (wouldCycleQueuedFollowUpParent) {
+      console.warn('[yachiyo][thread-tree] skipped cyclic queued follow-up reparent', {
+        messageId: queuedMessage.id,
+        threadHeadMessageId: thread.headMessageId,
+        threadId
+      })
+    }
+    const nextQueuedParentMessageId = wouldCycleQueuedFollowUpParent
+      ? queuedMessage.parentMessageId
+      : thread.headMessageId
+    const reparentedQueuedMessage = withParentMessageId(queuedMessage, nextQueuedParentMessageId)
     if (reparentedQueuedMessage.parentMessageId !== queuedMessage.parentMessageId) {
       this.deps.storage.updateMessage(reparentedQueuedMessage)
     }
