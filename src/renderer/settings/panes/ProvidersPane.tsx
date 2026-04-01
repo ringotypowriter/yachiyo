@@ -140,7 +140,9 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
         }
       })
     } catch (error) {
-      setFetchError(error instanceof Error ? error.message : 'Failed to fetch models')
+      const raw = error instanceof Error ? error.message : 'Failed to fetch models'
+      const ipcMatch = raw.match(/Error invoking remote method '[^']+': (.+)$/s)
+      setFetchError(ipcMatch ? ipcMatch[1] : raw)
     } finally {
       setFetching(false)
     }
