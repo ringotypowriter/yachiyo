@@ -43,7 +43,9 @@ export interface DelegateCodingTaskContext {
   onSubagentFinished?: (
     agentName: string,
     status: 'success' | 'cancelled',
-    lastMessage?: string
+    lastMessage?: string,
+    sessionId?: string,
+    workspacePath?: string
   ) => void
   launchAcpProcess?: typeof launchAcpProcess
   runAcpSession?: typeof runAcpSession
@@ -142,7 +144,13 @@ export function createTool(
           options.abortSignal,
           input.session_id || undefined
         )
-        ctx.onSubagentFinished?.(input.agent_name, 'success', lastMessage)
+        ctx.onSubagentFinished?.(
+          input.agent_name,
+          'success',
+          lastMessage,
+          result.sessionId,
+          effectiveCtx.workspacePath
+        )
         return result
       } catch (err) {
         ctx.onSubagentFinished?.(input.agent_name, 'cancelled')

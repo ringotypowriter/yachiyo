@@ -12,6 +12,7 @@ import {
   groupMessagesByThread,
   serializeModelOverride,
   serializeRuntimeBinding,
+  serializeLastDelegatedSession,
   serializeThreadMemoryRecallState,
   serializeToolCallDetails,
   toRunRecoveryCheckpoint,
@@ -86,6 +87,9 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     storedThread.rollingSummary = nextThread.rollingSummary ?? null
     storedThread.summaryWatermarkMessageId = nextThread.summaryWatermarkMessageId ?? null
     storedThread.runtimeBinding = serializeRuntimeBinding(nextThread.runtimeBinding)
+    storedThread.lastDelegatedSession = serializeLastDelegatedSession(
+      nextThread.lastDelegatedSession
+    )
     storedThread.starredAt = nextThread.starredAt ?? null
     storedThread.title = nextThread.title
     storedThread.updatedAt = nextThread.updatedAt
@@ -239,6 +243,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         readAt: thread.readAt ?? null,
         createdFromEssentialId: thread.createdFromEssentialId ?? null,
         runtimeBinding: serializeRuntimeBinding(thread.runtimeBinding),
+        lastDelegatedSession: serializeLastDelegatedSession(thread.lastDelegatedSession),
         updatedAt: thread.updatedAt,
         createdAt
       })

@@ -1,0 +1,1 @@
+ALTER TABLE `threads` ADD `last_delegated_session` text;

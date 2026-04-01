@@ -165,7 +165,9 @@ export interface RunExecutionDeps {
   onSubagentFinished?: (
     agentName: string,
     status: 'success' | 'cancelled',
-    lastMessage?: string
+    lastMessage?: string,
+    sessionId?: string,
+    workspacePath?: string
   ) => void
 }
 
@@ -987,6 +989,11 @@ export async function executeServerRun(
         buildCurrentTimeSection()
       ].flatMap((section) => (section ? [section] : []))
     )
+    const sessionHint = input.thread.lastDelegatedSession
+      ? `Hint: The most recent delegated coding task (Agent: ${input.thread.lastDelegatedSession.agentName}) used session_id ${input.thread.lastDelegatedSession.sessionId} in workspace ${input.thread.lastDelegatedSession.workspacePath}. If the user asks to resume or continue that task, you must provide this exact session_id and set workspace to ${input.thread.lastDelegatedSession.workspacePath} in the delegateCodingTask tool.`
+      : undefined
+    const effectiveReminder =
+      [hiddenQueryReminder, sessionHint].filter(Boolean).join('\n\n') || undefined
     const requestMessage = deps
       .loadThreadMessages(input.thread.id)
       .find((message) => message.id === input.requestMessageId && message.role === 'user')
@@ -1130,7 +1137,7 @@ export async function executeServerRun(
             channelInstruction: input.channelHint ?? '',
             rollingSummary: input.thread.rollingSummary,
             history: contextHistory,
-            hint: { reminder: hiddenQueryReminder || undefined },
+            hint: { reminder: effectiveReminder },
             memory: { entries: memoryEntries }
           })
         : prepareModelMessages({
@@ -1158,7 +1165,7 @@ export async function executeServerRun(
               ].join('\n\n')
             },
             hint: {
-              reminder: hiddenQueryReminder || undefined
+              reminder: effectiveReminder
             },
             memory: { entries: memoryEntries },
             // For owner DM threads with a rolling summary, prepend the summary as a synthetic
@@ -1249,8 +1256,28 @@ export async function executeServerRun(
               onSubagentFinished: (
                 agentName: string,
                 status: 'success' | 'cancelled',
-                lastMessage?: string
+                lastMessage?: string,
+                sessionId?: string,
+                subagentWorkspacePath?: string
               ) => {
+                if (sessionId && subagentWorkspacePath) {
+                  const currentThread = deps.readThread(input.thread.id)
+                  const updatedThread: ThreadRecord = {
+                    ...currentThread,
+                    lastDelegatedSession: {
+                      agentName,
+                      sessionId,
+                      workspacePath: subagentWorkspacePath,
+                      timestamp: deps.timestamp()
+                    }
+                  }
+                  deps.storage.updateThread(updatedThread)
+                  deps.emit<ThreadUpdatedEvent>({
+                    type: 'thread.updated',
+                    threadId: input.thread.id,
+                    thread: updatedThread
+                  })
+                }
                 if (subagentToolCallId) {
                   const startedToolCall = toolCalls.get(subagentToolCallId)
                   const finishedAt = deps.timestamp()

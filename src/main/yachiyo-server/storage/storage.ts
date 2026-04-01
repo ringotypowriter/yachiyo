@@ -58,6 +58,7 @@ export interface StoredThreadRow {
   readAt: string | null
   createdFromEssentialId: string | null
   runtimeBinding: string | null
+  lastDelegatedSession: string | null
   updatedAt: string
   createdAt: string
   headMessageId: string | null
@@ -339,6 +340,7 @@ export function toThreadRecord(
     | 'readAt'
     | 'createdFromEssentialId'
     | 'runtimeBinding'
+    | 'lastDelegatedSession'
     | 'title'
     | 'updatedAt'
     | 'workspacePath'
@@ -349,6 +351,7 @@ export function toThreadRecord(
   const memoryRecall = parseThreadMemoryRecallState(row.memoryRecallState)
   const modelOverride = parseModelOverride(row.modelOverride)
   const runtimeBinding = parseRuntimeBinding(row.runtimeBinding)
+  const lastDelegatedSession = parseLastDelegatedSession(row.lastDelegatedSession)
   const source = parseThreadSource(row.source)
 
   if (row.preview === null) {
@@ -380,6 +383,7 @@ export function toThreadRecord(
         ? {}
         : { createdFromEssentialId: row.createdFromEssentialId }),
       ...(runtimeBinding ? { runtimeBinding } : {}),
+      ...(lastDelegatedSession ? { lastDelegatedSession } : {}),
       id: row.id,
       title: row.title,
       updatedAt: row.updatedAt
@@ -410,6 +414,7 @@ export function toThreadRecord(
       : { summaryWatermarkMessageId: row.summaryWatermarkMessageId }),
     ...(row.readAt === null ? {} : { readAt: row.readAt }),
     ...(runtimeBinding ? { runtimeBinding } : {}),
+    ...(lastDelegatedSession ? { lastDelegatedSession } : {}),
     id: row.id,
     preview: row.preview,
     title: row.title,
@@ -446,6 +451,37 @@ export function parseRuntimeBinding(value: string | null): ThreadRuntimeBinding 
     const parsed = JSON.parse(value) as ThreadRuntimeBinding
     if (parsed.kind !== 'llm' && parsed.kind !== 'acp') return undefined
     return parsed
+  } catch {
+    return undefined
+  }
+}
+
+export function serializeLastDelegatedSession(
+  session: ThreadRecord['lastDelegatedSession']
+): string | null {
+  return session ? JSON.stringify(session) : null
+}
+
+export function parseLastDelegatedSession(
+  value: string | null
+): ThreadRecord['lastDelegatedSession'] {
+  if (!value) return undefined
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>
+    if (
+      typeof parsed.agentName === 'string' &&
+      typeof parsed.sessionId === 'string' &&
+      typeof parsed.workspacePath === 'string' &&
+      typeof parsed.timestamp === 'string'
+    ) {
+      return {
+        agentName: parsed.agentName,
+        sessionId: parsed.sessionId,
+        workspacePath: parsed.workspacePath,
+        timestamp: parsed.timestamp
+      }
+    }
+    return undefined
   } catch {
     return undefined
   }

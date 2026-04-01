@@ -32,6 +32,7 @@ import {
   serializeMessageTextBlocks,
   serializeThreadMemoryRecallState,
   serializeRuntimeBinding,
+  serializeLastDelegatedSession,
   serializeToolCallDetails,
   toRunRecoveryCheckpoint,
   toStoredRunRecoveryCheckpointRow,
@@ -195,6 +196,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           readAt: threadsTable.readAt,
           createdFromEssentialId: threadsTable.createdFromEssentialId,
           runtimeBinding: threadsTable.runtimeBinding,
+          lastDelegatedSession: threadsTable.lastDelegatedSession,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -421,6 +423,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           readAt: threadsTable.readAt,
           createdFromEssentialId: threadsTable.createdFromEssentialId,
           runtimeBinding: threadsTable.runtimeBinding,
+          lastDelegatedSession: threadsTable.lastDelegatedSession,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -457,6 +460,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           readAt: threadsTable.readAt,
           createdFromEssentialId: threadsTable.createdFromEssentialId,
           runtimeBinding: threadsTable.runtimeBinding,
+          lastDelegatedSession: threadsTable.lastDelegatedSession,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -518,7 +522,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             title: thread.title,
             updatedAt: thread.updatedAt,
             workspacePath: thread.workspacePath ?? null,
-            runtimeBinding: serializeRuntimeBinding(thread.runtimeBinding)
+            runtimeBinding: serializeRuntimeBinding(thread.runtimeBinding),
+            lastDelegatedSession: serializeLastDelegatedSession(thread.lastDelegatedSession)
           })
           .run()
 
@@ -643,7 +648,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           title: thread.title,
           updatedAt: thread.updatedAt,
           workspacePath: thread.workspacePath ?? null,
-          runtimeBinding: serializeRuntimeBinding(thread.runtimeBinding)
+          runtimeBinding: serializeRuntimeBinding(thread.runtimeBinding),
+          lastDelegatedSession: serializeLastDelegatedSession(thread.lastDelegatedSession)
         })
         .where(eq(threadsTable.id, thread.id))
         .run()
@@ -828,6 +834,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             ),
             queuedFollowUpMessageId: updatedThread.queuedFollowUpMessageId ?? null,
             runtimeBinding: serializeRuntimeBinding(updatedThread.runtimeBinding),
+            lastDelegatedSession: serializeLastDelegatedSession(updatedThread.lastDelegatedSession),
             title: updatedThread.title,
             updatedAt: updatedThread.updatedAt,
             workspacePath: updatedThread.workspacePath ?? null

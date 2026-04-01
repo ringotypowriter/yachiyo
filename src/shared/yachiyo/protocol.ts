@@ -463,6 +463,13 @@ export interface ThreadRecord {
   runtimeBinding?: ThreadRuntimeBinding
   /** Derived thread action flags for UI and domain policy checks. */
   capabilities?: ThreadCapabilities
+  /** The most recent delegated coding task session, for resume hints. */
+  lastDelegatedSession?: {
+    agentName: string
+    sessionId: string
+    workspacePath: string
+    timestamp: string
+  }
 }
 
 export function deriveThreadCapabilities(

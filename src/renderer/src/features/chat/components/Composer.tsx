@@ -1917,7 +1917,7 @@ export function Composer({
                     ) : null}
                   </>
                 ) : null}
-                {(latestRun.totalPromptTokens ?? latestRun.promptTokens) > 128_000 ? (
+                {(latestRun.promptTokens ?? 0) > 128_000 ? (
                   <div
                     style={{
                       marginTop: 4,
@@ -1940,7 +1940,7 @@ export function Composer({
               className="text-xs px-1.5 flex items-center gap-1"
               style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
             >
-              {(latestRun.totalPromptTokens ?? latestRun.promptTokens) > 128_000 ? (
+              {(latestRun.promptTokens ?? 0) > 128_000 ? (
                 <TriangleAlert
                   size={11}
                   style={{ color: '#f59e0b', flexShrink: 0, opacity: 1, display: 'block' }}
