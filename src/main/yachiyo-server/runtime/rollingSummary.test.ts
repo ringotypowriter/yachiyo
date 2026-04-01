@@ -30,7 +30,7 @@ describe('buildRollingSummaryMessages', () => {
     // Last message should be the summary prompt
     const lastMsg = messages[messages.length - 1]
     assert.equal(lastMsg.role, 'user')
-    assert.ok((lastMsg.content as string).includes('Summarize'))
+    assert.ok((lastMsg.content as string).includes('continuation summary'))
   })
 
   it('includes user document content when provided', () => {
@@ -72,14 +72,14 @@ describe('buildRollingSummaryMessages', () => {
     )
   })
 
-  it('summary prompt excludes internal artifacts', () => {
+  it('summary prompt covers key resumption sections', () => {
     const messages = buildRollingSummaryMessages({
       history: [makeMessage('user', 'Test')]
     })
 
     const promptContent = messages[messages.length - 1].content as string
-    assert.ok(promptContent.includes('Do NOT include'))
-    assert.ok(promptContent.includes('Tool calls'))
-    assert.ok(promptContent.includes('File paths'))
+    assert.ok(promptContent.includes("User's Last Query"))
+    assert.ok(promptContent.includes('Next Steps'))
+    assert.ok(promptContent.includes('Context to Preserve'))
   })
 })
