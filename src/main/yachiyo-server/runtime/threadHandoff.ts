@@ -31,6 +31,9 @@ Capture every decision, constraint, and fact that would affect future work. When
 
 ## Output structure
 
+### Where we left off
+The user's most recent request or question, copied or closely paraphrased. One or two sentences — this is the active thread that must be immediately resumable.
+
 ### What this is about
 One or two sentences — the core problem or goal.
 
