@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.13
+
+### Patch Changes
+
+- [`0b254bf`](https://github.com/ringotypowriter/yachiyo/commit/0b254bfbb4980dc87c9d064683c283d31ec94845) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - One-Off Schedules & Compact Prompt Improvement
+
 ## 1.0.12
 
 ### Patch Changes
