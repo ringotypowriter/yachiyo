@@ -111,6 +111,8 @@ function makeDeps(
     readConfig: () => makeConfig(),
     loadThreadMessages: (threadId: string) => storage.listThreadMessages(threadId),
     ensureThreadWorkspace: async () => workspacePath,
+    // Inject a no-op pool to prevent tests from interacting with the module singleton.
+    acpProcessPool: { checkout: () => null, checkin: () => {} },
     emittedEvents
   } as AcpChatRunDeps & {
     emittedEvents: YachiyoServerEvent[]
@@ -421,4 +423,115 @@ test('runAcpChatThread does not inject synthetic newlines into the persisted buf
   const messages = deps.storage.listThreadMessages('thread-1')
   const stoppedMessage = messages.at(-1)
   assert.equal(stoppedMessage?.content, 'Hello world')
+})
+
+test('runAcpChatThread ignores a stale warm ACP session after the profile command changes', async () => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'acp-test-'))
+  const deps = makeDeps(workspacePath)
+  const staleSession = {
+    proc: {
+      stderr: new EventEmitter(),
+      kill: () => undefined
+    } as never,
+    connection: {} as never,
+    sessionId: 'session-old',
+    procExited: Promise.resolve(),
+    adapterRef: { current: {} as never }
+  }
+
+  let continueCalled = false
+  let launchCalled = false
+
+  deps.readConfig = () =>
+    ({
+      ...makeConfig(),
+      subagentProfiles: [
+        {
+          ...makeProfile(),
+          command: 'new-agent'
+        }
+      ]
+    }) as unknown as SettingsConfig
+  deps.acpProcessPool = {
+    checkout: (key) => (key === ('thread-1' as never) ? staleSession : null),
+    checkin: () => {}
+  }
+  deps.continueAcpSession = async () => {
+    continueCalled = true
+    return {
+      sessionId: 'session-old',
+      lastMessageText: 'stale reply',
+      stopReason: 'end_turn'
+    }
+  }
+  deps.launchAcpProcess = () => {
+    launchCalled = true
+    return makeFakeLaunchResult()
+  }
+  deps.runAcpSession = async () => ({
+    sessionId: 'session-new',
+    lastMessageText: 'fresh reply',
+    stopReason: 'end_turn'
+  })
+
+  const result = await runAcpChatThread(deps, {
+    runId: 'run-1',
+    thread: makeThread(workspacePath),
+    requestMessageId: 'msg-req',
+    abortController: new AbortController(),
+    updateHeadOnComplete: true
+  })
+
+  assert.equal(result.kind, 'completed')
+  assert.equal(continueCalled, false)
+  assert.equal(launchCalled, true)
+  assert.equal(deps.storage.listThreadMessages('thread-1').at(-1)?.content, 'fresh reply')
+})
+
+test('runAcpChatThread kills a preserved ACP process when persistence fails before check-in', async () => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'acp-test-'))
+  const deps = makeDeps(workspacePath)
+  const launchResult = makeFakeLaunchResult()
+  const signals: NodeJS.Signals[] = []
+  let checkinCalled = false
+
+  launchResult.proc.kill = (signal?: NodeJS.Signals | number) => {
+    signals.push((signal as NodeJS.Signals) ?? 'SIGTERM')
+    return true
+  }
+
+  deps.launchAcpProcess = () => launchResult
+  deps.runAcpSession = async () => ({
+    sessionId: 'session-1',
+    lastMessageText: 'final reply',
+    stopReason: 'end_turn',
+    warmSession: {
+      proc: launchResult.proc,
+      connection: {} as never,
+      sessionId: 'session-1',
+      procExited: launchResult.procExited,
+      adapterRef: { current: {} as never }
+    }
+  })
+  deps.storage.completeRun = () => {
+    throw new Error('sqlite write failed')
+  }
+  deps.acpProcessPool = {
+    checkout: () => null,
+    checkin: () => {
+      checkinCalled = true
+    }
+  }
+
+  const result = await runAcpChatThread(deps, {
+    runId: 'run-1',
+    thread: makeThread(workspacePath),
+    requestMessageId: 'msg-req',
+    abortController: new AbortController(),
+    updateHeadOnComplete: true
+  })
+
+  assert.equal(result.kind, 'failed')
+  assert.equal(checkinCalled, false)
+  assert.ok(signals.includes('SIGKILL'))
 })

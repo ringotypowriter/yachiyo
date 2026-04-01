@@ -33,7 +33,7 @@ import type {
 } from '../shared/yachiyo/protocol'
 
 const api = {
-  openSettings: () => ipcRenderer.send('open-settings'),
+  openSettings: (tab?: string) => ipcRenderer.send('open-settings', tab),
   navigateToArchivedThread: (threadId: string) =>
     ipcRenderer.send('navigate-to-archived-thread', threadId),
   onNavigateToArchivedThread: (listener: (threadId: string) => void): (() => void) => {

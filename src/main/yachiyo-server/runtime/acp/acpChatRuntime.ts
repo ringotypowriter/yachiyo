@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process'
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
@@ -12,6 +13,7 @@ import type {
   RunCompletedEvent,
   RunFailedEvent,
   SettingsConfig,
+  SubagentProfile,
   ThreadRecord,
   ThreadRuntimeBinding,
   ThreadUpdatedEvent,
@@ -27,8 +29,14 @@ import {
 } from '../../app/domain/shared.ts'
 import type { ExecuteRunResult } from '../../app/domain/runExecution.ts'
 import { launchAcpProcess } from './acpLauncher.ts'
-import { runAcpSession } from './acpSessionClient.ts'
+import { continueAcpSession, runAcpSession } from './acpSessionClient.ts'
+import type { AcpWarmSession } from './acpSessionClient.ts'
 import { createAcpStreamAdapter } from './acpStreamAdapter.ts'
+import {
+  type AcpProcessPool,
+  type AcpProcessPoolKey,
+  acpProcessPool as defaultAcpProcessPool
+} from './acpProcessPool.ts'
 
 export interface AcpChatRunDeps {
   storage: YachiyoStorage
@@ -41,7 +49,9 @@ export interface AcpChatRunDeps {
   ensureThreadWorkspace: (threadId: string) => Promise<string>
   launchAcpProcess?: typeof launchAcpProcess
   runAcpSession?: typeof runAcpSession
+  continueAcpSession?: typeof continueAcpSession
   onTerminalState?: () => void
+  acpProcessPool?: Pick<AcpProcessPool, 'checkout' | 'checkin'>
 }
 
 export interface AcpChatRunInput {
@@ -111,14 +121,21 @@ export async function runAcpChatThread(
       : undefined
   const startAcpProcess = deps.launchAcpProcess ?? launchAcpProcess
   const executeAcpSession = deps.runAcpSession ?? runAcpSession
+  const continueSession = deps.continueAcpSession ?? continueAcpSession
+  const pool = deps.acpProcessPool ?? defaultAcpProcessPool
   const activeToolCalls = new Map<string, ToolCallRecord>()
+  const poolKey = buildAcpProcessPoolKey(input.thread.id, profile, workspacePath)
+  let pendingWarmSession: AcpWarmSession | null = null
 
   try {
     if (input.abortController.signal.aborted) {
       throw new Error('Aborted before ACP session started')
     }
 
-    const { proc, stream, procExited } = startAcpProcess(profile, workspacePath)
+    let proc!: ChildProcess
+    let procExited!: Promise<void>
+    let acpResult!: Awaited<ReturnType<typeof runAcpSession>>
+    let warmToCheckin: AcpWarmSession | null = null
     let toolStepIndex = 0
 
     const adapter = createAcpStreamAdapter({
@@ -190,22 +207,47 @@ export async function runAcpChatThread(
       }
     })
 
-    proc.stderr?.on('data', (data: Buffer) => adapter.onStderr(data))
-
-    const sessionResult = await executeAcpSession(
-      stream,
-      proc,
-      procExited,
-      workspacePath,
-      prompt,
-      adapter,
-      {
+    const warmSession = pool.checkout(poolKey)
+    if (warmSession) {
+      proc = warmSession.proc
+      procExited = warmSession.procExited
+      acpResult = await continueSession(warmSession, prompt, adapter, {
         abortSignal: input.abortController.signal,
-        resumeSessionId
-      }
-    )
+        keepAlive: true
+      })
+      warmToCheckin = warmSession
+    } else {
+      const launchResult = startAcpProcess(profile, workspacePath)
+      proc = launchResult.proc
+      procExited = launchResult.procExited
+
+      const adapterRef = { current: adapter }
+      proc.stderr?.on('data', (data: Buffer) => adapterRef.current.onStderr(data))
+
+      acpResult = await executeAcpSession(
+        launchResult.stream,
+        proc,
+        procExited,
+        workspacePath,
+        prompt,
+        adapter,
+        adapterRef,
+        {
+          abortSignal: input.abortController.signal,
+          resumeSessionId,
+          keepAlive: true
+        }
+      )
+      warmToCheckin = acpResult.warmSession ?? null
+    }
+    pendingWarmSession = warmToCheckin
 
     if (input.abortController.signal.aborted) {
+      await killDetachedProcess(
+        pendingWarmSession?.proc ?? proc,
+        pendingWarmSession?.procExited ?? procExited
+      )
+      pendingWarmSession = null
       return emitCancelledAndReturn(deps, input, {
         buffer,
         harnessId,
@@ -216,13 +258,13 @@ export async function runAcpChatThread(
     }
 
     const timestamp = deps.timestamp()
-    const finalContent = sessionResult.lastMessageText.trim() || buffer.trim()
+    const finalContent = acpResult.lastMessageText.trim() || buffer.trim()
 
     const updatedBinding: ThreadRuntimeBinding = {
       kind: 'acp',
       profileId: runtimeBinding.profileId,
       profileName: runtimeBinding.profileName ?? profile.name,
-      sessionId: sessionResult.sessionId,
+      sessionId: acpResult.sessionId,
       sessionStatus: 'active',
       lastSessionBoundAt: timestamp
     }
@@ -250,8 +292,6 @@ export async function runAcpChatThread(
     }
 
     deps.storage.completeRun({ runId: input.runId, updatedThread, assistantMessage })
-    deps.onTerminalState?.()
-
     bindActiveToolCallsToAssistant(deps, activeToolCalls, {
       threadId: input.thread.id,
       runId: input.runId,
@@ -259,6 +299,7 @@ export async function runAcpChatThread(
       finishedAt: timestamp,
       failRunningToolCalls: true
     })
+    deps.onTerminalState?.()
 
     deps.emit<MessageCompletedEvent>({
       type: 'message.completed',
@@ -285,8 +326,17 @@ export async function runAcpChatThread(
       runId: input.runId
     })
 
+    if (pendingWarmSession) {
+      pool.checkin(poolKey, pendingWarmSession)
+      pendingWarmSession = null
+    }
+
     return { kind: 'completed' }
   } catch (error) {
+    if (pendingWarmSession) {
+      await killDetachedProcess(pendingWarmSession.proc, pendingWarmSession.procExited)
+      pendingWarmSession = null
+    }
     if (input.abortController.signal.aborted) {
       return emitCancelledAndReturn(deps, input, {
         buffer,
@@ -377,6 +427,34 @@ export async function runAcpChatThread(
 
     return { kind: 'failed' }
   }
+}
+
+export function buildAcpProcessPoolKey(
+  threadId: string,
+  profile: Pick<SubagentProfile, 'id' | 'command' | 'args' | 'env'>,
+  workspacePath: string
+): AcpProcessPoolKey {
+  const sessionConfig = {
+    profileId: profile.id,
+    command: profile.command,
+    args: profile.args,
+    env: Object.entries(profile.env).sort(([left], [right]) => left.localeCompare(right)),
+    workspacePath
+  }
+
+  return {
+    threadId,
+    sessionKey: JSON.stringify(sessionConfig)
+  }
+}
+
+async function killDetachedProcess(proc: ChildProcess, procExited: Promise<void>): Promise<void> {
+  try {
+    process.kill(-proc.pid!, 'SIGKILL')
+  } catch {
+    proc.kill('SIGKILL')
+  }
+  await procExited
 }
 
 function emitCancelledAndReturn(

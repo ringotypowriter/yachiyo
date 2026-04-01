@@ -157,7 +157,10 @@ function validateConfig(config: SettingsConfig | null): string | null {
 }
 
 function SettingsApp(): React.ReactNode {
-  const [activeTab, setActiveTab] = useState<TabId>('general')
+  const [activeTab, setActiveTab] = useState<TabId>(() => {
+    const hash = window.location.hash.slice(1)
+    return (TABS.some((t) => t.id === hash) ? hash : 'general') as TabId
+  })
   const [activeSubTab, setActiveSubTab] = useState(initSubTabs)
   const [savedConfig, setSavedConfig] = useState<SettingsConfig | null>(null)
   const [draft, setDraft] = useState<SettingsConfig | null>(null)
@@ -166,6 +169,18 @@ function SettingsApp(): React.ReactNode {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const handler = (_event: Electron.IpcRendererEvent, tab: string): void => {
+      if (TABS.some((t) => t.id === tab)) {
+        setActiveTab(tab as TabId)
+      }
+    }
+    window.electron.ipcRenderer.on('navigate-settings-to', handler)
+    return () => {
+      window.electron.ipcRenderer.removeListener('navigate-settings-to', handler)
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false

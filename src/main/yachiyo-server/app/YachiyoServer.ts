@@ -59,6 +59,7 @@ import {
 } from '../config/paths.ts'
 import { ScheduleDomain } from './domain/scheduleDomain.ts'
 import { createTtlReaper, type TtlReaper } from './domain/ttlReaper.ts'
+import { acpProcessPool } from '../runtime/acp/acpProcessPool.ts'
 import { createAuxiliaryGenerationService } from '../runtime/auxiliaryGeneration.ts'
 import { searchWorkspaceFileMentionCandidates } from '../runtime/fileMentions.ts'
 import { createAiSdkModelRuntime } from '../runtime/modelRuntime.ts'
@@ -308,7 +309,8 @@ export class YachiyoServer {
       requireThread: this.requireThread.bind(this),
       loadThreadMessages: (threadId) => this.storage.listThreadMessages(threadId),
       isThreadRunning: (threadId) => this.runDomain.hasActiveThread(threadId),
-      auxiliaryGeneration
+      auxiliaryGeneration,
+      evictAcpIdleThread: (threadId) => acpProcessPool.evictThread(threadId)
     })
 
     this.scheduleDomain = new ScheduleDomain({
@@ -336,6 +338,7 @@ export class YachiyoServer {
   async close(): Promise<void> {
     this.ttlReaper.stop()
     await this.runDomain.close()
+    await acpProcessPool.shutdown()
     this.storage.close()
   }
 

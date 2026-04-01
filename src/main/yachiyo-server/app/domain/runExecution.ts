@@ -1161,9 +1161,8 @@ export async function executeServerRun(
               reminder: hiddenQueryReminder || undefined
             },
             memory: { entries: memoryEntries },
-            // For threads with a rolling summary (owner DMs or auto-compacted local threads),
-            // prepend the summary as a synthetic user message so local context compilation,
-            // which has no dedicated rollingSummary field, still sees the earlier context.
+            // For owner DM threads with a rolling summary, prepend the summary as a synthetic
+            // user message so local context compilation sees the earlier context.
             history: input.thread.rollingSummary?.trim()
               ? [
                   {

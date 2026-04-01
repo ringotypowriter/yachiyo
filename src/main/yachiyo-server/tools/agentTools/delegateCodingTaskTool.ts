@@ -63,8 +63,9 @@ async function runSubagent(
   const startAcpProcess = ctx.launchAcpProcess ?? launchAcpProcess
   const executeAcpSession = ctx.runAcpSession ?? runAcpSession
   const { proc, stream, procExited } = startAcpProcess(profile, ctx.workspacePath)
+  const adapterRef = { current: adapter }
 
-  proc.stderr?.on('data', (chunk: Buffer) => adapter.onStderr(chunk))
+  proc.stderr?.on('data', (chunk: Buffer) => adapterRef.current.onStderr(chunk))
 
   const { sessionId, stopReason, lastMessageText } = await executeAcpSession(
     stream,
@@ -73,6 +74,7 @@ async function runSubagent(
     ctx.workspacePath,
     prompt,
     adapter,
+    adapterRef,
     { abortSignal, resumeSessionId }
   )
 

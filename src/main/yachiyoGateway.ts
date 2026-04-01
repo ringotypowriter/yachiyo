@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, net, Notification, session } from 'electron'
+import { app, BrowserWindow, ipcMain, net, Notification, powerMonitor, session } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { spawn } from 'child_process'
 import { join } from 'node:path'
@@ -149,7 +149,116 @@ let qqService: QQService | null = null
 let discordService: DiscordService | null = null
 let scheduleService: ScheduleService | null = null
 let commandSocket: CommandSocketHandle | null = null
+let commandSocketHealthTimer: ReturnType<typeof setInterval> | null = null
+let commandSocketRecoveryRegistered = false
+let commandSocketRestartInFlight: Promise<void> | null = null
 let fatalRunRecoveryRegistered = false
+
+const COMMAND_SOCKET_HEALTH_INTERVAL_MS = 15_000
+const COMMAND_SOCKET_HEALTH_TIMEOUT_MS = 1_000
+
+function createCommandSocketHandle(): CommandSocketHandle {
+  return startCommandSocket({
+    socketPath: resolveYachiyoSocketPath(),
+    onNotification: (input) => {
+      if (!Notification.isSupported()) return
+      new Notification({ title: input.title, body: input.body ?? '' }).show()
+    },
+    onSendChannel: (input) => handleSendChannel(input),
+    onUpdateChannelGroupStatus: (input) => {
+      if (!server) {
+        console.error('[channel-group-status] server is not running')
+        return
+      }
+      try {
+        const updated = server.updateChannelGroup(input)
+        telegramService?.onGroupStatusChange(updated)
+        qqService?.onGroupStatusChange(updated)
+        discordService?.onGroupStatusChange(updated)
+        console.log(
+          `[channel-group-status] updated ${updated.platform}:${updated.name} -> ${updated.status}`
+        )
+      } catch (error) {
+        console.error('[channel-group-status] failed:', error)
+      }
+    },
+    onError: (error) => {
+      console.error('[command-socket] server error:', error)
+      queueMicrotask(() => {
+        void restartCommandSocket('socket error')
+      })
+    }
+  })
+}
+
+function startCommandSocketNow(reason: string): void {
+  commandSocket = createCommandSocketHandle()
+  console.log(`[command-socket] listening (${reason})`)
+}
+
+async function restartCommandSocket(reason: string): Promise<void> {
+  if (commandSocketRestartInFlight) {
+    return commandSocketRestartInFlight
+  }
+
+  commandSocketRestartInFlight = (async () => {
+    const existing = commandSocket
+    commandSocket = null
+
+    if (existing) {
+      try {
+        await existing.close()
+      } catch (error) {
+        console.error('[command-socket] close before restart failed:', error)
+      }
+    }
+
+    startCommandSocketNow(reason)
+  })().finally(() => {
+    commandSocketRestartInFlight = null
+  })
+
+  return commandSocketRestartInFlight
+}
+
+async function ensureCommandSocketHealthy(reason: string): Promise<void> {
+  if (commandSocketRestartInFlight) {
+    return commandSocketRestartInFlight
+  }
+
+  const handle = commandSocket
+  if (!handle) {
+    return restartCommandSocket(reason)
+  }
+
+  const healthy = await handle.healthCheck(COMMAND_SOCKET_HEALTH_TIMEOUT_MS)
+  if (!healthy) {
+    console.warn(`[command-socket] unhealthy; restarting (${reason})`)
+    await restartCommandSocket(reason)
+  }
+}
+
+function registerCommandSocketRecovery(): void {
+  if (commandSocketRecoveryRegistered) {
+    return
+  }
+
+  commandSocketRecoveryRegistered = true
+  commandSocketHealthTimer = setInterval(() => {
+    void ensureCommandSocketHealthy('periodic health check')
+  }, COMMAND_SOCKET_HEALTH_INTERVAL_MS)
+
+  const scheduleHealthCheck = (reason: string, delayMs = 0): void => {
+    setTimeout(() => {
+      void ensureCommandSocketHealthy(reason)
+    }, delayMs)
+  }
+
+  powerMonitor.on('lock-screen', () => scheduleHealthCheck('lock-screen', 1_000))
+  powerMonitor.on('unlock-screen', () => scheduleHealthCheck('unlock-screen'))
+  powerMonitor.on('resume', () => scheduleHealthCheck('resume'))
+  powerMonitor.on('user-did-become-active', () => scheduleHealthCheck('user-did-become-active'))
+}
 
 async function applyTelegramConfig(cfg: ChannelsConfig): Promise<void> {
   const token = cfg.telegram?.botToken?.trim()
@@ -416,32 +525,8 @@ export function registerYachiyoGateway(): YachiyoServer {
   })
 
   // Unix domain socket for CLI commands (notifications, send-channel, etc.)
-  void commandSocket?.close()
-  commandSocket = startCommandSocket({
-    socketPath: resolveYachiyoSocketPath(),
-    onNotification: (input) => {
-      if (!Notification.isSupported()) return
-      new Notification({ title: input.title, body: input.body ?? '' }).show()
-    },
-    onSendChannel: (input) => handleSendChannel(input),
-    onUpdateChannelGroupStatus: (input) => {
-      if (!server) {
-        console.error('[channel-group-status] server is not running')
-        return
-      }
-      try {
-        const updated = server.updateChannelGroup(input)
-        telegramService?.onGroupStatusChange(updated)
-        qqService?.onGroupStatusChange(updated)
-        discordService?.onGroupStatusChange(updated)
-        console.log(
-          `[channel-group-status] updated ${updated.platform}:${updated.name} -> ${updated.status}`
-        )
-      } catch (error) {
-        console.error('[channel-group-status] failed:', error)
-      }
-    }
-  })
+  startCommandSocketNow('initial startup')
+  registerCommandSocketRecovery()
 
   handle(IPC_CHANNELS.searchThreadsAndMessages, (input: { query: string }) =>
     server!.searchThreadsAndMessages(input)
@@ -716,12 +801,17 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
 
   app.once('before-quit', () => {
+    if (commandSocketHealthTimer) {
+      clearInterval(commandSocketHealthTimer)
+      commandSocketHealthTimer = null
+    }
     void telegramService?.stop().catch(() => {})
     telegramService = null
     void qqService?.stop().catch(() => {})
     qqService = null
     void discordService?.stop().catch(() => {})
     discordService = null
+    commandSocketRestartInFlight = null
     void commandSocket?.close()
     commandSocket = null
     void server?.close()

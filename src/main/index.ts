@@ -113,9 +113,12 @@ app.whenReady().then(async () => {
     }
   })
 
-  ipcMain.on('open-settings', () => {
+  ipcMain.on('open-settings', (_event, tab?: string) => {
     if (settingsWindow && !settingsWindow.isDestroyed()) {
       settingsWindow.focus()
+      if (tab) {
+        settingsWindow.webContents.send('navigate-settings-to', tab)
+      }
       return
     }
     settingsWindow = new BrowserWindow({
@@ -141,10 +144,13 @@ app.whenReady().then(async () => {
     settingsWindow.on('closed', () => {
       settingsWindow = null
     })
+    const hash = tab ? `#${tab}` : ''
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-      settingsWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/settings/index.html`)
+      settingsWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/settings/index.html${hash}`)
     } else {
-      settingsWindow.loadFile(join(__dirname, '../renderer/settings/index.html'))
+      settingsWindow.loadFile(join(__dirname, '../renderer/settings/index.html'), {
+        hash: tab
+      })
     }
   })
 

@@ -49,7 +49,7 @@ declare global {
   interface Window {
     electron: ElectronAPI
     api: {
-      openSettings: () => void
+      openSettings: (tab?: string) => void
       navigateToArchivedThread: (threadId: string) => void
       onNavigateToArchivedThread: (listener: (threadId: string) => void) => () => void
       setVibrancy: (enabled: boolean) => void

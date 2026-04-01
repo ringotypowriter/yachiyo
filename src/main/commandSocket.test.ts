@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict'
 import { connect } from 'node:net'
-import { existsSync } from 'node:fs'
+import { existsSync, unlinkSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
 import test from 'node:test'
 
 import { startCommandSocket } from './commandSocket.ts'
@@ -20,9 +19,10 @@ function sendToSocket(socketPath: string, data: string): Promise<void> {
 
 const noopSendChannel = (): void => {}
 const noopUpdateChannelGroupStatus = (): void => {}
+const TEST_ROOT = '/tmp'
 
 test('commandSocket - receives notification (backward compat, no type field)', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cmd-'))
+  const root = await mkdtemp(join(TEST_ROOT, 'yachiyo-cmd-'))
   const socketPath = join(root, 'test.sock')
 
   try {
@@ -49,7 +49,7 @@ test('commandSocket - receives notification (backward compat, no type field)', a
 })
 
 test('commandSocket - receives typed notification', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cmd-'))
+  const root = await mkdtemp(join(TEST_ROOT, 'yachiyo-cmd-'))
   const socketPath = join(root, 'test.sock')
 
   try {
@@ -75,7 +75,7 @@ test('commandSocket - receives typed notification', async () => {
 })
 
 test('commandSocket - ignores malformed JSON', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cmd-'))
+  const root = await mkdtemp(join(TEST_ROOT, 'yachiyo-cmd-'))
   const socketPath = join(root, 'test.sock')
 
   try {
@@ -100,7 +100,7 @@ test('commandSocket - ignores malformed JSON', async () => {
 })
 
 test('commandSocket - ignores notification without title', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cmd-'))
+  const root = await mkdtemp(join(TEST_ROOT, 'yachiyo-cmd-'))
   const socketPath = join(root, 'test.sock')
 
   try {
@@ -125,7 +125,7 @@ test('commandSocket - ignores notification without title', async () => {
 })
 
 test('commandSocket - dispatches send-channel', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cmd-'))
+  const root = await mkdtemp(join(TEST_ROOT, 'yachiyo-cmd-'))
   const socketPath = join(root, 'test.sock')
 
   try {
@@ -155,7 +155,7 @@ test('commandSocket - dispatches send-channel', async () => {
 })
 
 test('commandSocket - ignores send-channel with missing id', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cmd-'))
+  const root = await mkdtemp(join(TEST_ROOT, 'yachiyo-cmd-'))
   const socketPath = join(root, 'test.sock')
 
   try {
@@ -180,7 +180,7 @@ test('commandSocket - ignores send-channel with missing id', async () => {
 })
 
 test('commandSocket - ignores send-channel with missing message', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cmd-'))
+  const root = await mkdtemp(join(TEST_ROOT, 'yachiyo-cmd-'))
   const socketPath = join(root, 'test.sock')
 
   try {
@@ -205,7 +205,7 @@ test('commandSocket - ignores send-channel with missing message', async () => {
 })
 
 test('commandSocket - handles multiple sequential messages', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cmd-'))
+  const root = await mkdtemp(join(TEST_ROOT, 'yachiyo-cmd-'))
   const socketPath = join(root, 'test.sock')
 
   try {
@@ -238,7 +238,7 @@ test('commandSocket - handles multiple sequential messages', async () => {
 })
 
 test('commandSocket - close removes socket file', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cmd-'))
+  const root = await mkdtemp(join(TEST_ROOT, 'yachiyo-cmd-'))
   const socketPath = join(root, 'test.sock')
 
   try {
@@ -259,8 +259,52 @@ test('commandSocket - close removes socket file', async () => {
   }
 })
 
+test('commandSocket - healthCheck reports healthy listener', async () => {
+  const root = await mkdtemp(join(TEST_ROOT, 'yachiyo-cmd-'))
+  const socketPath = join(root, 'test.sock')
+
+  try {
+    const handle = startCommandSocket({
+      socketPath,
+      onNotification: () => {},
+      onSendChannel: noopSendChannel,
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
+    })
+
+    await new Promise((r) => setTimeout(r, 50))
+    assert.equal(await handle.healthCheck(), true)
+
+    await handle.close()
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('commandSocket - healthCheck fails when socket path disappears', async () => {
+  const root = await mkdtemp(join(TEST_ROOT, 'yachiyo-cmd-'))
+  const socketPath = join(root, 'test.sock')
+
+  try {
+    const handle = startCommandSocket({
+      socketPath,
+      onNotification: () => {},
+      onSendChannel: noopSendChannel,
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
+    })
+
+    await new Promise((r) => setTimeout(r, 50))
+    unlinkSync(socketPath)
+
+    assert.equal(await handle.healthCheck(200), false)
+
+    await handle.close()
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('commandSocket - cleans up stale socket file on start', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cmd-'))
+  const root = await mkdtemp(join(TEST_ROOT, 'yachiyo-cmd-'))
   const socketPath = join(root, 'test.sock')
 
   try {
@@ -295,7 +339,7 @@ test('commandSocket - cleans up stale socket file on start', async () => {
 })
 
 test('commandSocket - dispatches update-channel-group-status', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cmd-'))
+  const root = await mkdtemp(join(TEST_ROOT, 'yachiyo-cmd-'))
   const socketPath = join(root, 'test.sock')
 
   try {
@@ -325,7 +369,7 @@ test('commandSocket - dispatches update-channel-group-status', async () => {
 })
 
 test('commandSocket - ignores update-channel-group-status with invalid status', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cmd-'))
+  const root = await mkdtemp(join(TEST_ROOT, 'yachiyo-cmd-'))
   const socketPath = join(root, 'test.sock')
 
   try {

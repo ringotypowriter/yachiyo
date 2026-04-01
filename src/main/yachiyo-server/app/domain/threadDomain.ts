@@ -59,6 +59,7 @@ interface ThreadDomainDeps {
   requireThread: (threadId: string) => ThreadRecord
   isThreadRunning: (threadId: string) => boolean
   auxiliaryGeneration: AuxiliaryGenerationService
+  evictAcpIdleThread: (threadId: string) => Promise<void>
 }
 
 export interface RetryRequestResolution {
@@ -350,10 +351,13 @@ export class YachiyoServerThreadDomain {
     return updatedThread
   }
 
-  archiveThread(input: { threadId: string; unread?: boolean }): void {
+  async archiveThread(input: { threadId: string; unread?: boolean }): Promise<void> {
     const thread = this.deps.requireThread(input.threadId)
     if (this.deps.isThreadRunning(thread.id)) {
       throw new Error('Cannot archive a thread with an active run.')
+    }
+    if (thread.runtimeBinding?.kind === 'acp') {
+      await this.deps.evictAcpIdleThread(thread.id)
     }
     const timestamp = this.deps.timestamp()
     // Manual archive (default) → readAt = now (user already knows about it).
@@ -430,7 +434,7 @@ export class YachiyoServerThreadDomain {
       }
     }
 
-    this.archiveThread({ threadId: thread.id })
+    await this.archiveThread({ threadId: thread.id })
 
     return {
       archived: true,
@@ -475,6 +479,9 @@ export class YachiyoServerThreadDomain {
       throw new Error('Cannot delete a thread with an active run.')
     }
 
+    if (thread.runtimeBinding?.kind === 'acp') {
+      await this.deps.evictAcpIdleThread(thread.id)
+    }
     if (!thread.workspacePath) {
       await this.deps.deleteThreadWorkspace(thread.id)
     }

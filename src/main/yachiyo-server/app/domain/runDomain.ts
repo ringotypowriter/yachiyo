@@ -62,7 +62,6 @@ import {
 import { resolveRetryRequest } from './threadDomain.ts'
 import { buildCompactThreadHandoffMessages } from '../../runtime/threadHandoff.ts'
 import { buildRollingSummaryMessages } from '../../runtime/rollingSummary.ts'
-import { AUTO_COMPACT_TOKEN_THRESHOLD } from '../../runtime/autoCompact.ts'
 import { sleep } from '../../channels/connectionRetry.ts'
 import {
   DEFAULT_HARNESS_NAME,
@@ -1327,8 +1326,6 @@ export class YachiyoServerRunDomain {
               userQuery: userMessage.content
             })
           }
-
-          this.scheduleAutoCompactIfNeeded(currentThread, result.totalPromptTokens)
         }
 
         if (result.kind !== 'restarted') {
@@ -1593,99 +1590,6 @@ export class YachiyoServerRunDomain {
 
     this.backgroundMemoryTasks.add(task)
     void task
-  }
-
-  private scheduleAutoCompactIfNeeded(
-    thread: ThreadRecord,
-    totalPromptTokens: number | undefined
-  ): void {
-    // Only auto-compact local threads. External channels use compactExternalThread.
-    if (thread.source && thread.source !== 'local') return
-    if (thread.privacyMode) return
-    if ((totalPromptTokens ?? 0) < AUTO_COMPACT_TOKEN_THRESHOLD) return
-
-    const abortController = new AbortController()
-    this.backgroundMemoryTaskControllers.add(abortController)
-
-    const task: Promise<void> | undefined = (async (): Promise<void> => {
-      try {
-        await this.performLocalThreadAutoCompact(thread, abortController.signal)
-      } catch {
-        // Must not affect the primary run result.
-      } finally {
-        this.backgroundMemoryTaskControllers.delete(abortController)
-        if (task) {
-          this.backgroundMemoryTasks.delete(task)
-        }
-      }
-    })()
-
-    this.backgroundMemoryTasks.add(task)
-    void task
-  }
-
-  private async performLocalThreadAutoCompact(
-    threadSnapshot: ThreadRecord,
-    signal: AbortSignal
-  ): Promise<void> {
-    // Re-read so we pick up the headMessageId written by the just-completed run.
-    const thread = this.deps.requireThread(threadSnapshot.id)
-
-    const sourceMessages = this.deps.loadThreadMessages(thread.id)
-    let effectiveMessages = resolveEffectiveThreadMessages(thread, sourceMessages)
-
-    if (thread.summaryWatermarkMessageId) {
-      const idx = effectiveMessages.findIndex((m) => m.id === thread.summaryWatermarkMessageId)
-      if (idx >= 0) effectiveMessages = effectiveMessages.slice(idx + 1)
-    }
-
-    if (effectiveMessages.length === 0) return
-
-    const settings = toEffectiveProviderSettings(this.deps.readConfig(), thread.modelOverride)
-    const runtime = this.deps.createModelRuntime()
-    const userDocument = this.deps.readUserDocument ? await this.deps.readUserDocument() : null
-
-    const summaryHistory: MessageRecord[] = []
-    if (thread.rollingSummary) {
-      summaryHistory.push({
-        id: '__prior-summary__',
-        threadId: thread.id,
-        role: 'assistant',
-        content: thread.rollingSummary,
-        visibleReply: thread.rollingSummary,
-        status: 'completed',
-        createdAt: effectiveMessages[0]?.createdAt ?? new Date().toISOString()
-      })
-    }
-
-    let buffer = ''
-    for await (const delta of runtime.streamReply({
-      messages: buildRollingSummaryMessages({
-        history: [...summaryHistory, ...effectiveMessages],
-        userDocumentContent: userDocument?.content
-      }),
-      settings,
-      signal
-    })) {
-      if (delta) buffer += delta
-    }
-
-    const rollingSummary = buffer.trim()
-    if (!rollingSummary) return
-
-    const updatedThread: ThreadRecord = {
-      ...thread,
-      rollingSummary,
-      summaryWatermarkMessageId: thread.headMessageId,
-      updatedAt: this.deps.timestamp()
-    }
-
-    this.deps.storage.updateThread(updatedThread)
-    this.deps.emit<ThreadUpdatedEvent>({
-      type: 'thread.updated',
-      threadId: updatedThread.id,
-      thread: updatedThread
-    })
   }
 
   private scheduleThreadTitleGeneration(input: {
