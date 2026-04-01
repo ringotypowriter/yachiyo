@@ -21,6 +21,7 @@ import type {
   TestSubagentProfileInput,
   ThreadModelOverride,
   ThreadRecord,
+  ThreadRuntimeBinding,
   ThreadSearchResult,
   MemoryTermDocument,
   UpdateChannelGroupInput,
@@ -149,6 +150,10 @@ const api = {
       threadId: string
       modelOverride: ThreadModelOverride | null
     }): Promise<ThreadRecord> => ipcRenderer.invoke('yachiyo:set-thread-model-override', input),
+    setThreadRuntimeBinding: (input: {
+      threadId: string
+      runtimeBinding: ThreadRuntimeBinding | null
+    }): Promise<ThreadRecord> => ipcRenderer.invoke('yachiyo:set-thread-runtime-binding', input),
     regenerateThreadTitle: (input: { threadId: string }): Promise<ThreadRecord> =>
       ipcRenderer.invoke('yachiyo:regenerate-thread-title', input),
     starThread: (input: { threadId: string; starred: boolean }): Promise<ThreadRecord> =>

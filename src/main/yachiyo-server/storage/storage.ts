@@ -18,6 +18,7 @@ import type {
   ScheduleRunRecord,
   ScheduleRunStatus,
   ThreadModelOverride,
+  ThreadRuntimeBinding,
   ThreadRecord,
   ThreadSearchResult,
   ToolCallDetailsSnapshot,
@@ -52,6 +53,7 @@ export interface StoredThreadRow {
   summaryWatermarkMessageId: string | null
   readAt: string | null
   createdFromEssentialId: string | null
+  runtimeBinding: string | null
   updatedAt: string
   createdAt: string
   headMessageId: string | null
@@ -331,6 +333,7 @@ export function toThreadRecord(
     | 'summaryWatermarkMessageId'
     | 'readAt'
     | 'createdFromEssentialId'
+    | 'runtimeBinding'
     | 'title'
     | 'updatedAt'
     | 'workspacePath'
@@ -340,6 +343,7 @@ export function toThreadRecord(
   const queuedFollowUpEnabledSkillNames = parseSkillNames(row.queuedFollowUpEnabledSkillNames)
   const memoryRecall = parseThreadMemoryRecallState(row.memoryRecallState)
   const modelOverride = parseModelOverride(row.modelOverride)
+  const runtimeBinding = parseRuntimeBinding(row.runtimeBinding)
   const source = parseThreadSource(row.source)
 
   if (row.preview === null) {
@@ -370,6 +374,7 @@ export function toThreadRecord(
       ...(row.createdFromEssentialId === null
         ? {}
         : { createdFromEssentialId: row.createdFromEssentialId }),
+      ...(runtimeBinding ? { runtimeBinding } : {}),
       id: row.id,
       title: row.title,
       updatedAt: row.updatedAt
@@ -399,6 +404,7 @@ export function toThreadRecord(
       ? {}
       : { summaryWatermarkMessageId: row.summaryWatermarkMessageId }),
     ...(row.readAt === null ? {} : { readAt: row.readAt }),
+    ...(runtimeBinding ? { runtimeBinding } : {}),
     id: row.id,
     preview: row.preview,
     title: row.title,
@@ -408,6 +414,10 @@ export function toThreadRecord(
 
 export function serializeModelOverride(modelOverride?: ThreadModelOverride): string | null {
   return modelOverride ? JSON.stringify(modelOverride) : null
+}
+
+export function serializeRuntimeBinding(binding?: ThreadRuntimeBinding): string | null {
+  return binding ? JSON.stringify(binding) : null
 }
 
 export function parseModelOverride(value: string | null): ThreadModelOverride | undefined {
@@ -420,6 +430,17 @@ export function parseModelOverride(value: string | null): ThreadModelOverride | 
       if (providerName && model) return { providerName, model }
     }
     return undefined
+  } catch {
+    return undefined
+  }
+}
+
+export function parseRuntimeBinding(value: string | null): ThreadRuntimeBinding | undefined {
+  if (!value) return undefined
+  try {
+    const parsed = JSON.parse(value) as ThreadRuntimeBinding
+    if (parsed.kind !== 'llm' && parsed.kind !== 'acp') return undefined
+    return parsed
   } catch {
     return undefined
   }

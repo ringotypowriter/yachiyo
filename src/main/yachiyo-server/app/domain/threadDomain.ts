@@ -11,6 +11,7 @@ import type {
   ThreadModelOverride,
   ThreadRecord,
   ThreadRestoredEvent,
+  ThreadRuntimeBinding,
   ThreadSnapshot,
   ThreadStateReplacedEvent,
   ThreadUpdatedEvent,
@@ -739,6 +740,39 @@ export class YachiyoServerThreadDomain {
     }
     if (!input.modelOverride) {
       delete updatedThread.modelOverride
+    }
+
+    this.deps.storage.updateThread(updatedThread)
+    this.deps.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: updatedThread.id,
+      thread: updatedThread
+    })
+
+    return updatedThread
+  }
+
+  setThreadRuntimeBinding(input: {
+    threadId: string
+    runtimeBinding: ThreadRuntimeBinding | null
+  }): ThreadRecord {
+    const thread = this.deps.requireThread(input.threadId)
+    if (
+      input.runtimeBinding?.kind === 'acp' &&
+      this.deps.loadThreadMessages(thread.id).length > 0
+    ) {
+      throw new Error(
+        'ACP agents can only be attached before messages have been sent. Start a new thread to use ACP.'
+      )
+    }
+
+    const updatedThread: ThreadRecord = {
+      ...thread,
+      updatedAt: this.deps.timestamp(),
+      ...(input.runtimeBinding ? { runtimeBinding: input.runtimeBinding } : {})
+    }
+    if (!input.runtimeBinding) {
+      delete updatedThread.runtimeBinding
     }
 
     this.deps.storage.updateThread(updatedThread)

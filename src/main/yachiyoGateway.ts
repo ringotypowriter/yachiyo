@@ -115,6 +115,7 @@ const IPC_CHANNELS = {
   upsertProvider: 'yachiyo:upsert-provider',
   setThreadPrivacyMode: 'yachiyo:set-thread-privacy-mode',
   setThreadModelOverride: 'yachiyo:set-thread-model-override',
+  setThreadRuntimeBinding: 'yachiyo:set-thread-runtime-binding',
   regenerateThreadTitle: 'yachiyo:regenerate-thread-title',
   starThread: 'yachiyo:star-thread',
   readClipboardFilePaths: 'yachiyo:read-clipboard-file-paths',
@@ -583,6 +584,13 @@ export function registerYachiyoGateway(): YachiyoServer {
     IPC_CHANNELS.setThreadModelOverride,
     (input: { threadId: string; modelOverride: ThreadModelOverride | null }) =>
       server!.setThreadModelOverride(input)
+  )
+  handle(
+    IPC_CHANNELS.setThreadRuntimeBinding,
+    (input: {
+      threadId: string
+      runtimeBinding: import('../shared/yachiyo/protocol').ThreadRuntimeBinding | null
+    }) => server!.setThreadRuntimeBinding(input)
   )
   handle(IPC_CHANNELS.regenerateThreadTitle, (input: { threadId: string }) =>
     server!.regenerateThreadTitle(input)

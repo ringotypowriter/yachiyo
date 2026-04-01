@@ -34,6 +34,7 @@ import type {
   TestSubagentProfileResult,
   ThreadModelOverride,
   ThreadRecord,
+  ThreadRuntimeBinding,
   ThreadSearchResult,
   ThreadSnapshot,
   ChannelsConfig,
@@ -648,6 +649,13 @@ export class YachiyoServer {
     modelOverride: ThreadModelOverride | null
   }): Promise<ThreadRecord> {
     return this.threadDomain.setThreadModelOverride(input)
+  }
+
+  async setThreadRuntimeBinding(input: {
+    threadId: string
+    runtimeBinding: ThreadRuntimeBinding | null
+  }): Promise<ThreadRecord> {
+    return this.threadDomain.setThreadRuntimeBinding(input)
   }
 
   async archiveThread(input: { threadId: string; unread?: boolean }): Promise<void> {

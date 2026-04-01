@@ -86,3 +86,39 @@ test('getComposerActionState keeps send disabled when configuration or payload i
     }
   )
 })
+
+test('getComposerActionState enables send when isConfigured is true via ACP binding (no API key)', () => {
+  // When an ACP agent is selected the Composer derives isConfigured=true even with no API key.
+  // The action state function must honour that flag and allow the send.
+  assert.deepEqual(
+    getComposerActionState({
+      connectionStatus: 'connected',
+      hasActiveRun: false,
+      hasFailedImages: false,
+      hasLoadingImages: false,
+      hasPayload: true,
+      isConfigured: true
+    }),
+    {
+      canSend: true,
+      showStopButton: false
+    }
+  )
+})
+
+test('getComposerActionState blocks send when isConfigured is false even with payload', () => {
+  assert.deepEqual(
+    getComposerActionState({
+      connectionStatus: 'connected',
+      hasActiveRun: false,
+      hasFailedImages: false,
+      hasLoadingImages: false,
+      hasPayload: true,
+      isConfigured: false
+    }),
+    {
+      canSend: false,
+      showStopButton: false
+    }
+  )
+})

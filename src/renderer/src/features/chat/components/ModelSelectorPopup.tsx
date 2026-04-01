@@ -1,17 +1,19 @@
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, Search } from 'lucide-react'
+import { Check, Cpu, Search } from 'lucide-react'
 import type { SettingsConfig } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
-import { resolveModelSelectorState } from '../lib/modelSelectorState'
+import { resolveModelSelectorState, type AcpAgentEntry } from '../lib/modelSelectorState'
 
 function ModelOption({
   model,
+  disabled = false,
   isSelected,
   onSelect
 }: {
   model: string
+  disabled?: boolean
   isSelected: boolean
   onSelect: () => void
 }): React.ReactNode {
@@ -19,6 +21,7 @@ function ModelOption({
 
   return (
     <button
+      disabled={disabled}
       onClick={onSelect}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -33,10 +36,11 @@ function ModelOption({
             ? theme.background.hover
             : 'transparent',
         border: 'none',
-        cursor: 'pointer',
+        cursor: disabled ? 'progress' : 'pointer',
         gap: 6,
         textAlign: 'left',
-        transition: 'background 0.1s'
+        transition: 'background 0.1s',
+        opacity: disabled ? 0.65 : 1
       }}
     >
       <span
@@ -60,6 +64,85 @@ function ModelOption({
   )
 }
 
+function AcpAgentOption({
+  agent,
+  disabled = false,
+  isSelected,
+  onSelect
+}: {
+  agent: AcpAgentEntry
+  disabled?: boolean
+  isSelected: boolean
+  onSelect: () => void
+}): React.ReactNode {
+  const [hovered, setHovered] = useState(false)
+
+  return (
+    <button
+      disabled={disabled}
+      onClick={onSelect}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        width: '100%',
+        padding: '6px 12px 6px 10px',
+        background: isSelected
+          ? theme.background.accentMuted
+          : hovered
+            ? theme.background.hover
+            : 'transparent',
+        border: 'none',
+        cursor: disabled ? 'progress' : 'pointer',
+        gap: 6,
+        textAlign: 'left',
+        transition: 'background 0.1s',
+        opacity: disabled ? 0.65 : 1
+      }}
+    >
+      <span
+        style={{ width: 18, flexShrink: 0, display: 'flex', alignItems: 'center', paddingLeft: 2 }}
+      >
+        {isSelected ? (
+          <Check size={11} strokeWidth={2.5} color={theme.icon.accent} />
+        ) : (
+          <Cpu size={11} strokeWidth={1.8} color={theme.icon.muted} />
+        )}
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span
+          style={{
+            display: 'block',
+            fontSize: 13,
+            color: isSelected ? theme.text.accent : theme.text.primary,
+            fontWeight: isSelected ? 500 : 400,
+            letterSpacing: '-0.1px',
+            lineHeight: 1.4
+          }}
+        >
+          {agent.name}
+        </span>
+        {agent.description ? (
+          <span
+            style={{
+              display: 'block',
+              fontSize: 11,
+              color: theme.text.muted,
+              lineHeight: 1.35,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {agent.description}
+          </span>
+        ) : null}
+      </span>
+    </button>
+  )
+}
+
 export function ModelSelectorPopup({
   align = 'left',
   anchorRect,
@@ -67,8 +150,10 @@ export function ModelSelectorPopup({
   containerRef,
   currentProviderName,
   currentModel,
+  currentAcpProfileId,
   leadingOptions,
   onSelect,
+  onSelectAcpAgent,
   onClose,
   placement = 'top',
   portal = false,
@@ -80,20 +165,38 @@ export function ModelSelectorPopup({
   containerRef?: React.RefObject<HTMLDivElement | null>
   currentProviderName: string
   currentModel: string
+  currentAcpProfileId?: string | null
   leadingOptions?: Array<{
     isSelected: boolean
     label: string
     onSelect: () => void
   }>
-  onSelect: (providerName: string, model: string) => void
+  onSelect: (providerName: string, model: string) => Promise<void> | void
+  onSelectAcpAgent?: (agent: AcpAgentEntry) => Promise<void> | void
   onClose: () => void
   placement?: 'bottom' | 'top'
   portal?: boolean
   width?: number
 }): React.ReactNode {
   const [query, setQuery] = useState('')
+  const [selectionPending, setSelectionPending] = useState(false)
   const [visible, setVisible] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleSelection = (action: () => Promise<void> | void): void => {
+    if (selectionPending) {
+      return
+    }
+
+    setSelectionPending(true)
+    void Promise.resolve(action())
+      .then(() => {
+        onClose()
+      })
+      .catch(() => {
+        setSelectionPending(false)
+      })
+  }
 
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true))
@@ -102,11 +205,11 @@ export function ModelSelectorPopup({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && !selectionPending) onClose()
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [onClose])
+  }, [onClose, selectionPending])
 
   const hasLeadingOptions = leadingOptions != null && leadingOptions.length > 0
 
@@ -115,6 +218,8 @@ export function ModelSelectorPopup({
     hasLeadingOption: hasLeadingOptions,
     query
   })
+
+  const hasAcpAgents = selectorState.acpAgents.length > 0
 
   const popupWidth = Math.min(width, window.innerWidth - 24)
   const popupLeft = anchorRect
@@ -178,6 +283,7 @@ export function ModelSelectorPopup({
         <Search size={14} strokeWidth={1.5} color={theme.icon.placeholder} />
         <input
           ref={inputRef}
+          disabled={selectionPending}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search models..."
@@ -188,7 +294,8 @@ export function ModelSelectorPopup({
             outline: 'none',
             fontSize: 13,
             color: theme.text.primary,
-            letterSpacing: '-0.1px'
+            letterSpacing: '-0.1px',
+            opacity: selectionPending ? 0.65 : 1
           }}
         />
       </div>
@@ -200,11 +307,11 @@ export function ModelSelectorPopup({
             {leadingOptions.map((option) => (
               <ModelOption
                 key={option.label}
+                disabled={selectionPending}
                 model={option.label}
                 isSelected={option.isSelected}
                 onSelect={() => {
-                  option.onSelect()
-                  onClose()
+                  handleSelection(option.onSelect)
                 }}
               />
             ))}
@@ -223,33 +330,66 @@ export function ModelSelectorPopup({
             No models found
           </div>
         ) : (
-          selectorState.providers.map((provider) => (
-            <div key={provider.name}>
-              <div
-                style={{
-                  padding: '10px 14px 3px',
-                  fontSize: 10.5,
-                  color: theme.text.placeholder,
-                  fontWeight: 600,
-                  letterSpacing: '0.07em',
-                  textTransform: 'uppercase'
-                }}
-              >
-                {provider.name}
-              </div>
-              {provider.models.map((model) => (
-                <ModelOption
-                  key={model}
-                  model={model}
-                  isSelected={provider.name === currentProviderName && model === currentModel}
-                  onSelect={() => {
-                    onSelect(provider.name, model)
-                    onClose()
+          <>
+            {selectorState.providers.map((provider) => (
+              <div key={provider.name}>
+                <div
+                  style={{
+                    padding: '10px 14px 3px',
+                    fontSize: 10.5,
+                    color: theme.text.placeholder,
+                    fontWeight: 600,
+                    letterSpacing: '0.07em',
+                    textTransform: 'uppercase'
                   }}
-                />
-              ))}
-            </div>
-          ))
+                >
+                  {provider.name}
+                </div>
+                {provider.models.map((model) => (
+                  <ModelOption
+                    key={model}
+                    disabled={selectionPending}
+                    model={model}
+                    isSelected={
+                      !currentAcpProfileId &&
+                      provider.name === currentProviderName &&
+                      model === currentModel
+                    }
+                    onSelect={() => {
+                      handleSelection(() => onSelect(provider.name, model))
+                    }}
+                  />
+                ))}
+              </div>
+            ))}
+            {hasAcpAgents ? (
+              <div>
+                <div
+                  style={{
+                    padding: '10px 14px 3px',
+                    fontSize: 10.5,
+                    color: theme.text.placeholder,
+                    fontWeight: 600,
+                    letterSpacing: '0.07em',
+                    textTransform: 'uppercase'
+                  }}
+                >
+                  ACP Agents
+                </div>
+                {selectorState.acpAgents.map((agent) => (
+                  <AcpAgentOption
+                    key={agent.id}
+                    agent={agent}
+                    disabled={selectionPending}
+                    isSelected={agent.id === currentAcpProfileId}
+                    onSelect={() => {
+                      handleSelection(() => onSelectAcpAgent?.(agent))
+                    }}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </>
         )}
       </div>
     </div>

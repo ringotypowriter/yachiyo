@@ -1,20 +1,12 @@
 import { tool, type Tool } from 'ai'
-import { spawn } from 'node:child_process'
 import { access as fsAccess } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { Readable, Writable } from 'node:stream'
 import { z } from 'zod'
 
-import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import type {
-  RequestPermissionRequest,
-  RequestPermissionResponse,
-  SessionNotification
-} from '@agentclientprotocol/sdk'
-
 import type { SubagentProfile } from '../../../../shared/yachiyo/protocol.ts'
-import { readLoginShellEnvSync, mergeShellEnv } from '../../../userShellEnv.ts'
-import { filterJsonLines } from './spawnUtils.ts'
+import { launchAcpProcess } from '../../runtime/acp/acpLauncher.ts'
+import { createAcpStreamAdapter } from '../../runtime/acp/acpStreamAdapter.ts'
+import { runAcpSession } from '../../runtime/acp/acpSessionClient.ts'
 
 const delegateCodingTaskInputSchema = z.object({
   agent_name: z.string().min(1),
@@ -57,19 +49,6 @@ export interface DelegateCodingTaskContext {
 const SYSTEM_INSTRUCTION =
   "CRITICAL: The subagent has finished its execution. Before replying to the user, you MUST use your `read`, `bash` (e.g., git status, git diff), or `grep` tools to verify the actual file changes. Do not blindly trust the agent's summary. Once verified, report your findings to the user."
 
-function autoApprovePermission(params: RequestPermissionRequest): RequestPermissionResponse {
-  const allowOption = params.options.find(
-    (o) => o.kind === 'allow_once' || o.kind === 'allow_always'
-  )
-
-  if (allowOption) {
-    return { outcome: { outcome: 'selected', optionId: allowOption.optionId } }
-  }
-
-  // No allow option — pick the first option as a fallback
-  return { outcome: { outcome: 'selected', optionId: params.options[0].optionId } }
-}
-
 async function runSubagent(
   profile: SubagentProfile,
   prompt: string,
@@ -77,129 +56,20 @@ async function runSubagent(
   abortSignal?: AbortSignal,
   resumeSessionId?: string
 ): Promise<DelegateCodingTaskOutput & { lastMessage: string }> {
-  let lastMessageText = ''
-  let stopReason = 'end_turn'
-  let wasStreamingText = false
-  let hadAnyProgress = false
+  const adapter = createAcpStreamAdapter({ onProgress: ctx.onProgress })
+  const { proc, stream, procExited } = launchAcpProcess(profile, ctx.workspacePath)
 
-  const shellCommand = [profile.command, ...profile.args].join(' ')
-  const shellEnv = readLoginShellEnvSync(process.env)
-  const spawnEnv = mergeShellEnv(mergeShellEnv(process.env, shellEnv), profile.env)
-  const shell = spawnEnv.SHELL || '/bin/zsh'
-  const proc = spawn(shell, ['-lc', shellCommand], {
-    cwd: ctx.workspacePath,
-    env: spawnEnv,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    detached: true
-  })
+  proc.stderr?.on('data', (chunk: Buffer) => adapter.onStderr(chunk))
 
-  const procExited = new Promise<void>((resolve) => {
-    proc.on('exit', () => resolve())
-    proc.on('error', () => resolve())
-  })
-
-  const stdinStream = Writable.toWeb(proc.stdin) as unknown as WritableStream<Uint8Array>
-  const stdoutStream = Readable.toWeb(proc.stdout) as unknown as ReadableStream<Uint8Array>
-  const stream = ndJsonStream(stdinStream, filterJsonLines(stdoutStream))
-
-  // Forward stderr as progress lines
-  proc.stderr.on('data', (chunk: Buffer) => {
-    const text = chunk.toString('utf8')
-    wasStreamingText = false
-    hadAnyProgress = true
-    ctx.onProgress?.(text)
-  })
-
-  const yoloClient = {
-    requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-      return Promise.resolve(autoApprovePermission(params))
-    },
-    sessionUpdate(params: SessionNotification): Promise<void> {
-      const update = params.update
-      if (update.sessionUpdate === 'agent_message_chunk' && update.content.type === 'text') {
-        // Inject a newline when a new agent message starts after a non-text phase
-        if (!wasStreamingText && hadAnyProgress) {
-          ctx.onProgress?.('\n')
-        }
-        wasStreamingText = true
-        hadAnyProgress = true
-        lastMessageText += update.content.text
-        ctx.onProgress?.(update.content.text)
-      } else {
-        wasStreamingText = false
-      }
-      return Promise.resolve()
-    }
-  }
-
-  const connection = new ClientSideConnection(() => yoloClient, stream)
-  let sessionId: string
-
-  try {
-    if (abortSignal?.aborted) {
-      throw new Error('Aborted before start')
-    }
-
-    await connection.initialize({
-      protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: {}
-    })
-
-    if (resumeSessionId !== undefined) {
-      try {
-        await connection.unstable_resumeSession({
-          cwd: ctx.workspacePath,
-          sessionId: resumeSessionId,
-          mcpServers: []
-        })
-      } catch (resumeErr) {
-        const detail = resumeErr instanceof Error ? resumeErr.message : String(resumeErr)
-        throw new Error(
-          `Session resume failed for session_id "${resumeSessionId}": ${detail}. ` +
-            `Call delegateCodingTask again without session_id to start a new session.`
-        )
-      }
-      sessionId = resumeSessionId
-    } else {
-      const sessionResult = await connection.newSession({
-        cwd: ctx.workspacePath,
-        mcpServers: []
-      })
-      sessionId = sessionResult.sessionId
-    }
-
-    // Wire abort: send cancel to agent then kill
-    const killGroup = (): void => {
-      try {
-        process.kill(-proc.pid!, 'SIGKILL')
-      } catch {
-        proc.kill('SIGKILL')
-      }
-    }
-
-    const onAbort = (): void => {
-      if (sessionId) {
-        connection.cancel({ sessionId }).catch(() => {})
-      }
-      killGroup()
-    }
-    abortSignal?.addEventListener('abort', onAbort, { once: true })
-
-    const promptResult = await connection.prompt({
-      sessionId,
-      prompt: [{ type: 'text', text: prompt }]
-    })
-    stopReason = promptResult.stopReason
-
-    abortSignal?.removeEventListener('abort', onAbort)
-  } finally {
-    try {
-      process.kill(-proc.pid!, 'SIGKILL')
-    } catch {
-      proc.kill('SIGKILL')
-    }
-    await procExited
-  }
+  const { sessionId, stopReason, lastMessageText } = await runAcpSession(
+    stream,
+    proc,
+    procExited,
+    ctx.workspacePath,
+    prompt,
+    adapter,
+    { abortSignal, resumeSessionId }
+  )
 
   const agentLastMessage = lastMessageText.trim() || '(no output)'
   const sessionLine = `Session ID: ${sessionId}`
@@ -230,7 +100,6 @@ export function createTool(
         return { content: [{ type: 'text', text: error }], error }
       }
 
-      // Resolve effective workspace: validate against the allowed list and require Git
       let effectiveCtx = ctx
       if (input.workspace) {
         const requested = resolve(input.workspace)

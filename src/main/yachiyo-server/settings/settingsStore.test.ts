@@ -1116,3 +1116,52 @@ test('legacy JSON env on indented lines is parsed correctly', () => {
   assert.ok(profile)
   assert.equal(profile.env['FOO'], 'bar')
 })
+
+test('subagent ACP flags round-trip through parse → normalize → stringify → parse', () => {
+  const toml = `[[subagentProfiles]]
+id = "chat-agent"
+name = "Chat Agent"
+enabled = true
+description = "direct chat capable"
+command = "acp-agent"
+args = []
+env = {}
+showInChatPicker = true
+allowDirectChat = true
+allowDelegation = false
+`
+
+  const config = parseSettingsToml(toml)
+  const profile = config.subagentProfiles?.find((p) => p.id === 'chat-agent')
+  assert.ok(profile, 'profile should be parsed')
+  assert.equal(profile.showInChatPicker, true)
+  assert.equal(profile.allowDirectChat, true)
+  assert.equal(profile.allowDelegation, false)
+
+  const serialized = stringifySettingsToml(config)
+  const reloaded = parseSettingsToml(serialized)
+  const reloadedProfile = reloaded.subagentProfiles?.find((p) => p.id === 'chat-agent')
+  assert.ok(reloadedProfile, 'profile should survive round-trip')
+  assert.equal(reloadedProfile.showInChatPicker, true, 'showInChatPicker preserved')
+  assert.equal(reloadedProfile.allowDirectChat, true, 'allowDirectChat preserved')
+  assert.equal(reloadedProfile.allowDelegation, false, 'allowDelegation preserved')
+})
+
+test('subagent ACP flags default to absent when not specified in TOML', () => {
+  const toml = `[[subagentProfiles]]
+id = "basic-agent"
+name = "Basic Agent"
+enabled = true
+description = ""
+command = "acp-agent"
+args = []
+env = {}
+`
+
+  const config = parseSettingsToml(toml)
+  const profile = config.subagentProfiles?.find((p) => p.id === 'basic-agent')
+  assert.ok(profile, 'profile should be parsed')
+  assert.equal(profile.showInChatPicker, undefined, 'showInChatPicker absent when not specified')
+  assert.equal(profile.allowDirectChat, undefined, 'allowDirectChat absent when not specified')
+  assert.equal(profile.allowDelegation, undefined, 'allowDelegation absent when not specified')
+})
