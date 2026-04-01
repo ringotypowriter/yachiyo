@@ -6537,6 +6537,81 @@ test('YachiyoServer blocks compact-to-another-thread while the source thread is 
   })
 })
 
+test('YachiyoServer rejects rolling compaction for local threads', async () => {
+  await withServer(async ({ server }) => {
+    const thread = await server.createThread()
+
+    await assert.rejects(
+      () =>
+        server.compactExternalThread({
+          threadId: thread.id
+        }),
+      /only supported for external channel threads/i
+    )
+  })
+})
+
+test('YachiyoServer rolls up external DM threads in place', async () => {
+  const requests: ModelStreamRequest[] = []
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      const thread = await server.createThread({
+        source: 'telegram',
+        channelUserId: 'tg-user-1',
+        title: 'Telegram:@alice'
+      })
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Keep the DM going.'
+      })
+      await completeRun(accepted.runId)
+
+      const compacted = await server.compactExternalThread({
+        threadId: thread.id
+      })
+
+      assert.equal(compacted.thread.id, thread.id)
+      assert.equal(compacted.thread.rollingSummary, 'External summary')
+      assert.ok(compacted.thread.summaryWatermarkMessageId)
+
+      const persisted = server.listExternalThreads().find((entry) => entry.id === thread.id)
+      assert.equal(persisted?.rollingSummary, 'External summary')
+      assert.equal(persisted?.summaryWatermarkMessageId, compacted.thread.summaryWatermarkMessageId)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest): AsyncIterable<string> {
+          requests.push(request)
+
+          const lastMessage = request.messages.at(-1)
+          const lastMessageText =
+            typeof lastMessage?.content === 'string' ? lastMessage.content : ''
+
+          if (lastMessageText.includes('Write a continuation summary')) {
+            yield 'External summary'
+            return
+          }
+
+          yield 'Visible reply'
+        }
+      })
+    }
+  )
+
+  assert.equal(
+    requests.some((request) =>
+      request.messages.some(
+        (message) =>
+          message.role === 'user' &&
+          typeof message.content === 'string' &&
+          message.content.includes('Write a continuation summary')
+      )
+    ),
+    true
+  )
+})
+
 test('YachiyoServer does not create a destination thread when compact workspace cloning fails', async () => {
   await withServer(
     async ({ server, completeRun }) => {

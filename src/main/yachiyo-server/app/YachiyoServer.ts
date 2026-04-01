@@ -603,6 +603,10 @@ export class YachiyoServer {
   async compactExternalThread(input: { threadId: string }): Promise<{ thread: ThreadRecord }> {
     const thread = this.requireThread(input.threadId)
 
+    if (!thread.source || thread.source === 'local') {
+      throw new Error('Rolling compaction is only supported for external channel threads.')
+    }
+
     if (this.runDomain.hasActiveThread(thread.id)) {
       throw new Error('Cannot compact a thread with an active run.')
     }
