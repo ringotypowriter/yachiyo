@@ -2,11 +2,14 @@ import type { ChildProcess } from 'node:child_process'
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
+import type { ContentBlock } from '@agentclientprotocol/sdk'
+
 import type {
   HarnessFinishedEvent,
   HarnessStartedEvent,
   MessageCompletedEvent,
   MessageDeltaEvent,
+  MessageImageRecord,
   MessageRecord,
   MessageStartedEvent,
   RunCancelledEvent,
@@ -89,7 +92,7 @@ export async function runAcpChatThread(
     throw new Error(`Request message "${input.requestMessageId}" not found in thread`)
   }
 
-  const prompt = requestMessage.content
+  const prompt = buildAcpPromptBlocks(requestMessage)
 
   let workspacePath: string
   if (input.thread.workspacePath?.trim()) {
@@ -427,6 +430,24 @@ export async function runAcpChatThread(
 
     return { kind: 'failed' }
   }
+}
+
+export function buildAcpPromptBlocks(
+  message: Pick<MessageRecord, 'content' | 'images'>
+): ContentBlock[] {
+  const blocks: ContentBlock[] = [{ type: 'text', text: message.content }]
+  for (const image of message.images ?? []) {
+    const imageBlock = dataUrlToImageBlock(image)
+    if (imageBlock) blocks.push(imageBlock)
+  }
+  return blocks
+}
+
+function dataUrlToImageBlock(image: MessageImageRecord): (ContentBlock & { type: 'image' }) | null {
+  const match = /^data:([^;]+);base64,(.+)$/.exec(image.dataUrl)
+  if (!match) return null
+  const [, mimeType, data] = match
+  return { type: 'image', mimeType, data }
 }
 
 export function buildAcpProcessPoolKey(

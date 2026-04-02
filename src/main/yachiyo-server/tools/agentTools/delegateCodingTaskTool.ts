@@ -74,7 +74,7 @@ async function runSubagent(
     proc,
     procExited,
     ctx.workspacePath,
-    prompt,
+    [{ type: 'text', text: prompt }],
     adapter,
     adapterRef,
     { abortSignal, resumeSessionId }

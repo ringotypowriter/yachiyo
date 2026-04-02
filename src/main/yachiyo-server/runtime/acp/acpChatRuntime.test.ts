@@ -5,11 +5,14 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 
+import type { ContentBlock } from '@agentclientprotocol/sdk'
+
 import { createInMemoryYachiyoStorage } from '../../storage/memoryStorage.ts'
-import { runAcpChatThread } from './acpChatRuntime.ts'
+import { runAcpChatThread, buildAcpPromptBlocks } from './acpChatRuntime.ts'
 import type { AcpChatRunDeps, AcpChatRunInput } from './acpChatRuntime.ts'
 import type { AcpLaunchResult } from './acpLauncher.ts'
 import type {
+  MessageImageRecord,
   MessageRecord,
   SettingsConfig,
   SubagentProfile,
@@ -423,6 +426,154 @@ test('runAcpChatThread does not inject synthetic newlines into the persisted buf
   const messages = deps.storage.listThreadMessages('thread-1')
   const stoppedMessage = messages.at(-1)
   assert.equal(stoppedMessage?.content, 'Hello world')
+})
+
+// --- buildAcpPromptBlocks unit tests ---
+
+test('buildAcpPromptBlocks: text-only message produces a single text block', () => {
+  const blocks = buildAcpPromptBlocks({ content: 'hello world', images: undefined })
+  assert.equal(blocks.length, 1)
+  assert.deepEqual(blocks[0], { type: 'text', text: 'hello world' })
+})
+
+test('buildAcpPromptBlocks: message with images produces text block followed by image blocks', () => {
+  const images: MessageImageRecord[] = [
+    { dataUrl: 'data:image/png;base64,abc123', mediaType: 'image/png' },
+    { dataUrl: 'data:image/jpeg;base64,xyz789', mediaType: 'image/jpeg' }
+  ]
+  const blocks = buildAcpPromptBlocks({ content: 'look at this', images })
+  assert.equal(blocks.length, 3)
+  assert.deepEqual(blocks[0], { type: 'text', text: 'look at this' })
+  assert.deepEqual(blocks[1], { type: 'image', mimeType: 'image/png', data: 'abc123' })
+  assert.deepEqual(blocks[2], { type: 'image', mimeType: 'image/jpeg', data: 'xyz789' })
+})
+
+test('buildAcpPromptBlocks: invalid dataUrl entries are skipped', () => {
+  const images: MessageImageRecord[] = [
+    { dataUrl: 'not-a-data-url', mediaType: 'image/png' },
+    { dataUrl: 'data:image/png;base64,valid99', mediaType: 'image/png' }
+  ]
+  const blocks = buildAcpPromptBlocks({ content: 'hi', images })
+  assert.equal(blocks.length, 2)
+  assert.deepEqual(blocks[0], { type: 'text', text: 'hi' })
+  assert.deepEqual(blocks[1], { type: 'image', mimeType: 'image/png', data: 'valid99' })
+})
+
+// --- Integration test: image forwarding via runAcpChatThread ---
+
+function makeDepsWithRequestMessage(
+  workspacePath: string,
+  requestMessage: MessageRecord
+): AcpChatRunDeps & {
+  emittedEvents: YachiyoServerEvent[]
+  storage: ReturnType<typeof createInMemoryYachiyoStorage>
+} {
+  const storage = createInMemoryYachiyoStorage()
+  const thread = makeThread(workspacePath)
+
+  storage.createThread({
+    thread,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    messages: [requestMessage]
+  })
+  storage.startRun({
+    runId: 'run-1',
+    requestMessageId: requestMessage.id,
+    thread,
+    updatedThread: thread,
+    createdAt: '2026-01-01T00:00:01.000Z'
+  })
+
+  const emittedEvents: YachiyoServerEvent[] = []
+
+  return {
+    storage,
+    createId: (() => {
+      let n = 0
+      return () => `id-${++n}`
+    })(),
+    timestamp: () => '2026-01-01T00:01:00.000Z',
+    emit: <T extends YachiyoServerEvent>(event: T) => {
+      emittedEvents.push(event)
+    },
+    readThread: (threadId: string) => {
+      const t = storage.getThread(threadId)
+      if (!t) throw new Error(`Thread ${threadId} not found`)
+      return t
+    },
+    readConfig: () => makeConfig(),
+    loadThreadMessages: (threadId: string) => storage.listThreadMessages(threadId),
+    ensureThreadWorkspace: async () => workspacePath,
+    acpProcessPool: { checkout: () => null, checkin: () => {} },
+    emittedEvents
+  } as AcpChatRunDeps & {
+    emittedEvents: YachiyoServerEvent[]
+    storage: ReturnType<typeof createInMemoryYachiyoStorage>
+  }
+}
+
+test('runAcpChatThread forwards images from request message as ACP ContentBlocks', async () => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'acp-test-'))
+  const requestMessage: MessageRecord = {
+    id: 'msg-req',
+    threadId: 'thread-1',
+    role: 'user',
+    content: 'describe this image',
+    images: [{ dataUrl: 'data:image/png;base64,iVBORw0KGgo=', mediaType: 'image/png' }],
+    status: 'completed',
+    createdAt: '2026-01-01T00:00:00.000Z'
+  }
+  const deps = makeDepsWithRequestMessage(workspacePath, requestMessage)
+
+  let capturedPrompt: ContentBlock[] | null = null
+  deps.launchAcpProcess = () => makeFakeLaunchResult()
+  deps.runAcpSession = async (_stream, _proc, _procExited, _cwd, prompt) => {
+    capturedPrompt = prompt
+    return { sessionId: 'session-1', lastMessageText: 'a cat', stopReason: 'end_turn' }
+  }
+
+  await runAcpChatThread(deps, {
+    runId: 'run-1',
+    thread: makeThread(workspacePath),
+    requestMessageId: 'msg-req',
+    abortController: new AbortController(),
+    updateHeadOnComplete: true
+  })
+
+  assert.ok(capturedPrompt !== null, 'runAcpSession must be called')
+  assert.equal((capturedPrompt as ContentBlock[]).length, 2)
+  assert.deepEqual((capturedPrompt as ContentBlock[])[0], {
+    type: 'text',
+    text: 'describe this image'
+  })
+  assert.deepEqual((capturedPrompt as ContentBlock[])[1], {
+    type: 'image',
+    mimeType: 'image/png',
+    data: 'iVBORw0KGgo='
+  })
+})
+
+test('runAcpChatThread sends only text block when message has no images', async () => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'acp-test-'))
+  const deps = makeDeps(workspacePath)
+
+  let capturedPrompt: ContentBlock[] | null = null
+  deps.launchAcpProcess = () => makeFakeLaunchResult()
+  deps.runAcpSession = async (_stream, _proc, _procExited, _cwd, prompt) => {
+    capturedPrompt = prompt
+    return { sessionId: 'session-1', lastMessageText: 'ok', stopReason: 'end_turn' }
+  }
+
+  await runAcpChatThread(deps, {
+    runId: 'run-1',
+    thread: makeThread(workspacePath),
+    requestMessageId: 'msg-req',
+    abortController: new AbortController(),
+    updateHeadOnComplete: true
+  })
+
+  assert.ok(capturedPrompt !== null, 'runAcpSession must be called')
+  assert.deepEqual(capturedPrompt as ContentBlock[], [{ type: 'text', text: 'hello' }])
 })
 
 test('runAcpChatThread ignores a stale warm ACP session after the profile command changes', async () => {

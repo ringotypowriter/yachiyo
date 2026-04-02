@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process'
 
 import { ClientSideConnection, PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import type { ndJsonStream } from '@agentclientprotocol/sdk'
+import type { ContentBlock, ndJsonStream } from '@agentclientprotocol/sdk'
 
 import type { AcpStreamAdapter, AcpYoloClient } from './acpStreamAdapter.ts'
 
@@ -61,7 +61,7 @@ export async function runAcpSession(
   proc: ChildProcess,
   procExited: Promise<void>,
   cwd: string,
-  prompt: string,
+  prompt: ContentBlock[],
   adapter: AcpStreamAdapter,
   adapterRef: { current: AcpStreamAdapter },
   options: AcpSessionOptions = {}
@@ -130,7 +130,7 @@ export async function runAcpSession(
     const promptResult = await raceAbort(
       connection.prompt({
         sessionId,
-        prompt: [{ type: 'text', text: prompt }]
+        prompt
       }),
       abortSignal
     )
@@ -166,7 +166,7 @@ export async function runAcpSession(
 
 export async function continueAcpSession(
   session: AcpWarmSession,
-  prompt: string,
+  prompt: ContentBlock[],
   adapter: AcpStreamAdapter,
   options: Pick<AcpSessionOptions, 'abortSignal' | 'keepAlive'> = {}
 ): Promise<AcpSessionResult> {
@@ -186,7 +186,7 @@ export async function continueAcpSession(
     const promptResult = await raceAbort(
       session.connection.prompt({
         sessionId: session.sessionId,
-        prompt: [{ type: 'text', text: prompt }]
+        prompt
       }),
       abortSignal
     )
