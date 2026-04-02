@@ -1,5 +1,8 @@
 import type React from 'react'
 import { useEffect, useMemo, useRef } from 'react'
+import { prepareWithSegments, layoutWithLines, clearCache } from '@chenglou/pretext'
+// @ts-expect-error — subpath resolved via Vite alias, no declared types
+import { getMeasureContext } from '@chenglou/pretext/measurement'
 import { parseComputedLineHeightPx } from '@renderer/features/chat/lib/composerLineMetrics'
 
 type TrailStrength = 'off' | 'low' | 'medium' | 'high'
@@ -26,101 +29,13 @@ const strengthScale: Record<TrailStrength, number> = {
   high: 1.8
 }
 
-// Cached mirror div — typography from the textarea's *computed* styles so glyph
-// advances (narrow letters like "l", "i") match the replaced element, not the overlay div.
-let _mirror: HTMLDivElement | null = null
-let _mirrorSource: HTMLElement | null = null
-
-/** Match textarea text reflow when a vertical scrollbar narrows the editable. */
-function mirrorMeasureWidth(overlay: HTMLElement, textarea: HTMLTextAreaElement): number {
-  const hw = overlay.getBoundingClientRect().width
-  const cw = textarea.clientWidth
-  if (cw > 1) {
-    return Math.min(hw, cw)
+// Cached canvas context for per-line x offset measurement (pairs with pretext line-breaking).
+let _measureCtx: CanvasRenderingContext2D | null = null
+function getMeasureCtx(): CanvasRenderingContext2D {
+  if (!_measureCtx) {
+    _measureCtx = document.createElement('canvas').getContext('2d')!
   }
-  return hw
-}
-
-function applyMirrorTextStyles(
-  mirror: HTMLDivElement,
-  textarea: HTMLTextAreaElement,
-  targetW: number
-): void {
-  const ts = getComputedStyle(textarea)
-  Object.assign(mirror.style, {
-    position: 'absolute',
-    visibility: 'hidden',
-    top: '-9999px',
-    left: '-9999px',
-    zIndex: '-1',
-    boxSizing: ts.boxSizing,
-    width: `${targetW}px`,
-    paddingTop: ts.paddingTop,
-    paddingRight: ts.paddingRight,
-    paddingBottom: ts.paddingBottom,
-    paddingLeft: ts.paddingLeft,
-    border: 'none',
-    fontSize: ts.fontSize,
-    fontFamily: ts.fontFamily,
-    fontWeight: ts.fontWeight,
-    fontStyle: ts.fontStyle,
-    lineHeight: ts.lineHeight,
-    letterSpacing: ts.letterSpacing,
-    wordSpacing: ts.wordSpacing,
-    whiteSpace: ts.whiteSpace,
-    wordBreak: ts.wordBreak,
-    overflowWrap: ts.overflowWrap,
-    tabSize: ts.tabSize,
-    overflow: 'hidden',
-    fontFeatureSettings: ts.fontFeatureSettings,
-    fontKerning: ts.fontKerning,
-    fontVariantLigatures: ts.fontVariantLigatures,
-    fontVariantNumeric: ts.fontVariantNumeric,
-    fontVariantCaps: ts.fontVariantCaps,
-    textRendering: ts.textRendering,
-    textIndent: ts.textIndent,
-    direction: ts.direction,
-    unicodeBidi: ts.unicodeBidi
-  })
-}
-
-function ensureMirror(overlay: HTMLElement, textarea: HTMLTextAreaElement): HTMLDivElement {
-  const targetW = mirrorMeasureWidth(overlay, textarea)
-
-  if (_mirror && _mirrorSource === overlay) {
-    applyMirrorTextStyles(_mirror, textarea, targetW)
-    return _mirror
-  }
-
-  if (_mirror) {
-    _mirror.remove()
-    _mirror = null
-  }
-
-  const mirror = document.createElement('div')
-  applyMirrorTextStyles(mirror, textarea, targetW)
-  document.body.appendChild(mirror)
-  _mirror = mirror
-  _mirrorSource = overlay
-  return mirror
-}
-
-function disposeMirror(): void {
-  if (_mirror) {
-    _mirror.remove()
-    _mirror = null
-    _mirrorSource = null
-  }
-}
-
-/** Exclusive end index of the logical line that contains `from` (LF/CR, not soft-wrap). */
-function endIndexOfLogicalLine(s: string, from: number): number {
-  const n = s.indexOf('\n', from)
-  const r = s.indexOf('\r', from)
-  let end = s.length
-  if (n !== -1) end = Math.min(end, n)
-  if (r !== -1) end = Math.min(end, r)
-  return end
+  return _measureCtx
 }
 
 function flushTextareaLayout(textarea: HTMLTextAreaElement): void {
@@ -156,54 +71,122 @@ function ensureCaretVisibleInTextarea(
   }
 }
 
+// Sync letter-spacing / word-spacing on pretext's internal canvas so its line-breaking
+// matches the textarea. Cached to avoid clearing pretext's measurement cache unnecessarily.
+let _syncedLetterSpacing = ''
+let _syncedWordSpacing = ''
+
+function syncPretextSpacing(cs: CSSStyleDeclaration): void {
+  const ls = cs.letterSpacing !== 'normal' ? cs.letterSpacing : '0px'
+  const ws = cs.wordSpacing !== 'normal' ? cs.wordSpacing : '0px'
+  if (ls !== _syncedLetterSpacing || ws !== _syncedWordSpacing) {
+    const ctx = getMeasureContext() as CanvasRenderingContext2D
+    ctx.letterSpacing = ls
+    ctx.wordSpacing = ws
+    // Spacing changed — cached segment widths are stale
+    clearCache()
+    _syncedLetterSpacing = ls
+    _syncedWordSpacing = ws
+  }
+}
+
 /**
- * Textarea caret pixel position via the classic mirror + span marker (same idea as
- * textarea-caret-position): no collapsed Range / getClientRects heuristics.
- * Returns (x, y, height) relative to the mirror's border box top-left.
+ * Textarea caret pixel position via pretext (canvas-based line-breaking) + canvas measureText.
+ * No DOM mirror — pure arithmetic, immune to the union-box and mirror-width-mismatch bugs.
+ * Returns (x, y, height) relative to the textarea's border-box top-left.
  */
 function measureCaretPos(
-  overlay: HTMLElement,
   textarea: HTMLTextAreaElement
 ): { x: number; y: number; height: number } | null {
   const pos = textarea.selectionStart
   if (pos === null) return null
 
-  const mirror = ensureMirror(overlay, textarea)
+  const cs = getComputedStyle(textarea)
+  const lineHeight = parseComputedLineHeightPx(textarea)
+  const paddingLeft = parseFloat(cs.paddingLeft)
+  const paddingTop = parseFloat(cs.paddingTop)
+  const paddingRight = parseFloat(cs.paddingRight)
+  const contentWidth = textarea.clientWidth - paddingLeft - paddingRight
+  if (contentWidth <= 0) return null
+
   const value = textarea.value
-  const clampedPos = value ? Math.min(pos, value.length) : 0
+  const caretIndex = value ? Math.min(pos, value.length) : 0
+  const fontString = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`
 
-  mirror.replaceChildren()
-  const before = value.slice(0, clampedPos)
-  if (before.length > 0) {
-    mirror.appendChild(document.createTextNode(before))
+  // Ensure pretext's canvas uses the same letter/word-spacing as the textarea
+  syncPretextSpacing(cs)
+
+  // Pretext: canvas-based line-breaking — no DOM reflow
+  const prepared = prepareWithSegments(value || '\u200b', fontString, { whiteSpace: 'pre-wrap' })
+  const { lines } = layoutWithLines(prepared, contentWidth, lineHeight)
+
+  // Find which visual line contains the caret.
+  // pretext excludes hard-break chars (\n, \r\n) from line.text, so we must
+  // account for the consumed break characters between lines.
+  let charOffset = 0
+  let caretLineIndex = 0
+  let offsetInLine = 0
+  let matched = false
+
+  for (let i = 0; i < lines.length; i++) {
+    const lineLen = lines[i].text.length
+    const lineEndOffset = charOffset + lineLen
+
+    // Caret is strictly within this line's visible text
+    if (caretIndex < lineEndOffset) {
+      caretLineIndex = i
+      offsetInLine = caretIndex - charOffset
+      matched = true
+      break
+    }
+
+    // Count consumed hard-break chars that pretext excluded from line.text
+    let nextOffset = lineEndOffset
+    if (nextOffset < value.length && value[nextOffset] === '\r') nextOffset++
+    if (nextOffset < value.length && value[nextOffset] === '\n') nextOffset++
+    const breakChars = nextOffset - lineEndOffset
+
+    if (breakChars > 0) {
+      // Hard break: caret on the \n itself → show at end of the visible line
+      if (caretIndex < nextOffset) {
+        caretLineIndex = i
+        offsetInLine = lineLen
+        matched = true
+        break
+      }
+      charOffset = nextOffset
+    } else if (i === lines.length - 1) {
+      // Last line, no trailing \n → caret at end of text
+      caretLineIndex = i
+      offsetInLine = lineLen
+      matched = true
+      break
+    } else {
+      // Soft wrap → caret at the wrap point belongs to the next visual line
+      charOffset = lineEndOffset
+    }
   }
 
-  // Zero-width marker span at the exact caret position. Using the marker's own rect
-  // avoids the union-box problem: when the tail text soft-wraps, getBoundingClientRect()
-  // on the tail span returns the bounding box of ALL visual lines, snapping x to the
-  // left margin instead of the true caret column.
-  const marker = document.createElement('span')
-  marker.textContent = '\u200b'
-  mirror.appendChild(marker)
-
-  // Append remaining text on the same logical line so the mirror reflows identically.
-  const lineEnd = endIndexOfLogicalLine(value, clampedPos)
-  const afterOnLine = value.slice(clampedPos, lineEnd)
-  if (afterOnLine.length > 0) {
-    mirror.appendChild(document.createTextNode(afterOnLine))
+  // Trailing newline: caret is past all lines (e.g. "hello\n" with caret at pos 6).
+  // Pretext doesn't emit the trailing empty line, so place caret on a virtual next line.
+  if (!matched) {
+    caretLineIndex = lines.length
+    offsetInLine = Math.max(0, caretIndex - charOffset)
   }
 
-  const mirrorRect = mirror.getBoundingClientRect()
-  const markerRect = marker.getBoundingClientRect()
-  const lineHeightPx = parseComputedLineHeightPx(textarea)
+  // Canvas measureText for x offset within the line
+  const ctx = getMeasureCtx()
+  ctx.font = fontString
+  ctx.letterSpacing = cs.letterSpacing !== 'normal' ? cs.letterSpacing : '0px'
+  ctx.wordSpacing = cs.wordSpacing !== 'normal' ? cs.wordSpacing : '0px'
 
-  const xRel = markerRect.left - mirrorRect.left
-  const yRel = markerRect.top - mirrorRect.top + (markerRect.height - lineHeightPx) / 2
+  const lineText = lines[caretLineIndex]?.text ?? ''
+  const xOffset = ctx.measureText(lineText.slice(0, offsetInLine)).width
 
   return {
-    x: xRel,
-    y: yRel,
-    height: lineHeightPx
+    x: paddingLeft + xOffset,
+    y: paddingTop + caretLineIndex * lineHeight,
+    height: lineHeight
   }
 }
 
@@ -493,7 +476,7 @@ export function SmoothCaretOverlay({
       return
     }
 
-    const caretPos = measureCaretPos(highlight, textarea)
+    const caretPos = measureCaretPos(textarea)
     if (!caretPos) {
       hideOverlay()
       return
@@ -669,7 +652,6 @@ export function SmoothCaretOverlay({
       host.removeEventListener('scroll', scheduleMeasure, true)
       textarea.classList.remove('echooo-hide-native-caret')
       stopAnimation()
-      disposeMirror()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, trailStrength, isFocused])

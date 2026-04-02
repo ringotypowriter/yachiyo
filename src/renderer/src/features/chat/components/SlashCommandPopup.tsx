@@ -91,13 +91,15 @@ export function SlashCommandPopup({
   selectedIndex,
   onSelect,
   onClose,
-  emptyState
+  emptyState,
+  leftOffset = 0
 }: {
   commands: SlashCommand[]
   selectedIndex: number
   onSelect: (command: SlashCommand) => void
   onClose: () => void
   emptyState?: string
+  leftOffset?: number
 }): React.ReactNode {
   const [visible, setVisible] = useState(false)
 
@@ -122,7 +124,7 @@ export function SlashCommandPopup({
       style={{
         position: 'absolute',
         bottom: 'calc(100% + 8px)',
-        left: 0,
+        left: leftOffset,
         width: 280,
         background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',

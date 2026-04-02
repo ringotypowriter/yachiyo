@@ -28,6 +28,7 @@ import {
 import type { FileMentionCandidate } from '@renderer/app/types'
 import { getComposerActionState } from '@renderer/features/chat/lib/composerActionState'
 import { resolveComposerEnterAction } from '@renderer/features/chat/lib/composerEnterBehavior'
+import { measureCharXInTextarea } from '@renderer/features/chat/lib/composerLineMetrics'
 import { theme } from '@renderer/theme/theme'
 import { DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR } from '../../../../../shared/yachiyo/protocol.ts'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
@@ -649,6 +650,18 @@ export function Composer({
   const showSlashCommandPopup =
     (fileMentionQuery !== null || matchingSlashCommands.length > 0) &&
     dismissedSlashQuery !== activeQuery
+
+  const [fileMentionPopupLeft, setFileMentionPopupLeft] = useState(0)
+  useLayoutEffect(() => {
+    if (!fileMentionMatch || !overlayRef.current || !textareaRef.current) {
+      setFileMentionPopupLeft(0)
+      return
+    }
+    const atIndex = fileMentionMatch.index + fileMentionMatch[1].length
+    const x = measureCharXInTextarea(overlayRef.current, textareaRef.current, atIndex)
+    const containerWidth = overlayRef.current.getBoundingClientRect().width
+    setFileMentionPopupLeft(Math.max(0, Math.min(x, containerWidth - 280)))
+  }, [composerValue, fileMentionMatch])
 
   useEffect(() => {
     if (fileMentionQuery === null) {
@@ -1330,6 +1343,7 @@ export function Composer({
             selectedIndex={slashSelectedIndex}
             onSelect={handleSlashCommandSelect}
             onClose={dismissSlashPopup}
+            leftOffset={fileMentionQuery !== null ? fileMentionPopupLeft : 0}
             emptyState={
               fileMentionQuery !== null
                 ? isFileMentionSearchPending

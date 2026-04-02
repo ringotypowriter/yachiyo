@@ -69,7 +69,10 @@ export default defineConfig({
     },
     resolve: {
       alias: {
-        '@renderer': resolve('src/renderer/src')
+        '@renderer': resolve('src/renderer/src'),
+        '@chenglou/pretext/measurement': resolve(
+          'node_modules/@chenglou/pretext/dist/measurement.js'
+        )
       }
     },
     plugins: [react(), tailwindcss()],
