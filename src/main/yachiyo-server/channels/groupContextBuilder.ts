@@ -105,7 +105,7 @@ export function formatGroupMessages(
 export interface BuildGroupProbeSystemPromptInput {
   botName: string
   groupName: string
-  /** Full persona text (e.g. EXTERNAL_SYSTEM_PROMPT). */
+  /** Pure identity text (e.g. PERSONA_IDENTITY). No behavioral instructions. */
   personaSummary?: string
   /** Owner-authored instructions from channels.toml. */
   ownerInstruction?: string

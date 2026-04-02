@@ -47,7 +47,7 @@ import {
 } from './groupMonitorRegistry'
 import { connectWithRetry } from './connectionRetry.ts'
 import { routeTelegramMessage, type TelegramChannelStorage } from './telegram'
-import { EXTERNAL_SYSTEM_PROMPT } from '../runtime/prompt'
+import { PERSONA_IDENTITY } from '../runtime/prompt'
 import { readChannelsConfig } from '../runtime/channelsConfig'
 import { readUserDocument } from '../runtime/user'
 import { createSpeechThrottle } from './groupSpeechThrottle'
@@ -600,7 +600,7 @@ export function createTelegramService({
       groupName: group.name,
       recentMessages: probeRecentMessages,
       knownUsers: buildKnownUsersMap(),
-      personaSummary: EXTERNAL_SYSTEM_PROMPT,
+      personaSummary: PERSONA_IDENTITY,
       ownerInstruction: readChannelsConfig().guestInstruction,
       groupUserDocument: groupUserDoc?.content
     })
