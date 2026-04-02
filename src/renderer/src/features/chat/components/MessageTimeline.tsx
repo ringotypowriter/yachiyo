@@ -182,6 +182,11 @@ export function ThreadConversationGroup({
   })
   const visibleToolCalls = getVisibleToolCallsForGroup({ group, toolCalls, activeRunId })
   const memorySummary = findRunMemorySummary(runs, group.userMessage.id)
+  const failedRunError =
+    activeBranch?.message.status === 'failed'
+      ? (runs.find((r) => r.requestMessageId === group.userMessage.id && r.status === 'failed')
+          ?.error ?? null)
+      : null
   const activeAssistantTextBlocks =
     activeBranch && !group.hideActiveBranchWhilePreparing
       ? activeBranch.message.textBlocks && activeBranch.message.textBlocks.length > 0
@@ -355,7 +360,7 @@ export function ThreadConversationGroup({
               className="message-footer message-footer--always-visible"
               style={{ color: theme.text.danger }}
             >
-              Failed to generate
+              {failedRunError ? `Failed: ${failedRunError}` : 'Failed to generate'}
             </div>
           ) : null}
           <MessageActionBar

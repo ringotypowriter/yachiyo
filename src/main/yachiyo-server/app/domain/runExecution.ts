@@ -217,6 +217,13 @@ function isRestartRunReason(value: unknown): value is RestartRunReason {
   )
 }
 
+function extractRetryErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) return String(error)
+  if (error.message) return error.message
+  const statusCode = (error as { statusCode?: number }).statusCode
+  return statusCode ? `HTTP ${statusCode}` : 'Provider error'
+}
+
 function throwIfAborted(signal: AbortSignal): void {
   if (!signal.aborted) {
     return
@@ -1391,7 +1398,7 @@ export async function executeServerRun(
           attempt,
           maxAttempts,
           delayMs,
-          error: error instanceof Error ? error.message : String(error)
+          error: extractRetryErrorMessage(error)
         })
       },
       onReasoningDelta: (reasoningDelta) => {
@@ -1874,7 +1881,7 @@ export async function executeServerRun(
       return { kind: 'cancelled' }
     }
 
-    const message = error instanceof Error ? error.message : 'Unknown model runtime error'
+    const message = extractRetryErrorMessage(error) || 'Unknown model runtime error'
     const nextRecoveryAttempt = (recoveryCheckpoint?.recoveryAttempts ?? 0) + 1
     if (
       input.requestMessageId &&
