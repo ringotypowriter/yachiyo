@@ -183,9 +183,14 @@ function measureCaretPos(
   const lineText = lines[caretLineIndex]?.text ?? ''
   const xOffset = ctx.measureText(lineText.slice(0, offsetInLine)).width
 
+  // Clamp y to the textarea's actual content so line-breaking differences between
+  // pretext and the browser never push the caret below the scrollable area.
+  const rawY = paddingTop + caretLineIndex * lineHeight
+  const maxY = Math.max(0, textarea.scrollHeight - parseFloat(cs.paddingBottom) - lineHeight)
+
   return {
     x: paddingLeft + xOffset,
-    y: paddingTop + caretLineIndex * lineHeight,
+    y: Math.min(rawY, maxY),
     height: lineHeight
   }
 }
