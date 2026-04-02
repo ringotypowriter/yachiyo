@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { Streamdown } from 'streamdown'
+import { mathPlugin } from '@renderer/lib/markdown/mathPlugin'
 import { theme } from '@renderer/theme/theme'
 
 interface ThinkingBlockProps {
@@ -92,6 +93,7 @@ export function ThinkingBlock({
                 caret={isActive ? 'circle' : undefined}
                 mode={isActive ? 'streaming' : 'static'}
                 controls={true}
+                plugins={{ math: mathPlugin }}
               >
                 {reasoning}
               </Streamdown>

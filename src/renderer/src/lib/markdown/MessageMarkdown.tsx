@@ -1,6 +1,7 @@
 import type React from 'react'
 import { Streamdown } from 'streamdown'
 import { MarkdownErrorBoundary } from './MarkdownErrorBoundary'
+import { mathPlugin } from './mathPlugin'
 
 interface MessageMarkdownProps {
   content: string
@@ -24,6 +25,7 @@ export function MessageMarkdown({
           caret={isStreaming ? 'circle' : undefined}
           mode={isStreaming ? 'streaming' : 'static'}
           controls={true}
+          plugins={{ math: mathPlugin }}
         >
           {content}
         </Streamdown>
