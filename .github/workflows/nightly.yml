@@ -30,6 +30,7 @@ jobs:
       - name: Set nightly version
         run: |
           npm version patch --no-git-tag-version
+          npm version patch --no-git-tag-version
           NIGHTLY_VERSION="$(node -p "require('./package.json').version")-nightly.$(date -u +%Y%m%d%H%M)"
           npm version "$NIGHTLY_VERSION" --no-git-tag-version
           echo "NIGHTLY_VERSION=$NIGHTLY_VERSION" >> "$GITHUB_ENV"
