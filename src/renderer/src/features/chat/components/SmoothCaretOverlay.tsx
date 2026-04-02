@@ -178,26 +178,27 @@ function measureCaretPos(
     mirror.appendChild(document.createTextNode(before))
   }
 
-  // Only put text after the caret *on the same logical line* in the tail span. If the
-  // tail includes `\n` and following lines, getBoundingClientRect() unions all lines —
-  // wrong Y and a caret height that looks like ~1.5 lines (arrow-key multiline bug).
+  // Zero-width marker span at the exact caret position. Using the marker's own rect
+  // avoids the union-box problem: when the tail text soft-wraps, getBoundingClientRect()
+  // on the tail span returns the bounding box of ALL visual lines, snapping x to the
+  // left margin instead of the true caret column.
+  const marker = document.createElement('span')
+  marker.textContent = '\u200b'
+  mirror.appendChild(marker)
+
+  // Append remaining text on the same logical line so the mirror reflows identically.
   const lineEnd = endIndexOfLogicalLine(value, clampedPos)
   const afterOnLine = value.slice(clampedPos, lineEnd)
-  const tail = document.createElement('span')
-  tail.textContent = afterOnLine.length > 0 ? afterOnLine : '\u200b'
-  mirror.appendChild(tail)
+  if (afterOnLine.length > 0) {
+    mirror.appendChild(document.createTextNode(afterOnLine))
+  }
 
   const mirrorRect = mirror.getBoundingClientRect()
-  const spanRect = tail.getBoundingClientRect()
+  const markerRect = marker.getBoundingClientRect()
   const lineHeightPx = parseComputedLineHeightPx(textarea)
 
-  const xRel = spanRect.left - mirrorRect.left
-  // Long lines (e.g. slash prompts) soft-wrap: the tail span's union box spans many rows.
-  // Centering in that tall union shifts Y far below the real caret line → clipped / "hidden".
-  const tailWrapsManyRows = spanRect.height > lineHeightPx * 1.55
-  const yRel = tailWrapsManyRows
-    ? spanRect.top - mirrorRect.top
-    : spanRect.top - mirrorRect.top + (spanRect.height - lineHeightPx) / 2
+  const xRel = markerRect.left - mirrorRect.left
+  const yRel = markerRect.top - mirrorRect.top + (markerRect.height - lineHeightPx) / 2
 
   return {
     x: xRel,
