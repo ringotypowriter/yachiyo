@@ -185,7 +185,7 @@ export function compileSoulLayer(input: SoulLayerInput | undefined): ModelMessag
   return {
     role: 'system',
     content: [
-      '以下是来自 SOUL.md 的自我模型与人格延续记录，请整体吸收并自然融入当前人格：',
+      'The following is your self-model and personality continuity record from SOUL.md. Absorb it holistically and integrate it naturally into your current persona:',
       '',
       content
     ].join('\n')
@@ -213,7 +213,7 @@ export function compileUserLayer(input: UserLayerInput | undefined): ModelMessag
   return {
     role: 'system',
     content: [
-      '以下是来自 USER.md 的稳定用户理解，请把它当作长期协作画像，而不是当前临时任务状态：',
+      'The following is your durable understanding of the user from USER.md. Treat it as a long-term collaboration profile, not as current task state:',
       '',
       content
     ].join('\n')
@@ -236,7 +236,7 @@ export function compileSkillsLayer(input: SkillsLayerInput | undefined): ModelMe
   return {
     role: 'system',
     content: [
-      '以下是当前这次运行里已激活的 Skills。默认只看名称和简介；如果需要详细内容，请使用 skillsRead 按名称读取对应的 SKILL.md：',
+      'The following Skills are active for this run. You see names and descriptions only; use skillsRead to fetch full SKILL.md content when needed:',
       '',
       ...activeSkills.map((skill) =>
         skill.description ? `- ${skill.name}: ${skill.description}` : `- ${skill.name}`
