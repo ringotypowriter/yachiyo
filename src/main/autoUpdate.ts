@@ -69,7 +69,7 @@ function setupProd(): void {
   const channel = readInitialChannel()
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
-  autoUpdater.allowPrerelease = channel === 'nightly'
+  autoUpdater.allowPrerelease = channel === 'beta'
 
   autoUpdater.on('checking-for-update', () => {
     broadcast({ state: 'checking' })
@@ -122,7 +122,7 @@ function setupProd(): void {
   })
 
   ipcMain.on('app-update:set-channel', (_event, channel: UpdateChannel) => {
-    const allowPre = channel === 'nightly'
+    const allowPre = channel === 'beta'
     if (autoUpdater.allowPrerelease !== allowPre) {
       autoUpdater.allowPrerelease = allowPre
       broadcast({ state: 'idle' })

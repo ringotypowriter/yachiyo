@@ -47,8 +47,10 @@ export function normalizeGeneralConfig(value: unknown): GeneralConfig {
   }
 
   const rawChannel = input['updateChannel']
-  if (rawChannel === 'stable' || rawChannel === 'nightly') {
+  if (rawChannel === 'stable' || rawChannel === 'beta') {
     result.updateChannel = rawChannel
+  } else if (rawChannel === 'nightly') {
+    result.updateChannel = 'beta'
   }
 
   const uiFontSize = normalizePositiveInt(input['uiFontSize'])

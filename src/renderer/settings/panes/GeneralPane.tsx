@@ -412,7 +412,7 @@ export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactN
               Update channel
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {updateChannel === 'nightly'
+              {updateChannel === 'beta'
                 ? 'Includes pre-releases and stable releases.'
                 : 'Only checks for stable releases.'}
             </div>
@@ -423,7 +423,7 @@ export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactN
               value={updateChannel}
               options={[
                 { value: 'stable' as const, label: 'Stable' },
-                { value: 'nightly' as const, label: 'Nightly' }
+                { value: 'beta' as const, label: 'Beta' }
               ]}
               onChange={(channel) => {
                 onChange({

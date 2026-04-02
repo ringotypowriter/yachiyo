@@ -583,7 +583,7 @@ export interface ChatConfig {
   maxChatToken?: number
 }
 
-export type UpdateChannel = 'stable' | 'nightly'
+export type UpdateChannel = 'stable' | 'beta'
 
 export interface GeneralConfig {
   sidebarVisibility?: SidebarVisibility

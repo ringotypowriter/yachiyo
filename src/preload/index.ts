@@ -51,8 +51,7 @@ const api = {
     download: () => ipcRenderer.send('app-update:download'),
     install: () => ipcRenderer.send('app-update:install'),
     openRelease: () => ipcRenderer.send('app-update:open-release'),
-    setChannel: (channel: 'stable' | 'nightly') =>
-      ipcRenderer.send('app-update:set-channel', channel),
+    setChannel: (channel: 'stable' | 'beta') => ipcRenderer.send('app-update:set-channel', channel),
     onStatus: (
       listener: (status: { state: string; version?: string; error?: string }) => void
     ): (() => void) => {
