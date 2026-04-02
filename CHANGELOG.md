@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.15
+
+### Patch Changes
+
+- [`72153f0`](https://github.com/ringotypowriter/yachiyo/commit/72153f079aa4c437d163d8d6f19f9acde1af5fc6) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Timeline Improve & Smart Cursor Reworked by Pretext
+
 ## 1.0.14
 
 ### Patch Changes
