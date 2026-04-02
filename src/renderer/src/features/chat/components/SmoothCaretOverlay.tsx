@@ -1,9 +1,8 @@
 import type React from 'react'
 import { useEffect, useMemo, useRef } from 'react'
 import { prepareWithSegments, layoutWithLines, clearCache } from '@chenglou/pretext'
-// @ts-expect-error — subpath resolved via Vite alias, no declared types
+// @ts-expect-error — subpath resolved via Vite alias; not in package exports
 import { getMeasureContext } from '@chenglou/pretext/measurement'
-import { parseComputedLineHeightPx } from '@renderer/features/chat/lib/composerLineMetrics'
 
 type TrailStrength = 'off' | 'low' | 'medium' | 'high'
 type CaretIntent = 'typing' | 'delete' | 'nav-left' | 'nav-right' | 'other'
@@ -27,15 +26,6 @@ const strengthScale: Record<TrailStrength, number> = {
   low: 0.55,
   medium: 1,
   high: 1.8
-}
-
-// Cached canvas context for per-line x offset measurement (pairs with pretext line-breaking).
-let _measureCtx: CanvasRenderingContext2D | null = null
-function getMeasureCtx(): CanvasRenderingContext2D {
-  if (!_measureCtx) {
-    _measureCtx = document.createElement('canvas').getContext('2d')!
-  }
-  return _measureCtx
 }
 
 function flushTextareaLayout(textarea: HTMLTextAreaElement): void {
@@ -95,6 +85,21 @@ function syncPretextSpacing(cs: CSSStyleDeclaration): void {
  * No DOM mirror — pure arithmetic, immune to the union-box and mirror-width-mismatch bugs.
  * Returns (x, y, height) relative to the textarea's border-box top-left.
  */
+function resolveLineHeightPx(cs: CSSStyleDeclaration): number {
+  const lh = cs.lineHeight
+  const fs = parseFloat(cs.fontSize || '16')
+  const fontSize = Number.isNaN(fs) ? 16 : fs
+  if (lh && lh !== 'normal') {
+    if (lh.endsWith('px')) {
+      const px = parseFloat(lh)
+      if (!Number.isNaN(px)) return px
+    }
+    const v = parseFloat(lh)
+    if (!Number.isNaN(v)) return v > 0 && v < 4 ? v * fontSize : v
+  }
+  return fontSize * 1.2
+}
+
 function measureCaretPos(
   textarea: HTMLTextAreaElement
 ): { x: number; y: number; height: number } | null {
@@ -102,7 +107,7 @@ function measureCaretPos(
   if (pos === null) return null
 
   const cs = getComputedStyle(textarea)
-  const lineHeight = parseComputedLineHeightPx(textarea)
+  const lineHeight = resolveLineHeightPx(cs)
   const paddingLeft = parseFloat(cs.paddingLeft)
   const paddingTop = parseFloat(cs.paddingTop)
   const paddingRight = parseFloat(cs.paddingRight)
@@ -113,10 +118,8 @@ function measureCaretPos(
   const caretIndex = value ? Math.min(pos, value.length) : 0
   const fontString = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`
 
-  // Ensure pretext's canvas uses the same letter/word-spacing as the textarea
   syncPretextSpacing(cs)
 
-  // Pretext: canvas-based line-breaking — no DOM reflow
   const prepared = prepareWithSegments(value || '\u200b', fontString, { whiteSpace: 'pre-wrap' })
   const { lines } = layoutWithLines(prepared, contentWidth, lineHeight)
 
@@ -174,12 +177,9 @@ function measureCaretPos(
     offsetInLine = Math.max(0, caretIndex - charOffset)
   }
 
-  // Canvas measureText for x offset within the line
-  const ctx = getMeasureCtx()
+  // Reuse pretext's canvas (already has letterSpacing/wordSpacing synced)
+  const ctx = getMeasureContext() as CanvasRenderingContext2D
   ctx.font = fontString
-  ctx.letterSpacing = cs.letterSpacing !== 'normal' ? cs.letterSpacing : '0px'
-  ctx.wordSpacing = cs.wordSpacing !== 'normal' ? cs.wordSpacing : '0px'
-
   const lineText = lines[caretLineIndex]?.text ?? ''
   const xOffset = ctx.measureText(lineText.slice(0, offsetInLine)).width
 
