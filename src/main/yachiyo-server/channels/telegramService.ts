@@ -37,6 +37,7 @@ import {
   buildGroupProbeMessages,
   deriveNextGroupProbeMessageCount,
   formatGroupMessages,
+  isBareSymbolMessage,
   selectGroupProbeRecentMessages
 } from './groupContextBuilder'
 import { describeGroupImages } from './groupImageDescriptions'
@@ -529,6 +530,13 @@ export function createTelegramService({
         if (message.includes('\n')) {
           console.log(`[telegram-group] rejected multi-line message for "${group.name}"`)
           return 'Rejected: message must be a single line. Do not include line breaks.'
+        }
+
+        if (isBareSymbolMessage(message)) {
+          console.log(
+            `[telegram-group] rejected bare-symbol message for "${group.name}": ${message}`
+          )
+          return 'Rejected: message contains only punctuation. Write actual words or stay silent.'
         }
 
         if (isDuplicateOutgoing(group.id, message)) {

@@ -39,6 +39,7 @@ import {
   buildGroupProbeMessages,
   deriveNextGroupProbeMessageCount,
   formatGroupMessages,
+  isBareSymbolMessage,
   selectGroupProbeRecentMessages
 } from './groupContextBuilder.ts'
 import { describeGroupImages } from './groupImageDescriptions.ts'
@@ -445,6 +446,11 @@ export function createQQService({
         if (message.includes('\n')) {
           console.log(`[qq-group] rejected multi-line message for "${group.name}"`)
           return 'Rejected: message must be a single line. Do not include line breaks.'
+        }
+
+        if (isBareSymbolMessage(message)) {
+          console.log(`[qq-group] rejected bare-symbol message for "${group.name}": ${message}`)
+          return 'Rejected: message contains only punctuation. Write actual words or stay silent.'
         }
 
         if (isDuplicateOutgoing(group.id, message)) {

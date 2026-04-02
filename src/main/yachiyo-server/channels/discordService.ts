@@ -37,6 +37,7 @@ import {
   buildGroupProbeMessages,
   deriveNextGroupProbeMessageCount,
   formatGroupMessages,
+  isBareSymbolMessage,
   selectGroupProbeRecentMessages
 } from './groupContextBuilder.ts'
 import { describeGroupImages } from './groupImageDescriptions.ts'
@@ -507,6 +508,13 @@ export function createDiscordService({
         message: z.string().describe('The message to send to the group. Plain text only.')
       }),
       execute: async ({ message }) => {
+        if (isBareSymbolMessage(message)) {
+          console.log(
+            `[discord-group] rejected bare-symbol message for "${group.name}": ${message}`
+          )
+          return 'Rejected: message contains only punctuation. Write actual words or stay silent.'
+        }
+
         if (isDuplicateOutgoing(group.id, message)) {
           console.log(
             `[discord-group] dropped duplicate message for "${group.name}": ${message.slice(0, 80)}`

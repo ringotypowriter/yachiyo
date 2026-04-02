@@ -25,6 +25,16 @@ export function sanitizeMessageText(text: string): string {
     .replace(/<\/?msg[\s>]/gi, '')
 }
 
+/**
+ * Returns true if the message is nothing but bare punctuation remnants
+ * (colons and/or parentheses, half- or full-width) that a model leaves
+ * behind when it half-executes a stage direction it shouldn't have written.
+ */
+export function isBareSymbolMessage(text: string): boolean {
+  // Allow ? and ？ — they carry meaning as meme/reaction shorthand.
+  return /^[:()\uff08\uff09\uff1a\s]+$/.test(text.trim()) && text.trim().length > 0
+}
+
 /** Default idle gap threshold: 30 minutes in milliseconds. */
 const DEFAULT_IDLE_GAP_THRESHOLD_MS = 30 * 60 * 1_000
 
