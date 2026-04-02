@@ -1,5 +1,0 @@
----
-'yachiyo': patch
----
-
-Latex Support

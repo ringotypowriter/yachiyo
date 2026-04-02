@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.17
+
+### Patch Changes
+
+- [`ba043f4`](https://github.com/ringotypowriter/yachiyo/commit/ba043f48e0fc2833e01a92bedc5e0c7f1c375072) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Latex Support
+
 ## 1.0.16
 
 ### Patch Changes
