@@ -702,6 +702,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   })
   handle(IPC_CHANNELS.clearGroupMonitorBuffer, (input: { groupId: string }) => {
     server!.getStorage().deleteGroupMonitorBuffer(input.groupId)
+    telegramService?.clearGroupMessages(input.groupId)
+    qqService?.clearGroupMessages(input.groupId)
+    discordService?.clearGroupMessages(input.groupId)
   })
   handle(IPC_CHANNELS.getChannelsConfig, () => server!.getChannelsConfig())
   handle(IPC_CHANNELS.saveChannelsConfig, async (input: ChannelsConfig) => {

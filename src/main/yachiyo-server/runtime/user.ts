@@ -175,7 +175,7 @@ export async function patchUserDocumentSection(
 
   // If an earlier full rewrite destroyed the heading structure entirely, rebuild
   // from the canonical template for the known mode before patching the section.
-  if (headingIdx === -1 && input.mode && !lines.some((line) => /^##\s+/.test(line))) {
+  if (headingIdx === -1 && input.mode === 'group' && !lines.some((line) => /^##\s+/.test(line))) {
     baseContent = normalizeUserDocumentContent(buildDefaultUserTemplateForMode(input.mode))
     lines = baseContent.split('\n')
     headingIdx = findSectionHeadingIndex(lines, sectionName)

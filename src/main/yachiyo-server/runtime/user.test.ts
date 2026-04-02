@@ -155,6 +155,36 @@ test('patchUserDocumentSection rebuilds the group template when USER.md lost all
   }
 })
 
+test('patchUserDocumentSection preserves owner freeform USER.md when headings are missing', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-patch-owner-freeform-'))
+  const filePath = join(root, 'USER.md')
+
+  try {
+    await writeUserDocument({
+      filePath,
+      content: '# USER\n\nLives in Shanghai.\nPrefers short replies.\n'
+    })
+
+    await patchUserDocumentSection({
+      filePath,
+      section: 'Preferences',
+      content: '- Prefers concise status updates',
+      mode: 'owner'
+    })
+
+    const result = await readUserDocument({ filePath })
+    assert.ok(result?.content.includes('Lives in Shanghai.'), 'existing freeform content preserved')
+    assert.ok(result?.content.includes('Prefers short replies.'), 'existing notes preserved')
+    assert.ok(result?.content.includes('## Preferences'), 'requested heading appended')
+    assert.ok(
+      result?.content.includes('- Prefers concise status updates'),
+      'new section content written'
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('writeUserDocument persists direct edits and keeps the file readable', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-user-write-'))
   const filePath = join(root, 'USER.md')

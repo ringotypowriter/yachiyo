@@ -61,6 +61,8 @@ export interface GroupMonitor {
   getSnapshot(): { phase: Phase; buffer: GroupMessageEntry[] }
   /** Tear down all timers. */
   stop(): void
+  /** Wipe the in-memory message buffer without stopping the monitor. */
+  clearBuffer(): void
 }
 
 // ---------------------------------------------------------------------------
@@ -296,11 +298,18 @@ export function createGroupMonitor(
     buffer.length = 0
   }
 
+  function clearBuffer(): void {
+    buffer.length = 0
+    cursor = 0
+    restoredMessageCount = 0
+  }
+
   return {
     onMessage,
     getPhase: () => phase,
     getRecentMessages: () => [...buffer],
     getSnapshot: () => ({ phase, buffer: [...buffer] }),
-    stop
+    stop,
+    clearBuffer
   }
 }

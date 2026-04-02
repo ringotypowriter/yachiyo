@@ -91,6 +91,8 @@ export interface QQService {
   sendPrivateMessage: (userId: number, text: string) => Promise<void>
   /** Send a message to a QQ group by numeric group ID. */
   sendGroupMessage: (groupId: number, text: string) => Promise<void>
+  /** Wipe the in-memory message buffer for a group without stopping the monitor. */
+  clearGroupMessages: (groupId: string) => void
 }
 
 export function createQQService({
@@ -690,6 +692,10 @@ export function createQQService({
 
     async sendGroupMessage(groupId: number, text: string) {
       await client.sendGroupMessage(groupId, text)
+    },
+
+    clearGroupMessages(groupId: string) {
+      groupRegistry?.clearGroupMessages(groupId)
     }
   }
 }

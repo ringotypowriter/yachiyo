@@ -91,6 +91,8 @@ export interface TelegramService {
   onGroupStatusChange: (group: ChannelGroupRecord) => void
   /** Send a text message to a Telegram chat by chat ID. */
   sendMessage: (chatId: string, text: string) => Promise<void>
+  /** Wipe the in-memory message buffer for a group without stopping the monitor. */
+  clearGroupMessages: (groupId: string) => void
 }
 
 export function createTelegramService({
@@ -675,6 +677,9 @@ export function createTelegramService({
         console.log(`[telegram-group] monitor stopped for "${group.name}" (status=${group.status})`)
       }
     },
-    sendMessage
+    sendMessage,
+    clearGroupMessages(groupId: string) {
+      groupRegistry?.clearGroupMessages(groupId)
+    }
   }
 }

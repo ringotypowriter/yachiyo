@@ -52,6 +52,8 @@ export interface GroupMonitorRegistry {
   hasMonitor(groupId: string): boolean
   /** Read-only snapshot of a monitor's buffer (empty if no monitor for this group). */
   getRecentMessages(groupId: string): GroupMessageEntry[]
+  /** Wipe the in-memory message buffer for a group without stopping the monitor. */
+  clearGroupMessages(groupId: string): void
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +178,9 @@ export function createGroupMonitorRegistry(
     getRecentMessages(groupId) {
       const entry = monitors.get(groupId)
       return entry ? entry.monitor.getRecentMessages() : []
+    },
+    clearGroupMessages(groupId) {
+      monitors.get(groupId)?.monitor.clearBuffer()
     }
   }
 }

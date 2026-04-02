@@ -117,6 +117,8 @@ export interface DiscordService {
   onGroupStatusChange: (group: ChannelGroupRecord) => void
   /** Send a text message to a Discord channel by channel ID. */
   sendMessage: (channelId: string, text: string) => Promise<void>
+  /** Wipe the in-memory message buffer for a group without stopping the monitor. */
+  clearGroupMessages: (groupId: string) => void
 }
 
 export function createDiscordService({
@@ -656,6 +658,9 @@ export function createDiscordService({
       }
     },
 
-    sendMessage
+    sendMessage,
+    clearGroupMessages(groupId: string) {
+      groupRegistry?.clearGroupMessages(groupId)
+    }
   }
 }
