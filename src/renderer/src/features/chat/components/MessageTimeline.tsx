@@ -595,7 +595,8 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
 
   const isAcpThread = thread?.runtimeBinding?.kind === 'acp'
 
-  // Collect only the messages visible on the active branch for the scrollbar.
+  // Collect only the messages visible on the active branch for the scrollbar,
+  // sorted chronologically to match the rendered timeline order.
   const visibleMessages: Message[] = [
     ...messageGroups.flatMap((group) => {
       const branch = group.assistantBranches[group.activeBranchIndex]
@@ -604,7 +605,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     ...rootAssistantMessages,
     ...(pendingSteerMessage ? [pendingSteerMessage] : []),
     ...(queuedFollowUpMessage ? [queuedFollowUpMessage] : [])
-  ]
+  ].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 
   return (
     <div className="flex-1 relative min-h-0">
