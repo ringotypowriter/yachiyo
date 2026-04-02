@@ -6689,7 +6689,7 @@ test('YachiyoServer injects USER.md as a separate context layer and exposes the 
         systemMessages.some(
           (message) =>
             typeof message.content === 'string' &&
-            message.content.includes('以下是来自 USER.md 的稳定用户理解')
+            message.content.includes('durable understanding of the user from USER.md')
         ),
         true
       )
@@ -6723,7 +6723,7 @@ test('YachiyoServer injects USER.md as a separate context layer and exposes the 
           (message) =>
             typeof message.content === 'string' &&
             message.content.includes('Leader prefers direct tradeoff summaries') &&
-            message.content.includes('来自 SOUL')
+            message.content.includes('from SOUL.md')
         ),
         false
       )

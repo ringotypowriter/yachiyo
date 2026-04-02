@@ -55,7 +55,7 @@ test('message prepare can add soul, agent, hint, and memory layers without mutat
     {
       role: 'system',
       content: [
-        '以下是来自 SOUL.md 的自我模型与人格延续记录，请整体吸收并自然融入当前人格：',
+        'The following is your self-model and personality continuity record from SOUL.md. Absorb it holistically and integrate it naturally into your current persona:',
         '',
         soulContent
       ].join('\n')
@@ -63,7 +63,7 @@ test('message prepare can add soul, agent, hint, and memory layers without mutat
     {
       role: 'system',
       content: [
-        '以下是来自 USER.md 的稳定用户理解，请把它当作长期协作画像，而不是当前临时任务状态：',
+        'The following is your durable understanding of the user from USER.md. Treat it as a long-term collaboration profile, not as current task state:',
         '',
         '# USER\n\n## Work Style\n- Likes decisions with explicit tradeoffs'
       ].join('\n')
