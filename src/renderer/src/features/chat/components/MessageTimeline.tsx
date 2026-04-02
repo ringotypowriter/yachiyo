@@ -4,6 +4,7 @@ import type { HarnessRecord } from '@renderer/app/store/useAppStore'
 import type { Message, RunRecord, Thread, ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { getThreadCapabilities } from '../../../../../shared/yachiyo/protocol.ts'
+import { TimelineScrollbar } from './TimelineScrollbar'
 import {
   buildMessageGroups,
   getRootAssistantMessages,
@@ -443,6 +444,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   const activeEssentialId = useAppStore((state) => state.activeEssentialId)
   const essentials = useAppStore((state) => state.config?.essentials)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   const messageGroups = thread
     ? buildMessageGroups({
@@ -591,107 +593,129 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     )
   }
 
+  const isAcpThread = thread?.runtimeBinding?.kind === 'acp'
+
+  // Collect only the messages visible on the active branch for the scrollbar.
+  const visibleMessages: Message[] = [
+    ...messageGroups.flatMap((group) => {
+      const branch = group.assistantBranches[group.activeBranchIndex]
+      return branch ? [group.userMessage, branch.message] : [group.userMessage]
+    }),
+    ...rootAssistantMessages,
+    ...(pendingSteerMessage ? [pendingSteerMessage] : []),
+    ...(queuedFollowUpMessage ? [queuedFollowUpMessage] : [])
+  ]
+
   return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden py-4">
-      {timeline.map((item) => {
-        if (item.kind === 'harness') {
-          return <RunEventRow key={item.key} harness={item.data} />
-        }
-
-        if (item.kind === 'queued-follow-up') {
-          if (!threadCapabilities) {
-            return null
+    <div className="flex-1 relative min-h-0">
+      {!isAcpThread && (
+        <TimelineScrollbar messages={visibleMessages} scrollContainerRef={scrollContainerRef} />
+      )}
+      <div ref={scrollContainerRef} className="h-full overflow-y-auto overflow-x-hidden py-4">
+        {timeline.map((item) => {
+          if (item.kind === 'harness') {
+            return <RunEventRow key={item.key} harness={item.data} />
           }
 
-          return (
-            <div key={item.key} data-message-id={item.key}>
-              <UserMessageBubble
-                label="Queued follow-up"
-                message={item.data}
-                threadHasActiveRun={threadHasActiveRun}
-                threadCapabilities={threadCapabilities}
-                threadIsSaving={threadIsSaving}
-                onRetry={threadCapabilities.canRetry ? () => handleRetry(item.data.id) : undefined}
-                onCreateBranch={canBranchHere ? () => handleCreateBranch(item.data.id) : undefined}
-                onDelete={canDeleteHere ? () => handleDelete(item.data.id) : undefined}
-              />
-            </div>
-          )
-        }
+          if (item.kind === 'queued-follow-up') {
+            if (!threadCapabilities) {
+              return null
+            }
 
-        if (item.kind === 'pending-steer') {
-          if (!threadCapabilities) {
-            return null
-          }
-
-          return (
-            <div key={item.key} data-message-id={item.key}>
-              <UserMessageBubble
-                label="Pending steer"
-                pending
-                message={item.data}
-                threadHasActiveRun
-                threadCapabilities={threadCapabilities}
-                onRetry={() => undefined}
-                onCreateBranch={() => undefined}
-                onDelete={() => undefined}
-              />
-            </div>
-          )
-        }
-
-        if (item.kind === 'tool') {
-          return <ToolCallRow key={item.key} toolCall={item.data} />
-        }
-
-        if (item.kind === 'assistant-root') {
-          if (item.data.status === 'streaming' && !item.data.content.trim()) {
             return (
-              <div key={item.key} className="message-response-cluster">
-                <div className="message-response-cluster__preparing">
-                  <PreparingBubble />
-                </div>
+              <div key={item.key} data-message-id={item.key}>
+                <UserMessageBubble
+                  label="Queued follow-up"
+                  message={item.data}
+                  threadHasActiveRun={threadHasActiveRun}
+                  threadCapabilities={threadCapabilities}
+                  threadIsSaving={threadIsSaving}
+                  onRetry={
+                    threadCapabilities.canRetry ? () => handleRetry(item.data.id) : undefined
+                  }
+                  onCreateBranch={
+                    canBranchHere ? () => handleCreateBranch(item.data.id) : undefined
+                  }
+                  onDelete={canDeleteHere ? () => handleDelete(item.data.id) : undefined}
+                />
               </div>
             )
           }
 
+          if (item.kind === 'pending-steer') {
+            if (!threadCapabilities) {
+              return null
+            }
+
+            return (
+              <div key={item.key} data-message-id={item.key}>
+                <UserMessageBubble
+                  label="Pending steer"
+                  pending
+                  message={item.data}
+                  threadHasActiveRun
+                  threadCapabilities={threadCapabilities}
+                  onRetry={() => undefined}
+                  onCreateBranch={() => undefined}
+                  onDelete={() => undefined}
+                />
+              </div>
+            )
+          }
+
+          if (item.kind === 'tool') {
+            return <ToolCallRow key={item.key} toolCall={item.data} />
+          }
+
+          if (item.kind === 'assistant-root') {
+            if (item.data.status === 'streaming' && !item.data.content.trim()) {
+              return (
+                <div key={item.key} className="message-response-cluster">
+                  <div className="message-response-cluster__preparing">
+                    <PreparingBubble />
+                  </div>
+                </div>
+              )
+            }
+
+            return (
+              <div key={item.key} data-message-id={item.key}>
+                <AssistantMessageBubble message={item.data} />
+              </div>
+            )
+          }
+
+          const isActiveGroup = item.data.userMessage.id === activeRequestMessageId
+          if (!threadCapabilities) {
+            return null
+          }
+
           return (
             <div key={item.key} data-message-id={item.key}>
-              <AssistantMessageBubble message={item.data} />
+              <ThreadConversationGroup
+                threadId={threadId}
+                group={item.data}
+                toolCalls={inlineToolCalls}
+                activeRunId={activeRunId}
+                threadHasActiveRun={threadHasActiveRun}
+                threadIsSaving={threadIsSaving}
+                runs={runs}
+                subagentActive={isActiveGroup && subagentActive}
+                subagentStream={subagentStream}
+                retryInfo={isActiveGroup ? retryInfo : undefined}
+                onCancelSubagent={() => void cancelRunForThread(threadId)}
+                threadCapabilities={threadCapabilities}
+                onCreateBranch={handleCreateBranch}
+                onEdit={handleEdit}
+                onRetry={handleRetry}
+                onSelectReplyBranch={handleSelectReplyBranch}
+                onDelete={handleDelete}
+              />
             </div>
           )
-        }
-
-        const isActiveGroup = item.data.userMessage.id === activeRequestMessageId
-        if (!threadCapabilities) {
-          return null
-        }
-
-        return (
-          <div key={item.key} data-message-id={item.key}>
-            <ThreadConversationGroup
-              threadId={threadId}
-              group={item.data}
-              toolCalls={inlineToolCalls}
-              activeRunId={activeRunId}
-              threadHasActiveRun={threadHasActiveRun}
-              threadIsSaving={threadIsSaving}
-              runs={runs}
-              subagentActive={isActiveGroup && subagentActive}
-              subagentStream={subagentStream}
-              retryInfo={isActiveGroup ? retryInfo : undefined}
-              onCancelSubagent={() => void cancelRunForThread(threadId)}
-              threadCapabilities={threadCapabilities}
-              onCreateBranch={handleCreateBranch}
-              onEdit={handleEdit}
-              onRetry={handleRetry}
-              onSelectReplyBranch={handleSelectReplyBranch}
-              onDelete={handleDelete}
-            />
-          </div>
-        )
-      })}
-      <div ref={bottomRef} />
+        })}
+        <div ref={bottomRef} />
+      </div>
     </div>
   )
 }

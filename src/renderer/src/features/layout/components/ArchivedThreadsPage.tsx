@@ -12,6 +12,7 @@ import { useAppStore } from '@renderer/app/store/useAppStore'
 import { theme, alpha } from '@renderer/theme/theme'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
 import { collectMessagePath } from '../../../../../shared/yachiyo/threadTree.ts'
+import { TimelineScrollbar } from '@renderer/features/chat/components/TimelineScrollbar'
 
 export interface ArchivedThreadsPageProps {
   activeThread: Thread | null
@@ -47,6 +48,7 @@ function ArchivedTimeline({
 }): React.JSX.Element {
   const messages = useAppStore((state) => state.messages[threadId] ?? EMPTY_MESSAGES)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (messages.length > 0) return
@@ -85,15 +87,18 @@ function ArchivedTimeline({
   }
 
   return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden py-4">
-      {visibleMessages.map((message) =>
-        message.role === 'user' ? (
-          <ReadOnlyUserBubble key={message.id} message={message} />
-        ) : (
-          <ReadOnlyAssistantBubble key={message.id} message={message} />
-        )
-      )}
-      <div ref={bottomRef} />
+    <div className="flex-1 relative min-h-0">
+      <TimelineScrollbar messages={visibleMessages} scrollContainerRef={scrollContainerRef} />
+      <div ref={scrollContainerRef} className="h-full overflow-y-auto overflow-x-hidden py-4">
+        {visibleMessages.map((message) =>
+          message.role === 'user' ? (
+            <ReadOnlyUserBubble key={message.id} message={message} />
+          ) : (
+            <ReadOnlyAssistantBubble key={message.id} message={message} />
+          )
+        )}
+        <div ref={bottomRef} />
+      </div>
     </div>
   )
 }
@@ -106,7 +111,7 @@ function ReadOnlyUserBubble({ message }: { message: Message }): React.JSX.Elemen
   if (!hasContent && !hasImages && !hasAttachments) return <></>
 
   return (
-    <div className="flex justify-end px-6 py-1">
+    <div className="flex justify-end px-6 py-1" data-message-id={message.id}>
       <div className="max-w-[68%]">
         <div
           className="rounded-[18px] px-4 py-2.5"
@@ -155,7 +160,7 @@ function ReadOnlyAssistantBubble({ message }: { message: Message }): React.JSX.E
   if (!hasContent && !hasImages) return <></>
 
   return (
-    <div className="flex flex-col gap-2 px-6 py-1">
+    <div className="flex flex-col gap-2 px-6 py-1" data-message-id={message.id}>
       <div className="w-full">
         <div className="assistant-message-bubble">
           {hasImages &&
