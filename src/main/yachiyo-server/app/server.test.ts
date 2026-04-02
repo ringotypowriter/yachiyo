@@ -6862,3 +6862,45 @@ test('YachiyoServer.editMessage throws when the thread has an active run', async
     }
   )
 })
+
+test('YachiyoServer.createBranch inherits icon and title from parent thread', async () => {
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      await server.setThreadIcon({ threadId: thread.id, icon: '🌊' })
+      await server.renameThread({ threadId: thread.id, title: 'Ocean Thoughts' })
+
+      const accepted = await server.sendChat({ threadId: thread.id, content: 'Hello' })
+      await completeRun(accepted.runId)
+
+      const bootstrap = await server.bootstrap()
+      const assistantMessage = bootstrap.messagesByThread[thread.id]?.[1]
+
+      const branch = await server.createBranch({
+        threadId: thread.id,
+        messageId: assistantMessage!.id
+      })
+
+      assert.equal(branch.thread.icon, '🌊', 'branch should inherit parent icon')
+      assert.equal(branch.thread.title, 'Ocean Thoughts', 'branch should inherit parent title')
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(): AsyncIterable<string> {
+          yield 'Reply'
+        }
+      })
+    }
+  )
+})

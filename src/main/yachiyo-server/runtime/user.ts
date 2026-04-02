@@ -133,3 +133,59 @@ export async function writeUserDocument(
     content
   }
 }
+
+export interface PatchUserDocumentSectionInput {
+  filePath?: string
+  /** The `## Heading` name to patch (case-insensitive). Created at end of file if absent. */
+  section: string
+  content: string
+  /** Template mode used only when the file does not exist yet. */
+  mode?: UserDocumentMode
+}
+
+function escapeRegexChars(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Surgically replace the body of a single `## Section` in USER.md without
+ * touching any other section. If the heading does not exist it is appended.
+ */
+export async function patchUserDocumentSection(
+  input: PatchUserDocumentSectionInput
+): Promise<UserDocument | null> {
+  const current = await readUserDocument({ filePath: input.filePath, mode: input.mode })
+  if (!current) return null
+
+  // Canonicalize: strip surrounding whitespace and any leading "## " prefix so
+  // callers passing "## People" or "People " all resolve to the same heading.
+  const sectionName = input.section.trim().replace(/^#+\s*/, '')
+
+  const lines = current.content.split('\n')
+  const headingRe = new RegExp(`^##\\s+${escapeRegexChars(sectionName)}\\s*$`, 'i')
+  const headingIdx = lines.findIndex((line) => headingRe.test(line))
+
+  if (headingIdx === -1) {
+    const appended =
+      current.content.trimEnd() + `\n\n## ${sectionName}\n\n${input.content.trim()}\n`
+    return writeUserDocument({ filePath: input.filePath, content: appended })
+  }
+
+  // Find where this section ends: next ## heading or EOF
+  let endIdx = lines.length
+  for (let i = headingIdx + 1; i < lines.length; i++) {
+    if (/^##\s/.test(lines[i])) {
+      endIdx = i
+      break
+    }
+  }
+
+  const before = lines.slice(0, headingIdx + 1)
+  const after = lines.slice(endIdx)
+  const body = ['', ...input.content.trim().split('\n'), '']
+
+  return writeUserDocument({
+    filePath: input.filePath,
+    content: [...before, ...body, ...after].join('\n')
+  })
+}

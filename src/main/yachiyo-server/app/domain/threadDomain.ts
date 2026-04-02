@@ -584,6 +584,7 @@ export class YachiyoServerThreadDomain {
       updatedAt: timestamp,
       branchFromThreadId: thread.id,
       branchFromMessageId: branchPoint.id,
+      ...(thread.icon ? { icon: thread.icon } : {}),
       ...(thread.workspacePath ? { workspacePath: thread.workspacePath } : {}),
       ...(preview ? { preview: preview.slice(0, 240) } : {}),
       ...(previewSource ? { headMessageId: previewSource.id } : {})

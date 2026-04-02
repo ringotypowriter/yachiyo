@@ -2,12 +2,19 @@ import { tool, type Tool } from 'ai'
 import { z } from 'zod'
 
 import type { MemoryService } from '../../services/memory/memoryService.ts'
-import { writeUserDocument } from '../../runtime/user.ts'
+import { patchUserDocumentSection, writeUserDocument } from '../../runtime/user.ts'
 
-const updateMemoryToolInputSchema = z.object({
-  mode: z.enum(['profile', 'memory']),
-  content: z.string().min(1)
-})
+const updateMemoryToolInputSchema = z
+  .object({
+    mode: z.enum(['profile', 'profile-section', 'memory']),
+    /** Required when mode is "profile-section": the `## Heading` name to patch. */
+    section: z.string().optional(),
+    content: z.string().min(1)
+  })
+  .refine((v) => v.mode !== 'profile-section' || (v.section && v.section.trim().length > 0), {
+    message: 'section is required when mode is profile-section',
+    path: ['section']
+  })
 
 type UpdateMemoryToolInput = z.infer<typeof updateMemoryToolInputSchema>
 
@@ -28,7 +35,9 @@ export function createTool(
   return tool({
     description: [
       'Save observations about the current user or conversation.',
-      'mode "profile": Update the USER.md with durable understanding of this person (preferences, background, communication style).',
+      'mode "profile": Overwrite the entire USER.md with durable understanding of this person.',
+      'mode "profile-section": Patch a single ## Section in USER.md without touching other sections.',
+      '  Requires `section` (e.g. "People", "Group Vibe"). Use this instead of "profile" whenever you only want to update part of the file.',
       'mode "memory": Save a fact or observation to long-term memory (works only when memory is configured).'
     ].join(' '),
     inputSchema: updateMemoryToolInputSchema,
@@ -45,6 +54,17 @@ export function createTool(
           })
           return {
             content: [{ type: 'text', text: 'Profile updated.' }]
+          }
+        }
+
+        if (input.mode === 'profile-section') {
+          await patchUserDocumentSection({
+            filePath: deps.userDocumentPath,
+            section: input.section!,
+            content: input.content
+          })
+          return {
+            content: [{ type: 'text', text: `Section "${input.section}" updated.` }]
           }
         }
 

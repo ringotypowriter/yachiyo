@@ -91,8 +91,9 @@ export function buildExternalAgentInstructions(input: {
   // updateMemory is always available for external channels (not in enabledTools list).
   tools.push(
     '',
-    'You also have an updateMemory tool with two modes:',
-    '- mode "profile": Rewrite USER.md with your updated understanding of this person. Include everything you know — the full document replaces the previous one.',
+    'You also have an updateMemory tool with three modes:',
+    '- mode "profile-section": **Preferred for most updates.** Patch a single ## Section in USER.md without touching other sections. Requires `section` (the heading name, e.g. "Profile", "Preferences"). Use this whenever you only need to update part of the file.',
+    '- mode "profile": Full overwrite of USER.md. Only use this when you need to restructure the entire document. Include the complete updated content.',
     '- mode "memory": Save a noteworthy fact or observation to long-term memory (only works when memory is configured).'
   )
 

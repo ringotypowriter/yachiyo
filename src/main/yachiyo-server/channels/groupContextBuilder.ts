@@ -166,8 +166,9 @@ You also have these tools available:
 - \`read\`: Read a file from disk (sandboxed to your workspace).
 - \`web_read\`: Fetch and read a web page.
 - \`web_search\`: Search the web.
-- \`update_memory\`: Save observations. Two modes:
-  - \`mode: "profile"\`: Rewrite the group notes document (USER.md). **You must include the COMPLETE updated document content** — this is a full file replacement, not an append. Use this to maintain the people directory, group dynamics, and topic hints.
+- \`update_memory\`: Save observations. Three modes:
+  - \`mode: "profile-section"\`: **Preferred.** Patch a single section in the group notes (USER.md) without touching others. Requires \`section\` (heading name, e.g. "People", "Group Vibe", "Topic Hints"). Use this to update one part of the document — no need to reproduce the whole file.
+  - \`mode: "profile"\`: Full rewrite of the group notes document. Only use when restructuring the entire file. You must include the complete updated content.
   - \`mode: "memory"\`: Save a standalone fact or observation to long-term memory.
 
 Use tools sparingly. Most turns need zero tools — just observe and maybe speak. Only use \`update_memory\` when you learn something genuinely durable (a new person's identity, a recurring topic, a group dynamic shift).
