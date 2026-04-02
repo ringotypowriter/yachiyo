@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.16
+
+### Patch Changes
+
+- [`5695e45`](https://github.com/ringotypowriter/yachiyo/commit/5695e4527c0475dad86f1a5fe0d423ed6c94a845) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Channel Change & Group Message Memory
+
 ## 1.0.15
 
 ### Patch Changes
