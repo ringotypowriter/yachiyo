@@ -502,7 +502,9 @@ export function createQQService({
       }),
       update_memory: createUpdateMemoryTool({
         memoryService: server.getMemoryService(),
-        userDocumentPath: userDocPath
+        userDocumentPath: userDocPath,
+        userDocumentMode: 'group',
+        rejectFullRewrite: true
       })
     }
 

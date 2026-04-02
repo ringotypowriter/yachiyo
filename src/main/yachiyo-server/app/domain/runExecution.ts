@@ -1211,7 +1211,8 @@ export async function executeServerRun(
           ? {
               updateMemoryDeps: {
                 memoryService: deps.memoryService,
-                userDocumentPath: resolveYachiyoUserPath(workspacePath)
+                userDocumentPath: resolveYachiyoUserPath(workspacePath),
+                userDocumentMode: isGuest ? 'guest' : 'owner'
               }
             }
           : {}),

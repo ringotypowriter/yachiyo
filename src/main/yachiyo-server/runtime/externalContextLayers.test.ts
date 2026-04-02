@@ -46,6 +46,15 @@ describe('buildExternalAgentInstructions', () => {
     assert.ok(result.includes('conversational companion'))
     assert.ok(result.includes('not coding assistant'))
   })
+
+  it('documents the section patch mode for updateMemory', () => {
+    const result = buildExternalAgentInstructions({ enabledTools: ['read'] })
+
+    assert.ok(result.includes('mode "profile-section"'))
+    assert.ok(result.includes('Requires `section`'))
+    assert.ok(result.includes('exact heading name from the current USER.md'))
+    assert.ok(result.includes('mode "profile":'))
+  })
 })
 
 describe('compileExternalContextLayers', () => {

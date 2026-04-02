@@ -76,6 +76,14 @@ export interface WriteUserDocumentInput {
   content: string
 }
 
+function buildDefaultUserTemplateForMode(mode: UserDocumentMode): string {
+  return mode === 'group'
+    ? DEFAULT_GROUP_USER_TEMPLATE
+    : mode === 'guest'
+      ? DEFAULT_GUEST_USER_TEMPLATE
+      : buildDefaultUserTemplate()
+}
+
 function resolveUserPath(filePath?: string): string {
   return filePath ?? resolveYachiyoUserPath()
 }
@@ -103,12 +111,7 @@ export async function readUserDocument(
     }
 
     const mode = input.mode ?? (input.guest ? 'guest' : 'owner')
-    content =
-      mode === 'group'
-        ? DEFAULT_GROUP_USER_TEMPLATE
-        : mode === 'guest'
-          ? DEFAULT_GUEST_USER_TEMPLATE
-          : buildDefaultUserTemplate()
+    content = buildDefaultUserTemplateForMode(mode)
     await mkdir(dirname(filePath), { recursive: true })
     await writeFile(filePath, content, 'utf8')
   }
@@ -147,6 +150,11 @@ function escapeRegexChars(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+function findSectionHeadingIndex(lines: string[], sectionName: string): number {
+  const headingRe = new RegExp(`^##\\s+${escapeRegexChars(sectionName)}\\s*$`, 'i')
+  return lines.findIndex((line) => headingRe.test(line))
+}
+
 /**
  * Surgically replace the body of a single `## Section` in USER.md without
  * touching any other section. If the heading does not exist it is appended.
@@ -161,13 +169,20 @@ export async function patchUserDocumentSection(
   // callers passing "## People" or "People " all resolve to the same heading.
   const sectionName = input.section.trim().replace(/^#+\s*/, '')
 
-  const lines = current.content.split('\n')
-  const headingRe = new RegExp(`^##\\s+${escapeRegexChars(sectionName)}\\s*$`, 'i')
-  const headingIdx = lines.findIndex((line) => headingRe.test(line))
+  let baseContent = current.content
+  let lines = baseContent.split('\n')
+  let headingIdx = findSectionHeadingIndex(lines, sectionName)
+
+  // If an earlier full rewrite destroyed the heading structure entirely, rebuild
+  // from the canonical template for the known mode before patching the section.
+  if (headingIdx === -1 && input.mode && !lines.some((line) => /^##\s+/.test(line))) {
+    baseContent = normalizeUserDocumentContent(buildDefaultUserTemplateForMode(input.mode))
+    lines = baseContent.split('\n')
+    headingIdx = findSectionHeadingIndex(lines, sectionName)
+  }
 
   if (headingIdx === -1) {
-    const appended =
-      current.content.trimEnd() + `\n\n## ${sectionName}\n\n${input.content.trim()}\n`
+    const appended = baseContent.trimEnd() + `\n\n## ${sectionName}\n\n${input.content.trim()}\n`
     return writeUserDocument({ filePath: input.filePath, content: appended })
   }
 

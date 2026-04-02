@@ -250,6 +250,18 @@ describe('buildGroupProbeSystemPrompt', () => {
     assert.ok(!prompt.includes('Owner rules'))
     assert.ok(!prompt.includes('Group notes'))
   })
+
+  it('documents only section patching and memory modes for update_memory', () => {
+    const prompt = buildGroupProbeSystemPrompt({
+      botName: 'Yachiyo',
+      groupName: 'TestGroup'
+    })
+
+    assert.ok(prompt.includes('Save observations. Two modes'))
+    assert.ok(prompt.includes('`mode: "profile-section"`'))
+    assert.ok(prompt.includes('`mode: "memory"`'))
+    assert.ok(!prompt.includes('`mode: "profile"`'))
+  })
 })
 
 describe('buildGroupProbeMessages', () => {

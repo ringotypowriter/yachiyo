@@ -127,6 +127,34 @@ test('patchUserDocumentSection creates file from template when missing', async (
   }
 })
 
+test('patchUserDocumentSection rebuilds the group template when USER.md lost all headings', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-patch-rebuild-'))
+  const filePath = join(root, 'USER.md')
+
+  try {
+    await writeUserDocument({
+      filePath,
+      content: '# Group\n\nplain text only\n\nno headings survived\n'
+    })
+
+    await patchUserDocumentSection({
+      filePath,
+      section: 'People',
+      content: 'Alice | owner',
+      mode: 'group'
+    })
+
+    const result = await readUserDocument({ filePath })
+    assert.ok(result?.content.includes('## People'), 'group template restored people heading')
+    assert.ok(result?.content.includes('## Group Vibe'), 'group template restored vibe heading')
+    assert.ok(result?.content.includes('## Topic Hints'), 'group template restored topic heading')
+    assert.ok(result?.content.includes('Alice | owner'), 'patched content written')
+    assert.ok(!result?.content.includes('plain text only'), 'broken freeform content discarded')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('writeUserDocument persists direct edits and keeps the file readable', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-user-write-'))
   const filePath = join(root, 'USER.md')
