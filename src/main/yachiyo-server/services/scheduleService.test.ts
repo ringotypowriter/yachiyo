@@ -237,6 +237,12 @@ describe('createScheduleService', () => {
       service.reload()
       await flushAsyncWork()
       mock.timers.runAll()
+      // fireSchedule chains 7+ sequential awaits (connectivity → createThread →
+      // setThreadIcon → setThreadModelOverride → sendChat → event microtask →
+      // completeScheduleRun). Each flushAsyncWork provides ~3 ticks, so we need
+      // multiple rounds to fully drain the chain under CI load.
+      await flushAsyncWork()
+      await flushAsyncWork()
       await flushAsyncWork()
 
       assert.equal(storage.runs.length, 1)
