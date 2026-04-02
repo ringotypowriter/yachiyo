@@ -171,6 +171,18 @@ async function flushAsyncWork(): Promise<void> {
   await Promise.resolve()
 }
 
+/**
+ * Drain microtasks/macrotasks until `predicate` returns true or `maxAttempts`
+ * is reached. This avoids the CI flakiness that comes from hard-coding a
+ * fixed number of flushAsyncWork rounds for long sequential-await chains.
+ */
+async function waitFor(predicate: () => boolean, maxAttempts = 30): Promise<void> {
+  for (let i = 0; i < maxAttempts; i++) {
+    if (predicate()) return
+    await flushAsyncWork()
+  }
+}
+
 describe('createScheduleService', () => {
   it('disarms skipped one-off schedules instead of re-arming them offline', async () => {
     const storage = createMockStorage()
@@ -239,11 +251,9 @@ describe('createScheduleService', () => {
       mock.timers.runAll()
       // fireSchedule chains 7+ sequential awaits (connectivity → createThread →
       // setThreadIcon → setThreadModelOverride → sendChat → event microtask →
-      // completeScheduleRun). Each flushAsyncWork provides ~3 ticks, so we need
-      // multiple rounds to fully drain the chain under CI load.
-      await flushAsyncWork()
-      await flushAsyncWork()
-      await flushAsyncWork()
+      // completeScheduleRun). Rather than hard-coding flush rounds (fragile under
+      // CI load), poll until the run reaches its terminal state.
+      await waitFor(() => storage.runs[0]?.status === 'completed')
 
       assert.equal(storage.runs.length, 1)
       assert.equal(storage.runs[0]?.status, 'completed')
