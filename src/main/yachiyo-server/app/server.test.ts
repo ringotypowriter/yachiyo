@@ -1590,11 +1590,12 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       'write',
       'edit',
       'bash',
-      'webRead'
+      'webRead',
+      'askUser'
     ])
     assert.equal(modelRequests[0]?.messages.at(-1)?.content, 'Default tool run')
 
-    assert.deepEqual(Object.keys(modelRequests[1]?.tools ?? {}), ['read', 'bash'])
+    assert.deepEqual(Object.keys(modelRequests[1]?.tools ?? {}), ['read', 'bash', 'askUser'])
     assert.equal(modelRequests[1]?.messages.at(-1)?.content, 'Use only read and bash')
     assert.ok(
       modelRequests[1]?.messages.some(
@@ -1606,7 +1607,12 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       )
     )
 
-    assert.deepEqual(Object.keys(modelRequests[2]?.tools ?? {}), ['read', 'write', 'bash'])
+    assert.deepEqual(Object.keys(modelRequests[2]?.tools ?? {}), [
+      'read',
+      'write',
+      'bash',
+      'askUser'
+    ])
     assert.equal(modelRequests[2]?.messages.at(-1)?.content, 'Turn write back on')
     assert.ok(
       modelRequests[2]?.messages.some(
@@ -1674,7 +1680,7 @@ test('YachiyoServer injects only active skill summaries into runtime context and
 
     const request = modelRequests.at(-1)
     assert.ok(request)
-    assert.deepEqual(Object.keys(request.tools ?? {}), ['read', 'skillsRead'])
+    assert.deepEqual(Object.keys(request.tools ?? {}), ['read', 'skillsRead', 'askUser'])
     assert.ok(
       request.messages.some(
         (message) =>
@@ -4968,7 +4974,7 @@ test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queu
         String(resumedRequests[0]?.messages.at(-1)?.content ?? ''),
         /Recovered queued follow-up/
       )
-      assert.deepEqual(Object.keys(resumedRequests[0]?.tools ?? {}).sort(), ['read'])
+      assert.deepEqual(Object.keys(resumedRequests[0]?.tools ?? {}).sort(), ['askUser', 'read'])
     } finally {
       resumedWaiter.close()
       await resumedServer.close()
@@ -5133,9 +5139,9 @@ test('YachiyoServer keeps a recovered queued follow-up pending when a new run st
       )
       assert.equal(queuedMessage?.parentMessageId, immediateAssistantMessage?.id)
       assert.equal(resumedRequests[0]?.content, 'Immediate question')
-      assert.deepEqual(resumedRequests[0]?.toolNames, ['bash'])
+      assert.deepEqual(resumedRequests[0]?.toolNames, ['askUser', 'bash'])
       assert.match(String(resumedRequests[1]?.content ?? ''), /Recovered queued follow-up/)
-      assert.deepEqual(resumedRequests[1]?.toolNames, ['read'])
+      assert.deepEqual(resumedRequests[1]?.toolNames, ['askUser', 'read'])
     } finally {
       resumedWaiter.close()
       await resumedServer.close()
