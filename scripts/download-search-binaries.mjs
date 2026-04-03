@@ -1,11 +1,11 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 
 /**
- * Downloads and builds pinned versions of ripgrep (rg) and bfs for the current
- * macOS platform. Outputs binaries to resources/bin/{platform}-{arch}/.
+ * Downloads pinned versions of ripgrep (rg) and fd for the current macOS
+ * platform. Outputs binaries to resources/bin/{platform}-{arch}/.
  *
  * Usage:
- *   node scripts/download-search-binaries.mjs           # build for current arch
+ *   node scripts/download-search-binaries.mjs           # download for current arch
  *   node scripts/download-search-binaries.mjs --force    # re-download even if binaries exist
  */
 
@@ -14,13 +14,13 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
-import { execSync, spawnSync } from 'node:child_process'
+import { execSync } from 'node:child_process'
 import process from 'node:process'
 
 // ── Pinned versions ──────────────────────────────────────────────────────────
 
 const RG_VERSION = '15.1.0'
-const BFS_VERSION = '4.1'
+const FD_VERSION = '10.4.2'
 
 // ── Platform mapping ─────────────────────────────────────────────────────────
 
@@ -32,13 +32,13 @@ if (PLATFORM !== 'darwin') {
   process.exit(0)
 }
 
-const RG_ARCH_MAP = {
+const DARWIN_ARCH_MAP = {
   arm64: 'aarch64-apple-darwin',
   x64: 'x86_64-apple-darwin'
 }
 
-const rgTarget = RG_ARCH_MAP[ARCH]
-if (!rgTarget) {
+const darwinTarget = DARWIN_ARCH_MAP[ARCH]
+if (!darwinTarget) {
   console.error(`✗ Unsupported architecture: ${ARCH}`)
   process.exit(1)
 }
@@ -52,7 +52,7 @@ const platformDir = `${EB_OS_MAP[PLATFORM]}-${ARCH}`
 const rootDir = resolve(import.meta.dirname, '..')
 const outputDir = resolve(rootDir, 'resources', 'bin', platformDir)
 const rgOutputPath = join(outputDir, 'rg')
-const bfsOutputPath = join(outputDir, 'bfs')
+const fdOutputPath = join(outputDir, 'fd')
 const force = process.argv.includes('--force')
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -75,19 +75,6 @@ function extractTarGz(archivePath, destDir) {
   })
 }
 
-function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    encoding: 'utf8',
-    stdio: 'pipe',
-    ...options
-  })
-  if (result.status !== 0) {
-    const stderr = result.stderr?.trim() || result.error?.message || 'unknown error'
-    throw new Error(`${command} ${args.join(' ')} failed: ${stderr}`)
-  }
-  return result
-}
-
 // ── Download ripgrep ─────────────────────────────────────────────────────────
 
 async function downloadRipgrep() {
@@ -96,9 +83,9 @@ async function downloadRipgrep() {
     return
   }
 
-  console.log(`⟳ Downloading ripgrep ${RG_VERSION} for ${rgTarget}...`)
+  console.log(`⟳ Downloading ripgrep ${RG_VERSION} for ${darwinTarget}...`)
 
-  const archiveName = `ripgrep-${RG_VERSION}-${rgTarget}.tar.gz`
+  const archiveName = `ripgrep-${RG_VERSION}-${darwinTarget}.tar.gz`
   const url = `https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/${archiveName}`
   const tmpDir = join(tmpdir(), `yachiyo-rg-${Date.now()}`)
   const archivePath = join(tmpDir, archiveName)
@@ -109,8 +96,7 @@ async function downloadRipgrep() {
     await download(url, archivePath)
     extractTarGz(archivePath, tmpDir)
 
-    // rg archives extract to a directory named ripgrep-{version}-{target}/
-    const extractedDir = join(tmpDir, `ripgrep-${RG_VERSION}-${rgTarget}`)
+    const extractedDir = join(tmpDir, `ripgrep-${RG_VERSION}-${darwinTarget}`)
     const rgBinary = join(extractedDir, 'rg')
 
     if (!existsSync(rgBinary)) {
@@ -127,52 +113,39 @@ async function downloadRipgrep() {
   }
 }
 
-// ── Build bfs ────────────────────────────────────────────────────────────────
+// ── Download fd ──────────────────────────────────────────────────────────────
 
-async function buildBfs() {
-  if (!force && existsSync(bfsOutputPath)) {
-    console.log(`✓ bfs already exists at ${bfsOutputPath}`)
+async function downloadFd() {
+  if (!force && existsSync(fdOutputPath)) {
+    console.log(`✓ fd already exists at ${fdOutputPath}`)
     return
   }
 
-  console.log(`⟳ Downloading and building bfs ${BFS_VERSION}...`)
+  console.log(`⟳ Downloading fd ${FD_VERSION} for ${darwinTarget}...`)
 
-  const archiveName = `bfs-${BFS_VERSION}.tar.gz`
-  const url = `https://github.com/tavianator/bfs/releases/download/${BFS_VERSION}/${archiveName}`
-  const tmpDir = join(tmpdir(), `yachiyo-bfs-${Date.now()}`)
+  const archiveName = `fd-v${FD_VERSION}-${darwinTarget}.tar.gz`
+  const url = `https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/${archiveName}`
+  const tmpDir = join(tmpdir(), `yachiyo-fd-${Date.now()}`)
   const archivePath = join(tmpDir, archiveName)
 
   mkdirSync(tmpDir, { recursive: true })
 
   try {
     await download(url, archivePath)
+    extractTarGz(archivePath, tmpDir)
 
-    // bfs tarball extracts flat (no parent directory), so extract into a dedicated subdirectory.
-    const sourceDir = join(tmpDir, 'bfs-src')
-    mkdirSync(sourceDir, { recursive: true })
-    extractTarGz(archivePath, sourceDir)
+    const extractedDir = join(tmpDir, `fd-v${FD_VERSION}-${darwinTarget}`)
+    const fdBinary = join(extractedDir, 'fd')
 
-    if (!existsSync(join(sourceDir, 'configure'))) {
-      throw new Error(`bfs source not found at expected path: ${sourceDir}`)
-    }
-
-    console.log('  ⚙ ./configure --enable-release')
-    run('./configure', ['--enable-release'], { cwd: sourceDir })
-
-    console.log('  ⚙ make -j$(sysctl -n hw.ncpu)')
-    const ncpu = execSync('sysctl -n hw.ncpu', { encoding: 'utf8' }).trim()
-    run('make', [`-j${ncpu}`], { cwd: sourceDir })
-
-    const bfsBinary = join(sourceDir, 'bin', 'bfs')
-    if (!existsSync(bfsBinary)) {
-      throw new Error(`bfs binary not found at expected path: ${bfsBinary}`)
+    if (!existsSync(fdBinary)) {
+      throw new Error(`fd binary not found at expected path: ${fdBinary}`)
     }
 
     mkdirSync(outputDir, { recursive: true })
-    renameSync(bfsBinary, bfsOutputPath)
-    chmodSync(bfsOutputPath, 0o755)
+    renameSync(fdBinary, fdOutputPath)
+    chmodSync(fdOutputPath, 0o755)
 
-    console.log(`✓ bfs ${BFS_VERSION} → ${bfsOutputPath}`)
+    console.log(`✓ fd ${FD_VERSION} → ${fdOutputPath}`)
   } finally {
     await rm(tmpDir, { recursive: true, force: true })
   }
@@ -184,7 +157,7 @@ async function main() {
   console.log(`\nSearch binary setup (${platformDir})\n`)
 
   await downloadRipgrep()
-  await buildBfs()
+  await downloadFd()
 
   console.log('\nDone.\n')
 }

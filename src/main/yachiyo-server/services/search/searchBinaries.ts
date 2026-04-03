@@ -3,15 +3,15 @@ import { join } from 'node:path'
 
 export interface SearchBinaries {
   rg: string | undefined
-  bfs: string | undefined
+  fd: string | undefined
 }
 
 /**
- * Resolve bundled rg and bfs binaries.
+ * Resolve bundled rg and fd binaries.
  *
  * Resolution order:
- * 1. Packaged Electron app: `process.resourcesPath/bin/{rg,bfs}`
- * 2. Dev mode: `{projectRoot}/resources/bin/{platform}-{arch}/{rg,bfs}`
+ * 1. Packaged Electron app: `process.resourcesPath/bin/{rg,fd}`
+ * 2. Dev mode: `{projectRoot}/resources/bin/{platform}-{arch}/{rg,fd}`
  *
  * Returns `undefined` for a binary that cannot be found or is not executable.
  */
@@ -49,7 +49,7 @@ export function resolveSearchBinaries(options?: {
 
   return {
     rg: findExecutable('rg', candidates),
-    bfs: findExecutable('bfs', candidates)
+    fd: findExecutable('fd', candidates)
   }
 }
 

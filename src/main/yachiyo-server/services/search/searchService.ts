@@ -3,7 +3,7 @@ import { basename, isAbsolute, join, normalize, relative, resolve, sep } from 'n
 import { spawn } from 'node:child_process'
 
 export type GrepBackendKind = 'rg' | 'typescript'
-export type FileDiscoveryBackendKind = 'bfs' | 'typescript'
+export type FileDiscoveryBackendKind = 'fd' | 'typescript'
 export type SearchBackendKind = GrepBackendKind | FileDiscoveryBackendKind
 
 export interface SearchBackendCapabilities {
@@ -81,8 +81,8 @@ export interface SearchService {
 export interface CreateSearchServiceOptions {
   /** Absolute path to the bundled rg binary. Omit to use TypeScript fallback. */
   rgPath?: string
-  /** Absolute path to the bundled bfs binary. Omit to use TypeScript fallback. */
-  bfsPath?: string
+  /** Absolute path to the bundled fd binary. Omit to use TypeScript fallback. */
+  fdPath?: string
   /** Override for testing — replaces the default spawn-based command runner. */
   runCommand?: (input: SearchCommandInput) => Promise<SearchCommandResult>
 }
@@ -105,12 +105,12 @@ const MAX_SEARCH_STDOUT_CHARS = 1_000_000
 
 export function createSearchService(options: CreateSearchServiceOptions = {}): SearchService {
   const rgPath = options.rgPath
-  const bfsPath = options.bfsPath
+  const fdPath = options.fdPath
   const runCommand = options.runCommand ?? runSearchCommand
 
   const capabilities: SearchBackendCapabilities = {
     grep: { available: rgPath ? 'rg' : 'typescript' },
-    fileDiscovery: { available: bfsPath ? 'bfs' : 'typescript' }
+    fileDiscovery: { available: fdPath ? 'fd' : 'typescript' }
   }
 
   return {
@@ -137,9 +137,9 @@ export function createSearchService(options: CreateSearchServiceOptions = {}): S
       const request = normalizeGlobRequest(input)
       const rootPath = resolve(request.cwd, request.path)
 
-      if (bfsPath) {
+      if (fdPath) {
         try {
-          return await runBfsSearch({ executable: bfsPath, request, rootPath, runCommand })
+          return await runFdSearch({ executable: fdPath, request, rootPath, runCommand })
         } catch (error) {
           if (error instanceof SearchBackendError && error.code === 'backend-unavailable') {
             // Fall through to TypeScript
@@ -321,9 +321,9 @@ async function runRipgrepSearch(input: {
   }
 }
 
-// ── bfs backend ──────────────────────────────────────────────────────────────
+// ── fd backend ───────────────────────────────────────────────────────────────
 
-async function runBfsSearch(input: {
+async function runFdSearch(input: {
   executable: string
   request: ReturnType<typeof normalizeGlobRequest>
   rootPath: string
@@ -335,24 +335,25 @@ async function runBfsSearch(input: {
     const matcher = createGlobMatcher(input.request.pattern)
     const fileName = normalizeRelativePath(basename(input.rootPath))
     return {
-      backend: 'bfs',
+      backend: 'fd',
       rootPath: input.rootPath,
       paths: matcher(fileName) ? [fileName] : [],
       truncated: false
     }
   }
 
-  // bfs uses find-compatible syntax. -name for basename matching, -path for full path.
-  // For glob patterns with directory separators (like src/**/*.ts), use -path.
-  const patternHasSlash = input.request.pattern.includes('/')
+  // fd supports glob patterns natively with --glob, including ** and {a,b}.
   const args = [
-    input.rootPath,
-    '-type',
+    '--glob',
+    '--hidden',
+    '--color',
+    'never',
+    '--type',
     'f',
-    ...(patternHasSlash
-      ? ['-path', `*/${input.request.pattern}`]
-      : ['-name', input.request.pattern]),
-    '-print'
+    '--max-results',
+    String(input.request.limit),
+    input.request.pattern,
+    input.rootPath
   ]
   const result = await runCliSearchCommand({
     command: input.executable,
@@ -363,19 +364,16 @@ async function runBfsSearch(input: {
     runCommand: input.runCommand
   })
 
-  if (!result.terminatedEarly && result.exitCode !== 0) {
+  if (!result.terminatedEarly && result.exitCode !== 0 && result.exitCode !== 1) {
     throw classifyCliFailure(result.stderr)
   }
 
-  // bfs uses find-compatible glob matching, but for complex patterns like
-  // **/*.ts we may need to post-filter with our own glob matcher for accuracy.
-  const matcher = createGlobMatcher(input.request.pattern)
   const paths = splitLines(result.stdout)
     .map((value) => normalizeResultPath(value, input.rootPath))
-    .filter((value) => value.length > 0 && matcher(value))
+    .filter(Boolean)
 
   return {
-    backend: 'bfs',
+    backend: 'fd',
     rootPath: input.rootPath,
     paths: paths.slice(0, input.request.limit),
     truncated: paths.length > input.request.limit || Boolean(result.terminatedEarly)
@@ -594,6 +592,20 @@ function globPatternToRegExp(pattern: string): RegExp {
     if (char === '?') {
       source += '[^/]'
       continue
+    }
+
+    // Brace expansion: {ts,tsx,js} → (ts|tsx|js)
+    if (char === '{') {
+      const closingIndex = normalizedPattern.indexOf('}', index + 1)
+      if (closingIndex !== -1) {
+        const content = normalizedPattern.slice(index + 1, closingIndex)
+        const alternatives = content.split(',')
+        if (alternatives.length > 1) {
+          source += `(${alternatives.map(escapeRegExp).join('|')})`
+          index = closingIndex
+          continue
+        }
+      }
     }
 
     source += escapeRegExp(char)

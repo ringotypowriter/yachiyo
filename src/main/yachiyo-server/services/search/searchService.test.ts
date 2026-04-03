@@ -160,11 +160,11 @@ test('rg backend falls back to typescript when ENOENT', async () => {
   })
 })
 
-// ── bfs backend ─────────────────────────────────────────────────────────────
+// ── fd backend ─────────────────────────────────────────────────────────────
 
-test('bfs backend parses file discovery output', async () => {
+test('fd backend parses file discovery output', async () => {
   const service = createSearchService({
-    bfsPath: '/usr/bin/bfs',
+    fdPath: '/usr/bin/bfs',
     runCommand: async () => ({
       exitCode: 0,
       stdout: './src/main.ts\n./src/search/tool.ts\n',
@@ -174,16 +174,16 @@ test('bfs backend parses file discovery output', async () => {
 
   const result = await service.glob({ cwd: '/repo', pattern: 'src/**/*.ts', path: '.' })
 
-  assert.equal(result.backend, 'bfs')
+  assert.equal(result.backend, 'fd')
   assert.deepEqual(result.paths, ['src/main.ts', 'src/search/tool.ts'])
 })
 
-test('bfs backend handles file path as rootPath', async () => {
+test('fd backend handles file path as rootPath', async () => {
   await withWorkspace(async (workspacePath) => {
     await writeFile(join(workspacePath, '.aerospace.toml'), '[gaps]\n', 'utf8')
 
     const service = createSearchService({
-      bfsPath: '/usr/bin/bfs',
+      fdPath: '/usr/bin/bfs',
       runCommand: async () => {
         throw new Error('bfs should not be called when rootPath is a file')
       }
@@ -195,14 +195,14 @@ test('bfs backend handles file path as rootPath', async () => {
       path: join(workspacePath, '.aerospace.toml')
     })
 
-    assert.equal(result.backend, 'bfs')
+    assert.equal(result.backend, 'fd')
     assert.deepEqual(result.paths, ['.aerospace.toml'])
   })
 })
 
-test('bfs backend treats early termination as truncated', async () => {
+test('fd backend treats early termination as truncated', async () => {
   const service = createSearchService({
-    bfsPath: '/usr/bin/bfs',
+    fdPath: '/usr/bin/bfs',
     runCommand: async () => ({
       exitCode: 143,
       stdout: './src/alpha.ts\n',
@@ -213,17 +213,17 @@ test('bfs backend treats early termination as truncated', async () => {
 
   const result = await service.glob({ cwd: '/repo', pattern: 'src/**/*.ts', path: '.', limit: 1 })
 
-  assert.equal(result.backend, 'bfs')
+  assert.equal(result.backend, 'fd')
   assert.equal(result.truncated, true)
   assert.deepEqual(result.paths, ['src/alpha.ts'])
 })
 
-test('bfs backend falls back to typescript when ENOENT', async () => {
+test('fd backend falls back to typescript when ENOENT', async () => {
   await withWorkspace(async (workspacePath) => {
     await writeFile(join(workspacePath, 'file.ts'), '', 'utf8')
 
     const service = createSearchService({
-      bfsPath: '/nonexistent/bfs',
+      fdPath: '/nonexistent/bfs',
       runCommand: async () => {
         const error = new Error('spawn ENOENT') as NodeJS.ErrnoException
         error.code = 'ENOENT'
@@ -234,6 +234,44 @@ test('bfs backend falls back to typescript when ENOENT', async () => {
     const result = await service.glob({ cwd: workspacePath, pattern: '*.ts', path: '.' })
     assert.equal(result.backend, 'typescript')
     assert.deepEqual(result.paths, ['file.ts'])
+  })
+})
+
+test('fd backend parses file discovery output', async () => {
+  const service = createSearchService({
+    fdPath: '/usr/bin/fd',
+    runCommand: async () => ({
+      exitCode: 0,
+      stdout: './src/app.ts\n./src/lib/utils.ts\n',
+      stderr: ''
+    })
+  })
+
+  const result = await service.glob({ cwd: '/repo', pattern: '**/*.ts', path: '.' })
+
+  assert.equal(result.backend, 'fd')
+  assert.deepEqual(result.paths, ['src/app.ts', 'src/lib/utils.ts'])
+})
+
+test('glob matcher supports brace expansion', async () => {
+  await withWorkspace(async (workspacePath) => {
+    await mkdir(join(workspacePath, 'src'), { recursive: true })
+    await writeFile(join(workspacePath, 'src', 'app.ts'), '', 'utf8')
+    await writeFile(join(workspacePath, 'src', 'page.tsx'), '', 'utf8')
+    await writeFile(join(workspacePath, 'src', 'style.css'), '', 'utf8')
+    await writeFile(join(workspacePath, 'notes.md'), '', 'utf8')
+
+    const service = createSearchService({})
+
+    const result = await service.glob({
+      cwd: workspacePath,
+      pattern: '**/*.{ts,tsx}',
+      path: '.'
+    })
+
+    assert.equal(result.backend, 'typescript')
+    const paths = result.paths.sort()
+    assert.deepEqual(paths, ['src/app.ts', 'src/page.tsx'])
   })
 })
 
@@ -372,7 +410,7 @@ test('capabilities reports typescript when no binary paths are provided', () => 
   assert.equal(service.capabilities.fileDiscovery.available, 'typescript')
 })
 
-test('capabilities reports bfs when bfsPath is provided', () => {
-  const service = createSearchService({ bfsPath: '/usr/bin/bfs' })
-  assert.equal(service.capabilities.fileDiscovery.available, 'bfs')
+test('capabilities reports bfs when fdPath is provided', () => {
+  const service = createSearchService({ fdPath: '/usr/bin/bfs' })
+  assert.equal(service.capabilities.fileDiscovery.available, 'fd')
 })

@@ -453,7 +453,7 @@ test('runGrepTool maps normalized search results into structured details and sum
         searchService: {
           capabilities: {
             grep: { available: 'rg' },
-            fileDiscovery: { available: 'bfs' }
+            fileDiscovery: { available: 'fd' }
           },
           grep: async () => ({
             backend: 'rg' as const,
@@ -526,13 +526,13 @@ test('runGlobTool maps normalized file discovery results into structured details
         searchService: {
           capabilities: {
             grep: { available: 'rg' },
-            fileDiscovery: { available: 'bfs' }
+            fileDiscovery: { available: 'fd' }
           },
           grep: async () => {
             throw new Error('grep should not be called')
           },
           glob: async () => ({
-            backend: 'bfs' as const,
+            backend: 'fd' as const,
             rootPath: workspacePath,
             paths: ['src/example.ts', 'src/search/tool.ts'],
             truncated: false
@@ -542,7 +542,7 @@ test('runGlobTool maps normalized file discovery results into structured details
     )
 
     assert.equal(result.error, undefined)
-    assert.equal(result.details.backend, 'bfs')
+    assert.equal(result.details.backend, 'fd')
     assert.equal(result.details.resultCount, 2)
     assert.equal(summarizeToolInput('glob', { pattern: 'src/**/*.ts' }), 'src/**/*.ts')
     assert.equal(summarizeToolOutput('glob', result), 'found 2 files')

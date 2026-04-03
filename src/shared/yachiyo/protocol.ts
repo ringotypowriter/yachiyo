@@ -94,7 +94,7 @@ export type WebReadExtractor = 'defuddle' | 'linkedom-fallback' | 'none'
 export type WebSearchProviderId = 'google-browser' | 'exa'
 export type BrowserSearchImportSourceId = 'google-chrome'
 export type SearchGrepBackend = 'rg' | 'typescript'
-export type SearchFileDiscoveryBackend = 'bfs' | 'typescript'
+export type SearchFileDiscoveryBackend = 'fd' | 'typescript'
 export type WebReadFailureCode =
   | 'invalid-url'
   | 'unsupported-protocol'

@@ -201,7 +201,7 @@ export class YachiyoServer {
     const searchBinaries = resolveSearchBinaries()
     const searchService =
       options.searchService ??
-      createSearchService({ rgPath: searchBinaries.rg, bfsPath: searchBinaries.bfs })
+      createSearchService({ rgPath: searchBinaries.rg, fdPath: searchBinaries.fd })
     const ensureThreadWorkspace = options.ensureThreadWorkspace ?? defaultEnsureThreadWorkspace
     const cloneThreadWorkspace = options.cloneThreadWorkspace ?? defaultCloneThreadWorkspace
     const deleteThreadWorkspace = options.deleteThreadWorkspace ?? defaultDeleteThreadWorkspace
