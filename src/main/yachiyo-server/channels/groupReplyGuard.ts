@@ -1,4 +1,5 @@
 const LEADING_COLON_PREFIX_RE = /^\s*[:：]+\s*/
+const INVISIBLE_GROUP_REPLY_CHARS_RE = /\u200B|\u200C|\u200D|\u2060|\uFEFF/g
 const INTERNAL_WHITESPACE_RE = /\s+/g
 const DEFAULT_GROUP_REPLY_HISTORY_MAX_ENTRIES = 10
 
@@ -23,8 +24,13 @@ export function hasForbiddenGroupReplyPrefix(message: string): boolean {
   return /^\s*[:：]/.test(message)
 }
 
+export function hasVisibleGroupReplyContent(message: string): boolean {
+  return message.replace(INVISIBLE_GROUP_REPLY_CHARS_RE, '').trim().length > 0
+}
+
 export function normalizeGroupReplyForComparison(message: string): string {
   return message
+    .replace(INVISIBLE_GROUP_REPLY_CHARS_RE, '')
     .trim()
     .replace(LEADING_COLON_PREFIX_RE, '')
     .trim()

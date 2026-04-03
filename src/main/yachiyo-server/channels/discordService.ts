@@ -44,6 +44,7 @@ import {
   appendGroupReplyHistory,
   type GroupReplyHistory,
   hasForbiddenGroupReplyPrefix,
+  hasVisibleGroupReplyContent,
   shouldSuppressGroupReply
 } from './groupReplyGuard.ts'
 import { describeGroupImages } from './groupImageDescriptions.ts'
@@ -510,6 +511,11 @@ export function createDiscordService({
           .describe('The message to send to the group. Plain text only. Never start with a colon.')
       }),
       execute: async ({ message }) => {
+        if (!hasVisibleGroupReplyContent(message)) {
+          console.log(`[discord-group] rejected empty message for "${group.name}"`)
+          return 'Rejected: message must contain visible text.'
+        }
+
         if (hasForbiddenGroupReplyPrefix(message)) {
           console.log(
             `[discord-group] rejected colon-prefixed message for "${group.name}": ${message}`

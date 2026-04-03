@@ -44,6 +44,7 @@ import {
   appendGroupReplyHistory,
   type GroupReplyHistory,
   hasForbiddenGroupReplyPrefix,
+  hasVisibleGroupReplyContent,
   shouldSuppressGroupReply
 } from './groupReplyGuard'
 import { describeGroupImages } from './groupImageDescriptions'
@@ -532,6 +533,11 @@ export function createTelegramService({
         if (message.includes('\n')) {
           console.log(`[telegram-group] rejected multi-line message for "${group.name}"`)
           return 'Rejected: message must be a single line. Do not include line breaks.'
+        }
+
+        if (!hasVisibleGroupReplyContent(message)) {
+          console.log(`[telegram-group] rejected empty message for "${group.name}"`)
+          return 'Rejected: message must contain visible text.'
         }
 
         if (hasForbiddenGroupReplyPrefix(message)) {

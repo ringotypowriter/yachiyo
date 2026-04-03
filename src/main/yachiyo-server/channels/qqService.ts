@@ -46,6 +46,7 @@ import {
   appendGroupReplyHistory,
   type GroupReplyHistory,
   hasForbiddenGroupReplyPrefix,
+  hasVisibleGroupReplyContent,
   shouldSuppressGroupReply
 } from './groupReplyGuard.ts'
 import { describeGroupImages } from './groupImageDescriptions.ts'
@@ -447,6 +448,11 @@ export function createQQService({
         if (message.includes('\n')) {
           console.log(`[qq-group] rejected multi-line message for "${group.name}"`)
           return 'Rejected: message must be a single line. Do not include line breaks.'
+        }
+
+        if (!hasVisibleGroupReplyContent(message)) {
+          console.log(`[qq-group] rejected empty message for "${group.name}"`)
+          return 'Rejected: message must contain visible text.'
         }
 
         if (hasForbiddenGroupReplyPrefix(message)) {

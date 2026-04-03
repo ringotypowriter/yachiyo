@@ -5,6 +5,7 @@ import {
   appendGroupReplyHistory,
   GROUP_REPLY_DEDUP_WINDOW_MS,
   hasForbiddenGroupReplyPrefix,
+  hasVisibleGroupReplyContent,
   isNearDuplicateGroupReply,
   normalizeGroupReplyForComparison,
   shouldSuppressGroupReply
@@ -33,6 +34,24 @@ describe('hasForbiddenGroupReplyPrefix', () => {
 describe('normalizeGroupReplyForComparison', () => {
   it('strips leading colons and collapses whitespace', () => {
     assert.equal(normalizeGroupReplyForComparison('  ：  hello   there  '), 'hello there')
+  })
+
+  it('drops invisible-only characters to an empty comparison key', () => {
+    assert.equal(normalizeGroupReplyForComparison('\u200B\u200D\u2060\uFEFF'), '')
+  })
+})
+
+describe('hasVisibleGroupReplyContent', () => {
+  it('rejects whitespace-only replies', () => {
+    assert.equal(hasVisibleGroupReplyContent('   \n\t  '), false)
+  })
+
+  it('rejects invisible-only replies', () => {
+    assert.equal(hasVisibleGroupReplyContent('\u200B\u200D\u2060\uFEFF'), false)
+  })
+
+  it('allows replies with visible text', () => {
+    assert.equal(hasVisibleGroupReplyContent(' \u200B hello \u200D '), true)
   })
 })
 
