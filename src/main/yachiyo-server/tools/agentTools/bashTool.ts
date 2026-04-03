@@ -9,6 +9,7 @@ import { join } from 'node:path'
 
 import type { BashToolCallDetails } from '../../../../shared/yachiyo/protocol.ts'
 
+import { validateBashCommand } from './bashSecurity.ts'
 import {
   bashToolInputSchema,
   DEFAULT_BASH_TIMEOUT_SECONDS,
@@ -243,16 +244,8 @@ class AsyncQueue<T> {
   }
 }
 
-export function isBlockedBashCommand(command: string): boolean {
-  const normalized = command.replace(/\s+/g, ' ').trim()
-  if (!/(^|[;&|])\s*(sudo\s+)?(\/bin\/)?rm\b/.test(normalized)) {
-    return false
-  }
-
-  return /(^|[;&|])\s*(sudo\s+)?(\/bin\/)?rm\b(?:\s+-[-\w]+|\s+--)*\s+(?:\/(?:\s|$)|\/[*](?:\s|$)|\/(?:System|Library|Applications|usr|bin|sbin|etc|var|opt)(?:\/|\s|$))/.test(
-    normalized
-  )
-}
+// Re-export for backward compatibility
+export { isBlockedBashCommand } from './bashSecurity.ts'
 
 const defaultBashRunner: BashRunner = async ({
   abortSignal,
@@ -357,7 +350,8 @@ export async function* streamBashTool(
   const command = input.command.trim()
   const timeoutSeconds = input.timeout ?? DEFAULT_BASH_TIMEOUT_SECONDS
 
-  if (isBlockedBashCommand(command)) {
+  const securityCheck = validateBashCommand(command)
+  if (securityCheck.blocked) {
     queue.push(
       createBashResult({
         command,
@@ -366,7 +360,7 @@ export async function* streamBashTool(
         stdout: '',
         stderr: '',
         blocked: true,
-        error: 'Blocked an obviously catastrophic destructive command.'
+        error: securityCheck.message
       })
     )
     queue.close()
