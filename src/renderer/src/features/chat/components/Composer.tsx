@@ -67,13 +67,13 @@ const ACCEPTED_FILE_TYPES = [
 
 const ACCEPT_ATTRIBUTE = `image/*,${ACCEPTED_FILE_TYPES.join(',')}`
 
-const COMPOSER_TAG_HIGHLIGHT_RE = /@skills:[a-zA-Z0-9_-]+|@!?[A-Za-z0-9._/-]+/g
-const CONFIRMED_FILE_TAG_RE = /(^|\s)@(!?[A-Za-z0-9._/-]+)(?=\s|$)/g
+const COMPOSER_TAG_HIGHLIGHT_RE = /@skills:[a-zA-Z0-9_-]+|@!?"[^"]+"|@!?[A-Za-z0-9._/-]+/g
+const CONFIRMED_FILE_TAG_RE = /(^|\s)@(!?"[^"]+"|!?[A-Za-z0-9._/-]+)(?=\s|$)/g
 const SKILL_TAG_PATTERN = /^@skills:([a-zA-Z0-9_-]+)(\s|$)/
 const SLASH_PATTERN = /^\/([a-zA-Z0-9-]*)$/
 const SKILL_PREFIX_PATTERN = /^\/skills:([a-zA-Z0-9_-]*)$/
 const AT_SKILL_PREFIX_PATTERN = /^@skills:([a-zA-Z0-9_-]*)$/
-const FILE_MENTION_PATTERN = /(^|\s)@(!?)([A-Za-z0-9._/-]*)$/
+const FILE_MENTION_PATTERN = /(^|\s)@(!?)(?:"([^"]*)"?|([A-Za-z0-9._/-]*))$/
 
 interface PendingWorkspaceChangeConfirmation {
   threadId: string | null
@@ -96,8 +96,10 @@ function renderComposerTextHighlights(
   while ((m = COMPOSER_TAG_HIGHLIGHT_RE.exec(text)) !== null) {
     const matched = m[0]
     const isSkillTag = matched.startsWith('@skills:')
-    // For file tags, strip the leading @ (and optional !) to check against validated set
-    const fileTagKey = isSkillTag ? null : matched.slice(matched.startsWith('@!') ? 2 : 1)
+    // For file tags, strip the leading @ (and optional !) and surrounding quotes to check against validated set
+    let fileTagKey = isSkillTag ? null : matched.slice(matched.startsWith('@!') ? 2 : 1)
+    if (fileTagKey?.startsWith('"') && fileTagKey.endsWith('"'))
+      fileTagKey = fileTagKey.slice(1, -1)
     const isHighlighted = isSkillTag || (fileTagKey !== null && validatedSet.has(fileTagKey))
 
     if (m.index > last) {
@@ -142,7 +144,10 @@ function collectConfirmedFileTags(text: string): string[] {
 
   CONFIRMED_FILE_TAG_RE.lastIndex = 0
   while ((match = CONFIRMED_FILE_TAG_RE.exec(text)) !== null) {
-    const value = match[2]?.trim() ?? ''
+    let value = match[2]?.trim() ?? ''
+    // Strip leading ! and surrounding quotes for the tag key
+    if (value.startsWith('!')) value = value.slice(1)
+    if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1)
     if (!value || value.startsWith('skills:') || seen.has(value)) {
       continue
     }
@@ -497,8 +502,11 @@ export function Composer({
     skillQuery === null && atSkillPrefixMatch === null
       ? FILE_MENTION_PATTERN.exec(composerValue)
       : null
+  const fileMentionRawQuery = fileMentionMatch
+    ? (fileMentionMatch[3] ?? fileMentionMatch[4] ?? '')
+    : ''
   const fileMentionQuery =
-    fileMentionMatch && !fileMentionMatch[3].startsWith('skills:') ? fileMentionMatch[3] : null
+    fileMentionMatch && !fileMentionRawQuery.startsWith('skills:') ? fileMentionRawQuery : null
   const fileMentionIncludeIgnored = fileMentionMatch?.[2] === '!'
   const fileMentionQueryKey =
     fileMentionQuery === null ? null : `${fileMentionIncludeIgnored ? '!' : ''}${fileMentionQuery}`
@@ -1121,11 +1129,16 @@ export function Composer({
       } else if (command.type === 'file') {
         const encodedPath = command.key.slice('file:'.length)
         const filePath = encodedPath.startsWith('!') ? encodedPath.slice(1) : encodedPath
+        const needsQuotes = filePath.includes(' ')
         setComposerValue(
           composerValue.replace(
             FILE_MENTION_PATTERN,
-            (_match, prefix: string, ignoreMarker: string) =>
-              `${prefix}@${encodedPath.startsWith('!') || ignoreMarker === '!' ? '!' : ''}${filePath} `
+            (_match, prefix: string, ignoreMarker: string) => {
+              const bang = encodedPath.startsWith('!') || ignoreMarker === '!' ? '!' : ''
+              return needsQuotes
+                ? `${prefix}@${bang}"${filePath}" `
+                : `${prefix}@${bang}${filePath} `
+            }
           )
         )
       } else {

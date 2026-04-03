@@ -5,7 +5,7 @@ import { matchSorter } from 'match-sorter'
 
 import type { SearchService } from '../services/search/searchService.ts'
 
-const FILE_MENTION_RE = /(^|\s)@(!?)([A-Za-z0-9._/-]+)/g
+const FILE_MENTION_RE = /(^|\s)@(!?)(?:"([^"]+)"|([A-Za-z0-9._/-]+))/g
 const MAX_FILE_MENTION_COUNT = 8
 const DEFAULT_CANDIDATE_LIMIT = 8
 const DEFAULT_INLINE_MAX_BYTES = 6_000
@@ -198,7 +198,9 @@ export function parseFileMentions(content: string): ParsedFileMention[] {
   FILE_MENTION_RE.lastIndex = 0
   while ((match = FILE_MENTION_RE.exec(content)) !== null) {
     const includeIgnored = match[2] === '!'
-    const query = stripTrailingMentionPunctuation(match[3]?.trim() ?? '')
+    const isQuoted = match[3] != null
+    const rawPath = isQuoted ? match[3] : (match[4] ?? '')
+    const query = isQuoted ? rawPath.trim() : stripTrailingMentionPunctuation(rawPath.trim())
     const tokenEndIndex = match.index + match[0].length
     const nextCharacter = content[tokenEndIndex]
     const key = `${includeIgnored ? '!' : ''}${query}`
@@ -208,8 +210,9 @@ export function parseFileMentions(content: string): ParsedFileMention[] {
     }
 
     seen.add(key)
+    const bang = includeIgnored ? '!' : ''
     mentions.push({
-      raw: `@${includeIgnored ? '!' : ''}${query}`,
+      raw: isQuoted ? `@${bang}"${query}"` : `@${bang}${query}`,
       query,
       ...(includeIgnored ? { includeIgnored: true } : {})
     })

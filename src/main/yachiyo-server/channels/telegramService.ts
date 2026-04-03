@@ -524,7 +524,9 @@ export function createTelegramService({
       description:
         'Send a message to the group chat. Only call this when you genuinely want to speak. Your raw text output is private and never shown to anyone.',
       inputSchema: z.object({
-        message: z.string().describe('The message to send to the group. Plain text only.')
+        message: z
+          .string()
+          .describe('The message to send to the group. Plain text only. Never start with a colon.')
       }),
       execute: async ({ message }) => {
         if (message.includes('\n')) {

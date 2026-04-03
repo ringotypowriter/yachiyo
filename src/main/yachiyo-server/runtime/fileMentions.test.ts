@@ -59,6 +59,12 @@ async function withWorkspace(
     await writeFile(join(workspacePath, '.gitignore'), 'secret.txt\n', 'utf8')
     await writeFile(join(workspacePath, 'packages', 'app', '.gitignore'), 'dist/\n', 'utf8')
     await writeFile(join(workspacePath, 'README.md'), '# Demo\n', 'utf8')
+    await mkdir(join(workspacePath, 'docs', 'my notes'), { recursive: true })
+    await writeFile(
+      join(workspacePath, 'docs', 'my notes', 'design doc.md'),
+      '# Design Doc\n',
+      'utf8'
+    )
 
     await fn({
       workspacePath,
@@ -85,6 +91,19 @@ test('parseFileMentions strips trailing sentence punctuation from @file tokens',
   assert.deepEqual(parseFileMentions('Check @src/nested/tiny.ts. Then read @README.md,'), [
     { raw: '@src/nested/tiny.ts', query: 'src/nested/tiny.ts' },
     { raw: '@README.md', query: 'README.md' }
+  ])
+})
+
+test('parseFileMentions supports quoted paths with spaces', () => {
+  assert.deepEqual(parseFileMentions('Check @"docs/my notes/design doc.md" and @src/app.ts'), [
+    { raw: '@"docs/my notes/design doc.md"', query: 'docs/my notes/design doc.md' },
+    { raw: '@src/app.ts', query: 'src/app.ts' }
+  ])
+})
+
+test('parseFileMentions supports @! with quoted paths', () => {
+  assert.deepEqual(parseFileMentions('Read @!"secret path/file.txt"'), [
+    { raw: '@!"secret path/file.txt"', query: 'secret path/file.txt', includeIgnored: true }
   ])
 })
 
@@ -328,6 +347,20 @@ test('searchWorkspaceFileMentionCandidates reloads .gitignore rules between sear
       searchService
     })
     assert.deepEqual(visibleAfterUnignore, ['secret.txt'])
+  })
+})
+
+test('resolveFileMentionsForUserQuery resolves quoted paths with spaces', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    const result = await resolveFileMentionsForUserQuery({
+      content: 'Read @"docs/my notes/design doc.md"',
+      workspacePath,
+      searchService
+    })
+
+    assert.equal(result.mentions[0]?.kind, 'resolved')
+    assert.equal(result.inlinedPath, 'docs/my notes/design doc.md')
+    assert.match(result.augmentedUserQuery, /# Design Doc/)
   })
 })
 
