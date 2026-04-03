@@ -156,6 +156,18 @@ function findSectionHeadingIndex(lines: string[], sectionName: string): number {
 }
 
 /**
+ * Strip a leading `## SectionName` line from content — LLMs sometimes include
+ * the heading inside the body, which would create a duplicate.
+ */
+function stripLeadingHeading(content: string, sectionName: string): string {
+  const escaped = sectionName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return content
+    .trim()
+    .replace(new RegExp(`^##\\s+${escaped}\\s*\\n?`, 'i'), '')
+    .trim()
+}
+
+/**
  * Surgically replace the body of a single `## Section` in USER.md without
  * touching any other section. If the heading does not exist it is appended.
  */
@@ -182,7 +194,8 @@ export async function patchUserDocumentSection(
   }
 
   if (headingIdx === -1) {
-    const appended = baseContent.trimEnd() + `\n\n## ${sectionName}\n\n${input.content.trim()}\n`
+    const cleanContent = stripLeadingHeading(input.content, sectionName)
+    const appended = baseContent.trimEnd() + `\n\n## ${sectionName}\n\n${cleanContent}\n`
     return writeUserDocument({ filePath: input.filePath, content: appended })
   }
 
@@ -197,7 +210,9 @@ export async function patchUserDocumentSection(
 
   const before = lines.slice(0, headingIdx + 1)
   const after = lines.slice(endIdx)
-  const body = ['', ...input.content.trim().split('\n'), '']
+
+  const cleanContent = stripLeadingHeading(input.content, sectionName)
+  const body = ['', ...cleanContent.split('\n'), '']
 
   return writeUserDocument({
     filePath: input.filePath,

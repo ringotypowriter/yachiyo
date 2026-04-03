@@ -108,6 +108,34 @@ test('patchUserDocumentSection normalizes section name with whitespace or ## pre
   }
 })
 
+test('patchUserDocumentSection strips duplicate heading from content body', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-patch-dup-heading-'))
+  const filePath = join(root, 'USER.md')
+
+  try {
+    await writeUserDocument({
+      filePath,
+      content: '# Group\n\n## People\n\noriginal\n\n## Group Vibe\n\nvibe\n'
+    })
+
+    // LLM includes "## People" inside the content body — should not create a duplicate heading
+    await patchUserDocumentSection({
+      filePath,
+      section: 'People',
+      content: '## People\nAlice | owner\nBob | member'
+    })
+
+    const result = await readUserDocument({ filePath })
+    assert.ok(result?.content.includes('Alice | owner'), 'content updated')
+    assert.ok(!result?.content.includes('original'), 'old content removed')
+    assert.ok(result?.content.includes('vibe'), 'other section untouched')
+    const headingCount = (result?.content.match(/^## People/gm) ?? []).length
+    assert.equal(headingCount, 1, 'exactly one ## People heading — no duplicate')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('patchUserDocumentSection creates file from template when missing', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-patch-missing-'))
   const filePath = join(root, 'USER.md')
