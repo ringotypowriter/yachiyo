@@ -251,8 +251,8 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
       stderrTone,
       stderrTone ? undefined : 'inspection'
     )
-    // stdout is usually large and already summarised by outputSummary — inspection panel only
-    pushOutputTail(codeBlocks, 'stdout', details.stdout, undefined, 'inspection')
+    // stdout shown inline so the user can see what the command produced
+    pushCodeBlock(codeBlocks, 'stdout', details.stdout)
   }
 
   if (toolCall.toolName === 'grep') {

@@ -30,6 +30,7 @@ const thirdPartyDeps: ThirdPartyEntry[] = [
     license: 'MIT',
     url: 'https://github.com/rexxars/eventsource-parser'
   },
+  { name: 'fd', license: 'MIT', url: 'https://github.com/sharkdp/fd' },
   { name: 'framer-motion', license: 'MIT', url: 'https://github.com/framer/motion' },
   { name: 'htmlparser2', license: 'MIT', url: 'https://github.com/fb55/htmlparser2' },
   { name: 'ignore', license: 'MIT', url: 'https://github.com/kaelzhang/node-ignore' },
@@ -38,6 +39,7 @@ const thirdPartyDeps: ThirdPartyEntry[] = [
   { name: 'lucide-react', license: 'ISC', url: 'https://github.com/lucide-icons/lucide' },
   { name: 'react', license: 'MIT', url: 'https://github.com/facebook/react' },
   { name: 'react-dom', license: 'MIT', url: 'https://github.com/facebook/react' },
+  { name: 'ripgrep', license: 'MIT', url: 'https://github.com/BurntSushi/ripgrep' },
   { name: 'sharp', license: 'Apache-2.0', url: 'https://github.com/lovell/sharp' },
   { name: 'smol-toml', license: 'BSD-3-Clause', url: 'https://github.com/squirrelchat/smol-toml' },
   {
