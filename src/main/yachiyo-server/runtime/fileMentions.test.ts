@@ -68,12 +68,7 @@ async function withWorkspace(
 
     await fn({
       workspacePath,
-      searchService: createSearchService({
-        capabilities: {
-          grep: { preferred: 'typescript', backends: {} },
-          fileDiscovery: { preferred: 'typescript', backends: {} }
-        }
-      })
+      searchService: createSearchService({})
     })
   } finally {
     await rm(workspacePath, { recursive: true, force: true })
@@ -468,12 +463,7 @@ test('resolveFileMentionsForUserQuery rejects mentions that resolve outside the 
     const result = await resolveFileMentionsForUserQuery({
       content: 'Do not read @../outside-secret.txt.',
       workspacePath,
-      searchService: createSearchService({
-        capabilities: {
-          grep: { preferred: 'typescript', backends: {} },
-          fileDiscovery: { preferred: 'typescript', backends: {} }
-        }
-      })
+      searchService: createSearchService({})
     })
 
     assert.equal(result.mentions[0]?.kind, 'missing')

@@ -1,38 +1,14 @@
-import { accessSync, constants } from 'node:fs'
 import { readdir, readFile, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
-import { delimiter } from 'node:path'
 import { basename, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path'
 import { spawn } from 'node:child_process'
 
-export type GrepBackendKind = 'rg' | 'grep' | 'typescript'
-export type FileDiscoveryBackendKind = 'fd' | 'find' | 'typescript'
+export type GrepBackendKind = 'rg' | 'typescript'
+export type FileDiscoveryBackendKind = 'bfs' | 'typescript'
 export type SearchBackendKind = GrepBackendKind | FileDiscoveryBackendKind
 
-interface ResolvedCliBackend {
-  executable: string
-}
-
 export interface SearchBackendCapabilities {
-  grep: {
-    preferred: GrepBackendKind
-    backends: Partial<Record<'rg' | 'grep', ResolvedCliBackend>>
-  }
-  fileDiscovery: {
-    preferred: FileDiscoveryBackendKind
-    backends: Partial<Record<'fd' | 'find', ResolvedCliBackend>>
-  }
-}
-
-export interface ResolveSearchBackendCapabilitiesOptions {
-  env?: NodeJS.ProcessEnv
-  resolveCommand?: (command: string, env?: NodeJS.ProcessEnv) => string | undefined
-  /**
-   * Extra PATH segments to probe after the environment PATH. Defaults to
-   * well-known package-manager directories that GUI apps miss on macOS because
-   * launchd provides a minimal PATH that excludes Homebrew and cargo.
-   */
-  extraPaths?: string[]
+  grep: { available: GrepBackendKind }
+  fileDiscovery: { available: FileDiscoveryBackendKind }
 }
 
 export interface SearchCommandInput {
@@ -103,7 +79,11 @@ export interface SearchService {
 }
 
 export interface CreateSearchServiceOptions {
-  capabilities?: SearchBackendCapabilities
+  /** Absolute path to the bundled rg binary. Omit to use TypeScript fallback. */
+  rgPath?: string
+  /** Absolute path to the bundled bfs binary. Omit to use TypeScript fallback. */
+  bfsPath?: string
+  /** Override for testing — replaces the default spawn-based command runner. */
   runCommand?: (input: SearchCommandInput) => Promise<SearchCommandResult>
 }
 
@@ -122,175 +102,59 @@ const DEFAULT_RESULT_LIMIT = 50
 const MAX_RESULT_LIMIT = 200
 const MAX_SEARCH_STDERR_CHARS = 32_000
 const MAX_SEARCH_STDOUT_CHARS = 1_000_000
-const WINDOWS_EXECUTABLE_EXTENSIONS = ['.exe', '.cmd', '.bat', '.com']
-
-// GUI apps on macOS receive a minimal PATH from launchd that omits user-level
-// package manager directories. These are the most common install locations for fd/rg.
-export const DEFAULT_EXTRA_PATHS: readonly string[] =
-  process.platform === 'darwin'
-    ? [
-        '/opt/homebrew/bin', // Apple Silicon Homebrew
-        '/usr/local/bin', // Intel Homebrew
-        `${homedir()}/.cargo/bin` // Rust tools (rg)
-      ]
-    : []
-
-export function resolveSearchBackendCapabilities(
-  options: ResolveSearchBackendCapabilitiesOptions = {}
-): SearchBackendCapabilities {
-  const resolveCommandFromPath = options.resolveCommand ?? findExecutableOnPath
-  const baseEnv = options.env ?? process.env
-  const extraPaths = options.extraPaths ?? DEFAULT_EXTRA_PATHS
-  const env = augmentPathEnv(baseEnv, extraPaths)
-  const rgExecutable = resolveCommandFromPath('rg', env)
-  const grepExecutable = resolveCommandFromPath('grep', env)
-  const fdExecutable = resolveCommandFromPath('fd', env)
-  const findExecutable = resolveCommandFromPath('find', env)
-
-  return {
-    grep: {
-      preferred: rgExecutable ? 'rg' : grepExecutable ? 'grep' : 'typescript',
-      backends: {
-        ...(rgExecutable ? { rg: { executable: rgExecutable } } : {}),
-        ...(grepExecutable ? { grep: { executable: grepExecutable } } : {})
-      }
-    },
-    fileDiscovery: {
-      preferred: fdExecutable ? 'fd' : findExecutable ? 'find' : 'typescript',
-      backends: {
-        ...(fdExecutable ? { fd: { executable: fdExecutable } } : {}),
-        ...(findExecutable ? { find: { executable: findExecutable } } : {})
-      }
-    }
-  }
-}
 
 export function createSearchService(options: CreateSearchServiceOptions = {}): SearchService {
-  const capabilities = options.capabilities ?? resolveSearchBackendCapabilities()
+  const rgPath = options.rgPath
+  const bfsPath = options.bfsPath
   const runCommand = options.runCommand ?? runSearchCommand
+
+  const capabilities: SearchBackendCapabilities = {
+    grep: { available: rgPath ? 'rg' : 'typescript' },
+    fileDiscovery: { available: bfsPath ? 'bfs' : 'typescript' }
+  }
 
   return {
     capabilities,
     grep: async (input): Promise<GrepSearchResult> => {
       const request = normalizeGrepRequest(input)
       const rootPath = resolve(request.cwd, request.path)
-      const backendOrder = resolveGrepBackendOrder(capabilities)
-      let lastUnavailableError: SearchBackendError | undefined
 
-      for (const backend of backendOrder) {
+      if (rgPath) {
         try {
-          if (backend === 'typescript') {
-            return await runTypescriptGrep({
-              ...request,
-              rootPath
-            })
-          }
-
-          if (backend === 'rg') {
-            const executable = capabilities.grep.backends.rg?.executable
-            if (!executable) {
-              continue
-            }
-
-            return await runRipgrepSearch({
-              executable,
-              request,
-              rootPath,
-              runCommand
-            })
-          }
-
-          const executable = capabilities.grep.backends.grep?.executable
-          if (!executable) {
-            continue
-          }
-
-          return await runGrepSearch({
-            executable,
-            request,
-            rootPath,
-            runCommand
-          })
+          return await runRipgrepSearch({ executable: rgPath, request, rootPath, runCommand })
         } catch (error) {
           if (error instanceof SearchBackendError && error.code === 'backend-unavailable') {
-            lastUnavailableError = error
-            continue
+            // Fall through to TypeScript
+          } else {
+            throw error
           }
-
-          throw error
         }
       }
 
-      if (lastUnavailableError) {
-        throw lastUnavailableError
-      }
-
-      return await runTypescriptGrep({
-        ...request,
-        rootPath
-      })
+      return await runTypescriptGrep({ ...request, rootPath })
     },
     glob: async (input): Promise<GlobSearchResult> => {
       const request = normalizeGlobRequest(input)
       const rootPath = resolve(request.cwd, request.path)
-      const backendOrder = resolveFileDiscoveryBackendOrder(capabilities)
-      let lastUnavailableError: SearchBackendError | undefined
 
-      for (const backend of backendOrder) {
+      if (bfsPath) {
         try {
-          if (backend === 'typescript') {
-            return await runTypescriptGlob({
-              ...request,
-              rootPath
-            })
-          }
-
-          if (backend === 'fd') {
-            const executable = capabilities.fileDiscovery.backends.fd?.executable
-            if (!executable) {
-              continue
-            }
-
-            return await runFdSearch({
-              executable,
-              request,
-              rootPath,
-              runCommand
-            })
-          }
-
-          const executable = capabilities.fileDiscovery.backends.find?.executable
-          if (!executable) {
-            continue
-          }
-
-          return await runFindSearch({
-            executable,
-            request,
-            rootPath,
-            runCommand
-          })
+          return await runBfsSearch({ executable: bfsPath, request, rootPath, runCommand })
         } catch (error) {
           if (error instanceof SearchBackendError && error.code === 'backend-unavailable') {
-            lastUnavailableError = error
-            continue
+            // Fall through to TypeScript
+          } else {
+            throw error
           }
-
-          throw error
         }
       }
 
-      if (lastUnavailableError) {
-        throw lastUnavailableError
-      }
-
-      return await runTypescriptGlob({
-        ...request,
-        rootPath
-      })
+      return await runTypescriptGlob({ ...request, rootPath })
     }
   }
 }
+
+// ── Request normalization ────────────────────────────────────────────────────
 
 function normalizeGrepRequest(input: GrepSearchRequest): Required<
   Omit<GrepSearchRequest, 'signal'>
@@ -342,31 +206,7 @@ function clampLimit(limit?: number): number {
   return Math.max(1, Math.min(MAX_RESULT_LIMIT, Math.trunc(limit as number)))
 }
 
-function resolveGrepBackendOrder(capabilities: SearchBackendCapabilities): GrepBackendKind[] {
-  const order: GrepBackendKind[] = [capabilities.grep.preferred]
-
-  for (const backend of ['rg', 'grep', 'typescript'] as const) {
-    if (!order.includes(backend)) {
-      order.push(backend)
-    }
-  }
-
-  return order
-}
-
-function resolveFileDiscoveryBackendOrder(
-  capabilities: SearchBackendCapabilities
-): FileDiscoveryBackendKind[] {
-  const order: FileDiscoveryBackendKind[] = [capabilities.fileDiscovery.preferred]
-
-  for (const backend of ['fd', 'find', 'typescript'] as const) {
-    if (!order.includes(backend)) {
-      order.push(backend)
-    }
-  }
-
-  return order
-}
+// ── Ripgrep backend ──────────────────────────────────────────────────────────
 
 async function runRipgrepSearch(input: {
   executable: string
@@ -481,140 +321,39 @@ async function runRipgrepSearch(input: {
   }
 }
 
-async function runGrepSearch(input: {
-  executable: string
-  request: ReturnType<typeof normalizeGrepRequest>
-  rootPath: string
-  runCommand: (input: SearchCommandInput) => Promise<SearchCommandResult>
-}): Promise<GrepSearchResult> {
-  const targetStat = await stat(input.rootPath).catch(() => null)
-  if (!targetStat) {
-    throw new SearchBackendError('bad-input', `Search path does not exist: ${input.rootPath}`)
-  }
+// ── bfs backend ──────────────────────────────────────────────────────────────
 
-  const args = [
-    ...(targetStat.isDirectory() ? ['-R'] : []),
-    '-n',
-    '-H',
-    ...(input.request.literal ? ['-F'] : ['-E']),
-    ...(input.request.caseSensitive ? [] : ['-i']),
-    ...(input.request.include ? ['--include', input.request.include] : []),
-    ...(input.request.context > 0 ? ['-C', String(input.request.context)] : []),
-    '-m',
-    String(input.request.limit),
-    '-e',
-    input.request.pattern,
-    input.rootPath
-  ]
-  const result = await runCliSearchCommand({
-    command: input.executable,
-    args,
-    cwd: input.request.cwd,
-    maxLines: input.request.limit,
-    signal: input.request.signal,
-    runCommand: input.runCommand
-  })
-
-  if (!result.terminatedEarly && result.exitCode !== 0 && result.exitCode !== 1) {
-    throw classifyCliFailure(result.stderr)
-  }
-
-  const matches: GrepSearchMatch[] = []
-
-  for (const line of splitLines(result.stdout)) {
-    const parsed = parseColonSeparatedGrepLine(line)
-    if (!parsed) {
-      continue
-    }
-
-    matches.push({
-      path: normalizeResultPath(parsed.path, input.rootPath),
-      line: parsed.line,
-      text: parsed.text
-    })
-  }
-
-  return {
-    backend: 'grep',
-    rootPath: input.rootPath,
-    matches: matches.slice(0, input.request.limit),
-    truncated: matches.length > input.request.limit || Boolean(result.terminatedEarly)
-  }
-}
-
-async function runFdSearch(input: {
+async function runBfsSearch(input: {
   executable: string
   request: ReturnType<typeof normalizeGlobRequest>
   rootPath: string
   runCommand: (input: SearchCommandInput) => Promise<SearchCommandResult>
 }): Promise<GlobSearchResult> {
   const targetStat = await stat(input.rootPath).catch(() => null)
+
   if (targetStat?.isFile()) {
     const matcher = createGlobMatcher(input.request.pattern)
     const fileName = normalizeRelativePath(basename(input.rootPath))
     return {
-      backend: 'fd',
+      backend: 'bfs',
       rootPath: input.rootPath,
       paths: matcher(fileName) ? [fileName] : [],
       truncated: false
     }
   }
 
+  // bfs uses find-compatible syntax. -name for basename matching, -path for full path.
+  // For glob patterns with directory separators (like src/**/*.ts), use -path.
+  const patternHasSlash = input.request.pattern.includes('/')
   const args = [
-    '--glob',
-    '--hidden',
-    '--color',
-    'never',
-    '--max-results',
-    String(input.request.limit),
-    input.request.pattern,
-    input.rootPath
+    input.rootPath,
+    '-type',
+    'f',
+    ...(patternHasSlash
+      ? ['-path', `*/${input.request.pattern}`]
+      : ['-name', input.request.pattern]),
+    '-print'
   ]
-  const result = await runCliSearchCommand({
-    command: input.executable,
-    args,
-    cwd: input.request.cwd,
-    maxLines: input.request.limit,
-    signal: input.request.signal,
-    runCommand: input.runCommand
-  })
-
-  if (!result.terminatedEarly && result.exitCode !== 0 && result.exitCode !== 1) {
-    throw classifyCliFailure(result.stderr)
-  }
-
-  const paths = splitLines(result.stdout)
-    .map((value) => normalizeResultPath(value, input.rootPath))
-    .filter(Boolean)
-
-  return {
-    backend: 'fd',
-    rootPath: input.rootPath,
-    paths: paths.slice(0, input.request.limit),
-    truncated: paths.length > input.request.limit || Boolean(result.terminatedEarly)
-  }
-}
-
-async function runFindSearch(input: {
-  executable: string
-  request: ReturnType<typeof normalizeGlobRequest>
-  rootPath: string
-  runCommand: (input: SearchCommandInput) => Promise<SearchCommandResult>
-}): Promise<GlobSearchResult> {
-  const targetStat = await stat(input.rootPath).catch(() => null)
-  const matcher = createGlobMatcher(input.request.pattern)
-
-  if (targetStat?.isFile()) {
-    const fileName = normalizeRelativePath(basename(input.rootPath))
-    return {
-      backend: 'find',
-      rootPath: input.rootPath,
-      paths: matcher(fileName) ? [fileName] : [],
-      truncated: false
-    }
-  }
-
-  const args = [input.rootPath, '-type', 'f', '-print']
   const result = await runCliSearchCommand({
     command: input.executable,
     args,
@@ -628,18 +367,22 @@ async function runFindSearch(input: {
     throw classifyCliFailure(result.stderr)
   }
 
+  // bfs uses find-compatible glob matching, but for complex patterns like
+  // **/*.ts we may need to post-filter with our own glob matcher for accuracy.
+  const matcher = createGlobMatcher(input.request.pattern)
   const paths = splitLines(result.stdout)
     .map((value) => normalizeResultPath(value, input.rootPath))
-    .filter((value) => matcher(value))
-    .filter(Boolean)
+    .filter((value) => value.length > 0 && matcher(value))
 
   return {
-    backend: 'find',
+    backend: 'bfs',
     rootPath: input.rootPath,
     paths: paths.slice(0, input.request.limit),
     truncated: paths.length > input.request.limit || Boolean(result.terminatedEarly)
   }
 }
+
+// ── TypeScript fallback: grep ────────────────────────────────────────────────
 
 async function runTypescriptGrep(input: {
   cwd: string
@@ -716,6 +459,8 @@ async function runTypescriptGrep(input: {
   }
 }
 
+// ── TypeScript fallback: glob ────────────────────────────────────────────────
+
 async function runTypescriptGlob(input: {
   cwd: string
   pattern: string
@@ -763,6 +508,8 @@ async function runTypescriptGlob(input: {
     truncated: false
   }
 }
+
+// ── Shared utilities ─────────────────────────────────────────────────────────
 
 function createLineMatcher(
   pattern: string,
@@ -854,21 +601,6 @@ function globPatternToRegExp(pattern: string): RegExp {
 
   source += '$'
   return new RegExp(source)
-}
-
-function parseColonSeparatedGrepLine(
-  value: string
-): { path: string; line: number; text: string } | undefined {
-  const match = /^(.*?):(\d+):(.*)$/.exec(value)
-  if (!match) {
-    return undefined
-  }
-
-  return {
-    path: match[1] ?? '',
-    line: Number(match[2]),
-    text: match[3] ?? ''
-  }
 }
 
 function normalizeResultPath(value: string, rootPath: string): string {
@@ -1045,58 +777,4 @@ function toOptionalNestedString(
   }
 
   return typeof current === 'string' ? current : undefined
-}
-
-function augmentPathEnv(env: NodeJS.ProcessEnv, extraPaths: readonly string[]): NodeJS.ProcessEnv {
-  if (extraPaths.length === 0) {
-    return env
-  }
-
-  const existing = (env.PATH ?? '').split(delimiter).filter(Boolean)
-  const novel = extraPaths.filter((p) => !existing.includes(p))
-
-  if (novel.length === 0) {
-    return env
-  }
-
-  return { ...env, PATH: [...existing, ...novel].join(delimiter) }
-}
-
-function findExecutableOnPath(
-  command: string,
-  env: NodeJS.ProcessEnv = process.env
-): string | undefined {
-  const pathValue = env.PATH
-  if (!pathValue) {
-    return undefined
-  }
-
-  const candidateNames =
-    process.platform === 'win32'
-      ? [command, ...WINDOWS_EXECUTABLE_EXTENSIONS.map((extension) => `${command}${extension}`)]
-      : [command]
-
-  for (const segment of pathValue.split(delimiter)) {
-    if (!segment) {
-      continue
-    }
-
-    for (const candidateName of candidateNames) {
-      const candidatePath = join(segment, candidateName)
-      if (isExecutable(candidatePath)) {
-        return candidatePath
-      }
-    }
-  }
-
-  return undefined
-}
-
-function isExecutable(path: string): boolean {
-  try {
-    accessSync(path, constants.X_OK)
-    return true
-  } catch {
-    return false
-  }
 }

@@ -12,6 +12,10 @@ files:
 extraResources:
   - from: resources/core-skills
     to: core-skills
+  - from: resources/bin/${os}-${arch}
+    to: bin
+    filter:
+      - '**/*'
 asarUnpack:
   - resources/**
 win:

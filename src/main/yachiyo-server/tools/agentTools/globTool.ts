@@ -55,7 +55,7 @@ export async function runGlobTool(
   )
   const resolvedPath = resolveToolTarget(context.workspacePath, searchPath)
   const fallbackDetails: GlobToolCallDetails = {
-    backend: dependencies.searchService.capabilities.fileDiscovery.preferred,
+    backend: dependencies.searchService.capabilities.fileDiscovery.available,
     pattern: input.pattern,
     path: resolvedPath,
     resultCount: 0,

@@ -16,3 +16,6 @@ other_resources/
 docs/
 
 *.p12
+
+# Downloaded search binaries (rg, bfs) — platform-specific, not committed.
+resources/bin/

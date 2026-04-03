@@ -53,7 +53,7 @@ export async function runGrepTool(
   const searchPath = expandTilde(input.path?.trim() || '.')
   const resolvedPath = resolveToolTarget(context.workspacePath, searchPath)
   const fallbackDetails: GrepToolCallDetails = {
-    backend: dependencies.searchService.capabilities.grep.preferred,
+    backend: dependencies.searchService.capabilities.grep.available,
     pattern: input.pattern,
     path: resolvedPath,
     resultCount: 0,
@@ -122,7 +122,9 @@ function formatGrepContent(matches: GrepToolCallDetails['matches'], truncated: b
     return 'No matches found.'
   }
 
-  // Group matches by file for readability.
+  // Use standard path:line: text format (familiar to models from grep/rg output).
+  // Group by file with blank lines between groups for readability.
+  const hasContext = matches.some((m) => m.contextBefore?.length || m.contextAfter?.length)
   const groups = new Map<string, typeof matches>()
   for (const match of matches) {
     const existing = groups.get(match.path)
@@ -133,22 +135,21 @@ function formatGrepContent(matches: GrepToolCallDetails['matches'], truncated: b
     }
   }
 
-  const hasContext = matches.some((m) => m.contextBefore?.length || m.contextAfter?.length)
   const sections: string[] = []
 
   for (const [filePath, fileMatches] of groups) {
-    const lines: string[] = [`# ${filePath}`]
+    const lines: string[] = []
     for (const match of fileMatches) {
       if (hasContext && match.contextBefore?.length) {
         for (let i = 0; i < match.contextBefore.length; i++) {
           const lineNum = match.line - match.contextBefore.length + i
-          lines.push(`  ${lineNum}: ${match.contextBefore[i]}`)
+          lines.push(`${filePath}:${lineNum}- ${match.contextBefore[i]}`)
         }
       }
-      lines.push(`> ${match.line}: ${match.text}`)
+      lines.push(`${filePath}:${match.line}: ${match.text}`)
       if (hasContext && match.contextAfter?.length) {
         for (let i = 0; i < match.contextAfter.length; i++) {
-          lines.push(`  ${match.line + 1 + i}: ${match.contextAfter[i]}`)
+          lines.push(`${filePath}:${match.line + 1 + i}- ${match.contextAfter[i]}`)
         }
       }
     }

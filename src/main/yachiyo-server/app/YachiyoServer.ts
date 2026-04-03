@@ -72,6 +72,7 @@ import {
 import { readUserDocument, writeUserDocument } from '../runtime/user.ts'
 import { readChannelsConfig, writeChannelsConfig } from '../runtime/channelsConfig.ts'
 import type { ModelRuntime } from '../runtime/types.ts'
+import { resolveSearchBinaries } from '../services/search/searchBinaries.ts'
 import { createSearchService, type SearchService } from '../services/search/searchService.ts'
 import {
   createImageToTextService,
@@ -197,7 +198,10 @@ export class YachiyoServer {
     this.saveUserDocumentFile =
       options.saveUserDocument ?? ((content) => writeUserDocument({ content }))
     this.readMemoryTermDocumentFile = options.readMemoryTermDocument ?? null
-    const searchService = options.searchService ?? createSearchService()
+    const searchBinaries = resolveSearchBinaries()
+    const searchService =
+      options.searchService ??
+      createSearchService({ rgPath: searchBinaries.rg, bfsPath: searchBinaries.bfs })
     const ensureThreadWorkspace = options.ensureThreadWorkspace ?? defaultEnsureThreadWorkspace
     const cloneThreadWorkspace = options.cloneThreadWorkspace ?? defaultCloneThreadWorkspace
     const deleteThreadWorkspace = options.deleteThreadWorkspace ?? defaultDeleteThreadWorkspace

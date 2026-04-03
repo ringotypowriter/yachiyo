@@ -155,7 +155,7 @@ test('buildToolCallDetailsPresentation exposes glob metadata and normalized file
     toolName: 'glob',
     inputSummary: 'src/**/*.ts',
     details: {
-      backend: 'fd',
+      backend: 'bfs',
       pattern: 'src/**/*.ts',
       path: '/tmp/thread-1',
       resultCount: 2,
@@ -345,7 +345,7 @@ test('buildToolCallDetailsPresentation marks grep and glob match lists as inspec
     ...BASE_TOOL_CALL,
     toolName: 'glob',
     details: {
-      backend: 'fd',
+      backend: 'bfs',
       pattern: '**/*.ts',
       path: '/src',
       resultCount: 1,
