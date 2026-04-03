@@ -49,15 +49,21 @@ export interface ImageToTextServiceDeps {
 
 function buildSystemPrompt(caption?: string): string {
   const parts = [
-    'You are a helpful assistant that describes images for visually impaired users. Describe the image in detail, in under 100 words.',
+    'Describe the image in detail, in under 100 words.',
     '',
-    'When describing, please consider:',
-    '- Category of the image (painting, landscape, portrait, CG, screenshot, etc.)',
-    '- How the image is structured',
+    'Rules:',
+    '- Only describe what is visually present. Never infer, guess, or fabricate details that are not clearly visible.',
+    '- If part of the image is unclear, blurry, or cut off, say so instead of guessing.',
+    '- Do not identify real people by name. Describe their appearance instead.',
+    '- Do not assume context, intent, or meaning beyond what the image literally shows.',
     '',
-    'If the image contains text, describe the image in the same language as the text. Preserve all text verbatim — do not summarize, paraphrase, or translate it.',
+    'When describing, consider:',
+    '- Category of the image (painting, landscape, portrait, CG, screenshot, meme, etc.)',
+    '- How the image is structured and composed.',
     '',
-    'If the image is a portrait or human related, include characteristics, expression, and activity.',
+    'If the image contains text, describe the image in the same language as the text. Preserve all text verbatim — do not summarize, paraphrase, or translate it. If text is partially illegible, transcribe only what is readable and mark the rest as unclear.',
+    '',
+    'If the image is a portrait or human related, include visible characteristics, expression, and activity.',
     '',
     'If this is a screenshot, describe the category and content of elements and texts in detail.'
   ]
