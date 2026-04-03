@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.18
+
+### Patch Changes
+
+- [`8426a06`](https://github.com/ringotypowriter/yachiyo/commit/8426a06568f76741c7b4e30100691c67f6e05645) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Tool Call Merge & Better Grep and Glob
+
 ## 1.0.17
 
 ### Patch Changes
