@@ -1549,8 +1549,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       if (event.type === 'message.completed') {
-        const pendingAssistantMessages = { ...state.pendingAssistantMessages }
-        delete pendingAssistantMessages[event.runId]
+        const pendingAssistantMessages =
+          event.message.role === 'assistant'
+            ? (() => {
+                const next = { ...state.pendingAssistantMessages }
+                delete next[event.runId]
+                return next
+              })()
+            : state.pendingAssistantMessages
 
         return {
           messages: {
