@@ -56,6 +56,7 @@ import {
   type GroupMonitorRegistry
 } from './groupMonitorRegistry.ts'
 import { parseCQImages, type CQImageRef } from './qqImageParsing.ts'
+import { resolveCQCodes, extractReplyId } from './qqCQCodes.ts'
 import { createOneBotClient, type OneBotClient } from './onebotClient.ts'
 import { routeQQMessage, type QQChannelStorage } from './qq.ts'
 import { EXTERNAL_GROUP_PROMPT } from '../runtime/prompt.ts'
@@ -267,8 +268,12 @@ export function createQQService({
   }
 
   client.onPrivateMessage((msg) => {
-    const { text, images: imageRefs } = parseCQImages(msg.rawMessage)
-    if (!text && imageRefs.length === 0) return
+    const { text: rawText, images: imageRefs } = parseCQImages(msg.rawMessage)
+    if (!rawText && imageRefs.length === 0) return
+    // Resolve CQ codes synchronously. Reply CQ codes are stripped —
+    // in 1:1 DMs the user already sees the QQ reply UI, so the bot
+    // doesn't need the quoted context to maintain coherence.
+    const text = resolveCQCodes(rawText)
 
     const userId = String(msg.userId)
     const nickname = msg.nickname
@@ -631,32 +636,45 @@ export function createQQService({
 
     // Resolve [CQ:at,qq=ID] codes into readable @Name so the model
     // can track who is addressing whom in multi-party conversation.
-    const text = resolveCQAtMentions(rawText)
+    // Then resolve remaining CQ codes (face, share, json cards, etc.)
+    // into human-readable labels.
+    const resolvedText = resolveCQCodes(resolveCQAtMentions(rawText))
 
-    // Resolve images eagerly then route with the completed entry.
+    // Async enrichment: reply quote + image descriptions.
+    const replyMsgId = extractReplyId(rawText)
+    const replyQuotePromise: Promise<string | null> = replyMsgId
+      ? client
+          .getMsg(Number(replyMsgId))
+          .then((quoted) => {
+            const snippet = resolveCQCodes(
+              resolveCQAtMentions(parseCQImages(quoted.rawMessage).text)
+            )
+            const truncated = snippet.length > 80 ? snippet.slice(0, 77) + '...' : snippet
+            return `「${quoted.sender.nickname}: ${truncated}」`
+          })
+          .catch(() => null)
+      : Promise.resolve(null)
+
     const imagePromises = imageRefs
       .slice(0, policy.maxImagesPerBatch)
       .map((ref) => resolveQQImage(ref))
 
-    if (imagePromises.length === 0) {
-      groupRegistry.routeMessage(existing.id, {
-        senderName: msg.nickname,
-        senderExternalUserId: String(msg.userId),
-        isMention,
-        text,
-        timestamp: msg.time
-      })
-    } else {
-      void Promise.all(imagePromises).then(async (results) => {
-        const images = results.filter((img): img is MessageImageRecord => img !== null)
+    const needsAsyncEnrichment = replyMsgId != null || imagePromises.length > 0
 
-        // Generate alt text for group images before they enter the probe context.
-        await describeGroupImages({
-          server,
-          text,
-          images,
-          logLabel: 'qq-group'
-        })
+    if (isMention && needsAsyncEnrichment) {
+      // Mentions trigger an immediate probe via runCheck(), so we must
+      // wait for enrichment to complete before routing — otherwise the
+      // model sees stale text and no images on the first turn.
+      void (async () => {
+        const [quote, ...imgResults] = await Promise.all([replyQuotePromise, ...imagePromises])
+        const images = (imgResults as (MessageImageRecord | null)[]).filter(
+          (img): img is MessageImageRecord => img !== null
+        )
+        const text = quote ? `${quote}\n${resolvedText}` : resolvedText
+
+        if (images.length > 0) {
+          await describeGroupImages({ server, text, images, logLabel: 'qq-group' })
+        }
 
         groupRegistry!.routeMessage(existing.id, {
           senderName: msg.nickname,
@@ -666,7 +684,40 @@ export function createQQService({
           images: images.length > 0 ? images : undefined,
           timestamp: msg.time
         })
-      })
+      })()
+    } else {
+      // Non-mention: route synchronously to preserve buffer ordering.
+      // Enrichment patches the entry in-place before the next debounced
+      // probe fires.
+      const entry: GroupMessageEntry = {
+        senderName: msg.nickname,
+        senderExternalUserId: String(msg.userId),
+        isMention,
+        text: resolvedText,
+        timestamp: msg.time
+      }
+      groupRegistry.routeMessage(existing.id, entry)
+
+      if (replyMsgId) {
+        void replyQuotePromise.then((quote) => {
+          if (quote) entry.text = `${quote}\n${entry.text}`
+        })
+      }
+
+      if (imagePromises.length > 0) {
+        void Promise.all(imagePromises).then(async (results) => {
+          const images = results.filter((img): img is MessageImageRecord => img !== null)
+          if (images.length > 0) {
+            await describeGroupImages({
+              server,
+              text: entry.text,
+              images,
+              logLabel: 'qq-group'
+            })
+            entry.images = images
+          }
+        })
+      }
     }
   })
 

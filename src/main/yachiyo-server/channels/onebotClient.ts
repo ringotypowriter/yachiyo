@@ -42,6 +42,18 @@ const RECONNECT_BASE_MS = 3_000
 const RECONNECT_CAP_MS = 30_000
 const ACTION_TIMEOUT_MS = 30_000
 
+/** Response from the `get_msg` OneBot action. */
+export interface OneBotMessageInfo {
+  /** The message ID. */
+  messageId: number
+  /** Sender QQ ID. */
+  sender: { userId: number; nickname: string }
+  /** CQ-coded message content. */
+  rawMessage: string
+  /** Unix timestamp. */
+  time: number
+}
+
 /** Response from the `get_image` OneBot action. */
 export interface OneBotImageInfo {
   /** Local file path where NapCat cached the image. */
@@ -67,6 +79,8 @@ export interface OneBotClient {
   getLoginInfo(): Promise<{ userId: number; nickname: string }>
   /** Resolve an image file identifier to a local path / download URL. */
   getImage(file: string): Promise<OneBotImageInfo>
+  /** Fetch a message by ID (used to resolve reply quotes). */
+  getMsg(messageId: number): Promise<OneBotMessageInfo>
   /**
    * Show "对方正在输入..." typing indicator to a private chat user.
    * NapCat extension — only works for C2C (private) messages.
@@ -285,6 +299,21 @@ export function createOneBotClient(options: OneBotClientOptions): OneBotClient {
         url: string
       }
       return result
+    },
+
+    async getMsg(messageId: number): Promise<OneBotMessageInfo> {
+      const result = (await sendAction('get_msg', { message_id: messageId })) as {
+        message_id: number
+        sender: { user_id: number; nickname: string }
+        raw_message: string
+        time: number
+      }
+      return {
+        messageId: result.message_id,
+        sender: { userId: result.sender.user_id, nickname: result.sender.nickname },
+        rawMessage: result.raw_message,
+        time: result.time
+      }
     },
 
     async setInputStatus(userId: number, eventType: number): Promise<void> {
