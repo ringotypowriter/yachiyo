@@ -48,7 +48,7 @@ import {
 } from './groupMonitorRegistry.ts'
 import { connectWithRetry } from './connectionRetry.ts'
 import { routeDiscordMessage, type DiscordChannelStorage } from './discord.ts'
-import { PERSONA_IDENTITY } from '../runtime/prompt.ts'
+import { EXTERNAL_GROUP_PROMPT } from '../runtime/prompt.ts'
 import { readChannelsConfig } from '../runtime/channelsConfig.ts'
 import { readUserDocument } from '../runtime/user.ts'
 import { createSpeechThrottle } from './groupSpeechThrottle.ts'
@@ -589,7 +589,7 @@ export function createDiscordService({
       groupName: group.name,
       recentMessages: probeRecentMessages,
       knownUsers: buildKnownUsersMap(),
-      personaSummary: PERSONA_IDENTITY,
+      personaSummary: EXTERNAL_GROUP_PROMPT,
       ownerInstruction: readChannelsConfig().guestInstruction,
       groupUserDocument: groupUserDoc?.content
     })

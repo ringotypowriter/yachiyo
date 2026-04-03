@@ -51,7 +51,7 @@ import {
 import { parseCQImages, type CQImageRef } from './qqImageParsing.ts'
 import { createOneBotClient, type OneBotClient } from './onebotClient.ts'
 import { routeQQMessage, type QQChannelStorage } from './qq.ts'
-import { PERSONA_IDENTITY } from '../runtime/prompt.ts'
+import { EXTERNAL_GROUP_PROMPT } from '../runtime/prompt.ts'
 import { readChannelsConfig } from '../runtime/channelsConfig.ts'
 import { readUserDocument } from '../runtime/user.ts'
 import { YACHIYO_USER_FILE_NAME } from '../config/paths.ts'
@@ -528,7 +528,7 @@ export function createQQService({
       groupName: group.name,
       recentMessages: probeRecentMessages,
       knownUsers: buildKnownUsersMap(),
-      personaSummary: PERSONA_IDENTITY,
+      personaSummary: EXTERNAL_GROUP_PROMPT,
       ownerInstruction: readChannelsConfig().guestInstruction,
       groupUserDocument: groupUserDoc?.content
     })
