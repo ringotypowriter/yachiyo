@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
@@ -98,5 +98,43 @@ test('runReadTool returns error result for missing image file', async () => {
       { workspacePath }
     )
     assert.ok(result.error, 'should have an error for missing file')
+  })
+})
+
+test('runReadTool resolves Unicode spaces in intermediate directory names', async () => {
+  await withWorkspace(async (workspacePath) => {
+    // U+202F NARROW NO-BREAK SPACE — used by macOS in CleanShot filenames
+    const dirWithNbsp = join(workspacePath, 'my\u202Fnotes')
+    await mkdir(dirWithNbsp, { recursive: true })
+    await writeFile(join(dirWithNbsp, 'design\u202Fdoc.md'), '# Design Doc\n', 'utf8')
+
+    // LLM sends regular spaces (U+0020) because it normalizes Unicode spaces
+    const result = await runReadTool(
+      { path: join(workspacePath, 'my notes', 'design doc.md') },
+      { workspacePath }
+    )
+
+    assert.equal(result.error, undefined)
+    const textBlock = result.content.find((b) => b.type === 'text')
+    assert.ok(textBlock?.type === 'text')
+    assert.match(textBlock.text, /# Design Doc/)
+  })
+})
+
+test('runReadTool resolves Unicode spaces in deeply nested paths', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const deepPath = join(workspacePath, 'docs\u202Fhere', 'sub\u202Fdir')
+    await mkdir(deepPath, { recursive: true })
+    await writeFile(join(deepPath, 'file\u202Fname.txt'), 'found it\n', 'utf8')
+
+    const result = await runReadTool(
+      { path: join(workspacePath, 'docs here', 'sub dir', 'file name.txt') },
+      { workspacePath }
+    )
+
+    assert.equal(result.error, undefined)
+    const textBlock = result.content.find((b) => b.type === 'text')
+    assert.ok(textBlock?.type === 'text')
+    assert.match(textBlock.text, /found it/)
   })
 })

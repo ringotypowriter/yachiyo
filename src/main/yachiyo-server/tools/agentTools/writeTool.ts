@@ -11,6 +11,7 @@ import {
   type WriteToolOutput,
   hasAccess,
   resolveToolPath,
+  resolveUnicodeSpacePath,
   textContent,
   toToolModelOutput,
   writeToolInputSchema
@@ -45,7 +46,9 @@ export async function runWriteTool(
   input: WriteToolInput,
   context: AgentToolContext
 ): Promise<WriteToolOutput> {
-  const resolvedPath = resolveToolPath(context.workspacePath, input.path)
+  const resolvedPath = await resolveUnicodeSpacePath(
+    resolveToolPath(context.workspacePath, input.path)
+  )
 
   try {
     const exists = await hasAccess(resolvedPath)

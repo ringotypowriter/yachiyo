@@ -1,4 +1,4 @@
-import { access } from 'node:fs/promises'
+import { access, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 
@@ -172,6 +172,54 @@ export function resolveToolPath(workspacePath: string, targetPath: string): stri
   const unquoted = targetPath.trim().replace(/^(['"`])(.*)\1$/, '$2')
   const expanded = expandTilde(unquoted)
   return isAbsolute(expanded) ? resolve(expanded) : resolve(workspacePath, expanded)
+}
+
+// LLMs normalize U+202F (NARROW NO-BREAK SPACE, used in macOS time-format filenames)
+// and similar Unicode space variants to regular U+0020 when copying paths from tool output.
+// When a path doesn't resolve, walk each segment from the root and scan directory entries
+// for names that match after normalizing all Unicode spaces to U+0020.
+function normalizeUnicodeSpaces(s: string): string {
+  return s.replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, '\u0020')
+}
+
+export async function resolveUnicodeSpacePath(resolvedPath: string): Promise<string> {
+  try {
+    await stat(resolvedPath)
+    return resolvedPath
+  } catch {
+    try {
+      const segments = relative(resolve('/'), resolvedPath).split('/')
+      let current = '/'
+
+      for (const segment of segments) {
+        const direct = join(current, segment)
+        try {
+          await stat(direct)
+          current = direct
+          continue
+        } catch {
+          // Segment doesn't exist literally — try fuzzy matching
+        }
+
+        const normalizedSegment = normalizeUnicodeSpaces(segment)
+        try {
+          const entries = await readdir(current)
+          const match = entries.find((e) => normalizeUnicodeSpaces(e) === normalizedSegment)
+          if (match) {
+            current = join(current, match)
+          } else {
+            return resolvedPath
+          }
+        } catch {
+          return resolvedPath
+        }
+      }
+
+      return current
+    } catch {
+      return resolvedPath
+    }
+  }
 }
 
 /**

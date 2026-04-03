@@ -12,6 +12,7 @@ import {
   type EditToolOutput,
   editToolInputSchema,
   resolveToolPath,
+  resolveUnicodeSpacePath,
   textContent,
   toToolModelOutput
 } from './shared.ts'
@@ -95,7 +96,9 @@ export async function runEditTool(
   input: EditToolInput,
   context: AgentToolContext
 ): Promise<EditToolOutput> {
-  const resolvedPath = resolveToolPath(context.workspacePath, input.path)
+  const resolvedPath = await resolveUnicodeSpacePath(
+    resolveToolPath(context.workspacePath, input.path)
+  )
 
   try {
     const original = await readFile(resolvedPath, 'utf8')

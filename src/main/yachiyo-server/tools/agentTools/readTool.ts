@@ -1,7 +1,7 @@
 import { tool, type Tool } from 'ai'
 
-import { basename, dirname, extname, join } from 'node:path'
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { extname } from 'node:path'
+import { readFile, stat } from 'node:fs/promises'
 
 import type { ReadToolCallDetails } from '../../../../shared/yachiyo/protocol.ts'
 
@@ -13,6 +13,7 @@ import {
   type ReadToolOutput,
   readToolInputSchema,
   resolveSandboxedToolPath,
+  resolveUnicodeSpacePath,
   imageDataContent,
   textContent,
   toToolModelOutput,
@@ -75,36 +76,6 @@ const UNREADABLE_BINARY_EXTENSIONS = new Set([
   '.dmg',
   '.pkg'
 ])
-
-// LLMs normalize U+202F (NARROW NO-BREAK SPACE, used in macOS time-format filenames)
-// and similar Unicode space variants to regular U+0020 when copying paths from tool output.
-// When a path doesn't resolve, scan the directory for an entry whose name matches after
-// normalizing all Unicode spaces to U+0020.
-function normalizeUnicodeSpaces(s: string): string {
-  // Covers NO-BREAK SPACE, en/em/thin/hair/etc. spaces, NARROW NO-BREAK SPACE, and IDEOGRAPHIC SPACE
-  return s.replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, '\u0020')
-}
-
-async function resolveUnicodeSpacePath(resolvedPath: string): Promise<string> {
-  try {
-    await stat(resolvedPath)
-    return resolvedPath // file exists, no fuzzy resolution needed
-  } catch {
-    // File not found — scan the directory for an entry whose name matches after
-    // normalizing all Unicode space variants to U+0020.  This handles filenames
-    // that contain U+202F (NARROW NO-BREAK SPACE, used by macOS CleanShot) which
-    // LLMs silently convert to a regular space when constructing tool call JSON.
-    try {
-      const name = normalizeUnicodeSpaces(basename(resolvedPath))
-      const entries = await readdir(dirname(resolvedPath))
-      const match = entries.find((e) => normalizeUnicodeSpaces(e) === name)
-      if (match) return join(dirname(resolvedPath), match)
-    } catch {
-      // fall through — let the original path produce its natural error
-    }
-    return resolvedPath
-  }
-}
 
 function detectImageMimeType(filePath: string): string | undefined {
   return IMAGE_EXTENSIONS[extname(filePath).toLowerCase()]
