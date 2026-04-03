@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import {
+  appendGroupReplyHistory,
   GROUP_REPLY_DEDUP_WINDOW_MS,
   hasForbiddenGroupReplyPrefix,
   isNearDuplicateGroupReply,
-  normalizeGroupReplyForComparison
+  normalizeGroupReplyForComparison,
+  shouldSuppressGroupReply
 } from './groupReplyGuard.ts'
 
 describe('GROUP_REPLY_DEDUP_WINDOW_MS', () => {
@@ -45,5 +47,24 @@ describe('isNearDuplicateGroupReply', () => {
 
   it('keeps distinct replies distinct', () => {
     assert.equal(isNearDuplicateGroupReply('hello there', 'different reply'), false)
+  })
+})
+
+describe('group reply history', () => {
+  it('does not suppress a restored reply that is older than the dedup window', () => {
+    const nowMs = Date.UTC(2026, 3, 3, 12, 0, 0)
+    const oldSentAtMs = nowMs - GROUP_REPLY_DEDUP_WINDOW_MS - 1
+    const history = appendGroupReplyHistory(undefined, 'hello there', oldSentAtMs)
+
+    assert.equal(shouldSuppressGroupReply(history, 'hello there', nowMs), false)
+    assert.deepEqual(history, { texts: [], timestamps: [] })
+  })
+
+  it('suppresses a restored reply that is still within the dedup window', () => {
+    const nowMs = Date.UTC(2026, 3, 3, 12, 0, 0)
+    const recentSentAtMs = nowMs - GROUP_REPLY_DEDUP_WINDOW_MS + 1
+    const history = appendGroupReplyHistory(undefined, 'hello there', recentSentAtMs)
+
+    assert.equal(shouldSuppressGroupReply(history, ' : hello   there ', nowMs), true)
   })
 })

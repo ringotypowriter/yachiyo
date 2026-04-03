@@ -43,9 +43,10 @@ import {
   selectGroupProbeRecentMessages
 } from './groupContextBuilder.ts'
 import {
-  GROUP_REPLY_DEDUP_WINDOW_MS,
+  appendGroupReplyHistory,
+  type GroupReplyHistory,
   hasForbiddenGroupReplyPrefix,
-  normalizeGroupReplyForComparison
+  shouldSuppressGroupReply
 } from './groupReplyGuard.ts'
 import { describeGroupImages } from './groupImageDescriptions.ts'
 import {
@@ -342,39 +343,30 @@ export function createQQService({
    * Drops messages that are identical (or near-identical) to something
    * the bot said recently, so chatty models don't repeat themselves.
    */
-  const recentOutgoing = new Map<string, { texts: string[]; timestamps: number[] }>()
+  const recentOutgoing = new Map<string, GroupReplyHistory>()
   const DEDUP_MAX_ENTRIES = 10
 
   function isDuplicateOutgoing(groupId: string, message: string): boolean {
-    const normalized = normalizeGroupReplyForComparison(message)
-    if (!normalized) return false
     const entry = recentOutgoing.get(groupId)
-    if (!entry) return false
-
-    const now = Date.now()
-    // Prune old entries
-    while (entry.timestamps.length > 0 && now - entry.timestamps[0] > GROUP_REPLY_DEDUP_WINDOW_MS) {
-      entry.timestamps.shift()
-      entry.texts.shift()
+    const shouldSuppress = shouldSuppressGroupReply(entry, message)
+    if (entry && entry.texts.length === 0) {
+      recentOutgoing.delete(groupId)
     }
-
-    return entry.texts.some((t) => t === normalized)
+    return shouldSuppress
   }
 
-  function recordOutgoing(groupId: string, message: string): void {
-    const normalized = normalizeGroupReplyForComparison(message)
-    if (!normalized) return
-    let entry = recentOutgoing.get(groupId)
-    if (!entry) {
-      entry = { texts: [], timestamps: [] }
-      recentOutgoing.set(groupId, entry)
+  function recordOutgoing(groupId: string, message: string, sentAtMs = Date.now()): void {
+    const entry = appendGroupReplyHistory(
+      recentOutgoing.get(groupId),
+      message,
+      sentAtMs,
+      DEDUP_MAX_ENTRIES
+    )
+    if (entry.texts.length === 0) {
+      recentOutgoing.delete(groupId)
+      return
     }
-    entry.texts.push(normalized)
-    entry.timestamps.push(Date.now())
-    while (entry.texts.length > DEDUP_MAX_ENTRIES) {
-      entry.texts.shift()
-      entry.timestamps.shift()
-    }
+    recentOutgoing.set(groupId, entry)
   }
 
   // Group monitoring is enabled by default; only skip if explicitly disabled.
@@ -421,7 +413,7 @@ export function createQQService({
         // Seed dedup from restored __self__ messages so the bot doesn't repeat itself.
         for (const msg of groupRegistry.getRecentMessages(group.id)) {
           if (msg.senderExternalUserId === '__self__') {
-            recordOutgoing(group.id, msg.text)
+            recordOutgoing(group.id, msg.text, msg.timestamp * 1_000)
           }
         }
       }
