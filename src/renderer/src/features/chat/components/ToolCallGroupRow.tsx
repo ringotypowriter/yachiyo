@@ -1,0 +1,79 @@
+import type React from 'react'
+import { useState } from 'react'
+import { ChevronRight } from 'lucide-react'
+import type { ToolCall } from '@renderer/app/types'
+import { theme } from '@renderer/theme/theme'
+import { getToolCallGroupLabel, type ToolCallSemanticGroup } from '../lib/messageTimelineLayout.ts'
+import { ToolCallRow } from './ToolCallRow.tsx'
+
+interface ToolCallGroupRowProps {
+  group: ToolCallSemanticGroup
+  toolCalls: ToolCall[]
+}
+
+export function ToolCallGroupRow({ group, toolCalls }: ToolCallGroupRowProps): React.JSX.Element {
+  const [isExpanded, setIsExpanded] = useState(false)
+
+  const allDone = toolCalls.every((tc) => tc.status !== 'running')
+  const hasFailed = toolCalls.some((tc) => tc.status === 'failed')
+
+  const dotColor = hasFailed
+    ? theme.status.danger
+    : !allDone
+      ? theme.text.accent
+      : theme.status.success
+
+  const label = getToolCallGroupLabel(group, toolCalls.length)
+
+  return (
+    <div className="py-0.5" style={{ fontSize: '11px' }}>
+      <button
+        type="button"
+        className="flex w-full items-center gap-1.5 rounded-sm text-left"
+        aria-expanded={isExpanded}
+        aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${label}`}
+        onClick={() => setIsExpanded((current) => !current)}
+        style={{
+          appearance: 'none',
+          background: 'transparent',
+          border: 0,
+          color: theme.text.secondary,
+          cursor: 'pointer',
+          fontWeight: 500,
+          margin: 0,
+          padding: '2px 24px'
+        }}
+      >
+        <span
+          className="w-1.5 h-1.5 rounded-full shrink-0"
+          style={{
+            background: dotColor,
+            animation: !allDone ? 'yachiyo-preparing-pulse 1.2s ease-in-out infinite' : undefined
+          }}
+        />
+        <span>{label}</span>
+        <span
+          className="inline-flex shrink-0"
+          style={{
+            color: theme.text.placeholder,
+            transition: 'transform 0.15s ease'
+          }}
+        >
+          <ChevronRight
+            size={11}
+            strokeWidth={1.8}
+            style={{ transform: isExpanded ? 'rotate(90deg)' : undefined }}
+          />
+        </span>
+      </button>
+
+      {isExpanded ? (
+        <div className="ml-7 mt-0.5 border-l pl-1" style={{ borderColor: theme.border.panel }}>
+          {toolCalls.map((tc) => (
+            <ToolCallRow key={tc.id} toolCall={tc} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}

@@ -22,6 +22,7 @@ import { RunEventRow } from './RunEventRow'
 import { RunMemoryRecallRow } from './RunMemoryRecallRow'
 import { ReplyBranchNavigation } from './ReplyBranchNavigation'
 import { ToolCallRow } from './ToolCallRow'
+import { ToolCallGroupRow } from './ToolCallGroupRow'
 import { ThinkingBlock } from './ThinkingBlock'
 import {
   canCreateBranch,
@@ -297,9 +298,18 @@ export function ThreadConversationGroup({
           return toolCall ? <ToolCallRow key={toolCall.id} toolCall={toolCall} /> : null
         }
 
+        if (item.kind === 'tool-call-group') {
+          const groupToolCalls = item.toolCallIds
+            .map((id) => visibleToolCalls.find((entry) => entry.id === id))
+            .filter((tc): tc is ToolCall => tc != null)
+          return groupToolCalls.length > 0 ? (
+            <ToolCallGroupRow key={item.key} group={item.group} toolCalls={groupToolCalls} />
+          ) : null
+        }
+
         if (item.kind === 'assistant-text-block' && activeBranch) {
           const textBlock = textBlocksById.get(item.textBlockId)
-          if (!textBlock) {
+          if (!textBlock || !textBlock.content.trim()) {
             return null
           }
 
@@ -307,7 +317,12 @@ export function ThreadConversationGroup({
             nextItem?.kind === 'tool-call'
               ? visibleToolCalls.find((entry) => entry.id === nextItem.toolCallId)
               : null
-          const compactBottomSpacing = nextToolCall?.status === 'running'
+          const nextGroupHasRunning =
+            nextItem?.kind === 'tool-call-group' &&
+            nextItem.toolCallIds.some(
+              (id) => visibleToolCalls.find((entry) => entry.id === id)?.status === 'running'
+            )
+          const compactBottomSpacing = nextToolCall?.status === 'running' || nextGroupHasRunning
           return (
             <div
               key={item.key}
