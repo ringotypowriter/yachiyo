@@ -1716,6 +1716,15 @@ export async function executeServerRun(
 
     throwIfAborted(input.abortController.signal)
 
+    // Detect degenerate completions: the stream finished without error but
+    // produced no user-visible content (e.g. Gemini finishReason=length with
+    // 0 output tokens after a network hiccup). Treat as a retryable error so
+    // the recovery / fail path can handle it instead of silently "completing".
+    if (buffer.length === 0 && toolCalls.size === 0) {
+      const reason = lastUsage?.finishReason ?? 'unknown'
+      throw new Error(`Model returned empty response (finishReason=${reason})`)
+    }
+
     const timestamp = deps.timestamp()
     const responseMessages = recoveryCheckpoint
       ? recoveryResponseMessages.length > 0
@@ -1979,8 +1988,7 @@ export async function executeServerRun(
     if (
       input.requestMessageId &&
       isRetryableModelError(error) &&
-      nextRecoveryAttempt < RETRY_MAX_ATTEMPTS &&
-      (buffer.length > 0 || reasoningBuffer.length > 0 || toolCalls.size > 0)
+      nextRecoveryAttempt < RETRY_MAX_ATTEMPTS
     ) {
       runningToolCallIds.clear()
       setExecutionPhase('generating')
@@ -2022,7 +2030,7 @@ export async function executeServerRun(
     })
 
     if (input.requestMessageId) {
-      persistTerminalAssistantMessage(deps, {
+      const failedMessage = persistTerminalAssistantMessage(deps, {
         runId: input.runId,
         threadId: input.thread.id,
         messageId,
@@ -2037,6 +2045,18 @@ export async function executeServerRun(
         threadId: input.thread.id,
         runId: input.runId,
         assistantMessageId: messageId
+      })
+      deps.emit<MessageCompletedEvent>({
+        type: 'message.completed',
+        threadId: input.thread.id,
+        runId: input.runId,
+        message: failedMessage
+      })
+      const currentThread = deps.readThread(input.thread.id)
+      deps.emit<ThreadUpdatedEvent>({
+        type: 'thread.updated',
+        threadId: input.thread.id,
+        thread: { ...currentThread, updatedAt: timestamp }
       })
     }
 

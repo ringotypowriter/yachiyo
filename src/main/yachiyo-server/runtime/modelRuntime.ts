@@ -14,7 +14,7 @@ import {
   shouldLogGatewayDiagnostics,
   toSerializableError
 } from './providers/gateway.ts'
-import { createProviderOptions } from './providers/providerOptions.ts'
+import { createProviderOptions, extractThinkingBudget } from './providers/providerOptions.ts'
 import { isRetryableModelError } from './retryableModelError.ts'
 import { sleep } from '../channels/connectionRetry.ts'
 
@@ -97,7 +97,9 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               request.providerOptionsMode
             ),
             providerOptions,
-            ...(request.max_token != null ? { maxOutputTokens: request.max_token } : {}),
+            ...(request.max_token != null
+              ? { maxOutputTokens: request.max_token + extractThinkingBudget(providerOptions) * 2 }
+              : {}),
             ...(request.tools
               ? {
                   tools: request.tools,

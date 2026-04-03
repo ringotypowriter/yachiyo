@@ -7,6 +7,27 @@ import { createOpenAiProviderOptions } from './openai.ts'
 import { createVertexProviderOptions } from './vertex.ts'
 import type { RuntimeProviderOptions } from './shared.ts'
 
+/**
+ * Extract the thinking budget from resolved provider options, if any.
+ * Gemini/Vertex count thinking tokens inside `maxOutputTokens`, so callers
+ * can add this on top of the user's visible-output cap.
+ */
+export function extractThinkingBudget(options: RuntimeProviderOptions): number {
+  if ('google' in options) {
+    return (
+      (options as { google: { thinkingConfig?: { thinkingBudget?: number } } }).google
+        .thinkingConfig?.thinkingBudget ?? 0
+    )
+  }
+  if ('vertex' in options && !('gateway' in options)) {
+    return (
+      (options as { vertex: { thinkingConfig?: { thinkingBudget?: number } } }).vertex
+        .thinkingConfig?.thinkingBudget ?? 0
+    )
+  }
+  return 0
+}
+
 export function createProviderOptions(
   settings: ProviderSettings,
   mode: ModelProviderOptionsMode = 'default'
