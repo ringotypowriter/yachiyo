@@ -57,6 +57,10 @@ export interface GrepSearchRequest {
   limit?: number
   literal?: boolean
   caseSensitive?: boolean
+  /** Glob pattern to filter which files are searched (e.g. "*.ts", "*.{ts,tsx}"). */
+  include?: string
+  /** Number of context lines to show before and after each match. */
+  context?: number
   signal?: AbortSignal
 }
 
@@ -72,6 +76,10 @@ export interface GrepSearchMatch {
   path: string
   line: number
   text: string
+  /** Context lines before the match (populated when context > 0). */
+  contextBefore?: string[]
+  /** Context lines after the match (populated when context > 0). */
+  contextAfter?: string[]
 }
 
 export interface GrepSearchResult {
@@ -301,6 +309,8 @@ function normalizeGrepRequest(input: GrepSearchRequest): Required<
     limit: clampLimit(input.limit),
     literal: input.literal ?? false,
     caseSensitive: input.caseSensitive ?? true,
+    include: input.include?.trim() || '',
+    context: Math.max(0, Math.min(5, Math.trunc(input.context ?? 0))),
     signal: input.signal
   }
 }
@@ -374,6 +384,8 @@ async function runRipgrepSearch(input: {
     String(input.request.limit),
     ...(input.request.literal ? ['--fixed-strings'] : []),
     ...(input.request.caseSensitive ? [] : ['--ignore-case']),
+    ...(input.request.include ? ['--glob', input.request.include] : []),
+    ...(input.request.context > 0 ? ['--context', String(input.request.context)] : []),
     input.request.pattern,
     input.rootPath
   ]
@@ -390,6 +402,10 @@ async function runRipgrepSearch(input: {
   }
 
   const matches: GrepSearchMatch[] = []
+  // When --context is used, rg emits "context" events around matches.
+  // We accumulate them and assign: buffer → contextBefore on the next match,
+  // or contextAfter on the previous match at file/stream boundaries.
+  let contextBuffer: string[] = []
 
   for (const line of splitLines(result.stdout)) {
     if (!line) {
@@ -403,7 +419,32 @@ async function runRipgrepSearch(input: {
       continue
     }
 
-    if (!parsed || typeof parsed !== 'object' || (parsed as { type?: unknown }).type !== 'match') {
+    if (!parsed || typeof parsed !== 'object') {
+      continue
+    }
+
+    const eventType = (parsed as { type?: unknown }).type
+
+    if (eventType === 'context') {
+      const data = (parsed as { data?: Record<string, unknown> }).data
+      const text = toOptionalNestedString(data, ['lines', 'text'])?.replace(/\r?\n$/, '')
+      if (text !== undefined) {
+        contextBuffer.push(text)
+      }
+      continue
+    }
+
+    if (eventType === 'begin' || eventType === 'end' || eventType === 'summary') {
+      // File boundary — flush buffer as contextAfter on the previous match.
+      if (contextBuffer.length > 0 && matches.length > 0) {
+        const prev = matches[matches.length - 1]!
+        prev.contextAfter = (prev.contextAfter ?? []).concat(contextBuffer)
+      }
+      contextBuffer = []
+      continue
+    }
+
+    if (eventType !== 'match') {
       continue
     }
 
@@ -416,11 +457,20 @@ async function runRipgrepSearch(input: {
       continue
     }
 
-    matches.push({
+    const match: GrepSearchMatch = {
       path: normalizeResultPath(path, input.rootPath),
       line: lineNumber,
-      text
-    })
+      text,
+      ...(contextBuffer.length > 0 ? { contextBefore: contextBuffer } : {})
+    }
+    matches.push(match)
+    contextBuffer = []
+  }
+
+  // Flush trailing context to the last match
+  if (contextBuffer.length > 0 && matches.length > 0) {
+    const prev = matches[matches.length - 1]!
+    prev.contextAfter = (prev.contextAfter ?? []).concat(contextBuffer)
   }
 
   return {
@@ -448,6 +498,8 @@ async function runGrepSearch(input: {
     '-H',
     ...(input.request.literal ? ['-F'] : ['-E']),
     ...(input.request.caseSensitive ? [] : ['-i']),
+    ...(input.request.include ? ['--include', input.request.include] : []),
+    ...(input.request.context > 0 ? ['-C', String(input.request.context)] : []),
     '-m',
     String(input.request.limit),
     '-e',
@@ -597,6 +649,8 @@ async function runTypescriptGrep(input: {
   limit: number
   literal: boolean
   caseSensitive: boolean
+  include: string
+  context: number
   signal?: AbortSignal
 }): Promise<GrepSearchResult> {
   const targetStat = await stat(input.rootPath).catch(() => null)
@@ -608,9 +662,11 @@ async function runTypescriptGrep(input: {
     literal: input.literal,
     caseSensitive: input.caseSensitive
   })
-  const files = targetStat.isDirectory()
+  const includeMatcher = input.include ? createGlobMatcher(input.include) : undefined
+  const allFiles = targetStat.isDirectory()
     ? await collectFiles(input.rootPath, undefined, input.signal)
     : [input.rootPath]
+  const files = includeMatcher ? allFiles.filter((f) => includeMatcher(basename(f))) : allFiles
   const matches: GrepSearchMatch[] = []
 
   for (const filePath of files) {
@@ -626,11 +682,20 @@ async function runTypescriptGrep(input: {
         continue
       }
 
-      matches.push({
+      const match: GrepSearchMatch = {
         path: normalizeResultPath(filePath, input.rootPath),
         line: index + 1,
         text: lines[index] ?? ''
-      })
+      }
+
+      if (input.context > 0) {
+        const beforeStart = Math.max(0, index - input.context)
+        match.contextBefore = lines.slice(beforeStart, index)
+        const afterEnd = Math.min(lines.length, index + 1 + input.context)
+        match.contextAfter = lines.slice(index + 1, afterEnd)
+      }
+
+      matches.push(match)
 
       if (matches.length >= input.limit) {
         return {

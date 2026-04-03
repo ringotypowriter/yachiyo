@@ -489,7 +489,10 @@ test('runGrepTool maps normalized search results into structured details and sum
     assert.equal(result.details.resultCount, 1)
     assert.equal(summarizeToolInput('grep', { pattern: 'needle' }), 'needle')
     assert.equal(summarizeToolOutput('grep', result), 'found 1 match')
-    assert.match(flattenToolContent(result.content), /src\/example\.ts:12: const needle = true/)
+    assert.match(
+      flattenToolContent(result.content),
+      /# src\/example\.ts\n> 12: const needle = true/
+    )
 
     const normalized = normalizeToolResult('grep', result)
     assert.equal(normalized.status, 'completed')

@@ -1,4 +1,5 @@
-import { isAbsolute, relative, resolve } from 'node:path'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import { tool, type Tool } from 'ai'
 
@@ -15,13 +16,22 @@ import {
   toToolModelOutput
 } from './shared.ts'
 
+const AUTO_SAVE_DIR = '.yachiyo/tool-result'
+const INLINE_CONTENT_LIMIT = 32_000
+
 export function createTool(
   context: AgentToolContext,
   dependencies: { searchService: SearchService }
 ): Tool<GrepToolInput, GrepToolOutput> {
   return tool({
     description:
-      'Search file contents under the current thread workspace or an absolute path. Prefer this over bash for code/text search. Returns normalized line matches.',
+      'Search file contents by regular expression (or literal string). Prefer this over bash (grep/rg/ag) for all code search. If output is too large it is auto-saved to a workspace file.\n' +
+      '• `pattern`: Rust regex syntax when ripgrep is available, otherwise POSIX ERE (e.g. "function\\s+\\w+", "import.*from"). No lookaheads or backreferences. Use `literal: true` for exact fixed-string matching.\n' +
+      '• `caseSensitive`: defaults to true.\n' +
+      '• `include`: glob to filter files (e.g. "*.ts", "*.{ts,tsx}"). Highly recommended for large repos.\n' +
+      '• `context`: number of lines before/after each match (0-5).\n' +
+      '• `filesOnly`: when true, returns only the list of matching file paths (no line content).\n' +
+      '• `limit`: max matches returned (default 50, max 200).',
     inputSchema: grepToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) =>
@@ -59,6 +69,8 @@ export async function runGrepTool(
       limit: input.limit ?? DEFAULT_SEARCH_LIMIT,
       literal: input.literal,
       caseSensitive: input.caseSensitive,
+      include: input.include,
+      context: input.context,
       signal: dependencies.abortSignal
     })
 
@@ -75,8 +87,23 @@ export async function runGrepTool(
       matches
     }
 
+    const content = input.filesOnly
+      ? formatGrepFilesOnly(matches, result.truncated)
+      : formatGrepContent(matches, result.truncated)
+
+    if (content.length > INLINE_CONTENT_LIMIT) {
+      const saved = await spillToFile(context.workspacePath, content)
+      return {
+        content: textContent(
+          `Output too large to inline (${matches.length} matches across ${new Set(matches.map((m) => m.path)).size} files). Full output saved to ${saved.relativePath}.\nUse the read tool to read it.`
+        ),
+        details,
+        metadata: { outputFilePath: saved.absolutePath }
+      }
+    }
+
     return {
-      content: textContent(formatGrepContent(matches, result.truncated)),
+      content: textContent(content),
       details,
       metadata: {}
     }
@@ -95,11 +122,69 @@ function formatGrepContent(matches: GrepToolCallDetails['matches'], truncated: b
     return 'No matches found.'
   }
 
-  const lines = matches.map((match) => `${match.path}:${match.line}: ${match.text}`)
-  if (truncated) {
-    lines.push('', '[truncated search results]')
+  // Group matches by file for readability.
+  const groups = new Map<string, typeof matches>()
+  for (const match of matches) {
+    const existing = groups.get(match.path)
+    if (existing) {
+      existing.push(match)
+    } else {
+      groups.set(match.path, [match])
+    }
   }
-  return lines.join('\n')
+
+  const hasContext = matches.some((m) => m.contextBefore?.length || m.contextAfter?.length)
+  const sections: string[] = []
+
+  for (const [filePath, fileMatches] of groups) {
+    const lines: string[] = [`# ${filePath}`]
+    for (const match of fileMatches) {
+      if (hasContext && match.contextBefore?.length) {
+        for (let i = 0; i < match.contextBefore.length; i++) {
+          const lineNum = match.line - match.contextBefore.length + i
+          lines.push(`  ${lineNum}: ${match.contextBefore[i]}`)
+        }
+      }
+      lines.push(`> ${match.line}: ${match.text}`)
+      if (hasContext && match.contextAfter?.length) {
+        for (let i = 0; i < match.contextAfter.length; i++) {
+          lines.push(`  ${match.line + 1 + i}: ${match.contextAfter[i]}`)
+        }
+      }
+    }
+    sections.push(lines.join('\n'))
+  }
+
+  let output = sections.join('\n\n')
+  if (truncated) {
+    output += `\n\n[truncated — showing ${matches.length} matches. Use \`include\` to filter by file type or narrow your pattern.]`
+  }
+  return output
+}
+
+function formatGrepFilesOnly(matches: GrepToolCallDetails['matches'], truncated: boolean): string {
+  if (matches.length === 0) {
+    return 'No matches found.'
+  }
+
+  const uniquePaths = [...new Set(matches.map((m) => m.path))]
+  let output = uniquePaths.join('\n')
+  if (truncated) {
+    output += `\n\n[truncated — ${uniquePaths.length} files shown. Narrow your pattern or use \`include\` to filter.]`
+  }
+  return output
+}
+
+async function spillToFile(
+  workspacePath: string,
+  content: string
+): Promise<{ relativePath: string; absolutePath: string }> {
+  const filename = `grep-${Date.now()}.txt`
+  const relativePath = join(AUTO_SAVE_DIR, filename)
+  const absolutePath = join(workspacePath, relativePath)
+  await mkdir(join(workspacePath, AUTO_SAVE_DIR), { recursive: true })
+  await writeFile(absolutePath, content, 'utf8')
+  return { relativePath, absolutePath }
 }
 
 function resolveToolTarget(workspacePath: string, targetPath: string): string {

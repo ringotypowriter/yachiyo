@@ -28,7 +28,9 @@ import {
 
 export function createTool(context: AgentToolContext): Tool<BashToolInput, BashToolOutput> {
   return tool({
-    description: `Run a shell command with cwd set to ${context.workspacePath}. Use timeout in seconds.`,
+    description:
+      `Run a shell command with cwd set to ${context.workspacePath}. Use timeout in seconds.\n` +
+      'Do NOT use bash for searching code or finding files — use the `grep` tool (content search) or `glob` tool (file discovery) instead. They are faster, produce structured output, and respect workspace boundaries.',
     inputSchema: bashToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) =>

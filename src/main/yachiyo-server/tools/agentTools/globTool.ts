@@ -1,4 +1,5 @@
-import { basename, dirname, isAbsolute, relative, resolve } from 'node:path'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import { tool, type Tool } from 'ai'
 
@@ -15,13 +16,20 @@ import {
   toToolModelOutput
 } from './shared.ts'
 
+const AUTO_SAVE_DIR = '.yachiyo/tool-result'
+const INLINE_CONTENT_LIMIT = 32_000
+
 export function createTool(
   context: AgentToolContext,
   dependencies: { searchService: SearchService }
 ): Tool<GlobToolInput, GlobToolOutput> {
   return tool({
     description:
-      'Find files by glob pattern under the current thread workspace or an absolute path. Prefer this over bash for file discovery.',
+      'Find files by glob pattern. Prefer this over bash (find/ls/fd) for all file discovery. If output is too large it is auto-saved to a workspace file.\n' +
+      'Supports `*` (any chars except /), `**` (any depth), `?` (single char).\n' +
+      '• `pattern`: glob pattern (e.g. "**/*.ts", "src/**/*.test.ts", "*.json").\n' +
+      '• `path`: directory to search in (defaults to workspace root).\n' +
+      '• `limit`: max files returned (default 50, max 200).',
     inputSchema: globToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) =>
@@ -76,8 +84,21 @@ export async function runGlobTool(
       matches
     }
 
+    const content = formatGlobContent(matches, result.truncated)
+
+    if (content.length > INLINE_CONTENT_LIMIT) {
+      const saved = await spillToFile(context.workspacePath, content)
+      return {
+        content: textContent(
+          `Output too large to inline (${matches.length} files). Full output saved to ${saved.relativePath}.\nUse the read tool to read it.`
+        ),
+        details,
+        metadata: { outputFilePath: saved.absolutePath }
+      }
+    }
+
     return {
-      content: textContent(formatGlobContent(matches, result.truncated)),
+      content: textContent(content),
       details,
       metadata: {}
     }
@@ -96,11 +117,11 @@ function formatGlobContent(matches: string[], truncated: boolean): string {
     return 'No files found.'
   }
 
-  const lines = [...matches]
+  let output = matches.join('\n')
   if (truncated) {
-    lines.push('', '[truncated file results]')
+    output += `\n\n[truncated — showing ${matches.length} files. Use a more specific pattern to narrow results.]`
   }
-  return lines.join('\n')
+  return output
 }
 
 // When the model passes something like "~/.aerospace*" or "/home/user/.config*" as the
@@ -124,6 +145,18 @@ export function resolveGlobInput(
     pattern: rawPattern.trim(),
     searchPath: expandTilde(rawPath?.trim() || '.') || workspacePath
   }
+}
+
+async function spillToFile(
+  workspacePath: string,
+  content: string
+): Promise<{ relativePath: string; absolutePath: string }> {
+  const filename = `glob-${Date.now()}.txt`
+  const relativePath = join(AUTO_SAVE_DIR, filename)
+  const absolutePath = join(workspacePath, relativePath)
+  await mkdir(join(workspacePath, AUTO_SAVE_DIR), { recursive: true })
+  await writeFile(absolutePath, content, 'utf8')
+  return { relativePath, absolutePath }
 }
 
 function resolveToolTarget(workspacePath: string, targetPath: string): string {

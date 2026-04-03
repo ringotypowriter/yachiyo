@@ -61,7 +61,10 @@ export const grepToolInputSchema = z.object({
   path: z.string().min(1).optional(),
   limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).optional(),
   literal: z.boolean().optional(),
-  caseSensitive: z.boolean().optional()
+  caseSensitive: z.boolean().optional(),
+  include: z.string().min(1).optional(),
+  context: z.number().int().min(0).max(5).optional(),
+  filesOnly: z.boolean().optional()
 })
 
 export const globToolInputSchema = z.object({

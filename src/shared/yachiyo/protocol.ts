@@ -309,6 +309,8 @@ export interface GrepToolCallMatch {
   path: string
   line: number
   text: string
+  contextBefore?: string[]
+  contextAfter?: string[]
 }
 
 export interface GrepToolCallDetails {

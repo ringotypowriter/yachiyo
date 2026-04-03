@@ -563,3 +563,171 @@ test('find backend does not exclude hidden paths', async () => {
     `find args should not exclude hidden paths but got: ${argsStr}`
   )
 })
+
+test('typescript grep supports include filter', async () => {
+  await withWorkspace(async (workspacePath) => {
+    await mkdir(join(workspacePath, 'src'), { recursive: true })
+    await writeFile(join(workspacePath, 'src', 'app.ts'), 'needle in ts\n', 'utf8')
+    await writeFile(join(workspacePath, 'src', 'style.css'), 'needle in css\n', 'utf8')
+    await writeFile(join(workspacePath, 'src', 'readme.md'), 'needle in md\n', 'utf8')
+
+    const service = createSearchService({
+      capabilities: {
+        grep: { preferred: 'typescript', backends: {} },
+        fileDiscovery: { preferred: 'typescript', backends: {} }
+      }
+    })
+
+    const result = await service.grep({
+      cwd: workspacePath,
+      pattern: 'needle',
+      path: 'src',
+      include: '*.ts'
+    })
+
+    assert.equal(result.backend, 'typescript')
+    assert.equal(result.matches.length, 1)
+    assert.equal(result.matches[0]?.path, 'app.ts')
+  })
+})
+
+test('typescript grep supports context lines', async () => {
+  await withWorkspace(async (workspacePath) => {
+    await writeFile(join(workspacePath, 'code.ts'), 'line1\nline2\nneedle\nline4\nline5\n', 'utf8')
+
+    const service = createSearchService({
+      capabilities: {
+        grep: { preferred: 'typescript', backends: {} },
+        fileDiscovery: { preferred: 'typescript', backends: {} }
+      }
+    })
+
+    const result = await service.grep({
+      cwd: workspacePath,
+      pattern: 'needle',
+      path: 'code.ts',
+      context: 2
+    })
+
+    assert.equal(result.matches.length, 1)
+    const match = result.matches[0]!
+    assert.equal(match.line, 3)
+    assert.equal(match.text, 'needle')
+    assert.deepEqual(match.contextBefore, ['line1', 'line2'])
+    assert.deepEqual(match.contextAfter, ['line4', 'line5'])
+  })
+})
+
+test('rg backend passes include and context flags', async () => {
+  const calls: Array<{ args: string[] }> = []
+  const service = createSearchService({
+    capabilities: {
+      grep: {
+        preferred: 'rg',
+        backends: { rg: { executable: '/usr/bin/rg' } }
+      },
+      fileDiscovery: { preferred: 'typescript', backends: {} }
+    },
+    runCommand: async ({ args }) => {
+      calls.push({ args })
+      return { exitCode: 1, stdout: '', stderr: '' }
+    }
+  })
+
+  await service.grep({
+    cwd: '/repo',
+    pattern: 'needle',
+    path: '.',
+    include: '*.ts',
+    context: 3
+  })
+
+  const argsStr = calls[0]?.args.join(' ') ?? ''
+  assert.ok(argsStr.includes('--glob *.ts'), `Expected --glob in rg args but got: ${argsStr}`)
+  assert.ok(argsStr.includes('--context 3'), `Expected --context in rg args but got: ${argsStr}`)
+})
+
+test('rg backend parses context events from JSON output', async () => {
+  const service = createSearchService({
+    capabilities: {
+      grep: {
+        preferred: 'rg',
+        backends: { rg: { executable: '/usr/bin/rg' } }
+      },
+      fileDiscovery: { preferred: 'typescript', backends: {} }
+    },
+    runCommand: async () => ({
+      exitCode: 0,
+      stdout: [
+        JSON.stringify({ type: 'begin', data: { path: { text: '/repo/src/app.ts' } } }),
+        JSON.stringify({
+          type: 'context',
+          data: { path: { text: '/repo/src/app.ts' }, line_number: 2, lines: { text: 'before\n' } }
+        }),
+        JSON.stringify({
+          type: 'match',
+          data: {
+            path: { text: '/repo/src/app.ts' },
+            line_number: 3,
+            lines: { text: 'needle here\n' }
+          }
+        }),
+        JSON.stringify({
+          type: 'context',
+          data: { path: { text: '/repo/src/app.ts' }, line_number: 4, lines: { text: 'after\n' } }
+        }),
+        JSON.stringify({ type: 'end', data: { path: { text: '/repo/src/app.ts' } } })
+      ].join('\n'),
+      stderr: ''
+    })
+  })
+
+  const result = await service.grep({
+    cwd: '/repo',
+    pattern: 'needle',
+    path: '.',
+    context: 1
+  })
+
+  assert.equal(result.matches.length, 1)
+  const match = result.matches[0]!
+  assert.equal(match.text, 'needle here')
+  assert.deepEqual(match.contextBefore, ['before'])
+  assert.deepEqual(match.contextAfter, ['after'])
+})
+
+test('grep backend passes include and context flags', async () => {
+  await withWorkspace(async (workspacePath) => {
+    await writeFile(join(workspacePath, 'file.ts'), 'needle\n', 'utf8')
+
+    const calls: Array<{ args: string[] }> = []
+    const service = createSearchService({
+      capabilities: {
+        grep: {
+          preferred: 'grep',
+          backends: { grep: { executable: '/usr/bin/grep' } }
+        },
+        fileDiscovery: { preferred: 'typescript', backends: {} }
+      },
+      runCommand: async ({ args }) => {
+        calls.push({ args })
+        return { exitCode: 1, stdout: '', stderr: '' }
+      }
+    })
+
+    await service.grep({
+      cwd: workspacePath,
+      pattern: 'needle',
+      path: '.',
+      include: '*.ts',
+      context: 2
+    })
+
+    const argsStr = calls[0]?.args.join(' ') ?? ''
+    assert.ok(
+      argsStr.includes('--include *.ts'),
+      `Expected --include in grep args but got: ${argsStr}`
+    )
+    assert.ok(argsStr.includes('-C 2'), `Expected -C in grep args but got: ${argsStr}`)
+  })
+})
