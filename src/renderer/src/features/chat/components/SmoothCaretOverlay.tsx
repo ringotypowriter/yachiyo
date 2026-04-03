@@ -639,6 +639,20 @@ export function SmoothCaretOverlay({
     textarea.addEventListener('scroll', scheduleMeasure)
     host.addEventListener('scroll', scheduleMeasure, true)
 
+    // When the textarea's own dimensions change (window resize, flex reflow, maxHeight
+    // transitions, etc.) the pretext line-breaking cache may reference stale widths.
+    // Clear it and remeasure so the caret stays in sync with the new text wrapping.
+    let lastObservedWidth = textarea.clientWidth
+    const ro = new ResizeObserver(() => {
+      const w = textarea.clientWidth
+      if (w !== lastObservedWidth) {
+        lastObservedWidth = w
+        clearCache()
+        scheduleMeasure()
+      }
+    })
+    ro.observe(textarea)
+
     if (document.fonts?.ready) {
       void document.fonts.ready.then(() => scheduleMeasure())
     }
@@ -658,6 +672,7 @@ export function SmoothCaretOverlay({
       window.removeEventListener('scroll', scheduleMeasure, true)
       textarea.removeEventListener('scroll', scheduleMeasure)
       host.removeEventListener('scroll', scheduleMeasure, true)
+      ro.disconnect()
       textarea.classList.remove('echooo-hide-native-caret')
       stopAnimation()
     }
