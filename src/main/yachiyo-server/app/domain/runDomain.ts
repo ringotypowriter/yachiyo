@@ -91,8 +91,10 @@ interface RunState {
     messageId: string
     timestamp: string
   }
-  executionPhase: 'generating' | 'tool-running'
+  executionPhase: 'generating' | 'tool-running' | 'waiting-for-user'
   updateHeadOnComplete: boolean
+  /** Resolves a pending askUser tool call with the user's answer. Set by execution. */
+  answerToolQuestion?: (toolCallId: string, answer: string) => void
 }
 
 interface PreparedQueuedFollowUpStart {
@@ -631,6 +633,13 @@ export class YachiyoServerRunDomain {
     })
   }
 
+  answerToolQuestion(input: { runId: string; toolCallId: string; answer: string }): void {
+    const activeRun = this.activeRuns.get(input.runId)
+    if (activeRun?.answerToolQuestion) {
+      activeRun.answerToolQuestion(input.toolCallId, input.answer)
+    }
+  }
+
   private startFreshRun(input: {
     content: string
     enabledTools: ToolCallName[]
@@ -744,7 +753,10 @@ export class YachiyoServerRunDomain {
       throw new Error('This thread no longer has an active run.')
     }
 
-    if (activeRun.executionPhase === 'tool-running') {
+    if (
+      activeRun.executionPhase === 'tool-running' ||
+      activeRun.executionPhase === 'waiting-for-user'
+    ) {
       activeRun.enabledSkillNames = input.enabledSkillNames
         ? [...input.enabledSkillNames]
         : undefined
@@ -1170,6 +1182,12 @@ export class YachiyoServerRunDomain {
               }
 
               currentRun.executionPhase = phase
+            },
+            onAskUserHandlerReady: (handler) => {
+              const currentRun = this.activeRuns.get(input.runId)
+              if (currentRun) {
+                currentRun.answerToolQuestion = handler
+              }
             },
             onSafeToSteerAfterTool: () => {
               const currentRun = this.activeRuns.get(input.runId)

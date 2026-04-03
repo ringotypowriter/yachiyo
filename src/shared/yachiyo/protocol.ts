@@ -131,7 +131,7 @@ export const CORE_TOOL_NAMES = [
   'skillsRead'
 ] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
-export type ToolCallStatus = 'running' | 'completed' | 'failed'
+export type ToolCallStatus = 'running' | 'completed' | 'failed' | 'waiting-for-user'
 
 const coreToolNameSet = new Set<string>(CORE_TOOL_NAMES)
 const runtimeManagedToolNameSet = new Set<ToolCallName>(['skillsRead'])
@@ -221,6 +221,13 @@ export function normalizeSkillNames(value: unknown, fallback: readonly string[] 
 
 export function isCoreToolName(value: string): value is ToolCallName {
   return coreToolNameSet.has(value)
+}
+
+/** Tool names that get tracked in the UI (core tools + runtime meta-tools like askUser). */
+const trackedToolNameSet = new Set<string>([...CORE_TOOL_NAMES, 'askUser'])
+
+export function isTrackedToolName(value: string): boolean {
+  return trackedToolNameSet.has(value)
 }
 
 export function normalizeActiveRunEnterBehavior(
@@ -376,6 +383,13 @@ export interface SkillsReadToolCallDetails {
   missingNames?: string[]
 }
 
+export interface AskUserToolCallDetails {
+  kind: 'askUser'
+  question: string
+  choices?: string[]
+  answer?: string
+}
+
 export type ToolCallDetailsSnapshot =
   | ReadToolCallDetails
   | WriteToolCallDetails
@@ -386,6 +400,7 @@ export type ToolCallDetailsSnapshot =
   | WebReadToolCallDetails
   | WebSearchToolCallDetails
   | SkillsReadToolCallDetails
+  | AskUserToolCallDetails
 
 export interface MessageImageRecord {
   dataUrl: string
@@ -1017,6 +1032,13 @@ export interface SendChatInput {
   extraTools?: Record<string, unknown>
 }
 
+export interface AnswerToolQuestionInput {
+  threadId: string
+  runId: string
+  toolCallId: string
+  answer: string
+}
+
 export interface RetryInput {
   threadId: string
   messageId: string
@@ -1254,6 +1276,12 @@ export interface SubagentProgressEvent extends RunEvent {
   chunk: string
 }
 
+export interface NotificationRequestEvent extends RunEvent {
+  type: 'notification.requested'
+  title: string
+  body: string
+}
+
 export type YachiyoServerEvent =
   | ThreadCreatedEvent
   | ThreadUpdatedEvent
@@ -1279,6 +1307,7 @@ export type YachiyoServerEvent =
   | SubagentStartedEvent
   | SubagentFinishedEvent
   | SubagentProgressEvent
+  | NotificationRequestEvent
 
 // ---------------------------------------------------------------------------
 // Schedule

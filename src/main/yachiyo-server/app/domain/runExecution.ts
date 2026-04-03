@@ -21,6 +21,7 @@ import type {
   MessageStartedEvent,
   MessageTextBlockRecord,
   MessageTurnContext,
+  NotificationRequestEvent,
   ProviderSettings,
   RunCancelledEvent,
   RunCompletedEvent,
@@ -42,7 +43,7 @@ import type {
   ToolCallUpdatedEvent
 } from '../../../../shared/yachiyo/protocol.ts'
 import {
-  isCoreToolName,
+  isTrackedToolName,
   normalizeOptionalMaxChatToken
 } from '../../../../shared/yachiyo/protocol.ts'
 import {
@@ -157,8 +158,10 @@ export interface RunExecutionDeps {
   loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
   listSkills: (workspacePaths?: string[]) => Promise<SkillCatalogEntry[]>
   onEnabledToolsUsed: (enabledTools: ToolCallName[]) => void
-  onExecutionPhaseChange?: (phase: 'generating' | 'tool-running') => void
+  onExecutionPhaseChange?: (phase: 'generating' | 'tool-running' | 'waiting-for-user') => void
   onSafeToSteerAfterTool?: () => void
+  /** Called by execution to register the askUser answer handler. */
+  onAskUserHandlerReady?: (handler: (toolCallId: string, answer: string) => void) => void
   onTerminalState?: () => void
   onSubagentProgress?: (chunk: string) => void
   onSubagentStarted?: (agentName: string) => void
@@ -836,8 +839,23 @@ export async function executeServerRun(
     ? [...recoveryCheckpoint.textBlocks]
     : []
   let shouldStartNewTextBlock = textBlocks.length === 0
-  let executionPhase: 'generating' | 'tool-running' = 'generating'
+  let executionPhase: 'generating' | 'tool-running' | 'waiting-for-user' = 'generating'
   let awaitingSafeSteerPointAfterTool = false
+
+  // Deferred promises for askUser tool calls waiting on user input
+  const pendingUserAnswers = new Map<
+    string,
+    { resolve: (answer: string) => void; reject: (err: Error) => void }
+  >()
+
+  // Register the answer handler so the caller (RunDomain) can forward user answers.
+  deps.onAskUserHandlerReady?.((toolCallId: string, answer: string): void => {
+    const pending = pendingUserAnswers.get(toolCallId)
+    if (pending) {
+      pendingUserAnswers.delete(toolCallId)
+      pending.resolve(answer)
+    }
+  })
   let safeSteerTimer: ReturnType<typeof setTimeout> | null = null
   let duplicateTextPrefix = recoveryCheckpoint?.content ?? ''
   let pendingDuplicateText = ''
@@ -906,7 +924,7 @@ export async function executeServerRun(
     deps.onSafeToSteerAfterTool?.()
   }
 
-  const setExecutionPhase = (phase: 'generating' | 'tool-running'): void => {
+  const setExecutionPhase = (phase: 'generating' | 'tool-running' | 'waiting-for-user'): void => {
     if (executionPhase === phase) {
       return
     }
@@ -1216,6 +1234,63 @@ export async function executeServerRun(
               }
             }
           : {}),
+        // askUser is only available for direct chat runs — not external channel runs
+        ...(!isExternalChannel
+          ? {
+              askUserContext: {
+                waitForUserAnswer: (
+                  toolCallId: string,
+                  question: string,
+                  choices?: string[]
+                ): Promise<string> => {
+                  return new Promise<string>((resolve, reject) => {
+                    pendingUserAnswers.set(toolCallId, { resolve, reject })
+                    setExecutionPhase('waiting-for-user')
+
+                    // Update the existing tool call record persisted by onToolCallStart
+                    const existingToolCall = toolCalls.get(toolCallId)
+                    const waitingToolCall: ToolCallRecord = {
+                      ...(existingToolCall ?? {
+                        id: toolCallId,
+                        runId: input.runId,
+                        threadId: input.thread.id,
+                        requestMessageId: input.requestMessageId,
+                        toolName: 'askUser',
+                        startedAt: deps.timestamp(),
+                        stepIndex: stepCount,
+                        stepBudget: maxToolSteps
+                      }),
+                      status: 'waiting-for-user',
+                      inputSummary: question.slice(0, 160),
+                      details: { kind: 'askUser' as const, question, choices }
+                    } as ToolCallRecord
+
+                    toolCalls.set(toolCallId, waitingToolCall)
+                    if (existingToolCall) {
+                      deps.storage.updateToolCall(waitingToolCall)
+                    } else {
+                      deps.storage.createToolCall(waitingToolCall)
+                    }
+                    persistRecoveryCheckpoint()
+
+                    deps.emit<ToolCallUpdatedEvent>({
+                      type: 'tool.updated',
+                      threadId: input.thread.id,
+                      runId: input.runId,
+                      toolCall: waitingToolCall
+                    })
+                    deps.emit<NotificationRequestEvent>({
+                      type: 'notification.requested',
+                      threadId: input.thread.id,
+                      runId: input.runId,
+                      title: 'Yachiyo needs your input',
+                      body: question.slice(0, 100)
+                    })
+                  })
+                }
+              }
+            }
+          : {}),
         ...((gitCtx.hasGit || gitValidatedWorkspaces.length > 0) &&
         enabledSubagentProfiles.length > 0
           ? {
@@ -1415,7 +1490,7 @@ export async function executeServerRun(
         })
       },
       onToolCallStart: (event) => {
-        if (!isCoreToolName(event.toolCall.toolName)) {
+        if (!isTrackedToolName(event.toolCall.toolName)) {
           return
         }
 
@@ -1430,12 +1505,9 @@ export async function executeServerRun(
           runId: input.runId,
           threadId: input.thread.id,
           requestMessageId: input.requestMessageId,
-          toolName: event.toolCall.toolName as ToolCallName,
+          toolName: event.toolCall.toolName,
           status: 'running',
-          inputSummary: summarizeToolInput(
-            event.toolCall.toolName as ToolCallName,
-            event.toolCall.input
-          ),
+          inputSummary: summarizeToolInput(event.toolCall.toolName, event.toolCall.input),
           startedAt: deps.timestamp(),
           stepIndex: stepCount,
           stepBudget: maxToolSteps
@@ -1457,7 +1529,7 @@ export async function executeServerRun(
         })
       },
       onToolCallUpdate: (event) => {
-        if (!isCoreToolName(event.toolCall.toolName)) {
+        if (!isTrackedToolName(event.toolCall.toolName)) {
           return
         }
 
@@ -1470,8 +1542,9 @@ export async function executeServerRun(
           return
         }
 
-        const toolName = event.toolCall.toolName as ToolCallName
-        const normalized = normalizeToolResult(toolName, event.output, { phase: 'update' })
+        const normalized = normalizeToolResult(event.toolCall.toolName, event.output, {
+          phase: 'update'
+        })
         const toolCall: ToolCallRecord = {
           ...startedToolCall,
           status: 'running',
@@ -1492,14 +1565,15 @@ export async function executeServerRun(
       },
       onToolCallFinish: (event) => {
         try {
-          if (!isCoreToolName(event.toolCall.toolName)) {
+          if (!isTrackedToolName(event.toolCall.toolName)) {
             return
           }
 
           const startedToolCall = toolCalls.get(event.toolCall.toolCallId)
-          const toolName = event.toolCall.toolName as ToolCallName
           const finishedAt = deps.timestamp()
-          const normalized = event.success ? normalizeToolResult(toolName, event.output) : undefined
+          const normalized = event.success
+            ? normalizeToolResult(event.toolCall.toolName, event.output)
+            : undefined
           const errorMessage =
             normalized?.error ??
             (event.success || event.error === undefined
@@ -1522,9 +1596,9 @@ export async function executeServerRun(
                 runId: input.runId,
                 threadId: input.thread.id,
                 requestMessageId: input.requestMessageId,
-                toolName,
+                toolName: event.toolCall.toolName,
                 status: normalized?.status ?? 'failed',
-                inputSummary: summarizeToolInput(toolName, event.toolCall.input),
+                inputSummary: summarizeToolInput(event.toolCall.toolName, event.toolCall.input),
                 outputSummary: normalized?.outputSummary ?? errorMessage,
                 ...(normalized?.cwd ? { cwd: normalized.cwd } : {}),
                 ...(normalized?.details ? { details: normalized.details } : {}),
@@ -1542,13 +1616,13 @@ export async function executeServerRun(
             deps.storage.createToolCall(toolCall)
             appendRecoveryToolCall(recoveryResponseMessages, {
               toolCallId: toolCall.id,
-              toolName,
+              toolName: event.toolCall.toolName,
               toolInput: event.toolCall.input
             })
           }
           appendRecoveryToolResult(recoveryResponseMessages, {
             toolCallId: toolCall.id,
-            toolName,
+            toolName: event.toolCall.toolName,
             output: event.output,
             error: event.error
           })
@@ -1703,6 +1777,12 @@ export async function executeServerRun(
     return { kind: 'completed', totalPromptTokens: lastUsage?.totalPromptTokens }
   } catch (error) {
     clearSafeSteerTimer()
+
+    // Reject any pending askUser promises so the tool execution unblocks
+    for (const [id, pending] of pendingUserAnswers) {
+      pending.reject(new Error('Run cancelled'))
+      pendingUserAnswers.delete(id)
+    }
 
     if (input.abortController.signal.aborted || isAbortError(error)) {
       const restartReason = input.abortController.signal.reason

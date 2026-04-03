@@ -46,11 +46,13 @@ import {
   createTool as createUpdateMemoryTool,
   type UpdateMemoryDeps
 } from './agentTools/updateMemoryTool.ts'
+import { createAskUserTool, type AskUserToolContext } from './agentTools/askUserTool.ts'
 
 export type {
   AgentToolMetadata,
   AgentToolResult,
   AgentToolOutput,
+  AskUserToolOutput,
   BashToolOutput,
   EditToolOutput,
   GlobToolOutput,
@@ -62,6 +64,8 @@ export type {
   WebSearchToolOutput,
   WriteToolOutput
 } from './agentTools/shared.ts'
+
+export { createAskUserTool, type AskUserToolContext } from './agentTools/askUserTool.ts'
 
 export {
   createTool as createBashTool,
@@ -99,6 +103,8 @@ export interface AgentToolDependencies {
     status: 'success' | 'cancelled',
     lastMessage?: string
   ) => void
+  /** When provided, the askUser tool is injected into the tool set. */
+  askUserContext?: AskUserToolContext
   /** Extra tools merged into the tool set (e.g. schedule-only tools). */
   extraTools?: ToolSet
 }
@@ -111,7 +117,13 @@ function getOutputError(output: unknown): string | undefined {
   return isToolFailure(output) && typeof output.error === 'string' ? output.error : undefined
 }
 
-export function summarizeToolInput(toolName: ToolCallName, input: unknown): string {
+export function summarizeToolInput(toolName: ToolCallName | string, input: unknown): string {
+  if (toolName === 'askUser') {
+    const question =
+      typeof input === 'object' && input !== null && 'question' in input ? input.question : ''
+    return typeof question === 'string' ? takeTail(question, 160).text : 'askUser'
+  }
+
   if (toolName === 'bash') {
     const command =
       typeof input === 'object' && input !== null && 'command' in input ? input.command : ''
@@ -151,7 +163,7 @@ export function summarizeToolInput(toolName: ToolCallName, input: unknown): stri
 }
 
 export function summarizeToolOutput(
-  toolName: ToolCallName,
+  toolName: ToolCallName | string,
   output: unknown,
   options: { phase?: 'update' | 'end' } = {}
 ): string {
@@ -160,6 +172,11 @@ export function summarizeToolOutput(
 
   if (error) {
     return error
+  }
+
+  if (toolName === 'askUser') {
+    const details = (output as import('./agentTools/shared.ts').AskUserToolOutput).details
+    return details.answer ? `answered: ${takeTail(details.answer, 120).text}` : 'waiting for answer'
   }
 
   if (toolName === 'read') {
@@ -229,7 +246,7 @@ export function summarizeToolOutput(
 }
 
 export function normalizeToolResult(
-  toolName: ToolCallName,
+  toolName: ToolCallName | string,
   output: unknown,
   options: { phase?: 'update' | 'end' } = {}
 ): {
@@ -330,6 +347,10 @@ export function createAgentToolSet(
       onSubagentFinished: dependencies.onSubagentFinished
     }
     tools.delegateCodingTask = createDelegateCodingTaskTool(subagentCtx)
+  }
+
+  if (dependencies.askUserContext) {
+    tools.askUser = createAskUserTool(dependencies.askUserContext)
   }
 
   if (dependencies.extraTools) {

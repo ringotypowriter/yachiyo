@@ -1,5 +1,6 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
+  AnswerToolQuestionInput,
   BootstrapPayload,
   ChannelGroupRecord,
   ChannelsConfig,
@@ -98,6 +99,7 @@ declare global {
           assistantMessageId: string
         }) => Promise<ThreadRecord>
         cancelRun: (input: { runId: string }) => Promise<void>
+        answerToolQuestion: (input: AnswerToolQuestionInput) => Promise<void>
         getConfig: () => Promise<SettingsConfig>
         getSoulDocument: () => Promise<SoulDocument>
         addSoulTrait: (input: { trait: string }) => Promise<SoulDocument>

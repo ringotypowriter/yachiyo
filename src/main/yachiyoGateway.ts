@@ -4,6 +4,7 @@ import { spawn } from 'child_process'
 import { join } from 'node:path'
 
 import type {
+  AnswerToolQuestionInput,
   ChannelsConfig,
   CompactThreadInput,
   CreateScheduleInput,
@@ -140,7 +141,8 @@ const IPC_CHANNELS = {
   listScheduleRuns: 'yachiyo:list-schedule-runs',
   listRecentScheduleRuns: 'yachiyo:list-recent-schedule-runs',
   markThreadAsRead: 'yachiyo:mark-thread-as-read',
-  openSkillsFolder: 'yachiyo:open-skills-folder'
+  openSkillsFolder: 'yachiyo:open-skills-folder',
+  answerToolQuestion: 'yachiyo:answer-tool-question'
 } as const
 
 let server: YachiyoServer | null = null
@@ -396,6 +398,14 @@ function registerFatalRunRecovery(): void {
 }
 
 function broadcast(event: YachiyoServerEvent): void {
+  // Show OS notification when the agent asks for user input and no window is focused
+  if (event.type === 'notification.requested') {
+    const anyFocused = BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && w.isFocused())
+    if (!anyFocused && Notification.isSupported()) {
+      new Notification({ title: event.title, body: event.body }).show()
+    }
+  }
+
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) {
       window.webContents.send(IPC_CHANNELS.event, event)
@@ -613,6 +623,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handle(IPC_CHANNELS.editMessage, (input: EditMessageInput) => server!.editMessage(input))
   handle(IPC_CHANNELS.cancelRun, (input: { runId: string }) => server!.cancelRun(input))
+  handle(IPC_CHANNELS.answerToolQuestion, (input: AnswerToolQuestionInput) =>
+    server!.answerToolQuestion(input)
+  )
   handle(IPC_CHANNELS.getConfig, () => server!.getConfig())
   handle(IPC_CHANNELS.getSoulDocument, () => server!.getSoulDocument())
   handle(IPC_CHANNELS.addSoulTrait, (input: { trait: string }) => server!.addSoulTrait(input))

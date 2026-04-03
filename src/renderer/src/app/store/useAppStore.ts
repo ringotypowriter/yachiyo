@@ -1093,6 +1093,43 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }
 
+    if (event.type === 'notification.requested') {
+      // OS notification is already handled by the gateway broadcast — only show
+      // in-app toast here to avoid duplicate system notifications.
+      const key = `notification.requested:${event.runId}`
+      if (shouldShowNotification(key)) {
+        const { activeThreadId } = get()
+        const isForeground = !document.hidden && document.hasFocus()
+        if (isForeground && event.threadId !== activeThreadId) {
+          set((s) => ({
+            activeToasts: [
+              ...s.activeToasts,
+              {
+                id: crypto.randomUUID(),
+                threadId: event.threadId,
+                title: event.title,
+                body: event.body,
+                eventKey: key
+              }
+            ]
+          }))
+        } else if (!isForeground) {
+          set((s) => ({
+            queuedToasts: [
+              ...s.queuedToasts,
+              {
+                id: crypto.randomUUID(),
+                threadId: event.threadId,
+                title: event.title,
+                body: event.body,
+                eventKey: key
+              }
+            ]
+          }))
+        }
+      }
+    }
+
     if (event.type === 'run.completed') {
       const { config, threads, messages } = get()
       const thread = threads.find((t) => t.id === event.threadId)

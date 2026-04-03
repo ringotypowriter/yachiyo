@@ -1,4 +1,5 @@
 import type {
+  AskUserToolCallDetails,
   BashToolCallDetails,
   EditToolCallDetails,
   GlobToolCallDetails,
@@ -322,6 +323,17 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     // Full web content belongs in the inspection panel, not inline in chat
     pushOutputHead(codeBlocks, 'content', details.content, undefined, 'inspection')
 
+    return { fields, codeBlocks }
+  }
+
+  if (toolCall.toolName === 'askUser') {
+    const details = toolCall.details as AskUserToolCallDetails | undefined
+    if (!details) {
+      return { fields, codeBlocks }
+    }
+
+    pushField(fields, 'question', details.question)
+    pushField(fields, 'answer', details.answer)
     return { fields, codeBlocks }
   }
 

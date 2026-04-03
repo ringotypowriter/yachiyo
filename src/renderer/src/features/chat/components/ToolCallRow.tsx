@@ -5,6 +5,7 @@ import type { ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { buildToolCallDetailsPresentation } from '../lib/toolCallPresentation.ts'
 import { DiffBlock } from './DiffBlock.tsx'
+import { AskUserInlineWidget } from './AskUserInlineWidget.tsx'
 
 interface ToolCallRowProps {
   toolCall: ToolCall
@@ -19,6 +20,12 @@ function elapsedSeconds(startedAt: string, finishedAt: string): string | null {
 export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
   const [isExpanded, setIsExpanded] = useState(false)
   const detailsId = useId()
+
+  // askUser tool gets a dedicated inline widget
+  if (toolCall.toolName === 'askUser') {
+    return <AskUserInlineWidget toolCall={toolCall} />
+  }
+
   const isRunning = toolCall.status === 'running'
   const isFailed = toolCall.status === 'failed'
   const dotColor = isFailed

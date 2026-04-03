@@ -1,5 +1,6 @@
 export type {
   ActiveRunEnterBehavior,
+  AskUserToolCallDetails,
   BashToolCallDetails,
   ConnectionStatus,
   EditToolCallDetails,

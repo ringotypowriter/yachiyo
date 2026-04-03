@@ -5,6 +5,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path'
 import { z } from 'zod'
 
 import type {
+  AskUserToolCallDetails,
   BashToolCallDetails,
   EditToolCallDetails,
   GlobToolCallDetails,
@@ -131,6 +132,8 @@ export type WebReadToolOutput = AgentToolResult<WebReadToolCallDetails>
 export type WebSearchToolOutput = AgentToolResult<WebSearchToolCallDetails>
 export type SkillsReadToolOutput = AgentToolResult<SkillsReadToolCallDetails>
 
+export type AskUserToolOutput = AgentToolResult<AskUserToolCallDetails>
+
 export type AgentToolOutput =
   | ReadToolOutput
   | WriteToolOutput
@@ -141,6 +144,7 @@ export type AgentToolOutput =
   | WebReadToolOutput
   | WebSearchToolOutput
   | SkillsReadToolOutput
+  | AskUserToolOutput
 
 export interface BashRunnerInput {
   command: string

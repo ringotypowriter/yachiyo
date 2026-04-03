@@ -748,6 +748,10 @@ export class YachiyoServer {
     this.runDomain.cancelRun(input)
   }
 
+  answerToolQuestion(input: { runId: string; toolCallId: string; answer: string }): void {
+    this.runDomain.answerToolQuestion(input)
+  }
+
   loadThreadData(threadId: string): { messages: MessageRecord[]; toolCalls: ToolCallRecord[] } {
     return {
       messages: this.storage.listThreadMessages(threadId),

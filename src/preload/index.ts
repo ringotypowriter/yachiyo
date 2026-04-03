@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
+  AnswerToolQuestionInput,
   ChannelGroupRecord,
   ChannelsConfig,
   ChannelUserRecord,
@@ -109,6 +110,8 @@ const api = {
     selectReplyBranch: (input: { threadId: string; assistantMessageId: string }) =>
       ipcRenderer.invoke('yachiyo:select-reply-branch', input),
     cancelRun: (input: { runId: string }) => ipcRenderer.invoke('yachiyo:cancel-run', input),
+    answerToolQuestion: (input: AnswerToolQuestionInput) =>
+      ipcRenderer.invoke('yachiyo:answer-tool-question', input),
     getConfig: () => ipcRenderer.invoke('yachiyo:get-config'),
     getSoulDocument: (): Promise<SoulDocument> => ipcRenderer.invoke('yachiyo:get-soul-document'),
     addSoulTrait: (input: { trait: string }): Promise<SoulDocument> =>
