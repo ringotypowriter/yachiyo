@@ -544,7 +544,7 @@ export function createTelegramService({
           console.log(
             `[telegram-group] rejected colon-prefixed message for "${group.name}": ${message}`
           )
-          return 'Rejected: message must not start with a colon.'
+          throw new Error('Rejected: message must not start with a colon.')
         }
 
         if (isBareSymbolMessage(message)) {
@@ -642,6 +642,8 @@ export function createTelegramService({
       messages,
       max_token: server.resolveMaxChatToken(),
       tools: probeTools,
+      onToolCallError: (event) =>
+        event.toolCall.toolName === 'send_group_message' ? 'abort' : 'continue',
       settingsOverride
     })
 

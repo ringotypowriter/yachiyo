@@ -1283,6 +1283,100 @@ test('createAiSdkModelRuntime forwards final tool results through onToolCallFini
     }
   ])
 })
+
+test('createAiSdkModelRuntime can abort the stream after a tool error', async () => {
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => ({ modelId: 'gpt-5', provider: 'openai.responses' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: (() => ({
+      fullStream: (async function* () {
+        yield {
+          type: 'tool-input-available',
+          toolCallId: 'tool-send-group-message-1',
+          toolName: 'send_group_message',
+          input: { message: ': hello there' }
+        }
+        yield {
+          type: 'tool-output-error',
+          toolCallId: 'tool-send-group-message-1',
+          errorText: 'Rejected: message must not start with a colon.'
+        }
+        yield { type: 'text-delta', id: 'text-1', text: 'should not continue' }
+      })()
+    })) as never
+  })
+
+  await assert.rejects(
+    async () => {
+      for await (const chunk of runtime.streamReply({
+        messages: [{ role: 'user', content: 'Say hi.' }],
+        settings: {
+          providerName: 'work',
+          provider: 'openai-responses',
+          model: 'gpt-5',
+          apiKey: 'sk-test',
+          baseUrl: ''
+        },
+        signal: new AbortController().signal,
+        onToolCallError: ((event: { toolCall: { toolName: string } }) =>
+          event.toolCall.toolName === 'send_group_message' ? 'abort' : 'continue') as never
+      } as never)) {
+        void chunk
+      }
+    },
+    { message: 'Rejected: message must not start with a colon.' }
+  )
+})
+
+test('createAiSdkModelRuntime can abort the stream after a tool input error', async () => {
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => ({ modelId: 'gpt-5', provider: 'openai.responses' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: (() => ({
+      fullStream: (async function* () {
+        yield {
+          type: 'tool-input-error',
+          toolCallId: 'tool-send-group-message-2',
+          toolName: 'send_group_message',
+          input: { nope: true },
+          errorText: 'Invalid input for tool send_group_message.'
+        }
+        yield { type: 'text-delta', id: 'text-2', text: 'should not continue' }
+      })()
+    })) as never
+  })
+
+  await assert.rejects(
+    async () => {
+      for await (const chunk of runtime.streamReply({
+        messages: [{ role: 'user', content: 'Say hi.' }],
+        settings: {
+          providerName: 'work',
+          provider: 'openai-responses',
+          model: 'gpt-5',
+          apiKey: 'sk-test',
+          baseUrl: ''
+        },
+        signal: new AbortController().signal,
+        onToolCallError: ((event: { toolCall: { toolName: string } }) =>
+          event.toolCall.toolName === 'send_group_message' ? 'abort' : 'continue') as never
+      } as never)) {
+        void chunk
+      }
+    },
+    { message: 'Invalid input for tool send_group_message.' }
+  )
+})
 test('createAiSdkModelRuntime uses Google AI provider for gemini', async () => {
   let googleOptions: { apiKey?: string; baseURL?: string } | undefined
   let selectedModel: { provider: string; modelId: string } | null = null
@@ -1976,6 +2070,39 @@ test('streamReply does not retry after tool-input-available has fired (P1: tool 
   )
 
   // Must NOT have retried — only 1 call total
+  assert.equal(getCallCount(), 1)
+})
+
+test('streamReply does not retry after tool-input-error aborts the turn', async () => {
+  const { runtime, defaultSettings, getCallCount } = createFullStreamRetryRuntime([
+    {
+      streamEvents: [
+        {
+          type: 'tool-input-error',
+          toolCallId: 'tc1',
+          toolName: 'send_group_message',
+          input: { nope: true },
+          errorText: 'Invalid input for tool send_group_message.'
+        }
+      ]
+    }
+  ])
+
+  await assert.rejects(
+    async () => {
+      for await (const chunk of runtime.streamReply({
+        messages: [{ role: 'user', content: 'hi' }],
+        settings: defaultSettings,
+        signal: new AbortController().signal,
+        onToolCallError: ((event: { toolCall: { toolName: string } }) =>
+          event.toolCall.toolName === 'send_group_message' ? 'abort' : 'continue') as never
+      } as never)) {
+        void chunk
+      }
+    },
+    { message: 'Invalid input for tool send_group_message.' }
+  )
+
   assert.equal(getCallCount(), 1)
 })
 

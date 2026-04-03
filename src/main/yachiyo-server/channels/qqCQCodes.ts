@@ -261,8 +261,11 @@ const FACE_MAP: Record<number, string> = {
 
 // ── CQ param extractor ──────────────────────────────────────────────
 function getCQParam(cqBody: string, key: string): string | undefined {
-  const re = new RegExp(`(?:^|,)${key}=([^,]*)`)
-  return cqBody.match(re)?.[1]
+  const prefix = `${key}=`
+  for (const part of cqBody.split(',')) {
+    if (part.startsWith(prefix)) return part.slice(prefix.length)
+  }
+  return undefined
 }
 
 // ── JSON card title extraction ──────────────────────────────────────

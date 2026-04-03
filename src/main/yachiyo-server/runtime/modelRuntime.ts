@@ -29,6 +29,18 @@ function readTextDelta(part: { delta?: string; text?: string; textDelta?: string
   return part.delta ?? part.textDelta ?? part.text ?? null
 }
 
+function toToolError(error: unknown, fallbackMessage = 'Tool execution failed'): Error {
+  if (error instanceof Error) {
+    return error
+  }
+
+  if (typeof error === 'string' && error.trim().length > 0) {
+    return new Error(error)
+  }
+
+  return new Error(fallbackMessage)
+}
+
 export async function fetchModels(
   provider: import('../../../shared/yachiyo/protocol').ProviderConfig,
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
@@ -170,7 +182,32 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               }
 
               if (part.type === 'tool-input-error' && typeof part.toolCallId === 'string') {
+                const toolCallContext =
+                  (typeof part.toolName === 'string'
+                    ? { input: part.input, toolName: part.toolName }
+                    : undefined) ?? toolCallContextById.get(part.toolCallId)
+
+                if (!toolCallContext) {
+                  toolCallContextById.delete(part.toolCallId)
+                  continue
+                }
+
+                const toolCall = {
+                  input: toolCallContext.input,
+                  toolCallId: part.toolCallId,
+                  toolName: toolCallContext.toolName
+                }
+                const toolError = toToolError(
+                  part.error ?? part.errorText,
+                  'Tool input validation failed'
+                )
+
                 toolCallContextById.delete(part.toolCallId)
+
+                if (request.onToolCallError?.({ error: toolError, toolCall }) === 'abort') {
+                  streamCommitted = true
+                  throw toolError
+                }
                 continue
               }
 
@@ -240,7 +277,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
 
               if (
                 (part.type === 'tool-output-error' || part.type === 'tool-error') &&
-                emitToolCallFinish &&
+                (emitToolCallFinish || request.onToolCallError) &&
                 typeof part.toolCallId === 'string'
               ) {
                 const toolCallContext =
@@ -252,26 +289,37 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                   continue
                 }
 
-                emitToolCallFinish({
-                  abortSignal: request.signal,
-                  durationMs: 0,
-                  experimental_context: undefined,
-                  functionId: undefined,
-                  metadata: undefined,
-                  model: undefined,
-                  messages: request.messages,
-                  stepNumber: undefined,
-                  success: false,
-                  error: part.error ?? part.errorText,
-                  toolCall: {
-                    type: 'tool-call',
-                    dynamic: true,
-                    toolCallId: part.toolCallId,
-                    toolName: toolCallContext.toolName,
-                    input: toolCallContext.input
-                  }
-                })
+                const toolCall = {
+                  input: toolCallContext.input,
+                  toolCallId: part.toolCallId,
+                  toolName: toolCallContext.toolName
+                }
+                const toolError = toToolError(part.error ?? part.errorText)
+
+                if (emitToolCallFinish) {
+                  emitToolCallFinish({
+                    abortSignal: request.signal,
+                    durationMs: 0,
+                    experimental_context: undefined,
+                    functionId: undefined,
+                    metadata: undefined,
+                    model: undefined,
+                    messages: request.messages,
+                    stepNumber: undefined,
+                    success: false,
+                    error: toolError,
+                    toolCall: {
+                      type: 'tool-call',
+                      dynamic: true,
+                      ...toolCall
+                    }
+                  })
+                }
                 toolCallContextById.delete(part.toolCallId)
+
+                if (request.onToolCallError?.({ error: toolError, toolCall }) === 'abort') {
+                  throw toolError
+                }
               }
             }
 

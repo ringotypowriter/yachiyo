@@ -1,7 +1,7 @@
 import type { ToolSet } from 'ai'
 
 import type { ProviderSettings } from '../../../shared/yachiyo/protocol.ts'
-import type { ModelMessage, ModelRuntime, ModelUsage } from './types.ts'
+import type { ModelMessage, ModelRuntime, ModelToolCallErrorEvent, ModelUsage } from './types.ts'
 
 export type AuxiliaryGenerationUnavailableReason =
   | 'not-configured'
@@ -31,6 +31,8 @@ export interface AuxiliaryTextGenerationRequest {
   max_token?: number
   /** Optional tools the model can call during generation. */
   tools?: ToolSet
+  /** Optional hook to abort the stream after a tool error. */
+  onToolCallError?: (event: ModelToolCallErrorEvent) => 'abort' | 'continue'
   /** Explicit provider settings. When provided, skips the default tool-model lookup. */
   settingsOverride?: ProviderSettings
 }
@@ -99,6 +101,7 @@ export function createAuxiliaryGenerationService(
           settings: resolvedSettings,
           signal,
           tools: request.tools,
+          onToolCallError: request.onToolCallError,
           onFinish: (finishUsage) => {
             usage = finishUsage
           }

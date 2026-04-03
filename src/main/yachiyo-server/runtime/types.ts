@@ -18,6 +18,15 @@ export interface ModelToolCallUpdateEvent {
   output: unknown
 }
 
+export interface ModelToolCallErrorEvent {
+  toolCall: {
+    input: unknown
+    toolCallId: string
+    toolName: string
+  }
+  error: unknown
+}
+
 export type ModelProviderOptionsMode = 'default' | 'auxiliary'
 
 export interface ModelUsage {
@@ -42,6 +51,7 @@ export interface ModelStreamRequest {
   onToolCallStart?: GenerateTextOnToolCallStartCallback<ToolSet>
   onToolCallFinish?: GenerateTextOnToolCallFinishCallback<ToolSet>
   onToolCallUpdate?: (event: ModelToolCallUpdateEvent) => void
+  onToolCallError?: (event: ModelToolCallErrorEvent) => 'abort' | 'continue'
   onReasoningDelta?: (delta: string) => void
   onRetry?: (attempt: number, maxAttempts: number, delayMs: number, error: unknown) => void
   onFinish?: (usage: ModelUsage) => void
