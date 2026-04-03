@@ -657,7 +657,8 @@ async function runCliSearchCommand(input: {
       error &&
       typeof error === 'object' &&
       'code' in error &&
-      (error as { code?: unknown }).code === 'ENOENT'
+      ((error as { code?: unknown }).code === 'ENOENT' ||
+        (error as { code?: unknown }).code === 'ENOTDIR')
     ) {
       throw new SearchBackendError(
         'backend-unavailable',

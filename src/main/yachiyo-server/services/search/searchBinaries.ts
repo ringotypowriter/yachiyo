@@ -19,7 +19,9 @@ export function resolveSearchBinaries(options?: {
   /** Override the project root for dev-mode resolution. */
   projectRoot?: string
 }): SearchBinaries {
-  const platformDir = `${process.platform}-${process.arch}`
+  // Match electron-builder's ${os} naming: mac, linux, win.
+  const osMap: Record<string, string> = { darwin: 'mac', linux: 'linux', win32: 'win' }
+  const platformDir = `${osMap[process.platform] ?? process.platform}-${process.arch}`
   const candidates: string[] = []
 
   // Packaged: electron-builder copies resources/bin/{os}-{arch}/* → resources/bin/
@@ -35,9 +37,10 @@ export function resolveSearchBinaries(options?: {
   // Fallback: resolve relative to this file's location.
   // import.meta.dirname is available in Node ≥ 21.2 and Electron ≥ 29.
   // In dev (electron-vite), it points somewhere under out/main/ or src/main/.
-  // Walk up until we find the project root's resources/bin directory.
+  // In packaged apps it may point inside app.asar — skip those paths since
+  // binaries inside an ASAR archive are not executable.
   const thisDir = import.meta.dirname
-  if (thisDir) {
+  if (thisDir && !thisDir.includes('.asar')) {
     const devRoot = findProjectRoot(thisDir)
     if (devRoot) {
       candidates.push(join(devRoot, 'resources', 'bin', platformDir))

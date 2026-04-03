@@ -43,7 +43,9 @@ if (!rgTarget) {
   process.exit(1)
 }
 
-const platformDir = `${PLATFORM}-${ARCH}`
+// Use electron-builder's ${os} naming: mac, linux, win (not process.platform values).
+const EB_OS_MAP = { darwin: 'mac', linux: 'linux', win32: 'win' }
+const platformDir = `${EB_OS_MAP[PLATFORM]}-${ARCH}`
 
 // ── Paths ────────────────────────────────────────────────────────────────────
 
