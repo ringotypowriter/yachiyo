@@ -856,6 +856,18 @@ export async function executeServerRun(
       pending.resolve(answer)
     }
   })
+
+  // When the run is aborted, immediately reject pending askUser promises so the
+  // tool execution unblocks and the stream can exit. Without this the stream is
+  // deadlocked: abort fires but the tool's deferred promise never settles.
+  const rejectPendingUserAnswers = (): void => {
+    for (const [id, pending] of pendingUserAnswers) {
+      pending.reject(new Error('Run cancelled'))
+      pendingUserAnswers.delete(id)
+    }
+  }
+  input.abortController.signal.addEventListener('abort', rejectPendingUserAnswers, { once: true })
+
   let safeSteerTimer: ReturnType<typeof setTimeout> | null = null
   let duplicateTextPrefix = recoveryCheckpoint?.content ?? ''
   let pendingDuplicateText = ''
