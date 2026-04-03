@@ -13,6 +13,8 @@ const KNOWN_EDITORS = [
   'Cursor',
   'Visual Studio Code',
   'Visual Studio Code - Insiders',
+  'Trae',
+  'Trae CN',
   'Windsurf',
   'Xcode',
   'Nova',
