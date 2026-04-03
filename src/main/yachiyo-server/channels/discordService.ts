@@ -40,6 +40,11 @@ import {
   isBareSymbolMessage,
   selectGroupProbeRecentMessages
 } from './groupContextBuilder.ts'
+import {
+  GROUP_REPLY_DEDUP_WINDOW_MS,
+  hasForbiddenGroupReplyPrefix,
+  normalizeGroupReplyForComparison
+} from './groupReplyGuard.ts'
 import { describeGroupImages } from './groupImageDescriptions.ts'
 import {
   createGroupMonitorRegistry,
@@ -406,16 +411,16 @@ export function createDiscordService({
 
   /** Per-group dedup ring buffer for outgoing messages. */
   const recentOutgoing = new Map<string, { texts: string[]; timestamps: number[] }>()
-  const DEDUP_WINDOW_MS = 5 * 60 * 1_000
   const DEDUP_MAX_ENTRIES = 10
 
   function isDuplicateOutgoing(groupId: string, message: string): boolean {
-    const normalized = message.trim().toLowerCase()
+    const normalized = normalizeGroupReplyForComparison(message)
+    if (!normalized) return false
     const entry = recentOutgoing.get(groupId)
     if (!entry) return false
 
     const now = Date.now()
-    while (entry.timestamps.length > 0 && now - entry.timestamps[0] > DEDUP_WINDOW_MS) {
+    while (entry.timestamps.length > 0 && now - entry.timestamps[0] > GROUP_REPLY_DEDUP_WINDOW_MS) {
       entry.timestamps.shift()
       entry.texts.shift()
     }
@@ -424,7 +429,8 @@ export function createDiscordService({
   }
 
   function recordOutgoing(groupId: string, message: string): void {
-    const normalized = message.trim().toLowerCase()
+    const normalized = normalizeGroupReplyForComparison(message)
+    if (!normalized) return
     let entry = recentOutgoing.get(groupId)
     if (!entry) {
       entry = { texts: [], timestamps: [] }
@@ -511,6 +517,13 @@ export function createDiscordService({
           .describe('The message to send to the group. Plain text only. Never start with a colon.')
       }),
       execute: async ({ message }) => {
+        if (hasForbiddenGroupReplyPrefix(message)) {
+          console.log(
+            `[discord-group] rejected colon-prefixed message for "${group.name}": ${message}`
+          )
+          return 'Rejected: message must not start with a colon.'
+        }
+
         if (isBareSymbolMessage(message)) {
           console.log(
             `[discord-group] rejected bare-symbol message for "${group.name}": ${message}`

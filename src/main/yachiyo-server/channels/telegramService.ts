@@ -40,6 +40,11 @@ import {
   isBareSymbolMessage,
   selectGroupProbeRecentMessages
 } from './groupContextBuilder'
+import {
+  GROUP_REPLY_DEDUP_WINDOW_MS,
+  hasForbiddenGroupReplyPrefix,
+  normalizeGroupReplyForComparison
+} from './groupReplyGuard'
 import { describeGroupImages } from './groupImageDescriptions'
 import {
   createGroupMonitorRegistry,
@@ -425,16 +430,16 @@ export function createTelegramService({
 
   /** Per-group dedup ring buffer for outgoing messages. */
   const recentOutgoing = new Map<string, { texts: string[]; timestamps: number[] }>()
-  const DEDUP_WINDOW_MS = 5 * 60 * 1_000
   const DEDUP_MAX_ENTRIES = 10
 
   function isDuplicateOutgoing(groupId: string, message: string): boolean {
-    const normalized = message.trim().toLowerCase()
+    const normalized = normalizeGroupReplyForComparison(message)
+    if (!normalized) return false
     const entry = recentOutgoing.get(groupId)
     if (!entry) return false
 
     const now = Date.now()
-    while (entry.timestamps.length > 0 && now - entry.timestamps[0] > DEDUP_WINDOW_MS) {
+    while (entry.timestamps.length > 0 && now - entry.timestamps[0] > GROUP_REPLY_DEDUP_WINDOW_MS) {
       entry.timestamps.shift()
       entry.texts.shift()
     }
@@ -443,7 +448,8 @@ export function createTelegramService({
   }
 
   function recordOutgoing(groupId: string, message: string): void {
-    const normalized = message.trim().toLowerCase()
+    const normalized = normalizeGroupReplyForComparison(message)
+    if (!normalized) return
     let entry = recentOutgoing.get(groupId)
     if (!entry) {
       entry = { texts: [], timestamps: [] }
@@ -533,6 +539,13 @@ export function createTelegramService({
         if (message.includes('\n')) {
           console.log(`[telegram-group] rejected multi-line message for "${group.name}"`)
           return 'Rejected: message must be a single line. Do not include line breaks.'
+        }
+
+        if (hasForbiddenGroupReplyPrefix(message)) {
+          console.log(
+            `[telegram-group] rejected colon-prefixed message for "${group.name}": ${message}`
+          )
+          return 'Rejected: message must not start with a colon.'
         }
 
         if (isBareSymbolMessage(message)) {
