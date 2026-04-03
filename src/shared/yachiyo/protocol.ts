@@ -598,6 +598,7 @@ export interface ProviderConfig {
 export interface ChatConfig {
   activeRunEnterBehavior?: ActiveRunEnterBehavior
   maxChatToken?: number
+  stripCompact?: boolean
 }
 
 export type UpdateChannel = 'stable' | 'beta'

@@ -73,7 +73,8 @@ export function normalizeChatConfig(value: unknown): ChatConfig {
       ? {
           maxChatToken: normalizeOptionalMaxChatToken(input['maxChatToken'])
         }
-      : {})
+      : {}),
+    stripCompact: normalizeOptionalBool(input['stripCompact'], true)
   }
 }
 

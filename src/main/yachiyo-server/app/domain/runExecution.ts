@@ -50,6 +50,7 @@ import {
   collectMessagePath,
   wouldCreateParentCycle
 } from '../../../../shared/yachiyo/threadTree.ts'
+import { applyStripCompact } from '../../runtime/contextStripCompact.ts'
 import { prepareModelMessages } from '../../runtime/messagePrepare.ts'
 import {
   buildExternalAgentInstructions,
@@ -1217,6 +1218,8 @@ export async function executeServerRun(
                 ]
               : contextHistory
           })
+    const stripCompactEnabled = config.chat?.stripCompact !== false
+    const finalMessages = stripCompactEnabled ? applyStripCompact(messages) : messages
     const tools = createAgentToolSet(
       {
         enabledTools: modelEnabledTools,
@@ -1454,7 +1457,7 @@ export async function executeServerRun(
     let lastUsage: ModelUsage | undefined
 
     for await (const delta of runtime.streamReply({
-      messages,
+      messages: finalMessages,
       settings,
       max_token: maxChatToken,
       signal: input.abortController.signal,

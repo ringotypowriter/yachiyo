@@ -21,7 +21,8 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   },
   chat: {
     activeRunEnterBehavior: DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
-    maxChatToken: DEFAULT_MAX_CHAT_TOKEN
+    maxChatToken: DEFAULT_MAX_CHAT_TOKEN,
+    stripCompact: true
   },
   workspace: {
     savedPaths: []

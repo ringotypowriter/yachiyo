@@ -1945,7 +1945,7 @@ export function Composer({
                     ) : null}
                   </>
                 ) : null}
-                {(latestRun.promptTokens ?? 0) > 128_000 ? (
+                {(latestRun.promptTokens ?? 0) > 200_000 ? (
                   <div
                     style={{
                       marginTop: 4,
@@ -1956,7 +1956,7 @@ export function Composer({
                       lineHeight: 1.4
                     }}
                   >
-                    Context is over 128K. Use{' '}
+                    Context is over 200K. Consider using{' '}
                     <span style={{ fontFamily: 'monospace' }}>/handoff</span> to compact and
                     continue in a new thread.
                   </div>
@@ -1968,7 +1968,7 @@ export function Composer({
               className="text-xs px-1.5 flex items-center gap-1"
               style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
             >
-              {(latestRun.promptTokens ?? 0) > 128_000 ? (
+              {(latestRun.promptTokens ?? 0) > 200_000 ? (
                 <TriangleAlert
                   size={11}
                   style={{ color: '#f59e0b', flexShrink: 0, opacity: 1, display: 'block' }}

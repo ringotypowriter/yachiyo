@@ -60,7 +60,8 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
         chat: {
           activeRunEnterBehavior:
             config.chat?.activeRunEnterBehavior ?? DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
-          ...(config.chat?.maxChatToken != null ? { maxChatToken: config.chat.maxChatToken } : {})
+          ...(config.chat?.maxChatToken != null ? { maxChatToken: config.chat.maxChatToken } : {}),
+          stripCompact: config.chat?.stripCompact !== false
         }
       }
     }
