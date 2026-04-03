@@ -122,6 +122,31 @@ describe('formatGapDuration', () => {
   })
 })
 
+describe('formatGroupMessages — new marker', () => {
+  it('inserts <new/> separator when freshCount splits the buffer', () => {
+    const messages = [msg('old-1'), msg('old-2'), msg('new-1'), msg('new-2')]
+    const result = formatGroupMessages(messages, 'Bot', undefined, undefined, 2)
+    const lines = result.split('\n')
+    const newIdx = lines.findIndex((l) => l === '<new/>')
+    assert.ok(newIdx >= 0, `Expected <new/> marker in: ${result}`)
+    // Should appear between old-2 and new-1
+    assert.ok(lines[newIdx - 1].includes('old-2'))
+    assert.ok(lines[newIdx + 1].includes('new-1'))
+  })
+
+  it('omits <new/> when all messages are fresh', () => {
+    const messages = [msg('a'), msg('b')]
+    const result = formatGroupMessages(messages, 'Bot', undefined, undefined, 2)
+    assert.ok(!result.includes('<new/>'), `Should not contain <new/> when all are fresh`)
+  })
+
+  it('omits <new/> when freshCount is 0 or undefined', () => {
+    const messages = [msg('a'), msg('b')]
+    assert.ok(!formatGroupMessages(messages, 'Bot', undefined, undefined, 0).includes('<new/>'))
+    assert.ok(!formatGroupMessages(messages, 'Bot').includes('<new/>'))
+  })
+})
+
 describe('formatGroupMessages — idle gap', () => {
   it('inserts gap marker when timestamp gap exceeds threshold', () => {
     const now = Date.now() / 1_000
@@ -293,6 +318,25 @@ describe('buildGroupProbeMessages', () => {
     })
     assert.equal(typeof messages[1].content, 'string')
     assert.ok((messages[1].content as string).includes('[image: a cat]'))
+  })
+
+  it('threads freshCount into formatted user message', () => {
+    const messages = buildGroupProbeMessages({
+      botName: 'Yachiyo',
+      groupName: 'TestGroup',
+      recentMessages: [msg('old'), msg('new')],
+      freshCount: 1
+    })
+    assert.ok((messages[1].content as string).includes('<new/>'))
+  })
+
+  it('system prompt documents <new/> marker', () => {
+    const messages = buildGroupProbeMessages({
+      botName: 'Yachiyo',
+      groupName: 'TestGroup',
+      recentMessages: [msg('hey')]
+    })
+    assert.ok((messages[0].content as string).includes('<new/>'))
   })
 
   it('selectGroupProbeRecentMessages keeps the newest suffix for a capped window', () => {

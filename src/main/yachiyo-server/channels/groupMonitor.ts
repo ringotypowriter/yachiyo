@@ -36,9 +36,11 @@ export interface GroupMonitorCallbacks {
   /**
    * Called each check interval with the full buffer.
    * The callback handles both decision and reply in a single pass.
+   * `freshCount` is how many messages at the tail of the buffer are new since
+   * the last check — the model should focus on these.
    * Returns true if the model spoke, false if it stayed silent.
    */
-  onTurn(recentMessages: GroupMessageEntry[]): Promise<boolean>
+  onTurn(recentMessages: GroupMessageEntry[], freshCount: number): Promise<boolean>
   /** Notifies the owner whenever the phase changes. */
   onStateChange(newPhase: Phase): void
 }
@@ -227,7 +229,7 @@ export function createGroupMonitor(
       // Single pass: model decides + speaks (or stays silent) via onTurn.
       let replied: boolean
       try {
-        replied = await callbacks.onTurn([...buffer])
+        replied = await callbacks.onTurn([...buffer], fresh.length)
       } catch (error) {
         // Connection or API failure — skip this turn without changing phase.
         // The monitor stays alive and will retry on the next check interval.

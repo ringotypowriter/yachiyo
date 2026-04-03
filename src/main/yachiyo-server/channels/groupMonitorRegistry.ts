@@ -26,9 +26,14 @@ import {
 export interface GroupMonitorRegistryCallbacks {
   /**
    * Single-pass callback: model decides + speaks (or stays silent).
+   * `freshCount` is how many tail messages are new since last check.
    * Returns true if the model spoke, false if silent.
    */
-  onTurn(group: ChannelGroupRecord, recentMessages: GroupMessageEntry[]): Promise<boolean>
+  onTurn(
+    group: ChannelGroupRecord,
+    recentMessages: GroupMessageEntry[],
+    freshCount: number
+  ): Promise<boolean>
   /** State-change logger / persistence hook. */
   onStateChange(group: ChannelGroupRecord, newPhase: Phase): void
 }
@@ -129,7 +134,7 @@ export function createGroupMonitorRegistry(
       const monitor = createGroupMonitor(
         config,
         {
-          onTurn: (messages) => callbacks.onTurn(group, messages),
+          onTurn: (messages, freshCount) => callbacks.onTurn(group, messages, freshCount),
           onStateChange: (newPhase) => {
             callbacks.onStateChange(group, newPhase)
             persistSnapshot(group.id, monitor)

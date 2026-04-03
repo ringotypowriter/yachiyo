@@ -64,17 +64,30 @@ export function formatGapDuration(gapMs: number): string {
  *
  * @param knownUsers - Map from externalUserId to role label (e.g. "owner", "guest").
  * @param idleGapThresholdMs - Minimum gap (ms) to trigger a `<gap>` marker.
+ * @param freshCount - Number of tail messages that are new since last check. When > 0
+ *   and < messages.length, a `<new/>` separator is inserted before the fresh block.
  */
 export function formatGroupMessages(
   messages: GroupMessageEntry[],
   botName: string,
   knownUsers?: Map<string, string>,
-  idleGapThresholdMs?: number
+  idleGapThresholdMs?: number,
+  freshCount?: number
 ): string {
   const threshold = idleGapThresholdMs ?? DEFAULT_IDLE_GAP_THRESHOLD_MS
   const lines: string[] = []
+  // Index where the fresh (unseen) messages start.
+  const freshStart =
+    freshCount != null && freshCount > 0 && freshCount < messages.length
+      ? messages.length - freshCount
+      : -1
 
   for (let i = 0; i < messages.length; i++) {
+    // Insert <new/> separator before the first fresh message.
+    if (i === freshStart) {
+      lines.push('<new/>')
+    }
+
     // Insert idle gap marker when the time jump is large enough.
     if (i > 0) {
       const gapMs = (messages[i].timestamp - messages[i - 1].timestamp) * 1_000
@@ -184,6 +197,10 @@ You also have these tools available:
 
 Use tools sparingly. Most turns need zero tools — just observe and maybe speak. Only use \`update_memory\` when you learn something genuinely durable (a new person's identity, a recurring topic, a group dynamic shift).
 
+## New vs. context messages
+
+Messages before the \`<new/>\` marker are context you've already seen — they're there so you understand the flow. Messages after \`<new/>\` are what just happened. **Focus on the new messages.** If you respond, respond to the current thread, not something from the old context unless someone just brought it back up.
+
 ## Idle gaps
 
 Messages may contain \`<gap duration="..."/>\` markers indicating periods of silence in the group. This is normal — conversations have natural pauses. Don't comment on gaps unless the timing is specifically relevant to what someone said.
@@ -235,6 +252,8 @@ The practical rule: **space out your replies.** Don't try to respond to every me
 export interface BuildGroupProbeMessagesInput extends BuildGroupProbeSystemPromptInput {
   recentMessages: GroupMessageEntry[]
   knownUsers?: Map<string, string>
+  /** How many tail messages are new since the last check. */
+  freshCount?: number
 }
 
 export interface DeriveNextGroupProbeMessageCountInput {
@@ -246,7 +265,13 @@ export interface DeriveNextGroupProbeMessageCountInput {
 
 export function buildGroupProbeMessages(input: BuildGroupProbeMessagesInput): ModelMessage[] {
   const systemPrompt = buildGroupProbeSystemPrompt(input)
-  const textContent = formatGroupMessages(input.recentMessages, input.botName, input.knownUsers)
+  const textContent = formatGroupMessages(
+    input.recentMessages,
+    input.botName,
+    input.knownUsers,
+    undefined,
+    input.freshCount
+  )
   return [
     { role: 'system' as const, content: systemPrompt },
     { role: 'user' as const, content: textContent }

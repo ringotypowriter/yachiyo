@@ -481,8 +481,8 @@ export function createTelegramService({
       policy.groupDefaults,
       groupConfig,
       {
-        async onTurn(group, recentMessages) {
-          return handleGroupTurn(group, recentMessages)
+        async onTurn(group, recentMessages, freshCount) {
+          return handleGroupTurn(group, recentMessages, freshCount)
         },
 
         onStateChange(group, newPhase) {
@@ -515,7 +515,8 @@ export function createTelegramService({
    */
   async function handleGroupTurn(
     group: ChannelGroupRecord,
-    recentMessages: GroupMessageEntry[]
+    recentMessages: GroupMessageEntry[],
+    freshCount: number
   ): Promise<boolean> {
     const auxService = server.getAuxiliaryGenerationService()
     let didSpeak = false
@@ -609,6 +610,7 @@ export function createTelegramService({
 
     const messageCountLimit = groupProbeMessageCountLimit.get(group.id)
     const probeRecentMessages = selectGroupProbeRecentMessages(recentMessages, messageCountLimit)
+    const effectiveFreshCount = Math.min(freshCount, probeRecentMessages.length)
     const messages = buildGroupProbeMessages({
       botName: 'Yachiyo',
       groupName: group.name,
@@ -616,11 +618,12 @@ export function createTelegramService({
       knownUsers: buildKnownUsersMap(),
       personaSummary: EXTERNAL_GROUP_PROMPT,
       ownerInstruction: readChannelsConfig().guestInstruction,
-      groupUserDocument: groupUserDoc?.content
+      groupUserDocument: groupUserDoc?.content,
+      freshCount: effectiveFreshCount
     })
 
     console.log(
-      `[telegram-group] group="${group.name}" probing ${probeRecentMessages.length}/${recentMessages.length} message(s) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${formatGroupMessages(probeRecentMessages, 'Yachiyo', buildKnownUsersMap())}`
+      `[telegram-group] group="${group.name}" probing ${probeRecentMessages.length}/${recentMessages.length} message(s) (${effectiveFreshCount} new) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${formatGroupMessages(probeRecentMessages, 'Yachiyo', buildKnownUsersMap(), undefined, effectiveFreshCount)}`
     )
 
     const result = await auxService.generateText({
