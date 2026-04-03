@@ -16,6 +16,8 @@ interface SmoothCaretOverlayProps {
   isFocused: boolean
   color: string
   trailColor: string
+  /** Pass the textarea value so the caret remeasures on programmatic clears (e.g. send). */
+  text?: string
 }
 
 const TAIL_POOL_SIZE = 32
@@ -203,7 +205,8 @@ export function SmoothCaretOverlay({
   trailStrength = 'low',
   isFocused,
   color,
-  trailColor
+  trailColor,
+  text
 }: SmoothCaretOverlayProps): React.JSX.Element {
   const overlayRef = useRef<HTMLDivElement>(null)
   const caretRef = useRef<HTMLDivElement>(null)
@@ -669,6 +672,16 @@ export function SmoothCaretOverlay({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, isFocused])
+
+  // Remeasure when the textarea value changes programmatically (e.g. cleared on send).
+  // Native input events already trigger scheduleMeasure, so this covers the gap where
+  // React sets the value without firing an input event.
+  useEffect(() => {
+    if (enabled && isFocused) {
+      scheduleMeasure()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text])
 
   return (
     <div ref={overlayRef} className="echooo-caret-overlay" aria-hidden="true">

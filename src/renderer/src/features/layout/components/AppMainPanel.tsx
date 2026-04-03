@@ -472,7 +472,7 @@ export function AppMainPanel({
       />
 
       <div className="flex flex-col flex-1 min-h-0 relative">
-        <div className="flex flex-row flex-1 min-h-0">
+        <div className="flex flex-row flex-1 min-h-0 min-w-0">
           <MessageTimeline key={activeThreadId ?? 'empty'} threadId={activeThreadId} />
           {isInspectionPanelOpen ? <RunInspectionPanel threadId={activeThreadId} /> : null}
         </div>

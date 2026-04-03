@@ -1501,6 +1501,7 @@ export function Composer({
               isFocused={isTextareaFocused}
               color={theme.text.accent}
               trailColor={`rgb(75 175 201 / 0.38)`}
+              text={composerValue}
             />
             <textarea
               ref={textareaRef}

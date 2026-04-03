@@ -613,7 +613,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   ].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 
   return (
-    <div className="flex-1 relative min-h-0">
+    <div className="flex-1 relative min-h-0 min-w-0">
       {!isAcpThread && (
         <TimelineScrollbar messages={visibleMessages} scrollContainerRef={scrollContainerRef} />
       )}

@@ -88,6 +88,8 @@ body > div:not(#root) {
   font-size: calc(var(--yachiyo-font-size-chat, 14px) / var(--yachiyo-ui-zoom, 1));
   line-height: 1.6;
   color: rgb(var(--yachiyo-rgb-ink));
+  overflow-wrap: break-word;
+  min-width: 0;
 }
 
 .streamdown-content p {
@@ -193,6 +195,7 @@ body > div:not(#root) {
 
 .message-card-shell {
   position: relative;
+  min-width: 0;
 }
 
 .user-message-images {
@@ -453,6 +456,8 @@ body > div:not(#root) {
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
 .assistant-message-bubble__branch-nav {
