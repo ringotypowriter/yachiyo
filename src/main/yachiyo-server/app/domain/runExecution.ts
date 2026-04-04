@@ -613,13 +613,19 @@ async function ensureResolvedWorkspacePath(
   thread: ThreadRecord,
   ensureThreadWorkspace: (threadId: string) => Promise<string>
 ): Promise<string> {
-  if (!thread.workspacePath?.trim()) {
-    return ensureThreadWorkspace(thread.id)
-  }
+  try {
+    if (!thread.workspacePath?.trim()) {
+      return await ensureThreadWorkspace(thread.id)
+    }
 
-  const workspacePath = resolve(thread.workspacePath)
-  await mkdir(workspacePath, { recursive: true })
-  return workspacePath
+    const workspacePath = resolve(thread.workspacePath)
+    await mkdir(workspacePath, { recursive: true })
+    return workspacePath
+  } catch (cause) {
+    const error = new Error('Workspace initialization failed', { cause })
+    ;(error as unknown as { isRetryable: boolean }).isRetryable = false
+    throw error
+  }
 }
 
 const SKILL_MENTION_RE = /^@skills:([a-zA-Z0-9_-]+)(\s|$)/

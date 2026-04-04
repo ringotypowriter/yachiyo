@@ -1853,14 +1853,14 @@ test('YachiyoServer fails runs cleanly when thread workspace initialization fail
         content: 'This run should fail before the model starts.'
       })
 
-      await assert.rejects(completeRun(firstRun.runId), /Workspace unavailable/)
+      await assert.rejects(completeRun(firstRun.runId), /Workspace initialization failed/)
 
       const secondRun = await server.sendChat({
         threadId: thread.id,
         content: 'This thread should not stay wedged as running.'
       })
 
-      await assert.rejects(completeRun(secondRun.runId), /Workspace unavailable/)
+      await assert.rejects(completeRun(secondRun.runId), /Workspace initialization failed/)
 
       const bootstrap = await server.bootstrap()
       assert.equal(bootstrap.messagesByThread[thread.id]?.length, 4)
