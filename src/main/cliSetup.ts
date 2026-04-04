@@ -1,11 +1,22 @@
-import { app } from 'electron'
+import { app, Notification } from 'electron'
 import { is } from '@electron-toolkit/utils'
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { resolveYachiyoDataDir } from './yachiyo-server/config/paths.ts'
 
 const PATH_MARKER = '# Added by Yachiyo CLI'
+const SYMLINK_TARGET = '/usr/local/bin/yachiyo'
 
 export function resolveCLIBinDir(): string {
   return join(resolveYachiyoDataDir(), 'bin')
@@ -59,6 +70,28 @@ function isWrapperCurrent(): boolean {
   if (!existsSync(wrapperPath)) return false
   try {
     return readFileSync(wrapperPath, 'utf8') === buildWrapperContent()
+  } catch {
+    return false
+  }
+}
+
+/** Try to place a symlink at /usr/local/bin/yachiyo pointing to the wrapper. */
+function trySymlink(): boolean {
+  const wrapperPath = resolveCLIWrapperPath()
+  try {
+    if (existsSync(SYMLINK_TARGET)) {
+      const stat = lstatSync(SYMLINK_TARGET)
+      if (stat.isSymbolicLink()) {
+        if (readlinkSync(SYMLINK_TARGET) === wrapperPath) return true
+        unlinkSync(SYMLINK_TARGET)
+      } else {
+        // A non-symlink file exists — don't overwrite it
+        return false
+      }
+    }
+    mkdirSync(dirname(SYMLINK_TARGET), { recursive: true })
+    symlinkSync(wrapperPath, SYMLINK_TARGET)
+    return true
   } catch {
     return false
   }
@@ -120,13 +153,35 @@ function ensurePathInShellProfiles(): void {
   }
 }
 
+function notifyCLIReady(symlinked: boolean): void {
+  if (!Notification.isSupported()) return
+  const body = symlinked
+    ? 'The yachiyo command is ready. Try it in any terminal!'
+    : 'Restart your terminal (or run `source ~/.zshrc`) to use the yachiyo command.'
+  new Notification({ title: 'Yachiyo CLI Installed', body }).show()
+}
+
 export function setupCLI(): void {
   try {
+    const wasAbsent = !existsSync(resolveCLIWrapperPath())
+
     if (!isWrapperCurrent()) {
       installWrapper()
       console.log(`[cli-setup] Installed yachiyo CLI at ${resolveCLIWrapperPath()}`)
     }
-    ensurePathInShellProfiles()
+
+    const symlinked = trySymlink()
+    if (symlinked) {
+      console.log(`[cli-setup] Symlinked ${SYMLINK_TARGET} → ${resolveCLIWrapperPath()}`)
+    } else {
+      // Fallback: ensure shell profiles have the PATH entry
+      ensurePathInShellProfiles()
+      console.log('[cli-setup] Updated shell profiles with PATH entry')
+    }
+
+    if (wasAbsent) {
+      notifyCLIReady(symlinked)
+    }
   } catch (error) {
     console.error('[cli-setup] Setup failed:', error)
   }
