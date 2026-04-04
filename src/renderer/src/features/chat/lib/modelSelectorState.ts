@@ -3,6 +3,7 @@ import type { SettingsConfig, ToolModelMode } from '../../../../../shared/yachiy
 export interface FilteredModelProvider {
   name: string
   type: SettingsConfig['providers'][number]['type']
+  baseUrl: string
   models: string[]
 }
 
@@ -38,6 +39,7 @@ export function filterEnabledModelProviders(
     .map((provider) => ({
       name: provider.name,
       type: provider.type,
+      baseUrl: provider.baseUrl,
       models: provider.modelList.enabled.filter(
         (model) =>
           normalizedQuery.length === 0 ||

@@ -4,6 +4,7 @@ import {
   type SettingsConfig,
   type ToolModelConfig
 } from './protocol.ts'
+import type { ProviderPreset } from './providerPresets.ts'
 
 export interface ProviderReference {
   id?: string
@@ -74,22 +75,26 @@ export function createDefaultModeToolModelConfig(): Required<ToolModelConfig> {
   }
 }
 
-export function createProviderConfig(existingNames: readonly string[]): ProviderConfig {
-  let index = existingNames.length + 1
-  let candidate = `provider-${index}`
+export function createProviderConfig(
+  existingNames: readonly string[],
+  preset?: ProviderPreset
+): ProviderConfig {
+  const baseName = preset?.name ?? 'provider'
+  let candidate = baseName
+  let index = 1
 
   while (existingNames.includes(candidate)) {
     index += 1
-    candidate = `provider-${index}`
+    candidate = `${baseName}-${index}`
   }
 
   return {
     id: createProviderId(),
     name: candidate,
-    type: 'openai',
+    type: preset?.type ?? 'openai',
     thinkingEnabled: true,
     apiKey: '',
-    baseUrl: '',
+    baseUrl: preset?.baseUrl ?? '',
     modelList: {
       enabled: [],
       disabled: []

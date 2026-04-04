@@ -1,10 +1,16 @@
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, Cpu, Search } from 'lucide-react'
+import { Check, Cpu, Factory, Search } from 'lucide-react'
+import { ProviderIconAvatar } from '@renderer/lib/providerIcons'
 import type { SettingsConfig } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
-import { resolveModelSelectorState, type AcpAgentEntry } from '../lib/modelSelectorState'
+import { matchProviderPreset } from '../../../../../shared/yachiyo/providerPresets.ts'
+import {
+  resolveModelSelectorState,
+  type AcpAgentEntry,
+  type FilteredModelProvider
+} from '../lib/modelSelectorState'
 
 function ModelOption({
   model,
@@ -140,6 +146,48 @@ function AcpAgentOption({
         ) : null}
       </span>
     </button>
+  )
+}
+
+const MODEL_SELECTOR_ICON_SIZE = 14
+
+function ProviderSectionHeader({ provider }: { provider: FilteredModelProvider }): React.ReactNode {
+  const preset = matchProviderPreset(provider.name, provider.baseUrl)
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 5,
+        padding: '10px 14px 3px',
+        fontSize: 10.5,
+        color: theme.text.placeholder,
+        fontWeight: 600,
+        letterSpacing: '0.07em',
+        textTransform: 'uppercase'
+      }}
+    >
+      <span
+        style={{
+          display: 'flex',
+          width: MODEL_SELECTOR_ICON_SIZE,
+          height: MODEL_SELECTOR_ICON_SIZE,
+          flexShrink: 0
+        }}
+      >
+        {preset ? (
+          <ProviderIconAvatar iconKey={preset.iconKey} size={MODEL_SELECTOR_ICON_SIZE} />
+        ) : (
+          <Factory
+            size={MODEL_SELECTOR_ICON_SIZE}
+            strokeWidth={1.5}
+            color={theme.text.placeholder}
+          />
+        )}
+      </span>
+      {provider.name}
+    </div>
   )
 }
 
@@ -333,18 +381,8 @@ export function ModelSelectorPopup({
           <>
             {selectorState.providers.map((provider) => (
               <div key={provider.name}>
-                <div
-                  style={{
-                    padding: '10px 14px 3px',
-                    fontSize: 10.5,
-                    color: theme.text.placeholder,
-                    fontWeight: 600,
-                    letterSpacing: '0.07em',
-                    textTransform: 'uppercase'
-                  }}
-                >
-                  {provider.name}
-                </div>
+                <ProviderSectionHeader provider={provider} />
+
                 {provider.models.map((model) => (
                   <ModelOption
                     key={model}

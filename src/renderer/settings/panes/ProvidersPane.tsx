@@ -1,4 +1,5 @@
-import { Eraser, Loader2, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
+import { Eraser, Factory, Loader2, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
+import { ProviderIconAvatar } from '../../src/lib/providerIcons'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { theme, alpha } from '@renderer/theme/theme'
 import type {
@@ -15,6 +16,7 @@ import {
   syncToolModelWithProvider,
   toolModelTargetsProvider
 } from '../../../shared/yachiyo/providerConfig.ts'
+import { matchProviderPreset } from '../../../shared/yachiyo/providerPresets.ts'
 import { imeSafeEnter } from '../components/imeUtils'
 import { Field, PlaceholderPane, SettingSwitch, SimpleSelect } from '../components/primitives'
 import { inputStyle } from '../components/styles'
@@ -343,6 +345,24 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
   )
 }
 
+const PROVIDER_ICON_SIZE = 18
+
+function ProviderIconBadge({ provider }: { provider: ProviderConfig }): React.ReactNode {
+  const preset = matchProviderPreset(provider.name, provider.baseUrl)
+  return (
+    <div
+      className="flex items-center justify-center shrink-0"
+      style={{ width: PROVIDER_ICON_SIZE, height: PROVIDER_ICON_SIZE }}
+    >
+      {preset ? (
+        <ProviderIconAvatar iconKey={preset.iconKey} size={PROVIDER_ICON_SIZE} />
+      ) : (
+        <Factory size={PROVIDER_ICON_SIZE} strokeWidth={1.5} color={theme.icon.muted} />
+      )}
+    </div>
+  )
+}
+
 export function ProvidersPane({
   draft,
   selectedProviderId,
@@ -409,7 +429,7 @@ export function ProvidersPane({
                 key={provider.id}
                 type="button"
                 onClick={() => onSelectProvider(provider.id ?? '')}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-all mb-0.5 mx-1"
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-all mb-0.5 mx-1"
                 style={
                   isSelected
                     ? {
@@ -420,6 +440,9 @@ export function ProvidersPane({
                     : { color: theme.text.secondary, width: 'calc(100% - 8px)' }
                 }
               >
+                <div className="shrink-0">
+                  <ProviderIconBadge provider={provider} />
+                </div>
                 <div className="min-w-0">
                   <div
                     className="truncate text-sm font-medium"
@@ -453,7 +476,7 @@ export function ProvidersPane({
             style={{ color: theme.text.accent }}
           >
             <Plus size={12} strokeWidth={2} />
-            Add provider
+            Add custom provider
           </button>
         </div>
       </div>
@@ -463,9 +486,10 @@ export function ProvidersPane({
           <div key={selectedProvider.id} className="space-y-5 px-7 pt-5 pb-6">
             <div className="flex items-center justify-between gap-4">
               <div
-                className="text-xl font-semibold"
+                className="flex items-center gap-2.5 text-xl font-semibold"
                 style={{ color: theme.text.primary, letterSpacing: '-0.3px' }}
               >
+                <ProviderIconBadge provider={selectedProvider} />
                 {selectedProvider.name}
               </div>
 
