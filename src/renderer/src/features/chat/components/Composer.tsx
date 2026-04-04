@@ -463,8 +463,10 @@ export function Composer({
     activeAcpBinding ?? (activeThreadId === null ? pendingAcpBinding : null)
   const isModelSelectorLocked =
     isBackendSwitchPending || runPhase === 'preparing' || runPhase === 'streaming'
+  const needsApiKey = settings.provider !== 'vertex'
   const isConfigured =
-    (settings.apiKey.trim().length > 0 && effectiveModel.model.trim().length > 0) ||
+    ((!needsApiKey || settings.apiKey.trim().length > 0) &&
+      effectiveModel.model.trim().length > 0) ||
     effectiveAcpBinding !== null
   const isFreshHandoffWorkspace =
     activeThreadId !== null &&

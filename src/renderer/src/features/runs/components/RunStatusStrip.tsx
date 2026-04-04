@@ -20,13 +20,14 @@ export function RunStatusStrip(): React.JSX.Element | null {
     )
   }
 
-  if (!settings.apiKey.trim() || !settings.model.trim()) {
+  const needsApiKey = settings.provider !== 'vertex'
+  if ((needsApiKey && !settings.apiKey.trim()) || !settings.model.trim()) {
     return (
       <div
         className="flex items-center gap-2 px-6 py-2 text-xs"
         style={{ color: '#8a6d3b', borderTop: '1px solid rgba(0,0,0,0.06)' }}
       >
-        <span>Open Settings and add a provider key to start the MVP chat flow.</span>
+        <span>Open Settings to configure a provider and model before chatting.</span>
       </div>
     )
   }
