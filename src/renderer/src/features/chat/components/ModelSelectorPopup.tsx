@@ -279,12 +279,27 @@ export function ModelSelectorPopup({
         )
       )
     : 0
+  const availableSpaceAbove = anchorRect ? anchorRect.top - 8 : 0
+  const availableSpaceBelow = anchorRect ? window.innerHeight - anchorRect.bottom - 8 : 0
+
+  const resolvedPlacement =
+    portal && anchorRect
+      ? placement === 'bottom'
+        ? availableSpaceBelow < 360 && availableSpaceAbove > availableSpaceBelow
+          ? 'top'
+          : 'bottom'
+        : placement === 'top'
+          ? availableSpaceAbove < 360 && availableSpaceBelow > availableSpaceAbove
+            ? 'bottom'
+            : 'top'
+          : placement
+      : placement
 
   const popupStyle: React.CSSProperties =
     portal && anchorRect
       ? {
           position: 'fixed',
-          ...(placement === 'top'
+          ...(resolvedPlacement === 'top'
             ? { bottom: window.innerHeight - anchorRect.top + 8 }
             : { top: anchorRect.bottom + 8 }),
           left: popupLeft,
@@ -292,7 +307,9 @@ export function ModelSelectorPopup({
         }
       : {
           position: 'absolute',
-          ...(placement === 'top' ? { bottom: 'calc(100% + 8px)' } : { top: 'calc(100% + 8px)' }),
+          ...(resolvedPlacement === 'top'
+            ? { bottom: 'calc(100% + 8px)' }
+            : { top: 'calc(100% + 8px)' }),
           left: 0,
           width
         }

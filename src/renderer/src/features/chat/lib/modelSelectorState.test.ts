@@ -48,7 +48,7 @@ test('keeps the tool-model picker reachable in default mode even without enabled
   )
 })
 
-test('keeps the leading fallback option visible when search filters out every model', () => {
+test('hides leading options and shows empty state when search filters out every model', () => {
   assert.deepEqual(
     resolveModelSelectorState({
       config: SETTINGS_FIXTURE,
@@ -57,7 +57,31 @@ test('keeps the leading fallback option visible when search filters out every mo
     }),
     {
       providers: [],
+      acpAgents: [],
       showEmptyState: true,
+      showLeadingOption: false
+    }
+  )
+})
+
+test('shows leading options when there is no search query', () => {
+  assert.deepEqual(
+    resolveModelSelectorState({
+      config: SETTINGS_FIXTURE,
+      hasLeadingOption: true,
+      query: ''
+    }),
+    {
+      providers: [
+        {
+          name: 'OpenAI',
+          type: 'openai',
+          baseUrl: '',
+          models: ['gpt-5', 'gpt-5-mini']
+        }
+      ],
+      acpAgents: [],
+      showEmptyState: false,
       showLeadingOption: true
     }
   )
@@ -75,9 +99,11 @@ test('filters selector results to enabled models only', () => {
         {
           name: 'OpenAI',
           type: 'openai',
+          baseUrl: '',
           models: ['gpt-5', 'gpt-5-mini']
         }
       ],
+      acpAgents: [],
       showEmptyState: false,
       showLeadingOption: false
     }

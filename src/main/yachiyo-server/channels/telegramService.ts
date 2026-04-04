@@ -670,7 +670,7 @@ export function createTelegramService({
     } else {
       console.warn(
         `[telegram-group] auxiliary generation ${result.status}:`,
-        'error' in result ? result.error : result.status
+        result.status === 'failed' ? result.error : result.reason
       )
     }
 

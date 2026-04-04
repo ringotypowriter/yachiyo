@@ -595,7 +595,7 @@ export function createQQService({
     } else {
       console.warn(
         `[qq-group] auxiliary generation ${result.status}:`,
-        'error' in result ? result.error : result.status
+        result.status === 'failed' ? result.error : result.reason
       )
     }
 

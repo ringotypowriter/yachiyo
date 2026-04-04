@@ -72,11 +72,13 @@ export function resolveModelSelectorState(input: {
 }): ModelSelectorState {
   const providers = filterEnabledModelProviders(input.config, input.query)
   const acpAgents = filterAcpAgents(input.config, input.query)
+  const hasQuery = input.query.trim().length > 0
 
   return {
     providers,
     acpAgents,
-    showEmptyState: providers.length === 0 && acpAgents.length === 0,
-    showLeadingOption: input.hasLeadingOption
+    showEmptyState:
+      providers.length === 0 && acpAgents.length === 0 && (!input.hasLeadingOption || hasQuery),
+    showLeadingOption: input.hasLeadingOption && !hasQuery
   }
 }

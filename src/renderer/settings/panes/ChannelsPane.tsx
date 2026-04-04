@@ -1066,30 +1066,17 @@ function ModelSelect({
   providers: SettingsConfig['providers']
   onChange: (value: string) => void
 }): React.ReactNode {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="flex-1 text-sm min-w-0"
-      style={{
-        padding: '6px 10px',
-        borderRadius: 8,
-        border: 'none',
-        background: alpha('ink', 0.04),
-        color: theme.text.primary,
-        outline: 'none'
-      }}
-    >
-      <option value="">Default (same as chat)</option>
-      {providers.flatMap((p) =>
-        p.modelList.enabled.map((m) => (
-          <option key={`${p.name}::${m}`} value={`${p.name}::${m}`}>
-            {p.name}: {m}
-          </option>
-        ))
-      )}
-    </select>
-  )
+  const options: { value: string; label: string }[] = [
+    { value: '', label: 'Default (same as chat)' },
+    ...providers.flatMap((p) =>
+      p.modelList.enabled.map((m) => ({
+        value: `${p.name}::${m}`,
+        label: `${p.name}: ${m}`
+      }))
+    )
+  ]
+
+  return <SimpleSelect value={value} options={options} onChange={onChange} width="100%" />
 }
 
 // ─── status colors ───────────────────────────────────────────────────────────

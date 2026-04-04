@@ -82,6 +82,7 @@ export function SimpleSelect<T extends string>({
 }: SimpleSelectProps<T>): React.ReactNode {
   const [open, setOpen] = useState(false)
   const [openUpward, setOpenUpward] = useState(false)
+  const [maxHeight, setMaxHeight] = useState<number | undefined>(undefined)
   const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -90,8 +91,14 @@ export function SimpleSelect<T extends string>({
     if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect()
       setTriggerRect(rect)
+      const gap = 6
+      const margin = 16
       const estimatedHeight = options.length * 34 + 12
-      setOpenUpward(rect.bottom + estimatedHeight > window.innerHeight - 16)
+      const spaceBelow = window.innerHeight - rect.bottom - gap - margin
+      const spaceAbove = rect.top - gap - margin
+      const shouldFlip = estimatedHeight > spaceBelow && spaceAbove > spaceBelow
+      setOpenUpward(shouldFlip)
+      setMaxHeight(Math.min(estimatedHeight, shouldFlip ? spaceAbove : spaceBelow))
     }
     setOpen(true)
   }
@@ -166,7 +173,8 @@ export function SimpleSelect<T extends string>({
               border: `1px solid ${theme.border.subtle}`,
               boxShadow: '0 8px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06)',
               padding: '4px 0',
-              overflow: 'hidden'
+              maxHeight,
+              overflowY: 'auto'
             }}
           >
             {options.map((option) => {

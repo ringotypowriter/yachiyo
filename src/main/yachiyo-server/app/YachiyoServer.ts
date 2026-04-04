@@ -53,6 +53,7 @@ import {
   normalizeOptionalMaxChatToken
 } from '../../../shared/yachiyo/protocol.ts'
 import {
+  resolveYachiyoDbPath,
   resolveYachiyoSettingsPath,
   resolveYachiyoTempWorkspaceRoot,
   resolveYachiyoWebSearchBrowserSessionPath
@@ -963,16 +964,24 @@ export function createSqliteYachiyoServer(options: SqliteYachiyoServerOptions): 
     createSettingsStore(settingsPath).read(),
     options.developmentMode === true
   )
+  const builtinMemoryDbPath = shouldUseDemoStorage
+    ? resolveYachiyoDbPath(`demo-mode-memory-${randomUUID()}.sqlite`)
+    : options.dbPath
+
+  if (shouldUseDemoStorage) {
+    const demoMemoryStorage = createSqliteYachiyoStorage(builtinMemoryDbPath)
+    demoMemoryStorage.close()
+  }
 
   return new YachiyoServer({
     ...options,
     settingsPath,
     createMemoryProvider: createMemoryProviderFactory({
-      builtinDbPath: options.dbPath
+      builtinDbPath: builtinMemoryDbPath
     }),
     readMemoryTermDocument: async () =>
       readBuiltinMemoryTermDocument({
-        dbPath: options.dbPath
+        dbPath: builtinMemoryDbPath
       }),
     storage: shouldUseDemoStorage
       ? createDemoYachiyoStorage()
