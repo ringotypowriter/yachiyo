@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { theme, alpha } from '@renderer/theme/theme'
+import type { SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
 import avatarUrl from '../../../../resources/branding.jpeg'
+import { SettingSwitch } from '../components/primitives'
 
 declare const __APP_VERSION__: string
 
@@ -53,7 +55,13 @@ const thirdPartyDeps: ThirdPartyEntry[] = [
   { name: 'zustand', license: 'MIT', url: 'https://github.com/pmndrs/zustand' }
 ]
 
-export function AboutPane(): React.ReactNode {
+interface AboutPaneProps {
+  draft: SettingsConfig
+  onChange: (next: SettingsConfig) => void
+}
+
+export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode {
+  const isDevelopment = import.meta.env.DEV
   const [hovered, setHovered] = useState(false)
   const [showNotices, setShowNotices] = useState(false)
   const [updateState, setUpdateState] = useState<{
@@ -284,7 +292,40 @@ export function AboutPane(): React.ReactNode {
           </div>
         )}
 
-        {/* Footer toggle — always pinned at bottom */}
+        {isDevelopment ? (
+          <div
+            className="shrink-0 flex items-center justify-between gap-4 px-7 py-3"
+            style={{
+              borderTop: `1px solid ${theme.border.subtle}`,
+              background: theme.background.surface,
+              pointerEvents: 'auto'
+            }}
+          >
+            <div className="min-w-0">
+              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                Demo mode
+              </div>
+              <div className="text-[11px] leading-relaxed" style={{ color: theme.text.muted }}>
+                Use in-memory screenshot data instead of your normal development database after
+                saving. Production never uses this mode.
+              </div>
+            </div>
+            <SettingSwitch
+              ariaLabel="Toggle demo mode"
+              checked={draft.general?.demoMode === true}
+              onChange={() =>
+                onChange({
+                  ...draft,
+                  general: {
+                    ...draft.general,
+                    demoMode: draft.general?.demoMode !== true
+                  }
+                })
+              }
+            />
+          </div>
+        ) : null}
+
         <div
           className="shrink-0 flex items-center justify-center py-3"
           style={{

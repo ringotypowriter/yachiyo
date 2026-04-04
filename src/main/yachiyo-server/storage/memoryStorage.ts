@@ -3,6 +3,8 @@ import type {
   ChannelUserRecord,
   GroupMessageEntry,
   MessageRecord,
+  ScheduleRecord,
+  ScheduleRunRecord,
   ThreadSearchResult,
   ToolCallRecord
 } from '../../../shared/yachiyo/protocol'
@@ -35,6 +37,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const channelGroups = new Map<string, ChannelGroupRecord>()
   const channelUsers = new Map<string, ChannelUserRecord>()
   const threads = new Map<string, StoredThreadRow>()
+  const schedules = new Map<string, ScheduleRecord>()
+  const scheduleRuns = new Map<string, ScheduleRunRecord>()
   const messages: MessageRecord[] = []
   const runs = new Map<string, StoredRunRow>()
   const runRecoveryCheckpoints = new Map<string, StoredRunRecoveryCheckpointRow>()
@@ -772,34 +776,71 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
     // Schedules — stub implementations for in-memory storage (used in tests)
     listSchedules() {
-      return []
+      return [...schedules.values()].sort((left, right) => left.name.localeCompare(right.name))
     },
-    getSchedule() {
-      return undefined
+    getSchedule(id) {
+      return schedules.get(id)
     },
-    createSchedule() {
-      // no-op for in-memory stub
+    createSchedule(schedule) {
+      schedules.set(schedule.id, { ...schedule })
     },
-    updateSchedule() {
-      // no-op for in-memory stub
+    updateSchedule(schedule) {
+      schedules.set(schedule.id, { ...schedule })
     },
-    deleteSchedule() {
-      // no-op for in-memory stub
+    deleteSchedule(id) {
+      schedules.delete(id)
+
+      for (const [runId, run] of scheduleRuns.entries()) {
+        if (run.scheduleId === id) {
+          scheduleRuns.delete(runId)
+        }
+      }
     },
-    createScheduleRun() {
-      // no-op for in-memory stub
+    createScheduleRun(run) {
+      scheduleRuns.set(run.id, { ...run })
     },
-    completeScheduleRun() {
-      // no-op for in-memory stub
+    completeScheduleRun(input) {
+      const run = scheduleRuns.get(input.id)
+      if (!run) {
+        return
+      }
+
+      scheduleRuns.set(input.id, {
+        ...run,
+        status: input.status,
+        ...(input.threadId ? { threadId: input.threadId } : {}),
+        ...(input.resultStatus ? { resultStatus: input.resultStatus } : {}),
+        ...(input.resultSummary ? { resultSummary: input.resultSummary } : {}),
+        ...(input.error ? { error: input.error } : {}),
+        ...(input.promptTokens != null ? { promptTokens: input.promptTokens } : {}),
+        ...(input.completionTokens != null ? { completionTokens: input.completionTokens } : {}),
+        completedAt: input.completedAt
+      })
     },
-    listScheduleRuns() {
-      return []
+    listScheduleRuns(scheduleId, limit = 50) {
+      return [...scheduleRuns.values()]
+        .filter((run) => run.scheduleId === scheduleId)
+        .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+        .slice(0, limit)
     },
-    listRecentScheduleRuns() {
-      return []
+    listRecentScheduleRuns(limit = 50) {
+      return [...scheduleRuns.values()]
+        .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+        .slice(0, limit)
     },
-    recoverInterruptedScheduleRuns() {
-      // no-op for in-memory stub
+    recoverInterruptedScheduleRuns({ completedAt, error }) {
+      for (const [runId, run] of scheduleRuns.entries()) {
+        if (run.status !== 'running') {
+          continue
+        }
+
+        scheduleRuns.set(runId, {
+          ...run,
+          status: 'failed',
+          error,
+          completedAt
+        })
+      }
     },
 
     // Group monitor buffer persistence

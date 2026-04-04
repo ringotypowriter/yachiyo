@@ -342,7 +342,7 @@ function SettingsApp(): React.ReactNode {
   }
 
   if (activeTab === 'about') {
-    body = <AboutPane />
+    body = draft ? <AboutPane draft={draft} onChange={setDraft} /> : body
   }
 
   return (

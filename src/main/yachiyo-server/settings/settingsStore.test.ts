@@ -33,6 +33,7 @@ test('settings store persists multi-provider config as TOML', async () => {
       enabledTools: ['read', 'bash'],
       general: {
         sidebarVisibility: 'collapsed',
+        demoMode: true,
         notifyRunCompleted: true,
         notifyCodingTaskStarted: true,
         notifyCodingTaskFinished: true
@@ -118,6 +119,7 @@ test('settings store persists multi-provider config as TOML', async () => {
     assert.match(toml, /enabledTools = \[.*"read".*"bash".*\]/)
     assert.match(toml, /\[general\]/)
     assert.match(toml, /sidebarVisibility = "collapsed"/)
+    assert.match(toml, /demoMode = true/)
     assert.match(toml, /activeRunEnterBehavior = "enter-queues-follow-up"/)
     assert.match(toml, /maxChatToken = 4096/)
     assert.match(toml, /\[workspace\]/)
@@ -150,6 +152,24 @@ test('settings store persists multi-provider config as TOML', async () => {
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test('normalizeSettingsConfig preserves demoMode in general settings', () => {
+  assert.equal(
+    normalizeSettingsConfig({
+      providers: [],
+      general: { demoMode: true }
+    }).general?.demoMode,
+    true
+  )
+
+  assert.equal(
+    normalizeSettingsConfig({
+      providers: [],
+      general: { demoMode: false }
+    }).general?.demoMode,
+    false
+  )
 })
 
 test('normalizeSettingsConfig preserves unset chat maxChatToken and rejects invalid values', () => {
@@ -830,6 +850,7 @@ test('toToolModelSettings with default mode and no defaultModel falls back to pr
 test('normalizeSettingsConfig falls back to the default sidebar visibility', () => {
   assert.deepEqual(normalizeSettingsConfig({ providers: [] }).general, {
     sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
+    demoMode: false,
     notifyRunCompleted: true,
     notifyCodingTaskStarted: true,
     notifyCodingTaskFinished: true
@@ -844,6 +865,7 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
     }).general,
     {
       sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
+      demoMode: false,
       notifyRunCompleted: true,
       notifyCodingTaskStarted: true,
       notifyCodingTaskFinished: true

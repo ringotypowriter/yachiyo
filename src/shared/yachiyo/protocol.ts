@@ -614,6 +614,7 @@ export interface GeneralConfig {
   uiFontSize?: number
   chatFontSize?: number
   updateChannel?: UpdateChannel
+  demoMode?: boolean
   notifyRunCompleted?: boolean
   notifyCodingTaskStarted?: boolean
   notifyCodingTaskFinished?: boolean

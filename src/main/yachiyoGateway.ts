@@ -463,45 +463,48 @@ function handleSendChannel(input: SendChannelInput): void {
   })
 }
 
-export function registerYachiyoGateway(): YachiyoServer {
-  if (server) {
-    return server
-  }
-
-  // net.fetch (used by webRead) runs through the default session. When an
-  // SSL-intercepting proxy is in use, disable strict certificate verification
-  // so the proxy's re-signed certificates are accepted.
-  session.defaultSession.setCertificateVerifyProc((_request, callback) => callback(0))
-
-  // Route global fetch through Electron's net module so libraries using the
-  // global fetch (e.g. discord.js) benefit from the proxy/SSL bypass.
-  // Note: Telegraf uses node-fetch internally and needs its own proxy agent.
-  globalThis.fetch = (input, init?) =>
-    net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init)
-
-  server = createSqliteYachiyoServer({
+function createConfiguredServer(): YachiyoServer {
+  const nextServer = createSqliteYachiyoServer({
     dbPath: resolveYachiyoDbPath(),
     settingsPath: resolveYachiyoSettingsPath(),
+    developmentMode: is.dev,
     seedPresetProviders: true,
     fetchImpl: (input, init) =>
       net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init)
   })
-  registerFatalRunRecovery()
-  server.subscribe(broadcast)
-  server.getTtlReaper().start()
+  nextServer.subscribe(broadcast)
+  nextServer.getTtlReaper().start()
+  return nextServer
+}
 
-  // Start channel services if already configured.
-  // In dev mode, channels are skipped by default to avoid unintended outbound
-  // connections. Set YACHIYO_DEV_CHANNELS=1 (or run `pnpm dev:channels`) to opt in.
-  if (!is.dev || process.env['YACHIYO_DEV_CHANNELS']) {
-    const channelsConfig = server.getChannelsConfig()
-    void applyTelegramConfig(channelsConfig)
-    void applyQQConfig(channelsConfig)
-    void applyDiscordConfig(channelsConfig)
+async function stopLiveServices(): Promise<void> {
+  scheduleService?.stop()
+  scheduleService = null
+
+  const activeTelegramService = telegramService
+  telegramService = null
+  if (activeTelegramService) {
+    await activeTelegramService.stop()
   }
 
-  // Start schedule service
-  scheduleService?.stop()
+  const activeQQService = qqService
+  qqService = null
+  if (activeQQService) {
+    await activeQQService.stop()
+  }
+
+  const activeDiscordService = discordService
+  discordService = null
+  if (activeDiscordService) {
+    await activeDiscordService.stop()
+  }
+}
+
+async function startLiveServices(): Promise<void> {
+  if (!server) {
+    return
+  }
+
   scheduleService = createScheduleService({
     server: {
       createThread: (input) => server!.createThread(input),
@@ -521,6 +524,62 @@ export function registerYachiyoGateway(): YachiyoServer {
     tempWorkspaceDir: resolveYachiyoTempWorkspaceRoot()
   })
   scheduleService.start()
+
+  if (!is.dev || process.env['YACHIYO_DEV_CHANNELS']) {
+    const channelsConfig = server.getChannelsConfig()
+    const channelStarts = [
+      { label: 'telegram', start: () => applyTelegramConfig(channelsConfig) },
+      { label: 'qq', start: () => applyQQConfig(channelsConfig) },
+      { label: 'discord', start: () => applyDiscordConfig(channelsConfig) }
+    ]
+
+    for (const channel of channelStarts) {
+      try {
+        await channel.start()
+      } catch (error) {
+        console.error(`[${channel.label}] startup failed:`, error)
+      }
+    }
+  }
+}
+
+async function restartServerForDemoModeChange(): Promise<void> {
+  const previousServer = server
+  await stopLiveServices()
+  await previousServer?.close()
+  server = createConfiguredServer()
+  await startLiveServices()
+
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.reloadIgnoringCache()
+    }
+  }
+}
+
+export function registerYachiyoGateway(): YachiyoServer {
+  if (server) {
+    return server
+  }
+
+  // net.fetch (used by webRead) runs through the default session. When an
+  // SSL-intercepting proxy is in use, disable strict certificate verification
+  // so the proxy's re-signed certificates are accepted.
+  session.defaultSession.setCertificateVerifyProc((_request, callback) => callback(0))
+
+  // Route global fetch through Electron's net module so libraries using the
+  // global fetch (e.g. discord.js) benefit from the proxy/SSL bypass.
+  // Note: Telegraf uses node-fetch internally and needs its own proxy agent.
+  globalThis.fetch = (input, init?) =>
+    net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init)
+
+  server = createConfiguredServer()
+  registerFatalRunRecovery()
+
+  // Start channel services if already configured.
+  // In dev mode, channels are skipped by default to avoid unintended outbound
+  // connections. Set YACHIYO_DEV_CHANNELS=1 (or run `pnpm dev:channels`) to opt in.
+  void startLiveServices()
 
   ipcMain.removeAllListeners(IPC_CHANNELS.showNotification)
   ipcMain.on(IPC_CHANNELS.showNotification, (_event, input: { title: string; body?: string }) => {
@@ -644,7 +703,20 @@ export function registerYachiyoGateway(): YachiyoServer {
     server!.testSubagentProfile(input)
   )
   handle(IPC_CHANNELS.getSettings, () => server!.getSettings())
-  handle(IPC_CHANNELS.saveConfig, (input: SettingsConfig) => server!.saveConfig(input))
+  handle(IPC_CHANNELS.saveConfig, async (input: SettingsConfig) => {
+    const currentConfig = await server!.getConfig()
+    const demoModeBeforeSave = is.dev && currentConfig.general?.demoMode === true
+    const saved = await server!.saveConfig(input)
+    const demoModeAfterSave = is.dev && saved.general?.demoMode === true
+
+    if (demoModeBeforeSave !== demoModeAfterSave) {
+      setTimeout(() => {
+        void restartServerForDemoModeChange()
+      }, 0)
+    }
+
+    return saved
+  })
   handle(IPC_CHANNELS.saveUserDocument, (input: { content: string }) =>
     server!.saveUserDocument(input)
   )
@@ -822,6 +894,8 @@ export function registerYachiyoGateway(): YachiyoServer {
       clearInterval(commandSocketHealthTimer)
       commandSocketHealthTimer = null
     }
+    scheduleService?.stop()
+    scheduleService = null
     void telegramService?.stop().catch(() => {})
     telegramService = null
     void qqService?.stop().catch(() => {})

@@ -100,6 +100,7 @@ import { createWebSearchService } from '../services/webSearch/webSearchService.t
 import { createSettingsStore, toEffectiveProviderSettings } from '../settings/settingsStore.ts'
 import { createSqliteYachiyoStorage } from '../storage/sqlite/database.ts'
 import type { YachiyoStorage } from '../storage/storage.ts'
+import { createDemoYachiyoStorage, isDevelopmentDemoModeEnabled } from '../demo/demoMode.ts'
 import {
   cloneThreadWorkspace as defaultCloneThreadWorkspace,
   deleteThreadWorkspace as defaultDeleteThreadWorkspace,
@@ -138,6 +139,7 @@ export interface YachiyoServerOptions {
 
 export interface SqliteYachiyoServerOptions extends Omit<YachiyoServerOptions, 'storage'> {
   dbPath: string
+  developmentMode?: boolean
 }
 
 export class YachiyoServer {
@@ -956,8 +958,15 @@ export class YachiyoServer {
 }
 
 export function createSqliteYachiyoServer(options: SqliteYachiyoServerOptions): YachiyoServer {
+  const settingsPath = options.settingsPath ?? resolveYachiyoSettingsPath()
+  const shouldUseDemoStorage = isDevelopmentDemoModeEnabled(
+    createSettingsStore(settingsPath).read(),
+    options.developmentMode === true
+  )
+
   return new YachiyoServer({
     ...options,
+    settingsPath,
     createMemoryProvider: createMemoryProviderFactory({
       builtinDbPath: options.dbPath
     }),
@@ -965,6 +974,8 @@ export function createSqliteYachiyoServer(options: SqliteYachiyoServerOptions): 
       readBuiltinMemoryTermDocument({
         dbPath: options.dbPath
       }),
-    storage: createSqliteYachiyoStorage(options.dbPath)
+    storage: shouldUseDemoStorage
+      ? createDemoYachiyoStorage()
+      : createSqliteYachiyoStorage(options.dbPath)
   })
 }

@@ -42,6 +42,44 @@ No MCP. No telemetry. No plugin marketplace. Just what's necessary for a cyber-a
 - **Multi-provider runtime** — Anthropic, OpenAI, Gemini, Vertex AI, or custom gateway, with model selection inside the app.
 - **Local-first storage** — SQLite + Drizzle ORM under `~/.yachiyo/`, with no hosted backend required.
 
+## Screenshots
+
+### Reply branching
+
+![Reply branching keeps alternate responses inside one thread.](resources/screenshots/reply-branching.jpg)
+
+_Compare different tones and keep the path you actually want without losing the other replies._
+
+### Providers
+
+![Provider configuration with per-provider model controls.](resources/screenshots/providers.jpg)
+
+_Configure providers locally, choose runtime behavior, and manage enabled models from one place._
+
+### Schedules
+
+![Scheduled runs with recurring and one-off tasks.](resources/screenshots/schedules.jpg)
+
+_Run prompts on a schedule, keep history, and treat recurring work like a first-class feature instead of a hack._
+
+### Coding agents
+
+![Coding agent profiles for Claude Code and Codex.](resources/screenshots/coding-agents.jpg)
+
+_Register coding agents, tune their launch command and environment, and keep them ready for delegation._
+
+### Model and agent picker
+
+![One picker for models and ACP agents.](resources/screenshots/model-and-agent-picker.jpg)
+
+_Switch between normal models and ACP-backed coding agents directly from the composer._
+
+### Essentials
+
+![Essentials view for quick access to pinned context and reusable workspace items.](resources/screenshots/app-home.jpg)
+
+_A focused essentials surface for keeping important context, reusable items, and workspace shortcuts close at hand._
+
 ## Showcases
 
 ### Multi-Agent Dispatch & Coordination
