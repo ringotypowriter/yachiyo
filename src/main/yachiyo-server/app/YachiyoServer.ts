@@ -117,6 +117,7 @@ import {
 export interface YachiyoServerOptions {
   storage: YachiyoStorage
   settingsPath?: string
+  seedPresetProviders?: boolean
   fetchImpl?: typeof globalThis.fetch
   now?: () => Date
   createId?: () => string
@@ -187,7 +188,10 @@ export class YachiyoServer {
     this.now = options.now ?? (() => new Date())
     this.createId = options.createId ?? randomUUID
 
-    const settingsStore = createSettingsStore(options.settingsPath ?? resolveYachiyoSettingsPath())
+    const settingsStore = createSettingsStore(
+      options.settingsPath ?? resolveYachiyoSettingsPath(),
+      { seedPresetProviders: options.seedPresetProviders }
+    )
     const createModelRuntime =
       options.createModelRuntime ??
       (() => createAiSdkModelRuntime({ fetchImpl: options.fetchImpl }))

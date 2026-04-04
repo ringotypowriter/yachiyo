@@ -482,6 +482,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   server = createSqliteYachiyoServer({
     dbPath: resolveYachiyoDbPath(),
     settingsPath: resolveYachiyoSettingsPath(),
+    seedPresetProviders: true,
     fetchImpl: (input, init) =>
       net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init)
   })

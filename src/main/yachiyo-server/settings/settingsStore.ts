@@ -27,14 +27,21 @@ export interface SettingsStore {
   write: (settings: SettingsConfig) => void
 }
 
-export function createSettingsStore(settingsPath: string): SettingsStore {
+export interface SettingsStoreOptions {
+  /** Seed preset providers on first launch when no config file exists. */
+  seedPresetProviders?: boolean
+}
+
+export function createSettingsStore(
+  settingsPath: string,
+  options?: SettingsStoreOptions
+): SettingsStore {
   mkdirSync(dirname(settingsPath), { recursive: true })
 
   // Seed preset providers on genuine first launch (no config file yet).
   // Once written, subsequent reads go through the TOML path and respect
   // user changes including provider removals.
-  const isFirstLaunch = !existsSync(settingsPath)
-  if (isFirstLaunch) {
+  if (options?.seedPresetProviders && !existsSync(settingsPath)) {
     const seeded: SettingsConfig = {
       ...DEFAULT_SETTINGS_CONFIG,
       providers: createPresetProviders()
@@ -44,6 +51,9 @@ export function createSettingsStore(settingsPath: string): SettingsStore {
 
   return {
     read(): SettingsConfig {
+      if (!existsSync(settingsPath)) {
+        return DEFAULT_SETTINGS_CONFIG
+      }
       return parseSettingsToml(readFileSync(settingsPath, 'utf8'))
     },
     write(settings: SettingsConfig): void {
