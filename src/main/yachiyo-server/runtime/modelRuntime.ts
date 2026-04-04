@@ -16,8 +16,6 @@ import {
 } from './providers/gateway.ts'
 import { createProviderOptions, extractThinkingBudget } from './providers/providerOptions.ts'
 import { isRetryableModelError } from './retryableModelError.ts'
-import { sleep } from '../channels/connectionRetry.ts'
-
 /** Disable AI SDK's built-in retry — we handle retries ourselves. */
 const SDK_MAX_RETRIES = 0
 
@@ -400,7 +398,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
           )
           request.onRetry?.(attempt, RETRY_MAX_ATTEMPTS, retryDelay, error)
 
-          await sleep(retryDelay, request.signal)
+          await resolvedDependencies.sleepImpl(retryDelay, request.signal)
           retryDelay = Math.min(retryDelay * 2, RETRY_MAX_DELAY_MS)
         }
       }

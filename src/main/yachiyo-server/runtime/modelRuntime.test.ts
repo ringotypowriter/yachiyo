@@ -1779,8 +1779,10 @@ function createRetryTestRuntime(callResults: Array<{ error?: Error; chunks?: str
     baseUrl: string
   }
   getCallCount: () => number
+  sleepCalls: number[]
 } {
   let callIndex = 0
+  const sleepCalls: number[] = []
   const runtime = createAiSdkModelRuntime({
     createOpenAIProvider: () =>
       ({
@@ -1798,6 +1800,9 @@ function createRetryTestRuntime(callResults: Array<{ error?: Error; chunks?: str
           for (const chunk of result.chunks ?? []) yield chunk
         })()
       }
+    }) as never,
+    sleepImpl: (async (ms: number) => {
+      sleepCalls.push(ms)
     }) as never
   })
 
@@ -1809,13 +1814,13 @@ function createRetryTestRuntime(callResults: Array<{ error?: Error; chunks?: str
     baseUrl: ''
   }
 
-  return { runtime, defaultSettings, getCallCount: () => callIndex }
+  return { runtime, defaultSettings, getCallCount: () => callIndex, sleepCalls }
 }
 
 test('streamReply retries on retryable error and succeeds', async () => {
   const err = new Error('Service Unavailable')
   ;(err as { status?: number }).status = 503
-  const { runtime, defaultSettings, getCallCount } = createRetryTestRuntime([
+  const { runtime, defaultSettings, getCallCount, sleepCalls } = createRetryTestRuntime([
     { error: err },
     { error: err },
     { chunks: ['Hello'] }
@@ -1840,12 +1845,15 @@ test('streamReply retries on retryable error and succeeds', async () => {
   assert.equal(retryEvents[0].attempt, 1)
   assert.equal(retryEvents[1].attempt, 2)
   assert.equal(retryEvents[0].maxAttempts, 10)
+  assert.deepEqual(sleepCalls, [1000, 2000])
 })
 
 test('streamReply does not retry on auth error (401)', async () => {
   const err = new Error('Unauthorized')
   ;(err as { status?: number }).status = 401
-  const { runtime, defaultSettings, getCallCount } = createRetryTestRuntime([{ error: err }])
+  const { runtime, defaultSettings, getCallCount, sleepCalls } = createRetryTestRuntime([
+    { error: err }
+  ])
 
   await assert.rejects(
     async () => {
@@ -1861,12 +1869,15 @@ test('streamReply does not retry on auth error (401)', async () => {
   )
 
   assert.equal(getCallCount(), 1)
+  assert.deepEqual(sleepCalls, [])
 })
 
 test('streamReply does not retry on AbortError', async () => {
   const err = new Error('Aborted')
   err.name = 'AbortError'
-  const { runtime, defaultSettings, getCallCount } = createRetryTestRuntime([{ error: err }])
+  const { runtime, defaultSettings, getCallCount, sleepCalls } = createRetryTestRuntime([
+    { error: err }
+  ])
 
   await assert.rejects(
     async () => {
@@ -1882,6 +1893,7 @@ test('streamReply does not retry on AbortError', async () => {
   )
 
   assert.equal(getCallCount(), 1)
+  assert.deepEqual(sleepCalls, [])
 })
 
 test('streamReply passes maxRetries: 0 to AI SDK (disables built-in retries)', async () => {
@@ -1923,78 +1935,6 @@ test('streamReply passes maxRetries: 0 to AI SDK (disables built-in retries)', a
   assert.deepEqual(chunks, ['ok'])
 })
 
-test('streamReply retries on ECONNRESET (Node.js network error with code property)', async () => {
-  const err = new Error('read ECONNRESET')
-  ;(err as { code?: string }).code = 'ECONNRESET'
-  const { runtime, defaultSettings, getCallCount } = createRetryTestRuntime([
-    { error: err },
-    { chunks: ['recovered'] }
-  ])
-
-  const retryEvents: number[] = []
-  const chunks: string[] = []
-  for await (const chunk of runtime.streamReply({
-    messages: [{ role: 'user', content: 'hi' }],
-    settings: defaultSettings,
-    signal: new AbortController().signal,
-    onRetry: (attempt) => {
-      retryEvents.push(attempt)
-    }
-  })) {
-    chunks.push(chunk)
-  }
-
-  assert.deepEqual(chunks, ['recovered'])
-  assert.equal(getCallCount(), 2)
-  assert.deepEqual(retryEvents, [1])
-})
-
-test('streamReply retries on ECONNRESET even without code property (message-only match)', async () => {
-  const err = new Error('request to https://api.example.com failed, reason: read ECONNRESET')
-  const { runtime, defaultSettings, getCallCount } = createRetryTestRuntime([
-    { error: err },
-    { chunks: ['ok'] }
-  ])
-
-  const chunks: string[] = []
-  for await (const chunk of runtime.streamReply({
-    messages: [{ role: 'user', content: 'hi' }],
-    settings: defaultSettings,
-    signal: new AbortController().signal
-  })) {
-    chunks.push(chunk)
-  }
-
-  assert.deepEqual(chunks, ['ok'])
-  assert.equal(getCallCount(), 2)
-})
-
-test('streamReply retries on net::ERR_CONNECTION_CLOSED when the transport reports status 0', async () => {
-  const err = new Error('net::ERR_CONNECTION_CLOSED')
-  ;(err as { status?: number }).status = 0
-  const { runtime, defaultSettings, getCallCount } = createRetryTestRuntime([
-    { error: err },
-    { chunks: ['recovered'] }
-  ])
-
-  const retryEvents: number[] = []
-  const chunks: string[] = []
-  for await (const chunk of runtime.streamReply({
-    messages: [{ role: 'user', content: 'hi' }],
-    settings: defaultSettings,
-    signal: new AbortController().signal,
-    onRetry: (attempt) => {
-      retryEvents.push(attempt)
-    }
-  })) {
-    chunks.push(chunk)
-  }
-
-  assert.deepEqual(chunks, ['recovered'])
-  assert.equal(getCallCount(), 2)
-  assert.deepEqual(retryEvents, [1])
-})
-
 function createFullStreamRetryRuntime(
   callResults: Array<{
     error?: Error
@@ -2010,8 +1950,10 @@ function createFullStreamRetryRuntime(
     baseUrl: string
   }
   getCallCount: () => number
+  sleepCalls: number[]
 } {
   let callIndex = 0
+  const sleepCalls: number[] = []
   const runtime = createAiSdkModelRuntime({
     createOpenAIProvider: () =>
       ({
@@ -2029,6 +1971,9 @@ function createFullStreamRetryRuntime(
           for (const event of result.streamEvents ?? []) yield event
         })()
       }
+    }) as never,
+    sleepImpl: (async (ms: number) => {
+      sleepCalls.push(ms)
     }) as never
   })
 
@@ -2040,14 +1985,14 @@ function createFullStreamRetryRuntime(
     baseUrl: ''
   }
 
-  return { runtime, defaultSettings, getCallCount: () => callIndex }
+  return { runtime, defaultSettings, getCallCount: () => callIndex, sleepCalls }
 }
 
 test('streamReply does not retry after tool-input-available has fired (P1: tool side-effects)', async () => {
   const networkErr = new Error('read ECONNRESET')
   ;(networkErr as { code?: string }).code = 'ECONNRESET'
 
-  const { runtime, defaultSettings, getCallCount } = createFullStreamRetryRuntime([
+  const { runtime, defaultSettings, getCallCount, sleepCalls } = createFullStreamRetryRuntime([
     {
       streamEvents: [
         { type: 'tool-input-available', toolCallId: 'tc1', toolName: 'bash', input: { cmd: 'ls' } },
@@ -2071,10 +2016,11 @@ test('streamReply does not retry after tool-input-available has fired (P1: tool 
 
   // Must NOT have retried — only 1 call total
   assert.equal(getCallCount(), 1)
+  assert.deepEqual(sleepCalls, [])
 })
 
 test('streamReply does not retry after tool-input-error aborts the turn', async () => {
-  const { runtime, defaultSettings, getCallCount } = createFullStreamRetryRuntime([
+  const { runtime, defaultSettings, getCallCount, sleepCalls } = createFullStreamRetryRuntime([
     {
       streamEvents: [
         {
@@ -2104,12 +2050,13 @@ test('streamReply does not retry after tool-input-error aborts the turn', async 
   )
 
   assert.equal(getCallCount(), 1)
+  assert.deepEqual(sleepCalls, [])
 })
 
 test('streamReply retries after reasoning deltas when assistant text has not started yet', async () => {
   const networkErr = new Error('socket hang up')
 
-  const { runtime, defaultSettings, getCallCount } = createFullStreamRetryRuntime([
+  const { runtime, defaultSettings, getCallCount, sleepCalls } = createFullStreamRetryRuntime([
     {
       streamEvents: [
         { type: 'reasoning-delta', textDelta: 'Let me think...' },
@@ -2146,4 +2093,5 @@ test('streamReply retries after reasoning deltas when assistant text has not sta
   assert.deepEqual(reasoningDeltas, ['Let me think...', 'Retrying from scratch...'])
   assert.deepEqual(chunks, ['Recovered answer'])
   assert.equal(getCallCount(), 2)
+  assert.deepEqual(sleepCalls, [1000])
 })

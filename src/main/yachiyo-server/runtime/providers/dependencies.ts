@@ -4,12 +4,15 @@ import { createVertex } from '@ai-sdk/google-vertex'
 import { createGateway, streamText } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 
+import { sleep } from '../../channels/connectionRetry.ts'
+
 export type OpenAIProviderFactory = typeof createOpenAI
 export type AnthropicProviderFactory = typeof createAnthropic
 export type GoogleProviderFactory = typeof createGoogleGenerativeAI
 export type VertexProviderFactory = typeof createVertex
 export type GatewayProviderFactory = typeof createGateway
 export type StreamTextImplementation = typeof streamText
+export type SleepImplementation = typeof sleep
 
 export interface AiSdkRuntimeDependencies {
   createAnthropicProvider?: AnthropicProviderFactory
@@ -19,6 +22,7 @@ export interface AiSdkRuntimeDependencies {
   createVertexProvider?: VertexProviderFactory
   streamTextImpl?: StreamTextImplementation
   fetchImpl?: typeof globalThis.fetch
+  sleepImpl?: SleepImplementation
 }
 
 export interface ResolvedAiSdkRuntimeDependencies {
@@ -29,6 +33,7 @@ export interface ResolvedAiSdkRuntimeDependencies {
   createVertexProvider: VertexProviderFactory
   streamTextImpl: StreamTextImplementation
   fetchImpl: typeof globalThis.fetch
+  sleepImpl: SleepImplementation
 }
 
 export interface FetchModelsDependencies {
@@ -45,6 +50,7 @@ export function resolveAiSdkRuntimeDependencies(
     createOpenAIProvider: dependencies.createOpenAIProvider ?? createOpenAI,
     createVertexProvider: dependencies.createVertexProvider ?? createVertex,
     streamTextImpl: dependencies.streamTextImpl ?? streamText,
-    fetchImpl: dependencies.fetchImpl ?? globalThis.fetch
+    fetchImpl: dependencies.fetchImpl ?? globalThis.fetch,
+    sleepImpl: dependencies.sleepImpl ?? sleep
   }
 }
