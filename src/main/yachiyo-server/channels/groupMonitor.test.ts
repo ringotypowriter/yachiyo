@@ -149,7 +149,7 @@ describe('GroupMonitor', () => {
     monitor.stop()
   })
 
-  it('keeps stale restored messages (time-prune disabled for restored context)', () => {
+  it('evicts stale restored messages on restore', () => {
     const staleTimestamp = Date.now() / 1_000 - 999_999
     const restoredMessages: GroupMessageEntry[] = [
       makeMessage('old', 'Alice', { timestamp: staleTimestamp }),
@@ -165,14 +165,13 @@ describe('GroupMonitor', () => {
       { phase: 'dormant', buffer: restoredMessages }
     )
 
-    // Both messages survive — restored messages are exempt from time-based eviction
-    assert.equal(monitor.getRecentMessages().length, 2)
-    assert.equal(monitor.getRecentMessages()[0].text, 'old')
-    assert.equal(monitor.getRecentMessages()[1].text, 'recent')
+    // Stale message is evicted; only the recent one survives
+    assert.equal(monitor.getRecentMessages().length, 1)
+    assert.equal(monitor.getRecentMessages()[0].text, 'recent')
     monitor.stop()
   })
 
-  it('restored messages get displaced by count cap as new messages arrive', () => {
+  it('stale restored messages are evicted by time, not just count', () => {
     const staleTimestamp = Date.now() / 1_000 - 999_999
     const restoredMessages: GroupMessageEntry[] = [
       makeMessage('old-1', 'Alice', { timestamp: staleTimestamp }),
@@ -180,7 +179,7 @@ describe('GroupMonitor', () => {
     ]
 
     const monitor = createGroupMonitor(
-      fastConfig({ maxRecentMessages: 3, wakeBufferMs: 5_000 }),
+      fastConfig({ maxRecentMessages: 10, wakeBufferMs: 5_000 }),
       {
         onTurn: async () => false,
         onStateChange: () => {}
@@ -188,28 +187,20 @@ describe('GroupMonitor', () => {
       { phase: 'dormant', buffer: restoredMessages }
     )
 
-    assert.equal(monitor.getRecentMessages().length, 2)
-
-    // Add 2 new messages → exceeds maxRecentMessages (3), pushes out old restored
-    monitor.onMessage(makeMessage('new-1'))
-    monitor.onMessage(makeMessage('new-2'))
-
-    const msgs = monitor.getRecentMessages()
-    assert.equal(msgs.length, 3)
-    assert.equal(msgs[0].text, 'old-2') // old-1 displaced by count cap
-    assert.equal(msgs[1].text, 'new-1')
-    assert.equal(msgs[2].text, 'new-2')
+    // Both stale messages evicted on restore — no need for count displacement
+    assert.equal(monitor.getRecentMessages().length, 0)
     monitor.stop()
   })
 
-  it('time-based pruning resumes after all restored messages are displaced', () => {
-    const staleTimestamp = Date.now() / 1_000 - 999_999
+  it('recent restored messages survive time-based eviction', () => {
+    const now = Date.now() / 1_000
     const restoredMessages: GroupMessageEntry[] = [
-      makeMessage('old', 'Alice', { timestamp: staleTimestamp })
+      makeMessage('still-fresh', 'Alice', { timestamp: now - 60 }),
+      makeMessage('also-fresh', 'Bob', { timestamp: now - 30 })
     ]
 
     const monitor = createGroupMonitor(
-      fastConfig({ maxRecentMessages: 2, wakeBufferMs: 5_000 }),
+      fastConfig({ wakeBufferMs: 5_000 }),
       {
         onTurn: async () => false,
         onStateChange: () => {}
@@ -217,22 +208,17 @@ describe('GroupMonitor', () => {
       { phase: 'dormant', buffer: restoredMessages }
     )
 
-    // Push 2 new messages → count cap displaces the restored one
-    monitor.onMessage(makeMessage('new-1'))
-    monitor.onMessage(makeMessage('new-2'))
-
-    const msgs = monitor.getRecentMessages()
-    assert.equal(msgs.length, 2)
-    assert.equal(msgs[0].text, 'new-1')
-    assert.equal(msgs[1].text, 'new-2')
-    // restored message is gone → time-based pruning would now work normally
+    // Both within the 10-minute window — they survive
+    assert.equal(monitor.getRecentMessages().length, 2)
+    assert.equal(monitor.getRecentMessages()[0].text, 'still-fresh')
+    assert.equal(monitor.getRecentMessages()[1].text, 'also-fresh')
     monitor.stop()
   })
 
-  it('time-prunes aged-out new messages even while restored messages exist', () => {
-    const staleTimestamp = Date.now() / 1_000 - 999_999
+  it('time-prunes aged-out new messages after restore', () => {
+    const now = Date.now() / 1_000
     const restoredMessages: GroupMessageEntry[] = [
-      makeMessage('restored', 'Alice', { timestamp: staleTimestamp })
+      makeMessage('restored', 'Alice', { timestamp: now - 30 })
     ]
 
     // Use a very short window so new messages age out quickly.
@@ -245,14 +231,15 @@ describe('GroupMonitor', () => {
       { phase: 'dormant', buffer: restoredMessages }
     )
 
+    // Restored message is also stale under the 1ms window — buffer is empty
+    assert.equal(monitor.getRecentMessages().length, 0)
+
     // Add a new message with an already-stale timestamp.
     const agedTimestamp = Date.now() / 1_000 - 10
     monitor.onMessage(makeMessage('aged-new', 'Bob', { timestamp: agedTimestamp }))
 
-    // The restored message stays (protected), but the aged new message is evicted.
-    const msgs = monitor.getRecentMessages()
-    assert.equal(msgs.length, 1)
-    assert.equal(msgs[0].text, 'restored')
+    // The aged new message is also evicted.
+    assert.equal(monitor.getRecentMessages().length, 0)
     monitor.stop()
   })
 

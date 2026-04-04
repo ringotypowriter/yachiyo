@@ -105,26 +105,20 @@ export function createGroupMonitor(
    */
   let cursor = 0
 
-  /**
-   * Number of messages in the buffer that came from a persisted restore.
-   * While > 0, time-based eviction is skipped — restored messages survive
-   * for cross-restart context continuity (the `<gap>` marker in the context
-   * builder handles the time discontinuity). Count-based eviction still
-   * applies, decrementing this counter as old messages get pushed out.
-   * Once all restored messages are displaced by new ones, normal time-based
-   * eviction resumes.
-   */
-  let restoredMessageCount = 0
-
   // Restore persisted buffer if provided. Starts dormant regardless of saved
   // phase — the monitor re-activates naturally on the next inbound message.
+  // Time-based eviction applies normally to restored messages — stale context
+  // from hours ago would otherwise cause the model to reply to dead topics.
   if (restoreState && restoreState.buffer.length > 0) {
     buffer.push(...restoreState.buffer)
-    // Only enforce count cap — no time-based eviction for restored messages.
     while (buffer.length > config.maxRecentMessages) {
       buffer.shift()
     }
-    restoredMessageCount = buffer.length
+    // Prune stale restored messages immediately.
+    const cutoff = Date.now() / 1_000 - config.recentMessageWindowMs / 1_000
+    while (buffer.length > 0 && buffer[0].timestamp < cutoff) {
+      buffer.shift()
+    }
     cursor = buffer.length
   }
 
@@ -134,19 +128,13 @@ export function createGroupMonitor(
 
   function pruneBuffer(): void {
     const cutoff = Date.now() / 1_000 - config.recentMessageWindowMs / 1_000
-    // Time-based eviction: skip the protected restored block at the front,
-    // but still evict aged-out new messages after it. Once all restored
-    // messages are displaced by count, this becomes a normal front-eviction.
-    while (
-      buffer.length > restoredMessageCount &&
-      buffer[restoredMessageCount].timestamp < cutoff
-    ) {
-      buffer.splice(restoredMessageCount, 1)
-      if (cursor > restoredMessageCount) cursor--
+    // Time-based eviction from front — all messages subject to the window.
+    while (buffer.length > 0 && buffer[0].timestamp < cutoff) {
+      buffer.shift()
+      cursor = Math.max(0, cursor - 1)
     }
-    // Count-based eviction from front (displaces oldest first, including restored).
+    // Count-based eviction from front.
     while (buffer.length > config.maxRecentMessages) {
-      if (restoredMessageCount > 0) restoredMessageCount--
       buffer.shift()
       cursor = Math.max(0, cursor - 1)
     }
@@ -296,14 +284,12 @@ export function createGroupMonitor(
     phase = 'dormant'
     missCount = 0
     cursor = 0
-    restoredMessageCount = 0
     buffer.length = 0
   }
 
   function clearBuffer(): void {
     buffer.length = 0
     cursor = 0
-    restoredMessageCount = 0
   }
 
   return {
