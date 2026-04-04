@@ -1834,8 +1834,6 @@ test('YachiyoServer keeps @folder mentions visible in chat while injecting a sha
 })
 
 test('YachiyoServer fails runs cleanly when thread workspace initialization fails', async () => {
-  let workspaceInitializationAttempts = 0
-
   await withServer(
     async ({ server, completeRun }) => {
       await server.upsertProvider({
@@ -1872,14 +1870,7 @@ test('YachiyoServer fails runs cleanly when thread workspace initialization fail
       )
     },
     {
-      ensureThreadWorkspace: async (threadId, workspacePathForThread) => {
-        workspaceInitializationAttempts += 1
-        const workspacePath = workspacePathForThread(threadId)
-        if (workspaceInitializationAttempts === 1) {
-          await mkdir(workspacePath, { recursive: true })
-          return workspacePath
-        }
-
+      ensureThreadWorkspace: async () => {
         throw new Error('Workspace unavailable')
       }
     }
@@ -1950,6 +1941,7 @@ test('YachiyoServer does not surface exact ignored path matches for bare @file v
     const thread = await server.createThread()
     const workspacePath = workspacePathForThread(thread.id)
 
+    await mkdir(workspacePath, { recursive: true })
     await writeFile(join(workspacePath, '.gitignore'), 'secret.txt\n', 'utf8')
     await writeFile(join(workspacePath, 'secret.txt'), 'top secret\n', 'utf8')
 
@@ -1980,7 +1972,6 @@ test('YachiyoServer creates a per-thread workspace, persists structured tool det
 
       const thread = await server.createThread()
       toolWorkspacePath = workspacePathForThread(thread.id)
-      await access(toolWorkspacePath)
 
       const accepted = await server.sendChat({
         threadId: thread.id,
@@ -5275,6 +5266,7 @@ test('YachiyoServer restores and deletes archived threads', async () => {
   await withServer(async ({ server, workspacePathForThread }) => {
     const first = await server.createThread()
     const second = await server.createThread()
+    await mkdir(workspacePathForThread(second.id), { recursive: true })
     await writeFile(join(workspacePathForThread(second.id), 'notes.txt'), 'keep me', 'utf8')
 
     await server.archiveThread({ threadId: second.id })

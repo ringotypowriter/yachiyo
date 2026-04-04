@@ -188,9 +188,8 @@ export class YachiyoServerThreadDomain {
 
     if (workspacePath) {
       await mkdir(workspacePath, { recursive: true })
-    } else {
-      await this.deps.ensureThreadWorkspace(thread.id)
     }
+    // Temp workspace is created lazily — on first run, file attach, or workspace open
     this.deps.storage.createThread({ thread, createdAt: timestamp })
 
     this.deps.emit<ThreadCreatedEvent>({
