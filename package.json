@@ -80,6 +80,7 @@
     "discord.js": "^14.25.1",
     "drizzle-kit": "^0.31.9",
     "drizzle-orm": "^0.45.1",
+    "electron-log": "^5.4.3",
     "electron-updater": "^6.8.3",
     "eventsource-parser": "^3.0.6",
     "framer-motion": "^12.38.0",

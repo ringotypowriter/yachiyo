@@ -30,17 +30,39 @@ No MCP. No telemetry. No plugin marketplace. Just what's necessary for a cyber-a
 
 ## Features
 
-- **Multi-provider** — Anthropic, OpenAI, Gemini, Vertex AI, or custom gateway. Switch models per-message.
-- **Reply branching** — Messages form a tree. Branch from any turn and navigate alternate replies.
-- **Skills, not plugins** — Drop `SKILL.md` files in your workspace. Lazy-loaded, no runtime, no API surface.
-- **Channel multiplexing** — Serve Telegram, QQ (OneBot), and Discord from one local instance with access control and token quotas.
-- **Group discussion** — Lurk-and-engage state machine for group chats. Speech throttling, autonomous engagement.
-- **Coding agent delegation** — Delegate to Claude Code or Codex via the Agent Client Protocol. Post-verification built in.
-- **Local-first storage** — SQLite + Drizzle ORM. Everything at `~/.yachiyo/`. No cloud, no telemetry.
-- **Built-in memory** — Local FTS5 memory store with automatic recall. External provider supported.
-- **Web search & read** — Google (real Chrome session) or Exa. Reader-mode extraction with multi-strategy fallback.
-- **Personality layer** — SOUL.md for evolving traits, USER.md for your profile. Layered context assembly.
-- **CLI** — `yachiyo provider|agent|soul|config|thread` — fully scriptable, JSON output, keys redacted.
+- **Fully agentic runtime** — Yachiyo can search, read, edit, browse, recall memory, ask follow-up questions, and act on your local workspace instead of staying a pure chat box.
+- **Built-in general-purpose skills** — Core capabilities like browser work, document handling, spreadsheets, Zotero, terminal control, and CLI self-management ship as reusable skill modules.
+- **Coding agent dispatch** — Delegate implementation work to Claude Code or Codex through ACP, then bring the result back into the same thread.
+- **Scheduled runs** — Create one-off or cron-based tasks, keep run history, and let Yachiyo execute prompts on its own.
+- **Reply branching** — Messages form a tree. Branch from any turn and navigate alternate replies instead of flattening everything into one timeline.
+- **Channel multiplexing** — Serve Telegram, QQ (OneBot), and Discord from one local instance with shared context, access control, and per-user limits.
+- **Group discussion mode** — Built-in lurk/active/engaged state machine for group chats, with buffered context and autonomous participation.
+- **Browser-backed web research** — Search with Google browser sessions or Exa, then read pages into Markdown/HTML with extraction fallbacks.
+- **Local memory & profile** — Store durable memory, recall it into future runs, and keep `SOUL.md` / `USER.md` as first-class context.
+- **Multi-provider runtime** — Anthropic, OpenAI, Gemini, Vertex AI, or custom gateway, with model selection inside the app.
+- **Local-first storage** — SQLite + Drizzle ORM under `~/.yachiyo/`, with no hosted backend required.
+
+## Showcases
+
+### Multi-Agent Dispatch & Coordination
+
+"I have Claude Code and Codex working on different parts of the auth refactor. Send a prompt to both to 'run the latest migration and verify the schema,' then notify me when they finish."
+
+> Yachiyo acts as your central dispatcher. It handles the complex task of prompting multiple specialized agents, monitoring their progress through the Agent Client Protocol (ACP), and synthesizing their results into a single update.
+
+### Real-Time Digital Foraging
+
+"Find the latest Gemini 3.1 Pro pricing and update the project's provider configuration with the new rates."
+
+> Using a real, authenticated browser, Yachiyo navigates live documentation, extracts structured data (even from the newest 2026 models), and applies those updates to your local setup. It automates the "boring" research to keep your environment current.
+
+### Living Persona & Shared Context
+
+"I want my responses to be more technical and concise. Update my profile and adjust your future behavior."
+
+> Yachiyo manages its own soul and your user profile through local Markdown files (`SOUL.md` and `USER.md`). Your preferences aren't just settings—they are a durable, evolving memory that shapes every interaction across all channels.
+
+---
 
 ## Getting Started
 

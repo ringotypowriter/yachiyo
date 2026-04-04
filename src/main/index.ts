@@ -1,3 +1,4 @@
+import log from 'electron-log/main'
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -9,6 +10,11 @@ import { registerYachiyoGateway } from './yachiyoGateway'
 import { setupCLI } from './cliSetup'
 import { setupCoreSkills } from './coreSkillsSetup'
 import { setupAutoUpdate } from './autoUpdate'
+
+// Override console.log/warn/error so all existing log calls persist to file.
+// Logs go to ~/Library/Logs/Yachiyo/main.log on macOS.
+Object.assign(console, log.functions)
+log.errorHandler.startCatching()
 
 const APP_NAME = 'Yachiyo'
 
