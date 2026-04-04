@@ -115,7 +115,9 @@ export async function fetchVertexModels(
     throw new Error('Vertex AI requires a Project ID to fetch models.')
   }
 
-  const location = provider.location?.trim() || 'us-central1'
+  const configuredLocation = provider.location?.trim() || 'us-central1'
+  // The model-listing API is not available on the 'global' endpoint; fall back to a regional one.
+  const location = configuredLocation === 'global' ? 'us-central1' : configuredLocation
   const hasServiceAccount =
     !!provider.serviceAccountEmail?.trim() && !!provider.serviceAccountPrivateKey?.trim()
   const accessToken = hasServiceAccount
@@ -126,6 +128,7 @@ export async function fetchVertexModels(
       )
     : await (dependencies.getVertexAdcAccessToken ?? getVertexAdcAccessToken)()
 
+  // The publisher model catalog is a global resource — no project/location in the path.
   const url = `https://${location}-aiplatform.googleapis.com/v1beta1/publishers/google/models`
   console.log('[fetchModels] fetching vertex model garden:', url)
   const response = await fetchImpl(url, {

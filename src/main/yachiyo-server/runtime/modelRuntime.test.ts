@@ -1765,6 +1765,42 @@ test('fetchModels allows vertex model fetching via ADC', async () => {
   assert.deepEqual(models, ['gemini-2.5-flash-001', 'gemini-2.5-pro-001'])
 })
 
+test('fetchModels falls back to us-central1 when vertex location is global', async () => {
+  let requestedUrl = ''
+
+  await fetchModels(
+    {
+      id: 'provider-vertex-global',
+      name: 'vertex',
+      type: 'vertex',
+      apiKey: '',
+      baseUrl: '',
+      project: 'my-project',
+      location: 'global',
+      modelList: {
+        enabled: [],
+        disabled: []
+      }
+    },
+    (async (input) => {
+      requestedUrl =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      return new Response(
+        JSON.stringify({
+          publisherModels: [{ name: 'publishers/google/models/gemini-2.5-flash-001' }]
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    }) as typeof globalThis.fetch,
+    { getVertexAdcAccessToken: async () => 'adc-token' }
+  )
+
+  assert.equal(
+    requestedUrl,
+    'https://us-central1-aiplatform.googleapis.com/v1beta1/publishers/google/models'
+  )
+})
+
 // ---------------------------------------------------------------------------
 // Retry with exponential backoff
 // ---------------------------------------------------------------------------
