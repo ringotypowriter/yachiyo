@@ -177,7 +177,8 @@ test('patchUserDocumentSection rebuilds the group template when USER.md lost all
     assert.ok(result?.content.includes('## Group Vibe'), 'group template restored vibe heading')
     assert.ok(result?.content.includes('## Topic Hints'), 'group template restored topic heading')
     assert.ok(result?.content.includes('Alice | owner'), 'patched content written')
-    assert.ok(!result?.content.includes('plain text only'), 'broken freeform content discarded')
+    // Preamble text (above any ## heading) is preserved during migration
+    assert.ok(result?.content.includes('plain text only'), 'preamble content preserved')
   } finally {
     await rm(root, { recursive: true, force: true })
   }

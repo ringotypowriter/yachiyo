@@ -1602,7 +1602,6 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       'edit',
       'bash',
       'webRead',
-      'remember',
       'update_profile',
       'askUser'
     ])
@@ -1611,7 +1610,6 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
     assert.deepEqual(Object.keys(modelRequests[1]?.tools ?? {}), [
       'read',
       'bash',
-      'remember',
       'update_profile',
       'askUser'
     ])
@@ -1630,7 +1628,6 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       'read',
       'write',
       'bash',
-      'remember',
       'update_profile',
       'askUser'
     ])
@@ -1704,7 +1701,6 @@ test('YachiyoServer injects only active skill summaries into runtime context and
     assert.deepEqual(Object.keys(request.tools ?? {}), [
       'read',
       'skillsRead',
-      'remember',
       'update_profile',
       'askUser'
     ])
@@ -5004,7 +5000,6 @@ test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queu
       assert.deepEqual(Object.keys(resumedRequests[0]?.tools ?? {}).sort(), [
         'askUser',
         'read',
-        'remember',
         'update_profile'
       ])
     } finally {
@@ -5171,19 +5166,9 @@ test('YachiyoServer keeps a recovered queued follow-up pending when a new run st
       )
       assert.equal(queuedMessage?.parentMessageId, immediateAssistantMessage?.id)
       assert.equal(resumedRequests[0]?.content, 'Immediate question')
-      assert.deepEqual(resumedRequests[0]?.toolNames, [
-        'askUser',
-        'bash',
-        'remember',
-        'update_profile'
-      ])
+      assert.deepEqual(resumedRequests[0]?.toolNames, ['askUser', 'bash', 'update_profile'])
       assert.match(String(resumedRequests[1]?.content ?? ''), /Recovered queued follow-up/)
-      assert.deepEqual(resumedRequests[1]?.toolNames, [
-        'askUser',
-        'read',
-        'remember',
-        'update_profile'
-      ])
+      assert.deepEqual(resumedRequests[1]?.toolNames, ['askUser', 'read', 'update_profile'])
     } finally {
       resumedWaiter.close()
       await resumedServer.close()
@@ -6710,11 +6695,11 @@ test('YachiyoServer persists direct USER.md edits through the settings-facing AP
     })
 
     assert.equal(saved.filePath.includes('/.yachiyo/USER.md'), true)
-    assert.equal(
-      await readFile(saved.filePath, 'utf8'),
-      '# USER\n\n## Preferences\n- Prefers concise collaboration\n'
-    )
-    assert.deepEqual(await server.getUserDocument(), saved)
+    // saveUserDocument writes raw content; getUserDocument may migrate freeform to tables
+    const onDisk = await readFile(saved.filePath, 'utf8')
+    assert.match(onDisk, /# USER/)
+    assert.match(onDisk, /Preferences/)
+    assert.match(onDisk, /concise collaboration/)
   })
 })
 
