@@ -69,7 +69,7 @@ export function ThinkingBlock({
             </svg>
           )}
           <span className="text-xs font-medium tracking-wide" style={{ color: theme.text.accent }}>
-            {isActive ? 'Thinking...' : 'Thinking'}
+            {isActive ? 'Thinking...' : 'Thought'}
           </span>
         </button>
 

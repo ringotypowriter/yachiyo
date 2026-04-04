@@ -9,16 +9,53 @@ export type ToolCallSemanticGroup =
   | 'write-files'
   | 'run-commands'
 
-const TOOL_CALL_GROUP_LABELS: Record<ToolCallSemanticGroup, { singular: string; plural: string }> =
-  {
-    'search-sources': { singular: 'Searching 1 source', plural: 'Searching %n sources' },
-    'read-sources': { singular: 'Reading 1 source', plural: 'Reading %n sources' },
-    'search-files': { singular: 'Searching 1 file', plural: 'Searching %n files' },
-    'read-files': { singular: 'Reading 1 file', plural: 'Reading %n files' },
-    'edit-files': { singular: 'Editing 1 file', plural: 'Editing %n files' },
-    'write-files': { singular: 'Writing 1 file', plural: 'Writing %n files' },
-    'run-commands': { singular: 'Running 1 command', plural: 'Running %n commands' }
+const TOOL_CALL_GROUP_LABELS: Record<
+  ToolCallSemanticGroup,
+  { singular: string; plural: string; doneSingular: string; donePlural: string }
+> = {
+  'search-sources': {
+    singular: 'Searching 1 source',
+    plural: 'Searching %n sources',
+    doneSingular: 'Searched 1 source',
+    donePlural: 'Searched %n sources'
+  },
+  'read-sources': {
+    singular: 'Reading 1 source',
+    plural: 'Reading %n sources',
+    doneSingular: 'Read 1 source',
+    donePlural: 'Read %n sources'
+  },
+  'search-files': {
+    singular: 'Searching 1 file',
+    plural: 'Searching %n files',
+    doneSingular: 'Searched 1 file',
+    donePlural: 'Searched %n files'
+  },
+  'read-files': {
+    singular: 'Reading 1 file',
+    plural: 'Reading %n files',
+    doneSingular: 'Read 1 file',
+    donePlural: 'Read %n files'
+  },
+  'edit-files': {
+    singular: 'Editing 1 file',
+    plural: 'Editing %n files',
+    doneSingular: 'Edited 1 file',
+    donePlural: 'Edited %n files'
+  },
+  'write-files': {
+    singular: 'Writing 1 file',
+    plural: 'Writing %n files',
+    doneSingular: 'Wrote 1 file',
+    donePlural: 'Wrote %n files'
+  },
+  'run-commands': {
+    singular: 'Running 1 command',
+    plural: 'Running %n commands',
+    doneSingular: 'Ran 1 command',
+    donePlural: 'Ran %n commands'
   }
+}
 
 function getToolCallSemanticGroup(toolName: string): ToolCallSemanticGroup | null {
   switch (toolName) {
@@ -42,8 +79,15 @@ function getToolCallSemanticGroup(toolName: string): ToolCallSemanticGroup | nul
   }
 }
 
-export function getToolCallGroupLabel(group: ToolCallSemanticGroup, count: number): string {
+export function getToolCallGroupLabel(
+  group: ToolCallSemanticGroup,
+  count: number,
+  done?: boolean
+): string {
   const labels = TOOL_CALL_GROUP_LABELS[group]
+  if (done) {
+    return count === 1 ? labels.doneSingular : labels.donePlural.replace('%n', String(count))
+  }
   return count === 1 ? labels.singular : labels.plural.replace('%n', String(count))
 }
 

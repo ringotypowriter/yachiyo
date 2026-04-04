@@ -23,7 +23,7 @@ export function ToolCallGroupRow({ group, toolCalls }: ToolCallGroupRowProps): R
       ? theme.text.accent
       : theme.status.success
 
-  const label = getToolCallGroupLabel(group, toolCalls.length)
+  const label = getToolCallGroupLabel(group, toolCalls.length, allDone)
 
   return (
     <div className="py-0.5" style={{ fontSize: '11px' }}>
