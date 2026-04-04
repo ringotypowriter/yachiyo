@@ -10,7 +10,6 @@ import {
   resolveToolModelProvider,
   syncToolModelWithProvider
 } from '../../../shared/yachiyo/providerConfig.ts'
-import { createPresetProviders } from '../../../shared/yachiyo/providerPresets.ts'
 import { DEFAULT_SETTINGS_CONFIG } from './settingsDefaults.ts'
 import {
   normalizeChatConfig,
@@ -61,7 +60,7 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
         : toolModel,
     memory: normalizeMemoryConfig(input['memory']),
     webSearch: normalizeWebSearchConfig(input['webSearch']),
-    providers: hasProviders ? providers : createPresetProviders(),
+    providers: hasProviders ? providers : DEFAULT_SETTINGS_CONFIG.providers,
     prompts: normalizeUserPrompts(input['prompts']),
     subagentProfiles,
     ...(essentials.length > 0 ? { essentials } : {})

@@ -185,13 +185,17 @@ test('stringifySettingsToml does not materialize maxChatToken for legacy configs
   assert.equal(reparsed.chat?.maxChatToken, undefined)
 })
 
-test('settings store returns the default config when the file is missing', async () => {
+test('settings store seeds preset providers on first launch when config file is missing', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-default-'))
   const settingsPath = join(root, 'config.toml')
   const store = createSettingsStore(settingsPath)
 
   try {
-    assert.deepEqual(store.read(), DEFAULT_SETTINGS_CONFIG)
+    const config = store.read()
+    // First launch seeds preset providers into the config
+    assert.ok(config.providers.length > 0, 'preset providers should be seeded')
+    // All other defaults are preserved
+    assert.deepEqual({ ...config, providers: [] }, { ...DEFAULT_SETTINGS_CONFIG, providers: [] })
   } finally {
     await rm(root, { recursive: true, force: true })
   }
