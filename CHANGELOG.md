@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.19
+
+### Patch Changes
+
+- [`93739cd`](https://github.com/ringotypowriter/yachiyo/commit/93739cdf1f1d7b3a405ad07252649a7284e866b5) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Active Memory Write
+
 ## 1.0.18
 
 ### Patch Changes
