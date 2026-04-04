@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.20
+
+### Patch Changes
+
+- [`fa7a903`](https://github.com/ringotypowriter/yachiyo/commit/fa7a903a606faf72c14c9e221e06dbc596776184) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Provider Presets
+
 ## 1.0.19
 
 ### Patch Changes
