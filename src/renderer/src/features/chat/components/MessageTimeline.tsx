@@ -183,6 +183,9 @@ export function ThreadConversationGroup({
   })
   const visibleToolCalls = getVisibleToolCallsForGroup({ group, toolCalls, activeRunId })
   const memorySummary = findRunMemorySummary(runs, group.userMessage.id)
+  const savedMemoryCount = visibleToolCalls.filter(
+    (tc) => tc.toolName === 'remember' && tc.status === 'completed'
+  ).length
   const failedRunError =
     activeBranch?.message.status === 'failed'
       ? (runs.find((r) => r.requestMessageId === group.userMessage.id && r.status === 'failed')
@@ -376,6 +379,14 @@ export function ThreadConversationGroup({
               style={{ color: theme.text.danger }}
             >
               {failedRunError ? `Failed: ${failedRunError}` : 'Failed to generate'}
+            </div>
+          ) : null}
+          {savedMemoryCount > 0 ? (
+            <div
+              className="message-footer message-footer--always-visible inline-flex items-center gap-1"
+              style={{ color: theme.text.accent }}
+            >
+              {savedMemoryCount === 1 ? 'Memory saved' : `${savedMemoryCount} memories saved`}
             </div>
           ) : null}
           <MessageActionBar

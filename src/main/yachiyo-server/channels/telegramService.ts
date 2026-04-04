@@ -62,7 +62,7 @@ import { createSpeechThrottle } from './groupSpeechThrottle'
 import { createTool as createReadTool } from '../tools/agentTools/readTool'
 import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool'
 import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool'
-import { createTool as createUpdateMemoryTool } from '../tools/agentTools/updateMemoryTool'
+import { createTool as createUpdateProfileTool } from '../tools/agentTools/updateProfileTool'
 import { notifyAutoCompact } from './autoCompactNotice'
 
 import { resolveYachiyoTempWorkspaceRoot, YACHIYO_USER_FILE_NAME } from '../config/paths'
@@ -600,7 +600,7 @@ export function createTelegramService({
       mode: 'group'
     })
 
-    // Build agentic tools: read, web_read, web_search, update_memory.
+    // Build agentic tools: read, web_read, web_search, update_profile.
     const toolContext = { workspacePath: group.workspacePath, sandboxed: true }
     const probeTools: ToolSet = {
       send_group_message: sendGroupMessageTool,
@@ -609,11 +609,9 @@ export function createTelegramService({
       web_search: createWebSearchTool(toolContext, {
         webSearchService: server.getWebSearchService()
       }),
-      update_memory: createUpdateMemoryTool({
-        memoryService: server.getMemoryService(),
+      update_profile: createUpdateProfileTool({
         userDocumentPath: userDocPath,
-        userDocumentMode: 'group',
-        rejectFullRewrite: true
+        userDocumentMode: 'group'
       })
     }
 

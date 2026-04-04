@@ -1345,7 +1345,8 @@ export class YachiyoServerRunDomain {
             this.schedulePostRunMemoryDistillation({
               assistantResponse: assistantMessage.content,
               thread: currentThread,
-              userQuery: userMessage.content
+              userQuery: userMessage.content,
+              usedRememberTool: result.usedRememberTool
             })
           }
         }
@@ -1574,6 +1575,7 @@ export class YachiyoServerRunDomain {
     assistantResponse: string
     thread: ThreadRecord
     userQuery: string
+    usedRememberTool?: boolean
   }): void {
     if (!this.deps.memoryService.isConfigured()) {
       return
@@ -1586,6 +1588,12 @@ export class YachiyoServerRunDomain {
     // Skip memory distillation for external channel threads — conversations are
     // short and ephemeral; distilling them pollutes the owner's memory store.
     if (input.thread.source && input.thread.source !== 'local') {
+      return
+    }
+
+    // When the agent already saved memories via the remember tool this turn,
+    // skip auto-distillation to avoid duplicate or conflicting entries.
+    if (input.usedRememberTool) {
       return
     }
 

@@ -18,7 +18,11 @@ import { createTool as createBashTool } from './agentTools/bashTool.ts'
 import { createTool as createEditTool } from './agentTools/editTool.ts'
 import { createTool as createGlobTool } from './agentTools/globTool.ts'
 import { createTool as createGrepTool } from './agentTools/grepTool.ts'
-import { createTool as createMemorySearchTool } from './agentTools/memorySearchTool.ts'
+import {
+  createTool as createRememberTool,
+  type RememberToolDeps
+} from './agentTools/rememberTool.ts'
+import { createTool as createSearchMemoryTool } from './agentTools/searchMemoryTool.ts'
 import { createTool as createReadTool } from './agentTools/readTool.ts'
 import { createTool as createSkillsReadTool } from './agentTools/skillsReadTool.ts'
 import {
@@ -43,9 +47,9 @@ import {
   type DelegateCodingTaskContext
 } from './agentTools/delegateCodingTaskTool.ts'
 import {
-  createTool as createUpdateMemoryTool,
-  type UpdateMemoryDeps
-} from './agentTools/updateMemoryTool.ts'
+  createTool as createUpdateProfileTool,
+  type UpdateProfileDeps
+} from './agentTools/updateProfileTool.ts'
 import { createAskUserTool, type AskUserToolContext } from './agentTools/askUserTool.ts'
 
 export type {
@@ -92,7 +96,9 @@ export interface AgentToolDependencies {
   memoryService?: MemoryService
   searchService?: SearchService
   webSearchService?: WebSearchService
-  updateMemoryDeps?: UpdateMemoryDeps
+  updateProfileDeps?: UpdateProfileDeps
+  /** When provided, the remember tool is injected (local + owner DM contexts only). */
+  rememberDeps?: RememberToolDeps
   subagentProfiles?: SubagentProfile[]
   /** Workspace paths the coding agent is allowed to operate in (from config savedPaths). */
   availableWorkspaces?: string[]
@@ -155,6 +161,20 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
       typeof input === 'object' && input !== null && 'pattern' in input ? input.pattern : ''
     return typeof pattern === 'string' && pattern.trim().length > 0
       ? takeTail(pattern, 160).text
+      : toolName
+  }
+
+  if (toolName === 'remember') {
+    const title = typeof input === 'object' && input !== null && 'title' in input ? input.title : ''
+    return typeof title === 'string' && title.trim().length > 0
+      ? takeTail(title, 160).text
+      : toolName
+  }
+
+  if (toolName === 'search_memory') {
+    const query = typeof input === 'object' && input !== null && 'query' in input ? input.query : ''
+    return typeof query === 'string' && query.trim().length > 0
+      ? takeTail(query, 160).text
       : toolName
   }
 
@@ -237,6 +257,16 @@ export function summarizeToolOutput(
     return details.truncated ? `${summary} (truncated)` : summary
   }
 
+  if (toolName === 'remember' || toolName === 'search_memory') {
+    const typed = output as { content?: Array<{ type: string; text?: string }>; error?: string }
+    if (typed.error) return typed.error
+    const text = typed.content
+      ?.filter((b) => b.type === 'text')
+      .map((b) => b.text ?? '')
+      .join('')
+    return text ? takeTail(text, 120).text : 'done'
+  }
+
   if (phase === 'update') {
     return 'streaming output'
   }
@@ -263,7 +293,7 @@ export function normalizeToolResult(
   return {
     status: phase === 'update' ? 'running' : error ? 'failed' : 'completed',
     outputSummary: summarizeToolOutput(toolName, output, { phase }),
-    ...(typedOutput.metadata.cwd ? { cwd: typedOutput.metadata.cwd } : {}),
+    ...(typedOutput.metadata?.cwd ? { cwd: typedOutput.metadata.cwd } : {}),
     ...(error ? { error } : {}),
     ...(typedOutput.details ? { details: typedOutput.details } : {})
   }
@@ -328,12 +358,16 @@ export function createAgentToolSet(
     })
   }
 
-  if (dependencies.memoryService?.hasHiddenSearchCapability()) {
-    tools.memory_search = createMemorySearchTool(dependencies.memoryService)
+  if (dependencies.memoryService?.isConfigured()) {
+    tools.search_memory = createSearchMemoryTool(dependencies.memoryService)
   }
 
-  if (dependencies.updateMemoryDeps) {
-    tools.updateMemory = createUpdateMemoryTool(dependencies.updateMemoryDeps)
+  if (dependencies.rememberDeps) {
+    tools.remember = createRememberTool(dependencies.rememberDeps)
+  }
+
+  if (dependencies.updateProfileDeps) {
+    tools.update_profile = createUpdateProfileTool(dependencies.updateProfileDeps)
   }
 
   const enabledSubagentProfiles = (dependencies.subagentProfiles ?? []).filter((p) => p.enabled)

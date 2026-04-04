@@ -82,7 +82,7 @@ import {
   normalizeToolResult,
   summarizeToolInput
 } from '../../tools/agentTools.ts'
-import { createFilteredMemoryService } from '../../tools/agentTools/memorySearchTool.ts'
+import { createFilteredMemoryService } from '../../services/memory/memoryService.ts'
 import {
   DEFAULT_HARNESS_NAME,
   isAbortError,
@@ -123,7 +123,7 @@ export interface RestartRunReason {
 }
 
 export type ExecuteRunResult =
-  | { kind: 'completed'; totalPromptTokens?: number }
+  | { kind: 'completed'; totalPromptTokens?: number; usedRememberTool?: boolean }
   | { kind: 'failed' }
   | { kind: 'cancelled' }
   | { kind: 'restarted'; nextRequestMessageId: string }
@@ -470,6 +470,8 @@ function buildAgentInstructions(input: {
   enabledTools: ToolCallName[]
   activeSkills: SkillSummary[]
   hasHiddenMemorySearch: boolean
+  hasUpdateProfile?: boolean
+  hasRemember?: boolean
   soulDocumentPath?: string
   userDocumentPath?: string
   subagentContextBlock?: string
@@ -506,7 +508,12 @@ function buildAgentInstructions(input: {
     )
   }
 
-  if (input.enabledTools.length === 0 && !input.hasHiddenMemorySearch) {
+  if (
+    input.enabledTools.length === 0 &&
+    !input.hasHiddenMemorySearch &&
+    !input.hasUpdateProfile &&
+    !input.hasRemember
+  ) {
     instructions.push('No tools are available for this run. Respond without tool calls.')
     return instructions.join('\n')
   }
@@ -1191,6 +1198,11 @@ export async function executeServerRun(
                   activeSkills,
                   hasHiddenMemorySearch:
                     !input.thread.privacyMode && deps.memoryService.hasHiddenSearchCapability(),
+                  hasUpdateProfile: true,
+                  hasRemember:
+                    !input.thread.privacyMode &&
+                    (!isExternalChannel || isOwnerDm) &&
+                    deps.memoryService.isConfigured(),
                   soulDocumentPath: soulDocument?.filePath,
                   userDocumentPath: userDocument?.filePath,
                   subagentContextBlock: subagentContextBlock || undefined,
@@ -1240,14 +1252,16 @@ export async function executeServerRun(
               )
             : deps.memoryService,
         webSearchService: deps.webSearchService,
-        ...(isExternalChannel
-          ? {
-              updateMemoryDeps: {
-                memoryService: deps.memoryService,
-                userDocumentPath: resolveYachiyoUserPath(workspacePath),
-                userDocumentMode: isGuest ? 'guest' : 'owner'
-              }
-            }
+        updateProfileDeps: {
+          userDocumentPath: resolveYachiyoUserPath(workspacePath),
+          ...(isExternalChannel
+            ? { userDocumentMode: isGuest ? ('guest' as const) : ('owner' as const) }
+            : {})
+        },
+        ...(!input.thread.privacyMode &&
+        (!isExternalChannel || isOwnerDm) &&
+        deps.memoryService.isConfigured()
+          ? { rememberDeps: { memoryService: deps.memoryService } }
           : {}),
         // askUser is only available for direct chat runs — not external channel runs
         ...(!isExternalChannel
@@ -1798,7 +1812,14 @@ export async function executeServerRun(
       runId: input.runId,
       ...lastUsage
     })
-    return { kind: 'completed', totalPromptTokens: lastUsage?.totalPromptTokens }
+    const usedRememberTool = Array.from(toolCalls.values()).some(
+      (tc) => tc.toolName === 'remember' && tc.status === 'completed' && !tc.error
+    )
+    return {
+      kind: 'completed',
+      totalPromptTokens: lastUsage?.totalPromptTokens,
+      usedRememberTool
+    }
   } catch (error) {
     clearSafeSteerTimer()
 

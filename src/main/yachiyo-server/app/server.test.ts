@@ -675,6 +675,7 @@ test('YachiyoServer injects recalled memory into the compiled context before the
           }
         },
         createMemory: async () => ({ savedCount: 0 }),
+        validateAndCreateMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -735,6 +736,7 @@ test('YachiyoServer keeps the compile pipeline working when recall is gated off'
           thread
         }),
         createMemory: async () => ({ savedCount: 0 }),
+        validateAndCreateMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -795,6 +797,7 @@ test('YachiyoServer bases recall history on the active branch during retry', asy
           }
         },
         createMemory: async () => ({ savedCount: 0 }),
+        validateAndCreateMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -843,6 +846,7 @@ test('YachiyoServer only injects the hidden memory_search runtime tool when memo
           thread
         }),
         createMemory: async () => ({ savedCount: 0 }),
+        validateAndCreateMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -886,6 +890,7 @@ test('YachiyoServer only injects the hidden memory_search runtime tool when memo
           thread
         }),
         createMemory: async () => ({ savedCount: 0 }),
+        validateAndCreateMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -900,8 +905,8 @@ test('YachiyoServer only injects the hidden memory_search runtime tool when memo
   )
 
   assert.ok(configuredMainRequest?.tools)
-  assert.equal('memory_search' in (configuredMainRequest?.tools ?? {}), true)
-  assert.equal('memory_search' in (disabledMainRequest?.tools ?? {}), false)
+  assert.equal('search_memory' in (configuredMainRequest?.tools ?? {}), true)
+  assert.equal('search_memory' in (disabledMainRequest?.tools ?? {}), false)
 })
 
 test('YachiyoServer does not claim there are no tools when hidden memory search is the only tool', async () => {
@@ -949,6 +954,7 @@ test('YachiyoServer does not claim there are no tools when hidden memory search 
           thread
         }),
         createMemory: async () => ({ savedCount: 0 }),
+        validateAndCreateMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -962,7 +968,7 @@ test('YachiyoServer does not claim there are no tools when hidden memory search 
   )
 
   assert.ok(mainRequest?.tools)
-  assert.equal('memory_search' in (mainRequest?.tools ?? {}), true)
+  assert.equal('search_memory' in (mainRequest?.tools ?? {}), true)
   assert.equal(
     systemMessages.some((message) => /No tools are available for this run/u.test(message.content)),
     false
@@ -1009,6 +1015,7 @@ test('YachiyoServer continues the run when memory recall fails', async () => {
           throw new Error('Cannot connect to Nowledge Mem')
         },
         createMemory: async () => ({ savedCount: 0 }),
+        validateAndCreateMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -1063,6 +1070,7 @@ test('YachiyoServer saveThread uses the explicit memory service and can archive 
           thread
         }),
         createMemory: async () => ({ savedCount: 0 }),
+        validateAndCreateMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async ({ thread }) => {
           savedThreadId = thread.id
@@ -1115,6 +1123,7 @@ test('YachiyoServer saveThread clears saving state when memory service throws', 
           thread
         }),
         createMemory: async () => ({ savedCount: 0 }),
+        validateAndCreateMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => {
           callCount++
@@ -1167,6 +1176,7 @@ test('YachiyoServer recoverInterruptedSaves reports interrupted save recovery on
           thread
         }),
         createMemory: async () => ({ savedCount: 0 }),
+        validateAndCreateMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -1482,6 +1492,7 @@ test('YachiyoServer tests memory connectivity against the provided draft config'
           thread
         }),
         createMemory: async () => ({ savedCount: 0 }),
+        validateAndCreateMemory: async () => ({ savedCount: 0 }),
         distillCompletedRun: async () => ({ savedCount: 0 }),
         saveThread: async () => ({ savedCount: 0 })
       }
@@ -1591,11 +1602,19 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       'edit',
       'bash',
       'webRead',
+      'remember',
+      'update_profile',
       'askUser'
     ])
     assert.equal(modelRequests[0]?.messages.at(-1)?.content, 'Default tool run')
 
-    assert.deepEqual(Object.keys(modelRequests[1]?.tools ?? {}), ['read', 'bash', 'askUser'])
+    assert.deepEqual(Object.keys(modelRequests[1]?.tools ?? {}), [
+      'read',
+      'bash',
+      'remember',
+      'update_profile',
+      'askUser'
+    ])
     assert.equal(modelRequests[1]?.messages.at(-1)?.content, 'Use only read and bash')
     assert.ok(
       modelRequests[1]?.messages.some(
@@ -1611,6 +1630,8 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       'read',
       'write',
       'bash',
+      'remember',
+      'update_profile',
       'askUser'
     ])
     assert.equal(modelRequests[2]?.messages.at(-1)?.content, 'Turn write back on')
@@ -1680,7 +1701,13 @@ test('YachiyoServer injects only active skill summaries into runtime context and
 
     const request = modelRequests.at(-1)
     assert.ok(request)
-    assert.deepEqual(Object.keys(request.tools ?? {}), ['read', 'skillsRead', 'askUser'])
+    assert.deepEqual(Object.keys(request.tools ?? {}), [
+      'read',
+      'skillsRead',
+      'remember',
+      'update_profile',
+      'askUser'
+    ])
     assert.ok(
       request.messages.some(
         (message) =>
@@ -4974,7 +5001,12 @@ test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queu
         String(resumedRequests[0]?.messages.at(-1)?.content ?? ''),
         /Recovered queued follow-up/
       )
-      assert.deepEqual(Object.keys(resumedRequests[0]?.tools ?? {}).sort(), ['askUser', 'read'])
+      assert.deepEqual(Object.keys(resumedRequests[0]?.tools ?? {}).sort(), [
+        'askUser',
+        'read',
+        'remember',
+        'update_profile'
+      ])
     } finally {
       resumedWaiter.close()
       await resumedServer.close()
@@ -5139,9 +5171,19 @@ test('YachiyoServer keeps a recovered queued follow-up pending when a new run st
       )
       assert.equal(queuedMessage?.parentMessageId, immediateAssistantMessage?.id)
       assert.equal(resumedRequests[0]?.content, 'Immediate question')
-      assert.deepEqual(resumedRequests[0]?.toolNames, ['askUser', 'bash'])
+      assert.deepEqual(resumedRequests[0]?.toolNames, [
+        'askUser',
+        'bash',
+        'remember',
+        'update_profile'
+      ])
       assert.match(String(resumedRequests[1]?.content ?? ''), /Recovered queued follow-up/)
-      assert.deepEqual(resumedRequests[1]?.toolNames, ['askUser', 'read'])
+      assert.deepEqual(resumedRequests[1]?.toolNames, [
+        'askUser',
+        'read',
+        'remember',
+        'update_profile'
+      ])
     } finally {
       resumedWaiter.close()
       await resumedServer.close()

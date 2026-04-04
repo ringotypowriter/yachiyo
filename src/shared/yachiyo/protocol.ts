@@ -224,7 +224,13 @@ export function isCoreToolName(value: string): value is ToolCallName {
 }
 
 /** Tool names that get tracked in the UI (core tools + runtime meta-tools like askUser). */
-const trackedToolNameSet = new Set<string>([...CORE_TOOL_NAMES, 'askUser'])
+const trackedToolNameSet = new Set<string>([
+  ...CORE_TOOL_NAMES,
+  'askUser',
+  'remember',
+  'search_memory',
+  'update_profile'
+])
 
 export function isTrackedToolName(value: string): boolean {
   return trackedToolNameSet.has(value)

@@ -22,7 +22,7 @@ import {
 import { createTool as createDelegateCodingTaskTool } from './agentTools/delegateCodingTaskTool.ts'
 import { resolveGlobInput } from './agentTools/globTool.ts'
 import type { MemoryService } from '../services/memory/memoryService.ts'
-import { createTool as createMemorySearchTool } from './agentTools/memorySearchTool.ts'
+import { createTool as createSearchMemoryTool } from './agentTools/searchMemoryTool.ts'
 
 async function withWorkspace(fn: (workspacePath: string) => Promise<void> | void): Promise<void> {
   const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-agent-tools-'))
@@ -69,7 +69,7 @@ test('runReadTool uses offset/limit continuation semantics and returns truncatio
   })
 })
 
-test('createAgentToolSet adds hidden memory_search only when memory is configured', () => {
+test('createAgentToolSet adds search_memory only when memory is configured', () => {
   const baseMemoryService: MemoryService = {
     hasHiddenSearchCapability: () => true,
     isConfigured: () => true,
@@ -90,6 +90,7 @@ test('createAgentToolSet adds hidden memory_search only when memory is configure
       thread
     }),
     createMemory: async () => ({ savedCount: 0 }),
+    validateAndCreateMemory: async () => ({ savedCount: 0 }),
     distillCompletedRun: async () => ({ savedCount: 0 }),
     saveThread: async () => ({ savedCount: 0 })
   }
@@ -119,16 +120,16 @@ test('createAgentToolSet adds hidden memory_search only when memory is configure
 
   assert.ok(withMemory)
   assert.ok(withoutMemory)
-  assert.equal('memory_search' in withMemory, true)
-  assert.equal('memory_search' in withoutMemory, false)
-  assert.equal('memory_search' in (withMemory ?? {}), true)
-  assert.equal('memory_search' in (withoutMemory ?? {}), false)
+  assert.equal('search_memory' in withMemory, true)
+  assert.equal('search_memory' in withoutMemory, false)
+  assert.equal('search_memory' in (withMemory ?? {}), true)
+  assert.equal('search_memory' in (withoutMemory ?? {}), false)
 })
 
-test('memory_search forwards the abort signal to memory service lookups', async () => {
+test('search_memory forwards the abort signal to memory service lookups', async () => {
   const abortController = new AbortController()
   let receivedSignal: AbortSignal | undefined
-  const memorySearchTool = createMemorySearchTool({
+  const searchMemoryTool = createSearchMemoryTool({
     hasHiddenSearchCapability: () => true,
     isConfigured: () => true,
     searchMemories: async ({ signal }) => {
@@ -151,18 +152,19 @@ test('memory_search forwards the abort signal to memory service lookups', async 
       thread
     }),
     createMemory: async () => ({ savedCount: 0 }),
+    validateAndCreateMemory: async () => ({ savedCount: 0 }),
     distillCompletedRun: async () => ({ savedCount: 0 }),
     saveThread: async () => ({ savedCount: 0 })
   })
 
-  assert.equal(typeof memorySearchTool.execute, 'function')
-  const executeOptions: Parameters<NonNullable<typeof memorySearchTool.execute>>[1] = {
+  assert.equal(typeof searchMemoryTool.execute, 'function')
+  const executeOptions: Parameters<NonNullable<typeof searchMemoryTool.execute>>[1] = {
     abortSignal: abortController.signal,
-    toolCallId: 'memory-search-tool-call',
+    toolCallId: 'search-memory-tool-call',
     messages: []
   }
 
-  await memorySearchTool.execute!(
+  await searchMemoryTool.execute!(
     {
       query: 'deploy workflow'
     },

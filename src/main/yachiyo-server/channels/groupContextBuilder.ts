@@ -191,11 +191,12 @@ You also have these tools available:
 - \`read\`: Read a file from disk (sandboxed to your workspace).
 - \`web_read\`: Fetch and read a web page.
 - \`web_search\`: Search the web.
-- \`update_memory\`: Save observations. Two modes:
-  - \`mode: "profile-section"\`: Patch a single section in the group notes (USER.md) without touching others. Requires \`section\` (heading name, e.g. "People", "Group Vibe", "Topic Hints"). Only the named section is replaced — everything else stays intact.
-  - \`mode: "memory"\`: Save a standalone fact or observation to long-term memory.
+- \`update_profile\`: Update group notes (USER.md). Each section is a structured table.
+  - \`operation: "upsert"\`: Add or update rows by key column. Provide entries as objects with column names as keys.
+  - \`operation: "remove"\`: Delete rows by key column value.
+  - Sections: "People" (Nickname, Identity, Notes), "Group Vibe" (Aspect, Description), "Topic Hints" (Topic, Hint).
 
-Use tools sparingly. Most turns need zero tools — just observe and maybe speak. Only use \`update_memory\` when you learn something genuinely durable (a new person's identity, a recurring topic, a group dynamic shift).
+Use tools sparingly. Most turns need zero tools — just observe and maybe speak. Only use \`update_profile\` when you learn something genuinely durable (a new person's identity, a recurring topic, a group dynamic shift).
 
 ## New vs. context messages
 

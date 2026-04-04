@@ -17,7 +17,7 @@ describe('buildExternalAgentInstructions', () => {
     assert.ok(result.includes('webSearch'))
     assert.ok(!result.includes('bash'))
     assert.ok(!result.includes('edit'))
-    // 'write' may appear in updateMemory instructions (Rewrite USER.md), that's fine
+    // 'write' may appear in update_profile instructions (managing USER.md), that's fine
   })
 
   it('does not include local-agent assumptions', () => {
@@ -27,17 +27,17 @@ describe('buildExternalAgentInstructions', () => {
 
     assert.ok(!result.includes('YOLO'))
     assert.ok(!result.includes('local agent'))
-    // USER.md is now intentionally mentioned via the updateMemory tool
+    // USER.md is now intentionally mentioned via the update_profile tool
     assert.ok(!result.includes('SOUL.md'))
     assert.ok(!result.includes('subagent'))
     assert.ok(!result.includes('skill'))
   })
 
-  it('handles no tools gracefully', () => {
+  it('still documents update_profile when core tools are empty', () => {
     const result = buildExternalAgentInstructions({ enabledTools: [] })
 
-    assert.ok(result.includes('No tools are available'))
     assert.ok(!result.includes('Available tools:'))
+    assert.ok(result.includes('update_profile'))
   })
 
   it('includes conversational role definition', () => {
@@ -47,13 +47,12 @@ describe('buildExternalAgentInstructions', () => {
     assert.ok(result.includes('not coding assistant'))
   })
 
-  it('documents the section patch mode for updateMemory', () => {
+  it('documents the update_profile tool with upsert and remove operations', () => {
     const result = buildExternalAgentInstructions({ enabledTools: ['read'] })
 
-    assert.ok(result.includes('mode "profile-section"'))
-    assert.ok(result.includes('Requires `section`'))
-    assert.ok(result.includes('exact heading name from the current USER.md'))
-    assert.ok(result.includes('mode "profile":'))
+    assert.ok(result.includes('update_profile tool for managing the user profile (USER.md)'))
+    assert.ok(result.includes('operation "upsert"'))
+    assert.ok(result.includes('operation "remove"'))
   })
 })
 

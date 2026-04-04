@@ -276,16 +276,19 @@ describe('buildGroupProbeSystemPrompt', () => {
     assert.ok(!prompt.includes('Group notes'))
   })
 
-  it('documents only section patching and memory modes for update_memory', () => {
+  it('documents update_profile tool with upsert and remove operations', () => {
     const prompt = buildGroupProbeSystemPrompt({
       botName: 'Yachiyo',
       groupName: 'TestGroup'
     })
 
-    assert.ok(prompt.includes('Save observations. Two modes'))
-    assert.ok(prompt.includes('`mode: "profile-section"`'))
-    assert.ok(prompt.includes('`mode: "memory"`'))
-    assert.ok(!prompt.includes('`mode: "profile"`'))
+    assert.ok(prompt.includes('`update_profile`'))
+    assert.ok(prompt.includes('Update group notes (USER.md)'))
+    assert.ok(prompt.includes('`operation: "upsert"`'))
+    assert.ok(prompt.includes('`operation: "remove"`'))
+    assert.ok(prompt.includes('People'))
+    assert.ok(prompt.includes('Group Vibe'))
+    assert.ok(prompt.includes('Topic Hints'))
   })
 })
 

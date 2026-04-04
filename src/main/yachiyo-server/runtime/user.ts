@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
 import { resolveYachiyoUserPath } from '../config/paths.ts'
+import { migrateDocumentToTables } from './profileTable.ts'
 
 const DEFAULT_USER_TEMPLATE = [
   '# USER',
@@ -13,9 +14,18 @@ const DEFAULT_USER_TEMPLATE = [
   '',
   '## Profile',
   '',
+  '| Key | Value | Since |',
+  '|---|---|---|',
+  '',
   '## Preferences',
   '',
+  '| Key | Value | Since |',
+  '|---|---|---|',
+  '',
   '## Collaboration Notes',
+  '',
+  '| Topic | Note | Since |',
+  '|---|---|---|',
   ''
 ].join('\n')
 
@@ -26,9 +36,18 @@ const DEFAULT_GUEST_USER_TEMPLATE = [
   '',
   '## Profile',
   '',
+  '| Key | Value | Since |',
+  '|---|---|---|',
+  '',
   '## Preferences',
   '',
+  '| Key | Value | Since |',
+  '|---|---|---|',
+  '',
   '## Notes',
+  '',
+  '| Topic | Note | Since |',
+  '|---|---|---|',
   ''
 ].join('\n')
 
@@ -39,20 +58,18 @@ const DEFAULT_GROUP_USER_TEMPLATE = [
   '',
   '## People',
   '',
-  '<!-- Map nicknames to real identities so the model knows who is who. -->',
-  '<!-- Rows with empty notes are fine — just the mapping helps. -->',
-  '',
-  '| Nickname | Identity / Real Name | Notes |',
-  '|----------|----------------------|-------|',
-  '| ExampleUser | Alice | owner, close friend |',
+  '| Nickname | Identity | Notes | Since |',
+  '|---|---|---|---|',
   '',
   '## Group Vibe',
   '',
-  '<!-- Describe the general tone, topics, and dynamics of this group. -->',
+  '| Aspect | Description | Since |',
+  '|---|---|---|',
   '',
   '## Topic Hints',
   '',
-  '<!-- Anything Yachiyo should know or care about in this group. -->',
+  '| Topic | Hint | Since |',
+  '|---|---|---|',
   ''
 ].join('\n')
 
@@ -101,6 +118,7 @@ export async function readUserDocument(
   input: ReadUserDocumentInput = {}
 ): Promise<UserDocument | null> {
   const filePath = resolveUserPath(input.filePath)
+  const mode = input.mode ?? (input.guest ? 'guest' : 'owner')
   let content: string
 
   try {
@@ -110,10 +128,17 @@ export async function readUserDocument(
       throw error
     }
 
-    const mode = input.mode ?? (input.guest ? 'guest' : 'owner')
     content = buildDefaultUserTemplateForMode(mode)
     await mkdir(dirname(filePath), { recursive: true })
     await writeFile(filePath, content, 'utf8')
+  }
+
+  // Eagerly migrate legacy freeform sections to table structure
+  const migration = migrateDocumentToTables(content, mode)
+  if (migration.migrated) {
+    content = migration.content
+    await mkdir(dirname(filePath), { recursive: true })
+    await writeFile(filePath, normalizeUserDocumentContent(content), 'utf8')
   }
 
   return {

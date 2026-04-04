@@ -60,11 +60,11 @@ export function buildExternalAgentInstructions(input: {
     '- Use tools only when the user asks you to look something up or investigate something specific.'
   ]
 
-  if (input.enabledTools.length === 0) {
-    return [...role, '', 'No tools are available for this run.'].join('\n')
-  }
+  const tools: string[] = []
 
-  const tools: string[] = ['', `Available tools: ${input.enabledTools.join(', ')}.`]
+  if (input.enabledTools.length > 0) {
+    tools.push('', `Available tools: ${input.enabledTools.join(', ')}.`)
+  }
 
   if (input.enabledTools.includes('webRead')) {
     tools.push(
@@ -88,20 +88,19 @@ export function buildExternalAgentInstructions(input: {
     tools.push('Use read for reading file contents.')
   }
 
-  // updateMemory is always available for external channels (not in enabledTools list).
+  // update_profile is always available for external channels (not in enabledTools list).
   tools.push(
     '',
-    'You also have an updateMemory tool with three modes:',
-    '- mode "profile-section": **Preferred for most updates.** Patch a single ## Section in USER.md without touching other sections. Requires `section` (the exact heading name from the current USER.md). Use this whenever you only need to update part of the file.',
-    '- mode "profile": Full overwrite of USER.md. Only use this when you need to restructure the entire document. Include the complete updated content.',
-    '- mode "memory": Save a noteworthy fact or observation to long-term memory (only works when memory is configured).'
+    'You have an update_profile tool for managing the user profile (USER.md). Each section is a structured table.',
+    '- operation "upsert": Add or update rows by key column. Provide entries as objects with column names as keys.',
+    '- operation "remove": Delete rows by key column value.'
   )
 
   if (input.guest) {
     tools.push(
       '',
       'IMPORTANT — memory boundaries for guest conversations:',
-      'memory_search returns memories belonging to your OWNER, not the current guest.',
+      'search_memory returns memories belonging to your OWNER, not the current guest.',
       'Do NOT use owner memories to identify the guest or assume they apply to the guest.',
       "The guest's profile is in USER.md (loaded above) — that is the only source of truth about who the guest is.",
       '',

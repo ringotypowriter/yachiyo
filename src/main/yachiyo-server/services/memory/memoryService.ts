@@ -22,7 +22,7 @@ import {
   type RecallFilterCandidate
 } from './recallPolicy.ts'
 
-export const HIDDEN_MEMORY_SEARCH_TOOL_NAME = 'memory_search'
+export const HIDDEN_MEMORY_SEARCH_TOOL_NAME = 'search_memory'
 const DEFAULT_CONTEXT_MEMORY_LIMIT = 4
 const DEFAULT_PROVIDER_SEARCH_LIMIT = 4
 const DEFAULT_MEMORY_TOOL_LIMIT = 5
@@ -134,11 +134,22 @@ export interface MemoryService {
   searchMemories(input: {
     limit?: number
     query: string
+    topic?: string
     signal?: AbortSignal
   }): Promise<MemorySearchResult[]>
   testConnection(config?: SettingsConfig): Promise<TestMemoryConnectionResult>
   recallForContext(input: RecallMemoryInput): Promise<RecallForContextResult>
   createMemory(item: MemoryCandidate, signal?: AbortSignal): Promise<{ savedCount: number }>
+  validateAndCreateMemory(
+    raw: {
+      title?: string
+      content?: string
+      topic?: string
+      unitType?: string
+      importance?: number
+    },
+    signal?: AbortSignal
+  ): Promise<{ savedCount: number; rejected?: string }>
   distillCompletedRun(input: DistillRunMemoryInput): Promise<{ savedCount: number }>
   saveThread(input: SaveThreadMemoryInput): Promise<{ savedCount: number }>
 }
@@ -410,6 +421,45 @@ function normalizeMemoryCandidate(raw: {
     importance: clampWeight(raw.importance),
     unitType: normalizeUnitType(raw.unitType)
   }
+}
+
+function describeMemoryRejection(raw: {
+  content?: unknown
+  importance?: unknown
+  title?: unknown
+  topic?: unknown
+  unitType?: unknown
+}): string {
+  const rawTitle = typeof raw.title === 'string' ? normalizeWhitespace(raw.title) : ''
+  const rawContent = typeof raw.content === 'string' ? normalizeWhitespace(raw.content) : ''
+  const rawTopic = typeof raw.topic === 'string' ? normalizeWhitespace(raw.topic) : ''
+
+  const topic = normalizeTopicKey(rawTopic || rawTitle)
+  const title = rawTitle.replace(/[.!?。！？:：]+$/u, '').trim() || humanizeTopic(topic)
+  const content = rawContent.replace(/^[-*]\s*/u, '').trim()
+
+  if (!topic || topic.length < MIN_MEMORY_TOPIC_LENGTH) {
+    return `Topic is too short (min ${MIN_MEMORY_TOPIC_LENGTH} chars). Provide a meaningful title or topic.`
+  }
+  if (!title || title.length < MIN_MEMORY_TITLE_LENGTH) {
+    return `Title is too short (min ${MIN_MEMORY_TITLE_LENGTH} chars).`
+  }
+  if (!content || content.length < MIN_MEMORY_CONTENT_LENGTH) {
+    return `Content is too short (min ${MIN_MEMORY_CONTENT_LENGTH} chars). Write a self-contained statement.`
+  }
+  if (title.includes('\n') || content.includes('\n')) {
+    return 'Title and content must be single-line (no newlines).'
+  }
+  if (hasForbiddenMemoryPhrase(title) || hasForbiddenMemoryPhrase(content)) {
+    return 'Memory contains forbidden temporal or conversational phrases (e.g. "this time", "we discussed", "currently"). Rewrite as a timeless observation.'
+  }
+  if (matchesAnyPattern(title, FORBIDDEN_MEMORY_TITLE_PATTERNS)) {
+    return 'Title must not start with pronouns (I/we/you), demonstratives (this/that), or meta-labels (discussion/conversation).'
+  }
+  if (matchesAnyPattern(content, FORBIDDEN_MEMORY_CONTENT_PATTERNS)) {
+    return 'Content must not reference conversation roles (asked/said/mentioned/discussed/conversation).'
+  }
+  return 'Memory rejected by validation. Rewrite as a durable, timeless observation.'
 }
 
 function chooseBetterContent(left: string, right: string): string {
@@ -881,6 +931,7 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
     async searchMemories(input: {
       limit?: number
       query: string
+      topic?: string
       signal?: AbortSignal
     }): Promise<MemorySearchResult[]> {
       const provider = resolveProvider()
@@ -893,9 +944,12 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
         return []
       }
 
+      const label = input.topic ? buildTopicLabel(normalizeTopicKey(input.topic)) : undefined
+
       return provider.searchMemories({
         limit: clampMemorySearchLimit(input.limit),
         query,
+        label,
         signal: input.signal
       })
     },
@@ -909,6 +963,30 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
         return { savedCount: 0 }
       }
       return provider.createMemories({ items: [item], signal })
+    },
+
+    async validateAndCreateMemory(
+      raw: {
+        title?: string
+        content?: string
+        topic?: string
+        unitType?: string
+        importance?: number
+      },
+      signal?: AbortSignal
+    ): Promise<{ savedCount: number; rejected?: string }> {
+      const provider = resolveProvider()
+      if (!provider) {
+        return { savedCount: 0, rejected: 'Memory is not configured.' }
+      }
+
+      const candidate = normalizeMemoryCandidate(raw)
+      if (!candidate) {
+        return { savedCount: 0, rejected: describeMemoryRejection(raw) }
+      }
+
+      const result = await provider.createMemories({ items: [candidate], signal })
+      return { savedCount: result.savedCount }
     },
 
     async testConnection(configOverride?: SettingsConfig): Promise<TestMemoryConnectionResult> {
@@ -1209,6 +1287,56 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
       return {
         savedCount: created.savedCount + reconciled.updates.length
       }
+    }
+  }
+}
+
+/**
+ * Wrap a MemoryService so that search results containing any of the given
+ * keywords are stripped. The filtered tool output tells the model how many
+ * results were hidden for privacy.
+ */
+export function createFilteredMemoryService(
+  inner: MemoryService,
+  filterKeywords: string[]
+): MemoryService {
+  if (filterKeywords.length === 0) return inner
+
+  const lowerKeywords = filterKeywords.map((k) => k.toLowerCase())
+
+  function containsFilteredKeyword(result: MemorySearchResult): boolean {
+    const haystack = [result.title ?? '', result.content, ...(result.labels ?? [])]
+      .join(' ')
+      .toLowerCase()
+    return lowerKeywords.some((kw) => haystack.includes(kw))
+  }
+
+  return {
+    ...inner,
+    async searchMemories(input) {
+      const results = await inner.searchMemories(input)
+      const filtered = results.filter((r) => !containsFilteredKeyword(r))
+      const hiddenCount = results.length - filtered.length
+
+      if (hiddenCount > 0 && filtered.length === 0) {
+        return [
+          {
+            id: '_privacy_filter',
+            content: `All ${hiddenCount} result(s) were hidden by the owner's privacy filter.`,
+            title: 'Privacy filter'
+          }
+        ]
+      }
+
+      if (hiddenCount > 0) {
+        filtered.push({
+          id: '_privacy_filter_notice',
+          content: `${hiddenCount} additional result(s) were hidden by the owner's privacy filter.`,
+          title: 'Privacy filter notice'
+        })
+      }
+
+      return filtered
     }
   }
 }

@@ -62,7 +62,7 @@ import { createSpeechThrottle } from './groupSpeechThrottle.ts'
 import { createTool as createReadTool } from '../tools/agentTools/readTool.ts'
 import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool.ts'
 import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool.ts'
-import { createTool as createUpdateMemoryTool } from '../tools/agentTools/updateMemoryTool.ts'
+import { createTool as createUpdateProfileTool } from '../tools/agentTools/updateProfileTool.ts'
 import { notifyAutoCompact } from './autoCompactNotice.ts'
 
 import { resolveYachiyoTempWorkspaceRoot, YACHIYO_USER_FILE_NAME } from '../config/paths.ts'
@@ -576,7 +576,7 @@ export function createDiscordService({
       mode: 'group'
     })
 
-    // Build agentic tools: read, web_read, web_search, update_memory.
+    // Build agentic tools: read, web_read, web_search, update_profile.
     const toolContext = { workspacePath: group.workspacePath, sandboxed: true }
     const probeTools: ToolSet = {
       send_group_message: sendGroupMessageTool,
@@ -585,11 +585,9 @@ export function createDiscordService({
       web_search: createWebSearchTool(toolContext, {
         webSearchService: server.getWebSearchService()
       }),
-      update_memory: createUpdateMemoryTool({
-        memoryService: server.getMemoryService(),
+      update_profile: createUpdateProfileTool({
         userDocumentPath: userDocPath,
-        userDocumentMode: 'group',
-        rejectFullRewrite: true
+        userDocumentMode: 'group'
       })
     }
 
