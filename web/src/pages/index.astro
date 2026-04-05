@@ -1,0 +1,40 @@
+---
+import '@/styles/global.css'
+import { Hero } from '@/components/sections/hero'
+import { Features } from '@/components/sections/features'
+import { Philosophy } from '@/components/sections/philosophy'
+import { Screenshots } from '@/components/sections/screenshots'
+import { CTA } from '@/components/sections/cta'
+import { Footer } from '@/components/sections/footer'
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Yachiyo — only what's necessary for a cyber-assistant that lives in your computer."
+    />
+    <meta name="theme-color" content="#4bafc9" />
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <title>Yachiyo — only what's necessary for a cyber-assistant that lives in your computer</title>
+  </head>
+  <body>
+    <main class="relative">
+      <Hero client:load />
+      <Features client:load />
+      <Philosophy client:visible />
+      <Screenshots client:load />
+      <CTA client:load />
+      <Footer client:load />
+    </main>
+  </body>
+</html>
