@@ -28,7 +28,13 @@ import {
 import type { FileMentionCandidate } from '@renderer/app/types'
 import { getComposerActionState } from '@renderer/features/chat/lib/composerActionState'
 import { resolveComposerEnterAction } from '@renderer/features/chat/lib/composerEnterBehavior'
-import { measureCharXInTextarea } from '@renderer/features/chat/lib/composerLineMetrics'
+import {
+  computePretextLines,
+  buildFontString,
+  getMeasureContext,
+  navigatePretextLine,
+  clearGoalX
+} from '@renderer/features/chat/lib/pretextSync'
 import { theme } from '@renderer/theme/theme'
 import { DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR } from '../../../../../shared/yachiyo/protocol.ts'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
@@ -135,6 +141,62 @@ function renderComposerTextHighlights(
     )
   }
   return parts.length > 0 ? <>{parts}</> : null
+}
+
+const SELECTION_BG = 'rgb(75 175 201 / 0.25)'
+
+/**
+ * Render a single pretext line with optional selection highlight.
+ * `lineCharStart` is the character offset of this line in the full text.
+ */
+function renderPretextLine(
+  lineText: string,
+  lineCharStart: number,
+  selRange: [number, number] | null,
+  primaryColor: string,
+  accentColor: string,
+  validatedFileTags: string[]
+): React.ReactNode {
+  if (!lineText) return '\u200b'
+
+  const lineEnd = lineCharStart + lineText.length
+
+  // No selection or no intersection → plain highlights
+  if (!selRange || selRange[0] >= lineEnd || selRange[1] <= lineCharStart) {
+    return (
+      renderComposerTextHighlights(lineText, primaryColor, accentColor, validatedFileTags) ||
+      '\u200b'
+    )
+  }
+
+  const localStart = Math.max(0, selRange[0] - lineCharStart)
+  const localEnd = Math.min(lineText.length, selRange[1] - lineCharStart)
+
+  // Full line selected
+  if (localStart === 0 && localEnd === lineText.length) {
+    return (
+      <span style={{ backgroundColor: SELECTION_BG }}>
+        {renderComposerTextHighlights(lineText, primaryColor, accentColor, validatedFileTags) ||
+          lineText}
+      </span>
+    )
+  }
+
+  // Partial selection — split into before / selected / after
+  const before = lineText.slice(0, localStart)
+  const selected = lineText.slice(localStart, localEnd)
+  const after = lineText.slice(localEnd)
+
+  return (
+    <>
+      {before && renderComposerTextHighlights(before, primaryColor, accentColor, validatedFileTags)}
+      <span style={{ backgroundColor: SELECTION_BG }}>
+        {renderComposerTextHighlights(selected, primaryColor, accentColor, validatedFileTags) ||
+          selected}
+      </span>
+      {after && renderComposerTextHighlights(after, primaryColor, accentColor, validatedFileTags)}
+    </>
+  )
 }
 
 function collectConfirmedFileTags(text: string): string[] {
@@ -413,6 +475,11 @@ export function Composer({
     useState<PendingWorkspaceChangeConfirmation | null>(null)
   const [isComposing, setIsComposing] = useState(false)
   const [isTextareaFocused, setIsTextareaFocused] = useState(false)
+  // Pretext-driven overlay lines — overlay renders these instead of letting CSS wrap.
+  // Guarantees the visible text breaks at the same positions pretext uses for the caret.
+  const [overlayLineTexts, setOverlayLineTexts] = useState<string[] | null>(null)
+  // Custom selection range for the pretext-driven overlay (native ::selection is hidden).
+  const [overlaySelRange, setOverlaySelRange] = useState<[number, number] | null>(null)
   const [dismissedSlashQuery, setDismissedSlashQuery] = useState<string | null>(null)
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [fileMentionMatchesState, setFileMentionMatchesState] = useState<{
@@ -667,8 +734,35 @@ export function Composer({
       setFileMentionPopupLeft(0)
       return
     }
+    const textarea = textareaRef.current
+    const lines = computePretextLines(textarea.value, textarea)
+    if (!lines) return
+
     const atIndex = fileMentionMatch.index + fileMentionMatch[1].length
-    const x = measureCharXInTextarea(overlayRef.current, textareaRef.current, atIndex)
+    const value = textarea.value
+
+    // Find which line contains atIndex and the offset within that line
+    let charOffset = 0
+    let lineText = ''
+    let offsetInLine = 0
+    for (let i = 0; i < lines.length; i++) {
+      const lineLen = lines[i].text.length
+      if (atIndex < charOffset + lineLen) {
+        lineText = lines[i].text
+        offsetInLine = atIndex - charOffset
+        break
+      }
+      let nextOffset = charOffset + lineLen
+      if (nextOffset < value.length && value[nextOffset] === '\r') nextOffset++
+      if (nextOffset < value.length && value[nextOffset] === '\n') nextOffset++
+      charOffset = nextOffset > charOffset + lineLen ? nextOffset : charOffset + lineLen
+    }
+
+    const cs = getComputedStyle(textarea)
+    const paddingLeft = parseFloat(cs.paddingLeft)
+    const ctx = getMeasureContext() as CanvasRenderingContext2D
+    ctx.font = buildFontString(cs)
+    const x = paddingLeft + ctx.measureText(lineText.slice(0, offsetInLine)).width
     const containerWidth = overlayRef.current.getBoundingClientRect().width
     setFileMentionPopupLeft(Math.max(0, Math.min(x, containerWidth - 280)))
   }, [composerValue, fileMentionMatch])
@@ -970,6 +1064,55 @@ export function Composer({
     }
   }, [composerValue, resizeTextarea])
 
+  // Compute pretext layout lines for overlay rendering. Runs after resizeTextarea
+  // so the textarea has its final clientWidth/height. Both the overlay and
+  // SmoothCaretOverlay use the same pretext engine, ensuring the visible text
+  // wraps at exactly the positions pretext uses for caret positioning.
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea || !composerValue) {
+      setOverlayLineTexts(null)
+      return
+    }
+    const lines = computePretextLines(composerValue, textarea)
+    setOverlayLineTexts(lines ? lines.map((l) => l.text) : null)
+  }, [composerValue])
+
+  // Recompute pretext lines when the textarea width changes (window resize, sidebar toggle).
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    let lastWidth = textarea.clientWidth
+    const ro = new ResizeObserver(() => {
+      const w = textarea.clientWidth
+      if (w !== lastWidth) {
+        lastWidth = w
+        if (composerValue) {
+          const lines = computePretextLines(composerValue, textarea)
+          setOverlayLineTexts(lines ? lines.map((l) => l.text) : null)
+        }
+      }
+    })
+    ro.observe(textarea)
+    return () => ro.disconnect()
+  }, [composerValue])
+
+  // Track textarea selection so the overlay can render its own highlight.
+  useEffect(() => {
+    const onSelectionChange = (): void => {
+      const textarea = textareaRef.current
+      if (!textarea || document.activeElement !== textarea) {
+        setOverlaySelRange(null)
+        return
+      }
+      const s = textarea.selectionStart
+      const e = textarea.selectionEnd
+      setOverlaySelRange(s !== e ? [s, e] : null)
+    }
+    document.addEventListener('selectionchange', onSelectionChange)
+    return () => document.removeEventListener('selectionchange', onSelectionChange)
+  }, [])
+
   useEffect(() => {
     textareaRef.current?.focus()
   }, [activeThreadId])
@@ -1206,6 +1349,30 @@ export function Composer({
           dismissSlashPopup()
           return
         }
+      }
+
+      // Pretext-driven up/down navigation — override native arrow keys so cursor
+      // movement follows pretext's visual lines, not the textarea's CSS wrapping.
+      if (
+        (event.key === 'ArrowUp' || event.key === 'ArrowDown') &&
+        !event.metaKey &&
+        !event.altKey &&
+        !event.ctrlKey
+      ) {
+        if (
+          navigatePretextLine(
+            event.currentTarget,
+            event.key === 'ArrowUp' ? 'up' : 'down',
+            event.shiftKey
+          )
+        ) {
+          event.preventDefault()
+          return
+        }
+      }
+      // Any other key resets the sticky goal column for up/down navigation.
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') {
+        clearGoalX()
       }
 
       const action = resolveComposerEnterAction({
@@ -1477,8 +1644,7 @@ export function Composer({
                 fontSize: '0.875rem',
                 lineHeight: '1.625',
                 fontFamily: 'inherit',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
+                whiteSpace: 'pre',
                 overflowY: 'auto',
                 pointerEvents: 'none',
                 minHeight: 0,
@@ -1486,13 +1652,50 @@ export function Composer({
                 letterSpacing: '0.04em'
               }}
             >
-              {renderComposerTextHighlights(
-                composerValue,
-                theme.text.primary,
-                theme.text.accent,
-                validatedFileTags
-              )}
-              {composerValue.endsWith('\n') && <span key="trailing-nl">{'\u200b'}</span>}
+              {overlayLineTexts
+                ? (() => {
+                    const elements: React.ReactNode[] = []
+                    let charOffset = 0
+                    for (let i = 0; i < overlayLineTexts.length; i++) {
+                      const lineText = overlayLineTexts[i]
+                      elements.push(
+                        <div key={i}>
+                          {renderPretextLine(
+                            lineText,
+                            charOffset,
+                            overlaySelRange,
+                            theme.text.primary,
+                            theme.text.accent,
+                            validatedFileTags
+                          )}
+                        </div>
+                      )
+                      charOffset += lineText.length
+                      // Skip consumed hard-break chars (\r\n or \n) between lines
+                      if (charOffset < composerValue.length && composerValue[charOffset] === '\r')
+                        charOffset++
+                      if (charOffset < composerValue.length && composerValue[charOffset] === '\n')
+                        charOffset++
+                    }
+                    if (composerValue.endsWith('\n')) {
+                      elements.push(
+                        <div key="trailing-nl">
+                          {overlaySelRange && overlaySelRange[1] > charOffset ? (
+                            <span style={{ backgroundColor: SELECTION_BG }}>{'\u200b'}</span>
+                          ) : (
+                            '\u200b'
+                          )}
+                        </div>
+                      )
+                    }
+                    return elements
+                  })()
+                : renderComposerTextHighlights(
+                    composerValue,
+                    theme.text.primary,
+                    theme.text.accent,
+                    validatedFileTags
+                  )}
             </div>
             <SmoothCaretOverlay
               textareaRef={textareaRef}
@@ -1512,6 +1715,7 @@ export function Composer({
               onCompositionStart={() => setIsComposing(true)}
               onCompositionEnd={() => setIsComposing(false)}
               onKeyDown={handleKeyDown}
+              onPointerUp={clearGoalX}
               onPaste={handlePaste}
               onScroll={handleTextareaScroll}
               onFocus={() => setIsTextareaFocused(true)}
@@ -1522,7 +1726,7 @@ export function Composer({
                   : 'Open Settings and configure a provider before chatting.'
               }
               rows={1}
-              className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed placeholder:text-gray-400 message-selectable"
+              className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed placeholder:text-gray-400 message-selectable composer-textarea-pretext"
               style={{
                 gridArea: '1 / 1',
                 color: 'transparent',

@@ -436,6 +436,13 @@ body > div:not(#root) {
   caret-color: transparent !important;
 }
 
+/* Hide native textarea selection — the pretext-driven overlay renders its own
+   selection highlight so the two can never disagree on line-break positions. */
+.composer-textarea-pretext::selection {
+  background: transparent;
+  color: transparent;
+}
+
 @keyframes echooo-blink {
   0%,
   40% {

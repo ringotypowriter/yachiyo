@@ -1,8 +1,12 @@
 import type React from 'react'
 import { useEffect, useMemo, useRef } from 'react'
 import { prepareWithSegments, layoutWithLines, clearCache } from '@chenglou/pretext'
-// @ts-expect-error — subpath resolved via Vite alias; not in package exports
-import { getMeasureContext } from '@chenglou/pretext/measurement'
+import {
+  syncPretextContext,
+  buildFontString,
+  resolveLineHeightPx,
+  getMeasureContext
+} from '@renderer/features/chat/lib/pretextSync'
 
 type TrailStrength = 'off' | 'low' | 'medium' | 'high'
 type CaretIntent = 'typing' | 'delete' | 'nav-left' | 'nav-right' | 'other'
@@ -63,44 +67,11 @@ function ensureCaretVisibleInTextarea(
   }
 }
 
-// Sync letter-spacing / word-spacing on pretext's internal canvas so its line-breaking
-// matches the textarea. Cached to avoid clearing pretext's measurement cache unnecessarily.
-let _syncedLetterSpacing = ''
-let _syncedWordSpacing = ''
-
-function syncPretextSpacing(cs: CSSStyleDeclaration): void {
-  const ls = cs.letterSpacing !== 'normal' ? cs.letterSpacing : '0px'
-  const ws = cs.wordSpacing !== 'normal' ? cs.wordSpacing : '0px'
-  if (ls !== _syncedLetterSpacing || ws !== _syncedWordSpacing) {
-    const ctx = getMeasureContext() as CanvasRenderingContext2D
-    ctx.letterSpacing = ls
-    ctx.wordSpacing = ws
-    // Spacing changed — cached segment widths are stale
-    clearCache()
-    _syncedLetterSpacing = ls
-    _syncedWordSpacing = ws
-  }
-}
-
 /**
  * Textarea caret pixel position via pretext (canvas-based line-breaking) + canvas measureText.
  * No DOM mirror — pure arithmetic, immune to the union-box and mirror-width-mismatch bugs.
  * Returns (x, y, height) relative to the textarea's border-box top-left.
  */
-function resolveLineHeightPx(cs: CSSStyleDeclaration): number {
-  const lh = cs.lineHeight
-  const fs = parseFloat(cs.fontSize || '16')
-  const fontSize = Number.isNaN(fs) ? 16 : fs
-  if (lh && lh !== 'normal') {
-    if (lh.endsWith('px')) {
-      const px = parseFloat(lh)
-      if (!Number.isNaN(px)) return px
-    }
-    const v = parseFloat(lh)
-    if (!Number.isNaN(v)) return v > 0 && v < 4 ? v * fontSize : v
-  }
-  return fontSize * 1.2
-}
 
 function measureCaretPos(
   textarea: HTMLTextAreaElement
@@ -118,9 +89,9 @@ function measureCaretPos(
 
   const value = textarea.value
   const caretIndex = value ? Math.min(pos, value.length) : 0
-  const fontString = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`
+  const fontString = buildFontString(cs)
 
-  syncPretextSpacing(cs)
+  syncPretextContext(cs)
 
   const prepared = prepareWithSegments(value || '\u200b', fontString, { whiteSpace: 'pre-wrap' })
   const { lines } = layoutWithLines(prepared, contentWidth, lineHeight)
