@@ -1566,6 +1566,7 @@ export class YachiyoServerRunDomain {
     const runtime = this.deps.createModelRuntime()
     const messageId = this.deps.createId()
     let buffer = ''
+    let reasoningBuffer = ''
 
     this.deps.emit<MessageStartedEvent>({
       type: 'message.started',
@@ -1587,7 +1588,17 @@ export class YachiyoServerRunDomain {
           userDocumentContent: userDocument?.content
         }),
         settings,
-        signal: activeRun.abortController.signal
+        signal: activeRun.abortController.signal,
+        onReasoningDelta: (reasoningDelta) => {
+          reasoningBuffer += reasoningDelta
+          this.deps.emit<MessageReasoningDeltaEvent>({
+            type: 'message.reasoning.delta',
+            threadId: input.thread.id,
+            runId: input.runId,
+            messageId,
+            delta: reasoningDelta
+          })
+        }
       })) {
         if (!delta) {
           continue
@@ -1609,6 +1620,7 @@ export class YachiyoServerRunDomain {
         threadId: input.thread.id,
         role: 'assistant',
         content: buffer,
+        ...(reasoningBuffer ? { reasoning: reasoningBuffer } : {}),
         status: 'completed',
         createdAt: timestamp,
         modelId: settings.model,
