@@ -618,6 +618,8 @@ export interface GeneralConfig {
   notifyRunCompleted?: boolean
   notifyCodingTaskStarted?: boolean
   notifyCodingTaskFinished?: boolean
+  translatorShortcut?: string
+  jotdownShortcut?: string
 }
 
 export interface UserDocument {

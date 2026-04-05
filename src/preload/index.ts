@@ -42,6 +42,8 @@ const api = {
   openJotdown: () => ipcRenderer.send('open-jotdown'),
   hideTranslator: () => ipcRenderer.send('hide-translator'),
   hideJotdown: () => ipcRenderer.send('hide-jotdown'),
+  pauseGlobalShortcuts: () => ipcRenderer.send('pause-global-shortcuts'),
+  resumeGlobalShortcuts: () => ipcRenderer.send('resume-global-shortcuts'),
   navigateToArchivedThread: (threadId: string) =>
     ipcRenderer.send('navigate-to-archived-thread', threadId),
   onNavigateToArchivedThread: (listener: (threadId: string) => void): (() => void) => {

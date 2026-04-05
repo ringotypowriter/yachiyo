@@ -36,7 +36,9 @@ test('settings store persists multi-provider config as TOML', async () => {
         demoMode: true,
         notifyRunCompleted: true,
         notifyCodingTaskStarted: true,
-        notifyCodingTaskFinished: true
+        notifyCodingTaskFinished: true,
+        translatorShortcut: 'CommandOrControl+Shift+T',
+        jotdownShortcut: 'CommandOrControl+Shift+J'
       },
       chat: {
         activeRunEnterBehavior: 'enter-queues-follow-up',
@@ -853,7 +855,9 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
     demoMode: false,
     notifyRunCompleted: true,
     notifyCodingTaskStarted: true,
-    notifyCodingTaskFinished: true
+    notifyCodingTaskFinished: true,
+    translatorShortcut: 'CommandOrControl+Shift+T',
+    jotdownShortcut: 'CommandOrControl+Shift+J'
   })
 
   assert.deepEqual(
@@ -868,9 +872,40 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
       demoMode: false,
       notifyRunCompleted: true,
       notifyCodingTaskStarted: true,
-      notifyCodingTaskFinished: true
+      notifyCodingTaskFinished: true,
+      translatorShortcut: 'CommandOrControl+Shift+T',
+      jotdownShortcut: 'CommandOrControl+Shift+J'
     }
   )
+})
+
+test('general shortcut fields round-trip through TOML serialization', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-shortcuts-'))
+  const settingsPath = join(root, 'config.toml')
+  const store = createSettingsStore(settingsPath)
+
+  try {
+    const config: Parameters<typeof store.write>[0] = {
+      ...DEFAULT_SETTINGS_CONFIG,
+      general: {
+        ...DEFAULT_SETTINGS_CONFIG.general,
+        translatorShortcut: 'Alt+Shift+T',
+        jotdownShortcut: 'Alt+Shift+J'
+      }
+    }
+
+    store.write(config)
+
+    const toml = await readFile(settingsPath, 'utf8')
+    assert.match(toml, /translatorShortcut = "Alt\+Shift\+T"/)
+    assert.match(toml, /jotdownShortcut = "Alt\+Shift\+J"/)
+
+    const loaded = store.read()
+    assert.equal(loaded.general?.translatorShortcut, 'Alt+Shift+T')
+    assert.equal(loaded.general?.jotdownShortcut, 'Alt+Shift+J')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 const PROVIDER_WORK = {

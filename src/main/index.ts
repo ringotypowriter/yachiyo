@@ -1,5 +1,6 @@
 import log from 'electron-log/main'
 import { app, screen, shell, BrowserWindow, globalShortcut, ipcMain } from 'electron'
+import type { SettingsConfig, SettingsUpdatedEvent } from '../shared/yachiyo/protocol'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -244,7 +245,33 @@ app.whenReady().then(async () => {
       win.setBackgroundColor('#f5f4f0')
     }
   })
-  registerYachiyoGateway()
+  const server = registerYachiyoGateway()
+
+  function updateFloatWindowShortcuts(config: SettingsConfig): void {
+    globalShortcut.unregisterAll()
+    const translatorShortcut = config.general?.translatorShortcut?.trim()
+    const jotdownShortcut = config.general?.jotdownShortcut?.trim()
+    if (translatorShortcut) {
+      if (!globalShortcut.register(translatorShortcut, () => openTranslatorWindow())) {
+        globalShortcut.register('CommandOrControl+Shift+T', () => openTranslatorWindow())
+      }
+    }
+    if (jotdownShortcut) {
+      if (!globalShortcut.register(jotdownShortcut, () => openJotdownWindow())) {
+        globalShortcut.register('CommandOrControl+Shift+J', () => openJotdownWindow())
+      }
+    }
+  }
+
+  void server.getConfig().then((initialConfig) => {
+    updateFloatWindowShortcuts(initialConfig)
+  })
+
+  server.subscribe((event) => {
+    if (event.type === 'settings.updated') {
+      updateFloatWindowShortcuts((event as SettingsUpdatedEvent).config)
+    }
+  })
 
   ipcMain.on('navigate-to-archived-thread', (_event, threadId: string) => {
     // Forward to the main window, then close settings.
@@ -275,8 +302,15 @@ app.whenReady().then(async () => {
     }
   })
 
-  globalShortcut.register('CommandOrControl+Shift+T', () => openTranslatorWindow())
-  globalShortcut.register('CommandOrControl+Shift+J', () => openJotdownWindow())
+  ipcMain.on('pause-global-shortcuts', () => {
+    globalShortcut.unregisterAll()
+  })
+
+  ipcMain.on('resume-global-shortcuts', () => {
+    void server.getConfig().then((config) => {
+      updateFloatWindowShortcuts(config)
+    })
+  })
 
   ipcMain.on('open-settings', (_event, tab?: string) => {
     if (settingsWindow && !settingsWindow.isDestroyed()) {

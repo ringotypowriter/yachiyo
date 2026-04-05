@@ -45,6 +45,12 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
           ...(config.general?.uiFontSize != null ? { uiFontSize: config.general.uiFontSize } : {}),
           ...(config.general?.chatFontSize != null
             ? { chatFontSize: config.general.chatFontSize }
+            : {}),
+          ...(config.general?.translatorShortcut != null
+            ? { translatorShortcut: config.general.translatorShortcut }
+            : {}),
+          ...(config.general?.jotdownShortcut != null
+            ? { jotdownShortcut: config.general.jotdownShortcut }
             : {})
         }
       }

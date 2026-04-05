@@ -16,6 +16,7 @@ import {
   SettingSwitch,
   SimpleSelect
 } from '../components/primitives'
+import { ShortcutRecorder } from '../components/ShortcutRecorder'
 import {
   hasPendingUserDocumentChanges,
   loadUserDocument,
@@ -516,6 +517,62 @@ export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactN
               ariaLabel="Toggle sidebar visibility on launch"
             />
           </div>
+        </SettingRow>
+
+        {(
+          [
+            {
+              key: 'translatorShortcut' as const,
+              label: 'Translator shortcut',
+              description: 'Global shortcut to open the translator float window.'
+            },
+            {
+              key: 'jotdownShortcut' as const,
+              label: 'Jot Down shortcut',
+              description: 'Global shortcut to open the jot-down float window.'
+            }
+          ] as const
+        ).map(({ key, label, description }) => (
+          <SettingRow key={key}>
+            <div className="min-w-0 space-y-0.5">
+              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                {label}
+              </div>
+              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+                {description}
+              </div>
+            </div>
+            <ShortcutRecorder
+              value={draft.general?.[key] ?? ''}
+              onChange={(next) =>
+                onChange({
+                  ...draft,
+                  general: { ...draft.general, [key]: next }
+                })
+              }
+            />
+          </SettingRow>
+        ))}
+
+        <SettingRow>
+          <div />
+          <button
+            type="button"
+            className="shrink-0 text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
+            style={{ color: theme.text.accent }}
+            onClick={() =>
+              onChange({
+                ...draft,
+                general: {
+                  ...draft.general,
+                  translatorShortcut: 'CommandOrControl+Shift+T',
+                  jotdownShortcut: 'CommandOrControl+Shift+J'
+                }
+              })
+            }
+          >
+            Reset to defaults
+          </button>
         </SettingRow>
       </SettingSection>
 

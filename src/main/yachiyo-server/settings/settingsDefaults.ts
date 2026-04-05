@@ -18,7 +18,9 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
     demoMode: false,
     notifyRunCompleted: true,
     notifyCodingTaskStarted: true,
-    notifyCodingTaskFinished: true
+    notifyCodingTaskFinished: true,
+    translatorShortcut: 'CommandOrControl+Shift+T',
+    jotdownShortcut: 'CommandOrControl+Shift+J'
   },
   chat: {
     activeRunEnterBehavior: DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,

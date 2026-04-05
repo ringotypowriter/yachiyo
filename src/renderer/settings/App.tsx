@@ -153,6 +153,16 @@ function validateConfig(config: SettingsConfig | null): string | null {
     return 'Choose a Nowledge Mem backend URL before enabling Memory.'
   }
 
+  const translatorShortcut = config.general?.translatorShortcut?.trim() ?? ''
+  const jotdownShortcut = config.general?.jotdownShortcut?.trim() ?? ''
+  if (
+    translatorShortcut &&
+    jotdownShortcut &&
+    translatorShortcut.toLowerCase() === jotdownShortcut.toLowerCase()
+  ) {
+    return 'Translator and Jot Down shortcuts cannot be the same.'
+  }
+
   return null
 }
 

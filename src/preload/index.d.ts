@@ -60,6 +60,8 @@ declare global {
       openJotdown: () => void
       hideTranslator: () => void
       hideJotdown: () => void
+      pauseGlobalShortcuts: () => void
+      resumeGlobalShortcuts: () => void
       navigateToArchivedThread: (threadId: string) => void
       onNavigateToArchivedThread: (listener: (threadId: string) => void) => () => void
       setVibrancy: (enabled: boolean) => void

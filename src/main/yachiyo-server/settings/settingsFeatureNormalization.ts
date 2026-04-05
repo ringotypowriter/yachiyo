@@ -44,7 +44,15 @@ export function normalizeGeneralConfig(value: unknown): GeneralConfig {
     demoMode: normalizeOptionalBool(input['demoMode'], false),
     notifyRunCompleted: normalizeOptionalBool(input['notifyRunCompleted'], true),
     notifyCodingTaskStarted: normalizeOptionalBool(input['notifyCodingTaskStarted'], true),
-    notifyCodingTaskFinished: normalizeOptionalBool(input['notifyCodingTaskFinished'], true)
+    notifyCodingTaskFinished: normalizeOptionalBool(input['notifyCodingTaskFinished'], true),
+    translatorShortcut: normalizeString(
+      input['translatorShortcut'],
+      DEFAULT_SETTINGS_CONFIG.general?.translatorShortcut ?? 'CommandOrControl+Shift+T'
+    ),
+    jotdownShortcut: normalizeString(
+      input['jotdownShortcut'],
+      DEFAULT_SETTINGS_CONFIG.general?.jotdownShortcut ?? 'CommandOrControl+Shift+J'
+    )
   }
 
   const rawChannel = input['updateChannel']
