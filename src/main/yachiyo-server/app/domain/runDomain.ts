@@ -129,6 +129,14 @@ interface RunDomainDeps {
   loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
 }
 
+interface DebouncedSendChatEntry {
+  expiresAt: number
+  promise: Promise<ChatAccepted>
+  stateSignature?: string
+}
+
+const SEND_CHAT_DEBOUNCE_WINDOW_MS = 1_500
+
 function toRestartRunReason(nextRequestMessageId: string): RestartRunReason {
   return {
     type: 'restart',
@@ -176,6 +184,7 @@ export class YachiyoServerRunDomain {
   private readonly backgroundTitleTaskControllers = new Set<AbortController>()
   private readonly backgroundMemoryTasks = new Set<Promise<void>>()
   private readonly backgroundMemoryTaskControllers = new Set<AbortController>()
+  private readonly debouncedSendChats = new Map<string, DebouncedSendChatEntry>()
   private lastRunEnabledTools: ToolCallName[] | null
   private isClosing = false
 
@@ -219,6 +228,7 @@ export class YachiyoServerRunDomain {
     this.backgroundTitleTasks.clear()
     this.backgroundMemoryTaskControllers.clear()
     this.backgroundMemoryTasks.clear()
+    this.debouncedSendChats.clear()
   }
 
   private bindTerminalToolCallsToAssistant(input: {
@@ -335,86 +345,99 @@ export class YachiyoServerRunDomain {
 
     const thread = this.deps.requireThread(input.threadId)
     const content = rawContent
-
-    if (!hasMessagePayload({ content, images, attachments: input.attachments })) {
-      throw new Error('Cannot send an empty message.')
-    }
-    assertSupportedImages(images)
-
-    const messageId = this.deps.createId()
-    const hasFiles = images.length > 0 || (input.attachments?.length ?? 0) > 0
-
-    const workspacePath = hasFiles
-      ? thread.workspacePath?.trim()
-        ? resolve(thread.workspacePath)
-        : await this.deps.ensureThreadWorkspace(thread.id)
-      : null
-
-    const enrichedImages =
-      images.length > 0 && workspacePath
-        ? await saveImageFilesToWorkspace({ workspacePath, messageId, images })
-        : images
-
-    const fileAttachments =
-      (input.attachments?.length ?? 0) > 0 && workspacePath
-        ? await saveFileAttachmentsToWorkspace({
-            workspacePath,
-            messageId,
-            attachments: input.attachments!
-          })
-        : []
-
-    const activeRunId = this.activeRunByThread.get(thread.id)
     const rawMode = input.mode ?? 'normal'
     // ACP threads do not support steer; any steer is treated as follow-up instead.
     const mode: SendChatMode =
       rawMode === 'steer' && thread.runtimeBinding?.kind === 'acp' ? 'follow-up' : rawMode
+    const debounceKey = this.createDebouncedSendChatKey({
+      attachments: input.attachments,
+      channelHint: input.channelHint,
+      content,
+      enabledSkillNames,
+      enabledTools,
+      extraTools: input.extraTools,
+      images,
+      mode,
+      threadId: thread.id
+    })
 
-    if (!activeRunId) {
-      return this.startFreshRun({
-        content,
-        enabledTools,
-        enabledSkillNames,
-        channelHint: input.channelHint,
-        extraTools: input.extraTools as import('ai').ToolSet | undefined,
-        images: enrichedImages,
-        attachments: fileAttachments,
-        messageId,
-        thread
-      })
-    }
-
-    if (mode === 'steer') {
-      if (!this.activeRuns.get(activeRunId)?.requestMessageId) {
-        throw new Error('Wait for the handoff to finish before sending a new message.')
+    return this.runDebouncedSendChat(debounceKey, thread.id, async () => {
+      if (!hasMessagePayload({ content, images, attachments: input.attachments })) {
+        throw new Error('Cannot send an empty message.')
       }
-      return this.sendActiveRunSteer({
-        activeRunId,
-        content,
-        enabledSkillNames,
-        images: enrichedImages,
-        attachments: fileAttachments,
-        messageId,
-        thread
-      })
-    }
+      assertSupportedImages(images)
 
-    if (mode === 'follow-up') {
-      if (!this.activeRuns.get(activeRunId)?.requestMessageId) {
-        throw new Error('Wait for the handoff to finish before sending a new message.')
+      const messageId = this.deps.createId()
+      const hasFiles = images.length > 0 || (input.attachments?.length ?? 0) > 0
+
+      const workspacePath = hasFiles
+        ? thread.workspacePath?.trim()
+          ? resolve(thread.workspacePath)
+          : await this.deps.ensureThreadWorkspace(thread.id)
+        : null
+
+      const enrichedImages =
+        images.length > 0 && workspacePath
+          ? await saveImageFilesToWorkspace({ workspacePath, messageId, images })
+          : images
+
+      const fileAttachments =
+        (input.attachments?.length ?? 0) > 0 && workspacePath
+          ? await saveFileAttachmentsToWorkspace({
+              workspacePath,
+              messageId,
+              attachments: input.attachments!
+            })
+          : []
+
+      const activeRunId = this.activeRunByThread.get(thread.id)
+
+      if (!activeRunId) {
+        return this.startFreshRun({
+          content,
+          enabledTools,
+          enabledSkillNames,
+          channelHint: input.channelHint,
+          extraTools: input.extraTools as import('ai').ToolSet | undefined,
+          images: enrichedImages,
+          attachments: fileAttachments,
+          messageId,
+          thread
+        })
       }
-      return this.queueFollowUp({
-        content,
-        enabledTools,
-        enabledSkillNames,
-        images: enrichedImages,
-        attachments: fileAttachments,
-        messageId,
-        thread
-      })
-    }
 
-    throw new Error('This thread already has an active run.')
+      if (mode === 'steer') {
+        if (!this.activeRuns.get(activeRunId)?.requestMessageId) {
+          throw new Error('Wait for the handoff to finish before sending a new message.')
+        }
+        return this.sendActiveRunSteer({
+          activeRunId,
+          content,
+          enabledSkillNames,
+          images: enrichedImages,
+          attachments: fileAttachments,
+          messageId,
+          thread
+        })
+      }
+
+      if (mode === 'follow-up') {
+        if (!this.activeRuns.get(activeRunId)?.requestMessageId) {
+          throw new Error('Wait for the handoff to finish before sending a new message.')
+        }
+        return this.queueFollowUp({
+          content,
+          enabledTools,
+          enabledSkillNames,
+          images: enrichedImages,
+          attachments: fileAttachments,
+          messageId,
+          thread
+        })
+      }
+
+      throw new Error('This thread already has an active run.')
+    })
   }
 
   async retryMessage(input: RetryInput): Promise<RetryAccepted> {
@@ -882,6 +905,124 @@ export class YachiyoServerRunDomain {
       ...(input.attachments.length > 0 ? { attachments: input.attachments } : {}),
       status: 'completed',
       createdAt: input.timestamp
+    }
+  }
+
+  private runDebouncedSendChat(
+    debounceKey: string | null,
+    threadId: string,
+    execute: () => Promise<ChatAccepted>
+  ): Promise<ChatAccepted> {
+    if (!debounceKey) {
+      return execute()
+    }
+
+    const nowMs = this.getCurrentTimestampMs()
+    this.pruneExpiredDebouncedSendChats(nowMs)
+
+    const existing = this.debouncedSendChats.get(debounceKey)
+    if (existing && existing.expiresAt > nowMs) {
+      if (existing.stateSignature) {
+        const currentStateSignature = this.createDebouncedSendChatStateSignature(threadId)
+        if (existing.stateSignature !== currentStateSignature) {
+          this.debouncedSendChats.delete(debounceKey)
+        } else {
+          existing.expiresAt = nowMs + SEND_CHAT_DEBOUNCE_WINDOW_MS
+          return existing.promise
+        }
+      } else {
+        existing.expiresAt = nowMs + SEND_CHAT_DEBOUNCE_WINDOW_MS
+        return existing.promise
+      }
+    }
+
+    const promise = execute().catch((error) => {
+      const current = this.debouncedSendChats.get(debounceKey)
+      if (current?.promise === promise) {
+        this.debouncedSendChats.delete(debounceKey)
+      }
+      throw error
+    })
+
+    this.debouncedSendChats.set(debounceKey, {
+      expiresAt: nowMs + SEND_CHAT_DEBOUNCE_WINDOW_MS,
+      promise
+    })
+
+    void promise.then(() => {
+      const current = this.debouncedSendChats.get(debounceKey)
+      if (current?.promise === promise) {
+        current.stateSignature = this.createDebouncedSendChatStateSignature(threadId)
+      }
+    })
+
+    return promise
+  }
+
+  private createDebouncedSendChatKey(input: {
+    attachments?: SendChatInput['attachments']
+    channelHint?: string
+    content: string
+    enabledSkillNames?: string[]
+    enabledTools: ToolCallName[]
+    extraTools?: SendChatInput['extraTools']
+    images: MessageRecord['images']
+    mode: SendChatMode
+    threadId: string
+  }): string | null {
+    if (input.extraTools) {
+      return null
+    }
+
+    return JSON.stringify({
+      attachments:
+        input.attachments?.map((attachment) => ({
+          dataUrl: attachment.dataUrl,
+          filename: attachment.filename,
+          mediaType: attachment.mediaType
+        })) ?? [],
+      channelHint: input.channelHint ?? null,
+      content: input.content,
+      enabledSkillNames: input.enabledSkillNames ?? [],
+      enabledTools: input.enabledTools,
+      images: (input.images ?? []).map((image) => ({
+        dataUrl: image.dataUrl,
+        filename: image.filename ?? null,
+        mediaType: image.mediaType
+      })),
+      mode: input.mode,
+      threadId: input.threadId
+    })
+  }
+
+  private createDebouncedSendChatStateSignature(threadId: string): string {
+    const thread = this.deps.requireThread(threadId)
+    const activeRunId = this.activeRunByThread.get(threadId) ?? null
+    const activeRun = activeRunId ? this.activeRuns.get(activeRunId) : null
+
+    return JSON.stringify({
+      activeRunId,
+      executionPhase: activeRun?.executionPhase ?? null,
+      headMessageId: thread.headMessageId ?? null,
+      pendingSteerMessageId: activeRun?.pendingSteerMessageId ?? null,
+      queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
+      requestMessageId: activeRun?.requestMessageId ?? null
+    })
+  }
+
+  private getCurrentTimestampMs(): number {
+    const timestampMs = Date.parse(this.deps.timestamp())
+    if (Number.isNaN(timestampMs)) {
+      throw new Error('Invalid server timestamp.')
+    }
+    return timestampMs
+  }
+
+  private pruneExpiredDebouncedSendChats(nowMs: number): void {
+    for (const [debounceKey, entry] of this.debouncedSendChats) {
+      if (entry.expiresAt <= nowMs) {
+        this.debouncedSendChats.delete(debounceKey)
+      }
     }
   }
 

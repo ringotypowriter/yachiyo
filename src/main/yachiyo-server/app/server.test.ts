@@ -2329,6 +2329,161 @@ test('YachiyoServer accepts active-run steer as an ordinary message and forwards
   )
 })
 
+test('YachiyoServer debounces duplicate sendChat requests for a fresh run', async () => {
+  let now = new Date('2026-04-05T00:00:00.000Z')
+
+  await withServer(
+    async ({ server, waitForEvent }) => {
+      await server.upsertProvider({
+        name: 'default',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: { enabled: ['gpt-5'], disabled: [] }
+      })
+
+      const thread = await server.createThread()
+      const firstAccepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Same request'
+      })
+      const duplicateAccepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Same request'
+      })
+
+      assert.equal(duplicateAccepted.kind, 'run-started')
+      assert.equal(firstAccepted.runId, duplicateAccepted.runId)
+      assertAcceptedHasUserMessage(firstAccepted)
+      assertAcceptedHasUserMessage(duplicateAccepted)
+      assert.equal(firstAccepted.userMessage.id, duplicateAccepted.userMessage.id)
+
+      const bootstrap = await server.bootstrap()
+      assert.equal(bootstrap.latestRunsByThread[thread.id]?.id, firstAccepted.runId)
+      assert.deepEqual(
+        (bootstrap.messagesByThread[thread.id] ?? [])
+          .filter((message) => message.role === 'user')
+          .map((message) => message.content),
+        ['Same request']
+      )
+
+      await waitForEvent('run.completed')
+
+      now = new Date('2026-04-05T00:00:00.500Z')
+      const secondAccepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Same request'
+      })
+
+      assert.equal(secondAccepted.kind, 'run-started')
+      assert.notEqual(secondAccepted.runId, firstAccepted.runId)
+      assertAcceptedHasUserMessage(secondAccepted)
+      assert.notEqual(secondAccepted.userMessage.id, firstAccepted.userMessage.id)
+    },
+    {
+      now: () => now
+    }
+  )
+})
+
+test('YachiyoServer debounces duplicate steer requests while a run is restarting', async () => {
+  const requests: ModelStreamRequest[] = []
+  let now = new Date('2026-04-05T00:00:00.000Z')
+  let attempt = 0
+  let releaseAbortedRun: (() => void) | null = null
+  let markAbortObserved: (() => void) | null = null
+  const abortObserved = new Promise<void>((resolve) => {
+    markAbortObserved = resolve
+  })
+
+  await withServer(
+    async ({ server, completeRun, waitForEvent }) => {
+      await server.upsertProvider({
+        name: 'default',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: { enabled: ['gpt-5'], disabled: [] }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Start here'
+      })
+
+      await waitForEvent('message.delta')
+
+      now = new Date('2026-04-05T00:00:00.500Z')
+      const firstSteer = await server.sendChat({
+        threadId: thread.id,
+        content: 'Use this instead',
+        mode: 'steer'
+      })
+      const duplicateSteer = await server.sendChat({
+        threadId: thread.id,
+        content: 'Use this instead',
+        mode: 'steer'
+      })
+
+      assert.equal(firstSteer.kind, 'active-run-steer')
+      assert.equal(duplicateSteer.kind, 'active-run-steer')
+      assertAcceptedHasUserMessage(firstSteer)
+      assertAcceptedHasUserMessage(duplicateSteer)
+      assert.equal(firstSteer.runId, duplicateSteer.runId)
+      assert.equal(firstSteer.userMessage.id, duplicateSteer.userMessage.id)
+
+      await abortObserved
+      releaseAbortedRun?.()
+      await completeRun(accepted.runId)
+
+      const bootstrap = await server.bootstrap()
+      assert.deepEqual(
+        (bootstrap.messagesByThread[thread.id] ?? [])
+          .filter((message) => message.role === 'user')
+          .map((message) => message.content),
+        ['Start here', 'Use this instead']
+      )
+      assert.equal(requests.length, 2)
+    },
+    {
+      now: () => now,
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          if (attempt === 0) {
+            attempt += 1
+            yield 'Partial'
+            await new Promise((_, reject) => {
+              const abort = (): void => {
+                markAbortObserved?.()
+                markAbortObserved = null
+                releaseAbortedRun = () => {
+                  const error = new Error('Aborted')
+                  error.name = 'AbortError'
+                  reject(error)
+                }
+              }
+
+              if (request.signal.aborted) {
+                abort()
+                return
+              }
+
+              request.signal.addEventListener('abort', abort, { once: true })
+            })
+            return
+          }
+
+          yield 'Steered'
+          yield ' reply'
+        }
+      })
+    }
+  )
+})
+
 test('steer during generation preserves partial assistant content as a stopped message', async () => {
   let attempt = 0
 
