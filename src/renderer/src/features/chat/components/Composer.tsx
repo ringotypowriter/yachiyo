@@ -33,7 +33,8 @@ import {
   buildFontString,
   getMeasureContext,
   navigatePretextLine,
-  clearGoalX
+  clearGoalX,
+  resolveLineHeightPx
 } from '@renderer/features/chat/lib/pretextSync'
 import { theme } from '@renderer/theme/theme'
 import { DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR } from '../../../../../shared/yachiyo/protocol.ts'
@@ -456,6 +457,7 @@ export function Composer({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
   const composerInputRef = useRef<HTMLDivElement>(null)
+  const popupContainerRef = useRef<HTMLDivElement>(null)
   const modelSelectorRef = useRef<HTMLDivElement>(null)
   const skillsSelectorRef = useRef<HTMLDivElement>(null)
   const toolSelectorRef = useRef<HTMLDivElement>(null)
@@ -558,19 +560,22 @@ export function Composer({
   const showWorkspaceHint = !workspaceSelectorOpen && (workspaceHintHovered || workspaceHintPinned)
   const threadIsBusy = threadIsSaving || isBackendSwitchPending
 
-  const slashMatch = SLASH_PATTERN.exec(composerValue)
-  const skillPrefixMatch = SKILL_PREFIX_PATTERN.exec(composerValue)
-  const atSkillPrefixMatch = AT_SKILL_PREFIX_PATTERN.exec(composerValue)
+  const slashMatch = useMemo(() => SLASH_PATTERN.exec(composerValue), [composerValue])
+  const skillPrefixMatch = useMemo(() => SKILL_PREFIX_PATTERN.exec(composerValue), [composerValue])
+  const atSkillPrefixMatch = useMemo(
+    () => AT_SKILL_PREFIX_PATTERN.exec(composerValue),
+    [composerValue]
+  )
   const slashQuery = slashMatch ? slashMatch[1] : null
   const skillQuery = skillPrefixMatch
     ? skillPrefixMatch[1]
     : atSkillPrefixMatch
       ? atSkillPrefixMatch[1]
       : null
-  const fileMentionMatch =
-    skillQuery === null && atSkillPrefixMatch === null
-      ? FILE_MENTION_PATTERN.exec(composerValue)
-      : null
+  const fileMentionMatch = useMemo(() => {
+    if (skillQuery !== null || atSkillPrefixMatch !== null) return null
+    return FILE_MENTION_PATTERN.exec(composerValue)
+  }, [composerValue, skillQuery, atSkillPrefixMatch])
   const fileMentionRawQuery = fileMentionMatch
     ? (fileMentionMatch[3] ?? fileMentionMatch[4] ?? '')
     : ''
@@ -733,15 +738,20 @@ export function Composer({
     (fileMentionQuery !== null || matchingSlashCommands.length > 0) &&
     dismissedSlashQuery !== activeQuery
 
-  const [fileMentionPopupLeft, setFileMentionPopupLeft] = useState(0)
+  const [fileMentionAnchorRect, setFileMentionAnchorRect] = useState<DOMRect | null>(null)
+
   useLayoutEffect(() => {
-    if (!fileMentionMatch || !overlayRef.current || !textareaRef.current) {
-      setFileMentionPopupLeft(0)
+    if (!fileMentionMatch || !textareaRef.current) {
+      setFileMentionAnchorRect(null)
       return
     }
     const textarea = textareaRef.current
+    const textareaRect = textarea.getBoundingClientRect()
     const lines = computePretextLines(textarea.value, textarea)
-    if (!lines) return
+    if (!lines) {
+      setFileMentionAnchorRect(null)
+      return
+    }
 
     const atIndex = fileMentionMatch.index + fileMentionMatch[1].length
     const value = textarea.value
@@ -765,11 +775,14 @@ export function Composer({
 
     const cs = getComputedStyle(textarea)
     const paddingLeft = parseFloat(cs.paddingLeft)
+    const borderLeftWidth = parseFloat(cs.borderLeftWidth)
     const ctx = getMeasureContext() as CanvasRenderingContext2D
     ctx.font = buildFontString(cs)
-    const x = paddingLeft + ctx.measureText(lineText.slice(0, offsetInLine)).width
-    const containerWidth = overlayRef.current.getBoundingClientRect().width
-    setFileMentionPopupLeft(Math.max(0, Math.min(x, containerWidth - 280)))
+    const textWidth = ctx.measureText(lineText.slice(0, offsetInLine)).width
+    const atX = textareaRect.left + borderLeftWidth + paddingLeft + textWidth
+    const atY = textareaRect.top
+    const lineHeightPx = resolveLineHeightPx(cs)
+    setFileMentionAnchorRect(new DOMRect(atX, atY, 0, lineHeightPx))
   }, [composerValue, fileMentionMatch])
 
   useEffect(() => {
@@ -1533,14 +1546,16 @@ export function Composer({
         </div>
       ) : null}
 
-      <div style={{ position: 'relative' }}>
+      <div ref={popupContainerRef} style={{ position: 'relative' }}>
         {showSlashCommandPopup ? (
           <SlashCommandPopup
             commands={matchingSlashCommands}
             selectedIndex={slashSelectedIndex}
             onSelect={handleSlashCommandSelect}
             onClose={dismissSlashPopup}
-            leftOffset={fileMentionQuery !== null ? fileMentionPopupLeft : 0}
+            leftOffset={0}
+            anchorRect={fileMentionQuery !== null ? fileMentionAnchorRect : null}
+            portal={fileMentionQuery !== null}
             emptyState={
               fileMentionQuery !== null
                 ? isFileMentionSearchPending

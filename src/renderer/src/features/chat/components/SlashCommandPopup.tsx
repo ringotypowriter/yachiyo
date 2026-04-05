@@ -1,5 +1,6 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Folder, Hash, NotebookPen, Sparkles, Zap } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 
@@ -93,7 +94,9 @@ export function SlashCommandPopup({
   onSelect,
   onClose,
   emptyState,
-  leftOffset = 0
+  leftOffset = 0,
+  anchorRect,
+  portal = false
 }: {
   commands: SlashCommand[]
   selectedIndex: number
@@ -101,6 +104,8 @@ export function SlashCommandPopup({
   onClose: () => void
   emptyState?: string
   leftOffset?: number
+  anchorRect?: DOMRect | null
+  portal?: boolean
 }): React.ReactNode {
   const [visible, setVisible] = useState(false)
 
@@ -118,15 +123,33 @@ export function SlashCommandPopup({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
 
-  return (
+  const popupWidth = 280
+  const margin = 8
+  const popupLeft = anchorRect
+    ? Math.max(margin, Math.min(anchorRect.left, window.innerWidth - popupWidth - margin))
+    : leftOffset
+
+  const popupStyle: React.CSSProperties =
+    portal && anchorRect
+      ? {
+          position: 'fixed',
+          bottom: window.innerHeight - anchorRect.top + 8,
+          left: popupLeft,
+          width: popupWidth
+        }
+      : {
+          position: 'absolute',
+          bottom: 'calc(100% + 8px)',
+          left: popupLeft,
+          width: popupWidth
+        }
+
+  const popup = (
     <div
       role="listbox"
       aria-label="Slash commands"
       style={{
-        position: 'absolute',
-        bottom: 'calc(100% + 8px)',
-        left: leftOffset,
-        width: 280,
+        ...popupStyle,
         background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
         WebkitBackdropFilter: 'blur(24px)',
@@ -222,4 +245,10 @@ export function SlashCommandPopup({
       })}
     </div>
   )
+
+  if (portal && anchorRect) {
+    return createPortal(popup, document.body)
+  }
+
+  return popup
 }
