@@ -69,18 +69,15 @@ test('message prepare can add soul, agent, hint, and memory layers without mutat
       ].join('\n')
     },
     { role: 'system', content: 'Workspace: /tmp/thread-1' },
-    // Per-turn context (user role, before current query)
+    // User query with per-turn context merged in
     {
       role: 'user',
-      content:
-        '<reminder>\nTool availability changed for this turn:\n- Disabled: edit.\n</reminder>'
-    },
-    {
-      role: 'user',
-      content: ['<memory>', '- No persisted memories yet.', '</memory>'].join('\n')
-    },
-    // Current user query
-    { role: 'user', content: 'Inspect the workspace' }
+      content: [
+        'Inspect the workspace',
+        '<reminder>\nTool availability changed for this turn:\n- Disabled: edit.\n</reminder>',
+        '<memory>\n- No persisted memories yet.\n</memory>'
+      ].join('\n\n')
+    }
   ])
 })
 
