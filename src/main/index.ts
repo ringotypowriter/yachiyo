@@ -22,6 +22,7 @@ app.setName(APP_NAME)
 
 let settingsWindow: BrowserWindow | null = null
 let translatorWindow: BrowserWindow | null = null
+let jotdownWindow: BrowserWindow | null = null
 
 function openTranslatorWindow(): void {
   // Always destroy and recreate so tiling WMs (AeroSpace) don't drag
@@ -75,6 +76,60 @@ function openTranslatorWindow(): void {
     translatorWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/translator/index.html`)
   } else {
     translatorWindow.loadFile(join(__dirname, '../renderer/translator/index.html'))
+  }
+}
+
+function openJotdownWindow(): void {
+  if (jotdownWindow && !jotdownWindow.isDestroyed()) {
+    jotdownWindow.removeAllListeners('close')
+    jotdownWindow.destroy()
+    jotdownWindow = null
+  }
+
+  const cursorPoint = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursorPoint)
+  const { width: dw, height: dh, x: dx, y: dy } = display.workArea
+  const winW = 480
+  const winH = 560
+  const x = Math.max(dx, Math.min(cursorPoint.x - Math.round(winW / 2), dx + dw - winW))
+  const y = Math.max(dy, Math.min(cursorPoint.y - Math.round(winH / 2), dy + dh - winH))
+
+  jotdownWindow = new BrowserWindow({
+    width: winW,
+    height: winH,
+    minWidth: 360,
+    minHeight: 400,
+    x,
+    y,
+    resizable: false,
+    show: false,
+    frame: false,
+    alwaysOnTop: true,
+    transparent: true,
+    ...(process.platform === 'darwin' && {
+      vibrancy: 'hud',
+      visualEffectState: 'active',
+      backgroundColor: '#00000000'
+    }),
+    icon,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+  installEditableContextMenu(jotdownWindow)
+  jotdownWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+  jotdownWindow.on('ready-to-show', () => jotdownWindow?.show())
+  jotdownWindow.on('closed', () => {
+    jotdownWindow = null
+  })
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    jotdownWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/jotdown/index.html`)
+  } else {
+    jotdownWindow.loadFile(join(__dirname, '../renderer/jotdown/index.html'))
   }
 }
 
@@ -177,8 +232,10 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.on('open-translator', () => openTranslatorWindow())
+  ipcMain.on('open-jotdown', () => openJotdownWindow())
 
   globalShortcut.register('CommandOrControl+Shift+T', () => openTranslatorWindow())
+  globalShortcut.register('CommandOrControl+Shift+J', () => openJotdownWindow())
 
   ipcMain.on('open-settings', (_event, tab?: string) => {
     if (settingsWindow && !settingsWindow.isDestroyed()) {

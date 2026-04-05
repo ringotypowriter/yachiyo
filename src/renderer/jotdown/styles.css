@@ -1,0 +1,44 @@
+@import 'tailwindcss';
+@source "../../../../node_modules/streamdown/dist/*.js";
+@import 'streamdown/styles.css';
+@import '../src/theme/theme.css';
+
+@theme {
+  --color-background: rgb(var(--yachiyo-rgb-surface));
+  --color-sidebar: rgb(var(--yachiyo-rgb-canvas));
+  --color-border: rgb(var(--yachiyo-rgb-ink) / 0.08);
+  --color-muted: rgb(232 240 246);
+  --color-muted-foreground: rgb(var(--yachiyo-rgb-text-tertiary));
+  --color-foreground: rgb(var(--yachiyo-rgb-ink));
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent !important;
+}
+
+body {
+  font-family: var(--yachiyo-font-ui);
+  color: rgb(var(--yachiyo-rgb-ink));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}

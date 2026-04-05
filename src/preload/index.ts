@@ -32,12 +32,14 @@ import type {
   ToolPreferencesInput,
   TranslateInput,
   TranslateResult,
+  JotdownSaveInput,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
 
 const api = {
   openSettings: (tab?: string) => ipcRenderer.send('open-settings', tab),
   openTranslator: () => ipcRenderer.send('open-translator'),
+  openJotdown: () => ipcRenderer.send('open-jotdown'),
   navigateToArchivedThread: (threadId: string) =>
     ipcRenderer.send('navigate-to-archived-thread', threadId),
   onNavigateToArchivedThread: (listener: (threadId: string) => void): (() => void) => {
@@ -124,6 +126,23 @@ const api = {
       ipcRenderer.on('translator:delta', handler)
       return () => ipcRenderer.off('translator:delta', handler)
     },
+
+    // Jotdowns
+    listJotdowns: (): Promise<import('../shared/yachiyo/protocol').JotdownMeta[]> =>
+      ipcRenderer.invoke('yachiyo:jotdown-list'),
+    loadJotdown: (input: {
+      id: string
+    }): Promise<import('../shared/yachiyo/protocol').JotdownFull> =>
+      ipcRenderer.invoke('yachiyo:jotdown-load', input),
+    saveJotdown: (
+      input: JotdownSaveInput
+    ): Promise<import('../shared/yachiyo/protocol').JotdownMeta> =>
+      ipcRenderer.invoke('yachiyo:jotdown-save', input),
+    createJotdown: (): Promise<import('../shared/yachiyo/protocol').JotdownFull> =>
+      ipcRenderer.invoke('yachiyo:jotdown-create'),
+    deleteJotdown: (input: { id: string }): Promise<void> =>
+      ipcRenderer.invoke('yachiyo:jotdown-delete', input),
+
     getConfig: () => ipcRenderer.invoke('yachiyo:get-config'),
     getSoulDocument: (): Promise<SoulDocument> => ipcRenderer.invoke('yachiyo:get-soul-document'),
     addSoulTrait: (input: { trait: string }): Promise<SoulDocument> =>

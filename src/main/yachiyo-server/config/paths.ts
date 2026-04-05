@@ -56,3 +56,9 @@ export function resolveYachiyoWebSearchRoot(): string {
 export function resolveYachiyoWebSearchBrowserSessionPath(): string {
   return join(resolveYachiyoWebSearchRoot(), YACHIYO_WEB_SEARCH_BROWSER_SESSION_DIR_NAME)
 }
+
+export const YACHIYO_JOTDOWNS_DIR_NAME = 'jotdowns'
+
+export function resolveYachiyoJotdownsDir(): string {
+  return join(resolveYachiyoDataDir(), YACHIYO_JOTDOWNS_DIR_NAME)
+}

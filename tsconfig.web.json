@@ -3,10 +3,12 @@
   "include": [
     "src/renderer/src/env.d.ts",
     "src/renderer/translator/env.d.ts",
+    "src/renderer/jotdown/env.d.ts",
     "src/renderer/src/**/*",
     "src/renderer/src/**/*.tsx",
     "src/renderer/settings/**/*",
     "src/renderer/translator/**/*",
+    "src/renderer/jotdown/**/*",
     "src/preload/*.d.ts",
     "src/shared/**/*"
   ],

@@ -1394,3 +1394,21 @@ export type TranslateResult =
   | { status: 'success'; translatedText: string }
   | { status: 'unavailable'; reason: string }
   | { status: 'failed'; error: string }
+
+// ── Jotdown ──────────────────────────────────────────────────────────
+
+export interface JotdownMeta {
+  id: string
+  title: string
+  createdAt: string
+  modifiedAt: string
+}
+
+export interface JotdownFull extends JotdownMeta {
+  content: string
+}
+
+export interface JotdownSaveInput {
+  id: string
+  content: string
+}

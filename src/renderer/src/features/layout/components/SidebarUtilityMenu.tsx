@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Languages, Radio } from 'lucide-react'
+import { Languages, NotebookPen, Radio } from 'lucide-react'
 import type { ConnectionStatus } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 
@@ -10,6 +10,7 @@ export interface SidebarUtilityMenuProps {
   showExternalThreads: boolean
   onToggleExternalThreads: () => void
   onOpenTranslator: () => void
+  onOpenJotdown: () => void
   onClose: () => void
 }
 
@@ -19,6 +20,7 @@ export function SidebarUtilityMenu({
   showExternalThreads,
   onToggleExternalThreads,
   onOpenTranslator,
+  onOpenJotdown,
   onClose
 }: SidebarUtilityMenuProps): React.JSX.Element {
   const menuRef = useRef<HTMLDivElement>(null)
@@ -137,6 +139,27 @@ export function SidebarUtilityMenu({
         <span className="flex items-center gap-2.5">
           <Languages size={14} strokeWidth={1.5} />
           <span>Translator</span>
+        </span>
+      </button>
+
+      {/* Jot Down */}
+      <button
+        onClick={() => {
+          onOpenJotdown()
+          onClose()
+        }}
+        className="w-full rounded-lg px-3 py-2 text-left text-[13px] transition-colors"
+        style={{ color: theme.text.primary }}
+        onMouseEnter={(e) => {
+          ;(e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong
+        }}
+        onMouseLeave={(e) => {
+          ;(e.currentTarget as HTMLElement).style.background = 'transparent'
+        }}
+      >
+        <span className="flex items-center gap-2.5">
+          <NotebookPen size={14} strokeWidth={1.5} />
+          <span>Jot Down</span>
         </span>
       </button>
     </div>,

@@ -25,6 +25,7 @@ import type {
   ThreadModelOverride,
   ToolPreferencesInput,
   TranslateInput,
+  JotdownSaveInput,
   UpdateChannelGroupInput,
   UpdateChannelUserInput,
   UpdateScheduleInput,
@@ -37,6 +38,7 @@ import {
 import {
   resolveYachiyoDataDir,
   resolveYachiyoDbPath,
+  resolveYachiyoJotdownsDir,
   resolveYachiyoSettingsPath,
   resolveYachiyoSocketPath,
   resolveYachiyoTempWorkspaceRoot
@@ -67,6 +69,7 @@ import {
   createScheduleService,
   type ScheduleService
 } from './yachiyo-server/services/scheduleService.ts'
+import { createJotdownStore } from './yachiyo-server/services/jotdownStore.ts'
 
 const IPC_CHANNELS = {
   showNotification: 'yachiyo:show-notification',
@@ -144,7 +147,12 @@ const IPC_CHANNELS = {
   markThreadAsRead: 'yachiyo:mark-thread-as-read',
   openSkillsFolder: 'yachiyo:open-skills-folder',
   answerToolQuestion: 'yachiyo:answer-tool-question',
-  translate: 'yachiyo:translate'
+  translate: 'yachiyo:translate',
+  jotdownList: 'yachiyo:jotdown-list',
+  jotdownLoad: 'yachiyo:jotdown-load',
+  jotdownSave: 'yachiyo:jotdown-save',
+  jotdownCreate: 'yachiyo:jotdown-create',
+  jotdownDelete: 'yachiyo:jotdown-delete'
 } as const
 
 let server: YachiyoServer | null = null
@@ -900,6 +908,15 @@ export function registerYachiyoGateway(): YachiyoServer {
       }
     })
   })
+
+  // ── Jotdown handlers ──────────────────────────────────────────────
+  const jotdownStore = createJotdownStore(resolveYachiyoJotdownsDir())
+
+  handle(IPC_CHANNELS.jotdownList, () => jotdownStore.list())
+  handle(IPC_CHANNELS.jotdownLoad, (input: { id: string }) => jotdownStore.load(input.id))
+  handle(IPC_CHANNELS.jotdownCreate, () => jotdownStore.create())
+  handle(IPC_CHANNELS.jotdownSave, (input: JotdownSaveInput) => jotdownStore.save(input))
+  handle(IPC_CHANNELS.jotdownDelete, (input: { id: string }) => jotdownStore.delete(input.id))
 
   app.once('before-quit', () => {
     if (commandSocketHealthTimer) {

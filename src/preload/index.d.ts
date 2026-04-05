@@ -43,6 +43,9 @@ import type {
   ToolPreferencesInput,
   TranslateInput,
   TranslateResult,
+  JotdownMeta,
+  JotdownFull,
+  JotdownSaveInput,
   SkillCatalogEntry,
   WebSearchBrowserImportSource,
   YachiyoServerEvent
@@ -54,6 +57,7 @@ declare global {
     api: {
       openSettings: (tab?: string) => void
       openTranslator: () => void
+      openJotdown: () => void
       navigateToArchivedThread: (threadId: string) => void
       onNavigateToArchivedThread: (listener: (threadId: string) => void) => () => void
       setVibrancy: (enabled: boolean) => void
@@ -105,6 +109,14 @@ declare global {
         answerToolQuestion: (input: AnswerToolQuestionInput) => Promise<void>
         translate: (input: TranslateInput) => Promise<TranslateResult>
         onTranslateDelta: (listener: (delta: string) => void) => () => void
+
+        // Jotdowns
+        listJotdowns: () => Promise<JotdownMeta[]>
+        loadJotdown: (input: { id: string }) => Promise<JotdownFull>
+        saveJotdown: (input: JotdownSaveInput) => Promise<JotdownMeta>
+        createJotdown: () => Promise<JotdownFull>
+        deleteJotdown: (input: { id: string }) => Promise<void>
+
         getConfig: () => Promise<SettingsConfig>
         getSoulDocument: () => Promise<SoulDocument>
         addSoulTrait: (input: { trait: string }) => Promise<SoulDocument>

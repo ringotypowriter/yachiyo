@@ -73,6 +73,10 @@ export function AppSidebar({
     window.api.openTranslator()
   }, [])
 
+  const handleOpenJotdown = useCallback(() => {
+    window.api.openJotdown()
+  }, [])
+
   return (
     <div
       aria-hidden={!isOpen}
@@ -242,6 +246,7 @@ export function AppSidebar({
               showExternalThreads={showExternalThreads}
               onToggleExternalThreads={toggleShowExternalThreads}
               onOpenTranslator={handleOpenTranslator}
+              onOpenJotdown={handleOpenJotdown}
               onClose={() => setUtilityMenuAnchor(null)}
             />
           )}
