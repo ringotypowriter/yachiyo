@@ -1,7 +1,8 @@
-import type { ToolSet } from 'ai'
+import type { Tool, ToolSet } from 'ai'
 
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
+  USER_MANAGED_TOOL_NAMES,
   normalizeEnabledTools,
   type SkillCatalogEntry,
   type SubagentProfile,
@@ -299,6 +300,36 @@ export function normalizeToolResult(
   }
 }
 
+/**
+ * Wrap a real tool so that when it is disabled by the user, its execute
+ * short-circuits with a "disabled" error. The schema stays registered in
+ * the API request regardless, keeping the prompt cache prefix stable.
+ */
+function wrapDisabledTool<TInput, TOutput>(
+  realTool: Tool<TInput, TOutput>,
+  toolName: string,
+  enabledTools: Set<ToolCallName>
+): Tool<TInput, TOutput> {
+  if (enabledTools.has(toolName as ToolCallName)) {
+    return realTool
+  }
+  const disabledExecute = async (): Promise<TOutput> =>
+    ({
+      content: [
+        {
+          type: 'text',
+          text: `Tool "${toolName}" is currently disabled by the user. Do not retry this tool until told it is re-enabled.`
+        }
+      ],
+      details: {},
+      metadata: { blocked: true },
+      error: `Tool "${toolName}" is disabled by the user.`
+    }) as unknown as TOutput
+  return Object.assign(Object.create(null), realTool, {
+    execute: disabledExecute
+  }) as Tool<TInput, TOutput>
+}
+
 export function createAgentToolSet(
   context: AgentToolContext,
   dependencies: AgentToolDependencies = {}
@@ -309,49 +340,55 @@ export function createAgentToolSet(
 
   const tools: ToolSet = {}
 
-  if (enabledTools.has('read')) {
-    tools.read = createReadTool(context)
+  // --- User-managed tools: always registered for cache stability ---
+  // When no user-managed tools are enabled the run is intentionally tool-free
+  // (e.g. restricted channel policy). Skip the always-register logic so the
+  // model sees no schemas and behaves as a pure conversational turn.
+  const hasAnyUserTool = USER_MANAGED_TOOL_NAMES.some((name) => enabledTools.has(name))
+
+  if (hasAnyUserTool) {
+    tools.read = wrapDisabledTool(createReadTool(context), 'read', enabledTools)
+    tools.write = wrapDisabledTool(createWriteTool(context), 'write', enabledTools)
+    tools.edit = wrapDisabledTool(createEditTool(context), 'edit', enabledTools)
+    tools.bash = wrapDisabledTool(createBashTool(context), 'bash', enabledTools)
+
+    tools.webRead = wrapDisabledTool(
+      createWebReadTool(context, {
+        ...(dependencies.fetchImpl ? { fetchImpl: dependencies.fetchImpl } : {}),
+        ...(dependencies.loadBrowserSnapshot
+          ? { loadBrowserSnapshot: dependencies.loadBrowserSnapshot }
+          : {})
+      }),
+      'webRead',
+      enabledTools
+    )
+
+    // Service-gated tools: only registered when the backing service is available.
+    // Service availability is stable within a session so omitting them doesn't
+    // cause cache churn — unlike user toggles which the wrapDisabledTool handles.
+    if (dependencies.searchService) {
+      tools.grep = wrapDisabledTool(
+        createGrepTool(context, { searchService: dependencies.searchService }),
+        'grep',
+        enabledTools
+      )
+      tools.glob = wrapDisabledTool(
+        createGlobTool(context, { searchService: dependencies.searchService }),
+        'glob',
+        enabledTools
+      )
+    }
+
+    if (dependencies.webSearchService) {
+      tools.webSearch = wrapDisabledTool(
+        createWebSearchTool(context, { webSearchService: dependencies.webSearchService }),
+        'webSearch',
+        enabledTools
+      )
+    }
   }
 
-  if (enabledTools.has('write')) {
-    tools.write = createWriteTool(context)
-  }
-
-  if (enabledTools.has('edit')) {
-    tools.edit = createEditTool(context)
-  }
-
-  if (enabledTools.has('bash')) {
-    tools.bash = createBashTool(context)
-  }
-
-  if (enabledTools.has('grep') && dependencies.searchService) {
-    tools.grep = createGrepTool(context, {
-      searchService: dependencies.searchService
-    })
-  }
-
-  if (enabledTools.has('glob') && dependencies.searchService) {
-    tools.glob = createGlobTool(context, {
-      searchService: dependencies.searchService
-    })
-  }
-
-  if (enabledTools.has('webRead')) {
-    tools.webRead = createWebReadTool(context, {
-      ...(dependencies.fetchImpl ? { fetchImpl: dependencies.fetchImpl } : {}),
-      ...(dependencies.loadBrowserSnapshot
-        ? { loadBrowserSnapshot: dependencies.loadBrowserSnapshot }
-        : {})
-    })
-  }
-
-  if (enabledTools.has('webSearch') && dependencies.webSearchService) {
-    tools.webSearch = createWebSearchTool(context, {
-      webSearchService: dependencies.webSearchService
-    })
-  }
-
+  // --- Runtime-managed tools: conditional registration (not user-toggled) ---
   if (enabledTools.has('skillsRead') && dependencies.availableSkills) {
     tools.skillsRead = createSkillsReadTool(context, {
       availableSkills: dependencies.availableSkills

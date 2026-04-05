@@ -63,6 +63,9 @@ function createFailureDetails(input: {
   }
 }
 
+export const WEB_SEARCH_TOOL_DESCRIPTION =
+  'Run a general web search and return normalized organic search results. Use it for broad discovery, current web lookups, or finding candidate sources. This is not a browser automation tool.'
+
 export function createTool(
   _context: AgentToolContext,
   dependencies: {
@@ -70,8 +73,7 @@ export function createTool(
   }
 ): Tool<WebSearchToolInput, WebSearchToolOutput> {
   return tool({
-    description:
-      'Run a general web search and return normalized organic search results. Use it for broad discovery, current web lookups, or finding candidate sources. This is not a browser automation tool.',
+    description: WEB_SEARCH_TOOL_DESCRIPTION,
     inputSchema: webSearchToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) =>

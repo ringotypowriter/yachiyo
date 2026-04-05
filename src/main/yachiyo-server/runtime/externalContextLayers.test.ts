@@ -120,7 +120,7 @@ describe('compileExternalContextLayers', () => {
     assert.ok(summaryIndex < firstHistoryUser, 'summary should precede history')
   })
 
-  it('places hint and memory before the last user message', () => {
+  it('merges hint and memory into the last user message', () => {
     const messages = compileExternalContextLayers({
       personality: { basePersona },
       executionContract: '',
@@ -134,16 +134,17 @@ describe('compileExternalContextLayers', () => {
       memory: { entries: ['User prefers concise answers'] }
     })
 
-    const userMsgContents = messages
-      .filter((m) => m.role === 'user')
-      .map((m) => (typeof m.content === 'string' ? m.content : ''))
+    // hint and memory should be merged into the last user message
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')
+    assert.ok(lastUserMsg, 'should have a user message')
+    const content = lastUserMsg.content as string
+    assert.ok(content.includes('Second message'), 'should contain the original query')
+    assert.ok(content.includes('Current time'), 'should contain the hint')
+    assert.ok(content.includes('User prefers concise answers'), 'should contain the memory')
 
-    // The hint/memory should appear just before "Second message"
-    const hintIndex = userMsgContents.findIndex((c) => c.includes('Current time'))
-    const lastQueryIndex = userMsgContents.findIndex((c) => c.includes('Second message'))
-    assert.ok(hintIndex >= 0, 'hint should be present')
-    assert.ok(lastQueryIndex >= 0, 'last query should be present')
-    assert.ok(hintIndex < lastQueryIndex, 'hint should come before the last user message')
+    // First user message should be unmodified
+    const firstUserMsg = messages.find((m) => m.role === 'user')
+    assert.equal(firstUserMsg?.content, 'First message')
   })
 
   it('omits rolling summary when not provided', () => {

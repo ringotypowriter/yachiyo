@@ -269,6 +269,35 @@ export function compileMemoryLayer(input: MemoryLayerInput | undefined): ModelMe
   }
 }
 
+/**
+ * Append turn-context text parts to a user message, preserving multimodal
+ * content (images, files). When the original content is a string the parts
+ * are joined with blank lines. When it is a structured array, new text
+ * parts are appended so image/file blocks remain intact.
+ */
+export function appendTurnContextToUserMessage(
+  message: ModelMessage,
+  turnContextParts: string[]
+): ModelMessage {
+  const original = message.content
+  if (typeof original === 'string') {
+    return {
+      role: 'user',
+      content: [original, ...turnContextParts].join('\n\n')
+    }
+  }
+  // Multimodal content — append text parts without disturbing image/file blocks.
+  if (Array.isArray(original)) {
+    const extraParts = turnContextParts.map((text) => ({ type: 'text' as const, text }))
+    return {
+      role: 'user',
+      content: [...original, ...extraParts]
+    } as ModelMessage
+  }
+  // Unexpected shape — fall back to standalone context.
+  return { role: 'user', content: turnContextParts.join('\n\n') }
+}
+
 export function compileContextLayers(input: CompileContextLayersInput): ModelMessage[] {
   const systemLayers = [
     compilePersonalityLayer(input.personality),
@@ -280,35 +309,32 @@ export function compileContextLayers(input: CompileContextLayersInput): ModelMes
 
   const historyMessages = input.history.flatMap(toModelHistoryMessages)
 
-  // Turn context is injected mid-conversation, so it must use the user role —
-  // only one system message (the stable prefix) is supported by most providers.
-  // Hint and memory layers always produce string content.
-  const turnContextLayers: ModelMessage[] = [
+  // Turn context (hint + memory) is merged into the last user message so the
+  // user's query remains the final user turn. This avoids injected context
+  // becoming the "latest user message" that the model responds to, while
+  // keeping the message array prefix stable for prompt caching.
+  const turnContextParts: string[] = [
     compileHintLayer(input.hint),
     compileMemoryLayer(input.memory)
-  ].flatMap((message) =>
-    message ? [{ role: 'user' as const, content: message.content as string }] : []
-  )
+  ].flatMap((message) => (message ? [message.content as string] : []))
 
-  if (turnContextLayers.length === 0) {
+  if (turnContextParts.length === 0) {
     return removeEmptyMessages([...systemLayers, ...historyMessages])
   }
 
-  // Place turn context immediately before the current user query (last user message).
-  // This keeps durable system layers and prior history stable for prompt caching,
-  // while per-turn injections sit right before the request they augment.
-  let insertIndex = historyMessages.length
-  for (let i = historyMessages.length - 1; i >= 0; i--) {
-    if (historyMessages[i].role === 'user') {
-      insertIndex = i
-      break
+  const result = [...historyMessages]
+  // Find the last user message and append turn context to it.
+  for (let i = result.length - 1; i >= 0; i--) {
+    if (result[i].role === 'user') {
+      result[i] = appendTurnContextToUserMessage(result[i], turnContextParts)
+      return removeEmptyMessages([...systemLayers, ...result])
     }
   }
 
+  // No user message in history — create a standalone turn context message.
   return removeEmptyMessages([
     ...systemLayers,
-    ...historyMessages.slice(0, insertIndex),
-    ...turnContextLayers,
-    ...historyMessages.slice(insertIndex)
+    ...result,
+    { role: 'user', content: turnContextParts.join('\n\n') }
   ])
 }

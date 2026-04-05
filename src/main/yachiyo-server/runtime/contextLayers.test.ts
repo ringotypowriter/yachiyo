@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  appendTurnContextToUserMessage,
   compileAgentLayer,
   compileContextLayers,
   compileHintLayer,
@@ -34,9 +35,10 @@ test('compileSoulLayer wraps raw SOUL.md content', () => {
   assert.equal(compileSoulLayer(undefined), null)
 })
 
-test('compileContextLayers places turn context before current user query, after prior history', () => {
+test('compileContextLayers merges turn context into the last user message', () => {
   const reminder =
     '<reminder>\nTool availability changed for this turn:\n- Disabled: write.\n</reminder>'
+  const memoryBlock = ['<memory>', '- Remember the preferred repo root.', '</memory>'].join('\n')
   const soulContent =
     '# SOUL\n\n## Evolved Traits\n### 2026-03-25\n- Leans toward concise execution'
 
@@ -103,14 +105,11 @@ test('compileContextLayers places turn context before current user query, after 
     { role: 'system', content: 'Workspace: /tmp/thread-1' },
     // Prior history
     { role: 'assistant', content: 'Previous answer' },
-    // Per-turn context (user role — only one system message supported)
-    { role: 'user', content: reminder },
+    // User query with turn context merged in
     {
       role: 'user',
-      content: ['<memory>', '- Remember the preferred repo root.', '</memory>'].join('\n')
-    },
-    // Current user query
-    { role: 'user', content: 'Latest request' }
+      content: ['Latest request', reminder, memoryBlock].join('\n\n')
+    }
   ])
 })
 
@@ -375,7 +374,7 @@ test('empty responseMessages array falls back to plain text', () => {
   ])
 })
 
-test('turn context is placed after tool-history replay and before current query', () => {
+test('turn context is merged into current query after tool-history replay', () => {
   const toolResponseMessages = [
     {
       role: 'assistant',
@@ -400,6 +399,8 @@ test('turn context is placed after tool-history replay and before current query'
     }
   ]
 
+  const memoryBlock = ['<memory>', '- user likes tests', '</memory>'].join('\n')
+
   const compiled = compileContextLayers({
     personality: { basePersona: 'Base' },
     hint: { reminder: '<reminder>write disabled</reminder>' },
@@ -416,14 +417,11 @@ test('turn context is placed after tool-history replay and before current query'
     // Prior history with structured tool replay
     { role: 'user', content: 'Read f.ts' },
     ...toolResponseMessages,
-    // Turn context before current query
-    { role: 'user', content: '<reminder>write disabled</reminder>' },
+    // Current user query with turn context merged in
     {
       role: 'user',
-      content: ['<memory>', '- user likes tests', '</memory>'].join('\n')
-    },
-    // Current user query
-    { role: 'user', content: 'Now edit it' }
+      content: ['Now edit it', '<reminder>write disabled</reminder>', memoryBlock].join('\n\n')
+    }
   ])
 })
 
@@ -458,7 +456,9 @@ test('no turn context leaves system layers and history unchanged', () => {
   ])
 })
 
-test('first message in thread: turn context comes before the only user message', () => {
+test('first message in thread: turn context is merged into the only user message', () => {
+  const memoryBlock = ['<memory>', '- mem1', '</memory>'].join('\n')
+
   const compiled = compileContextLayers({
     personality: { basePersona: 'Base' },
     hint: { reminder: 'reminder' },
@@ -468,9 +468,10 @@ test('first message in thread: turn context comes before the only user message',
 
   assert.deepEqual(compiled, [
     { role: 'system', content: 'Base' },
-    { role: 'user', content: 'reminder' },
-    { role: 'user', content: ['<memory>', '- mem1', '</memory>'].join('\n') },
-    { role: 'user', content: 'First message' }
+    {
+      role: 'user',
+      content: ['First message', 'reminder', memoryBlock].join('\n\n')
+    }
   ])
 })
 
@@ -587,4 +588,38 @@ test('tool results without image-data pass through history replay unchanged', ()
     ...responseMessages,
     { role: 'user', content: 'Thanks' }
   ])
+})
+
+test('appendTurnContextToUserMessage handles string content', () => {
+  const result = appendTurnContextToUserMessage({ role: 'user', content: 'Hello' }, [
+    '<reminder>time</reminder>'
+  ])
+  assert.deepEqual(result, {
+    role: 'user',
+    content: 'Hello\n\n<reminder>time</reminder>'
+  })
+})
+
+test('appendTurnContextToUserMessage preserves multimodal array content', () => {
+  const imagePart = {
+    type: 'image' as const,
+    image: new Uint8Array([1, 2, 3]),
+    mimeType: 'image/png'
+  }
+  const textPart = { type: 'text' as const, text: 'Describe this image' }
+  const result = appendTurnContextToUserMessage(
+    { role: 'user', content: [textPart, imagePart] } as never,
+    ['<reminder>time</reminder>', '<memory>\n- mem1\n</memory>']
+  )
+
+  assert.equal(result.role, 'user')
+  const content = result.content as Array<{ type: string; text?: string }>
+  // Original parts preserved
+  assert.deepEqual(content[0], textPart)
+  assert.deepEqual(content[1], imagePart)
+  // Turn context appended as text parts
+  assert.equal(content[2].type, 'text')
+  assert.equal(content[2].text, '<reminder>time</reminder>')
+  assert.equal(content[3].type, 'text')
+  assert.ok(content[3].text?.includes('mem1'))
 })

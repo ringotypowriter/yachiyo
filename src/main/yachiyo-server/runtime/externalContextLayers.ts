@@ -12,6 +12,7 @@
 
 import type { ToolCallName } from '../../../shared/yachiyo/protocol.ts'
 import {
+  appendTurnContextToUserMessage,
   compileHintLayer,
   compileMemoryLayer,
   compilePersonalityLayer,
@@ -225,32 +226,30 @@ export function compileExternalContextLayers(input: ExternalContextLayersInput):
   // --- History (full, including responseMessages — cache-optimal) ---
   const historyMessages = input.history.flatMap(toModelHistoryMessages)
 
-  // --- Per-turn context (hint + memory, injected before last user message) ---
-  const turnContextLayers: ModelMessage[] = [
+  // --- Per-turn context (hint + memory, merged into last user message) ---
+  // Merged so the user's query remains the final user turn. This avoids
+  // injected context becoming the "latest user message" the model responds to.
+  const turnContextParts: string[] = [
     compileHintLayer(input.hint),
     compileMemoryLayer(input.memory)
-  ].flatMap((message) =>
-    message ? [{ role: 'user' as const, content: message.content as string }] : []
-  )
+  ].flatMap((message) => (message ? [message.content as string] : []))
 
-  if (turnContextLayers.length === 0) {
+  if (turnContextParts.length === 0) {
     return removeEmptyMessages([...systemPrefix, ...summaryMessages, ...historyMessages])
   }
 
-  // Insert turn context immediately before the current user query (last user message in history).
-  let insertIndex = historyMessages.length
-  for (let i = historyMessages.length - 1; i >= 0; i--) {
-    if (historyMessages[i].role === 'user') {
-      insertIndex = i
-      break
+  const result = [...historyMessages]
+  for (let i = result.length - 1; i >= 0; i--) {
+    if (result[i].role === 'user') {
+      result[i] = appendTurnContextToUserMessage(result[i], turnContextParts)
+      return removeEmptyMessages([...systemPrefix, ...summaryMessages, ...result])
     }
   }
 
   return removeEmptyMessages([
     ...systemPrefix,
     ...summaryMessages,
-    ...historyMessages.slice(0, insertIndex),
-    ...turnContextLayers,
-    ...historyMessages.slice(insertIndex)
+    ...result,
+    { role: 'user', content: turnContextParts.join('\n\n') }
   ])
 }

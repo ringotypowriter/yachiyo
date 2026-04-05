@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   buildCurrentTimeSection,
+  buildDisabledToolsReminderSection,
   buildToolAvailabilityReminderSection,
   formatQueryReminder
 } from './queryReminder.ts'
@@ -57,10 +58,44 @@ test('buildToolAvailabilityReminderSection only emits changed tools', () => {
   )
 })
 
-test('buildCurrentTimeSection includes an explicit date line', () => {
-  assert.deepEqual(buildCurrentTimeSection(new Date('2026-03-30T12:34:56.000Z')), {
-    key: 'current-time',
-    title: 'Current date and time',
-    lines: ['Date: 2026-03-30', 'Time: 12:34:56 UTC']
+test('buildDisabledToolsReminderSection lists disabled user-managed tools', () => {
+  const section = buildDisabledToolsReminderSection({
+    enabledTools: ['read', 'bash', 'grep']
   })
+  assert.ok(section)
+  assert.equal(section.key, 'disabled-tools')
+  assert.ok(section.lines[0].includes('write'))
+  assert.ok(section.lines[0].includes('edit'))
+  assert.ok(section.lines[0].includes('glob'))
+  assert.ok(section.lines[0].includes('webRead'))
+  assert.ok(section.lines[0].includes('webSearch'))
+  // Should not mention enabled tools
+  assert.ok(!section.lines[0].includes('read,'))
+  assert.ok(!section.lines[0].includes('bash'))
+  assert.ok(!section.lines[0].includes('grep'))
+})
+
+test('buildDisabledToolsReminderSection returns null when all tools enabled', () => {
+  const section = buildDisabledToolsReminderSection({
+    enabledTools: ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'webRead', 'webSearch']
+  })
+  assert.equal(section, null)
+})
+
+test('buildDisabledToolsReminderSection excludes runtime-managed tools', () => {
+  // Even if skillsRead is not in enabledTools, it should not appear (it's runtime-managed)
+  const section = buildDisabledToolsReminderSection({
+    enabledTools: ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'webRead', 'webSearch']
+  })
+  assert.equal(section, null)
+})
+
+test('buildCurrentTimeSection uses local time with day name', () => {
+  // Use explicit local components to avoid timezone-dependent assertions
+  const date = new Date(2026, 2, 30, 14, 5, 9) // March 30 2026, local
+  const section = buildCurrentTimeSection(date)
+  assert.equal(section.key, 'current-time')
+  assert.equal(section.title, 'Current date and time (local)')
+  assert.match(section.lines[0], /^Date: 2026-03-30 \(\w+\)$/)
+  assert.equal(section.lines[1], 'Time: 14:05:09')
 })

@@ -19,17 +19,19 @@ import {
 const AUTO_SAVE_DIR = '.yachiyo/tool-result'
 const INLINE_CONTENT_LIMIT = 32_000
 
+export const GLOB_TOOL_DESCRIPTION =
+  'Find files by glob pattern. Prefer this over bash (find/ls/fd) for all file discovery. If output is too large it is auto-saved to a workspace file.\n' +
+  'Supports `*` (any chars except /), `**` (any depth), `?` (single char).\n' +
+  '• `pattern`: glob pattern (e.g. "**/*.ts", "src/**/*.test.ts", "*.json").\n' +
+  '• `path`: directory to search in (defaults to workspace root).\n' +
+  '• `limit`: max files returned (default 50, max 200).'
+
 export function createTool(
   context: AgentToolContext,
   dependencies: { searchService: SearchService }
 ): Tool<GlobToolInput, GlobToolOutput> {
   return tool({
-    description:
-      'Find files by glob pattern. Prefer this over bash (find/ls/fd) for all file discovery. If output is too large it is auto-saved to a workspace file.\n' +
-      'Supports `*` (any chars except /), `**` (any depth), `?` (single char).\n' +
-      '• `pattern`: glob pattern (e.g. "**/*.ts", "src/**/*.test.ts", "*.json").\n' +
-      '• `path`: directory to search in (defaults to workspace root).\n' +
-      '• `limit`: max files returned (default 50, max 200).',
+    description: GLOB_TOOL_DESCRIPTION,
     inputSchema: globToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) =>

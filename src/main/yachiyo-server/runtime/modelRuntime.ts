@@ -108,7 +108,10 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             ),
             providerOptions,
             ...(request.max_token != null
-              ? { maxOutputTokens: request.max_token + extractThinkingBudget(providerOptions) * 2 }
+              ? {
+                  maxOutputTokens:
+                    request.max_token + extractThinkingBudget(providerOptions, request.settings) * 2
+                }
               : {}),
             ...(request.tools
               ? {

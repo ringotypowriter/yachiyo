@@ -64,7 +64,7 @@ import type { SearchService } from '../../services/search/searchService.ts'
 import type { BrowserWebPageSnapshotLoader } from '../../services/webRead/browserWebPageSnapshot.ts'
 import {
   buildCurrentTimeSection,
-  buildToolAvailabilityReminderSection,
+  buildDisabledToolsReminderSection,
   formatQueryReminder
 } from '../../runtime/queryReminder.ts'
 import { resolveFileMentionsForUserQuery } from '../../runtime/fileMentions.ts'
@@ -1029,14 +1029,7 @@ export async function executeServerRun(
         : await readUserDocument()
     const hiddenQueryReminder = formatQueryReminder(
       [
-        ...(input.previousEnabledTools
-          ? [
-              buildToolAvailabilityReminderSection({
-                previousEnabledTools: input.previousEnabledTools,
-                enabledTools: input.enabledTools
-              })
-            ]
-          : []),
+        buildDisabledToolsReminderSection({ enabledTools: modelEnabledTools }),
         buildCurrentTimeSection()
       ].flatMap((section) => (section ? [section] : []))
     )
