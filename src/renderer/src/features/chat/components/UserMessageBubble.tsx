@@ -2,6 +2,7 @@ import type React from 'react'
 import { FileText } from 'lucide-react'
 import type { Message, Thread } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
+import { linkifyText } from '@renderer/lib/markdown/linkifyText'
 import { canRetryUserMessage } from '../lib/messageActionState'
 import { MessageActionBar } from './MessageActionBar'
 
@@ -97,7 +98,7 @@ export function UserMessageBubble({
                 fontSize: 'calc(var(--yachiyo-font-size-chat, 14px) / var(--yachiyo-ui-zoom, 1))'
               }}
             >
-              {message.content}
+              {linkifyText(message.content)}
             </p>
           ) : null}
         </div>

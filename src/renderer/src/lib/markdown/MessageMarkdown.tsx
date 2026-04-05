@@ -1,6 +1,10 @@
 import type React from 'react'
+import { useMemo } from 'react'
+import type { Components, LinkSafetyConfig } from 'streamdown'
 import { Streamdown } from 'streamdown'
 import { MarkdownErrorBoundary } from './MarkdownErrorBoundary'
+import { LinkSafetyModal } from './LinkSafetyModal'
+import { LinkableCode } from './LinkableCode'
 import { mathPlugin } from './mathPlugin'
 
 interface MessageMarkdownProps {
@@ -12,6 +16,16 @@ export function MessageMarkdown({
   content,
   isStreaming = false
 }: MessageMarkdownProps): React.JSX.Element {
+  const linkSafety = useMemo<LinkSafetyConfig>(
+    () => ({
+      enabled: true,
+      renderModal: (props) => <LinkSafetyModal {...props} />
+    }),
+    []
+  )
+
+  const components = useMemo<Components>(() => ({ inlineCode: LinkableCode }), [])
+
   return (
     <MarkdownErrorBoundary fallback={content}>
       <div className="streamdown-content message-selectable">
@@ -26,6 +40,8 @@ export function MessageMarkdown({
           mode={isStreaming ? 'streaming' : 'static'}
           controls={true}
           plugins={{ math: mathPlugin }}
+          linkSafety={linkSafety}
+          components={components}
         >
           {content}
         </Streamdown>
