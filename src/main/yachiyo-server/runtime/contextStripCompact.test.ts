@@ -110,11 +110,11 @@ test('applyStripCompact strips oldest run tool results when over threshold', () 
 
   const result = applyStripCompact(messages)
 
-  // First run's tool result should be stripped
+  // First run's tool result should be stripped (with summary)
   const firstToolMsg = result[3] as { role: string; content: Array<{ output: unknown }> }
   assert.equal(firstToolMsg.role, 'tool')
   const firstOutput = firstToolMsg.content[0].output as { type: string; value: string }
-  assert.match(firstOutput.value, /stripped/)
+  assert.match(firstOutput.value, /\[Stripped: read/)
 
   // Last run's tool result should be preserved
   const lastToolMsg = result[6] as { role: string; content: Array<{ output: unknown }> }
@@ -157,17 +157,17 @@ test('applyStripCompact skips non-tool messages in run spans', () => {
   assert.deepEqual(result[2], makeAssistantMessage('a1'))
 })
 
-test('applyStripCompact stops stripping once under threshold', () => {
+test('applyStripCompact stops stripping once under threshold (recent-first)', () => {
   const largeOutput = makeLargeToolOutput(500_000)
   const smallOutput = makeLargeToolOutput(100)
   const messages: ModelMessage[] = [
     makeSystemMessage('system'),
     makeUserMessage('q1'),
     makeAssistantMessage('a1'),
-    makeToolMessage('tc1', largeOutput), // run 1 — stripping this should be enough
+    makeToolMessage('tc1', smallOutput), // run 1 — small, should be preserved (oldest = cached prefix)
     makeUserMessage('q2'),
     makeAssistantMessage('a2'),
-    makeToolMessage('tc2', smallOutput), // run 2 — small, should be preserved
+    makeToolMessage('tc2', largeOutput), // run 2 — large, stripped first (newest eligible)
     makeUserMessage('q3'),
     makeAssistantMessage('a3'),
     makeToolMessage('tc3', largeOutput) // run 3 (last — never stripped)
@@ -176,13 +176,13 @@ test('applyStripCompact stops stripping once under threshold', () => {
 
   const result = applyStripCompact(messages)
 
-  // Run 1 stripped
-  const run1Tool = result[3] as { content: Array<{ output: { type: string; value: string } }> }
-  assert.match(run1Tool.content[0].output.value, /stripped/)
+  // Run 2 stripped first (newest eligible, and large enough to bring us under threshold)
+  const run2Tool = result[6] as { content: Array<{ output: { type: string; value: string } }> }
+  assert.match(run2Tool.content[0].output.value, /\[Stripped: read/)
 
-  // Run 2 should be preserved (stripping run 1 was enough)
-  const run2Tool = result[6] as {
+  // Run 1 should be preserved (stripping run 2 was enough, and it's the cached prefix)
+  const run1Tool = result[3] as {
     content: Array<{ output: { type: string; value: Array<{ text: string }> } }>
   }
-  assert.equal(run2Tool.content[0].output.value[0].text, 'x'.repeat(100))
+  assert.equal(run1Tool.content[0].output.value[0].text, 'x'.repeat(100))
 })
