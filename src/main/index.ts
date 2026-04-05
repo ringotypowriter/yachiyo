@@ -1,5 +1,5 @@
 import log from 'electron-log/main'
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, screen, shell, BrowserWindow, globalShortcut, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -21,6 +21,62 @@ const APP_NAME = 'Yachiyo'
 app.setName(APP_NAME)
 
 let settingsWindow: BrowserWindow | null = null
+let translatorWindow: BrowserWindow | null = null
+
+function openTranslatorWindow(): void {
+  // Always destroy and recreate so tiling WMs (AeroSpace) don't drag
+  // the user back to a stale workspace. Destroying + immediately creating
+  // a new window in the same tick prevents the main window from stealing focus.
+  if (translatorWindow && !translatorWindow.isDestroyed()) {
+    translatorWindow.removeAllListeners('close')
+    translatorWindow.destroy()
+    translatorWindow = null
+  }
+
+  const cursorPoint = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursorPoint)
+  const { width: dw, height: dh, x: dx, y: dy } = display.workArea
+  const winW = 380
+  const winH = 420
+  const x = Math.max(dx, Math.min(cursorPoint.x - Math.round(winW / 2), dx + dw - winW))
+  const y = Math.max(dy, Math.min(cursorPoint.y - Math.round(winH / 2), dy + dh - winH))
+
+  translatorWindow = new BrowserWindow({
+    width: winW,
+    height: winH,
+    x,
+    y,
+    resizable: false,
+    show: false,
+    frame: false,
+    alwaysOnTop: true,
+    transparent: true,
+    ...(process.platform === 'darwin' && {
+      vibrancy: 'hud',
+      visualEffectState: 'active',
+      backgroundColor: '#00000000'
+    }),
+    icon,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+  installEditableContextMenu(translatorWindow)
+  translatorWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+  translatorWindow.on('ready-to-show', () => translatorWindow?.show())
+  translatorWindow.on('closed', () => {
+    translatorWindow = null
+  })
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    translatorWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/translator/index.html`)
+  } else {
+    translatorWindow.loadFile(join(__dirname, '../renderer/translator/index.html'))
+  }
+}
 
 app.setPath('userData', resolveYachiyoDataDir())
 
@@ -37,6 +93,7 @@ function createWindow(): void {
     trafficLightPosition: { x: 16, y: 18 },
     ...(process.platform === 'darwin' && {
       vibrancy: 'under-window',
+      visualEffectState: 'active',
       backgroundColor: '#00000000'
     }),
     icon,
@@ -119,6 +176,10 @@ app.whenReady().then(async () => {
     }
   })
 
+  ipcMain.on('open-translator', () => openTranslatorWindow())
+
+  globalShortcut.register('CommandOrControl+Shift+T', () => openTranslatorWindow())
+
   ipcMain.on('open-settings', (_event, tab?: string) => {
     if (settingsWindow && !settingsWindow.isDestroyed()) {
       settingsWindow.focus()
@@ -173,6 +234,10 @@ app.whenReady().then(async () => {
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
+})
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()

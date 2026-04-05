@@ -1,16 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   Archive,
   ArrowDownCircle,
+  MoreHorizontal,
   PanelLeft,
-  Radio,
   Search,
   Settings,
   SquarePen
 } from 'lucide-react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { EssentialsBar } from '@renderer/features/essentials/components/EssentialsBar'
-import { ConnectionStatusIndicator } from '@renderer/features/layout/components/ConnectionStatusIndicator'
+import { SidebarUtilityMenu } from '@renderer/features/layout/components/SidebarUtilityMenu'
 import { SidebarSearch } from '@renderer/features/search/SidebarSearch'
 import { ThreadList } from '@renderer/features/threads/components/ThreadList'
 import { TRAFFIC_LIGHTS_SAFE_ZONE } from '@renderer/lib/sidebarLayout'
@@ -67,13 +67,19 @@ export function AppSidebar({
     (s) => s.archivedThreads.filter((t) => t.archivedAt && !t.readAt).length
   )
 
+  const [utilityMenuAnchor, setUtilityMenuAnchor] = useState<DOMRect | null>(null)
+
+  const handleOpenTranslator = useCallback(() => {
+    window.api.openTranslator()
+  }, [])
+
   return (
     <div
       aria-hidden={!isOpen}
       className="flex flex-col h-full shrink-0 overflow-hidden"
       style={{
         width: sidebarWidth,
-        background: 'transparent',
+        background: theme.background.sidebarVibrancy,
         opacity: isOpen ? 1 : 0,
         pointerEvents: isOpen ? 'auto' : 'none',
         transition: isDragging ? 'none' : 'opacity 200ms, width 200ms'
@@ -157,21 +163,6 @@ export function AppSidebar({
               </button>
             </Tooltip>
             <Tooltip
-              content={showExternalThreads ? 'Hide external threads' : 'Show external threads'}
-            >
-              <button
-                onClick={toggleShowExternalThreads}
-                className="p-1.5 rounded-md transition-opacity"
-                style={{
-                  color: showExternalThreads ? theme.text.accentStrong : theme.icon.default,
-                  opacity: showExternalThreads ? 0.9 : 0.4
-                }}
-                aria-label={showExternalThreads ? 'Hide external threads' : 'Show external threads'}
-              >
-                <Radio size={16} strokeWidth={1.5} />
-              </button>
-            </Tooltip>
-            <Tooltip
               content={threadListMode === 'archived' ? 'Show active chats' : 'Show archived chats'}
             >
               <button
@@ -225,7 +216,35 @@ export function AppSidebar({
               </button>
             </Tooltip>
           )}
-          <ConnectionStatusIndicator connectionStatus={connectionStatus} />
+          <Tooltip content="More">
+            <button
+              onClick={(e) => {
+                if (utilityMenuAnchor) {
+                  setUtilityMenuAnchor(null)
+                } else {
+                  setUtilityMenuAnchor(e.currentTarget.getBoundingClientRect())
+                }
+              }}
+              className="p-1.5 rounded-md transition-opacity"
+              style={{
+                color: utilityMenuAnchor ? theme.text.accentStrong : theme.icon.default,
+                opacity: utilityMenuAnchor ? 0.9 : 0.4
+              }}
+              aria-label="More options"
+            >
+              <MoreHorizontal size={16} strokeWidth={1.5} />
+            </button>
+          </Tooltip>
+          {utilityMenuAnchor && (
+            <SidebarUtilityMenu
+              anchorRect={utilityMenuAnchor}
+              connectionStatus={connectionStatus}
+              showExternalThreads={showExternalThreads}
+              onToggleExternalThreads={toggleShowExternalThreads}
+              onOpenTranslator={handleOpenTranslator}
+              onClose={() => setUtilityMenuAnchor(null)}
+            />
+          )}
         </div>
       </div>
     </div>

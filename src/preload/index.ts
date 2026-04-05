@@ -30,11 +30,14 @@ import type {
   UserDocument,
   SoulDocument,
   ToolPreferencesInput,
+  TranslateInput,
+  TranslateResult,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
 
 const api = {
   openSettings: (tab?: string) => ipcRenderer.send('open-settings', tab),
+  openTranslator: () => ipcRenderer.send('open-translator'),
   navigateToArchivedThread: (threadId: string) =>
     ipcRenderer.send('navigate-to-archived-thread', threadId),
   onNavigateToArchivedThread: (listener: (threadId: string) => void): (() => void) => {
@@ -112,6 +115,15 @@ const api = {
     cancelRun: (input: { runId: string }) => ipcRenderer.invoke('yachiyo:cancel-run', input),
     answerToolQuestion: (input: AnswerToolQuestionInput) =>
       ipcRenderer.invoke('yachiyo:answer-tool-question', input),
+    translate: (input: TranslateInput): Promise<TranslateResult> =>
+      ipcRenderer.invoke('yachiyo:translate', input),
+    onTranslateDelta: (listener: (delta: string) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, delta: string): void => {
+        listener(delta)
+      }
+      ipcRenderer.on('translator:delta', handler)
+      return () => ipcRenderer.off('translator:delta', handler)
+    },
     getConfig: () => ipcRenderer.invoke('yachiyo:get-config'),
     getSoulDocument: (): Promise<SoulDocument> => ipcRenderer.invoke('yachiyo:get-soul-document'),
     addSoulTrait: (input: { trait: string }): Promise<SoulDocument> =>

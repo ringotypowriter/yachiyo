@@ -24,6 +24,7 @@ import type {
   TestSubagentProfileInput,
   ThreadModelOverride,
   ToolPreferencesInput,
+  TranslateInput,
   UpdateChannelGroupInput,
   UpdateChannelUserInput,
   UpdateScheduleInput,
@@ -142,7 +143,8 @@ const IPC_CHANNELS = {
   listRecentScheduleRuns: 'yachiyo:list-recent-schedule-runs',
   markThreadAsRead: 'yachiyo:mark-thread-as-read',
   openSkillsFolder: 'yachiyo:open-skills-folder',
-  answerToolQuestion: 'yachiyo:answer-tool-question'
+  answerToolQuestion: 'yachiyo:answer-tool-question',
+  translate: 'yachiyo:translate'
 } as const
 
 let server: YachiyoServer | null = null
@@ -888,6 +890,16 @@ export function registerYachiyoGateway(): YachiyoServer {
       return `data:${input.mediaType};base64,${base64}`
     }
   )
+
+  ipcMain.removeHandler(IPC_CHANNELS.translate)
+  ipcMain.handle(IPC_CHANNELS.translate, async (event, input: TranslateInput) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    return server!.translateStream(input, (delta) => {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('translator:delta', delta)
+      }
+    })
+  })
 
   app.once('before-quit', () => {
     if (commandSocketHealthTimer) {

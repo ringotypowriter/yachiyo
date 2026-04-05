@@ -41,6 +41,8 @@ import type {
   ThreadSnapshot,
   ThreadRecord,
   ToolPreferencesInput,
+  TranslateInput,
+  TranslateResult,
   SkillCatalogEntry,
   WebSearchBrowserImportSource,
   YachiyoServerEvent
@@ -51,6 +53,7 @@ declare global {
     electron: ElectronAPI
     api: {
       openSettings: (tab?: string) => void
+      openTranslator: () => void
       navigateToArchivedThread: (threadId: string) => void
       onNavigateToArchivedThread: (listener: (threadId: string) => void) => () => void
       setVibrancy: (enabled: boolean) => void
@@ -100,6 +103,8 @@ declare global {
         }) => Promise<ThreadRecord>
         cancelRun: (input: { runId: string }) => Promise<void>
         answerToolQuestion: (input: AnswerToolQuestionInput) => Promise<void>
+        translate: (input: TranslateInput) => Promise<TranslateResult>
+        onTranslateDelta: (listener: (delta: string) => void) => () => void
         getConfig: () => Promise<SettingsConfig>
         getSoulDocument: () => Promise<SoulDocument>
         addSoulTrait: (input: { trait: string }) => Promise<SoulDocument>
