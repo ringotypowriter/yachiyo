@@ -27,6 +27,25 @@ export default function JotdownApp(): React.JSX.Element {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingSaveRef = useRef<{ id: string; content: string } | null>(null)
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const selectingRef = useRef<string | null>(null)
+
+  // Focus list overlay only when it first opens
+  useEffect(() => {
+    if (showList) {
+      listRef.current?.focus()
+    }
+  }, [showList])
+
+  // Close list on Escape
+  useEffect(() => {
+    if (!showList) return
+    const handler = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setShowList(false)
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [showList])
 
   // Load notes on mount
   useEffect(() => {
@@ -107,6 +126,7 @@ export default function JotdownApp(): React.JSX.Element {
 
   const handleCreate = useCallback(async () => {
     await flushSave()
+    selectingRef.current = null
     const note = await window.api.yachiyo.createJotdown()
     setNotes((prev) => [
       { id: note.id, title: note.title, createdAt: note.createdAt, modifiedAt: note.modifiedAt },
@@ -126,7 +146,9 @@ export default function JotdownApp(): React.JSX.Element {
         return
       }
       await flushSave()
+      selectingRef.current = id
       const note = await window.api.yachiyo.loadJotdown({ id })
+      if (selectingRef.current !== id) return
       setActiveNote(note)
       setContent(note.content)
       setSaveStatus('idle')
@@ -203,6 +225,8 @@ export default function JotdownApp(): React.JSX.Element {
             }}
             onClick={() => setShowList(!showList)}
             aria-label="Note list"
+            aria-expanded={showList}
+            aria-controls="jotdown-list"
           >
             <List size={14} strokeWidth={1.5} />
           </button>
@@ -222,7 +246,7 @@ export default function JotdownApp(): React.JSX.Element {
         <button
           className="no-drag p-1 rounded-md opacity-50 hover:opacity-80 transition-opacity"
           style={{ color: theme.icon.default }}
-          onClick={() => window.close()}
+          onClick={() => window.api.hideJotdown()}
           aria-label="Close"
         >
           <X size={14} strokeWidth={1.5} />
@@ -242,6 +266,7 @@ export default function JotdownApp(): React.JSX.Element {
               lineHeight: 1.6
             }}
             placeholder="Start writing..."
+            aria-label="Note content"
             value={content}
             onChange={(e) => handleContentChange(e.target.value)}
           />
@@ -286,14 +311,24 @@ export default function JotdownApp(): React.JSX.Element {
       {/* Note list overlay */}
       {showList && (
         <div
-          className="absolute inset-x-0 overflow-y-auto rounded-b-lg"
+          ref={listRef}
+          id="jotdown-list"
+          role="dialog"
+          aria-label="Notes"
+          tabIndex={-1}
+          className="absolute inset-x-0 overflow-y-auto rounded-b-lg outline-none"
           style={{
             top: 38,
             bottom: 0,
-            background: 'transparent',
-            backdropFilter: 'blur(40px)',
-            WebkitBackdropFilter: 'blur(40px)',
+            background: theme.background.surfaceFrosted,
+            backdropFilter: 'blur(24px)',
+            WebkitBackdropFilter: 'blur(24px)',
+            borderTop: `1px solid ${theme.border.subtle}`,
+            boxShadow: theme.shadow.overlay,
             zIndex: 10
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowList(false)
           }}
         >
           <div className="px-3 pt-2 pb-1">
@@ -301,12 +336,16 @@ export default function JotdownApp(): React.JSX.Element {
               Notes
             </span>
           </div>
-          {notes.map((note) => (
+          {notes.map((note, index) => (
             <div
               key={note.id}
+              role="button"
+              tabIndex={0}
+              aria-label={`Open note: ${note.title}`}
               className="flex items-center px-3 py-2 text-[12px] transition-colors group"
               style={{
-                borderBottom: `1px solid ${theme.border.subtle}`,
+                borderBottom:
+                  index < notes.length - 1 ? `1px solid ${theme.border.subtle}` : undefined,
                 background:
                   note.id === activeNote?.id ? theme.background.accentSoft : 'transparent',
                 cursor: 'pointer'
@@ -318,6 +357,20 @@ export default function JotdownApp(): React.JSX.Element {
               onMouseLeave={(e) => {
                 ;(e.currentTarget as HTMLElement).style.background =
                   note.id === activeNote?.id ? theme.background.accentSoft : 'transparent'
+              }}
+              onFocus={(e) => {
+                if (note.id !== activeNote?.id)
+                  (e.currentTarget as HTMLElement).style.background = theme.background.hover
+              }}
+              onBlur={(e) => {
+                ;(e.currentTarget as HTMLElement).style.background =
+                  note.id === activeNote?.id ? theme.background.accentSoft : 'transparent'
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  handleSelectNote(note.id)
+                }
               }}
               onClick={() => handleSelectNote(note.id)}
             >
@@ -343,11 +396,14 @@ export default function JotdownApp(): React.JSX.Element {
                 </div>
               </div>
               <button
-                className="shrink-0 p-1 rounded-md opacity-0 group-hover:opacity-40 hover:opacity-80! transition-opacity ml-2"
+                className="shrink-0 p-1 rounded-md opacity-0 group-hover:opacity-40 focus-visible:opacity-80 hover:opacity-80! transition-opacity ml-2"
                 style={{ color: theme.text.danger }}
                 onClick={(e) => {
                   e.stopPropagation()
                   handleDelete(note.id)
+                }}
+                onKeyDown={(e) => {
+                  e.stopPropagation()
                 }}
                 aria-label="Delete note"
               >

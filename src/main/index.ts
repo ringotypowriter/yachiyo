@@ -23,6 +23,16 @@ app.setName(APP_NAME)
 let settingsWindow: BrowserWindow | null = null
 let translatorWindow: BrowserWindow | null = null
 let jotdownWindow: BrowserWindow | null = null
+let isQuitting = false
+
+function maybeDestroyHiddenJotdown(): void {
+  if (process.platform === 'darwin') return
+  const hasVisible = BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && w.isVisible())
+  if (!hasVisible && jotdownWindow && !jotdownWindow.isDestroyed()) {
+    jotdownWindow.destroy()
+    jotdownWindow = null
+  }
+}
 
 function openTranslatorWindow(): void {
   // Always destroy and recreate so tiling WMs (AeroSpace) don't drag
@@ -71,6 +81,7 @@ function openTranslatorWindow(): void {
   translatorWindow.on('ready-to-show', () => translatorWindow?.show())
   translatorWindow.on('closed', () => {
     translatorWindow = null
+    maybeDestroyHiddenJotdown()
   })
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     translatorWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/translator/index.html`)
@@ -81,9 +92,11 @@ function openTranslatorWindow(): void {
 
 function openJotdownWindow(): void {
   if (jotdownWindow && !jotdownWindow.isDestroyed()) {
-    jotdownWindow.removeAllListeners('close')
-    jotdownWindow.destroy()
-    jotdownWindow = null
+    jotdownWindow.setOpacity(1)
+    jotdownWindow.setIgnoreMouseEvents(false)
+    jotdownWindow.show()
+    jotdownWindow.focus()
+    return
   }
 
   const cursorPoint = screen.getCursorScreenPoint()
@@ -123,6 +136,18 @@ function openJotdownWindow(): void {
     return { action: 'deny' }
   })
   jotdownWindow.on('ready-to-show', () => jotdownWindow?.show())
+  jotdownWindow.on('close', (event) => {
+    if (!isQuitting) {
+      const hasOtherVisible = BrowserWindow.getAllWindows().some(
+        (w) => !w.isDestroyed() && w !== jotdownWindow && w.isVisible()
+      )
+      if (hasOtherVisible) {
+        event.preventDefault()
+        jotdownWindow?.blur()
+        jotdownWindow?.hide()
+      }
+    }
+  })
   jotdownWindow.on('closed', () => {
     jotdownWindow = null
   })
@@ -160,6 +185,9 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+  })
+  mainWindow.on('closed', () => {
+    maybeDestroyHiddenJotdown()
   })
   installEditableContextMenu(mainWindow)
 
@@ -234,6 +262,19 @@ app.whenReady().then(async () => {
   ipcMain.on('open-translator', () => openTranslatorWindow())
   ipcMain.on('open-jotdown', () => openJotdownWindow())
 
+  ipcMain.on('hide-translator', () => {
+    if (translatorWindow && !translatorWindow.isDestroyed()) {
+      translatorWindow.setOpacity(0)
+      translatorWindow.setIgnoreMouseEvents(true)
+    }
+  })
+  ipcMain.on('hide-jotdown', () => {
+    if (jotdownWindow && !jotdownWindow.isDestroyed()) {
+      jotdownWindow.setOpacity(0)
+      jotdownWindow.setIgnoreMouseEvents(true)
+    }
+  })
+
   globalShortcut.register('CommandOrControl+Shift+T', () => openTranslatorWindow())
   globalShortcut.register('CommandOrControl+Shift+J', () => openJotdownWindow())
 
@@ -267,6 +308,7 @@ app.whenReady().then(async () => {
     settingsWindow.on('ready-to-show', () => settingsWindow?.show())
     settingsWindow.on('closed', () => {
       settingsWindow = null
+      maybeDestroyHiddenJotdown()
     })
     const hash = tab ? `#${tab}` : ''
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -284,13 +326,20 @@ app.whenReady().then(async () => {
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    const hasRealWindow = BrowserWindow.getAllWindows().some(
+      (w) => !w.isDestroyed() && w !== jotdownWindow
+    )
+    if (!hasRealWindow) createWindow()
   })
 })
 
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
+app.on('before-quit', () => {
+  isQuitting = true
+})
+
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
 })

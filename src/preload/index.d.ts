@@ -58,6 +58,8 @@ declare global {
       openSettings: (tab?: string) => void
       openTranslator: () => void
       openJotdown: () => void
+      hideTranslator: () => void
+      hideJotdown: () => void
       navigateToArchivedThread: (threadId: string) => void
       onNavigateToArchivedThread: (listener: (threadId: string) => void) => () => void
       setVibrancy: (enabled: boolean) => void

@@ -281,7 +281,7 @@ export default function TranslatorApp(): React.JSX.Element {
         <button
           className="no-drag p-1 rounded-md opacity-50 hover:opacity-80 transition-opacity"
           style={{ color: theme.icon.default }}
-          onClick={() => window.close()}
+          onClick={() => window.api.hideTranslator()}
           aria-label="Close"
         >
           <X size={14} strokeWidth={1.5} />
