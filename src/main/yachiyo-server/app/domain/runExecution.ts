@@ -65,6 +65,7 @@ import type { BrowserWebPageSnapshotLoader } from '../../services/webRead/browse
 import {
   buildCurrentTimeSection,
   buildDisabledToolsReminderSection,
+  formatDateLine,
   formatQueryReminder
 } from '../../runtime/queryReminder.ts'
 import {
@@ -1033,10 +1034,12 @@ export async function executeServerRun(
       : deps.readUserDocument
         ? await deps.readUserDocument()
         : await readUserDocument()
+    const isLocalOrOwnerDm = !isExternalChannel || isOwnerDm
+    const now = new Date()
     const hiddenQueryReminder = formatQueryReminder(
       [
         buildDisabledToolsReminderSection({ enabledTools: modelEnabledTools }),
-        buildCurrentTimeSection()
+        buildCurrentTimeSection(now, { includeDate: !isLocalOrOwnerDm })
       ].flatMap((section) => (section ? [section] : []))
     )
     const sessionHint = input.thread.lastDelegatedSession
@@ -1230,7 +1233,11 @@ export async function executeServerRun(
             memory: { entries: memoryEntries }
           })
         : prepareModelMessages({
-            personality: { basePersona: SYSTEM_PROMPT },
+            personality: {
+              basePersona: isLocalOrOwnerDm
+                ? `Today is ${formatDateLine(now)}.\n\n${SYSTEM_PROMPT}`
+                : SYSTEM_PROMPT
+            },
             soul: { content: soulDocument?.rawContent ?? '' },
             user: { content: userDocument?.content ?? '' },
             skills: { activeSkills },

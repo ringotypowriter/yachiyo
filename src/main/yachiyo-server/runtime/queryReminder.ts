@@ -55,18 +55,27 @@ export function buildDisabledToolsReminderSection(input: {
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
-export function buildCurrentTimeSection(now: Date = new Date()): QueryReminderSection {
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
+export function formatDateLine(now: Date = new Date()): string {
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d} (${DAY_NAMES[now.getDay()]})`
+}
+
+export function buildCurrentTimeSection(
+  now: Date = new Date(),
+  { includeDate = true }: { includeDate?: boolean } = {}
+): QueryReminderSection {
   const hours = String(now.getHours()).padStart(2, '0')
   const minutes = String(now.getMinutes()).padStart(2, '0')
   const seconds = String(now.getSeconds()).padStart(2, '0')
-  const dayName = DAY_NAMES[now.getDay()]
+  const lines = includeDate
+    ? [`Date: ${formatDateLine(now)}`, `Time: ${hours}:${minutes}:${seconds}`]
+    : [`Time: ${hours}:${minutes}:${seconds}`]
   return {
     key: 'current-time',
-    title: 'Current date and time (local)',
-    lines: [`Date: ${year}-${month}-${day} (${dayName})`, `Time: ${hours}:${minutes}:${seconds}`]
+    title: includeDate ? 'Current date and time (local)' : 'Current time (local)',
+    lines
   }
 }
 

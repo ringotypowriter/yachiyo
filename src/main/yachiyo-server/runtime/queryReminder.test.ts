@@ -5,6 +5,7 @@ import {
   buildCurrentTimeSection,
   buildDisabledToolsReminderSection,
   buildToolAvailabilityReminderSection,
+  formatDateLine,
   formatQueryReminder
 } from './queryReminder.ts'
 
@@ -98,4 +99,18 @@ test('buildCurrentTimeSection uses local time with day name', () => {
   assert.equal(section.title, 'Current date and time (local)')
   assert.match(section.lines[0], /^Date: 2026-03-30 \(\w+\)$/)
   assert.equal(section.lines[1], 'Time: 14:05:09')
+})
+
+test('buildCurrentTimeSection can omit date when includeDate is false', () => {
+  const date = new Date(2026, 2, 30, 14, 5, 9)
+  const section = buildCurrentTimeSection(date, { includeDate: false })
+  assert.equal(section.key, 'current-time')
+  assert.equal(section.title, 'Current time (local)')
+  assert.equal(section.lines.length, 1)
+  assert.equal(section.lines[0], 'Time: 14:05:09')
+})
+
+test('formatDateLine produces YYYY-MM-DD with day name', () => {
+  const date = new Date(2026, 2, 30, 14, 5, 9)
+  assert.match(formatDateLine(date), /^2026-03-30 \(\w+\)$/)
 })
