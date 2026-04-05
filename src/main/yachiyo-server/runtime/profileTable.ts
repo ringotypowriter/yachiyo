@@ -224,6 +224,77 @@ export function upsertRows(
 }
 
 /**
+ * Upsert rows by 0-based index. Each entry is merged into the row at the
+ * corresponding index. Returns an error string if any index is out of range.
+ */
+export function upsertRowsByIndex(
+  existing: TableRow[],
+  entries: TableRow[],
+  indices: number[],
+  schema: SectionSchema,
+  timestamp: string
+): { rows: TableRow[]; error?: string } {
+  const result = [...existing]
+  const keyCol = schema.keyColumn
+
+  for (let i = 0; i < indices.length; i++) {
+    const idx = indices[i]
+    if (idx < 0 || idx >= result.length) {
+      return { rows: result, error: `Index ${idx} out of range (0–${result.length - 1}).` }
+    }
+    const entry = entries[i] ?? {}
+    const merged: TableRow = { ...result[idx] }
+    for (const col of schema.columns) {
+      if (col in entry) {
+        merged[col] = entry[col] ?? ''
+      }
+    }
+
+    // Validate key column is non-empty after merge
+    const keyVal = (merged[keyCol] ?? '').trim()
+    if (!keyVal) {
+      return { rows: existing, error: `Key column "${keyCol}" must not be empty (row ${idx}).` }
+    }
+
+    // Validate no duplicate key with another row
+    for (let j = 0; j < result.length; j++) {
+      if (j === idx) continue
+      if ((result[j][keyCol] ?? '').toLowerCase() === keyVal.toLowerCase()) {
+        return {
+          rows: existing,
+          error: `Duplicate key "${keyVal}" — conflicts with row ${j}.`
+        }
+      }
+    }
+
+    merged[SINCE_COLUMN] = timestamp
+    result[idx] = merged
+  }
+
+  return { rows: result }
+}
+
+/**
+ * Remove rows by 0-based indices. Returns an error string if any index is
+ * out of range.
+ */
+export function removeRowsByIndex(
+  existing: TableRow[],
+  indices: number[]
+): { rows: TableRow[]; removed: number; error?: string } {
+  const max = existing.length - 1
+  const idxSet = new Set<number>()
+  for (const idx of indices) {
+    if (idx < 0 || idx > max) {
+      return { rows: existing, removed: 0, error: `Index ${idx} out of range (0–${max}).` }
+    }
+    idxSet.add(idx)
+  }
+  const rows = existing.filter((_, i) => !idxSet.has(i))
+  return { rows, removed: idxSet.size }
+}
+
+/**
  * Remove rows by key column value (case-insensitive).
  */
 export function removeRows(
@@ -244,17 +315,23 @@ function escapeCell(value: string): string {
   return value.replace(/\|/g, '\\|').replace(/\n/g, ' ')
 }
 
+/** Auto-managed row index column name. */
+const INDEX_COLUMN = '#'
+
 /**
  * Render a table as markdown lines (headers + separator + data rows).
+ * Includes a leading `#` column with 0-based row indices.
  */
 export function renderTable(rows: TableRow[], schema: SectionSchema): string {
-  const allColumns = [...schema.columns, SINCE_COLUMN]
+  const allColumns = [INDEX_COLUMN, ...schema.columns, SINCE_COLUMN]
 
   const header = '| ' + allColumns.join(' | ') + ' |'
   const separator = '|' + allColumns.map(() => '---').join('|') + '|'
 
-  const dataLines = rows.map((row) => {
-    const cells = allColumns.map((col) => escapeCell(row[col] ?? ''))
+  const dataLines = rows.map((row, idx) => {
+    const cells = allColumns.map((col) =>
+      col === INDEX_COLUMN ? String(idx) : escapeCell(row[col] ?? '')
+    )
     return '| ' + cells.join(' | ') + ' |'
   })
 

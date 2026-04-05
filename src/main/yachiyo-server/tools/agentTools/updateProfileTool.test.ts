@@ -15,6 +15,7 @@ function createExecute(deps: UpdateProfileDeps) {
       operation: 'upsert' | 'remove'
       entries?: Record<string, string>[]
       keys?: string[]
+      indices?: number[]
     },
     options: object = {}
   ) =>
@@ -158,6 +159,210 @@ test('update_profile uses group schema for group mode', async () => {
     const content = await readFile(userDocumentPath, 'utf8')
     assert.match(content, /\| Nickname \| Identity \| Notes \| Since \|/)
     assert.match(content, /\| xiao_ming \| Zhang Ming \| owner \|/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('update_profile upserts rows by index', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
+  const userDocumentPath = join(root, 'USER.md')
+
+  try {
+    const execute = createExecute({ userDocumentPath })
+
+    // Seed two rows
+    await execute({
+      section: 'Profile',
+      operation: 'upsert',
+      entries: [
+        { Key: 'Name', Value: 'Alice' },
+        { Key: 'Role', Value: 'Engineer' }
+      ]
+    })
+
+    // Update second row (index 1) by index
+    const result = await execute({
+      section: 'Profile',
+      operation: 'upsert',
+      entries: [{ Value: 'Architect' }],
+      indices: [1]
+    })
+
+    assert.equal(result.error, undefined)
+    assert.match(result.content[0]?.text ?? '', /Upserted 1 row/)
+
+    const content = await readFile(userDocumentPath, 'utf8')
+    // Row 0 unchanged
+    assert.match(content, /\| Name \| Alice \|/)
+    // Row 1 value updated, key preserved
+    assert.match(content, /\| Role \| Architect \|/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('update_profile removes rows by index', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
+  const userDocumentPath = join(root, 'USER.md')
+
+  try {
+    const execute = createExecute({ userDocumentPath })
+
+    // Seed three rows
+    await execute({
+      section: 'Profile',
+      operation: 'upsert',
+      entries: [
+        { Key: 'Name', Value: 'Alice' },
+        { Key: 'Role', Value: 'Engineer' },
+        { Key: 'Team', Value: 'Backend' }
+      ]
+    })
+
+    // Remove row at index 1 (Role)
+    const result = await execute({
+      section: 'Profile',
+      operation: 'remove',
+      indices: [1]
+    })
+
+    assert.equal(result.error, undefined)
+    assert.match(result.content[0]?.text ?? '', /Removed 1 row/)
+
+    const content = await readFile(userDocumentPath, 'utf8')
+    assert.match(content, /\| Name \| Alice \|/)
+    assert.doesNotMatch(content, /Engineer/)
+    assert.match(content, /\| Team \| Backend \|/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('update_profile rejects out-of-range indices', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
+  const userDocumentPath = join(root, 'USER.md')
+
+  try {
+    const execute = createExecute({ userDocumentPath })
+
+    // Seed one row
+    await execute({
+      section: 'Profile',
+      operation: 'upsert',
+      entries: [{ Key: 'Name', Value: 'Alice' }]
+    })
+
+    // Try to update index 5 which doesn't exist
+    const result = await execute({
+      section: 'Profile',
+      operation: 'upsert',
+      entries: [{ Value: 'Bob' }],
+      indices: [5]
+    })
+
+    assert.ok(result.error)
+    assert.match(result.content[0]?.text ?? '', /out of range/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('update_profile index upsert does not require key column', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
+  const userDocumentPath = join(root, 'USER.md')
+
+  try {
+    const execute = createExecute({ userDocumentPath })
+
+    // Seed a row
+    await execute({
+      section: 'Profile',
+      operation: 'upsert',
+      entries: [{ Key: 'Name', Value: 'Alice' }]
+    })
+
+    // Update by index without providing the key column — should work
+    const result = await execute({
+      section: 'Profile',
+      operation: 'upsert',
+      entries: [{ Value: 'Updated' }],
+      indices: [0]
+    })
+
+    assert.equal(result.error, undefined)
+
+    const content = await readFile(userDocumentPath, 'utf8')
+    // Key preserved from existing row, value updated
+    assert.match(content, /\| Name \| Updated \|/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('update_profile index upsert rejects blank key column', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
+  const userDocumentPath = join(root, 'USER.md')
+
+  try {
+    const execute = createExecute({ userDocumentPath })
+
+    await execute({
+      section: 'Profile',
+      operation: 'upsert',
+      entries: [{ Key: 'Name', Value: 'Alice' }]
+    })
+
+    // Try to blank out the key column via index upsert
+    const result = await execute({
+      section: 'Profile',
+      operation: 'upsert',
+      entries: [{ Key: '', Value: 'Ghost' }],
+      indices: [0]
+    })
+
+    assert.ok(result.error)
+    assert.match(result.content[0]?.text ?? '', /key/i)
+
+    // Original row should be untouched
+    const content = await readFile(userDocumentPath, 'utf8')
+    assert.match(content, /\| Name \| Alice \|/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('update_profile index upsert rejects duplicate key', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
+  const userDocumentPath = join(root, 'USER.md')
+
+  try {
+    const execute = createExecute({ userDocumentPath })
+
+    await execute({
+      section: 'Profile',
+      operation: 'upsert',
+      entries: [
+        { Key: 'Name', Value: 'Alice' },
+        { Key: 'Role', Value: 'Engineer' }
+      ]
+    })
+
+    // Try to change row 1's key to "Name" — duplicates row 0
+    const result = await execute({
+      section: 'Profile',
+      operation: 'upsert',
+      entries: [{ Key: 'Name', Value: 'Imposter' }],
+      indices: [1]
+    })
+
+    assert.ok(result.error)
+    assert.match(result.content[0]?.text ?? '', /duplicate/i)
+
+    // Table should be unchanged
+    const content = await readFile(userDocumentPath, 'utf8')
+    assert.match(content, /\| Name \| Alice \|/)
+    assert.match(content, /\| Role \| Engineer \|/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

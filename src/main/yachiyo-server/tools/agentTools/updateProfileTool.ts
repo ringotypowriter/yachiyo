@@ -11,8 +11,10 @@ import {
   migrateLegacyLines,
   parseTable,
   removeRows,
+  removeRowsByIndex,
   renderTable,
-  upsertRows
+  upsertRows,
+  upsertRowsByIndex
 } from '../../runtime/profileTable.ts'
 
 const updateProfileToolInputSchema = z.object({
@@ -25,7 +27,13 @@ const updateProfileToolInputSchema = z.object({
   keys: z
     .array(z.string())
     .optional()
-    .describe('Key column values to remove (only for operation "remove").')
+    .describe('Key column values to remove (only for operation "remove").'),
+  indices: z
+    .array(z.number().int().min(0))
+    .optional()
+    .describe(
+      'Zero-based row indices to target. For "upsert": entries[i] updates row at indices[i]. For "remove": removes rows at these positions. When provided, key column matching is skipped.'
+    )
 })
 
 type UpdateProfileToolInput = z.infer<typeof updateProfileToolInputSchema>
@@ -53,7 +61,11 @@ function buildDescription(mode?: UserDocumentMode): string {
     'A "Since" timestamp column is managed automatically — do not include it in entries.',
     '',
     'operation "upsert": Add or update rows. Matches existing rows by the key column (case-insensitive). Provide entries as objects with column names as keys.',
-    'operation "remove": Delete rows by key column value. Provide keys array.'
+    'operation "remove": Delete rows by key column value. Provide keys array.',
+    '',
+    'Index-based targeting: provide "indices" (0-based row positions) to target specific rows instead of matching by key.',
+    'For "upsert" with indices: entries[i] merges into row at indices[i]; key column is optional.',
+    'For "remove" with indices: removes rows at those positions; "keys" is not required.'
   ].join('\n')
 }
 
@@ -90,6 +102,8 @@ export function createTool(
         const timestamp = formatTimestamp()
 
         // Validate operation inputs
+        const useIndices = input.indices && input.indices.length > 0
+
         if (input.operation === 'upsert') {
           if (!input.entries || input.entries.length === 0) {
             return {
@@ -98,28 +112,43 @@ export function createTool(
             }
           }
 
-          // Validate that key column is present in every entry
-          for (const entry of input.entries) {
-            const keyValue = entry[schema.keyColumn]
-            if (!keyValue || keyValue.trim().length === 0) {
+          if (useIndices) {
+            // Index mode: entries and indices must have the same length
+            if (input.indices!.length !== input.entries.length) {
               return {
                 content: [
                   {
                     type: 'text',
-                    text: `Every entry must include a non-empty "${schema.keyColumn}" column.`
+                    text: 'When using indices, entries and indices arrays must have the same length.'
                   }
                 ],
-                error: `Missing key column "${schema.keyColumn}".`
+                error: 'entries/indices length mismatch.'
+              }
+            }
+          } else {
+            // Key mode: validate that key column is present in every entry
+            for (const entry of input.entries) {
+              const keyValue = entry[schema.keyColumn]
+              if (!keyValue || keyValue.trim().length === 0) {
+                return {
+                  content: [
+                    {
+                      type: 'text',
+                      text: `Every entry must include a non-empty "${schema.keyColumn}" column.`
+                    }
+                  ],
+                  error: `Missing key column "${schema.keyColumn}".`
+                }
               }
             }
           }
         }
 
         if (input.operation === 'remove') {
-          if (!input.keys || input.keys.length === 0) {
+          if (!useIndices && (!input.keys || input.keys.length === 0)) {
             return {
-              content: [{ type: 'text', text: 'No keys provided for remove.' }],
-              error: 'No keys provided.'
+              content: [{ type: 'text', text: 'No keys or indices provided for remove.' }],
+              error: 'No keys or indices provided.'
             }
           }
         }
@@ -178,13 +207,42 @@ export function createTool(
         let summary: string
 
         if (input.operation === 'upsert') {
-          resultRows = upsertRows(migratedRows, input.entries!, schema, timestamp)
+          if (useIndices) {
+            const res = upsertRowsByIndex(
+              migratedRows,
+              input.entries!,
+              input.indices!,
+              schema,
+              timestamp
+            )
+            if (res.error) {
+              return {
+                content: [{ type: 'text', text: res.error }],
+                error: res.error
+              }
+            }
+            resultRows = res.rows
+          } else {
+            resultRows = upsertRows(migratedRows, input.entries!, schema, timestamp)
+          }
           const count = input.entries!.length
           summary = `Upserted ${count} row${count === 1 ? '' : 's'} in "${canonicalName}".`
         } else {
-          resultRows = removeRows(migratedRows, input.keys!, schema)
-          const removed = migratedRows.length - resultRows.length
-          summary = `Removed ${removed} row${removed === 1 ? '' : 's'} from "${canonicalName}".`
+          if (useIndices) {
+            const res = removeRowsByIndex(migratedRows, input.indices!)
+            if (res.error) {
+              return {
+                content: [{ type: 'text', text: res.error }],
+                error: res.error
+              }
+            }
+            resultRows = res.rows
+            summary = `Removed ${res.removed} row${res.removed === 1 ? '' : 's'} from "${canonicalName}".`
+          } else {
+            resultRows = removeRows(migratedRows, input.keys!, schema)
+            const removed = migratedRows.length - resultRows.length
+            summary = `Removed ${removed} row${removed === 1 ? '' : 's'} from "${canonicalName}".`
+          }
         }
 
         // Render table and write back
