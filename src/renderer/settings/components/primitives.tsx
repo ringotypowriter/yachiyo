@@ -139,7 +139,18 @@ export function SimpleSelect<T extends string>({
           outline: 'none'
         }}
       >
-        <span style={{ flex: 1, fontSize: 14, color: theme.text.primary, lineHeight: '20px' }}>
+        <span
+          style={{
+            flex: 1,
+            fontSize: 14,
+            color: theme.text.primary,
+            lineHeight: '20px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            minWidth: 0
+          }}
+        >
           {selectedLabel}
         </span>
         <ChevronDown
