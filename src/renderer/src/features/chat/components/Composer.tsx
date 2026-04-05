@@ -975,6 +975,16 @@ export function Composer({
       return
     }
 
+    // Fast path: when the textarea is empty (e.g. after send), collapse immediately.
+    // This avoids stale scrollHeight measurements that can keep the box expanded.
+    if (!element.value) {
+      element.style.height = 'auto'
+      element.style.overflowY = 'hidden'
+      element.scrollTop = 0
+      if (overlayRef.current) overlayRef.current.scrollTop = 0
+      return
+    }
+
     const maxPx = COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX
     const forceToBottom = options?.forceScrollToBottom ?? false
     const eps = 3
