@@ -26,6 +26,10 @@ describe('hasForbiddenGroupReplyPrefix', () => {
     assert.equal(hasForbiddenGroupReplyPrefix('   ：hello there'), true)
   })
 
+  it('rejects replies that start with a closing brace after whitespace', () => {
+    assert.equal(hasForbiddenGroupReplyPrefix('   }hello there'), true)
+  })
+
   it('allows normal replies', () => {
     assert.equal(hasForbiddenGroupReplyPrefix('hello there'), false)
   })

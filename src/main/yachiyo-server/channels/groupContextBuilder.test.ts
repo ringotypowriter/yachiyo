@@ -234,6 +234,7 @@ describe('buildGroupProbeSystemPrompt', () => {
       groupName: 'TestGroup'
     })
     assert.ok(prompt.includes('send_group_message'))
+    assert.ok(prompt.includes('at most once per turn'))
   })
 
   it('includes persona when provided', () => {

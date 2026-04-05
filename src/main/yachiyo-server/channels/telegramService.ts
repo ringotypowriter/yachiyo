@@ -53,6 +53,7 @@ import {
   type GroupMonitorPersistence,
   type GroupMonitorRegistry
 } from './groupMonitorRegistry'
+import { createGroupTurnSendGuard } from './groupTurnSendGuard'
 import { connectWithRetry } from './connectionRetry.ts'
 import { routeTelegramMessage, type TelegramChannelStorage } from './telegram'
 import { EXTERNAL_GROUP_PROMPT } from '../runtime/prompt'
@@ -520,6 +521,7 @@ export function createTelegramService({
   ): Promise<boolean> {
     const auxService = server.getAuxiliaryGenerationService()
     let didSpeak = false
+    const turnSendGuard = createGroupTurnSendGuard()
 
     const sendGroupMessageTool = tool({
       description:
@@ -527,9 +529,13 @@ export function createTelegramService({
       inputSchema: z.object({
         message: z
           .string()
-          .describe('The message to send to the group. Plain text only. Never start with a colon.')
+          .describe(
+            'The message to send to the group. Plain text only. Never start with a colon or }.'
+          )
       }),
       execute: async ({ message }) => {
+        turnSendGuard.beforeAttempt()
+
         if (message.includes('\n')) {
           console.log(`[telegram-group] rejected multi-line message for "${group.name}"`)
           return 'Rejected: message must be a single line. Do not include line breaks.'
@@ -542,9 +548,9 @@ export function createTelegramService({
 
         if (hasForbiddenGroupReplyPrefix(message)) {
           console.log(
-            `[telegram-group] rejected colon-prefixed message for "${group.name}": ${message}`
+            `[telegram-group] rejected forbidden-prefix message for "${group.name}": ${message}`
           )
-          throw new Error('Rejected: message must not start with a colon.')
+          throw new Error('Rejected: message must not start with a colon or }.')
         }
 
         if (isBareSymbolMessage(message)) {
@@ -558,7 +564,7 @@ export function createTelegramService({
           console.log(
             `[telegram-group] dropped duplicate message for "${group.name}": ${message.slice(0, 80)}`
           )
-          return 'Message sent.'
+          return turnSendGuard.recordBlockedAttempt('duplicate')
         }
 
         if (speechThrottle.shouldDrop(group.id)) {
@@ -566,11 +572,12 @@ export function createTelegramService({
           console.log(
             `[telegram-group] throttled message for "${group.name}" (drop rate ${Math.round(rate * 100)}%): ${message.slice(0, 80)}`
           )
-          return 'Message sent.'
+          return turnSendGuard.recordBlockedAttempt('throttled')
         }
 
         try {
           await sendMessage(group.externalGroupId, message)
+          turnSendGuard.recordSent()
           recordOutgoing(group.id, message)
           speechThrottle.recordSend(group.id)
           console.log(`[telegram-group] sent reply to "${group.name}": ${message.slice(0, 100)}`)

@@ -53,6 +53,7 @@ import {
   type GroupMonitorPersistence,
   type GroupMonitorRegistry
 } from './groupMonitorRegistry.ts'
+import { createGroupTurnSendGuard } from './groupTurnSendGuard.ts'
 import { connectWithRetry } from './connectionRetry.ts'
 import { routeDiscordMessage, type DiscordChannelStorage } from './discord.ts'
 import { EXTERNAL_GROUP_PROMPT } from '../runtime/prompt.ts'
@@ -501,6 +502,7 @@ export function createDiscordService({
   ): Promise<boolean> {
     const auxService = server.getAuxiliaryGenerationService()
     let didSpeak = false
+    const turnSendGuard = createGroupTurnSendGuard()
 
     const sendGroupMessageTool = tool({
       description:
@@ -508,9 +510,13 @@ export function createDiscordService({
       inputSchema: z.object({
         message: z
           .string()
-          .describe('The message to send to the group. Plain text only. Never start with a colon.')
+          .describe(
+            'The message to send to the group. Plain text only. Never start with a colon or }.'
+          )
       }),
       execute: async ({ message }) => {
+        turnSendGuard.beforeAttempt()
+
         if (!hasVisibleGroupReplyContent(message)) {
           console.log(`[discord-group] rejected empty message for "${group.name}"`)
           return 'Rejected: message must contain visible text.'
@@ -518,9 +524,9 @@ export function createDiscordService({
 
         if (hasForbiddenGroupReplyPrefix(message)) {
           console.log(
-            `[discord-group] rejected colon-prefixed message for "${group.name}": ${message}`
+            `[discord-group] rejected forbidden-prefix message for "${group.name}": ${message}`
           )
-          throw new Error('Rejected: message must not start with a colon.')
+          throw new Error('Rejected: message must not start with a colon or }.')
         }
 
         if (isBareSymbolMessage(message)) {
@@ -534,7 +540,7 @@ export function createDiscordService({
           console.log(
             `[discord-group] dropped duplicate message for "${group.name}": ${message.slice(0, 80)}`
           )
-          return 'Message sent.'
+          return turnSendGuard.recordBlockedAttempt('duplicate')
         }
 
         if (speechThrottle.shouldDrop(group.id)) {
@@ -542,11 +548,12 @@ export function createDiscordService({
           console.log(
             `[discord-group] throttled message for "${group.name}" (drop rate ${Math.round(rate * 100)}%): ${message.slice(0, 80)}`
           )
-          return 'Message sent.'
+          return turnSendGuard.recordBlockedAttempt('throttled')
         }
 
         try {
           await sendMessage(group.externalGroupId, message)
+          turnSendGuard.recordSent()
           recordOutgoing(group.id, message)
           speechThrottle.recordSend(group.id)
           console.log(`[discord-group] sent reply to "${group.name}": ${message.slice(0, 100)}`)

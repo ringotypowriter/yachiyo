@@ -21,7 +21,7 @@ function pruneExpiredGroupReplyHistory(history: GroupReplyHistory, nowMs: number
 }
 
 export function hasForbiddenGroupReplyPrefix(message: string): boolean {
-  return /^\s*[:：]/.test(message)
+  return /^\s*[:：}]/.test(message)
 }
 
 export function hasVisibleGroupReplyContent(message: string): boolean {

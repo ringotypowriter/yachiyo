@@ -55,6 +55,7 @@ import {
   type GroupMonitorPersistence,
   type GroupMonitorRegistry
 } from './groupMonitorRegistry.ts'
+import { createGroupTurnSendGuard } from './groupTurnSendGuard.ts'
 import { parseCQImages, type CQImageRef } from './qqImageParsing.ts'
 import { resolveCQCodes, extractReplyId } from './qqCQCodes.ts'
 import { createOneBotClient, type OneBotClient } from './onebotClient.ts'
@@ -439,6 +440,7 @@ export function createQQService({
   ): Promise<boolean> {
     const auxService = server.getAuxiliaryGenerationService()
     let didSpeak = false
+    const turnSendGuard = createGroupTurnSendGuard()
 
     // Build the send_group_message tool — closure captures the send logic.
     const sendGroupMessageTool = tool({
@@ -447,9 +449,13 @@ export function createQQService({
       inputSchema: z.object({
         message: z
           .string()
-          .describe('The message to send to the group. Plain text only. Never start with a colon.')
+          .describe(
+            'The message to send to the group. Plain text only. Never start with a colon or }.'
+          )
       }),
       execute: async ({ message }) => {
+        turnSendGuard.beforeAttempt()
+
         if (message.includes('\n')) {
           console.log(`[qq-group] rejected multi-line message for "${group.name}"`)
           return 'Rejected: message must be a single line. Do not include line breaks.'
@@ -461,8 +467,10 @@ export function createQQService({
         }
 
         if (hasForbiddenGroupReplyPrefix(message)) {
-          console.log(`[qq-group] rejected colon-prefixed message for "${group.name}": ${message}`)
-          throw new Error('Rejected: message must not start with a colon.')
+          console.log(
+            `[qq-group] rejected forbidden-prefix message for "${group.name}": ${message}`
+          )
+          throw new Error('Rejected: message must not start with a colon or }.')
         }
 
         if (isBareSymbolMessage(message)) {
@@ -474,7 +482,7 @@ export function createQQService({
           console.log(
             `[qq-group] dropped duplicate message for "${group.name}": ${message.slice(0, 80)}`
           )
-          return 'Message sent.'
+          return turnSendGuard.recordBlockedAttempt('duplicate')
         }
 
         if (speechThrottle.shouldDrop(group.id)) {
@@ -482,11 +490,12 @@ export function createQQService({
           console.log(
             `[qq-group] throttled message for "${group.name}" (drop rate ${Math.round(rate * 100)}%): ${message.slice(0, 80)}`
           )
-          return 'Message sent.'
+          return turnSendGuard.recordBlockedAttempt('throttled')
         }
 
         try {
           await client.sendGroupMessage(Number(group.externalGroupId), message)
+          turnSendGuard.recordSent()
           recordOutgoing(group.id, message)
           speechThrottle.recordSend(group.id)
           console.log(`[qq-group] sent reply to group "${group.name}": ${message.slice(0, 100)}`)
