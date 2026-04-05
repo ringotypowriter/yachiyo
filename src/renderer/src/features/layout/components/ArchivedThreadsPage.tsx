@@ -62,7 +62,29 @@ function ArchivedTimeline({
   }, [threadId, messages.length])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const container = scrollContainerRef.current
+    const bottom = bottomRef.current
+    if (!container || !bottom) return
+
+    let rafId: number | null = null
+    let rafId2: number | null = null
+
+    rafId = requestAnimationFrame(() => {
+      rafId2 = requestAnimationFrame(() => {
+        const distanceFromBottom =
+          container.scrollHeight - container.scrollTop - container.clientHeight
+        if (distanceFromBottom < 100) {
+          bottom.scrollIntoView({ behavior: 'smooth', block: 'end' })
+        } else {
+          container.scrollTop = container.scrollHeight
+        }
+      })
+    })
+
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      if (rafId2 !== null) cancelAnimationFrame(rafId2)
+    }
   }, [messages])
 
   // Walk the active branch from headMessageId to show the correct reply path,

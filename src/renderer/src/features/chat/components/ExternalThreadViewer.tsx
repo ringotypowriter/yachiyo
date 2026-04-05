@@ -76,6 +76,7 @@ export function ExternalThreadViewer({ threadId }: { threadId: string | null }):
     threadId ? (state.toolCalls[threadId] ?? EMPTY_TOOL_CALLS) : EMPTY_TOOL_CALLS
   )
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   // On-demand load for external threads whose messages aren't in memory yet.
   useEffect(() => {
@@ -91,7 +92,29 @@ export function ExternalThreadViewer({ threadId }: { threadId: string | null }):
   }, [threadId, messages.length])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const container = scrollContainerRef.current
+    const bottom = bottomRef.current
+    if (!container || !bottom) return
+
+    let rafId: number | null = null
+    let rafId2: number | null = null
+
+    rafId = requestAnimationFrame(() => {
+      rafId2 = requestAnimationFrame(() => {
+        const distanceFromBottom =
+          container.scrollHeight - container.scrollTop - container.clientHeight
+        if (distanceFromBottom < 100) {
+          bottom.scrollIntoView({ behavior: 'smooth', block: 'end' })
+        } else {
+          container.scrollTop = container.scrollHeight
+        }
+      })
+    })
+
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      if (rafId2 !== null) cancelAnimationFrame(rafId2)
+    }
   }, [messages])
 
   if (!threadId) {
@@ -130,7 +153,7 @@ export function ExternalThreadViewer({ threadId }: { threadId: string | null }):
   }
 
   return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden py-4">
+    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden py-4">
       {visibleMessages.map((message) =>
         message.role === 'user' ? (
           <ExternalUserBubble key={message.id} message={message} />
