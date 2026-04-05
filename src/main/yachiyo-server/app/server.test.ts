@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import test from 'node:test'
 
 import { YachiyoServer } from './YachiyoServer.ts'
@@ -11,6 +11,7 @@ import type { SoulDocument } from '../runtime/soul.ts'
 import { readUserDocument, writeUserDocument } from '../runtime/user.ts'
 import { createInMemoryYachiyoStorage } from '../storage/memoryStorage.ts'
 import type { MemoryService } from '../services/memory/memoryService.ts'
+import { createJotdownStore } from '../services/jotdownStore.ts'
 import type {
   ChatAccepted,
   ChatAcceptedWithUserMessage,
@@ -56,6 +57,7 @@ async function withServer(
     ) => Promise<void>
     memoryService?: MemoryService
     now?: () => Date
+    jotdownStore?: import('../services/jotdownStore.ts').JotdownStore
   } = {}
 ): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-test-'))
@@ -222,7 +224,8 @@ async function withServer(
     saveUserDocument:
       options.saveUserDocument ??
       ((content) => writeUserDocument({ filePath: userDocumentPath, content })),
-    memoryService: options.memoryService
+    memoryService: options.memoryService,
+    jotdownStore: options.jotdownStore
   })
 
   const unsubscribe = server.subscribe((event) => {
@@ -1857,6 +1860,70 @@ test('YachiyoServer keeps @folder mentions visible in chat while injecting a sha
       /Check @!src\/components before changing it\./
     )
   })
+})
+
+test('YachiyoServer resolves @JotDown to the latest jot down content regardless of workspace', async () => {
+  await withServer(
+    async ({ server, completeRun, modelRequests, workspacePathForThread }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      // Ensure workspace exists so the thread has a workspace path
+      await mkdir(workspacePathForThread(thread.id), { recursive: true })
+
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Check @JotDown for my notes.'
+      })
+      await completeRun(accepted.runId)
+
+      const bootstrap = await server.bootstrap()
+      assert.equal(
+        bootstrap.messagesByThread[thread.id]?.[0]?.content,
+        'Check @JotDown for my notes.'
+      )
+
+      const request = modelRequests.at(-1)
+      assert.ok(request)
+      const lastContent = String(request.messages.at(-1)?.content ?? '')
+      assert.match(lastContent, /<file_mentions>\n- @JotDown -> JotDown\n<\/file_mentions>/)
+      assert.match(
+        lastContent,
+        /<referenced_jotdown path="~\/.yachiyo-jotdown-test-for-server\/2026-04-05_10-00-00\.md">/
+      )
+      assert.match(lastContent, /My latest jot down note/)
+      assert.match(lastContent, /Check @JotDown for my notes\./)
+    },
+    {
+      jotdownStore: (() => {
+        const baseDir = join(homedir(), '.yachiyo-jotdown-test-for-server')
+        const store = createJotdownStore(baseDir)
+        // Pre-seed a note by writing directly and using the store
+        return {
+          ...store,
+          baseDir,
+          async getLatest() {
+            return {
+              id: '2026-04-05_10-00-00',
+              title: 'Jotdown Test',
+              content: 'My latest jot down note',
+              createdAt: '2026-04-05T10:00:00',
+              modifiedAt: '2026-04-05T10:00:00'
+            }
+          }
+        } as import('../services/jotdownStore.ts').JotdownStore
+      })()
+    }
+  )
 })
 
 test('YachiyoServer fails runs cleanly when thread workspace initialization fails', async () => {

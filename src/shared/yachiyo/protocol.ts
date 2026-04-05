@@ -778,6 +778,7 @@ export interface SubagentProfile {
 export interface FileMentionCandidate {
   path: string
   includeIgnored?: boolean
+  kind?: 'jotdown'
 }
 
 export interface SearchWorkspaceFilesInput {

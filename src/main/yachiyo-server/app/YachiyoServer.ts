@@ -102,6 +102,7 @@ import { createExaWebSearchProvider } from '../services/webSearch/providers/exaW
 import { createWebSearchService } from '../services/webSearch/webSearchService.ts'
 import { createSettingsStore, toEffectiveProviderSettings } from '../settings/settingsStore.ts'
 import { createSqliteYachiyoStorage } from '../storage/sqlite/database.ts'
+import type { JotdownStore } from '../services/jotdownStore.ts'
 import type { YachiyoStorage } from '../storage/storage.ts'
 import { createDemoYachiyoStorage, isDevelopmentDemoModeEnabled } from '../demo/demoMode.ts'
 import {
@@ -138,6 +139,7 @@ export interface YachiyoServerOptions {
   deleteThreadWorkspace?: (threadId: string) => Promise<void>
   memoryService?: MemoryService
   createMemoryProvider?: (config: SettingsConfig) => MemoryProvider
+  jotdownStore?: JotdownStore
 }
 
 export interface SqliteYachiyoServerOptions extends Omit<YachiyoServerOptions, 'storage'> {
@@ -173,6 +175,7 @@ export class YachiyoServer {
   private readonly removeSoulTraitFile: (trait: string) => Promise<SoulDocument | null>
   private readonly scheduleDomain: ScheduleDomain
   private readonly ttlReaper: TtlReaper
+  private readonly jotdownStore: JotdownStore | null
 
   private static logBrowserSearchDiagnostic(event: BrowserSearchDiagnosticEvent): void {
     const details = {
@@ -290,6 +293,7 @@ export class YachiyoServer {
     this.cloneThreadWorkspace = cloneThreadWorkspace
     this.searchService = searchService
     this.webSearchServiceInstance = webSearchService
+    this.jotdownStore = options.jotdownStore ?? null
     this.runDomain = new YachiyoServerRunDomain({
       storage: this.storage,
       createId: this.createId,
@@ -310,7 +314,8 @@ export class YachiyoServer {
       listSkills: (workspacePaths) => this.listSkills({ workspacePaths }),
       requireThread: this.requireThread.bind(this),
       loadThreadMessages: (threadId) => this.storage.listThreadMessages(threadId),
-      loadThreadToolCalls: (threadId) => this.storage.listThreadToolCalls(threadId)
+      loadThreadToolCalls: (threadId) => this.storage.listThreadToolCalls(threadId),
+      jotdownStore: this.jotdownStore ?? undefined
     })
     this.threadDomain = new YachiyoServerThreadDomain({
       storage: this.storage,
@@ -530,36 +535,53 @@ export class YachiyoServer {
       }
     }
 
-    if (!workspacePath) {
-      return []
+    const candidates: FileMentionCandidate[] = []
+
+    if (workspacePath) {
+      const directPaths = await searchWorkspaceFileMentionCandidates({
+        query,
+        includeIgnored: input.includeIgnored,
+        workspacePath: resolve(workspacePath),
+        searchService: this.searchService,
+        limit: input.limit
+      })
+
+      if (directPaths.length > 0 || input.includeIgnored) {
+        candidates.push(
+          ...directPaths.map((path) => ({
+            path,
+            ...(input.includeIgnored ? { includeIgnored: true as const } : {})
+          }))
+        )
+      } else {
+        const ignoredPaths = await searchWorkspaceFileMentionCandidates({
+          query,
+          includeIgnored: true,
+          workspacePath: resolve(workspacePath),
+          searchService: this.searchService,
+          limit: input.limit
+        })
+
+        candidates.push(
+          ...ignoredPaths
+            .filter((path) => path !== query)
+            .map((path) => ({ path, includeIgnored: true as const }))
+        )
+      }
     }
 
-    const directPaths = await searchWorkspaceFileMentionCandidates({
-      query,
-      includeIgnored: input.includeIgnored,
-      workspacePath: resolve(workspacePath),
-      searchService: this.searchService,
-      limit: input.limit
-    })
-
-    if (directPaths.length > 0 || input.includeIgnored) {
-      return directPaths.map((path) => ({
-        path,
-        ...(input.includeIgnored ? { includeIgnored: true } : {})
-      }))
+    if (
+      this.jotdownStore &&
+      query.toLowerCase().startsWith('jot') &&
+      !candidates.some((c) => c.path.toLowerCase() === 'jotdown')
+    ) {
+      const latest = await this.jotdownStore.getLatest()
+      if (latest) {
+        candidates.push({ path: 'JotDown', kind: 'jotdown' })
+      }
     }
 
-    const ignoredPaths = await searchWorkspaceFileMentionCandidates({
-      query,
-      includeIgnored: true,
-      workspacePath: resolve(workspacePath),
-      searchService: this.searchService,
-      limit: input.limit
-    })
-
-    return ignoredPaths
-      .filter((path) => path !== query)
-      .map((path) => ({ path, includeIgnored: true }))
+    return candidates
   }
 
   searchThreadsAndMessages(input: { query: string }): ThreadSearchResult[] {

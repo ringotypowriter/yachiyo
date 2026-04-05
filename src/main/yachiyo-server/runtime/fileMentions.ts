@@ -5,7 +5,7 @@ import { matchSorter } from 'match-sorter'
 
 import type { SearchService } from '../services/search/searchService.ts'
 
-const FILE_MENTION_RE = /(^|\s)@(!?)(?:"([^"]+)"|([A-Za-z0-9._/-]+))/g
+const FILE_MENTION_RE = /(^|\s)@(!?)(?:"([^"]+)"|([\p{L}\p{N}\p{M}._/-]+))/gu
 const MAX_FILE_MENTION_COUNT = 8
 const DEFAULT_CANDIDATE_LIMIT = 8
 const DEFAULT_INLINE_MAX_BYTES = 6_000
@@ -1041,9 +1041,14 @@ async function maybeInlineResolvedDirectory(input: {
   }
 }
 
-function buildHiddenReferenceBlock(input: {
+export function buildHiddenReferenceBlock(input: {
   mentions: ResolvedFileMention[]
-  inlinedReference?: { kind: 'file' | 'directory'; path: string; content: string } | null
+  inlinedReference?: {
+    kind?: 'file' | 'directory'
+    tagName?: string
+    path: string
+    content: string
+  } | null
 }): string {
   const lines = ['<file_mentions>']
 
@@ -1068,7 +1073,8 @@ function buildHiddenReferenceBlock(input: {
   }
 
   const tagName =
-    input.inlinedReference.kind === 'directory' ? 'referenced_directory' : 'referenced_file'
+    input.inlinedReference.tagName ??
+    (input.inlinedReference.kind === 'directory' ? 'referenced_directory' : 'referenced_file')
 
   return [
     lines.join('\n'),

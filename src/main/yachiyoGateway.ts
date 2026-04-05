@@ -473,14 +473,17 @@ function handleSendChannel(input: SendChannelInput): void {
   })
 }
 
-function createConfiguredServer(): YachiyoServer {
+function createConfiguredServer(
+  jotdownStore?: import('./yachiyo-server/services/jotdownStore.ts').JotdownStore
+): YachiyoServer {
   const nextServer = createSqliteYachiyoServer({
     dbPath: resolveYachiyoDbPath(),
     settingsPath: resolveYachiyoSettingsPath(),
     developmentMode: is.dev,
     seedPresetProviders: true,
     fetchImpl: (input, init) =>
-      net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init)
+      net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init),
+    jotdownStore
   })
   nextServer.subscribe(broadcast)
   nextServer.getTtlReaper().start()
@@ -583,7 +586,8 @@ export function registerYachiyoGateway(): YachiyoServer {
   globalThis.fetch = (input, init?) =>
     net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init)
 
-  server = createConfiguredServer()
+  const jotdownStore = createJotdownStore(resolveYachiyoJotdownsDir())
+  server = createConfiguredServer(jotdownStore)
   registerFatalRunRecovery()
 
   // Start channel services if already configured.
@@ -910,7 +914,6 @@ export function registerYachiyoGateway(): YachiyoServer {
   })
 
   // ── Jotdown handlers ──────────────────────────────────────────────
-  const jotdownStore = createJotdownStore(resolveYachiyoJotdownsDir())
 
   handle(IPC_CHANNELS.jotdownList, () => jotdownStore.list())
   handle(IPC_CHANNELS.jotdownLoad, (input: { id: string }) => jotdownStore.load(input.id))

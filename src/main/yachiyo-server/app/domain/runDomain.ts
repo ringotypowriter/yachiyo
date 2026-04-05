@@ -43,6 +43,7 @@ import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
 import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
 import type { BrowserWebPageSnapshotLoader } from '../../services/webRead/browserWebPageSnapshot.ts'
+import type { JotdownStore } from '../../services/jotdownStore.ts'
 import type { ModelRuntime } from '../../runtime/types.ts'
 import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../storage/storage.ts'
 import {
@@ -127,6 +128,7 @@ interface RunDomainDeps {
   requireThread: (threadId: string) => ThreadRecord
   loadThreadMessages: (threadId: string) => MessageRecord[]
   loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
+  jotdownStore?: JotdownStore
 }
 
 interface DebouncedSendChatEntry {
@@ -1313,6 +1315,7 @@ export class YachiyoServerRunDomain {
             loadThreadMessages: this.deps.loadThreadMessages,
             loadThreadToolCalls: this.deps.loadThreadToolCalls,
             listSkills: this.deps.listSkills,
+            jotdownStore: this.deps.jotdownStore,
             onEnabledToolsUsed: (enabledTools) => {
               this.lastRunEnabledTools = [...enabledTools]
             },

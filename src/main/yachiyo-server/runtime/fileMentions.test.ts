@@ -109,6 +109,13 @@ test('parseFileMentions keeps @! mentions and marks them to include ignored file
   ])
 })
 
+test('parseFileMentions supports CJK characters in unquoted paths', () => {
+  assert.deepEqual(parseFileMentions('Check @文档/说明.md and @README_中文.'), [
+    { raw: '@文档/说明.md', query: '文档/说明.md' },
+    { raw: '@README_中文', query: 'README_中文' }
+  ])
+})
+
 test('searchWorkspaceFileMentionCandidates finds workspace-relative matches with glob fallback', async () => {
   await withWorkspace(async ({ searchService, workspacePath }) => {
     const results = await searchWorkspaceFileMentionCandidates({

@@ -32,11 +32,13 @@ function generateId(now: Date): string {
 }
 
 export interface JotdownStore {
+  baseDir: string
   list(): Promise<JotdownMeta[]>
   load(id: string): Promise<JotdownFull>
   create(): Promise<JotdownFull>
   save(input: JotdownSaveInput): Promise<JotdownMeta>
   delete(id: string): Promise<void>
+  getLatest(): Promise<JotdownFull | null>
 }
 
 export function createJotdownStore(baseDir: string): JotdownStore {
@@ -45,6 +47,8 @@ export function createJotdownStore(baseDir: string): JotdownStore {
   }
 
   return {
+    baseDir,
+
     async list(): Promise<JotdownMeta[]> {
       await ensureDir()
       const files = (await readdir(baseDir)).filter((f) => f.endsWith('.md'))
@@ -121,6 +125,15 @@ export function createJotdownStore(baseDir: string): JotdownStore {
 
     async delete(id: string): Promise<void> {
       await unlink(join(baseDir, `${id}.md`))
+    },
+
+    async getLatest(): Promise<JotdownFull | null> {
+      await ensureDir()
+      const files = (await readdir(baseDir)).filter((f) => f.endsWith('.md'))
+      if (files.length === 0) return null
+      const sorted = files.sort((a, b) => b.localeCompare(a))
+      const id = sorted[0]!.replace(/\.md$/, '')
+      return this.load(id)
     }
   }
 }

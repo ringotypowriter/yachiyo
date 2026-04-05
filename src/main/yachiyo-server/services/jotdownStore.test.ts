@@ -207,4 +207,20 @@ describe('JotdownStore', () => {
       assert.equal(afterDelete.length, 0)
     })
   })
+
+  test('getLatest() returns the most recently created note', async () => {
+    await withTempDir(async (dir) => {
+      const store = createJotdownStore(dir)
+      assert.equal(await store.getLatest(), null)
+
+      await writeFile(join(dir, '2026-01-01_10-00-00.md'), '# First', 'utf8')
+      await writeFile(join(dir, '2026-03-15_08-30-00.md'), '# Third', 'utf8')
+      await writeFile(join(dir, '2026-02-10_14-00-00.md'), '# Second', 'utf8')
+
+      const latest = await store.getLatest()
+      assert.ok(latest)
+      assert.equal(latest!.title, 'Third')
+      assert.equal(latest!.content, '# Third')
+    })
+  })
 })

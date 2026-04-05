@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { access, constants, readFile } from 'node:fs/promises'
 import { mkdir } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -67,15 +67,20 @@ import {
   buildDisabledToolsReminderSection,
   formatQueryReminder
 } from '../../runtime/queryReminder.ts'
-import { resolveFileMentionsForUserQuery } from '../../runtime/fileMentions.ts'
+import {
+  buildHiddenReferenceBlock,
+  resolveFileMentionsForUserQuery
+} from '../../runtime/fileMentions.ts'
 import { readSoulDocument, type SoulDocument } from '../../runtime/soul.ts'
 import { readUserDocument, type UserDocument } from '../../runtime/user.ts'
 import { resolveYachiyoUserPath } from '../../config/paths.ts'
+import { homedir } from 'node:os'
 import { readChannelsConfig } from '../../runtime/channelsConfig.ts'
 import type { ModelRuntime, ModelUsage } from '../../runtime/types.ts'
 import { RETRY_MAX_ATTEMPTS } from '../../runtime/modelRuntime.ts'
 import { isRetryableModelError } from '../../runtime/retryableModelError.ts'
 import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
+import type { JotdownStore } from '../../services/jotdownStore.ts'
 import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../storage/storage.ts'
 import {
   createAgentToolSet,
@@ -166,6 +171,7 @@ export interface RunExecutionDeps {
   onTerminalState?: () => void
   onSubagentProgress?: (chunk: string) => void
   onSubagentStarted?: (agentName: string) => void
+  jotdownStore?: JotdownStore
   onSubagentFinished?: (
     agentName: string,
     status: 'success' | 'cancelled',
@@ -1046,6 +1052,45 @@ export async function executeServerRun(
       workspacePath,
       searchService: deps.searchService
     })
+
+    // Resolve @JotDown mentions to the latest jot down content
+    let hasInlinedJotdown = false
+    const jotdownMentions = fileMentionResolution.mentions.filter(
+      (m) => m.query.toLowerCase() === 'jotdown'
+    )
+    if (jotdownMentions.length > 0 && deps.jotdownStore) {
+      const latest = await deps.jotdownStore.getLatest()
+      if (latest) {
+        hasInlinedJotdown = true
+        for (const mention of jotdownMentions) {
+          mention.kind = 'resolved'
+          mention.resolvedPath = 'JotDown'
+          mention.resolvedKind = 'file'
+          mention.candidatePaths = ['JotDown']
+        }
+        // Rebuild the hidden reference block so @JotDown appears resolved
+        // instead of contradictory unresolved metadata.
+        // Use a ~-relative path for privacy (no absolute host path leak),
+        // falling back to the logical name if YACHIYO_HOME is outside home.
+        const home = homedir()
+        const jotdownPath = deps.jotdownStore.baseDir.startsWith(home)
+          ? join('~', relative(home, deps.jotdownStore.baseDir), `${latest.id}.md`)
+          : 'JotDown'
+        fileMentionResolution.augmentedUserQuery = [
+          buildHiddenReferenceBlock({
+            mentions: fileMentionResolution.mentions,
+            inlinedReference: {
+              tagName: 'referenced_jotdown',
+              path: jotdownPath,
+              content: latest.content.trimEnd()
+            }
+          }),
+          '',
+          requestMessage?.content ?? ''
+        ].join('\n')
+      }
+    }
+
     let memoryEntries: string[] = []
     let recallDecision: RecallDecisionSnapshot | undefined
     if (deps.buildMemoryLayerEntries && !isGuest) {
@@ -1087,7 +1132,7 @@ export async function executeServerRun(
         enabledTools: modelEnabledTools,
         activeSkills,
         fileMentionCount: fileMentionResolution.mentions.length,
-        inlinedFileCount: fileMentionResolution.inlinedPath ? 1 : 0,
+        inlinedFileCount: (fileMentionResolution.inlinedPath ? 1 : 0) + (hasInlinedJotdown ? 1 : 0),
         workspacePath,
         hasToolReminder: hiddenQueryReminder !== undefined,
         memoryEntries,
@@ -1139,13 +1184,13 @@ export async function executeServerRun(
     // Skill expansion replaces @skills:name with the skill doc in the user content portion.
     // When both are active, swap the original content tail in the augmented query with the
     // skill-expanded version so both augmentations compose correctly.
+    const augmentedUserQuery = fileMentionResolution.augmentedUserQuery
+
     const hasSkillExpansion = skillExpandedContent !== rawContent
     const modelUserQuery = hasSkillExpansion
-      ? fileMentionResolution.augmentedUserQuery.slice(
-          0,
-          fileMentionResolution.augmentedUserQuery.length - rawContent.length
-        ) + skillExpandedContent
-      : fileMentionResolution.augmentedUserQuery
+      ? augmentedUserQuery.slice(0, augmentedUserQuery.length - rawContent.length) +
+        skillExpandedContent
+      : augmentedUserQuery
     const history = loadRunHistory(
       deps.loadThreadMessages,
       input.thread.id,

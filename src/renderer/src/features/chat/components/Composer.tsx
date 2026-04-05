@@ -73,13 +73,13 @@ const ACCEPTED_FILE_TYPES = [
 
 const ACCEPT_ATTRIBUTE = `image/*,${ACCEPTED_FILE_TYPES.join(',')}`
 
-const COMPOSER_TAG_HIGHLIGHT_RE = /@skills:[a-zA-Z0-9_-]+|@!?"[^"]+"|@!?[A-Za-z0-9._/-]+/g
-const CONFIRMED_FILE_TAG_RE = /(^|\s)@(!?"[^"]+"|!?[A-Za-z0-9._/-]+)(?=\s|$)/g
+const COMPOSER_TAG_HIGHLIGHT_RE = /@skills:[a-zA-Z0-9_-]+|@!?"[^"]+"|@!?[\p{L}\p{N}\p{M}._/-]+/gu
+const CONFIRMED_FILE_TAG_RE = /(^|\s)@(!?"[^"]+"|!?[\p{L}\p{N}\p{M}._/-]+)(?=\s|$)/gu
 const SKILL_TAG_PATTERN = /^@skills:([a-zA-Z0-9_-]+)(\s|$)/
 const SLASH_PATTERN = /^\/([a-zA-Z0-9-]*)$/
 const SKILL_PREFIX_PATTERN = /^\/skills:([a-zA-Z0-9_-]*)$/
 const AT_SKILL_PREFIX_PATTERN = /^@skills:([a-zA-Z0-9_-]*)$/
-const FILE_MENTION_PATTERN = /(^|\s)@(!?)(?:"([^"]*)"?|([A-Za-z0-9._/-]*))$/
+const FILE_MENTION_PATTERN = /(^|\s)@(!?)(?:"([^"]*)"?|([\p{L}\p{N}\p{M}._/-]*))$/u
 
 interface PendingWorkspaceChangeConfirmation {
   threadId: string | null
@@ -707,8 +707,13 @@ export function Composer({
       return fileMentionMatches.map((match) => ({
         key: `file:${match.includeIgnored ? '!' : ''}${match.path}`,
         label: `${match.includeIgnored ? '!' : ''}${match.path}`,
-        description: match.includeIgnored ? 'Ignored workspace path' : 'Workspace path',
-        type: 'file' as const
+        description:
+          match.kind === 'jotdown'
+            ? 'Latest jot down'
+            : match.includeIgnored
+              ? 'Ignored workspace path'
+              : 'Workspace path',
+        type: match.kind === 'jotdown' ? ('jotdown' as const) : ('file' as const)
       }))
     }
     if (slashQuery !== null) {
@@ -1281,7 +1286,7 @@ export function Composer({
       } else if (command.type === 'skill') {
         const skillName = command.key.slice('skills:'.length)
         setComposerValue(`@skills:${skillName} `)
-      } else if (command.type === 'file') {
+      } else if (command.type === 'file' || command.type === 'jotdown') {
         const encodedPath = command.key.slice('file:'.length)
         const filePath = encodedPath.startsWith('!') ? encodedPath.slice(1) : encodedPath
         const needsQuotes = filePath.includes(' ')

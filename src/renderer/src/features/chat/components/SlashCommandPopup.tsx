@@ -1,13 +1,13 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
-import { Folder, Hash, Sparkles, Zap } from 'lucide-react'
+import { Folder, Hash, NotebookPen, Sparkles, Zap } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 
 export interface SlashCommand {
   key: string
   label: string
   description: string
-  type: 'action' | 'prompt' | 'skill' | 'skill-prefix' | 'file'
+  type: 'action' | 'prompt' | 'skill' | 'skill-prefix' | 'file' | 'jotdown'
 }
 
 const TYPE_ICONS = {
@@ -15,7 +15,8 @@ const TYPE_ICONS = {
   prompt: Hash,
   skill: Sparkles,
   'skill-prefix': Sparkles,
-  file: Folder
+  file: Folder,
+  jotdown: NotebookPen
 } satisfies Record<
   SlashCommand['type'],
   React.ComponentType<{ size: number; strokeWidth: number; color: string }>
@@ -59,7 +60,7 @@ function CommandKey({ command }: { command: SlashCommand }): React.ReactNode {
     )
   }
 
-  if (command.type === 'file') {
+  if (command.type === 'file' || command.type === 'jotdown') {
     return (
       <span
         style={{
