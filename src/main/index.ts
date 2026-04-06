@@ -361,7 +361,7 @@ app.whenReady().then(async () => {
     // On macOS it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
     const hasRealWindow = BrowserWindow.getAllWindows().some(
-      (w) => !w.isDestroyed() && w !== jotdownWindow
+      (w) => !w.isDestroyed() && w !== jotdownWindow && w !== translatorWindow
     )
     if (!hasRealWindow) createWindow()
   })
