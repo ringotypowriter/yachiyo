@@ -1369,7 +1369,9 @@ export async function executeServerRun(
             : deps.memoryService,
         webSearchService: deps.webSearchService,
         updateProfileDeps: {
-          userDocumentPath: resolveYachiyoUserPath(workspacePath),
+          userDocumentPath: isGuest
+            ? resolveYachiyoUserPath(workspacePath)
+            : resolveYachiyoUserPath(),
           ...(isExternalChannel
             ? { userDocumentMode: isGuest ? ('guest' as const) : ('owner' as const) }
             : {})
