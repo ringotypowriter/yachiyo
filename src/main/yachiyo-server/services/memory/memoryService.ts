@@ -22,7 +22,7 @@ import {
   type RecallFilterCandidate
 } from './recallPolicy.ts'
 
-export const HIDDEN_MEMORY_SEARCH_TOOL_NAME = 'search_memory'
+export const HIDDEN_MEMORY_SEARCH_TOOL_NAME = 'searchMemory'
 const DEFAULT_CONTEXT_MEMORY_LIMIT = 4
 const DEFAULT_PROVIDER_SEARCH_LIMIT = 4
 const DEFAULT_MEMORY_TOOL_LIMIT = 5

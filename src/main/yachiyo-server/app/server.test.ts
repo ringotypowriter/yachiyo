@@ -909,8 +909,8 @@ test('YachiyoServer only injects the hidden memory_search runtime tool when memo
   )
 
   assert.ok(configuredMainRequest?.tools)
-  assert.equal('search_memory' in (configuredMainRequest?.tools ?? {}), true)
-  assert.equal('search_memory' in (disabledMainRequest?.tools ?? {}), false)
+  assert.equal('searchMemory' in (configuredMainRequest?.tools ?? {}), true)
+  assert.equal('searchMemory' in (disabledMainRequest?.tools ?? {}), false)
 })
 
 test('YachiyoServer does not claim there are no tools when hidden memory search is the only tool', async () => {
@@ -972,7 +972,7 @@ test('YachiyoServer does not claim there are no tools when hidden memory search 
   )
 
   assert.ok(mainRequest?.tools)
-  assert.equal('search_memory' in (mainRequest?.tools ?? {}), true)
+  assert.equal('searchMemory' in (mainRequest?.tools ?? {}), true)
   assert.equal(
     systemMessages.some((message) => /No tools are available for this run/u.test(message.content)),
     false

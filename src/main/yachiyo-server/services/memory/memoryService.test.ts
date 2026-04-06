@@ -111,7 +111,7 @@ test('memory service exposes the hidden memory-search capability only when memor
 
   assert.equal(configured.isConfigured(), true)
   assert.equal(configured.hasHiddenSearchCapability(), true)
-  assert.equal(HIDDEN_MEMORY_SEARCH_TOOL_NAME, 'search_memory')
+  assert.equal(HIDDEN_MEMORY_SEARCH_TOOL_NAME, 'searchMemory')
 
   const disabled = createMemoryService({
     auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"queries":[]}' }),

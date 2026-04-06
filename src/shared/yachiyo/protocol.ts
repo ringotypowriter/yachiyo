@@ -228,7 +228,7 @@ const trackedToolNameSet = new Set<string>([
   ...CORE_TOOL_NAMES,
   'askUser',
   'remember',
-  'search_memory',
+  'searchMemory',
   'updateProfile'
 ])
 

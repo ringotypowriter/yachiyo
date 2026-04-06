@@ -69,7 +69,7 @@ test('runReadTool uses offset/limit continuation semantics and returns truncatio
   })
 })
 
-test('createAgentToolSet adds search_memory only when memory is configured', () => {
+test('createAgentToolSet adds searchMemory only when memory is configured', () => {
   const baseMemoryService: MemoryService = {
     hasHiddenSearchCapability: () => true,
     isConfigured: () => true,
@@ -120,13 +120,13 @@ test('createAgentToolSet adds search_memory only when memory is configured', () 
 
   assert.ok(withMemory)
   assert.ok(withoutMemory)
-  assert.equal('search_memory' in withMemory, true)
-  assert.equal('search_memory' in withoutMemory, false)
-  assert.equal('search_memory' in (withMemory ?? {}), true)
-  assert.equal('search_memory' in (withoutMemory ?? {}), false)
+  assert.equal('searchMemory' in withMemory, true)
+  assert.equal('searchMemory' in withoutMemory, false)
+  assert.equal('searchMemory' in (withMemory ?? {}), true)
+  assert.equal('searchMemory' in (withoutMemory ?? {}), false)
 })
 
-test('search_memory forwards the abort signal to memory service lookups', async () => {
+test('searchMemory forwards the abort signal to memory service lookups', async () => {
   const abortController = new AbortController()
   let receivedSignal: AbortSignal | undefined
   const searchMemoryTool = createSearchMemoryTool({

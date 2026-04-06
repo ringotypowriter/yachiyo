@@ -172,7 +172,7 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
       : toolName
   }
 
-  if (toolName === 'search_memory') {
+  if (toolName === 'searchMemory') {
     const query = typeof input === 'object' && input !== null && 'query' in input ? input.query : ''
     return typeof query === 'string' && query.trim().length > 0
       ? takeTail(query, 160).text
@@ -258,7 +258,7 @@ export function summarizeToolOutput(
     return details.truncated ? `${summary} (truncated)` : summary
   }
 
-  if (toolName === 'remember' || toolName === 'search_memory') {
+  if (toolName === 'remember' || toolName === 'searchMemory') {
     const typed = output as { content?: Array<{ type: string; text?: string }>; error?: string }
     if (typed.error) return typed.error
     const text = typed.content
@@ -396,7 +396,7 @@ export function createAgentToolSet(
   }
 
   if (dependencies.memoryService?.isConfigured()) {
-    tools.search_memory = createSearchMemoryTool(dependencies.memoryService)
+    tools.searchMemory = createSearchMemoryTool(dependencies.memoryService)
   }
 
   if (dependencies.rememberDeps) {

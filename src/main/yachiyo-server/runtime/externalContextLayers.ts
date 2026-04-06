@@ -101,7 +101,7 @@ export function buildExternalAgentInstructions(input: {
     tools.push(
       '',
       'IMPORTANT — memory boundaries for guest conversations:',
-      'search_memory returns memories belonging to your OWNER, not the current guest.',
+      'searchMemory returns memories belonging to your OWNER, not the current guest.',
       'Do NOT use owner memories to identify the guest or assume they apply to the guest.',
       "The guest's profile is in USER.md (loaded above) — that is the only source of truth about who the guest is.",
       '',
