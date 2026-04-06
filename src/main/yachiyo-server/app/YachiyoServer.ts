@@ -124,6 +124,7 @@ export interface YachiyoServerOptions {
   settingsPath?: string
   seedPresetProviders?: boolean
   fetchImpl?: typeof globalThis.fetch
+  runInactivityTimeoutMs?: number
   now?: () => Date
   createId?: () => string
   createModelRuntime?: () => ModelRuntime
@@ -311,6 +312,7 @@ export class YachiyoServer {
       readUserDocument: this.readUserDocumentFile,
       readConfig: () => this.configDomain.readConfig(),
       readSettings: () => this.configDomain.readSettings(),
+      runInactivityTimeoutMs: options.runInactivityTimeoutMs ?? 45_000,
       listSkills: (workspacePaths) => this.listSkills({ workspacePaths }),
       requireThread: this.requireThread.bind(this),
       loadThreadMessages: (threadId) => this.storage.listThreadMessages(threadId),

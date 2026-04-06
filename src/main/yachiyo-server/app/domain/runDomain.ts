@@ -112,6 +112,7 @@ interface RunDomainDeps {
   createId: CreateId
   timestamp: Timestamp
   emit: EmitServerEvent
+  runInactivityTimeoutMs: number
   auxiliaryGeneration: AuxiliaryGenerationService
   createModelRuntime: () => ModelRuntime
   ensureThreadWorkspace: (threadId: string) => Promise<string>
@@ -1379,6 +1380,7 @@ export class YachiyoServerRunDomain {
             abortController,
             enabledTools: input.enabledTools,
             enabledSkillNames: activeRun.enabledSkillNames ?? input.enabledSkillNames,
+            inactivityTimeoutMs: this.deps.runInactivityTimeoutMs,
             channelHint: activeRun.channelHint ?? input.channelHint,
             extraTools: input.extraTools,
             previousEnabledTools,

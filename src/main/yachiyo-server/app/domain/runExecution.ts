@@ -114,6 +114,7 @@ export interface ExecuteRunInput {
   enabledSkillNames?: string[]
   channelHint?: string
   extraTools?: import('ai').ToolSet
+  inactivityTimeoutMs: number
   recoveryCheckpoint?: RunRecoveryCheckpoint
   runId: string
   thread: ThreadRecord
@@ -243,6 +244,66 @@ function throwIfAborted(signal: AbortSignal): void {
   const error = new Error('Aborted')
   error.name = 'AbortError'
   throw error
+}
+
+class RunInactivityTimeoutError extends Error {
+  readonly code = 'YACHIYO_RUN_INACTIVITY_TIMEOUT'
+
+  constructor(timeoutMs: number) {
+    super(`Run stalled for more than ${timeoutMs}ms without progress.`)
+    this.name = 'RunInactivityTimeoutError'
+  }
+}
+
+async function nextWithInactivityTimeout<T>(
+  iterator: AsyncIterator<T>,
+  timeoutMs: number,
+  getProgressVersion: () => number,
+  shouldEnforceTimeout: () => boolean,
+  onTimeout: (error: RunInactivityTimeoutError) => void
+): Promise<IteratorResult<T>> {
+  if (timeoutMs <= 0) {
+    return iterator.next()
+  }
+
+  const nextPromise = iterator.next().then((result) => ({ kind: 'next' as const, result }))
+  let deadlineAt = Date.now() + timeoutMs
+  let progressVersion = getProgressVersion()
+
+  while (true) {
+    if (!shouldEnforceTimeout()) {
+      progressVersion = getProgressVersion()
+      deadlineAt = Date.now() + timeoutMs
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 50)
+      })
+      continue
+    }
+
+    const remainingMs = deadlineAt - Date.now()
+    if (remainingMs <= 0) {
+      const error = new RunInactivityTimeoutError(timeoutMs)
+      onTimeout(error)
+      throw error
+    }
+
+    const settled = await Promise.race([
+      nextPromise,
+      new Promise<null>((resolve) => {
+        setTimeout(resolve, Math.min(remainingMs, 50))
+      })
+    ])
+
+    if (settled && settled.kind === 'next') {
+      return settled.result
+    }
+
+    const currentProgressVersion = getProgressVersion()
+    if (currentProgressVersion !== progressVersion) {
+      progressVersion = currentProgressVersion
+      deadlineAt = Date.now() + timeoutMs
+    }
+  }
 }
 
 function resolveModelEnabledTools(input: {
@@ -862,6 +923,10 @@ export async function executeServerRun(
   let shouldStartNewTextBlock = textBlocks.length === 0
   let executionPhase: 'generating' | 'tool-running' | 'waiting-for-user' = 'generating'
   let awaitingSafeSteerPointAfterTool = false
+  let progressVersion = 0
+  const markProgress = (): void => {
+    progressVersion += 1
+  }
 
   // Deferred promises for askUser tool calls waiting on user input
   const pendingUserAnswers = new Map<
@@ -1376,8 +1441,12 @@ export async function executeServerRun(
           ? {
               subagentProfiles: enabledSubagentProfiles,
               availableWorkspaces: gitValidatedWorkspaces,
-              onSubagentProgress: deps.onSubagentProgress,
+              onSubagentProgress: (chunk: string) => {
+                markProgress()
+                deps.onSubagentProgress?.(chunk)
+              },
               onSubagentStarted: (agentName: string) => {
+                markProgress()
                 cancelPendingSafeSteerPointAfterTool()
                 setExecutionPhase('tool-running')
                 subagentToolCallId = deps.createId()
@@ -1423,6 +1492,7 @@ export async function executeServerRun(
                 sessionId?: string,
                 subagentWorkspacePath?: string
               ) => {
+                markProgress()
                 if (sessionId && subagentWorkspacePath) {
                   const currentThread = deps.readThread(input.thread.id)
                   const updatedThread: ThreadRecord = {
@@ -1521,7 +1591,7 @@ export async function executeServerRun(
 
     let lastUsage: ModelUsage | undefined
 
-    for await (const delta of runtime.streamReply({
+    const stream = runtime.streamReply({
       messages: finalMessages,
       settings,
       max_token: maxChatToken,
@@ -1529,9 +1599,11 @@ export async function executeServerRun(
       maxToolSteps,
       ...(tools ? { tools } : {}),
       onFinish: (usage) => {
+        markProgress()
         lastUsage = usage
       },
       onRetry: (attempt, maxAttempts, delayMs, error) => {
+        markProgress()
         reasoningBuffer = ''
         const normalizedResponseMessages = buildRecoveryResponseMessages({
           checkpoint: {
@@ -1558,6 +1630,7 @@ export async function executeServerRun(
         })
       },
       onReasoningDelta: (reasoningDelta) => {
+        markProgress()
         reasoningBuffer += reasoningDelta
         appendRecoveryReasoningDelta(recoveryResponseMessages, reasoningDelta)
         persistRecoveryCheckpoint()
@@ -1574,6 +1647,7 @@ export async function executeServerRun(
           return
         }
 
+        markProgress()
         cancelPendingSafeSteerPointAfterTool()
         runningToolCallIds.add(event.toolCall.toolCallId)
         shouldStartNewTextBlock = true
@@ -1622,6 +1696,7 @@ export async function executeServerRun(
           return
         }
 
+        markProgress()
         const normalized = normalizeToolResult(event.toolCall.toolName, event.output, {
           phase: 'update'
         })
@@ -1649,6 +1724,7 @@ export async function executeServerRun(
             return
           }
 
+          markProgress()
           const startedToolCall = toolCalls.get(event.toolCall.toolCallId)
           const finishedAt = deps.timestamp()
           const normalized = event.success
@@ -1737,7 +1813,33 @@ export async function executeServerRun(
           throw error
         }
       }
-    })) {
+    })
+    const streamIterator = stream[Symbol.asyncIterator]()
+    const abortForInactivity = (error: RunInactivityTimeoutError): void => {
+      if (!input.abortController.signal.aborted) {
+        input.abortController.abort(error)
+      }
+
+      const iteratorReturn = streamIterator.return?.()
+      if (iteratorReturn) {
+        void iteratorReturn.catch(() => {})
+      }
+    }
+
+    while (true) {
+      const nextChunk = await nextWithInactivityTimeout(
+        streamIterator,
+        input.inactivityTimeoutMs,
+        () => progressVersion,
+        () => executionPhase !== 'waiting-for-user',
+        abortForInactivity
+      )
+      if (nextChunk.done) {
+        break
+      }
+
+      markProgress()
+      const delta = nextChunk.value
       flushSafeSteerPointAfterTool()
 
       throwIfAborted(input.abortController.signal)
