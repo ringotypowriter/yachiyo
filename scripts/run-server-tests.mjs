@@ -21,7 +21,11 @@ const collectTestFiles = (directory) => {
       return []
     }
 
-    if (!entry.name.endsWith('.test.ts') || entry.name.endsWith('.native.test.ts')) {
+    if (
+      !entry.name.endsWith('.test.ts') ||
+      entry.name.endsWith('.native.test.ts') ||
+      entry.name.endsWith('.mac.test.ts')
+    ) {
       return []
     }
 
