@@ -288,6 +288,48 @@ test('createAiSdkModelRuntime forwards max_token as maxOutputTokens', async () =
   assert.equal(maxOutputTokens, 64)
 })
 
+test('createAiSdkModelRuntime caps gemini max_token to the model ceiling', async () => {
+  let maxOutputTokens: number | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () => {
+      throw new Error('OpenAI should not be used in this test.')
+    },
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    createGoogleProvider: () => ((modelId: string) => ({ modelId, provider: 'google' })) as never,
+    streamTextImpl: ((input: { maxOutputTokens?: number }) => {
+      maxOutputTokens = input.maxOutputTokens
+      return {
+        textStream: (async function* () {
+          yield 'ok'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Limit this reply.' }],
+    settings: {
+      providerName: 'google-ai',
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      apiKey: 'AIza_test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal,
+    max_token: 64
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
+  assert.equal(maxOutputTokens, 65536)
+})
+
 test('createAiSdkModelRuntime uses AI SDK streaming with Anthropic thinking enabled', async () => {
   let anthropicOptions: { apiKey?: string; baseURL?: string } | undefined
   let selectedModel: { provider: string; modelId: string } | null = null
@@ -1908,19 +1950,22 @@ test('streamReply does not retry on auth error (401)', async () => {
   assert.deepEqual(sleepCalls, [])
 })
 
-test('streamReply does not retry on AbortError', async () => {
+test('streamReply does not retry on user AbortError (aborted signal)', async () => {
   const err = new Error('Aborted')
   err.name = 'AbortError'
   const { runtime, defaultSettings, getCallCount, sleepCalls } = createRetryTestRuntime([
     { error: err }
   ])
 
+  const controller = new AbortController()
+  controller.abort()
+
   await assert.rejects(
     async () => {
       for await (const chunk of runtime.streamReply({
         messages: [{ role: 'user', content: 'hi' }],
         settings: defaultSettings,
-        signal: new AbortController().signal
+        signal: controller.signal
       })) {
         void chunk
       }
@@ -1930,6 +1975,28 @@ test('streamReply does not retry on AbortError', async () => {
 
   assert.equal(getCallCount(), 1)
   assert.deepEqual(sleepCalls, [])
+})
+
+test('streamReply retries on network AbortError', async () => {
+  const err = new Error('fetch failed')
+  err.name = 'AbortError'
+  const { runtime, defaultSettings, getCallCount, sleepCalls } = createRetryTestRuntime([
+    { error: err },
+    { chunks: ['Hello'] }
+  ])
+
+  const chunks: string[] = []
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'hi' }],
+    settings: defaultSettings,
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['Hello'])
+  assert.equal(getCallCount(), 2)
+  assert.deepEqual(sleepCalls, [1000])
 })
 
 test('streamReply passes maxRetries: 0 to AI SDK (disables built-in retries)', async () => {

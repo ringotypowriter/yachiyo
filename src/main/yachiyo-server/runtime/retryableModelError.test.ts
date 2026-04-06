@@ -4,9 +4,6 @@ import test from 'node:test'
 import { isRetryableModelError } from './retryableModelError.ts'
 
 test('isRetryableModelError honors explicit and status-based decisions', () => {
-  const abortError = new Error('Aborted')
-  abortError.name = 'AbortError'
-
   const unauthorized = new Error('Unauthorized')
   ;(unauthorized as { status?: number }).status = 401
 
@@ -16,7 +13,6 @@ test('isRetryableModelError honors explicit and status-based decisions', () => {
   const browserTransportError = new Error('net::ERR_CONNECTION_CLOSED')
   ;(browserTransportError as { status?: number }).status = 0
 
-  assert.equal(isRetryableModelError(abortError), false)
   assert.equal(isRetryableModelError({ isRetryable: true }), true)
   assert.equal(isRetryableModelError({ isRetryable: false }), false)
   assert.equal(isRetryableModelError(unauthorized), false)
@@ -37,4 +33,11 @@ test('isRetryableModelError matches transient network code and message signature
   assert.equal(isRetryableModelError(nodeNetworkError), true)
   assert.equal(isRetryableModelError(fetchWrappedNetworkError), true)
   assert.equal(isRetryableModelError(socketHangup), true)
+})
+
+test('isRetryableModelError treats network AbortError as retryable', () => {
+  const networkAbort = new Error('fetch failed')
+  networkAbort.name = 'AbortError'
+
+  assert.equal(isRetryableModelError(networkAbort), true)
 })

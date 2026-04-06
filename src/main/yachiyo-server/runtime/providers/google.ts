@@ -21,6 +21,15 @@ export function supportsGeminiThinking(modelId: string): boolean {
   )
 }
 
+const GEMINI_LEGACY_MAX_OUTPUT_TOKENS = 8192
+const GEMINI_NEW_MAX_OUTPUT_TOKENS = 65536
+
+export function getGeminiMaxOutputTokens(modelId: string): number {
+  return supportsGeminiThinking(modelId)
+    ? GEMINI_NEW_MAX_OUTPUT_TOKENS
+    : GEMINI_LEGACY_MAX_OUTPUT_TOKENS
+}
+
 export function createGoogleLanguageModel(
   settings: ProviderSettings,
   dependencies: ResolvedAiSdkRuntimeDependencies

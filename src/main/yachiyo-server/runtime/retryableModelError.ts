@@ -1,6 +1,4 @@
 export function isRetryableModelError(error: unknown): boolean {
-  if (error instanceof Error && error.name === 'AbortError') return false
-
   const explicitRetryable =
     typeof (error as { isRetryable?: unknown })?.isRetryable === 'boolean'
       ? ((error as { isRetryable: boolean }).isRetryable as boolean)

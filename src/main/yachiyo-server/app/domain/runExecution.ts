@@ -91,7 +91,6 @@ import {
 import { createFilteredMemoryService } from '../../services/memory/memoryService.ts'
 import {
   DEFAULT_HARNESS_NAME,
-  isAbortError,
   type CreateId,
   type EmitServerEvent,
   type Timestamp
@@ -1984,7 +1983,7 @@ export async function executeServerRun(
       pendingUserAnswers.delete(id)
     }
 
-    if (input.abortController.signal.aborted || isAbortError(error)) {
+    if (input.abortController.signal.aborted) {
       const restartReason = input.abortController.signal.reason
       const timestamp = deps.timestamp()
 

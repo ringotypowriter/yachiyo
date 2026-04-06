@@ -14,6 +14,7 @@ import {
   shouldLogGatewayDiagnostics,
   toSerializableError
 } from './providers/gateway.ts'
+import { getGeminiMaxOutputTokens } from './providers/google.ts'
 import { createProviderOptions, extractThinkingBudget } from './providers/providerOptions.ts'
 import { isRetryableModelError } from './retryableModelError.ts'
 /** Disable AI SDK's built-in retry — we handle retries ourselves. */
@@ -110,7 +111,10 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             ...(request.max_token != null
               ? {
                   maxOutputTokens:
-                    request.max_token + extractThinkingBudget(providerOptions, request.settings) * 2
+                    request.settings.provider === 'gemini'
+                      ? getGeminiMaxOutputTokens(request.settings.model)
+                      : request.max_token +
+                        extractThinkingBudget(providerOptions, request.settings) * 2
                 }
               : {}),
             ...(request.tools
