@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.21
+
+### Patch Changes
+
+- [`c291bd8`](https://github.com/ringotypowriter/yachiyo/commit/c291bd8f1c54074d2f8179cc5c3fc4d345ab01e4) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Scrolling Improvement
+
 ## 1.0.20
 
 ### Patch Changes
