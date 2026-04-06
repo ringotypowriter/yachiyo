@@ -146,6 +146,8 @@ const api = {
       ipcRenderer.invoke('yachiyo:jotdown-create'),
     deleteJotdown: (input: { id: string }): Promise<void> =>
       ipcRenderer.invoke('yachiyo:jotdown-delete', input),
+    pruneEmptyTemporaryWorkspaces: (): Promise<number> =>
+      ipcRenderer.invoke('yachiyo:prune-empty-temporary-workspaces'),
 
     getConfig: () => ipcRenderer.invoke('yachiyo:get-config'),
     getSoulDocument: (): Promise<SoulDocument> => ipcRenderer.invoke('yachiyo:get-soul-document'),

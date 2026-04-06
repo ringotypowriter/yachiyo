@@ -108,7 +108,8 @@ import { createDemoYachiyoStorage, isDevelopmentDemoModeEnabled } from '../demo/
 import {
   cloneThreadWorkspace as defaultCloneThreadWorkspace,
   deleteThreadWorkspace as defaultDeleteThreadWorkspace,
-  ensureThreadWorkspace as defaultEnsureThreadWorkspace
+  ensureThreadWorkspace as defaultEnsureThreadWorkspace,
+  pruneEmptyTemporaryWorkspaces as defaultPruneEmptyTemporaryWorkspaces
 } from '../threads/threadWorkspace.ts'
 import { testSubagentProfile as runTestSubagentProfile } from '../tools/agentTools/testSubagentProfile.ts'
 import { assertSupportedImages, YachiyoServerConfigDomain } from './domain/configDomain.ts'
@@ -721,6 +722,24 @@ export class YachiyoServer {
 
   async deleteThread(input: { threadId: string }): Promise<void> {
     await this.threadDomain.deleteThread(input)
+  }
+
+  async pruneEmptyTemporaryWorkspaces(): Promise<number> {
+    const { threads, archivedThreads } = this.storage.bootstrap()
+    const assignedPaths = new Set<string>()
+    for (const thread of [...threads, ...archivedThreads]) {
+      if (thread.workspacePath) {
+        assignedPaths.add(thread.workspacePath)
+      }
+    }
+    return defaultPruneEmptyTemporaryWorkspaces((name) => {
+      const dirPath = join(resolveYachiyoTempWorkspaceRoot(), name)
+      // Never delete a workspace that was explicitly assigned by the user.
+      if (assignedPaths.has(dirPath)) {
+        return false
+      }
+      return true
+    })
   }
 
   async sendChat(input: SendChatInput): Promise<ChatAccepted> {

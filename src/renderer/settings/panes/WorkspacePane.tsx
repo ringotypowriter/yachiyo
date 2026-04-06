@@ -292,6 +292,40 @@ function AppPicker({ value, options, placeholder, onChange }: AppPickerProps): R
   )
 }
 
+function PruneButton(): React.JSX.Element {
+  const [hovered, setHovered] = useState(false)
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (!window.confirm('Delete empty temporary workspaces? This cannot be undone.')) {
+          return
+        }
+        void window.api.yachiyo
+          .pruneEmptyTemporaryWorkspaces()
+          .then((count) => {
+            window.alert(`Pruned ${count} empty temporary workspace${count === 1 ? '' : 's'}.`)
+          })
+          .catch((error) => {
+            window.alert(
+              `Failed to prune temporary workspaces: ${error instanceof Error ? error.message : String(error)}`
+            )
+          })
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="inline-flex items-center gap-2 text-sm font-medium shrink-0 rounded-lg px-3 py-1.5 transition-colors"
+      style={{
+        color: theme.text.danger,
+        background: hovered ? alpha('danger', 0.1) : alpha('danger', 0.06)
+      }}
+    >
+      Prune empty temporary workspaces
+    </button>
+  )
+}
+
 interface WorkspacePaneProps {
   draft: SettingsConfig
   onChange: (next: SettingsConfig) => void
@@ -445,6 +479,10 @@ export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.Re
             />
           </div>
         </div>
+      </SettingSection>
+
+      <SettingSection>
+        <SettingLabel action={<PruneButton />}>Maintenance</SettingLabel>
       </SettingSection>
     </div>
   )

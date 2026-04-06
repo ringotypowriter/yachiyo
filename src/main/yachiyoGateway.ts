@@ -152,7 +152,8 @@ const IPC_CHANNELS = {
   jotdownLoad: 'yachiyo:jotdown-load',
   jotdownSave: 'yachiyo:jotdown-save',
   jotdownCreate: 'yachiyo:jotdown-create',
-  jotdownDelete: 'yachiyo:jotdown-delete'
+  jotdownDelete: 'yachiyo:jotdown-delete',
+  pruneEmptyTemporaryWorkspaces: 'yachiyo:prune-empty-temporary-workspaces'
 } as const
 
 let server: YachiyoServer | null = null
@@ -920,6 +921,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.jotdownCreate, () => jotdownStore.create())
   handle(IPC_CHANNELS.jotdownSave, (input: JotdownSaveInput) => jotdownStore.save(input))
   handle(IPC_CHANNELS.jotdownDelete, (input: { id: string }) => jotdownStore.delete(input.id))
+  handle(IPC_CHANNELS.pruneEmptyTemporaryWorkspaces, () => server!.pruneEmptyTemporaryWorkspaces())
 
   app.once('before-quit', () => {
     if (commandSocketHealthTimer) {

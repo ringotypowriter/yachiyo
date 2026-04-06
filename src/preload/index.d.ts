@@ -120,6 +120,7 @@ declare global {
         saveJotdown: (input: JotdownSaveInput) => Promise<JotdownMeta>
         createJotdown: () => Promise<JotdownFull>
         deleteJotdown: (input: { id: string }) => Promise<void>
+        pruneEmptyTemporaryWorkspaces: () => Promise<number>
 
         getConfig: () => Promise<SettingsConfig>
         getSoulDocument: () => Promise<SoulDocument>
