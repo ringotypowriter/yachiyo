@@ -258,7 +258,7 @@ export function createTool(
           content: [{ type: 'text', text: summary }]
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'update_profile failed.'
+        const message = error instanceof Error ? error.message : 'updateProfile failed.'
         return {
           content: [{ type: 'text', text: message }],
           error: message

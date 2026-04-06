@@ -229,7 +229,7 @@ const trackedToolNameSet = new Set<string>([
   'askUser',
   'remember',
   'search_memory',
-  'update_profile'
+  'updateProfile'
 ])
 
 export function isTrackedToolName(value: string): boolean {

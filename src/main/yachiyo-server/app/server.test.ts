@@ -1612,7 +1612,7 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       'grep',
       'glob',
       'webSearch',
-      'update_profile',
+      'updateProfile',
       'askUser'
     ])
     assert.ok(String(modelRequests[0]?.messages.at(-1)?.content).startsWith('Default tool run'))
@@ -1627,7 +1627,7 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       'grep',
       'glob',
       'webSearch',
-      'update_profile',
+      'updateProfile',
       'askUser'
     ])
     assert.ok(
@@ -1654,7 +1654,7 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       'grep',
       'glob',
       'webSearch',
-      'update_profile',
+      'updateProfile',
       'askUser'
     ])
     assert.ok(String(modelRequests[2]?.messages.at(-1)?.content).startsWith('Turn write back on'))
@@ -1735,7 +1735,7 @@ test('YachiyoServer injects only active skill summaries into runtime context and
       'glob',
       'webSearch',
       'skillsRead',
-      'update_profile',
+      'updateProfile',
       'askUser'
     ])
     assert.ok(
@@ -5249,7 +5249,7 @@ test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queu
         /Recovered queued follow-up/
       )
       const resumedToolKeys = Object.keys(resumedRequests[0]?.tools ?? {}).sort()
-      for (const expected of ['askUser', 'read', 'update_profile']) {
+      for (const expected of ['askUser', 'read', 'updateProfile']) {
         assert.ok(resumedToolKeys.includes(expected), `should include ${expected}`)
       }
     } finally {
@@ -5416,14 +5416,14 @@ test('YachiyoServer keeps a recovered queued follow-up pending when a new run st
       )
       assert.equal(queuedMessage?.parentMessageId, immediateAssistantMessage?.id)
       assert.ok(String(resumedRequests[0]?.content).startsWith('Immediate question'))
-      for (const expected of ['askUser', 'bash', 'update_profile']) {
+      for (const expected of ['askUser', 'bash', 'updateProfile']) {
         assert.ok(
           resumedRequests[0]?.toolNames?.includes(expected),
           `run 0 should include ${expected}`
         )
       }
       assert.match(String(resumedRequests[1]?.content ?? ''), /Recovered queued follow-up/)
-      for (const expected of ['askUser', 'read', 'update_profile']) {
+      for (const expected of ['askUser', 'read', 'updateProfile']) {
         assert.ok(
           resumedRequests[1]?.toolNames?.includes(expected),
           `run 1 should include ${expected}`

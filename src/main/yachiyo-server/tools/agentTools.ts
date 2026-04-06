@@ -404,7 +404,7 @@ export function createAgentToolSet(
   }
 
   if (dependencies.updateProfileDeps) {
-    tools.update_profile = createUpdateProfileTool(dependencies.updateProfileDeps)
+    tools.updateProfile = createUpdateProfileTool(dependencies.updateProfileDeps)
   }
 
   const enabledSubagentProfiles = (dependencies.subagentProfiles ?? []).filter((p) => p.enabled)

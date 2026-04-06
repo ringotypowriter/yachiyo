@@ -58,6 +58,7 @@ This repo uses `node:test`. Keep tests next to the code they verify using `*.tes
 ## Tool Defaults
 
 - Newly added agent tools must be enabled by default unless the product requirement explicitly says otherwise.
+- Agent tool names must use `lowerCamelCase` (e.g., `updateProfile`, `webSearch`).
 
 ## Commit & Pull Request Guidelines
 

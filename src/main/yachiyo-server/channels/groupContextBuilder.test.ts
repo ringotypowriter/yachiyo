@@ -277,13 +277,13 @@ describe('buildGroupProbeSystemPrompt', () => {
     assert.ok(!prompt.includes('Group notes'))
   })
 
-  it('documents update_profile tool with upsert and remove operations', () => {
+  it('documents updateProfile tool with upsert and remove operations', () => {
     const prompt = buildGroupProbeSystemPrompt({
       botName: 'Yachiyo',
       groupName: 'TestGroup'
     })
 
-    assert.ok(prompt.includes('`update_profile`'))
+    assert.ok(prompt.includes('`updateProfile`'))
     assert.ok(prompt.includes('Update group notes (USER.md)'))
     assert.ok(prompt.includes('`operation: "upsert"`'))
     assert.ok(prompt.includes('`operation: "remove"`'))

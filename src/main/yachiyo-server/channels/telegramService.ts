@@ -607,7 +607,7 @@ export function createTelegramService({
       mode: 'group'
     })
 
-    // Build agentic tools: read, web_read, web_search, update_profile.
+    // Build agentic tools: read, web_read, web_search, updateProfile.
     const toolContext = { workspacePath: group.workspacePath, sandboxed: true }
     const probeTools: ToolSet = {
       send_group_message: sendGroupMessageTool,
@@ -616,7 +616,7 @@ export function createTelegramService({
       web_search: createWebSearchTool(toolContext, {
         webSearchService: server.getWebSearchService()
       }),
-      update_profile: createUpdateProfileTool({
+      updateProfile: createUpdateProfileTool({
         userDocumentPath: userDocPath,
         userDocumentMode: 'group'
       })

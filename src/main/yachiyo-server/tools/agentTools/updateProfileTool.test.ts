@@ -30,7 +30,7 @@ function createExecute(deps: UpdateProfileDeps) {
     }>
 }
 
-test('update_profile upserts rows with timestamp into owner Profile section', async () => {
+test('updateProfile upserts rows with timestamp into owner Profile section', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
   const userDocumentPath = join(root, 'USER.md')
 
@@ -59,7 +59,7 @@ test('update_profile upserts rows with timestamp into owner Profile section', as
   }
 })
 
-test('update_profile upsert matches by key column case-insensitively', async () => {
+test('updateProfile upsert matches by key column case-insensitively', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
   const userDocumentPath = join(root, 'USER.md')
 
@@ -88,7 +88,7 @@ test('update_profile upsert matches by key column case-insensitively', async () 
   }
 })
 
-test('update_profile removes rows by key', async () => {
+test('updateProfile removes rows by key', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
   const userDocumentPath = join(root, 'USER.md')
 
@@ -121,7 +121,7 @@ test('update_profile removes rows by key', async () => {
   }
 })
 
-test('update_profile rejects unknown sections', async () => {
+test('updateProfile rejects unknown sections', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
   const userDocumentPath = join(root, 'USER.md')
 
@@ -141,7 +141,7 @@ test('update_profile rejects unknown sections', async () => {
   }
 })
 
-test('update_profile uses group schema for group mode', async () => {
+test('updateProfile uses group schema for group mode', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
   const userDocumentPath = join(root, 'USER.md')
 
@@ -164,7 +164,7 @@ test('update_profile uses group schema for group mode', async () => {
   }
 })
 
-test('update_profile upserts rows by index', async () => {
+test('updateProfile upserts rows by index', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
   const userDocumentPath = join(root, 'USER.md')
 
@@ -202,7 +202,7 @@ test('update_profile upserts rows by index', async () => {
   }
 })
 
-test('update_profile removes rows by index', async () => {
+test('updateProfile removes rows by index', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
   const userDocumentPath = join(root, 'USER.md')
 
@@ -239,7 +239,7 @@ test('update_profile removes rows by index', async () => {
   }
 })
 
-test('update_profile rejects out-of-range indices', async () => {
+test('updateProfile rejects out-of-range indices', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
   const userDocumentPath = join(root, 'USER.md')
 
@@ -268,7 +268,7 @@ test('update_profile rejects out-of-range indices', async () => {
   }
 })
 
-test('update_profile index upsert does not require key column', async () => {
+test('updateProfile index upsert does not require key column', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
   const userDocumentPath = join(root, 'USER.md')
 
@@ -300,7 +300,7 @@ test('update_profile index upsert does not require key column', async () => {
   }
 })
 
-test('update_profile index upsert rejects blank key column', async () => {
+test('updateProfile index upsert rejects blank key column', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
   const userDocumentPath = join(root, 'USER.md')
 
@@ -332,7 +332,7 @@ test('update_profile index upsert rejects blank key column', async () => {
   }
 })
 
-test('update_profile index upsert rejects duplicate key', async () => {
+test('updateProfile index upsert rejects duplicate key', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
   const userDocumentPath = join(root, 'USER.md')
 
@@ -368,7 +368,7 @@ test('update_profile index upsert rejects duplicate key', async () => {
   }
 })
 
-test('update_profile migrates legacy freeform content into table rows', async () => {
+test('updateProfile migrates legacy freeform content into table rows', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
   const userDocumentPath = join(root, 'USER.md')
 

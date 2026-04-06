@@ -89,10 +89,10 @@ export function buildExternalAgentInstructions(input: {
     tools.push('Use read for reading file contents.')
   }
 
-  // update_profile is always available for external channels (not in enabledTools list).
+  // updateProfile is always available for external channels (not in enabledTools list).
   tools.push(
     '',
-    'You have an update_profile tool for managing the user profile (USER.md). Each section is a structured table.',
+    'You have an updateProfile tool for managing the user profile (USER.md). Each section is a structured table.',
     '- operation "upsert": Add or update rows by key column. Provide entries as objects with column names as keys.',
     '- operation "remove": Delete rows by key column value.'
   )
