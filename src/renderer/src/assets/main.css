@@ -394,6 +394,10 @@ body > div:not(#root) {
    silently ignores programmatic scrollTop in Chrome), but the scrollbar must stay invisible. */
 .composer-text-overlay {
   scrollbar-width: none;
+  pointer-events: none;
+}
+.composer-text-overlay * {
+  pointer-events: none;
 }
 .composer-text-overlay::-webkit-scrollbar {
   display: none;
@@ -406,6 +410,9 @@ body > div:not(#root) {
   pointer-events: none;
   overflow: hidden;
   z-index: 1;
+}
+.echooo-caret-overlay * {
+  pointer-events: none;
 }
 
 .echooo-caret {
