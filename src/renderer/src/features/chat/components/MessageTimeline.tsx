@@ -734,6 +734,12 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
 
             return (
               <div key={item.key} data-message-id={item.key}>
+                {item.data.reasoning ? (
+                  <ThinkingBlock
+                    reasoning={item.data.reasoning}
+                    isActive={item.data.status === 'streaming' && !item.data.content}
+                  />
+                ) : null}
                 <AssistantMessageBubble message={item.data} />
               </div>
             )
