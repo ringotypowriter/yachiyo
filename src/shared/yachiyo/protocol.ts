@@ -712,6 +712,8 @@ export interface RecallDecisionSnapshot {
   idleMs: number
   noveltyScore: number
   novelTerms: string[]
+  modelSkipped?: boolean
+  modelSkipReason?: string
 }
 
 export type RunContextSourceKind =

@@ -34,6 +34,12 @@ export interface MemoryQueryPlanItem {
   weight?: number
 }
 
+export interface MemoryQueryPlanResult {
+  skip: boolean
+  skipReason?: string
+  queries: MemoryQueryPlanItem[]
+}
+
 export type MemoryUnitType =
   | 'fact'
   | 'preference'
@@ -163,6 +169,8 @@ export interface MemoryServiceDeps {
 }
 
 interface QueryPlanEnvelope {
+  skip?: boolean
+  skipReason?: string
   queries?: Array<{
     query?: unknown
     topic?: unknown
@@ -343,13 +351,26 @@ function parseJsonEnvelope<T>(value: string): T | null {
   }
 }
 
-function parseQueryPlan(text: string): MemoryQueryPlanItem[] {
+function parseQueryPlan(text: string): MemoryQueryPlanResult {
   const parsed = parseJsonEnvelope<QueryPlanEnvelope>(text)
-  if (!parsed?.queries || !Array.isArray(parsed.queries)) {
-    return []
+  if (!parsed) {
+    return { skip: false, queries: [] }
   }
 
-  return parsed.queries
+  if (parsed.skip === true) {
+    return {
+      skip: true,
+      skipReason:
+        typeof parsed.skipReason === 'string' ? normalizeWhitespace(parsed.skipReason) : undefined,
+      queries: []
+    }
+  }
+
+  if (!parsed.queries || !Array.isArray(parsed.queries)) {
+    return { skip: false, queries: [] }
+  }
+
+  const queries = parsed.queries
     .flatMap((item) => {
       const query = typeof item.query === 'string' ? normalizeWhitespace(item.query) : ''
       if (!query) {
@@ -369,6 +390,8 @@ function parseQueryPlan(text: string): MemoryQueryPlanItem[] {
       ]
     })
     .slice(0, 3)
+
+  return { skip: false, queries }
 }
 
 function normalizeMemoryCandidate(raw: {
@@ -552,8 +575,10 @@ function buildQueryPlanningMessages(input: {
     ? [
         'You create retrieval plans for long-term memory recall in a casual conversation context.',
         'Return JSON only.',
-        'Schema: {"queries":[{"topic":"string","query":"string","reason":"string","weight":0.0}]}',
-        'Produce 0-2 focused semantic queries.',
+        'Schema: {"skip":true,"skipReason":"string"} or {"queries":[{"topic":"string","query":"string","reason":"string","weight":0.0}]}',
+        'Set skip=true when the user is asking a general question, making small talk, or discussing something that clearly does not relate to any personal memory (interests, preferences, communication style, relationship context, or things they have shared about themselves).',
+        'When skip=true, provide a concise skipReason.',
+        'When skip=false, produce 0-2 focused semantic queries.',
         'Each topic must be a short stable canonical topic key, not a sentence.',
         'Target personal memories: who the user is, their interests, preferences, communication style, relationship context, and things they have shared about themselves.',
         'Do NOT search for project tasks, code decisions, technical workflows, bugs, or workspace-specific facts.',
@@ -565,8 +590,10 @@ function buildQueryPlanningMessages(input: {
     : [
         'You create retrieval plans for long-term memory recall.',
         'Return JSON only.',
-        'Schema: {"queries":[{"topic":"string","query":"string","reason":"string","weight":0.0}]}',
-        'Produce 0-3 focused semantic queries.',
+        'Schema: {"skip":true,"skipReason":"string"} or {"queries":[{"topic":"string","query":"string","reason":"string","weight":0.0}]}',
+        'Set skip=true when the user is asking a general question, making small talk, or discussing something that clearly does not relate to any durable memory (preferences, decisions, workflows, constraints, bugs, or project facts).',
+        'When skip=true, provide a concise skipReason.',
+        'When skip=false, produce 0-3 focused semantic queries.',
         'Each topic must be a short stable canonical topic key, not a sentence.',
         'Each query must target durable memories such as preferences, decisions, workflows, constraints, bugs, project facts, and reusable troubleshooting knowledge.',
         'Write retrieval-oriented semantic queries, not naive keyword splitting and not paraphrases of the full user turn.',
@@ -744,18 +771,24 @@ async function deriveQueryPlan(
     signal?: AbortSignal
     userQuery: string
   }
-): Promise<MemoryQueryPlanItem[]> {
+): Promise<MemoryQueryPlanResult> {
   const result = await auxiliaryGeneration.generateText({
     messages: buildQueryPlanningMessages(input),
     signal: input.signal
   })
 
   if (result.status !== 'success') {
-    return buildFallbackQueryPlan(input.userQuery)
+    return { skip: false, queries: buildFallbackQueryPlan(input.userQuery) }
   }
 
-  const plannedQueries = parseQueryPlan(result.text)
-  return plannedQueries.length > 0 ? plannedQueries : buildFallbackQueryPlan(input.userQuery)
+  const plan = parseQueryPlan(result.text)
+  if (plan.skip) {
+    return plan
+  }
+
+  return plan.queries.length > 0
+    ? plan
+    : { skip: false, queries: buildFallbackQueryPlan(input.userQuery) }
 }
 
 async function deriveMemoryCandidates(
@@ -1086,6 +1119,28 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
           userQuery: input.userQuery
         })
 
+        if (queryPlan.skip) {
+          const skippedDecision: RecallDecisionSnapshot = {
+            ...decision,
+            modelSkipped: true,
+            modelSkipReason: queryPlan.skipReason
+          }
+          return {
+            decision: skippedDecision,
+            entries: [],
+            thread: {
+              ...input.thread,
+              memoryRecall: buildNextRecallState({
+                didRecall: false,
+                decision: skippedDecision,
+                history: input.history,
+                now: input.now,
+                thread: input.thread
+              })
+            }
+          }
+        }
+
         const aggregated = new Map<
           string,
           {
@@ -1095,7 +1150,7 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
           }
         >()
 
-        for (const [queryIndex, query] of queryPlan.entries()) {
+        for (const [queryIndex, query] of queryPlan.queries.entries()) {
           const results = await provider.searchMemories({
             limit: DEFAULT_PROVIDER_SEARCH_LIMIT,
             query: query.query,

@@ -810,3 +810,84 @@ test('memory service uses the main model for explicit Save Thread extraction wit
     }
   ])
 })
+
+test('memory service lets the query model skip recall for general questions unrelated to memory', async () => {
+  const searchCalls: string[] = []
+  const provider: MemoryProvider = {
+    async createMemories() {
+      return { savedCount: 0 }
+    },
+    async searchMemories({ query }) {
+      searchCalls.push(query)
+      return []
+    },
+    async updateMemory() {
+      return undefined
+    }
+  }
+  const service = createConfiguredService({
+    auxiliaryGeneration: createAuxiliaryGenerationStub({
+      text: JSON.stringify({
+        skip: true,
+        skipReason:
+          'The user is asking a general factual question with no relation to durable memories.'
+      })
+    }),
+    provider
+  })
+
+  const result = await service.recallForContext({
+    thread: {
+      id: 'thread-1',
+      title: 'General question',
+      updatedAt: '2026-03-22T00:00:00.000Z',
+      memoryRecall: {
+        lastRunAt: '2026-03-21T00:00:00.000Z',
+        lastRecallAt: '2026-03-21T00:00:00.000Z',
+        lastRecallMessageCount: 2,
+        lastRecallCharCount: 40
+      }
+    },
+    now: '2026-03-22T00:00:00.000Z',
+    userQuery: 'What is the capital of France?',
+    history: [
+      {
+        id: 'm1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'Hello',
+        status: 'completed',
+        createdAt: '2026-03-21T00:00:00.000Z'
+      },
+      {
+        id: 'm2',
+        threadId: 'thread-1',
+        role: 'assistant',
+        content: 'Hi there',
+        status: 'completed',
+        createdAt: '2026-03-21T00:00:01.000Z'
+      },
+      {
+        id: 'm3',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'What is the capital of France?',
+        status: 'completed',
+        createdAt: '2026-03-22T00:00:00.000Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(searchCalls, [])
+  assert.deepEqual(result.entries, [])
+  assert.equal(result.decision.shouldRecall, true)
+  assert.equal(result.decision.modelSkipped, true)
+  assert.equal(
+    result.decision.modelSkipReason,
+    'The user is asking a general factual question with no relation to durable memories.'
+  )
+  assert.equal(result.thread.memoryRecall?.lastRunAt, '2026-03-22T00:00:00.000Z')
+  assert.equal(result.thread.memoryRecall?.lastRecallAt, '2026-03-21T00:00:00.000Z')
+  assert.equal(result.thread.memoryRecall?.lastRecallMessageCount, 2)
+  assert.equal(result.thread.memoryRecall?.lastRecallCharCount, 40)
+})
