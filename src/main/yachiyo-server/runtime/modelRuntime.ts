@@ -111,7 +111,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             ...(request.max_token != null
               ? {
                   maxOutputTokens:
-                    request.settings.provider === 'gemini'
+                    request.settings.provider === 'gemini' || request.settings.provider === 'vertex'
                       ? getGeminiMaxOutputTokens(request.settings.model)
                       : request.max_token +
                         extractThinkingBudget(providerOptions, request.settings) * 2

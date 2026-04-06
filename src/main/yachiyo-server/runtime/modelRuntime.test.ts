@@ -1560,6 +1560,50 @@ test('createAiSdkModelRuntime uses Vertex AI provider for vertex', async () => {
   assert.deepEqual(selectedModel, { provider: 'vertex', modelId: 'gemini-2.5-flash-001' })
 })
 
+test('createAiSdkModelRuntime caps vertex gemini max_token to the model ceiling', async () => {
+  let maxOutputTokens: number | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () => {
+      throw new Error('OpenAI should not be used in this test.')
+    },
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    createVertexProvider: () => ((modelId: string) => ({ modelId, provider: 'vertex' })) as never,
+    streamTextImpl: ((input: { maxOutputTokens?: number }) => {
+      maxOutputTokens = input.maxOutputTokens
+      return {
+        textStream: (async function* () {
+          yield 'ok'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Limit this reply.' }],
+    settings: {
+      providerName: 'my-vertex',
+      provider: 'vertex',
+      model: 'gemini-3.1-pro-preview',
+      apiKey: '',
+      baseUrl: '',
+      project: 'my-project',
+      location: 'us-central1'
+    },
+    signal: new AbortController().signal,
+    max_token: 64
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
+  assert.equal(maxOutputTokens, 65536)
+})
+
 test('createAiSdkModelRuntime disables Vertex thinking when provider thinking is off', async () => {
   let capturedProviderOptions: Record<string, unknown> | undefined
 
