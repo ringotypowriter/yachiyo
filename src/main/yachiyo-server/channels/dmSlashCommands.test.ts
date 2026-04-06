@@ -79,6 +79,34 @@ describe('handleDmSlashCommand', () => {
       assert.equal(sent.length, 1)
       assert.ok(sent[0].length > 0, 'confirmation message should not be empty')
     })
+
+    it('includes a discard notice when batchDiscarded is true', async () => {
+      const fresh = createThread('thread-new')
+      const channelUser = createChannelUser()
+      const sent: string[] = []
+
+      const options = makeOptions<string>({
+        createFreshThread: async () => fresh,
+        sendMessage: async (_target, text) => {
+          sent.push(text)
+        }
+      })
+
+      const handled = await handleDmSlashCommand(options, 'chat-1', channelUser, '/new', '', {
+        batchDiscarded: true
+      })
+
+      assert.equal(handled, true)
+      assert.equal(sent.length, 1)
+      assert.ok(
+        sent[0].includes('Your unsent message was discarded.'),
+        `reply should include discard notice, got: ${sent[0]}`
+      )
+      assert.ok(
+        sent[0].includes('New conversation started.'),
+        `reply should include confirmation, got: ${sent[0]}`
+      )
+    })
   })
 
   describe('/status', () => {
@@ -230,6 +258,39 @@ describe('handleDmSlashCommand', () => {
       assert.equal(handled, true)
       assert.equal(sent.length, 1)
       assert.ok(sent[0].length > 0, 'reply should not be empty')
+    })
+
+    it('includes a discard notice when batchDiscarded is true', async () => {
+      const thread = createThread('thread-1')
+      const compacted = createThread('thread-1', { rollingSummary: 'summary' })
+      const channelUser = createChannelUser()
+      const sent: string[] = []
+
+      const options = makeOptions<string>({
+        server: {
+          findActiveChannelThread: () => thread,
+          getThreadTotalTokens: () => 0,
+          compactExternalThread: async () => ({ thread: compacted })
+        },
+        sendMessage: async (_target, text) => {
+          sent.push(text)
+        }
+      })
+
+      const handled = await handleDmSlashCommand(options, 'chat-1', channelUser, '/compact', '', {
+        batchDiscarded: true
+      })
+
+      assert.equal(handled, true)
+      assert.equal(sent.length, 1)
+      assert.ok(
+        sent[0].includes('Your unsent message was discarded.'),
+        `reply should include discard notice, got: ${sent[0]}`
+      )
+      assert.ok(
+        sent[0].includes('Context compacted.'),
+        `reply should include confirmation, got: ${sent[0]}`
+      )
     })
   })
 

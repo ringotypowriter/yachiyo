@@ -32,7 +32,7 @@ import type { YachiyoServer } from '../app/YachiyoServer'
 import { telegramPolicy, type ChannelPolicy } from './channelPolicy'
 import { fetchImageAsDataUrl } from './channelImageDownload'
 import { createDirectMessageService, resolveDirectMessageThread } from './directMessageService.ts'
-import { handleDmSlashCommand } from './dmSlashCommands.ts'
+import { handleDmSlashCommand, shouldDiscardPendingBatchForDmCommand } from './dmSlashCommands.ts'
 import {
   buildGroupProbeMessages,
   deriveNextGroupProbeMessageCount,
@@ -188,6 +188,7 @@ export function createTelegramService({
     onCompacted: (chatId) => notifyAutoCompact(sendMessage, chatId),
     nonRunReply: 'Sorry, something went wrong on my end.',
     errorReply: 'Something went wrong. Please try again in a moment.',
+    shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
     handleSlashCommand: (chatId, channelUser, command, args) =>
       handleDmSlashCommand(
         {

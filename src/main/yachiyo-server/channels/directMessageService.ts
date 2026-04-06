@@ -140,8 +140,14 @@ export interface DirectMessageServiceOptions<TTarget> {
     target: TTarget,
     channelUser: ChannelUserRecord,
     command: string,
-    args: string
+    args: string,
+    context: { batchDiscarded: boolean }
   ): Promise<boolean>
+  /**
+   * Optional predicate that decides whether a pending batch should be discarded
+   * before executing the given slash command.
+   */
+  shouldDiscardPendingBatch?(command: string): boolean
 }
 
 export interface DirectMessageService<TTarget> {
@@ -392,22 +398,26 @@ export function createDirectMessageService<TTarget>(
         !trimmed.includes('\n') &&
         trimmed.startsWith('/')
       ) {
-        // Cancel any pending batch so it cannot spill into a new thread.
-        const pending = pendingBatches.get(channelUser.id)
-        if (pending) {
-          clearTimeout(pending.timer)
-          pending.stopBatchIndicator()
-          pendingBatches.delete(channelUser.id)
-          console.log(
-            `[${options.logLabel}] discarded pending batch for ${channelUser.username} on slash command`
-          )
-        }
-
         const spaceIdx = trimmed.indexOf(' ')
         const command = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx)
         const args = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim()
+
+        let batchDiscarded = false
+        if (options.shouldDiscardPendingBatch?.(command)) {
+          const pending = pendingBatches.get(channelUser.id)
+          if (pending) {
+            clearTimeout(pending.timer)
+            pending.stopBatchIndicator()
+            pendingBatches.delete(channelUser.id)
+            batchDiscarded = true
+            console.log(
+              `[${options.logLabel}] discarded pending batch for ${channelUser.username} on slash command`
+            )
+          }
+        }
+
         void options
-          .handleSlashCommand(target, channelUser, command, args)
+          .handleSlashCommand(target, channelUser, command, args, { batchDiscarded })
           .then((handled) => {
             if (!handled) {
               enqueueToBatch(target, channelUser, text, imageDownloads)

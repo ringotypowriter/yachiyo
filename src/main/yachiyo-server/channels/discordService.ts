@@ -32,7 +32,7 @@ import type { YachiyoServer } from '../app/YachiyoServer.ts'
 import { discordPolicy, type ChannelPolicy } from './channelPolicy.ts'
 import { fetchImageAsDataUrl } from './channelImageDownload.ts'
 import { createDirectMessageService, resolveDirectMessageThread } from './directMessageService.ts'
-import { handleDmSlashCommand } from './dmSlashCommands.ts'
+import { handleDmSlashCommand, shouldDiscardPendingBatchForDmCommand } from './dmSlashCommands.ts'
 import {
   buildGroupProbeMessages,
   deriveNextGroupProbeMessageCount,
@@ -227,6 +227,7 @@ export function createDiscordService({
     onCompacted: (channelId) => notifyAutoCompact(sendMessage, channelId),
     nonRunReply: 'Sorry, something went wrong on my end.',
     errorReply: 'Something went wrong. Please try again in a moment.',
+    shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
     handleSlashCommand: (channelId, channelUser, command, args) =>
       handleDmSlashCommand(
         {

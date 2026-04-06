@@ -16,12 +16,15 @@ type CommandHandler<TTarget> = (
   options: DmSlashCommandOptions<TTarget>,
   target: TTarget,
   channelUser: ChannelUserRecord,
-  args: string
+  args: string,
+  context: { batchDiscarded: boolean }
 ) => Promise<void>
 
 interface CommandDef<TTarget> {
   description: string
   handler: CommandHandler<TTarget>
+  /** If true, any pending message batch is discarded before the command runs. */
+  discardPendingBatch?: boolean
 }
 
 function formatTokens(tokens: number, limit: number): string {
@@ -38,9 +41,11 @@ function modelLabel(thread: ThreadRecord): string {
 const COMMANDS: Record<string, CommandDef<unknown>> = {
   '/new': {
     description: 'Start a new conversation',
-    handler: async (options, target, channelUser) => {
+    discardPendingBatch: true,
+    handler: async (options, target, channelUser, _args, { batchDiscarded }) => {
       await options.createFreshThread(channelUser)
-      await options.sendMessage(target, 'New conversation started.')
+      const notice = batchDiscarded ? 'Your unsent message was discarded.\n' : ''
+      await options.sendMessage(target, `${notice}New conversation started.`)
     }
   },
 
@@ -63,17 +68,19 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
 
   '/compact': {
     description: 'Compact the conversation context',
-    handler: async (options, target, channelUser) => {
+    discardPendingBatch: true,
+    handler: async (options, target, channelUser, _args, { batchDiscarded }) => {
       const thread = options.server.findActiveChannelThread(
         channelUser.id,
         options.threadReuseWindowMs
       )
+      const notice = batchDiscarded ? 'Your unsent message was discarded.\n' : ''
       if (!thread) {
-        await options.sendMessage(target, 'No active conversation to compact.')
+        await options.sendMessage(target, `${notice}No active conversation to compact.`)
         return
       }
       await options.server.compactExternalThread({ threadId: thread.id })
-      await options.sendMessage(target, 'Context compacted.')
+      await options.sendMessage(target, `${notice}Context compacted.`)
     }
   },
 
@@ -89,12 +96,18 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
   }
 }
 
+export function shouldDiscardPendingBatchForDmCommand(command: string): boolean {
+  const def = COMMANDS[command] as CommandDef<unknown> | undefined
+  return def?.discardPendingBatch ?? false
+}
+
 export async function handleDmSlashCommand<TTarget>(
   options: DmSlashCommandOptions<TTarget>,
   target: TTarget,
   channelUser: ChannelUserRecord,
   command: string,
-  args: string
+  args: string,
+  context: { batchDiscarded: boolean } = { batchDiscarded: false }
 ): Promise<boolean> {
   if (args) {
     console.log(`[dmSlashCommands] ${command} called with args: ${args}`)
@@ -109,6 +122,6 @@ export async function handleDmSlashCommand<TTarget>(
     return true
   }
 
-  await def.handler(options, target, channelUser, args)
+  await def.handler(options, target, channelUser, args, context)
   return true
 }

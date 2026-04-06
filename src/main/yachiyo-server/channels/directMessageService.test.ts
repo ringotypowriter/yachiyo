@@ -421,7 +421,7 @@ describe('createDirectMessageService', () => {
     assert.equal(sendChatCalled, true)
   })
 
-  it('discards a pending batch when a slash command arrives', async () => {
+  it('discards a pending batch for /new before the slash command runs', async () => {
     const channelUser = createChannelUser()
     const thread = createThread('thread-discard')
     const listeners = new Set<(event: YachiyoServerEvent) => void>()
@@ -470,20 +470,19 @@ describe('createDirectMessageService', () => {
       logLabel: 'test',
       server,
       policy: telegramPolicy,
-      replyDelayMs: () => 50, // long enough to observe discard
+      replyDelayMs: () => 50,
       resolveThread: async () => ({ thread, compacted: false }),
       sendMessage: async () => {},
       nonRunReply: 'non-run',
       errorReply: 'error',
+      shouldDiscardPendingBatch: (command) => command === '/new' || command === '/compact',
       handleSlashCommand: async () => {
         commandHandled = true
         return true
       }
     })
 
-    // Enqueue a normal message (starts batch with 50ms delay)
     directMessages.enqueueMessage('chat-1', channelUser, 'hello')
-    // Then immediately send /new — should cancel the pending batch
     directMessages.enqueueMessage('chat-1', channelUser, '/new')
 
     await delay(100)
@@ -491,6 +490,77 @@ describe('createDirectMessageService', () => {
     assert.equal(commandHandled, true)
     // The "hello" batch should have been discarded, not sent to AI
     assert.deepEqual(sentContents, [])
+  })
+
+  it('does not discard a pending batch for no-side-effect slash commands like /help', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-keep')
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    const sentContents: string[] = []
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input) {
+        sentContents.push(input.content)
+        queueMicrotask(() => {
+          for (const l of listeners) {
+            l({
+              type: 'run.completed',
+              eventId: 'e1',
+              timestamp: '2026-03-31T00:00:00.000Z',
+              threadId: thread.id,
+              runId: 'r1'
+            })
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'r1',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      async compactExternalThread() {
+        throw new Error('should not be called')
+      },
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    let commandHandled = false
+    const directMessages = createDirectMessageService({
+      logLabel: 'test',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 50,
+      resolveThread: async () => ({ thread, compacted: false }),
+      sendMessage: async () => {},
+      nonRunReply: 'non-run',
+      errorReply: 'error',
+      shouldDiscardPendingBatch: (command) => command === '/new' || command === '/compact',
+      handleSlashCommand: async () => {
+        commandHandled = true
+        return true
+      }
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'hello')
+    directMessages.enqueueMessage('chat-1', channelUser, '/help')
+
+    await delay(100)
+
+    assert.equal(commandHandled, true)
+    // The "hello" batch should still flush normally because /help does not discard
+    assert.deepEqual(sentContents, ['hello'])
   })
 
   it('sends errorReply to the user when the slash command handler throws', async () => {
