@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { Streamdown } from 'streamdown'
 import { mathPlugin } from '@renderer/lib/markdown/mathPlugin'
 import { theme } from '@renderer/theme/theme'
@@ -22,6 +22,15 @@ export function ThinkingBlock({
       contentRef.current.scrollTop = contentRef.current.scrollHeight
     }
   }, [reasoning, isActive])
+
+  const animated = useMemo(
+    () =>
+      isActive
+        ? ({ sep: 'char', animation: 'slideUp', duration: 120, easing: 'ease-out' } as const)
+        : false,
+    [isActive]
+  )
+  const plugins = useMemo(() => ({ math: mathPlugin }), [])
 
   if (!reasoning) return null
 
@@ -85,15 +94,11 @@ export function ThinkingBlock({
             >
               <Streamdown
                 isAnimating={isActive}
-                animated={
-                  isActive
-                    ? { sep: 'char', animation: 'slideUp', duration: 120, easing: 'ease-out' }
-                    : false
-                }
+                animated={animated}
                 caret={isActive ? 'circle' : undefined}
                 mode={isActive ? 'streaming' : 'static'}
                 controls={true}
-                plugins={{ math: mathPlugin }}
+                plugins={plugins}
               >
                 {reasoning}
               </Streamdown>

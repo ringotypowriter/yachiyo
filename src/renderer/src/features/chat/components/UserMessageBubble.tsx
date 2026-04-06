@@ -1,4 +1,4 @@
-import type React from 'react'
+import React, { memo } from 'react'
 import { FileText } from 'lucide-react'
 import type { Message, Thread } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
@@ -56,7 +56,7 @@ interface UserMessageBubbleProps {
   onDelete?: () => Promise<void> | void
 }
 
-export function UserMessageBubble({
+export const UserMessageBubble = memo(function UserMessageBubble({
   label,
   message,
   pending = false,
@@ -118,4 +118,4 @@ export function UserMessageBubble({
       </div>
     </div>
   )
-}
+})

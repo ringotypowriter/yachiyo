@@ -1,4 +1,4 @@
-import type React from 'react'
+import React, { memo } from 'react'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
 import type { Message } from '@renderer/app/types'
 import { buildMessagePresentation } from '../lib/messagePresentation'
@@ -49,7 +49,7 @@ interface AssistantMessageBubbleProps {
   compactBottomSpacing?: boolean
 }
 
-export function AssistantMessageBubble({
+export const AssistantMessageBubble = memo(function AssistantMessageBubble({
   message,
   contentOverride,
   showFooter = true,
@@ -89,4 +89,4 @@ export function AssistantMessageBubble({
       </div>
     </div>
   )
-}
+})

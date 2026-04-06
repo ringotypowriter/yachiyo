@@ -25,21 +25,25 @@ export function MessageMarkdown({
   )
 
   const components = useMemo<Components>(() => ({ inlineCode: LinkableCode }), [])
+  const animated = useMemo(
+    () =>
+      isStreaming
+        ? ({ sep: 'char', animation: 'slideUp', duration: 120, easing: 'ease-out' } as const)
+        : false,
+    [isStreaming]
+  )
+  const plugins = useMemo(() => ({ math: mathPlugin }), [])
 
   return (
     <MarkdownErrorBoundary fallback={content}>
       <div className="streamdown-content message-selectable">
         <Streamdown
           isAnimating={isStreaming}
-          animated={
-            isStreaming
-              ? { sep: 'char', animation: 'slideUp', duration: 120, easing: 'ease-out' }
-              : false
-          }
+          animated={animated}
           caret={isStreaming ? 'circle' : undefined}
           mode={isStreaming ? 'streaming' : 'static'}
           controls={true}
-          plugins={{ math: mathPlugin }}
+          plugins={plugins}
           linkSafety={linkSafety}
           components={components}
         >

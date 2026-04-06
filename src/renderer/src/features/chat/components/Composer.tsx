@@ -25,7 +25,7 @@ import {
   type ComposerFileDraft,
   type ComposerImageDraft
 } from '@renderer/app/store/useAppStore'
-import type { FileMentionCandidate } from '@renderer/app/types'
+import type { FileMentionCandidate, Message } from '@renderer/app/types'
 import { getComposerActionState } from '@renderer/features/chat/lib/composerActionState'
 import { resolveComposerEnterAction } from '@renderer/features/chat/lib/composerEnterBehavior'
 import {
@@ -56,6 +56,7 @@ import {
 } from '../../../../../shared/yachiyo/threadWorkspaceRules.ts'
 
 const NEW_THREAD_DRAFT_KEY = '__new__'
+const EMPTY_MESSAGES: Message[] = []
 const MAX_COMPOSER_IMAGES = 4
 const MAX_COMPOSER_FILES = 10
 /** Text stack cap; inner wrapper uses hard clip so grid min-content cannot paint into the toolbar. */
@@ -427,7 +428,9 @@ export function Composer({
     s.activeThreadId ? s.savingThreadIds.has(s.activeThreadId) : false
   )
   const config = useAppStore((s) => s.config)
-  const messages = useAppStore((s) => s.messages)
+  const activeThreadMessages = useAppStore((s) =>
+    s.activeThreadId ? (s.messages[s.activeThreadId] ?? EMPTY_MESSAGES) : EMPTY_MESSAGES
+  )
   const pendingWorkspacePath = useAppStore((s) => s.pendingWorkspacePath)
   const pendingAcpBinding = useAppStore((s) => s.pendingAcpBinding)
   const setPendingAcpBinding = useAppStore((s) => s.setPendingAcpBinding)
@@ -521,7 +524,6 @@ export function Composer({
     threads.find((thread) => thread.id === activeThreadId) ??
     externalThreads.find((thread) => thread.id === activeThreadId) ??
     null
-  const activeThreadMessages = activeThreadId !== null ? (messages[activeThreadId] ?? []) : []
   const activeThreadMessageCount = activeThreadMessages.length
   const currentWorkspacePath = activeThread?.workspacePath ?? pendingWorkspacePath
   const activeAcpBinding =

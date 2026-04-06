@@ -3,6 +3,7 @@ import type { Message, Thread, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ThreadFindBar } from '@renderer/features/chat/components/ThreadFindBar'
 import { buildFindMatches } from '@renderer/features/chat/lib/threadFindBar'
+import type { FindMatch } from '@renderer/features/chat/lib/threadFindBar'
 import { Composer } from '@renderer/features/chat/components/Composer'
 import { ExternalThreadViewer } from '@renderer/features/chat/components/ExternalThreadViewer'
 import { MessageTimeline } from '@renderer/features/chat/components/MessageTimeline'
@@ -19,6 +20,7 @@ import { theme } from '@renderer/theme/theme'
 import { isMemoryConfigured } from '../../../../../shared/yachiyo/protocol.ts'
 
 const EMPTY: Message[] = []
+const EMPTY_FIND_MATCHES: FindMatch[] = []
 const EMPTY_TOOL_CALLS: ToolCall[] = []
 
 function getTextRanges(el: Element, query: string): Range[] {
@@ -109,7 +111,7 @@ export function AppMainPanel({
     () =>
       findOpen && findQuery.trim().length >= 2
         ? buildFindMatches(messages, toolCalls, findQuery)
-        : [],
+        : EMPTY_FIND_MATCHES,
     [findOpen, findQuery, messages, toolCalls]
   )
 
