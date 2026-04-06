@@ -196,6 +196,7 @@ interface AppState {
   sendMessage: (mode?: SendChatMode) => Promise<void>
   setEnabledTools: (enabledTools: ToolCallName[]) => Promise<void>
   scrollToMessageId: string | null
+  setScrollToMessageId: (messageId: string) => void
   clearScrollToMessageId: () => void
   setActiveThread: (id: string, scrollToMessageId?: string) => void
   setActiveArchivedThread: (id: string) => void
@@ -2561,6 +2562,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       })
     }
   },
+  setScrollToMessageId: (messageId) => set({ scrollToMessageId: messageId }),
   clearScrollToMessageId: () => set({ scrollToMessageId: null }),
   setComposerEnabledSkillNames: (enabledSkillNames) =>
     set((state) => {

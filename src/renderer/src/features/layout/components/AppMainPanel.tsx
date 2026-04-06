@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Message, Thread, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ThreadFindBar } from '@renderer/features/chat/components/ThreadFindBar'
@@ -127,8 +127,8 @@ export function AppMainPanel({
     return () => document.removeEventListener('keydown', handler)
   }, [activeThreadId])
 
-  // Build CSS highlight ranges for all matched messages
-  useEffect(() => {
+  // Build CSS highlight ranges for all currently-visible matched messages
+  const refreshFindHighlights = useCallback(() => {
     if (!CSS.highlights) return
     CSS.highlights.delete('yachiyo-find')
     if (!findOpen || findQuery.trim().length < 2 || findMatches.length === 0) return
@@ -139,32 +139,64 @@ export function AppMainPanel({
       if (el) ranges.push(...getTextRanges(el, findQuery))
     }
     if (ranges.length > 0) CSS.highlights.set('yachiyo-find', new Highlight(...ranges))
+  }, [findOpen, findQuery, findMatches])
 
+  useEffect(() => {
+    refreshFindHighlights()
     return () => {
       CSS.highlights?.delete('yachiyo-find')
     }
-  }, [findOpen, findQuery, findMatches])
+  }, [refreshFindHighlights])
 
-  // Highlight + scroll current match
+  // Refresh highlights on scroll so newly-virtualized-in matches get highlighted
+  useEffect(() => {
+    if (!findOpen || findMatches.length === 0) return
+
+    const container = document.querySelector('[data-timeline-scroll]')
+    if (!container) return
+
+    let debounceId: ReturnType<typeof setTimeout> | null = null
+    const handleScroll = (): void => {
+      if (debounceId !== null) clearTimeout(debounceId)
+      debounceId = setTimeout(refreshFindHighlights, 100)
+    }
+
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    return () => {
+      container.removeEventListener('scroll', handleScroll)
+      if (debounceId !== null) clearTimeout(debounceId)
+    }
+  }, [findOpen, findMatches.length, refreshFindHighlights])
+
+  // Highlight + scroll current match (virtualizer-aware via store)
+  const setScrollToMessageId = useAppStore((state) => state.setScrollToMessageId)
   useEffect(() => {
     if (!CSS.highlights) return
     CSS.highlights.delete('yachiyo-find-current')
 
     const match = findMatches[findCurrentIndex]
     if (!match) return
-    const el = document.querySelector(`[data-message-id="${match.messageId}"]`)
-    if (!el) return
 
-    const ranges = getTextRanges(el, findQuery)
-    if (ranges.length > 0) {
-      CSS.highlights.set('yachiyo-find-current', new Highlight(...ranges))
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
+    // Scroll via store so the virtualizer brings the item into the DOM first
+    setScrollToMessageId(match.messageId)
+
+    // Highlight after the virtualizer renders the target
+    const rafId = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-message-id="${match.messageId}"]`)
+        if (!el) return
+        const ranges = getTextRanges(el, findQuery)
+        if (ranges.length > 0) {
+          CSS.highlights.set('yachiyo-find-current', new Highlight(...ranges))
+        }
+      })
+    })
 
     return () => {
+      cancelAnimationFrame(rafId)
       CSS.highlights?.delete('yachiyo-find-current')
     }
-  }, [findCurrentIndex, findMatches, findQuery])
+  }, [findCurrentIndex, findMatches, findQuery, setScrollToMessageId])
 
   useEffect(() => {
     if (!pendingFindQuery) return

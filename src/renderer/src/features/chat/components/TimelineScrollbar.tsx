@@ -7,6 +7,7 @@ import { theme, alpha } from '@renderer/theme/theme'
 export interface TimelineScrollbarProps {
   messages: Message[]
   scrollContainerRef: React.RefObject<HTMLDivElement | null>
+  onScrollToMessage: (messageId: string) => void
 }
 
 interface BarEntry {
@@ -145,7 +146,8 @@ function PreviewPopup({
 
 export function TimelineScrollbar({
   messages,
-  scrollContainerRef
+  scrollContainerRef,
+  onScrollToMessage
 }: TimelineScrollbarProps): React.JSX.Element | null {
   const bars = useMemo(() => buildBars(messages), [messages])
   const [isHovering, setIsHovering] = useState(false)
@@ -155,6 +157,14 @@ export function TimelineScrollbar({
   } | null>(null)
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [highlightId, setHighlightId] = useState<string | null>(null)
+  const currentBarIndexRef = useRef(bars.length - 1)
+
+  // Keep current index valid when bars change
+  useEffect(() => {
+    if (currentBarIndexRef.current >= bars.length) {
+      currentBarIndexRef.current = Math.max(0, bars.length - 1)
+    }
+  }, [bars.length])
 
   const clearPreviewTimer = useCallback(() => {
     if (previewTimerRef.current !== null) {
@@ -165,45 +175,35 @@ export function TimelineScrollbar({
 
   useEffect(() => clearPreviewTimer, [clearPreviewTimer])
 
-  const scrollToMessage = useCallback((messageId: string) => {
-    const el = document.querySelector(`[data-message-id="${messageId}"]`)
-    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }, [])
-
   const navigateMessage = useCallback(
     (direction: 'prev' | 'next') => {
       if (bars.length === 0) return
 
+      // Estimate current position from scroll percentage
       const container = scrollContainerRef.current
-      if (!container) return
-
-      const viewportCenter = container.scrollTop + container.clientHeight / 2
-      let closestIndex = 0
-      let closestDistance = Infinity
-
-      for (let i = 0; i < bars.length; i++) {
-        const el = document.querySelector(`[data-message-id="${bars[i].messageId}"]`)
-        if (!el) continue
-        const rect = el.getBoundingClientRect()
-        const containerRect = container.getBoundingClientRect()
-        const elCenter = rect.top - containerRect.top + container.scrollTop + rect.height / 2
-        const distance = Math.abs(elCenter - viewportCenter)
-        if (distance < closestDistance) {
-          closestDistance = distance
-          closestIndex = i
+      if (container) {
+        const maxScroll = container.scrollHeight - container.clientHeight
+        if (maxScroll > 0) {
+          const scrollRatio = container.scrollTop / maxScroll
+          currentBarIndexRef.current = Math.round(scrollRatio * (bars.length - 1))
+          currentBarIndexRef.current = Math.max(
+            0,
+            Math.min(bars.length - 1, currentBarIndexRef.current)
+          )
         }
       }
 
       const targetIndex =
         direction === 'prev'
-          ? Math.max(0, closestIndex - 1)
-          : Math.min(bars.length - 1, closestIndex + 1)
+          ? Math.max(0, currentBarIndexRef.current - 1)
+          : Math.min(bars.length - 1, currentBarIndexRef.current + 1)
 
-      scrollToMessage(bars[targetIndex].messageId)
+      currentBarIndexRef.current = targetIndex
+      onScrollToMessage(bars[targetIndex].messageId)
       setHighlightId(bars[targetIndex].messageId)
       setTimeout(() => setHighlightId(null), 600)
     },
-    [bars, scrollContainerRef, scrollToMessage]
+    [bars, scrollContainerRef, onScrollToMessage]
   )
 
   function handleBarMouseEnter(bar: BarEntry, e: React.MouseEvent<HTMLDivElement>): void {
@@ -224,7 +224,9 @@ export function TimelineScrollbar({
   function handleBarClick(bar: BarEntry): void {
     clearPreviewTimer()
     setPreviewBar(null)
-    scrollToMessage(bar.messageId)
+    const index = bars.indexOf(bar)
+    if (index >= 0) currentBarIndexRef.current = index
+    onScrollToMessage(bar.messageId)
   }
 
   if (bars.length < 3) return null

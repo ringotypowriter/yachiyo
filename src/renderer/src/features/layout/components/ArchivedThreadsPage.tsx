@@ -110,7 +110,14 @@ function ArchivedTimeline({
 
   return (
     <div className="flex-1 relative min-h-0">
-      <TimelineScrollbar messages={visibleMessages} scrollContainerRef={scrollContainerRef} />
+      <TimelineScrollbar
+        messages={visibleMessages}
+        scrollContainerRef={scrollContainerRef}
+        onScrollToMessage={(messageId) => {
+          const el = document.querySelector(`[data-message-id="${messageId}"]`)
+          el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }}
+      />
       <div ref={scrollContainerRef} className="h-full overflow-y-auto overflow-x-hidden py-4">
         {visibleMessages.map((message) =>
           message.role === 'user' ? (

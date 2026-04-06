@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { HarnessRecord } from '@renderer/app/store/useAppStore'
 import type { Message, RunRecord, Thread, ToolCall } from '@renderer/app/types'
@@ -474,88 +475,242 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   const clearScrollToMessageId = useAppStore((state) => state.clearScrollToMessageId)
   const activeEssentialId = useAppStore((state) => state.activeEssentialId)
   const essentials = useAppStore((state) => state.config?.essentials)
-  const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
-  const messageGroups = thread
-    ? buildMessageGroups({
-        thread,
-        messages,
-        runPhase,
-        activeRequestMessageId
-      })
-    : []
-  const pendingSteerMessage =
-    threadId && pendingSteerEntry
-      ? {
-          id: `pending-steer:${threadId}`,
-          threadId,
-          parentMessageId: activeRequestMessageId ?? undefined,
-          role: 'user' as const,
-          content: pendingSteerEntry.content,
-          ...(pendingSteerEntry.images ? { images: pendingSteerEntry.images } : {}),
-          status: 'streaming' as const,
-          createdAt: pendingSteerEntry.createdAt
-        }
-      : null
-  const queuedFollowUpMessage =
-    thread?.queuedFollowUpMessageId &&
-    messages.some((message) => message.id === thread.queuedFollowUpMessageId)
-      ? (messages.find((message) => message.id === thread.queuedFollowUpMessageId) ?? null)
-      : null
-  const { inlineToolCalls, orphanToolCalls } = partitionToolCallsForGroups({
-    groups: messageGroups,
-    toolCalls
-  })
-  const rootAssistantMessages = getRootAssistantMessages(messages)
-  const threadCapabilities = thread ? getThreadCapabilities(thread) : null
+  const messageGroups = useMemo(
+    () =>
+      thread
+        ? buildMessageGroups({
+            thread,
+            messages,
+            runPhase,
+            activeRequestMessageId
+          })
+        : [],
+    [thread, messages, runPhase, activeRequestMessageId]
+  )
+  const pendingSteerMessage = useMemo(
+    () =>
+      threadId && pendingSteerEntry
+        ? {
+            id: `pending-steer:${threadId}`,
+            threadId,
+            parentMessageId: activeRequestMessageId ?? undefined,
+            role: 'user' as const,
+            content: pendingSteerEntry.content,
+            ...(pendingSteerEntry.images ? { images: pendingSteerEntry.images } : {}),
+            status: 'streaming' as const,
+            createdAt: pendingSteerEntry.createdAt
+          }
+        : null,
+    [threadId, pendingSteerEntry, activeRequestMessageId]
+  )
+  const queuedFollowUpMessage = useMemo(
+    () =>
+      thread?.queuedFollowUpMessageId &&
+      messages.some((message) => message.id === thread.queuedFollowUpMessageId)
+        ? (messages.find((message) => message.id === thread.queuedFollowUpMessageId) ?? null)
+        : null,
+    [thread?.queuedFollowUpMessageId, messages]
+  )
+  const { inlineToolCalls, orphanToolCalls } = useMemo(
+    () => partitionToolCallsForGroups({ groups: messageGroups, toolCalls }),
+    [messageGroups, toolCalls]
+  )
+  const rootAssistantMessages = useMemo(() => getRootAssistantMessages(messages), [messages])
+  const threadCapabilities = useMemo(
+    () => (thread ? getThreadCapabilities(thread) : null),
+    [thread]
+  )
   const threadHasActiveRun = activeRunId !== null
   const threadActionContext = threadCapabilities
     ? { threadCapabilities, threadHasActiveRun, threadIsSaving }
     : null
   const canBranchHere = threadActionContext ? canCreateBranch(threadActionContext) : false
   const canDeleteHere = threadActionContext ? canDeleteMessage(threadActionContext) : false
-  const timeline = buildTimeline(
-    messageGroups,
-    rootAssistantMessages,
-    harnessEvents,
-    orphanToolCalls,
-    pendingSteerMessage,
-    queuedFollowUpMessage
+  const timeline = useMemo(
+    () =>
+      buildTimeline(
+        messageGroups,
+        rootAssistantMessages,
+        harnessEvents,
+        orphanToolCalls,
+        pendingSteerMessage,
+        queuedFollowUpMessage
+      ),
+    [
+      messageGroups,
+      rootAssistantMessages,
+      harnessEvents,
+      orphanToolCalls,
+      pendingSteerMessage,
+      queuedFollowUpMessage
+    ]
   )
 
+  const visibleMessages = useMemo<Message[]>(
+    () =>
+      [
+        ...messageGroups.flatMap((group) => {
+          const branch = group.assistantBranches[group.activeBranchIndex]
+          return branch ? [group.userMessage, branch.message] : [group.userMessage]
+        }),
+        ...rootAssistantMessages,
+        ...(pendingSteerMessage ? [pendingSteerMessage] : []),
+        ...(queuedFollowUpMessage ? [queuedFollowUpMessage] : [])
+      ].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    [messageGroups, rootAssistantMessages, pendingSteerMessage, queuedFollowUpMessage]
+  )
+
+  const stickToBottomRef = useRef(true)
+  const prevThreadIdRef = useRef(threadId)
+  const programmaticScrollUntilRef = useRef(0)
+
+  // Reset stick-to-bottom on thread switch, with suppression for measurement corrections
+  if (prevThreadIdRef.current !== threadId) {
+    stickToBottomRef.current = true
+    programmaticScrollUntilRef.current = Date.now() + 500
+    prevThreadIdRef.current = threadId
+  }
+
+  const timelineRef = useRef(timeline)
+  timelineRef.current = timeline
+
+  const getScrollElement = useCallback(() => scrollContainerRef.current, [])
+  const estimateSize = useCallback((index: number) => {
+    const item = timelineRef.current[index]
+    if (!item) return 200
+    switch (item.kind) {
+      case 'harness':
+        return 52
+      case 'tool':
+        return 64
+      case 'pending-steer':
+      case 'queued-follow-up':
+        return 100
+      case 'assistant-root':
+        return 300
+      case 'group':
+        return 400
+      default:
+        return 200
+    }
+  }, [])
+  const getItemKey = useCallback((index: number) => timelineRef.current[index].key, [])
+
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const virtualizer = useVirtualizer({
+    count: timeline.length,
+    getScrollElement,
+    estimateSize,
+    overscan: 5,
+    getItemKey,
+    paddingStart: 16,
+    paddingEnd: 16
+  })
+
+  const findTimelineIndex = useCallback(
+    (messageId: string): number =>
+      timeline.findIndex((item) => {
+        if (item.key === messageId) return true
+        if (item.kind === 'group') {
+          if (item.data.userMessage.id === messageId) return true
+          const branch = item.data.assistantBranches[item.data.activeBranchIndex]
+          if (branch?.message.id === messageId) return true
+        }
+        return false
+      }),
+    [timeline]
+  )
+
+  const handleScrollToMessage = useCallback(
+    (messageId: string) => {
+      const targetIndex = findTimelineIndex(messageId)
+      if (targetIndex < 0) return
+
+      // User is deliberately navigating — unpin from bottom
+      stickToBottomRef.current = false
+      programmaticScrollUntilRef.current = Date.now() + 300
+      virtualizer.scrollToIndex(targetIndex, { align: 'center' })
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const el = document.querySelector(`[data-message-id="${messageId}"]`)
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+        })
+      })
+    },
+    [findTimelineIndex, virtualizer]
+  )
+
+  // Track user scroll to detect manual scroll-away
+  // Deps include threadId and timeline.length so the listener reattaches
+  // when the scroll container first appears (empty thread → first message)
   useEffect(() => {
     const container = scrollContainerRef.current
-    const bottom = bottomRef.current
-    if (!container || !bottom) return
+    if (!container) return
 
-    let rafId: number | null = null
-    let rafId2: number | null = null
+    const handleScroll = (): void => {
+      // Ignore scroll events caused by programmatic scrollToIndex + measurement corrections
+      if (Date.now() < programmaticScrollUntilRef.current) return
+      const distanceFromBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight
+      stickToBottomRef.current = distanceFromBottom < 100
+    }
 
-    rafId = requestAnimationFrame(() => {
-      rafId2 = requestAnimationFrame(() => {
-        const distanceFromBottom =
-          container.scrollHeight - container.scrollTop - container.clientHeight
-        if (distanceFromBottom < 100) {
-          bottom.scrollIntoView({ behavior: 'smooth', block: 'end' })
-        } else {
-          container.scrollTop = container.scrollHeight
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    return () => container.removeEventListener('scroll', handleScroll)
+  }, [threadId, timeline.length])
+
+  // Scroll to bottom on thread switch — suppression already set above
+  useEffect(() => {
+    if (timeline.length === 0) return
+    virtualizer.scrollToIndex(timeline.length - 1, { align: 'end' })
+  }, [threadId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep pinned to bottom during streaming — throttled with RAF to avoid per-token thrash
+  const streamingScrollRafRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!stickToBottomRef.current || timeline.length === 0) return
+    if (streamingScrollRafRef.current !== null) return // already scheduled
+
+    streamingScrollRafRef.current = requestAnimationFrame(() => {
+      streamingScrollRafRef.current = null
+      if (stickToBottomRef.current && timeline.length > 0) {
+        virtualizer.scrollToIndex(timeline.length - 1, { align: 'end' })
+      }
+    })
+  }, [activeRequestMessageId, harnessEvents, messages, runPhase, toolCalls, timeline.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    return () => {
+      if (streamingScrollRafRef.current !== null) {
+        cancelAnimationFrame(streamingScrollRafRef.current)
+      }
+    }
+  }, [])
+
+  // Scroll-to-message: bring the group into view via virtualizer, then refine to exact element
+  useEffect(() => {
+    if (!scrollToMessageId || timeline.length === 0) return
+    const targetMessageId = scrollToMessageId
+    clearScrollToMessageId()
+
+    const targetIndex = findTimelineIndex(targetMessageId)
+    if (targetIndex < 0) return
+
+    virtualizer.scrollToIndex(targetIndex, { align: 'center' })
+
+    // After virtualizer renders the target row, refine to the exact sub-element
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-message-id="${targetMessageId}"]`)
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
         }
       })
     })
-
-    return () => {
-      if (rafId !== null) cancelAnimationFrame(rafId)
-      if (rafId2 !== null) cancelAnimationFrame(rafId2)
-    }
-  }, [activeRequestMessageId, harnessEvents, messages, runPhase, toolCalls])
-
-  useEffect(() => {
-    if (!scrollToMessageId || messages.length === 0) return
-    const element = document.querySelector(`[data-message-id="${scrollToMessageId}"]`)
-    clearScrollToMessageId()
-    element?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }, [scrollToMessageId, messages, clearScrollToMessageId])
+  }, [scrollToMessageId, timeline, clearScrollToMessageId, findTimelineIndex]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleEdit(messageId: string): void {
     beginEditMessage(messageId)
@@ -648,133 +803,145 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
 
   const isAcpThread = thread?.runtimeBinding?.kind === 'acp'
 
-  // Collect only the messages visible on the active branch for the scrollbar,
-  // sorted chronologically to match the rendered timeline order.
-  const visibleMessages: Message[] = [
-    ...messageGroups.flatMap((group) => {
-      const branch = group.assistantBranches[group.activeBranchIndex]
-      return branch ? [group.userMessage, branch.message] : [group.userMessage]
-    }),
-    ...rootAssistantMessages,
-    ...(pendingSteerMessage ? [pendingSteerMessage] : []),
-    ...(queuedFollowUpMessage ? [queuedFollowUpMessage] : [])
-  ].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  function renderTimelineItem(item: TimelineItem): React.JSX.Element | null {
+    if (item.kind === 'harness') {
+      return <RunEventRow harness={item.data} />
+    }
+
+    if (item.kind === 'queued-follow-up') {
+      if (!threadCapabilities) return null
+      return (
+        <div data-message-id={item.key}>
+          <UserMessageBubble
+            label="Queued follow-up"
+            message={item.data}
+            threadHasActiveRun={threadHasActiveRun}
+            threadCapabilities={threadCapabilities}
+            threadIsSaving={threadIsSaving}
+            onRetry={threadCapabilities.canRetry ? () => handleRetry(item.data.id) : undefined}
+            onCreateBranch={canBranchHere ? () => handleCreateBranch(item.data.id) : undefined}
+            onDelete={canDeleteHere ? () => handleDelete(item.data.id) : undefined}
+          />
+        </div>
+      )
+    }
+
+    if (item.kind === 'pending-steer') {
+      if (!threadCapabilities) return null
+      return (
+        <div data-message-id={item.key}>
+          <UserMessageBubble
+            label="Pending steer"
+            pending
+            message={item.data}
+            threadHasActiveRun
+            threadCapabilities={threadCapabilities}
+            onRetry={() => undefined}
+            onCreateBranch={() => undefined}
+            onDelete={() => undefined}
+          />
+        </div>
+      )
+    }
+
+    if (item.kind === 'tool') {
+      return <ToolCallRow toolCall={item.data} />
+    }
+
+    if (item.kind === 'assistant-root') {
+      if (item.data.status === 'streaming' && !item.data.content.trim()) {
+        return (
+          <div className="message-response-cluster">
+            <div className="message-response-cluster__preparing">
+              <PreparingBubble />
+            </div>
+          </div>
+        )
+      }
+
+      return (
+        <div data-message-id={item.key}>
+          {item.data.reasoning ? (
+            <ThinkingBlock
+              reasoning={item.data.reasoning}
+              isActive={item.data.status === 'streaming' && !item.data.content}
+            />
+          ) : null}
+          <AssistantMessageBubble message={item.data} />
+        </div>
+      )
+    }
+
+    const isActiveGroup = item.data.userMessage.id === activeRequestMessageId
+    if (!threadCapabilities) return null
+
+    return (
+      <div data-message-id={item.key}>
+        <ThreadConversationGroup
+          threadId={threadId!}
+          group={item.data}
+          toolCalls={inlineToolCalls}
+          activeRunId={activeRunId}
+          threadHasActiveRun={threadHasActiveRun}
+          threadIsSaving={threadIsSaving}
+          runs={runs}
+          subagentActive={isActiveGroup && subagentActive}
+          subagentStream={subagentStream}
+          retryInfo={isActiveGroup ? retryInfo : undefined}
+          onCancelSubagent={() => void cancelRunForThread(threadId!)}
+          threadCapabilities={threadCapabilities}
+          onCreateBranch={handleCreateBranch}
+          onEdit={handleEdit}
+          onRetry={handleRetry}
+          onSelectReplyBranch={handleSelectReplyBranch}
+          onDelete={handleDelete}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="flex-1 relative min-h-0 min-w-0">
       {!isAcpThread && (
-        <TimelineScrollbar messages={visibleMessages} scrollContainerRef={scrollContainerRef} />
+        <TimelineScrollbar
+          messages={visibleMessages}
+          scrollContainerRef={scrollContainerRef}
+          onScrollToMessage={handleScrollToMessage}
+        />
       )}
-      <div ref={scrollContainerRef} className="h-full overflow-y-auto overflow-x-hidden py-4">
-        {timeline.map((item) => {
-          if (item.kind === 'harness') {
-            return <RunEventRow key={item.key} harness={item.data} />
-          }
-
-          if (item.kind === 'queued-follow-up') {
-            if (!threadCapabilities) {
-              return null
-            }
-
-            return (
-              <div key={item.key} data-message-id={item.key}>
-                <UserMessageBubble
-                  label="Queued follow-up"
-                  message={item.data}
-                  threadHasActiveRun={threadHasActiveRun}
-                  threadCapabilities={threadCapabilities}
-                  threadIsSaving={threadIsSaving}
-                  onRetry={
-                    threadCapabilities.canRetry ? () => handleRetry(item.data.id) : undefined
-                  }
-                  onCreateBranch={
-                    canBranchHere ? () => handleCreateBranch(item.data.id) : undefined
-                  }
-                  onDelete={canDeleteHere ? () => handleDelete(item.data.id) : undefined}
-                />
-              </div>
-            )
-          }
-
-          if (item.kind === 'pending-steer') {
-            if (!threadCapabilities) {
-              return null
-            }
+      <div
+        ref={scrollContainerRef}
+        data-timeline-scroll
+        className="h-full overflow-y-auto overflow-x-hidden"
+      >
+        <div
+          style={{
+            height: virtualizer.getTotalSize(),
+            width: '100%',
+            position: 'relative'
+          }}
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const item = timeline[virtualRow.index]
 
             return (
-              <div key={item.key} data-message-id={item.key}>
-                <UserMessageBubble
-                  label="Pending steer"
-                  pending
-                  message={item.data}
-                  threadHasActiveRun
-                  threadCapabilities={threadCapabilities}
-                  onRetry={() => undefined}
-                  onCreateBranch={() => undefined}
-                  onDelete={() => undefined}
-                />
+              <div
+                key={virtualRow.key}
+                data-index={virtualRow.index}
+                ref={virtualizer.measureElement}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${virtualRow.start}px)`
+                }}
+              >
+                {renderTimelineItem(item)}
               </div>
             )
-          }
-
-          if (item.kind === 'tool') {
-            return <ToolCallRow key={item.key} toolCall={item.data} />
-          }
-
-          if (item.kind === 'assistant-root') {
-            if (item.data.status === 'streaming' && !item.data.content.trim()) {
-              return (
-                <div key={item.key} className="message-response-cluster">
-                  <div className="message-response-cluster__preparing">
-                    <PreparingBubble />
-                  </div>
-                </div>
-              )
-            }
-
-            return (
-              <div key={item.key} data-message-id={item.key}>
-                {item.data.reasoning ? (
-                  <ThinkingBlock
-                    reasoning={item.data.reasoning}
-                    isActive={item.data.status === 'streaming' && !item.data.content}
-                  />
-                ) : null}
-                <AssistantMessageBubble message={item.data} />
-              </div>
-            )
-          }
-
-          const isActiveGroup = item.data.userMessage.id === activeRequestMessageId
-          if (!threadCapabilities) {
-            return null
-          }
-
-          return (
-            <div key={item.key} data-message-id={item.key}>
-              <ThreadConversationGroup
-                threadId={threadId}
-                group={item.data}
-                toolCalls={inlineToolCalls}
-                activeRunId={activeRunId}
-                threadHasActiveRun={threadHasActiveRun}
-                threadIsSaving={threadIsSaving}
-                runs={runs}
-                subagentActive={isActiveGroup && subagentActive}
-                subagentStream={subagentStream}
-                retryInfo={isActiveGroup ? retryInfo : undefined}
-                onCancelSubagent={() => void cancelRunForThread(threadId)}
-                threadCapabilities={threadCapabilities}
-                onCreateBranch={handleCreateBranch}
-                onEdit={handleEdit}
-                onRetry={handleRetry}
-                onSelectReplyBranch={handleSelectReplyBranch}
-                onDelete={handleDelete}
-              />
-            </div>
-          )
-        })}
-        <div ref={bottomRef} />
+          })}
+        </div>
       </div>
     </div>
   )
