@@ -652,7 +652,8 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     overscan: 5,
     getItemKey,
     paddingStart: 16,
-    paddingEnd: 16
+    paddingEnd: 16,
+    useFlushSync: false
   })
 
   const findTimelineIndex = useCallback(
@@ -698,16 +699,34 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     if (!container) return
 
     const handleScroll = (): void => {
-      // Ignore scroll events caused by programmatic scrollToIndex + measurement corrections
+      // Ignore scroll events caused by programmatic scroll + measurement corrections
       if (Date.now() < programmaticScrollUntilRef.current) return
       const distanceFromBottom =
         container.scrollHeight - container.scrollTop - container.clientHeight
-      stickToBottomRef.current = distanceFromBottom < 100
+      // Hysteresis: avoid rapid flipping from virtualizer measurement lag.
+      if (!stickToBottomRef.current && distanceFromBottom < 50) {
+        stickToBottomRef.current = true
+      } else if (stickToBottomRef.current && distanceFromBottom > 200) {
+        stickToBottomRef.current = false
+      }
     }
 
     container.addEventListener('scroll', handleScroll, { passive: true })
     return () => container.removeEventListener('scroll', handleScroll)
   }, [threadId, timeline.length])
+
+  const scrollToBottom = useCallback((): void => {
+    if (timelineRef.current.length === 0) return
+    programmaticScrollUntilRef.current = Date.now() + 300
+    virtualizer.scrollToIndex(timelineRef.current.length - 1, { align: 'end' })
+    // Chase with a raw scroll to catch measurement lag from growing content
+    requestAnimationFrame(() => {
+      const container = scrollContainerRef.current
+      if (container) {
+        container.scrollTop = container.scrollHeight - container.clientHeight
+      }
+    })
+  }, [virtualizer])
 
   // Scroll to bottom on thread switch — suppression already set above
   useEffect(() => {
@@ -715,19 +734,43 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     virtualizer.scrollToIndex(timeline.length - 1, { align: 'end' })
   }, [threadId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Re-pin to bottom when the user sends a new message (activeRequestMessageId changes).
+  // Without this, a user who scrolled up won't auto-scroll to their own new message.
+  const prevActiveRequestRef = useRef(activeRequestMessageId)
+  useEffect(() => {
+    if (activeRequestMessageId && activeRequestMessageId !== prevActiveRequestRef.current) {
+      stickToBottomRef.current = true
+      // Immediately scroll so the user sees their own message without waiting for streaming
+      scrollToBottom()
+    }
+    prevActiveRequestRef.current = activeRequestMessageId
+  }, [activeRequestMessageId, scrollToBottom])
+
   // Keep pinned to bottom during streaming — throttled with RAF to avoid per-token thrash
   const streamingScrollRafRef = useRef<number | null>(null)
   useEffect(() => {
     if (!stickToBottomRef.current || timeline.length === 0) return
-    if (streamingScrollRafRef.current !== null) return // already scheduled
+
+    // Cancel any pending RAF so we always use the latest layout
+    if (streamingScrollRafRef.current !== null) {
+      cancelAnimationFrame(streamingScrollRafRef.current)
+    }
 
     streamingScrollRafRef.current = requestAnimationFrame(() => {
       streamingScrollRafRef.current = null
-      if (stickToBottomRef.current && timeline.length > 0) {
-        virtualizer.scrollToIndex(timeline.length - 1, { align: 'end' })
+      if (stickToBottomRef.current) {
+        scrollToBottom()
       }
     })
-  }, [activeRequestMessageId, harnessEvents, messages, runPhase, toolCalls, timeline.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    activeRequestMessageId,
+    harnessEvents,
+    messages,
+    runPhase,
+    toolCalls,
+    timeline.length,
+    scrollToBottom
+  ])
   useEffect(() => {
     return () => {
       if (streamingScrollRafRef.current !== null) {
