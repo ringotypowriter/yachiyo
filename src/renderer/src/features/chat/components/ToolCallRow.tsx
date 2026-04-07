@@ -27,10 +27,11 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
   }
 
   const isRunning = toolCall.status === 'running'
+  const isBackground = toolCall.status === 'background'
   const isFailed = toolCall.status === 'failed'
   const dotColor = isFailed
     ? theme.status.danger
-    : isRunning
+    : isRunning || isBackground
       ? theme.text.accent
       : theme.status.success
   const presentation = buildToolCallDetailsPresentation(toolCall)
@@ -44,7 +45,10 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
         className="w-1.5 h-1.5 rounded-full shrink-0"
         style={{
           background: dotColor,
-          animation: isRunning ? 'yachiyo-preparing-pulse 1.2s ease-in-out infinite' : undefined
+          animation:
+            isRunning || isBackground
+              ? 'yachiyo-preparing-pulse 1.2s ease-in-out infinite'
+              : undefined
         }}
       />
       <span>{toolCall.toolName}</span>

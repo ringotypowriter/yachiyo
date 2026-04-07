@@ -227,6 +227,21 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
       return { fields, codeBlocks }
     }
 
+    if (details.background) {
+      pushField(fields, 'task id', details.taskId)
+      pushField(fields, 'log file', details.logPath)
+      // Only show exit code once the background task has completed
+      if (details.exitCode !== undefined) {
+        pushField(
+          fields,
+          'exit code',
+          details.exitCode,
+          details.exitCode !== 0 ? 'danger' : undefined
+        )
+      }
+      return { fields, codeBlocks }
+    }
+
     pushField(fields, 'exit code', details.exitCode, details.exitCode !== 0 ? 'danger' : undefined)
 
     if (details.timedOut) {

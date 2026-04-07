@@ -567,55 +567,6 @@ test('YachiyoServer can refine the fallback thread title with the configured too
   )
 })
 
-test('YachiyoServer applies configured chat max token to local thread runs', async () => {
-  await withServer(async ({ server, completeRun, modelRequests }) => {
-    await server.saveConfig({
-      ...(await server.getConfig()),
-      chat: {
-        activeRunEnterBehavior: 'enter-steers',
-        maxChatToken: 512
-      }
-    })
-
-    const thread = await server.createThread()
-    const accepted = await server.sendChat({
-      threadId: thread.id,
-      content: 'Keep it short.'
-    })
-
-    await completeRun(accepted.runId)
-
-    const mainRequest = modelRequests.find((request) => request.providerOptionsMode !== 'auxiliary')
-    assert.equal(mainRequest?.max_token, 512)
-  })
-})
-
-test('YachiyoServer applies configured chat max token to external DM thread runs', async () => {
-  await withServer(async ({ server, completeRun, modelRequests }) => {
-    await server.saveConfig({
-      ...(await server.getConfig()),
-      chat: {
-        activeRunEnterBehavior: 'enter-steers',
-        maxChatToken: 640
-      }
-    })
-
-    const thread = await server.createThread({
-      source: 'telegram',
-      channelUserId: 'tg-user-1'
-    })
-    const accepted = await server.sendChat({
-      threadId: thread.id,
-      content: 'Reply in DM.'
-    })
-
-    await completeRun(accepted.runId)
-
-    const mainRequest = modelRequests.find((request) => request.providerOptionsMode !== 'auxiliary')
-    assert.equal(mainRequest?.max_token, 640)
-  })
-})
-
 test('YachiyoServer injects recalled memory into the compiled context before the main run', async () => {
   const recalledQueries: string[] = []
 

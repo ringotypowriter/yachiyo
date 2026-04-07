@@ -7,7 +7,6 @@ import test from 'node:test'
 import {
   DEFAULT_MEMORY_BASE_URL,
   DEFAULT_ENABLED_TOOL_NAMES,
-  DEFAULT_MAX_CHAT_TOKEN,
   DEFAULT_TOOL_MODEL_MODE,
   DEFAULT_SIDEBAR_VISIBILITY,
   normalizeUserPrompts
@@ -42,7 +41,6 @@ test('settings store persists multi-provider config as TOML', async () => {
       },
       chat: {
         activeRunEnterBehavior: 'enter-queues-follow-up',
-        maxChatToken: 4096,
         stripCompact: true
       },
       workspace: {
@@ -123,7 +121,6 @@ test('settings store persists multi-provider config as TOML', async () => {
     assert.match(toml, /sidebarVisibility = "collapsed"/)
     assert.match(toml, /demoMode = true/)
     assert.match(toml, /activeRunEnterBehavior = "enter-queues-follow-up"/)
-    assert.match(toml, /maxChatToken = 4096/)
     assert.match(toml, /\[workspace\]/)
     assert.match(
       toml,
@@ -172,39 +169,6 @@ test('normalizeSettingsConfig preserves demoMode in general settings', () => {
     }).general?.demoMode,
     false
   )
-})
-
-test('normalizeSettingsConfig preserves unset chat maxChatToken and rejects invalid values', () => {
-  assert.equal(normalizeSettingsConfig({ providers: [] }).chat?.maxChatToken, undefined)
-
-  assert.equal(
-    normalizeSettingsConfig({
-      providers: [],
-      chat: { maxChatToken: 8192 }
-    }).chat?.maxChatToken,
-    8192
-  )
-
-  assert.equal(
-    normalizeSettingsConfig({
-      providers: [],
-      chat: { maxChatToken: 0 }
-    }).chat?.maxChatToken,
-    DEFAULT_MAX_CHAT_TOKEN
-  )
-})
-
-test('stringifySettingsToml does not materialize maxChatToken for legacy configs that never set it', () => {
-  const normalized = normalizeSettingsConfig({
-    providers: [],
-    chat: { activeRunEnterBehavior: 'enter-steers' }
-  })
-
-  const toml = stringifySettingsToml(normalized)
-  const reparsed = parseSettingsToml(toml)
-
-  assert.doesNotMatch(toml, /maxChatToken/u)
-  assert.equal(reparsed.chat?.maxChatToken, undefined)
 })
 
 test('settings store returns the default config when the file is missing', async () => {

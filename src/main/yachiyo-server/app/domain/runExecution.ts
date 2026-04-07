@@ -42,10 +42,7 @@ import type {
   ToolCallRecord,
   ToolCallUpdatedEvent
 } from '../../../../shared/yachiyo/protocol.ts'
-import {
-  isTrackedToolName,
-  normalizeOptionalMaxChatToken
-} from '../../../../shared/yachiyo/protocol.ts'
+import { isTrackedToolName } from '../../../../shared/yachiyo/protocol.ts'
 import {
   collectMessagePath,
   wouldCreateParentCycle
@@ -88,6 +85,7 @@ import {
   normalizeToolResult,
   summarizeToolInput
 } from '../../tools/agentTools.ts'
+import type { BackgroundBashTaskHandle } from '../../tools/agentTools/shared.ts'
 import { createFilteredMemoryService } from '../../services/memory/memoryService.ts'
 import {
   DEFAULT_HARNESS_NAME,
@@ -170,6 +168,7 @@ export interface RunExecutionDeps {
   /** Called by execution to register the askUser answer handler. */
   onAskUserHandlerReady?: (handler: (toolCallId: string, answer: string) => void) => void
   onTerminalState?: () => void
+  onBackgroundBashStarted?: (task: BackgroundBashTaskHandle & { threadId: string }) => Promise<void>
   onSubagentProgress?: (chunk: string) => void
   onSubagentStarted?: (agentName: string) => void
   jotdownStore?: JotdownStore
@@ -903,7 +902,6 @@ export async function executeServerRun(
   input: ExecuteRunInput
 ): Promise<ExecuteRunResult> {
   const settings = deps.readSettings()
-  const maxChatToken = normalizeOptionalMaxChatToken(deps.readConfig().chat?.maxChatToken)
   const harnessId = deps.createId()
   const recoveryCheckpoint = input.recoveryCheckpoint
   const messageId = recoveryCheckpoint?.assistantMessageId ?? deps.createId()
@@ -1351,7 +1349,14 @@ export async function executeServerRun(
       {
         enabledTools: modelEnabledTools,
         workspacePath,
-        sandboxed: isExternalChannel && !isOwnerDm
+        sandboxed: isExternalChannel && !isOwnerDm,
+        ...(deps.onBackgroundBashStarted
+          ? {
+              onBackgroundBashStarted: async (task) => {
+                await deps.onBackgroundBashStarted?.({ ...task, threadId: input.thread.id })
+              }
+            }
+          : {})
       },
       {
         availableSkills,
@@ -1595,7 +1600,6 @@ export async function executeServerRun(
     const stream = runtime.streamReply({
       messages: finalMessages,
       settings,
-      max_token: maxChatToken,
       signal: input.abortController.signal,
       maxToolSteps,
       ...(tools ? { tools } : {}),

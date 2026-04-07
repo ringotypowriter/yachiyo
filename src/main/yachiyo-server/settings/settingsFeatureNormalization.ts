@@ -5,7 +5,6 @@ import {
   DEFAULT_WEB_SEARCH_PROVIDER,
   normalizeActiveRunEnterBehavior,
   normalizeMemoryProviderId,
-  normalizeOptionalMaxChatToken,
   normalizeSidebarVisibility,
   type BrowserBackedWebSearchSessionConfig,
   type ChatConfig,
@@ -78,11 +77,6 @@ export function normalizeChatConfig(value: unknown): ChatConfig {
       input['activeRunEnterBehavior'],
       DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
     ),
-    ...('maxChatToken' in input
-      ? {
-          maxChatToken: normalizeOptionalMaxChatToken(input['maxChatToken'])
-        }
-      : {}),
     stripCompact: normalizeOptionalBool(input['stripCompact'], true)
   }
 }

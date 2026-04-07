@@ -291,9 +291,18 @@ export function normalizeToolResult(
   const typedOutput = output as AgentToolOutput
   const error = getOutputError(output)
 
+  const isBackground =
+    toolName === 'bash' &&
+    typedOutput.details &&
+    'background' in typedOutput.details &&
+    typedOutput.details.background === true
+
   return {
-    status: phase === 'update' ? 'running' : error ? 'failed' : 'completed',
-    outputSummary: summarizeToolOutput(toolName, output, { phase }),
+    status:
+      phase === 'update' ? 'running' : isBackground ? 'background' : error ? 'failed' : 'completed',
+    outputSummary: isBackground
+      ? `background: ${(typedOutput.details as { taskId?: string }).taskId ?? 'unknown'}`
+      : summarizeToolOutput(toolName, output, { phase }),
     ...(typedOutput.metadata?.cwd ? { cwd: typedOutput.metadata.cwd } : {}),
     ...(error ? { error } : {}),
     ...(typedOutput.details ? { details: typedOutput.details } : {})

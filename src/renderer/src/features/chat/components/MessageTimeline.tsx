@@ -304,16 +304,18 @@ export const ThreadConversationGroup = memo(function ThreadConversationGroup({
 
   return (
     <div className="flex flex-col gap-2" data-thread-id={threadId}>
-      <UserMessageBubble
-        message={group.userMessage}
-        threadHasActiveRun={threadHasActiveRun}
-        threadCapabilities={threadCapabilities}
-        threadIsSaving={threadIsSaving}
-        onEdit={canEditMessages ? handleEditUser : undefined}
-        onRetry={threadCapabilities.canRetry ? handleRetryUser : undefined}
-        onCreateBranch={canBranchMessages ? handleCreateBranchUser : undefined}
-        onDelete={canDeleteMessages ? handleDeleteUser : undefined}
-      />
+      {group.userMessage.hidden ? null : (
+        <UserMessageBubble
+          message={group.userMessage}
+          threadHasActiveRun={threadHasActiveRun}
+          threadCapabilities={threadCapabilities}
+          threadIsSaving={threadIsSaving}
+          onEdit={canEditMessages ? handleEditUser : undefined}
+          onRetry={threadCapabilities.canRetry ? handleRetryUser : undefined}
+          onCreateBranch={canBranchMessages ? handleCreateBranchUser : undefined}
+          onDelete={canDeleteMessages ? handleDeleteUser : undefined}
+        />
+      )}
 
       {responseCount > 1 ? (
         <div className="px-6 py-0.5">
@@ -867,7 +869,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
       }
 
       if (item.kind === 'queued-follow-up') {
-        if (!threadCapabilities) return null
+        if (!threadCapabilities || item.data.hidden) return null
         return (
           <div data-message-id={item.key}>
             <UserMessageBubble

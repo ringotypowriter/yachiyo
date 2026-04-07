@@ -260,6 +260,13 @@
       "when": 1775064738881,
       "tag": "0036_wooden_landau",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1775484852970,
+      "tag": "0037_brown_skin",
+      "breakpoints": true
     }
   ]
 }

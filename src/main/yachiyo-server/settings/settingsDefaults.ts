@@ -1,7 +1,6 @@
 import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
   DEFAULT_ENABLED_TOOL_NAMES,
-  DEFAULT_MAX_CHAT_TOKEN,
   DEFAULT_MEMORY_BASE_URL,
   DEFAULT_MEMORY_PROVIDER,
   DEFAULT_SIDEBAR_VISIBILITY,
@@ -24,7 +23,6 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   },
   chat: {
     activeRunEnterBehavior: DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
-    maxChatToken: DEFAULT_MAX_CHAT_TOKEN,
     stripCompact: true
   },
   workspace: {

@@ -244,10 +244,11 @@ function InspectionToolCallRow({ toolCall }: InspectionToolCallRowProps): React.
   const allCodeBlocks = presentation.codeBlocks
   const hasDetail = presentation.fields.length > 0 || allCodeBlocks.length > 0
   const isRunning = toolCall.status === 'running'
+  const isBackground = toolCall.status === 'background'
   const isFailed = toolCall.status === 'failed'
   const dotColor = isFailed
     ? theme.status.danger
-    : isRunning
+    : isRunning || isBackground
       ? theme.text.accent
       : theme.status.success
 
@@ -273,7 +274,10 @@ function InspectionToolCallRow({ toolCall }: InspectionToolCallRowProps): React.
           className="mt-0.5 w-1.5 h-1.5 rounded-full shrink-0"
           style={{
             background: dotColor,
-            animation: isRunning ? 'yachiyo-preparing-pulse 1.2s ease-in-out infinite' : undefined
+            animation:
+              isRunning || isBackground
+                ? 'yachiyo-preparing-pulse 1.2s ease-in-out infinite'
+                : undefined
           }}
         />
         <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1 truncate">

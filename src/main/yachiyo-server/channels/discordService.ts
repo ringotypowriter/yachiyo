@@ -621,7 +621,6 @@ export function createDiscordService({
 
     const result = await auxService.generateText({
       messages,
-      max_token: server.resolveMaxChatToken(),
       tools: probeTools,
       onToolCallError: (event) =>
         event.toolCall.toolName === 'send_group_message' ? 'abort' : 'continue',

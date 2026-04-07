@@ -353,6 +353,50 @@ export async function* streamBashTool(
   const timeoutSeconds = input.timeout ?? DEFAULT_BASH_TIMEOUT_SECONDS
 
   const securityCheck = validateBashCommand(command)
+
+  // Background mode: spawn the detached process first, then return the handle
+  if (input.background && !securityCheck.blocked) {
+    const taskId = options.toolCallId ?? randomUUID()
+    const logPath = join(context.workspacePath, '.yachiyo', 'tool-output', `${taskId}.log`)
+
+    try {
+      await context.onBackgroundBashStarted?.({
+        taskId,
+        command,
+        cwd: context.workspacePath,
+        logPath,
+        toolCallId: options.toolCallId
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Background task failed to start.'
+      yield createBashResult({
+        command,
+        combinedOutput: '',
+        cwd: context.workspacePath,
+        stdout: '',
+        stderr: '',
+        error: message
+      })
+      return
+    }
+
+    const handle = { taskId, logPath }
+    yield {
+      content: [{ type: 'text', text: JSON.stringify(handle) }],
+      details: {
+        command,
+        cwd: context.workspacePath,
+        stdout: '',
+        stderr: '',
+        background: true,
+        taskId,
+        logPath
+      },
+      metadata: { cwd: context.workspacePath }
+    }
+    return
+  }
+
   if (securityCheck.blocked) {
     queue.push(
       createBashResult({

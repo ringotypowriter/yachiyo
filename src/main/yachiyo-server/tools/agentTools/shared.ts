@@ -53,7 +53,8 @@ export const editToolInputSchema = z.object({
 
 export const bashToolInputSchema = z.object({
   command: z.string().min(1),
-  timeout: z.number().int().min(1).max(MAX_BASH_TIMEOUT_SECONDS).optional()
+  timeout: z.number().int().min(1).max(MAX_BASH_TIMEOUT_SECONDS).optional(),
+  background: z.boolean().optional()
 })
 
 export const grepToolInputSchema = z.object({
@@ -98,11 +99,20 @@ export type WebReadToolInput = z.infer<typeof webReadToolInputSchema>
 export type WebSearchToolInput = z.infer<typeof webSearchToolInputSchema>
 export type SkillsReadToolInput = z.infer<typeof skillsReadToolInputSchema>
 
+export interface BackgroundBashTaskHandle {
+  taskId: string
+  command: string
+  cwd: string
+  logPath: string
+  toolCallId?: string
+}
+
 export interface AgentToolContext {
   enabledTools?: ToolCallName[]
   workspacePath: string
   /** When true, file tools are sandboxed to the workspace — no absolute path escapes. */
   sandboxed?: boolean
+  onBackgroundBashStarted?: (task: BackgroundBashTaskHandle) => Promise<void>
 }
 
 export type ToolContentBlock =

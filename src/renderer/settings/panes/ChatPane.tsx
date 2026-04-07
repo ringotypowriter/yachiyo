@@ -9,16 +9,7 @@ import {
 import { formatStoredModelChip } from '../../src/lib/model/modelLabel'
 import { ModelSelectorPopup } from '../../src/features/chat/components/ModelSelectorPopup'
 import { canOpenToolModelPicker } from '../../src/features/chat/lib/modelSelectorState'
-import { FixedStepSlider } from '../components/FixedStepSlider'
-import { resolveClosestFixedStepOption } from '../components/fixedStepSliderUtils'
 import { SettingLabel, SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
-
-const MAX_CHAT_TOKEN_LEVELS = [
-  { label: '1k', value: 1024 },
-  { label: '2k', value: 2048 },
-  { label: '3k', value: 3072 },
-  { label: '4k', value: 4096 }
-] as const
 
 interface ChatPaneProps {
   draft: SettingsConfig
@@ -27,11 +18,6 @@ interface ChatPaneProps {
 
 export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
   const activeRunEnterBehavior = draft.chat?.activeRunEnterBehavior ?? 'enter-steers'
-  const maxChatToken = draft.chat?.maxChatToken
-  const maxChatTokenLevel =
-    maxChatToken == null
-      ? undefined
-      : resolveClosestFixedStepOption(MAX_CHAT_TOKEN_LEVELS, maxChatToken)
   const toolModel = getToolModelConfig(draft)
   const selectedToolProvider = resolveToolModelProvider(draft, toolModel)
   const toolModelSelectorRef = useRef<HTMLDivElement>(null)
@@ -194,45 +180,6 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
               }
               ariaLabel="Toggle Enter steering during active runs"
             />
-          </div>
-        </SettingRow>
-      </SettingSection>
-
-      <SettingSection>
-        <SettingLabel>Thread output</SettingLabel>
-
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Max Chat Token
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Caps reply length for app chat, external DMs, and group replies.
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 shrink-0">
-            <FixedStepSlider
-              ariaLabel="Max Chat Token"
-              options={MAX_CHAT_TOKEN_LEVELS}
-              value={maxChatToken}
-              onChange={(nextValue) =>
-                onChange({
-                  ...draft,
-                  chat: {
-                    ...draft.chat,
-                    activeRunEnterBehavior,
-                    maxChatToken: nextValue
-                  }
-                })
-              }
-            />
-            <span
-              className="text-sm font-medium tabular-nums"
-              style={{ minWidth: 48, textAlign: 'right', color: theme.text.primary }}
-            >
-              {maxChatTokenLevel?.label ?? 'Auto'}
-            </span>
           </div>
         </SettingRow>
       </SettingSection>

@@ -131,7 +131,7 @@ export const CORE_TOOL_NAMES = [
   'skillsRead'
 ] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
-export type ToolCallStatus = 'running' | 'completed' | 'failed' | 'waiting-for-user'
+export type ToolCallStatus = 'running' | 'completed' | 'failed' | 'waiting-for-user' | 'background'
 
 const coreToolNameSet = new Set<string>(CORE_TOOL_NAMES)
 const runtimeManagedToolNameSet = new Set<ToolCallName>(['skillsRead'])
@@ -144,7 +144,6 @@ export const DEFAULT_ENABLED_TOOL_NAMES = [...USER_MANAGED_TOOL_NAMES] as ToolCa
 export const DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR: ActiveRunEnterBehavior = 'enter-steers'
 export const DEFAULT_SIDEBAR_VISIBILITY: SidebarVisibility = 'expanded'
 export const DEFAULT_TOOL_MODEL_MODE: ToolModelMode = 'default'
-export const DEFAULT_MAX_CHAT_TOKEN = 2048
 
 export function normalizeMemoryProviderId(
   value: unknown,
@@ -257,21 +256,6 @@ export function normalizeToolModelMode(
   return value === 'disabled' || value === 'default' || value === 'custom' ? value : fallback
 }
 
-export function normalizeMaxChatToken(
-  value: unknown,
-  fallback: number = DEFAULT_MAX_CHAT_TOKEN
-): number {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback
-}
-
-export function normalizeOptionalMaxChatToken(value: unknown): number | undefined {
-  if (value == null) {
-    return undefined
-  }
-
-  return normalizeMaxChatToken(value)
-}
-
 export interface ReadToolCallDetails {
   path: string
   startLine: number
@@ -309,6 +293,9 @@ export interface BashToolCallDetails {
   timedOut?: boolean
   blocked?: boolean
   outputFilePath?: string
+  background?: boolean
+  taskId?: string
+  logPath?: string
 }
 
 export interface GrepToolCallMatch {
@@ -553,6 +540,8 @@ export interface MessageRecord {
   senderName?: string
   /** External platform user ID of the sender. Null for DM and bot's own messages. */
   senderExternalUserId?: string
+  /** When true, the message is excluded from the visible chat timeline (e.g. system-initiated background task completions). */
+  hidden?: boolean
   status: MessageStatus
   createdAt: string
   modelId?: string
@@ -603,7 +592,6 @@ export interface ProviderConfig {
 
 export interface ChatConfig {
   activeRunEnterBehavior?: ActiveRunEnterBehavior
-  maxChatToken?: number
   stripCompact?: boolean
 }
 
@@ -1223,6 +1211,15 @@ export interface RunFailedEvent extends RunEvent {
   error: string
 }
 
+export interface BackgroundTaskCompletedEvent extends ThreadEvent {
+  type: 'background-task.completed'
+  taskId: string
+  command: string
+  logPath: string
+  exitCode: number
+  toolCallId?: string
+}
+
 export interface RunCancelledEvent extends RunEvent {
   type: 'run.cancelled'
 }
@@ -1323,6 +1320,7 @@ export type YachiyoServerEvent =
   | SubagentFinishedEvent
   | SubagentProgressEvent
   | NotificationRequestEvent
+  | BackgroundTaskCompletedEvent
 
 // ---------------------------------------------------------------------------
 // Schedule

@@ -233,6 +233,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                 visibleReply: messagesTable.visibleReply,
                 senderName: messagesTable.senderName,
                 senderExternalUserId: messagesTable.senderExternalUserId,
+                hidden: messagesTable.hidden,
                 role: messagesTable.role,
                 status: messagesTable.status,
                 textBlocks: messagesTable.textBlocks,
@@ -920,6 +921,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           visibleReply: messagesTable.visibleReply,
           senderName: messagesTable.senderName,
           senderExternalUserId: messagesTable.senderExternalUserId,
+          hidden: messagesTable.hidden,
           role: messagesTable.role,
           status: messagesTable.status,
           textBlocks: messagesTable.textBlocks,
@@ -1109,7 +1111,13 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         })
         .from(messagesTable)
         .innerJoin(threadsTable, eq(messagesTable.threadId, threadsTable.id))
-        .where(and(isNull(threadsTable.archivedAt), like(messagesTable.content, pattern)))
+        .where(
+          and(
+            isNull(threadsTable.archivedAt),
+            like(messagesTable.content, pattern),
+            isNull(messagesTable.hidden)
+          )
+        )
         .orderBy(desc(threadsTable.updatedAt), asc(messagesTable.createdAt))
         .all()
 

@@ -79,6 +79,7 @@ export interface StoredMessageRow {
   visibleReply: string | null
   senderName: string | null
   senderExternalUserId: string | null
+  hidden: boolean | null
   status: MessageRecord['status']
   createdAt: string
   modelId: string | null
@@ -511,6 +512,7 @@ export function toMessageRecord(row: StoredMessageRow): MessageRecord {
     ...(row.senderExternalUserId === null
       ? {}
       : { senderExternalUserId: row.senderExternalUserId }),
+    ...(row.hidden ? { hidden: true } : {}),
     status: row.status,
     createdAt: row.createdAt,
     ...(row.modelId === null ? {} : { modelId: row.modelId }),

@@ -83,6 +83,7 @@ export const messagesTable = sqliteTable('messages', {
   visibleReply: text('visible_reply'),
   senderName: text('sender_name'),
   senderExternalUserId: text('sender_external_user_id'),
+  hidden: integer('hidden', { mode: 'boolean' }),
   status: text('status').$type<MessageRecord['status']>().notNull(),
   createdAt: text('created_at').notNull(),
   modelId: text('model_id'),

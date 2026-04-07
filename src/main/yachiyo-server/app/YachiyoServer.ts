@@ -50,10 +50,7 @@ import type {
   WebSearchBrowserImportSource,
   YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol.ts'
-import {
-  getThreadCapabilities,
-  normalizeOptionalMaxChatToken
-} from '../../../shared/yachiyo/protocol.ts'
+import { getThreadCapabilities } from '../../../shared/yachiyo/protocol.ts'
 import {
   resolveYachiyoDbPath,
   resolveYachiyoSettingsPath,
@@ -886,10 +883,6 @@ export class YachiyoServer {
    */
   resolveProviderSettings(modelOverride?: ThreadModelOverride): ProviderSettings {
     return toEffectiveProviderSettings(this.configDomain.readConfig(), modelOverride)
-  }
-
-  resolveMaxChatToken(): number | undefined {
-    return normalizeOptionalMaxChatToken(this.configDomain.readConfig().chat?.maxChatToken)
   }
 
   getMemoryService(): MemoryService {

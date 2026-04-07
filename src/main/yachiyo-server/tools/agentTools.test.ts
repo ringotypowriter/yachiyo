@@ -743,3 +743,43 @@ test('runWebSearchTool maps provider-neutral search results into structured deta
   assert.match(flattenToolContent(result.content), /1\. Yachiyo Repo/)
   assert.match(flattenToolContent(result.content), /Snippet: Search result snippet\./)
 })
+
+test('normalizeToolResult returns background status for background bash output', () => {
+  const output = {
+    content: [{ type: 'text' as const, text: '{"taskId":"bg-123","logPath":"/tmp/bg.log"}' }],
+    details: {
+      command: 'sleep 10',
+      cwd: '/workspace',
+      stdout: '',
+      stderr: '',
+      background: true,
+      taskId: 'bg-123',
+      logPath: '/tmp/bg.log'
+    },
+    metadata: { cwd: '/workspace' }
+  }
+
+  const normalized = normalizeToolResult('bash', output)
+  assert.equal(normalized.status, 'background')
+  assert.equal(normalized.outputSummary, 'background: bg-123')
+  assert.equal(normalized.cwd, '/workspace')
+  assert.equal(normalized.error, undefined)
+})
+
+test('normalizeToolResult returns completed for non-background bash output', () => {
+  const output = {
+    content: [{ type: 'text' as const, text: 'hello' }],
+    details: {
+      command: 'echo hello',
+      cwd: '/workspace',
+      stdout: 'hello',
+      stderr: '',
+      exitCode: 0
+    },
+    metadata: { cwd: '/workspace', exitCode: 0 }
+  }
+
+  const normalized = normalizeToolResult('bash', output)
+  assert.equal(normalized.status, 'completed')
+  assert.notEqual(normalized.outputSummary, undefined)
+})

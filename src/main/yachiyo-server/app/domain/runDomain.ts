@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 
 import type {
+  BackgroundTaskCompletedEvent,
   ChatAccepted,
   CompactThreadAccepted,
   HarnessFinishedEvent,
@@ -50,6 +51,7 @@ import {
   collectMessagePath,
   wouldCreateParentCycle
 } from '../../../../shared/yachiyo/threadTree.ts'
+import { BackgroundBashManager, type BackgroundBashTaskResult } from './backgroundBashManager.ts'
 import { assertSupportedImages, resolveEnabledTools } from './configDomain.ts'
 import { toEffectiveProviderSettings } from '../../settings/settingsStore.ts'
 import { executeServerRun, type RestartRunReason, type ExecuteRunResult } from './runExecution.ts'
@@ -91,6 +93,7 @@ interface RunState {
     attachments: MessageFileAttachment[]
     messageId: string
     timestamp: string
+    hidden?: boolean
   }
   executionPhase: 'generating' | 'tool-running' | 'waiting-for-user'
   updateHeadOnComplete: boolean
@@ -188,12 +191,33 @@ export class YachiyoServerRunDomain {
   private readonly backgroundMemoryTasks = new Set<Promise<void>>()
   private readonly backgroundMemoryTaskControllers = new Set<AbortController>()
   private readonly debouncedSendChats = new Map<string, DebouncedSendChatEntry>()
+  private readonly backgroundBashManager = new BackgroundBashManager()
+  /**
+   * Per-task snapshot of the launching run's channel/tooling context, captured at
+   * `onBackgroundBashStarted`. We use it to call `sendChat` with the same `enabledTools`,
+   * `enabledSkillNames`, `channelHint`, and `extraTools` (e.g. an owner-DM `replyTool`)
+   * when the background task finishes, so the auto-delivered "background task completed"
+   * user message can drive a model run that matches the original transport contract.
+   */
+  private readonly backgroundTaskRunContext = new Map<
+    string,
+    {
+      enabledTools: ToolCallName[]
+      enabledSkillNames?: string[]
+      channelHint?: string
+      extraTools?: import('ai').ToolSet
+    }
+  >()
   private lastRunEnabledTools: ToolCallName[] | null
   private isClosing = false
 
   constructor(deps: RunDomainDeps) {
     this.deps = deps
     this.lastRunEnabledTools = null
+
+    this.backgroundBashManager.setCompletionHandler((result) => {
+      this.handleBackgroundBashCompleted(result)
+    })
   }
 
   hasActiveThread(threadId: string): boolean {
@@ -212,6 +236,8 @@ export class YachiyoServerRunDomain {
     for (const controller of this.backgroundMemoryTaskControllers.values()) {
       controller.abort()
     }
+
+    await this.backgroundBashManager.close()
 
     if (this.activeRunTasks.size > 0) {
       await Promise.allSettled(this.activeRunTasks.values())
@@ -232,6 +258,7 @@ export class YachiyoServerRunDomain {
     this.backgroundMemoryTaskControllers.clear()
     this.backgroundMemoryTasks.clear()
     this.debouncedSendChats.clear()
+    this.backgroundTaskRunContext.clear()
   }
 
   private bindTerminalToolCallsToAssistant(input: {
@@ -287,6 +314,176 @@ export class YachiyoServerRunDomain {
       error,
       finishedAt: this.deps.timestamp()
     })
+    this.recoverOrphanedBackgroundToolCalls()
+  }
+
+  private recoverOrphanedBackgroundToolCalls(): void {
+    const timestamp = this.deps.timestamp()
+    const bootstrap = this.deps.storage.bootstrap()
+
+    // Walk every thread that could possibly own a background bash tool call: active local
+    // threads, archived threads, and external/channel threads. The default `bootstrap()`
+    // result excludes archived and (in sqlite) channel threads, so a background task
+    // launched in an archived conversation or an owner DM would otherwise be stuck in an
+    // active-looking state forever after a restart.
+    const seen = new Set<string>()
+    const allThreads: ThreadRecord[] = []
+    const collect = (thread: ThreadRecord): void => {
+      if (seen.has(thread.id)) return
+      seen.add(thread.id)
+      allThreads.push(thread)
+    }
+    for (const thread of bootstrap.threads) collect(thread)
+    for (const thread of bootstrap.archivedThreads) collect(thread)
+    for (const thread of this.deps.storage.listExternalThreads()) collect(thread)
+
+    for (const thread of allThreads) {
+      const toolCalls = this.deps.loadThreadToolCalls(thread.id)
+      for (const tc of toolCalls) {
+        if (tc.status === 'background') {
+          const updated: ToolCallRecord = {
+            ...tc,
+            status: 'failed',
+            error: 'Background task interrupted by app restart',
+            finishedAt: timestamp
+          }
+          this.deps.storage.updateToolCall(updated)
+        }
+      }
+    }
+  }
+
+  private handleBackgroundBashCompleted(result: BackgroundBashTaskResult): void {
+    if (this.isClosing) return
+
+    try {
+      const timestamp = this.deps.timestamp()
+
+      // 1. Update ToolCallRecord status/exitCode for the renderer. The model-facing
+      // `output` blob is left untouched: history must remain truthful that the launch
+      // call only ever returned the `{taskId, logPath}` handle.
+      if (result.toolCallId) {
+        const toolCalls = this.deps.loadThreadToolCalls(result.threadId)
+        const tc = toolCalls.find((t) => t.id === result.toolCallId)
+        if (tc) {
+          const baseDetails =
+            tc.details && typeof tc.details === 'object'
+              ? (tc.details as unknown as Record<string, unknown>)
+              : {}
+          const updated: ToolCallRecord = {
+            ...tc,
+            status: result.exitCode === 0 ? 'completed' : 'failed',
+            outputSummary: `exit ${result.exitCode}`,
+            details: {
+              ...baseDetails,
+              exitCode: result.exitCode
+            } as unknown as ToolCallRecord['details'],
+            ...(result.exitCode !== 0
+              ? { error: `Command exited with code ${result.exitCode}.` }
+              : {}),
+            finishedAt: timestamp
+          }
+          this.deps.storage.updateToolCall(updated)
+          this.deps.emit<ToolCallUpdatedEvent>({
+            type: 'tool.updated',
+            threadId: result.threadId,
+            runId: tc.runId,
+            toolCall: updated
+          })
+        }
+      }
+
+      // 2. Emit background task completion event for the renderer/notifications.
+      this.deps.emit<BackgroundTaskCompletedEvent>({
+        type: 'background-task.completed',
+        threadId: result.threadId,
+        taskId: result.taskId,
+        command: result.command,
+        logPath: result.logPath,
+        exitCode: result.exitCode,
+        toolCallId: result.toolCallId
+      })
+
+      // 3. Auto-deliver the completion notice as a regular user message via sendChat,
+      // for local threads and owner DMs. The user sees a clearly-worded "background task
+      // completed" line, and the model gets a real user-tail message it can reply to.
+      // We do not invent a new MessageRole — the row reads as a normal user message,
+      // and the content makes its system origin obvious.
+      const ctx = this.backgroundTaskRunContext.get(result.taskId)
+      this.backgroundTaskRunContext.delete(result.taskId)
+      void this.autoDeliverBackgroundCompletion(result, ctx)
+    } catch (error) {
+      // Thread may have been deleted while background task was running
+      console.warn('[yachiyo][background-bash] completion handler failed', {
+        taskId: result.taskId,
+        threadId: result.threadId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+
+  private async autoDeliverBackgroundCompletion(
+    result: BackgroundBashTaskResult,
+    ctx:
+      | {
+          enabledTools: ToolCallName[]
+          enabledSkillNames?: string[]
+          channelHint?: string
+          extraTools?: import('ai').ToolSet
+        }
+      | undefined
+  ): Promise<void> {
+    let thread: ThreadRecord
+    try {
+      thread = this.deps.requireThread(result.threadId)
+    } catch {
+      // Thread was deleted between launch and completion. Nothing to do.
+      return
+    }
+
+    if (!this.isAutoDeliveryEligible(thread)) {
+      return
+    }
+
+    const content =
+      `[Background task completed]\n` +
+      `Task ID: ${result.taskId}\n` +
+      `Command: ${result.command}\n` +
+      `Exit code: ${result.exitCode}\n` +
+      `Log file: ${result.logPath}\n\n` +
+      `The background command has finished. You can read the log file for full output.`
+    try {
+      await this.sendChat({
+        threadId: thread.id,
+        content,
+        // Always queue as a follow-up so an in-flight run on this thread is never
+        // interrupted by a background-task notice.
+        mode: 'follow-up',
+        ...(ctx?.enabledTools ? { enabledTools: ctx.enabledTools } : {}),
+        ...(ctx?.enabledSkillNames ? { enabledSkillNames: ctx.enabledSkillNames } : {}),
+        ...(ctx?.channelHint ? { channelHint: ctx.channelHint } : {}),
+        ...(ctx?.extraTools ? { extraTools: ctx.extraTools } : {})
+      })
+    } catch (error) {
+      console.warn('[yachiyo][background-bash] auto-delivery sendChat failed', {
+        threadId: thread.id,
+        taskId: result.taskId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+
+  /**
+   * Local threads and owner DMs get auto-delivery; group/guest channels do not (they
+   * would speak unprompted in someone else's room).
+   */
+  private isAutoDeliveryEligible(thread: ThreadRecord): boolean {
+    const source = thread.source
+    if (source == null || source === 'local') return true
+    if (thread.channelGroupId) return false
+    if (!thread.channelUserId) return false
+    const user = this.deps.storage.getChannelUser(thread.channelUserId)
+    return user?.role === 'owner'
   }
 
   prepareRecoveredQueuedFollowUps(): string[] {
@@ -676,14 +873,20 @@ export class YachiyoServerRunDomain {
     attachments: MessageFileAttachment[]
     messageId: string
     thread: ThreadRecord
+    /** When true, the user message is hidden from the chat timeline (system-initiated). */
+    hidden?: boolean
+    /** Override the parent message for the new user message (defaults to thread.headMessageId). */
+    parentMessageId?: string
   }): ChatAccepted {
     const timestamp = this.deps.timestamp()
-    const messageSummary = summarizeMessageInput({
-      content: input.content,
-      images: input.images
-    })
+    const messageSummary = input.hidden
+      ? null
+      : summarizeMessageInput({
+          content: input.content,
+          images: input.images
+        })
     const fallbackTitle =
-      input.thread.title === DEFAULT_THREAD_TITLE
+      !input.hidden && input.thread.title === DEFAULT_THREAD_TITLE
         ? deriveThreadTitleFallback({
             content: input.content,
             ...(input.images ? { images: input.images } : {})
@@ -694,9 +897,10 @@ export class YachiyoServerRunDomain {
       content: input.content,
       images: input.images,
       attachments: input.attachments,
-      parentMessageId: input.thread.headMessageId,
+      parentMessageId: input.parentMessageId ?? input.thread.headMessageId,
       threadId: input.thread.id,
-      timestamp
+      timestamp,
+      hidden: input.hidden
     })
     const updatedThread: ThreadRecord = {
       ...input.thread,
@@ -742,7 +946,7 @@ export class YachiyoServerRunDomain {
       requestMessageId: userMessage.id
     })
 
-    if (fallbackTitle && fallbackTitle !== DEFAULT_THREAD_TITLE && input.content) {
+    if (!input.hidden && fallbackTitle && fallbackTitle !== DEFAULT_THREAD_TITLE && input.content) {
       this.scheduleThreadTitleGeneration({
         fallbackTitle,
         query: buildTitleQuery(input.content, input.images, input.attachments),
@@ -897,6 +1101,7 @@ export class YachiyoServerRunDomain {
     parentMessageId?: string
     threadId: string
     timestamp: string
+    hidden?: boolean
   }): MessageRecord {
     return {
       id: input.id,
@@ -906,6 +1111,7 @@ export class YachiyoServerRunDomain {
       content: input.content,
       ...(input.images && input.images.length > 0 ? { images: input.images } : {}),
       ...(input.attachments.length > 0 ? { attachments: input.attachments } : {}),
+      ...(input.hidden ? { hidden: true } : {}),
       status: 'completed',
       createdAt: input.timestamp
     }
@@ -1038,6 +1244,7 @@ export class YachiyoServerRunDomain {
     runState: RunState
     thread: ThreadRecord
     timestamp: string
+    hidden?: boolean
   }): { updatedThread: ThreadRecord; userMessage: MessageRecord } {
     const userMessage = this.createUserMessage({
       id: input.messageId,
@@ -1046,7 +1253,8 @@ export class YachiyoServerRunDomain {
       attachments: input.attachments,
       parentMessageId: input.runState.pendingSteerMessageId ?? input.runState.requestMessageId,
       threadId: input.thread.id,
-      timestamp: input.timestamp
+      timestamp: input.timestamp,
+      hidden: input.hidden
     })
     const updatedThread: ThreadRecord = {
       ...input.thread,
@@ -1336,7 +1544,9 @@ export class YachiyoServerRunDomain {
             },
             onSafeToSteerAfterTool: () => {
               const currentRun = this.activeRuns.get(input.runId)
-              if (!currentRun?.pendingSteerInput) {
+              if (!currentRun) return
+
+              if (!currentRun.pendingSteerInput) {
                 return
               }
 
@@ -1349,7 +1559,8 @@ export class YachiyoServerRunDomain {
                 runId: input.runId,
                 runState: currentRun,
                 thread: currentThread,
-                timestamp: currentRun.pendingSteerInput.timestamp
+                timestamp: currentRun.pendingSteerInput.timestamp,
+                hidden: currentRun.pendingSteerInput.hidden
               })
 
               // Push the full thread state so the frontend receives the new steer user
@@ -1369,6 +1580,27 @@ export class YachiyoServerRunDomain {
                 runId: input.runId,
                 chunk
               })
+            },
+            onBackgroundBashStarted: async (task) => {
+              // Snapshot the launching run's transport context so we can call sendChat
+              // with the same channelHint/extraTools/etc. when the task completes — this
+              // is what lets owner-DM auto-delivery actually reach the user via the
+              // original channel reply tool. Cleared in `handleBackgroundBashCompleted`.
+              this.backgroundTaskRunContext.set(task.taskId, {
+                enabledTools: input.enabledTools,
+                ...(input.enabledSkillNames ? { enabledSkillNames: input.enabledSkillNames } : {}),
+                ...(input.channelHint ? { channelHint: input.channelHint } : {}),
+                ...(input.extraTools ? { extraTools: input.extraTools } : {})
+              })
+              try {
+                await this.backgroundBashManager.startTask({
+                  ...task,
+                  threadId: task.threadId
+                })
+              } catch (error) {
+                this.backgroundTaskRunContext.delete(task.taskId)
+                throw error
+              }
             },
             onTerminalState: () => {
               this.activeRuns.delete(input.runId)
@@ -1558,6 +1790,9 @@ export class YachiyoServerRunDomain {
 
       if (!this.isClosing && result.kind !== 'restarted') {
         this.startQueuedFollowUpIfPresent(input.thread.id)
+        // Background-bash completion notices stay queued in
+        // pendingBackgroundCompletionNotices and are drained by the next run that builds
+        // model context on this thread. No hidden runs are started here.
       }
     }
   }
