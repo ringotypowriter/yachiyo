@@ -24,6 +24,7 @@ app.setName(APP_NAME)
 let settingsWindow: BrowserWindow | null = null
 let translatorWindow: BrowserWindow | null = null
 let jotdownWindow: BrowserWindow | null = null
+let mainWindowRef: BrowserWindow | null = null
 let isQuitting = false
 
 function maybeDestroyHiddenJotdown(): void {
@@ -184,10 +185,12 @@ function createWindow(): void {
     }
   })
 
+  mainWindowRef = mainWindow
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
   })
   mainWindow.on('closed', () => {
+    if (mainWindowRef === mainWindow) mainWindowRef = null
     maybeDestroyHiddenJotdown()
   })
   installEditableContextMenu(mainWindow)
@@ -358,12 +361,16 @@ app.whenReady().then(async () => {
   setupAutoUpdate()
 
   app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    const hasRealWindow = BrowserWindow.getAllWindows().some(
-      (w) => !w.isDestroyed() && w !== jotdownWindow && w !== translatorWindow
-    )
-    if (!hasRealWindow) createWindow()
+    // Dock click should always go straight to the main window, not to whatever
+    // auxiliary window (jotdown/translator) happens to be hidden in another
+    // workspace. If the main window is gone, recreate it.
+    if (mainWindowRef && !mainWindowRef.isDestroyed()) {
+      if (mainWindowRef.isMinimized()) mainWindowRef.restore()
+      mainWindowRef.show()
+      mainWindowRef.focus()
+      return
+    }
+    createWindow()
   })
 })
 
