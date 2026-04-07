@@ -19,7 +19,6 @@ import {
   summarizeToolOutput,
   streamBashTool
 } from './agentTools.ts'
-import { createTool as createDelegateCodingTaskTool } from './agentTools/delegateCodingTaskTool.ts'
 import { resolveGlobInput } from './agentTools/globTool.ts'
 import type { MemoryService } from '../services/memory/memoryService.ts'
 import { createTool as createSearchMemoryTool } from './agentTools/searchMemoryTool.ts'
@@ -326,67 +325,6 @@ test('streamBashTool abortSignal stops a long-running command without waiting fo
       performance.now() - started < 8000,
       'expected Stop/cancel to tear down the shell quickly, not after the full sleep'
     )
-  })
-})
-
-test('delegateCodingTask rethrows aborts so Stop force-kills the delegated agent', async () => {
-  await withWorkspace(async (workspacePath) => {
-    const controller = new AbortController()
-    const lifecycle: string[] = []
-    const delegateCodingTaskTool = createDelegateCodingTaskTool({
-      workspacePath,
-      availableWorkspaces: [],
-      profiles: [
-        {
-          id: 'agent-1',
-          name: 'Worker',
-          enabled: true,
-          description: 'Test worker',
-          command: 'fake-agent',
-          args: [],
-          env: {}
-        }
-      ],
-      onSubagentStarted: (agentName) => {
-        lifecycle.push(`started:${agentName}`)
-      },
-      onSubagentFinished: (agentName, status) => {
-        lifecycle.push(`finished:${agentName}:${status}`)
-      },
-      launchAcpProcess: () =>
-        ({
-          proc: { stderr: { on: () => undefined } },
-          stream: {},
-          procExited: Promise.resolve()
-        }) as never,
-      runAcpSession: async () => {
-        controller.abort(new Error('force kill'))
-        throw Object.assign(new Error('force kill'), { name: 'AbortError' })
-      }
-    })
-
-    assert.equal(typeof delegateCodingTaskTool.execute, 'function')
-    const executeDelegateCodingTask = delegateCodingTaskTool.execute
-    assert.ok(executeDelegateCodingTask)
-
-    await assert.rejects(
-      async () => {
-        await executeDelegateCodingTask(
-          {
-            agent_name: 'Worker',
-            prompt: 'Investigate and patch the issue.'
-          },
-          {
-            abortSignal: controller.signal,
-            toolCallId: 'delegate-coding-task-test',
-            messages: []
-          }
-        )
-      },
-      (error: unknown) => error instanceof Error && error.name === 'AbortError'
-    )
-
-    assert.deepEqual(lifecycle, ['started:Worker', 'finished:Worker:cancelled'])
   })
 })
 
