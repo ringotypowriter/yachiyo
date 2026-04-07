@@ -343,17 +343,25 @@ async function runFdSearch(input: {
   }
 
   // fd supports glob patterns natively with --glob, including ** and {a,b}.
+  // --full-path is required so that patterns containing `/` (e.g. `**/dir/file.md`)
+  // match against the path instead of just the basename. We auto-prepend `**/` for
+  // patterns that aren't already anchored, so bare names like `foo.md` still work.
+  const fdPattern = normalizeFdGlobPattern(input.request.pattern)
   const args = [
     '--glob',
+    '--full-path',
     '--hidden',
     '--no-ignore',
     '--color',
     'never',
     '--type',
     'f',
+    '--type',
+    'l',
+    '--follow',
     '--max-results',
     String(input.request.limit),
-    input.request.pattern,
+    fdPattern,
     input.rootPath
   ]
   const result = await runCliSearchCommand({
@@ -379,6 +387,16 @@ async function runFdSearch(input: {
     paths: paths.slice(0, input.request.limit),
     truncated: paths.length > input.request.limit || Boolean(result.terminatedEarly)
   }
+}
+
+function normalizeFdGlobPattern(pattern: string): string {
+  const trimmed = pattern.trim()
+  if (trimmed === '') return trimmed
+  // Already anchored or already a recursive match — leave it alone.
+  if (trimmed.startsWith('/') || trimmed.startsWith('**/') || trimmed === '**') {
+    return trimmed
+  }
+  return `**/${trimmed}`
 }
 
 // ── TypeScript fallback: grep ────────────────────────────────────────────────
