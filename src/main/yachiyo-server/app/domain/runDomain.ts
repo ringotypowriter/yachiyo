@@ -1781,38 +1781,19 @@ export class YachiyoServerRunDomain {
       }
 
       const timestamp = this.deps.timestamp()
-
-      if (isAbortError(error)) {
-        this.deps.storage.cancelRun({
-          runId: input.runId,
-          completedAt: timestamp
-        })
-        this.emitCancelledHarnessFinished({
-          threadId: input.thread.id,
-          runId: input.runId,
-          harnessId: this.activeRuns.get(input.runId)?.recoveringHarnessId
-        })
-        this.deps.emit<RunCancelledEvent>({
-          type: 'run.cancelled',
-          threadId: input.thread.id,
-          runId: input.runId
-        })
-        result = { kind: 'cancelled' }
-      } else {
-        const message = error instanceof Error ? error.message : String(error)
-        this.deps.storage.failRun({
-          runId: input.runId,
-          completedAt: timestamp,
-          error: message
-        })
-        this.deps.emit<RunFailedEvent>({
-          type: 'run.failed',
-          threadId: input.thread.id,
-          runId: input.runId,
-          error: message
-        })
-        result = { kind: 'failed' }
-      }
+      const message = error instanceof Error ? error.message : String(error)
+      this.deps.storage.failRun({
+        runId: input.runId,
+        completedAt: timestamp,
+        error: message
+      })
+      this.deps.emit<RunFailedEvent>({
+        type: 'run.failed',
+        threadId: input.thread.id,
+        runId: input.runId,
+        error: message
+      })
+      result = { kind: 'failed' }
     } finally {
       this.activeRuns.delete(input.runId)
       this.activeRunByThread.delete(input.thread.id)
@@ -1960,8 +1941,9 @@ export class YachiyoServerRunDomain {
     } catch (error) {
       const timestamp = this.deps.timestamp()
       const message = error instanceof Error ? error.message : String(error)
+      const wasAborted = this.activeRuns.get(input.runId)?.abortController.signal.aborted ?? false
 
-      if (isAbortError(error)) {
+      if (wasAborted) {
         this.deps.storage.cancelRun({
           runId: input.runId,
           completedAt: timestamp
@@ -1977,7 +1959,7 @@ export class YachiyoServerRunDomain {
       this.activeRunByThread.delete(input.thread.id)
       this.activeRunTasks.delete(input.runId)
 
-      if (isAbortError(error)) {
+      if (wasAborted) {
         this.deps.emit<RunCancelledEvent>({
           type: 'run.cancelled',
           threadId: input.thread.id,

@@ -102,7 +102,6 @@ import {
   appendRecoveryToolResult,
   buildRecoveryHistory,
   buildRecoveryResponseMessages,
-  clearRecoveryReasoningParts,
   cloneRecoveryResponseMessages,
   type RecoveryResponseMessage
 } from './runRecovery.ts'
@@ -1611,12 +1610,12 @@ export async function executeServerRun(
       },
       onRetry: (attempt, maxAttempts, delayMs, error) => {
         markProgress()
-        reasoningBuffer = ''
         const normalizedResponseMessages = buildRecoveryResponseMessages({
           checkpoint: {
             content: buffer,
+            reasoning: reasoningBuffer,
             ...(recoveryResponseMessages.length > 0
-              ? { responseMessages: clearRecoveryReasoningParts(recoveryResponseMessages) }
+              ? { responseMessages: recoveryResponseMessages }
               : {})
           },
           toolCalls: [...toolCalls.values()]
@@ -1626,6 +1625,7 @@ export async function executeServerRun(
           cloneRecoveryResponseMessages(recoveryCheckpoint?.responseMessages) ??
           []
         persistRecoveryCheckpoint()
+        reasoningBuffer = ''
         deps.emit<RunRetryingEvent>({
           type: 'run.retrying',
           threadId: input.thread.id,
@@ -1892,6 +1892,13 @@ export async function executeServerRun(
     )
 
     throwIfAborted(input.abortController.signal)
+
+    // The stream finished before all tool calls received their terminal
+    // result (e.g. provider truncation or a network hiccup). Treat as a
+    // retryable error so the recovery path can handle it.
+    if (runningToolCallIds.size > 0) {
+      throw new Error('Model stream ended with incomplete tool calls')
+    }
 
     // Detect degenerate completions: the stream finished without error but
     // produced no user-visible content (e.g. Gemini finishReason=length with
