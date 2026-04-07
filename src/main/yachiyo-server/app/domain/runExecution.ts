@@ -57,6 +57,7 @@ import { EXTERNAL_SYSTEM_PROMPT, SYSTEM_PROMPT } from '../../runtime/prompt.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { RecallDecisionSnapshot } from '../../../../shared/yachiyo/protocol.ts'
 import { resolveActiveSkills } from '../../services/skills/skillResolver.ts'
+import { rewriteRelativeMarkdownLinks } from '../../services/skills/skillContent.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
 import type { BrowserWebPageSnapshotLoader } from '../../services/webRead/browserWebPageSnapshot.ts'
 import {
@@ -709,7 +710,8 @@ async function expandSkillMention(
   const skill = skills.find((s) => s.name === skillName)
   if (!skill) return content
 
-  const skillContent = await readFile(skill.skillFilePath, 'utf8').catch(() => '')
+  const rawSkillContent = await readFile(skill.skillFilePath, 'utf8').catch(() => '')
+  const skillContent = rewriteRelativeMarkdownLinks(rawSkillContent, skill.directoryPath)
   const lines: string[] = [
     `Skill: ${skill.name}`,
     ...(skill.description ? [`Description: ${skill.description}`] : []),

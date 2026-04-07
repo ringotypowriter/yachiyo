@@ -2,6 +2,9 @@ import { resolve } from 'node:path'
 
 import type {
   BackgroundTaskCompletedEvent,
+  BackgroundTaskLogAppendEvent,
+  BackgroundTaskSnapshot,
+  BackgroundTaskStartedEvent,
   ChatAccepted,
   CompactThreadAccepted,
   HarnessFinishedEvent,
@@ -218,6 +221,26 @@ export class YachiyoServerRunDomain {
     this.backgroundBashManager.setCompletionHandler((result) => {
       this.handleBackgroundBashCompleted(result)
     })
+    this.backgroundBashManager.setLogAppendHandler((append) => {
+      if (this.isClosing) return
+      try {
+        this.deps.emit<BackgroundTaskLogAppendEvent>({
+          type: 'background-task.log-append',
+          threadId: append.threadId,
+          taskId: append.taskId,
+          lines: append.lines
+        })
+      } catch (error) {
+        console.warn('[yachiyo][background-bash] log-append emit failed', {
+          taskId: append.taskId,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    })
+  }
+
+  listBackgroundTasks(threadId: string): BackgroundTaskSnapshot[] {
+    return this.backgroundBashManager.listSnapshots(threadId)
   }
 
   hasActiveThread(threadId: string): boolean {
@@ -1596,6 +1619,13 @@ export class YachiyoServerRunDomain {
                 await this.backgroundBashManager.startTask({
                   ...task,
                   threadId: task.threadId
+                })
+                this.deps.emit<BackgroundTaskStartedEvent>({
+                  type: 'background-task.started',
+                  threadId: task.threadId,
+                  taskId: task.taskId,
+                  command: task.command,
+                  startedAt: this.deps.timestamp()
                 })
               } catch (error) {
                 this.backgroundTaskRunContext.delete(task.taskId)

@@ -1220,6 +1220,34 @@ export interface BackgroundTaskCompletedEvent extends ThreadEvent {
   toolCallId?: string
 }
 
+export type BackgroundTaskSnapshotStatus = 'running' | 'completed' | 'failed'
+
+export interface BackgroundTaskSnapshot {
+  taskId: string
+  threadId: string
+  command: string
+  logPath: string
+  startedAt: string
+  status: BackgroundTaskSnapshotStatus
+  exitCode?: number
+  finishedAt?: string
+  /** Last N lines of the on-disk log, populated by the server on hydration. */
+  recentLogTail?: string[]
+}
+
+export interface BackgroundTaskStartedEvent extends ThreadEvent {
+  type: 'background-task.started'
+  taskId: string
+  command: string
+  startedAt: string
+}
+
+export interface BackgroundTaskLogAppendEvent extends ThreadEvent {
+  type: 'background-task.log-append'
+  taskId: string
+  lines: string[]
+}
+
 export interface RunCancelledEvent extends RunEvent {
   type: 'run.cancelled'
 }
@@ -1321,6 +1349,8 @@ export type YachiyoServerEvent =
   | SubagentProgressEvent
   | NotificationRequestEvent
   | BackgroundTaskCompletedEvent
+  | BackgroundTaskStartedEvent
+  | BackgroundTaskLogAppendEvent
 
 // ---------------------------------------------------------------------------
 // Schedule

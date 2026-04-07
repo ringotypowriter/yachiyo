@@ -214,6 +214,10 @@ const api = {
       messages: import('../shared/yachiyo/protocol').MessageRecord[]
       toolCalls: import('../shared/yachiyo/protocol').ToolCallRecord[]
     }> => ipcRenderer.invoke('yachiyo:load-thread-data', input),
+    listBackgroundTasks: (input: {
+      threadId: string
+    }): Promise<import('../shared/yachiyo/protocol').BackgroundTaskSnapshot[]> =>
+      ipcRenderer.invoke('yachiyo:list-background-tasks', input),
     listExternalThreads: (): Promise<ThreadRecord[]> =>
       ipcRenderer.invoke('yachiyo:list-external-threads'),
     listChannelUsers: (): Promise<ChannelUserRecord[]> =>

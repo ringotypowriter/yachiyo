@@ -174,6 +174,9 @@ declare global {
           messages: import('../shared/yachiyo/protocol').MessageRecord[]
           toolCalls: import('../shared/yachiyo/protocol').ToolCallRecord[]
         }>
+        listBackgroundTasks: (input: {
+          threadId: string
+        }) => Promise<import('../shared/yachiyo/protocol').BackgroundTaskSnapshot[]>
         listExternalThreads: () => Promise<ThreadRecord[]>
         listChannelUsers: () => Promise<ChannelUserRecord[]>
         updateChannelUser: (input: UpdateChannelUserInput) => Promise<ChannelUserRecord>

@@ -6,6 +6,7 @@ import type {
   SkillCatalogEntry,
   SkillsReadToolCallDetails
 } from '../../../../shared/yachiyo/protocol.ts'
+import { rewriteRelativeMarkdownLinks } from '../../services/skills/skillContent.ts'
 import {
   type AgentToolContext,
   type SkillsReadToolInput,
@@ -24,14 +25,19 @@ function buildModelContent(details: SkillsReadToolCallDetails): string {
 
   for (const skill of details.skills) {
     lines.push(`Skill: ${skill.name}`)
-    lines.push(`Directory: ${skill.directoryPath}`)
-    lines.push(`File: ${skill.skillFilePath}`)
+    lines.push(`Skill folder: ${skill.directoryPath}`)
+    lines.push(`SKILL.md: ${skill.skillFilePath}`)
     if (skill.description) {
       lines.push(`Description: ${skill.description}`)
     }
     if (skill.content !== undefined) {
       lines.push('', skill.content)
+    } else {
+      lines.push('Use the read tool on SKILL.md if you need the full instructions.')
     }
+    lines.push(
+      'Any referenced files are relative to the skill folder; use absolute paths under that folder when reading them.'
+    )
     lines.push('')
   }
 
@@ -92,7 +98,8 @@ export async function runSkillsReadTool(
 
     let content: string | undefined
     if (input.includeContent) {
-      content = await readFile(skill.skillFilePath, 'utf8')
+      const rawContent = await readFile(skill.skillFilePath, 'utf8')
+      content = rewriteRelativeMarkdownLinks(rawContent, skill.directoryPath)
     }
 
     resolvedSkills.push({

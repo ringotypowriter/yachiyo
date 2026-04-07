@@ -807,6 +807,34 @@ export class YachiyoServer {
     this.runDomain.answerToolQuestion(input)
   }
 
+  async listBackgroundTasks(input: {
+    threadId: string
+  }): Promise<import('../../../shared/yachiyo/protocol').BackgroundTaskSnapshot[]> {
+    const snapshots = this.runDomain.listBackgroundTasks(input.threadId)
+    const { readFile } = await import('node:fs/promises')
+    const TAIL_LINES = 200
+    const TAIL_MAX_BYTES = 256 * 1024
+    return Promise.all(
+      snapshots.map(async (snap) => {
+        try {
+          const buf = await readFile(snap.logPath, 'utf8')
+          // Cap the bytes we slice from to keep huge logs cheap.
+          const sliced = buf.length > TAIL_MAX_BYTES ? buf.slice(buf.length - TAIL_MAX_BYTES) : buf
+          const lines = sliced.split('\n')
+          // Drop a leading partial line if we sliced mid-line.
+          if (buf.length > TAIL_MAX_BYTES && lines.length > 1) lines.shift()
+          // Drop the trailing empty string from a final newline.
+          if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
+          const recentLogTail = lines.slice(-TAIL_LINES)
+          return { ...snap, recentLogTail }
+        } catch {
+          // Log file may not exist yet (task just started, nothing written).
+          return snap
+        }
+      })
+    )
+  }
+
   loadThreadData(threadId: string): { messages: MessageRecord[]; toolCalls: ToolCallRecord[] } {
     return {
       messages: this.storage.listThreadMessages(threadId),

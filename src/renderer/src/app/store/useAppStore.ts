@@ -30,6 +30,7 @@ import {
 } from '../../../../shared/yachiyo/protocol.ts'
 import { sortToolCallsChronologically } from '../../../../shared/yachiyo/toolCallOrder.ts'
 import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
+import { useBackgroundTasksStore } from '../../features/chat/state/useBackgroundTasksStore.ts'
 
 interface PendingAssistantMessage {
   messageId: string
@@ -1092,6 +1093,18 @@ export const useAppStore = create<AppState>((set, get) => ({
           ]
         }))
       }
+    }
+
+    if (event.type === 'background-task.started') {
+      useBackgroundTasksStore.getState().onStarted(event)
+    }
+
+    if (event.type === 'background-task.log-append') {
+      useBackgroundTasksStore.getState().onLogAppend(event)
+    }
+
+    if (event.type === 'background-task.completed') {
+      useBackgroundTasksStore.getState().onCompleted(event)
     }
 
     if (event.type === 'notification.requested') {

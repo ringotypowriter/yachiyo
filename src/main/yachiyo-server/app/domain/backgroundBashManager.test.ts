@@ -4,7 +4,11 @@ import { join } from 'node:path'
 import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 
-import { BackgroundBashManager, type BackgroundBashTaskResult } from './backgroundBashManager.ts'
+import {
+  BackgroundBashManager,
+  type BackgroundBashLogAppend,
+  type BackgroundBashTaskResult
+} from './backgroundBashManager.ts'
 
 async function createTempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'bg-bash-test-'))
@@ -185,6 +189,81 @@ describe('BackgroundBashManager', () => {
       await manager.close()
       assert.equal(manager.activeCount, 0)
       assert.equal(handler.mock.callCount(), 2)
+    } finally {
+      await rm(tempDir, { recursive: true })
+    }
+  })
+
+  it('streams log lines through the log-append handler', async () => {
+    const tempDir = await createTempDir()
+    try {
+      const manager = new BackgroundBashManager()
+      const collected: string[] = []
+      manager.setLogAppendHandler((event: BackgroundBashLogAppend) => {
+        for (const line of event.lines) collected.push(line)
+      })
+      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
+        manager.setCompletionHandler(resolve)
+      })
+
+      await manager.startTask({
+        taskId: 'log-task',
+        command: 'printf "alpha\\nbeta\\ngamma\\n"',
+        cwd: tempDir,
+        logPath: join(tempDir, 'tool-output', 'log.log'),
+        threadId: 'thread-log'
+      })
+
+      await completed
+      // Allow any throttled flush to land.
+      await new Promise((r) => setTimeout(r, 150))
+
+      assert.deepEqual(
+        collected.filter((l) => l.length > 0),
+        ['alpha', 'beta', 'gamma']
+      )
+    } finally {
+      await rm(tempDir, { recursive: true })
+    }
+  })
+
+  it('listSnapshots returns running tasks and recently-completed entries', async () => {
+    const tempDir = await createTempDir()
+    try {
+      const manager = new BackgroundBashManager()
+      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
+        manager.setCompletionHandler(resolve)
+      })
+
+      await manager.startTask({
+        taskId: 'snap-running',
+        command: 'sleep 30',
+        cwd: tempDir,
+        logPath: join(tempDir, 'tool-output', 'snap-running.log'),
+        threadId: 'snap-thread'
+      })
+
+      await manager.startTask({
+        taskId: 'snap-done',
+        command: 'true',
+        cwd: tempDir,
+        logPath: join(tempDir, 'tool-output', 'snap-done.log'),
+        threadId: 'snap-thread'
+      })
+
+      await completed
+
+      const snaps = manager.listSnapshots('snap-thread')
+      const byId = new Map(snaps.map((s) => [s.taskId, s]))
+      assert.equal(byId.get('snap-running')?.status, 'running')
+      assert.equal(byId.get('snap-done')?.status, 'completed')
+      assert.equal(byId.get('snap-done')?.exitCode, 0)
+
+      // Tasks for other threads must not leak.
+      assert.equal(manager.listSnapshots('other-thread').length, 0)
+
+      manager.cancelTask('snap-running')
+      await manager.close()
     } finally {
       await rm(tempDir, { recursive: true })
     }

@@ -4,6 +4,8 @@ import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ThreadFindBar } from '@renderer/features/chat/components/ThreadFindBar'
 import { buildFindMatches } from '@renderer/features/chat/lib/threadFindBar'
 import type { FindMatch } from '@renderer/features/chat/lib/threadFindBar'
+import { BackgroundTasksChip } from '@renderer/features/chat/components/BackgroundTasksChip'
+import { useBackgroundTasksStore } from '@renderer/features/chat/state/useBackgroundTasksStore'
 import { Composer } from '@renderer/features/chat/components/Composer'
 import { ExternalThreadViewer } from '@renderer/features/chat/components/ExternalThreadViewer'
 import { MessageTimeline } from '@renderer/features/chat/components/MessageTimeline'
@@ -199,6 +201,26 @@ export function AppMainPanel({
       CSS.highlights?.delete('yachiyo-find-current')
     }
   }, [findCurrentIndex, findMatches, findQuery, setScrollToMessageId])
+
+  // Hydrate background-task snapshots when switching threads so the chip can
+  // catch up on tasks that started before the renderer mounted (or were left
+  // running across an app restart).
+  useEffect(() => {
+    if (!activeThreadId) return
+    let cancelled = false
+    void window.api.yachiyo
+      .listBackgroundTasks({ threadId: activeThreadId })
+      .then((snapshots) => {
+        if (cancelled) return
+        useBackgroundTasksStore.getState().hydrate(activeThreadId, snapshots)
+      })
+      .catch((error: unknown) => {
+        console.warn('[yachiyo] failed to hydrate background tasks', error)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeThreadId])
 
   useEffect(() => {
     if (!pendingFindQuery) return
@@ -511,7 +533,10 @@ export function AppMainPanel({
           {isInspectionPanelOpen ? <RunInspectionPanel threadId={activeThreadId} /> : null}
         </div>
         <RunStatusStrip />
-        <Composer onSelectThreadOperation={handleSelectThreadOperation} />
+        <div className="relative">
+          <BackgroundTasksChip threadId={activeThreadId} />
+          <Composer onSelectThreadOperation={handleSelectThreadOperation} />
+        </div>
         {threadIsSaving && (
           <div
             className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-auto"
