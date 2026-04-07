@@ -1627,14 +1627,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       if (event.type === 'tool.updated') {
-        const pending = state.pendingAssistantMessages[event.runId]
+        const eventRunId = event.runId
+        const pending = eventRunId ? state.pendingAssistantMessages[eventRunId] : undefined
         const currentPhase = state.runPhasesByThread[event.threadId]
         const nextState = {
           ...state,
           pendingAssistantMessages: pending
             ? {
                 ...state.pendingAssistantMessages,
-                [event.runId]: {
+                [eventRunId!]: {
                   ...pending,
                   shouldStartNewTextBlock: true
                 }

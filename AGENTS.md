@@ -10,11 +10,12 @@ Use the pinned toolchain: `nvm use` and `pnpm install`.
 
 - `pnpm dev`: rebuild native Electron deps, then start the app in development.
 - `pnpm start`: preview the packaged Electron app locally.
-- `pnpm run native:rebuild`: rebuild `better-sqlite3` for Electron after dependency or ABI changes.
 - `pnpm run test:server`: run non-native server tests with Node’s test runner.
 - `pnpm run test:server:native`: run sqlite integration tests through Electron.
 - `pnpm run lint` and `pnpm run typecheck`: validate style and TypeScript before opening a PR.
 - `pnpm run db:generate` / `pnpm run db:migrate`: manage Drizzle schema changes.
+
+> **Agent restriction:** Do **not** run `pnpm run native:rebuild` or any command that rebuilds native dependencies (e.g. `better-sqlite3`). Verify SQLite logic via code review, static analysis, and in-memory tests instead.
 
 ## Coding Style & Naming Conventions
 

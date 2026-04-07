@@ -552,7 +552,7 @@ export interface MessageRecord {
 
 export interface ToolCallRecord {
   id: string
-  runId: string
+  runId?: string
   threadId: string
   requestMessageId?: string
   assistantMessageId?: string
@@ -1277,8 +1277,9 @@ export interface MessageCompletedEvent extends RunEvent {
   message: MessageRecord
 }
 
-export interface ToolCallUpdatedEvent extends RunEvent {
+export interface ToolCallUpdatedEvent extends ThreadEvent {
   type: 'tool.updated'
+  runId?: string
   toolCall: ToolCallRecord
 }
 

@@ -995,7 +995,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           inputSummary: toolCall.inputSummary,
           outputSummary: toolCall.outputSummary ?? null,
           requestMessageId: toolCall.requestMessageId ?? null,
-          runId: toolCall.runId,
+          runId: toolCall.runId ?? null,
           startedAt: toolCall.startedAt,
           stepBudget: toolCall.stepBudget ?? null,
           stepIndex: toolCall.stepIndex ?? null,
@@ -1042,22 +1042,29 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             .all()
 
           if (runsToDelete.length > 0) {
+            const runIdsToDelete = runsToDelete.map((run) => run.id)
             tx.delete(toolCallsTable)
               .where(
-                inArray(
-                  toolCallsTable.runId,
-                  runsToDelete.map((run) => run.id)
+                and(
+                  inArray(toolCallsTable.runId, runIdsToDelete),
+                  or(
+                    inArray(
+                      toolCallsTable.assistantMessageId,
+                      messageIds.filter((id) => id != null) as string[]
+                    ),
+                    isNull(toolCallsTable.assistantMessageId)
+                  )
                 )
               )
               .run()
-            tx.delete(runsTable)
-              .where(
-                inArray(
-                  runsTable.id,
-                  runsToDelete.map((run) => run.id)
-                )
-              )
+            // Detach any remaining tool calls for these runs so they survive
+            // the run deletion (e.g. tool calls bound to a stopped assistant
+            // branch after a steer restart).
+            tx.update(toolCallsTable)
+              .set({ runId: null })
+              .where(inArray(toolCallsTable.runId, runIdsToDelete))
               .run()
+            tx.delete(runsTable).where(inArray(runsTable.id, runIdsToDelete)).run()
           }
 
           tx.delete(messagesTable).where(inArray(messagesTable.id, messageIds)).run()

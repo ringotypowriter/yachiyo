@@ -1,17 +1,13 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import process from 'node:process'
 
 const rootDir = process.cwd()
-const packageJsonPath = resolve(rootDir, 'package.json')
+
 const electronBinPath = resolve(rootDir, 'node_modules/.bin/electron')
 const pnpmBin = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
-const electronVersion = JSON.parse(
-  readFileSync(packageJsonPath, 'utf8')
-).devDependencies.electron?.replace(/^[^\d]*/, '')
 
 /** @type {(command: string, args: string[], env?: NodeJS.ProcessEnv) => import('node:child_process').SpawnSyncReturns<string>} */
 const runCommand = (command, args, env = {}) => {
@@ -83,29 +79,15 @@ if (verifyBetterSqlite3()) {
   process.exit(0)
 }
 
-console.log('native dependency check failed; rebuilding for Electron via electron-builder')
+console.log('native dependency check failed; rebuilding better-sqlite3 via electron-rebuild')
 
-const installAppDepsResult = runCommand(pnpmBin, ['exec', 'electron-builder', 'install-app-deps'])
-
-if (installAppDepsResult.status === 0 && verifyBetterSqlite3()) {
-  process.exit(0)
-}
-
-if (!electronVersion) {
-  console.error('Unable to resolve Electron version from package.json')
-  process.exit(1)
-}
-
-console.log(
-  `electron-builder rebuild did not fix it; forcing better-sqlite3 rebuild for Electron ${electronVersion}`
-)
-
-const rebuildResult = runCommand(pnpmBin, ['rebuild', 'better-sqlite3'], {
-  npm_config_runtime: 'electron',
-  npm_config_target: electronVersion,
-  npm_config_disturl: 'https://electronjs.org/headers',
-  npm_config_build_from_source: 'true'
-})
+const rebuildResult = runCommand(pnpmBin, [
+  'exec',
+  'electron-rebuild',
+  '-f',
+  '-w',
+  'better-sqlite3'
+])
 
 if (rebuildResult.status === 0 && verifyBetterSqlite3()) {
   process.exit(0)

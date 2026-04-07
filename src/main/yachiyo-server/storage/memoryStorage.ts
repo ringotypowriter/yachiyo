@@ -162,14 +162,19 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
 
       for (const toolCall of toolCalls.values()) {
-        if (toolCall.status !== 'running' || !interruptedRunIds.includes(toolCall.runId)) {
+        if (
+          toolCall.status !== 'running' ||
+          !toolCall.runId ||
+          !interruptedRunIds.includes(toolCall.runId)
+        ) {
           continue
         }
 
         toolCall.status = 'failed'
-        toolCall.error = recoverableRunIds.has(toolCall.runId)
-          ? 'Tool execution was interrupted before completion.'
-          : error
+        toolCall.error =
+          toolCall.runId && recoverableRunIds.has(toolCall.runId)
+            ? 'Tool execution was interrupted before completion.'
+            : error
         toolCall.outputSummary = toolCall.error
         toolCall.finishedAt = finishedAt
       }
@@ -347,7 +352,10 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
 
       for (const [toolCallId, toolCall] of toolCalls.entries()) {
-        if (toolCall.threadId === threadId || deletedRunIds.has(toolCall.runId)) {
+        if (
+          toolCall.threadId === threadId ||
+          (toolCall.runId && deletedRunIds.has(toolCall.runId))
+        ) {
           toolCalls.delete(toolCallId)
         }
       }
@@ -540,7 +548,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         inputSummary: toolCall.inputSummary,
         outputSummary: toolCall.outputSummary ?? null,
         requestMessageId: toolCall.requestMessageId ?? null,
-        runId: toolCall.runId,
+        runId: toolCall.runId ?? null,
         startedAt: toolCall.startedAt,
         stepBudget: toolCall.stepBudget ?? null,
         stepIndex: toolCall.stepIndex ?? null,
@@ -565,7 +573,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         inputSummary: toolCall.inputSummary,
         outputSummary: toolCall.outputSummary ?? null,
         requestMessageId: toolCall.requestMessageId ?? null,
-        runId: toolCall.runId,
+        runId: toolCall.runId ?? null,
         startedAt: toolCall.startedAt,
         stepBudget: toolCall.stepBudget ?? null,
         stepIndex: toolCall.stepIndex ?? null,
@@ -596,7 +604,12 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
 
       for (const toolCall of [...toolCalls.values()]) {
-        if (deletedRunIds.has(toolCall.runId)) {
+        if (toolCall.assistantMessageId && deletedIds.has(toolCall.assistantMessageId)) {
+          toolCalls.delete(toolCall.id)
+          continue
+        }
+
+        if (toolCall.runId && deletedRunIds.has(toolCall.runId) && !toolCall.assistantMessageId) {
           toolCalls.delete(toolCall.id)
         }
       }

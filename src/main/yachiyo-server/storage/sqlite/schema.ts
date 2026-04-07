@@ -140,9 +140,7 @@ export const runRecoveryCheckpointsTable = sqliteTable('run_recovery_checkpoints
 
 export const toolCallsTable = sqliteTable('tool_calls', {
   id: text('id').primaryKey(),
-  runId: text('run_id')
-    .notNull()
-    .references(() => runsTable.id, { onDelete: 'cascade' }),
+  runId: text('run_id').references(() => runsTable.id),
   requestMessageId: text('request_message_id').references(() => messagesTable.id, {
     onDelete: 'set null'
   }),

@@ -133,7 +133,7 @@ export interface SaveThreadMessageInput {
 
 export interface StoredToolCallRow {
   id: string
-  runId: string
+  runId: string | null
   threadId: string
   requestMessageId: string | null
   assistantMessageId: string | null
@@ -533,7 +533,7 @@ export function toToolCallRecord(row: StoredToolCallRow): ToolCallRecord {
     id: row.id,
     inputSummary: row.inputSummary,
     ...(row.requestMessageId === null ? {} : { requestMessageId: row.requestMessageId }),
-    runId: row.runId,
+    ...(row.runId === null ? {} : { runId: row.runId }),
     startedAt: row.startedAt,
     ...(row.stepIndex === null ? {} : { stepIndex: row.stepIndex }),
     ...(row.stepBudget === null ? {} : { stepBudget: row.stepBudget }),

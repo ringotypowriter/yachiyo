@@ -21,7 +21,7 @@ export function AskUserInlineWidget({ toolCall }: AskUserInlineWidgetProps): Rea
 
   const submitAnswer = async (value: string): Promise<void> => {
     const trimmed = value.trim()
-    if (!trimmed || isSending) return
+    if (!trimmed || isSending || !toolCall.runId) return
     setIsSending(true)
     try {
       await window.api.yachiyo.answerToolQuestion({

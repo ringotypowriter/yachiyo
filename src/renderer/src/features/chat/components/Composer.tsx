@@ -458,11 +458,12 @@ export function Composer({
   const upsertComposerFile = useAppStore((s) => s.upsertComposerFile)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  // Debounce steer/follow-up sends. The server can stall briefly between an
-  // Enter press and the actual accept; without this, mashing Enter (or one
-  // physical press registering twice) queues several duplicate steer messages.
-  const lastSendAtRef = useRef<number>(0)
-  const SEND_DEBOUNCE_MS = 1000
+  // Lock the composer while a send is in flight. Each send invocation gets a
+  // UUID; the lock clears only when that exact send resolves. Prevents
+  // duplicate steer/follow-up messages from rapid Enter presses or double key
+  // events while the server is mid-accept.
+  const inFlightSendIdRef = useRef<string | null>(null)
+  const [isSendInFlight, setIsSendInFlight] = useState(false)
   const overlayRef = useRef<HTMLDivElement>(null)
   const composerInputRef = useRef<HTMLDivElement>(null)
   const popupContainerRef = useRef<HTMLDivElement>(null)
@@ -913,7 +914,7 @@ export function Composer({
     })
   }, [activeThreadId, pushToast])
 
-  const { canSend, showStopButton } = getComposerActionState({
+  const { canSend: canSendBase, showStopButton } = getComposerActionState({
     connectionStatus,
     hasActiveRun,
     hasFailedImages: hasFailedImages || hasFailedFiles,
@@ -922,6 +923,30 @@ export function Composer({
     threadIsSaving: threadIsBusy,
     isConfigured
   })
+  const canSend = canSendBase && !isSendInFlight
+
+  const dispatchSend = useCallback(
+    (mode: 'normal' | 'steer' | 'follow-up') => {
+      if (inFlightSendIdRef.current !== null) return
+      const sendId =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random()}`
+      inFlightSendIdRef.current = sendId
+      setIsSendInFlight(true)
+      void (async () => {
+        try {
+          await sendMessage(mode)
+        } finally {
+          if (inFlightSendIdRef.current === sendId) {
+            inFlightSendIdRef.current = null
+            setIsSendInFlight(false)
+          }
+        }
+      })()
+    },
+    [sendMessage]
+  )
   const activeRunEnterBehavior =
     config?.chat?.activeRunEnterBehavior ?? DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
   const primarySendMode = hasActiveRun
@@ -1428,16 +1453,11 @@ export function Composer({
 
       event.preventDefault()
       if (canSend) {
-        const now = Date.now()
-        if (now - lastSendAtRef.current < SEND_DEBOUNCE_MS) {
-          return
-        }
-        lastSendAtRef.current = now
         setModelSelectorOpen(false)
         setSkillsSelectorOpen(false)
         setToolSelectorOpen(false)
         setWorkspaceSelectorOpen(false)
-        void sendMessage(action === 'send' ? 'normal' : action)
+        dispatchSend(action === 'send' ? 'normal' : action)
       }
     },
     [
@@ -1450,7 +1470,7 @@ export function Composer({
       isComposing,
       matchingSlashCommands,
       dismissSlashPopup,
-      sendMessage,
+      dispatchSend,
       showSlashCommandPopup,
       slashSelectedIndex
     ]
@@ -2248,14 +2268,11 @@ export function Composer({
             type="button"
             onClick={() => {
               if (!canSend) return
-              const now = Date.now()
-              if (now - lastSendAtRef.current < SEND_DEBOUNCE_MS) return
-              lastSendAtRef.current = now
               setModelSelectorOpen(false)
               setSkillsSelectorOpen(false)
               setToolSelectorOpen(false)
               setWorkspaceSelectorOpen(false)
-              void sendMessage(primarySendMode)
+              dispatchSend(primarySendMode)
             }}
             disabled={!canSend}
             className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
