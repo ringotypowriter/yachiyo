@@ -96,7 +96,7 @@ function safeJsonStringify(value: unknown): string {
 }
 
 export function logGatewayDiagnostics(label: string, payload: unknown): void {
-  console.debug(`[gateway-diagnostic] ${label}\n${safeJsonStringify(payload)}`)
+  console.log(`[gateway-diagnostic] ${label}\n${safeJsonStringify(payload)}`)
 }
 
 export function isVercelGatewayGoogleModel(modelId: string): boolean {

@@ -2216,7 +2216,7 @@ export class YachiyoServerRunDomain {
     message: string
     detail?: string
   }): void {
-    console.debug(
+    console.log(
       '[yachiyo][thread-title]',
       `phase=${input.phase}`,
       `threadId=${input.threadId}`,
