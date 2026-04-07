@@ -860,7 +860,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           .set({
             assistantMessageId: assistantMessage.id
           })
-          .where(eq(toolCallsTable.runId, runId))
+          .where(and(eq(toolCallsTable.runId, runId), isNull(toolCallsTable.assistantMessageId)))
           .run()
       })
     },

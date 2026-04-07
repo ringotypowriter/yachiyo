@@ -2953,7 +2953,7 @@ test('YachiyoServer delays steer restart until the running tool call finishes', 
       assert.equal(finalAssistant?.parentMessageId, steerMessage?.id)
       assert.equal(toolUpdates[0]?.assistantMessageId, undefined)
       assert.equal(toolUpdates[1]?.assistantMessageId, undefined)
-      assert.equal(toolUpdates[2]?.assistantMessageId, finalAssistant?.id)
+      assert.equal(toolUpdates[2]?.assistantMessageId, stoppedAssistant?.id)
       unsubscribe()
     },
     {

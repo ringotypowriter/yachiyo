@@ -2033,11 +2033,21 @@ export async function executeServerRun(
             runId: input.runId,
             message: partialAssistantMessage
           })
-          bindCompletedToolCallsToAssistant(deps, toolCalls, {
-            threadId: input.thread.id,
-            runId: input.runId,
-            assistantMessageId: messageId
-          })
+          // Bind all tool calls from this run to the stopped assistant message so
+          // they are not reassigned to a later assistant message when the run completes.
+          for (const [toolCallId, toolCall] of toolCalls.entries()) {
+            if (toolCall.runId === input.runId && toolCall.assistantMessageId !== messageId) {
+              const bound: ToolCallRecord = { ...toolCall, assistantMessageId: messageId }
+              toolCalls.set(toolCallId, bound)
+              deps.storage.updateToolCall(bound)
+              deps.emit<ToolCallUpdatedEvent>({
+                type: 'tool.updated',
+                threadId: input.thread.id,
+                runId: input.runId,
+                toolCall: bound
+              })
+            }
+          }
 
           const steerMessageId = restartReason.nextRequestMessageId
           const threadMessages = deps.loadThreadMessages(input.thread.id)
@@ -2230,11 +2240,21 @@ export async function executeServerRun(
         content: buffer,
         textBlocks
       })
-      bindCompletedToolCallsToAssistant(deps, toolCalls, {
-        threadId: input.thread.id,
-        runId: input.runId,
-        assistantMessageId: messageId
-      })
+      // Bind all tool calls from this run to the terminal assistant message so
+      // they are not left unbound when the run fails.
+      for (const [toolCallId, toolCall] of toolCalls.entries()) {
+        if (toolCall.runId === input.runId && toolCall.assistantMessageId !== messageId) {
+          const bound: ToolCallRecord = { ...toolCall, assistantMessageId: messageId }
+          toolCalls.set(toolCallId, bound)
+          deps.storage.updateToolCall(bound)
+          deps.emit<ToolCallUpdatedEvent>({
+            type: 'tool.updated',
+            threadId: input.thread.id,
+            runId: input.runId,
+            toolCall: bound
+          })
+        }
+      }
       deps.emit<MessageCompletedEvent>({
         type: 'message.completed',
         threadId: input.thread.id,

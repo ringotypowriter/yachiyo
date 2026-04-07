@@ -462,6 +462,10 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
           continue
         }
 
+        if (toolCall.assistantMessageId) {
+          continue
+        }
+
         toolCalls.set(toolCallId, {
           ...toolCall,
           assistantMessageId: assistantMessage.id
