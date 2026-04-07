@@ -346,6 +346,7 @@ async function runFdSearch(input: {
   const args = [
     '--glob',
     '--hidden',
+    '--no-ignore',
     '--color',
     'never',
     '--type',

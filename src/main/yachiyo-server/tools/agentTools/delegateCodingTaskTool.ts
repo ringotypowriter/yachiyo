@@ -4,7 +4,6 @@ import { join, resolve } from 'node:path'
 import { z } from 'zod'
 
 import type { SubagentProfile } from '../../../../shared/yachiyo/protocol.ts'
-import { isAbortError } from '../../app/domain/shared.ts'
 import { launchAcpProcess } from '../../runtime/acp/acpLauncher.ts'
 import { createAcpStreamAdapter } from '../../runtime/acp/acpStreamAdapter.ts'
 import { runAcpSession } from '../../runtime/acp/acpSessionClient.ts'
@@ -67,7 +66,17 @@ async function runSubagent(
   const { proc, stream, procExited } = startAcpProcess(profile, ctx.workspacePath)
   const adapterRef = { current: adapter }
 
-  proc.stderr?.on('data', (chunk: Buffer) => adapterRef.current.onStderr(chunk))
+  proc.stderr?.on('data', (chunk: Buffer) => {
+    const text = chunk.toString('utf8')
+    console.log(`[delegateCodingTask:${profile.name}] stderr: ${text.trimEnd()}`)
+    adapterRef.current.onStderr(chunk)
+  })
+  proc.on('exit', (code, signal) => {
+    console.log(`[delegateCodingTask:${profile.name}] process exited code=${code} signal=${signal}`)
+  })
+  proc.on('error', (err) => {
+    console.log(`[delegateCodingTask:${profile.name}] process error:`, err)
+  })
 
   const { sessionId, stopReason, lastMessageText } = await executeAcpSession(
     stream,
@@ -153,14 +162,20 @@ export function createTool(
         )
         return result
       } catch (err) {
+        console.log(`[delegateCodingTask:${input.agent_name}] execute caught error:`, err)
         ctx.onSubagentFinished?.(input.agent_name, 'cancelled')
-        if (options.abortSignal?.aborted || isAbortError(err)) {
+        // Only re-throw as a run-level abort when the PARENT run signal is
+        // aborted. A subagent-internal cancellation or process crash (which
+        // may surface as a DOMException/AbortError) must become a tool-level
+        // error so the model can see it and recover, not kill the whole run.
+        if (options.abortSignal?.aborted) {
           const abortErr = err instanceof Error ? err : new Error('Subagent execution aborted.')
           abortErr.name = 'AbortError'
           throw abortErr
         }
-        const error = err instanceof Error ? err.message : 'Subagent execution failed.'
-        return { content: [{ type: 'text', text: error }], error }
+        const detail = err instanceof Error ? err.message : 'Subagent execution failed.'
+        const text = `Subagent execution failed: ${detail}\n\n${SYSTEM_INSTRUCTION}`
+        return { content: [{ type: 'text', text }], error: detail }
       }
     }
   })

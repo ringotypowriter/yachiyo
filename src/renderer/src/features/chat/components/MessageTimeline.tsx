@@ -654,8 +654,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     overscan: 5,
     getItemKey,
     paddingStart: 16,
-    paddingEnd: 16,
-    useFlushSync: false
+    paddingEnd: 16
   })
 
   const findTimelineIndex = useCallback(
@@ -721,13 +720,6 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     if (timelineRef.current.length === 0) return
     programmaticScrollUntilRef.current = Date.now() + 300
     virtualizer.scrollToIndex(timelineRef.current.length - 1, { align: 'end' })
-    // Chase with a raw scroll to catch measurement lag from growing content
-    requestAnimationFrame(() => {
-      const container = scrollContainerRef.current
-      if (container) {
-        container.scrollTop = container.scrollHeight - container.clientHeight
-      }
-    })
   }, [virtualizer])
 
   // Scroll to bottom on thread switch — suppression already set above
@@ -911,9 +903,14 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
       if (item.kind === 'assistant-root') {
         if (item.data.status === 'streaming' && !item.data.content.trim()) {
           return (
-            <div className="message-response-cluster">
-              <div className="message-response-cluster__preparing">
-                <PreparingBubble />
+            <div data-message-id={item.key}>
+              {item.data.reasoning ? (
+                <ThinkingBlock reasoning={item.data.reasoning} isActive={true} />
+              ) : null}
+              <div className="message-response-cluster">
+                <div className="message-response-cluster__preparing">
+                  <PreparingBubble />
+                </div>
               </div>
             </div>
           )

@@ -244,66 +244,6 @@ function throwIfAborted(signal: AbortSignal): void {
   throw error
 }
 
-class RunInactivityTimeoutError extends Error {
-  readonly code = 'YACHIYO_RUN_INACTIVITY_TIMEOUT'
-
-  constructor(timeoutMs: number) {
-    super(`Run stalled for more than ${timeoutMs}ms without progress.`)
-    this.name = 'RunInactivityTimeoutError'
-  }
-}
-
-async function nextWithInactivityTimeout<T>(
-  iterator: AsyncIterator<T>,
-  timeoutMs: number,
-  getProgressVersion: () => number,
-  shouldEnforceTimeout: () => boolean,
-  onTimeout: (error: RunInactivityTimeoutError) => void
-): Promise<IteratorResult<T>> {
-  if (timeoutMs <= 0) {
-    return iterator.next()
-  }
-
-  const nextPromise = iterator.next().then((result) => ({ kind: 'next' as const, result }))
-  let deadlineAt = Date.now() + timeoutMs
-  let progressVersion = getProgressVersion()
-
-  while (true) {
-    if (!shouldEnforceTimeout()) {
-      progressVersion = getProgressVersion()
-      deadlineAt = Date.now() + timeoutMs
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, 50)
-      })
-      continue
-    }
-
-    const remainingMs = deadlineAt - Date.now()
-    if (remainingMs <= 0) {
-      const error = new RunInactivityTimeoutError(timeoutMs)
-      onTimeout(error)
-      throw error
-    }
-
-    const settled = await Promise.race([
-      nextPromise,
-      new Promise<null>((resolve) => {
-        setTimeout(resolve, Math.min(remainingMs, 50))
-      })
-    ])
-
-    if (settled && settled.kind === 'next') {
-      return settled.result
-    }
-
-    const currentProgressVersion = getProgressVersion()
-    if (currentProgressVersion !== progressVersion) {
-      progressVersion = currentProgressVersion
-      deadlineAt = Date.now() + timeoutMs
-    }
-  }
-}
-
 function resolveModelEnabledTools(input: {
   activeSkills: SkillSummary[]
   enabledTools: ToolCallName[]
@@ -921,9 +861,9 @@ export async function executeServerRun(
   let shouldStartNewTextBlock = textBlocks.length === 0
   let executionPhase: 'generating' | 'tool-running' | 'waiting-for-user' = 'generating'
   let awaitingSafeSteerPointAfterTool = false
-  let progressVersion = 0
   const markProgress = (): void => {
-    progressVersion += 1
+    // No-op retained for call sites; the inactivity watchdog that consumed
+    // this signal has been removed.
   }
 
   // Deferred promises for askUser tool calls waiting on user input
@@ -1822,25 +1762,9 @@ export async function executeServerRun(
       }
     })
     const streamIterator = stream[Symbol.asyncIterator]()
-    const abortForInactivity = (error: RunInactivityTimeoutError): void => {
-      if (!input.abortController.signal.aborted) {
-        input.abortController.abort(error)
-      }
-
-      const iteratorReturn = streamIterator.return?.()
-      if (iteratorReturn) {
-        void iteratorReturn.catch(() => {})
-      }
-    }
 
     while (true) {
-      const nextChunk = await nextWithInactivityTimeout(
-        streamIterator,
-        input.inactivityTimeoutMs,
-        () => progressVersion,
-        () => executionPhase !== 'waiting-for-user',
-        abortForInactivity
-      )
+      const nextChunk = await streamIterator.next()
       if (nextChunk.done) {
         break
       }

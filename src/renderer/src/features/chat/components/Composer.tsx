@@ -458,6 +458,11 @@ export function Composer({
   const upsertComposerFile = useAppStore((s) => s.upsertComposerFile)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // Debounce steer/follow-up sends. The server can stall briefly between an
+  // Enter press and the actual accept; without this, mashing Enter (or one
+  // physical press registering twice) queues several duplicate steer messages.
+  const lastSendAtRef = useRef<number>(0)
+  const SEND_DEBOUNCE_MS = 500
   const overlayRef = useRef<HTMLDivElement>(null)
   const composerInputRef = useRef<HTMLDivElement>(null)
   const popupContainerRef = useRef<HTMLDivElement>(null)
@@ -1423,6 +1428,11 @@ export function Composer({
 
       event.preventDefault()
       if (canSend) {
+        const now = Date.now()
+        if (now - lastSendAtRef.current < SEND_DEBOUNCE_MS) {
+          return
+        }
+        lastSendAtRef.current = now
         setModelSelectorOpen(false)
         setSkillsSelectorOpen(false)
         setToolSelectorOpen(false)
@@ -2238,6 +2248,9 @@ export function Composer({
             type="button"
             onClick={() => {
               if (!canSend) return
+              const now = Date.now()
+              if (now - lastSendAtRef.current < SEND_DEBOUNCE_MS) return
+              lastSendAtRef.current = now
               setModelSelectorOpen(false)
               setSkillsSelectorOpen(false)
               setToolSelectorOpen(false)

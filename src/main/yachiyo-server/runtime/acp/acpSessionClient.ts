@@ -48,6 +48,21 @@ function raceAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   ])
 }
 
+function raceProcExit<T>(
+  promise: Promise<T>,
+  proc: ChildProcess,
+  procExited: Promise<void>
+): Promise<T> {
+  return Promise.race([
+    promise,
+    procExited.then(() => {
+      throw new Error(
+        `ACP agent process exited unexpectedly (code=${proc.exitCode} signal=${proc.signalCode}) before the request completed.`
+      )
+    })
+  ])
+}
+
 function killGroup(proc: ChildProcess): void {
   try {
     process.kill(-proc.pid!, 'SIGKILL')
@@ -87,23 +102,31 @@ export async function runAcpSession(
   abortSignal?.addEventListener('abort', onAbort, { once: true })
 
   try {
-    await raceAbort(
-      connection.initialize({
-        protocolVersion: PROTOCOL_VERSION,
-        clientCapabilities: {}
-      }),
-      abortSignal
+    await raceProcExit(
+      raceAbort(
+        connection.initialize({
+          protocolVersion: PROTOCOL_VERSION,
+          clientCapabilities: {}
+        }),
+        abortSignal
+      ),
+      proc,
+      procExited
     )
 
     if (resumeSessionId !== undefined) {
       try {
-        await raceAbort(
-          connection.unstable_resumeSession({
-            cwd,
-            sessionId: resumeSessionId,
-            mcpServers: []
-          }),
-          abortSignal
+        await raceProcExit(
+          raceAbort(
+            connection.unstable_resumeSession({
+              cwd,
+              sessionId: resumeSessionId,
+              mcpServers: []
+            }),
+            abortSignal
+          ),
+          proc,
+          procExited
         )
       } catch (resumeErr) {
         if (resumeErr instanceof DOMException && resumeErr.name === 'AbortError') {
@@ -117,22 +140,30 @@ export async function runAcpSession(
       }
       sessionId = resumeSessionId
     } else {
-      const sessionResult = await raceAbort(
-        connection.newSession({
-          cwd,
-          mcpServers: []
-        }),
-        abortSignal
+      const sessionResult = await raceProcExit(
+        raceAbort(
+          connection.newSession({
+            cwd,
+            mcpServers: []
+          }),
+          abortSignal
+        ),
+        proc,
+        procExited
       )
       sessionId = sessionResult.sessionId
     }
 
-    const promptResult = await raceAbort(
-      connection.prompt({
-        sessionId,
-        prompt
-      }),
-      abortSignal
+    const promptResult = await raceProcExit(
+      raceAbort(
+        connection.prompt({
+          sessionId,
+          prompt
+        }),
+        abortSignal
+      ),
+      proc,
+      procExited
     )
     stopReason = promptResult.stopReason
     sessionCompleted = true

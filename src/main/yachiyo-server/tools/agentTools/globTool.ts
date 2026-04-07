@@ -20,9 +20,13 @@ const AUTO_SAVE_DIR = '.yachiyo/tool-result'
 const INLINE_CONTENT_LIMIT = 32_000
 
 export const GLOB_TOOL_DESCRIPTION =
-  'Find files by glob pattern. Prefer this over bash (find/ls/fd) for all file discovery. If output is too large it is auto-saved to a workspace file.\n' +
+  'Find files by glob pattern. Prefer this over bash (find/ls/fd) for all file discovery. Hidden files are included and .gitignore is NOT applied. If output is too large it is auto-saved to a workspace file.\n' +
   'Supports `*` (any chars except /), `**` (any depth), `?` (single char).\n' +
-  '• `pattern`: glob pattern (e.g. "**/*.ts", "src/**/*.test.ts", "*.json").\n' +
+  'IMPORTANT: patterns are anchored to the search root. To find a file or directory at ANY depth, prefix with `**/`. Examples:\n' +
+  '  - find any `slidev` directory anywhere: `**/slidev/**` (NOT `slidev/**/*`, which only matches `slidev/` directly under the search root)\n' +
+  '  - find all TypeScript files anywhere: `**/*.ts`\n' +
+  '  - find tests under src: `src/**/*.test.ts`\n' +
+  '• `pattern`: glob pattern.\n' +
   '• `path`: directory to search in (defaults to workspace root).\n' +
   '• `limit`: max files returned (default 50, max 200).'
 
