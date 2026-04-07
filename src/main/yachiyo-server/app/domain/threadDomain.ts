@@ -317,7 +317,8 @@ export class YachiyoServerThreadDomain {
 
     const result = await this.deps.auxiliaryGeneration.generateText({
       messages: buildThreadTitleGenerationMessages(query),
-      max_token: THREAD_TITLE_MAX_TOKEN
+      max_token: THREAD_TITLE_MAX_TOKEN,
+      purpose: 'thread-title-regen'
     })
 
     if (result.status === 'unavailable') {

@@ -44,6 +44,8 @@ export interface ModelStreamRequest {
   messages: ModelMessage[]
   settings: ProviderSettings
   signal: AbortSignal
+  /** Short label used in lifecycle logs to identify why this LLM call was made (e.g. "chat", "title", "summary"). */
+  purpose?: string
   max_token?: number
   providerOptionsMode?: ModelProviderOptionsMode
   maxToolSteps?: number

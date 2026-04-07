@@ -737,7 +737,8 @@ async function collectStreamText(
     messages: input.messages,
     providerOptionsMode: input.providerOptionsMode,
     settings: input.settings,
-    signal
+    signal,
+    purpose: 'memory-generation'
   })) {
     text += delta
   }
@@ -774,7 +775,8 @@ async function deriveQueryPlan(
 ): Promise<MemoryQueryPlanResult> {
   const result = await auxiliaryGeneration.generateText({
     messages: buildQueryPlanningMessages(input),
-    signal: input.signal
+    signal: input.signal,
+    purpose: 'memory-query-plan'
   })
 
   if (result.status !== 'success') {
@@ -1255,7 +1257,8 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
 
       const result = await deps.auxiliaryGeneration.generateText({
         messages: buildRunDistillationMessages(input),
-        signal: input.signal
+        signal: input.signal,
+        purpose: 'memory-distill'
       })
       const candidates = await deriveMemoryCandidates(result)
       const reconciled = await reconcileMemoryCandidates(provider, candidates, input.signal)

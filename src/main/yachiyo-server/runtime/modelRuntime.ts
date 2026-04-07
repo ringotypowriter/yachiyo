@@ -61,6 +61,15 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
         request.providerOptionsMode ?? 'default'
       )
 
+      const purpose = request.purpose ?? 'unspecified'
+      const provider = request.settings.provider
+      const model = request.settings.model
+      const llmTag = `[yachiyo][llm][${purpose}]`
+      const startedAt = Date.now()
+      console.info(
+        `${llmTag} start provider=${provider} model=${model} messages=${preparedMessages.length} mode=${request.providerOptionsMode ?? 'default'} tools=${request.tools ? Object.keys(request.tools).length : 0} maxToolSteps=${request.maxToolSteps ?? 'default'}`
+      )
+
       if (shouldLogGatewayDiagnostics(request.settings)) {
         logGatewayDiagnostics('streamReply-input', {
           model: request.settings.model,
@@ -91,8 +100,13 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
         : undefined
 
       let retryDelay = RETRY_BASE_DELAY_MS
+      let totalYieldedChars = 0
 
       for (let attempt = 1; attempt <= RETRY_MAX_ATTEMPTS; attempt++) {
+        const attemptStartedAt = Date.now()
+        console.info(
+          `${llmTag} attempt ${attempt}/${RETRY_MAX_ATTEMPTS} provider=${provider} model=${model}`
+        )
         // Once user-visible assistant text or tool activity has started, the
         // attempt is committed and must not be retried.
         let streamCommitted = false
@@ -169,7 +183,9 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
 
               if (part.type === 'text-delta' && readTextDelta(part)) {
                 streamCommitted = true
-                yield readTextDelta(part) as string
+                const delta = readTextDelta(part) as string
+                totalYieldedChars += delta.length
+                yield delta
                 continue
               }
 
@@ -348,6 +364,9 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               } catch {
                 // Provider didn't expose a usable finishReason — not critical.
               }
+              console.info(
+                `${llmTag} usage provider=${provider} model=${model} promptTokens=${usage.inputTokens ?? '?'} completionTokens=${usage.outputTokens ?? '?'} totalPrompt=${total.inputTokens ?? '?'} totalCompletion=${total.outputTokens ?? '?'} finishReason=${finishReason ?? 'unknown'}`
+              )
               if (usage.inputTokens != null && usage.outputTokens != null) {
                 const responseMessages = response?.messages
                 request.onFinish({
@@ -363,22 +382,36 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               }
             }
 
+            console.info(
+              `${llmTag} done provider=${provider} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} totalDurationMs=${Date.now() - startedAt} chars=${totalYieldedChars}`
+            )
             return
           }
 
           for await (const textPart of result.textStream) {
             if (textPart) {
               streamCommitted = true
+              totalYieldedChars += textPart.length
               yield textPart
             }
           }
 
           // Stream completed successfully — exit the retry loop.
+          console.info(
+            `${llmTag} done provider=${provider} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} totalDurationMs=${Date.now() - startedAt} chars=${totalYieldedChars}`
+          )
           return
         } catch (error) {
           if (request.signal.aborted) {
+            console.info(
+              `${llmTag} aborted provider=${provider} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt}`
+            )
             throw error
           }
+
+          console.error(
+            `${llmTag} error provider=${provider} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} committed=${streamCommitted}: ${error instanceof Error ? error.message : String(error)}`
+          )
 
           if (shouldLogGatewayDiagnostics(request.settings)) {
             logGatewayDiagnostics('streamReply-error', {
@@ -396,12 +429,14 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
           // Once assistant text or tool activity was forwarded, retrying would
           // duplicate user-visible output or side effects.
           if (streamCommitted || attempt >= RETRY_MAX_ATTEMPTS || !isRetryableModelError(error)) {
+            console.error(
+              `${llmTag} giving up provider=${provider} model=${model} attempt=${attempt} committed=${streamCommitted} totalDurationMs=${Date.now() - startedAt}`
+            )
             throw error
           }
 
           console.warn(
-            `[yachiyo][stream] attempt ${attempt}/${RETRY_MAX_ATTEMPTS} failed, retrying in ${retryDelay}ms:`,
-            error instanceof Error ? error.message : error
+            `${llmTag} retrying attempt=${attempt}/${RETRY_MAX_ATTEMPTS} delayMs=${retryDelay}: ${error instanceof Error ? error.message : String(error)}`
           )
           request.onRetry?.(attempt, RETRY_MAX_ATTEMPTS, retryDelay, error)
 

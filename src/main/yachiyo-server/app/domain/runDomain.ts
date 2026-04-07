@@ -829,7 +829,8 @@ export class YachiyoServerRunDomain {
         userDocumentContent: userDocument?.content
       }),
       settings,
-      signal: new AbortController().signal
+      signal: new AbortController().signal,
+      purpose: 'rolling-summary'
     })) {
       if (delta) {
         buffer += delta
@@ -1840,6 +1841,7 @@ export class YachiyoServerRunDomain {
         }),
         settings,
         signal: activeRun.abortController.signal,
+        purpose: 'thread-handoff',
         onReasoningDelta: (reasoningDelta) => {
           reasoningBuffer += reasoningDelta
           this.deps.emit<MessageReasoningDeltaEvent>({
@@ -2115,7 +2117,8 @@ export class YachiyoServerRunDomain {
     const result = await this.deps.auxiliaryGeneration.generateText({
       messages: buildThreadTitleGenerationMessages(input.query),
       max_token: THREAD_TITLE_MAX_TOKEN,
-      signal: input.signal
+      signal: input.signal,
+      purpose: 'thread-title'
     })
 
     if (result.status === 'unavailable') {

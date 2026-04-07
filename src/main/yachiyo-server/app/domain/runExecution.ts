@@ -1542,6 +1542,7 @@ export async function executeServerRun(
       messages: finalMessages,
       settings,
       signal: input.abortController.signal,
+      purpose: 'chat',
       maxToolSteps,
       ...(tools ? { tools } : {}),
       onFinish: (usage) => {

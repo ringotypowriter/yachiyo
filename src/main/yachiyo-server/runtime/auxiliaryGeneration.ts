@@ -28,6 +28,8 @@ export type AuxiliaryTextGenerationResult =
 export interface AuxiliaryTextGenerationRequest {
   messages: ModelMessage[]
   signal?: AbortSignal
+  /** Optional label propagated to LLM lifecycle logs (e.g. "title", "memory-distill"). */
+  purpose?: string
   max_token?: number
   /** Optional tools the model can call during generation. */
   tools?: ToolSet
@@ -100,6 +102,7 @@ export function createAuxiliaryGenerationService(
           providerOptionsMode: 'auxiliary',
           settings: resolvedSettings,
           signal,
+          purpose: request.purpose ?? 'auxiliary',
           tools: request.tools,
           onToolCallError: request.onToolCallError,
           onFinish: (finishUsage) => {

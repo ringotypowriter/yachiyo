@@ -567,7 +567,8 @@ export function createQQService({
       tools: probeTools,
       onToolCallError: (event) =>
         event.toolCall.toolName === 'send_group_message' ? 'abort' : 'continue',
-      settingsOverride
+      settingsOverride,
+      purpose: 'qq-group-probe'
     })
 
     if (result.status === 'success') {

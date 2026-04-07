@@ -124,7 +124,8 @@ export function createImageToTextService(deps: ImageToTextServiceDeps): ImageToT
 
     const result = await deps.auxService.generateText({
       messages,
-      settingsOverride: deps.resolveSettings()
+      settingsOverride: deps.resolveSettings(),
+      purpose: 'image-to-text'
     })
 
     if (result.status === 'success') {

@@ -624,7 +624,8 @@ export function createDiscordService({
       tools: probeTools,
       onToolCallError: (event) =>
         event.toolCall.toolName === 'send_group_message' ? 'abort' : 'continue',
-      settingsOverride
+      settingsOverride,
+      purpose: 'discord-group-probe'
     })
 
     if (result.status === 'success') {

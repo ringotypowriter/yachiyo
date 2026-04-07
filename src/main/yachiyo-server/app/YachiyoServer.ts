@@ -1020,6 +1020,7 @@ export class YachiyoServer {
     let text = ''
     try {
       for await (const delta of runtime.streamReply({
+        purpose: 'translate',
         messages: [
           {
             role: 'system',
