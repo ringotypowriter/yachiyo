@@ -296,6 +296,8 @@ export interface BashToolCallDetails {
   background?: boolean
   taskId?: string
   logPath?: string
+  /** Foreground command exceeded its timeout and was adopted as a background task. */
+  liftedAfterTimeout?: boolean
 }
 
 export interface GrepToolCallMatch {

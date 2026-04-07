@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process'
 import { access, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
@@ -107,12 +108,28 @@ export interface BackgroundBashTaskHandle {
   toolCallId?: string
 }
 
+export interface BackgroundBashAdoptionHandle extends BackgroundBashTaskHandle {
+  /** Already-running child process to adopt. Manager attaches its own log listeners. */
+  child: ChildProcess
+  /** Output already buffered by the foreground runner; written to the log first. */
+  initialOutput: string
+  /**
+   * When true, `initialOutput` already lives at `logPath` (the foreground runner
+   * spilled to disk before the timeout fired). The manager opens the log in append
+   * mode and skips re-writing the initial bytes, but still replays them as live
+   * log-append events so the renderer's session view stays in sync.
+   */
+  initialOutputAlreadyOnDisk?: boolean
+}
+
 export interface AgentToolContext {
   enabledTools?: ToolCallName[]
   workspacePath: string
   /** When true, file tools are sandboxed to the workspace — no absolute path escapes. */
   sandboxed?: boolean
   onBackgroundBashStarted?: (task: BackgroundBashTaskHandle) => Promise<void>
+  /** Adopt a foreground bash child that exceeded its timeout, instead of killing it. */
+  onBackgroundBashAdopted?: (task: BackgroundBashAdoptionHandle) => Promise<void>
 }
 
 export type ToolContentBlock =
@@ -163,6 +180,12 @@ export interface BashRunnerInput {
   command: string
   cwd: string
   timeoutSeconds: number
+  /**
+   * If provided, called when the timeout fires instead of killing the child.
+   * Resolves to true if the caller has taken ownership of the child (the runner
+   * must then detach its listeners and resolve with `lifted: true`).
+   */
+  onTimeoutLift?: (child: ChildProcess) => Promise<boolean>
   abortSignal?: AbortSignal
   onStdout?: (chunk: string) => void
   onStderr?: (chunk: string) => void
@@ -173,6 +196,8 @@ export interface BashRunnerResult {
   stderr: string
   exitCode: number
   timedOut?: boolean
+  /** Set when the timeout fired and the child was handed off to a background owner. */
+  lifted?: boolean
 }
 
 export type BashRunner = (input: BashRunnerInput) => Promise<BashRunnerResult>

@@ -749,6 +749,14 @@ async function refreshAvailableSkills(
   }
 }
 
+// Module-level send dedup guard. Survives Composer remounts and concurrent
+// callers (Enter key, Send button, programmatic). Keyed by thread+mode+content
+// fingerprint with both an in-flight lock and a recency window.
+const SEND_DEDUP_WINDOW_MS = 1500
+let sendInFlight = false
+let lastSendFingerprint: string | null = null
+let lastSendAt = 0
+
 export const useAppStore = create<AppState>((set, get) => ({
   activeArchivedThreadId: null,
   activeRunId: null,
@@ -2283,17 +2291,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   sendMessage: async (mode = 'normal') => {
+    // Guard against accidental double-submits (double Enter, key repeat,
+    // Composer remount during steer, etc). Module-level so it survives
+    // component lifecycles. Combines an in-flight lock with a content+thread
+    // fingerprint within a recency window.
+    if (sendInFlight) return
     const currentState = get()
     const draft = getComposerDraft(currentState)
     const trimmed = draft.text.trim()
     const images = toReadyMessageImages(draft.images)
     const attachments = toReadyFileAttachments(draft.files)
-    const enabledTools = currentState.enabledTools
-    const enabledSkillNames = resolveEffectiveEnabledSkillNames({
-      config: currentState.config,
-      draft
-    })
 
+    // Reject locally-invalid drafts BEFORE arming the dedup window. Otherwise
+    // an invalid attempt would poison the window and silently drop the user's
+    // immediate retry after they fix the draft.
     if (
       draft.images.some((image) => image.status === 'loading' || image.status === 'failed') ||
       draft.files.some((file) => file.status === 'loading' || file.status === 'failed') ||
@@ -2302,200 +2313,232 @@ export const useAppStore = create<AppState>((set, get) => ({
       return
     }
 
-    let threadId = currentState.activeThreadId
-    const workspacePath = normalizeWorkspacePath(
-      threadId
-        ? currentState.threads.find((thread) => thread.id === threadId)?.workspacePath
-        : currentState.pendingWorkspacePath
-    )
-
-    if (!threadId && mode !== 'normal') {
+    const fingerprint = JSON.stringify({
+      t: currentState.activeThreadId,
+      m: mode,
+      c: trimmed,
+      iN: images.length,
+      aN: attachments.length
+    })
+    const fpNow = Date.now()
+    if (
+      trimmed.length > 0 &&
+      lastSendFingerprint === fingerprint &&
+      fpNow - lastSendAt < SEND_DEDUP_WINDOW_MS
+    ) {
       return
     }
-
-    if (!threadId) {
-      const essentialId = currentState.activeEssentialId
-      const essential = essentialId
-        ? currentState.config?.essentials?.find((entry) => entry.id === essentialId)
-        : undefined
-      const pendingModel = currentState.pendingModelOverride
-      const pendingAcp = currentState.pendingAcpBinding
-      const thread = await window.api.yachiyo.createThread({
-        ...(workspacePath ? { workspacePath } : {}),
-        ...(essentialId ? { createdFromEssentialId: essentialId } : {}),
-        ...(essential?.privacyMode ? { privacyMode: true } : {})
+    lastSendFingerprint = fingerprint
+    lastSendAt = fpNow
+    sendInFlight = true
+    try {
+      const enabledTools = currentState.enabledTools
+      const enabledSkillNames = resolveEffectiveEnabledSkillNames({
+        config: currentState.config,
+        draft
       })
 
-      // Commit local state first so the thread is visible even if setup calls fail.
-      if (pendingModel) thread.modelOverride = pendingModel
-      if (pendingAcp) thread.runtimeBinding = pendingAcp
-      if (essential?.privacyMode) {
-        thread.privacyMode = true
-      }
-      if (essential?.icon && essential.iconType === 'emoji') {
-        thread.icon = essential.icon
+      let threadId = currentState.activeThreadId
+      const workspacePath = normalizeWorkspacePath(
+        threadId
+          ? currentState.threads.find((thread) => thread.id === threadId)?.workspacePath
+          : currentState.pendingWorkspacePath
+      )
+
+      if (!threadId && mode !== 'normal') {
+        return
       }
 
-      set((state) => ({
-        activeThreadId: thread.id,
-        activeEssentialId: null,
-        pendingModelOverride: null,
-        pendingAcpBinding: null,
-        pendingWorkspacePath: null,
-        threadListMode: 'active' as const,
-        composerDrafts: moveComposerDraft(
-          state.composerDrafts,
-          getComposerDraftKey(null),
-          getComposerDraftKey(thread.id)
-        ),
-        messages: {
-          ...state.messages,
-          [thread.id]: state.messages[thread.id] ?? []
-        },
-        toolCalls: {
-          ...state.toolCalls,
-          [thread.id]: state.toolCalls[thread.id] ?? []
-        },
-        threads: upsertThread(state.threads, thread)
-      }))
-      threadId = thread.id
-
-      // Best-effort: persist model/icon to server. Failures are non-fatal —
-      // the thread is already stored locally with the correct values.
-      if (pendingModel) {
-        window.api.yachiyo
-          .setThreadModelOverride({ threadId: thread.id, modelOverride: pendingModel })
-          .catch(() => {})
-      }
-      if (essential?.icon && essential.iconType === 'emoji') {
-        window.api.yachiyo
-          .setThreadIcon({ threadId: thread.id, icon: essential.icon })
-          .catch(() => {})
-      }
-
-      // ACP binding must be persisted server-side before sendChat, because the
-      // run router reads it from storage to decide whether to use the ACP path.
-      if (pendingAcp) {
-        const updatedThread = await window.api.yachiyo.setThreadRuntimeBinding({
-          threadId: thread.id,
-          runtimeBinding: pendingAcp
+      if (!threadId) {
+        const essentialId = currentState.activeEssentialId
+        const essential = essentialId
+          ? currentState.config?.essentials?.find((entry) => entry.id === essentialId)
+          : undefined
+        const pendingModel = currentState.pendingModelOverride
+        const pendingAcp = currentState.pendingAcpBinding
+        const thread = await window.api.yachiyo.createThread({
+          ...(workspacePath ? { workspacePath } : {}),
+          ...(essentialId ? { createdFromEssentialId: essentialId } : {}),
+          ...(essential?.privacyMode ? { privacyMode: true } : {})
         })
-        set((s) => ({ threads: upsertThread(s.threads, updatedThread) }))
-      }
-    }
 
-    const editingMessage = currentState.editingMessage
-    const isEditMode =
-      mode === 'normal' && editingMessage !== null && editingMessage.threadId === threadId
-
-    try {
-      const accepted = isEditMode
-        ? await window.api.yachiyo.editMessage({
-            threadId,
-            messageId: editingMessage.messageId,
-            content: trimmed,
-            enabledTools,
-            enabledSkillNames: draft.enabledSkillNames !== null ? enabledSkillNames : undefined,
-            ...(images.length > 0 ? { images } : {}),
-            ...(attachments.length > 0 ? { attachments } : {})
-          })
-        : await window.api.yachiyo.sendChat({
-            content: trimmed,
-            enabledTools,
-            enabledSkillNames:
-              mode === 'follow-up' || draft.enabledSkillNames !== null
-                ? enabledSkillNames
-                : undefined,
-            ...(images.length > 0 ? { images } : {}),
-            ...(attachments.length > 0 ? { attachments } : {}),
-            ...(mode !== 'normal' ? { mode } : {}),
-            threadId
-          })
-
-      const threadActiveRunId = getThreadActiveRunId(currentState, threadId)
-      const acceptedKind =
-        accepted.kind ??
-        (mode === 'follow-up'
-          ? 'active-run-follow-up'
-          : threadActiveRunId
-            ? 'active-run-steer'
-            : 'run-started')
-      const acceptedUserMessage = 'userMessage' in accepted ? accepted.userMessage : null
-      const acceptedReplacedMessageId =
-        'replacedMessageId' in accepted ? accepted.replacedMessageId : undefined
-
-      set((state) => {
-        const nextActiveRequestMessageIdsByThread =
-          acceptedKind !== 'active-run-follow-up' && acceptedKind !== 'active-run-steer-pending'
-            ? setThreadStringValue(
-                state.activeRequestMessageIdsByThread,
-                accepted.thread.id,
-                acceptedUserMessage?.id ?? null
-              )
-            : state.activeRequestMessageIdsByThread
-
-        const nextActiveRunIdsByThread = { ...state.activeRunIdsByThread }
-        if (acceptedKind !== 'active-run-follow-up' && accepted.runId) {
-          nextActiveRunIdsByThread[accepted.thread.id] = accepted.runId
+        // Commit local state first so the thread is visible even if setup calls fail.
+        if (pendingModel) thread.modelOverride = pendingModel
+        if (pendingAcp) thread.runtimeBinding = pendingAcp
+        if (essential?.privacyMode) {
+          thread.privacyMode = true
+        }
+        if (essential?.icon && essential.iconType === 'emoji') {
+          thread.icon = essential.icon
         }
 
-        const nextState = {
-          ...state,
-          activeRequestMessageIdsByThread: nextActiveRequestMessageIdsByThread,
-          activeRunIdsByThread: nextActiveRunIdsByThread,
-          activeThreadId: accepted.thread.id,
-          archivedThreads: removeThread(state.archivedThreads, accepted.thread.id),
-          composerDrafts: removeComposerDraft(state.composerDrafts, accepted.thread.id),
-          editingMessage: null,
-          lastError: null,
+        set((state) => ({
+          activeThreadId: thread.id,
+          activeEssentialId: null,
+          pendingModelOverride: null,
+          pendingAcpBinding: null,
+          pendingWorkspacePath: null,
+          threadListMode: 'active' as const,
+          composerDrafts: moveComposerDraft(
+            state.composerDrafts,
+            getComposerDraftKey(null),
+            getComposerDraftKey(thread.id)
+          ),
           messages: {
             ...state.messages,
-            [accepted.thread.id]:
-              acceptedKind === 'active-run-steer-pending'
-                ? (state.messages[accepted.thread.id] ?? [])
-                : replaceMessage(
-                    state.messages[accepted.thread.id] ?? [],
-                    acceptedUserMessage as Message,
-                    acceptedReplacedMessageId
-                  )
+            [thread.id]: state.messages[thread.id] ?? []
           },
-          pendingSteerMessages:
-            acceptedKind === 'active-run-steer-pending'
-              ? {
-                  ...state.pendingSteerMessages,
-                  [accepted.thread.id]: {
-                    content: trimmed,
-                    createdAt: new Date().toISOString(),
-                    ...(images.length > 0 ? { images } : {})
-                  }
-                }
-              : acceptedKind === 'active-run-steer'
-                ? removePendingSteerMessage(state.pendingSteerMessages, accepted.thread.id)
-                : state.pendingSteerMessages,
-          runPhasesByThread:
-            acceptedKind === 'active-run-follow-up' || acceptedKind === 'active-run-steer-pending'
-              ? state.runPhasesByThread
-              : setThreadRunPhaseValue(state.runPhasesByThread, accepted.thread.id, 'preparing'),
-          runStatusesByThread:
-            acceptedKind === 'active-run-follow-up' || acceptedKind === 'active-run-steer-pending'
-              ? state.runStatusesByThread
-              : setThreadRunStatusValue(state.runStatusesByThread, accepted.thread.id, 'running'),
-          threadListMode: 'active' as const,
-          threads: upsertThread(state.threads, accepted.thread)
+          toolCalls: {
+            ...state.toolCalls,
+            [thread.id]: state.toolCalls[thread.id] ?? []
+          },
+          threads: upsertThread(state.threads, thread)
+        }))
+        threadId = thread.id
+
+        // Best-effort: persist model/icon to server. Failures are non-fatal —
+        // the thread is already stored locally with the correct values.
+        if (pendingModel) {
+          window.api.yachiyo
+            .setThreadModelOverride({ threadId: thread.id, modelOverride: pendingModel })
+            .catch(() => {})
+        }
+        if (essential?.icon && essential.iconType === 'emoji') {
+          window.api.yachiyo
+            .setThreadIcon({ threadId: thread.id, icon: essential.icon })
+            .catch(() => {})
         }
 
-        return {
-          ...nextState,
-          ...deriveActiveThreadRunState(nextState)
+        // ACP binding must be persisted server-side before sendChat, because the
+        // run router reads it from storage to decide whether to use the ACP path.
+        if (pendingAcp) {
+          const updatedThread = await window.api.yachiyo.setThreadRuntimeBinding({
+            threadId: thread.id,
+            runtimeBinding: pendingAcp
+          })
+          set((s) => ({ threads: upsertThread(s.threads, updatedThread) }))
         }
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to send the message.'
-      set({
-        activeThreadId: threadId,
-        lastError: message,
-        runStatus: 'failed'
-      })
+      }
+
+      const editingMessage = currentState.editingMessage
+      const isEditMode =
+        mode === 'normal' && editingMessage !== null && editingMessage.threadId === threadId
+
+      try {
+        const accepted = isEditMode
+          ? await window.api.yachiyo.editMessage({
+              threadId,
+              messageId: editingMessage.messageId,
+              content: trimmed,
+              enabledTools,
+              enabledSkillNames: draft.enabledSkillNames !== null ? enabledSkillNames : undefined,
+              ...(images.length > 0 ? { images } : {}),
+              ...(attachments.length > 0 ? { attachments } : {})
+            })
+          : await window.api.yachiyo.sendChat({
+              content: trimmed,
+              enabledTools,
+              enabledSkillNames:
+                mode === 'follow-up' || draft.enabledSkillNames !== null
+                  ? enabledSkillNames
+                  : undefined,
+              ...(images.length > 0 ? { images } : {}),
+              ...(attachments.length > 0 ? { attachments } : {}),
+              ...(mode !== 'normal' ? { mode } : {}),
+              threadId
+            })
+
+        const threadActiveRunId = getThreadActiveRunId(currentState, threadId)
+        const acceptedKind =
+          accepted.kind ??
+          (mode === 'follow-up'
+            ? 'active-run-follow-up'
+            : threadActiveRunId
+              ? 'active-run-steer'
+              : 'run-started')
+        const acceptedUserMessage = 'userMessage' in accepted ? accepted.userMessage : null
+        const acceptedReplacedMessageId =
+          'replacedMessageId' in accepted ? accepted.replacedMessageId : undefined
+
+        set((state) => {
+          const nextActiveRequestMessageIdsByThread =
+            acceptedKind !== 'active-run-follow-up' && acceptedKind !== 'active-run-steer-pending'
+              ? setThreadStringValue(
+                  state.activeRequestMessageIdsByThread,
+                  accepted.thread.id,
+                  acceptedUserMessage?.id ?? null
+                )
+              : state.activeRequestMessageIdsByThread
+
+          const nextActiveRunIdsByThread = { ...state.activeRunIdsByThread }
+          if (acceptedKind !== 'active-run-follow-up' && accepted.runId) {
+            nextActiveRunIdsByThread[accepted.thread.id] = accepted.runId
+          }
+
+          const nextState = {
+            ...state,
+            activeRequestMessageIdsByThread: nextActiveRequestMessageIdsByThread,
+            activeRunIdsByThread: nextActiveRunIdsByThread,
+            activeThreadId: accepted.thread.id,
+            archivedThreads: removeThread(state.archivedThreads, accepted.thread.id),
+            composerDrafts: removeComposerDraft(state.composerDrafts, accepted.thread.id),
+            editingMessage: null,
+            lastError: null,
+            messages: {
+              ...state.messages,
+              [accepted.thread.id]:
+                acceptedKind === 'active-run-steer-pending'
+                  ? (state.messages[accepted.thread.id] ?? [])
+                  : replaceMessage(
+                      state.messages[accepted.thread.id] ?? [],
+                      acceptedUserMessage as Message,
+                      acceptedReplacedMessageId
+                    )
+            },
+            pendingSteerMessages:
+              acceptedKind === 'active-run-steer-pending'
+                ? {
+                    ...state.pendingSteerMessages,
+                    [accepted.thread.id]: {
+                      content: trimmed,
+                      createdAt: new Date().toISOString(),
+                      ...(images.length > 0 ? { images } : {})
+                    }
+                  }
+                : acceptedKind === 'active-run-steer'
+                  ? removePendingSteerMessage(state.pendingSteerMessages, accepted.thread.id)
+                  : state.pendingSteerMessages,
+            runPhasesByThread:
+              acceptedKind === 'active-run-follow-up' || acceptedKind === 'active-run-steer-pending'
+                ? state.runPhasesByThread
+                : setThreadRunPhaseValue(state.runPhasesByThread, accepted.thread.id, 'preparing'),
+            runStatusesByThread:
+              acceptedKind === 'active-run-follow-up' || acceptedKind === 'active-run-steer-pending'
+                ? state.runStatusesByThread
+                : setThreadRunStatusValue(state.runStatusesByThread, accepted.thread.id, 'running'),
+            threadListMode: 'active' as const,
+            threads: upsertThread(state.threads, accepted.thread)
+          }
+
+          return {
+            ...nextState,
+            ...deriveActiveThreadRunState(nextState)
+          }
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unable to send the message.'
+        // Clear the dedup fingerprint so the user can immediately retry the
+        // same prompt after a transient failure.
+        lastSendFingerprint = null
+        lastSendAt = 0
+        set({
+          activeThreadId: threadId,
+          lastError: message,
+          runStatus: 'failed'
+        })
+      }
+    } finally {
+      sendInFlight = false
     }
   },
 
@@ -2562,7 +2605,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     console.log(
       `[setActiveThread] id=${id} hasMessages=${Boolean(messages[id]?.length)} msgCount=${messages[id]?.length ?? 0}`
     )
-    if (!messages[id]?.length) {
+    if (
+      !messages[id]?.length &&
+      typeof window !== 'undefined' &&
+      window.api?.yachiyo?.loadThreadData
+    ) {
       console.log(`[setActiveThread] loading thread data for ${id}`)
       void window.api.yachiyo.loadThreadData({ threadId: id }).then((data) => {
         console.log(

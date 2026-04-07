@@ -354,6 +354,80 @@ test('runBashTool maps timeout failures into structured metadata', async () => {
   })
 })
 
+test('runBashTool lifts a timed-out command into a background task when adoption hook is provided', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const adopted: Array<{ taskId: string; command: string; initialOutput: string }> = []
+    const fakeChild = {} as unknown as import('node:child_process').ChildProcess
+
+    const result = await runBashTool(
+      { command: 'sleep 9999', timeout: 1 },
+      {
+        workspacePath,
+        onBackgroundBashAdopted: async (task) => {
+          adopted.push({
+            taskId: task.taskId,
+            command: task.command,
+            initialOutput: task.initialOutput
+          })
+        }
+      },
+      {
+        runCommand: async ({ onStdout, onTimeoutLift }) => {
+          onStdout?.('partial line\n')
+          // Simulate the timeout firing — runner asks the caller to adopt the child.
+          const adoptedOk = await onTimeoutLift?.(fakeChild)
+          assert.equal(adoptedOk, true)
+          return {
+            exitCode: 0,
+            stdout: 'partial line\n',
+            stderr: '',
+            lifted: true
+          }
+        }
+      }
+    )
+
+    assert.equal(adopted.length, 1)
+    assert.equal(adopted[0].command, 'sleep 9999')
+    assert.equal(adopted[0].initialOutput, 'partial line\n')
+    assert.equal(result.details.background, true)
+    assert.equal(result.details.liftedAfterTimeout, true)
+    assert.equal(result.details.taskId, adopted[0].taskId)
+    assert.ok(result.details.logPath?.includes('.yachiyo/tool-output'))
+    const handle = JSON.parse(flattenToolContent(result.content)) as {
+      taskId: string
+      logPath: string
+    }
+    assert.equal(handle.taskId, adopted[0].taskId)
+    assert.equal(handle.logPath, result.details.logPath)
+  })
+})
+
+test('runBashTool falls back to a normal timeout error when no adoption hook is wired', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const result = await runBashTool(
+      { command: 'sleep 5', timeout: 1 },
+      { workspacePath },
+      {
+        runCommand: async ({ onTimeoutLift }) => {
+          // No hook — runner should kill as before.
+          assert.equal(onTimeoutLift, undefined)
+          return {
+            exitCode: 124,
+            stdout: '',
+            stderr: '',
+            timedOut: true
+          }
+        }
+      }
+    )
+
+    assert.equal(result.details.timedOut, true)
+    assert.equal(result.details.background, undefined)
+    assert.equal(result.details.liftedAfterTimeout, undefined)
+  })
+})
+
 test('runBashTool auto-saves to .yachiyo/tool-output when output exceeds inline limit', async () => {
   await withWorkspace(async (workspacePath) => {
     const largeOutput = 'x'.repeat(25_000)

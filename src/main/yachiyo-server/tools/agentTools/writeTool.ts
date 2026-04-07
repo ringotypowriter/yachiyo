@@ -22,7 +22,7 @@ export function createTool(context: AgentToolContext): Tool<WriteToolInput, Writ
     description: `Write a text file in the current thread workspace or at an absolute path. Relative paths resolve from ${context.workspacePath}. Parent directories are created automatically and existing files are overwritten.`,
     inputSchema: writeToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
-    execute: (input) => runWriteTool(input, context)
+    execute: (input, options) => runWriteTool(input, context, options)
   })
 }
 
@@ -44,8 +44,10 @@ function createWriteResult(
 
 export async function runWriteTool(
   input: WriteToolInput,
-  context: AgentToolContext
+  context: AgentToolContext,
+  options: { abortSignal?: AbortSignal } = {}
 ): Promise<WriteToolOutput> {
+  const abortSignal = options.abortSignal
   const resolvedPath = await resolveUnicodeSpacePath(
     resolveToolPath(context.workspacePath, input.path)
   )
@@ -53,7 +55,7 @@ export async function runWriteTool(
   try {
     const exists = await hasAccess(resolvedPath)
     await mkdir(dirname(resolvedPath), { recursive: true })
-    await writeFile(resolvedPath, input.content, 'utf8')
+    await writeFile(resolvedPath, input.content, { encoding: 'utf8', signal: abortSignal })
 
     return createWriteResult(resolvedPath, {
       path: resolvedPath,

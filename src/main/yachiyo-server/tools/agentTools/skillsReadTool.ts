@@ -73,7 +73,7 @@ export function createTool(
       'Read discovered Skills by name. Returns the skill name, directory path, SKILL.md path, and any concise description by default. Set includeContent to true only when you need the full SKILL.md text.',
     inputSchema: skillsReadToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
-    execute: (input) => runSkillsReadTool(input, dependencies)
+    execute: (input, options) => runSkillsReadTool(input, dependencies, options)
   })
 }
 
@@ -81,8 +81,10 @@ export async function runSkillsReadTool(
   input: SkillsReadToolInput,
   dependencies: {
     availableSkills: SkillCatalogEntry[]
-  }
+  },
+  options: { abortSignal?: AbortSignal } = {}
 ): Promise<SkillsReadToolOutput> {
+  const abortSignal = options.abortSignal
   const availableSkillByName = new Map(
     dependencies.availableSkills.map((skill) => [skill.name, skill] as const)
   )
@@ -98,7 +100,10 @@ export async function runSkillsReadTool(
 
     let content: string | undefined
     if (input.includeContent) {
-      const rawContent = await readFile(skill.skillFilePath, 'utf8')
+      const rawContent = await readFile(skill.skillFilePath, {
+        encoding: 'utf8',
+        signal: abortSignal
+      })
       content = rewriteRelativeMarkdownLinks(rawContent, skill.directoryPath)
     }
 

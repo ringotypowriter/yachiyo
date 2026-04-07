@@ -1419,6 +1419,77 @@ test('createAiSdkModelRuntime can abort the stream after a tool input error', as
     { message: 'Invalid input for tool send_group_message.' }
   )
 })
+test('streamReply forwards tool-output-error after tool-input-error to onToolCallFinish', async () => {
+  const finishEvents: Array<{
+    success: boolean
+    error?: Error
+    toolCall: { toolCallId: string; toolName: string }
+  }> = []
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => ({ modelId: 'gpt-5', provider: 'openai.responses' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: (() => ({
+      fullStream: (async function* () {
+        yield {
+          type: 'tool-input-error',
+          toolCallId: 'tc-1',
+          toolName: 'send_group_message',
+          input: { nope: true },
+          errorText: 'Invalid input for tool send_group_message.'
+        }
+        yield {
+          type: 'tool-output-error',
+          toolCallId: 'tc-1',
+          errorText: 'Invalid input for tool send_group_message.'
+        }
+        yield { type: 'text-delta', id: 'text-2', text: 'Recovered text' }
+      })()
+    })) as never
+  })
+
+  const chunks: string[] = []
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Say hi.' }],
+    settings: {
+      providerName: 'work',
+      provider: 'openai-responses',
+      model: 'gpt-5',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal,
+    onToolCallFinish: ((event: {
+      success: boolean
+      error?: Error
+      toolCall: { toolCallId: string; toolName: string }
+    }) => {
+      finishEvents.push({
+        success: event.success,
+        error: event.error,
+        toolCall: {
+          toolCallId: event.toolCall.toolCallId,
+          toolName: event.toolCall.toolName
+        }
+      })
+    }) as never
+  } as never)) {
+    chunks.push(chunk)
+  }
+
+  assert.equal(finishEvents.length, 1)
+  assert.equal(finishEvents[0]?.success, false)
+  assert.equal(finishEvents[0]?.error?.message, 'Invalid input for tool send_group_message.')
+  assert.equal(finishEvents[0]?.toolCall.toolCallId, 'tc-1')
+  assert.equal(finishEvents[0]?.toolCall.toolName, 'send_group_message')
+  assert.deepEqual(chunks, ['Recovered text'])
+})
+
 test('createAiSdkModelRuntime uses Google AI provider for gemini', async () => {
   let googleOptions: { apiKey?: string; baseURL?: string } | undefined
   let selectedModel: { provider: string; modelId: string } | null = null

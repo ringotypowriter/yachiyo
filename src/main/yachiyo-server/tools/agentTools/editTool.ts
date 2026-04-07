@@ -22,7 +22,7 @@ export function createTool(context: AgentToolContext): Tool<EditToolInput, EditT
     description: `Edit an existing text file with a targeted oldText -> newText replacement. Relative paths resolve from ${context.workspacePath}. The edit fails when oldText is missing or ambiguous.`,
     inputSchema: editToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
-    execute: (input) => runEditTool(input, context)
+    execute: (input, options) => runEditTool(input, context, options)
   })
 }
 
@@ -94,14 +94,16 @@ function createEditResult(
 
 export async function runEditTool(
   input: EditToolInput,
-  context: AgentToolContext
+  context: AgentToolContext,
+  options: { abortSignal?: AbortSignal } = {}
 ): Promise<EditToolOutput> {
+  const abortSignal = options.abortSignal
   const resolvedPath = await resolveUnicodeSpacePath(
     resolveToolPath(context.workspacePath, input.path)
   )
 
   try {
-    const original = await readFile(resolvedPath, 'utf8')
+    const original = await readFile(resolvedPath, { encoding: 'utf8', signal: abortSignal })
     const occurrences = countOccurrences(original, input.oldText)
 
     if (occurrences === 0) {
@@ -128,7 +130,7 @@ export async function runEditTool(
 
     const matchStart = original.indexOf(input.oldText)
     const nextContent = original.replace(input.oldText, input.newText)
-    await writeFile(resolvedPath, nextContent, 'utf8')
+    await writeFile(resolvedPath, nextContent, { encoding: 'utf8', signal: abortSignal })
 
     const diff = buildEditDiff(
       resolvedPath,

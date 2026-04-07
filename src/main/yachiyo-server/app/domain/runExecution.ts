@@ -86,7 +86,10 @@ import {
   normalizeToolResult,
   summarizeToolInput
 } from '../../tools/agentTools.ts'
-import type { BackgroundBashTaskHandle } from '../../tools/agentTools/shared.ts'
+import type {
+  BackgroundBashAdoptionHandle,
+  BackgroundBashTaskHandle
+} from '../../tools/agentTools/shared.ts'
 import { createFilteredMemoryService } from '../../services/memory/memoryService.ts'
 import {
   DEFAULT_HARNESS_NAME,
@@ -169,6 +172,9 @@ export interface RunExecutionDeps {
   onAskUserHandlerReady?: (handler: (toolCallId: string, answer: string) => void) => void
   onTerminalState?: () => void
   onBackgroundBashStarted?: (task: BackgroundBashTaskHandle & { threadId: string }) => Promise<void>
+  onBackgroundBashAdopted?: (
+    task: BackgroundBashAdoptionHandle & { threadId: string }
+  ) => Promise<void>
   onSubagentProgress?: (chunk: string) => void
   onSubagentStarted?: (agentName: string) => void
   jotdownStore?: JotdownStore
@@ -1297,6 +1303,13 @@ export async function executeServerRun(
                 await deps.onBackgroundBashStarted?.({ ...task, threadId: input.thread.id })
               }
             }
+          : {}),
+        ...(deps.onBackgroundBashAdopted
+          ? {
+              onBackgroundBashAdopted: async (task) => {
+                await deps.onBackgroundBashAdopted?.({ ...task, threadId: input.thread.id })
+              }
+            }
           : {})
       },
       {
@@ -1666,6 +1679,63 @@ export async function executeServerRun(
           toolCall
         })
       },
+      onToolCallError: (event) => {
+        if (!isTrackedToolName(event.toolCall.toolName)) {
+          return 'continue'
+        }
+
+        markProgress()
+        cancelPendingSafeSteerPointAfterTool()
+        setExecutionPhase('tool-running')
+        stepCount++
+
+        const finishedAt = deps.timestamp()
+        const errorMessage =
+          event.error instanceof Error ? event.error.message : String(event.error)
+        const existingToolCall = toolCalls.get(event.toolCall.toolCallId)
+        const toolCall: ToolCallRecord = existingToolCall
+          ? {
+              ...existingToolCall,
+              status: 'failed',
+              error: errorMessage,
+              finishedAt
+            }
+          : {
+              id: event.toolCall.toolCallId,
+              runId: input.runId,
+              threadId: input.thread.id,
+              requestMessageId: input.requestMessageId,
+              toolName: event.toolCall.toolName,
+              status: 'failed',
+              inputSummary: summarizeToolInput(event.toolCall.toolName, event.toolCall.input),
+              error: errorMessage,
+              startedAt: finishedAt,
+              stepIndex: stepCount,
+              stepBudget: maxToolSteps,
+              finishedAt
+            }
+
+        toolCalls.set(toolCall.id, toolCall)
+        if (existingToolCall) {
+          deps.storage.updateToolCall(toolCall)
+        } else {
+          deps.storage.createToolCall(toolCall)
+          appendRecoveryToolCall(recoveryResponseMessages, {
+            toolCallId: toolCall.id,
+            toolName: event.toolCall.toolName,
+            toolInput: event.toolCall.input
+          })
+        }
+        persistRecoveryCheckpoint()
+        deps.emit<ToolCallUpdatedEvent>({
+          type: 'tool.updated',
+          threadId: input.thread.id,
+          runId: input.runId,
+          toolCall
+        })
+
+        return 'continue'
+      },
       onToolCallFinish: (event) => {
         try {
           if (!isTrackedToolName(event.toolCall.toolName)) {
@@ -1765,7 +1835,12 @@ export async function executeServerRun(
     const streamIterator = stream[Symbol.asyncIterator]()
 
     while (true) {
+      throwIfAborted(input.abortController.signal)
+
       const nextChunk = await streamIterator.next()
+      // Re-check after the await — a cancel may have landed while we were
+      // suspended, and we must not emit one more delta past the abort point.
+      throwIfAborted(input.abortController.signal)
       if (nextChunk.done) {
         break
       }
@@ -1773,8 +1848,6 @@ export async function executeServerRun(
       markProgress()
       const delta = nextChunk.value
       flushSafeSteerPointAfterTool()
-
-      throwIfAborted(input.abortController.signal)
 
       if (!delta) continue
       const deduped = consumeDuplicatePrefix({

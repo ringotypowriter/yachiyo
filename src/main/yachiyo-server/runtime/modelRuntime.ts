@@ -209,7 +209,6 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                     : undefined) ?? toolCallContextById.get(part.toolCallId)
 
                 if (!toolCallContext) {
-                  toolCallContextById.delete(part.toolCallId)
                   continue
                 }
 
@@ -223,10 +222,13 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                   'Tool input validation failed'
                 )
 
-                toolCallContextById.delete(part.toolCallId)
+                // Preserve context so a subsequent tool-output-error can resolve
+                // the tool call and route it to onToolCallFinish.
+                toolCallContextById.set(part.toolCallId, toolCallContext)
 
                 if (request.onToolCallError?.({ error: toolError, toolCall }) === 'abort') {
                   streamCommitted = true
+                  toolCallContextById.delete(part.toolCallId)
                   throw toolError
                 }
                 continue

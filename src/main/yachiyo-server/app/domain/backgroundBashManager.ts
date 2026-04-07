@@ -12,6 +12,19 @@ export interface BackgroundBashTaskInput {
   threadId: string
 }
 
+export interface BackgroundBashAdoptInput extends BackgroundBashTaskInput {
+  /** Already-running child process to adopt instead of spawning a new one. */
+  child: ChildProcess
+  /** Output already collected before adoption; written to the log first. */
+  initialOutput: string
+  /**
+   * When true, `initialOutput` is already persisted at `logPath`. The manager
+   * opens the log in append mode and skips re-writing those bytes, but still
+   * replays them as live log-append events for the renderer's session view.
+   */
+  initialOutputAlreadyOnDisk?: boolean
+}
+
 export interface BackgroundBashTaskResult {
   taskId: string
   command: string
@@ -86,17 +99,41 @@ export class BackgroundBashManager {
   }
 
   async startTask(input: BackgroundBashTaskInput): Promise<void> {
-    await mkdir(dirname(input.logPath), { recursive: true })
-
-    const logStream = createWriteStream(input.logPath, { encoding: 'utf8', flags: 'w' })
-    const abortController = new AbortController()
-    const startedAt = new Date().toISOString()
-
     const child = spawn('/bin/zsh', ['-lc', input.command], {
       cwd: input.cwd,
       env: process.env,
       stdio: ['ignore', 'pipe', 'pipe']
     })
+    await this.registerChild(input, child, '', false)
+  }
+
+  async adoptTask(input: BackgroundBashAdoptInput): Promise<void> {
+    await this.registerChild(
+      input,
+      input.child,
+      input.initialOutput,
+      input.initialOutputAlreadyOnDisk === true
+    )
+  }
+
+  private async registerChild(
+    input: BackgroundBashTaskInput,
+    child: ChildProcess,
+    initialOutput: string,
+    initialOutputAlreadyOnDisk: boolean
+  ): Promise<void> {
+    await mkdir(dirname(input.logPath), { recursive: true })
+
+    // When the bytes are already on disk we append; otherwise truncate-and-write.
+    const logStream = createWriteStream(input.logPath, {
+      encoding: 'utf8',
+      flags: initialOutputAlreadyOnDisk ? 'a' : 'w'
+    })
+    if (!initialOutputAlreadyOnDisk && initialOutput.length > 0) {
+      logStream.write(initialOutput)
+    }
+    const abortController = new AbortController()
+    const startedAt = new Date().toISOString()
 
     const task: ActiveBackgroundTask = {
       taskId: input.taskId,
@@ -174,6 +211,13 @@ export class BackgroundBashManager {
     }).then((exitCode) => finalize(exitCode))
 
     this.tasks.set(input.taskId, task)
+
+    // Replay pre-adoption output as live log-append events so the renderer's
+    // session view shows the bytes that arrived before the task became visible.
+    // No-op for fresh startTask calls (initialOutput is empty there).
+    if (initialOutput.length > 0) {
+      this.bufferLogChunk(task, initialOutput)
+    }
   }
 
   private bufferLogChunk(task: ActiveBackgroundTask, chunk: string): void {

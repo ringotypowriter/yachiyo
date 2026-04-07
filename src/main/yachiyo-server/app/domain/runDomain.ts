@@ -1633,6 +1633,40 @@ export class YachiyoServerRunDomain {
                 throw error
               }
             },
+            onBackgroundBashAdopted: async (task) => {
+              // Same snapshot/emit dance as the explicit-background path; the only
+              // difference is we hand the manager an already-running child instead
+              // of letting it spawn one.
+              this.backgroundTaskRunContext.set(task.taskId, {
+                enabledTools: input.enabledTools,
+                ...(input.enabledSkillNames ? { enabledSkillNames: input.enabledSkillNames } : {}),
+                ...(input.channelHint ? { channelHint: input.channelHint } : {}),
+                ...(input.extraTools ? { extraTools: input.extraTools } : {})
+              })
+              try {
+                await this.backgroundBashManager.adoptTask({
+                  taskId: task.taskId,
+                  command: task.command,
+                  cwd: task.cwd,
+                  logPath: task.logPath,
+                  ...(task.toolCallId ? { toolCallId: task.toolCallId } : {}),
+                  threadId: task.threadId,
+                  child: task.child,
+                  initialOutput: task.initialOutput,
+                  ...(task.initialOutputAlreadyOnDisk ? { initialOutputAlreadyOnDisk: true } : {})
+                })
+                this.deps.emit<BackgroundTaskStartedEvent>({
+                  type: 'background-task.started',
+                  threadId: task.threadId,
+                  taskId: task.taskId,
+                  command: task.command,
+                  startedAt: this.deps.timestamp()
+                })
+              } catch (error) {
+                this.backgroundTaskRunContext.delete(task.taskId)
+                throw error
+              }
+            },
             onTerminalState: () => {
               this.activeRuns.delete(input.runId)
               this.activeRunByThread.delete(input.thread.id)

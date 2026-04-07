@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
 import { createWriteStream, type WriteStream } from 'node:fs'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type { BashToolCallDetails } from '../../../../shared/yachiyo/protocol.ts'
@@ -255,6 +255,7 @@ const defaultBashRunner: BashRunner = async ({
   cwd,
   onStderr,
   onStdout,
+  onTimeoutLift,
   timeoutSeconds
 }) => {
   const child = spawn('/bin/zsh', ['-lc', command], {
@@ -266,6 +267,7 @@ const defaultBashRunner: BashRunner = async ({
   let stdout = ''
   let stderr = ''
   let timedOut = false
+  let lifted = false
   let terminatedByAbort = false
   const shouldBufferStdout = onStdout === undefined
   const shouldBufferStderr = onStderr === undefined
@@ -299,22 +301,50 @@ const defaultBashRunner: BashRunner = async ({
   child.stdout?.setEncoding('utf8')
   child.stderr?.setEncoding('utf8')
 
-  child.stdout?.on('data', (chunk: string) => {
+  const onStdoutData = (chunk: string): void => {
     if (shouldBufferStdout) {
       stdout += chunk
     }
     onStdout?.(chunk)
-  })
-
-  child.stderr?.on('data', (chunk: string) => {
+  }
+  const onStderrData = (chunk: string): void => {
     if (shouldBufferStderr) {
       stderr += chunk
     }
     onStderr?.(chunk)
+  }
+  child.stdout?.on('data', onStdoutData)
+  child.stderr?.on('data', onStderrData)
+
+  let resolveLifted: (() => void) | undefined
+  const liftedPromise = new Promise<void>((res) => {
+    resolveLifted = res
   })
 
   const timeoutHandle = setTimeout(() => {
     timedOut = true
+    if (onTimeoutLift) {
+      void onTimeoutLift(child).then(
+        (adopted) => {
+          if (adopted) {
+            lifted = true
+            // Detach our listeners so the new owner has a clean handoff.
+            child.stdout?.off('data', onStdoutData)
+            child.stderr?.off('data', onStderrData)
+            if (abortSignal) {
+              abortSignal.removeEventListener('abort', onAbort)
+            }
+            resolveLifted?.()
+          } else {
+            forceKillChild()
+          }
+        },
+        () => {
+          forceKillChild()
+        }
+      )
+      return
+    }
     forceKillChild()
   }, timeoutSeconds * 1000)
 
@@ -329,7 +359,20 @@ const defaultBashRunner: BashRunner = async ({
 
         resolve(typeof code === 'number' ? code : timedOut ? 124 : 1)
       })
+      void liftedPromise.then(() => {
+        // The child is still running; resolve immediately so the runner returns.
+        resolve(0)
+      })
     })
+
+    if (lifted) {
+      return {
+        exitCode: 0,
+        stderr,
+        stdout,
+        lifted: true
+      }
+    }
 
     return {
       exitCode: timedOut && exitCode === 0 ? 124 : exitCode,
@@ -339,7 +382,9 @@ const defaultBashRunner: BashRunner = async ({
     }
   } finally {
     clearTimeout(timeoutHandle)
-    abortSignal?.removeEventListener('abort', onAbort)
+    if (!lifted) {
+      abortSignal?.removeEventListener('abort', onAbort)
+    }
   }
 }
 
@@ -418,7 +463,12 @@ export async function* streamBashTool(
   let stderr = ''
   let combinedOutput = ''
   let sawStreamChunks = false
-  let outputFilePath: string | undefined
+  // Pre-allocate background-task identity. The lift log path doubles as the
+  // foreground spill path so a command that overflows MAX_BASH_MODEL_OUTPUT_CHARS
+  // before timing out doesn't lose its early bytes when adopted.
+  const liftTaskId = options.toolCallId ?? randomUUID()
+  const liftLogPath = join(context.workspacePath, '.yachiyo', 'tool-output', `${liftTaskId}.log`)
+  let outputFilePath: string | undefined = liftLogPath
   let preSpillOutput = ''
   let spillStarted = false
   let spillStream: WriteStream | undefined
@@ -488,11 +538,14 @@ export async function* streamBashTool(
     }
   }
 
+  let liftedHandle: { taskId: string; logPath: string } | undefined
+
   void (async () => {
     try {
       await mkdir(join(context.workspacePath, '.yachiyo', 'tool-output'), { recursive: true })
 
       const runner = options.runCommand ?? defaultBashRunner
+      const adoptHook = context.onBackgroundBashAdopted
       const result = await runner({
         abortSignal: options.abortSignal,
         command,
@@ -503,8 +556,74 @@ export async function* streamBashTool(
         },
         onStderr: (chunk) => {
           appendChunk('stderr', chunk, true)
-        }
+        },
+        ...(adoptHook
+          ? {
+              onTimeoutLift: async (child) => {
+                try {
+                  // Flush and close the spill stream first so the file on disk
+                  // contains the full pre-timeout history before adoption opens it.
+                  if (spillStream) {
+                    await closeWriteStream(spillStream)
+                    spillStream = undefined
+                  }
+
+                  let initialOutput: string
+                  if (spillStarted) {
+                    try {
+                      initialOutput = await readFile(liftLogPath, 'utf8')
+                    } catch {
+                      // Fall back to the truncated tail if we somehow can't read
+                      // back the spill file — better than losing everything.
+                      initialOutput = combinedOutput
+                    }
+                  } else {
+                    initialOutput = combinedOutput
+                  }
+
+                  await adoptHook({
+                    taskId: liftTaskId,
+                    command,
+                    cwd: context.workspacePath,
+                    logPath: liftLogPath,
+                    ...(options.toolCallId ? { toolCallId: options.toolCallId } : {}),
+                    child,
+                    initialOutput,
+                    initialOutputAlreadyOnDisk: spillStarted
+                  })
+                  liftedHandle = { taskId: liftTaskId, logPath: liftLogPath }
+                  return true
+                } catch (error) {
+                  console.warn('[yachiyo][bash] failed to adopt timed-out child', {
+                    taskId: liftTaskId,
+                    error: error instanceof Error ? error.message : String(error)
+                  })
+                  return false
+                }
+              }
+            }
+          : {})
       })
+
+      if (liftedHandle) {
+        await closeWriteStream(spillStream)
+        queue.push({
+          content: [{ type: 'text', text: JSON.stringify(liftedHandle) }],
+          details: {
+            command,
+            cwd: context.workspacePath,
+            stdout: truncateForDetails(stdout).text,
+            stderr: truncateForDetails(stderr).text,
+            background: true,
+            taskId: liftedHandle.taskId,
+            logPath: liftedHandle.logPath,
+            liftedAfterTimeout: true
+          },
+          metadata: { cwd: context.workspacePath }
+        })
+        queue.close()
+        return
+      }
 
       if (!sawStreamChunks) {
         if (result.stdout) {
@@ -531,7 +650,7 @@ export async function* streamBashTool(
           stdout,
           stderr,
           ...(result.timedOut ? { timedOut: true } : {}),
-          ...(outputFilePath ? { outputFilePath } : {}),
+          ...(spillStarted && outputFilePath ? { outputFilePath } : {}),
           ...(error ? { error } : {})
         })
       )
@@ -552,7 +671,7 @@ export async function* streamBashTool(
           cwd: context.workspacePath,
           stdout,
           stderr,
-          ...(outputFilePath ? { outputFilePath } : {}),
+          ...(spillStarted && outputFilePath ? { outputFilePath } : {}),
           error: message
         })
       )

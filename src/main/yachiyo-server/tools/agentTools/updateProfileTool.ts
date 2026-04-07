@@ -81,8 +81,17 @@ export function createTool(
       output.error
         ? { type: 'error-text', value: output.error }
         : { type: 'content', value: output.content },
-    execute: async (input) => {
+    execute: async (input, options) => {
+      function throwIfAborted(): void {
+        if (options.abortSignal?.aborted) {
+          const error = new Error('Aborted')
+          error.name = 'AbortError'
+          throw error
+        }
+      }
+
       try {
+        throwIfAborted()
         // Resolve canonical section name
         const canonicalName = getCanonicalSectionName(input.section, mode)
         if (!canonicalName) {
@@ -153,11 +162,15 @@ export function createTool(
           }
         }
 
+        throwIfAborted()
+
         // Read current document and extract section body
         const doc = await readUserDocument({
           filePath: deps.userDocumentPath,
           mode
         })
+
+        throwIfAborted()
         if (!doc) {
           return {
             content: [{ type: 'text', text: 'Could not read USER.md.' }],
@@ -245,6 +258,8 @@ export function createTool(
           }
         }
 
+        throwIfAborted()
+
         // Render table and write back
         const tableContent = renderTable(resultRows, schema)
         await patchUserDocumentSection({
@@ -253,6 +268,11 @@ export function createTool(
           content: tableContent,
           mode
         })
+
+        // Intentionally do NOT re-check abort here: USER.md has already been
+        // mutated on disk, so reporting "aborted" would lie to the caller and
+        // cause duplicate retries. Any cancellation that arrives post-write
+        // must still surface the successful summary.
 
         return {
           content: [{ type: 'text', text: summary }]

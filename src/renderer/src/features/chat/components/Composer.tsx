@@ -462,7 +462,7 @@ export function Composer({
   // Enter press and the actual accept; without this, mashing Enter (or one
   // physical press registering twice) queues several duplicate steer messages.
   const lastSendAtRef = useRef<number>(0)
-  const SEND_DEBOUNCE_MS = 500
+  const SEND_DEBOUNCE_MS = 1000
   const overlayRef = useRef<HTMLDivElement>(null)
   const composerInputRef = useRef<HTMLDivElement>(null)
   const popupContainerRef = useRef<HTMLDivElement>(null)

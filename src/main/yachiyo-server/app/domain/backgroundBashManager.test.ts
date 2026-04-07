@@ -1,7 +1,8 @@
+import { spawn } from 'node:child_process'
 import { describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
-import { join } from 'node:path'
-import { mkdtemp, rm, readFile } from 'node:fs/promises'
+import { join, dirname } from 'node:path'
+import { mkdir, mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 
 import {
@@ -264,6 +265,104 @@ describe('BackgroundBashManager', () => {
 
       manager.cancelTask('snap-running')
       await manager.close()
+    } finally {
+      await rm(tempDir, { recursive: true })
+    }
+  })
+
+  it('adoptTask preserves pre-timeout output already on disk and replays it as log lines', async () => {
+    const tempDir = await createTempDir()
+    try {
+      const manager = new BackgroundBashManager()
+      const collected: string[] = []
+      manager.setLogAppendHandler((event: BackgroundBashLogAppend) => {
+        for (const line of event.lines) collected.push(line)
+      })
+      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
+        manager.setCompletionHandler(resolve)
+      })
+
+      // Simulate the foreground spill: log file already contains pre-timeout output.
+      const logPath = join(tempDir, 'tool-output', 'adopt-disk.log')
+      await mkdir(dirname(logPath), { recursive: true })
+      const preTimeout = 'pre-1\npre-2\npre-3\n'
+      await writeFile(logPath, preTimeout, 'utf8')
+
+      // Spawn a child that will print one more line and then exit.
+      const child = spawn('/bin/zsh', ['-lc', 'echo post-line'], {
+        cwd: tempDir,
+        stdio: ['ignore', 'pipe', 'pipe']
+      })
+
+      await manager.adoptTask({
+        taskId: 'adopt-disk',
+        command: 'echo post-line',
+        cwd: tempDir,
+        logPath,
+        threadId: 'thread-adopt',
+        child,
+        initialOutput: preTimeout,
+        initialOutputAlreadyOnDisk: true
+      })
+
+      await completed
+      // Allow the throttled flush to land.
+      await new Promise((r) => setTimeout(r, 200))
+
+      const log = await readFile(logPath, 'utf8')
+      // Pre-timeout bytes must still be there (append mode, not truncated).
+      assert.ok(
+        log.startsWith(preTimeout),
+        `expected log to start with pre-timeout bytes, got: ${JSON.stringify(log)}`
+      )
+      assert.ok(log.includes('post-line'))
+
+      // Renderer should have seen both pre-timeout and post-adoption lines.
+      const nonEmpty = collected.filter((l) => l.length > 0)
+      assert.deepEqual(nonEmpty, ['pre-1', 'pre-2', 'pre-3', 'post-line'])
+    } finally {
+      await rm(tempDir, { recursive: true })
+    }
+  })
+
+  it('adoptTask writes initialOutput when not yet on disk and replays it as log lines', async () => {
+    const tempDir = await createTempDir()
+    try {
+      const manager = new BackgroundBashManager()
+      const collected: string[] = []
+      manager.setLogAppendHandler((event: BackgroundBashLogAppend) => {
+        for (const line of event.lines) collected.push(line)
+      })
+      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
+        manager.setCompletionHandler(resolve)
+      })
+
+      const logPath = join(tempDir, 'tool-output', 'adopt-mem.log')
+      const child = spawn('/bin/zsh', ['-lc', 'echo tail'], {
+        cwd: tempDir,
+        stdio: ['ignore', 'pipe', 'pipe']
+      })
+
+      await manager.adoptTask({
+        taskId: 'adopt-mem',
+        command: 'echo tail',
+        cwd: tempDir,
+        logPath,
+        threadId: 'thread-adopt-mem',
+        child,
+        initialOutput: 'head-1\nhead-2\n',
+        initialOutputAlreadyOnDisk: false
+      })
+
+      await completed
+      await new Promise((r) => setTimeout(r, 200))
+
+      const log = await readFile(logPath, 'utf8')
+      assert.ok(log.startsWith('head-1\nhead-2\n'))
+      assert.ok(log.includes('tail'))
+
+      const nonEmpty = collected.filter((l) => l.length > 0)
+      assert.deepEqual(nonEmpty, ['head-1', 'head-2', 'tail'])
     } finally {
       await rm(tempDir, { recursive: true })
     }

@@ -90,7 +90,7 @@ export function createTool(context: AgentToolContext): Tool<ReadToolInput, ReadT
     description: `Read a file from the current thread workspace or an absolute path. Supports text files (with offset/limit pagination) and common image formats (png, jpg, webp, gif, bmp, tiff, avif, heic, ico). Binary formats like video, audio, and PDF are not supported. Relative paths resolve from ${context.workspacePath}. Use offset as a 0-based line continuation cursor for text files.`,
     inputSchema: readToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
-    execute: (input) => runReadTool(input, context)
+    execute: (input, options) => runReadTool(input, context, options)
   })
 }
 
@@ -174,8 +174,12 @@ function createReadErrorResult(path: string, error: string): ReadToolOutput {
   }
 }
 
-async function runImageReadTool(resolvedPath: string, mediaType: string): Promise<ReadToolOutput> {
-  const fileData = await readFile(resolvedPath)
+async function runImageReadTool(
+  resolvedPath: string,
+  mediaType: string,
+  abortSignal?: AbortSignal
+): Promise<ReadToolOutput> {
+  const fileData = await readFile(resolvedPath, { signal: abortSignal })
   const fileStat = await stat(resolvedPath)
   const base64 = fileData.toString('base64')
   const filename = resolvedPath.split('/').pop() ?? resolvedPath
@@ -200,8 +204,10 @@ async function runImageReadTool(resolvedPath: string, mediaType: string): Promis
 
 export async function runReadTool(
   input: ReadToolInput,
-  context: AgentToolContext
+  context: AgentToolContext,
+  options: { abortSignal?: AbortSignal } = {}
 ): Promise<ReadToolOutput> {
+  const abortSignal = options.abortSignal
   const pathResult = resolveSandboxedToolPath(context, input.path)
   if ('error' in pathResult) {
     return createReadErrorResult(input.path, pathResult.error)
@@ -219,7 +225,7 @@ export async function runReadTool(
   const imageMimeType = detectImageMimeType(resolvedPath)
   if (imageMimeType) {
     try {
-      return await runImageReadTool(resolvedPath, imageMimeType)
+      return await runImageReadTool(resolvedPath, imageMimeType, abortSignal)
     } catch (error) {
       return createReadErrorResult(
         resolvedPath,
@@ -229,7 +235,7 @@ export async function runReadTool(
   }
 
   try {
-    const rawContent = await readFile(resolvedPath, 'utf8')
+    const rawContent = await readFile(resolvedPath, { encoding: 'utf8', signal: abortSignal })
     const lines = rawContent.length === 0 ? [] : rawContent.split(/\r?\n/)
     const excerpt = buildReadExcerpt(lines, input)
     const details: ReadToolCallDetails = {
