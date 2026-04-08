@@ -2624,29 +2624,31 @@ test('steer before any output does not emit a retrying state', async () => {
       }
     },
     {
-      createModelRuntime: () => ({
-        async *streamReply(request: ModelStreamRequest) {
-          if (attempt === 0) {
-            attempt += 1
-            await new Promise((_, reject) => {
-              const abort = (): void => {
-                reject(request.signal.reason ?? new Error('Aborted'))
-              }
+      createModelRuntime: () => {
+        const current = attempt++
+        return {
+          async *streamReply(request: ModelStreamRequest) {
+            if (current === 0) {
+              await new Promise((_, reject) => {
+                const abort = (): void => {
+                  reject(request.signal.reason ?? new Error('Aborted'))
+                }
 
-              if (request.signal.aborted) {
-                abort()
-                return
-              }
+                if (request.signal.aborted) {
+                  abort()
+                  return
+                }
 
-              request.signal.addEventListener('abort', abort, { once: true })
-            })
-            return
+                request.signal.addEventListener('abort', abort, { once: true })
+              })
+              return
+            }
+
+            yield 'Steered'
+            yield ' reply'
           }
-
-          yield 'Steered'
-          yield ' reply'
         }
-      })
+      }
     }
   )
 })
