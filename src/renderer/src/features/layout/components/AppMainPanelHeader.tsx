@@ -14,6 +14,7 @@ export interface AppMainPanelHeaderProps {
   isPrivacyMode: boolean
   isPrivacyToggleLocked: boolean
   isReadOnly?: boolean
+  isRunning?: boolean
   isSaving?: boolean
   isSidebarToggleDisabled: boolean
   isStarred?: boolean
@@ -37,6 +38,7 @@ export function AppMainPanelHeader({
   isPrivacyMode,
   isPrivacyToggleLocked,
   isReadOnly = false,
+  isRunning,
   isSaving,
   isSidebarToggleDisabled,
   isStarred,
@@ -185,6 +187,7 @@ export function AppMainPanelHeader({
         <ThreadHeaderActions
           activeThread={activeThread}
           isRenameDisabled={false}
+          isRunning={isRunning}
           isSaving={isSaving}
           isStarred={isStarred}
           onSelectOperation={onSelectThreadOperation}

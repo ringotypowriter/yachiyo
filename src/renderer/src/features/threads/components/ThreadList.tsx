@@ -147,6 +147,7 @@ function ThreadListItem({
     includeSelectMode: true,
     isArchived: threadListMode === 'archived',
     isExternal,
+    isRunning: hasActiveRun,
     isSaving,
     isStarred
   })
@@ -437,6 +438,7 @@ function ThreadListContent({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [archiveTarget, setArchiveTarget] = useState<Thread | null>(null)
   const [bulkArchiveIds, setBulkArchiveIds] = useState<string[] | null>(null)
+  const runStatusesByThread = useAppStore((s) => s.runStatusesByThread)
 
   function exitSelectMode(): void {
     setSelectMode(false)
@@ -627,7 +629,7 @@ function ThreadListContent({
         key={thread.id}
         thread={thread}
         isActive={thread.id === activeId}
-        hasActiveRun={latestRunsByThread[thread.id]?.status === 'running'}
+        hasActiveRun={runStatusesByThread[thread.id] === 'running'}
         isSaving={savingThreadIds.has(thread.id)}
         isSelectMode={selectMode}
         isSelected={selectedIds.has(thread.id)}

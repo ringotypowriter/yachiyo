@@ -96,6 +96,8 @@ export function AppMainPanel({
   const latestRunsByThread = useAppStore((s) => s.latestRunsByThread)
   const activeArchivedThread =
     archivedThreads.find((thread) => thread.id === activeArchivedThreadId) ?? null
+  const runStatusesByThread = useAppStore((s) => s.runStatusesByThread)
+  const hasActiveRun = activeThreadId ? runStatusesByThread[activeThreadId] === 'running' : false
   const saveThread = useAppStore((s) => s.saveThread)
   const setThreadPrivacyMode = useAppStore((s) => s.setThreadPrivacyMode)
   const starThread = useAppStore((s) => s.starThread)
@@ -468,6 +470,7 @@ export function AppMainPanel({
           isPrivacyMode={false}
           isPrivacyToggleLocked={true}
           isReadOnly
+          isRunning={hasActiveRun}
           isSidebarToggleDisabled={isSidebarToggleDisabled}
           isStarred={!!activeThread?.starredAt}
           messageCount={messageCount}
@@ -512,6 +515,7 @@ export function AppMainPanel({
         isInspectionPanelOpen={isInspectionPanelOpen}
         isPrivacyMode={activeThread?.privacyMode ?? false}
         isPrivacyToggleLocked={messageCount > 0}
+        isRunning={hasActiveRun}
         isSaving={threadIsSaving}
         isSidebarToggleDisabled={isSidebarToggleDisabled}
         isStarred={!!activeThread?.starredAt}

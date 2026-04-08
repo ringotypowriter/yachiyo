@@ -825,10 +825,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       })
     } catch (error) {
-      const message =
+      const rawMessage =
         error instanceof Error ? error.message : 'Unable to compact into another thread.'
+      const message = rawMessage.replace(
+        /^Error invoking remote method 'yachiyo:compact-thread-to-another-thread': Error: /,
+        ''
+      )
       set({ lastError: message })
-      throw error
+      throw new Error(message)
     }
   },
   createBranch: async (messageId) => {

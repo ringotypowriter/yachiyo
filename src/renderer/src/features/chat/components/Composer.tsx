@@ -424,6 +424,9 @@ export function Composer({
   const activeRunId = useAppStore((s) =>
     s.activeThreadId ? (s.activeRunIdsByThread[s.activeThreadId] ?? null) : null
   )
+  const runStatus = useAppStore((s) =>
+    s.activeThreadId ? (s.runStatusesByThread[s.activeThreadId] ?? 'idle') : 'idle'
+  )
   const threadIsSaving = useAppStore((s) =>
     s.activeThreadId ? s.savingThreadIds.has(s.activeThreadId) : false
   )
@@ -665,7 +668,7 @@ export function Composer({
   )
   const allSlashCommands = useMemo<SlashCommand[]>(
     () => [
-      ...(canRunThreadOperations
+      ...(canRunThreadOperations && runStatus !== 'running'
         ? [
             {
               key: 'handoff',
@@ -702,7 +705,7 @@ export function Composer({
           ]
         : [])
     ],
-    [canRunThreadOperations, userPrompts, availableSkills]
+    [canRunThreadOperations, runStatus, userPrompts, availableSkills]
   )
   const matchingSlashCommands = useMemo<SlashCommand[]>(() => {
     if (skillQuery !== null) {
@@ -1328,6 +1331,10 @@ export function Composer({
           return
         }
 
+        if (command.key === 'handoff' && runStatus === 'running') {
+          return
+        }
+
         setComposerValue('')
         const opKey = command.key === 'archive' ? 'archive' : 'compact-to-another-thread'
         onSelectThreadOperation?.(opKey as ThreadContextOperationKey)
@@ -1356,7 +1363,14 @@ export function Composer({
         if (prompt) setComposerValue(prompt.text)
       }
     },
-    [canRunThreadOperations, composerValue, onSelectThreadOperation, userPrompts, setComposerValue]
+    [
+      canRunThreadOperations,
+      runStatus,
+      composerValue,
+      onSelectThreadOperation,
+      userPrompts,
+      setComposerValue
+    ]
   )
 
   const handleTextareaScroll = useCallback((event: React.UIEvent<HTMLTextAreaElement>) => {

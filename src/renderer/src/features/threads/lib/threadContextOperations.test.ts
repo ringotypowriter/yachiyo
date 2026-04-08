@@ -65,6 +65,19 @@ test('thread context operations do not disable operations when isSaving is false
   assert.ok(operations.every((op) => !op.disabled))
 })
 
+test('thread context operations disable handoff when a run is active', () => {
+  const operations = resolveThreadContextOperations({
+    isArchived: false,
+    isRunning: true
+  })
+
+  const handoffOperation = operations.find((op) => op.key === 'compact-to-another-thread')
+  assert.equal(handoffOperation?.disabled, true)
+
+  const otherOperations = operations.filter((op) => op.key !== 'compact-to-another-thread')
+  assert.ok(otherOperations.every((op) => !op.disabled))
+})
+
 test('archived thread operations do not include regenerate-title', () => {
   const operations = resolveThreadContextOperations({
     isArchived: true

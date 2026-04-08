@@ -21,6 +21,7 @@ export function resolveThreadContextOperations(input: {
   isArchived: boolean
   isExternal?: boolean
   isRenameDisabled?: boolean
+  isRunning?: boolean
   isSaving?: boolean
   isStarred?: boolean
 }): ThreadContextOperation[] {
@@ -80,7 +81,7 @@ export function resolveThreadContextOperations(input: {
   }
 
   operations.push({
-    disabled: input.isSaving,
+    disabled: input.isSaving || input.isRunning,
     key: 'compact-to-another-thread',
     label: 'Handoff'
   })

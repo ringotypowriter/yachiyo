@@ -11,6 +11,7 @@ import { theme } from '@renderer/theme/theme'
 export interface ThreadHeaderActionsProps {
   activeThread: Thread | null
   isRenameDisabled: boolean
+  isRunning?: boolean
   isSaving?: boolean
   isStarred?: boolean
   onSelectOperation: (operationKey: ThreadContextOperationKey) => void
@@ -23,6 +24,7 @@ function isExternalThread(thread: Thread): boolean {
 export function ThreadHeaderActions({
   activeThread,
   isRenameDisabled,
+  isRunning,
   isSaving,
   isStarred,
   onSelectOperation
@@ -37,6 +39,7 @@ export function ThreadHeaderActions({
     isArchived: false,
     isExternal: isExternalThread(activeThread),
     isRenameDisabled,
+    isRunning,
     isSaving,
     isStarred
   })
