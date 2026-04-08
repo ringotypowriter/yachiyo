@@ -1904,7 +1904,7 @@ export async function executeServerRun(
     // the recovery / fail path can handle it instead of silently "completing".
     if (buffer.length === 0 && toolCalls.size === 0) {
       const reason = lastUsage?.finishReason ?? 'unknown'
-      throw new Error(`Model returned empty response (finishReason=${reason})`)
+      throw new RetryableRunError(`Model returned empty response (finishReason=${reason})`)
     }
 
     const timestamp = deps.timestamp()
