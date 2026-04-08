@@ -633,3 +633,150 @@ test('buildConversationGroupTimelineItems groups same-group tool calls across em
     { kind: 'assistant-text-block', key: 'text-1', textBlockId: 'text-1' }
   ])
 })
+
+test('buildConversationGroupTimelineItems groups bash read commands with native read tools', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'a.ts',
+        startedAt: '2026-03-22T00:00:01.000Z'
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'completed',
+        inputSummary: 'cat b.ts',
+        startedAt: '2026-03-22T00:00:02.000Z',
+        details: { command: 'cat b.ts', cwd: '/workspace', stdout: '', stderr: '' }
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'completed',
+        inputSummary: 'head -20 c.ts',
+        startedAt: '2026-03-22T00:00:03.000Z',
+        details: { command: 'head -20 c.ts', cwd: '/workspace', stdout: '', stderr: '' }
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    {
+      kind: 'tool-call-group',
+      key: 'tool-group:tool-1',
+      group: 'read-files',
+      toolCallIds: ['tool-1', 'tool-2', 'tool-3']
+    }
+  ])
+})
+
+test('buildConversationGroupTimelineItems groups bash search commands with native grep tools', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'grep',
+        status: 'completed',
+        inputSummary: 'foo',
+        startedAt: '2026-03-22T00:00:01.000Z'
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'completed',
+        inputSummary: "rg 'bar'",
+        startedAt: '2026-03-22T00:00:02.000Z',
+        details: { command: "rg 'bar'", cwd: '/workspace', stdout: '', stderr: '' }
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'completed',
+        inputSummary: "find . -name '*.ts'",
+        startedAt: '2026-03-22T00:00:03.000Z',
+        details: { command: "find . -name '*.ts'", cwd: '/workspace', stdout: '', stderr: '' }
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    {
+      kind: 'tool-call-group',
+      key: 'tool-group:tool-1',
+      group: 'search-files',
+      toolCallIds: ['tool-1', 'tool-2', 'tool-3']
+    }
+  ])
+})
+
+test('buildConversationGroupTimelineItems keeps bash run commands separate from search tools', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'grep',
+        status: 'completed',
+        inputSummary: 'foo',
+        startedAt: '2026-03-22T00:00:01.000Z'
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'completed',
+        inputSummary: 'npm test',
+        startedAt: '2026-03-22T00:00:02.000Z',
+        details: { command: 'npm test', cwd: '/workspace', stdout: '', stderr: '' }
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'completed',
+        inputSummary: 'cargo test',
+        startedAt: '2026-03-22T00:00:03.000Z',
+        details: { command: 'cargo test', cwd: '/workspace', stdout: '', stderr: '' }
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    { kind: 'tool-call', key: 'tool-1', toolCallId: 'tool-1' },
+    { kind: 'tool-call', key: 'tool-2', toolCallId: 'tool-2' },
+    { kind: 'tool-call', key: 'tool-3', toolCallId: 'tool-3' }
+  ])
+})

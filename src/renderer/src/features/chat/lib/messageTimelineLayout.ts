@@ -1,4 +1,5 @@
 import type { MessageStatus, MessageTextBlockRecord, ToolCall } from '@renderer/app/types'
+import { resolveBashSemanticGroup } from './bashSemanticAnalyzer.ts'
 
 export type ToolCallSemanticGroup =
   | 'search-sources'
@@ -57,8 +58,8 @@ const TOOL_CALL_GROUP_LABELS: Record<
   }
 }
 
-function getToolCallSemanticGroup(toolName: string): ToolCallSemanticGroup | null {
-  switch (toolName) {
+function getToolCallSemanticGroup(toolCall: ToolCall): ToolCallSemanticGroup | null {
+  switch (toolCall.toolName) {
     case 'webSearch':
       return 'search-sources'
     case 'webRead':
@@ -72,8 +73,18 @@ function getToolCallSemanticGroup(toolName: string): ToolCallSemanticGroup | nul
       return 'edit-files'
     case 'write':
       return 'write-files'
-    case 'bash':
+    case 'bash': {
+      const details = toolCall.details
+      if (
+        details &&
+        typeof details === 'object' &&
+        'command' in details &&
+        typeof details.command === 'string'
+      ) {
+        return resolveBashSemanticGroup(details.command)
+      }
       return 'run-commands'
+    }
     default:
       return null
   }
@@ -192,7 +203,7 @@ export function buildConversationGroupTimelineItems(input: {
   return items
 }
 
-const MIN_GROUP_SIZE = 3
+const MIN_GROUP_SIZE = 2
 
 /**
  * Single-pass merge: only strictly consecutive same-group tool calls are grouped.
@@ -224,7 +235,7 @@ function mergeConsecutiveToolCalls(
     }
 
     const tc = toolCallById.get(item.toolCallId)
-    const group = tc ? getToolCallSemanticGroup(tc.toolName) : null
+    const group = tc ? getToolCallSemanticGroup(tc) : null
 
     if (!group) {
       result.push(item)
@@ -242,7 +253,7 @@ function mergeConsecutiveToolCalls(
 
       if (next.kind === 'tool-call') {
         const nextTc = toolCallById.get(next.toolCallId)
-        const nextGroup = nextTc ? getToolCallSemanticGroup(nextTc.toolName) : null
+        const nextGroup = nextTc ? getToolCallSemanticGroup(nextTc) : null
 
         if (nextGroup === group) {
           collected.push({ index: j, toolCallId: next.toolCallId })
