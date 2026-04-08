@@ -6,6 +6,7 @@ import test from 'node:test'
 
 import { YachiyoServer } from './YachiyoServer.ts'
 import { RETRY_MAX_ATTEMPTS } from '../runtime/modelRuntime.ts'
+import { RetryableRunError } from '../runtime/runtimeErrors.ts'
 import type { ModelStreamRequest } from '../runtime/types.ts'
 import type { SoulDocument } from '../runtime/soul.ts'
 import { readUserDocument, writeUserDocument } from '../runtime/user.ts'
@@ -3170,11 +3171,8 @@ test('YachiyoServer recovers a committed transport failure and resumes from pres
               }
             } as never)
 
-            const error = new Error('net::ERR_CONNECTION_CLOSED') as Error & {
-              status?: number
-            }
-            error.status = 0
-            throw error
+            const cause = Object.assign(new Error('net::ERR_CONNECTION_CLOSED'), { status: 0 })
+            throw new RetryableRunError('net::ERR_CONNECTION_CLOSED', { cause })
           }
 
           yield 'Final answer.'
@@ -3227,11 +3225,8 @@ test('YachiyoServer preserves fresh continuation text when a recovered run does 
             attempt += 1
             yield 'Checking the workspace. '
 
-            const error = new Error('net::ERR_CONNECTION_CLOSED') as Error & {
-              status?: number
-            }
-            error.status = 0
-            throw error
+            const cause = Object.assign(new Error('net::ERR_CONNECTION_CLOSED'), { status: 0 })
+            throw new RetryableRunError('net::ERR_CONNECTION_CLOSED', { cause })
           }
 
           yield 'C'
@@ -3366,11 +3361,8 @@ test('YachiyoServer preserves assistant-tool-assistant ordering across recovery'
 
             yield 'After tool. '
 
-            const error = new Error('net::ERR_CONNECTION_CLOSED') as Error & {
-              status?: number
-            }
-            error.status = 0
-            throw error
+            const cause = Object.assign(new Error('net::ERR_CONNECTION_CLOSED'), { status: 0 })
+            throw new RetryableRunError('net::ERR_CONNECTION_CLOSED', { cause })
           }
 
           yield 'Final answer.'
@@ -4444,11 +4436,8 @@ test('YachiyoServer replays a matching tool-call when recovery only saw a finish
               }
             } as never)
 
-            const error = new Error('net::ERR_CONNECTION_CLOSED') as Error & {
-              status?: number
-            }
-            error.status = 0
-            throw error
+            const cause = Object.assign(new Error('net::ERR_CONNECTION_CLOSED'), { status: 0 })
+            throw new RetryableRunError('net::ERR_CONNECTION_CLOSED', { cause })
           }
 
           yield 'Final answer.'
@@ -6036,7 +6025,7 @@ test('YachiyoServer recovers retry branches that only produced tool calls', asyn
               }
             } as never)
 
-            throw new Error('Tool-backed retry failure')
+            throw new RetryableRunError('Tool-backed retry failure')
           }
 
           yield 'Recovered answer'
@@ -6495,7 +6484,13 @@ test('YachiyoServer binds recovered tool calls and closes the harness when retry
             } as never)
 
             yield 'Partial answer'
-            throw Object.assign(new Error('temporary upstream failure'), { status: 500 })
+            // Honor the typed runtime contract: the real model runtime would
+            // classify a 5xx as a transient transport failure and wrap it in
+            // RetryableRunError at its boundary before the outer recovery
+            // path sees it. The mock does the same.
+            throw new RetryableRunError('temporary upstream failure', {
+              cause: Object.assign(new Error('temporary upstream failure'), { status: 500 })
+            })
           }
 
           yield 'Recovered answer'

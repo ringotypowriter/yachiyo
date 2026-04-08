@@ -77,7 +77,7 @@ import { homedir } from 'node:os'
 import { readChannelsConfig } from '../../runtime/channelsConfig.ts'
 import type { ModelRuntime, ModelUsage } from '../../runtime/types.ts'
 import { RETRY_MAX_ATTEMPTS } from '../../runtime/modelRuntime.ts'
-import { isRetryableModelError } from '../../runtime/retryableModelError.ts'
+import { isRetryableRunError, RetryableRunError } from '../../runtime/runtimeErrors.ts'
 import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
 import type { JotdownStore } from '../../services/jotdownStore.ts'
 import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../storage/storage.ts'
@@ -634,9 +634,9 @@ async function ensureResolvedWorkspacePath(
     await mkdir(workspacePath, { recursive: true })
     return workspacePath
   } catch (cause) {
-    const error = new Error('Workspace initialization failed', { cause })
-    ;(error as unknown as { isRetryable: boolean }).isRetryable = false
-    throw error
+    // Fatal by type — any error that is not a RetryableRunError is treated
+    // as non-retryable by runExecution's catch block. No ad-hoc tagging.
+    throw new Error('Workspace initialization failed', { cause })
   }
 }
 
@@ -1892,10 +1892,10 @@ export async function executeServerRun(
     throwIfAborted(input.abortController.signal)
 
     // The stream finished before all tool calls received their terminal
-    // result (e.g. provider truncation or a network hiccup). Treat as a
-    // retryable error so the recovery path can handle it.
+    // result (e.g. provider truncation or a network hiccup). Route through
+    // the typed retry contract so the outer recovery path picks it up.
     if (runningToolCallIds.size > 0) {
-      throw new Error('Model stream ended with incomplete tool calls')
+      throw new RetryableRunError('Model stream ended with incomplete tool calls')
     }
 
     // Detect degenerate completions: the stream finished without error but
@@ -2184,9 +2184,13 @@ export async function executeServerRun(
 
     const message = extractRetryErrorMessage(error) || 'Unknown model runtime error'
     const nextRecoveryAttempt = (recoveryCheckpoint?.recoveryAttempts ?? 0) + 1
+    // Only RetryableRunError enters the recovery path. Every other error
+    // class — storage/ORM failures, tool bugs, programming errors — is
+    // fatal by type and drops into the `failed` branch below. No shape
+    // matching, no ad-hoc properties.
     if (
       input.requestMessageId &&
-      isRetryableModelError(error) &&
+      isRetryableRunError(error) &&
       nextRecoveryAttempt < RETRY_MAX_ATTEMPTS
     ) {
       runningToolCallIds.clear()

@@ -16,7 +16,7 @@ import {
 } from './providers/gateway.ts'
 import { getGeminiMaxOutputTokens } from './providers/google.ts'
 import { createProviderOptions, extractThinkingBudget } from './providers/providerOptions.ts'
-import { isRetryableModelError } from './retryableModelError.ts'
+import { isTransientTransportError, toRunBoundaryError } from './runtimeErrors.ts'
 /** Disable AI SDK's built-in retry — we handle retries ourselves. */
 const SDK_MAX_RETRIES = 0
 
@@ -430,11 +430,19 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
 
           // Once assistant text or tool activity was forwarded, retrying would
           // duplicate user-visible output or side effects.
-          if (streamCommitted || attempt >= RETRY_MAX_ATTEMPTS || !isRetryableModelError(error)) {
+          if (
+            streamCommitted ||
+            attempt >= RETRY_MAX_ATTEMPTS ||
+            !isTransientTransportError(error)
+          ) {
             console.error(
               `${llmTag} giving up provider=${provider} model=${model} attempt=${attempt} committed=${streamCommitted} totalDurationMs=${Date.now() - startedAt}`
             )
-            throw error
+            // Wrap transient transport errors into the typed retry contract so
+            // the outer run-execution recovery path can decide via instanceof,
+            // not via a second round of shape matching. Non-transient errors
+            // (auth, validation, bugs) pass through unchanged.
+            throw toRunBoundaryError(error)
           }
 
           console.warn(

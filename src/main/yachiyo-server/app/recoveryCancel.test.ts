@@ -7,6 +7,7 @@ import test from 'node:test'
 import { YachiyoServer } from './YachiyoServer.ts'
 import { createInMemoryYachiyoStorage } from '../storage/memoryStorage.ts'
 import type { ModelStreamRequest } from '../runtime/types.ts'
+import { RetryableRunError } from '../runtime/runtimeErrors.ts'
 
 test('YachiyoServer cancels immediately while waiting to recover after partial output', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-retry-cancel-test-'))
@@ -32,9 +33,8 @@ test('YachiyoServer cancels immediately while waiting to recover after partial o
       async *streamReply(request: ModelStreamRequest): AsyncIterable<string> {
         modelRequests.push(request)
         yield 'Partial answer'
-        const error = new Error('net::ERR_CONNECTION_CLOSED') as Error & { status?: number }
-        error.status = 0
-        throw error
+        const cause = Object.assign(new Error('net::ERR_CONNECTION_CLOSED'), { status: 0 })
+        throw new RetryableRunError('net::ERR_CONNECTION_CLOSED', { cause })
       }
     })
   })
