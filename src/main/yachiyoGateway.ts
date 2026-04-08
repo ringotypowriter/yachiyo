@@ -409,6 +409,8 @@ function registerFatalRunRecovery(): void {
   fatalRunRecoveryRegistered = true
 }
 
+import { isHighFrequencyChatEvent, isAuxiliaryWindow } from './yachiyoGatewayFilter'
+
 function broadcast(event: YachiyoServerEvent): void {
   // Show OS notification when the agent asks for user input and no window is focused
   if (event.type === 'notification.requested') {
@@ -419,9 +421,13 @@ function broadcast(event: YachiyoServerEvent): void {
   }
 
   for (const window of BrowserWindow.getAllWindows()) {
-    if (!window.isDestroyed()) {
-      window.webContents.send(IPC_CHANNELS.event, event)
+    if (window.isDestroyed()) {
+      continue
     }
+    if (isHighFrequencyChatEvent(event) && isAuxiliaryWindow(window)) {
+      continue
+    }
+    window.webContents.send(IPC_CHANNELS.event, event)
   }
 }
 

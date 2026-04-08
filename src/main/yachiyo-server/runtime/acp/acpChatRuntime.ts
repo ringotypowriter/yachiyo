@@ -25,6 +25,7 @@ import type {
 } from '../../../../shared/yachiyo/protocol.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import {
+  createDeltaBatcher,
   DEFAULT_HARNESS_NAME,
   type CreateId,
   type EmitServerEvent,
@@ -117,7 +118,8 @@ export async function runAcpChatThread(
     parentMessageId: input.requestMessageId
   })
 
-  let buffer = ''
+  const bufferParts: string[] = []
+  const DELTA_FLUSH_INTERVAL_MS = 20
   const resumeSessionId =
     runtimeBinding.sessionStatus === 'active' && runtimeBinding.sessionId !== undefined
       ? runtimeBinding.sessionId
@@ -129,6 +131,21 @@ export async function runAcpChatThread(
   const activeToolCalls = new Map<string, ToolCallRecord>()
   const poolKey = buildAcpProcessPoolKey(input.thread.id, profile, workspacePath)
   let pendingWarmSession: AcpWarmSession | null = null
+
+  const textDeltaBatcher = createDeltaBatcher({
+    intervalMs: DELTA_FLUSH_INTERVAL_MS,
+    onFlush: (batch) => {
+      bufferParts.push(batch)
+      deps.emit<MessageDeltaEvent>({
+        type: 'message.delta',
+        threadId: input.thread.id,
+        runId: input.runId,
+        messageId,
+        delta: batch
+      })
+    },
+    isAborted: () => input.abortController.signal.aborted
+  })
 
   try {
     if (input.abortController.signal.aborted) {
@@ -143,16 +160,10 @@ export async function runAcpChatThread(
 
     const adapter = createAcpStreamAdapter({
       onProgress: (chunk) => {
-        buffer += chunk
-        deps.emit<MessageDeltaEvent>({
-          type: 'message.delta',
-          threadId: input.thread.id,
-          runId: input.runId,
-          messageId,
-          delta: chunk
-        })
+        textDeltaBatcher.push(chunk)
       },
       onToolCall: (acpToolCall) => {
+        textDeltaBatcher.flush()
         toolStepIndex += 1
         const acpStatus = acpToolCall.status
         const yachiyoStatus =
@@ -181,6 +192,9 @@ export async function runAcpChatThread(
       onToolCallUpdate: (update) => {
         const existing = activeToolCalls.get(update.toolCallId)
         if (!existing) return
+        // Flush any buffered assistant text before emitting the tool update so
+        // the renderer does not reorder text after the tool event boundary.
+        textDeltaBatcher.flush()
         const acpStatus = update.status ?? undefined
         const yachiyoStatus =
           acpStatus === 'completed'
@@ -244,6 +258,7 @@ export async function runAcpChatThread(
       warmToCheckin = acpResult.warmSession ?? null
     }
     pendingWarmSession = warmToCheckin
+    textDeltaBatcher.flush()
 
     if (input.abortController.signal.aborted) {
       await killDetachedProcess(
@@ -252,7 +267,7 @@ export async function runAcpChatThread(
       )
       pendingWarmSession = null
       return emitCancelledAndReturn(deps, input, {
-        buffer,
+        buffer: bufferParts.join(''),
         harnessId,
         messageId,
         modelId: profile.name,
@@ -261,7 +276,7 @@ export async function runAcpChatThread(
     }
 
     const timestamp = deps.timestamp()
-    const finalContent = acpResult.lastMessageText.trim() || buffer.trim()
+    const finalContent = acpResult.lastMessageText.trim() || bufferParts.join('').trim()
 
     const updatedBinding: ThreadRuntimeBinding = {
       kind: 'acp',
@@ -336,13 +351,14 @@ export async function runAcpChatThread(
 
     return { kind: 'completed' }
   } catch (error) {
+    textDeltaBatcher.flush()
     if (pendingWarmSession) {
       await killDetachedProcess(pendingWarmSession.proc, pendingWarmSession.procExited)
       pendingWarmSession = null
     }
     if (input.abortController.signal.aborted) {
       return emitCancelledAndReturn(deps, input, {
-        buffer,
+        buffer: bufferParts.join(''),
         harnessId,
         messageId,
         modelId: profile.name,
@@ -376,7 +392,7 @@ export async function runAcpChatThread(
       threadId: input.thread.id,
       parentMessageId: input.requestMessageId,
       role: 'assistant',
-      content: buffer,
+      content: bufferParts.join(''),
       status: 'failed',
       createdAt: timestamp
     }

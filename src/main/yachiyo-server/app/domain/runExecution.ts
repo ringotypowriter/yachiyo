@@ -92,6 +92,7 @@ import type {
 } from '../../tools/agentTools/shared.ts'
 import { createFilteredMemoryService } from '../../services/memory/memoryService.ts'
 import {
+  createDeltaBatcher,
   DEFAULT_HARNESS_NAME,
   type CreateId,
   type EmitServerEvent,
@@ -860,8 +861,12 @@ export async function executeServerRun(
   let stepCount = Math.max(0, ...[...toolCalls.values()].map((toolCall) => toolCall.stepIndex ?? 0))
   let subagentToolCallId: string | undefined
   let subagentStartedAt: string | undefined
-  let buffer = recoveryCheckpoint?.content ?? ''
-  let reasoningBuffer = recoveryCheckpoint?.reasoning ?? ''
+  const bufferParts: string[] = recoveryCheckpoint?.content ? [recoveryCheckpoint.content] : []
+  let bufferLength = bufferParts.reduce((sum, part) => sum + part.length, 0)
+  const reasoningParts: string[] = recoveryCheckpoint?.reasoning
+    ? [recoveryCheckpoint.reasoning]
+    : []
+  let reasoningLength = reasoningParts.reduce((sum, part) => sum + part.length, 0)
   let textBlocks: MessageTextBlockRecord[] = recoveryCheckpoint?.textBlocks
     ? [...recoveryCheckpoint.textBlocks]
     : []
@@ -905,7 +910,7 @@ export async function executeServerRun(
   const recoveryCreatedAt = recoveryCheckpoint?.createdAt ?? deps.timestamp()
   let recoveryResponseMessages: RecoveryResponseMessage[] =
     (buildRecoveryResponseMessages({
-      checkpoint: recoveryCheckpoint ?? { content: buffer },
+      checkpoint: recoveryCheckpoint ?? { content: bufferParts.join('') },
       toolCalls: [...toolCalls.values()]
     }) as RecoveryResponseMessage[] | undefined) ?? []
 
@@ -924,9 +929,9 @@ export async function executeServerRun(
       threadId: input.thread.id,
       requestMessageId: input.requestMessageId,
       assistantMessageId: messageId,
-      content: buffer,
+      content: bufferParts.join(''),
       ...(textBlocks.length > 0 ? { textBlocks } : {}),
-      ...(reasoningBuffer ? { reasoning: reasoningBuffer } : {}),
+      ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
       ...(recoveryResponseMessages.length > 0
         ? { responseMessages: recoveryResponseMessages }
         : {}),
@@ -949,13 +954,68 @@ export async function executeServerRun(
   // token stalls the main process run loop and triggers macOS ANR on long
   // streams. Tool-boundary call sites still use the immediate variant above.
   let lastCheckpointPersistAtMs = 0
-  const RECOVERY_CHECKPOINT_MIN_INTERVAL_MS = 750
+  const streamStartedAtMs = Date.now()
+  const RECOVERY_CHECKPOINT_BASE_INTERVAL_MS = 750
   const persistRecoveryCheckpointThrottled = (): void => {
-    if (Date.now() - lastCheckpointPersistAtMs < RECOVERY_CHECKPOINT_MIN_INTERVAL_MS) {
+    const elapsedMs = Date.now() - streamStartedAtMs
+    let minInterval = RECOVERY_CHECKPOINT_BASE_INTERVAL_MS
+    if (elapsedMs > 45000) {
+      minInterval = 3000
+    } else if (elapsedMs > 15000) {
+      minInterval = 1500
+    }
+    if (Date.now() - lastCheckpointPersistAtMs < minInterval) {
       return
     }
     persistRecoveryCheckpoint()
   }
+
+  const DELTA_FLUSH_INTERVAL_MS = 20
+
+  const textDeltaBatcher = createDeltaBatcher({
+    intervalMs: DELTA_FLUSH_INTERVAL_MS,
+    onFlush: (batch) => {
+      bufferParts.push(batch)
+      bufferLength += batch.length
+      appendRecoveryTextDelta(recoveryResponseMessages, batch)
+      const nextTextBlockState = appendMessageDeltaToTextBlocks({
+        textBlocks,
+        delta: batch,
+        timestamp: deps.timestamp(),
+        createId: deps.createId,
+        shouldStartNewBlock: shouldStartNewTextBlock
+      })
+      textBlocks = nextTextBlockState.textBlocks
+      shouldStartNewTextBlock = nextTextBlockState.shouldStartNewBlock
+      persistRecoveryCheckpointThrottled()
+      deps.emit<MessageDeltaEvent>({
+        type: 'message.delta',
+        threadId: input.thread.id,
+        runId: input.runId,
+        messageId,
+        delta: batch
+      })
+    },
+    isAborted: () => input.abortController.signal.aborted
+  })
+
+  const reasoningDeltaBatcher = createDeltaBatcher({
+    intervalMs: DELTA_FLUSH_INTERVAL_MS,
+    onFlush: (batch) => {
+      reasoningParts.push(batch)
+      reasoningLength += batch.length
+      appendRecoveryReasoningDelta(recoveryResponseMessages, batch)
+      persistRecoveryCheckpointThrottled()
+      deps.emit<MessageReasoningDeltaEvent>({
+        type: 'message.reasoning.delta',
+        threadId: input.thread.id,
+        runId: input.runId,
+        messageId,
+        delta: batch
+      })
+    },
+    isAborted: () => input.abortController.signal.aborted
+  })
 
   const clearSafeSteerTimer = (): void => {
     if (!safeSteerTimer) {
@@ -1585,10 +1645,12 @@ export async function executeServerRun(
       },
       onRetry: (attempt, maxAttempts, delayMs, error) => {
         markProgress()
+        textDeltaBatcher.flush()
+        reasoningDeltaBatcher.flush()
         const normalizedResponseMessages = buildRecoveryResponseMessages({
           checkpoint: {
-            content: buffer,
-            reasoning: reasoningBuffer,
+            content: bufferParts.join(''),
+            reasoning: reasoningParts.join(''),
             ...(recoveryResponseMessages.length > 0
               ? { responseMessages: recoveryResponseMessages }
               : {})
@@ -1600,7 +1662,8 @@ export async function executeServerRun(
           cloneRecoveryResponseMessages(recoveryCheckpoint?.responseMessages) ??
           []
         persistRecoveryCheckpoint()
-        reasoningBuffer = ''
+        reasoningParts.length = 0
+        reasoningLength = 0
         deps.emit<RunRetryingEvent>({
           type: 'run.retrying',
           threadId: input.thread.id,
@@ -1613,16 +1676,7 @@ export async function executeServerRun(
       },
       onReasoningDelta: (reasoningDelta) => {
         markProgress()
-        reasoningBuffer += reasoningDelta
-        appendRecoveryReasoningDelta(recoveryResponseMessages, reasoningDelta)
-        persistRecoveryCheckpoint()
-        deps.emit<MessageReasoningDeltaEvent>({
-          type: 'message.reasoning.delta',
-          threadId: input.thread.id,
-          runId: input.runId,
-          messageId,
-          delta: reasoningDelta
-        })
+        reasoningDeltaBatcher.push(reasoningDelta)
       },
       onToolCallStart: (event) => {
         if (!isTrackedToolName(event.toolCall.toolName)) {
@@ -1630,6 +1684,8 @@ export async function executeServerRun(
         }
 
         markProgress()
+        textDeltaBatcher.flush()
+        reasoningDeltaBatcher.flush()
         cancelPendingSafeSteerPointAfterTool()
         runningToolCallIds.add(event.toolCall.toolCallId)
         shouldStartNewTextBlock = true
@@ -1706,6 +1762,8 @@ export async function executeServerRun(
         }
 
         markProgress()
+        textDeltaBatcher.flush()
+        reasoningDeltaBatcher.flush()
         cancelPendingSafeSteerPointAfterTool()
         setExecutionPhase('tool-running')
         stepCount++
@@ -1764,6 +1822,8 @@ export async function executeServerRun(
           }
 
           markProgress()
+          textDeltaBatcher.flush()
+          reasoningDeltaBatcher.flush()
           const startedToolCall = toolCalls.get(event.toolCall.toolCallId)
           const finishedAt = deps.timestamp()
           const normalized = event.success
@@ -1882,32 +1942,16 @@ export async function executeServerRun(
         continue
       }
 
-      buffer += deduped.delta
-      appendRecoveryTextDelta(recoveryResponseMessages, deduped.delta)
-      const nextTextBlockState = appendMessageDeltaToTextBlocks({
-        textBlocks,
-        delta: deduped.delta,
-        timestamp: deps.timestamp(),
-        createId: deps.createId,
-        shouldStartNewBlock: shouldStartNewTextBlock
-      })
-      textBlocks = nextTextBlockState.textBlocks
-      shouldStartNewTextBlock = nextTextBlockState.shouldStartNewBlock
-      persistRecoveryCheckpointThrottled()
-      deps.emit<MessageDeltaEvent>({
-        type: 'message.delta',
-        threadId: input.thread.id,
-        runId: input.runId,
-        messageId,
-        delta: deduped.delta
-      })
+      textDeltaBatcher.push(deduped.delta)
     }
 
+    textDeltaBatcher.flush()
+    reasoningDeltaBatcher.flush()
     flushSafeSteerPointAfterTool()
 
     console.log(
       `[yachiyo][run] stream finished: runId=${input.runId}, finishReason=${lastUsage?.finishReason ?? 'unknown'}, ` +
-        `steps=${stepCount}, bufferLen=${buffer.length}, rawOutput=${JSON.stringify(buffer.slice(0, 300))}`
+        `steps=${stepCount}, bufferLen=${bufferLength}, rawOutput=${JSON.stringify(bufferParts.join('').slice(0, 300))}`
     )
 
     throwIfAborted(input.abortController.signal)
@@ -1923,7 +1967,7 @@ export async function executeServerRun(
     // produced no user-visible content (e.g. Gemini finishReason=length with
     // 0 output tokens after a network hiccup). Treat as a retryable error so
     // the recovery / fail path can handle it instead of silently "completing".
-    if (buffer.length === 0 && toolCalls.size === 0) {
+    if (bufferLength === 0 && toolCalls.size === 0) {
       const reason = lastUsage?.finishReason ?? 'unknown'
       throw new RetryableRunError(`Model returned empty response (finishReason=${reason})`)
     }
@@ -1939,9 +1983,9 @@ export async function executeServerRun(
       threadId: input.thread.id,
       parentMessageId: input.requestMessageId,
       role: 'assistant',
-      content: buffer,
+      content: bufferParts.join(''),
       ...(textBlocks.length > 0 ? { textBlocks } : {}),
-      ...(reasoningBuffer ? { reasoning: reasoningBuffer } : {}),
+      ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
       ...(responseMessages ? { responseMessages } : {}),
       status: 'completed',
       createdAt: timestamp,
@@ -2020,6 +2064,12 @@ export async function executeServerRun(
       const timestamp = deps.timestamp()
 
       if (isRestartRunReason(restartReason)) {
+        // Drain any buffered deltas before deciding whether to persist a partial
+        // assistant message. Otherwise buffered text/reasoning is dropped or the
+        // partial message is skipped entirely.
+        textDeltaBatcher.flush()
+        reasoningDeltaBatcher.flush()
+
         // Mark any in-flight tool calls as failed before persisting, so the
         // buffered tool-call parts can be paired with synthetic tool-results.
         // Otherwise the next request replays an unbalanced tool_use and the
@@ -2039,7 +2089,7 @@ export async function executeServerRun(
             : recoveryResponseMessages
         if (
           input.requestMessageId &&
-          (buffer.length > 0 || reasoningBuffer.length > 0 || toolCalls.size > 0)
+          (bufferLength > 0 || reasoningLength > 0 || toolCalls.size > 0)
         ) {
           const currentThread = deps.readThread(input.thread.id)
           const partialAssistantMessage: MessageRecord = {
@@ -2047,9 +2097,9 @@ export async function executeServerRun(
             threadId: input.thread.id,
             parentMessageId: input.requestMessageId,
             role: 'assistant',
-            content: buffer,
+            content: bufferParts.join(''),
             ...(textBlocks.length > 0 ? { textBlocks } : {}),
-            ...(reasoningBuffer ? { reasoning: reasoningBuffer } : {}),
+            ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
             ...(balancedResponseMessages.length > 0
               ? {
                   responseMessages: balancedResponseMessages
@@ -2137,6 +2187,8 @@ export async function executeServerRun(
         }
       }
 
+      textDeltaBatcher.flush()
+      reasoningDeltaBatcher.flush()
       finishPendingToolCalls(deps, toolCalls, {
         error: 'Run cancelled before the tool call finished.',
         finishedAt: timestamp,
@@ -2151,7 +2203,7 @@ export async function executeServerRun(
           threadId: input.thread.id,
           parentMessageId: input.requestMessageId,
           role: 'assistant',
-          content: buffer,
+          content: bufferParts.join(''),
           ...(textBlocks.length > 0 ? { textBlocks } : {}),
           status: 'stopped',
           createdAt: timestamp,
@@ -2161,7 +2213,7 @@ export async function executeServerRun(
         const updatedThread: ThreadRecord = {
           ...currentThread,
           updatedAt: timestamp,
-          ...(buffer ? { preview: buffer.slice(0, 240) } : {})
+          ...(bufferLength > 0 ? { preview: bufferParts.join('').slice(0, 240) } : {})
         }
         deps.storage.saveThreadMessage({
           thread: currentThread,
@@ -2231,6 +2283,8 @@ export async function executeServerRun(
       isRetryableRunError(error) &&
       nextRecoveryAttempt < RETRY_MAX_ATTEMPTS
     ) {
+      textDeltaBatcher.flush()
+      reasoningDeltaBatcher.flush()
       runningToolCallIds.clear()
       setExecutionPhase('generating')
       finishPendingToolCalls(deps, toolCalls, {
@@ -2263,6 +2317,12 @@ export async function executeServerRun(
     }
 
     const timestamp = deps.timestamp()
+
+    // Flush any buffered deltas so the failed assistant message includes all
+    // already-received output, consistent with cancel/retry paths.
+    textDeltaBatcher.flush()
+    reasoningDeltaBatcher.flush()
+
     finishPendingToolCalls(deps, toolCalls, {
       error: message,
       finishedAt: timestamp,
@@ -2279,7 +2339,7 @@ export async function executeServerRun(
         timestamp,
         settings,
         status: 'failed',
-        content: buffer,
+        content: bufferParts.join(''),
         textBlocks
       })
       // Bind all tool calls from this run to the terminal assistant message so

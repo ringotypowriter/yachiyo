@@ -1,9 +1,14 @@
 import type { MessageImageRecord } from './protocol'
 
+interface MessageAttachmentLike {
+  filename: string
+  mediaType: string
+}
+
 interface MessagePayloadLike {
   content: string
   images?: MessageImageRecord[]
-  attachments?: { filename: string }[]
+  attachments?: MessageAttachmentLike[]
 }
 
 export function normalizeMessageImages(images?: MessageImageRecord[]): MessageImageRecord[] {
@@ -20,7 +25,9 @@ export function normalizeMessageImages(images?: MessageImageRecord[]): MessageIm
       {
         dataUrl,
         mediaType,
-        ...(filename ? { filename } : {})
+        ...(filename ? { filename } : {}),
+        ...(image.workspacePath ? { workspacePath: image.workspacePath.trim() } : {}),
+        ...(image.altText ? { altText: image.altText.trim() } : {})
       }
     ]
   })

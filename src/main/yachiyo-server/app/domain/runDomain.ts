@@ -76,6 +76,7 @@ import {
   INTERRUPTED_RUN_ERROR,
   SHUTDOWN_RUN_ERROR,
   isAbortError,
+  createDeltaBatcher,
   type CreateId,
   type EmitServerEvent,
   type Timestamp
@@ -1866,8 +1867,10 @@ export class YachiyoServerRunDomain {
     const settings = this.deps.readSettings()
     const runtime = this.deps.createModelRuntime()
     const messageId = this.deps.createId()
-    let buffer = ''
-    let reasoningBuffer = ''
+    const bufferParts: string[] = []
+    const reasoningParts: string[] = []
+    let reasoningLength = 0
+    const DELTA_FLUSH_INTERVAL_MS = 20
 
     this.deps.emit<MessageStartedEvent>({
       type: 'message.started',
@@ -1876,12 +1879,46 @@ export class YachiyoServerRunDomain {
       messageId
     })
 
+    let textDeltaBatcher!: ReturnType<typeof createDeltaBatcher>
+    let reasoningDeltaBatcher!: ReturnType<typeof createDeltaBatcher>
+
     try {
       const userDocument = this.deps.readUserDocument ? await this.deps.readUserDocument() : null
       const activeRun = this.activeRuns.get(input.runId)
       if (!activeRun) {
         return
       }
+
+      textDeltaBatcher = createDeltaBatcher({
+        intervalMs: DELTA_FLUSH_INTERVAL_MS,
+        onFlush: (batch) => {
+          bufferParts.push(batch)
+          this.deps.emit<MessageDeltaEvent>({
+            type: 'message.delta',
+            threadId: input.thread.id,
+            runId: input.runId,
+            messageId,
+            delta: batch
+          })
+        },
+        isAborted: () => activeRun.abortController.signal.aborted
+      })
+
+      reasoningDeltaBatcher = createDeltaBatcher({
+        intervalMs: DELTA_FLUSH_INTERVAL_MS,
+        onFlush: (batch) => {
+          reasoningParts.push(batch)
+          reasoningLength += batch.length
+          this.deps.emit<MessageReasoningDeltaEvent>({
+            type: 'message.reasoning.delta',
+            threadId: input.thread.id,
+            runId: input.runId,
+            messageId,
+            delta: batch
+          })
+        },
+        isAborted: () => activeRun.abortController.signal.aborted
+      })
 
       for await (const delta of runtime.streamReply({
         messages: buildCompactThreadHandoffMessages({
@@ -1892,37 +1929,26 @@ export class YachiyoServerRunDomain {
         signal: activeRun.abortController.signal,
         purpose: 'thread-handoff',
         onReasoningDelta: (reasoningDelta) => {
-          reasoningBuffer += reasoningDelta
-          this.deps.emit<MessageReasoningDeltaEvent>({
-            type: 'message.reasoning.delta',
-            threadId: input.thread.id,
-            runId: input.runId,
-            messageId,
-            delta: reasoningDelta
-          })
+          reasoningDeltaBatcher.push(reasoningDelta)
         }
       })) {
         if (!delta) {
           continue
         }
 
-        buffer += delta
-        this.deps.emit<MessageDeltaEvent>({
-          type: 'message.delta',
-          threadId: input.thread.id,
-          runId: input.runId,
-          messageId,
-          delta
-        })
+        textDeltaBatcher.push(delta)
       }
+
+      textDeltaBatcher.flush()
+      reasoningDeltaBatcher.flush()
 
       const timestamp = this.deps.timestamp()
       const assistantMessage: MessageRecord = {
         id: messageId,
         threadId: input.thread.id,
         role: 'assistant',
-        content: buffer,
-        ...(reasoningBuffer ? { reasoning: reasoningBuffer } : {}),
+        content: bufferParts.join(''),
+        ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
         status: 'completed',
         createdAt: timestamp,
         modelId: settings.model,
@@ -1990,6 +2016,11 @@ export class YachiyoServerRunDomain {
         })
       }
     } catch (error) {
+      // Drain buffered deltas so cancelled/failed handoff messages include all
+      // already-received output, consistent with the main run path.
+      textDeltaBatcher.flush()
+      reasoningDeltaBatcher.flush()
+
       const timestamp = this.deps.timestamp()
       const message = error instanceof Error ? error.message : String(error)
       const wasAborted = this.activeRuns.get(input.runId)?.abortController.signal.aborted ?? false
