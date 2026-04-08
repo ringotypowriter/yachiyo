@@ -10,9 +10,47 @@ import type { ModelStreamRequest, ModelRuntime } from '../../runtime/types.ts'
 import {
   HIDDEN_MEMORY_SEARCH_TOOL_NAME,
   createMemoryService,
+  sanitizeMemoryQueryText,
   type MemoryCandidate,
   type MemoryProvider
 } from './memoryService.ts'
+
+test('sanitizeMemoryQueryText strips embedded document blocks', () => {
+  const big = 'x'.repeat(50_000)
+  const raw = [
+    'Please review this file',
+    '<file_mentions>',
+    '- @EVIDENCE_INVENTORY.md -> /abs/EVIDENCE_INVENTORY.md',
+    '</file_mentions>',
+    '<referenced_file path="/abs/EVIDENCE_INVENTORY.md">',
+    big,
+    '</referenced_file>'
+  ].join('\n')
+
+  const cleaned = sanitizeMemoryQueryText(raw)
+  assert.equal(cleaned, 'Please review this file')
+  assert.ok(!cleaned.includes('x'.repeat(100)))
+})
+
+test('sanitizeMemoryQueryText truncates very long plain text', () => {
+  const raw = 'a'.repeat(10_000)
+  const cleaned = sanitizeMemoryQueryText(raw)
+  assert.equal(cleaned.length, 2000)
+})
+
+test('sanitizeMemoryQueryText strips attached_files and referenced_jotdown blocks', () => {
+  const raw = [
+    'Hi',
+    '<attached_files>',
+    'huge attachment body',
+    '</attached_files>',
+    '<referenced_jotdown path="JotDown">',
+    'jot contents',
+    '</referenced_jotdown>',
+    'thanks'
+  ].join('\n')
+  assert.equal(sanitizeMemoryQueryText(raw), 'Hi thanks')
+})
 
 interface AuxiliaryStubOptions {
   text: string

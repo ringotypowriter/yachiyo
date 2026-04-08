@@ -939,7 +939,21 @@ export async function executeServerRun(
       ...(options.lastError ? { lastError: options.lastError } : {})
     }
     upsertRunRecoveryCheckpoint(deps, checkpoint)
+    lastCheckpointPersistAtMs = Date.now()
     return checkpoint
+  }
+
+  // Coalesce per-delta checkpoint writes. better-sqlite3 is synchronous and
+  // JSON.stringify over the growing buffer is O(n), so persisting on every
+  // token stalls the main process run loop and triggers macOS ANR on long
+  // streams. Tool-boundary call sites still use the immediate variant above.
+  let lastCheckpointPersistAtMs = 0
+  const RECOVERY_CHECKPOINT_MIN_INTERVAL_MS = 750
+  const persistRecoveryCheckpointThrottled = (): void => {
+    if (Date.now() - lastCheckpointPersistAtMs < RECOVERY_CHECKPOINT_MIN_INTERVAL_MS) {
+      return
+    }
+    persistRecoveryCheckpoint()
   }
 
   const clearSafeSteerTimer = (): void => {
@@ -1872,7 +1886,7 @@ export async function executeServerRun(
       })
       textBlocks = nextTextBlockState.textBlocks
       shouldStartNewTextBlock = nextTextBlockState.shouldStartNewBlock
-      persistRecoveryCheckpoint()
+      persistRecoveryCheckpointThrottled()
       deps.emit<MessageDeltaEvent>({
         type: 'message.delta',
         threadId: input.thread.id,

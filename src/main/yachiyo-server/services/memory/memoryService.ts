@@ -263,6 +263,31 @@ function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/gu, ' ').trim()
 }
 
+const MEMORY_QUERY_MAX_CHARS = 2000
+
+/**
+ * Strip embedded-document blocks and truncate before sending user text to the
+ * memory recall planner / fallback search. A user message that @-mentions a
+ * large file (or pastes a long document) would otherwise balloon the auxiliary
+ * LLM payload and stall recall. Memory search only needs the user's *intent*,
+ * not the attached content.
+ */
+export function sanitizeMemoryQueryText(
+  raw: string,
+  maxChars: number = MEMORY_QUERY_MAX_CHARS
+): string {
+  if (!raw) return ''
+  // Drop balanced XML blocks that carry inlined file/attachment content.
+  const stripped = raw
+    .replace(/<file_mentions>[\s\S]*?<\/file_mentions>/gu, '')
+    .replace(/<referenced_file[^>]*>[\s\S]*?<\/referenced_file>/gu, '')
+    .replace(/<referenced_directory[^>]*>[\s\S]*?<\/referenced_directory>/gu, '')
+    .replace(/<referenced_jotdown[^>]*>[\s\S]*?<\/referenced_jotdown>/gu, '')
+    .replace(/<attached_files>[\s\S]*?<\/attached_files>/gu, '')
+  const normalized = normalizeWhitespace(stripped)
+  return normalized.length > maxChars ? normalized.slice(0, maxChars) : normalized
+}
+
 function clampMemorySearchLimit(value: number | undefined): number {
   if (typeof value !== 'number' || Number.isNaN(value)) {
     return DEFAULT_MEMORY_TOOL_LIMIT
@@ -559,10 +584,15 @@ function computeTokenOverlap(left: string, right: string): number {
   return shared / Math.max(leftTokens.size, rightTokens.size)
 }
 
+const HISTORY_EXCERPT_PER_MESSAGE_CHARS = 400
+
 function buildHistoryExcerpt(history: MessageRecord[]): string {
   return history
     .slice(-4)
-    .map((message) => `[${message.role}] ${normalizeWhitespace(message.content)}`)
+    .map((message) => {
+      const clean = sanitizeMemoryQueryText(message.content, HISTORY_EXCERPT_PER_MESSAGE_CHARS)
+      return `[${message.role}] ${clean}`
+    })
     .join('\n')
 }
 
@@ -1087,7 +1117,14 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
       }
     },
 
-    async recallForContext(input: RecallMemoryInput): Promise<RecallForContextResult> {
+    async recallForContext(rawInput: RecallMemoryInput): Promise<RecallForContextResult> {
+      // Strip embedded-document blocks and truncate BEFORE anything else so
+      // the recall planner never sees a huge @-mentioned file body that would
+      // stall the auxiliary LLM upload.
+      const input: RecallMemoryInput = {
+        ...rawInput,
+        userQuery: sanitizeMemoryQueryText(rawInput.userQuery)
+      }
       const decision = shouldRecallBeforeRun({
         history: input.history,
         now: input.now,
