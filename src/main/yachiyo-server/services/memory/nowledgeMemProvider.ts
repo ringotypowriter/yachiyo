@@ -276,9 +276,31 @@ async function runNowledgeMemCommand(
 
     let stdout = ''
     let stderr = ''
+    let settled = false
+    let killTimer: NodeJS.Timeout | undefined
+
+    const cleanup = (): void => {
+      input.signal?.removeEventListener('abort', onAbort)
+      if (killTimer) {
+        clearTimeout(killTimer)
+        killTimer = undefined
+      }
+    }
 
     const onAbort = (): void => {
+      if (settled) return
+      settled = true
       child.kill('SIGTERM')
+      // Escalate if the child ignores SIGTERM (e.g. stuck in a hung HTTP request).
+      killTimer = setTimeout(() => {
+        if (!child.killed) child.kill('SIGKILL')
+      }, 500)
+      cleanup()
+      const reason =
+        input.signal && 'reason' in input.signal && input.signal.reason
+          ? input.signal.reason
+          : new Error('nmem command aborted')
+      rejectPromise(reason instanceof Error ? reason : new Error(String(reason)))
     }
 
     input.signal?.addEventListener('abort', onAbort, { once: true })
@@ -291,11 +313,15 @@ async function runNowledgeMemCommand(
       stderr += chunk
     })
     child.once('error', (error) => {
-      input.signal?.removeEventListener('abort', onAbort)
+      if (settled) return
+      settled = true
+      cleanup()
       rejectPromise(error)
     })
     child.once('close', (exitCode) => {
-      input.signal?.removeEventListener('abort', onAbort)
+      if (settled) return
+      settled = true
+      cleanup()
       resolvePromise({
         exitCode: exitCode ?? 0,
         stdout,

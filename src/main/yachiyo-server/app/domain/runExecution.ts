@@ -1133,6 +1133,12 @@ export async function executeServerRun(
         memoryEntries = result.entries
         recallDecision = result.recallDecision
       } catch (error) {
+        // If the user aborted the run, propagate so the outer run loop tears
+        // down. Only the recall-internal timeout should be swallowed as a
+        // soft failure that lets the run continue without memory context.
+        if (input.abortController.signal.aborted) {
+          throw error
+        }
         console.warn('[yachiyo][memory] failed to build memory layer; continuing run', {
           error: error instanceof Error ? error.message : String(error),
           runId: input.runId,

@@ -239,7 +239,7 @@ async function resolveValidatedFileTags(input: {
         includeIgnored,
         ...(input.threadId ? { threadId: input.threadId } : {}),
         ...(!input.threadId && input.workspacePath ? { workspacePath: input.workspacePath } : {}),
-        limit: 8
+        limit: 1
       })
 
       if (
@@ -799,34 +799,39 @@ export function Composer({
     }
 
     let cancelled = false
-    void window.api.yachiyo
-      .searchWorkspaceFiles({
-        query: fileMentionQuery,
-        includeIgnored: fileMentionIncludeIgnored,
-        ...(activeThreadId ? { threadId: activeThreadId } : {}),
-        ...(!activeThreadId && currentWorkspacePath ? { workspacePath: currentWorkspacePath } : {})
-      })
-      .then((matches) => {
-        if (!cancelled) {
-          setFileMentionMatchesState({
-            status: 'ready',
-            key: fileMentionRequestKey,
-            matches
-          })
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setFileMentionMatchesState({
-            status: 'error',
-            key: fileMentionRequestKey,
-            matches: []
-          })
-        }
-      })
+    const timeoutId = window.setTimeout(() => {
+      void window.api.yachiyo
+        .searchWorkspaceFiles({
+          query: fileMentionQuery,
+          includeIgnored: fileMentionIncludeIgnored,
+          ...(activeThreadId ? { threadId: activeThreadId } : {}),
+          ...(!activeThreadId && currentWorkspacePath
+            ? { workspacePath: currentWorkspacePath }
+            : {})
+        })
+        .then((matches) => {
+          if (!cancelled) {
+            setFileMentionMatchesState({
+              status: 'ready',
+              key: fileMentionRequestKey,
+              matches
+            })
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setFileMentionMatchesState({
+              status: 'error',
+              key: fileMentionRequestKey,
+              matches: []
+            })
+          }
+        })
+    }, 150)
 
     return () => {
       cancelled = true
+      window.clearTimeout(timeoutId)
     }
   }, [
     activeThreadId,

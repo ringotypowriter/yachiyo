@@ -128,8 +128,20 @@ function compareIgnoreRuleDepth(left: WorkspaceIgnoreRule, right: WorkspaceIgnor
   return left.basePath.split('/').length - right.basePath.split('/').length
 }
 
+const WORKSPACE_IGNORE_CACHE_TTL_MS = 5_000
+const workspaceIgnoreCache = new Map<string, { rules: WorkspaceIgnoreRule[]; timestamp: number }>()
+
+export function clearWorkspaceIgnoreCache(): void {
+  workspaceIgnoreCache.clear()
+}
+
 async function loadWorkspaceIgnoreRules(workspacePath: string): Promise<WorkspaceIgnoreRule[]> {
   const resolvedWorkspacePath = resolve(workspacePath)
+  const cached = workspaceIgnoreCache.get(resolvedWorkspacePath)
+  if (cached && Date.now() - cached.timestamp < WORKSPACE_IGNORE_CACHE_TTL_MS) {
+    return cached.rules
+  }
+
   const rules: WorkspaceIgnoreRule[] = []
 
   async function visit(currentPath: string): Promise<void> {
@@ -157,7 +169,9 @@ async function loadWorkspaceIgnoreRules(workspacePath: string): Promise<Workspac
   }
 
   await visit(resolvedWorkspacePath)
-  return rules.sort(compareIgnoreRuleDepth)
+  const sortedRules = rules.sort(compareIgnoreRuleDepth)
+  workspaceIgnoreCache.set(resolvedWorkspacePath, { rules: sortedRules, timestamp: Date.now() })
+  return sortedRules
 }
 
 function resolveScopedPathQuery(
@@ -803,6 +817,10 @@ export async function searchWorkspaceFileMentionCandidates(input: {
     if (!candidates.includes(candidatePath)) {
       candidates.push(candidatePath)
     }
+  }
+
+  if (candidates.length >= candidateLimit) {
+    return candidates.slice(0, candidateLimit)
   }
 
   const fuzzyCandidates = await searchWorkspaceFuzzyCandidates({

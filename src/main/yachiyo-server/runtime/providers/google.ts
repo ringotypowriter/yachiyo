@@ -42,7 +42,20 @@ export function createGoogleLanguageModel(
   return provider(settings.model)
 }
 
-export function createGoogleProviderOptions(settings: ProviderSettings): RuntimeProviderOptions {
+export function createGoogleProviderOptions(
+  settings: ProviderSettings,
+  mode: 'default' | 'auxiliary' = 'default'
+): RuntimeProviderOptions {
+  if (mode === 'auxiliary' && supportsGeminiThinking(settings.model)) {
+    return {
+      google: {
+        thinkingConfig: {
+          thinkingBudget: 0,
+          includeThoughts: false
+        }
+      }
+    }
+  }
   return settings.thinkingEnabled !== false && supportsGeminiThinking(settings.model)
     ? {
         google: {

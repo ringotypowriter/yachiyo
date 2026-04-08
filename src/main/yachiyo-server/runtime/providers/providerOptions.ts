@@ -74,15 +74,15 @@ export function createProviderOptions(
   }
 
   if (settings.provider === 'gemini') {
-    return createGoogleProviderOptions(settings)
+    return createGoogleProviderOptions(settings, mode)
   }
 
   if (settings.provider === 'vertex') {
-    return createVertexProviderOptions(settings)
+    return createVertexProviderOptions(settings, mode)
   }
 
   if (settings.provider === 'vercel-gateway') {
-    return createGatewayProviderOptions(settings)
+    return createGatewayProviderOptions(settings, mode)
   }
 
   return createAnthropicProviderOptions(settings, mode)

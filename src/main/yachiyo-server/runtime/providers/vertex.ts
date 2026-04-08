@@ -37,7 +37,20 @@ export function createVertexLanguageModel(
   return provider(settings.model)
 }
 
-export function createVertexProviderOptions(settings: ProviderSettings): RuntimeProviderOptions {
+export function createVertexProviderOptions(
+  settings: ProviderSettings,
+  mode: 'default' | 'auxiliary' = 'default'
+): RuntimeProviderOptions {
+  if (mode === 'auxiliary' && supportsGeminiThinking(settings.model)) {
+    return {
+      vertex: {
+        thinkingConfig: {
+          thinkingBudget: 0,
+          includeThoughts: false
+        }
+      }
+    }
+  }
   return settings.thinkingEnabled !== false && supportsGeminiThinking(settings.model)
     ? {
         vertex: {

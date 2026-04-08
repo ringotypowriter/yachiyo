@@ -806,7 +806,10 @@ async function deriveQueryPlan(
   const result = await auxiliaryGeneration.generateText({
     messages: buildQueryPlanningMessages(input),
     signal: input.signal,
-    purpose: 'memory-query-plan'
+    purpose: 'memory-query-plan',
+    // The plan is a tiny JSON object (skip flag or 0-3 short queries). Cap the
+    // generation so a chatty tool model can never stall first-token latency.
+    max_token: 256
   })
 
   if (result.status !== 'success') {
@@ -1189,13 +1192,21 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
           }
         >()
 
-        for (const [queryIndex, query] of queryPlan.queries.entries()) {
-          const results = await provider.searchMemories({
-            limit: DEFAULT_PROVIDER_SEARCH_LIMIT,
-            query: query.query,
-            signal: input.signal
-          })
+        // Run all planner-generated searches in parallel. Each one spawns a
+        // fresh `nmem` subprocess, so sequential awaits stack hundreds of ms
+        // onto first-token latency for every extra query the planner emits.
+        const perQueryResults = await Promise.all(
+          queryPlan.queries.map((query) =>
+            provider.searchMemories({
+              limit: DEFAULT_PROVIDER_SEARCH_LIMIT,
+              query: query.query,
+              signal: input.signal
+            })
+          )
+        )
 
+        for (const [queryIndex, query] of queryPlan.queries.entries()) {
+          const results = perQueryResults[queryIndex] ?? []
           for (const [resultIndex, result] of results.entries()) {
             const key =
               result.id || normalizeDedupKey({ title: result.title ?? '', content: result.content })
@@ -1261,6 +1272,11 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
           }
         }
       } catch (error) {
+        // Never swallow user-initiated aborts — let them propagate so the run
+        // actually stops instead of silently continuing past the stop button.
+        if (input.signal?.aborted) {
+          throw error
+        }
         console.warn('[yachiyo][memory] recall failed; continuing without memory context', {
           error: error instanceof Error ? error.message : String(error),
           threadId: input.thread.id

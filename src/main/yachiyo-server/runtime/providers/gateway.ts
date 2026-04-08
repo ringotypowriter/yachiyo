@@ -182,9 +182,20 @@ export function createGatewayLanguageModel(
   return provider(settings.model)
 }
 
-export function createGatewayProviderOptions(settings: ProviderSettings): RuntimeProviderOptions {
+export function createGatewayProviderOptions(
+  settings: ProviderSettings,
+  mode: 'default' | 'auxiliary' = 'default'
+): RuntimeProviderOptions {
   if (!isVercelGatewayGoogleModel(settings.model)) {
     return {}
+  }
+
+  if (mode === 'auxiliary') {
+    return {
+      gateway: {
+        order: ['vertex']
+      }
+    }
   }
 
   return supportsVercelGatewayThinkingLevel(settings.model) && settings.thinkingEnabled !== false

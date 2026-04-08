@@ -43,7 +43,7 @@ export type GeminiRuntimeProviderOptions = {
   google: {
     thinkingConfig?: {
       thinkingBudget: number
-      includeThoughts: true
+      includeThoughts: boolean
     }
   }
 }
@@ -52,7 +52,7 @@ export type VertexRuntimeProviderOptions = {
   vertex: {
     thinkingConfig?: {
       thinkingBudget: number
-      includeThoughts: true
+      includeThoughts: boolean
     }
   }
 }
@@ -66,7 +66,7 @@ export type VercelGatewayRuntimeProviderOptions = {
 export type VercelGatewayThinkingRuntimeProviderOptions = VercelGatewayRuntimeProviderOptions & {
   vertex: {
     thinkingConfig: {
-      includeThoughts: true
+      includeThoughts: boolean
       thinkingLevel: 'medium'
     }
   }

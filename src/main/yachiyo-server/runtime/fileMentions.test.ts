@@ -8,7 +8,8 @@ import { createSearchService } from '../services/search/searchService.ts'
 import {
   parseFileMentions,
   resolveFileMentionsForUserQuery,
-  searchWorkspaceFileMentionCandidates
+  searchWorkspaceFileMentionCandidates,
+  clearWorkspaceIgnoreCache
 } from './fileMentions.ts'
 
 async function withWorkspace(
@@ -333,6 +334,7 @@ test('searchWorkspaceFileMentionCandidates reloads .gitignore rules between sear
     assert.deepEqual(visibleBeforeIgnore, ['secret.txt'])
 
     await writeFile(join(workspacePath, '.gitignore'), 'secret.txt\n', 'utf8')
+    clearWorkspaceIgnoreCache()
 
     const hiddenAfterIgnore = await searchWorkspaceFileMentionCandidates({
       query: 'secret.txt',
@@ -342,6 +344,7 @@ test('searchWorkspaceFileMentionCandidates reloads .gitignore rules between sear
     assert.deepEqual(hiddenAfterIgnore, [])
 
     await writeFile(join(workspacePath, '.gitignore'), '', 'utf8')
+    clearWorkspaceIgnoreCache()
 
     const visibleAfterUnignore = await searchWorkspaceFileMentionCandidates({
       query: 'secret.txt',

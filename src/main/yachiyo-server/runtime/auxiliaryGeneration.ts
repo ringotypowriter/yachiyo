@@ -48,6 +48,13 @@ interface AuxiliaryGenerationServiceDeps {
   readToolModelSettings: () => ProviderSettings | null
 }
 
+function toAbortError(signal: AbortSignal): Error {
+  const reason = (signal as { reason?: unknown }).reason
+  if (reason instanceof Error) return reason
+  if (reason !== undefined) return new Error(String(reason))
+  return new Error('aborted')
+}
+
 function resolveUnavailableReason(
   settings: ProviderSettings | null
 ): AuxiliaryGenerationUnavailableReason | null {
@@ -96,7 +103,7 @@ export function createAuxiliaryGenerationService(
       let usage: ModelUsage | undefined
 
       try {
-        for await (const delta of runtime.streamReply({
+        const stream = runtime.streamReply({
           messages: request.messages,
           max_token: request.max_token,
           providerOptionsMode: 'auxiliary',
@@ -108,9 +115,31 @@ export function createAuxiliaryGenerationService(
           onFinish: (finishUsage) => {
             usage = finishUsage
           }
-        })) {
-          text += delta
-        }
+        })
+
+        // Race the streaming loop against the abort signal so we never hang
+        // past the caller's timeout if the provider transport ignores it.
+        const abortPromise = new Promise<never>((_resolve, reject) => {
+          if (signal.aborted) {
+            reject(toAbortError(signal))
+            return
+          }
+          signal.addEventListener(
+            'abort',
+            () => {
+              reject(toAbortError(signal))
+            },
+            { once: true }
+          )
+        })
+
+        const consume = (async (): Promise<void> => {
+          for await (const delta of stream) {
+            text += delta
+          }
+        })()
+
+        await Promise.race([consume, abortPromise])
 
         return {
           status: 'success',
