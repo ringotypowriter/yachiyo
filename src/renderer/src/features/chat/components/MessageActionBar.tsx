@@ -1,6 +1,6 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
-import { Check, Copy, GitBranchPlus, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { Check, Copy, GitBranchPlus, Pencil, RotateCcw, Trash2, Undo2 } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import { copyTextWithFallback } from '../lib/copyTextWithFallback'
 
@@ -12,6 +12,7 @@ interface MessageActionBarProps {
   onRetry?: () => Promise<void> | void
   onCreateBranch?: () => Promise<void> | void
   onDelete?: () => Promise<void> | void
+  onRevert?: () => Promise<void> | void
 }
 
 function ActionButton({
@@ -52,7 +53,8 @@ export function MessageActionBar({
   onEdit,
   onRetry,
   onCreateBranch,
-  onDelete
+  onDelete,
+  onRevert
 }: MessageActionBarProps): React.JSX.Element {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const canCopy = content.trim().length > 0
@@ -118,6 +120,13 @@ export function MessageActionBar({
           icon={<GitBranchPlus size={12} strokeWidth={1.7} />}
           label="Branch"
           onClick={onCreateBranch}
+        />
+      ) : null}
+      {onRevert ? (
+        <ActionButton
+          icon={<Undo2 size={12} strokeWidth={1.7} />}
+          label="Revert to composer"
+          onClick={onRevert}
         />
       ) : null}
       {onDelete ? (

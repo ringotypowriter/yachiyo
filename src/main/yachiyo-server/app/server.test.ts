@@ -3990,7 +3990,7 @@ test('YachiyoServer cancels an active run without persisting partial assistant o
   })
 })
 
-test('YachiyoServer replaces the queued follow-up for an active run and starts the replacement next', async () => {
+test('YachiyoServer merges additional follow-ups into the queued follow-up for an active run', async () => {
   const requests: ModelStreamRequest[] = []
   let releaseFirstRun: (() => void) | null = null
 
@@ -4043,9 +4043,18 @@ test('YachiyoServer replaces the queued follow-up for an active run and starts t
       assert.equal(bootstrap.threads[0]?.queuedFollowUpMessageId, undefined)
       assert.deepEqual(
         (bootstrap.messagesByThread[thread.id] ?? []).map((message) => message.content),
-        ['First question', 'Second queued follow-up', 'Hello world', 'Queued follow-up reply']
+        [
+          'First question',
+          'First queued follow-up\nSecond queued follow-up',
+          'Hello world',
+          'Queued follow-up reply'
+        ]
       )
-      assert.ok(String(requests[1]?.messages.at(-1)?.content).startsWith('Second queued follow-up'))
+      assert.ok(
+        String(requests[1]?.messages.at(-1)?.content).startsWith(
+          'First queued follow-up\nSecond queued follow-up'
+        )
+      )
     },
     {
       createModelRuntime: () => ({

@@ -54,6 +54,7 @@ interface UserMessageBubbleProps {
   onRetry?: () => Promise<void> | void
   onCreateBranch?: () => Promise<void> | void
   onDelete?: () => Promise<void> | void
+  onRevert?: () => Promise<void> | void
 }
 
 export const UserMessageBubble = memo(function UserMessageBubble({
@@ -66,7 +67,8 @@ export const UserMessageBubble = memo(function UserMessageBubble({
   onEdit,
   onRetry,
   onCreateBranch,
-  onDelete
+  onDelete,
+  onRevert
 }: UserMessageBubbleProps): React.JSX.Element {
   const canRetry = canRetryUserMessage({
     threadCapabilities,
@@ -112,6 +114,7 @@ export const UserMessageBubble = memo(function UserMessageBubble({
               onRetry={onRetry}
               onCreateBranch={onCreateBranch}
               onDelete={onDelete}
+              onRevert={onRevert}
             />
           </div>
         ) : null}

@@ -1070,11 +1070,25 @@ export class YachiyoServerRunDomain {
 
     const timestamp = this.deps.timestamp()
     const previousQueuedMessageId = input.thread.queuedFollowUpMessageId
+    const previousQueuedMessage = previousQueuedMessageId
+      ? this.deps
+          .loadThreadMessages(input.thread.id)
+          .find((message) => message.id === previousQueuedMessageId)
+      : undefined
+    const mergedContent = previousQueuedMessage
+      ? [previousQueuedMessage.content, input.content].filter((part) => part.length > 0).join('\n')
+      : input.content
+    const mergedImages = previousQueuedMessage
+      ? [...(previousQueuedMessage.images ?? []), ...(input.images ?? [])]
+      : input.images
+    const mergedAttachments = previousQueuedMessage
+      ? [...(previousQueuedMessage.attachments ?? []), ...input.attachments]
+      : input.attachments
     const userMessage = this.createUserMessage({
       id: input.messageId,
-      content: input.content,
-      images: input.images,
-      attachments: input.attachments,
+      content: mergedContent,
+      images: mergedImages,
+      attachments: mergedAttachments,
       parentMessageId: activeRun.pendingSteerMessageId ?? activeRun.requestMessageId,
       threadId: input.thread.id,
       timestamp

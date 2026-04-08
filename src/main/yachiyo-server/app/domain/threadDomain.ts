@@ -624,7 +624,12 @@ export class YachiyoServerThreadDomain {
     if (!getThreadCapabilities(thread).canDelete) {
       throw new Error('ACP threads do not support deleting messages.')
     }
-    if (this.deps.isThreadRunning(thread.id)) {
+    // Allow deleting only the queued follow-up while a run is active —
+    // it has not yet been consumed, so removing it does not edit history.
+    const isQueuedFollowUpDelete =
+      thread.queuedFollowUpMessageId !== undefined &&
+      thread.queuedFollowUpMessageId === input.messageId
+    if (this.deps.isThreadRunning(thread.id) && !isQueuedFollowUpDelete) {
       throw new Error('Cannot edit history while this thread is running.')
     }
 

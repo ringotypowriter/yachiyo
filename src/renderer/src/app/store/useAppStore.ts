@@ -156,6 +156,7 @@ interface AppState {
   upsertComposerFile: (file: ComposerFileDraft, threadId?: string | null) => void
   removeComposerFile: (fileId: string, threadId?: string | null) => void
   deleteMessage: (messageId: string) => Promise<void>
+  revertQueuedFollowUp: (messageId: string) => Promise<void>
   editingMessage: EditingMessageState | null
   beginEditMessage: (messageId: string) => void
   cancelEditMessage: () => void
@@ -977,6 +978,67 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ lastError: message })
       throw error
     }
+  },
+  revertQueuedFollowUp: async (messageId) => {
+    const state = get()
+    const threadId = state.activeThreadId
+    if (!threadId) return
+    const message = (state.messages[threadId] ?? []).find((m) => m.id === messageId)
+    if (!message) return
+
+    const draftKey = getComposerDraftKey(threadId)
+    const currentDraft = state.composerDrafts[draftKey] ?? EMPTY_COMPOSER_DRAFT
+    const mergedText = [message.content, currentDraft.text]
+      .filter((part) => part.length > 0)
+      .join('\n')
+    const imageDrafts: ComposerImageDraft[] = (message.images ?? []).map((img) => ({
+      id: crypto.randomUUID(),
+      status: 'ready' as const,
+      dataUrl: img.dataUrl,
+      mediaType: img.mediaType,
+      filename: img.filename ?? undefined
+    }))
+    const fileDrafts: ComposerFileDraft[] = (message.attachments ?? []).map((attachment) => ({
+      id: crypto.randomUUID(),
+      filename: attachment.filename,
+      mediaType: attachment.mediaType,
+      dataUrl: '',
+      status: 'loading' as const
+    }))
+
+    set((s) => ({
+      composerDrafts: updateComposerDraft(s.composerDrafts, draftKey, (draft) => ({
+        ...draft,
+        text: mergedText,
+        images: [...imageDrafts, ...draft.images],
+        files: [...fileDrafts, ...draft.files]
+      }))
+    }))
+
+    if (fileDrafts.length > 0 && message.attachments) {
+      const attachments = message.attachments
+      for (let i = 0; i < fileDrafts.length; i++) {
+        const draft = fileDrafts[i]
+        const attachment = attachments[i]
+        if (!draft || !attachment) continue
+        window.api.yachiyo
+          .readAttachmentFile({
+            filePath: attachment.workspacePath,
+            mediaType: attachment.mediaType
+          })
+          .then((dataUrl) => {
+            get().upsertComposerFile({ ...draft, dataUrl, status: 'ready' }, threadId)
+          })
+          .catch(() => {
+            get().upsertComposerFile(
+              { ...draft, status: 'failed', error: 'Could not load attachment' },
+              threadId
+            )
+          })
+      }
+    }
+
+    await get().deleteMessage(messageId)
   },
   editingMessage: null,
   beginEditMessage: (messageId) => {

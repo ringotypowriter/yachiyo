@@ -514,6 +514,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   const beginEditMessage = useAppStore((state) => state.beginEditMessage)
   const createBranch = useAppStore((state) => state.createBranch)
   const deleteMessage = useAppStore((state) => state.deleteMessage)
+  const revertQueuedFollowUp = useAppStore((state) => state.revertQueuedFollowUp)
   const retryMessage = useAppStore((state) => state.retryMessage)
   const selectReplyBranch = useAppStore((state) => state.selectReplyBranch)
   const runPhase = useAppStore((state) =>
@@ -873,6 +874,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
               onRetry={threadCapabilities.canRetry ? () => handleRetry(item.data.id) : undefined}
               onCreateBranch={canBranchHere ? () => handleCreateBranch(item.data.id) : undefined}
               onDelete={canDeleteHere ? () => handleDelete(item.data.id) : undefined}
+              onRevert={() => revertQueuedFollowUp(item.data.id)}
             />
           </div>
         )
@@ -975,7 +977,8 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
       handleRetry,
       handleDelete,
       handleSelectReplyBranch,
-      cancelRunForThread
+      cancelRunForThread,
+      revertQueuedFollowUp
     ]
   )
 
