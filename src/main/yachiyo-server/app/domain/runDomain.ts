@@ -476,12 +476,13 @@ export class YachiyoServerRunDomain {
       `Log file: ${result.logPath}\n\n` +
       `The background command has finished. You can read the log file for full output.`
     try {
+      const activeRunId = this.activeRunByThread.get(thread.id)
       await this.sendChat({
         threadId: thread.id,
         content,
-        // Always queue as a follow-up so an in-flight run on this thread is never
-        // interrupted by a background-task notice.
-        mode: 'follow-up',
+        // Steer an active run so the model sees the completion immediately.
+        // If no run is active, fall back to a follow-up (starts a fresh run).
+        mode: activeRunId ? 'steer' : 'follow-up',
         ...(ctx?.enabledTools ? { enabledTools: ctx.enabledTools } : {}),
         ...(ctx?.enabledSkillNames ? { enabledSkillNames: ctx.enabledSkillNames } : {}),
         ...(ctx?.channelHint ? { channelHint: ctx.channelHint } : {}),
