@@ -19,7 +19,7 @@ import {
 
 export function createTool(context: AgentToolContext): Tool<EditToolInput, EditToolOutput> {
   return tool({
-    description: `Edit an existing text file with a targeted oldText -> newText replacement. Relative paths resolve from ${context.workspacePath}. The edit fails when oldText is missing or ambiguous.`,
+    description: `Edit an existing text file with a targeted oldText -> newText replacement. Relative paths resolve from ${context.workspacePath}. The edit fails when oldText is missing or ambiguous. Set replace_all to true to replace every occurrence.`,
     inputSchema: editToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) => runEditTool(input, context, options)
@@ -80,9 +80,15 @@ function createEditResult(
   details: EditToolCallDetails,
   error?: string
 ): EditToolOutput {
-  const message =
-    error ??
-    `Updated ${path} at line ${details.firstChangedLine ?? 1}.\n\n${details.diff ?? ''}`.trim()
+  let message: string
+  if (error) {
+    message = error
+  } else if (details.replacements > 1) {
+    message = `Updated ${path} with ${details.replacements} replacements (first at line ${details.firstChangedLine ?? 1}).`
+  } else {
+    message =
+      `Updated ${path} at line ${details.firstChangedLine ?? 1}.\n\n${details.diff ?? ''}`.trim()
+  }
 
   return {
     content: textContent(message),
@@ -117,35 +123,42 @@ export async function runEditTool(
       )
     }
 
-    if (occurrences > 1) {
+    if (occurrences > 1 && !input.replace_all) {
       return createEditResult(
         resolvedPath,
         {
           path: resolvedPath,
           replacements: 0
         },
-        'Search text matched multiple locations. Make oldText more specific before retrying.'
+        'Search text matched multiple locations. Make oldText more specific before retrying, or set replace_all to true.'
       )
     }
 
-    const matchStart = original.indexOf(input.oldText)
-    const nextContent = original.replace(input.oldText, input.newText)
+    const nextContent = input.replace_all
+      ? original.replaceAll(input.oldText, input.newText)
+      : original.replace(input.oldText, input.newText)
     await writeFile(resolvedPath, nextContent, { encoding: 'utf8', signal: abortSignal })
 
-    const diff = buildEditDiff(
-      resolvedPath,
-      original,
-      nextContent,
-      matchStart,
-      input.oldText,
-      input.newText
-    )
+    const matchStart = original.indexOf(input.oldText)
+    const firstChangedLine = countNewlines(original.slice(0, matchStart)) + 1
+
+    let diff: string | undefined
+    if (occurrences === 1) {
+      diff = buildEditDiff(
+        resolvedPath,
+        original,
+        nextContent,
+        matchStart,
+        input.oldText,
+        input.newText
+      ).diff
+    }
 
     return createEditResult(resolvedPath, {
       path: resolvedPath,
-      replacements: 1,
-      diff: diff.diff,
-      firstChangedLine: diff.firstChangedLine
+      replacements: occurrences,
+      firstChangedLine,
+      ...(diff ? { diff } : {})
     })
   } catch (error) {
     return createEditResult(

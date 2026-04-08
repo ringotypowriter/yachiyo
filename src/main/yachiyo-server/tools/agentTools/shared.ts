@@ -49,7 +49,8 @@ export const writeToolInputSchema = z.object({
 export const editToolInputSchema = z.object({
   path: z.string().min(1),
   oldText: z.string().min(1),
-  newText: z.string()
+  newText: z.string(),
+  replace_all: z.boolean().optional()
 })
 
 export const bashToolInputSchema = z.object({
