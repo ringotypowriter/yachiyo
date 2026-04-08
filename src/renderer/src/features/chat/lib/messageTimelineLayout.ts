@@ -137,6 +137,20 @@ export function buildConversationGroupTimelineItems(input: {
     items.push({ kind: 'memory-recall', key: 'memory-recall' })
   }
 
+  const nonEmptyTextBlocks = input.activeAssistantTextBlocks.filter(
+    (textBlock) => textBlock.content.trim().length > 0
+  )
+  const lastVisibleTextBlock = nonEmptyTextBlocks.at(-1)
+  const shouldHidePostTextTools =
+    (input.activeBranchStatus === 'failed' || input.activeBranchStatus === 'stopped') &&
+    lastVisibleTextBlock != null
+
+  const filteredToolCalls = shouldHidePostTextTools
+    ? input.visibleToolCalls.filter(
+        (toolCall) => toolCall.startedAt <= lastVisibleTextBlock.createdAt
+      )
+    : input.visibleToolCalls
+
   const chronologicalEntries: ChronologicalTimelineEntry[] = []
 
   for (const textBlock of input.activeAssistantTextBlocks) {
@@ -151,7 +165,7 @@ export function buildConversationGroupTimelineItems(input: {
     })
   }
 
-  for (const toolCall of input.visibleToolCalls) {
+  for (const toolCall of filteredToolCalls) {
     chronologicalEntries.push({
       item: {
         kind: 'tool-call',
@@ -165,7 +179,7 @@ export function buildConversationGroupTimelineItems(input: {
 
   const sortedItems = chronologicalEntries.sort(compareTimelineEntries).map((entry) => entry.item)
   const textBlockById = new Map(input.activeAssistantTextBlocks.map((tb) => [tb.id, tb]))
-  items.push(...mergeConsecutiveToolCalls(sortedItems, input.visibleToolCalls, textBlockById))
+  items.push(...mergeConsecutiveToolCalls(sortedItems, filteredToolCalls, textBlockById))
 
   if (input.showGenerating) {
     items.push({ kind: 'generating', key: 'generating' })
@@ -179,14 +193,10 @@ export function buildConversationGroupTimelineItems(input: {
 }
 
 const MIN_GROUP_SIZE = 3
-const MAX_GAP = 5
-const PARALLEL_WINDOW_MS = 2000
 
 /**
- * Single-pass merge: consecutive same-group tool calls are grouped (gap-based).
- * Non-empty text blocks break the scan UNLESS the next same-group tool call
- * started within PARALLEL_WINDOW_MS of the last collected call (parallel batch).
- * Empty text blocks are skipped entirely.
+ * Single-pass merge: only strictly consecutive same-group tool calls are grouped.
+ * Empty text blocks are skipped transparently; any other item breaks the group.
  */
 function mergeConsecutiveToolCalls(
   items: ConversationGroupTimelineItem[],
@@ -226,9 +236,8 @@ function mergeConsecutiveToolCalls(
       { index: i, toolCallId: item.toolCallId }
     ]
     let j = i + 1
-    let gap = 0
 
-    while (j < items.length && gap <= MAX_GAP) {
+    while (j < items.length) {
       const next = items[j]!
 
       if (next.kind === 'tool-call') {
@@ -237,44 +246,19 @@ function mergeConsecutiveToolCalls(
 
         if (nextGroup === group) {
           collected.push({ index: j, toolCallId: next.toolCallId })
-          gap = 0
         } else {
-          gap++
+          break
         }
       } else if (next.kind === 'assistant-text-block') {
         const tb = textBlockById.get(next.textBlockId)
         if (!tb || tb.content.trim()) {
-          // Non-empty text block — only skip if a nearby same-group tool call
-          // started within PARALLEL_WINDOW_MS of the last collected call
-          const lastCollectedTc = toolCallById.get(collected[collected.length - 1]!.toolCallId)!
-          const lastStarted = new Date(lastCollectedTc.startedAt).getTime()
-          let hasParallelPeer = false
-          for (let p = j + 1; p < items.length && p <= j + MAX_GAP + 1; p++) {
-            const peek = items[p]!
-            if (peek.kind === 'tool-call') {
-              const peekTc = toolCallById.get(peek.toolCallId)
-              if (
-                peekTc &&
-                getToolCallSemanticGroup(peekTc.toolName) === group &&
-                Math.abs(new Date(peekTc.startedAt).getTime() - lastStarted) <= PARALLEL_WINDOW_MS
-              ) {
-                hasParallelPeer = true
-                break
-              }
-              // Different-group tool call — keep peeking past it
-              continue
-            }
-            if (peek.kind !== 'assistant-text-block') break
-          }
-          if (!hasParallelPeer) break
-          gap++
+          break
         }
         // empty text block — skip, no gap
       } else {
         break
       }
 
-      if (gap > MAX_GAP) break
       j++
     }
 

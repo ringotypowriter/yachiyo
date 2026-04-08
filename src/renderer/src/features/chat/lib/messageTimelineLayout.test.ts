@@ -277,6 +277,97 @@ test('buildConversationGroupTimelineItems keeps all tool calls for a failed mess
   assert.deepEqual(items, [{ kind: 'tool-call', key: 'tool-1', toolCallId: 'tool-1' }])
 })
 
+test('buildConversationGroupTimelineItems keeps all tool calls for a stopped message when text blocks are only empty placeholders', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeBranchStatus: 'stopped',
+    activeAssistantTextBlocks: [
+      {
+        id: 'text-1',
+        content: '',
+        createdAt: '2026-03-22T00:00:01.000Z'
+      },
+      {
+        id: 'text-2',
+        content: '   ',
+        createdAt: '2026-03-22T00:00:02.000Z'
+      }
+    ],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'file.ts',
+        startedAt: '2026-03-22T00:00:03.000Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [{ kind: 'tool-call', key: 'tool-1', toolCallId: 'tool-1' }])
+})
+
+test('buildConversationGroupTimelineItems uses the last non-empty text block for failed tool cutoff', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeBranchStatus: 'failed',
+    activeAssistantTextBlocks: [
+      {
+        id: 'text-1',
+        content: 'partial',
+        createdAt: '2026-03-22T00:00:01.000Z'
+      },
+      {
+        id: 'text-2',
+        content: '',
+        createdAt: '2026-03-22T00:00:03.000Z'
+      }
+    ],
+    visibleToolCalls: [
+      {
+        id: 'tool-before',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'before',
+        startedAt: '2026-03-22T00:00:00.500Z'
+      },
+      {
+        id: 'tool-between',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'between',
+        startedAt: '2026-03-22T00:00:02.000Z'
+      },
+      {
+        id: 'tool-after',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'after',
+        startedAt: '2026-03-22T00:00:04.000Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    { kind: 'tool-call', key: 'tool-before', toolCallId: 'tool-before' },
+    { kind: 'assistant-text-block', key: 'text-1', textBlockId: 'text-1' }
+  ])
+})
+
 test('buildConversationGroupTimelineItems keeps post-text tool calls for a completed message', () => {
   const items = buildConversationGroupTimelineItems({
     hasMemoryRecall: false,
@@ -307,5 +398,238 @@ test('buildConversationGroupTimelineItems keeps post-text tool calls for a compl
   assert.deepEqual(items, [
     { kind: 'assistant-text-block', key: 'text-1', textBlockId: 'text-1' },
     { kind: 'tool-call', key: 'tool-after', toolCallId: 'tool-after' }
+  ])
+})
+
+test('buildConversationGroupTimelineItems groups consecutive same-group tool calls', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'a.ts',
+        startedAt: '2026-03-22T00:00:01.000Z'
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'b.ts',
+        startedAt: '2026-03-22T00:00:02.000Z'
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'c.ts',
+        startedAt: '2026-03-22T00:00:03.000Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    {
+      kind: 'tool-call-group',
+      key: 'tool-group:tool-1',
+      group: 'read-files',
+      toolCallIds: ['tool-1', 'tool-2', 'tool-3']
+    }
+  ])
+})
+
+test('buildConversationGroupTimelineItems does not group same-group tool calls separated by a different tool call', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'a.ts',
+        startedAt: '2026-03-22T00:00:01.000Z'
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'write',
+        status: 'completed',
+        inputSummary: 'b.ts',
+        startedAt: '2026-03-22T00:00:02.000Z'
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'c.ts',
+        startedAt: '2026-03-22T00:00:03.000Z'
+      },
+      {
+        id: 'tool-4',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'd.ts',
+        startedAt: '2026-03-22T00:00:04.000Z'
+      },
+      {
+        id: 'tool-5',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'e.ts',
+        startedAt: '2026-03-22T00:00:05.000Z'
+      },
+      {
+        id: 'tool-6',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'write',
+        status: 'completed',
+        inputSummary: 'f.ts',
+        startedAt: '2026-03-22T00:00:06.000Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    { kind: 'tool-call', key: 'tool-1', toolCallId: 'tool-1' },
+    { kind: 'tool-call', key: 'tool-2', toolCallId: 'tool-2' },
+    {
+      kind: 'tool-call-group',
+      key: 'tool-group:tool-3',
+      group: 'read-files',
+      toolCallIds: ['tool-3', 'tool-4', 'tool-5']
+    },
+    { kind: 'tool-call', key: 'tool-6', toolCallId: 'tool-6' }
+  ])
+})
+
+test('buildConversationGroupTimelineItems does not group same-group tool calls separated by a non-empty text block', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [
+      {
+        id: 'text-1',
+        content: 'interleaved',
+        createdAt: '2026-03-22T00:00:02.500Z'
+      }
+    ],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'a.ts',
+        startedAt: '2026-03-22T00:00:01.000Z'
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'b.ts',
+        startedAt: '2026-03-22T00:00:03.000Z'
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'c.ts',
+        startedAt: '2026-03-22T00:00:04.000Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    { kind: 'tool-call', key: 'tool-1', toolCallId: 'tool-1' },
+    { kind: 'assistant-text-block', key: 'text-1', textBlockId: 'text-1' },
+    { kind: 'tool-call', key: 'tool-2', toolCallId: 'tool-2' },
+    { kind: 'tool-call', key: 'tool-3', toolCallId: 'tool-3' }
+  ])
+})
+
+test('buildConversationGroupTimelineItems groups same-group tool calls across empty text blocks', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [
+      {
+        id: 'text-1',
+        content: '',
+        createdAt: '2026-03-22T00:00:02.500Z'
+      }
+    ],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'a.ts',
+        startedAt: '2026-03-22T00:00:01.000Z'
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'b.ts',
+        startedAt: '2026-03-22T00:00:03.000Z'
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'c.ts',
+        startedAt: '2026-03-22T00:00:04.000Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    {
+      kind: 'tool-call-group',
+      key: 'tool-group:tool-1',
+      group: 'read-files',
+      toolCallIds: ['tool-1', 'tool-2', 'tool-3']
+    },
+    { kind: 'assistant-text-block', key: 'text-1', textBlockId: 'text-1' }
   ])
 })
