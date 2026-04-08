@@ -9,7 +9,8 @@ import {
   parseFileMentions,
   resolveFileMentionsForUserQuery,
   searchWorkspaceFileMentionCandidates,
-  clearWorkspaceIgnoreCache
+  clearWorkspaceIgnoreCache,
+  clearWorkspaceFileIndexCache
 } from './fileMentions.ts'
 
 async function withWorkspace(
@@ -18,6 +19,8 @@ async function withWorkspace(
     workspacePath: string
   }) => Promise<void>
 ): Promise<void> {
+  clearWorkspaceIgnoreCache()
+  clearWorkspaceFileIndexCache()
   const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-file-mentions-'))
 
   try {
@@ -335,6 +338,7 @@ test('searchWorkspaceFileMentionCandidates reloads .gitignore rules between sear
 
     await writeFile(join(workspacePath, '.gitignore'), 'secret.txt\n', 'utf8')
     clearWorkspaceIgnoreCache()
+    await clearWorkspaceFileIndexCache(workspacePath)
 
     const hiddenAfterIgnore = await searchWorkspaceFileMentionCandidates({
       query: 'secret.txt',
@@ -345,6 +349,7 @@ test('searchWorkspaceFileMentionCandidates reloads .gitignore rules between sear
 
     await writeFile(join(workspacePath, '.gitignore'), '', 'utf8')
     clearWorkspaceIgnoreCache()
+    await clearWorkspaceFileIndexCache(workspacePath)
 
     const visibleAfterUnignore = await searchWorkspaceFileMentionCandidates({
       query: 'secret.txt',

@@ -62,3 +62,9 @@ export const YACHIYO_JOTDOWNS_DIR_NAME = 'jotdowns'
 export function resolveYachiyoJotdownsDir(): string {
   return join(resolveYachiyoDataDir(), YACHIYO_JOTDOWNS_DIR_NAME)
 }
+
+export const YACHIYO_WORKSPACE_INDEX_DIR_NAME = 'workspace-indexes'
+
+export function resolveYachiyoWorkspaceIndexDir(): string {
+  return join(resolveYachiyoDataDir(), YACHIYO_WORKSPACE_INDEX_DIR_NAME)
+}

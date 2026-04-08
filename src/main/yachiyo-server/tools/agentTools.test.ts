@@ -481,6 +481,12 @@ test('runGrepTool maps normalized search results into structured details and sum
             ],
             truncated: false
           }),
+          listFiles: async () => ({
+            backend: 'fd' as const,
+            rootPath: workspacePath,
+            paths: [],
+            truncated: false
+          }),
           glob: async () => {
             throw new Error('glob should not be called')
           }
@@ -545,6 +551,12 @@ test('runGlobTool maps normalized file discovery results into structured details
           grep: async () => {
             throw new Error('grep should not be called')
           },
+          listFiles: async () => ({
+            backend: 'fd' as const,
+            rootPath: workspacePath,
+            paths: [],
+            truncated: false
+          }),
           glob: async () => ({
             backend: 'fd' as const,
             rootPath: workspacePath,

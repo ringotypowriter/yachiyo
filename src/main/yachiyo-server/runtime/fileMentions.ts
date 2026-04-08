@@ -1,9 +1,11 @@
-import { readFile, readdir, stat } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
+import { createHash } from 'node:crypto'
 import createIgnore, { type Ignore } from 'ignore'
 import { matchSorter } from 'match-sorter'
 
 import type { SearchService } from '../services/search/searchService.ts'
+import { resolveYachiyoWorkspaceIndexDir } from '../config/paths.ts'
 
 const FILE_MENTION_RE = /(^|\s)@(!?)(?:"([^"]+)"|([\p{L}\p{N}\p{M}._/-]+))/gu
 const MAX_FILE_MENTION_COUNT = 8
@@ -40,6 +42,7 @@ export interface FileMentionResolution {
 interface WorkspaceIgnoreRule {
   basePath: string
   matcher: Ignore
+  content: string
 }
 
 function stripTrailingMentionPunctuation(value: string): string {
@@ -154,7 +157,8 @@ async function loadWorkspaceIgnoreRules(workspacePath: string): Promise<Workspac
       if (gitignoreContent) {
         rules.push({
           basePath: toWorkspaceRelativePath(resolvedWorkspacePath, currentPath) ?? '',
-          matcher: createIgnore().add(gitignoreContent)
+          matcher: createIgnore().add(gitignoreContent),
+          content: gitignoreContent
         })
       }
     }
@@ -707,6 +711,164 @@ function normalizeFileMentionMatcherValue(value: string): string {
     .replace(/[./_-]+/g, ' ')
 }
 
+interface WorkspaceIndex {
+  files: string[]
+  directories: string[]
+  ignoreRules: WorkspaceIgnoreRule[]
+  timestamp: number
+  workspaceMtimeMs: number
+  truncated: boolean
+}
+
+interface PersistedWorkspaceIndex {
+  files: string[]
+  directories: string[]
+  ignoreRuleSnapshots: { basePath: string; content: string }[]
+  timestamp: number
+  workspaceMtimeMs: number
+  truncated: boolean
+}
+
+const workspaceIndexCache = new Map<string, WorkspaceIndex>()
+const WORKSPACE_INDEX_TTL_MS = 30_000
+const WORKSPACE_DISK_INDEX_TTL_MS = 300_000
+const WORKSPACE_INDEX_LIMIT = 8_000
+
+export async function clearWorkspaceFileIndexCache(workspacePath?: string): Promise<void> {
+  workspaceIndexCache.clear()
+  if (workspacePath) {
+    const filePath = getWorkspaceIndexFilePath(workspacePath)
+    await rm(filePath).catch(() => {
+      // ignore if missing
+    })
+  }
+}
+
+function getWorkspaceIndexFilePath(workspacePath: string): string {
+  const hash = createHash('sha256').update(resolve(workspacePath)).digest('hex').slice(0, 16)
+  return join(resolveYachiyoWorkspaceIndexDir(), `${hash}.json`)
+}
+
+async function loadWorkspaceIndexFromDisk(workspacePath: string): Promise<WorkspaceIndex | null> {
+  const filePath = getWorkspaceIndexFilePath(workspacePath)
+  const raw = await readFile(filePath, 'utf8').catch(() => null)
+  if (!raw) return null
+
+  try {
+    const parsed = JSON.parse(raw) as PersistedWorkspaceIndex
+    if (Date.now() - parsed.timestamp > WORKSPACE_DISK_INDEX_TTL_MS) return null
+
+    const ignoreRules = parsed.ignoreRuleSnapshots.map((snapshot) => ({
+      basePath: snapshot.basePath,
+      matcher: createIgnore().add(snapshot.content),
+      content: snapshot.content
+    }))
+
+    return {
+      files: parsed.files,
+      directories: parsed.directories,
+      ignoreRules,
+      timestamp: parsed.timestamp,
+      workspaceMtimeMs: parsed.workspaceMtimeMs,
+      truncated: parsed.truncated
+    }
+  } catch {
+    return null
+  }
+}
+
+async function saveWorkspaceIndexToDisk(
+  workspacePath: string,
+  index: WorkspaceIndex
+): Promise<void> {
+  try {
+    const filePath = getWorkspaceIndexFilePath(workspacePath)
+    await mkdir(resolveYachiyoWorkspaceIndexDir(), { recursive: true })
+    const payload: PersistedWorkspaceIndex = {
+      files: index.files,
+      directories: index.directories,
+      ignoreRuleSnapshots: index.ignoreRules.map((rule) => ({
+        basePath: rule.basePath,
+        content: rule.content
+      })),
+      timestamp: index.timestamp,
+      workspaceMtimeMs: index.workspaceMtimeMs,
+      truncated: index.truncated
+    }
+    await writeFile(filePath, JSON.stringify(payload), 'utf8')
+  } catch {
+    // swallow persistence failures so mentions still work without disk cache
+  }
+}
+
+async function getWorkspaceIndex(
+  workspacePath: string,
+  searchService: SearchService
+): Promise<WorkspaceIndex | null> {
+  const workspaceStat = await stat(workspacePath).catch(() => null)
+  const currentMtimeMs = workspaceStat?.mtimeMs ?? 0
+
+  const cached = workspaceIndexCache.get(workspacePath)
+  if (
+    cached &&
+    Date.now() - cached.timestamp < WORKSPACE_INDEX_TTL_MS &&
+    cached.workspaceMtimeMs === currentMtimeMs
+  ) {
+    return cached
+  }
+
+  const diskIndex = await loadWorkspaceIndexFromDisk(workspacePath)
+  if (diskIndex && diskIndex.workspaceMtimeMs === currentMtimeMs) {
+    workspaceIndexCache.set(workspacePath, diskIndex)
+    return diskIndex
+  }
+
+  const ignoreRules = await loadWorkspaceIgnoreRules(workspacePath)
+  const result = await searchService.listFiles({
+    cwd: workspacePath,
+    limit: WORKSPACE_INDEX_LIMIT
+  })
+
+  if (result.truncated) {
+    return null
+  }
+
+  const files: string[] = []
+  const directorySet = new Set<string>()
+
+  for (const p of result.paths) {
+    if (isIgnoredWorkspacePath(p, ignoreRules, false)) {
+      continue
+    }
+    files.push(p)
+
+    let dir = p
+    while (true) {
+      const lastSlash = dir.lastIndexOf('/')
+      if (lastSlash <= 0) break
+      dir = dir.slice(0, lastSlash)
+      if (directorySet.has(dir)) break
+      directorySet.add(dir)
+    }
+  }
+
+  const directories = [...directorySet].sort((a, b) => a.localeCompare(b))
+
+  const index: WorkspaceIndex = {
+    files,
+    directories,
+    ignoreRules,
+    timestamp: Date.now(),
+    workspaceMtimeMs: currentMtimeMs,
+    truncated: result.truncated
+  }
+
+  workspaceIndexCache.set(workspacePath, index)
+  void saveWorkspaceIndexToDisk(workspacePath, index)
+
+  return index
+}
+
 export async function searchWorkspaceFileMentionCandidates(input: {
   query: string
   workspacePath: string
@@ -714,10 +876,8 @@ export async function searchWorkspaceFileMentionCandidates(input: {
   includeIgnored?: boolean
   limit?: number
 }): Promise<string[]> {
-  const ignoreRules = input.includeIgnored
-    ? []
-    : await loadWorkspaceIgnoreRules(input.workspacePath)
   const normalizedQuery = normalizeRelativePath(input.query.trim())
+  const candidateLimit = input.limit ?? DEFAULT_CANDIDATE_LIMIT
   const tentativeScopedPathQuery = resolveScopedPathQuery(input.workspacePath, normalizedQuery)
   const scopedPathQuery =
     tentativeScopedPathQuery &&
@@ -727,75 +887,93 @@ export async function searchWorkspaceFileMentionCandidates(input: {
     )) === 'directory'
       ? tentativeScopedPathQuery
       : null
-  const exactMatch = await resolveExactWorkspacePath(
-    input.workspacePath,
-    normalizedQuery,
-    ignoreRules,
-    input.includeIgnored
-  )
-  const candidates = exactMatch ? [exactMatch.path] : []
-  const candidateLimit = input.limit ?? DEFAULT_CANDIDATE_LIMIT
 
-  if (!normalizedQuery) {
-    if (input.includeIgnored) {
-      const matcherList = buildGlobPatterns(normalizedQuery).map(createGlobMatcher)
-      const workspaceFiles = await findWorkspaceFilesByGlob(
+  // Fast path: in-memory index for normal (non-ignored) searches
+  if (!input.includeIgnored) {
+    const index = await getWorkspaceIndex(input.workspacePath, input.searchService)
+    if (index) {
+      const ignoreRules = index.ignoreRules
+
+      const exactMatch = await resolveExactWorkspacePath(
         input.workspacePath,
-        matcherList,
-        candidateLimit
+        normalizedQuery,
+        ignoreRules,
+        false
       )
+      const candidates: string[] = exactMatch ? [exactMatch.path] : []
 
-      for (const filePath of workspaceFiles) {
-        const relativePath = toWorkspaceRelativePath(input.workspacePath, filePath)
-        if (!relativePath || candidates.includes(relativePath)) {
-          continue
-        }
-        if (!matcherList.some((matcher) => matcher(relativePath))) {
-          continue
-        }
+      if (!normalizedQuery) {
+        return index.files.slice(0, candidateLimit)
+      }
 
-        candidates.push(relativePath)
-        if (candidates.length >= candidateLimit) {
-          break
+      let pool: string[] = [...index.files, ...index.directories]
+      if (scopedPathQuery) {
+        const prefix = scopedPathQuery.relativeRootPath
+        pool = pool.filter((p) => p === prefix || p.startsWith(`${prefix}/`))
+      }
+
+      const ranked = rankWorkspaceFileMentionCandidates(normalizedQuery, pool, candidateLimit)
+      for (const p of ranked) {
+        if (!candidates.includes(p)) {
+          candidates.push(p)
+        }
+        if (candidates.length >= candidateLimit) break
+      }
+
+      // Rescan-on-miss: if cache returned nothing for a non-empty query,
+      // fall back to a live glob search in case the workspace changed.
+      if (candidates.length === 0 && normalizedQuery.length > 0) {
+        const liveMatches = await searchWorkspacePathsByGlob({
+          query: normalizedQuery,
+          workspacePath: input.workspacePath,
+          searchService: input.searchService,
+          includeIgnored: false,
+          scopedPathQuery,
+          limit: candidateLimit
+        })
+        for (const candidatePath of liveMatches) {
+          if (isIgnoredWorkspacePath(candidatePath, ignoreRules, false)) continue
+          if (!candidates.includes(candidatePath)) {
+            candidates.push(candidatePath)
+          }
+          if (candidates.length >= candidateLimit) break
         }
       }
 
       return candidates.slice(0, candidateLimit)
     }
+  }
 
-    for (const pattern of buildGlobPatterns(normalizedQuery)) {
-      if (candidates.length >= candidateLimit) {
-        break
+  // Fallback slow path for includeIgnored=true or truncated index
+  const ignoreRules = await loadWorkspaceIgnoreRules(input.workspacePath)
+  const exactMatch = await resolveExactWorkspacePath(
+    input.workspacePath,
+    normalizedQuery,
+    ignoreRules,
+    true
+  )
+  const candidates: string[] = exactMatch ? [exactMatch.path] : []
+
+  if (!normalizedQuery) {
+    const matcherList = buildGlobPatterns(normalizedQuery).map(createGlobMatcher)
+    const workspaceFiles = await findWorkspaceFilesByGlob(
+      input.workspacePath,
+      matcherList,
+      candidateLimit
+    )
+
+    for (const filePath of workspaceFiles) {
+      const relativePath = toWorkspaceRelativePath(input.workspacePath, filePath)
+      if (!relativePath || candidates.includes(relativePath)) {
+        continue
+      }
+      if (!matcherList.some((matcher) => matcher(relativePath))) {
+        continue
       }
 
-      const result = await input.searchService.glob({
-        cwd: input.workspacePath,
-        pattern,
-        path: '.',
-        limit: candidateLimit
-      })
-
-      for (const path of result.paths) {
-        const normalizedPath = toWorkspaceRelativePath(
-          input.workspacePath,
-          resolve(input.workspacePath, path)
-        )
-        if (!normalizedPath) {
-          continue
-        }
-        if (!(await isWorkspaceFile(input.workspacePath, normalizedPath))) {
-          continue
-        }
-        if (isIgnoredWorkspacePath(normalizedPath, ignoreRules, input.includeIgnored)) {
-          continue
-        }
-        if (!candidates.includes(normalizedPath)) {
-          candidates.push(normalizedPath)
-        }
-
-        if (candidates.length >= candidateLimit) {
-          break
-        }
+      candidates.push(relativePath)
+      if (candidates.length >= candidateLimit) {
+        break
       }
     }
 
@@ -806,14 +984,11 @@ export async function searchWorkspaceFileMentionCandidates(input: {
     query: normalizedQuery,
     workspacePath: input.workspacePath,
     searchService: input.searchService,
-    includeIgnored: input.includeIgnored,
+    includeIgnored: true,
     scopedPathQuery,
     limit: candidateLimit
   })
   for (const candidatePath of matchedPaths) {
-    if (isIgnoredWorkspacePath(candidatePath, ignoreRules, input.includeIgnored)) {
-      continue
-    }
     if (!candidates.includes(candidatePath)) {
       candidates.push(candidatePath)
     }
@@ -827,7 +1002,7 @@ export async function searchWorkspaceFileMentionCandidates(input: {
     query: normalizedQuery,
     workspacePath: input.workspacePath,
     ignoreRules,
-    includeIgnored: input.includeIgnored,
+    includeIgnored: true,
     scopedPathQuery,
     limit: candidateLimit
   })

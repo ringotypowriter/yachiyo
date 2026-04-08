@@ -76,6 +76,8 @@ export interface SearchService {
   readonly capabilities: SearchBackendCapabilities
   grep(input: GrepSearchRequest): Promise<GrepSearchResult>
   glob(input: GlobSearchRequest): Promise<GlobSearchResult>
+  /** List all files under `cwd` while respecting `.gitignore` rules. */
+  listFiles(input: { cwd: string; limit?: number; signal?: AbortSignal }): Promise<GlobSearchResult>
 }
 
 export interface CreateSearchServiceOptions {
@@ -150,6 +152,30 @@ export function createSearchService(options: CreateSearchServiceOptions = {}): S
       }
 
       return await runTypescriptGlob({ ...request, rootPath })
+    },
+    listFiles: async (input): Promise<GlobSearchResult> => {
+      const rootPath = resolve(input.cwd)
+      const limit = input.limit ?? 8_000
+
+      if (fdPath) {
+        try {
+          return await runFdListFiles({
+            executable: fdPath,
+            rootPath,
+            limit,
+            runCommand,
+            signal: input.signal
+          })
+        } catch (error) {
+          if (error instanceof SearchBackendError && error.code === 'backend-unavailable') {
+            // Fall through to TypeScript
+          } else {
+            throw error
+          }
+        }
+      }
+
+      return await runTypescriptListFiles({ rootPath, limit, signal: input.signal })
     }
   }
 }
@@ -389,6 +415,65 @@ async function runFdSearch(input: {
   }
 }
 
+async function runFdListFiles(input: {
+  executable: string
+  rootPath: string
+  limit: number
+  runCommand: (input: SearchCommandInput) => Promise<SearchCommandResult>
+  signal?: AbortSignal
+}): Promise<GlobSearchResult> {
+  const targetStat = await stat(input.rootPath).catch(() => null)
+
+  if (targetStat?.isFile()) {
+    return {
+      backend: 'fd',
+      rootPath: input.rootPath,
+      paths: [normalizeRelativePath(basename(input.rootPath))],
+      truncated: false
+    }
+  }
+
+  const args = [
+    '--glob',
+    '--full-path',
+    '--hidden',
+    '--color',
+    'never',
+    '--type',
+    'f',
+    '--type',
+    'l',
+    '--follow',
+    '--max-results',
+    String(input.limit),
+    '**',
+    input.rootPath
+  ]
+  const result = await runCliSearchCommand({
+    command: input.executable,
+    args,
+    cwd: input.rootPath,
+    maxLines: input.limit,
+    signal: input.signal,
+    runCommand: input.runCommand
+  })
+
+  if (!result.terminatedEarly && result.exitCode !== 0 && result.exitCode !== 1) {
+    throw classifyCliFailure(result.stderr)
+  }
+
+  const paths = splitLines(result.stdout)
+    .map((value) => normalizeResultPath(value, input.rootPath))
+    .filter(Boolean)
+
+  return {
+    backend: 'fd',
+    rootPath: input.rootPath,
+    paths: paths.slice(0, input.limit),
+    truncated: paths.length > input.limit || Boolean(result.terminatedEarly)
+  }
+}
+
 function normalizeFdGlobPattern(pattern: string): string {
   const trimmed = pattern.trim()
   if (trimmed === '') return trimmed
@@ -523,6 +608,36 @@ async function runTypescriptGlob(input: {
     rootPath: input.rootPath,
     paths: results,
     truncated: false
+  }
+}
+
+async function runTypescriptListFiles(input: {
+  rootPath: string
+  limit: number
+  signal?: AbortSignal
+}): Promise<GlobSearchResult> {
+  const targetStat = await stat(input.rootPath).catch(() => null)
+  if (!targetStat) {
+    throw new SearchBackendError('bad-input', `Search path does not exist: ${input.rootPath}`)
+  }
+
+  if (targetStat.isFile()) {
+    return {
+      backend: 'typescript',
+      rootPath: input.rootPath,
+      paths: [normalizeRelativePath(basename(input.rootPath))],
+      truncated: false
+    }
+  }
+
+  const files = await collectFiles(input.rootPath, undefined, input.signal)
+  const paths = files.map((filePath) => normalizeRelativePath(relative(input.rootPath, filePath)))
+
+  return {
+    backend: 'typescript',
+    rootPath: input.rootPath,
+    paths: paths.slice(0, input.limit),
+    truncated: paths.length > input.limit
   }
 }
 
