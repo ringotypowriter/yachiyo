@@ -2,6 +2,7 @@ import { tool, type Tool } from 'ai'
 
 import type { WebSearchToolCallDetails } from '../../../../shared/yachiyo/protocol.ts'
 import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
+import { normalizeSearchQuery } from '../../services/webSearch/normalizeSearchQuery.ts'
 import {
   DEFAULT_WEB_SEARCH_LIMIT,
   type AgentToolContext,
@@ -64,7 +65,8 @@ function createFailureDetails(input: {
 }
 
 export const WEB_SEARCH_TOOL_DESCRIPTION =
-  'Run a general web search and return normalized organic search results. Use it for broad discovery, current web lookups, or finding candidate sources. This is not a browser automation tool.'
+  'Run a general web search and return normalized organic search results. Use it for broad discovery, current web lookups, or finding candidate sources. This is not a browser automation tool. ' +
+  'When searching for time-sensitive information, you may use {currentYear} in the query; it will be replaced with the actual current year automatically.'
 
 export function createTool(
   _context: AgentToolContext,
@@ -91,7 +93,7 @@ export async function runWebSearchTool(
     webSearchService: WebSearchService
   }
 ): Promise<WebSearchToolOutput> {
-  const query = input.query.trim()
+  const query = normalizeSearchQuery(input.query.trim())
 
   if (!query) {
     return createWebSearchResult(

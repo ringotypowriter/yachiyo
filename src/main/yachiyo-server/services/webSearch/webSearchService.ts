@@ -5,6 +5,7 @@ import type {
   WebSearchResultItem
 } from '../../../../shared/yachiyo/protocol.ts'
 import { DEFAULT_WEB_SEARCH_PROVIDER } from '../../../../shared/yachiyo/protocol.ts'
+import { normalizeSearchQuery } from './normalizeSearchQuery.ts'
 
 export interface WebSearchRequest {
   limit?: number
@@ -60,7 +61,7 @@ export function createWebSearchService(input: {
 
   return {
     async search(request) {
-      const query = request.query.trim()
+      const query = normalizeSearchQuery(request.query.trim())
 
       if (!query) {
         return createFailureResult({
