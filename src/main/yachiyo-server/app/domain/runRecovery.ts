@@ -453,6 +453,27 @@ function buildInterruptedToolCallOutput(toolCall: ToolCallRecord): unknown {
   }
 }
 
+export function balanceRecoveryResponseMessages(
+  responseMessages: RecoveryResponseMessage[],
+  toolCalls: ToolCallRecord[]
+): RecoveryResponseMessage[] {
+  // Include any tool call that has reached a terminal state (completed OR failed).
+  // Aborts mark in-flight tool calls as `failed`, and the model still needs a
+  // matching tool-result for every tool-call we already wrote to the buffer —
+  // otherwise the next provider request blows up on the unpaired tool_use.
+  const terminalToolCalls = [...toolCalls]
+    .filter((toolCall) => toolCall.finishedAt)
+    .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+  const terminalToolCallsById = new Map(
+    terminalToolCalls.map((toolCall) => [toolCall.id, toolCall] as const)
+  )
+
+  return appendMissingCompletedToolCalls(
+    normalizeCompletedToolCalls(responseMessages, terminalToolCallsById),
+    terminalToolCalls
+  )
+}
+
 export function buildRecoveryResponseMessages(input: {
   checkpoint: Pick<RunRecoveryCheckpoint, 'content' | 'reasoning' | 'responseMessages'>
   toolCalls: ToolCallRecord[]
@@ -460,17 +481,11 @@ export function buildRecoveryResponseMessages(input: {
   const completedToolCalls = [...input.toolCalls]
     .filter((toolCall) => toolCall.finishedAt && toolCall.status === 'completed')
     .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
-  const completedToolCallsById = new Map(
-    completedToolCalls.map((toolCall) => [toolCall.id, toolCall] as const)
-  )
 
   if (input.checkpoint.responseMessages?.length) {
-    return appendMissingCompletedToolCalls(
-      normalizeCompletedToolCalls(
-        cloneRecoveryResponseMessages(input.checkpoint.responseMessages) ?? [],
-        completedToolCallsById
-      ),
-      completedToolCalls
+    return balanceRecoveryResponseMessages(
+      cloneRecoveryResponseMessages(input.checkpoint.responseMessages) ?? [],
+      input.toolCalls
     )
   }
 

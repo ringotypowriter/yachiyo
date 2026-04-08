@@ -103,6 +103,7 @@ import {
   appendRecoveryTextDelta,
   appendRecoveryToolCall,
   appendRecoveryToolResult,
+  balanceRecoveryResponseMessages,
   buildRecoveryHistory,
   buildRecoveryResponseMessages,
   cloneRecoveryResponseMessages,
@@ -2019,6 +2020,23 @@ export async function executeServerRun(
       const timestamp = deps.timestamp()
 
       if (isRestartRunReason(restartReason)) {
+        // Mark any in-flight tool calls as failed before persisting, so the
+        // buffered tool-call parts can be paired with synthetic tool-results.
+        // Otherwise the next request replays an unbalanced tool_use and the
+        // provider rejects the whole turn.
+        finishPendingToolCalls(deps, toolCalls, {
+          error: 'Run cancelled before the tool call finished.',
+          finishedAt: timestamp,
+          runId: input.runId,
+          threadId: input.thread.id
+        })
+        const balancedResponseMessages =
+          recoveryResponseMessages.length > 0
+            ? balanceRecoveryResponseMessages(
+                recoveryResponseMessages,
+                Array.from(toolCalls.values())
+              )
+            : recoveryResponseMessages
         if (
           input.requestMessageId &&
           (buffer.length > 0 || reasoningBuffer.length > 0 || toolCalls.size > 0)
@@ -2032,9 +2050,9 @@ export async function executeServerRun(
             content: buffer,
             ...(textBlocks.length > 0 ? { textBlocks } : {}),
             ...(reasoningBuffer ? { reasoning: reasoningBuffer } : {}),
-            ...(recoveryResponseMessages.length > 0
+            ...(balancedResponseMessages.length > 0
               ? {
-                  responseMessages: recoveryResponseMessages
+                  responseMessages: balancedResponseMessages
                 }
               : {}),
             status: 'stopped',
