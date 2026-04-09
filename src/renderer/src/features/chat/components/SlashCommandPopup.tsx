@@ -243,6 +243,24 @@ export function SlashCommandPopup({
           </button>
         )
       })}
+      {commands.length > 0 ? (
+        <div
+          style={{
+            padding: '6px 14px',
+            fontSize: 10,
+            lineHeight: 1.4,
+            color: theme.text.muted,
+            borderTop: `1px solid rgba(0,0,0,0.06)`,
+            fontFamily: 'monospace',
+            display: 'flex',
+            gap: 10
+          }}
+        >
+          <span>Tab complete</span>
+          <span>Enter select</span>
+          <span>Esc close</span>
+        </div>
+      ) : null}
     </div>
   )
 

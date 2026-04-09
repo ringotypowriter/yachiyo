@@ -43,6 +43,8 @@ import { ModelSelectorPopup } from './ModelSelectorPopup'
 import type { AcpAgentEntry } from '../lib/modelSelectorState'
 import { SlashCommandPopup } from './SlashCommandPopup'
 import type { SlashCommand } from './SlashCommandPopup'
+import { scoreCandidates } from '../lib/completionMatch'
+import { longestCommonPrefix } from '../lib/longestCommonPrefix'
 import { SkillsSelectorPopup } from './SkillsSelectorPopup'
 import { ToolSelectorPopup } from './ToolSelectorPopup'
 import { WorkspaceSelectorPopup } from './WorkspaceSelectorPopup'
@@ -709,18 +711,21 @@ export function Composer({
   )
   const matchingSlashCommands = useMemo<SlashCommand[]>(() => {
     if (skillQuery !== null) {
-      const q = skillQuery.toLowerCase()
-      return availableSkills
-        .filter((s) => s.name.toLowerCase().startsWith(q))
-        .map((s) => ({
+      return scoreCandidates(availableSkills, skillQuery, (s) => [s.name, s.description ?? '']).map(
+        ({ item: s }) => ({
           key: `skills:${s.name}`,
           label: s.name,
           description: s.description ?? 'No description available',
           type: 'skill' as const
-        }))
+        })
+      )
     }
     if (fileMentionQuery !== null) {
-      return fileMentionMatches.map((match) => ({
+      // Rank backend results by basename-first match on the raw query.
+      return scoreCandidates(fileMentionMatches, fileMentionQuery, (match) => {
+        const base = match.path.slice(match.path.lastIndexOf('/') + 1)
+        return [base, match.path]
+      }).map(({ item: match }) => ({
         key: `file:${match.includeIgnored ? '!' : ''}${match.path}`,
         label: `${match.includeIgnored ? '!' : ''}${match.path}`,
         description:
@@ -733,7 +738,9 @@ export function Composer({
       }))
     }
     if (slashQuery !== null) {
-      return allSlashCommands.filter((cmd) => cmd.key.startsWith(slashQuery))
+      return scoreCandidates(allSlashCommands, slashQuery, (cmd) => [cmd.key, cmd.label]).map(
+        ({ item }) => item
+      )
     }
     return []
   }, [
@@ -1417,6 +1424,81 @@ export function Composer({
           setSlashSelectedIndex((i) => Math.max(i - 1, 0))
           return
         }
+        if (event.key === 'Tab') {
+          event.preventDefault()
+          if (event.shiftKey) {
+            setSlashSelectedIndex((i) => Math.max(i - 1, 0))
+            return
+          }
+          // Shell-style completion. First try to extend the typed token to
+          // the longest common prefix across candidates; if nothing to
+          // extend, fall through to committing the highlighted entry as
+          // text only. Tab must NEVER fire side-effectful actions like
+          // /archive or /handoff — only Enter does that.
+          let extended = false
+          if (matchingSlashCommands.length > 1) {
+            if (skillQuery !== null) {
+              const pool = matchingSlashCommands.map((c) => c.label)
+              const lcp = longestCommonPrefix(pool, true)
+              if (lcp.length > skillQuery.length) {
+                const usingAt = atSkillPrefixMatch !== null
+                setComposerValue(`${usingAt ? '@' : '/'}skills:${lcp}`)
+                extended = true
+              }
+            } else if (slashQuery !== null) {
+              const pool = matchingSlashCommands.map((c) => c.key)
+              const lcp = longestCommonPrefix(pool, true)
+              if (lcp.length > slashQuery.length) {
+                setComposerValue(`/${lcp}`)
+                extended = true
+              }
+            } else if (fileMentionQuery !== null && fileMentionMatch) {
+              // Use full paths when the user has already typed a directory
+              // prefix, otherwise fall back to basename-only extension so
+              // typing `comp` still extends to `Composer`.
+              const rawQuery = fileMentionRawQuery
+              const hasSlash = rawQuery.includes('/')
+              const lowered = rawQuery.toLowerCase()
+              const stripBang = (p: string): string => (p.startsWith('!') ? p.slice(1) : p)
+              const candidates = matchingSlashCommands
+                .map((c) => {
+                  const path = stripBang(c.label)
+                  return hasSlash ? path : path.slice(path.lastIndexOf('/') + 1)
+                })
+                .filter((s) => s.toLowerCase().startsWith(lowered))
+              if (candidates.length > 1) {
+                const lcp = longestCommonPrefix(candidates, true)
+                if (lcp.length > rawQuery.length) {
+                  // Preserve the user's quote state; group 3 of the pattern
+                  // only matches when an opening `"` is present.
+                  const isQuoted = fileMentionMatch[3] !== undefined
+                  setComposerValue(
+                    composerValue.replace(
+                      FILE_MENTION_PATTERN,
+                      (_m, prefix: string, ignoreMarker: string) =>
+                        isQuoted
+                          ? `${prefix}@${ignoreMarker}"${lcp}`
+                          : `${prefix}@${ignoreMarker}${lcp}`
+                    )
+                  )
+                  extended = true
+                }
+              }
+            }
+          }
+          if (extended) return
+          const selected = matchingSlashCommands[slashSelectedIndex]
+          if (!selected) return
+          // Text-only commit: avoid triggering action side effects. Pure
+          // text-insertion types (prompt, skill, file, jotdown, skill-prefix)
+          // are still safe to delegate to the normal selector.
+          if (selected.type === 'action') {
+            setComposerValue(`/${selected.key}`)
+            return
+          }
+          handleSlashCommandSelect(selected)
+          return
+        }
         if (event.key === 'Enter' && !event.shiftKey && !event.altKey) {
           event.preventDefault()
           const selected = matchingSlashCommands[slashSelectedIndex]
@@ -1491,7 +1573,15 @@ export function Composer({
       dismissSlashPopup,
       dispatchSend,
       showSlashCommandPopup,
-      slashSelectedIndex
+      slashSelectedIndex,
+      skillQuery,
+      slashQuery,
+      fileMentionQuery,
+      fileMentionMatch,
+      fileMentionRawQuery,
+      atSkillPrefixMatch,
+      composerValue,
+      setComposerValue
     ]
   )
 
