@@ -86,6 +86,30 @@ describe('thread search command', () => {
     assert.equal(capturedLimit, 5)
   })
 
+  it('defaults includePrivate to false for searchMessages', async () => {
+    let capturedIncludePrivate = true
+    await runYachiyoCli(['thread', 'search', 'q'], {
+      searchMessages: (_dbPath, _query, _limit, includePrivate) => {
+        capturedIncludePrivate = includePrivate
+        return []
+      },
+      stdout: captureOutput([])
+    })
+    assert.equal(capturedIncludePrivate, false)
+  })
+
+  it('passes includePrivate=true to searchMessages with --include-private', async () => {
+    let capturedIncludePrivate = false
+    await runYachiyoCli(['thread', 'search', 'q', '--include-private'], {
+      searchMessages: (_dbPath, _query, _limit, includePrivate) => {
+        capturedIncludePrivate = includePrivate
+        return []
+      },
+      stdout: captureOutput([])
+    })
+    assert.equal(capturedIncludePrivate, true)
+  })
+
   it('passes query to searchMessages', async () => {
     let capturedQuery = ''
     await runYachiyoCli(['thread', 'search', 'my query'], {
@@ -189,6 +213,30 @@ describe('thread list command', () => {
       stdout: captureOutput([])
     })
     assert.equal(overridden, 3)
+  })
+
+  it('defaults includePrivate to false for listRecentThreads', async () => {
+    let capturedIncludePrivate = true
+    await runYachiyoCli(['thread', 'list'], {
+      listRecentThreads: (_db, _limit, includePrivate) => {
+        capturedIncludePrivate = includePrivate
+        return []
+      },
+      stdout: captureOutput([])
+    })
+    assert.equal(capturedIncludePrivate, false)
+  })
+
+  it('passes includePrivate=true to listRecentThreads with --include-private', async () => {
+    let capturedIncludePrivate = false
+    await runYachiyoCli(['thread', 'list', '--include-private'], {
+      listRecentThreads: (_db, _limit, includePrivate) => {
+        capturedIncludePrivate = includePrivate
+        return []
+      },
+      stdout: captureOutput([])
+    })
+    assert.equal(capturedIncludePrivate, true)
   })
 
   it('emits JSON array with --json', async () => {
@@ -311,5 +359,29 @@ describe('thread show command', () => {
       stdout: captureOutput([])
     })
     assert.equal(captured, 'target-id')
+  })
+
+  it('defaults includePrivate to false for dumpThread', async () => {
+    let capturedIncludePrivate = true
+    await runYachiyoCli(['thread', 'show', 'target-id'], {
+      dumpThread: (_db, _id, includePrivate) => {
+        capturedIncludePrivate = includePrivate
+        return makeDump({ threadId: 'target-id' })
+      },
+      stdout: captureOutput([])
+    })
+    assert.equal(capturedIncludePrivate, false)
+  })
+
+  it('passes includePrivate=true to dumpThread with --include-private', async () => {
+    let capturedIncludePrivate = false
+    await runYachiyoCli(['thread', 'show', 'target-id', '--include-private'], {
+      dumpThread: (_db, _id, includePrivate) => {
+        capturedIncludePrivate = includePrivate
+        return makeDump({ threadId: 'target-id' })
+      },
+      stdout: captureOutput([])
+    })
+    assert.equal(capturedIncludePrivate, true)
   })
 })

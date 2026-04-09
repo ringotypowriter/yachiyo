@@ -83,13 +83,18 @@ const NAMESPACE_HELP: Record<string, string> = {
 
   thread: `Usage: yachiyo thread <action> [args...] [flags...]
 
-  thread search <query> [--limit <n>] [--json]
+  thread search <query> [--limit <n>] [--json] [--include-private]
                                          Full-text search across message history. Default limit=5.
                                          Without --json, prints human-readable lines.
-  thread list [--limit <n>] [--json]     List recent (non-archived) threads ordered by updatedAt desc.
+                                         Privacy-mode threads are hidden unless --include-private is set.
+  thread list [--limit <n>] [--json] [--include-private]
+                                         List recent (non-archived) threads ordered by updatedAt desc.
                                          Each entry includes the thread's first user query and preview.
-                                         Default limit=10.
-  thread show <id> [--json]              Dump all messages of a thread in chronological order.`,
+                                         Default limit=10. Privacy-mode threads are hidden unless
+                                         --include-private is set.
+  thread show <id> [--json] [--include-private]
+                                         Dump all messages of a thread in chronological order.
+                                         Privacy-mode threads are hidden unless --include-private is set.`,
 
   schedule: `Usage: yachiyo schedule <action> [args...] [flags...]
 
@@ -161,9 +166,14 @@ export interface RunYachiyoCliOptions {
   readSoulDocument?: (input: { filePath: string }) => Promise<SoulDocument | null>
   upsertDailySoulTrait?: (input: UpsertDailySoulTraitInput) => Promise<SoulDocument | null>
   removeSoulTrait?: (input: RemoveSoulTraitInput) => Promise<SoulDocument | null>
-  searchMessages?: (dbPath: string, query: string, limit: number) => MessageSearchHit[]
-  listRecentThreads?: (dbPath: string, limit: number) => ThreadSummary[]
-  dumpThread?: (dbPath: string, threadId: string) => ThreadDump | null
+  searchMessages?: (
+    dbPath: string,
+    query: string,
+    limit: number,
+    includePrivate: boolean
+  ) => MessageSearchHit[]
+  listRecentThreads?: (dbPath: string, limit: number, includePrivate: boolean) => ThreadSummary[]
+  dumpThread?: (dbPath: string, threadId: string, includePrivate: boolean) => ThreadDump | null
   sendNotification?: (
     socketPath: string,
     payload: { title: string; body?: string }
@@ -698,6 +708,7 @@ function handleThreadCommand(
 
   const action = positionals[0]
   const useJson = flags.get('--json') === 'true'
+  const includePrivate = flags.has('--include-private')
 
   if (action === 'search') {
     const query = positionals[1]
@@ -706,7 +717,7 @@ function handleThreadCommand(
     }
     const limit = parseLimitFlag(flags, 5)
     const search = options.searchMessages ?? defaultSearchMessages
-    const hits = search(dbPath, query, limit)
+    const hits = search(dbPath, query, limit, includePrivate)
 
     if (useJson) {
       outputJson(stdout, hits)
@@ -719,7 +730,7 @@ function handleThreadCommand(
   if (action === 'list') {
     const limit = parseLimitFlag(flags, 10)
     const list = options.listRecentThreads ?? defaultListRecentThreads
-    const threads = list(dbPath, limit)
+    const threads = list(dbPath, limit, includePrivate)
 
     if (useJson) {
       outputJson(stdout, threads)
@@ -735,7 +746,7 @@ function handleThreadCommand(
       throw new Error('Thread id is required: thread show <id>')
     }
     const dumpFn = options.dumpThread ?? defaultDumpThread
-    const dump = dumpFn(dbPath, threadId)
+    const dump = dumpFn(dbPath, threadId, includePrivate)
 
     if (!dump) {
       throw new Error(`Thread not found: ${threadId}`)

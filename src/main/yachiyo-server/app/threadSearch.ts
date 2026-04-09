@@ -61,7 +61,12 @@ function extractSnippet(content: string, query: string, maxLength = 100): string
   return `${start > 0 ? '…' : ''}${snippet}${end < content.length ? '…' : ''}`
 }
 
-export function searchMessages(dbPath: string, query: string, limit: number): MessageSearchHit[] {
+export function searchMessages(
+  dbPath: string,
+  query: string,
+  limit: number,
+  includePrivate = false
+): MessageSearchHit[] {
   const trimmed = query.trim()
   if (!trimmed) return []
   if (!existsSync(dbPath)) return []
@@ -83,7 +88,13 @@ export function searchMessages(dbPath: string, query: string, limit: number): Me
       })
       .from(messagesTable)
       .innerJoin(threadsTable, eq(messagesTable.threadId, threadsTable.id))
-      .where(and(isNull(threadsTable.archivedAt), like(messagesTable.content, pattern)))
+      .where(
+        and(
+          isNull(threadsTable.archivedAt),
+          like(messagesTable.content, pattern),
+          ...(includePrivate ? [] : [isNull(threadsTable.privacyMode)])
+        )
+      )
       .orderBy(desc(threadsTable.updatedAt), asc(messagesTable.createdAt))
       .limit(limit)
       .all()
@@ -118,7 +129,11 @@ function truncate(text: string, max = 120): string {
   return `${collapsed.slice(0, max)}…`
 }
 
-export function listRecentThreads(dbPath: string, limit: number): ThreadSummary[] {
+export function listRecentThreads(
+  dbPath: string,
+  limit: number,
+  includePrivate = false
+): ThreadSummary[] {
   if (!existsSync(dbPath)) return []
 
   const { BetterSqlite3, drizzle } = loadSqliteRuntime()
@@ -136,7 +151,12 @@ export function listRecentThreads(dbPath: string, limit: number): ThreadSummary[
         createdAt: threadsTable.createdAt
       })
       .from(threadsTable)
-      .where(isNull(threadsTable.archivedAt))
+      .where(
+        and(
+          isNull(threadsTable.archivedAt),
+          ...(includePrivate ? [] : [isNull(threadsTable.privacyMode)])
+        )
+      )
       .orderBy(desc(threadsTable.updatedAt))
       .limit(limit)
       .all()
@@ -188,7 +208,11 @@ export interface ThreadDump {
   messages: ThreadDumpMessage[]
 }
 
-export function dumpThread(dbPath: string, threadId: string): ThreadDump | null {
+export function dumpThread(
+  dbPath: string,
+  threadId: string,
+  includePrivate = false
+): ThreadDump | null {
   if (!existsSync(dbPath)) return null
 
   const { BetterSqlite3, drizzle } = loadSqliteRuntime()
@@ -201,6 +225,7 @@ export function dumpThread(dbPath: string, threadId: string): ThreadDump | null 
         id: threadsTable.id,
         title: threadsTable.title,
         preview: threadsTable.preview,
+        privacyMode: threadsTable.privacyMode,
         updatedAt: threadsTable.updatedAt,
         createdAt: threadsTable.createdAt
       })
@@ -209,6 +234,7 @@ export function dumpThread(dbPath: string, threadId: string): ThreadDump | null 
       .get()
 
     if (!thread) return null
+    if (!includePrivate && thread.privacyMode === '1') return null
 
     db.update(threadsTable)
       .set({ selfReviewedAt: new Date().toISOString() })
