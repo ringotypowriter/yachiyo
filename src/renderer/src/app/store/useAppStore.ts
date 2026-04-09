@@ -961,22 +961,35 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     try {
       const snapshot = await window.api.yachiyo.deleteMessage({ threadId, messageId })
-      set((state) => ({
-        harnessEvents: {
-          ...state.harnessEvents,
-          [threadId]: []
-        },
-        lastError: null,
-        messages: {
-          ...state.messages,
-          [threadId]: snapshot.messages
-        },
-        toolCalls: {
-          ...state.toolCalls,
-          [threadId]: snapshot.toolCalls
-        },
-        threads: upsertThread(state.threads, snapshot.thread)
-      }))
+      set((state) => {
+        const activeRunId = state.activeRunIdsByThread[threadId]
+        // While a run is active the server only allows deleting the
+        // queued follow-up (the one message identified by `messageId`).
+        // The snapshot won't include the in-flight assistant message
+        // (not persisted until run completion), so wholesale-replacing
+        // would erase streaming content.  Keep client state
+        // authoritative and just drop the deleted message.
+        const nextMessages = activeRunId
+          ? (state.messages[threadId] ?? []).filter((m) => m.id !== messageId)
+          : snapshot.messages
+
+        return {
+          // Preserve harness progress while a run is active.
+          harnessEvents: activeRunId
+            ? state.harnessEvents
+            : { ...state.harnessEvents, [threadId]: [] },
+          lastError: null,
+          messages: {
+            ...state.messages,
+            [threadId]: nextMessages
+          },
+          toolCalls: {
+            ...state.toolCalls,
+            [threadId]: snapshot.toolCalls
+          },
+          threads: upsertThread(state.threads, snapshot.thread)
+        }
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to delete this message.'
       set({ lastError: message })
@@ -1426,13 +1439,32 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       if (event.type === 'thread.state.replaced') {
-        const nextActiveRequestMessageId = state.activeRunIdsByThread[event.threadId]
+        const activeRunId = state.activeRunIdsByThread[event.threadId]
+        const nextActiveRequestMessageId = activeRunId
           ? resolveActiveRequestMessageId(
               event.thread,
               event.messages,
               state.activeRequestMessageIdsByThread[event.threadId] ?? null
             )
           : (state.activeRequestMessageIdsByThread[event.threadId] ?? null)
+
+        // While a run is active, the server snapshot won't contain the
+        // in-flight assistant message (not persisted until completion).
+        // Server messages are still authoritative for persisted state
+        // (steers, deletions), so use them — but re-inject the single
+        // pending assistant message that only exists client-side.
+        let nextMessages = event.messages
+        if (activeRunId) {
+          const pending = state.pendingAssistantMessages[activeRunId]
+          if (pending) {
+            const live = (state.messages[event.threadId] ?? []).find(
+              (m) => m.id === pending.messageId
+            )
+            if (live && !nextMessages.some((m) => m.id === pending.messageId)) {
+              nextMessages = upsertMessage(nextMessages, live)
+            }
+          }
+        }
 
         const nextState = {
           ...state,
@@ -1442,13 +1474,12 @@ export const useAppStore = create<AppState>((set, get) => ({
             nextActiveRequestMessageId
           ),
           archivedThreads: removeThread(state.archivedThreads, event.threadId),
-          harnessEvents: {
-            ...state.harnessEvents,
-            [event.threadId]: []
-          },
+          harnessEvents: activeRunId
+            ? state.harnessEvents
+            : { ...state.harnessEvents, [event.threadId]: [] },
           messages: {
             ...state.messages,
-            [event.threadId]: event.messages
+            [event.threadId]: nextMessages
           },
           pendingSteerMessages: removePendingSteerMessage(
             state.pendingSteerMessages,
