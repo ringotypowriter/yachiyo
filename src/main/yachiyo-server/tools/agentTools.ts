@@ -398,10 +398,16 @@ export function createAgentToolSet(
   }
 
   // --- Runtime-managed tools: conditional registration (not user-toggled) ---
-  if (enabledTools.has('skillsRead') && dependencies.availableSkills) {
-    tools.skillsRead = createSkillsReadTool(context, {
-      availableSkills: dependencies.availableSkills
-    })
+  // Register skillsRead when explicitly enabled, or when any user tool is enabled
+  // for cache stability (wrapped as disabled when not explicitly enabled).
+  if (dependencies.availableSkills && (enabledTools.has('skillsRead') || hasAnyUserTool)) {
+    tools.skillsRead = wrapDisabledTool(
+      createSkillsReadTool(context, {
+        availableSkills: dependencies.availableSkills
+      }),
+      'skillsRead',
+      enabledTools
+    )
   }
 
   if (dependencies.memoryService?.isConfigured()) {
