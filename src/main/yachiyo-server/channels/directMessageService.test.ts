@@ -7,6 +7,7 @@ import type {
   ChatAcceptedWithUserMessage,
   MessageDeltaEvent,
   MessageRecord,
+  RunCancelledEvent,
   RunCompletedEvent,
   ThreadModelOverride,
   ThreadRecord,
@@ -18,6 +19,7 @@ import {
   type DirectMessageServer,
   resolveDirectMessageThread
 } from './directMessageService.ts'
+import { handleDmSlashCommand, shouldDiscardPendingBatchForDmCommand } from './dmSlashCommands.ts'
 
 function createChannelUser(): ChannelUserRecord {
   return {
@@ -189,6 +191,9 @@ describe('createDirectMessageService', () => {
         assert.fail(`compactExternalThread should not be called for ${input.threadId}`)
         throw new Error('setThreadModelOverride should not be called')
       },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+
       updateChannelUser(input: { id: string; usedKTokens: number }): ChannelUserRecord {
         tokenUpdates.push(input)
         return { ...channelUser, usedKTokens: input.usedKTokens }
@@ -255,6 +260,9 @@ describe('createDirectMessageService', () => {
       async compactExternalThread() {
         throw new Error('should not be called')
       },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
       getTtlReaper: () => ({ register: () => {} })
@@ -323,6 +331,9 @@ describe('createDirectMessageService', () => {
       async compactExternalThread() {
         throw new Error('should not be called')
       },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
       getTtlReaper: () => ({ register: () => {} })
@@ -388,6 +399,9 @@ describe('createDirectMessageService', () => {
       async compactExternalThread() {
         throw new Error('should not be called')
       },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
       getTtlReaper: () => ({ register: () => {} })
@@ -460,6 +474,9 @@ describe('createDirectMessageService', () => {
       async compactExternalThread() {
         throw new Error('should not be called')
       },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
       getTtlReaper: () => ({ register: () => {} })
@@ -531,6 +548,9 @@ describe('createDirectMessageService', () => {
       async compactExternalThread() {
         throw new Error('should not be called')
       },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
       getTtlReaper: () => ({ register: () => {} })
@@ -583,6 +603,9 @@ describe('createDirectMessageService', () => {
       async compactExternalThread() {
         throw new Error('should not be called')
       },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
       getTtlReaper: () => ({ register: () => {} })
@@ -609,5 +632,230 @@ describe('createDirectMessageService', () => {
     await delay(20)
 
     assert.deepEqual(sentMessages, ['something went wrong'])
+  })
+
+  it('does not blank visibleReply when a run is cancelled', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-cancelled')
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    const visibleReplies: string[] = []
+
+    const server: DirectMessageServer = {
+      subscribe: (listener) => {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(): Promise<ChatAcceptedWithUserMessage> {
+        queueMicrotask(() => {
+          const cancelled: RunCancelledEvent = {
+            type: 'run.cancelled',
+            eventId: 'evt-c1',
+            timestamp: '2026-03-31T00:00:01.000Z',
+            threadId: thread.id,
+            runId: 'run-c1'
+          }
+          for (const listener of listeners) {
+            listener(cancelled)
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-c1',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 500,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      async compactExternalThread() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: (input) => {
+        visibleReplies.push(input.visibleReply)
+      },
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'test',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, compacted: false }),
+      sendMessage: async () => {},
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'hello')
+
+    await delay(50)
+
+    assert.deepEqual(
+      visibleReplies,
+      [],
+      'updateLatestAssistantVisibleReply must not be called on cancellation'
+    )
+  })
+
+  it('aborts message handling when /stop fires before sendChat', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-abort')
+    let sendChatCalled = false
+    let resolveThreadGate: null | (() => void) = null
+
+    const server: DirectMessageServer = {
+      subscribe: () => () => {},
+      async sendChat(): Promise<ChatAcceptedWithUserMessage> {
+        sendChatCalled = true
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'r1',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      async compactExternalThread() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'test',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: () =>
+        new Promise((resolve) => {
+          resolveThreadGate = () => resolve({ thread, compacted: false })
+        }),
+      sendMessage: async () => {},
+      nonRunReply: 'non-run',
+      errorReply: 'error',
+      shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
+      handleSlashCommand: (target, channelUser, command, args, context) =>
+        handleDmSlashCommand(
+          {
+            server,
+            threadReuseWindowMs: telegramPolicy.threadReuseWindowMs,
+            contextTokenLimit: telegramPolicy.contextTokenLimit,
+            createFreshThread: async () => createThread('t-fresh'),
+            sendMessage: async () => {},
+            requestStop: (userId) => directMessages.requestStop(userId)
+          },
+          target,
+          channelUser,
+          command,
+          args,
+          context
+        )
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'hello')
+
+    await delay(10)
+    assert.ok(resolveThreadGate, 'resolveThread should have been called')
+
+    directMessages.enqueueMessage('chat-1', channelUser, '/stop')
+    ;(resolveThreadGate as () => void)()
+    await delay(20)
+
+    assert.equal(sendChatCalled, false, 'sendChat must not be called after /stop aborts handling')
+  })
+
+  it('/new cancels the in-flight run via requestStop and cancelRunForChannelUser', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-running')
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    let cancelRunForChannelUserCalled = false
+
+    const server: DirectMessageServer = {
+      subscribe: (listener) => {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(): Promise<ChatAcceptedWithUserMessage> {
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-live',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      async compactExternalThread() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => true,
+      cancelRunForChannelUser: (userId) => {
+        if (userId === channelUser.id) cancelRunForChannelUserCalled = true
+        return true
+      },
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'test',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, compacted: false }),
+      sendMessage: async () => {},
+      nonRunReply: 'non-run',
+      errorReply: 'error',
+      shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
+      handleSlashCommand: (target, channelUser, command, args, context) =>
+        handleDmSlashCommand(
+          {
+            server,
+            threadReuseWindowMs: telegramPolicy.threadReuseWindowMs,
+            contextTokenLimit: telegramPolicy.contextTokenLimit,
+            createFreshThread: async () => createThread('thread-fresh'),
+            sendMessage: async () => {},
+            requestStop: (userId) => directMessages.requestStop(userId)
+          },
+          target,
+          channelUser,
+          command,
+          args,
+          context
+        )
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'hello')
+
+    await delay(30)
+
+    directMessages.enqueueMessage('chat-1', channelUser, '/new')
+
+    await delay(30)
+
+    assert.equal(
+      cancelRunForChannelUserCalled,
+      true,
+      'cancelRunForChannelUser must be called when /new cancels an in-flight run'
+    )
   })
 })

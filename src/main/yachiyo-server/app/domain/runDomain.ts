@@ -882,6 +882,27 @@ export class YachiyoServerRunDomain {
     })
   }
 
+  /** Cancel the active run for a thread, if any. Returns true if a run was cancelled. */
+  cancelRunForThread(threadId: string): boolean {
+    const runId = this.activeRunByThread.get(threadId)
+    if (!runId) {
+      return false
+    }
+    this.cancelRun({ runId })
+    return true
+  }
+
+  /** Cancel any active run owned by the given channel user. Returns true if a run was cancelled. */
+  cancelRunForChannelUser(channelUserId: string): boolean {
+    for (const [threadId] of this.activeRunByThread) {
+      const thread = this.deps.storage.getThread(threadId)
+      if (thread?.channelUserId === channelUserId) {
+        return this.cancelRunForThread(threadId)
+      }
+    }
+    return false
+  }
+
   answerToolQuestion(input: { runId: string; toolCallId: string; answer: string }): void {
     const activeRun = this.activeRuns.get(input.runId)
     if (activeRun?.answerToolQuestion) {

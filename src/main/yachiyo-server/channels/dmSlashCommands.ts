@@ -4,12 +4,20 @@ import type { DirectMessageServer } from './directMessageService.ts'
 export interface DmSlashCommandOptions<TTarget> {
   server: Pick<
     DirectMessageServer,
-    'findActiveChannelThread' | 'compactExternalThread' | 'getThreadTotalTokens'
+    | 'findActiveChannelThread'
+    | 'compactExternalThread'
+    | 'getThreadTotalTokens'
+    | 'cancelRunForChannelUser'
   >
   threadReuseWindowMs: number
   contextTokenLimit: number
   createFreshThread(channelUser: ChannelUserRecord): Promise<ThreadRecord>
   sendMessage(target: TTarget, text: string): Promise<void>
+  /**
+   * Abort any in-flight message handling for the given channel user.
+   * Called by commands that invalidate the current run (e.g. /new, /stop).
+   */
+  requestStop?(channelUserId: string): void
 }
 
 type CommandHandler<TTarget> = (
@@ -44,6 +52,8 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
     discardPendingBatch: true,
     handler: async (options, target, channelUser, _args, { batchDiscarded }) => {
       await options.createFreshThread(channelUser)
+      options.requestStop?.(channelUser.id)
+      options.server.cancelRunForChannelUser(channelUser.id)
       const notice = batchDiscarded ? 'Your unsent message was discarded.\n' : ''
       await options.sendMessage(target, `${notice}New conversation started.`)
     }
@@ -81,6 +91,21 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
       }
       await options.server.compactExternalThread({ threadId: thread.id })
       await options.sendMessage(target, `${notice}Context compacted.`)
+    }
+  },
+
+  '/stop': {
+    description: 'Force-stop the current run',
+    discardPendingBatch: true,
+    handler: async (options, target, channelUser, _args, { batchDiscarded }) => {
+      const notice = batchDiscarded ? 'Your unsent message was discarded.\n' : ''
+      options.requestStop?.(channelUser.id)
+      const cancelled = options.server.cancelRunForChannelUser(channelUser.id)
+      if (cancelled) {
+        await options.sendMessage(target, `${notice}Run stopped.`)
+      } else {
+        await options.sendMessage(target, `${notice}No active run to stop.`)
+      }
     }
   },
 

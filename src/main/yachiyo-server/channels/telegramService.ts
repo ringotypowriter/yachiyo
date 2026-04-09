@@ -202,7 +202,8 @@ export function createTelegramService({
               channelUserId: user.id,
               title: `Telegram:@${user.username}`
             }),
-          sendMessage
+          sendMessage,
+          requestStop: (userId) => directMessages.requestStop(userId)
         },
         chatId,
         channelUser,

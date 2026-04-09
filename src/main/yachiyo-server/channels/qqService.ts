@@ -201,7 +201,8 @@ export function createQQService({
               channelUserId: user.id,
               title: `QQ:${user.username}`
             }),
-          sendMessage: sendPrivateMessage
+          sendMessage: sendPrivateMessage,
+          requestStop: (userId) => directMessages.requestStop(userId)
         },
         qqUserId,
         channelUser,

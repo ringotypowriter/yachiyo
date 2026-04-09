@@ -47,6 +47,8 @@ export interface DirectMessageServer {
     modelOverride: ThreadModelOverride | null
   }): Promise<ThreadRecord>
   compactExternalThread(input: { threadId: string }): Promise<{ thread: ThreadRecord }>
+  cancelRunForThread(threadId: string): boolean
+  cancelRunForChannelUser(channelUserId: string): boolean
 }
 
 export interface DirectMessageThreadResolution {
@@ -159,6 +161,8 @@ export interface DirectMessageService<TTarget> {
     imageDownloads?: Promise<MessageImageRecord | null>[]
   ): void
   stop(): void
+  /** Abort any in-flight message handling for the given channel user. */
+  requestStop(channelUserId: string): void
 }
 
 interface PendingBatch<TTarget> {
@@ -178,10 +182,16 @@ function collectResolvedImages(
   )
 }
 
+/**
+ * Subscribes to server events for a thread and collects the assistant output.
+ * Returns `null` when the run is cancelled or the provided signal is aborted,
+ * so callers can skip side-effects (e.g. updating the visible reply).
+ */
 export function collectDirectMessageRunOutput(
   server: Pick<DirectMessageServer, 'subscribe'>,
-  threadId: string
-): Promise<string> {
+  threadId: string,
+  signal?: AbortSignal
+): Promise<string | null> {
   return new Promise((resolve, reject) => {
     let buffer = ''
 
@@ -203,7 +213,7 @@ export function collectDirectMessageRunOutput(
 
       if (event.type === 'run.cancelled') {
         unsubscribe()
-        resolve('')
+        resolve(null)
         return
       }
 
@@ -212,6 +222,18 @@ export function collectDirectMessageRunOutput(
         reject(new Error((event as YachiyoServerEvent & { error?: string }).error ?? 'Run failed'))
       }
     })
+
+    if (signal) {
+      const onAbort = (): void => {
+        unsubscribe()
+        resolve(null)
+      }
+      if (signal.aborted) {
+        onAbort()
+        return
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
   })
 }
 
@@ -220,6 +242,7 @@ export function createDirectMessageService<TTarget>(
 ): DirectMessageService<TTarget> {
   const pendingBatches = new Map<string, PendingBatch<TTarget>>()
   const userRunChain = new Map<string, Promise<void>>()
+  const userStopControllers = new Map<string, AbortController>()
   const replyDelayMs = options.replyDelayMs ?? randomReplyDelay
 
   async function handleAllowedMessage(
@@ -229,6 +252,8 @@ export function createDirectMessageService<TTarget>(
     images: MessageImageRecord[]
   ): Promise<void> {
     const stopHandlingIndicator = options.startHandlingIndicator?.(target) ?? (() => {})
+    const stopController = new AbortController()
+    userStopControllers.set(channelUser.id, stopController)
 
     try {
       console.log(
@@ -244,6 +269,11 @@ export function createDirectMessageService<TTarget>(
         await options.onCompacted?.(target)
       }
 
+      if (stopController.signal.aborted) {
+        console.log(`[${options.logLabel}] aborted before sendChat for ${channelUser.username}`)
+        return
+      }
+
       const replies: string[] = []
       const replyTool = createChannelReplyTool({
         onReply: async (message: string): Promise<void> => {
@@ -253,7 +283,11 @@ export function createDirectMessageService<TTarget>(
         }
       })
 
-      const runDonePromise = collectDirectMessageRunOutput(options.server, thread.id)
+      const runDonePromise = collectDirectMessageRunOutput(
+        options.server,
+        thread.id,
+        stopController.signal
+      )
 
       const accepted = await options.server.sendChat({
         threadId: thread.id,
@@ -268,6 +302,12 @@ export function createDirectMessageService<TTarget>(
       if (!isRunAccepted(accepted)) {
         console.warn(`[${options.logLabel}] sendChat returned non-run accepted:`, accepted)
         await options.sendMessage(target, options.nonRunReply)
+        return
+      }
+
+      if (stopController.signal.aborted) {
+        console.log(`[${options.logLabel}] aborting run after sendChat for ${channelUser.username}`)
+        options.server.cancelRunForThread(thread.id)
         return
       }
 
@@ -287,12 +327,21 @@ export function createDirectMessageService<TTarget>(
         }
       }
 
-      let rawOutput: string
+      let rawOutput: string | null
       try {
         rawOutput = await runDonePromise
       } finally {
         progressReporter.stop()
       }
+
+      if (rawOutput === null) {
+        console.log(
+          `[${options.logLabel}] run cancelled for ${channelUser.username}, skipping reply update`
+        )
+        options.server.cancelRunForThread(thread.id)
+        return
+      }
+
       const fallback = rawOutput.trim()
 
       if (fallback && !replies.includes(fallback)) {
@@ -325,6 +374,7 @@ export function createDirectMessageService<TTarget>(
       console.error(`[${options.logLabel}] failed to handle allowed message`, error)
       await options.sendMessage(target, options.errorReply).catch(() => {})
     } finally {
+      userStopControllers.delete(channelUser.id)
       stopHandlingIndicator()
     }
   }
@@ -456,6 +506,10 @@ export function createDirectMessageService<TTarget>(
           `[${options.logLabel}] discarded pending batch for ${batch.channelUser.username} on shutdown`
         )
       }
+    },
+
+    requestStop(channelUserId: string): void {
+      userStopControllers.get(channelUserId)?.abort()
     }
   }
 }

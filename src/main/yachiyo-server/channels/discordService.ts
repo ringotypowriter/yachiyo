@@ -241,7 +241,8 @@ export function createDiscordService({
               channelUserId: user.id,
               title: `Discord:@${user.username}`
             }),
-          sendMessage
+          sendMessage,
+          requestStop: (userId) => directMessages.requestStop(userId)
         },
         channelId,
         channelUser,

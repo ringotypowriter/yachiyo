@@ -803,6 +803,14 @@ export class YachiyoServer {
     this.runDomain.cancelRun(input)
   }
 
+  cancelRunForThread(threadId: string): boolean {
+    return this.runDomain.cancelRunForThread(threadId)
+  }
+
+  cancelRunForChannelUser(channelUserId: string): boolean {
+    return this.runDomain.cancelRunForChannelUser(channelUserId)
+  }
+
   answerToolQuestion(input: { runId: string; toolCallId: string; answer: string }): void {
     this.runDomain.answerToolQuestion(input)
   }

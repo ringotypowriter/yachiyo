@@ -42,7 +42,8 @@ function makeOptions<TTarget>(
       getThreadTotalTokens: () => 0,
       compactExternalThread: async () => {
         throw new Error('compactExternalThread should not be called')
-      }
+      },
+      cancelRunForChannelUser: () => false
     },
     threadReuseWindowMs: 3_600_000,
     contextTokenLimit: 100_000,
@@ -55,15 +56,30 @@ function makeOptions<TTarget>(
 
 describe('handleDmSlashCommand', () => {
   describe('/new', () => {
-    it('creates a fresh thread and sends a confirmation', async () => {
+    it('creates a fresh thread, cancels any old run, and sends a confirmation', async () => {
       const fresh = createThread('thread-new')
       const channelUser = createChannelUser()
       let threadCreated = false
+      let cancelledUserId: string | undefined
+      const callOrder: string[] = []
       const sent: string[] = []
 
       const options = makeOptions<string>({
+        server: {
+          findActiveChannelThread: () => undefined,
+          getThreadTotalTokens: () => 0,
+          compactExternalThread: async () => {
+            throw new Error('should not compact')
+          },
+          cancelRunForChannelUser: (userId) => {
+            callOrder.push('cancel')
+            cancelledUserId = userId
+            return true
+          }
+        },
         createFreshThread: async (u) => {
           assert.equal(u.id, channelUser.id)
+          callOrder.push('create')
           threadCreated = true
           return fresh
         },
@@ -76,8 +92,10 @@ describe('handleDmSlashCommand', () => {
 
       assert.equal(handled, true)
       assert.equal(threadCreated, true)
+      assert.equal(cancelledUserId, channelUser.id)
+      assert.deepEqual(callOrder, ['create', 'cancel'], 'cancel must happen after create succeeds')
       assert.equal(sent.length, 1)
-      assert.ok(sent[0].length > 0, 'confirmation message should not be empty')
+      assert.ok(sent[0].includes('New conversation started.'))
     })
 
     it('includes a discard notice when batchDiscarded is true', async () => {
@@ -132,7 +150,8 @@ describe('handleDmSlashCommand', () => {
           },
           compactExternalThread: async () => {
             throw new Error('should not compact')
-          }
+          },
+          cancelRunForChannelUser: () => false
         },
         sendMessage: async (_target, text) => {
           sent.push(text)
@@ -162,7 +181,8 @@ describe('handleDmSlashCommand', () => {
           getThreadTotalTokens: () => 5_000,
           compactExternalThread: async () => {
             throw new Error('should not compact')
-          }
+          },
+          cancelRunForChannelUser: () => false
         },
         sendMessage: async (_target, text) => {
           sent.push(text)
@@ -186,7 +206,8 @@ describe('handleDmSlashCommand', () => {
           getThreadTotalTokens: () => 0,
           compactExternalThread: async () => {
             throw new Error('should not compact')
-          }
+          },
+          cancelRunForChannelUser: () => false
         },
         sendMessage: async (_target, text) => {
           sent.push(text)
@@ -221,7 +242,8 @@ describe('handleDmSlashCommand', () => {
             assert.equal(input.threadId, thread.id)
             compactCalled = true
             return { thread: compacted }
-          }
+          },
+          cancelRunForChannelUser: () => false
         },
         sendMessage: async (_target, text) => {
           sent.push(text)
@@ -246,7 +268,8 @@ describe('handleDmSlashCommand', () => {
           getThreadTotalTokens: () => 0,
           compactExternalThread: async () => {
             throw new Error('should not compact')
-          }
+          },
+          cancelRunForChannelUser: () => false
         },
         sendMessage: async (_target, text) => {
           sent.push(text)
@@ -270,7 +293,8 @@ describe('handleDmSlashCommand', () => {
         server: {
           findActiveChannelThread: () => thread,
           getThreadTotalTokens: () => 0,
-          compactExternalThread: async () => ({ thread: compacted })
+          compactExternalThread: async () => ({ thread: compacted }),
+          cancelRunForChannelUser: () => false
         },
         sendMessage: async (_target, text) => {
           sent.push(text)
@@ -291,6 +315,89 @@ describe('handleDmSlashCommand', () => {
         sent[0].includes('Context compacted.'),
         `reply should include confirmation, got: ${sent[0]}`
       )
+    })
+  })
+
+  describe('/stop', () => {
+    it('cancels the active run for the channel user', async () => {
+      const channelUser = createChannelUser()
+      const sent: string[] = []
+      let cancelledUserId: string | undefined
+
+      const options = makeOptions<string>({
+        server: {
+          findActiveChannelThread: () => undefined,
+          getThreadTotalTokens: () => 0,
+          compactExternalThread: async () => {
+            throw new Error('should not compact')
+          },
+          cancelRunForChannelUser: (userId) => {
+            cancelledUserId = userId
+            return true
+          }
+        },
+        sendMessage: async (_target, text) => {
+          sent.push(text)
+        }
+      })
+
+      const handled = await handleDmSlashCommand(options, 'chat-1', channelUser, '/stop', '')
+
+      assert.equal(handled, true)
+      assert.equal(cancelledUserId, channelUser.id)
+      assert.equal(sent.length, 1)
+      assert.ok(sent[0].includes('Run stopped'), `reply should confirm stop, got: ${sent[0]}`)
+    })
+
+    it('reports no active run when nothing is running', async () => {
+      const channelUser = createChannelUser()
+      const sent: string[] = []
+
+      const options = makeOptions<string>({
+        sendMessage: async (_target, text) => {
+          sent.push(text)
+        }
+      })
+
+      const handled = await handleDmSlashCommand(options, 'chat-1', channelUser, '/stop', '')
+
+      assert.equal(handled, true)
+      assert.equal(sent.length, 1)
+      assert.ok(
+        sent[0].includes('No active run'),
+        `reply should say no active run, got: ${sent[0]}`
+      )
+    })
+
+    it('includes a discard notice when batchDiscarded is true', async () => {
+      const channelUser = createChannelUser()
+      const sent: string[] = []
+
+      const options = makeOptions<string>({
+        server: {
+          findActiveChannelThread: () => undefined,
+          getThreadTotalTokens: () => 0,
+          compactExternalThread: async () => {
+            throw new Error('should not compact')
+          },
+          cancelRunForChannelUser: () => true
+        },
+        sendMessage: async (_target, text) => {
+          sent.push(text)
+        }
+      })
+
+      const handled = await handleDmSlashCommand(options, 'chat-1', channelUser, '/stop', '', {
+        batchDiscarded: true
+      })
+
+      assert.equal(handled, true)
+      assert.equal(sent.length, 1)
+      assert.ok(
+        sent[0].includes('Your unsent message was discarded.'),
+        `reply should include discard notice, got: ${sent[0]}`
+      )
+      assert.ok(sent[0].includes('Run stopped'), `reply should confirm stop, got: ${sent[0]}`)
     })
   })
 
@@ -330,7 +437,7 @@ describe('handleDmSlashCommand', () => {
 
       assert.equal(handled, true)
       assert.equal(sent.length, 1)
-      for (const cmd of ['/new', '/status', '/compact', '/help']) {
+      for (const cmd of ['/new', '/status', '/compact', '/stop', '/help']) {
         assert.ok(sent[0].includes(cmd), `reply should mention ${cmd}, got: ${sent[0]}`)
       }
     })
