@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, CheckCircle, ChevronDown, Loader, Plus, Trash2, XCircle } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import type { SettingsConfig, SubagentProfile } from '../../../shared/yachiyo/protocol.ts'
@@ -98,17 +98,22 @@ function toProfile(d: ProfileDraft): SubagentProfile {
 }
 
 export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): React.ReactNode {
+  const propsKey = useMemo(
+    () => JSON.stringify(draft.subagentProfiles ?? []),
+    [draft.subagentProfiles]
+  )
   const [rows, setRows] = useState<ProfileDraft[]>(() =>
     (draft.subagentProfiles ?? []).map(toProfileDraft)
   )
+  const [prevKey, setPrevKey] = useState(propsKey)
+  if (propsKey !== prevKey) {
+    setPrevKey(propsKey)
+    setRows((draft.subagentProfiles ?? []).map(toProfileDraft))
+  }
+
   const [testStates, setTestStates] = useState<Record<number, TestState>>({})
   const [showPresetMenu, setShowPresetMenu] = useState(false)
   const presetMenuRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const profiles = rows.filter((r) => r.name.trim() && r.command.trim()).map(toProfile)
-    onChange({ ...draft, subagentProfiles: profiles })
-  }, [rows]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!showPresetMenu) return
@@ -121,8 +126,14 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showPresetMenu])
 
+  function commitRows(nextRows: ProfileDraft[]): void {
+    setRows(nextRows)
+    const profiles = nextRows.filter((r) => r.name.trim() && r.command.trim()).map(toProfile)
+    onChange({ ...draft, subagentProfiles: profiles })
+  }
+
   function updateRow(index: number, patch: Partial<ProfileDraft>): void {
-    setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+    commitRows(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
     setTestStates((prev) => {
       const next = { ...prev }
       delete next[index]
@@ -131,7 +142,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
   }
 
   function removeRow(index: number): void {
-    setRows((prev) => prev.filter((_, i) => i !== index))
+    commitRows(rows.filter((_, i) => i !== index))
     setTestStates((prev) => {
       const next: Record<number, TestState> = {}
       for (const [key, val] of Object.entries(prev)) {
@@ -145,8 +156,8 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
 
   function addRow(preset?: Preset): void {
     const id = `custom-${Date.now()}`
-    setRows((prev) => [
-      ...prev,
+    commitRows([
+      ...rows,
       preset
         ? {
             id,
@@ -173,8 +184,8 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
   }
 
   function updateEnvEntry(rowIndex: number, ei: number, field: 'key' | 'value', val: string): void {
-    setRows((prev) =>
-      prev.map((row, i) =>
+    commitRows(
+      rows.map((row, i) =>
         i !== rowIndex
           ? row
           : { ...row, env: row.env.map((e, j) => (j === ei ? { ...e, [field]: val } : e)) }
@@ -183,16 +194,16 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
   }
 
   function removeEnvEntry(rowIndex: number, ei: number): void {
-    setRows((prev) =>
-      prev.map((row, i) =>
+    commitRows(
+      rows.map((row, i) =>
         i !== rowIndex ? row : { ...row, env: row.env.filter((_, j) => j !== ei) }
       )
     )
   }
 
   function addEnvEntry(rowIndex: number): void {
-    setRows((prev) =>
-      prev.map((row, i) =>
+    commitRows(
+      rows.map((row, i) =>
         i !== rowIndex ? row : { ...row, env: [...row.env, { key: '', value: '' }] }
       )
     )
