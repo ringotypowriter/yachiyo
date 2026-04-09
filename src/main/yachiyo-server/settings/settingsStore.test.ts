@@ -41,7 +41,8 @@ test('settings store persists multi-provider config as TOML', async () => {
       },
       chat: {
         activeRunEnterBehavior: 'enter-queues-follow-up',
-        stripCompact: true
+        stripCompact: true,
+        autoMemoryDistillation: true
       },
       workspace: {
         savedPaths: ['/Users/ringo/projects/yachiyo', '/Users/ringo/projects/handshake']
@@ -457,7 +458,8 @@ test('toToolModelSettings resolves the configured auxiliary model snapshot', () 
 test('normalizeSettingsConfig falls back to the default active-run input behavior', () => {
   assert.deepEqual(normalizeSettingsConfig({ providers: [] }).chat, {
     activeRunEnterBehavior: 'enter-steers',
-    stripCompact: true
+    stripCompact: true,
+    autoMemoryDistillation: true
   })
 
   assert.deepEqual(
@@ -469,7 +471,8 @@ test('normalizeSettingsConfig falls back to the default active-run input behavio
     }).chat,
     {
       activeRunEnterBehavior: 'enter-steers',
-      stripCompact: true
+      stripCompact: true,
+      autoMemoryDistillation: true
     }
   )
 })
