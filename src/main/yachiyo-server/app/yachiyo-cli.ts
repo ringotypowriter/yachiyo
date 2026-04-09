@@ -37,16 +37,24 @@ import {
 } from './threadSearch.ts'
 import type { YachiyoStorage } from '../storage/storage.ts'
 
-const USAGE = `Usage: yachiyo <namespace> <subcommand> [args...] [flags...]
+const GLOBAL_FLAGS_HELP = `Global flags:
+  --settings <path>   Settings file path      (default: ~/.yachiyo/config.toml)
+  --soul <path>       Soul document path      (default: ~/.yachiyo/SOUL.md)
+  --db <path>         Database file path       (default: ~/.yachiyo/yachiyo.sqlite)
+  --payload <json>    JSON payload for mutation commands
+  --limit <n>         Max results to return    (default: 5)
+  --json              Output raw JSON instead of human-readable text
+  --help              Show help for a command or namespace`
 
-All output is JSON unless noted. The app must be running for "send" commands.
+const NAMESPACE_HELP: Record<string, string> = {
+  soul: `Usage: yachiyo soul <subcommand> [args...]
 
-── soul ──────────────────────────────────────────────────────────────
   soul traits list                       List evolved personality traits (JSON array of {index, trait}).
   soul traits add <trait>                Append a daily trait. Returns updated list.
-  soul traits remove <index-or-text>     Remove trait by numeric index or exact text. Returns updated list.
+  soul traits remove <index-or-text>     Remove trait by numeric index or exact text. Returns updated list.`,
 
-── provider ──────────────────────────────────────────────────────────
+  provider: `Usage: yachiyo provider <action> [args...] [flags...]
+
   provider list                          List all configured LLM providers (apiKey is redacted).
   provider show <id-or-name>             Show a single provider by UUID or display name.
   provider update <id-or-name> [--payload <json>]
@@ -55,9 +63,10 @@ All output is JSON unless noted. The app must be running for "send" commands.
                                          Promote a provider to default and set the active model.
                                          Without --model, picks the first enabled model.
   provider models [id-or-name]           Without argument: list all locally enabled models.
-                                         With argument: fetch available model IDs from the provider's API.
+                                         With argument: fetch available model IDs from the provider's API.`,
 
-── agent ─────────────────────────────────────────────────────────────
+  agent: `Usage: yachiyo agent <action> [args...] [flags...]
+
   agent list                             List all registered subagent profiles.
   agent show <id-or-name>                Show a single subagent profile.
   agent add --payload <json>             Register a new subagent. Requires "name" and "command" in payload.
@@ -65,22 +74,25 @@ All output is JSON unless noted. The app must be running for "send" commands.
                                          Merge JSON patch into an existing subagent profile.
   agent remove <id-or-name>              Unregister a subagent profile.
   agent enable <id-or-name>              Enable a disabled subagent.
-  agent disable <id-or-name>             Disable a subagent without removing it.
+  agent disable <id-or-name>             Disable a subagent without removing it.`,
 
-── config ────────────────────────────────────────────────────────────
+  config: `Usage: yachiyo config <action> [args...]
+
   config get [path]                      Read the full settings object, or a dot-separated path (e.g. "providers.0.name").
-  config set <path> <value>              Write a value at a dot-separated path. Value is parsed as JSON; plain strings are kept as-is.
+  config set <path> <value>              Write a value at a dot-separated path. Value is parsed as JSON; plain strings are kept as-is.`,
 
-── thread ────────────────────────────────────────────────────────────
+  thread: `Usage: yachiyo thread <action> [args...] [flags...]
+
   thread search <query> [--limit <n>] [--json]
                                          Full-text search across message history. Default limit=5.
                                          Without --json, prints human-readable lines.
   thread list [--limit <n>] [--json]     List recent (non-archived) threads ordered by updatedAt desc.
                                          Each entry includes the thread's first user query and preview.
                                          Default limit=10.
-  thread show <id> [--json]              Dump all messages of a thread in chronological order.
+  thread show <id> [--json]              Dump all messages of a thread in chronological order.`,
 
-── schedule ──────────────────────────────────────────────────────────
+  schedule: `Usage: yachiyo schedule <action> [args...] [flags...]
+
   schedule list [--json]                 List all schedules. Without --json, prints a compact summary.
   schedule add --payload <json>          Create a new schedule. Payload must include name and prompt, plus either
                                          cronExpression (recurring) or runAt (ISO datetime, one-off).
@@ -88,9 +100,10 @@ All output is JSON unless noted. The app must be running for "send" commands.
   schedule enable <id>                   Enable a disabled schedule.
   schedule disable <id>                  Disable a schedule without removing it.
   schedule runs [<id>] [--limit <n>] [--json]
-                                         List recent schedule runs. Optionally filter by schedule UUID.
+                                         List recent schedule runs. Optionally filter by schedule UUID.`,
 
-── channel ───────────────────────────────────────────────────────────
+  channel: `Usage: yachiyo channel <action> [args...] [flags...]
+
   channel users [--json]                 List registered channel users with their IDs, platforms, and statuses.
                                          Use the "id" field with "send channel" to send a message.
                                          Without --json, prints a compact summary.
@@ -99,23 +112,32 @@ All output is JSON unless noted. The app must be running for "send" commands.
                                          Without --json, prints a compact summary.
   channel groups set-status <id> <status>
                                          Update only a group channel's monitor status.
-                                         Accepted statuses: approved|approval, pending, blocked|block.
+                                         Accepted statuses: approved|approval, pending, blocked|block.`,
 
-── send (requires running app) ───────────────────────────────────────
+  send: `Usage: yachiyo send <subcommand> [args...] [flags...]
+
+  Requires the app to be running.
+
   send notification <message> [--title <title>]
                                          Push a native OS notification. Default title="Yachiyo". Fire-and-forget.
   send channel <id> <message>            Send a text message directly to a channel user or group on their
                                          external platform (Telegram/QQ/Discord) as the bot. No thread or
                                          inference — the message goes straight out. Fire-and-forget.
-                                         Get valid IDs from "channel users" or "channel groups".
+                                         Get valid IDs from "channel users" or "channel groups".`
+}
 
-── Global flags ──────────────────────────────────────────────────────
-  --settings <path>   Settings file path      (default: ~/.yachiyo/config.toml)
-  --soul <path>       Soul document path      (default: ~/.yachiyo/SOUL.md)
-  --db <path>         Database file path       (default: ~/.yachiyo/yachiyo.sqlite)
-  --payload <json>    JSON payload for mutation commands
-  --limit <n>         Max results to return    (default: 5)
-  --json              Output raw JSON instead of human-readable text`
+function namespaceHelp(ns: string): string {
+  return `${NAMESPACE_HELP[ns]}\n\n${GLOBAL_FLAGS_HELP}`
+}
+
+const USAGE = `Usage: yachiyo <namespace> <subcommand> [args...] [flags...]
+
+All output is JSON unless noted. The app must be running for "send" commands.
+Use "yachiyo <namespace> --help" for detailed help on a specific namespace.
+
+Namespaces: soul, provider, agent, config, thread, schedule, channel, send
+
+${Object.values(NAMESPACE_HELP).join('\n\n')}\n\n${GLOBAL_FLAGS_HELP}`
 
 export interface CliConfigService {
   getConfig(): SettingsConfig | Promise<SettingsConfig>
@@ -279,10 +301,16 @@ function formatTraitList(traits: string[]): Array<{ index: number; trait: string
 
 async function handleSoulCommand(
   positionals: string[],
+  flags: Map<string, string>,
   soulPath: string,
   stdout: Pick<typeof process.stdout, 'write'>,
   options: RunYachiyoCliOptions
 ): Promise<void> {
+  if (flags.has('--help')) {
+    stdout.write(`${namespaceHelp('soul')}\n`)
+    return
+  }
+
   const subcommand = positionals[0]
 
   if (subcommand !== 'traits') {
@@ -342,6 +370,11 @@ async function handleProviderCommand(
   configService: CliConfigService,
   stdout: Pick<typeof process.stdout, 'write'>
 ): Promise<void> {
+  if (flags.has('--help')) {
+    stdout.write(`${namespaceHelp('provider')}\n`)
+    return
+  }
+
   const action = positionals[0]
 
   if (action === 'list') {
@@ -435,6 +468,11 @@ async function handleAgentCommand(
   configService: CliConfigService,
   stdout: Pick<typeof process.stdout, 'write'>
 ): Promise<void> {
+  if (flags.has('--help')) {
+    stdout.write(`${namespaceHelp('agent')}\n`)
+    return
+  }
+
   const action = positionals[0]
 
   if (action === 'list') {
@@ -529,9 +567,15 @@ async function handleAgentCommand(
 
 async function handleConfigCommand(
   positionals: string[],
+  flags: Map<string, string>,
   configService: CliConfigService,
   stdout: Pick<typeof process.stdout, 'write'>
 ): Promise<void> {
+  if (flags.has('--help')) {
+    stdout.write(`${namespaceHelp('config')}\n`)
+    return
+  }
+
   const action = positionals[0]
 
   if (action === 'get') {
@@ -634,6 +678,11 @@ function handleThreadCommand(
   stdout: Pick<typeof process.stdout, 'write'>,
   options: RunYachiyoCliOptions
 ): void {
+  if (flags.has('--help')) {
+    stdout.write(`${namespaceHelp('thread')}\n`)
+    return
+  }
+
   const action = positionals[0]
   const useJson = flags.get('--json') === 'true'
 
@@ -698,8 +747,18 @@ export async function runYachiyoCli(
   const { positionals, flags } = parseArgs(args)
   const namespace = positionals[0]
 
+  if (flags.has('--help')) {
+    if (namespace && namespace in NAMESPACE_HELP) {
+      stdout.write(`${namespaceHelp(namespace)}\n`)
+    } else {
+      stdout.write(`${USAGE}\n`)
+    }
+    return
+  }
+
   if (!namespace) {
-    throw new Error(USAGE)
+    stdout.write(`${USAGE}\n`)
+    return
   }
 
   const settingsPath = flags.get('--settings') ?? resolveYachiyoSettingsPath()
@@ -707,7 +766,7 @@ export async function runYachiyoCli(
   const dbPath = flags.get('--db') ?? resolveYachiyoDbPath()
 
   if (namespace === 'soul') {
-    await handleSoulCommand(positionals.slice(1), soulPath, stdout, options)
+    await handleSoulCommand(positionals.slice(1), flags, soulPath, stdout, options)
     return
   }
 
@@ -750,7 +809,7 @@ export async function runYachiyoCli(
     return
   }
 
-  await handleConfigCommand(positionals.slice(1), configService, stdout)
+  await handleConfigCommand(positionals.slice(1), flags, configService, stdout)
 }
 
 function defaultSendNotification(
@@ -824,6 +883,11 @@ async function handleChannelCommand(
   stdout: Pick<typeof process.stdout, 'write'>,
   options: RunYachiyoCliOptions
 ): Promise<void> {
+  if (flags.has('--help')) {
+    stdout.write(`${namespaceHelp('channel')}\n`)
+    return
+  }
+
   const action = positionals[0]
   const useJson = flags.get('--json') === 'true'
 
@@ -929,6 +993,11 @@ async function handleSendCommand(
   stdout: Pick<typeof process.stdout, 'write'>,
   options: RunYachiyoCliOptions
 ): Promise<void> {
+  if (flags.has('--help')) {
+    stdout.write(`${namespaceHelp('send')}\n`)
+    return
+  }
+
   const subcommand = positionals[0]
 
   if (subcommand === 'notification') {
@@ -971,6 +1040,11 @@ async function handleScheduleCommand(
   dbPath: string,
   stdout: Pick<typeof process.stdout, 'write'>
 ): Promise<void> {
+  if (flags.has('--help')) {
+    stdout.write(`${namespaceHelp('schedule')}\n`)
+    return
+  }
+
   const { createSqliteYachiyoStorage } = await import('../storage/sqlite/database.ts')
   const storage = createSqliteYachiyoStorage(dbPath)
   const domain = new ScheduleDomain({

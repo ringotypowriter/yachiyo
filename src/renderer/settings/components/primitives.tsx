@@ -171,6 +171,7 @@ export function SimpleSelect<T extends string>({
           <div
             ref={dropdownRef}
             role="listbox"
+            onPointerDown={(e) => e.stopPropagation()}
             style={{
               position: 'fixed',
               ...(openUpward

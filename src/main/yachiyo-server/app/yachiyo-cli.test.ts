@@ -1005,18 +1005,17 @@ test('unknown namespace throws with helpful message', async () => {
   )
 })
 
-test('missing namespace throws usage message', async () => {
-  await assert.rejects(
-    () =>
-      runYachiyoCli([], {
-        stdout: {
-          write() {
-            return true
-          }
-        }
-      }),
-    /Usage/
-  )
+test('missing namespace prints usage to stdout', async () => {
+  let output = ''
+  await runYachiyoCli([], {
+    stdout: {
+      write(chunk: string) {
+        output += chunk
+        return true
+      }
+    }
+  })
+  assert.match(output, /Usage/)
 })
 
 test('soul traits remove - unknown text throws', async () => {
