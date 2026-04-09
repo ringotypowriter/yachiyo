@@ -170,6 +170,7 @@ function createWindow(): void {
     minWidth: 760,
     minHeight: 500,
     show: false,
+    title: APP_NAME,
     autoHideMenuBar: true,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 18 },
