@@ -382,11 +382,11 @@ function DateTimePick({
       setHour(parsed.getHours())
       setMinute(Math.round(parsed.getMinutes() / 5) * 5)
     } else {
-      setSelYear(null)
-      setSelMonth(null)
-      setSelDay(null)
-      setHour(9)
-      setMinute(0)
+      setSelYear(base.getFullYear())
+      setSelMonth(base.getMonth())
+      setSelDay(base.getDate())
+      setHour(base.getHours())
+      setMinute(Math.round(base.getMinutes() / 5) * 5)
     }
     if (btnRef.current) {
       const r = btnRef.current.getBoundingClientRect()

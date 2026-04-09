@@ -124,7 +124,6 @@ function scheduleFingerprint(schedules: ScheduleRecord[]): string {
 export function createScheduleService(deps: ScheduleServiceDeps): ScheduleService {
   const timers = new Map<string, ScheduleTimer>()
   const activeRuns = new Set<string>()
-  const pendingImmediateRuns = new Set<string>()
   let syncTimer: ReturnType<typeof setInterval> | null = null
   let lastFingerprint = ''
 
@@ -157,11 +156,11 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
           return
         }
         if (fireAt <= Date.now()) {
-          // Already past — queue one fire, but guard against reloads queuing duplicates.
-          requestImmediateFire(schedule.id)
-        } else {
-          armTimerAt(schedule.id, fireAt)
+          // Already past — skip and disable so it doesn't fire.
+          disarmOneOffSchedule(schedule.id, 'skipped')
+          return
         }
+        armTimerAt(schedule.id, fireAt)
       } else if (schedule.cronExpression) {
         const cron = CronExpressionParser.parse(schedule.cronExpression, {
           tz: Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -207,17 +206,6 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
       clearTimeout(timer.timeout)
     }
     timers.clear()
-    pendingImmediateRuns.clear()
-  }
-
-  function requestImmediateFire(scheduleId: string): void {
-    if (activeRuns.has(scheduleId) || pendingImmediateRuns.has(scheduleId)) return
-
-    pendingImmediateRuns.add(scheduleId)
-    queueMicrotask(() => {
-      if (!pendingImmediateRuns.delete(scheduleId)) return
-      void fireSchedule(scheduleId)
-    })
   }
 
   async function fireSchedule(scheduleId: string): Promise<void> {

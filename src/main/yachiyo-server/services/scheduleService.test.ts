@@ -150,21 +150,6 @@ function createMockServer(): {
   }
 }
 
-function createDeferredPromise<T>(): {
-  promise: Promise<T>
-  resolve: (value: T) => void
-  reject: (error: unknown) => void
-} {
-  let resolve!: (value: T) => void
-  let reject!: (error: unknown) => void
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res
-    reject = rej
-  })
-
-  return { promise, resolve, reject }
-}
-
 async function flushAsyncWork(): Promise<void> {
   await Promise.resolve()
   await new Promise<void>((resolve) => setImmediate(resolve))
@@ -185,13 +170,13 @@ async function waitFor(predicate: () => boolean, maxAttempts = 30): Promise<void
 
 describe('createScheduleService', () => {
   it('disarms skipped one-off schedules instead of re-arming them offline', async () => {
-    const storage = createMockStorage()
+    const storage = createMockStorage(createSchedule({ runAt: '1970-01-01T00:00:05.000Z' }))
     let fetchCalls = 0
     const fetchRestore = mock.method(globalThis, 'fetch', async () => {
       fetchCalls += 1
       return { ok: false } as Response
     })
-    mock.timers.enable({ apis: ['setTimeout'] })
+    mock.timers.enable({ apis: ['Date', 'setTimeout'] })
 
     try {
       const { server } = createMockServer()
@@ -230,9 +215,9 @@ describe('createScheduleService', () => {
   })
 
   it('keeps completed one-off schedules and their run history', async () => {
-    const storage = createMockStorage()
+    const storage = createMockStorage(createSchedule({ runAt: '1970-01-01T00:00:05.000Z' }))
     const fetchRestore = mock.method(globalThis, 'fetch', async () => ({ ok: true }) as Response)
-    mock.timers.enable({ apis: ['setTimeout'] })
+    mock.timers.enable({ apis: ['Date', 'setTimeout'] })
 
     try {
       const { server, notifications } = createMockServer()
@@ -273,15 +258,14 @@ describe('createScheduleService', () => {
     }
   })
 
-  it('does not start an overdue one-off twice when reload runs before connectivity resolves', async () => {
-    const storage = createMockStorage(createSchedule({ runAt: '2025-12-31T23:59:00.000Z' }))
-    const connectivity = createDeferredPromise<Response>()
+  it('skips an overdue one-off without firing or creating runs', async () => {
+    const storage = createMockStorage(createSchedule({ runAt: '1970-01-01T00:00:00.000Z' }))
     let fetchCalls = 0
     const fetchRestore = mock.method(globalThis, 'fetch', async () => {
       fetchCalls += 1
-      return connectivity.promise
+      return { ok: false } as Response
     })
-    mock.timers.enable({ apis: ['setTimeout'] })
+    mock.timers.enable({ apis: ['Date', 'setTimeout'] })
 
     try {
       const { server } = createMockServer()
@@ -303,19 +287,8 @@ describe('createScheduleService', () => {
       service.reload()
       await flushAsyncWork()
 
-      assert.equal(fetchCalls, 1)
-
-      connectivity.resolve({ ok: false } as Response)
-      await flushAsyncWork()
-      mock.timers.runAll()
-      await flushAsyncWork()
-      mock.timers.runAll()
-      await flushAsyncWork()
-      mock.timers.runAll()
-      await flushAsyncWork()
-
-      assert.equal(fetchCalls, 3)
-      assert.equal(storage.runs.length, 1)
+      assert.equal(fetchCalls, 0)
+      assert.equal(storage.runs.length, 0)
       assert.equal(storage.schedules.get('schedule-1')?.enabled, false)
     } finally {
       fetchRestore.mock.restore()
@@ -323,26 +296,15 @@ describe('createScheduleService', () => {
     }
   })
 
-  it('does not recurse when reloading an overdue one-off that is already active', async () => {
-    const storage = createMockStorage(createSchedule({ runAt: '2025-12-31T23:59:00.000Z' }))
+  it('skips an overdue one-off even when reloaded multiple times', async () => {
+    const storage = createMockStorage(createSchedule({ runAt: '1970-01-01T00:00:00.000Z' }))
     const fetchRestore = mock.method(globalThis, 'fetch', async () => ({ ok: true }) as Response)
-    const createThreadGate = createDeferredPromise<ThreadRecord>()
-    const { server } = createMockServer()
-    const gatedServer = {
-      ...server,
-      createThread: async (input: {
-        source?: ThreadRecord['source']
-        workspacePath?: string
-        title?: string
-      }) => {
-        void input
-        return createThreadGate.promise
-      }
-    }
+    mock.timers.enable({ apis: ['Date', 'setTimeout'] })
 
     try {
+      const { server } = createMockServer()
       const service = createScheduleService({
-        server: gatedServer,
+        server,
         storage,
         createId: (() => {
           let next = 0
@@ -357,23 +319,15 @@ describe('createScheduleService', () => {
 
       service.reload()
       await flushAsyncWork()
-      await flushAsyncWork()
-      assert.equal(storage.runs.length, 1)
+      assert.equal(storage.runs.length, 0)
 
       service.reload()
       await flushAsyncWork()
-      assert.equal(storage.runs.length, 1)
-
-      createThreadGate.resolve({
-        id: 'thread-1',
-        title: 'Schedule: One-off',
-        updatedAt: '2026-01-01T00:00:00.000Z',
-        workspacePath: '/tmp',
-        source: 'local'
-      })
-      await flushAsyncWork()
+      assert.equal(storage.runs.length, 0)
+      assert.equal(storage.schedules.get('schedule-1')?.enabled, false)
     } finally {
       fetchRestore.mock.restore()
+      mock.timers.reset()
     }
   })
 })
