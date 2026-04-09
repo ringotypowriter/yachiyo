@@ -1977,6 +1977,14 @@ export async function executeServerRun(
       throw new RetryableRunError(`Model returned empty response (finishReason=${reason})`)
     }
 
+    // The model hit its max output token limit mid-generation. Even though
+    // content exists, the response is incomplete — route through recovery so
+    // the model can continue from the checkpoint instead of silently treating
+    // a truncated response as finished.
+    if (lastUsage?.finishReason === 'length') {
+      throw new RetryableRunError('Model output truncated (finishReason=length)')
+    }
+
     const timestamp = deps.timestamp()
     const responseMessages = recoveryCheckpoint
       ? recoveryResponseMessages.length > 0
