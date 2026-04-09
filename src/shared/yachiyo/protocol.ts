@@ -595,6 +595,7 @@ export interface ProviderConfig {
 export interface ChatConfig {
   activeRunEnterBehavior?: ActiveRunEnterBehavior
   stripCompact?: boolean
+  autoMemoryDistillation?: boolean
 }
 
 export type UpdateChannel = 'stable' | 'beta'

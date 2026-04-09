@@ -2068,6 +2068,10 @@ export class YachiyoServerRunDomain {
       return
     }
 
+    if (this.deps.readConfig().chat?.autoMemoryDistillation === false) {
+      return
+    }
+
     if (input.thread.privacyMode) {
       return
     }

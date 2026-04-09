@@ -23,7 +23,8 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   },
   chat: {
     activeRunEnterBehavior: DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
-    stripCompact: true
+    stripCompact: true,
+    autoMemoryDistillation: true
   },
   workspace: {
     savedPaths: []

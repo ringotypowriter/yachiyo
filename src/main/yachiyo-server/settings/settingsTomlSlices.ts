@@ -67,7 +67,8 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
         chat: {
           activeRunEnterBehavior:
             config.chat?.activeRunEnterBehavior ?? DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
-          stripCompact: config.chat?.stripCompact !== false
+          stripCompact: config.chat?.stripCompact !== false,
+          autoMemoryDistillation: config.chat?.autoMemoryDistillation !== false
         }
       }
     }

@@ -213,6 +213,37 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
       </SettingSection>
 
       <SettingSection>
+        <SettingLabel>Memory</SettingLabel>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Auto-distill memory after runs
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              Off = only the remember tool writes to memory.
+            </div>
+          </div>
+
+          <div className="shrink-0">
+            <SettingSwitch
+              checked={draft.chat?.autoMemoryDistillation !== false}
+              onChange={() =>
+                onChange({
+                  ...draft,
+                  chat: {
+                    ...draft.chat,
+                    autoMemoryDistillation: draft.chat?.autoMemoryDistillation === false
+                  }
+                })
+              }
+              ariaLabel="Toggle auto memory distillation"
+            />
+          </div>
+        </SettingRow>
+      </SettingSection>
+
+      <SettingSection>
         <SettingLabel>Default model</SettingLabel>
 
         <SettingRow>
