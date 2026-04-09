@@ -12,6 +12,7 @@ const SKILL_SOURCE_DIR_NAMES = ['.yachiyo', '.codex', '.agents', '.claude'] as c
 export interface SkillDiscoveryRoot {
   scope: 'workspace' | 'home'
   rootPath: string
+  autoEnabled?: boolean
 }
 
 export interface DiscoveredSkill extends SkillCatalogEntry {
@@ -155,6 +156,7 @@ async function readSkillRecord(input: {
   scope: SkillDiscoveryRoot['scope']
   rootPath: string
   skillFilePath: string
+  autoEnabled?: boolean
 }): Promise<DiscoveredSkill | null> {
   let content: string
 
@@ -189,6 +191,7 @@ async function readSkillRecord(input: {
       extractBodySummary(body),
     directoryPath,
     skillFilePath,
+    ...(input.autoEnabled ? { autoEnabled: true } : {}),
     scope: input.scope,
     rootPath: resolve(input.rootPath)
   }
@@ -215,27 +218,28 @@ export function buildSkillDiscoveryRoots(workspacePaths: string[] = []): SkillDi
       seen.add(rootPath)
       roots.push({
         scope: 'workspace',
-        rootPath
+        rootPath,
+        autoEnabled: dirName === '.yachiyo'
       })
     }
   }
 
-  const homeRoots = [
-    resolve(join(resolveYachiyoDataDir(), 'skills')),
-    ...SKILL_SOURCE_DIR_NAMES.filter((dirName) => dirName !== '.yachiyo').map((dirName) =>
-      resolve(join(homedir(), dirName, 'skills'))
-    )
-  ]
+  const yachiyoHomeRoot = resolve(join(resolveYachiyoDataDir(), 'skills'))
+  const otherHomeRoots = SKILL_SOURCE_DIR_NAMES.filter((dirName) => dirName !== '.yachiyo').map(
+    (dirName) => resolve(join(homedir(), dirName, 'skills'))
+  )
 
-  for (const rootPath of homeRoots) {
+  if (!seen.has(yachiyoHomeRoot)) {
+    seen.add(yachiyoHomeRoot)
+    roots.push({ scope: 'home', rootPath: yachiyoHomeRoot, autoEnabled: true })
+  }
+
+  for (const rootPath of otherHomeRoots) {
     if (seen.has(rootPath)) {
       continue
     }
     seen.add(rootPath)
-    roots.push({
-      scope: 'home',
-      rootPath
-    })
+    roots.push({ scope: 'home', rootPath })
   }
 
   return roots
@@ -262,7 +266,8 @@ export async function discoverSkills(workspacePaths: string[] = []): Promise<Dis
         const skill = await readSkillRecord({
           scope: root.scope,
           rootPath: root.rootPath,
-          skillFilePath
+          skillFilePath,
+          autoEnabled: root.autoEnabled
         })
 
         if (skill) {

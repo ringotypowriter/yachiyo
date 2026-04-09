@@ -669,6 +669,7 @@ export interface ToolModelConfig {
 
 export interface SkillsConfig {
   enabled?: string[]
+  disabled?: string[]
 }
 
 export interface MemoryConfig {
@@ -753,6 +754,7 @@ export interface SkillSummary {
 export interface SkillCatalogEntry extends SkillSummary {
   directoryPath: string
   skillFilePath: string
+  autoEnabled?: boolean
 }
 
 export interface SubagentProfile {

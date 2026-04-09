@@ -12,8 +12,20 @@ interface SkillsPaneProps {
   onChange: (next: SettingsConfig) => void
 }
 
+function isSkillEnabled(
+  skill: SkillCatalogEntry,
+  enabledNames: string[],
+  disabledNames: string[]
+): boolean {
+  if (skill.autoEnabled) {
+    return !disabledNames.includes(skill.name)
+  }
+  return enabledNames.includes(skill.name)
+}
+
 export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps): React.ReactNode {
   const enabledSkillNames = normalizeSkillNames(draft.skills?.enabled)
+  const disabledSkillNames = normalizeSkillNames(draft.skills?.disabled)
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const filteredSkills = useMemo(
@@ -78,7 +90,7 @@ export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps
           </div>
         ) : (
           filteredSkills.map((skill) => {
-            const enabled = enabledSkillNames.includes(skill.name)
+            const enabled = isSkillEnabled(skill, enabledSkillNames, disabledSkillNames)
             return (
               <SettingRow key={skill.name}>
                 <div className="min-w-0 space-y-0.5">
@@ -92,16 +104,19 @@ export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps
                 <div className="shrink-0">
                   <SettingSwitch
                     checked={enabled}
-                    onChange={() =>
-                      onChange({
-                        ...draft,
-                        skills: {
-                          enabled: enabled
-                            ? enabledSkillNames.filter((name) => name !== skill.name)
-                            : [...enabledSkillNames, skill.name]
-                        }
-                      })
-                    }
+                    onChange={() => {
+                      const nextSkills = { ...draft.skills }
+                      if (skill.autoEnabled) {
+                        nextSkills.disabled = enabled
+                          ? [...disabledSkillNames, skill.name]
+                          : disabledSkillNames.filter((n) => n !== skill.name)
+                      } else {
+                        nextSkills.enabled = enabled
+                          ? enabledSkillNames.filter((n) => n !== skill.name)
+                          : [...enabledSkillNames, skill.name]
+                      }
+                      onChange({ ...draft, skills: nextSkills })
+                    }}
                     ariaLabel={`Toggle ${skill.name} skill`}
                   />
                 </div>

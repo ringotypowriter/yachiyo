@@ -96,11 +96,14 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
       return skills ? { skills: skills as SettingsConfig['skills'] } : {}
     },
     write(config) {
-      return {
-        skills: {
-          enabled: config.skills?.enabled ?? []
-        }
+      const skills: Record<string, unknown> = {
+        enabled: config.skills?.enabled ?? []
       }
+      const disabled = config.skills?.disabled ?? []
+      if (disabled.length > 0) {
+        skills.disabled = disabled
+      }
+      return { skills }
     }
   },
   {

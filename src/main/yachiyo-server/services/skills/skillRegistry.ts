@@ -16,7 +16,8 @@ export function buildSkillRegistry(discoveredSkills: DiscoveredSkill[]): SkillCa
       name: skill.name,
       description: skill.description,
       directoryPath: skill.directoryPath,
-      skillFilePath: skill.skillFilePath
+      skillFilePath: skill.skillFilePath,
+      ...(skill.autoEnabled ? { autoEnabled: true } : {})
     })
   }
 

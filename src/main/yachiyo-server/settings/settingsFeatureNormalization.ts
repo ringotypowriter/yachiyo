@@ -109,8 +109,10 @@ export function normalizeSkillsConfig(
 ): SkillsConfig {
   const input = asRecord(value)
 
+  const disabled = normalizeStringList(input['disabled'] ?? fallback.disabled)
   return {
-    enabled: normalizeStringList(input['enabled'] ?? fallback.enabled)
+    enabled: normalizeStringList(input['enabled'] ?? fallback.enabled),
+    ...(disabled.length > 0 ? { disabled } : {})
   }
 }
 
