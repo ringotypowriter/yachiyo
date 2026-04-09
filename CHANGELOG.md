@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.22
+
+### Patch Changes
+
+- [`37d8118`](https://github.com/ringotypowriter/yachiyo/commit/37d81187d6c972579f49bdf973d3a8c45fe7a97b) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Lots of update
+
 ## 1.0.21
 
 ### Patch Changes
