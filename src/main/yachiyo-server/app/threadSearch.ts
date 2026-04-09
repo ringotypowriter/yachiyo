@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 
 import { and, asc, desc, eq, isNull, like } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
 import * as schema from '../storage/sqlite/schema.ts'
@@ -95,6 +96,142 @@ export function searchMessages(dbPath: string, query: string, limit: number): Me
       date: row.createdAt.slice(0, 10),
       snippet: extractSnippet(row.content, trimmed)
     }))
+  } finally {
+    client.close()
+  }
+}
+
+export interface ThreadSummary {
+  threadId: string
+  title: string
+  preview: string | null
+  firstUserQuery: string | null
+  messageCount: number
+  updatedAt: string
+  createdAt: string
+}
+
+function truncate(text: string, max = 120): string {
+  const collapsed = text.replace(/\s+/g, ' ').trim()
+  if (collapsed.length <= max) return collapsed
+  return `${collapsed.slice(0, max)}…`
+}
+
+export function listRecentThreads(dbPath: string, limit: number): ThreadSummary[] {
+  if (!existsSync(dbPath)) return []
+
+  const { BetterSqlite3, drizzle } = loadSqliteRuntime()
+  const client = new BetterSqlite3(dbPath, { readonly: true })
+  const db = drizzle(client, { schema })
+
+  try {
+    const threads = db
+      .select({
+        id: threadsTable.id,
+        title: threadsTable.title,
+        preview: threadsTable.preview,
+        updatedAt: threadsTable.updatedAt,
+        createdAt: threadsTable.createdAt
+      })
+      .from(threadsTable)
+      .where(isNull(threadsTable.archivedAt))
+      .orderBy(desc(threadsTable.updatedAt))
+      .limit(limit)
+      .all()
+
+    return threads.map((t) => {
+      const firstUser = db
+        .select({ content: messagesTable.content })
+        .from(messagesTable)
+        .where(and(eq(messagesTable.threadId, t.id), eq(messagesTable.role, 'user')))
+        .orderBy(asc(messagesTable.createdAt))
+        .limit(1)
+        .get()
+
+      const countRow = db
+        .select({ n: sql<number>`count(*)` })
+        .from(messagesTable)
+        .where(eq(messagesTable.threadId, t.id))
+        .get()
+
+      return {
+        threadId: t.id,
+        title: t.title,
+        preview: t.preview ? truncate(t.preview) : null,
+        firstUserQuery: firstUser ? truncate(firstUser.content) : null,
+        messageCount: countRow?.n ?? 0,
+        updatedAt: t.updatedAt,
+        createdAt: t.createdAt
+      }
+    })
+  } finally {
+    client.close()
+  }
+}
+
+export interface ThreadDumpMessage {
+  messageId: string
+  role: 'user' | 'assistant' | string
+  createdAt: string
+  content: string
+}
+
+export interface ThreadDump {
+  threadId: string
+  title: string
+  preview: string | null
+  updatedAt: string
+  createdAt: string
+  messages: ThreadDumpMessage[]
+}
+
+export function dumpThread(dbPath: string, threadId: string): ThreadDump | null {
+  if (!existsSync(dbPath)) return null
+
+  const { BetterSqlite3, drizzle } = loadSqliteRuntime()
+  const client = new BetterSqlite3(dbPath, { readonly: true })
+  const db = drizzle(client, { schema })
+
+  try {
+    const thread = db
+      .select({
+        id: threadsTable.id,
+        title: threadsTable.title,
+        preview: threadsTable.preview,
+        updatedAt: threadsTable.updatedAt,
+        createdAt: threadsTable.createdAt
+      })
+      .from(threadsTable)
+      .where(eq(threadsTable.id, threadId))
+      .get()
+
+    if (!thread) return null
+
+    const messages = db
+      .select({
+        id: messagesTable.id,
+        role: messagesTable.role,
+        createdAt: messagesTable.createdAt,
+        content: messagesTable.content
+      })
+      .from(messagesTable)
+      .where(eq(messagesTable.threadId, threadId))
+      .orderBy(asc(messagesTable.createdAt))
+      .all()
+
+    return {
+      threadId: thread.id,
+      title: thread.title,
+      preview: thread.preview,
+      updatedAt: thread.updatedAt,
+      createdAt: thread.createdAt,
+      messages: messages.map((m) => ({
+        messageId: m.id,
+        role: m.role,
+        createdAt: m.createdAt,
+        content: m.content
+      }))
+    }
   } finally {
     client.close()
   }

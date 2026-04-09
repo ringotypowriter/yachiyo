@@ -27,7 +27,14 @@ import {
 } from '../runtime/soul.ts'
 import { createSettingsStore } from '../settings/settingsStore.ts'
 import { YachiyoServerConfigDomain } from './domain/configDomain.ts'
-import { searchMessages as defaultSearchMessages, type MessageSearchHit } from './threadSearch.ts'
+import {
+  searchMessages as defaultSearchMessages,
+  listRecentThreads as defaultListRecentThreads,
+  dumpThread as defaultDumpThread,
+  type MessageSearchHit,
+  type ThreadSummary,
+  type ThreadDump
+} from './threadSearch.ts'
 import type { YachiyoStorage } from '../storage/storage.ts'
 
 const USAGE = `Usage: yachiyo <namespace> <subcommand> [args...] [flags...]
@@ -68,6 +75,10 @@ All output is JSON unless noted. The app must be running for "send" commands.
   thread search <query> [--limit <n>] [--json]
                                          Full-text search across message history. Default limit=5.
                                          Without --json, prints human-readable lines.
+  thread list [--limit <n>] [--json]     List recent (non-archived) threads ordered by updatedAt desc.
+                                         Each entry includes the thread's first user query and preview.
+                                         Default limit=10.
+  thread show <id> [--json]              Dump all messages of a thread in chronological order.
 
 ── schedule ──────────────────────────────────────────────────────────
   schedule list [--json]                 List all schedules. Without --json, prints a compact summary.
@@ -125,6 +136,8 @@ export interface RunYachiyoCliOptions {
   upsertDailySoulTrait?: (input: UpsertDailySoulTraitInput) => Promise<SoulDocument | null>
   removeSoulTrait?: (input: RemoveSoulTraitInput) => Promise<SoulDocument | null>
   searchMessages?: (dbPath: string, query: string, limit: number) => MessageSearchHit[]
+  listRecentThreads?: (dbPath: string, limit: number) => ThreadSummary[]
+  dumpThread?: (dbPath: string, threadId: string) => ThreadDump | null
   sendNotification?: (
     socketPath: string,
     payload: { title: string; body?: string }
@@ -581,6 +594,39 @@ function parseChannelGroupStatus(raw: string): ChannelGroupStatus {
   }
 }
 
+function parseLimitFlag(flags: Map<string, string>, fallback: number): number {
+  const raw = flags.get('--limit')
+  const limit = raw !== undefined ? parseInt(raw, 10) : fallback
+  if (isNaN(limit) || limit < 1) {
+    throw new Error(`--limit must be a positive integer, got: ${raw}`)
+  }
+  return limit
+}
+
+function formatThreadListText(threads: ThreadSummary[]): string {
+  if (threads.length === 0) return '(no threads)'
+  return threads
+    .map((t) => {
+      const firstQ = t.firstUserQuery ?? '(no user message)'
+      const updated = t.updatedAt.slice(0, 19).replace('T', ' ')
+      return `[${t.threadId}] ${updated} (${t.messageCount} msgs) ${t.title}\n  q: ${firstQ}`
+    })
+    .join('\n')
+}
+
+function formatThreadDumpText(dump: ThreadDump): string {
+  const header = `Thread ${dump.threadId}: ${dump.title}\nUpdated: ${dump.updatedAt}  Messages: ${dump.messages.length}`
+  if (dump.messages.length === 0) return `${header}\n(no messages)`
+  const body = dump.messages
+    .map((m) => {
+      const role = m.role === 'assistant' ? 'model' : m.role
+      const ts = m.createdAt.slice(0, 19).replace('T', ' ')
+      return `── ${role} @ ${ts} [${m.messageId}] ──\n${m.content}`
+    })
+    .join('\n\n')
+  return `${header}\n\n${body}`
+}
+
 function handleThreadCommand(
   positionals: string[],
   flags: Map<string, string>,
@@ -589,30 +635,59 @@ function handleThreadCommand(
   options: RunYachiyoCliOptions
 ): void {
   const action = positionals[0]
-  if (action !== 'search') {
-    throw new Error(`Unknown thread action: ${action ?? '(none)'}. Expected: search`)
-  }
-
-  const query = positionals[1]
-  if (!query?.trim()) {
-    throw new Error('Query is required: thread search <query>')
-  }
-
-  const limitRaw = flags.get('--limit')
-  const limit = limitRaw !== undefined ? parseInt(limitRaw, 10) : 5
-  if (isNaN(limit) || limit < 1) {
-    throw new Error(`--limit must be a positive integer, got: ${limitRaw}`)
-  }
-
   const useJson = flags.get('--json') === 'true'
-  const search = options.searchMessages ?? defaultSearchMessages
-  const hits = search(dbPath, query, limit)
 
-  if (useJson) {
-    outputJson(stdout, hits)
-  } else {
-    stdout.write(`${formatSearchResultsText(hits)}\n`)
+  if (action === 'search') {
+    const query = positionals[1]
+    if (!query?.trim()) {
+      throw new Error('Query is required: thread search <query>')
+    }
+    const limit = parseLimitFlag(flags, 5)
+    const search = options.searchMessages ?? defaultSearchMessages
+    const hits = search(dbPath, query, limit)
+
+    if (useJson) {
+      outputJson(stdout, hits)
+    } else {
+      stdout.write(`${formatSearchResultsText(hits)}\n`)
+    }
+    return
   }
+
+  if (action === 'list') {
+    const limit = parseLimitFlag(flags, 10)
+    const list = options.listRecentThreads ?? defaultListRecentThreads
+    const threads = list(dbPath, limit)
+
+    if (useJson) {
+      outputJson(stdout, threads)
+    } else {
+      stdout.write(`${formatThreadListText(threads)}\n`)
+    }
+    return
+  }
+
+  if (action === 'show') {
+    const threadId = positionals[1]
+    if (!threadId?.trim()) {
+      throw new Error('Thread id is required: thread show <id>')
+    }
+    const dumpFn = options.dumpThread ?? defaultDumpThread
+    const dump = dumpFn(dbPath, threadId)
+
+    if (!dump) {
+      throw new Error(`Thread not found: ${threadId}`)
+    }
+
+    if (useJson) {
+      outputJson(stdout, dump)
+    } else {
+      stdout.write(`${formatThreadDumpText(dump)}\n`)
+    }
+    return
+  }
+
+  throw new Error(`Unknown thread action: ${action ?? '(none)'}. Expected: search, list, show`)
 }
 
 export async function runYachiyoCli(
