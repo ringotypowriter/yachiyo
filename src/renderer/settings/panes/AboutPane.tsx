@@ -194,19 +194,40 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
             </span>
           )}
           {updateState.state === 'available' && (
-            <button
-              type="button"
-              onClick={() => window.api.appUpdate.download()}
-              className="text-xs font-medium px-3 py-1.5 rounded-full"
-              style={{
-                background: alpha('accent', 0.12),
-                color: theme.text.accent,
-                border: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              v{updateState.version} available — download
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => window.api.appUpdate.download()}
+                className="text-xs font-medium px-3 py-1.5 rounded-full"
+                style={{
+                  background: alpha('accent', 0.12),
+                  color: theme.text.accent,
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                v{updateState.version} available — download
+              </button>
+              <button
+                type="button"
+                onClick={() => window.api.appUpdate.check()}
+                className="text-[11px]"
+                style={{
+                  color: theme.text.muted,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = theme.text.secondary
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = theme.text.muted
+                }}
+              >
+                Check again
+              </button>
+            </>
           )}
           {updateState.state === 'downloading' && (
             <span className="text-xs" style={{ color: theme.text.muted }}>
