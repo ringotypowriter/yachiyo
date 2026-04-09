@@ -1613,6 +1613,8 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       'glob',
       'webSearch',
       'skillsRead',
+      'searchMemory',
+      'remember',
       'updateProfile',
       'askUser'
     ])
