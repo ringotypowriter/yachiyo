@@ -1564,6 +1564,7 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       'grep',
       'glob',
       'webSearch',
+      'skillsRead',
       'updateProfile',
       'askUser'
     ])
@@ -1579,6 +1580,7 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       'grep',
       'glob',
       'webSearch',
+      'skillsRead',
       'updateProfile',
       'askUser'
     ])
@@ -1606,6 +1608,7 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       'grep',
       'glob',
       'webSearch',
+      'skillsRead',
       'updateProfile',
       'askUser'
     ])
