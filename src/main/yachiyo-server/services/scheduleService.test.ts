@@ -189,12 +189,9 @@ describe('createScheduleService', () => {
     let fetchCalls = 0
     const fetchRestore = mock.method(globalThis, 'fetch', async () => {
       fetchCalls += 1
-      if (fetchCalls === 1) {
-        return { ok: false } as Response
-      }
-
-      return new Promise<Response>(() => {})
+      return { ok: false } as Response
     })
+    mock.timers.enable({ apis: ['setTimeout'] })
 
     try {
       const { server } = createMockServer()
@@ -214,14 +211,21 @@ describe('createScheduleService', () => {
 
       service.reload()
       await flushAsyncWork()
+      mock.timers.runAll()
+      await flushAsyncWork()
+      mock.timers.runAll()
+      await flushAsyncWork()
+      mock.timers.runAll()
+      await flushAsyncWork()
 
-      assert.equal(fetchCalls, 1)
+      assert.equal(fetchCalls, 3)
       assert.equal(storage.runs.length, 1)
       assert.equal(storage.runs[0]?.status, 'skipped')
       assert.equal(storage.schedules.get('schedule-1')?.enabled, false)
       assert.deepEqual(storage.deletedScheduleIds, [])
     } finally {
       fetchRestore.mock.restore()
+      mock.timers.reset()
     }
   })
 
@@ -277,6 +281,7 @@ describe('createScheduleService', () => {
       fetchCalls += 1
       return connectivity.promise
     })
+    mock.timers.enable({ apis: ['setTimeout'] })
 
     try {
       const { server } = createMockServer()
@@ -302,11 +307,19 @@ describe('createScheduleService', () => {
 
       connectivity.resolve({ ok: false } as Response)
       await flushAsyncWork()
+      mock.timers.runAll()
+      await flushAsyncWork()
+      mock.timers.runAll()
+      await flushAsyncWork()
+      mock.timers.runAll()
+      await flushAsyncWork()
 
+      assert.equal(fetchCalls, 3)
       assert.equal(storage.runs.length, 1)
       assert.equal(storage.schedules.get('schedule-1')?.enabled, false)
     } finally {
       fetchRestore.mock.restore()
+      mock.timers.reset()
     }
   })
 

@@ -67,20 +67,29 @@ const SYNC_INTERVAL_MS = 60_000
  */
 const MAX_TIMEOUT_MS = 2_147_483_647
 
+const CONNECTIVITY_RETRIES = 2
+const CONNECTIVITY_RETRY_DELAY_MS = 1_000
+
 /** Quick connectivity probe — resolves true if we can reach the internet. */
 export async function hasInternetConnection(): Promise<boolean> {
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 5_000)
-    const res = await fetch('https://example.com', {
-      method: 'HEAD',
-      signal: controller.signal
-    })
-    clearTimeout(timeout)
-    return res.ok
-  } catch {
-    return false
+  for (let attempt = 0; attempt <= CONNECTIVITY_RETRIES; attempt++) {
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 5_000)
+      const res = await fetch('https://example.com', {
+        method: 'HEAD',
+        signal: controller.signal
+      })
+      clearTimeout(timeout)
+      if (res.ok) return true
+    } catch {
+      // Retry on network/timeout errors.
+    }
+    if (attempt < CONNECTIVITY_RETRIES) {
+      await new Promise((resolve) => setTimeout(resolve, CONNECTIVITY_RETRY_DELAY_MS))
+    }
   }
+  return false
 }
 
 const SCHEDULE_ICONS = ['⏰', '🕐', '📋', '🗓️', '⚡', '🔄', '🤖', '📌', '🎯', '✨']
