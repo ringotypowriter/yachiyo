@@ -654,7 +654,7 @@ test('config get - by dot path', async () => {
     })
 
     const value = JSON.parse(stdout)
-    assert.equal(value, false)
+    assert.equal(value, true)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

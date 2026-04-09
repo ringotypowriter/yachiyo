@@ -1565,6 +1565,8 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       'glob',
       'webSearch',
       'skillsRead',
+      'searchMemory',
+      'remember',
       'updateProfile',
       'askUser'
     ])
@@ -1581,6 +1583,8 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       'glob',
       'webSearch',
       'skillsRead',
+      'searchMemory',
+      'remember',
       'updateProfile',
       'askUser'
     ])
@@ -1690,6 +1694,8 @@ test('YachiyoServer injects only active skill summaries into runtime context and
       'glob',
       'webSearch',
       'skillsRead',
+      'searchMemory',
+      'remember',
       'updateProfile',
       'askUser'
     ])
