@@ -148,6 +148,7 @@ function makeSummary(overrides: Partial<ThreadSummary> = {}): ThreadSummary {
     preview: 'discuss Q2 roadmap',
     firstUserQuery: 'how do we plan Q2?',
     messageCount: 12,
+    selfReviewedAt: null,
     updatedAt: '2026-04-07T10:15:30.000Z',
     createdAt: '2026-04-05T08:00:00.000Z',
     ...overrides
@@ -198,6 +199,24 @@ describe('thread list command', () => {
       stdout: captureOutput(out)
     })
     assert.deepEqual(JSON.parse(out.join('')), summaries)
+  })
+
+  it('shows [reviewed] tag for self-reviewed threads', async () => {
+    const out: string[] = []
+    await runYachiyoCli(['thread', 'list'], {
+      listRecentThreads: () => [
+        makeSummary({ selfReviewedAt: '2026-04-08T03:00:00Z' }),
+        makeSummary({ threadId: 'thread-b', selfReviewedAt: null })
+      ],
+      stdout: captureOutput(out)
+    })
+    const text = out.join('')
+    assert.ok(text.includes('[reviewed] Planning session'))
+    assert.ok(
+      !text.includes('[thread-b]') ||
+        !text.includes('[thread-b]') ||
+        text.split('[reviewed]').length === 2
+    )
   })
 
   it('prints (no threads) when empty', async () => {

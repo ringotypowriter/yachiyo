@@ -653,7 +653,8 @@ function formatThreadListText(threads: ThreadSummary[]): string {
     .map((t) => {
       const firstQ = t.firstUserQuery ?? '(no user message)'
       const updated = t.updatedAt.slice(0, 19).replace('T', ' ')
-      return `[${t.threadId}] ${updated} (${t.messageCount} msgs) ${t.title}\n  q: ${firstQ}`
+      const reviewed = t.selfReviewedAt ? ' [reviewed]' : ''
+      return `[${t.threadId}] ${updated} (${t.messageCount} msgs)${reviewed} ${t.title}\n  q: ${firstQ}`
     })
     .join('\n')
 }

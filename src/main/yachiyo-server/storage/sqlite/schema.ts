@@ -60,6 +60,7 @@ export const threadsTable = sqliteTable('threads', {
   createdFromEssentialId: text('created_from_essential_id'),
   runtimeBinding: text('runtime_binding'),
   lastDelegatedSession: text('last_delegated_session'),
+  selfReviewedAt: text('self_reviewed_at'),
   updatedAt: text('updated_at').notNull(),
   createdAt: text('created_at').notNull()
 })

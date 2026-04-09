@@ -107,6 +107,7 @@ export interface ThreadSummary {
   preview: string | null
   firstUserQuery: string | null
   messageCount: number
+  selfReviewedAt: string | null
   updatedAt: string
   createdAt: string
 }
@@ -130,6 +131,7 @@ export function listRecentThreads(dbPath: string, limit: number): ThreadSummary[
         id: threadsTable.id,
         title: threadsTable.title,
         preview: threadsTable.preview,
+        selfReviewedAt: threadsTable.selfReviewedAt,
         updatedAt: threadsTable.updatedAt,
         createdAt: threadsTable.createdAt
       })
@@ -160,6 +162,7 @@ export function listRecentThreads(dbPath: string, limit: number): ThreadSummary[
         preview: t.preview ? truncate(t.preview) : null,
         firstUserQuery: firstUser ? truncate(firstUser.content) : null,
         messageCount: countRow?.n ?? 0,
+        selfReviewedAt: t.selfReviewedAt,
         updatedAt: t.updatedAt,
         createdAt: t.createdAt
       }
@@ -189,7 +192,7 @@ export function dumpThread(dbPath: string, threadId: string): ThreadDump | null 
   if (!existsSync(dbPath)) return null
 
   const { BetterSqlite3, drizzle } = loadSqliteRuntime()
-  const client = new BetterSqlite3(dbPath, { readonly: true })
+  const client = new BetterSqlite3(dbPath)
   const db = drizzle(client, { schema })
 
   try {
@@ -206,6 +209,11 @@ export function dumpThread(dbPath: string, threadId: string): ThreadDump | null 
       .get()
 
     if (!thread) return null
+
+    db.update(threadsTable)
+      .set({ selfReviewedAt: new Date().toISOString() })
+      .where(eq(threadsTable.id, threadId))
+      .run()
 
     const messages = db
       .select({
