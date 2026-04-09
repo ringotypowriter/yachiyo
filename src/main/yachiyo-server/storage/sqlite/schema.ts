@@ -16,6 +16,7 @@ export const channelUsersTable = sqliteTable('channel_users', {
   platform: text('platform').notNull(),
   externalUserId: text('external_user_id').notNull(),
   username: text('username').notNull(),
+  label: text('label').notNull().default(''),
   status: text('status').$type<ChannelUserStatus>().notNull().default('pending'),
   role: text('role').$type<ChannelUserRole>().notNull().default('guest'),
   usageLimitKTokens: integer('usage_limit_k_tokens'),
@@ -28,6 +29,7 @@ export const channelGroupsTable = sqliteTable('channel_groups', {
   platform: text('platform').notNull(),
   externalGroupId: text('external_group_id').notNull(),
   name: text('name').notNull(),
+  label: text('label').notNull().default(''),
   status: text('status').$type<ChannelGroupStatus>().notNull().default('pending'),
   workspacePath: text('workspace_path').notNull(),
   createdAt: text('created_at').notNull()

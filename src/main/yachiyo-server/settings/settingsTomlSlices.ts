@@ -80,9 +80,16 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
       return workspace ? { workspace: workspace as SettingsConfig['workspace'] } : {}
     },
     write(config) {
+      const savedPaths = config.workspace?.savedPaths ?? []
+      const rawLabels = config.workspace?.pathLabels
+      // Strip labels for paths no longer in savedPaths to prevent stale context.
+      const pathLabels = rawLabels
+        ? Object.fromEntries(Object.entries(rawLabels).filter(([p]) => savedPaths.includes(p)))
+        : undefined
       return {
         workspace: {
-          savedPaths: config.workspace?.savedPaths ?? [],
+          savedPaths,
+          ...(pathLabels && Object.keys(pathLabels).length > 0 ? { pathLabels } : {}),
           editorApp: config.workspace?.editorApp ?? '',
           terminalApp: config.workspace?.terminalApp ?? ''
         }

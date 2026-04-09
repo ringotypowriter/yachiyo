@@ -189,6 +189,16 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
     }
   }
 
+  async function handleUserLabelChange(userId: string, label: string): Promise<void> {
+    setUpdatingUser(userId)
+    try {
+      const updated = await window.api.yachiyo.updateChannelUser({ id: userId, label })
+      setUsers((us) => us.map((u) => (u.id === updated.id ? updated : u)))
+    } finally {
+      setUpdatingUser(null)
+    }
+  }
+
   async function handleGroupStatusChange(
     groupId: string,
     status: ChannelGroupStatus
@@ -196,6 +206,16 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
     setUpdatingGroup(groupId)
     try {
       const updated = await window.api.yachiyo.updateChannelGroup({ id: groupId, status })
+      setGroups((gs) => gs.map((g) => (g.id === updated.id ? updated : g)))
+    } finally {
+      setUpdatingGroup(null)
+    }
+  }
+
+  async function handleGroupLabelChange(groupId: string, label: string): Promise<void> {
+    setUpdatingGroup(groupId)
+    try {
+      const updated = await window.api.yachiyo.updateChannelGroup({ id: groupId, label })
       setGroups((gs) => gs.map((g) => (g.id === updated.id ? updated : g)))
     } finally {
       setUpdatingGroup(null)
@@ -1045,6 +1065,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               onStatusChange={(s) => void handleStatusChange(user.id, s)}
               onRoleChange={(r) => void handleRoleChange(user.id, r)}
               onLimitChange={(v) => void handleLimitChange(user.id, v)}
+              onLabelChange={(l) => void handleUserLabelChange(user.id, l)}
             />
           ))
         )}
@@ -1071,6 +1092,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               group={group}
               busy={updatingGroup === group.id}
               onStatusChange={(s) => void handleGroupStatusChange(group.id, s)}
+              onLabelChange={(l) => void handleGroupLabelChange(group.id, l)}
               onClearMessages={() => void handleClearGroupMessages(group.id)}
             />
           ))
@@ -1242,17 +1264,24 @@ function ChannelUserRow({
   busy,
   onStatusChange,
   onRoleChange,
-  onLimitChange
+  onLimitChange,
+  onLabelChange
 }: {
   user: ChannelUserRecord
   busy: boolean
   onStatusChange: (status: ChannelUserStatus) => void
   onRoleChange: (role: ChannelUserRole) => void
   onLimitChange: (value: string) => void
+  onLabelChange: (label: string) => void
 }): React.ReactNode {
   const [limitDraft, setLimitDraft] = useState(
     user.usageLimitKTokens !== null ? String(user.usageLimitKTokens) : ''
   )
+  const [labelDraft, setLabelDraft] = useState(user.label)
+  const commitLabel = (): void => {
+    const trimmed = labelDraft.trim()
+    if (trimmed !== user.label) onLabelChange(trimmed)
+  }
 
   return (
     <div
@@ -1273,6 +1302,16 @@ function ChannelUserRow({
           <div className="text-sm font-medium truncate" style={{ color: theme.text.primary }}>
             @{user.username}
           </div>
+          <input
+            type="text"
+            value={labelDraft}
+            onChange={(e) => setLabelDraft(e.target.value)}
+            onBlur={commitLabel}
+            onKeyDown={imeSafeEnter(commitLabel)}
+            placeholder="Label..."
+            className="text-xs bg-transparent outline-none w-full"
+            style={{ color: theme.text.secondary }}
+          />
           <div className="text-xs" style={{ color: theme.text.tertiary }}>
             {user.usedKTokens}k used
             {user.usageLimitKTokens !== null ? ` / ${user.usageLimitKTokens}k limit` : ''}
@@ -1334,13 +1373,21 @@ function ChannelGroupRow({
   group,
   busy,
   onStatusChange,
+  onLabelChange,
   onClearMessages
 }: {
   group: ChannelGroupRecord
   busy: boolean
   onStatusChange: (status: ChannelGroupStatus) => void
+  onLabelChange: (label: string) => void
   onClearMessages: () => void
 }): React.ReactNode {
+  const [labelDraft, setLabelDraft] = useState(group.label)
+  const commitLabel = (): void => {
+    const trimmed = labelDraft.trim()
+    if (trimmed !== group.label) onLabelChange(trimmed)
+  }
+
   return (
     <div
       className="flex items-center gap-4 px-7 py-3 transition-opacity"
@@ -1360,6 +1407,16 @@ function ChannelGroupRow({
           <div className="text-sm font-medium truncate" style={{ color: theme.text.primary }}>
             {group.name}
           </div>
+          <input
+            type="text"
+            value={labelDraft}
+            onChange={(e) => setLabelDraft(e.target.value)}
+            onBlur={commitLabel}
+            onKeyDown={imeSafeEnter(commitLabel)}
+            placeholder="Label..."
+            className="text-xs bg-transparent outline-none w-full"
+            style={{ color: theme.text.secondary }}
+          />
         </div>
       </div>
 

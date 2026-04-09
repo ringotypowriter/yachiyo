@@ -96,8 +96,15 @@ export function normalizeWorkspaceConfig(
     ''
   )
 
+  const rawLabels = asRecord(input['pathLabels'] ?? fallback.pathLabels)
+  const pathLabels: Record<string, string> = {}
+  for (const [k, v] of Object.entries(rawLabels)) {
+    if (typeof v === 'string' && v) pathLabels[k] = v
+  }
+
   return {
     savedPaths: normalizeStringList(input['savedPaths'] ?? fallback.savedPaths),
+    ...(Object.keys(pathLabels).length > 0 ? { pathLabels } : {}),
     ...(editorApp ? { editorApp } : {}),
     ...(terminalApp ? { terminalApp } : {})
   }

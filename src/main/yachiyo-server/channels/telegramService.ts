@@ -360,6 +360,7 @@ export function createTelegramService({
         platform: 'telegram',
         externalGroupId: chatId,
         name: chatTitle || `Telegram Group ${chatId}`,
+        label: '',
         status: 'pending',
         workspacePath: join(resolveYachiyoTempWorkspaceRoot(), `tg-group-${chatId}`)
       })
@@ -634,6 +635,7 @@ export function createTelegramService({
     const messages = buildGroupProbeMessages({
       botName: 'Yachiyo',
       groupName: group.name,
+      groupLabel: group.label || undefined,
       recentMessages: probeRecentMessages,
       knownUsers: buildKnownUsersMap(),
       personaSummary: EXTERNAL_GROUP_PROMPT,
@@ -704,6 +706,7 @@ export function createTelegramService({
     onGroupStatusChange(group) {
       if (group.platform !== 'telegram' || !groupRegistry) return
 
+      groupRegistry.updateGroup(group)
       if (group.status === 'approved') {
         groupRegistry.startMonitor(group)
         console.log(`[telegram-group] monitor started for "${group.name}" after approval`)

@@ -47,6 +47,8 @@ export interface GroupMonitorPersistence {
 export interface GroupMonitorRegistry {
   /** Start monitoring an approved group. Idempotent — safe to call if already running. */
   startMonitor(group: ChannelGroupRecord): void
+  /** Update the stored group record for a running monitor (e.g. label change). No-op if not running. */
+  updateGroup(group: ChannelGroupRecord): void
   /** Stop monitoring a group (e.g. blocked or unapproved). */
   stopMonitor(groupId: string): void
   /** Route an incoming group message to the correct monitor. */
@@ -131,20 +133,28 @@ export function createGroupMonitorRegistry(
         )
       }
 
+      const entry = { monitor: undefined as unknown as GroupMonitor, group }
       const monitor = createGroupMonitor(
         config,
         {
-          onTurn: (messages, freshCount) => callbacks.onTurn(group, messages, freshCount),
+          onTurn: (messages, freshCount) => callbacks.onTurn(entry.group, messages, freshCount),
           onStateChange: (newPhase) => {
-            callbacks.onStateChange(group, newPhase)
-            persistSnapshot(group.id, monitor)
+            callbacks.onStateChange(entry.group, newPhase)
+            persistSnapshot(entry.group.id, monitor)
           }
         },
         restoreState
       )
+      entry.monitor = monitor
 
-      monitors.set(group.id, { monitor, group })
+      monitors.set(group.id, entry)
       console.log(`[group-monitor] started monitor for group "${group.name}" (${group.id})`)
+    },
+
+    updateGroup(group) {
+      const entry = monitors.get(group.id)
+      if (!entry) return
+      entry.group = group
     },
 
     stopMonitor(groupId) {

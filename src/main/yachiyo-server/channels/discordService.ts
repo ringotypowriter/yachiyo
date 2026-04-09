@@ -342,6 +342,7 @@ export function createDiscordService({
         platform: 'discord',
         externalGroupId: channelId,
         name: groupDisplayName,
+        label: '',
         status: 'pending',
         workspacePath: join(resolveYachiyoTempWorkspaceRoot(), `dc-group-${channelId}`)
       })
@@ -609,6 +610,7 @@ export function createDiscordService({
     const messages = buildGroupProbeMessages({
       botName: 'Yachiyo',
       groupName: group.name,
+      groupLabel: group.label || undefined,
       recentMessages: probeRecentMessages,
       knownUsers: buildKnownUsersMap(),
       personaSummary: EXTERNAL_GROUP_PROMPT,
@@ -684,6 +686,7 @@ export function createDiscordService({
     onGroupStatusChange(group) {
       if (group.platform !== 'discord' || !groupRegistry) return
 
+      groupRegistry.updateGroup(group)
       if (group.status === 'approved') {
         groupRegistry.startMonitor(group)
         console.log(`[discord-group] monitor started for "${group.name}" after approval`)

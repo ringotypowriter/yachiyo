@@ -38,6 +38,7 @@ export function routeQQMessage(msg: QQIncomingMessage, storage: QQChannelStorage
       platform: 'qq',
       externalUserId: msg.userId,
       username: msg.nickname,
+      label: '',
       status: 'pending',
       role: 'guest',
       usageLimitKTokens: null,

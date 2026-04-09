@@ -107,12 +107,16 @@ const NAMESPACE_HELP: Record<string, string> = {
   channel users [--json]                 List registered channel users with their IDs, platforms, and statuses.
                                          Use the "id" field with "send channel" to send a message.
                                          Without --json, prints a compact summary.
+  channel users set-label <id> <label>   Set a descriptive label on a channel user.
+                                         Labels help the agent identify who each contact is.
   channel groups [--json]                List registered channel groups with their IDs, platforms, and statuses.
                                          Use the "id" field with "send channel" to send a message.
                                          Without --json, prints a compact summary.
   channel groups set-status <id> <status>
                                          Update only a group channel's monitor status.
-                                         Accepted statuses: approved|approval, pending, blocked|block.`,
+                                         Accepted statuses: approved|approval, pending, blocked|block.
+  channel groups set-label <id> <label>  Set a descriptive label on a channel group.
+                                         Labels help the agent understand the group's context.`,
 
   send: `Usage: yachiyo send <subcommand> [args...] [flags...]
 
@@ -174,6 +178,14 @@ export interface RunYachiyoCliOptions {
       type: 'update-channel-group-status'
       id: string
       status: ChannelGroupStatus
+    }
+  ) => Promise<void>
+  sendChannelGroupLabel?: (
+    socketPath: string,
+    payload: {
+      type: 'update-channel-group-label'
+      id: string
+      label: string
     }
   ) => Promise<void>
   stdout?: Pick<typeof process.stdout, 'write'>
@@ -877,6 +889,30 @@ function defaultSendChannelGroupStatus(
   })
 }
 
+function defaultSendChannelGroupLabel(
+  socketPath: string,
+  payload: {
+    type: 'update-channel-group-label'
+    id: string
+    label: string
+  }
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const client = connect(socketPath, () => {
+      client.end(JSON.stringify(payload))
+    })
+    client.on('close', () => resolve())
+    client.on('error', (err) => {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ECONNREFUSED') {
+        reject(new Error('Yachiyo app is not running. Start the app first.'))
+      } else {
+        reject(err)
+      }
+    })
+  })
+}
+
 async function handleChannelCommand(
   positionals: string[],
   flags: Map<string, string>,
@@ -902,12 +938,36 @@ async function handleChannelCommand(
 
   try {
     if (action === 'users') {
+      const subcommand = positionals[1]
+
+      if (subcommand === 'set-label') {
+        const id = positionals[2]
+        const label = positionals.slice(3).join(' ')
+        if (!id?.trim()) {
+          throw new Error('User ID is required: channel users set-label <id> <label>')
+        }
+
+        const updated = channelStorage.updateChannelUser({ id, label })
+        if (!updated) {
+          throw new Error(`Unknown channel user: ${id}`)
+        }
+        outputJson(stdout, updated)
+        return
+      }
+
+      if (subcommand !== undefined) {
+        throw new Error(
+          `Unknown channel users action: ${subcommand}. Expected: set-label or no subcommand`
+        )
+      }
+
       const users = channelStorage.listChannelUsers()
       if (useJson) {
         outputJson(stdout, users)
       } else {
         for (const u of users) {
-          stdout.write(`[${u.status}] ${u.platform}:${u.username} id=${u.id}\n`)
+          const labelPart = u.label ? ` "${u.label}"` : ''
+          stdout.write(`[${u.status}] ${u.platform}:${u.username}${labelPart} id=${u.id}\n`)
         }
         if (users.length === 0) stdout.write('No channel users.\n')
       }
@@ -964,9 +1024,52 @@ async function handleChannelCommand(
         return
       }
 
+      if (subcommand === 'set-label') {
+        const id = positionals[2]
+        const label = positionals.slice(3).join(' ')
+        let liveAppNotified = true
+        if (!id?.trim()) {
+          throw new Error('Group ID is required: channel groups set-label <id> <label>')
+        }
+
+        const socketPath = resolveYachiyoSocketPath()
+        const sendLabel = options.sendChannelGroupLabel ?? defaultSendChannelGroupLabel
+
+        try {
+          await sendLabel(socketPath, { type: 'update-channel-group-label', id, label })
+        } catch (error) {
+          const code =
+            error && typeof error === 'object' ? (error as NodeJS.ErrnoException).code : ''
+          const message = error instanceof Error ? error.message : String(error)
+          const canFallback =
+            code === 'ENOENT' ||
+            code === 'ECONNREFUSED' ||
+            code === 'EPERM' ||
+            message.includes('not running')
+          if (!canFallback) {
+            throw error
+          }
+          liveAppNotified = false
+        }
+
+        const updated = channelStorage.updateChannelGroup({ id, label })
+        if (!updated) {
+          throw new Error(`Unknown channel group: ${id}`)
+        }
+
+        if (!liveAppNotified) {
+          options.stderr?.write(
+            'Updated the stored group label, but the running app was not notified. Restart Yachiyo to apply it immediately.\n'
+          )
+        }
+
+        outputJson(stdout, updated)
+        return
+      }
+
       if (subcommand !== undefined) {
         throw new Error(
-          `Unknown channel groups action: ${subcommand}. Expected: set-status or no subcommand`
+          `Unknown channel groups action: ${subcommand}. Expected: set-status, set-label, or no subcommand`
         )
       }
 
@@ -975,7 +1078,8 @@ async function handleChannelCommand(
         outputJson(stdout, groups)
       } else {
         for (const g of groups) {
-          stdout.write(`[${g.status}] ${g.platform}:${g.name} id=${g.id}\n`)
+          const labelPart = g.label ? ` "${g.label}"` : ''
+          stdout.write(`[${g.status}] ${g.platform}:${g.name}${labelPart} id=${g.id}\n`)
         }
         if (groups.length === 0) stdout.write('No channel groups.\n')
       }

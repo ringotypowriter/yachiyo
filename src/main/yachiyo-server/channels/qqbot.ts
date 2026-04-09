@@ -42,6 +42,7 @@ export function routeQQBotMessage(
       platform: 'qqbot',
       externalUserId: msg.openId,
       username: msg.openId.slice(0, 8),
+      label: '',
       status: 'pending',
       role: 'guest',
       usageLimitKTokens: null,

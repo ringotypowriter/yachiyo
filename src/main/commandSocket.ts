@@ -12,11 +12,17 @@ export interface UpdateChannelGroupStatusInput {
   status: 'pending' | 'approved' | 'blocked'
 }
 
+export interface UpdateChannelGroupLabelInput {
+  id: string
+  label: string
+}
+
 export interface CommandSocketOptions {
   socketPath: string
   onNotification: (input: { title: string; body?: string }) => void
   onSendChannel: (input: SendChannelInput) => void
   onUpdateChannelGroupStatus: (input: UpdateChannelGroupStatusInput) => void
+  onUpdateChannelGroupLabel: (input: UpdateChannelGroupLabelInput) => void
   onError?: (error: Error) => void
 }
 
@@ -31,7 +37,14 @@ interface TypedMessage {
 }
 
 export function startCommandSocket(options: CommandSocketOptions): CommandSocketHandle {
-  const { socketPath, onNotification, onSendChannel, onUpdateChannelGroupStatus, onError } = options
+  const {
+    socketPath,
+    onNotification,
+    onSendChannel,
+    onUpdateChannelGroupStatus,
+    onUpdateChannelGroupLabel,
+    onError
+  } = options
   let closed = false
 
   // Clean up stale socket file from a previous crash
@@ -88,6 +101,15 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
         if (typeof id !== 'string' || !id.trim()) return
         if (status !== 'pending' && status !== 'approved' && status !== 'blocked') return
         onUpdateChannelGroupStatus({ id, status })
+        return
+      }
+
+      if (type === 'update-channel-group-label') {
+        const id = message.id
+        const label = message.label
+        if (typeof id !== 'string' || !id.trim()) return
+        if (typeof label !== 'string') return
+        onUpdateChannelGroupLabel({ id, label })
       }
     })
   })

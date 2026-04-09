@@ -19,6 +19,7 @@ function sendToSocket(socketPath: string, data: string): Promise<void> {
 
 const noopSendChannel = (): void => {}
 const noopUpdateChannelGroupStatus = (): void => {}
+const noopUpdateChannelGroupLabel = (): void => {}
 const TEST_ROOT = '/tmp'
 
 test('commandSocket - receives notification (backward compat, no type field)', async () => {
@@ -31,7 +32,8 @@ test('commandSocket - receives notification (backward compat, no type field)', a
       socketPath,
       onNotification: (input) => received.push(input),
       onSendChannel: noopSendChannel,
-      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus,
+      onUpdateChannelGroupLabel: noopUpdateChannelGroupLabel
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -58,7 +60,8 @@ test('commandSocket - receives typed notification', async () => {
       socketPath,
       onNotification: (input) => received.push(input),
       onSendChannel: noopSendChannel,
-      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus,
+      onUpdateChannelGroupLabel: noopUpdateChannelGroupLabel
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -84,7 +87,8 @@ test('commandSocket - ignores malformed JSON', async () => {
       socketPath,
       onNotification: (input) => received.push(input),
       onSendChannel: noopSendChannel,
-      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus,
+      onUpdateChannelGroupLabel: noopUpdateChannelGroupLabel
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -109,7 +113,8 @@ test('commandSocket - ignores notification without title', async () => {
       socketPath,
       onNotification: (input) => received.push(input),
       onSendChannel: noopSendChannel,
-      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus,
+      onUpdateChannelGroupLabel: noopUpdateChannelGroupLabel
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -134,7 +139,8 @@ test('commandSocket - dispatches send-channel', async () => {
       socketPath,
       onNotification: () => {},
       onSendChannel: (input) => calls.push(input),
-      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus,
+      onUpdateChannelGroupLabel: noopUpdateChannelGroupLabel
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -164,7 +170,8 @@ test('commandSocket - ignores send-channel with missing id', async () => {
       socketPath,
       onNotification: () => {},
       onSendChannel: (input) => calls.push(input),
-      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus,
+      onUpdateChannelGroupLabel: noopUpdateChannelGroupLabel
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -189,7 +196,8 @@ test('commandSocket - ignores send-channel with missing message', async () => {
       socketPath,
       onNotification: () => {},
       onSendChannel: (input) => calls.push(input),
-      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus,
+      onUpdateChannelGroupLabel: noopUpdateChannelGroupLabel
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -215,7 +223,8 @@ test('commandSocket - handles multiple sequential messages', async () => {
       socketPath,
       onNotification: (input) => notifications.push(input),
       onSendChannel: (input) => channels.push(input),
-      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus,
+      onUpdateChannelGroupLabel: noopUpdateChannelGroupLabel
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -246,7 +255,8 @@ test('commandSocket - close removes socket file', async () => {
       socketPath,
       onNotification: () => {},
       onSendChannel: noopSendChannel,
-      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus,
+      onUpdateChannelGroupLabel: noopUpdateChannelGroupLabel
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -268,7 +278,8 @@ test('commandSocket - healthCheck reports healthy listener', async () => {
       socketPath,
       onNotification: () => {},
       onSendChannel: noopSendChannel,
-      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus,
+      onUpdateChannelGroupLabel: noopUpdateChannelGroupLabel
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -289,7 +300,8 @@ test('commandSocket - healthCheck fails when socket path disappears', async () =
       socketPath,
       onNotification: () => {},
       onSendChannel: noopSendChannel,
-      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus,
+      onUpdateChannelGroupLabel: noopUpdateChannelGroupLabel
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -312,7 +324,8 @@ test('commandSocket - cleans up stale socket file on start', async () => {
       socketPath,
       onNotification: () => {},
       onSendChannel: noopSendChannel,
-      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus,
+      onUpdateChannelGroupLabel: noopUpdateChannelGroupLabel
     })
     await new Promise((r) => setTimeout(r, 50))
     await handle1.close()
@@ -322,7 +335,8 @@ test('commandSocket - cleans up stale socket file on start', async () => {
       socketPath,
       onNotification: (input) => received.push(input),
       onSendChannel: noopSendChannel,
-      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus
+      onUpdateChannelGroupStatus: noopUpdateChannelGroupStatus,
+      onUpdateChannelGroupLabel: noopUpdateChannelGroupLabel
     })
     await new Promise((r) => setTimeout(r, 50))
 
@@ -348,7 +362,8 @@ test('commandSocket - dispatches update-channel-group-status', async () => {
       socketPath,
       onNotification: () => {},
       onSendChannel: noopSendChannel,
-      onUpdateChannelGroupStatus: (input) => calls.push(input)
+      onUpdateChannelGroupStatus: (input) => calls.push(input),
+      onUpdateChannelGroupLabel: noopUpdateChannelGroupLabel
     })
 
     await new Promise((r) => setTimeout(r, 50))
@@ -378,7 +393,8 @@ test('commandSocket - ignores update-channel-group-status with invalid status', 
       socketPath,
       onNotification: () => {},
       onSendChannel: noopSendChannel,
-      onUpdateChannelGroupStatus: (input) => calls.push(input)
+      onUpdateChannelGroupStatus: (input) => calls.push(input),
+      onUpdateChannelGroupLabel: noopUpdateChannelGroupLabel
     })
 
     await new Promise((r) => setTimeout(r, 50))

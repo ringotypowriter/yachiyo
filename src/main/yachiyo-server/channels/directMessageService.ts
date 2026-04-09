@@ -289,12 +289,15 @@ export function createDirectMessageService<TTarget>(
         stopController.signal
       )
 
+      const userLabelHint = channelUser.label
+        ? `<channel_user_context>You are talking to: ${channelUser.label} (${channelUser.username})</channel_user_context>\n\n`
+        : ''
       const accepted = await options.server.sendChat({
         threadId: thread.id,
         content: text,
         images: images.length > 0 ? images : undefined,
         enabledTools: options.policy.allowedTools,
-        channelHint: options.policy.replyInstruction,
+        channelHint: userLabelHint + options.policy.replyInstruction,
         extraTools: { reply: replyTool }
       })
       console.log(`[${options.logLabel}] sendChat accepted:`, accepted)

@@ -794,6 +794,7 @@ test('channel groups set-status updates only group monitor status', async () => 
     platform: 'discord',
     externalGroupId: 'discord-channel-1',
     name: 'Guild Ops',
+    label: '',
     status: 'pending',
     workspacePath: '/tmp/group-workspace'
   })
@@ -841,6 +842,7 @@ test('channel groups set-status syncs through uds when app is running', async ()
     platform: 'discord',
     externalGroupId: 'discord-channel-1',
     name: 'Guild Ops',
+    label: '',
     status: 'pending',
     workspacePath: '/tmp/group-workspace'
   })
@@ -871,6 +873,7 @@ test('channel groups set-status falls back to storage when app is not running', 
     platform: 'qq',
     externalGroupId: 'qq-group-1',
     name: 'QQ Squad',
+    label: '',
     status: 'pending',
     workspacePath: '/tmp/group-workspace'
   })
@@ -908,6 +911,7 @@ test('channel groups set-status propagates unexpected uds errors', async () => {
     platform: 'qq',
     externalGroupId: 'qq-group-1',
     name: 'QQ Squad',
+    label: '',
     status: 'pending',
     workspacePath: '/tmp/group-workspace'
   })
@@ -936,6 +940,7 @@ test('channel groups set-status rejects a channel user id', async () => {
     platform: 'telegram',
     externalUserId: 'tg-user-1',
     username: 'alice',
+    label: '',
     status: 'pending',
     role: 'guest',
     usageLimitKTokens: null,
@@ -966,6 +971,7 @@ test('channel groups set-status rejects unknown statuses', async () => {
     platform: 'qq',
     externalGroupId: 'qq-group-1',
     name: 'QQ Squad',
+    label: '',
     status: 'pending',
     workspacePath: '/tmp/group-workspace'
   })

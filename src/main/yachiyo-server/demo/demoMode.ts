@@ -47,6 +47,7 @@ function seedChannelRecords(storage: YachiyoStorage): void {
     platform: 'telegram',
     externalUserId: 'maya_chen',
     username: 'Maya Chen',
+    label: '',
     status: 'allowed',
     role: 'owner',
     usageLimitKTokens: 600,
@@ -57,6 +58,7 @@ function seedChannelRecords(storage: YachiyoStorage): void {
     platform: 'discord',
     externalUserId: 'ops_lead_2049',
     username: 'ops-lead',
+    label: '',
     status: 'allowed',
     role: 'guest',
     usageLimitKTokens: 300,
@@ -67,6 +69,7 @@ function seedChannelRecords(storage: YachiyoStorage): void {
     platform: 'discord',
     externalGroupId: 'launch-war-room',
     name: 'launch-war-room',
+    label: '',
     status: 'approved',
     workspacePath: DEMO_WORKSPACE_PATH
   })

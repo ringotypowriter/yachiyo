@@ -7,6 +7,7 @@ export interface ChannelUserRecord {
   platform: ChannelPlatform
   externalUserId: string
   username: string
+  label: string
   status: ChannelUserStatus
   role: ChannelUserRole
   usageLimitKTokens: number | null
@@ -18,6 +19,7 @@ export interface UpdateChannelUserInput {
   id: string
   status?: ChannelUserStatus
   role?: ChannelUserRole
+  label?: string
   usageLimitKTokens?: number | null
   usedKTokens?: number
 }
@@ -34,6 +36,7 @@ export interface ChannelGroupRecord {
   platform: ChannelPlatform
   externalGroupId: string
   name: string
+  label: string
   status: ChannelGroupStatus
   workspacePath: string
   createdAt: string
@@ -43,6 +46,7 @@ export interface UpdateChannelGroupInput {
   id: string
   status?: ChannelGroupStatus
   name?: string
+  label?: string
 }
 
 /** A single message in the group monitor's recent-message buffer. */
@@ -656,6 +660,7 @@ export interface MemoryTermDocument {
 
 export interface WorkspaceConfig {
   savedPaths?: string[]
+  pathLabels?: Record<string, string>
   editorApp?: string
   terminalApp?: string
 }

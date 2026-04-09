@@ -256,6 +256,7 @@ export interface YachiyoStorage {
     id: string
     status?: ChannelUserStatus
     role?: ChannelUserRole
+    label?: string
     usageLimitKTokens?: number | null
     usedKTokens?: number
   }): ChannelUserRecord | undefined
@@ -272,6 +273,7 @@ export interface YachiyoStorage {
     id: string
     status?: ChannelGroupStatus
     name?: string
+    label?: string
   }): ChannelGroupRecord | undefined
   findActiveGroupThread(channelGroupId: string, maxAgeMs: number): ThreadRecord | undefined
 

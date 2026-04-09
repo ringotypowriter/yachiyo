@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { theme, alpha } from '@renderer/theme/theme'
 import type { SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
 import { SettingLabel, SettingSection } from '../components/primitives'
+import { imeSafeEnter } from '../components/imeUtils'
 
 interface DiscoveredApp {
   name: string
@@ -326,6 +327,33 @@ function PruneButton(): React.JSX.Element {
   )
 }
 
+function WorkspaceLabel({
+  value,
+  onChange
+}: {
+  value: string
+  onChange: (label: string) => void
+}): React.ReactNode {
+  const [draft, setDraft] = useState(value)
+  const commit = (): void => {
+    const trimmed = draft.trim()
+    if (trimmed !== value) onChange(trimmed)
+  }
+
+  return (
+    <input
+      type="text"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={imeSafeEnter(commit)}
+      placeholder="Add label for agent context..."
+      className="mt-1 w-full text-xs bg-transparent outline-none"
+      style={{ color: theme.text.secondary }}
+    />
+  )
+}
+
 interface WorkspacePaneProps {
   draft: SettingsConfig
   onChange: (next: SettingsConfig) => void
@@ -352,11 +380,14 @@ export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.Re
   }
 
   const removePath = (workspacePath: string): void => {
+    const pathLabels = { ...draft.workspace?.pathLabels }
+    delete pathLabels[workspacePath]
     onChange({
       ...draft,
       workspace: {
         ...draft.workspace,
-        savedPaths: savedPaths.filter((entry) => entry !== workspacePath)
+        savedPaths: savedPaths.filter((entry) => entry !== workspacePath),
+        pathLabels: Object.keys(pathLabels).length > 0 ? pathLabels : undefined
       }
     })
   }
@@ -401,6 +432,18 @@ export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.Re
                 >
                   {workspacePath}
                 </div>
+                <WorkspaceLabel
+                  value={draft.workspace?.pathLabels?.[workspacePath] ?? ''}
+                  onChange={(label) => {
+                    const pathLabels = { ...draft.workspace?.pathLabels }
+                    if (label) {
+                      pathLabels[workspacePath] = label
+                    } else {
+                      delete pathLabels[workspacePath]
+                    }
+                    updateWorkspace({ pathLabels })
+                  }}
+                />
               </div>
 
               <button

@@ -47,6 +47,7 @@ export function routeDiscordMessage(
       platform: 'discord',
       externalUserId: msg.externalUserId,
       username: msg.username,
+      label: '',
       status: 'pending',
       role: 'guest',
       usageLimitKTokens: null,

@@ -27,6 +27,7 @@ function createChannelUser(): ChannelUserRecord {
     platform: 'telegram',
     externalUserId: '123',
     username: 'alice',
+    label: '',
     status: 'allowed',
     role: 'guest',
     usageLimitKTokens: null,

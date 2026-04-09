@@ -128,6 +128,8 @@ export function formatGroupMessages(
 export interface BuildGroupProbeSystemPromptInput {
   botName: string
   groupName: string
+  /** Owner-assigned label describing the group's context. */
+  groupLabel?: string
   /** Pure identity text (e.g. PERSONA_IDENTITY). No behavioral instructions. */
   personaSummary?: string
   /** Owner-authored instructions from channels.toml. */
@@ -147,7 +149,8 @@ export interface BuildGroupProbeSystemPromptInput {
  *   5. Owner instructions
  */
 export function buildGroupProbeSystemPrompt(input: BuildGroupProbeSystemPromptInput): string {
-  const { botName, groupName, personaSummary, ownerInstruction, groupUserDocument } = input
+  const { botName, groupName, groupLabel, personaSummary, ownerInstruction, groupUserDocument } =
+    input
 
   const personaBlock = personaSummary
     ? `\n## Who you are\n\n${personaSummary}\n\nUse this personality to decide whether to speak. If the topic or vibe doesn't match your character, stay silent.\n`
@@ -171,7 +174,7 @@ export function buildGroupProbeSystemPrompt(input: BuildGroupProbeSystemPromptIn
   return `\
 Today is ${today}.
 
-You are "${botName}" — a participant in group "${groupName}".
+You are "${botName}" — a participant in group "${groupName}"${groupLabel ? ` (${groupLabel})` : ''}.
 You are a person here, not an assistant. You have your own opinions, your own taste, and you don't owe anyone a response just because they talked to you.
 ${personaBlock}${groupDocBlock}${ownerBlock}
 ## How to speak

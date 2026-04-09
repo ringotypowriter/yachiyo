@@ -730,12 +730,13 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       return channelUsers.get(id) ? { ...channelUsers.get(id)! } : undefined
     },
 
-    updateChannelUser({ id, status, role, usageLimitKTokens, usedKTokens }) {
+    updateChannelUser({ id, status, role, label, usageLimitKTokens, usedKTokens }) {
       const existing = channelUsers.get(id)
       if (!existing) return undefined
 
       if (status !== undefined) existing.status = status
       if (role !== undefined) existing.role = role
+      if (label !== undefined) existing.label = label
       if (usageLimitKTokens !== undefined) existing.usageLimitKTokens = usageLimitKTokens
       if (usedKTokens !== undefined) existing.usedKTokens = usedKTokens
 
@@ -764,12 +765,13 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       return record
     },
 
-    updateChannelGroup({ id, status, name }) {
+    updateChannelGroup({ id, status, name, label }) {
       const existing = channelGroups.get(id)
       if (!existing) return undefined
 
       if (status !== undefined) existing.status = status
       if (name !== undefined) existing.name = name
+      if (label !== undefined) existing.label = label
 
       return { ...existing }
     },

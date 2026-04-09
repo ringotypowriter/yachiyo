@@ -552,6 +552,7 @@ export function createQQService({
     const messages = buildGroupProbeMessages({
       botName: 'Yachiyo',
       groupName: group.name,
+      groupLabel: group.label || undefined,
       recentMessages: probeRecentMessages,
       knownUsers: buildKnownUsersMap(),
       personaSummary: EXTERNAL_GROUP_PROMPT,
@@ -626,6 +627,7 @@ export function createQQService({
         platform: 'qq',
         externalGroupId: groupId,
         name: `QQ群${groupId}`,
+        label: '',
         status: 'pending',
         workspacePath: join(resolveYachiyoTempWorkspaceRoot(), `qq-group-${groupId}`)
       })
@@ -762,6 +764,7 @@ export function createQQService({
     onGroupStatusChange(group) {
       if (group.platform !== 'qq' || !groupRegistry) return
 
+      groupRegistry.updateGroup(group)
       if (group.status === 'approved') {
         groupRegistry.startMonitor(group)
         console.log(`[qq-group] monitor started for "${group.name}" after approval`)

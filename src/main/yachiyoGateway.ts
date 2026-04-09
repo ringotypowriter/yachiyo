@@ -199,6 +199,23 @@ function createCommandSocketHandle(): CommandSocketHandle {
         console.error('[channel-group-status] failed:', error)
       }
     },
+    onUpdateChannelGroupLabel: (input) => {
+      if (!server) {
+        console.error('[channel-group-label] server is not running')
+        return
+      }
+      try {
+        const updated = server.updateChannelGroup(input)
+        telegramService?.onGroupStatusChange(updated)
+        qqService?.onGroupStatusChange(updated)
+        discordService?.onGroupStatusChange(updated)
+        console.log(
+          `[channel-group-label] updated ${updated.platform}:${updated.name} label="${updated.label}"`
+        )
+      } catch (error) {
+        console.error('[channel-group-label] failed:', error)
+      }
+    },
     onError: (error) => {
       console.error('[command-socket] server error:', error)
       queueMicrotask(() => {

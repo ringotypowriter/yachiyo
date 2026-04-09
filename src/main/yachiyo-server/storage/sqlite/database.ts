@@ -68,6 +68,7 @@ function toChannelUserRecord(row: typeof channelUsersTable.$inferSelect): Channe
     platform: row.platform as ChannelUserRecord['platform'],
     externalUserId: row.externalUserId,
     username: row.username,
+    label: row.label,
     status: row.status,
     role: (row.role ?? 'guest') as ChannelUserRole,
     usageLimitKTokens: row.usageLimitKTokens,
@@ -82,6 +83,7 @@ function toChannelGroupRecord(row: typeof channelGroupsTable.$inferSelect): Chan
     platform: row.platform as ChannelGroupRecord['platform'],
     externalGroupId: row.externalGroupId,
     name: row.name,
+    label: row.label,
     status: row.status,
     workspacePath: row.workspacePath,
     createdAt: row.createdAt
@@ -1235,6 +1237,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           platform: user.platform,
           externalUserId: user.externalUserId,
           username: user.username,
+          label: user.label ?? '',
           status: user.status,
           role: user.role,
           usageLimitKTokens: user.usageLimitKTokens,
@@ -1251,7 +1254,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       return row ? toChannelUserRecord(row) : undefined
     },
 
-    updateChannelUser({ id, status, role, usageLimitKTokens, usedKTokens }) {
+    updateChannelUser({ id, status, role, label, usageLimitKTokens, usedKTokens }) {
       const existing = db.select().from(channelUsersTable).where(eq(channelUsersTable.id, id)).get()
 
       if (!existing) return undefined
@@ -1259,6 +1262,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       const updates: Record<string, unknown> = {}
       if (status !== undefined) updates.status = status
       if (role !== undefined) updates.role = role
+      if (label !== undefined) updates.label = label
       if (usageLimitKTokens !== undefined) updates.usageLimitKTokens = usageLimitKTokens
       if (usedKTokens !== undefined) updates.usedKTokens = usedKTokens
 
@@ -1306,6 +1310,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           platform: group.platform,
           externalGroupId: group.externalGroupId,
           name: group.name,
+          label: group.label ?? '',
           status: group.status,
           workspacePath: group.workspacePath,
           createdAt
@@ -1314,7 +1319,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       return { ...group, createdAt }
     },
 
-    updateChannelGroup({ id, status, name }) {
+    updateChannelGroup({ id, status, name, label }) {
       const existing = db
         .select()
         .from(channelGroupsTable)
@@ -1325,6 +1330,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       const updates: Record<string, unknown> = {}
       if (status !== undefined) updates.status = status
       if (name !== undefined) updates.name = name
+      if (label !== undefined) updates.label = label
 
       if (Object.keys(updates).length > 0) {
         db.update(channelGroupsTable).set(updates).where(eq(channelGroupsTable.id, id)).run()

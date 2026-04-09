@@ -481,6 +481,7 @@ function buildSubagentContextBlock(
 
 function buildAgentInstructions(input: {
   workspacePath: string
+  workspaceLabel?: string
   enabledTools: ToolCallName[]
   activeSkills: SkillSummary[]
   hasHiddenMemorySearch: boolean
@@ -492,10 +493,13 @@ function buildAgentInstructions(input: {
   isUserSpecifiedWorkspace?: boolean
   maxToolSteps?: number
 }): string {
+  const workspaceLine = input.workspaceLabel
+    ? `The current thread workspace is ${input.workspacePath} (${input.workspaceLabel}).`
+    : `The current thread workspace is ${input.workspacePath}.`
   const instructions = [
     'You are operating as a tool-using local agent.',
     'Default execution mode is YOLO: use tools directly for normal local work instead of asking for per-step confirmation.',
-    `The current thread workspace is ${input.workspacePath}.`,
+    workspaceLine,
     'Relative paths should resolve from that workspace unless you intentionally use an absolute path.'
   ]
 
@@ -1335,6 +1339,7 @@ export async function executeServerRun(
               instructions: [
                 buildAgentInstructions({
                   workspacePath,
+                  workspaceLabel: config.workspace?.pathLabels?.[workspacePath],
                   enabledTools: modelEnabledTools,
                   activeSkills,
                   hasHiddenMemorySearch:

@@ -64,6 +64,7 @@ export function routeTelegramMessage(
       platform: 'telegram',
       externalUserId: msg.externalUserId,
       username: msg.username,
+      label: '',
       status: 'pending',
       role: 'guest',
       usageLimitKTokens: null,
