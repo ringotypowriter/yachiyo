@@ -11,7 +11,7 @@ import {
 test('normalizeMemoryProviderId accepts the builtin memory provider', () => {
   assert.equal(normalizeMemoryProviderId('builtin-memory'), 'builtin-memory')
   assert.equal(normalizeMemoryProviderId('nowledge-mem'), 'nowledge-mem')
-  assert.equal(normalizeMemoryProviderId('unknown-provider'), 'nowledge-mem')
+  assert.equal(normalizeMemoryProviderId('unknown-provider'), 'builtin-memory')
 })
 
 test('isMemoryConfigured allows builtin memory without a base URL', () => {

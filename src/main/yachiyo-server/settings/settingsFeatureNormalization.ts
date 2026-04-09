@@ -135,7 +135,7 @@ export function normalizeMemoryConfig(
   const input = asRecord(value)
 
   return {
-    enabled: input['enabled'] === true,
+    enabled: normalizeOptionalBool(input['enabled'], fallback.enabled ?? true),
     provider: normalizeMemoryProviderId(
       input['provider'],
       fallback.provider ?? DEFAULT_MEMORY_PROVIDER

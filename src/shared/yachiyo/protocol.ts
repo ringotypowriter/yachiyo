@@ -116,7 +116,7 @@ export type WebSearchFailureCode =
   | 'provider-failed'
   | 'aborted'
 export const DEFAULT_WEB_READ_CONTENT_FORMAT: WebReadRequestFormat = 'markdown'
-export const DEFAULT_MEMORY_PROVIDER: MemoryProviderId = 'nowledge-mem'
+export const DEFAULT_MEMORY_PROVIDER: MemoryProviderId = 'builtin-memory'
 export const DEFAULT_MEMORY_BASE_URL = 'http://127.0.0.1:14242'
 export const DEFAULT_WEB_SEARCH_PROVIDER: WebSearchProviderId = 'google-browser'
 export const CORE_TOOL_NAMES = [

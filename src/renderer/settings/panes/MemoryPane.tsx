@@ -20,11 +20,11 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
   const [hasAttemptedTermsLoad, setHasAttemptedTermsLoad] = useState(false)
   const [termsError, setTermsError] = useState<string | null>(null)
   const memory = draft.memory ?? {
-    enabled: false,
-    provider: 'nowledge-mem',
+    enabled: true,
+    provider: 'builtin-memory',
     baseUrl: 'http://127.0.0.1:14242'
   }
-  const provider = memory.provider ?? 'nowledge-mem'
+  const provider = memory.provider ?? 'builtin-memory'
   const showsBuiltinTerms = provider === 'builtin-memory'
   const showsNowledgeSettings = provider === 'nowledge-mem'
 
@@ -229,7 +229,7 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
             </div>
           </div>
           <SimpleSelect
-            value={memory.provider ?? 'nowledge-mem'}
+            value={memory.provider ?? 'builtin-memory'}
             options={[
               { value: 'builtin-memory', label: 'Built-in SQLite' },
               { value: 'nowledge-mem', label: 'Nowledge Mem' }

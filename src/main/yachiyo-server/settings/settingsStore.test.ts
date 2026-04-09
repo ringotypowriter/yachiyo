@@ -507,8 +507,8 @@ test('normalizeSettingsConfig falls back to the default tool model mode', () => 
 test('normalizeSettingsConfig fills memory defaults and preserves a valid config', () => {
   const defaults = normalizeSettingsConfig({ providers: [] })
   assert.deepEqual(defaults.memory, {
-    enabled: false,
-    provider: 'nowledge-mem',
+    enabled: true,
+    provider: 'builtin-memory',
     baseUrl: DEFAULT_MEMORY_BASE_URL
   })
 
@@ -1019,8 +1019,8 @@ providerName = ""
 model = ""
 
 [memory]
-enabled = false
-provider = "nowledge-mem"
+enabled = true
+provider = "builtin-memory"
 baseUrl = "http://127.0.0.1:14242"
 
 [webSearch]
@@ -1072,8 +1072,8 @@ providerName = ""
 model = ""
 
 [memory]
-enabled = false
-provider = "nowledge-mem"
+enabled = true
+provider = "builtin-memory"
 baseUrl = "http://127.0.0.1:14242"
 
 [webSearch]
