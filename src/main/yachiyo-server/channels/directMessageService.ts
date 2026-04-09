@@ -9,6 +9,7 @@ import type {
   YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol.ts'
 import { createChannelReplyTool } from './channelReply.ts'
+import { createToolProgressReporter } from './channelToolProgressReporter.ts'
 import type { ChannelPolicy } from './channelPolicy.ts'
 
 const REPLY_DELAY_MIN_MS = 3_000
@@ -270,6 +271,14 @@ export function createDirectMessageService<TTarget>(
         return
       }
 
+      const progressReporter = createToolProgressReporter({
+        subscribe: (listener) => options.server.subscribe(listener),
+        threadId: thread.id,
+        runId: accepted.runId,
+        sendMessage: (text) => options.sendMessage(target, text),
+        logLabel: options.logLabel
+      })
+
       if ('userMessage' in accepted) {
         for (const img of accepted.userMessage.images ?? []) {
           if (img.workspacePath) {
@@ -278,7 +287,12 @@ export function createDirectMessageService<TTarget>(
         }
       }
 
-      const rawOutput = await runDonePromise
+      let rawOutput: string
+      try {
+        rawOutput = await runDonePromise
+      } finally {
+        progressReporter.stop()
+      }
       const fallback = rawOutput.trim()
 
       if (fallback && !replies.includes(fallback)) {
