@@ -29,6 +29,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
   const [showTelegramToken, setShowTelegramToken] = useState(false)
   const [showQQToken, setShowQQToken] = useState(false)
   const [showDiscordToken, setShowDiscordToken] = useState(false)
+  const [showQQBotSecret, setShowQQBotSecret] = useState(false)
   const configRef = useRef(config)
 
   const [users, setUsers] = useState<ChannelUserRecord[]>([])
@@ -86,6 +87,11 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
   const discordEnabled = discord?.enabled ?? false
   const discordBotToken = discord?.botToken ?? ''
 
+  const qqbot = config.qqbot
+  const qqbotEnabled = qqbot?.enabled ?? false
+  const qqbotAppId = qqbot?.appId ?? ''
+  const qqbotClientSecret = qqbot?.clientSecret ?? ''
+
   function patchTelegram(patch: Partial<NonNullable<ChannelsConfig['telegram']>>): void {
     setConfig((c) => {
       const next = {
@@ -103,6 +109,24 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
       const next = {
         ...c,
         qq: { enabled: qqEnabled, wsUrl: qqWsUrl, ...c.qq, ...patch }
+      }
+      configRef.current = next
+      scheduleSave(next)
+      return next
+    })
+  }
+
+  function patchQQBot(patch: Partial<NonNullable<ChannelsConfig['qqbot']>>): void {
+    setConfig((c) => {
+      const next = {
+        ...c,
+        qqbot: {
+          enabled: qqbotEnabled,
+          appId: qqbotAppId,
+          clientSecret: qqbotClientSecret,
+          ...c.qqbot,
+          ...patch
+        }
       }
       configRef.current = next
       scheduleSave(next)
@@ -464,6 +488,118 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
                           model: { providerName, model }
                         }
                       })
+                    }
+                  }}
+                />
+              </div>
+            </SettingRow>
+          )}
+        </SettingSection>
+      </div>
+    )
+  }
+
+  if (activeSubTab === 'qqbot') {
+    return (
+      <div className="flex-1 overflow-y-auto pb-6">
+        <SettingSection>
+          <SettingRow>
+            <div className="min-w-0">
+              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                Enable bot
+              </div>
+              <div className="text-sm" style={{ color: theme.text.tertiary }}>
+                Connect via QQ Official Bot API (DM only)
+              </div>
+            </div>
+            <SettingSwitch
+              ariaLabel="Enable QQBot"
+              checked={qqbotEnabled}
+              onChange={() => patchQQBot({ enabled: !qqbotEnabled })}
+            />
+          </SettingRow>
+
+          <SettingRow>
+            <div className="flex items-center gap-2.5 flex-1 min-w-0">
+              <span className="text-sm font-medium shrink-0" style={{ color: theme.text.primary }}>
+                App ID
+              </span>
+              <input
+                type="text"
+                value={qqbotAppId}
+                onChange={(e) => patchQQBot({ appId: e.target.value })}
+                placeholder="102000000"
+                spellCheck={false}
+                className="flex-1 text-sm min-w-0"
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: alpha('ink', 0.04),
+                  color: theme.text.primary,
+                  outline: 'none',
+                  fontFamily: qqbotAppId ? 'monospace' : 'inherit'
+                }}
+              />
+            </div>
+          </SettingRow>
+
+          <SettingRow>
+            <div className="flex items-center gap-2.5 flex-1 min-w-0">
+              <span className="text-sm font-medium shrink-0" style={{ color: theme.text.primary }}>
+                Secret
+              </span>
+              <input
+                type={showQQBotSecret ? 'text' : 'password'}
+                value={qqbotClientSecret}
+                onChange={(e) => patchQQBot({ clientSecret: e.target.value })}
+                placeholder="Client secret from QQ Developer Portal"
+                spellCheck={false}
+                className="flex-1 text-sm min-w-0"
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: alpha('ink', 0.04),
+                  color: theme.text.primary,
+                  outline: 'none',
+                  fontFamily: qqbotClientSecret ? 'monospace' : 'inherit'
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowQQBotSecret((v) => !v)}
+                className="text-xs shrink-0 transition-opacity opacity-50 hover:opacity-100"
+                style={{
+                  color: theme.text.secondary,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                {showQQBotSecret ? 'Hide' : 'Show'}
+              </button>
+            </div>
+          </SettingRow>
+
+          {modelSelector && (
+            <SettingRow>
+              <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                <span
+                  className="text-sm font-medium shrink-0"
+                  style={{ color: theme.text.primary }}
+                >
+                  Model
+                </span>
+                <ModelSelect
+                  value={qqbot?.model ? `${qqbot.model.providerName}::${qqbot.model.model}` : ''}
+                  providers={settingsConfig!.providers}
+                  onChange={(val) => {
+                    if (!val) {
+                      patchQQBot({ model: undefined })
+                    } else {
+                      const [providerName, model] = val.split('::')
+                      patchQQBot({ model: { providerName, model } })
                     }
                   }}
                 />
@@ -1151,7 +1287,7 @@ function ChannelUserRow({
           { value: 'owner', label: 'Owner' }
         ]}
         onChange={(v) => onRoleChange(v as ChannelUserRole)}
-        width={80}
+        width={110}
       />
 
       <div className="flex items-center gap-1 shrink-0">

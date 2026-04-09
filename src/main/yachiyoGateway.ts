@@ -55,6 +55,7 @@ import {
   type TelegramService
 } from './yachiyo-server/channels/telegramService.ts'
 import { createQQService, type QQService } from './yachiyo-server/channels/qqService.ts'
+import { createQQBotService, type QQBotService } from './yachiyo-server/channels/qqbotService.ts'
 import {
   createDiscordService,
   type DiscordService
@@ -63,7 +64,8 @@ import {
   applyChannelsConfigToPolicy,
   telegramPolicy,
   qqPolicy,
-  discordPolicy
+  discordPolicy,
+  qqbotPolicy
 } from './yachiyo-server/channels/channelPolicy.ts'
 import {
   createScheduleService,
@@ -161,6 +163,7 @@ let server: YachiyoServer | null = null
 let telegramService: TelegramService | null = null
 let qqService: QQService | null = null
 let discordService: DiscordService | null = null
+let qqbotService: QQBotService | null = null
 let scheduleService: ScheduleService | null = null
 let commandSocket: CommandSocketHandle | null = null
 let commandSocketHealthTimer: ReturnType<typeof setInterval> | null = null
@@ -382,6 +385,42 @@ async function applyDiscordConfig(cfg: ChannelsConfig): Promise<void> {
   console.log('[discord] service started')
 }
 
+async function applyQQBotConfig(cfg: ChannelsConfig): Promise<void> {
+  const appId = cfg.qqbot?.appId?.trim()
+  const clientSecret = cfg.qqbot?.clientSecret?.trim()
+  const enabled = cfg.qqbot?.enabled ?? false
+
+  if (qqbotService) {
+    console.log('[qqbot] stopping existing service')
+    const old = qqbotService
+    qqbotService = null
+    try {
+      await old.stop()
+    } catch (e) {
+      console.error('[qqbot] stop error', e)
+    }
+  }
+
+  if (!enabled || !appId || !clientSecret || !server) {
+    console.log(
+      `[qqbot] service not started (enabled=${enabled}, hasAppId=${Boolean(appId)}, hasSecret=${Boolean(clientSecret)})`
+    )
+    return
+  }
+
+  console.log('[qqbot] starting QQBot service')
+  const model = cfg.qqbot?.model
+  qqbotService = createQQBotService({
+    appId,
+    clientSecret,
+    model,
+    server,
+    policy: applyChannelsConfigToPolicy(qqbotPolicy, cfg)
+  })
+  qqbotService.connect()
+  console.log('[qqbot] service started')
+}
+
 function toFatalRunError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error ?? '')
   const trimmed = message.trim()
@@ -472,6 +511,9 @@ function handleSendChannel(input: SendChannelInput): void {
     } else if (platform === 'discord') {
       if (!discordService) throw new Error('Discord service is not running')
       await discordService.sendMessage(externalId, input.message)
+    } else if (platform === 'qqbot') {
+      if (!qqbotService) throw new Error('QQBot service is not running')
+      await qqbotService.sendMessage(externalId, input.message)
     } else {
       throw new Error(`Unsupported platform: ${platform}`)
     }
@@ -551,7 +593,8 @@ async function startLiveServices(): Promise<void> {
     const channelStarts = [
       { label: 'telegram', start: () => applyTelegramConfig(channelsConfig) },
       { label: 'qq', start: () => applyQQConfig(channelsConfig) },
-      { label: 'discord', start: () => applyDiscordConfig(channelsConfig) }
+      { label: 'discord', start: () => applyDiscordConfig(channelsConfig) },
+      { label: 'qqbot', start: () => applyQQBotConfig(channelsConfig) }
     ]
 
     for (const channel of channelStarts) {
@@ -823,6 +866,7 @@ export function registerYachiyoGateway(): YachiyoServer {
     await applyTelegramConfig(saved)
     await applyQQConfig(saved)
     await applyDiscordConfig(saved)
+    await applyQQBotConfig(saved)
     return saved
   })
   // Schedule CRUD
@@ -946,6 +990,8 @@ export function registerYachiyoGateway(): YachiyoServer {
     qqService = null
     void discordService?.stop().catch(() => {})
     discordService = null
+    void qqbotService?.stop().catch(() => {})
+    qqbotService = null
     commandSocketRestartInFlight = null
     void commandSocket?.close()
     commandSocket = null

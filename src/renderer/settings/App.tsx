@@ -90,6 +90,7 @@ const TABS: Tab[] = [
       { id: 'general', label: 'General' },
       { id: 'telegram', label: 'Telegram' },
       { id: 'qq', label: 'QQ' },
+      { id: 'qqbot', label: 'QQBot' },
       { id: 'discord', label: 'Discord' }
     ]
   },

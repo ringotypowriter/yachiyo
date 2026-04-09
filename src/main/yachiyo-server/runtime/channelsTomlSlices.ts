@@ -2,6 +2,7 @@ import type {
   ChannelsConfig,
   DiscordChannelConfig,
   GroupChannelConfig,
+  QQBotChannelConfig,
   QQChannelConfig,
   TelegramChannelConfig,
   ThreadModelOverride
@@ -168,6 +169,30 @@ function writeQQ(config?: QQChannelConfig): Record<string, unknown> | undefined 
   return section
 }
 
+function readQQBot(section: Record<string, unknown>): QQBotChannelConfig {
+  const model = readModel(section)
+
+  return {
+    enabled: readBoolean(section['enabled']),
+    appId: readString(section['app_id']),
+    clientSecret: readString(section['client_secret']),
+    ...(model ? { model } : {})
+  }
+}
+
+function writeQQBot(config?: QQBotChannelConfig): Record<string, unknown> | undefined {
+  if (!config) {
+    return undefined
+  }
+
+  return buildSection([
+    ['enabled', config.enabled],
+    ['app_id', config.appId],
+    ['client_secret', config.clientSecret],
+    ...buildModelEntries(config.model)
+  ])
+}
+
 function readDiscord(section: Record<string, unknown>): DiscordChannelConfig {
   const model = readModel(section)
   const group = readGroupConfig(section)
@@ -230,6 +255,17 @@ export const channelsTomlSlices: readonly TomlConfigSlice<ChannelsConfig, TomlDo
     write(config) {
       const discord = writeDiscord(config.discord)
       return discord ? { discord } : {}
+    }
+  },
+  {
+    key: 'qqbot',
+    read(doc) {
+      const section = readTomlTable(doc['qqbot'])
+      return section ? { qqbot: readQQBot(section) } : {}
+    },
+    write(config) {
+      const qqbot = writeQQBot(config.qqbot)
+      return qqbot ? { qqbot } : {}
     }
   },
   {
