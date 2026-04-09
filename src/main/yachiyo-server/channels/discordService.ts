@@ -228,7 +228,7 @@ export function createDiscordService({
     nonRunReply: 'Sorry, something went wrong on my end.',
     errorReply: 'Something went wrong. Please try again in a moment.',
     shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
-    handleSlashCommand: (channelId, channelUser, command, args) =>
+    handleSlashCommand: (channelId, channelUser, command, args, context) =>
       handleDmSlashCommand(
         {
           server,
@@ -246,7 +246,8 @@ export function createDiscordService({
         channelId,
         channelUser,
         command,
-        args
+        args,
+        context
       )
   })
 

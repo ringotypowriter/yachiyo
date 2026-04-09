@@ -699,7 +699,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''))
       const latest = completedRuns[0]
       if (!latest) return 0
-      return (latest.totalPromptTokens ?? 0) + (latest.totalCompletionTokens ?? 0)
+      // Last step's prompt tokens = actual context window size.
+      return latest.promptTokens ?? 0
     },
 
     listExternalThreads() {

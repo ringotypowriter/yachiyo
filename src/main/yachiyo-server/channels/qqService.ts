@@ -188,7 +188,7 @@ export function createQQService({
     nonRunReply: '抱歉，出了点问题。',
     errorReply: '出了点问题，请稍后再试。',
     shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
-    handleSlashCommand: (qqUserId, channelUser, command, args) =>
+    handleSlashCommand: (qqUserId, channelUser, command, args, context) =>
       handleDmSlashCommand(
         {
           server,
@@ -206,7 +206,8 @@ export function createQQService({
         qqUserId,
         channelUser,
         command,
-        args
+        args,
+        context
       )
   })
 

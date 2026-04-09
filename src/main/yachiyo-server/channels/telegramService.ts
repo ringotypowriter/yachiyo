@@ -189,7 +189,7 @@ export function createTelegramService({
     nonRunReply: 'Sorry, something went wrong on my end.',
     errorReply: 'Something went wrong. Please try again in a moment.',
     shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
-    handleSlashCommand: (chatId, channelUser, command, args) =>
+    handleSlashCommand: (chatId, channelUser, command, args, context) =>
       handleDmSlashCommand(
         {
           server,
@@ -207,7 +207,8 @@ export function createTelegramService({
         chatId,
         channelUser,
         command,
-        args
+        args,
+        context
       )
   })
 

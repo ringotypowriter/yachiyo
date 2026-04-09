@@ -1184,10 +1184,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
     getThreadTotalTokens(threadId) {
       const row = db
-        .select({
-          totalPromptTokens: runsTable.totalPromptTokens,
-          totalCompletionTokens: runsTable.totalCompletionTokens
-        })
+        .select({ promptTokens: runsTable.promptTokens })
         .from(runsTable)
         .where(and(eq(runsTable.threadId, threadId), eq(runsTable.status, 'completed')))
         .orderBy(desc(runsTable.completedAt))
@@ -1195,7 +1192,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .get()
 
       if (!row) return 0
-      return (row.totalPromptTokens ?? 0) + (row.totalCompletionTokens ?? 0)
+      // Last step's prompt tokens = actual context window size.
+      return row.promptTokens ?? 0
     },
 
     listExternalThreads() {
