@@ -82,7 +82,10 @@ export function LinkSafetyModal({
             Copy link
           </button>
           <button
-            onClick={onConfirm}
+            onClick={() => {
+              onConfirm()
+              onClose()
+            }}
             className="flex items-center justify-center gap-2 w-full rounded-xl px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80"
             style={{
               border: 'none',
