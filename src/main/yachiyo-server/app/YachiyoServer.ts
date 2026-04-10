@@ -339,6 +339,7 @@ export class YachiyoServer {
       createId: this.createId,
       timestamp: this.timestamp.bind(this)
     })
+    this.scheduleDomain.ensureBundledSchedules()
 
     this.ttlReaper = createTtlReaper({
       manifestPath: join(resolveYachiyoTempWorkspaceRoot(), '.yachiyo-ttl.json')

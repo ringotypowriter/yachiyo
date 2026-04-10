@@ -1199,6 +1199,7 @@ async function handleScheduleCommand(
     createId: () => randomUUID(),
     timestamp: () => new Date().toISOString()
   })
+  domain.ensureBundledSchedules()
 
   const action = positionals[0]
   const useJson = flags.get('--json') === 'true'
@@ -1210,7 +1211,10 @@ async function handleScheduleCommand(
     } else {
       for (const s of schedules) {
         const scheduleLabel = s.runAt ? `@${s.runAt}` : (s.cronExpression ?? '?')
-        stdout.write(`${s.enabled ? '✓' : '✗'} ${s.name} [${scheduleLabel}] id=${s.id}\n`)
+        const bundledTag = s.bundled ? ' [bundled]' : ''
+        stdout.write(
+          `${s.enabled ? '✓' : '✗'} ${s.name} [${scheduleLabel}]${bundledTag} id=${s.id}\n`
+        )
       }
       if (schedules.length === 0) stdout.write('No schedules.\n')
     }

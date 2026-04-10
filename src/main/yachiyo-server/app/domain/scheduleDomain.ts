@@ -7,6 +7,7 @@ import type {
   UpdateScheduleInput
 } from '../../../../shared/yachiyo/protocol.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
+import { BUNDLED_SCHEDULES, isBundledScheduleId } from './bundledSchedules.ts'
 
 function validateRunAt(runAt: string): void {
   const ts = Date.parse(runAt)
@@ -39,14 +40,70 @@ export class ScheduleDomain {
     this.timestamp = deps.timestamp
   }
 
+  /**
+   * Ensure all bundled schedules exist in storage. Called on startup and upgrade.
+   *
+   * - If missing: creates with defaults (enabled, default cron).
+   * - If present: refreshes prompt text (picks up code changes) but preserves
+   *   the user's cron expression and enabled preference.
+   */
+  ensureBundledSchedules(): void {
+    for (const spec of BUNDLED_SCHEDULES) {
+      const existing = this.storage.getSchedule(spec.id)
+      if (!existing) {
+        const now = this.timestamp()
+        const schedule: ScheduleRecord = {
+          id: spec.id,
+          name: spec.name,
+          cronExpression: spec.cronExpression,
+          prompt: spec.prompt,
+          enabled: true,
+          bundled: true,
+          createdAt: now,
+          updatedAt: now
+        }
+        this.storage.createSchedule(schedule)
+        console.log(`[schedule] created bundled schedule: ${spec.name}`)
+      } else {
+        let needsUpdate = false
+        const patched = { ...existing }
+
+        // Refresh prompt & name from code — these are owned by the spec
+        if (existing.prompt !== spec.prompt || existing.name !== spec.name) {
+          patched.name = spec.name
+          patched.prompt = spec.prompt
+          needsUpdate = true
+        }
+
+        // Restore default recurrence if the schedule was converted to one-off
+        // (runAt set, cronExpression cleared). Without this, the one-off fires
+        // once, scheduleService disables it, and the bundled schedule is stuck
+        // disabled forever.
+        if (!existing.cronExpression) {
+          patched.cronExpression = spec.cronExpression
+          delete patched.runAt
+          patched.enabled = true
+          needsUpdate = true
+          console.log(`[schedule] restored default cron for bundled schedule: ${spec.name}`)
+        }
+
+        if (needsUpdate) {
+          patched.updatedAt = this.timestamp()
+          this.storage.updateSchedule(patched)
+          console.log(`[schedule] refreshed bundled schedule: ${spec.name}`)
+        }
+      }
+    }
+  }
+
   listSchedules(): ScheduleRecord[] {
-    return this.storage.listSchedules()
+    return this.storage.listSchedules().map(hydrateBundled)
   }
 
   getSchedule(id: string): ScheduleRecord {
     const schedule = this.storage.getSchedule(id)
     if (!schedule) throw new Error(`Schedule not found: ${id}`)
-    return schedule
+    return hydrateBundled(schedule)
   }
 
   createSchedule(input: CreateScheduleInput): ScheduleRecord {
@@ -87,6 +144,21 @@ export class ScheduleDomain {
   updateSchedule(input: UpdateScheduleInput): ScheduleRecord {
     const existing = this.storage.getSchedule(input.id)
     if (!existing) throw new Error(`Schedule not found: ${input.id}`)
+
+    // Bundled schedules: only `enabled` and `cronExpression` are user-editable.
+    // Name and prompt are owned by the spec (refreshed on startup); converting
+    // to one-off (runAt) would let scheduleService disable it permanently.
+    if (isBundledScheduleId(input.id)) {
+      if (input.name !== undefined) {
+        throw new Error('Cannot change the name of a bundled schedule.')
+      }
+      if (input.prompt !== undefined) {
+        throw new Error('Cannot change the prompt of a bundled schedule.')
+      }
+      if (input.runAt !== undefined) {
+        throw new Error('Cannot convert a bundled schedule to one-off.')
+      }
+    }
 
     if (input.name !== undefined && !input.name.trim()) {
       throw new Error('Schedule name must not be empty.')
@@ -160,6 +232,9 @@ export class ScheduleDomain {
   deleteSchedule(id: string): void {
     const existing = this.storage.getSchedule(id)
     if (!existing) throw new Error(`Schedule not found: ${id}`)
+    if (isBundledScheduleId(id)) {
+      throw new Error('Bundled schedules cannot be deleted. Use disable instead.')
+    }
     this.storage.deleteSchedule(id)
   }
 
@@ -179,6 +254,14 @@ export class ScheduleDomain {
   listRecentScheduleRuns(limit?: number): ScheduleRunRecord[] {
     return this.storage.listRecentScheduleRuns(limit)
   }
+}
+
+/** Tag a schedule record with `bundled: true` if its ID belongs to a bundled schedule. */
+function hydrateBundled(schedule: ScheduleRecord): ScheduleRecord {
+  if (isBundledScheduleId(schedule.id)) {
+    return { ...schedule, bundled: true }
+  }
+  return schedule
 }
 
 function validateCronExpression(expression: string): void {

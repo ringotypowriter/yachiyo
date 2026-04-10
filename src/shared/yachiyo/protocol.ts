@@ -1397,6 +1397,8 @@ export interface ScheduleRecord {
   modelOverride?: ThreadModelOverride
   enabledTools?: ToolCallName[]
   enabled: boolean
+  /** True for schedules shipped with Yachiyo. Bundled schedules can be disabled but not deleted. */
+  bundled?: boolean
   createdAt: string
   updatedAt: string
 }

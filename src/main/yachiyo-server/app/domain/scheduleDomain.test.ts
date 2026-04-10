@@ -383,4 +383,156 @@ describe('ScheduleDomain', () => {
       assert.equal(list[1].name, 'Zeta')
     })
   })
+
+  describe('bundled schedules', () => {
+    it('ensureBundledSchedules creates the self-review schedule when missing', () => {
+      const { domain, storage } = createDomain()
+      domain.ensureBundledSchedules()
+
+      const schedule = storage.schedules.get('bundled:self-review')
+      assert.ok(schedule, 'bundled:self-review should exist')
+      assert.equal(schedule.name, 'Self-Review')
+      assert.equal(schedule.cronExpression, '0 12 * * *')
+      assert.equal(schedule.enabled, true)
+      assert.ok(schedule.prompt.length > 100, 'prompt should contain the full self-review text')
+    })
+
+    it('ensureBundledSchedules is idempotent', () => {
+      const { domain, storage } = createDomain()
+      domain.ensureBundledSchedules()
+      const firstPrompt = storage.schedules.get('bundled:self-review')!.prompt
+
+      domain.ensureBundledSchedules()
+      assert.equal(storage.schedules.get('bundled:self-review')!.prompt, firstPrompt)
+    })
+
+    it('ensureBundledSchedules refreshes prompt when code changes', () => {
+      const storage = createMockStorage()
+      const now = '2026-01-01T00:00:00.000Z'
+      storage.schedules.set('bundled:self-review', {
+        id: 'bundled:self-review',
+        name: 'Self-Review',
+        cronExpression: '0 12 * * *',
+        prompt: 'old prompt text',
+        enabled: false, // user disabled it
+        createdAt: now,
+        updatedAt: now
+      })
+
+      const { domain } = createDomain(storage)
+      domain.ensureBundledSchedules()
+
+      const updated = storage.schedules.get('bundled:self-review')!
+      assert.notEqual(updated.prompt, 'old prompt text', 'prompt should be refreshed')
+      assert.equal(updated.enabled, false, 'enabled preference should be preserved')
+      assert.equal(updated.cronExpression, '0 12 * * *', 'cron should be preserved')
+    })
+
+    it('ensureBundledSchedules restores default cron when converted to one-off', () => {
+      const storage = createMockStorage()
+      const now = '2026-01-01T00:00:00.000Z'
+      storage.schedules.set('bundled:self-review', {
+        id: 'bundled:self-review',
+        name: 'Self-Review',
+        runAt: '2026-06-01T09:00:00.000Z', // was converted to one-off
+        prompt: 'old prompt',
+        enabled: false, // was auto-disabled after one-off fired
+        createdAt: now,
+        updatedAt: now
+      })
+
+      const { domain } = createDomain(storage)
+      domain.ensureBundledSchedules()
+
+      const restored = storage.schedules.get('bundled:self-review')!
+      assert.equal(restored.cronExpression, '0 12 * * *', 'should restore default cron')
+      assert.equal(restored.runAt, undefined, 'should clear runAt')
+      assert.equal(restored.enabled, true, 'should re-enable')
+    })
+
+    it('updateSchedule rejects name changes on bundled schedules', () => {
+      const { domain } = createDomain()
+      domain.ensureBundledSchedules()
+
+      assert.throws(
+        () => domain.updateSchedule({ id: 'bundled:self-review', name: 'Custom Name' }),
+        /cannot change the name/i
+      )
+    })
+
+    it('updateSchedule rejects prompt changes on bundled schedules', () => {
+      const { domain } = createDomain()
+      domain.ensureBundledSchedules()
+
+      assert.throws(
+        () => domain.updateSchedule({ id: 'bundled:self-review', prompt: 'custom prompt' }),
+        /cannot change the prompt/i
+      )
+    })
+
+    it('updateSchedule rejects conversion to one-off on bundled schedules', () => {
+      const { domain } = createDomain()
+      domain.ensureBundledSchedules()
+
+      assert.throws(
+        () =>
+          domain.updateSchedule({
+            id: 'bundled:self-review',
+            cronExpression: null,
+            runAt: '2099-12-31T23:59:00.000Z'
+          }),
+        /cannot convert a bundled schedule to one-off/i
+      )
+    })
+
+    it('updateSchedule allows cron changes on bundled schedules', () => {
+      const { domain } = createDomain()
+      domain.ensureBundledSchedules()
+
+      const updated = domain.updateSchedule({
+        id: 'bundled:self-review',
+        cronExpression: '0 3 * * *' // user prefers 3 AM
+      })
+      assert.equal(updated.cronExpression, '0 3 * * *')
+    })
+
+    it('deleteSchedule rejects bundled schedules', () => {
+      const { domain } = createDomain()
+      domain.ensureBundledSchedules()
+
+      assert.throws(
+        () => domain.deleteSchedule('bundled:self-review'),
+        /bundled schedules cannot be deleted/i
+      )
+    })
+
+    it('disableSchedule works on bundled schedules', () => {
+      const { domain } = createDomain()
+      domain.ensureBundledSchedules()
+
+      const disabled = domain.disableSchedule('bundled:self-review')
+      assert.equal(disabled.enabled, false)
+    })
+
+    it('listSchedules hydrates bundled flag', () => {
+      const { domain } = createDomain()
+      domain.ensureBundledSchedules()
+      domain.createSchedule({ name: 'User Schedule', cronExpression: '0 9 * * *', prompt: 'test' })
+
+      const list = domain.listSchedules()
+      const bundled = list.find((s) => s.id === 'bundled:self-review')
+      const user = list.find((s) => s.id !== 'bundled:self-review')
+
+      assert.equal(bundled?.bundled, true)
+      assert.equal(user?.bundled, undefined)
+    })
+
+    it('getSchedule hydrates bundled flag', () => {
+      const { domain } = createDomain()
+      domain.ensureBundledSchedules()
+
+      const schedule = domain.getSchedule('bundled:self-review')
+      assert.equal(schedule.bundled, true)
+    })
+  })
 })
