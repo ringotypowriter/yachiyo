@@ -479,6 +479,9 @@ export function Composer({
   const fileInputRef = useRef<HTMLInputElement>(null)
   /** Set when the user inserts a hard/soft line break so we scroll after layout (hidden native caret). */
   const scrollComposerToEndAfterBreakRef = useRef(false)
+  /** True when any composer popup is open; used by the auto-focus keydown listener. */
+  const anyPopupOpenRef = useRef(false)
+  const composerRootRef = useRef<HTMLDivElement>(null)
 
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false)
   const [skillsSelectorOpen, setSkillsSelectorOpen] = useState(false)
@@ -755,6 +758,14 @@ export function Composer({
   const showSlashCommandPopup =
     (fileMentionQuery !== null || matchingSlashCommands.length > 0) &&
     dismissedSlashQuery !== activeQuery
+
+  anyPopupOpenRef.current =
+    modelSelectorOpen ||
+    skillsSelectorOpen ||
+    toolSelectorOpen ||
+    workspaceSelectorOpen ||
+    showSlashCommandPopup ||
+    pendingWorkspaceChangeConfirmation !== null
 
   const [fileMentionAnchorRect, setFileMentionAnchorRect] = useState<DOMRect | null>(null)
 
@@ -1198,6 +1209,80 @@ export function Composer({
     }
   }, [editingMessage])
 
+  // Auto-focus the composer textarea when a printable key is pressed while no
+  // input-like element is focused. The listener is mounted only while Composer
+  // is rendered, so it is scoped to the chat panel rather than a global window
+  // listener that fires on every page.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key.length !== 1) return
+      if (event.key === ' ') return
+      if (event.ctrlKey || event.altKey || event.metaKey) return
+
+      const active = document.activeElement
+      if (
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        active instanceof HTMLSelectElement ||
+        active?.getAttribute('contenteditable') === 'true'
+      ) {
+        return
+      }
+
+      // Don't steal focus from interactive elements outside the composer
+      // (buttons in modals, menus, links, sidebar items, etc.).
+      if (
+        active instanceof Element &&
+        active !== document.body &&
+        (!composerRootRef.current || !composerRootRef.current.contains(active))
+      ) {
+        const tag = active.tagName.toLowerCase()
+        const tabIndex = active.getAttribute('tabindex')
+        if (
+          tag === 'button' ||
+          tag === 'a' ||
+          tag === 'summary' ||
+          tabIndex === '0' ||
+          tabIndex === '1'
+        ) {
+          return
+        }
+      }
+
+      if (anyPopupOpenRef.current) return
+
+      // Don't auto-focus when any non-composer overlay (modal, menu, dialog)
+      // is open. These are typically rendered as fixed-position portals to
+      // document.body; scanning body.children avoids coupling Composer to every
+      // possible overlay component.
+      let hasExternalOverlay = false
+      for (const el of document.body.children) {
+        if (el.id === 'root') continue
+        const style = window.getComputedStyle(el)
+        if (style.display === 'none' || style.visibility === 'hidden') continue
+        if (style.pointerEvents === 'none') continue
+        if (style.position === 'fixed') {
+          hasExternalOverlay = true
+          break
+        }
+      }
+      if (hasExternalOverlay) return
+
+      const ta = textareaRef.current
+      if (!ta) return
+
+      // Focus synchronously so the browser routes the upcoming input event
+      // into the textarea and the character is typed naturally.
+      ta.focus()
+      // We intentionally do NOT select-all: drafts are thread-specific and
+      // usually mid-composition, so appending the keystroke feels more natural
+      // than replacing the entire draft.
+    }
+
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => document.removeEventListener('keydown', handleKeyDown, true)
+  }, [])
+
   useEffect(() => {
     if (!modelSelectorOpen && !skillsSelectorOpen && !toolSelectorOpen && !workspaceSelectorOpen) {
       return
@@ -1407,12 +1492,6 @@ export function Composer({
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.key === 'Escape' && editingMessage !== null) {
-        event.preventDefault()
-        cancelEditMessage()
-        return
-      }
-
       if (showSlashCommandPopup) {
         if (event.key === 'ArrowDown') {
           event.preventDefault()
@@ -1512,6 +1591,26 @@ export function Composer({
         }
       }
 
+      if (event.key === 'Escape') {
+        if (isComposing || event.nativeEvent.isComposing) return
+        if (modelSelectorOpen || skillsSelectorOpen || toolSelectorOpen || workspaceSelectorOpen) {
+          event.preventDefault()
+          setModelSelectorOpen(false)
+          setSkillsSelectorOpen(false)
+          setToolSelectorOpen(false)
+          setWorkspaceSelectorOpen(false)
+          return
+        }
+        if (editingMessage !== null) {
+          event.preventDefault()
+          cancelEditMessage()
+          return
+        }
+        event.preventDefault()
+        textareaRef.current?.blur()
+        return
+      }
+
       // Pretext-driven up/down navigation — override native arrow keys so cursor
       // movement follows pretext's visual lines, not the textarea's CSS wrapping.
       if (
@@ -1572,6 +1671,7 @@ export function Composer({
       matchingSlashCommands,
       dismissSlashPopup,
       dispatchSend,
+      modelSelectorOpen,
       showSlashCommandPopup,
       slashSelectedIndex,
       skillQuery,
@@ -1581,7 +1681,10 @@ export function Composer({
       fileMentionRawQuery,
       atSkillPrefixMatch,
       composerValue,
-      setComposerValue
+      setComposerValue,
+      skillsSelectorOpen,
+      toolSelectorOpen,
+      workspaceSelectorOpen
     ]
   )
 
@@ -1645,7 +1748,11 @@ export function Composer({
   const canOpenModelPicker = hasModels || hasAcpAgents
 
   return (
-    <div className="flex flex-col" style={{ borderTop: `1px solid ${theme.border.panel}` }}>
+    <div
+      ref={composerRootRef}
+      className="flex flex-col"
+      style={{ borderTop: `1px solid ${theme.border.panel}` }}
+    >
       {editingMessage !== null ? (
         <div
           className="flex items-center justify-between px-4 py-1.5"
