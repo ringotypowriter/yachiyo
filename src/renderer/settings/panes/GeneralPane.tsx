@@ -17,175 +17,101 @@ import {
   SimpleSelect
 } from '../components/primitives'
 import { ShortcutRecorder } from '../components/ShortcutRecorder'
-import {
-  hasPendingUserDocumentChanges,
-  loadUserDocument,
-  persistUserDocument
-} from './userDocumentEditorModel'
-import { loadSoulDocument, addSoulTrait, deleteSoulTrait } from './soulDocumentEditorModel'
+import { hasPendingSoulDocumentChanges } from './soulDocumentEditorModel'
+import { hasPendingUserDocumentChanges } from './userDocumentEditorModel'
 
 interface GeneralPaneProps {
   draft: SettingsConfig
   onChange: (next: SettingsConfig) => void
+  userDocument: UserDocument | null
+  userDraft: string | null
+  isLoadingUserDocument: boolean
+  userDocumentError: string | null
+  onLoadUserDocument: () => Promise<void>
+  onUserDraftChange: (next: string) => void
+  onRevertUserDocument: () => void
+  soulDocument: SoulDocument | null
+  soulDraftTraits: string[] | null
+  isLoadingSoulDocument: boolean
+  soulDocumentError: string | null
+  onLoadSoulDocument: () => Promise<void>
+  onSoulDraftChange: (next: string[]) => void
+  onRevertSoulDocument: () => void
 }
 
-export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactNode {
+export function GeneralPane({
+  draft,
+  onChange,
+  userDocument,
+  userDraft,
+  isLoadingUserDocument,
+  userDocumentError,
+  onLoadUserDocument,
+  onUserDraftChange,
+  onRevertUserDocument,
+  soulDocument,
+  soulDraftTraits,
+  isLoadingSoulDocument,
+  soulDocumentError,
+  onLoadSoulDocument,
+  onSoulDraftChange,
+  onRevertSoulDocument
+}: GeneralPaneProps): React.ReactNode {
   const sidebarVisibility = draft.general?.sidebarVisibility ?? DEFAULT_SIDEBAR_VISIBILITY
   const [view, setView] = useState<'overview' | 'user-document' | 'soul-document'>('overview')
 
-  // USER.md state
-  const [userDocument, setUserDocument] = useState<UserDocument | null>(null)
-  const [userDraft, setUserDraft] = useState('')
-  const [isLoadingUserDocument, setIsLoadingUserDocument] = useState(false)
-  const [isSavingUserDocument, setIsSavingUserDocument] = useState(false)
-  const [hasAttemptedUserDocumentLoad, setHasAttemptedUserDocumentLoad] = useState(false)
-  const [userDocumentError, setUserDocumentError] = useState<string | null>(null)
+  const hasAttemptedUserDocumentLoadRef = useRef(false)
 
   // SOUL.md state
-  const [soulDocument, setSoulDocument] = useState<SoulDocument | null>(null)
-  const [isLoadingSoul, setIsLoadingSoul] = useState(false)
-  const [hasAttemptedSoulLoad, setHasAttemptedSoulLoad] = useState(false)
-  const [soulError, setSoulError] = useState<string | null>(null)
+  const hasAttemptedSoulLoadRef = useRef(false)
   const [newTrait, setNewTrait] = useState('')
-  const [isAddingTrait, setIsAddingTrait] = useState(false)
-  const [deletingTrait, setDeletingTrait] = useState<string | null>(null)
-  const newTraitInputRef = useRef<HTMLInputElement>(null)
+  const hasPendingUserChanges =
+    userDraft !== null && hasPendingUserDocumentChanges(userDocument?.content ?? '', userDraft)
+  const soulTraits = soulDraftTraits ?? soulDocument?.evolvedTraits ?? []
+  const hasPendingSoulChanges =
+    soulDraftTraits !== null &&
+    hasPendingSoulDocumentChanges(soulDocument?.evolvedTraits ?? [], soulDraftTraits)
 
   useEffect(() => {
     if (
       view !== 'user-document' ||
-      userDocument ||
       isLoadingUserDocument ||
-      hasAttemptedUserDocumentLoad
+      hasAttemptedUserDocumentLoadRef.current ||
+      hasPendingUserChanges
     ) {
       return
     }
 
-    let cancelled = false
-    setIsLoadingUserDocument(true)
-    setHasAttemptedUserDocumentLoad(true)
-    setUserDocumentError(null)
-
-    void loadUserDocument()
-      .then((document) => {
-        if (cancelled) {
-          return
-        }
-
-        setUserDocument(document)
-        setUserDraft(document.content)
-      })
-      .catch((reason) => {
-        if (cancelled) {
-          return
-        }
-
-        setUserDocumentError(reason instanceof Error ? reason.message : 'Failed to load USER.md.')
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoadingUserDocument(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [hasAttemptedUserDocumentLoad, isLoadingUserDocument, userDocument, view])
+    hasAttemptedUserDocumentLoadRef.current = true
+    void onLoadUserDocument()
+  }, [hasPendingUserChanges, isLoadingUserDocument, onLoadUserDocument, view])
 
   useEffect(() => {
-    if (view !== 'soul-document' || soulDocument || isLoadingSoul || hasAttemptedSoulLoad) {
+    if (
+      view !== 'soul-document' ||
+      isLoadingSoulDocument ||
+      hasAttemptedSoulLoadRef.current ||
+      hasPendingSoulChanges
+    ) {
       return
     }
 
-    let cancelled = false
-    setIsLoadingSoul(true)
-    setHasAttemptedSoulLoad(true)
-    setSoulError(null)
+    hasAttemptedSoulLoadRef.current = true
+    void onLoadSoulDocument()
+  }, [hasPendingSoulChanges, isLoadingSoulDocument, onLoadSoulDocument, view])
 
-    void loadSoulDocument()
-      .then((doc) => {
-        if (!cancelled) {
-          setSoulDocument(doc)
-        }
-      })
-      .catch((reason) => {
-        if (!cancelled) {
-          setSoulError(reason instanceof Error ? reason.message : 'Failed to load SOUL.md.')
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoadingSoul(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [hasAttemptedSoulLoad, isLoadingSoul, soulDocument, view])
-
-  const hasPendingUserChanges = hasPendingUserDocumentChanges(
-    userDocument?.content ?? '',
-    userDraft
-  )
-
-  const handleSaveUserDocument = async (): Promise<void> => {
-    if (isSavingUserDocument) {
-      return
-    }
-
-    setIsSavingUserDocument(true)
-    setUserDocumentError(null)
-
-    try {
-      const saved = await persistUserDocument(userDraft)
-      setUserDocument(saved)
-      setUserDraft(saved.content)
-    } catch (reason) {
-      setUserDocumentError(reason instanceof Error ? reason.message : 'Failed to save USER.md.')
-    } finally {
-      setIsSavingUserDocument(false)
-    }
-  }
-
-  const handleAddTrait = async (): Promise<void> => {
+  const handleAddTrait = (): void => {
     const trait = newTrait.trim()
-    if (!trait || isAddingTrait) {
+    if (!trait || soulTraits.includes(trait)) {
       return
     }
 
-    setIsAddingTrait(true)
-    setSoulError(null)
-
-    try {
-      const updated = await addSoulTrait(trait)
-      setSoulDocument(updated)
-      setNewTrait('')
-      newTraitInputRef.current?.focus()
-    } catch (reason) {
-      setSoulError(reason instanceof Error ? reason.message : 'Failed to add trait.')
-    } finally {
-      setIsAddingTrait(false)
-    }
+    onSoulDraftChange([...soulTraits, trait])
+    setNewTrait('')
   }
 
-  const handleDeleteTrait = async (trait: string): Promise<void> => {
-    if (deletingTrait) {
-      return
-    }
-
-    setDeletingTrait(trait)
-    setSoulError(null)
-
-    try {
-      const updated = await deleteSoulTrait(trait)
-      setSoulDocument(updated)
-    } catch (reason) {
-      setSoulError(reason instanceof Error ? reason.message : 'Failed to remove trait.')
-    } finally {
-      setDeletingTrait(null)
-    }
+  const handleDeleteTrait = (trait: string): void => {
+    onSoulDraftChange(soulTraits.filter((entry) => entry !== trait))
   }
 
   if (view === 'user-document') {
@@ -199,7 +125,7 @@ export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactN
               style={{ color: theme.text.accent }}
               onClick={() => {
                 setView('overview')
-                setHasAttemptedUserDocumentLoad(false)
+                hasAttemptedUserDocumentLoadRef.current = false
               }}
             >
               ← General
@@ -226,30 +152,18 @@ export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactN
                 color: theme.text.secondary,
                 opacity: hasPendingUserChanges ? 0.8 : 0.3
               }}
-              disabled={!hasPendingUserChanges || isSavingUserDocument}
-              onClick={() => setUserDraft(userDocument?.content ?? '')}
+              disabled={!hasPendingUserChanges}
+              onClick={onRevertUserDocument}
             >
               Revert
-            </button>
-            <button
-              type="button"
-              className="text-sm font-medium transition-opacity"
-              style={{
-                color: theme.text.accent,
-                opacity: !hasPendingUserChanges || isSavingUserDocument ? 0.4 : 1
-              }}
-              disabled={!hasPendingUserChanges || isSavingUserDocument}
-              onClick={() => void handleSaveUserDocument()}
-            >
-              {isSavingUserDocument ? 'Saving...' : 'Save'}
             </button>
           </div>
         </div>
 
         <div className="px-7 pb-4">
           <textarea
-            value={userDraft}
-            onChange={(e) => setUserDraft(e.target.value)}
+            value={userDraft ?? ''}
+            onChange={(e) => onUserDraftChange(e.target.value)}
             className="min-h-120 w-full resize-y rounded-xl px-4 py-3 text-sm leading-6 outline-none"
             style={{
               color: theme.text.primary,
@@ -282,8 +196,6 @@ export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactN
   }
 
   if (view === 'soul-document') {
-    const traits = soulDocument?.evolvedTraits ?? []
-
     return (
       <div className="flex-1 overflow-y-auto">
         <div className="px-7 pt-5 pb-4">
@@ -293,8 +205,7 @@ export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactN
             style={{ color: theme.text.accent }}
             onClick={() => {
               setView('overview')
-              setHasAttemptedSoulLoad(false)
-              setSoulDocument(null)
+              hasAttemptedSoulLoadRef.current = false
             }}
           >
             ← General
@@ -313,15 +224,30 @@ export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactN
           ) : null}
         </div>
 
-        {isLoadingSoul ? (
+        {isLoadingSoulDocument ? (
           <div className="px-7 text-sm" style={{ color: theme.text.muted }}>
             Loading SOUL.md...
           </div>
         ) : (
           <>
-            {traits.length > 0 ? (
+            <div className="px-7 pb-2 flex items-center justify-end">
+              <button
+                type="button"
+                className="text-sm font-medium transition-opacity"
+                style={{
+                  color: theme.text.secondary,
+                  opacity: hasPendingSoulChanges ? 0.8 : 0.3
+                }}
+                disabled={!hasPendingSoulChanges}
+                onClick={onRevertSoulDocument}
+              >
+                Revert
+              </button>
+            </div>
+
+            {soulTraits.length > 0 ? (
               <div style={{ borderTop: `1px solid ${theme.border.subtle}` }}>
-                {traits.map((trait) => (
+                {soulTraits.map((trait) => (
                   <div
                     key={trait}
                     className="flex items-start gap-3 px-7 py-3"
@@ -341,11 +267,10 @@ export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactN
                       type="button"
                       className="shrink-0 text-sm transition-opacity opacity-30 hover:opacity-70"
                       style={{ color: theme.text.secondary }}
-                      disabled={deletingTrait === trait}
-                      onClick={() => void handleDeleteTrait(trait)}
+                      onClick={() => handleDeleteTrait(trait)}
                       aria-label={`Remove trait: ${trait}`}
                     >
-                      {deletingTrait === trait ? '...' : '×'}
+                      ×
                     </button>
                   </div>
                 ))}
@@ -358,11 +283,10 @@ export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactN
 
             <div className="px-7 py-4 flex items-center gap-3">
               <input
-                ref={newTraitInputRef}
                 type="text"
                 value={newTrait}
                 onChange={(e) => setNewTrait(e.target.value)}
-                onKeyDown={imeSafeEnter(() => void handleAddTrait())}
+                onKeyDown={imeSafeEnter(() => handleAddTrait())}
                 placeholder="Add a trait..."
                 className="flex-1 rounded-lg px-3 py-2 text-sm outline-none"
                 style={{
@@ -370,25 +294,24 @@ export function GeneralPane({ draft, onChange }: GeneralPaneProps): React.ReactN
                   border: 'none',
                   color: theme.text.primary
                 }}
-                disabled={isAddingTrait}
               />
               <button
                 type="button"
                 className="shrink-0 text-sm font-medium transition-opacity"
                 style={{
                   color: theme.text.accent,
-                  opacity: !newTrait.trim() || isAddingTrait ? 0.35 : 1
+                  opacity: !newTrait.trim() || soulTraits.includes(newTrait.trim()) ? 0.35 : 1
                 }}
-                disabled={!newTrait.trim() || isAddingTrait}
-                onClick={() => void handleAddTrait()}
+                disabled={!newTrait.trim() || soulTraits.includes(newTrait.trim())}
+                onClick={handleAddTrait}
               >
-                {isAddingTrait ? 'Adding...' : 'Add'}
+                Add
               </button>
             </div>
 
-            {soulError ? (
+            {soulDocumentError ? (
               <div className="px-7 pb-3 text-sm" style={{ color: '#c25151' }}>
-                {soulError}
+                {soulDocumentError}
               </div>
             ) : null}
           </>

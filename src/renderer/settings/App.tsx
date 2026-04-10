@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Bot,
   Brain,
@@ -17,8 +17,15 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
-import type { SettingsConfig } from '../../shared/yachiyo/protocol.ts'
-import type { SkillCatalogEntry } from '../../shared/yachiyo/protocol.ts'
+import type {
+  ChannelGroupRecord,
+  ChannelUserRecord,
+  ChannelsConfig,
+  SettingsConfig,
+  SkillCatalogEntry,
+  SoulDocument,
+  UserDocument
+} from '../../shared/yachiyo/protocol.ts'
 import {
   getToolModelConfig,
   resolveToolModelProvider
@@ -38,6 +45,23 @@ import { AboutPane } from './panes/AboutPane'
 import { ChannelsPane } from './panes/ChannelsPane'
 import { EssentialsPane } from './panes/EssentialsPane'
 import { SchedulePane } from './panes/SchedulePane'
+import {
+  hasPendingChannelGroupChanges,
+  hasPendingChannelUserChanges,
+  persistChannelGroupDrafts,
+  persistChannelUserDrafts,
+  sanitizeChannelsConfig
+} from './panes/channelsPaneModel'
+import {
+  hasPendingSoulDocumentChanges,
+  loadSoulDocument,
+  persistSoulDocument
+} from './panes/soulDocumentEditorModel'
+import {
+  hasPendingUserDocumentChanges,
+  loadUserDocument,
+  persistUserDocument
+} from './panes/userDocumentEditorModel'
 
 type TabId =
   | 'general'
@@ -175,11 +199,30 @@ function SettingsApp(): React.ReactNode {
   const [activeSubTab, setActiveSubTab] = useState(initSubTabs)
   const [savedConfig, setSavedConfig] = useState<SettingsConfig | null>(null)
   const [draft, setDraft] = useState<SettingsConfig | null>(null)
+  const [savedChannelsConfig, setSavedChannelsConfig] = useState<ChannelsConfig | null>(null)
+  const [channelsDraft, setChannelsDraft] = useState<ChannelsConfig | null>(null)
+  const [isLoadingChannelsConfig, setIsLoadingChannelsConfig] = useState(true)
+  const [channelsConfigError, setChannelsConfigError] = useState<string | null>(null)
+  const [savedUserDocument, setSavedUserDocument] = useState<UserDocument | null>(null)
+  const [userDocumentDraft, setUserDocumentDraft] = useState<string | null>(null)
+  const [isLoadingUserDocument, setIsLoadingUserDocument] = useState(false)
+  const [userDocumentError, setUserDocumentError] = useState<string | null>(null)
+  const [savedSoulDocument, setSavedSoulDocument] = useState<SoulDocument | null>(null)
+  const [soulDocumentDraft, setSoulDocumentDraft] = useState<string[] | null>(null)
+  const [isLoadingSoulDocument, setIsLoadingSoulDocument] = useState(false)
+  const [soulDocumentError, setSoulDocumentError] = useState<string | null>(null)
+  const [savedChannelUsers, setSavedChannelUsers] = useState<ChannelUserRecord[] | null>(null)
+  const [channelUsersDraft, setChannelUsersDraft] = useState<ChannelUserRecord[] | null>(null)
+  const [savedChannelGroups, setSavedChannelGroups] = useState<ChannelGroupRecord[] | null>(null)
+  const [channelGroupsDraft, setChannelGroupsDraft] = useState<ChannelGroupRecord[] | null>(null)
+  const [isLoadingChannelRecords, setIsLoadingChannelRecords] = useState(false)
+  const [channelRecordsError, setChannelRecordsError] = useState<string | null>(null)
   const [selectedProviderId, setSelectedProviderId] = useState('')
   const [availableSkills, setAvailableSkills] = useState<SkillCatalogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const previousActiveTabRef = useRef<TabId | null>(null)
 
   useEffect(() => {
     const handler = (_event: Electron.IpcRendererEvent, tab: string): void => {
@@ -217,10 +260,105 @@ function SettingsApp(): React.ReactNode {
         setLoading(false)
       })
 
+    void window.api.yachiyo
+      .getChannelsConfig()
+      .then((channelsConfig) => {
+        if (cancelled) {
+          return
+        }
+
+        setChannelsConfigError(null)
+        setSavedChannelsConfig(channelsConfig)
+        setChannelsDraft(channelsConfig)
+        setIsLoadingChannelsConfig(false)
+      })
+      .catch((reason) => {
+        if (cancelled) {
+          return
+        }
+
+        console.warn('[yachiyo][settings] failed to load channels config', reason)
+        setChannelsConfigError(
+          reason instanceof Error ? reason.message : 'Failed to load channels settings.'
+        )
+        setIsLoadingChannelsConfig(false)
+      })
+
     return () => {
       cancelled = true
     }
   }, [])
+
+  const loadUserDocumentDraft = useCallback(async (): Promise<void> => {
+    if (isLoadingUserDocument) {
+      return
+    }
+
+    setIsLoadingUserDocument(true)
+    setUserDocumentError(null)
+
+    try {
+      const document = await loadUserDocument()
+      setSavedUserDocument(document)
+      setUserDocumentDraft(document.content)
+    } catch (reason) {
+      setUserDocumentError(reason instanceof Error ? reason.message : 'Failed to load USER.md.')
+    } finally {
+      setIsLoadingUserDocument(false)
+    }
+  }, [isLoadingUserDocument])
+
+  const loadSoulDocumentDraft = useCallback(async (): Promise<void> => {
+    if (isLoadingSoulDocument) {
+      return
+    }
+
+    setIsLoadingSoulDocument(true)
+    setSoulDocumentError(null)
+
+    try {
+      const document = await loadSoulDocument()
+      setSavedSoulDocument(document)
+      setSoulDocumentDraft(document.evolvedTraits)
+    } catch (reason) {
+      setSoulDocumentError(reason instanceof Error ? reason.message : 'Failed to load SOUL.md.')
+    } finally {
+      setIsLoadingSoulDocument(false)
+    }
+  }, [isLoadingSoulDocument])
+
+  const loadChannelRecords = useCallback(
+    async (options?: { force?: boolean }): Promise<void> => {
+      if (isLoadingChannelRecords) {
+        return
+      }
+
+      if (!options?.force && savedChannelUsers && savedChannelGroups) {
+        return
+      }
+
+      setIsLoadingChannelRecords(true)
+      setChannelRecordsError(null)
+
+      try {
+        const [users, groups] = await Promise.all([
+          window.api.yachiyo.listChannelUsers(),
+          window.api.yachiyo.listChannelGroups()
+        ])
+        setSavedChannelUsers(users)
+        setChannelUsersDraft(users)
+        setSavedChannelGroups(groups)
+        setChannelGroupsDraft(groups)
+      } catch (reason) {
+        setChannelRecordsError(
+          reason instanceof Error ? reason.message : 'Failed to load channel records.'
+        )
+      } finally {
+        setIsLoadingChannelRecords(false)
+      }
+    },
+    [isLoadingChannelRecords, savedChannelGroups, savedChannelUsers]
+  )
 
   useEffect(() => {
     if (!draft) {
@@ -262,10 +400,67 @@ function SettingsApp(): React.ReactNode {
 
   const active = TABS.find((tab) => tab.id === activeTab)!
   const validationError = validateConfig(draft)
-  const isDirty = JSON.stringify(savedConfig) !== JSON.stringify(draft)
+  const isSettingsDirty = JSON.stringify(savedConfig) !== JSON.stringify(draft)
+  const isChannelsDirty =
+    savedChannelsConfig !== null &&
+    channelsDraft !== null &&
+    JSON.stringify(savedChannelsConfig) !== JSON.stringify(channelsDraft)
+  const isUserDocumentDirty =
+    userDocumentDraft !== null &&
+    hasPendingUserDocumentChanges(savedUserDocument?.content ?? '', userDocumentDraft)
+  const isSoulDocumentDirty =
+    soulDocumentDraft !== null &&
+    hasPendingSoulDocumentChanges(savedSoulDocument?.evolvedTraits ?? [], soulDocumentDraft)
+  const isChannelUsersDirty =
+    savedChannelUsers !== null &&
+    channelUsersDraft !== null &&
+    hasPendingChannelUserChanges(savedChannelUsers, channelUsersDraft)
+  const isChannelGroupsDirty =
+    savedChannelGroups !== null &&
+    channelGroupsDraft !== null &&
+    hasPendingChannelGroupChanges(savedChannelGroups, channelGroupsDraft)
+  const isDirty =
+    isSettingsDirty ||
+    isChannelsDirty ||
+    isUserDocumentDirty ||
+    isSoulDocumentDirty ||
+    isChannelUsersDirty ||
+    isChannelGroupsDirty
+  const hasSaveableChanges =
+    (Boolean(draft) && isSettingsDirty && !validationError) ||
+    isChannelsDirty ||
+    isUserDocumentDirty ||
+    isSoulDocumentDirty ||
+    isChannelUsersDirty ||
+    isChannelGroupsDirty
+  const activeValidationError = isSettingsDirty ? validationError : null
+  const channelProviders =
+    activeValidationError && savedConfig ? savedConfig.providers : (draft?.providers ?? [])
 
-  const handleSave = async (): Promise<void> => {
-    if (!draft || saving || validationError) {
+  const handleSave = useCallback(async (): Promise<void> => {
+    if (saving) {
+      return
+    }
+
+    const hasSettingsToSave = Boolean(draft) && isSettingsDirty && !validationError
+    const hasChannelsToSave =
+      Boolean(channelsDraft) &&
+      Boolean(savedChannelsConfig) &&
+      !channelsConfigError &&
+      isChannelsDirty
+    const hasUserDocumentToSave = isUserDocumentDirty
+    const hasSoulDocumentToSave = isSoulDocumentDirty
+    const hasChannelUsersToSave = isChannelUsersDirty
+    const hasChannelGroupsToSave = isChannelGroupsDirty
+
+    if (
+      !hasSettingsToSave &&
+      !hasChannelsToSave &&
+      !hasUserDocumentToSave &&
+      !hasSoulDocumentToSave &&
+      !hasChannelUsersToSave &&
+      !hasChannelGroupsToSave
+    ) {
       return
     }
 
@@ -273,24 +468,128 @@ function SettingsApp(): React.ReactNode {
     setError(null)
 
     try {
-      const next = await window.api.yachiyo.saveConfig(draft)
-      setSavedConfig(next)
-      setDraft(next)
-      setSelectedProviderId((current) =>
-        next.providers.some((provider) => provider.id === current)
-          ? current
-          : (next.providers[0]?.id ?? '')
-      )
+      let nextConfig = draft
+      if (hasSettingsToSave && draft) {
+        nextConfig = await window.api.yachiyo.saveConfig(draft)
+        setSavedConfig(nextConfig)
+        setDraft(nextConfig)
+        setSelectedProviderId((current) =>
+          nextConfig!.providers.some((provider) => provider.id === current)
+            ? current
+            : (nextConfig!.providers[0]?.id ?? '')
+        )
 
-      // Sync update channel to the running auto-updater after persisting
-      const channel = next.general?.updateChannel ?? 'stable'
-      window.api.appUpdate.setChannel(channel)
+        // Sync update channel to the running auto-updater after persisting
+        const channel = nextConfig.general?.updateChannel ?? 'stable'
+        window.api.appUpdate.setChannel(channel)
+      }
+
+      let nextChannels = channelsDraft
+      if (hasChannelsToSave && channelsDraft) {
+        const persistedProviders = (hasSettingsToSave ? nextConfig : savedConfig)?.providers ?? []
+        const sanitizedChannelsDraft = sanitizeChannelsConfig(channelsDraft, persistedProviders)
+        nextChannels = await window.api.yachiyo.saveChannelsConfig(sanitizedChannelsDraft)
+        setSavedChannelsConfig(nextChannels)
+        setChannelsDraft(nextChannels)
+      }
+
+      if (hasUserDocumentToSave && userDocumentDraft !== null) {
+        const nextUserDocument = await persistUserDocument(userDocumentDraft)
+        setSavedUserDocument(nextUserDocument)
+        setUserDocumentDraft(nextUserDocument.content)
+        setUserDocumentError(null)
+      }
+
+      if (hasSoulDocumentToSave && soulDocumentDraft !== null) {
+        const nextSoulDocument = await persistSoulDocument(
+          savedSoulDocument?.evolvedTraits ?? [],
+          soulDocumentDraft
+        )
+        setSavedSoulDocument(nextSoulDocument)
+        setSoulDocumentDraft(nextSoulDocument.evolvedTraits)
+        setSoulDocumentError(null)
+      }
+
+      if (hasChannelUsersToSave && savedChannelUsers && channelUsersDraft) {
+        const nextUsers = await persistChannelUserDrafts(savedChannelUsers, channelUsersDraft)
+        setSavedChannelUsers(nextUsers)
+        setChannelUsersDraft(nextUsers)
+        setChannelRecordsError(null)
+      }
+
+      if (hasChannelGroupsToSave && savedChannelGroups && channelGroupsDraft) {
+        const nextGroups = await persistChannelGroupDrafts(savedChannelGroups, channelGroupsDraft)
+        setSavedChannelGroups(nextGroups)
+        setChannelGroupsDraft(nextGroups)
+        setChannelRecordsError(null)
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Failed to save settings.')
     } finally {
       setSaving(false)
     }
-  }
+  }, [
+    channelGroupsDraft,
+    channelUsersDraft,
+    channelsDraft,
+    draft,
+    isChannelGroupsDirty,
+    isChannelUsersDirty,
+    isChannelsDirty,
+    isSettingsDirty,
+    isSoulDocumentDirty,
+    isUserDocumentDirty,
+    savedChannelGroups,
+    savedChannelUsers,
+    savedConfig,
+    savedSoulDocument,
+    saving,
+    soulDocumentDraft,
+    userDocumentDraft,
+    validationError,
+    savedChannelsConfig,
+    channelsConfigError
+  ])
+  const handleSaveRef = useRef(handleSave)
+  handleSaveRef.current = handleSave
+
+  useEffect(() => {
+    const previousActiveTab = previousActiveTabRef.current
+    previousActiveTabRef.current = activeTab
+
+    if (activeTab !== 'channels' || previousActiveTab === 'channels') {
+      return
+    }
+
+    if (isChannelUsersDirty || isChannelGroupsDirty) {
+      return
+    }
+
+    void loadChannelRecords({ force: true })
+  }, [activeTab, isChannelGroupsDirty, isChannelUsersDirty, loadChannelRecords])
+
+  const triggerSave = useCallback(async (): Promise<void> => {
+    const activeElement = document.activeElement
+    if (activeElement instanceof HTMLElement) {
+      activeElement.blur()
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+    }
+
+    await handleSaveRef.current()
+  }, [])
+
+  // Global keyboard shortcut: Cmd/Ctrl+S to save
+  useEffect(() => {
+    const handler = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        if (e.defaultPrevented) return
+        e.preventDefault()
+        void triggerSave()
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [triggerSave])
 
   let body: React.ReactNode = (
     <PlaceholderPane
@@ -312,7 +611,32 @@ function SettingsApp(): React.ReactNode {
     )
   } else if (draft) {
     if (activeTab === 'general') {
-      body = <GeneralPane draft={draft} onChange={setDraft} />
+      body = (
+        <GeneralPane
+          draft={draft}
+          onChange={setDraft}
+          userDocument={savedUserDocument}
+          userDraft={userDocumentDraft}
+          isLoadingUserDocument={isLoadingUserDocument}
+          userDocumentError={userDocumentError}
+          onLoadUserDocument={loadUserDocumentDraft}
+          onUserDraftChange={setUserDocumentDraft}
+          onRevertUserDocument={() => {
+            setUserDocumentDraft(savedUserDocument?.content ?? '')
+            setUserDocumentError(null)
+          }}
+          soulDocument={savedSoulDocument}
+          soulDraftTraits={soulDocumentDraft}
+          isLoadingSoulDocument={isLoadingSoulDocument}
+          soulDocumentError={soulDocumentError}
+          onLoadSoulDocument={loadSoulDocumentDraft}
+          onSoulDraftChange={setSoulDocumentDraft}
+          onRevertSoulDocument={() => {
+            setSoulDocumentDraft(savedSoulDocument?.evolvedTraits ?? [])
+            setSoulDocumentError(null)
+          }}
+        />
+      )
     } else if (activeTab === 'providers') {
       body = (
         <ProvidersPane
@@ -339,7 +663,41 @@ function SettingsApp(): React.ReactNode {
     } else if (activeTab === 'memory') {
       body = <MemoryPane draft={draft} onChange={setDraft} />
     } else if (activeTab === 'channels') {
-      body = <ChannelsPane activeSubTab={activeSubTab['channels'] ?? 'general'} />
+      if (isLoadingChannelsConfig) {
+        body = (
+          <div className="flex-1 overflow-y-auto flex items-center justify-center">
+            <span className="text-sm" style={{ color: theme.text.muted }}>
+              Loading channels settings...
+            </span>
+          </div>
+        )
+      } else if (channelsConfigError || !channelsDraft) {
+        body = (
+          <div className="flex-1 overflow-y-auto px-7 py-6">
+            <div className="text-sm" style={{ color: theme.text.dangerStrong }}>
+              {channelsConfigError ?? 'Channels settings are unavailable.'}
+            </div>
+            <div className="mt-2 text-sm" style={{ color: theme.text.tertiary }}>
+              Fix `channels.toml` or reload the settings window before editing channel settings.
+            </div>
+          </div>
+        )
+      } else {
+        body = (
+          <ChannelsPane
+            activeSubTab={activeSubTab['channels'] ?? 'general'}
+            config={channelsDraft}
+            onConfigChange={setChannelsDraft}
+            users={channelUsersDraft}
+            groups={channelGroupsDraft}
+            isLoadingRecords={isLoadingChannelRecords}
+            channelRecordsError={channelRecordsError}
+            onUsersChange={setChannelUsersDraft}
+            onGroupsChange={setChannelGroupsDraft}
+            providers={channelProviders}
+          />
+        )
+      }
     } else if (activeTab === 'schedules') {
       body = (
         <SchedulePane
@@ -462,14 +820,14 @@ function SettingsApp(): React.ReactNode {
             style={{
               minHeight: 16,
               lineHeight: '16px',
-              color: error || validationError ? theme.text.dangerStrong : theme.text.muted,
-              visibility: isDirty || saving || error || validationError ? 'visible' : 'hidden'
+              color: error || activeValidationError ? theme.text.dangerStrong : theme.text.muted,
+              visibility: isDirty || saving || error || activeValidationError ? 'visible' : 'hidden'
             }}
           >
-            {validationError
-              ? validationError
-              : error
-                ? error
+            {error
+              ? error
+              : activeValidationError
+                ? activeValidationError
                 : saving
                   ? 'Saving...'
                   : 'Unsaved changes'}
@@ -488,13 +846,13 @@ function SettingsApp(): React.ReactNode {
               Close
             </button>
             <button
-              onClick={() => void handleSave()}
-              disabled={!isDirty || saving || loading || !draft || Boolean(validationError)}
+              onClick={() => void triggerSave()}
+              disabled={!hasSaveableChanges || saving || loading}
               className="px-4 py-1.5 rounded-lg text-sm font-medium transition-all"
               style={{
                 minHeight: 36,
                 border: '1px solid transparent',
-                ...(!isDirty || saving || loading || !draft || validationError
+                ...(!hasSaveableChanges || saving || loading
                   ? {
                       background: 'transparent',
                       color: theme.text.muted,

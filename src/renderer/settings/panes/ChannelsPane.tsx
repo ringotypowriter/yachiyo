@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { inputStyle } from '../components/styles'
@@ -10,7 +10,7 @@ import type {
   ChannelUserRecord,
   ChannelUserRole,
   ChannelUserStatus,
-  SettingsConfig
+  ProviderConfig
 } from '../../../shared/yachiyo/protocol.ts'
 import {
   SettingLabel,
@@ -21,58 +21,33 @@ import {
 } from '../components/primitives'
 import { imeSafeEnter } from '../components/imeUtils'
 
-export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.ReactNode {
-  const [config, setConfig] = useState<ChannelsConfig>({})
-  const [loadingConfig, setLoadingConfig] = useState(true)
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const initializedRef = useRef(false)
+export function ChannelsPane({
+  activeSubTab,
+  config,
+  onConfigChange,
+  users,
+  groups,
+  isLoadingRecords,
+  channelRecordsError,
+  onUsersChange,
+  onGroupsChange,
+  providers
+}: {
+  activeSubTab: string
+  config: ChannelsConfig
+  onConfigChange: (next: ChannelsConfig) => void
+  users: ChannelUserRecord[] | null
+  groups: ChannelGroupRecord[] | null
+  isLoadingRecords: boolean
+  channelRecordsError: string | null
+  onUsersChange: (next: ChannelUserRecord[] | null) => void
+  onGroupsChange: (next: ChannelGroupRecord[] | null) => void
+  providers: ProviderConfig[]
+}): React.ReactNode {
   const [showTelegramToken, setShowTelegramToken] = useState(false)
   const [showQQToken, setShowQQToken] = useState(false)
   const [showDiscordToken, setShowDiscordToken] = useState(false)
   const [showQQBotSecret, setShowQQBotSecret] = useState(false)
-  const configRef = useRef(config)
-
-  const [users, setUsers] = useState<ChannelUserRecord[]>([])
-  const [loadingUsers, setLoadingUsers] = useState(true)
-  const [updatingUser, setUpdatingUser] = useState<string | null>(null)
-  const [groups, setGroups] = useState<ChannelGroupRecord[]>([])
-  const [loadingGroups, setLoadingGroups] = useState(true)
-  const [updatingGroup, setUpdatingGroup] = useState<string | null>(null)
-  const [settingsConfig, setSettingsConfig] = useState<SettingsConfig | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-
-    void Promise.all([
-      window.api.yachiyo.getChannelsConfig(),
-      window.api.yachiyo.listChannelUsers(),
-      window.api.yachiyo.listChannelGroups(),
-      window.api.yachiyo.getConfig()
-    ])
-      .then(([cfg, usrs, grps, settings]) => {
-        if (cancelled) return
-        setConfig(cfg)
-        configRef.current = cfg
-        initializedRef.current = true
-        setUsers(usrs)
-        setGroups(grps)
-        setSettingsConfig(settings)
-        setLoadingConfig(false)
-        setLoadingUsers(false)
-        setLoadingGroups(false)
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setLoadingConfig(false)
-          setLoadingUsers(false)
-          setLoadingGroups(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   const telegram = config.telegram
   const telegramEnabled = telegram?.enabled ?? false
@@ -93,148 +68,89 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
   const qqbotClientSecret = qqbot?.clientSecret ?? ''
 
   function patchTelegram(patch: Partial<NonNullable<ChannelsConfig['telegram']>>): void {
-    setConfig((c) => {
-      const next = {
-        ...c,
-        telegram: { enabled: telegramEnabled, botToken, ...c.telegram, ...patch }
-      }
-      configRef.current = next
-      scheduleSave(next)
-      return next
+    onConfigChange({
+      ...config,
+      telegram: { enabled: telegramEnabled, botToken, ...config.telegram, ...patch }
     })
   }
 
   function patchQQ(patch: Partial<NonNullable<ChannelsConfig['qq']>>): void {
-    setConfig((c) => {
-      const next = {
-        ...c,
-        qq: { enabled: qqEnabled, wsUrl: qqWsUrl, ...c.qq, ...patch }
-      }
-      configRef.current = next
-      scheduleSave(next)
-      return next
+    onConfigChange({
+      ...config,
+      qq: { enabled: qqEnabled, wsUrl: qqWsUrl, ...config.qq, ...patch }
     })
   }
 
   function patchQQBot(patch: Partial<NonNullable<ChannelsConfig['qqbot']>>): void {
-    setConfig((c) => {
-      const next = {
-        ...c,
-        qqbot: {
-          enabled: qqbotEnabled,
-          appId: qqbotAppId,
-          clientSecret: qqbotClientSecret,
-          ...c.qqbot,
-          ...patch
-        }
+    onConfigChange({
+      ...config,
+      qqbot: {
+        enabled: qqbotEnabled,
+        appId: qqbotAppId,
+        clientSecret: qqbotClientSecret,
+        ...config.qqbot,
+        ...patch
       }
-      configRef.current = next
-      scheduleSave(next)
-      return next
     })
   }
 
   function patchDiscord(patch: Partial<NonNullable<ChannelsConfig['discord']>>): void {
-    setConfig((c) => {
-      const next = {
-        ...c,
-        discord: { enabled: discordEnabled, botToken: discordBotToken, ...c.discord, ...patch }
-      }
-      configRef.current = next
-      scheduleSave(next)
-      return next
+    onConfigChange({
+      ...config,
+      discord: { enabled: discordEnabled, botToken: discordBotToken, ...config.discord, ...patch }
     })
   }
 
-  function scheduleSave(next: ChannelsConfig): void {
-    if (!initializedRef.current) return
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(() => {
-      void window.api.yachiyo.saveChannelsConfig(next)
-    }, 600)
-  }
-
-  async function handleStatusChange(userId: string, status: ChannelUserStatus): Promise<void> {
-    setUpdatingUser(userId)
-    try {
-      const updated = await window.api.yachiyo.updateChannelUser({ id: userId, status })
-      setUsers((us) => us.map((u) => (u.id === updated.id ? updated : u)))
-    } finally {
-      setUpdatingUser(null)
+  function patchUser(userId: string, patch: Partial<ChannelUserRecord>): void {
+    if (!users) {
+      return
     }
+
+    onUsersChange(users.map((user) => (user.id === userId ? { ...user, ...patch } : user)))
   }
 
-  async function handleRoleChange(userId: string, role: ChannelUserRole): Promise<void> {
-    setUpdatingUser(userId)
-    try {
-      const updated = await window.api.yachiyo.updateChannelUser({ id: userId, role })
-      setUsers((us) => us.map((u) => (u.id === updated.id ? updated : u)))
-    } finally {
-      setUpdatingUser(null)
+  function patchGroup(groupId: string, patch: Partial<ChannelGroupRecord>): void {
+    if (!groups) {
+      return
     }
+
+    onGroupsChange(groups.map((group) => (group.id === groupId ? { ...group, ...patch } : group)))
   }
 
-  async function handleLimitChange(userId: string, value: string): Promise<void> {
+  function handleStatusChange(userId: string, status: ChannelUserStatus): void {
+    patchUser(userId, { status })
+  }
+
+  function handleRoleChange(userId: string, role: ChannelUserRole): void {
+    patchUser(userId, { role })
+  }
+
+  function handleLimitChange(userId: string, value: string): void {
     const parsed = value.trim() === '' ? null : parseInt(value, 10)
-    if (parsed !== null && (isNaN(parsed) || parsed < 0)) return
-    setUpdatingUser(userId)
-    try {
-      const updated = await window.api.yachiyo.updateChannelUser({
-        id: userId,
-        usageLimitKTokens: parsed
-      })
-      setUsers((us) => us.map((u) => (u.id === updated.id ? updated : u)))
-    } finally {
-      setUpdatingUser(null)
+    if (parsed !== null && (isNaN(parsed) || parsed < 0)) {
+      return
     }
+
+    patchUser(userId, { usageLimitKTokens: parsed })
   }
 
-  async function handleUserLabelChange(userId: string, label: string): Promise<void> {
-    setUpdatingUser(userId)
-    try {
-      const updated = await window.api.yachiyo.updateChannelUser({ id: userId, label })
-      setUsers((us) => us.map((u) => (u.id === updated.id ? updated : u)))
-    } finally {
-      setUpdatingUser(null)
-    }
+  function handleUserLabelChange(userId: string, label: string): void {
+    patchUser(userId, { label })
   }
 
-  async function handleGroupStatusChange(
-    groupId: string,
-    status: ChannelGroupStatus
-  ): Promise<void> {
-    setUpdatingGroup(groupId)
-    try {
-      const updated = await window.api.yachiyo.updateChannelGroup({ id: groupId, status })
-      setGroups((gs) => gs.map((g) => (g.id === updated.id ? updated : g)))
-    } finally {
-      setUpdatingGroup(null)
-    }
+  function handleGroupStatusChange(groupId: string, status: ChannelGroupStatus): void {
+    patchGroup(groupId, { status })
   }
 
-  async function handleGroupLabelChange(groupId: string, label: string): Promise<void> {
-    setUpdatingGroup(groupId)
-    try {
-      const updated = await window.api.yachiyo.updateChannelGroup({ id: groupId, label })
-      setGroups((gs) => gs.map((g) => (g.id === updated.id ? updated : g)))
-    } finally {
-      setUpdatingGroup(null)
-    }
+  function handleGroupLabelChange(groupId: string, label: string): void {
+    patchGroup(groupId, { label })
   }
 
   async function handleClearGroupMessages(groupId: string): Promise<void> {
     await window.api.yachiyo.clearGroupMonitorBuffer(groupId)
   }
 
-  if (loadingConfig) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 size={18} className="animate-spin" style={{ color: theme.text.muted }} />
-      </div>
-    )
-  }
-
-  const modelSelector = settingsConfig && settingsConfig.providers.length > 0
+  const modelSelector = providers.length > 0
 
   if (activeSubTab === 'telegram') {
     return (
@@ -307,7 +223,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
                   value={
                     telegram?.model ? `${telegram.model.providerName}::${telegram.model.model}` : ''
                   }
-                  providers={settingsConfig!.providers}
+                  providers={providers}
                   onChange={(val) => {
                     if (!val) {
                       patchTelegram({ model: undefined })
@@ -336,7 +252,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
                       ? `${telegram.group.model.providerName}::${telegram.group.model.model}`
                       : ''
                   }
-                  providers={settingsConfig!.providers}
+                  providers={providers}
                   onChange={(val) => {
                     if (!val) {
                       patchTelegram({
@@ -460,7 +376,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
                 </span>
                 <ModelSelect
                   value={qq?.model ? `${qq.model.providerName}::${qq.model.model}` : ''}
-                  providers={settingsConfig!.providers}
+                  providers={providers}
                   onChange={(val) => {
                     if (!val) {
                       patchQQ({ model: undefined })
@@ -489,7 +405,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
                       ? `${qq.group.model.providerName}::${qq.group.model.model}`
                       : ''
                   }
-                  providers={settingsConfig!.providers}
+                  providers={providers}
                   onChange={(val) => {
                     if (!val) {
                       patchQQ({
@@ -613,7 +529,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
                 </span>
                 <ModelSelect
                   value={qqbot?.model ? `${qqbot.model.providerName}::${qqbot.model.model}` : ''}
-                  providers={settingsConfig!.providers}
+                  providers={providers}
                   onChange={(val) => {
                     if (!val) {
                       patchQQBot({ model: undefined })
@@ -702,7 +618,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
                   value={
                     discord?.model ? `${discord.model.providerName}::${discord.model.model}` : ''
                   }
-                  providers={settingsConfig!.providers}
+                  providers={providers}
                   onChange={(val) => {
                     if (!val) {
                       patchDiscord({ model: undefined })
@@ -754,7 +670,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
                       ? `${discord.group.model.providerName}::${discord.group.model.model}`
                       : ''
                   }
-                  providers={settingsConfig!.providers}
+                  providers={providers}
                   onChange={(val) => {
                     if (!val) {
                       patchDiscord({
@@ -813,12 +729,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               onChange={(e) => {
                 const raw = parseInt(e.target.value, 10)
                 if (!isNaN(raw) && raw > 0) {
-                  setConfig((c) => {
-                    const next = { ...c, dmCompactTokenThresholdK: raw }
-                    configRef.current = next
-                    scheduleSave(next)
-                    return next
-                  })
+                  onConfigChange({ ...config, dmCompactTokenThresholdK: raw })
                 }
               }}
               className="w-16 rounded-lg px-2 py-1 text-sm text-right outline-none"
@@ -848,12 +759,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               onChange={(e) => {
                 const raw = parseInt(e.target.value, 10)
                 if (!isNaN(raw) && raw > 0) {
-                  setConfig((c) => {
-                    const next = { ...c, groupContextWindowK: raw }
-                    configRef.current = next
-                    scheduleSave(next)
-                    return next
-                  })
+                  onConfigChange({ ...config, groupContextWindowK: raw })
                 }
               }}
               className="w-16 rounded-lg px-2 py-1 text-sm text-right outline-none"
@@ -882,12 +788,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               step={0.05}
               value={verbosity}
               onChange={(v) => {
-                setConfig((c) => {
-                  const next = { ...c, groupVerbosity: v }
-                  configRef.current = next
-                  scheduleSave(next)
-                  return next
-                })
+                onConfigChange({ ...config, groupVerbosity: v })
               }}
               aria-label="Verbosity"
             />
@@ -913,12 +814,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
               step={5}
               value={checkIntervalSec}
               onChange={(v) => {
-                setConfig((c) => {
-                  const next = { ...c, groupCheckIntervalMs: v * 1_000 }
-                  configRef.current = next
-                  scheduleSave(next)
-                  return next
-                })
+                onConfigChange({ ...config, groupCheckIntervalMs: v * 1_000 })
               }}
               aria-label="Check interval"
             />
@@ -948,17 +844,12 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
             ariaLabel="Enable image to text"
             checked={config.imageToText?.enabled ?? false}
             onChange={() => {
-              setConfig((c) => {
-                const next = {
-                  ...c,
-                  imageToText: {
-                    ...c.imageToText,
-                    enabled: !(c.imageToText?.enabled ?? false)
-                  }
+              onConfigChange({
+                ...config,
+                imageToText: {
+                  ...config.imageToText,
+                  enabled: !(config.imageToText?.enabled ?? false)
                 }
-                configRef.current = next
-                scheduleSave(next)
-                return next
               })
             }}
           />
@@ -976,25 +867,20 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
                     ? `${config.imageToText.model.providerName}::${config.imageToText.model.model}`
                     : ''
                 }
-                providers={settingsConfig!.providers}
+                providers={providers}
                 onChange={(val) => {
-                  setConfig((c) => {
-                    const next = {
-                      ...c,
-                      imageToText: {
-                        ...c.imageToText,
-                        enabled: c.imageToText?.enabled ?? false,
-                        model: val
-                          ? {
-                              providerName: val.split('::')[0],
-                              model: val.split('::')[1]
-                            }
-                          : undefined
-                      }
+                  onConfigChange({
+                    ...config,
+                    imageToText: {
+                      ...config.imageToText,
+                      enabled: config.imageToText?.enabled ?? false,
+                      model: val
+                        ? {
+                            providerName: val.split('::')[0],
+                            model: val.split('::')[1]
+                          }
+                        : undefined
                     }
-                    configRef.current = next
-                    scheduleSave(next)
-                    return next
                   })
                 }}
               />
@@ -1018,12 +904,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
           <textarea
             value={config.guestInstruction ?? ''}
             onChange={(e) => {
-              setConfig((c) => {
-                const next = { ...c, guestInstruction: e.target.value }
-                configRef.current = next
-                scheduleSave(next)
-                return next
-              })
+              onConfigChange({ ...config, guestInstruction: e.target.value })
             }}
             placeholder="Tell the model what guests should know about you, and any rules for guest conversations..."
             spellCheck={false}
@@ -1045,11 +926,18 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
       <SettingSection>
         <SettingLabel>Users</SettingLabel>
 
-        {loadingUsers ? (
+        {isLoadingRecords ? (
           <div className="flex items-center justify-center py-6">
             <Loader2 size={16} className="animate-spin" style={{ color: theme.text.muted }} />
           </div>
-        ) : users.length === 0 ? (
+        ) : channelRecordsError ? (
+          <div
+            className="px-7 py-5 text-sm"
+            style={{ color: '#c25151', borderTop: `1px solid ${theme.border.subtle}` }}
+          >
+            {channelRecordsError}
+          </div>
+        ) : !users || users.length === 0 ? (
           <div
             className="px-7 py-5 text-sm"
             style={{ color: theme.text.muted, borderTop: `1px solid ${theme.border.subtle}` }}
@@ -1059,13 +947,13 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
         ) : (
           users.map((user) => (
             <ChannelUserRow
-              key={user.id}
+              key={`${user.id}:${user.label}:${user.usageLimitKTokens ?? ''}`}
               user={user}
-              busy={updatingUser === user.id}
-              onStatusChange={(s) => void handleStatusChange(user.id, s)}
-              onRoleChange={(r) => void handleRoleChange(user.id, r)}
-              onLimitChange={(v) => void handleLimitChange(user.id, v)}
-              onLabelChange={(l) => void handleUserLabelChange(user.id, l)}
+              busy={false}
+              onStatusChange={(s) => handleStatusChange(user.id, s)}
+              onRoleChange={(r) => handleRoleChange(user.id, r)}
+              onLimitChange={(v) => handleLimitChange(user.id, v)}
+              onLabelChange={(l) => handleUserLabelChange(user.id, l)}
             />
           ))
         )}
@@ -1074,11 +962,18 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
       <SettingSection>
         <SettingLabel>Groups</SettingLabel>
 
-        {loadingGroups ? (
+        {isLoadingRecords ? (
           <div className="flex items-center justify-center py-6">
             <Loader2 size={16} className="animate-spin" style={{ color: theme.text.muted }} />
           </div>
-        ) : groups.length === 0 ? (
+        ) : channelRecordsError ? (
+          <div
+            className="px-7 py-5 text-sm"
+            style={{ color: '#c25151', borderTop: `1px solid ${theme.border.subtle}` }}
+          >
+            {channelRecordsError}
+          </div>
+        ) : !groups || groups.length === 0 ? (
           <div
             className="px-7 py-5 text-sm"
             style={{ color: theme.text.muted, borderTop: `1px solid ${theme.border.subtle}` }}
@@ -1088,11 +983,11 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
         ) : (
           groups.map((group) => (
             <ChannelGroupRow
-              key={group.id}
+              key={`${group.id}:${group.label}`}
               group={group}
-              busy={updatingGroup === group.id}
-              onStatusChange={(s) => void handleGroupStatusChange(group.id, s)}
-              onLabelChange={(l) => void handleGroupLabelChange(group.id, l)}
+              busy={false}
+              onStatusChange={(s) => handleGroupStatusChange(group.id, s)}
+              onLabelChange={(l) => handleGroupLabelChange(group.id, l)}
               onClearMessages={() => void handleClearGroupMessages(group.id)}
             />
           ))
@@ -1116,12 +1011,7 @@ export function ChannelsPane({ activeSubTab }: { activeSubTab: string }): React.
         <MemoryFilterKeywords
           keywords={config.memoryFilterKeywords ?? []}
           onChange={(keywords) => {
-            setConfig((c) => {
-              const next = { ...c, memoryFilterKeywords: keywords }
-              configRef.current = next
-              scheduleSave(next)
-              return next
-            })
+            onConfigChange({ ...config, memoryFilterKeywords: keywords })
           }}
         />
       </SettingSection>
@@ -1221,7 +1111,7 @@ function ModelSelect({
   onChange
 }: {
   value: string
-  providers: SettingsConfig['providers']
+  providers: ProviderConfig[]
   onChange: (value: string) => void
 }): React.ReactNode {
   const options: { value: string; label: string }[] = [
@@ -1278,6 +1168,7 @@ function ChannelUserRow({
     user.usageLimitKTokens !== null ? String(user.usageLimitKTokens) : ''
   )
   const [labelDraft, setLabelDraft] = useState(user.label)
+
   const commitLabel = (): void => {
     const trimmed = labelDraft.trim()
     if (trimmed !== user.label) onLabelChange(trimmed)
@@ -1383,6 +1274,7 @@ function ChannelGroupRow({
   onClearMessages: () => void
 }): React.ReactNode {
   const [labelDraft, setLabelDraft] = useState(group.label)
+
   const commitLabel = (): void => {
     const trimmed = labelDraft.trim()
     if (trimmed !== group.label) onLabelChange(trimmed)
