@@ -1,9 +1,11 @@
 import { tool, type Tool } from 'ai'
 
-import { extname } from 'node:path'
-import { readFile, stat } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { extname, join } from 'node:path'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 
 import type { ReadToolCallDetails } from '../../../../shared/yachiyo/protocol.ts'
+import { extractPdfText } from '../../services/pdfExtract.ts'
 
 import {
   DEFAULT_READ_LIMIT,
@@ -54,8 +56,6 @@ const UNREADABLE_BINARY_EXTENSIONS = new Set([
   '.ogg',
   '.m4a',
   '.wma',
-  // documents
-  '.pdf',
   // archives
   '.zip',
   '.tar',
@@ -77,6 +77,10 @@ const UNREADABLE_BINARY_EXTENSIONS = new Set([
   '.pkg'
 ])
 
+function isPdfFile(filePath: string): boolean {
+  return extname(filePath).toLowerCase() === '.pdf'
+}
+
 function detectImageMimeType(filePath: string): string | undefined {
   return IMAGE_EXTENSIONS[extname(filePath).toLowerCase()]
 }
@@ -87,7 +91,7 @@ function isUnreadableBinary(filePath: string): boolean {
 
 export function createTool(context: AgentToolContext): Tool<ReadToolInput, ReadToolOutput> {
   return tool({
-    description: `Read a file from the current thread workspace or an absolute path. Supports text files (with offset/limit pagination) and common image formats (png, jpg, webp, gif, bmp, tiff, avif, heic, ico). Binary formats like video, audio, and PDF are not supported. Relative paths resolve from ${context.workspacePath}. Use offset as a 0-based line continuation cursor for text files.`,
+    description: `Read a file from the current thread workspace or an absolute path. Supports text files (with offset/limit pagination), PDF files (text extraction), and common image formats (png, jpg, webp, gif, bmp, tiff, avif, heic, ico). Binary formats like video and audio are not supported. Relative paths resolve from ${context.workspacePath}. Use offset as a 0-based line continuation cursor for text files.`,
     inputSchema: readToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) => runReadTool(input, context, options)
@@ -174,6 +178,82 @@ function createReadErrorResult(path: string, error: string): ReadToolOutput {
   }
 }
 
+const PDF_CACHE_DIR = '.yachiyo/tool-result'
+
+function pdfCachePath(workspacePath: string, hash: string): string {
+  return join(workspacePath, PDF_CACHE_DIR, `pdf-${hash}.txt`)
+}
+
+async function tryReadPdfCache(cachePath: string): Promise<string | undefined> {
+  try {
+    return await readFile(cachePath, 'utf8')
+  } catch {
+    return undefined
+  }
+}
+
+async function runPdfReadTool(
+  input: ReadToolInput,
+  resolvedPath: string,
+  context: AgentToolContext,
+  abortSignal?: AbortSignal
+): Promise<ReadToolOutput> {
+  const fileData = await readFile(resolvedPath, { signal: abortSignal })
+  const fileStat = await stat(resolvedPath)
+  const hash = createHash('sha256').update(fileData).digest('hex').slice(0, 16)
+  const cachePath = pdfCachePath(context.workspacePath, hash)
+
+  let body: string
+  let totalPages: number
+  let cached: boolean
+
+  // Try cached extraction first
+  const cachedText = await tryReadPdfCache(cachePath)
+  if (cachedText) {
+    const pageMatch = /Pages: (\d+)/.exec(cachedText)
+    body = cachedText
+    totalPages = pageMatch ? Number(pageMatch[1]) : 0
+    cached = true
+  } else {
+    // Extract and cache
+    const pdf = await extractPdfText(fileData)
+    body = pdf.hint ? `${pdf.text}\n\n${pdf.hint}` : pdf.text
+    totalPages = pdf.totalPages
+    cached = false
+
+    try {
+      await mkdir(join(context.workspacePath, PDF_CACHE_DIR), { recursive: true })
+      await writeFile(cachePath, body, 'utf8')
+    } catch {
+      // Cache write failure is non-fatal
+    }
+  }
+
+  // Paginate the extracted text using the same logic as regular text files
+  const lines = body.length === 0 ? [] : body.split(/\r?\n/)
+  const excerpt = buildReadExcerpt(lines, input)
+  const continuationHint =
+    excerpt.truncated && excerpt.nextOffset !== undefined
+      ? `\n\n[truncated: continue with offset ${excerpt.nextOffset}]`
+      : ''
+
+  const details: ReadToolCallDetails = {
+    path: resolvedPath,
+    startLine: (input.offset ?? 0) + 1,
+    endLine: excerpt.endLine,
+    totalLines: lines.length,
+    totalBytes: fileStat.size,
+    truncated: excerpt.truncated,
+    ...(excerpt.nextOffset !== undefined ? { nextOffset: excerpt.nextOffset } : {}),
+    ...(excerpt.remainingLines !== undefined ? { remainingLines: excerpt.remainingLines } : {}),
+    mediaType: 'application/pdf',
+    totalPages,
+    cached
+  }
+
+  return { content: textContent(`${excerpt.excerpt}${continuationHint}`), details, metadata: {} }
+}
+
 async function runImageReadTool(
   resolvedPath: string,
   mediaType: string,
@@ -220,6 +300,17 @@ export async function runReadTool(
       resolvedPath,
       `Cannot read ${ext} files — binary format not supported for inline reading.`
     )
+  }
+
+  if (isPdfFile(resolvedPath)) {
+    try {
+      return await runPdfReadTool(input, resolvedPath, context, abortSignal)
+    } catch (error) {
+      return createReadErrorResult(
+        resolvedPath,
+        error instanceof Error ? error.message : 'Unable to read PDF file.'
+      )
+    }
   }
 
   const imageMimeType = detectImageMimeType(resolvedPath)

@@ -5,6 +5,7 @@ import {
   type WebReadFailureCode,
   type WebReadRequestFormat
 } from '../../../../shared/yachiyo/protocol.ts'
+import { extractPdfText } from '../pdfExtract.ts'
 import {
   extractWithDefuddle,
   type WebReadableExtraction,
@@ -176,6 +177,69 @@ function createDecoder(contentType?: string): TextDecoder {
   } catch {
     return new TextDecoder()
   }
+}
+
+function isPdfContentType(contentType?: string): boolean {
+  if (!contentType) return false
+  const normalized = contentType.split(';')[0]?.trim().toLowerCase()
+  return normalized === 'application/pdf'
+}
+
+function isPdfLikeUrl(url: string): boolean {
+  try {
+    const pathname = new URL(url).pathname.toLowerCase()
+    return pathname.endsWith('.pdf')
+  } catch {
+    return false
+  }
+}
+
+function isOctetStreamContentType(contentType?: string): boolean {
+  if (!contentType) return false
+  const normalized = contentType.split(';')[0]?.trim().toLowerCase()
+  return normalized === 'application/octet-stream'
+}
+
+const PDF_MAGIC = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]) // %PDF-
+
+function bufferStartsWithPdfMagic(buffer: ArrayBuffer): boolean {
+  const view = new Uint8Array(buffer, 0, Math.min(5, buffer.byteLength))
+  return view.length >= 5 && view.every((byte, i) => byte === PDF_MAGIC[i])
+}
+
+async function readResponseBuffer(
+  response: Response,
+  maxBytes = MAX_WEB_READ_RESPONSE_BYTES
+): Promise<ArrayBuffer> {
+  if (!response.body) {
+    throw new Error('Response body was empty.')
+  }
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    totalBytes += value.byteLength
+    if (totalBytes > maxBytes) {
+      await reader.cancel().catch(() => undefined)
+      throw new Error(`Response exceeded ${maxBytes} bytes.`)
+    }
+
+    chunks.push(value)
+  }
+
+  const result = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    result.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+
+  return result.buffer
 }
 
 function isSupportedHtmlContentType(contentType?: string): boolean {
@@ -712,6 +776,57 @@ export async function readWebPage(
       error: `HTTP ${httpStatus} while fetching ${finalUrl}.`,
       failureCode: 'http-error'
     })
+  }
+
+  // PDF detection: explicit content-type, or octet-stream/missing type with URL hint + magic sniff
+  const maybePdf =
+    isPdfContentType(contentType) ||
+    ((!contentType || isOctetStreamContentType(contentType)) && isPdfLikeUrl(finalUrl))
+
+  if (maybePdf) {
+    try {
+      const buffer = await readResponseBuffer(response)
+      if (isPdfContentType(contentType) || bufferStartsWithPdfMagic(buffer)) {
+        const pdf = await extractPdfText(buffer)
+        const body = pdf.hint ? `${pdf.text}\n\n${pdf.hint}` : pdf.text
+        return mapRawBodyResult({
+          requestedUrl,
+          finalUrl,
+          httpStatus,
+          contentType,
+          body,
+          ...(request.maxContentChars === undefined
+            ? {}
+            : { maxContentChars: request.maxContentChars })
+        })
+      }
+      // Not actually a PDF — decode as text and continue to raw body path
+      const decoder = new TextDecoder()
+      const rawBody = decoder.decode(buffer).trim()
+      if (rawBody) {
+        return mapRawBodyResult({
+          requestedUrl,
+          finalUrl,
+          httpStatus,
+          contentType,
+          body: rawBody,
+          ...(request.maxContentChars === undefined
+            ? {}
+            : { maxContentChars: request.maxContentChars })
+        })
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to extract PDF content.'
+      return createFailureResult({
+        requestedUrl,
+        format,
+        finalUrl,
+        httpStatus,
+        contentType,
+        error: `Failed to extract text from PDF at ${finalUrl}: ${message}`,
+        failureCode: 'extraction-failed'
+      })
+    }
   }
 
   if (!isSupportedHtmlContentType(contentType)) {

@@ -267,7 +267,7 @@ export function UserDocumentTableEditor({
                     <button
                       type="button"
                       onClick={() => removeRow(si, ri)}
-                      className="mt-1.5 shrink-0 rounded-md p-1 opacity-0 transition-opacity group-hover:opacity-60 hover:!opacity-100"
+                      className="mt-1.5 shrink-0 rounded-md p-1 opacity-0 transition-opacity group-hover:opacity-60 hover:opacity-100!"
                       style={{ color: theme.text.danger }}
                       aria-label={`Remove row ${ri + 1}`}
                     >

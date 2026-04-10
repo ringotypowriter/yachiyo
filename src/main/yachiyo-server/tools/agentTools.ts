@@ -202,6 +202,13 @@ export function summarizeToolOutput(
 
   if (toolName === 'read') {
     const details = (output as ReadToolOutput).details
+    if (details.mediaType === 'application/pdf') {
+      const pages = details.totalPages ?? 0
+      const lines = `lines ${details.startLine}-${details.endLine}`
+      const cached = details.cached ? ', cached' : ''
+      const truncated = details.truncated ? ' (truncated)' : ''
+      return `${pages} page${pages === 1 ? '' : 's'}, ${lines}${cached}${truncated}`
+    }
     if (details.mediaType) {
       return `read image (${details.mediaType}, ${details.totalBytes} bytes)`
     }

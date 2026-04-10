@@ -187,6 +187,21 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
       return { fields, codeBlocks }
     }
 
+    if (details.mediaType === 'application/pdf') {
+      pushField(fields, 'pages', details.totalPages)
+      pushField(fields, 'start line', details.startLine)
+      pushField(fields, 'end line', details.endLine)
+      if (details.truncated) {
+        pushField(fields, 'truncated', 'yes')
+      }
+      pushField(fields, 'next offset', details.nextOffset)
+      pushField(fields, 'remaining lines', details.remainingLines)
+      if (details.cached) {
+        pushField(fields, 'cached', 'yes')
+      }
+      return { fields, codeBlocks }
+    }
+
     pushField(fields, 'start line', details.startLine)
     pushField(fields, 'end line', details.endLine)
     if (details.truncated) {

@@ -271,6 +271,10 @@ export interface ReadToolCallDetails {
   remainingLines?: number
   /** Set for image reads; contains the IANA media type e.g. "image/png". */
   mediaType?: string
+  /** Set for PDF reads; total number of pages in the document. */
+  totalPages?: number
+  /** Whether the result was served from extraction cache. */
+  cached?: boolean
 }
 
 export interface WriteToolCallDetails {

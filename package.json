@@ -101,6 +101,7 @@
     "smol-toml": "^1.6.1",
     "streamdown": "^2.5.0",
     "telegraf": "^4.16.3",
+    "unpdf": "^1.4.0",
     "zod": "^4.3.6",
     "zustand": "^5.0.11"
   },

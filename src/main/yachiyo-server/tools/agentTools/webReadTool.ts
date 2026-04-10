@@ -28,14 +28,19 @@ function sanitizeHostname(hostname: string): string {
     .toLowerCase()
 }
 
-function generateAutoSaveFilename(url: string): string {
+function generateAutoSaveFilename(url: string, extension = 'md'): string {
   let hostname = 'web'
   try {
     hostname = sanitizeHostname(new URL(url).hostname) || 'web'
   } catch {
     // invalid URL — fall back to 'web' prefix
   }
-  return `web-${hostname}-${Date.now()}.md`
+  return `web-${hostname}-${Date.now()}.${extension}`
+}
+
+function isPdfContentType(contentType?: string): boolean {
+  if (!contentType) return false
+  return contentType.split(';')[0]?.trim().toLowerCase() === 'application/pdf'
 }
 
 function buildWebReadModelContent(details: WebReadToolCallDetails): string {
@@ -58,10 +63,17 @@ function buildWebReadModelContent(details: WebReadToolCallDetails): string {
   return lines.join('\n')
 }
 
-function buildAutoSavedModelContent(details: WebReadToolCallDetails): string {
+function buildAutoSavedModelContent(
+  details: WebReadToolCallDetails,
+  reason: 'size' | 'pdf'
+): string {
   const filePath = details.savedFileName ?? details.savedFilePath ?? 'workspace file'
+  const reasonLine =
+    reason === 'pdf'
+      ? `PDF text extracted and saved to ${filePath}.`
+      : `Content too large to inline (${details.contentChars} chars). Full content saved to ${filePath}.`
   const lines = [
-    `Content too large to inline (${details.contentChars} chars). Full content saved to ${filePath}.`,
+    reasonLine,
     `Use the read tool to read it.`,
     `URL: ${details.finalUrl ?? details.requestedUrl}`,
     ...(details.title ? [`Title: ${details.title}`] : []),
@@ -80,11 +92,16 @@ function buildAutoSavedModelContent(details: WebReadToolCallDetails): string {
   return lines.join('\n')
 }
 
-function createWebReadResult(details: WebReadToolCallDetails, error?: string): WebReadToolOutput {
+function createWebReadResult(
+  details: WebReadToolCallDetails,
+  options?: { error?: string; saveReason?: 'size' | 'pdf' }
+): WebReadToolOutput {
+  const error = options?.error
+  const saveReason = options?.saveReason ?? 'size'
   const message =
     error ??
     (details.savedFileName || details.savedFilePath
-      ? buildAutoSavedModelContent(details)
+      ? buildAutoSavedModelContent(details, saveReason)
       : buildWebReadModelContent(details))
 
   return {
@@ -101,7 +118,7 @@ export function createTool(
 ): Tool<WebReadToolInput, WebReadToolOutput> {
   return tool({
     description:
-      'Fetch a static HTTP(S) resource whose response body you want to read. For HTML pages, webRead returns the main readable content in the requested format when extraction succeeds. For non-HTML text responses such as plain text or JSON, it returns the raw response body. If HTML extraction fails, it falls back to the raw response body. If the content is too large to return inline, it will be automatically saved to a workspace file and you will be instructed to read it with the read tool. Do not use it for browser automation, login flows, JS-heavy apps, or downloading binary files (images, PDFs, archives, executables, etc.).',
+      'Fetch a static HTTP(S) resource whose response body you want to read. For HTML pages, webRead returns the main readable content in the requested format when extraction succeeds. For PDF URLs, it extracts text content automatically. For non-HTML text responses such as plain text or JSON, it returns the raw response body. If HTML extraction fails, it falls back to the raw response body. If the content is too large to return inline, it will be automatically saved to a workspace file and you will be instructed to read it with the read tool. Do not use it for browser automation, login flows, JS-heavy apps, or downloading binary files (images, archives, executables, etc.).',
     inputSchema: webReadToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) =>
@@ -148,15 +165,20 @@ export async function runWebReadTool(
   }
 
   if (result.error) {
-    return createWebReadResult(baseDetails, result.error)
+    return createWebReadResult(baseDetails, { error: result.error })
   }
 
-  if (result.contentChars <= INLINE_CONTENT_LIMIT) {
+  // PDFs: always save extracted text so read tool can serve the cached file later
+  const shouldAlwaysSave = isPdfContentType(result.contentType)
+
+  if (!shouldAlwaysSave && result.contentChars <= INLINE_CONTENT_LIMIT) {
     return createWebReadResult(baseDetails)
   }
 
-  // Content exceeds inline limit — auto-save to .yachiyo/tool-result/
-  const filename = generateAutoSaveFilename(result.requestedUrl)
+  // Save to .yachiyo/tool-result/ — PDF gets .txt, HTML gets .md
+  const saveReason = shouldAlwaysSave ? ('pdf' as const) : ('size' as const)
+  const ext = shouldAlwaysSave ? 'txt' : 'md'
+  const filename = generateAutoSaveFilename(result.requestedUrl, ext)
   const savedFileName = join(AUTO_SAVE_DIR, filename)
   const savedFilePath = join(context.workspacePath, AUTO_SAVE_DIR, filename)
 
@@ -164,13 +186,16 @@ export async function runWebReadTool(
     await mkdir(join(context.workspacePath, AUTO_SAVE_DIR), { recursive: true })
     await writeFile(savedFilePath, result.content, 'utf8')
 
-    return createWebReadResult({
-      ...baseDetails,
-      content: '',
-      savedFileName,
-      savedFilePath,
-      savedBytes: Buffer.byteLength(result.content, 'utf8')
-    })
+    return createWebReadResult(
+      {
+        ...baseDetails,
+        content: '',
+        savedFileName,
+        savedFilePath,
+        savedBytes: Buffer.byteLength(result.content, 'utf8')
+      },
+      { saveReason }
+    )
   } catch (error) {
     return createWebReadResult(
       {
@@ -178,7 +203,9 @@ export async function runWebReadTool(
         content: '',
         failureCode: 'write-failed'
       },
-      error instanceof Error ? error.message : 'Unable to save readable content to a file.'
+      {
+        error: error instanceof Error ? error.message : 'Unable to save readable content to a file.'
+      }
     )
   }
 }
