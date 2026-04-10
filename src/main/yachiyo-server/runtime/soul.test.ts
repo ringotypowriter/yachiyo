@@ -4,7 +4,12 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 
-import { readSoulDocument, upsertDailySoulTrait } from './soul.ts'
+import {
+  readSoulDocument,
+  upsertDailySoulTrait,
+  SOUL_TRAIT_CAP,
+  SoulTraitCapError
+} from './soul.ts'
 
 test('readSoulDocument creates a template when SOUL.md is missing', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-soul-missing-'))
@@ -68,6 +73,99 @@ test('readSoulDocument parses evolved traits from the dedicated section', async 
       ],
       lastUpdated: '2026-03-22T08:00:00.000Z'
     })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('upsertDailySoulTrait rejects when trait cap is reached', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-soul-cap-'))
+  const filePath = join(root, 'SOUL.md')
+
+  try {
+    const traits = Array.from({ length: SOUL_TRAIT_CAP }, (_, i) => `Trait number ${i + 1}`)
+    const traitLines = traits.map((t) => `- ${t}`).join('\n')
+    await writeFile(
+      filePath,
+      [
+        '---',
+        'last_updated: 2026-04-01T00:00:00.000Z',
+        '---',
+        '',
+        '# SOUL',
+        '',
+        '## Evolved Traits',
+        '### 2026-04-01',
+        traitLines
+      ].join('\n')
+    )
+
+    const doc = await readSoulDocument({ filePath })
+    assert.equal(doc?.evolvedTraits.length, SOUL_TRAIT_CAP)
+
+    await assert.rejects(
+      () =>
+        upsertDailySoulTrait({
+          filePath,
+          now: new Date('2026-04-02T10:00:00.000Z'),
+          trait: 'One trait too many'
+        }),
+      (err: unknown) => {
+        assert.ok(err instanceof SoulTraitCapError)
+        assert.equal(err.currentCount, SOUL_TRAIT_CAP)
+        assert.equal(err.cap, SOUL_TRAIT_CAP)
+        assert.equal(err.existingTraits.length, SOUL_TRAIT_CAP)
+        assert.match(err.message, /Soul trait cap reached/)
+        assert.match(err.message, /consolidate/)
+        return true
+      }
+    )
+
+    // File should be unchanged
+    const docAfter = await readSoulDocument({ filePath })
+    assert.equal(docAfter?.evolvedTraits.length, SOUL_TRAIT_CAP)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('upsertDailySoulTrait allows re-adding an existing trait at cap', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-soul-cap-dup-'))
+  const filePath = join(root, 'SOUL.md')
+
+  try {
+    const traits = Array.from({ length: SOUL_TRAIT_CAP }, (_, i) => `Trait number ${i + 1}`)
+    const traitLines = traits.map((t) => `- ${t}`).join('\n')
+    await writeFile(
+      filePath,
+      [
+        '---',
+        'last_updated: 2026-04-01T00:00:00.000Z',
+        '---',
+        '',
+        '# SOUL',
+        '',
+        '## Evolved Traits',
+        '### 2026-04-01',
+        traitLines
+      ].join('\n')
+    )
+
+    // Re-adding an existing trait on the same day (no-op)
+    const doc = await upsertDailySoulTrait({
+      filePath,
+      now: new Date('2026-04-01T12:00:00.000Z'),
+      trait: 'Trait number 5'
+    })
+    assert.equal(doc?.evolvedTraits.length, SOUL_TRAIT_CAP)
+
+    // Re-adding an existing trait on a different day (cross-day duplicate, still no-op for count)
+    const doc2 = await upsertDailySoulTrait({
+      filePath,
+      now: new Date('2026-04-02T10:00:00.000Z'),
+      trait: 'Trait number 5'
+    })
+    assert.equal(doc2?.evolvedTraits.length, SOUL_TRAIT_CAP)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

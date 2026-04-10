@@ -6,6 +6,36 @@ import { resolveYachiyoSoulPath } from '../config/paths.ts'
 const EVOLVED_TRAITS_HEADING = '## Evolved Traits'
 const DEFAULT_SOUL_TITLE = '# SOUL'
 
+/**
+ * Hard cap on the number of evolved traits.
+ * When reached, operators must consolidate existing traits before adding new ones.
+ */
+export const SOUL_TRAIT_CAP = 20
+
+export class SoulTraitCapError extends Error {
+  readonly currentCount: number
+  readonly cap: number
+  readonly existingTraits: Array<{ index: number; trait: string }>
+
+  constructor(currentTraits: string[]) {
+    const formatted = currentTraits.map((t, i) => `  [${i}] ${t}`).join('\n')
+
+    super(
+      `Soul trait cap reached (${currentTraits.length}/${SOUL_TRAIT_CAP}). ` +
+        `Cannot append new traits until the total count is reduced below ${SOUL_TRAIT_CAP}.\n\n` +
+        `Current traits:\n${formatted}\n\n` +
+        `Action required: review the traits above and consolidate related ones. ` +
+        `Use "soul traits remove <index-or-text>" to remove outdated or redundant traits, ` +
+        `then "soul traits add" to append consolidated replacements. ` +
+        `Aim to compress overlapping traits into fewer, richer descriptions.`
+    )
+    this.name = 'SoulTraitCapError'
+    this.currentCount = currentTraits.length
+    this.cap = SOUL_TRAIT_CAP
+    this.existingTraits = currentTraits.map((trait, index) => ({ index, trait }))
+  }
+}
+
 interface SoulFrontmatter {
   keys: string[]
   values: Map<string, string>
@@ -371,6 +401,12 @@ export async function upsertDailySoulTrait(
 
   const { frontmatter, body } = parseFrontmatter(content)
   const parsedBody = parseSoulBody(body)
+  const currentTraits = flattenTraits(parsedBody.entries)
+
+  if (!currentTraits.includes(trait) && currentTraits.length >= SOUL_TRAIT_CAP) {
+    throw new SoulTraitCapError(currentTraits)
+  }
+
   const existingEntry = parsedBody.entries.find((entry) => entry.date === day)
 
   if (existingEntry) {
