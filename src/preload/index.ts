@@ -148,6 +148,10 @@ const api = {
       ipcRenderer.invoke('yachiyo:jotdown-delete', input),
     pruneEmptyTemporaryWorkspaces: (): Promise<number> =>
       ipcRenderer.invoke('yachiyo:prune-empty-temporary-workspaces'),
+    revealFile: (input: { path: string }): Promise<void> =>
+      ipcRenderer.invoke('yachiyo:reveal-file', input),
+    openFileInEditor: (input: { path: string; editorApp: string }): Promise<void> =>
+      ipcRenderer.invoke('yachiyo:open-file-in-editor', input),
 
     getConfig: () => ipcRenderer.invoke('yachiyo:get-config'),
     getSoulDocument: (): Promise<SoulDocument> => ipcRenderer.invoke('yachiyo:get-soul-document'),

@@ -17,6 +17,17 @@ import {
   writeToolInputSchema
 } from './shared.ts'
 
+const PREVIEW_MAX_LINES = 120
+const PREVIEW_MAX_CHARS = 10000
+
+function truncatePreview(content: string): string | undefined {
+  if (!content) return undefined
+  const lines = content.split('\n')
+  if (lines.length <= PREVIEW_MAX_LINES && content.length <= PREVIEW_MAX_CHARS) return content
+  const sliced = lines.slice(0, PREVIEW_MAX_LINES).join('\n')
+  return sliced.length > PREVIEW_MAX_CHARS ? sliced.slice(0, PREVIEW_MAX_CHARS) : sliced
+}
+
 export function createTool(context: AgentToolContext): Tool<WriteToolInput, WriteToolOutput> {
   return tool({
     description: `Write a text file in the current thread workspace or at an absolute path. Relative paths resolve from ${context.workspacePath}. Parent directories are created automatically and existing files are overwritten.`,
@@ -61,7 +72,8 @@ export async function runWriteTool(
       path: resolvedPath,
       bytesWritten: Buffer.byteLength(input.content, 'utf8'),
       created: !exists,
-      overwritten: exists
+      overwritten: exists,
+      contentPreview: truncatePreview(input.content)
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to write file.'

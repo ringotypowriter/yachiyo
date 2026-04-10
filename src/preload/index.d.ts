@@ -121,6 +121,8 @@ declare global {
         createJotdown: () => Promise<JotdownFull>
         deleteJotdown: (input: { id: string }) => Promise<void>
         pruneEmptyTemporaryWorkspaces: () => Promise<number>
+        revealFile: (input: { path: string }) => Promise<void>
+        openFileInEditor: (input: { path: string; editorApp: string }) => Promise<void>
 
         getConfig: () => Promise<SettingsConfig>
         getSoulDocument: () => Promise<SoulDocument>

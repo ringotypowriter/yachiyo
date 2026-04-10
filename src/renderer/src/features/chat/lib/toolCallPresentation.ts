@@ -218,6 +218,7 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     pushField(fields, 'bytes written', details.bytesWritten)
     pushField(fields, 'created', toYesNo(details.created))
     pushField(fields, 'overwritten', toYesNo(details.overwritten))
+    pushCodeBlock(codeBlocks, 'preview', details.contentPreview)
     return { fields, codeBlocks }
   }
 

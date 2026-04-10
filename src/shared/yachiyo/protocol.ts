@@ -278,6 +278,8 @@ export interface WriteToolCallDetails {
   bytesWritten: number
   created: boolean
   overwritten: boolean
+  /** Truncated preview of the written content (first ~50 lines). */
+  contentPreview?: string
 }
 
 export interface EditToolCallDetails {

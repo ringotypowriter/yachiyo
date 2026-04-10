@@ -97,6 +97,7 @@
     "rehype-katex": "^7.0.1",
     "remark-math": "^6.0.0",
     "sharp": "^0.34.5",
+    "shiki": "^4.0.2",
     "smol-toml": "^1.6.1",
     "streamdown": "^2.5.0",
     "telegraf": "^4.16.3",

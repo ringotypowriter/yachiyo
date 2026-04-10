@@ -1,10 +1,10 @@
 import type React from 'react'
 import { Fragment, useId, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
-import type { ToolCall } from '@renderer/app/types'
+import type { EditToolCallDetails, ToolCall, WriteToolCallDetails } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { buildToolCallDetailsPresentation } from '../lib/toolCallPresentation.ts'
-import { DiffBlock } from './DiffBlock.tsx'
+import { ToolCodeBlock } from './ToolCodeBlock.tsx'
 import { AskUserInlineWidget } from './AskUserInlineWidget.tsx'
 
 interface ToolCallRowProps {
@@ -159,7 +159,16 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
                 {block.label}
               </div>
               {block.label === 'diff' ? (
-                <DiffBlock value={block.value} />
+                <ToolCodeBlock
+                  value={block.value}
+                  filePath={(toolCall.details as EditToolCallDetails | undefined)?.path}
+                  variant="diff"
+                />
+              ) : block.label === 'preview' ? (
+                <ToolCodeBlock
+                  value={block.value}
+                  filePath={(toolCall.details as WriteToolCallDetails | undefined)?.path}
+                />
               ) : (
                 <pre
                   className="message-selectable overflow-auto rounded-md px-3 py-2"

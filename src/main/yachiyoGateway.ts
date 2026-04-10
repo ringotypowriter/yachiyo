@@ -156,7 +156,9 @@ const IPC_CHANNELS = {
   jotdownSave: 'yachiyo:jotdown-save',
   jotdownCreate: 'yachiyo:jotdown-create',
   jotdownDelete: 'yachiyo:jotdown-delete',
-  pruneEmptyTemporaryWorkspaces: 'yachiyo:prune-empty-temporary-workspaces'
+  pruneEmptyTemporaryWorkspaces: 'yachiyo:prune-empty-temporary-workspaces',
+  revealFile: 'yachiyo:reveal-file',
+  openFileInEditor: 'yachiyo:open-file-in-editor'
 } as const
 
 let server: YachiyoServer | null = null
@@ -993,6 +995,22 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.jotdownSave, (input: JotdownSaveInput) => jotdownStore.save(input))
   handle(IPC_CHANNELS.jotdownDelete, (input: { id: string }) => jotdownStore.delete(input.id))
   handle(IPC_CHANNELS.pruneEmptyTemporaryWorkspaces, () => server!.pruneEmptyTemporaryWorkspaces())
+
+  handle(IPC_CHANNELS.revealFile, async (input: { path: string }) => {
+    const { shell } = await import('electron')
+    shell.showItemInFolder(input.path)
+  })
+
+  handle(IPC_CHANNELS.openFileInEditor, async (input: { path: string; editorApp: string }) => {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn('open', ['-a', input.editorApp, input.path])
+      child.on('close', (code) => {
+        if (code === 0) resolve()
+        else reject(new Error(`Failed to open "${input.editorApp}" (exit code ${code})`))
+      })
+      child.on('error', reject)
+    })
+  })
 
   app.once('before-quit', () => {
     if (commandSocketHealthTimer) {
