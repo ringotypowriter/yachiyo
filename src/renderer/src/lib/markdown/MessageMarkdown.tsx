@@ -5,6 +5,7 @@ import { Streamdown } from 'streamdown'
 import { MarkdownErrorBoundary } from './MarkdownErrorBoundary'
 import { LinkSafetyModal } from './LinkSafetyModal'
 import { LinkableCode } from './LinkableCode'
+import { mermaid } from '@streamdown/mermaid'
 import { mathPlugin } from './mathPlugin'
 
 interface MessageMarkdownProps {
@@ -32,7 +33,7 @@ export function MessageMarkdown({
         : false,
     [isStreaming]
   )
-  const plugins = useMemo(() => ({ math: mathPlugin }), [])
+  const plugins = useMemo(() => ({ math: mathPlugin, mermaid }), [])
 
   return (
     <MarkdownErrorBoundary fallback={content}>

@@ -1357,7 +1357,14 @@ export async function executeServerRun(
                 }),
                 // For owner DMs the channel transport contract (reply tags, plain-text,
                 // length limits) must stay in the system prefix so it applies every turn.
-                ...(isOwnerDm && input.channelHint?.trim() ? [input.channelHint.trim()] : [])
+                ...(isOwnerDm && input.channelHint?.trim() ? [input.channelHint.trim()] : []),
+                // Local threads render mermaid natively — tell the model so it doesn't
+                // suggest external viewers.
+                ...(!isExternalChannel
+                  ? [
+                      'Mermaid diagrams in ```mermaid code blocks are rendered as interactive diagrams in this conversation. Write Mermaid code directly — do not suggest the user open it in an external tool.'
+                    ]
+                  : [])
               ].join('\n\n')
             },
             hint: {

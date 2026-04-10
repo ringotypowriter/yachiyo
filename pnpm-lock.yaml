@@ -56,6 +56,9 @@ importers:
       '@standard-schema/spec':
         specifier: ^1.1.0
         version: 1.1.0
+      '@streamdown/mermaid':
+        specifier: ^1.0.2
+        version: 1.0.2(react@19.2.4)
       '@tanstack/react-query':
         specifier: ^5.90.21
         version: 5.90.21(react@19.2.4)
@@ -2314,6 +2317,11 @@ packages:
     resolution: {integrity: sha512-9g9dWI4gsSVe8bNLlb+lMkBYsnIKCZTmvqvDG+Avnn69XfmHZKiaMrx7cgTaddq7aTPPmXiTsbFcUy0xgI4+wA==}
     peerDependencies:
       react: '>= 16.3.0'
+
+  '@streamdown/mermaid@1.0.2':
+    resolution: {integrity: sha512-Fr/4sBWnAeSnxM3PcrV/+DiZe5oPMq9gOkUIAH7ZauJeuwrZ/DVzD4g0zlav6AH0axh2m/sOfrfLtY5aLT7niw==}
+    peerDependencies:
+      react: ^18.0.0 || ^19.0.0
 
   '@szmarczak/http-timer@4.0.6':
     resolution: {integrity: sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w==}
@@ -9027,6 +9035,11 @@ snapshots:
 
   '@stitches/react@1.2.8(react@19.2.4)':
     dependencies:
+      react: 19.2.4
+
+  '@streamdown/mermaid@1.0.2(react@19.2.4)':
+    dependencies:
+      mermaid: 11.14.0
       react: 19.2.4
 
   '@szmarczak/http-timer@4.0.6':

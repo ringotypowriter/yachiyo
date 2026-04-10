@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @source "../../../../node_modules/streamdown/dist/*.js";
+@source "../../../../node_modules/@streamdown/mermaid/dist/*.js";
 @import 'streamdown/styles.css';
 @import 'katex/dist/katex.min.css';
 @import '../theme/theme.css';
