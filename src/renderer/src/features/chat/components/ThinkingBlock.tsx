@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { Streamdown } from 'streamdown'
 import { mathPlugin } from '@renderer/lib/markdown/mathPlugin'
+import { code } from '@streamdown/code'
 import { theme } from '@renderer/theme/theme'
 
 interface ThinkingBlockProps {
@@ -30,7 +31,7 @@ export function ThinkingBlock({
         : false,
     [isActive]
   )
-  const plugins = useMemo(() => ({ math: mathPlugin }), [])
+  const plugins = useMemo(() => ({ math: mathPlugin, code }), [])
 
   if (!reasoning) return null
 

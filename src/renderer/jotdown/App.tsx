@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Eye, List, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { Streamdown, defaultRemarkPlugins } from 'streamdown'
+import { code } from '@streamdown/code'
 import { theme, alpha } from '@renderer/theme/theme'
 import type { JotdownFull, JotdownMeta } from '../../shared/yachiyo/protocol'
 
@@ -277,7 +278,11 @@ export default function JotdownApp(): React.JSX.Element {
           >
             {content ? (
               <div className="streamdown-content">
-                <Streamdown mode="static" remarkPlugins={[defaultRemarkPlugins.gfm]}>
+                <Streamdown
+                  mode="static"
+                  remarkPlugins={[defaultRemarkPlugins.gfm]}
+                  plugins={{ code }}
+                >
                   {content}
                 </Streamdown>
               </div>
