@@ -97,6 +97,7 @@ export const UserMessageBubble = memo(function UserMessageBubble({
             <p
               className={`leading-relaxed whitespace-pre-wrap m-0${message.images?.length || message.attachments?.length ? ' mt-3' : ''}`}
               style={{
+                fontFamily: "'Helvetica Neue', 'Segoe UI', sans-serif",
                 fontSize: 'calc(var(--yachiyo-font-size-chat, 14px) / var(--yachiyo-ui-zoom, 1))',
                 overflowWrap: 'break-word'
               }}

@@ -270,7 +270,7 @@ function Container({
       <div
         className="message-selectable overflow-auto rounded-lg"
         style={{
-          fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
+          fontFamily: "'SF Mono', ui-monospace, Menlo, monospace",
           fontSize: '11px',
           lineHeight: '18px',
           maxHeight,

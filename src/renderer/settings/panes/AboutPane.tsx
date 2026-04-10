@@ -121,6 +121,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
           rel="noopener noreferrer"
           className="mt-5 text-2xl font-semibold"
           style={{
+            fontFamily: theme.font.display,
             color: theme.text.primary,
             letterSpacing: '-0.4px',
             textDecoration: 'none',
