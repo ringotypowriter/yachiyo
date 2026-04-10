@@ -5595,11 +5595,14 @@ test('YachiyoServer keeps retry replies as sibling assistant branches and preser
       'historical retry should replace the current thread head with the new reply branch'
     )
 
+    await server.setThreadIcon({ threadId: thread.id, icon: '🌊' })
+
     const branched = await server.createBranch({
       threadId: thread.id,
       messageId: retriedAssistant!.id
     })
 
+    assert.equal(branched.thread.icon, '🌊')
     assert.equal(branched.thread.branchFromThreadId, thread.id)
     assert.equal(branched.thread.branchFromMessageId, retriedAssistant?.id)
     assert.equal(branched.thread.headMessageId, branched.messages[1]?.id)

@@ -506,6 +506,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             branchFromThreadId: thread.branchFromThreadId ?? null,
             createdAt,
             headMessageId: thread.headMessageId ?? null,
+            icon: thread.icon ?? null,
             id: thread.id,
             memoryRecallState: serializeThreadMemoryRecallState(thread.memoryRecall),
             modelOverride: serializeModelOverride(thread.modelOverride),
