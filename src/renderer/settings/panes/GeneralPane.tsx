@@ -18,6 +18,7 @@ import {
 } from '../components/primitives'
 import { ShortcutRecorder } from '../components/ShortcutRecorder'
 import { hasPendingSoulDocumentChanges } from './soulDocumentEditorModel'
+import { UserDocumentTableEditor } from './UserDocumentTableEditor'
 import { hasPendingUserDocumentChanges } from './userDocumentEditorModel'
 
 interface GeneralPaneProps {
@@ -160,33 +161,17 @@ export function GeneralPane({
           </div>
         </div>
 
-        <div className="px-7 pb-4">
-          <textarea
-            value={userDraft ?? ''}
-            onChange={(e) => onUserDraftChange(e.target.value)}
-            className="min-h-120 w-full resize-y rounded-xl px-4 py-3 text-sm leading-6 outline-none"
-            style={{
-              color: theme.text.primary,
-              background: alpha('ink', 0.04),
-              border: 'none'
-            }}
-            spellCheck={false}
-            disabled={isLoadingUserDocument}
-            aria-label="USER.md editor"
-          />
-
-          <div className="mt-2 text-sm leading-5" style={{ color: theme.text.tertiary }}>
-            Avoid temporary task notes, chat transcripts, or raw memory recall dumps here.
-          </div>
+        <div className="pb-4">
+          <UserDocumentTableEditor content={userDraft ?? ''} onChange={onUserDraftChange} />
 
           {isLoadingUserDocument ? (
-            <div className="mt-2 text-sm" style={{ color: theme.text.muted }}>
+            <div className="mt-2 px-7 text-sm" style={{ color: theme.text.muted }}>
               Loading USER.md...
             </div>
           ) : null}
 
           {userDocumentError ? (
-            <div className="mt-2 text-sm" style={{ color: '#c25151' }}>
+            <div className="mt-2 px-7 text-sm" style={{ color: '#c25151' }}>
               {userDocumentError}
             </div>
           ) : null}
