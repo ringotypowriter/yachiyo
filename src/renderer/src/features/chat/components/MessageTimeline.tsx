@@ -332,7 +332,7 @@ export const ThreadConversationGroup = memo(function ThreadConversationGroup({
       {activeBranch?.message.reasoning ? (
         <ThinkingBlock
           reasoning={activeBranch.message.reasoning}
-          isActive={activeBranch.message.status === 'streaming' && !activeBranch.message.content}
+          isActive={activeBranch.message.status === 'streaming'}
         />
       ) : null}
 
@@ -925,7 +925,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
             {item.data.reasoning ? (
               <ThinkingBlock
                 reasoning={item.data.reasoning}
-                isActive={item.data.status === 'streaming' && !item.data.content}
+                isActive={item.data.status === 'streaming'}
               />
             ) : null}
             <AssistantMessageBubble message={item.data} />
