@@ -28,7 +28,7 @@ export function MessageMarkdown({
   const animated = useMemo(
     () =>
       isStreaming
-        ? ({ sep: 'char', animation: 'slideUp', duration: 120, easing: 'ease-out' } as const)
+        ? ({ sep: 'word', animation: 'blurIn', duration: 120, easing: 'ease-out' } as const)
         : false,
     [isStreaming]
   )

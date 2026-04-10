@@ -369,6 +369,7 @@ export const ThreadConversationGroup = memo(function ThreadConversationGroup({
             return null
           }
 
+          const isLastTextBlock = activeAssistantTextBlocks.at(-1)?.id === item.textBlockId
           const nextToolCall =
             nextItem?.kind === 'tool-call'
               ? visibleToolCalls.find((entry) => entry.id === nextItem.toolCallId)
@@ -393,6 +394,7 @@ export const ThreadConversationGroup = memo(function ThreadConversationGroup({
                   hasRunningToolCall || activeBranch.message.status === 'streaming'
                 }
                 pauseStreaming={subagentActive}
+                showCaret={isLastTextBlock ? undefined : false}
                 compactBottomSpacing={compactBottomSpacing}
               />
             </div>

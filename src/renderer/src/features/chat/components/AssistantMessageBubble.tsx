@@ -47,6 +47,8 @@ interface AssistantMessageBubbleProps {
   suppressGeneratingLabel?: boolean
   pauseStreaming?: boolean
   compactBottomSpacing?: boolean
+  /** Show the streaming caret. When omitted, defaults to isStreaming state. */
+  showCaret?: boolean
 }
 
 export const AssistantMessageBubble = memo(function AssistantMessageBubble({
@@ -55,10 +57,12 @@ export const AssistantMessageBubble = memo(function AssistantMessageBubble({
   showFooter = true,
   suppressGeneratingLabel = false,
   pauseStreaming = false,
-  compactBottomSpacing = false
+  compactBottomSpacing = false,
+  showCaret
 }: AssistantMessageBubbleProps): React.JSX.Element {
   const { showContent, showBubble, footer } = buildMessagePresentation(message)
-  const isStreaming = message.status === 'streaming' && showFooter && !pauseStreaming
+  const isStreaming = message.status === 'streaming' && !pauseStreaming
+  const hasCaret = showCaret ?? isStreaming
   const shouldShowGeneratingLabel =
     message.status === 'streaming' && showFooter && !suppressGeneratingLabel
   const effectiveShowFooter =
@@ -73,7 +77,7 @@ export const AssistantMessageBubble = memo(function AssistantMessageBubble({
 
   return (
     <div
-      className={`flex flex-col gap-2 px-6 py-1 message-bubble-group${isStreaming ? ' sd-caret-host' : ''}${compactBottomSpacing ? ' message-bubble-group--compact-after' : ''}`}
+      className={`flex flex-col gap-2 px-6 py-1 message-bubble-group${hasCaret ? ' sd-caret-host' : ''}${compactBottomSpacing ? ' message-bubble-group--compact-after' : ''}`}
     >
       <div className="w-full message-card-shell">
         <div className="assistant-message-bubble">
