@@ -254,8 +254,13 @@ function Container({
     if (filePath) window.api.yachiyo.revealFile({ path: filePath })
   }, [filePath])
 
-  const handleOpenInEditor = useCallback(() => {
-    if (filePath && editorApp) window.api.yachiyo.openFileInEditor({ path: filePath, editorApp })
+  const handleOpenInEditor = useCallback(async () => {
+    if (!filePath || !editorApp) return
+    try {
+      await window.api.yachiyo.openFileInEditor({ path: filePath, editorApp })
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to open in editor.')
+    }
   }, [filePath, editorApp])
 
   const hasActions = !!filePath
