@@ -198,6 +198,10 @@ export interface RunYachiyoCliOptions {
       label: string
     }
   ) => Promise<void>
+  sendMarkThreadReviewed?: (
+    socketPath: string,
+    payload: { type: 'mark-thread-reviewed'; threadId: string }
+  ) => Promise<void>
   stdout?: Pick<typeof process.stdout, 'write'>
   stderr?: Pick<typeof process.stderr, 'write'>
 }
@@ -757,6 +761,12 @@ function handleThreadCommand(
     } else {
       stdout.write(`${formatThreadDumpText(dump)}\n`)
     }
+
+    // Best-effort: notify running app to mark thread as reviewed via UDS
+    const sendReviewed = options.sendMarkThreadReviewed ?? defaultSendMarkThreadReviewed
+    const socketPath = resolveYachiyoSocketPath()
+    sendReviewed(socketPath, { type: 'mark-thread-reviewed', threadId }).catch(() => {})
+
     return
   }
 
@@ -917,6 +927,27 @@ function defaultSendChannelGroupLabel(
       const code = (err as NodeJS.ErrnoException).code
       if (code === 'ENOENT' || code === 'ECONNREFUSED') {
         reject(new Error('Yachiyo app is not running. Start the app first.'))
+      } else {
+        reject(err)
+      }
+    })
+  })
+}
+
+function defaultSendMarkThreadReviewed(
+  socketPath: string,
+  payload: { type: 'mark-thread-reviewed'; threadId: string }
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const client = connect(socketPath, () => {
+      client.end(JSON.stringify(payload))
+    })
+    client.on('close', () => resolve())
+    client.on('error', (err) => {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ECONNREFUSED') {
+        // App not running — best-effort, silently resolve
+        resolve()
       } else {
         reject(err)
       }

@@ -236,11 +236,6 @@ export function dumpThread(
     if (!thread) return null
     if (!includePrivate && thread.privacyMode === '1') return null
 
-    db.update(threadsTable)
-      .set({ selfReviewedAt: new Date().toISOString() })
-      .where(eq(threadsTable.id, threadId))
-      .run()
-
     const messages = db
       .select({
         id: messagesTable.id,

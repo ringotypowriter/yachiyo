@@ -226,6 +226,7 @@ export interface YachiyoStorage {
     readAt?: string | null
   }): void
   markThreadAsRead(input: { threadId: string; readAt: string }): void
+  markThreadReviewed(input: { threadId: string; reviewedAt: string }): void
   restoreThread(input: { threadId: string; updatedAt: string }): void
   beginThreadSave(input: { threadId: string; savingStartedAt: string }): void
   clearThreadSave(input: { threadId: string }): void

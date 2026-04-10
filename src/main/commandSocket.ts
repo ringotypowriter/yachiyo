@@ -17,12 +17,17 @@ export interface UpdateChannelGroupLabelInput {
   label: string
 }
 
+export interface MarkThreadReviewedInput {
+  threadId: string
+}
+
 export interface CommandSocketOptions {
   socketPath: string
   onNotification: (input: { title: string; body?: string }) => void
   onSendChannel: (input: SendChannelInput) => void
   onUpdateChannelGroupStatus: (input: UpdateChannelGroupStatusInput) => void
   onUpdateChannelGroupLabel: (input: UpdateChannelGroupLabelInput) => void
+  onMarkThreadReviewed: (input: MarkThreadReviewedInput) => void
   onError?: (error: Error) => void
 }
 
@@ -43,6 +48,7 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
     onSendChannel,
     onUpdateChannelGroupStatus,
     onUpdateChannelGroupLabel,
+    onMarkThreadReviewed,
     onError
   } = options
   let closed = false
@@ -110,6 +116,13 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
         if (typeof id !== 'string' || !id.trim()) return
         if (typeof label !== 'string') return
         onUpdateChannelGroupLabel({ id, label })
+        return
+      }
+
+      if (type === 'mark-thread-reviewed') {
+        const threadId = message.threadId
+        if (typeof threadId !== 'string' || !threadId.trim()) return
+        onMarkThreadReviewed({ threadId })
       }
     })
   })

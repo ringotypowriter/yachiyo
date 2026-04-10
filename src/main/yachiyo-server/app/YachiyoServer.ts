@@ -714,6 +714,13 @@ export class YachiyoServer {
     return this.threadDomain.markThreadAsRead(input)
   }
 
+  markThreadReviewed(input: { threadId: string }): void {
+    this.storage.markThreadReviewed({
+      threadId: input.threadId,
+      reviewedAt: new Date().toISOString()
+    })
+  }
+
   async restoreThread(input: { threadId: string }): Promise<ThreadRecord> {
     return this.threadDomain.restoreThread(input)
   }

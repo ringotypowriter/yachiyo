@@ -12,8 +12,12 @@ interface TableRow {
 
 interface Section {
   heading: string
+  /** Non-table lines that appear before the table in this section. */
+  preTableLines: string[]
   headers: string[]
   rows: TableRow[]
+  /** Non-table lines that appear after the table in this section. */
+  postTableLines: string[]
 }
 
 interface ParsedDocument {
@@ -30,11 +34,23 @@ function isTableSeparator(line: string): boolean {
 }
 
 function parseCells(line: string): string[] {
-  return line
-    .replace(/^\|/, '')
-    .replace(/\|\s*$/, '')
-    .split('|')
-    .map((c) => c.trim())
+  // Split on unescaped pipes only (not \|)
+  const inner = line.replace(/^\|/, '').replace(/\|\s*$/, '')
+  const cells: string[] = []
+  let current = ''
+  for (let i = 0; i < inner.length; i++) {
+    if (inner[i] === '\\' && i + 1 < inner.length && inner[i + 1] === '|') {
+      current += '|'
+      i++ // skip the pipe
+    } else if (inner[i] === '|') {
+      cells.push(current.trim())
+      current = ''
+    } else {
+      current += inner[i]
+    }
+  }
+  cells.push(current.trim())
+  return cells
 }
 
 function parseDocument(content: string): ParsedDocument {
@@ -62,14 +78,21 @@ function parseDocument(content: string): ParsedDocument {
         i++
       }
 
-      // Parse table from body
+      // Parse table from body, preserving non-table lines
       let headers: string[] = []
       const rows: TableRow[] = []
+      const preTableLines: string[] = []
+      const postTableLines: string[] = []
       let foundHeaders = false
+      let tableEnded = false
 
       for (const line of bodyLines) {
         const trimmed = line.trim()
-        if (!trimmed) continue
+
+        if (tableEnded) {
+          postTableLines.push(line)
+          continue
+        }
 
         if (!foundHeaders && trimmed.startsWith('|') && !isTableSeparator(trimmed)) {
           headers = parseCells(trimmed)
@@ -84,10 +107,20 @@ function parseDocument(content: string): ParsedDocument {
           // Pad or trim to match header count
           while (cells.length < headers.length) cells.push('')
           rows.push({ cells: cells.slice(0, headers.length) })
+          continue
+        }
+
+        // Non-table line
+        if (!foundHeaders) {
+          preTableLines.push(line)
+        } else {
+          // First non-table line after table started → table ended
+          tableEnded = true
+          postTableLines.push(line)
         }
       }
 
-      sections.push({ heading, headers, rows })
+      sections.push({ heading, headers, rows, preTableLines, postTableLines })
     } else {
       i++
     }
@@ -109,7 +142,13 @@ function serializeDocument(doc: ParsedDocument): string {
 
   for (const section of doc.sections) {
     parts.push(`## ${section.heading}`)
-    parts.push('')
+
+    // Preserved non-table lines before the table
+    if (section.preTableLines.length > 0) {
+      parts.push(...section.preTableLines)
+    } else {
+      parts.push('')
+    }
 
     if (section.headers.length > 0) {
       parts.push('| ' + section.headers.join(' | ') + ' |')
@@ -120,7 +159,12 @@ function serializeDocument(doc: ParsedDocument): string {
       }
     }
 
-    parts.push('')
+    // Preserved non-table lines after the table
+    if (section.postTableLines.length > 0) {
+      parts.push(...section.postTableLines)
+    } else {
+      parts.push('')
+    }
   }
 
   return parts.join('\n')

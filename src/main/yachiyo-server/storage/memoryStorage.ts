@@ -303,6 +303,10 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
     },
 
+    markThreadReviewed() {
+      // selfReviewedAt is a sqlite-only CLI concern — no-op for in-memory storage
+    },
+
     restoreThread({ threadId, updatedAt }) {
       const thread = readArchivedThread(threadId)
       if (!thread) {

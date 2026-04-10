@@ -218,6 +218,18 @@ function createCommandSocketHandle(): CommandSocketHandle {
         console.error('[channel-group-label] failed:', error)
       }
     },
+    onMarkThreadReviewed: (input) => {
+      if (!server) {
+        console.error('[mark-thread-reviewed] server is not running')
+        return
+      }
+      try {
+        server.markThreadReviewed(input)
+        console.log(`[mark-thread-reviewed] marked ${input.threadId}`)
+      } catch (error) {
+        console.error('[mark-thread-reviewed] failed:', error)
+      }
+    },
     onError: (error) => {
       console.error('[command-socket] server error:', error)
       queueMicrotask(() => {

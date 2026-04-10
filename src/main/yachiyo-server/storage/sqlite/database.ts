@@ -583,6 +583,13 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       db.update(threadsTable).set({ readAt }).where(eq(threadsTable.id, threadId)).run()
     },
 
+    markThreadReviewed({ threadId, reviewedAt }) {
+      db.update(threadsTable)
+        .set({ selfReviewedAt: reviewedAt })
+        .where(eq(threadsTable.id, threadId))
+        .run()
+    },
+
     restoreThread({ threadId, updatedAt }) {
       db.update(threadsTable)
         .set({
