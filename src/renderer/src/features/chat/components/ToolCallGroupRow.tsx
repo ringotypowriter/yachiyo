@@ -17,12 +17,13 @@ export function ToolCallGroupRow({ group, toolCalls }: ToolCallGroupRowProps): R
   // A `background` bash call has returned its handle but the subprocess is still running,
   // so the group should keep its in-progress affordance until that subprocess finishes.
   const allDone = toolCalls.every((tc) => tc.status !== 'running' && tc.status !== 'background')
-  const hasFailed = toolCalls.some((tc) => tc.status === 'failed')
+  const lastToolCall = toolCalls[toolCalls.length - 1]
+  const lastFailed = lastToolCall?.status === 'failed'
 
-  const dotColor = hasFailed
-    ? theme.status.danger
-    : !allDone
-      ? theme.text.accent
+  const dotColor = !allDone
+    ? theme.text.accent
+    : lastFailed
+      ? theme.status.danger
       : theme.status.success
 
   const label = getToolCallGroupLabel(group, toolCalls.length, allDone)
