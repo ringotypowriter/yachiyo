@@ -44,6 +44,10 @@ import type { AuxiliaryGenerationService } from '../../runtime/auxiliaryGenerati
 import type { SoulDocument } from '../../runtime/soul.ts'
 import type { UserDocument } from '../../runtime/user.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'
+import {
+  createMemoryDistillationScheduler,
+  type MemoryDistillationScheduler
+} from '../../services/memory/memoryDistillationScheduler.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
 import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
 import type { BrowserWebPageSnapshotLoader } from '../../services/webRead/browserWebPageSnapshot.ts'
@@ -192,8 +196,6 @@ export class YachiyoServerRunDomain {
   private readonly activeRunTasks = new Map<string, Promise<void>>()
   private readonly backgroundTitleTasks = new Set<Promise<void>>()
   private readonly backgroundTitleTaskControllers = new Set<AbortController>()
-  private readonly backgroundMemoryTasks = new Set<Promise<void>>()
-  private readonly backgroundMemoryTaskControllers = new Set<AbortController>()
   private readonly debouncedSendChats = new Map<string, DebouncedSendChatEntry>()
   private readonly backgroundBashManager = new BackgroundBashManager()
   /**
@@ -212,12 +214,19 @@ export class YachiyoServerRunDomain {
       extraTools?: import('ai').ToolSet
     }
   >()
+  private readonly memoryScheduler: MemoryDistillationScheduler
   private lastRunEnabledTools: ToolCallName[] | null
   private isClosing = false
 
   constructor(deps: RunDomainDeps) {
     this.deps = deps
     this.lastRunEnabledTools = null
+    this.memoryScheduler = createMemoryDistillationScheduler({
+      memoryService: deps.memoryService,
+      readConfig: deps.readConfig,
+      loadThreadMessages: deps.loadThreadMessages,
+      getThread: (threadId) => deps.storage.getThread(threadId)
+    })
 
     this.backgroundBashManager.setCompletionHandler((result) => {
       this.handleBackgroundBashCompleted(result)
@@ -257,9 +266,6 @@ export class YachiyoServerRunDomain {
     for (const controller of this.backgroundTitleTaskControllers.values()) {
       controller.abort()
     }
-    for (const controller of this.backgroundMemoryTaskControllers.values()) {
-      controller.abort()
-    }
 
     await this.backgroundBashManager.close()
 
@@ -269,9 +275,7 @@ export class YachiyoServerRunDomain {
     if (this.backgroundTitleTasks.size > 0) {
       await Promise.allSettled(this.backgroundTitleTasks)
     }
-    if (this.backgroundMemoryTasks.size > 0) {
-      await Promise.allSettled(this.backgroundMemoryTasks)
-    }
+    await this.memoryScheduler.close()
 
     this.recoverInterruptedRuns(SHUTDOWN_RUN_ERROR)
     this.activeRuns.clear()
@@ -279,8 +283,6 @@ export class YachiyoServerRunDomain {
     this.activeRunTasks.clear()
     this.backgroundTitleTaskControllers.clear()
     this.backgroundTitleTasks.clear()
-    this.backgroundMemoryTaskControllers.clear()
-    this.backgroundMemoryTasks.clear()
     this.debouncedSendChats.clear()
     this.backgroundTaskRunContext.clear()
   }
@@ -477,13 +479,12 @@ export class YachiyoServerRunDomain {
       `Log file: ${result.logPath}\n\n` +
       `The background command has finished. You can read the log file for full output.`
     try {
-      const activeRunId = this.activeRunByThread.get(thread.id)
       await this.sendChat({
         threadId: thread.id,
         content,
-        // Steer an active run so the model sees the completion immediately.
-        // If no run is active, fall back to a follow-up (starts a fresh run).
-        mode: activeRunId ? 'steer' : 'follow-up',
+        // Always deliver as a follow-up so the completion notice queues gracefully
+        // when a run is active and starts a fresh run otherwise.
+        mode: 'follow-up',
         ...(ctx?.enabledTools ? { enabledTools: ctx.enabledTools } : {}),
         ...(ctx?.enabledSkillNames ? { enabledSkillNames: ctx.enabledSkillNames } : {}),
         ...(ctx?.channelHint ? { channelHint: ctx.channelHint } : {}),
@@ -1809,26 +1810,10 @@ export class YachiyoServerRunDomain {
         activeRun.recoveringHarnessId = undefined
 
         if (result.kind === 'completed') {
-          const threadMessages = this.deps.loadThreadMessages(currentThread.id)
-          const assistantMessage = threadMessages
-            .filter(
-              (message) =>
-                message.role === 'assistant' && message.parentMessageId === currentRequestMessageId
-            )
-            .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-            .at(-1)
-          const userMessage = threadMessages.find(
-            (message) => message.id === currentRequestMessageId && message.role === 'user'
-          )
-
-          if (assistantMessage && userMessage) {
-            this.schedulePostRunMemoryDistillation({
-              assistantResponse: assistantMessage.content,
-              thread: currentThread,
-              userQuery: userMessage.content,
-              usedRememberTool: result.usedRememberTool
-            })
-          }
+          // Re-read the persisted thread so headMessageId reflects the
+          // assistant reply, not the pre-run snapshot.
+          const persistedThread = this.deps.requireThread(currentThread.id)
+          this.memoryScheduler.onRunCompleted(persistedThread, result.usedRememberTool)
         }
 
         if (result.kind !== 'restarted') {
@@ -2079,59 +2064,9 @@ export class YachiyoServerRunDomain {
     }
   }
 
-  private schedulePostRunMemoryDistillation(input: {
-    assistantResponse: string
-    thread: ThreadRecord
-    userQuery: string
-    usedRememberTool?: boolean
-  }): void {
-    if (!this.deps.memoryService.isConfigured()) {
-      return
-    }
-
-    if (this.deps.readConfig().chat?.autoMemoryDistillation === false) {
-      return
-    }
-
-    if (input.thread.privacyMode) {
-      return
-    }
-
-    // Skip memory distillation for external channel threads — conversations are
-    // short and ephemeral; distilling them pollutes the owner's memory store.
-    if (input.thread.source && input.thread.source !== 'local') {
-      return
-    }
-
-    // When the agent already saved memories via the remember tool this turn,
-    // skip auto-distillation to avoid duplicate or conflicting entries.
-    if (input.usedRememberTool) {
-      return
-    }
-
-    const abortController = new AbortController()
-    this.backgroundMemoryTaskControllers.add(abortController)
-
-    const task: Promise<void> | undefined = (async (): Promise<void> => {
-      try {
-        await this.deps.memoryService.distillCompletedRun({
-          assistantResponse: input.assistantResponse,
-          signal: abortController.signal,
-          thread: input.thread,
-          userQuery: input.userQuery
-        })
-      } catch {
-        // Memory distillation must not affect the completed run path.
-      } finally {
-        this.backgroundMemoryTaskControllers.delete(abortController)
-        if (task) {
-          this.backgroundMemoryTasks.delete(task)
-        }
-      }
-    })()
-
-    this.backgroundMemoryTasks.add(task)
-    void task
+  /** Cancel pending memory distillation for a thread (e.g. on delete/archive). */
+  cancelMemoryDistillation(threadId: string): void {
+    this.memoryScheduler.cancelThread(threadId)
   }
 
   private scheduleThreadTitleGeneration(input: {

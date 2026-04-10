@@ -239,6 +239,13 @@ const MAX_MEMORY_TOPIC_LENGTH = 64
 const MIN_MEMORY_CONTENT_LENGTH = 20
 const MIN_MEMORY_TITLE_LENGTH = 3
 const MIN_MEMORY_TOPIC_LENGTH = 3
+const MIN_IMPORTANCE_THRESHOLD = 0.6
+
+function filterByImportance(candidates: MemoryCandidate[]): MemoryCandidate[] {
+  return candidates.filter(
+    (c) => c.importance === undefined || c.importance >= MIN_IMPORTANCE_THRESHOLD
+  )
+}
 
 function clampWeight(value: unknown): number | undefined {
   if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -660,6 +667,7 @@ function buildRunDistillationMessages(input: {
         'Extract durable long-term memory candidates from a completed exchange.',
         'Return JSON only.',
         'Schema: {"candidates":[{"topic":"string","title":"string","content":"string","unitType":"fact|preference|decision|plan|procedure|learning|context|event","importance":0.0}]}',
+        'If no durable long-term knowledge is present, return {"candidates":[]}. Do not invent weak observations to fill the array.',
         'Only keep durable preferences, decisions, workflows, stable facts, or reusable lessons.',
         'Emit at most one candidate per durable topic.',
         'Topic must be a stable canonical topic identifier for dedupe, reconciliation, and later updates.',
@@ -705,6 +713,7 @@ function buildSaveThreadMessages(messages: MessageRecord[]): ModelMessage[] {
         'Review the full conversation transcript and extract durable long-term memory updates.',
         'Return JSON only.',
         'Schema: {"candidates":[{"topic":"string","title":"string","content":"string","unitType":"fact|preference|decision|plan|procedure|learning|context|event","importance":0.0}]}',
+        'If no durable long-term knowledge is present, return {"candidates":[]}. Do not invent weak observations to fill the array.',
         'Keep only durable knowledge that should survive beyond this single thread.',
         'Emit at most one candidate per durable topic.',
         'Prefer stable canonical topics, stable canonical titles, and normalized factual wording.',
@@ -1313,7 +1322,10 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
         signal: input.signal,
         purpose: 'memory-distill'
       })
-      const candidates = await deriveMemoryCandidates(result)
+      const candidates = filterByImportance(await deriveMemoryCandidates(result))
+      if (candidates.length === 0) {
+        return { savedCount: 0 }
+      }
       const reconciled = await reconcileMemoryCandidates(provider, candidates, input.signal)
 
       for (const update of reconciled.updates) {
@@ -1376,7 +1388,10 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
         settings,
         signal: input.signal
       })
-      const candidates = parseMemoryCandidates(text)
+      const candidates = filterByImportance(parseMemoryCandidates(text))
+      if (candidates.length === 0) {
+        return { savedCount: 0 }
+      }
       const reconciled = await reconcileMemoryCandidates(provider, candidates, input.signal)
 
       for (const update of reconciled.updates) {

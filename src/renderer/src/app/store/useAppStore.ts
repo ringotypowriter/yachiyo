@@ -1466,6 +1466,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
         }
 
+        // When a pending steer resolves (tool just finished), the run is
+        // about to restart. Reset to 'preparing' so the conversation group
+        // shows a PreparingBubble instead of empty space while waiting for
+        // the first message.delta from the restarted run.
+        const hadPendingSteer = Boolean(state.pendingSteerMessages[event.threadId])
+
         const nextState = {
           ...state,
           activeRequestMessageIdsByThread: setThreadStringValue(
@@ -1485,6 +1491,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             state.pendingSteerMessages,
             event.threadId
           ),
+          runPhasesByThread: hadPendingSteer
+            ? setThreadRunPhaseValue(state.runPhasesByThread, event.threadId, 'preparing')
+            : state.runPhasesByThread,
           toolCalls: {
             ...state.toolCalls,
             [event.threadId]: event.toolCalls

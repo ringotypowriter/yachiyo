@@ -330,7 +330,8 @@ export class YachiyoServer {
       loadThreadMessages: (threadId) => this.storage.listThreadMessages(threadId),
       isThreadRunning: (threadId) => this.runDomain.hasActiveThread(threadId),
       auxiliaryGeneration,
-      evictAcpIdleThread: (threadId) => acpProcessPool.evictThread(threadId)
+      evictAcpIdleThread: (threadId) => acpProcessPool.evictThread(threadId),
+      cancelMemoryDistillation: (threadId) => this.runDomain.cancelMemoryDistillation(threadId)
     })
 
     this.scheduleDomain = new ScheduleDomain({

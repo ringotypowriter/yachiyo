@@ -60,6 +60,7 @@ interface ThreadDomainDeps {
   isThreadRunning: (threadId: string) => boolean
   auxiliaryGeneration: AuxiliaryGenerationService
   evictAcpIdleThread: (threadId: string) => Promise<void>
+  cancelMemoryDistillation?: (threadId: string) => void
 }
 
 export interface RetryRequestResolution {
@@ -356,6 +357,7 @@ export class YachiyoServerThreadDomain {
     if (this.deps.isThreadRunning(thread.id)) {
       throw new Error('Cannot archive a thread with an active run.')
     }
+    this.deps.cancelMemoryDistillation?.(thread.id)
     if (thread.runtimeBinding?.kind === 'acp') {
       await this.deps.evictAcpIdleThread(thread.id)
     }
@@ -479,6 +481,7 @@ export class YachiyoServerThreadDomain {
       throw new Error('Cannot delete a thread with an active run.')
     }
 
+    this.deps.cancelMemoryDistillation?.(thread.id)
     if (thread.runtimeBinding?.kind === 'acp') {
       await this.deps.evictAcpIdleThread(thread.id)
     }
