@@ -1,12 +1,16 @@
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { join, resolve } from 'node:path'
 
 import { and, asc, desc, eq, isNull, like } from 'drizzle-orm'
 import { sql } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
+import type { ToolCallRecord } from '../../../shared/yachiyo/protocol.ts'
+import { resolveYachiyoDataDir } from '../config/paths.ts'
+import { isBundledSkillPath } from '../services/skills/skillDiscovery.ts'
 import * as schema from '../storage/sqlite/schema.ts'
-import { messagesTable, threadsTable } from '../storage/sqlite/schema.ts'
+import { messagesTable, threadsTable, toolCallsTable } from '../storage/sqlite/schema.ts'
 
 type SqliteDb = BetterSQLite3Database<typeof schema>
 
@@ -199,6 +203,25 @@ export interface ThreadDumpMessage {
   content: string
 }
 
+export interface ThreadDumpToolCall {
+  id: string
+  runId: string | null
+  toolName: ToolCallRecord['toolName']
+  status: ToolCallRecord['status']
+  inputSummary: string
+  outputSummary: string | null
+  error: string | null
+  /**
+   * Parsed JSON from the stored `details` column if it parses successfully,
+   * otherwise the raw string, otherwise null. Per-tool shape; see protocol.ts
+   * `ToolCallDetailsSnapshot` for the typed union.
+   */
+  details: unknown
+  startedAt: string
+  finishedAt: string | null
+  stepIndex: number | null
+}
+
 export interface ThreadDump {
   threadId: string
   title: string
@@ -206,6 +229,65 @@ export interface ThreadDump {
   updatedAt: string
   createdAt: string
   messages: ThreadDumpMessage[]
+  toolCalls: ThreadDumpToolCall[]
+}
+
+/**
+ * Safely parse a stored tool-call `details` payload. The DB column is a plain
+ * text field that may hold JSON, a non-JSON string, or null. We prefer parsed
+ * JSON so consumers don't have to parse it themselves, but fall back to the
+ * raw string for legacy rows and null for empty ones.
+ */
+export function parseToolCallDetails(raw: string | null | undefined): unknown {
+  if (raw == null || raw === '') return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return raw
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Fallback-only enrichment for parsed `skillsRead` details payloads that
+ * were written before `skillsReadTool` started storing the authoritative
+ * `origin` field on every resolved skill. For any row that already has
+ * `origin` pre-frozen, this is a pure pass-through — we never recompute
+ * against the current `YACHIYO_HOME`, because a thread recorded under a
+ * different home (isolated workspace, or the user moved their Yachiyo
+ * home since the run) would get misclassified.
+ *
+ * For legacy rows with no `origin`, we compute a best-effort value from
+ * `directoryPath` against the current home's core dir. This is
+ * acknowledged-imperfect for historical data: if the current home differs
+ * from the one the run was recorded under, the legacy fallback may be
+ * wrong. All NEW rows bypass this entirely because the tool writes origin
+ * at execution time.
+ *
+ * We only touch entries that look like resolved skill records (an object
+ * with a string `directoryPath`); anything else is passed through
+ * untouched.
+ */
+export function enrichSkillsReadDetails(parsed: unknown, yachiyoSkillsDir: string): unknown {
+  if (!isRecord(parsed)) return parsed
+  const skills = parsed['skills']
+  if (!Array.isArray(skills)) return parsed
+  const enrichedSkills = skills.map((entry) => {
+    if (!isRecord(entry)) return entry
+    // Stored origin is authoritative — frozen at write time. Pass through.
+    if (typeof entry['origin'] === 'string') return entry
+    // Legacy row: best-effort fallback using the current home's core dir.
+    const directoryPath = entry['directoryPath']
+    if (typeof directoryPath !== 'string') return entry
+    const origin: 'bundled' | 'writable' = isBundledSkillPath(directoryPath, yachiyoSkillsDir)
+      ? 'bundled'
+      : 'writable'
+    return { ...entry, origin }
+  })
+  return { ...parsed, skills: enrichedSkills }
 }
 
 export function dumpThread(
@@ -248,6 +330,31 @@ export function dumpThread(
       .orderBy(asc(messagesTable.createdAt))
       .all()
 
+    const toolCallRows = db
+      .select({
+        id: toolCallsTable.id,
+        runId: toolCallsTable.runId,
+        toolName: toolCallsTable.toolName,
+        status: toolCallsTable.status,
+        inputSummary: toolCallsTable.inputSummary,
+        outputSummary: toolCallsTable.outputSummary,
+        error: toolCallsTable.error,
+        details: toolCallsTable.details,
+        startedAt: toolCallsTable.startedAt,
+        finishedAt: toolCallsTable.finishedAt,
+        stepIndex: toolCallsTable.stepIndex
+      })
+      .from(toolCallsTable)
+      .where(eq(toolCallsTable.threadId, threadId))
+      .orderBy(asc(toolCallsTable.startedAt), asc(toolCallsTable.stepIndex))
+      .all()
+
+    // Resolve the Yachiyo home's skills directory once per dump so every
+    // `skillsRead` tool call in this thread is classified against the same
+    // authoritative installation root. A workspace-local `.yachiyo/skills/core/`
+    // path will not match and will be emitted as writable, which is correct.
+    const yachiyoSkillsDir = resolve(join(resolveYachiyoDataDir(), 'skills'))
+
     return {
       threadId: thread.id,
       title: thread.title,
@@ -259,7 +366,27 @@ export function dumpThread(
         role: m.role,
         createdAt: m.createdAt,
         content: m.content
-      }))
+      })),
+      toolCalls: toolCallRows.map((row) => {
+        const parsedDetails = parseToolCallDetails(row.details)
+        const details =
+          row.toolName === 'skillsRead'
+            ? enrichSkillsReadDetails(parsedDetails, yachiyoSkillsDir)
+            : parsedDetails
+        return {
+          id: row.id,
+          runId: row.runId ?? null,
+          toolName: row.toolName,
+          status: row.status,
+          inputSummary: row.inputSummary,
+          outputSummary: row.outputSummary ?? null,
+          error: row.error ?? null,
+          details,
+          startedAt: row.startedAt,
+          finishedAt: row.finishedAt ?? null,
+          stepIndex: row.stepIndex ?? null
+        }
+      })
     }
   } finally {
     client.close()

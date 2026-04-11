@@ -27,6 +27,9 @@ function buildModelContent(details: SkillsReadToolCallDetails): string {
     lines.push(`Skill: ${skill.name}`)
     lines.push(`Skill folder: ${skill.directoryPath}`)
     lines.push(`SKILL.md: ${skill.skillFilePath}`)
+    if (skill.origin) {
+      lines.push(`Origin: ${skill.origin}`)
+    }
     if (skill.description) {
       lines.push(`Description: ${skill.description}`)
     }
@@ -112,6 +115,7 @@ export async function runSkillsReadTool(
       directoryPath: skill.directoryPath,
       skillFilePath: skill.skillFilePath,
       ...(skill.description ? { description: skill.description } : {}),
+      ...(skill.origin ? { origin: skill.origin } : {}),
       ...(content !== undefined ? { content } : {})
     })
   }

@@ -381,6 +381,17 @@ export interface SkillsReadRecord {
   skillFilePath: string
   description?: string
   content?: string
+  /**
+   * Skill provenance, frozen at tool execution time from the catalog entry
+   * that resolved this call. Populated on every new `skillsRead` invocation
+   * since the origin-freeze change; historical rows written before that may
+   * lack the field and fall back to `enrichSkillsReadDetails()` in
+   * `dumpThread()` for a best-effort recomputation. Downstream consumers
+   * (notably the self-review schedule) should trust this field as the
+   * authoritative signal for "was this skill bundled or writable at the
+   * time the reviewed run invoked it?".
+   */
+  origin?: SkillOrigin
 }
 
 export interface SkillsReadToolCallDetails {
@@ -762,10 +773,20 @@ export interface SkillSummary {
   description?: string
 }
 
+/**
+ * Provenance of a skill on disk. Used to gate destructive writes: `bundled`
+ * skills are extracted from the app package at startup and unconditionally
+ * overwritten on version bump, so they must be treated as read-only by any
+ * in-app authoring or self-review flow. Everything else is user-owned and
+ * safe to refine in place.
+ */
+export type SkillOrigin = 'bundled' | 'custom' | 'workspace' | 'external'
+
 export interface SkillCatalogEntry extends SkillSummary {
   directoryPath: string
   skillFilePath: string
   autoEnabled?: boolean
+  origin?: SkillOrigin
 }
 
 export interface SubagentProfile {

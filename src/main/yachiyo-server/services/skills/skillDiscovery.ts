@@ -2,22 +2,96 @@ import { readdir, readFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 
-import type { SkillCatalogEntry } from '../../../../shared/yachiyo/protocol.ts'
+import type { SkillCatalogEntry, SkillOrigin } from '../../../../shared/yachiyo/protocol.ts'
 import { resolveYachiyoDataDir } from '../../config/paths.ts'
 
 export const SKILL_FILE_NAME = 'SKILL.md'
 
 const SKILL_SOURCE_DIR_NAMES = ['.yachiyo', '.codex', '.agents', '.claude'] as const
 
+/**
+ * Hint recorded on each discovery root. For most roots the origin is known at
+ * root-build time; for the Yachiyo home root we defer the decision to the
+ * individual skill path because bundled-core and user-custom live side by side
+ * under `~/.yachiyo/skills/core/` and `~/.yachiyo/skills/custom/` respectively.
+ */
+type SkillOriginHint = SkillOrigin | 'yachiyo-home'
+
 export interface SkillDiscoveryRoot {
   scope: 'workspace' | 'home'
   rootPath: string
   autoEnabled?: boolean
+  originHint: SkillOriginHint
 }
 
 export interface DiscoveredSkill extends SkillCatalogEntry {
   scope: SkillDiscoveryRoot['scope']
   rootPath: string
+}
+
+export interface IsBundledSkillPathOptions {
+  /**
+   * Force case-insensitive comparison. Defaults to `process.platform === 'win32'`
+   * because Windows filesystems are case-insensitive but preserve case, so two
+   * paths that address the same directory may differ only in casing (e.g.
+   * `C:\Users\...` vs `c:\users\...`). POSIX filesystems are case-sensitive by
+   * convention, so we leave comparisons exact there. Tests can override
+   * explicitly to exercise either behavior from any host OS.
+   */
+  caseInsensitive?: boolean
+}
+
+/**
+ * Cross-platform check for whether a skill directory is a bundled core skill.
+ * Bundled skills live exclusively under the Yachiyo home's
+ * `<yachiyoSkillsDir>/core/` directory — NOT any path that happens to contain
+ * the segment `.yachiyo/skills/core/`. A workspace repo can legitimately have
+ * its own `<repo>/.yachiyo/skills/core/foo` skill (workspace-scope), and that
+ * must not be flagged as read-only bundled content.
+ *
+ * The check is a proper absolute-path prefix match against the specific
+ * Yachiyo home's core directory. Both inputs are normalized to forward
+ * slashes so the same check works on POSIX and Windows, and the home dir's
+ * trailing separators are trimmed so the prefix math is unambiguous. On
+ * Windows (or whenever `caseInsensitive: true` is passed explicitly) the
+ * comparison is also lowercased so a discovered directoryPath whose drive
+ * letter or user dir differs in case from YACHIYO_HOME still matches.
+ *
+ * This is the single source of truth for "is this skill read-only?" and is
+ * re-used by `dumpThread()` (via `enrichSkillsReadDetails`) to tag
+ * `skillsRead` tool call details for the self-review pass.
+ */
+export function isBundledSkillPath(
+  directoryPath: string,
+  yachiyoSkillsDir: string,
+  options: IsBundledSkillPathOptions = {}
+): boolean {
+  const caseInsensitive = options.caseInsensitive ?? process.platform === 'win32'
+  const normalize = (p: string): string => {
+    const slashed = p.replace(/\\/g, '/').replace(/\/+$/, '')
+    return caseInsensitive ? slashed.toLowerCase() : slashed
+  }
+  const coreRoot = `${normalize(yachiyoSkillsDir)}/core`
+  const target = normalize(directoryPath)
+  return target === coreRoot || target.startsWith(`${coreRoot}/`)
+}
+
+/**
+ * Resolve a skill's final origin from its discovery root's hint. For the
+ * Yachiyo home root we look at whether the skill lives under `core/` — those
+ * are bundled skills written by the app's core-skill extractor and must stay
+ * read-only. Everything else under the Yachiyo home root is user-owned custom
+ * content.
+ */
+function resolveSkillOrigin(
+  originHint: SkillOriginHint,
+  rootPath: string,
+  directoryPath: string
+): SkillOrigin {
+  if (originHint !== 'yachiyo-home') return originHint
+  // For yachiyo-home roots, `rootPath` IS the Yachiyo home's skills dir,
+  // because that's how buildSkillDiscoveryRoots() constructs it.
+  return isBundledSkillPath(directoryPath, rootPath) ? 'bundled' : 'custom'
 }
 
 interface ParsedFrontmatter {
@@ -157,6 +231,7 @@ async function readSkillRecord(input: {
   rootPath: string
   skillFilePath: string
   autoEnabled?: boolean
+  originHint: SkillOriginHint
 }): Promise<DiscoveredSkill | null> {
   let content: string
 
@@ -183,6 +258,9 @@ async function readSkillRecord(input: {
     return null
   }
 
+  const rootPath = resolve(input.rootPath)
+  const origin = resolveSkillOrigin(input.originHint, rootPath, directoryPath)
+
   return {
     name,
     description:
@@ -192,8 +270,9 @@ async function readSkillRecord(input: {
     directoryPath,
     skillFilePath,
     ...(input.autoEnabled ? { autoEnabled: true } : {}),
+    origin,
     scope: input.scope,
-    rootPath: resolve(input.rootPath)
+    rootPath
   }
 }
 
@@ -219,7 +298,8 @@ export function buildSkillDiscoveryRoots(workspacePaths: string[] = []): SkillDi
       roots.push({
         scope: 'workspace',
         rootPath,
-        autoEnabled: dirName === '.yachiyo'
+        autoEnabled: dirName === '.yachiyo',
+        originHint: dirName === '.yachiyo' ? 'workspace' : 'external'
       })
     }
   }
@@ -231,7 +311,12 @@ export function buildSkillDiscoveryRoots(workspacePaths: string[] = []): SkillDi
 
   if (!seen.has(yachiyoHomeRoot)) {
     seen.add(yachiyoHomeRoot)
-    roots.push({ scope: 'home', rootPath: yachiyoHomeRoot, autoEnabled: true })
+    roots.push({
+      scope: 'home',
+      rootPath: yachiyoHomeRoot,
+      autoEnabled: true,
+      originHint: 'yachiyo-home'
+    })
   }
 
   for (const rootPath of otherHomeRoots) {
@@ -239,7 +324,7 @@ export function buildSkillDiscoveryRoots(workspacePaths: string[] = []): SkillDi
       continue
     }
     seen.add(rootPath)
-    roots.push({ scope: 'home', rootPath })
+    roots.push({ scope: 'home', rootPath, originHint: 'external' })
   }
 
   return roots
@@ -267,7 +352,8 @@ export async function discoverSkills(workspacePaths: string[] = []): Promise<Dis
           scope: root.scope,
           rootPath: root.rootPath,
           skillFilePath,
-          autoEnabled: root.autoEnabled
+          autoEnabled: root.autoEnabled,
+          originHint: root.originHint
         })
 
         if (skill) {
