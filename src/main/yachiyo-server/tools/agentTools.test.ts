@@ -580,6 +580,66 @@ test('runGlobTool maps normalized file discovery results into structured details
   })
 })
 
+test('runGlobTool refuses to scan `~` or `/` without calling the search service', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const searchService = {
+      capabilities: {
+        grep: { available: 'rg' as const },
+        fileDiscovery: { available: 'fd' as const }
+      },
+      grep: async () => {
+        throw new Error('grep should not be called')
+      },
+      listFiles: async () => {
+        throw new Error('listFiles should not be called')
+      },
+      glob: async () => {
+        throw new Error('glob should not be called for forbidden roots')
+      }
+    }
+
+    for (const path of ['~', '/']) {
+      const result = await runGlobTool({ pattern: '*', path }, { workspacePath }, { searchService })
+
+      assert.match(result.error ?? '', /too large/i)
+      assert.match(flattenToolContent(result.content), /too large/i)
+      assert.equal(result.details.resultCount, 0)
+    }
+  })
+})
+
+test('runGrepTool refuses to scan `~` or `/` without calling the search service', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const searchService = {
+      capabilities: {
+        grep: { available: 'rg' as const },
+        fileDiscovery: { available: 'fd' as const }
+      },
+      grep: async () => {
+        throw new Error('grep should not be called for forbidden roots')
+      },
+      listFiles: async () => {
+        throw new Error('listFiles should not be called')
+      },
+      glob: async () => {
+        throw new Error('glob should not be called')
+      }
+    }
+
+    for (const path of ['~', '/']) {
+      const result = await runGrepTool(
+        { pattern: 'anything', path },
+        { workspacePath },
+        { searchService }
+      )
+
+      assert.match(result.error ?? '', /too large/i)
+      assert.match(flattenToolContent(result.content), /too large/i)
+      assert.equal(result.details.resultCount, 0)
+    }
+  })
+})
+
 test('runWebReadTool maps service results into structured details and summaries', async () => {
   await withWorkspace(async (workspacePath) => {
     const response = new Response('<html><body><article>stub</article></body></html>', {

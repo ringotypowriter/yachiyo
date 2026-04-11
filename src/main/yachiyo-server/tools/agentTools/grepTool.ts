@@ -8,7 +8,9 @@ import type { SearchService } from '../../services/search/searchService.ts'
 import {
   DEFAULT_SEARCH_LIMIT,
   expandTilde,
+  FORBIDDEN_HUGE_SEARCH_ROOT_MESSAGE,
   grepToolInputSchema,
+  isForbiddenHugeSearchRoot,
   type AgentToolContext,
   type GrepToolInput,
   type GrepToolOutput,
@@ -61,6 +63,15 @@ export async function runGrepTool(
     resultCount: 0,
     truncated: false,
     matches: []
+  }
+
+  if (isForbiddenHugeSearchRoot(resolvedPath, context.workspacePath)) {
+    return {
+      content: textContent(FORBIDDEN_HUGE_SEARCH_ROOT_MESSAGE),
+      details: fallbackDetails,
+      error: FORBIDDEN_HUGE_SEARCH_ROOT_MESSAGE,
+      metadata: {}
+    }
   }
 
   try {

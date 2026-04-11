@@ -210,6 +210,21 @@ export function expandTilde(targetPath: string): string {
   return targetPath
 }
 
+export const FORBIDDEN_HUGE_SEARCH_ROOT_MESSAGE =
+  'Refusing to search the filesystem root (`/`) or the home directory (`~`) — the scan range is too large. Pick a more specific subdirectory.'
+
+// Block glob/grep from scanning the whole filesystem root or the user's home
+// directory — those searches are prohibitively expensive and almost never the
+// right answer. The workspace-equals-home edge case is allowed through so a
+// project that actually lives at ~/ still works.
+export function isForbiddenHugeSearchRoot(resolvedPath: string, workspacePath: string): boolean {
+  const normalized = resolve(resolvedPath)
+  if (normalized === resolve(workspacePath)) {
+    return false
+  }
+  return normalized === resolve('/') || normalized === resolve(homedir())
+}
+
 export function resolveToolPath(workspacePath: string, targetPath: string): string {
   // Strip surrounding quotes that models sometimes add for paths containing spaces.
   const unquoted = targetPath.trim().replace(/^(['"`])(.*)\1$/, '$2')

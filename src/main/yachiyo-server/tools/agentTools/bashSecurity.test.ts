@@ -272,6 +272,168 @@ describe('bashSecurity', () => {
       })
     })
 
+    // --- Huge search root (scope block) ---
+    describe('blocks huge-root recursive scans', () => {
+      const blockedScans = [
+        // Path-only (find/tree/du): every positional is a path.
+        'find /',
+        'find / -name foo',
+        'find ~',
+        'find ~/ -type f',
+        'find $HOME -name foo',
+        'find ${HOME}',
+        'tree /',
+        'tree ~',
+        'du /',
+        'du -sh ~',
+        // Pattern-first (rg/fd/ag/ack): path is positional #2+.
+        'fd pattern /',
+        'fd pattern ~',
+        'fd --extension ts pattern /',
+        'rg needle /',
+        'rg needle ~',
+        'rg --glob *.ts needle /',
+        'ag pattern /',
+        'ack needle /',
+        // Pattern provided via flag → every positional is a path.
+        'rg -e foo / src',
+        'rg --regexp=foo / src',
+        'rg -f patterns.txt /',
+        'grep -r -e foo / src',
+        // Conditional recursers: only block with a recursive flag.
+        'grep -r needle /',
+        'grep -R needle ~',
+        'grep -rn needle /',
+        'grep --recursive needle /',
+        'grep -r --include *.ts needle /',
+        'ls -R /',
+        'ls -R ~',
+        'ls -lR ~',
+        'ls --recursive ~',
+        // Pipeline segment: huge scan buried in a later segment still trips.
+        'echo done && find / -name foo',
+        'echo start; rg pattern ~',
+        // $HOME / ${HOME} trailing-slash forms.
+        'find $HOME/ -name foo',
+        'find ${HOME}/ -name foo',
+        'rg needle $HOME/',
+        'rg needle ${HOME}/',
+        'fd pattern $HOME/',
+        'grep -r needle ${HOME}/',
+        'tree $HOME/',
+        'du -sh ${HOME}/',
+        // Wrapper forms: sudo/doas/env/exec and path-prefixed binaries.
+        'sudo find / -name foo',
+        'sudo rg needle /',
+        'sudo -H find / -name foo',
+        'sudo -u root find / -name foo',
+        'sudo -- find / -name foo',
+        'doas find / -name foo',
+        'env find / -name foo',
+        'env LC_ALL=C find / -name foo',
+        'env -u LANG find / -name foo',
+        'exec find / -name foo',
+        'LC_ALL=C find / -name foo',
+        'LC_ALL=C rg needle /',
+        'LC_ALL=C FOO=bar find / -name foo',
+        'LC_ALL=C sudo find / -name foo',
+        '/usr/bin/find / -name foo',
+        '/opt/homebrew/bin/rg needle ~',
+        './my/bin/find / -name foo'
+      ]
+
+      for (const cmd of blockedScans) {
+        it(`blocks: ${JSON.stringify(cmd)}`, () => {
+          expectBlocked(cmd, 'scan range is too large')
+        })
+      }
+    })
+
+    describe('allows narrow scans and non-recursive variants', () => {
+      const allowedScans = [
+        // Narrow path-only scans.
+        'find . -name foo',
+        'find src -name foo',
+        'find ~/projects -type f',
+        'find /etc/nginx -name "*.conf"',
+        'find src -name / -type f', // `-name /` is a filter value, not a path
+        'tree src',
+        'du -sh src',
+        'ls /',
+        'ls ~',
+        'ls -la /etc',
+        'ls -R src',
+        // Reviewer P2: `ls -r` is sort-reverse, NOT recursive (only `-R` is).
+        'ls -r ~',
+        'ls -r /',
+        'ls -lr ~',
+        'ls -latr ~',
+        // Pattern-first: `/` and `~` as the FIRST positional are patterns,
+        // not paths.
+        'rg / src',
+        'rg / .',
+        'rg /',
+        'rg ~ src',
+        'rg ~',
+        'fd / src',
+        'fd / .',
+        'fd /',
+        'ag / src',
+        'ag ~ src',
+        'ack / src',
+        // Reviewer P1: value-taking flags must not eat the following positional.
+        "rg --glob '*.ts' / src",
+        'rg --glob *.ts / src',
+        'rg --glob=*.ts / src',
+        'rg -g *.ts / src',
+        'rg -t rust / src',
+        'rg --type rust / src',
+        'rg -C 3 / src',
+        'rg --max-count 5 / src',
+        'fd --extension ts / src',
+        'fd --extension ts / .',
+        'fd -e ts / src',
+        'fd -d 3 / src',
+        "grep -r --include '*.ts' / src",
+        'grep -r --include *.ts / src',
+        'grep -r --include=*.ts / src',
+        'grep -r -C 2 / src',
+        // Pattern-first with explicit narrow path.
+        'rg needle src/',
+        'rg needle',
+        'fd . src/',
+        // Conditional recursers with pattern = `/` or narrow path.
+        'grep -r / src',
+        'grep -r needle src/',
+        'grep needle /etc/hosts',
+        // Narrow subpaths under $HOME / ~ — the trailing-slash regex must
+        // not over-match.
+        'find $HOME/Downloads -name foo',
+        'find ${HOME}/projects -type f',
+        'rg needle $HOME/projects',
+        'grep -r needle ${HOME}/src',
+        'fd pattern ~/projects',
+        // Narrow scans with wrappers — wrapper stripping must not turn a
+        // narrow scan into a false-positive.
+        'sudo find src -name foo',
+        'sudo rg needle src/',
+        'LC_ALL=C rg needle src/',
+        'LC_ALL=C find . -name foo',
+        'env LC_ALL=C find src -name foo',
+        '/usr/bin/find src -name foo',
+        // Misc safe.
+        'cat /etc/hosts',
+        'echo ~',
+        'echo /'
+      ]
+
+      for (const cmd of allowedScans) {
+        it(`allows: ${JSON.stringify(cmd)}`, () => {
+          expectAllowed(cmd)
+        })
+      }
+    })
+
     // --- isBlockedBashCommand standalone ---
     describe('isBlockedBashCommand', () => {
       it('returns true for rm -rf /', () => {
