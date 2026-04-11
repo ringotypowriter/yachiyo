@@ -7,7 +7,8 @@ import type {
   CreateScheduleInput,
   ProviderConfig,
   SettingsConfig,
-  SubagentProfile
+  SubagentProfile,
+  UpdateScheduleInput
 } from '../../../shared/yachiyo/protocol.ts'
 import { ScheduleDomain } from './domain/scheduleDomain.ts'
 import { providerMatchesReference } from '../../../shared/yachiyo/providerConfig.ts'
@@ -101,6 +102,10 @@ const NAMESPACE_HELP: Record<string, string> = {
   schedule list [--json]                 List all schedules. Without --json, prints a compact summary.
   schedule add --payload <json>          Create a new schedule. Payload must include name and prompt, plus either
                                          cronExpression (recurring) or runAt (ISO datetime, one-off).
+  schedule update --payload <json>       Update fields on an existing schedule. Payload must include id; any of
+                                         name, prompt, cronExpression, runAt, workspacePath, modelOverride,
+                                         enabledTools, enabled may be supplied. Bundled schedules accept only
+                                         enabled and cronExpression changes.
   schedule remove <id>                   Delete a schedule by UUID.
   schedule enable <id>                   Enable a disabled schedule.
   schedule disable <id>                  Disable a schedule without removing it.
@@ -1232,6 +1237,17 @@ async function handleScheduleCommand(
     return
   }
 
+  if (action === 'update') {
+    const payloadRaw = flags.get('--payload')
+    if (!payloadRaw) throw new Error('--payload is required for schedule update')
+    const input = JSON.parse(payloadRaw) as UpdateScheduleInput
+    if (!input.id) throw new Error('Payload must include id for schedule update')
+    const schedule = domain.updateSchedule(input)
+    outputJson(stdout, sanitizeForOutput(schedule))
+    storage.close()
+    return
+  }
+
   if (action === 'remove') {
     const id = positionals[1]
     if (!id) throw new Error('ID is required: schedule remove <id>')
@@ -1283,7 +1299,7 @@ async function handleScheduleCommand(
 
   storage.close()
   throw new Error(
-    `Unknown schedule action: ${action ?? '(none)'}. Expected: list, add, remove, enable, disable, runs`
+    `Unknown schedule action: ${action ?? '(none)'}. Expected: list, add, update, remove, enable, disable, runs`
   )
 }
 
