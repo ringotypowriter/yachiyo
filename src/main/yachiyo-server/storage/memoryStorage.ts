@@ -852,6 +852,11 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
         .slice(0, limit)
     },
+    getScheduleRunByThreadId(threadId) {
+      return [...scheduleRuns.values()]
+        .filter((run) => run.threadId === threadId)
+        .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0]
+    },
     recoverInterruptedScheduleRuns({ completedAt, error }) {
       for (const [runId, run] of scheduleRuns.entries()) {
         if (run.status !== 'running') {

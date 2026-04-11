@@ -6,13 +6,16 @@
  * action bar. Messages are loaded on demand the first time the thread is selected.
  */
 
-import { useMemo, useEffect, useRef } from 'react'
-import type { Thread, Message } from '@renderer/app/types'
+import { useMemo, useEffect, useRef, useState } from 'react'
+import { CheckCircle2, XCircle } from 'lucide-react'
+import type { Thread, Message, ToolCall } from '@renderer/app/types'
+import type { ScheduleRunRecord } from '../../../../../shared/yachiyo/protocol.ts'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { theme, alpha } from '@renderer/theme/theme'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
 import { collectMessagePath } from '../../../../../shared/yachiyo/threadTree.ts'
 import { TimelineScrollbar } from '@renderer/features/chat/components/TimelineScrollbar'
+import { ToolCallRow } from '@renderer/features/chat/components/ToolCallRow'
 
 export interface ArchivedThreadsPageProps {
   activeThread: Thread | null
@@ -34,10 +37,17 @@ export function ArchivedThreadsPage({ activeThread }: ArchivedThreadsPageProps):
     )
   }
 
-  return <ArchivedTimeline threadId={activeThread.id} headMessageId={activeThread.headMessageId} />
+  return (
+    <ArchivedTimeline
+      key={activeThread.id}
+      threadId={activeThread.id}
+      headMessageId={activeThread.headMessageId}
+    />
+  )
 }
 
 const EMPTY_MESSAGES: Message[] = []
+const EMPTY_TOOL_CALLS: ToolCall[] = []
 
 function ArchivedTimeline({
   threadId,
@@ -47,19 +57,27 @@ function ArchivedTimeline({
   headMessageId?: string
 }): React.JSX.Element {
   const messages = useAppStore((state) => state.messages[threadId] ?? EMPTY_MESSAGES)
+  const toolCalls = useAppStore((state) => state.toolCalls[threadId] ?? EMPTY_TOOL_CALLS)
+  const [scheduleRun, setScheduleRun] = useState<ScheduleRunRecord | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
+  // Fetch on mount only — the parent remounts via key={threadId} so a new
+  // archived thread always starts with a fresh local state.
   useEffect(() => {
-    if (messages.length > 0) return
-
+    let cancelled = false
     void window.api.yachiyo.loadThreadData({ threadId }).then((data) => {
+      if (cancelled) return
+      setScheduleRun(data.scheduleRun ?? null)
       useAppStore.setState((state) => ({
         messages: { ...state.messages, [threadId]: data.messages },
         toolCalls: { ...state.toolCalls, [threadId]: data.toolCalls }
       }))
     })
-  }, [threadId, messages.length])
+    return () => {
+      cancelled = true
+    }
+  }, [threadId])
 
   useEffect(() => {
     const container = scrollContainerRef.current
@@ -98,7 +116,31 @@ function ArchivedTimeline({
     return messages.filter((m) => m.role === 'user' || m.role === 'assistant')
   }, [messages, headMessageId])
 
-  if (visibleMessages.length === 0) {
+  // Group tool calls by the assistant message they belong to so each branch in
+  // a multi-reply thread shows its own execution history. Tool calls written
+  // before assistantMessageId existed fall back to the requestMessageId map,
+  // which is keyed off the user message that triggered the run.
+  const { toolCallsByAssistantId, toolCallsByRequestIdLegacy } = useMemo(() => {
+    const byAssistant = new Map<string, ToolCall[]>()
+    const byRequest = new Map<string, ToolCall[]>()
+    for (const tc of toolCalls) {
+      if (tc.assistantMessageId) {
+        const list = byAssistant.get(tc.assistantMessageId)
+        if (list) list.push(tc)
+        else byAssistant.set(tc.assistantMessageId, [tc])
+      } else if (tc.requestMessageId) {
+        const list = byRequest.get(tc.requestMessageId)
+        if (list) list.push(tc)
+        else byRequest.set(tc.requestMessageId, [tc])
+      }
+    }
+    return { toolCallsByAssistantId: byAssistant, toolCallsByRequestIdLegacy: byRequest }
+  }, [toolCalls])
+
+  // Empty state: only fall back to the placeholder when there's also no
+  // schedule result to show. Failed schedule runs may have no persisted
+  // messages but still carry the only useful context for the archived thread.
+  if (visibleMessages.length === 0 && !scheduleRun) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <p className="text-sm" style={{ color: theme.text.placeholder }}>
@@ -123,9 +165,18 @@ function ArchivedTimeline({
           message.role === 'user' ? (
             <ReadOnlyUserBubble key={message.id} message={message} />
           ) : (
-            <ReadOnlyAssistantBubble key={message.id} message={message} />
+            <ReadOnlyAssistantBubble
+              key={message.id}
+              message={message}
+              toolCalls={
+                toolCallsByAssistantId.get(message.id) ??
+                toolCallsByRequestIdLegacy.get(message.parentMessageId ?? '') ??
+                EMPTY_TOOL_CALLS
+              }
+            />
           )
         )}
+        {scheduleRun && <ScheduleSummaryCard run={scheduleRun} />}
         <div ref={bottomRef} />
       </div>
     </div>
@@ -182,27 +233,131 @@ function ReadOnlyUserBubble({ message }: { message: Message }): React.JSX.Elemen
   )
 }
 
-function ReadOnlyAssistantBubble({ message }: { message: Message }): React.JSX.Element {
+function ReadOnlyAssistantBubble({
+  message,
+  toolCalls
+}: {
+  message: Message
+  toolCalls: ToolCall[]
+}): React.JSX.Element {
   const hasContent = !!message.content?.trim()
   const hasImages = message.images && message.images.length > 0
+  const hasToolCalls = toolCalls.length > 0
 
-  if (!hasContent && !hasImages) return <></>
+  if (!hasContent && !hasImages && !hasToolCalls) return <></>
 
   return (
-    <div className="flex flex-col gap-2 px-6 py-1" data-message-id={message.id}>
-      <div className="w-full">
-        <div className="assistant-message-bubble">
-          {hasImages &&
-            message.images!.map((image, i) => (
-              <img
-                key={`${image.filename ?? 'img'}-${i}`}
-                src={image.dataUrl}
-                alt={image.altText ?? image.filename ?? `Image ${i + 1}`}
-                className="rounded-lg max-w-full mb-2"
-                style={{ maxHeight: 320 }}
-              />
-            ))}
-          {hasContent && <MessageMarkdown content={message.content} isStreaming={false} />}
+    <div className="flex flex-col gap-0 py-1" data-message-id={message.id}>
+      {toolCalls.map((tc) => (
+        <ToolCallRow key={tc.id} toolCall={tc} />
+      ))}
+      {(hasContent || hasImages) && (
+        <div className="px-6">
+          <div className="w-full">
+            <div className="assistant-message-bubble">
+              {hasImages &&
+                message.images!.map((image, i) => (
+                  <img
+                    key={`${image.filename ?? 'img'}-${i}`}
+                    src={image.dataUrl}
+                    alt={image.altText ?? image.filename ?? `Image ${i + 1}`}
+                    className="rounded-lg max-w-full mb-2"
+                    style={{ maxHeight: 320 }}
+                  />
+                ))}
+              {hasContent && <MessageMarkdown content={message.content} isStreaming={false} />}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function formatDuration(startedAt: string, completedAt?: string): string | null {
+  if (!completedAt) return null
+  const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime()
+  if (!Number.isFinite(ms) || ms < 0) return null
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = seconds % 60
+  if (minutes < 60) return remainingSeconds ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`
+}
+
+function formatRunTimestamp(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+function ScheduleSummaryCard({ run }: { run: ScheduleRunRecord }): React.JSX.Element {
+  // Prefer the agent-reported result status; fall back to the run's lifecycle
+  // status (failed/skipped) so cancelled or pre-failure runs still render.
+  const reported = run.resultStatus
+  const isSuccess = reported === 'success' || (!reported && run.status === 'completed')
+  const isFailure = reported === 'failure' || run.status === 'failed' || run.status === 'skipped'
+  const accent = isSuccess
+    ? theme.status.success
+    : isFailure
+      ? theme.status.danger
+      : theme.status.idle
+  const label = reported ?? run.status
+  const summaryText = run.resultSummary ?? run.error ?? null
+  const duration = formatDuration(run.startedAt, run.completedAt)
+  const Icon = isSuccess ? CheckCircle2 : isFailure ? XCircle : CheckCircle2
+
+  return (
+    <div className="px-6 mt-4 mb-2">
+      <div
+        className="rounded-2xl px-5 py-4 flex flex-col gap-3"
+        style={{
+          background: alpha('ink', 0.02),
+          border: `1px solid ${alpha('ink', 0.06)}`,
+          boxShadow: theme.shadow.card
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <Icon size={16} style={{ color: accent }} />
+          <span className="text-sm font-semibold" style={{ color: theme.text.primary }}>
+            Schedule result
+          </span>
+          <span
+            className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full font-medium"
+            style={{
+              background: alpha('ink', 0.05),
+              color: accent
+            }}
+          >
+            {label}
+          </span>
+        </div>
+        {summaryText && (
+          <p
+            className="text-sm leading-relaxed whitespace-pre-wrap m-0"
+            style={{ color: theme.text.primary }}
+          >
+            {summaryText}
+          </p>
+        )}
+        <div
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"
+          style={{ color: theme.text.muted }}
+        >
+          <span>Started {formatRunTimestamp(run.startedAt)}</span>
+          {run.completedAt && <span>· Finished {formatRunTimestamp(run.completedAt)}</span>}
+          {duration && <span>· {duration}</span>}
+          {(run.promptTokens != null || run.completionTokens != null) && (
+            <span>· {(run.promptTokens ?? 0) + (run.completionTokens ?? 0)} tokens</span>
+          )}
         </div>
       </div>
     </div>

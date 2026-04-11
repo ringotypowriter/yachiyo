@@ -304,6 +304,7 @@ export interface YachiyoStorage {
   }): void
   listScheduleRuns(scheduleId: string, limit?: number): ScheduleRunRecord[]
   listRecentScheduleRuns(limit?: number): ScheduleRunRecord[]
+  getScheduleRunByThreadId(threadId: string): ScheduleRunRecord | undefined
   recoverInterruptedScheduleRuns(input: { completedAt: string; error: string }): void
 
   // Group monitor buffer persistence

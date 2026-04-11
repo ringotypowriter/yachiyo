@@ -175,6 +175,7 @@ declare global {
         loadThreadData: (input: { threadId: string }) => Promise<{
           messages: import('../shared/yachiyo/protocol').MessageRecord[]
           toolCalls: import('../shared/yachiyo/protocol').ToolCallRecord[]
+          scheduleRun?: import('../shared/yachiyo/protocol').ScheduleRunRecord
         }>
         listBackgroundTasks: (input: {
           threadId: string

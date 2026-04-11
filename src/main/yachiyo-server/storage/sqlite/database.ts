@@ -1499,6 +1499,17 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .map(toScheduleRunRecord)
     },
 
+    getScheduleRunByThreadId(threadId) {
+      const row = db
+        .select()
+        .from(scheduleRunsTable)
+        .where(eq(scheduleRunsTable.threadId, threadId))
+        .orderBy(desc(scheduleRunsTable.startedAt))
+        .limit(1)
+        .get()
+      return row ? toScheduleRunRecord(row) : undefined
+    },
+
     recoverInterruptedScheduleRuns({ completedAt, error }) {
       db.update(scheduleRunsTable)
         .set({ status: 'failed', error, completedAt })

@@ -217,6 +217,7 @@ const api = {
     }): Promise<{
       messages: import('../shared/yachiyo/protocol').MessageRecord[]
       toolCalls: import('../shared/yachiyo/protocol').ToolCallRecord[]
+      scheduleRun?: import('../shared/yachiyo/protocol').ScheduleRunRecord
     }> => ipcRenderer.invoke('yachiyo:load-thread-data', input),
     listBackgroundTasks: (input: {
       threadId: string

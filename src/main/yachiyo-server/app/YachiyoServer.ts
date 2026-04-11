@@ -852,10 +852,16 @@ export class YachiyoServer {
     )
   }
 
-  loadThreadData(threadId: string): { messages: MessageRecord[]; toolCalls: ToolCallRecord[] } {
+  loadThreadData(threadId: string): {
+    messages: MessageRecord[]
+    toolCalls: ToolCallRecord[]
+    scheduleRun?: ScheduleRunRecord
+  } {
+    const scheduleRun = this.storage.getScheduleRunByThreadId(threadId)
     return {
       messages: this.storage.listThreadMessages(threadId),
-      toolCalls: this.storage.listThreadToolCalls(threadId)
+      toolCalls: this.storage.listThreadToolCalls(threadId),
+      ...(scheduleRun ? { scheduleRun } : {})
     }
   }
 
