@@ -167,6 +167,14 @@ declare global {
           { filename: string; mediaType: string; dataUrl: string }[]
         >
         readAttachmentFile: (input: { filePath: string; mediaType: string }) => Promise<string>
+        downloadRemoteImageForMessage: (input: {
+          threadId: string
+          messageId: string
+          url: string
+        }) => Promise<{
+          absPath: string
+          message: import('../shared/yachiyo/protocol').MessageRecord
+        }>
         listDiscoveredApps: () => Promise<{
           editors: { name: string; iconDataUrl?: string }[]
           terminals: { name: string; iconDataUrl?: string }[]

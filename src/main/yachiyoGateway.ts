@@ -127,6 +127,7 @@ const IPC_CHANNELS = {
   starThread: 'yachiyo:star-thread',
   readClipboardFilePaths: 'yachiyo:read-clipboard-file-paths',
   readAttachmentFile: 'yachiyo:read-attachment-file',
+  downloadRemoteImageForMessage: 'yachiyo:download-remote-image-for-message',
   listDiscoveredApps: 'yachiyo:list-discovered-apps',
   openWorkspaceWithApp: 'yachiyo:open-workspace-with-app',
   loadThreadData: 'yachiyo:load-thread-data',
@@ -987,6 +988,12 @@ export function registerYachiyoGateway(): YachiyoServer {
       const base64 = data.toString('base64')
       return `data:${input.mediaType};base64,${base64}`
     }
+  )
+
+  handle(
+    IPC_CHANNELS.downloadRemoteImageForMessage,
+    (input: { threadId: string; messageId: string; url: string }) =>
+      server!.downloadRemoteImageForMessage(input)
   )
 
   ipcMain.removeHandler(IPC_CHANNELS.translate)

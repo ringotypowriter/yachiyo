@@ -13,6 +13,7 @@ import type { ScheduleRunRecord } from '../../../../../shared/yachiyo/protocol.t
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { theme, alpha } from '@renderer/theme/theme'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
+import type { MarkdownImageContextValue } from '@renderer/lib/markdown/MarkdownImage'
 import { collectMessagePath } from '../../../../../shared/yachiyo/threadTree.ts'
 import { TimelineScrollbar } from '@renderer/features/chat/components/TimelineScrollbar'
 import { ToolCallRow } from '@renderer/features/chat/components/ToolCallRow'
@@ -244,6 +245,11 @@ function ReadOnlyAssistantBubble({
   const hasImages = message.images && message.images.length > 0
   const hasToolCalls = toolCalls.length > 0
 
+  const imageContext = useMemo<MarkdownImageContextValue>(
+    () => ({ threadId: message.threadId, messageId: message.id }),
+    [message.id, message.threadId]
+  )
+
   if (!hasContent && !hasImages && !hasToolCalls) return <></>
 
   return (
@@ -265,7 +271,13 @@ function ReadOnlyAssistantBubble({
                     style={{ maxHeight: 320 }}
                   />
                 ))}
-              {hasContent && <MessageMarkdown content={message.content} isStreaming={false} />}
+              {hasContent && (
+                <MessageMarkdown
+                  content={message.content}
+                  isStreaming={false}
+                  imageContext={imageContext}
+                />
+              )}
             </div>
           </div>
         </div>

@@ -1,5 +1,7 @@
-import React, { memo } from 'react'
+import React, { memo, useMemo } from 'react'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
+import { buildAssetUrl } from '@renderer/lib/markdown/imageUrl'
+import type { MarkdownImageContextValue } from '@renderer/lib/markdown/MarkdownImage'
 import type { Message } from '@renderer/app/types'
 import { buildMessagePresentation } from '../lib/messagePresentation'
 import type { MessageFooter } from '../lib/messagePresentation'
@@ -73,6 +75,28 @@ export const AssistantMessageBubble = memo(function AssistantMessageBubble({
     (footer.kind !== 'streaming' || shouldShowGeneratingLabel)
   const content = contentOverride ?? message.content
 
+  const imageContext = useMemo<MarkdownImageContextValue>(
+    () => ({
+      threadId: message.threadId,
+      messageId: message.id,
+      async downloadRemoteImage(remoteUrl: string) {
+        const api = window.api?.yachiyo
+        if (!api?.downloadRemoteImageForMessage) {
+          throw new Error('Download API unavailable')
+        }
+        const result = await api.downloadRemoteImageForMessage({
+          threadId: message.threadId,
+          messageId: message.id,
+          url: remoteUrl
+        })
+        const assetUrl = buildAssetUrl(result.absPath)
+        if (!assetUrl) throw new Error('Failed to build asset URL')
+        return assetUrl
+      }
+    }),
+    [message.id, message.threadId]
+  )
+
   if (!showBubble) return <></>
 
   return (
@@ -81,7 +105,13 @@ export const AssistantMessageBubble = memo(function AssistantMessageBubble({
     >
       <div className="w-full message-card-shell">
         <div className="assistant-message-bubble">
-          {showContent && <MessageMarkdown content={content} isStreaming={isStreaming} />}
+          {showContent && (
+            <MessageMarkdown
+              content={content}
+              isStreaming={isStreaming}
+              imageContext={imageContext}
+            />
+          )}
         </div>
         {hasFooterContent ? (
           <div className="assistant-message-bubble__footer-row">

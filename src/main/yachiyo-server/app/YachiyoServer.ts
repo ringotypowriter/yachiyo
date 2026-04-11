@@ -37,6 +37,7 @@ import type {
   ThreadRuntimeBinding,
   ThreadSearchResult,
   ThreadSnapshot,
+  ThreadStateReplacedEvent,
   ChannelsConfig,
   ToolCallRecord,
   ToolPreferencesInput,
@@ -113,6 +114,11 @@ import { assertSupportedImages, YachiyoServerConfigDomain } from './domain/confi
 import { YachiyoServerRunDomain } from './domain/runDomain.ts'
 import { YachiyoServerThreadDomain } from './domain/threadDomain.ts'
 import {
+  createRemoteImageDomain,
+  type DownloadRemoteImageInput,
+  type RemoteImageFetcher
+} from './domain/remoteImageDomain.ts'
+import {
   hasMessagePayload,
   normalizeMessageImages
 } from '../../../shared/yachiyo/messageContent.ts'
@@ -139,6 +145,8 @@ export interface YachiyoServerOptions {
   memoryService?: MemoryService
   createMemoryProvider?: (config: SettingsConfig) => MemoryProvider
   jotdownStore?: JotdownStore
+  /** Optional override for the remote image downloader. Defaults to `fetchImpl`. */
+  remoteImageFetcher?: RemoteImageFetcher
 }
 
 export interface SqliteYachiyoServerOptions extends Omit<YachiyoServerOptions, 'storage'> {
@@ -175,6 +183,7 @@ export class YachiyoServer {
   private readonly scheduleDomain: ScheduleDomain
   private readonly ttlReaper: TtlReaper
   private readonly jotdownStore: JotdownStore | null
+  private readonly remoteImageDomain: ReturnType<typeof createRemoteImageDomain>
 
   private static logBrowserSearchDiagnostic(event: BrowserSearchDiagnosticEvent): void {
     const details = {
@@ -340,6 +349,21 @@ export class YachiyoServer {
       timestamp: this.timestamp.bind(this)
     })
     this.scheduleDomain.ensureBundledSchedules()
+
+    const fetchImpl = options.fetchImpl ?? globalThis.fetch
+    const defaultFetcher: RemoteImageFetcher = async (url) => {
+      const response = await fetchImpl(url, { redirect: 'follow' })
+      if (!response.ok) {
+        throw new Error(`Remote image fetch failed: ${response.status} ${response.statusText}`)
+      }
+      const contentType = response.headers.get('content-type') ?? 'application/octet-stream'
+      const buffer = new Uint8Array(await response.arrayBuffer())
+      return { contentType, bytes: buffer }
+    }
+    this.remoteImageDomain = createRemoteImageDomain({
+      storage: this.storage,
+      fetchRemoteImage: options.remoteImageFetcher ?? defaultFetcher
+    })
 
     this.ttlReaper = createTtlReaper({
       manifestPath: join(resolveYachiyoTempWorkspaceRoot(), '.yachiyo-ttl.json')
@@ -806,6 +830,26 @@ export class YachiyoServer {
       return { ...accepted, replacedMessageId: input.messageId }
     }
     return accepted
+  }
+
+  async downloadRemoteImageForMessage(
+    input: DownloadRemoteImageInput
+  ): Promise<{ absPath: string; message: MessageRecord }> {
+    const result = await this.remoteImageDomain.downloadRemoteImageForMessage(input)
+    // Push a thread.state.replaced event so every open renderer sees the
+    // rewritten message content without needing a dedicated message-updated
+    // event type.
+    const thread = this.requireThread(input.threadId)
+    const messages = this.storage.listThreadMessages(input.threadId)
+    const toolCalls = this.storage.listThreadToolCalls(input.threadId)
+    this.emit<ThreadStateReplacedEvent>({
+      type: 'thread.state.replaced',
+      threadId: input.threadId,
+      thread,
+      messages,
+      toolCalls
+    })
+    return result
   }
 
   async cancelRun(input: { runId: string }): Promise<void> {

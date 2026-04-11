@@ -7,11 +7,12 @@
  */
 
 import type React from 'react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { Message, ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
+import type { MarkdownImageContextValue } from '@renderer/lib/markdown/MarkdownImage'
 import { ToolCallRow } from './ToolCallRow.tsx'
 
 function ExternalUserBubble({ message }: { message: Message }): React.JSX.Element {
@@ -46,6 +47,10 @@ function ExternalAssistantBubble({
   toolCalls: ToolCall[]
 }): React.JSX.Element {
   const content = message.visibleReply ?? message.content
+  const imageContext = useMemo<MarkdownImageContextValue>(
+    () => ({ threadId: message.threadId, messageId: message.id }),
+    [message.id, message.threadId]
+  )
 
   return (
     <div className="flex flex-col gap-0 px-0 py-1">
@@ -56,7 +61,7 @@ function ExternalAssistantBubble({
         <div className="px-6">
           <div className="w-full">
             <div className="assistant-message-bubble">
-              <MessageMarkdown content={content} isStreaming={false} />
+              <MessageMarkdown content={content} isStreaming={false} imageContext={imageContext} />
             </div>
           </div>
         </div>

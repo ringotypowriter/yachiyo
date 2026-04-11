@@ -206,6 +206,14 @@ const api = {
     > => ipcRenderer.invoke('yachiyo:read-clipboard-file-paths'),
     readAttachmentFile: (input: { filePath: string; mediaType: string }): Promise<string> =>
       ipcRenderer.invoke('yachiyo:read-attachment-file', input),
+    downloadRemoteImageForMessage: (input: {
+      threadId: string
+      messageId: string
+      url: string
+    }): Promise<{
+      absPath: string
+      message: import('../shared/yachiyo/protocol').MessageRecord
+    }> => ipcRenderer.invoke('yachiyo:download-remote-image-for-message', input),
     listDiscoveredApps: (): Promise<{
       editors: { name: string; iconDataUrl?: string }[]
       terminals: { name: string; iconDataUrl?: string }[]

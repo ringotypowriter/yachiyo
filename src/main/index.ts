@@ -11,6 +11,10 @@ import { registerYachiyoGateway } from './yachiyoGateway'
 import { setupCLI } from './cliSetup'
 import { setupCoreSkills } from './coreSkillsSetup'
 import { setupAutoUpdate } from './autoUpdate'
+import {
+  installYachiyoAssetProtocolHandler,
+  registerYachiyoAssetScheme
+} from './yachiyoAssetProtocol'
 
 // Override console.log/warn/error so all existing log calls persist to file.
 // Logs go to ~/Library/Logs/Yachiyo/main.log on macOS.
@@ -162,6 +166,9 @@ function openJotdownWindow(): void {
 
 app.setPath('userData', resolveYachiyoDataDir())
 
+// Scheme registration must happen before `app.whenReady()` resolves.
+registerYachiyoAssetScheme()
+
 function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
@@ -216,6 +223,7 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   hydrateProcessEnvFromLoginShell()
   await hydrateProxyFromSystemSettings()
+  installYachiyoAssetProtocolHandler()
   setupCLI()
   setupCoreSkills()
 
