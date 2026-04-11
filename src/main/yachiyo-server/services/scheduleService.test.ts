@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it, mock } from 'node:test'
 
 import type {
+  MessageRecord,
   ScheduleRecord,
   ScheduleRunRecord,
   ThreadRecord,
@@ -13,6 +14,7 @@ interface MockStorage {
   schedules: Map<string, ScheduleRecord>
   runs: ScheduleRunRecord[]
   deletedScheduleIds: string[]
+  threadMessages: Map<string, MessageRecord[]>
   listSchedules: () => ScheduleRecord[]
   getSchedule: (id: string) => ScheduleRecord | undefined
   updateSchedule: (schedule: ScheduleRecord) => void
@@ -22,6 +24,7 @@ interface MockStorage {
     input: Partial<ScheduleRunRecord> & { id: string; completedAt: string }
   ) => void
   recoverInterruptedScheduleRuns: () => void
+  listThreadMessages: (threadId: string) => MessageRecord[]
 }
 
 function createSchedule(overrides: Partial<ScheduleRecord> = {}): ScheduleRecord {
@@ -41,12 +44,15 @@ function createMockStorage(schedule = createSchedule()): MockStorage {
   const schedules = new Map<string, ScheduleRecord>([[schedule.id, { ...schedule }]])
   const runs: ScheduleRunRecord[] = []
   const deletedScheduleIds: string[] = []
+  const threadMessages = new Map<string, MessageRecord[]>()
 
   return {
     schedules,
     runs,
     deletedScheduleIds,
+    threadMessages,
     listSchedules: () => [...schedules.values()],
+    listThreadMessages: (threadId) => threadMessages.get(threadId) ?? [],
     getSchedule: (id: string) => {
       const schedule = schedules.get(id)
       return schedule ? { ...schedule } : undefined

@@ -46,6 +46,7 @@ export interface ScheduleServiceDeps {
     | 'createScheduleRun'
     | 'completeScheduleRun'
     | 'recoverInterruptedScheduleRuns'
+    | 'listThreadMessages'
   >
   createId: () => string
   timestamp: () => string
@@ -103,6 +104,19 @@ const SCHEDULE_CHANNEL_HINT = `This is an automated scheduled task. When you hav
 - summary: a brief description of what was accomplished or what went wrong
 
 Do not end your response without calling reportScheduleResult.`
+
+/**
+ * Some models do real work but forget to call `reportScheduleResult` before
+ * ending their turn. When that happens we re-prompt them with this message
+ * (up to MAX_REPORT_REMINDER_RETRIES times) so the run still produces a
+ * structured result instead of an empty card.
+ */
+const MAX_REPORT_REMINDER_RETRIES = 3
+const REPORT_REMINDER_PROMPT = `You completed your work but did not call the \`reportScheduleResult\` tool. You MUST call it now exactly once with:
+- status: 'success' if the task was completed, 'failure' if it could not be completed
+- summary: a brief description of what was accomplished or what went wrong
+
+Do not perform any additional work — just call the tool to record your result.`
 
 export interface ScheduleService {
   start(): void
@@ -312,46 +326,77 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
         }
       })
 
-      // Subscribe to events to detect run completion.
-      // Handle completed, failed, AND cancelled as terminal states so the
-      // schedule is never stuck waiting on a promise that never resolves.
-      const { promise, resolve } = Promise.withResolvers<{
+      // Run one chat turn and wait for it to reach a terminal state.
+      // Handle completed, failed, AND cancelled so the promise always resolves.
+      interface TurnOutcome {
         status: 'completed' | 'failed'
         error?: string
         promptTokens?: number
         completionTokens?: number
-      }>()
+      }
+      const runChatTurn = async (content: string): Promise<TurnOutcome> => {
+        const { promise, resolve } = Promise.withResolvers<TurnOutcome>()
+        const unsubscribe = deps.server.subscribe((event: YachiyoServerEvent) => {
+          if ('threadId' in event && event.threadId !== thread.id) return
+          if (event.type === 'run.completed') {
+            unsubscribe()
+            resolve({
+              status: 'completed',
+              promptTokens: event.promptTokens,
+              completionTokens: event.completionTokens
+            })
+          } else if (event.type === 'run.failed') {
+            unsubscribe()
+            resolve({ status: 'failed', error: event.error })
+          } else if (event.type === 'run.cancelled') {
+            unsubscribe()
+            resolve({ status: 'failed', error: 'Run was cancelled.' })
+          }
+        })
+        await deps.server.sendChat({
+          threadId: thread.id,
+          content,
+          enabledTools: schedule.enabledTools,
+          extraTools: { reportScheduleResult },
+          channelHint: SCHEDULE_CHANNEL_HINT
+        })
+        return promise
+      }
 
-      const unsubscribe = deps.server.subscribe((event: YachiyoServerEvent) => {
-        if ('threadId' in event && event.threadId !== thread.id) return
+      // Initial turn — kick off the actual scheduled prompt.
+      let result = await runChatTurn(schedule.prompt)
+      let totalPromptTokens: number | undefined = result.promptTokens
+      let totalCompletionTokens: number | undefined = result.completionTokens
 
-        if (event.type === 'run.completed') {
-          unsubscribe()
-          resolve({
-            status: 'completed',
-            promptTokens: event.promptTokens,
-            completionTokens: event.completionTokens
-          })
-        } else if (event.type === 'run.failed') {
-          unsubscribe()
-          resolve({ status: 'failed', error: event.error })
-        } else if (event.type === 'run.cancelled') {
-          unsubscribe()
-          resolve({ status: 'failed', error: 'Run was cancelled.' })
+      // Reminder loop: if the model finished cleanly, produced real output,
+      // but never called reportScheduleResult, nudge it to call the tool.
+      // Skip retries when the run failed (broken machinery) or when there is
+      // no assistant output at all (broken model — nagging won't help).
+      for (let attempt = 0; attempt < MAX_REPORT_REMINDER_RETRIES; attempt++) {
+        if (capturedResult) break
+        if (result.status !== 'completed') break
+
+        const hasAssistantOutput = deps.storage
+          .listThreadMessages(thread.id)
+          .some(
+            (m) =>
+              m.role === 'assistant' &&
+              ((m.content?.trim().length ?? 0) > 0 ||
+                (m.responseMessages && m.responseMessages.length > 0))
+          )
+        if (!hasAssistantOutput) break
+
+        console.log(
+          `[schedule] "${schedule.name}" missing reportScheduleResult — reminder ${attempt + 1}/${MAX_REPORT_REMINDER_RETRIES}`
+        )
+        result = await runChatTurn(REPORT_REMINDER_PROMPT)
+        if (result.promptTokens !== undefined) {
+          totalPromptTokens = (totalPromptTokens ?? 0) + result.promptTokens
         }
-      })
-
-      // Send the prompt
-      await deps.server.sendChat({
-        threadId: thread.id,
-        content: schedule.prompt,
-        enabledTools: schedule.enabledTools,
-        extraTools: { reportScheduleResult },
-        channelHint: SCHEDULE_CHANNEL_HINT
-      })
-
-      // Wait for completion
-      const result = await promise
+        if (result.completionTokens !== undefined) {
+          totalCompletionTokens = (totalCompletionTokens ?? 0) + result.completionTokens
+        }
+      }
 
       // Record result
       deps.storage.completeScheduleRun({
@@ -361,8 +406,8 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
         resultSummary: capturedResult?.summary,
         error: result.error,
         completedAt: deps.timestamp(),
-        promptTokens: result.promptTokens,
-        completionTokens: result.completionTokens
+        promptTokens: totalPromptTokens,
+        completionTokens: totalCompletionTokens
       })
 
       const resultLabel = capturedResult?.status ?? result.status
