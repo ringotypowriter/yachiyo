@@ -83,33 +83,50 @@ For each reviewed thread, produce:
     · user had to repeat themselves or rephrase — I didn't listen the first time
     · user took over and did the task themselves — I was too slow or off-track
 - **One concrete change** for next time. Must be actionable, not a platitude.
-  "Be more careful" ✗.  "Before recommending a file path, verify it with
-  Read/Glob" ✓.
+  Frame it as either:
+  * A **default behavior** to adopt always (likely a trait):
+    "Before recommending a file path, verify it with Read/Glob" ✓
+  * A **methodology** for this *class* of task (likely a skill):
+    "For finding anime resources: try the site's RSS feed first, fall back
+    to scraping only if no feed exists" ✓
+  Both shapes are valid. Don't force domain-specific procedural know-how
+  into behavioral shape — if the lesson only fires when facing this kind
+  of task, it's skill-shaped, not trait-shaped.
+  Anti-example: "Be more careful" ✗
 
 ## Step 5 — Distill into traits, skills, and (rarely) memories
 
 Look across the threads you just reviewed and ask: what would make future-me
 better? Route each insight to the right home.
 
-### CRITICAL: Classification test — apply BEFORE writing anything
+### Classification — apply BEFORE writing anything
 
-Ask yourself ONE question about the insight:
+For each insight, answer:
 
-> "Is this about who I should BE, or about HOW TO DO a specific task?"
+> "Does this apply to EVERY future conversation, or only when I face this
+> specific kind of task again?"
 
-- If it's about who you should be or how you should behave by default
-  → it is a **trait**. Write it to SOUL.md via \`yachiyo soul traits add\`,
-  NOT as a skill. A trait is a short first-person statement that shapes
-  every future conversation.
-- If it's a multi-step procedure for a specific, repeatable task
-  → it is a **skill**. Create it with \`create-skill\`.
-- If it's a durable fact about the world (not behavior, not procedure)
-  → it is a **memory**. Save it with \`remember\`.
+- **Every conversation** (behavioral default, tone, always/never rule)
+  → **trait**. Write to SOUL.md via \`yachiyo soul traits add\`.
+- **Only when I face this task class again** (a methodology I'd otherwise
+  re-derive from scratch each time)
+  → **skill**. Create with \`create-skill\`. Domain-specific is fine —
+  that's what makes it a skill, not a trait.
+- **A durable fact** about the leader, project, or world (not behavior,
+  not procedure)
+  → **memory**. Save with \`remember\`.
 
-The litmus test: if the insight does NOT contain numbered steps or a
-concrete checklist, it is almost certainly a trait, not a skill.
-"I should verify before claiming" = trait.
-"Steps to debug a migration: 1. check schema diff, 2. run generate…" = skill.
+Worked examples:
+- "I verify before claiming" — fires in every conversation → **trait**
+- "For anime/donghua resources, try the site's RSS feed first" — only
+  fires when the task is finding anime → **skill**
+- "Yachiyo's settings live at ~/.yachiyo" — static fact → **memory**
+
+Litmus test: would future-me, facing the SAME class of task with no memory
+of this lesson, naturally land on the same approach? If yes → don't write
+anything. If no → it's a skill if the gap is procedural (you'd take the
+wrong path), a trait if the gap is behavioral (you'd act with the wrong
+default attitude).
 
 ### → Trait  (default output — use \`yachiyo soul traits add\`)
 Behavioral rules, default stances, tone adjustments, and "always / never"
@@ -120,36 +137,42 @@ principles. Written in first person, one sentence each. Examples:
 
 One trait per distinct lesson. Don't bundle.
 
-### → Skill  (use \`create-skill\` — rare, high bar)
-A skill is a **general-purpose, reusable procedure** — a methodology that
-applies across many different situations, not a narrow fix for one case.
+### → Skill  (use \`create-skill\`)
+A skill encodes a **methodology for a class of tasks** — judgment about HOW
+to approach problems of a specific shape. Future-you, facing the same task
+class again, should benefit from following the skill instead of re-deriving
+the approach. Skills CAN be domain-specific — "how to find anime sources"
+is a perfectly good skill, even though it doesn't fire in most conversations.
 
-**Quality bar — a skill MUST meet ALL of these:**
-1. **General:** Useful across multiple future conversations, not tied to one
-   specific codebase, library, or incident. If you have to mention a specific
-   file name, function, or tech to explain the skill, it's too narrow.
-2. **Procedural:** Has at least 5 distinct, non-trivial steps. If it's fewer,
-   it's either a trait or not worth formalizing.
-3. **Non-obvious:** Someone competent wouldn't already do this instinctively.
-   "Read the error message before guessing" is obvious. A structured triage
-   methodology for ambiguous user requests is not.
-4. **Deep:** The document should teach *judgment*, not just list actions.
-   Include decision points ("if X, do Y; if Z, do W"), pitfalls to avoid,
-   and at least one worked example showing how the procedure plays out on
-   a real scenario.
+**Create a skill when ALL of these hold:**
+1. **A correction taught you the right approach** for tasks of this shape
+   (the user told you what you should have done, and it generalizes within
+   that task class).
+2. **At least 3 distinct decision points or steps** that aren't obvious from
+   the task name alone. Pure one-liners are traits, not skills.
+3. **You'd re-fail next time without this skill** — the lesson is procedural
+   knowledge you wouldn't naturally re-derive from first principles.
 
-**If the skill you're about to write is shorter than ~300 words, it's too
-shallow — either deepen it or convert the core insight to a trait instead.**
+**Quality bar:**
+- **Teaches judgment, not just actions.** Include decision points
+  ("if X, try Y; if that fails, try Z"), pitfalls, and at least one worked
+  example using the incident that triggered the skill.
+- **Length:** ~300–800 words. Shorter = too shallow (deepen or drop).
+  Longer = too unfocused (narrow it).
+- **Concrete:** Name the actual sites/tools/commands the user taught you.
+  A skill that hides the specifics is just a vague trait.
 
-Good skill examples (general methodologies):
+Good skill examples:
+- "How to find anime / manga / donghua sources" — try RSS feeds for known
+  trackers (dmhy, nyaa, …) first, fall back to scraping; decision tree for
+  site choice; legality flag.
 - "How to decompose an ambiguous feature request into testable increments"
 - "How to diagnose a user's real intent when their first message is vague"
-- "How to structure a code review critique that's actionable, not just picky"
 
-Bad skill examples (too narrow, too shallow):
-- "How to fix X error in library Y" → that's a code comment, not a skill
-- "Steps: 1. read file 2. check error 3. fix it" → too obvious
-- "How to use markdown minimally in slidev" → too specific to one tool
+Bad skill examples:
+- "How to fix X error in library Y" → single incident, not a class
+- "Steps: 1. read file 2. check error 3. fix it" → obvious to anyone
+- "Be more careful with destructive commands" → behavioral, write as trait
 
 ### → Memory  (use \`remember\` — only if neither above fits)
 Durable facts about the leader, the project, or the world that aren't
@@ -163,11 +186,17 @@ shape — prefer trait or skill first.
   already exists, update it instead of adding a near-copy.
 - Be confident or don't write it. Speculation pollutes future runs.
 - Cap yourself: at most 3 new traits, 1 new skill, 1 new memory per run.
-  Most runs should produce traits and zero skills — a skill worth writing
-  is a rare event. If you found more, the top ones win; the rest wait.
-- When in doubt between trait and skill, choose trait. A one-sentence
-  behavioral rule that fires every conversation beats a shallow document
-  that collects dust.
+  If you found more, the top ones win; the rest wait.
+- **Don't avoid skills.** If a correction revealed a domain methodology
+  you'd re-fail at next time, write the skill. The bar is "would I
+  re-derive this from scratch?", not "is this a perfect, universal
+  formalization?". A 0-skill run is fine if no methodology came up — but
+  don't crush domain-specific procedural lessons into trait shape just to
+  keep the skill count at zero. The dmhy/RSS lesson, the GUM 8-step
+  framework, "uv over pip for Python setup" — these are skills, not traits.
+- When in doubt between trait and skill, ask: "would this fire in EVERY
+  future conversation, or only when I face this task class?" Every →
+  trait. Only this class → skill.
 
 ## Rules for the whole pass
 - Ground every critique in a specific turn of the actual transcript. If you
