@@ -1,4 +1,8 @@
-import type { MessageFileAttachment, MessageImageRecord } from '../../../shared/yachiyo/protocol.ts'
+import type {
+  MessageFileAttachment,
+  MessageImageRecord,
+  MessageTurnContext
+} from '../../../shared/yachiyo/protocol.ts'
 import {
   extractBase64DataUrlPayload,
   normalizeMessageImages
@@ -13,6 +17,15 @@ export interface ContextLayerHistoryMessage {
   attachments?: MessageFileAttachment[]
   /** Structured AI SDK response messages from tool-using runs, used for lossless history replay. */
   responseMessages?: unknown[]
+  /**
+   * Per-turn context (reminder + recalled memory entries) that was originally
+   * appended to this user message when its turn ran. Replayed inline so older
+   * turns retain their temporal context (timestamps, memory snapshots) and the
+   * model has full continuity across multi-turn runs. The current turn's
+   * request message must omit this field — the live `hint`/`memory` inputs
+   * will append the fresh per-turn block to the last user message instead.
+   */
+  turnContext?: MessageTurnContext
 }
 
 export interface PersonalityLayerInput {
@@ -117,6 +130,28 @@ function stripImageDataFromResponseMessages(messages: ModelMessage[]): ModelMess
   })
 }
 
+/**
+ * Build the per-turn-context parts for a historical user message — the same
+ * shape that `compileContextLayers` would build via `compileHintLayer` and
+ * `compileMemoryLayer`. Returned as an array of strings so the caller can
+ * decide whether to fold them into a single text body (string-content path)
+ * or emit them as separate text parts after image blocks (multimodal path),
+ * mirroring `appendTurnContextToUserMessage` exactly for byte-stable replay.
+ */
+function buildHistoricalTurnContextParts(turnContext: MessageTurnContext | undefined): string[] {
+  if (!turnContext) return []
+  const parts: string[] = []
+  const hintMessage = compileHintLayer({ reminder: turnContext.reminder })
+  if (hintMessage && typeof hintMessage.content === 'string') {
+    parts.push(hintMessage.content)
+  }
+  const memoryMessage = compileMemoryLayer({ entries: turnContext.memoryEntries })
+  if (memoryMessage && typeof memoryMessage.content === 'string') {
+    parts.push(memoryMessage.content)
+  }
+  return parts
+}
+
 export function toModelHistoryMessages(message: ContextLayerHistoryMessage): ModelMessage[] {
   if (message.role !== 'user') {
     if (message.responseMessages && message.responseMessages.length > 0) {
@@ -132,19 +167,30 @@ export function toModelHistoryMessages(message: ContextLayerHistoryMessage): Mod
 
   const images = normalizeMessageImages(message.images)
   const attachedFilesBlock = buildAttachedFilesBlock(message.images, message.attachments)
+  const turnContextParts = buildHistoricalTurnContextParts(message.turnContext)
   const textContent = attachedFilesBlock
     ? `${message.content}\n\n${attachedFilesBlock}`
     : message.content
 
   if (images.length === 0) {
+    // String-content path — match the live `appendTurnContextToUserMessage`
+    // string branch which joins the original content with each turn-context
+    // part using `\n\n`. Empty parts are skipped.
+    const finalContent =
+      turnContextParts.length > 0
+        ? [textContent, ...turnContextParts].filter((part) => part.length > 0).join('\n\n')
+        : textContent
     return [
       {
         role: 'user',
-        content: textContent
+        content: finalContent
       }
     ]
   }
 
+  // Multimodal path — match the live `appendTurnContextToUserMessage` array
+  // branch which appends each turn-context part as a separate text block AFTER
+  // the image/file blocks, preserving the original image/text pairing order.
   return [
     {
       role: 'user',
@@ -154,7 +200,8 @@ export function toModelHistoryMessages(message: ContextLayerHistoryMessage): Mod
           type: 'image' as const,
           image: extractBase64DataUrlPayload(image.dataUrl)?.base64 ?? image.dataUrl,
           mediaType: image.mediaType
-        }))
+        })),
+        ...turnContextParts.map((text) => ({ type: 'text' as const, text }))
       ]
     }
   ]

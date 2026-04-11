@@ -681,7 +681,12 @@ function loadRunHistory(
   requestMessageContentOverride?: string,
   /** If set, only messages after this watermark are included (external channel rolling summary). */
   summaryWatermarkMessageId?: string
-): Array<Pick<MessageRecord, 'content' | 'images' | 'attachments' | 'role' | 'responseMessages'>> {
+): Array<
+  Pick<
+    MessageRecord,
+    'content' | 'images' | 'attachments' | 'role' | 'responseMessages' | 'turnContext'
+  >
+> {
   let messagePath = collectMessagePath(loadThreadMessages(threadId), requestMessageId)
 
   // For external channels with a rolling summary watermark, trim history to only
@@ -693,13 +698,24 @@ function loadRunHistory(
     }
   }
 
-  return messagePath.map(({ content, id, images, attachments, role, responseMessages }) => ({
-    content: id === requestMessageId ? (requestMessageContentOverride ?? content) : content,
-    ...(images ? { images } : {}),
-    ...(attachments ? { attachments } : {}),
-    ...(responseMessages ? { responseMessages } : {}),
-    role
-  }))
+  return messagePath.map(
+    ({ content, id, images, attachments, role, responseMessages, turnContext }) => {
+      // The current request message must NOT carry historical turnContext —
+      // the live `hint`/`memory` parameters will append the fresh per-turn
+      // block to the last user message via compileContextLayers. For all
+      // older user messages we replay their persisted turnContext inline so
+      // the model retains temporal continuity (timestamps, recalled memory).
+      const isCurrentRequest = id === requestMessageId
+      return {
+        content: isCurrentRequest ? (requestMessageContentOverride ?? content) : content,
+        ...(images ? { images } : {}),
+        ...(attachments ? { attachments } : {}),
+        ...(responseMessages ? { responseMessages } : {}),
+        ...(!isCurrentRequest && turnContext ? { turnContext } : {}),
+        role
+      }
+    }
+  )
 }
 
 function finishPendingToolCalls(
