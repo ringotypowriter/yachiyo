@@ -1448,6 +1448,16 @@ export async function executeServerRun(
         deps.memoryService.isConfigured()
           ? { rememberDeps: { memoryService: deps.memoryService } }
           : {}),
+        // Cross-thread FTS search: only for local + owner DM, never in privacy mode
+        ...(!input.thread.privacyMode && (!isExternalChannel || isOwnerDm)
+          ? {
+              crossThreadSearch: (searchInput: {
+                query: string
+                limit?: number
+                includePrivate?: boolean
+              }) => deps.storage.searchThreadsAndMessagesFts(searchInput)
+            }
+          : {}),
         // askUser is only available for direct chat runs — not external channel runs
         ...(!isExternalChannel
           ? {

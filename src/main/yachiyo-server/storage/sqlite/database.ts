@@ -95,9 +95,17 @@ const require = createRequire(import.meta.url)
 
 type SqliteDb = BetterSQLite3Database<typeof schema>
 
+interface BetterSqlite3Statement {
+  get(...params: unknown[]): Record<string, unknown>
+  all(...params: unknown[]): unknown[]
+  run(...params: unknown[]): void
+}
+
 interface BetterSqlite3Client {
   close(): void
+  exec(sql: string): void
   pragma(sql: string): void
+  prepare(sql: string): BetterSqlite3Statement
 }
 
 type BetterSqlite3Constructor = new (path: string) => BetterSqlite3Client
@@ -135,19 +143,91 @@ function loadSqliteRuntime(): SqliteRuntime {
   }
 }
 
-function toSearchPattern(query: string): string {
-  return `%${query.replace(/[%_]/g, '')}%`
-}
+import {
+  extractSnippet,
+  toMatchExpression,
+  ftsMessageSearchSql,
+  ftsThreadSearchSql,
+  type FtsMessageRow
+} from '../ftsQuery.ts'
 
-function extractSnippet(content: string, query: string, maxLength = 120): string {
-  const idx = content.toLowerCase().indexOf(query.toLowerCase())
-  if (idx < 0) {
-    return content.length > maxLength ? `${content.slice(0, maxLength)}…` : content
+// ---------------------------------------------------------------------------
+// FTS5 thread/message search index
+// ---------------------------------------------------------------------------
+
+function ensureThreadSearchIndex(client: BetterSqlite3Client): void {
+  client.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS threads_fts USING fts5(
+      title,
+      preview,
+      content='threads',
+      content_rowid='rowid',
+      tokenize='unicode61 remove_diacritics 2'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS threads_fts_ai AFTER INSERT ON threads BEGIN
+      INSERT INTO threads_fts(rowid, title, preview)
+      VALUES (new.rowid, new.title, COALESCE(new.preview, ''));
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS threads_fts_ad AFTER DELETE ON threads BEGIN
+      INSERT INTO threads_fts(threads_fts, rowid, title, preview)
+      VALUES ('delete', old.rowid, old.title, COALESCE(old.preview, ''));
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS threads_fts_au AFTER UPDATE ON threads BEGIN
+      INSERT INTO threads_fts(threads_fts, rowid, title, preview)
+      VALUES ('delete', old.rowid, old.title, COALESCE(old.preview, ''));
+      INSERT INTO threads_fts(rowid, title, preview)
+      VALUES (new.rowid, new.title, COALESCE(new.preview, ''));
+    END;
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+      content,
+      content='messages',
+      content_rowid='rowid',
+      tokenize='unicode61 remove_diacritics 2'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+      INSERT INTO messages_fts(rowid, content)
+      VALUES (new.rowid, new.content);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, rowid, content)
+      VALUES ('delete', old.rowid, old.content);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, rowid, content)
+      VALUES ('delete', old.rowid, old.content);
+      INSERT INTO messages_fts(rowid, content)
+      VALUES (new.rowid, new.content);
+    END;
+  `)
+
+  // Rebuild index if the FTS table is empty but the backing table has data
+  // (handles existing databases that predate the FTS index).
+  const threadsFtsCount = client.prepare('SELECT COUNT(*) AS count FROM threads_fts').get() as {
+    count?: number
   }
-  const start = Math.max(0, idx - 8)
-  const end = Math.min(content.length, start + maxLength)
-  const snippet = content.slice(start, end)
-  return `${start > 0 ? '…' : ''}${snippet}${end < content.length ? '…' : ''}`
+  const threadsCount = client.prepare('SELECT COUNT(*) AS count FROM threads').get() as {
+    count?: number
+  }
+  if ((threadsFtsCount.count ?? 0) === 0 && (threadsCount.count ?? 0) > 0) {
+    client.prepare("INSERT INTO threads_fts(threads_fts) VALUES ('rebuild')").run()
+  }
+
+  const messagesFtsCount = client.prepare('SELECT COUNT(*) AS count FROM messages_fts').get() as {
+    count?: number
+  }
+  const messagesCount = client.prepare('SELECT COUNT(*) AS count FROM messages').get() as {
+    count?: number
+  }
+  if ((messagesFtsCount.count ?? 0) === 0 && (messagesCount.count ?? 0) > 0) {
+    client.prepare("INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')").run()
+  }
 }
 
 export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
@@ -160,6 +240,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
   const db = drizzle(client, { schema })
   migrate(db, { migrationsFolder: MIGRATIONS_DIR })
+  ensureThreadSearchIndex(client)
 
   return {
     close() {
@@ -1103,7 +1184,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       if (trimmed.length === 0) {
         return []
       }
-      const pattern = toSearchPattern(trimmed)
+      const pattern = `%${trimmed.replace(/[%_]/g, '')}%`
 
       const titleMatchedIds = new Set(
         db
@@ -1177,6 +1258,98 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       })
 
       return results
+    },
+
+    searchThreadsAndMessagesFts({ query, limit = 30, includePrivate = false }) {
+      const trimmed = query.trim()
+      if (trimmed.length === 0) return []
+      const matchExpr = toMatchExpression(trimmed)
+      if (matchExpr === '') return []
+
+      const privacyClause = includePrivate ? '' : 'AND threads.privacy_mode IS NULL'
+
+      // FTS5 title/preview matches — BM25 with title weighted higher
+      const titleMatchedIds = new Set(
+        (
+          client.prepare(ftsThreadSearchSql(privacyClause)).all(matchExpr, limit) as Array<{
+            id: string
+          }>
+        ).map((r) => r.id)
+      )
+
+      // FTS5 message content matches — ranked by BM25
+      const allMessageMatches = client
+        .prepare(ftsMessageSearchSql(privacyClause))
+        .all(matchExpr) as FtsMessageRow[]
+
+      const messageMatchesByThread = new Map<
+        string,
+        { messageId: string; content: string; role: 'user' | 'assistant'; createdAt: string }[]
+      >()
+      for (const match of allMessageMatches) {
+        const existing = messageMatchesByThread.get(match.threadId) ?? []
+        existing.push({
+          messageId: match.messageId,
+          content: match.content,
+          role: match.role,
+          createdAt: match.createdAt
+        })
+        messageMatchesByThread.set(match.threadId, existing)
+      }
+
+      // Merge title and message matches, preserving BM25 relevance order.
+      // Title hits come first (they matched the thread subject), followed by
+      // threads that only matched on message content.  Within each group the
+      // order is the BM25-ranked order returned by the FTS queries above.
+      const seenThreadIds = new Set<string>()
+      const orderedThreadIds: string[] = []
+      for (const id of titleMatchedIds) {
+        if (!seenThreadIds.has(id)) {
+          seenThreadIds.add(id)
+          orderedThreadIds.push(id)
+        }
+      }
+      for (const id of messageMatchesByThread.keys()) {
+        if (!seenThreadIds.has(id)) {
+          seenThreadIds.add(id)
+          orderedThreadIds.push(id)
+        }
+      }
+      if (orderedThreadIds.length === 0) return []
+
+      const limitedIds = orderedThreadIds.slice(0, limit)
+      const threadMetaById = new Map(
+        db
+          .select({
+            id: threadsTable.id,
+            title: threadsTable.title,
+            updatedAt: threadsTable.updatedAt
+          })
+          .from(threadsTable)
+          .where(inArray(threadsTable.id, limitedIds))
+          .all()
+          .map((t) => [t.id, t] as const)
+      )
+
+      return limitedIds
+        .map((id) => {
+          const thread = threadMetaById.get(id)
+          if (!thread) return null
+          const matches = messageMatchesByThread.get(id) ?? []
+          return {
+            threadId: thread.id,
+            threadTitle: thread.title,
+            threadUpdatedAt: thread.updatedAt,
+            titleMatched: titleMatchedIds.has(thread.id),
+            messageMatches: matches.map((m) => ({
+              messageId: m.messageId,
+              snippet: extractSnippet(m.content, trimmed),
+              role: m.role,
+              createdAt: m.createdAt
+            }))
+          }
+        })
+        .filter((r): r is NonNullable<typeof r> => r !== null)
     },
 
     findActiveChannelThread(channelUserId, maxAgeMs) {

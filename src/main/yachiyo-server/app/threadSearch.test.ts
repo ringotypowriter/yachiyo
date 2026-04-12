@@ -2,7 +2,12 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import { runYachiyoCli } from './yachiyo-cli.ts'
-import { enrichSkillsReadDetails, parseToolCallDetails } from './threadSearch.ts'
+import {
+  enrichSkillsReadDetails,
+  parseToolCallDetails,
+  tokenizeQuery,
+  toMatchExpression
+} from './threadSearch.ts'
 import type {
   MessageSearchHit,
   ThreadDump,
@@ -671,5 +676,72 @@ describe('enrichSkillsReadDetails', () => {
     // Invalid ones are passed through untouched
     assert.equal(enriched.skills[0], null)
     assert.equal(enriched.skills[1], 'not an object')
+  })
+})
+
+describe('tokenizeQuery', () => {
+  it('splits ASCII words into lowercase tokens', () => {
+    assert.deepEqual(tokenizeQuery('Hello World'), ['hello', 'world'])
+  })
+
+  it('extracts word tokens and drops punctuation', () => {
+    assert.deepEqual(tokenizeQuery('use-case: test_123!'), ['use', 'case', 'test', '123'])
+  })
+
+  it('tokenizes kana and accented Latin correctly', () => {
+    assert.deepEqual(tokenizeQuery('こんにちは'), ['こんにちは'])
+    assert.deepEqual(tokenizeQuery('résumé café'), ['résumé', 'café'])
+  })
+
+  it('groups consecutive CJK characters as one token', () => {
+    assert.deepEqual(tokenizeQuery('搜索测试'), ['搜索测试'])
+  })
+
+  it('handles mixed ASCII and CJK', () => {
+    assert.deepEqual(tokenizeQuery('hello 世界'), ['hello', '世界'])
+  })
+
+  it('returns empty array for blank or whitespace-only input', () => {
+    assert.deepEqual(tokenizeQuery(''), [])
+    assert.deepEqual(tokenizeQuery('   '), [])
+  })
+
+  it('returns empty array for punctuation-only input', () => {
+    assert.deepEqual(tokenizeQuery('!@#$%'), [])
+  })
+
+  it('collapses internal whitespace before tokenizing', () => {
+    assert.deepEqual(tokenizeQuery('  hello   world  '), ['hello', 'world'])
+  })
+})
+
+describe('toMatchExpression', () => {
+  it('wraps single token in quotes', () => {
+    assert.equal(toMatchExpression('hello'), '"hello"')
+  })
+
+  it('joins multiple tokens with OR', () => {
+    assert.equal(toMatchExpression('hello world'), '"hello" OR "world"')
+  })
+
+  it('returns empty string for blank input', () => {
+    assert.equal(toMatchExpression(''), '')
+    assert.equal(toMatchExpression('   '), '')
+  })
+
+  it('returns empty string for punctuation-only input', () => {
+    assert.equal(toMatchExpression('!!!'), '')
+  })
+
+  it('escapes double quotes inside tokens', () => {
+    // Edge case: a query containing a literal double quote
+    // tokenizeQuery strips non-alphanumeric chars, so quotes never reach
+    // toMatchExpression in practice, but the escaping logic is defensive.
+    const expr = toMatchExpression('say "hello"')
+    assert.equal(expr, '"say" OR "hello"')
+  })
+
+  it('handles CJK input', () => {
+    assert.equal(toMatchExpression('搜索'), '"搜索"')
   })
 })

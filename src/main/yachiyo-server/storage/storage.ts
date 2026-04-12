@@ -246,6 +246,11 @@ export interface YachiyoStorage {
   updateToolCall(toolCall: ToolCallRecord): void
   deleteMessages(input: DeleteMessagesInput): void
   searchThreadsAndMessages(input: { query: string }): ThreadSearchResult[]
+  searchThreadsAndMessagesFts(input: {
+    query: string
+    limit?: number
+    includePrivate?: boolean
+  }): ThreadSearchResult[]
   listExternalThreads(): ThreadRecord[]
   findActiveChannelThread(channelUserId: string, maxAgeMs: number): ThreadRecord | undefined
   getThreadTotalTokens(threadId: string): number

@@ -1167,6 +1167,8 @@ export interface ThreadSnapshot {
 export interface ThreadSearchMessageMatch {
   messageId: string
   snippet: string
+  role?: 'user' | 'assistant'
+  createdAt?: string
 }
 
 export interface ThreadSearchResult {

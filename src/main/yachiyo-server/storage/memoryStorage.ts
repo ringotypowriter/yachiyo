@@ -689,6 +689,19 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       return results
     },
 
+    searchThreadsAndMessagesFts({ query, limit = 30, includePrivate = false }) {
+      // In-memory fallback: reuse the LIKE-based search since FTS5 isn't available,
+      // but filter out privacy-mode threads when includePrivate is false.
+      const results = this.searchThreadsAndMessages({ query })
+      const filtered = includePrivate
+        ? results
+        : results.filter((r) => {
+            const thread = threads.get(r.threadId)
+            return thread != null && !thread.privacyMode
+          })
+      return filtered.slice(0, limit)
+    },
+
     findActiveChannelThread(channelUserId, maxAgeMs) {
       const cutoff = new Date(Date.now() - maxAgeMs).toISOString()
       const match = [...threads.values()]

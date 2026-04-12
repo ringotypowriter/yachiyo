@@ -14,9 +14,17 @@ import { messagesTable, threadsTable, toolCallsTable } from '../storage/sqlite/s
 
 type SqliteDb = BetterSQLite3Database<typeof schema>
 
+interface BetterSqlite3Statement {
+  get(...params: unknown[]): Record<string, unknown>
+  all(...params: unknown[]): unknown[]
+  run(...params: unknown[]): void
+}
+
 interface BetterSqlite3Client {
   close(): void
+  exec(sql: string): void
   pragma(sql: string): void
+  prepare(sql: string): BetterSqlite3Statement
 }
 
 type BetterSqlite3Options = { readonly?: boolean }
@@ -50,20 +58,15 @@ export interface MessageSearchHit {
   snippet: string
 }
 
-function toSearchPattern(query: string): string {
-  return `%${query.replace(/[%_]/g, '')}%`
-}
+// Re-export from shared module for test compatibility
+export { tokenizeQuery, toMatchExpression } from '../storage/ftsQuery.ts'
 
-function extractSnippet(content: string, query: string, maxLength = 100): string {
-  const idx = content.toLowerCase().indexOf(query.toLowerCase())
-  if (idx < 0) {
-    return content.length > maxLength ? `${content.slice(0, maxLength)}…` : content
-  }
-  const start = Math.max(0, idx - 8)
-  const end = Math.min(content.length, start + maxLength)
-  const snippet = content.slice(start, end)
-  return `${start > 0 ? '…' : ''}${snippet}${end < content.length ? '…' : ''}`
-}
+import {
+  extractSnippet,
+  toMatchExpression as toMatch,
+  ftsMessageSearchSql,
+  type FtsMessageRow
+} from '../storage/ftsQuery.ts'
 
 export function searchMessages(
   dbPath: string,
@@ -74,13 +77,45 @@ export function searchMessages(
   const trimmed = query.trim()
   if (!trimmed) return []
   if (!existsSync(dbPath)) return []
+  const matchExpr = toMatch(trimmed)
+  if (matchExpr === '') return []
 
-  const { BetterSqlite3, drizzle } = loadSqliteRuntime()
+  const { BetterSqlite3 } = loadSqliteRuntime()
   const client = new BetterSqlite3(dbPath, { readonly: true })
-  const db = drizzle(client, { schema })
 
   try {
-    const pattern = toSearchPattern(trimmed)
+    // FTS tables are created by the main server on startup. When the CLI
+    // opens the DB readonly, the index should already exist. If it doesn't
+    // (e.g. user has never launched the app), fall back to LIKE matching.
+    const hasFts = (() => {
+      try {
+        client.prepare('SELECT COUNT(*) FROM messages_fts').get()
+        return true
+      } catch {
+        return false
+      }
+    })()
+
+    const privacyClause = includePrivate ? '' : 'AND threads.privacy_mode IS NULL'
+
+    if (hasFts) {
+      const rows = client
+        .prepare(`${ftsMessageSearchSql(privacyClause)} LIMIT ?`)
+        .all(matchExpr, limit) as FtsMessageRow[]
+
+      return rows.map((row) => ({
+        threadId: row.threadId,
+        threadTitle: row.threadTitle,
+        messageId: row.messageId,
+        role: row.role as 'user' | 'assistant',
+        date: row.createdAt.slice(0, 10),
+        snippet: extractSnippet(row.content, trimmed)
+      }))
+    }
+
+    // Fallback: LIKE-based search when FTS index is unavailable
+    const { drizzle } = loadSqliteRuntime()
+    const db = drizzle(client, { schema })
     const rows = db
       .select({
         threadId: threadsTable.id,
@@ -95,7 +130,7 @@ export function searchMessages(
       .where(
         and(
           isNull(threadsTable.archivedAt),
-          like(messagesTable.content, pattern),
+          like(messagesTable.content, `%${trimmed.replace(/[%_]/g, '')}%`),
           ...(includePrivate ? [] : [isNull(threadsTable.privacyMode)])
         )
       )

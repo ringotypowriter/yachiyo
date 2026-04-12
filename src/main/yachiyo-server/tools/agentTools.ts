@@ -23,7 +23,10 @@ import {
   createTool as createRememberTool,
   type RememberToolDeps
 } from './agentTools/rememberTool.ts'
-import { createTool as createSearchMemoryTool } from './agentTools/searchMemoryTool.ts'
+import {
+  createTool as createSearchMemoryTool,
+  type CrossThreadSearchFn
+} from './agentTools/searchMemoryTool.ts'
 import { createTool as createReadTool } from './agentTools/readTool.ts'
 import { createTool as createSkillsReadTool } from './agentTools/skillsReadTool.ts'
 import {
@@ -100,6 +103,8 @@ export interface AgentToolDependencies {
   updateProfileDeps?: UpdateProfileDeps
   /** When provided, the remember tool is injected (local + owner DM contexts only). */
   rememberDeps?: RememberToolDeps
+  /** When provided, searchMemory gains a "cross-thread" domain for FTS5/BM25 thread search. */
+  crossThreadSearch?: CrossThreadSearchFn
   subagentProfiles?: SubagentProfile[]
   /** Workspace paths the coding agent is allowed to operate in (from config savedPaths). */
   availableWorkspaces?: string[]
@@ -417,8 +422,11 @@ export function createAgentToolSet(
     )
   }
 
-  if (dependencies.memoryService?.isConfigured()) {
-    tools.searchMemory = createSearchMemoryTool(dependencies.memoryService)
+  if (dependencies.memoryService?.isConfigured() || dependencies.crossThreadSearch) {
+    tools.searchMemory = createSearchMemoryTool({
+      memoryService: dependencies.memoryService,
+      crossThreadSearch: dependencies.crossThreadSearch
+    })
   }
 
   if (dependencies.rememberDeps) {

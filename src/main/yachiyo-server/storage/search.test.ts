@@ -196,6 +196,23 @@ test('does not return archived threads', () => {
   assert.ok(!results.find((r) => r.threadId === 'thread-1'))
 })
 
+test('searchThreadsAndMessagesFts excludes private threads by default', () => {
+  const storage = setupStorage()
+  storage.setThreadPrivacyMode({ threadId: 'thread-1', privacyMode: true, updatedAt: NOW })
+  const results = storage.searchThreadsAndMessagesFts({ query: 'TypeScript' })
+  assert.ok(!results.find((r) => r.threadId === 'thread-1'))
+})
+
+test('searchThreadsAndMessagesFts includes private threads when includePrivate is true', () => {
+  const storage = setupStorage()
+  storage.setThreadPrivacyMode({ threadId: 'thread-1', privacyMode: true, updatedAt: NOW })
+  const results = storage.searchThreadsAndMessagesFts({
+    query: 'TypeScript',
+    includePrivate: true
+  })
+  assert.ok(results.find((r) => r.threadId === 'thread-1'))
+})
+
 test('each result has required fields', () => {
   const storage = setupStorage()
   const results = storage.searchThreadsAndMessages({ query: 'React' })
