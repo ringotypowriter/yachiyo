@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.24
+
+### Patch Changes
+
+- [`69daaf1`](https://github.com/ringotypowriter/yachiyo/commit/69daaf1b3fd61078dfa7315acbb72ace02d58953) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Self-Review Schedule Bundled & Image View of Markdown
+
 ## 1.0.23
 
 ### Patch Changes
