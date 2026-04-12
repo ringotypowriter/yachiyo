@@ -3,6 +3,7 @@ import type { ImgHTMLAttributes } from 'react'
 import { Download, ImageOff, Loader2 } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import { isAssetUrl, isRemoteImageUrl } from './imageUrl'
+import { ImageDetailViewer } from './ImageDetailViewer'
 
 /**
  * Context set up by `MessageMarkdown` when image rendering is enabled for
@@ -156,6 +157,15 @@ function RemoteImageCard({
 
 function LocalImage({ src, alt }: { src: string; alt?: string }): React.JSX.Element {
   const [broken, setBroken] = useState(false)
+  const [viewerOpen, setViewerOpen] = useState(false)
+
+  const handleClick = useCallback((e: React.MouseEvent<HTMLImageElement>) => {
+    // When the image is wrapped in a link ([![alt](...)](href)), let the
+    // link action handle the click instead of opening the viewer.
+    if ((e.target as HTMLElement).closest('a')) return
+    e.stopPropagation()
+    setViewerOpen(true)
+  }, [])
 
   if (broken) {
     return (
@@ -175,14 +185,23 @@ function LocalImage({ src, alt }: { src: string; alt?: string }): React.JSX.Elem
   }
 
   return (
-    <img
-      src={src}
-      alt={alt ?? ''}
-      style={imageStyle}
-      loading="lazy"
-      draggable={false}
-      onError={() => setBroken(true)}
-    />
+    <>
+      <img
+        src={src}
+        alt={alt ?? ''}
+        style={{ ...imageStyle, cursor: 'zoom-in' }}
+        loading="lazy"
+        draggable={false}
+        onError={() => setBroken(true)}
+        onClick={handleClick}
+      />
+      <ImageDetailViewer
+        src={src}
+        alt={alt}
+        isOpen={viewerOpen}
+        onClose={() => setViewerOpen(false)}
+      />
+    </>
   )
 }
 

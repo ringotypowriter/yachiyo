@@ -49,6 +49,21 @@ export function isAssetUrl(src: string): boolean {
   return src.startsWith(`${YACHIYO_ASSET_SCHEME}://`)
 }
 
+/**
+ * Extract the original absolute filesystem path from a `yachiyo-asset://`
+ * URL, or return `null` if it isn't one. Useful for "Reveal in Finder".
+ */
+export function extractLocalPath(src: string): string | null {
+  if (!isAssetUrl(src)) return null
+  try {
+    const url = new URL(src)
+    const raw = url.searchParams.get('p')
+    return raw ?? null
+  } catch {
+    return null
+  }
+}
+
 function safeDecode(input: string): string {
   try {
     return decodeURIComponent(input)
