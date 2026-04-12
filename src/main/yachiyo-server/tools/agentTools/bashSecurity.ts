@@ -1040,6 +1040,19 @@ function validateHugeSearchRoot(ctx: ValidationContext): SecurityResult {
 }
 
 // ---------------------------------------------------------------------------
+// Self-launch prevention
+// ---------------------------------------------------------------------------
+
+/**
+ * Block commands that reference Yachiyo.app — running the host app from
+ * inside its own agent is a recursive-launch footgun that cascades into
+ * catastrophic resource exhaustion.
+ */
+export function isSelfLaunchCommand(command: string): boolean {
+  return /Yachiyo\.app\b/.test(command)
+}
+
+// ---------------------------------------------------------------------------
 // Catastrophic command detection (kept from original bashTool.ts)
 // ---------------------------------------------------------------------------
 
@@ -1076,6 +1089,14 @@ export function validateBashCommand(command: string): SecurityResult {
   if (!command.trim()) return ok
 
   const ctx = buildContext(command)
+
+  // --- Self-launch prevention ---
+  if (isSelfLaunchCommand(command)) {
+    return refused(
+      'Blocked: cannot launch Yachiyo.app from inside its own agent. ' +
+        'This would cause recursive process spawning and resource exhaustion.'
+    )
+  }
 
   // --- Catastrophic destruction ---
   if (isBlockedBashCommand(command)) {

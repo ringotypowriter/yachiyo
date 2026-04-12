@@ -2,7 +2,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { homedir } from 'os'
 
-import { validateBashCommand, isBlockedBashCommand } from './bashSecurity.ts'
+import { validateBashCommand, isBlockedBashCommand, isSelfLaunchCommand } from './bashSecurity.ts'
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -469,6 +469,46 @@ describe('bashSecurity', () => {
       it('catches rm at end of pipeline', () => {
         assert.equal(isBlockedBashCommand('echo y | sudo rm -rf /'), true)
       })
+    })
+
+    describe('isSelfLaunchCommand', () => {
+      // --- Should block ---
+      const blocked = [
+        'open Yachiyo.app',
+        'open ./Yachiyo.app',
+        'open /Applications/Yachiyo.app',
+        'open ./out/Yachiyo.app/Contents/MacOS/Yachiyo',
+        './out/mac-arm64/Yachiyo.app/Contents/MacOS/Yachiyo',
+        'echo ok; open Yachiyo.app'
+      ]
+
+      for (const cmd of blocked) {
+        it(`blocks: ${cmd}`, () => {
+          assert.equal(isSelfLaunchCommand(cmd), true)
+          expectBlocked(cmd, 'cannot launch Yachiyo.app')
+        })
+      }
+
+      // --- Should allow ---
+      const allowed = [
+        'ls',
+        'pnpm dev',
+        'pnpm start',
+        'npm start',
+        'bun run dev',
+        'electron .',
+        'npx electron .',
+        'grep -r "Yachiyo" src/',
+        'echo "Yachiyo is great"',
+        'cat README.md'
+      ]
+
+      for (const cmd of allowed) {
+        it(`allows: ${cmd}`, () => {
+          assert.equal(isSelfLaunchCommand(cmd), false)
+          expectAllowed(cmd)
+        })
+      }
     })
   })
 })

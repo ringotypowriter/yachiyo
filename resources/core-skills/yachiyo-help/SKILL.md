@@ -7,6 +7,8 @@ description: Complete reference for the Yachiyo CLI — soul traits, provider ma
 
 Reference for the Yachiyo CLI. The binary lives at `~/.yachiyo/bin/yachiyo`.
 
+> **IMPORTANT:** The Yachiyo CLI (`yachiyo` command) is NOT the Yachiyo desktop app (`Yachiyo.app`). You are running _inside_ Yachiyo.app — never attempt to open, run, or execute `Yachiyo.app` via the bash tool. Doing so would spawn a recursive instance and is blocked by the security layer.
+
 Read the detailed reference for each namespace before running unfamiliar commands:
 
 - [soul.md](references/soul.md) — Manage evolving persona traits

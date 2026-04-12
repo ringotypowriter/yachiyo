@@ -247,7 +247,7 @@ class AsyncQueue<T> {
 }
 
 // Re-export for backward compatibility
-export { isBlockedBashCommand } from './bashSecurity.ts'
+export { isBlockedBashCommand, isSelfLaunchCommand } from './bashSecurity.ts'
 
 const defaultBashRunner: BashRunner = async ({
   abortSignal,

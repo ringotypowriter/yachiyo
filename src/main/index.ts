@@ -25,6 +25,17 @@ const APP_NAME = 'Yachiyo'
 
 app.setName(APP_NAME)
 
+// ---------------------------------------------------------------------------
+// Single-instance guard (production only)
+// ---------------------------------------------------------------------------
+if (!is.dev) {
+  const gotLock = app.requestSingleInstanceLock()
+  if (!gotLock) {
+    log.warn('Another instance of Yachiyo is already running — refusing to open.')
+    app.quit()
+  }
+}
+
 let settingsWindow: BrowserWindow | null = null
 let translatorWindow: BrowserWindow | null = null
 let jotdownWindow: BrowserWindow | null = null
@@ -220,6 +231,16 @@ function createWindow(): void {
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
+// When a second instance is attempted in production, focus the existing window.
+if (!is.dev) {
+  app.on('second-instance', () => {
+    if (mainWindowRef && !mainWindowRef.isDestroyed()) {
+      if (mainWindowRef.isMinimized()) mainWindowRef.restore()
+      mainWindowRef.focus()
+    }
+  })
+}
+
 app.whenReady().then(async () => {
   hydrateProcessEnvFromLoginShell()
   await hydrateProxyFromSystemSettings()
