@@ -14,6 +14,9 @@
  * The main entry point is {@link validateBashCommand}.
  */
 
+import { homedir } from 'os'
+import { resolve } from 'path'
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -521,6 +524,25 @@ const CONDITIONAL_PATTERN_FIRST_COMMANDS = new Set(['grep', 'egrep', 'fgrep'])
  */
 const HUGE_ROOT_TOKEN_RE = /^(?:\/|~\/?|\$HOME\/?|\$\{HOME\}\/?)$/
 
+/**
+ * Check whether a token resolves to a forbidden huge-scan root.
+ * Catches the regex-based forms AND absolute paths like `/Users/alice`
+ * that resolve to the actual home directory or filesystem root.
+ */
+function isHugeRootToken(token: string): boolean {
+  if (HUGE_ROOT_TOKEN_RE.test(token)) return true
+
+  // Resolve absolute paths and check against the actual home directory.
+  // Only applies to tokens that look like absolute paths — skip shell
+  // variables and tilde (already handled by the regex above).
+  if (token.startsWith('/')) {
+    const resolved = resolve(token.replace(/\/+$/, '') || '/')
+    if (resolved === '/' || resolved === resolve(homedir())) return true
+  }
+
+  return false
+}
+
 // `find`'s multi-argument flags: they consume tokens until `;` or `+`.
 const FIND_EXEC_FLAGS = new Set(['-exec', '-execdir', '-ok', '-okdir'])
 
@@ -1006,7 +1028,7 @@ function validateHugeSearchRoot(ctx: ValidationContext): SecurityResult {
 
     for (let i = skipFirstPositional; i < positionals.length; i++) {
       const token = positionals[i]!
-      if (HUGE_ROOT_TOKEN_RE.test(token)) {
+      if (isHugeRootToken(token)) {
         return refused(
           `Command scans \`${token}\` with \`${base}\` — the scan range is too large. Pick a more specific subdirectory instead of the filesystem root or home.`
         )

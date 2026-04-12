@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import { homedir } from 'os'
 
 import { validateBashCommand, isBlockedBashCommand } from './bashSecurity.ts'
 
@@ -322,6 +323,17 @@ describe('bashSecurity', () => {
         'grep -r needle ${HOME}/',
         'tree $HOME/',
         'du -sh ${HOME}/',
+        // Absolute home directory path (e.g. /Users/alice).
+        `find ${homedir()} -name foo`,
+        `find ${homedir()}/ -type f`,
+        `rg needle ${homedir()}`,
+        `rg needle ${homedir()}/`,
+        `fd pattern ${homedir()}`,
+        `grep -r needle ${homedir()}`,
+        `tree ${homedir()}`,
+        `du -sh ${homedir()}`,
+        `sudo find ${homedir()} -name foo`,
+        `ls -R ${homedir()}`,
         // Wrapper forms: sudo/doas/env/exec and path-prefixed binaries.
         'sudo find / -name foo',
         'sudo rg needle /',
@@ -413,6 +425,12 @@ describe('bashSecurity', () => {
         'rg needle $HOME/projects',
         'grep -r needle ${HOME}/src',
         'fd pattern ~/projects',
+        // Absolute home subdirectories — must NOT be blocked.
+        `find ${homedir()}/projects -name foo`,
+        `find ${homedir()}/Downloads -type f`,
+        `rg needle ${homedir()}/projects`,
+        `grep -r needle ${homedir()}/src`,
+        `fd pattern ${homedir()}/projects`,
         // Narrow scans with wrappers — wrapper stripping must not turn a
         // narrow scan into a false-positive.
         'sudo find src -name foo',
