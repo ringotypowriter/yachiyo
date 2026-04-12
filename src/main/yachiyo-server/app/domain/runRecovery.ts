@@ -351,6 +351,13 @@ function buildInterruptedToolCallInput(toolCall: ToolCallRecord): unknown {
     }
   }
 
+  if (toolCall.toolName === 'jsRepl' && details && 'code' in details) {
+    return {
+      code: details.code,
+      ...('contextReset' in details && details.contextReset ? { reset: true } : {})
+    }
+  }
+
   if (
     toolCall.toolName === 'grep' &&
     details &&

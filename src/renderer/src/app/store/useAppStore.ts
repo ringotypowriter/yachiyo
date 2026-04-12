@@ -24,6 +24,7 @@ import {
 } from '../../../../shared/yachiyo/messageContent.ts'
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
+  USER_MANAGED_TOOL_NAMES,
   normalizeUserEnabledTools,
   normalizeSkillNames,
   type ThreadRuntimeBinding
@@ -253,9 +254,7 @@ function toggleEnabledTools(enabledTools: ToolCallName[], toolName: ToolCallName
   }
 
   const nextEnabledTools = new Set([...enabledTools, toolName])
-  return DEFAULT_ENABLED_TOOL_NAMES.filter((currentToolName) =>
-    nextEnabledTools.has(currentToolName)
-  )
+  return USER_MANAGED_TOOL_NAMES.filter((currentToolName) => nextEnabledTools.has(currentToolName))
 }
 
 function sortThreads(threads: Thread[]): Thread[] {

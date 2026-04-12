@@ -19,6 +19,7 @@ import { createTool as createBashTool } from './agentTools/bashTool.ts'
 import { createTool as createEditTool } from './agentTools/editTool.ts'
 import { createTool as createGlobTool } from './agentTools/globTool.ts'
 import { createTool as createGrepTool } from './agentTools/grepTool.ts'
+import { createTool as createJsReplTool } from './agentTools/jsReplTool.ts'
 import {
   createTool as createRememberTool,
   type RememberToolDeps
@@ -37,6 +38,7 @@ import {
   type EditToolOutput,
   type GlobToolOutput,
   type GrepToolOutput,
+  type JsReplToolOutput,
   type ReadToolOutput,
   type SkillsReadToolOutput,
   type WebReadToolOutput,
@@ -65,6 +67,7 @@ export type {
   EditToolOutput,
   GlobToolOutput,
   GrepToolOutput,
+  JsReplToolOutput,
   ReadToolOutput,
   SkillsReadToolOutput,
   ToolContentBlock,
@@ -82,6 +85,7 @@ export {
   streamBashTool
 } from './agentTools/bashTool.ts'
 export { createTool as createEditTool, runEditTool } from './agentTools/editTool.ts'
+export { createTool as createJsReplTool } from './agentTools/jsReplTool.ts'
 export { createTool as createGlobTool, runGlobTool } from './agentTools/globTool.ts'
 export { createTool as createGrepTool, runGrepTool } from './agentTools/grepTool.ts'
 export { createTool as createReadTool, runReadTool } from './agentTools/readTool.ts'
@@ -140,6 +144,11 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
     const command =
       typeof input === 'object' && input !== null && 'command' in input ? input.command : ''
     return typeof command === 'string' ? takeTail(command, 160).text : toolName
+  }
+
+  if (toolName === 'jsRepl') {
+    const code = typeof input === 'object' && input !== null && 'code' in input ? input.code : ''
+    return typeof code === 'string' ? takeTail(code, 160).text : toolName
   }
 
   if (toolName === 'webRead') {
@@ -258,6 +267,14 @@ export function summarizeToolOutput(
     return `read ${details.resolvedCount} skill${details.resolvedCount === 1 ? '' : 's'}`
   }
 
+  if (toolName === 'jsRepl') {
+    const details = (output as JsReplToolOutput).details
+    if (details.timedOut) return 'timed out'
+    if (details.error) return `error: ${takeTail(details.error, 80).text}`
+    if (details.result) return takeTail(details.result, 120).text
+    return details.consoleOutput ? 'console output' : 'no output'
+  }
+
   if (toolName === 'grep') {
     const details = (output as GrepToolOutput).details
     const summary = `found ${details.resultCount} match${details.resultCount === 1 ? '' : 'es'}`
@@ -372,6 +389,7 @@ export function createAgentToolSet(
     tools.write = wrapDisabledTool(createWriteTool(context), 'write', enabledTools)
     tools.edit = wrapDisabledTool(createEditTool(context), 'edit', enabledTools)
     tools.bash = wrapDisabledTool(createBashTool(context), 'bash', enabledTools)
+    tools.jsRepl = wrapDisabledTool(createJsReplTool(context), 'jsRepl', enabledTools)
 
     tools.webRead = wrapDisabledTool(
       createWebReadTool(context, {

@@ -28,6 +28,10 @@ const TOOL_COPY: Record<
     label: 'bash',
     description: 'Run shell commands in the workspace'
   },
+  jsRepl: {
+    label: 'jsRepl',
+    description: 'Run JavaScript in a persistent REPL session'
+  },
   grep: {
     label: 'grep',
     description: 'Search file contents with the fastest local backend'

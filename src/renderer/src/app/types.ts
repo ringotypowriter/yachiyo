@@ -7,6 +7,7 @@ export type {
   FileMentionCandidate,
   GlobToolCallDetails,
   GrepToolCallDetails,
+  JsReplToolCallDetails,
   MessageRecord as Message,
   MessageFileAttachment,
   MessageImageRecord,

@@ -11,6 +11,7 @@ import type {
   EditToolCallDetails,
   GlobToolCallDetails,
   GrepToolCallDetails,
+  JsReplToolCallDetails,
   ReadToolCallDetails,
   SkillsReadToolCallDetails,
   ToolCallDetailsSnapshot,
@@ -59,6 +60,11 @@ export const bashToolInputSchema = z.object({
   background: z.boolean().optional()
 })
 
+export const jsReplToolInputSchema = z.object({
+  code: z.string().min(1),
+  reset: z.boolean().optional()
+})
+
 export const grepToolInputSchema = z.object({
   pattern: z.string().min(1),
   path: z.string().min(1).optional(),
@@ -95,6 +101,7 @@ export type ReadToolInput = z.infer<typeof readToolInputSchema>
 export type WriteToolInput = z.infer<typeof writeToolInputSchema>
 export type EditToolInput = z.infer<typeof editToolInputSchema>
 export type BashToolInput = z.infer<typeof bashToolInputSchema>
+export type JsReplToolInput = z.infer<typeof jsReplToolInputSchema>
 export type GrepToolInput = z.infer<typeof grepToolInputSchema>
 export type GlobToolInput = z.infer<typeof globToolInputSchema>
 export type WebReadToolInput = z.infer<typeof webReadToolInputSchema>
@@ -157,6 +164,7 @@ export type ReadToolOutput = AgentToolResult<ReadToolCallDetails>
 export type WriteToolOutput = AgentToolResult<WriteToolCallDetails>
 export type EditToolOutput = AgentToolResult<EditToolCallDetails>
 export type BashToolOutput = AgentToolResult<BashToolCallDetails>
+export type JsReplToolOutput = AgentToolResult<JsReplToolCallDetails>
 export type GrepToolOutput = AgentToolResult<GrepToolCallDetails>
 export type GlobToolOutput = AgentToolResult<GlobToolCallDetails>
 export type WebReadToolOutput = AgentToolResult<WebReadToolCallDetails>
@@ -170,6 +178,7 @@ export type AgentToolOutput =
   | WriteToolOutput
   | EditToolOutput
   | BashToolOutput
+  | JsReplToolOutput
   | GrepToolOutput
   | GlobToolOutput
   | WebReadToolOutput

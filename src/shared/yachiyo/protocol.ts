@@ -128,6 +128,7 @@ export const CORE_TOOL_NAMES = [
   'write',
   'edit',
   'bash',
+  'jsRepl',
   'grep',
   'glob',
   'webRead',
@@ -144,7 +145,10 @@ const userManagedToolNames = CORE_TOOL_NAMES.filter(
 )
 
 export const USER_MANAGED_TOOL_NAMES = [...userManagedToolNames] as ToolCallName[]
-export const DEFAULT_ENABLED_TOOL_NAMES = [...USER_MANAGED_TOOL_NAMES] as ToolCallName[]
+const defaultDisabledToolNameSet = new Set<ToolCallName>(['jsRepl'])
+export const DEFAULT_ENABLED_TOOL_NAMES = USER_MANAGED_TOOL_NAMES.filter(
+  (name) => !defaultDisabledToolNameSet.has(name)
+) as ToolCallName[]
 export const DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR: ActiveRunEnterBehavior = 'enter-steers'
 export const DEFAULT_SIDEBAR_VISIBILITY: SidebarVisibility = 'expanded'
 export const DEFAULT_TOOL_MODEL_MODE: ToolModelMode = 'default'
@@ -310,6 +314,15 @@ export interface BashToolCallDetails {
   liftedAfterTimeout?: boolean
 }
 
+export interface JsReplToolCallDetails {
+  code: string
+  result?: string
+  consoleOutput?: string
+  error?: string
+  timedOut?: boolean
+  contextReset?: boolean
+}
+
 export interface GrepToolCallMatch {
   path: string
   line: number
@@ -413,6 +426,7 @@ export type ToolCallDetailsSnapshot =
   | WriteToolCallDetails
   | EditToolCallDetails
   | BashToolCallDetails
+  | JsReplToolCallDetails
   | GrepToolCallDetails
   | GlobToolCallDetails
   | WebReadToolCallDetails

@@ -4,6 +4,7 @@ import type {
   EditToolCallDetails,
   GlobToolCallDetails,
   GrepToolCallDetails,
+  JsReplToolCallDetails,
   ReadToolCallDetails,
   ToolCall,
   WebReadToolCallDetails,
@@ -284,6 +285,29 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     )
     // stdout shown inline so the user can see what the command produced
     pushCodeBlock(codeBlocks, 'stdout', details.stdout)
+  }
+
+  if (toolCall.toolName === 'jsRepl') {
+    const details = toolCall.details as JsReplToolCallDetails | undefined
+    if (!details) {
+      return { fields, codeBlocks }
+    }
+
+    if (details.timedOut) {
+      pushField(fields, 'timed out', 'yes')
+    }
+    if (details.contextReset) {
+      pushField(fields, 'context reset', 'yes')
+    }
+
+    pushCodeBlock(codeBlocks, 'code', details.code)
+    pushOutputTail(codeBlocks, 'console', details.consoleOutput ?? '')
+    pushCodeBlock(codeBlocks, 'result', details.result)
+    if (details.error) {
+      pushCodeBlock(codeBlocks, 'error', details.error, 'danger')
+    }
+
+    return { fields, codeBlocks }
   }
 
   if (toolCall.toolName === 'grep') {
