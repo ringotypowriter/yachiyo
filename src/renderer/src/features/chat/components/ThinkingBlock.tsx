@@ -13,8 +13,10 @@ export function ThinkingBlock({
   reasoning,
   isActive
 }: ThinkingBlockProps): React.JSX.Element | null {
-  const [manuallyExpanded, setManuallyExpanded] = useState(false)
-  const isExpanded = isActive || manuallyExpanded
+  const [override, setOverride] = useState<{ expanded: boolean; duringActive: boolean } | null>(
+    null
+  )
+  const isExpanded = override && override.duringActive === isActive ? override.expanded : isActive
   const contentRef = useRef<HTMLDivElement>(null)
 
   // Scroll to bottom while streaming
@@ -46,7 +48,12 @@ export function ThinkingBlock({
       >
         <button
           className="flex items-center gap-2 w-full px-3 py-2 text-left"
-          onClick={() => !isActive && setManuallyExpanded((v) => !v)}
+          onClick={() =>
+            setOverride((prev) => ({
+              expanded: !(prev && prev.duringActive === isActive ? prev.expanded : isActive),
+              duringActive: isActive
+            }))
+          }
         >
           {isActive ? (
             <span
