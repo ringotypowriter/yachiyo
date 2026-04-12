@@ -138,19 +138,17 @@ describe('jsReplTool', () => {
     assert.equal(result.details.consoleOutput, 'second call')
   })
 
-  it('returns placeholder for promise results instead of awaiting them', async () => {
+  it('awaits and returns resolved promise results', async () => {
     const tool = createTool(makeContext())
-    const result = await execute(tool, { code: 'Promise.resolve(42)' })
-    assert.ok(result.details.result?.includes('Promise'))
+    const result = await execute(tool, { code: 'await Promise.resolve(42)' })
+    assert.equal(result.details.result, '42')
     assert.equal(result.error, undefined)
   })
 
-  it('suppresses rejected promises without crashing', async () => {
+  it('catches rejected promises', async () => {
     const tool = createTool(makeContext())
-    const result = await execute(tool, { code: 'Promise.reject(new Error("async boom"))' })
-    // Should not crash — rejection is suppressed, result is the promise placeholder
-    assert.ok(result.details.result?.includes('Promise'))
-    assert.equal(result.error, undefined)
+    const result = await execute(tool, { code: 'await Promise.reject(new Error("async boom"))' })
+    assert.ok(result.details.error?.includes('async boom'))
   })
 
   it('clears timers after each execution automatically', async () => {
@@ -192,5 +190,59 @@ describe('jsReplTool', () => {
     const tool = createTool(makeContext())
     await execute(tool, { code: 'throw new Error("fail")' })
     assert.equal(process.cwd(), originalCwd)
+  })
+
+  it('tools.read reads a file from workspace', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-tools-'))
+    try {
+      const { writeFileSync } = await import('node:fs')
+      writeFileSync(join(tempDir, 'hello.txt'), 'world')
+      const tool = createTool(makeContext({ workspacePath: tempDir }))
+      const result = await execute(tool, {
+        code: 'const r = await tools.read({ path: "hello.txt" }); return r.content'
+      })
+      assert.ok(result.details.result?.includes('world'))
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('tools.write creates a file in workspace', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-tools-'))
+    try {
+      const tool = createTool(makeContext({ workspacePath: tempDir }))
+      await execute(tool, {
+        code: 'await tools.write({ path: "out.txt", content: "written by repl" })'
+      })
+      const { readFileSync } = await import('node:fs')
+      assert.equal(readFileSync(join(tempDir, 'out.txt'), 'utf8'), 'written by repl')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('tools.bash runs a command and returns output', async () => {
+    const tool = createTool(makeContext())
+    const result = await execute(tool, {
+      code: 'const r = await tools.bash({ command: "echo hello-from-bash" }); return r.content'
+    })
+    assert.ok(result.details.result?.includes('hello-from-bash'))
+  })
+
+  it('tool call errors are returned, not thrown', async () => {
+    const tool = createTool(makeContext())
+    const result = await execute(tool, {
+      code: 'const r = await tools.read({ path: "/nonexistent/path/file.txt" }); return r.error || "no error"'
+    })
+    assert.ok(result.details.result !== 'no error')
+  })
+
+  it('tools object only includes service-backed tools when services are provided', async () => {
+    const tool = createTool(makeContext())
+    const result = await execute(tool, {
+      code: 'Object.keys(tools).sort().join(",")'
+    })
+    // Without searchService/webSearchService, only core tools are available
+    assert.equal(result.details.result, 'bash,edit,read,write')
   })
 })

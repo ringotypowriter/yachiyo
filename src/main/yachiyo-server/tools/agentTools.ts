@@ -389,7 +389,16 @@ export function createAgentToolSet(
     tools.write = wrapDisabledTool(createWriteTool(context), 'write', enabledTools)
     tools.edit = wrapDisabledTool(createEditTool(context), 'edit', enabledTools)
     tools.bash = wrapDisabledTool(createBashTool(context), 'bash', enabledTools)
-    tools.jsRepl = wrapDisabledTool(createJsReplTool(context), 'jsRepl', enabledTools)
+    tools.jsRepl = wrapDisabledTool(
+      createJsReplTool(context, {
+        ...(dependencies.searchService ? { searchService: dependencies.searchService } : {}),
+        ...(dependencies.webSearchService
+          ? { webSearchService: dependencies.webSearchService }
+          : {})
+      }),
+      'jsRepl',
+      enabledTools
+    )
 
     tools.webRead = wrapDisabledTool(
       createWebReadTool(context, {
