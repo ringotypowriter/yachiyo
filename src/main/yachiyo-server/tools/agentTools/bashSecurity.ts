@@ -1100,8 +1100,9 @@ export function validateBashCommand(command: string): SecurityResult {
   // --- Self-launch prevention ---
   if (isSelfLaunchCommand(command)) {
     return refused(
-      'Blocked: cannot launch Yachiyo.app from inside its own agent. ' +
-        'This would cause recursive process spawning and resource exhaustion.'
+      'Blocked: you are already running inside Yachiyo.app — it is available right now. ' +
+        'Launching it again would cause recursive process spawning and resource exhaustion. ' +
+        'Use the yachiyo CLI to interact with the running app instead.'
     )
   }
 

@@ -131,6 +131,7 @@ const NAMESPACE_HELP: Record<string, string> = {
   send: `Usage: yachiyo send <subcommand> [args...] [flags...]
 
   Requires the app to be running.
+  If you are an agent running inside Yachiyo, the app is already running — these commands work directly.
 
   send notification <message> [--title <title>]
                                          Push a native OS notification. Default title="Yachiyo". Fire-and-forget.
