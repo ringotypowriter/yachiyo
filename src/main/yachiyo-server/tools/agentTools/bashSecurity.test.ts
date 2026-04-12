@@ -487,7 +487,7 @@ describe('bashSecurity', () => {
       for (const cmd of blocked) {
         it(`blocks: ${cmd}`, () => {
           assert.equal(isSelfLaunchCommand(cmd), true)
-          expectBlocked(cmd, 'cannot launch Yachiyo.app')
+          expectBlocked(cmd, 'already running inside Yachiyo.app')
         })
       }
 
