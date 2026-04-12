@@ -1044,12 +1044,19 @@ function validateHugeSearchRoot(ctx: ValidationContext): SecurityResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Block commands that reference Yachiyo.app — running the host app from
- * inside its own agent is a recursive-launch footgun that cascades into
- * catastrophic resource exhaustion.
+ * Block commands that would launch or activate Yachiyo — running the host
+ * app from inside its own agent is a recursive-launch footgun that cascades
+ * into catastrophic resource exhaustion.
+ *
+ * Catches:
+ * - Any path containing `Yachiyo.app`
+ * - AppleScript / osascript targeting application "Yachiyo"
  */
 export function isSelfLaunchCommand(command: string): boolean {
-  return /Yachiyo\.app\b/.test(command)
+  if (/Yachiyo\.app\b/.test(command)) return true
+  // osascript -e '... application "Yachiyo" ...' or similar
+  if (/osascript\b/.test(command) && /application\s+["']Yachiyo["']/i.test(command)) return true
+  return false
 }
 
 // ---------------------------------------------------------------------------

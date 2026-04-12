@@ -479,7 +479,9 @@ describe('bashSecurity', () => {
         'open /Applications/Yachiyo.app',
         'open ./out/Yachiyo.app/Contents/MacOS/Yachiyo',
         './out/mac-arm64/Yachiyo.app/Contents/MacOS/Yachiyo',
-        'echo ok; open Yachiyo.app'
+        'echo ok; open Yachiyo.app',
+        'osascript -e \'tell application "Yachiyo" to activate\'',
+        'osascript -e \'tell application "Yachiyo" to quit\''
       ]
 
       for (const cmd of blocked) {
@@ -500,7 +502,8 @@ describe('bashSecurity', () => {
         'npx electron .',
         'grep -r "Yachiyo" src/',
         'echo "Yachiyo is great"',
-        'cat README.md'
+        'cat README.md',
+        'osascript -e \'tell application "Finder" to activate\''
       ]
 
       for (const cmd of allowed) {

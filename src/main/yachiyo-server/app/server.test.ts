@@ -761,7 +761,7 @@ test('YachiyoServer bases recall history on the active branch during retry', asy
   )
 })
 
-test('YachiyoServer only injects the hidden memory_search runtime tool when memory is configured', async () => {
+test('YachiyoServer injects searchMemory for configured memory and cross-thread search', async () => {
   const configuredRequests: ModelStreamRequest[] = []
   const disabledRequests: ModelStreamRequest[] = []
 
@@ -862,7 +862,9 @@ test('YachiyoServer only injects the hidden memory_search runtime tool when memo
 
   assert.ok(configuredMainRequest?.tools)
   assert.equal('searchMemory' in (configuredMainRequest?.tools ?? {}), true)
-  assert.equal('searchMemory' in (disabledMainRequest?.tools ?? {}), false)
+  // searchMemory is still registered for local threads even without memory
+  // configured, because cross-thread FTS search is always available.
+  assert.equal('searchMemory' in (disabledMainRequest?.tools ?? {}), true)
 })
 
 test('YachiyoServer does not claim there are no tools when hidden memory search is the only tool', async () => {

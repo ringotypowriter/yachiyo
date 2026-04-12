@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 
-import { and, asc, desc, eq, isNull, like } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull, like, ne, or } from 'drizzle-orm'
 import { sql } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
@@ -10,7 +10,12 @@ import type { ToolCallRecord } from '../../../shared/yachiyo/protocol.ts'
 import { resolveYachiyoDataDir } from '../config/paths.ts'
 import { isBundledSkillPath } from '../services/skills/skillDiscovery.ts'
 import * as schema from '../storage/sqlite/schema.ts'
-import { messagesTable, threadsTable, toolCallsTable } from '../storage/sqlite/schema.ts'
+import {
+  channelUsersTable,
+  messagesTable,
+  threadsTable,
+  toolCallsTable
+} from '../storage/sqlite/schema.ts'
 
 type SqliteDb = BetterSQLite3Database<typeof schema>
 
@@ -127,10 +132,12 @@ export function searchMessages(
       })
       .from(messagesTable)
       .innerJoin(threadsTable, eq(messagesTable.threadId, threadsTable.id))
+      .leftJoin(channelUsersTable, eq(threadsTable.channelUserId, channelUsersTable.id))
       .where(
         and(
           isNull(threadsTable.archivedAt),
           like(messagesTable.content, `%${trimmed.replace(/[%_]/g, '')}%`),
+          or(isNull(channelUsersTable.id), ne(channelUsersTable.role, 'guest')),
           ...(includePrivate ? [] : [isNull(threadsTable.privacyMode)])
         )
       )
@@ -190,9 +197,11 @@ export function listRecentThreads(
         createdAt: threadsTable.createdAt
       })
       .from(threadsTable)
+      .leftJoin(channelUsersTable, eq(threadsTable.channelUserId, channelUsersTable.id))
       .where(
         and(
           isNull(threadsTable.archivedAt),
+          or(isNull(channelUsersTable.id), ne(channelUsersTable.role, 'guest')),
           ...(includePrivate ? [] : [isNull(threadsTable.privacyMode)])
         )
       )
