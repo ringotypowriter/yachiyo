@@ -1,0 +1,5 @@
+---
+'yachiyo': patch
+---
+
+Security fix
