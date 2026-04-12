@@ -253,6 +253,10 @@ export class YachiyoServerRunDomain {
     return this.backgroundBashManager.listSnapshots(threadId)
   }
 
+  cancelBackgroundTask(taskId: string): boolean {
+    return this.backgroundBashManager.cancelTask(taskId)
+  }
+
   hasActiveThread(threadId: string): boolean {
     return this.activeRunByThread.has(threadId)
   }
@@ -388,6 +392,8 @@ export class YachiyoServerRunDomain {
       // 1. Update ToolCallRecord status/exitCode for the renderer. The model-facing
       // `output` blob is left untouched: history must remain truthful that the launch
       // call only ever returned the `{taskId, logPath}` handle.
+      const cancelled = result.cancelledByUser === true
+
       if (result.toolCallId) {
         const toolCalls = this.deps.loadThreadToolCalls(result.threadId)
         const tc = toolCalls.find((t) => t.id === result.toolCallId)
@@ -398,15 +404,18 @@ export class YachiyoServerRunDomain {
               : {}
           const updated: ToolCallRecord = {
             ...tc,
-            status: result.exitCode === 0 ? 'completed' : 'failed',
-            outputSummary: `exit ${result.exitCode}`,
+            status: cancelled ? 'failed' : result.exitCode === 0 ? 'completed' : 'failed',
+            outputSummary: cancelled ? 'cancelled by user' : `exit ${result.exitCode}`,
             details: {
               ...baseDetails,
-              exitCode: result.exitCode
+              exitCode: result.exitCode,
+              ...(cancelled ? { cancelledByUser: true } : {})
             } as unknown as ToolCallRecord['details'],
-            ...(result.exitCode !== 0
-              ? { error: `Command exited with code ${result.exitCode}.` }
-              : {}),
+            ...(cancelled
+              ? { error: 'Background task was cancelled by the user.' }
+              : result.exitCode !== 0
+                ? { error: `Command exited with code ${result.exitCode}.` }
+                : {}),
             finishedAt: timestamp
           }
           this.deps.storage.updateToolCall(updated)
@@ -427,17 +436,18 @@ export class YachiyoServerRunDomain {
         command: result.command,
         logPath: result.logPath,
         exitCode: result.exitCode,
-        toolCallId: result.toolCallId
+        toolCallId: result.toolCallId,
+        ...(cancelled ? { cancelledByUser: true } : {})
       })
 
       // 3. Auto-deliver the completion notice as a regular user message via sendChat,
-      // for local threads and owner DMs. The user sees a clearly-worded "background task
-      // completed" line, and the model gets a real user-tail message it can reply to.
-      // We do not invent a new MessageRole — the row reads as a normal user message,
-      // and the content makes its system origin obvious.
+      // for local threads and owner DMs. Skip when the user manually cancelled —
+      // they already know, and triggering a model run would be noise.
       const ctx = this.backgroundTaskRunContext.get(result.taskId)
       this.backgroundTaskRunContext.delete(result.taskId)
-      void this.autoDeliverBackgroundCompletion(result, ctx)
+      if (!cancelled) {
+        void this.autoDeliverBackgroundCompletion(result, ctx)
+      }
     } catch (error) {
       // Thread may have been deleted while background task was running
       console.warn('[yachiyo][background-bash] completion handler failed', {

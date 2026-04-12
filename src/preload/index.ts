@@ -231,6 +231,8 @@ const api = {
       threadId: string
     }): Promise<import('../shared/yachiyo/protocol').BackgroundTaskSnapshot[]> =>
       ipcRenderer.invoke('yachiyo:list-background-tasks', input),
+    cancelBackgroundTask: (input: { taskId: string }): Promise<boolean> =>
+      ipcRenderer.invoke('yachiyo:cancel-background-task', input),
     listExternalThreads: (): Promise<ThreadRecord[]> =>
       ipcRenderer.invoke('yachiyo:list-external-threads'),
     listChannelUsers: (): Promise<ChannelUserRecord[]> =>

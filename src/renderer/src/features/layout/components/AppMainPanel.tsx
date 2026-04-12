@@ -5,7 +5,10 @@ import { ThreadFindBar } from '@renderer/features/chat/components/ThreadFindBar'
 import { buildFindMatches } from '@renderer/features/chat/lib/threadFindBar'
 import type { FindMatch } from '@renderer/features/chat/lib/threadFindBar'
 import { BackgroundTasksChip } from '@renderer/features/chat/components/BackgroundTasksChip'
-import { useBackgroundTasksStore } from '@renderer/features/chat/state/useBackgroundTasksStore'
+import {
+  useBackgroundTasksStore,
+  selectThreadRunningCount
+} from '@renderer/features/chat/state/useBackgroundTasksStore'
 import { Composer } from '@renderer/features/chat/components/Composer'
 import { ExternalThreadViewer } from '@renderer/features/chat/components/ExternalThreadViewer'
 import { MessageTimeline } from '@renderer/features/chat/components/MessageTimeline'
@@ -207,22 +210,30 @@ export function AppMainPanel({
   // Hydrate background-task snapshots when switching threads so the chip can
   // catch up on tasks that started before the renderer mounted (or were left
   // running across an app restart).
+  const bgRunningCount = useBackgroundTasksStore(selectThreadRunningCount(activeThreadId))
   useEffect(() => {
     if (!activeThreadId) return
     let cancelled = false
-    void window.api.yachiyo
-      .listBackgroundTasks({ threadId: activeThreadId })
-      .then((snapshots) => {
-        if (cancelled) return
-        useBackgroundTasksStore.getState().hydrate(activeThreadId, snapshots)
-      })
-      .catch((error: unknown) => {
-        console.warn('[yachiyo] failed to hydrate background tasks', error)
-      })
+    const hydrate = (): void => {
+      void window.api.yachiyo
+        .listBackgroundTasks({ threadId: activeThreadId })
+        .then((snapshots) => {
+          if (cancelled) return
+          useBackgroundTasksStore.getState().hydrate(activeThreadId, snapshots)
+        })
+        .catch((error: unknown) => {
+          console.warn('[yachiyo] failed to hydrate background tasks', error)
+        })
+    }
+    hydrate()
+    // Re-sync periodically while there are running tasks so that dropped
+    // completion events don't leave ghost "running" entries in the UI.
+    const intervalId = bgRunningCount > 0 ? setInterval(hydrate, 15_000) : undefined
     return () => {
       cancelled = true
+      if (intervalId) clearInterval(intervalId)
     }
-  }, [activeThreadId])
+  }, [activeThreadId, bgRunningCount])
 
   useEffect(() => {
     if (!pendingFindQuery) return

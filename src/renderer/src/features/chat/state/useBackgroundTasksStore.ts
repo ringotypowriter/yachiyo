@@ -19,6 +19,7 @@ export interface BackgroundTaskState {
   status: BackgroundTaskSnapshotStatus
   exitCode?: number
   finishedAt?: string
+  cancelledByUser?: boolean
   logTail: string[]
 }
 
@@ -63,8 +64,14 @@ export const useBackgroundTasksStore = create<BackgroundTasksState>((set) => ({
           status: snap.status,
           ...(snap.exitCode != null ? { exitCode: snap.exitCode } : {}),
           ...(snap.finishedAt ? { finishedAt: snap.finishedAt } : {}),
+          ...(snap.cancelledByUser ? { cancelledByUser: true } : {}),
           logTail
         }
+      }
+      for (const [taskId, prior] of Object.entries(existing)) {
+        if (next[taskId]) continue
+        if (prior.status === 'running') continue
+        next[taskId] = prior
       }
       return { tasksByThread: { ...state.tasksByThread, [threadId]: next } }
     }),
@@ -111,6 +118,7 @@ export const useBackgroundTasksStore = create<BackgroundTasksState>((set) => ({
     set((state) => {
       const threadTasks = state.tasksByThread[event.threadId] ?? {}
       const prior = threadTasks[event.taskId]
+      const cancelled = event.cancelledByUser === true
       const updated: BackgroundTaskState = {
         taskId: event.taskId,
         threadId: event.threadId,
@@ -119,6 +127,7 @@ export const useBackgroundTasksStore = create<BackgroundTasksState>((set) => ({
         status: event.exitCode === 0 ? 'completed' : 'failed',
         exitCode: event.exitCode,
         finishedAt: new Date().toISOString(),
+        ...(cancelled ? { cancelledByUser: true } : {}),
         logTail: prior?.logTail ?? []
       }
       // Cap the number of completed entries we keep around per thread, evicting

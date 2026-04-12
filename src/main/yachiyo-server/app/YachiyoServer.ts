@@ -868,6 +868,10 @@ export class YachiyoServer {
     this.runDomain.answerToolQuestion(input)
   }
 
+  cancelBackgroundTask(input: { taskId: string }): boolean {
+    return this.runDomain.cancelBackgroundTask(input.taskId)
+  }
+
   async listBackgroundTasks(input: {
     threadId: string
   }): Promise<import('../../../shared/yachiyo/protocol').BackgroundTaskSnapshot[]> {

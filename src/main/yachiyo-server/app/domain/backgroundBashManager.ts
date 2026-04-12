@@ -32,6 +32,8 @@ export interface BackgroundBashTaskResult {
   exitCode: number
   threadId: string
   toolCallId?: string
+  /** True when the task was stopped via `cancelTask` (user-initiated abort). */
+  cancelledByUser?: boolean
 }
 
 export interface BackgroundBashLogAppend {
@@ -51,6 +53,7 @@ export interface BackgroundBashSnapshot {
   status: BackgroundTaskSnapshotStatus
   exitCode?: number
   finishedAt?: string
+  cancelledByUser?: boolean
 }
 
 interface ActiveBackgroundTask {
@@ -70,6 +73,8 @@ interface ActiveBackgroundTask {
   /** Pending complete lines waiting to be flushed in the next throttle window. */
   pendingFlushLines: string[]
   flushTimer: NodeJS.Timeout | null
+  cancelRequestedByUser: boolean
+  cancelSignalDelivered: boolean
 }
 
 interface RecentlyCompletedTask {
@@ -102,7 +107,10 @@ export class BackgroundBashManager {
     const child = spawn('/bin/zsh', ['-lc', input.command], {
       cwd: input.cwd,
       env: process.env,
-      stdio: ['ignore', 'pipe', 'pipe']
+      stdio: ['ignore', 'pipe', 'pipe'],
+      // Give the child its own process group so cancelTask() can kill the
+      // entire tree (shell + any grandchild processes) via process.kill(-pid).
+      detached: true
     })
     await this.registerChild(input, child, '', false)
   }
@@ -150,7 +158,9 @@ export class BackgroundBashManager {
       promise: undefined as unknown as Promise<BackgroundBashTaskResult>,
       pendingLineBuffer: '',
       pendingFlushLines: [],
-      flushTimer: null
+      flushTimer: null,
+      cancelRequestedByUser: false,
+      cancelSignalDelivered: false
     }
 
     const onChunk = (chunk: string): void => {
@@ -166,7 +176,19 @@ export class BackgroundBashManager {
     const onAbort = (): void => {
       if (child.exitCode !== null || child.signalCode !== null) return
       try {
-        child.kill('SIGKILL')
+        // Kill the entire process group (shell + children) when spawned with
+        // detached: true. Falls back to killing just the shell for adopted
+        // tasks that may not lead their own group.
+        if (child.pid != null) {
+          try {
+            process.kill(-child.pid, 'SIGKILL')
+            task.cancelSignalDelivered = true
+          } catch {
+            task.cancelSignalDelivered = child.kill('SIGKILL')
+          }
+        } else {
+          task.cancelSignalDelivered = child.kill('SIGKILL')
+        }
       } catch {
         // ESRCH if already reaped
       }
@@ -190,17 +212,19 @@ export class BackgroundBashManager {
 
       await waitForLogFlush()
 
+      const cancelledByUser = task.cancelRequestedByUser && task.cancelSignalDelivered
       const result: BackgroundBashTaskResult = {
         taskId: input.taskId,
         command: input.command,
         logPath: input.logPath,
         exitCode,
         threadId: input.threadId,
-        toolCallId: input.toolCallId
+        toolCallId: input.toolCallId,
+        ...(cancelledByUser ? { cancelledByUser } : {})
       }
       this.tasks.delete(input.taskId)
       abortController.signal.removeEventListener('abort', onAbort)
-      this.rememberCompletion(task, exitCode)
+      this.rememberCompletion(task, exitCode, cancelledByUser)
       this.onCompleted?.(result)
       return result
     }
@@ -258,7 +282,11 @@ export class BackgroundBashManager {
     }
   }
 
-  private rememberCompletion(task: ActiveBackgroundTask, exitCode: number): void {
+  private rememberCompletion(
+    task: ActiveBackgroundTask,
+    exitCode: number,
+    cancelledByUser: boolean
+  ): void {
     const snapshot: BackgroundBashSnapshot = {
       taskId: task.taskId,
       threadId: task.threadId,
@@ -267,7 +295,8 @@ export class BackgroundBashManager {
       startedAt: task.startedAt,
       status: exitCode === 0 ? 'completed' : 'failed',
       exitCode,
-      finishedAt: new Date().toISOString()
+      finishedAt: new Date().toISOString(),
+      ...(cancelledByUser ? { cancelledByUser: true } : {})
     }
     const existing = this.recentlyCompleted.get(task.taskId)
     if (existing) {
@@ -286,6 +315,7 @@ export class BackgroundBashManager {
   cancelTask(taskId: string): boolean {
     const task = this.tasks.get(taskId)
     if (!task) return false
+    task.cancelRequestedByUser = true
     task.abortController.abort()
     return true
   }

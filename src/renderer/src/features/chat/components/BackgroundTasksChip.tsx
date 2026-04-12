@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronUp, Terminal, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Square, Terminal, X } from 'lucide-react'
 
 import { theme } from '@renderer/theme/theme'
 import { useBackgroundTasksStore, type BackgroundTaskState } from '../state/useBackgroundTasksStore'
@@ -208,6 +208,7 @@ function BackgroundTasksPanel({
             task={task}
             expanded={expandedTaskId === task.taskId}
             onToggleExpand={() => onToggleExpand(task.taskId)}
+            onCancel={() => void window.api.yachiyo.cancelBackgroundTask({ taskId: task.taskId })}
             onDismiss={() => dismissTask(threadId, task.taskId)}
             now={now}
           />
@@ -221,6 +222,7 @@ interface BackgroundTaskRowProps {
   task: BackgroundTaskState
   expanded: boolean
   onToggleExpand: () => void
+  onCancel: () => void
   onDismiss: () => void
   now: number
 }
@@ -229,11 +231,13 @@ function BackgroundTaskRow({
   task,
   expanded,
   onToggleExpand,
+  onCancel,
   onDismiss,
   now
 }: BackgroundTaskRowProps): React.JSX.Element {
   const isRunning = task.status === 'running'
   const isFailed = task.status === 'failed'
+  const isCancelled = task.cancelledByUser === true
   const statusColor = isRunning
     ? theme.text.accent
     : isFailed
@@ -241,9 +245,11 @@ function BackgroundTaskRow({
       : theme.text.success
   const statusLabel = isRunning
     ? formatElapsed(task.startedAt, now)
-    : isFailed
-      ? `failed (exit ${task.exitCode ?? '?'})`
-      : `done (exit ${task.exitCode ?? 0})`
+    : isCancelled
+      ? 'cancelled'
+      : isFailed
+        ? `failed (exit ${task.exitCode ?? '?'})`
+        : `done (exit ${task.exitCode ?? 0})`
 
   return (
     <div style={{ borderBottom: `1px solid ${theme.border.subtle}` }}>
@@ -271,7 +277,17 @@ function BackgroundTaskRow({
             {statusLabel}
           </span>
         </button>
-        {!isRunning && (
+        {isRunning ? (
+          <button
+            type="button"
+            onClick={onCancel}
+            title="Cancel task"
+            className="p-1 rounded cursor-pointer hover:opacity-70 shrink-0"
+            style={{ color: theme.text.danger }}
+          >
+            <Square size={10} strokeWidth={2} fill="currentColor" />
+          </button>
+        ) : (
           <button
             type="button"
             onClick={onDismiss}

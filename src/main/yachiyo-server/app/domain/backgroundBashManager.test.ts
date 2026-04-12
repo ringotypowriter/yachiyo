@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { join, dirname } from 'node:path'
@@ -10,6 +11,25 @@ import {
   type BackgroundBashLogAppend,
   type BackgroundBashTaskResult
 } from './backgroundBashManager.ts'
+
+class FakeReadable extends EventEmitter {
+  setEncoding(): this {
+    return this
+  }
+}
+
+class FakeChildProcess extends EventEmitter {
+  exitCode: number | null = null
+  signalCode: NodeJS.Signals | null = null
+  pid?: number
+  readonly stdout = new FakeReadable()
+  readonly stderr = new FakeReadable()
+  killImpl: (signal?: NodeJS.Signals | number) => boolean = () => true
+
+  kill(signal?: NodeJS.Signals | number): boolean {
+    return this.killImpl(signal)
+  }
+}
 
 async function createTempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'bg-bash-test-'))
@@ -131,6 +151,46 @@ describe('BackgroundBashManager', () => {
   it('cancelTask returns false for unknown taskId', () => {
     const manager = new BackgroundBashManager()
     assert.equal(manager.cancelTask('nonexistent'), false)
+  })
+
+  it('does not mark a naturally completed task as cancelled when cancel races with exit', async () => {
+    const tempDir = await createTempDir()
+    try {
+      const manager = new BackgroundBashManager()
+      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
+        manager.setCompletionHandler(resolve)
+      })
+      const child = new FakeChildProcess()
+
+      child.killImpl = () => {
+        child.exitCode = 0
+        child.emit('close', 0)
+        return false
+      }
+
+      await manager.adoptTask({
+        taskId: 'race-task',
+        command: 'echo done',
+        cwd: tempDir,
+        logPath: join(tempDir, 'tool-output', 'race.log'),
+        threadId: 'thread-race',
+        child: child as unknown as import('node:child_process').ChildProcess,
+        initialOutput: '',
+        initialOutputAlreadyOnDisk: false
+      })
+
+      assert.equal(manager.cancelTask('race-task'), true)
+
+      const result = await completed
+      assert.equal(result.exitCode, 0)
+      assert.equal(result.cancelledByUser, undefined)
+
+      const [snapshot] = manager.listSnapshots('thread-race')
+      assert.equal(snapshot?.status, 'completed')
+      assert.equal(snapshot?.cancelledByUser, undefined)
+    } finally {
+      await rm(tempDir, { recursive: true })
+    }
   })
 
   it('getTask returns task info for active task', async () => {
