@@ -1562,6 +1562,7 @@ test('YachiyoServer snapshots the enabled tool subset and sends tool-change remi
       'write',
       'edit',
       'bash',
+      'jsRepl',
       'webRead',
       'grep',
       'glob',

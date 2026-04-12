@@ -78,7 +78,17 @@ test('buildDisabledToolsReminderSection lists disabled user-managed tools', () =
 
 test('buildDisabledToolsReminderSection returns null when all tools enabled', () => {
   const section = buildDisabledToolsReminderSection({
-    enabledTools: ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'webRead', 'webSearch']
+    enabledTools: [
+      'read',
+      'write',
+      'edit',
+      'bash',
+      'jsRepl',
+      'grep',
+      'glob',
+      'webRead',
+      'webSearch'
+    ]
   })
   assert.equal(section, null)
 })
@@ -86,7 +96,17 @@ test('buildDisabledToolsReminderSection returns null when all tools enabled', ()
 test('buildDisabledToolsReminderSection excludes runtime-managed tools', () => {
   // Even if skillsRead is not in enabledTools, it should not appear (it's runtime-managed)
   const section = buildDisabledToolsReminderSection({
-    enabledTools: ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'webRead', 'webSearch']
+    enabledTools: [
+      'read',
+      'write',
+      'edit',
+      'bash',
+      'jsRepl',
+      'grep',
+      'glob',
+      'webRead',
+      'webSearch'
+    ]
   })
   assert.equal(section, null)
 })
