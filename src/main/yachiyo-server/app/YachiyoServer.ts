@@ -127,6 +127,7 @@ export interface YachiyoServerOptions {
   storage: YachiyoStorage
   settingsPath?: string
   seedPresetProviders?: boolean
+  developmentMode?: boolean
   fetchImpl?: typeof globalThis.fetch
   runInactivityTimeoutMs?: number
   now?: () => Date
@@ -151,7 +152,6 @@ export interface YachiyoServerOptions {
 
 export interface SqliteYachiyoServerOptions extends Omit<YachiyoServerOptions, 'storage'> {
   dbPath: string
-  developmentMode?: boolean
 }
 
 export class YachiyoServer {
@@ -183,6 +183,7 @@ export class YachiyoServer {
   private readonly scheduleDomain: ScheduleDomain
   private readonly ttlReaper: TtlReaper
   private readonly jotdownStore: JotdownStore | null
+  private readonly developmentMode: boolean
   private readonly remoteImageDomain: ReturnType<typeof createRemoteImageDomain>
 
   private static logBrowserSearchDiagnostic(event: BrowserSearchDiagnosticEvent): void {
@@ -202,6 +203,7 @@ export class YachiyoServer {
 
   constructor(options: YachiyoServerOptions) {
     this.storage = options.storage
+    this.developmentMode = options.developmentMode === true
     this.now = options.now ?? (() => new Date())
     this.createId = options.createId ?? randomUUID
 
@@ -397,11 +399,13 @@ export class YachiyoServer {
   }
 
   async bootstrap(): Promise<BootstrapPayload> {
-    this.recoverInterruptedRuns()
+    if (!this.developmentMode) {
+      this.recoverInterruptedRuns()
+    }
     const recoveredInterruptedSaveThreadIds = this.recoverInterruptedSaves()
     await Promise.all([this.readSoulDocumentFile(), this.readUserDocumentFile()])
     const recoveredQueuedFollowUps = this.runDomain.prepareRecoveredQueuedFollowUps()
-    const recoveredRuns = this.runDomain.prepareRecoveredRuns()
+    const recoveredRuns = this.developmentMode ? [] : this.runDomain.prepareRecoveredRuns()
 
     const { archivedThreads, threads, messagesByThread, toolCallsByThread, latestRunsByThread } =
       this.storage.bootstrap()
