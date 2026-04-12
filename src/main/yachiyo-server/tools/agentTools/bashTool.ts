@@ -261,7 +261,8 @@ const defaultBashRunner: BashRunner = async ({
   const child = spawn('/bin/zsh', ['-lc', command], {
     cwd,
     env: process.env,
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true
   })
 
   let stdout = ''
@@ -277,6 +278,14 @@ const defaultBashRunner: BashRunner = async ({
       return
     }
     try {
+      if (child.pid != null) {
+        try {
+          process.kill(-child.pid, 'SIGKILL')
+          return
+        } catch {
+          // Fall through to killing only the shell if the process group no longer exists.
+        }
+      }
       child.kill('SIGKILL')
     } catch {
       // ESRCH if the kernel already reaped the child.

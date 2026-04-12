@@ -40,6 +40,15 @@ function flattenToolContent(content: Array<{ type: string; text?: string }>): st
     .join('')
 }
 
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
 test('runReadTool uses offset/limit continuation semantics and returns truncation hints', async () => {
   await withWorkspace(async (workspacePath) => {
     await writeFile(join(workspacePath, 'notes.txt'), 'one\ntwo\nthree\nfour\nfive', 'utf8')
@@ -325,6 +334,59 @@ test('streamBashTool abortSignal stops a long-running command without waiting fo
       performance.now() - started < 8000,
       'expected Stop/cancel to tear down the shell quickly, not after the full sleep'
     )
+  })
+})
+
+test('streamBashTool abortSignal kills spawned child processes, not just the shell wrapper', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const controller = new AbortController()
+    const childPidPath = join(workspacePath, 'child.pid')
+
+    const drain = Array.fromAsync(
+      streamBashTool(
+        {
+          command: `nohup sleep 60 >/dev/null 2>&1 & echo $! > ${JSON.stringify(childPidPath)}; wait`,
+          timeout: 120
+        },
+        { workspacePath },
+        { abortSignal: controller.signal }
+      )
+    )
+
+    let childPid = 0
+    const deadline = Date.now() + 5000
+    while (Date.now() < deadline) {
+      try {
+        childPid = Number.parseInt((await readFile(childPidPath, 'utf8')).trim(), 10)
+      } catch {
+        // Wait for the shell to spawn the child and write its pid.
+      }
+      if (Number.isInteger(childPid) && childPid > 0) {
+        break
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+
+    assert.ok(childPid > 0, 'expected bash command to record a child pid before abort')
+
+    controller.abort()
+
+    await assert.rejects(
+      drain,
+      (error: unknown) => error instanceof Error && error.name === 'AbortError'
+    )
+
+    const killDeadline = Date.now() + 3000
+    while (Date.now() < killDeadline && processExists(childPid)) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+
+    const stillRunning = processExists(childPid)
+    if (stillRunning) {
+      process.kill(childPid, 'SIGKILL')
+    }
+
+    assert.equal(stillRunning, false, 'expected abort to kill the spawned child process too')
   })
 })
 
