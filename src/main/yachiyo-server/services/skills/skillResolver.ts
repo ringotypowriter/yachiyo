@@ -18,26 +18,34 @@ export function resolveActiveSkills(input: {
   enabledSkillNames?: string[]
 }): SkillSummary[] {
   const skillByName = new Map(input.availableSkills.map((skill) => [skill.name, skill] as const))
-  const disabledNames = new Set(normalizeSkillNames(input.config.skills?.disabled, []))
-
-  const requestedNames = normalizeSkillNames(
-    input.enabledSkillNames ?? input.config.skills?.enabled,
-    []
-  )
+  const hasComposerOverride = input.enabledSkillNames !== undefined
 
   const result = new Map<string, SkillSummary>()
 
-  for (const skill of input.availableSkills) {
-    if (skill.autoEnabled && !disabledNames.has(skill.name)) {
-      result.set(skill.name, toSummary(skill))
+  if (hasComposerOverride) {
+    // Composer override is the complete truth — only include what it lists.
+    for (const name of normalizeSkillNames(input.enabledSkillNames, [])) {
+      const skill = skillByName.get(name)
+      if (skill) {
+        result.set(name, toSummary(skill))
+      }
     }
-  }
+  } else {
+    // Settings defaults: auto-enabled skills + explicitly enabled, minus disabled.
+    const disabledNames = new Set(normalizeSkillNames(input.config.skills?.disabled, []))
 
-  for (const name of requestedNames) {
-    if (result.has(name)) continue
-    const skill = skillByName.get(name)
-    if (skill) {
-      result.set(name, toSummary(skill))
+    for (const skill of input.availableSkills) {
+      if (skill.autoEnabled && !disabledNames.has(skill.name)) {
+        result.set(skill.name, toSummary(skill))
+      }
+    }
+
+    for (const name of normalizeSkillNames(input.config.skills?.enabled, [])) {
+      if (result.has(name)) continue
+      const skill = skillByName.get(name)
+      if (skill) {
+        result.set(name, toSummary(skill))
+      }
     }
   }
 

@@ -37,7 +37,10 @@ import {
   resolveLineHeightPx
 } from '@renderer/features/chat/lib/pretextSync'
 import { theme } from '@renderer/theme/theme'
-import { DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR } from '../../../../../shared/yachiyo/protocol.ts'
+import {
+  DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
+  normalizeSkillNames
+} from '../../../../../shared/yachiyo/protocol.ts'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import { ModelSelectorPopup } from './ModelSelectorPopup'
 import type { AcpAgentEntry } from '../lib/modelSelectorState'
@@ -525,10 +528,22 @@ export function Composer({
   const canAddFiles = draftFiles.length < MAX_COMPOSER_FILES
   const hasActiveRun = activeRunId !== null
 
-  const defaultEnabledSkillNames = useMemo(
-    () => config?.skills?.enabled ?? [],
-    [config?.skills?.enabled]
-  )
+  const defaultEnabledSkillNames = useMemo(() => {
+    const enabledNames = normalizeSkillNames(config?.skills?.enabled)
+    const disabledNames = new Set(normalizeSkillNames(config?.skills?.disabled))
+    const result: string[] = []
+    for (const skill of availableSkills) {
+      if (skill.autoEnabled && !disabledNames.has(skill.name)) {
+        result.push(skill.name)
+      }
+    }
+    for (const name of enabledNames) {
+      if (!result.includes(name)) {
+        result.push(name)
+      }
+    }
+    return result
+  }, [config?.skills?.enabled, config?.skills?.disabled, availableSkills])
   const effectiveEnabledSkillNames = composerDraft.enabledSkillNames ?? defaultEnabledSkillNames
   const hasCustomSkillOverride =
     composerDraft.enabledSkillNames !== null && composerDraft.enabledSkillNames !== undefined

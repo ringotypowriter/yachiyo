@@ -99,6 +99,24 @@ test('autoEnabled skills can be explicitly disabled', () => {
   ])
 })
 
+test('composer override can exclude autoEnabled skills from a run', () => {
+  const activeSkills = resolveActiveSkills({
+    availableSkills: AVAILABLE_SKILLS,
+    config: {
+      providers: [],
+      skills: { enabled: ['release-checklist'] }
+    },
+    enabledSkillNames: ['release-checklist']
+  })
+
+  assert.deepEqual(activeSkills, [
+    {
+      name: 'release-checklist',
+      description: 'Release checklist'
+    }
+  ])
+})
+
 test('non-autoEnabled skills are not active unless explicitly enabled', () => {
   const activeSkills = resolveActiveSkills({
     availableSkills: AVAILABLE_SKILLS,
