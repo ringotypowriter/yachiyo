@@ -8,6 +8,7 @@
 
 import { useMemo, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, XCircle } from 'lucide-react'
+import { formatTokenCount } from '@renderer/lib/formatTokenCount'
 import type { Thread, Message, ToolCall } from '@renderer/app/types'
 import type { ScheduleRunRecord } from '../../../../../shared/yachiyo/protocol.ts'
 import { useAppStore } from '@renderer/app/store/useAppStore'
@@ -368,7 +369,9 @@ function ScheduleSummaryCard({ run }: { run: ScheduleRunRecord }): React.JSX.Ele
           {run.completedAt && <span>· Finished {formatRunTimestamp(run.completedAt)}</span>}
           {duration && <span>· {duration}</span>}
           {(run.promptTokens != null || run.completionTokens != null) && (
-            <span>· {(run.promptTokens ?? 0) + (run.completionTokens ?? 0)} tokens</span>
+            <span>
+              · {formatTokenCount((run.promptTokens ?? 0) + (run.completionTokens ?? 0))} tokens
+            </span>
           )}
         </div>
       </div>
