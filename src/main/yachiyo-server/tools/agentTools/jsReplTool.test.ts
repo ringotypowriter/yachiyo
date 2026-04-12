@@ -17,7 +17,7 @@ function makeContext(overrides?: Partial<AgentToolContext>): AgentToolContext {
 
 async function execute(
   toolInstance: ReturnType<typeof createTool>,
-  input: { code: string; reset?: boolean }
+  input: { code: string; reset?: boolean; timeout?: number }
 ): Promise<{ details: JsReplToolCallDetails; error?: string }> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = await (toolInstance as any).execute(input)
@@ -114,7 +114,7 @@ describe('jsReplTool', () => {
 
   it('times out on infinite loops', async () => {
     const tool = createTool(makeContext())
-    const result = await execute(tool, { code: 'while(true) {}' })
+    const result = await execute(tool, { code: 'while(true) {}', timeout: 1 })
     assert.equal(result.details.timedOut, true)
     assert.ok(result.details.error?.includes('timed out'))
   })

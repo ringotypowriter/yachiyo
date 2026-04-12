@@ -31,7 +31,7 @@ export interface JsReplToolDependencies {
   webSearchService?: WebSearchService
 }
 
-const DEFAULT_TIMEOUT_MS = 30_000
+const DEFAULT_TIMEOUT_SECONDS = 30
 const MAX_MODEL_OUTPUT_CHARS = 20_000
 const MAX_DETAILS_OUTPUT_CHARS = 8_000
 
@@ -82,6 +82,7 @@ export function createTool(
       let result: string | undefined
       let error: string | undefined
       let timedOut = false
+      const timeoutMs = (input.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000
 
       // Chdir to workspace so relative fs paths resolve correctly.
       // Held across both the sync vm.runInContext and any subsequent await
@@ -94,7 +95,7 @@ export function createTool(
         let rawResult: unknown
         try {
           rawResult = vm.runInContext(input.code, vmContext, {
-            timeout: DEFAULT_TIMEOUT_MS,
+            timeout: timeoutMs,
             filename: 'jsRepl'
           })
         } catch (syncErr: unknown) {
@@ -108,7 +109,7 @@ export function createTool(
             rawResult = vm.runInContext(
               `(async () => {\n${wrapLastExpression(input.code)}\n})()`,
               vmContext,
-              { timeout: DEFAULT_TIMEOUT_MS, filename: 'jsRepl' }
+              { timeout: timeoutMs, filename: 'jsRepl' }
             )
           } else {
             throw syncErr
@@ -123,8 +124,8 @@ export function createTool(
               rawResult,
               new Promise((_, reject) => {
                 raceTimer = setTimeout(
-                  () => reject(new Error('Script execution timed out (30s limit).')),
-                  DEFAULT_TIMEOUT_MS
+                  () => reject(new Error('Script execution timed out.')),
+                  timeoutMs
                 )
               })
             ])
@@ -145,7 +146,7 @@ export function createTool(
             errObj.message.includes('Script execution timed out'))
         ) {
           timedOut = true
-          error = 'Script execution timed out (30s limit).'
+          error = `Script execution timed out (${input.timeout ?? DEFAULT_TIMEOUT_SECONDS}s limit).`
         } else if (err instanceof Error) {
           error = `${err.name}: ${err.message}`
         } else if (typeof errObj.message === 'string') {

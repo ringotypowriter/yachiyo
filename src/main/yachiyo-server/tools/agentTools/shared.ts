@@ -60,9 +60,12 @@ export const bashToolInputSchema = z.object({
   background: z.boolean().optional()
 })
 
+export const MAX_JSREPL_TIMEOUT_SECONDS = 120
+
 export const jsReplToolInputSchema = z.object({
   code: z.string().min(1),
-  reset: z.boolean().optional()
+  reset: z.boolean().optional(),
+  timeout: z.number().int().min(1).max(MAX_JSREPL_TIMEOUT_SECONDS).optional()
 })
 
 export const grepToolInputSchema = z.object({
