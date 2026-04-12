@@ -34,6 +34,7 @@ import {
   resolveRetryTargetMessageId
 } from '../lib/messageActionState'
 import { MessageActionBar } from './MessageActionBar'
+import { RunStatsFooter } from './RunStatsFooter'
 
 interface MessageTimelineProps {
   threadId: string | null
@@ -444,6 +445,11 @@ export const ThreadConversationGroup = memo(function ThreadConversationGroup({
               {savedMemoryCount === 1 ? 'Memory saved' : `${savedMemoryCount} memories saved`}
             </div>
           ) : null}
+          <RunStatsFooter
+            runs={runs}
+            requestMessageId={group.userMessage.id}
+            toolCallCount={visibleToolCalls.length}
+          />
           <MessageActionBar
             align="start"
             content={activeBranch.message.content}
