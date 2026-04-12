@@ -65,6 +65,28 @@ function setupDevMock(): void {
   setTimeout(() => broadcast({ state: 'available', version: '99.0.0' }), 3000)
 }
 
+/** Extract a short, user-friendly message from electron-updater errors. */
+function summarizeUpdateError(err: Error): string {
+  const msg = err.message ?? String(err)
+
+  // HttpError from electron-builder — grab just the first line (status + url)
+  const httpMatch = msg.match(/HttpError:\s*(\d{3})\b/)
+  if (httpMatch) {
+    const code = httpMatch[1]
+    if (code === '404') return 'Update not found — release may not be published yet.'
+    return `Update server returned HTTP ${code}.`
+  }
+
+  // Network-level errors
+  if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|fetch failed/i.test(msg)) {
+    return 'Could not reach the update server. Check your network connection.'
+  }
+
+  // Fallback: first meaningful line, capped
+  const firstLine = msg.split('\n')[0].trim()
+  return firstLine.length > 120 ? firstLine.slice(0, 117) + '…' : firstLine
+}
+
 function setupProd(): void {
   const channel = readInitialChannel()
   autoUpdater.autoDownload = false
@@ -96,7 +118,7 @@ function setupProd(): void {
   })
 
   autoUpdater.on('error', (err) => {
-    broadcast({ state: 'error', error: err.message })
+    broadcast({ state: 'error', error: summarizeUpdateError(err) })
   })
 
   ipcMain.handle('app-update:get-status', (): UpdateStatus => currentStatus)

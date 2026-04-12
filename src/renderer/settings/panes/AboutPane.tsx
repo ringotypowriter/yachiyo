@@ -180,7 +180,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
               </button>
               {updateState.state === 'error' && updateState.error && (
                 <span
-                  className="text-[11px] text-center px-4"
+                  className="text-[11px] text-center px-4 line-clamp-2"
                   style={{ color: theme.text.muted, maxWidth: 260 }}
                   title={updateState.error}
                 >
