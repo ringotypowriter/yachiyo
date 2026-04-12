@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.25
+
+### Patch Changes
+
+- [`867a3e3`](https://github.com/ringotypowriter/yachiyo/commit/867a3e3f702fad47945c81286569ae4cbd6a0961) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Security fix
+
 ## 1.0.24
 
 ### Patch Changes
