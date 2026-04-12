@@ -104,21 +104,27 @@ export function searchMessages(
     const privacyClause = includePrivate ? '' : 'AND threads.privacy_mode IS NULL'
 
     if (hasFts) {
-      const rows = client
-        .prepare(`${ftsMessageSearchSql(privacyClause)} LIMIT ?`)
-        .all(matchExpr, limit) as FtsMessageRow[]
+      try {
+        const rows = client
+          .prepare(`${ftsMessageSearchSql(privacyClause)} LIMIT ?`)
+          .all(matchExpr, limit) as FtsMessageRow[]
 
-      return rows.map((row) => ({
-        threadId: row.threadId,
-        threadTitle: row.threadTitle,
-        messageId: row.messageId,
-        role: row.role as 'user' | 'assistant',
-        date: row.createdAt.slice(0, 10),
-        snippet: extractSnippet(row.content, trimmed)
-      }))
+        return rows.map((row) => ({
+          threadId: row.threadId,
+          threadTitle: row.threadTitle,
+          messageId: row.messageId,
+          role: row.role as 'user' | 'assistant',
+          date: row.createdAt.slice(0, 10),
+          snippet: extractSnippet(row.content, trimmed)
+        }))
+      } catch {
+        // FTS index exists but the query failed (corrupt index, schema
+        // mismatch, etc.).  The CLI opens the DB readonly so it cannot
+        // repair — fall through to the LIKE path instead of aborting.
+      }
     }
 
-    // Fallback: LIKE-based search when FTS index is unavailable
+    // Fallback: LIKE-based search when FTS index is unavailable or broken
     const { drizzle } = loadSqliteRuntime()
     const db = drizzle(client, { schema })
     const rows = db
