@@ -10,7 +10,7 @@ import { resolveYachiyoDataDir } from './yachiyo-server/config/paths'
 import { registerYachiyoGateway } from './yachiyoGateway'
 import { setupCLI } from './cliSetup'
 import { setupCoreSkills } from './coreSkillsSetup'
-import { setupAutoUpdate } from './autoUpdate'
+import { setupAutoUpdate, isInstallingUpdate } from './autoUpdate'
 import {
   installYachiyoAssetProtocolHandler,
   registerYachiyoAssetScheme
@@ -154,7 +154,7 @@ function openJotdownWindow(): void {
   })
   jotdownWindow.on('ready-to-show', () => jotdownWindow?.show())
   jotdownWindow.on('close', (event) => {
-    if (!isQuitting) {
+    if (!isQuitting && !isInstallingUpdate()) {
       const hasOtherVisible = BrowserWindow.getAllWindows().some(
         (w) => !w.isDestroyed() && w !== jotdownWindow && w.isVisible()
       )

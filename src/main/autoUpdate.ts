@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { is } from '@electron-toolkit/utils'
 
@@ -14,6 +14,14 @@ export interface UpdateStatus {
 }
 
 let currentStatus: UpdateStatus = { state: 'idle' }
+
+let installing = false
+
+/** True once the user triggers quit-and-install. Float window close guards
+ *  should check this so they don't block the quit sequence. */
+export function isInstallingUpdate(): boolean {
+  return installing
+}
 
 function broadcast(status: UpdateStatus): void {
   currentStatus = status
@@ -49,7 +57,9 @@ function setupDevMock(): void {
   })
 
   ipcMain.on('app-update:install', () => {
-    console.log('[auto-update:dev] install requested — would quit and install in production')
+    console.log('[auto-update:dev] install requested — exercising quit flow')
+    installing = true
+    setImmediate(() => app.quit())
   })
 
   ipcMain.on('app-update:open-release', () => {
@@ -132,13 +142,7 @@ function setupProd(): void {
   })
 
   ipcMain.on('app-update:install', () => {
-    // Destroy hidden auxiliary windows (e.g. jotdown) whose close-event guards
-    // hide instead of closing — they can block the quit sequence on macOS,
-    // leaving the app stuck in the dock without restarting.
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed() && !win.isVisible()) win.destroy()
-    }
-    // Defer so the IPC reply from the settings window settles before quit.
+    installing = true
     setImmediate(() => autoUpdater.quitAndInstall())
   })
 
