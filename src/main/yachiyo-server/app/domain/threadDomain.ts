@@ -166,6 +166,7 @@ export class YachiyoServerThreadDomain {
       channelGroupId?: string
       title?: string
       createdFromEssentialId?: string
+      handoffFromThreadId?: string
       privacyMode?: boolean
     } = {}
   ): Promise<ThreadRecord> {
@@ -184,7 +185,8 @@ export class YachiyoServerThreadDomain {
       ...(input.privacyMode ? { privacyMode: true } : {}),
       ...(input.createdFromEssentialId
         ? { createdFromEssentialId: input.createdFromEssentialId }
-        : {})
+        : {}),
+      ...(input.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {})
     })
 
     if (workspacePath) {

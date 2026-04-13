@@ -1,0 +1,1 @@
+ALTER TABLE `threads` ADD `handoff_from_thread_id` text;

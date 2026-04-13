@@ -42,6 +42,7 @@ export interface StoredThreadRow {
   preview: string | null
   branchFromThreadId: string | null
   branchFromMessageId: string | null
+  handoffFromThreadId: string | null
   queuedFollowUpMessageId: string | null
   queuedFollowUpEnabledTools: string | null
   queuedFollowUpEnabledSkillNames: string | null
@@ -330,6 +331,7 @@ export function toThreadRecord(
     StoredThreadRow,
     | 'branchFromMessageId'
     | 'branchFromThreadId'
+    | 'handoffFromThreadId'
     | 'archivedAt'
     | 'starredAt'
     | 'headMessageId'
@@ -370,6 +372,7 @@ export function toThreadRecord(
       ...(row.starredAt === null ? {} : { starredAt: row.starredAt }),
       ...(row.branchFromMessageId === null ? {} : { branchFromMessageId: row.branchFromMessageId }),
       ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
+      ...(row.handoffFromThreadId === null ? {} : { handoffFromThreadId: row.handoffFromThreadId }),
       ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
       ...(row.icon === null ? {} : { icon: row.icon }),
       ...(memoryRecall ? { memoryRecall } : {}),
@@ -405,6 +408,7 @@ export function toThreadRecord(
     ...(row.starredAt === null ? {} : { starredAt: row.starredAt }),
     ...(row.branchFromMessageId === null ? {} : { branchFromMessageId: row.branchFromMessageId }),
     ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
+    ...(row.handoffFromThreadId === null ? {} : { handoffFromThreadId: row.handoffFromThreadId }),
     ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
     ...(row.icon === null ? {} : { icon: row.icon }),
     ...(memoryRecall ? { memoryRecall } : {}),

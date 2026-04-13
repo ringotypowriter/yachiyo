@@ -647,6 +647,7 @@ export class YachiyoServer {
 
     const destinationThread = await this.threadDomain.createThread({
       threadId: destinationThreadId,
+      handoffFromThreadId: sourceThread.id,
       ...(sourceThread.workspacePath ? { workspacePath: sourceThread.workspacePath } : {}),
       ...(sourceThread.source && sourceThread.source !== 'local'
         ? { source: sourceThread.source }

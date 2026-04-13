@@ -75,6 +75,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   ): void => {
     storedThread.branchFromThreadId = nextThread.branchFromThreadId ?? null
     storedThread.branchFromMessageId = nextThread.branchFromMessageId ?? null
+    storedThread.handoffFromThreadId = nextThread.handoffFromThreadId ?? null
     storedThread.headMessageId = nextThread.headMessageId ?? null
     storedThread.icon = nextThread.icon ?? null
     storedThread.memoryRecallState = serializeThreadMemoryRecallState(nextThread.memoryRecall)
@@ -232,6 +233,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         preview: thread.preview ?? null,
         branchFromThreadId: thread.branchFromThreadId ?? null,
         branchFromMessageId: thread.branchFromMessageId ?? null,
+        handoffFromThreadId: thread.handoffFromThreadId ?? null,
         queuedFollowUpEnabledTools: thread.queuedFollowUpEnabledTools
           ? JSON.stringify(thread.queuedFollowUpEnabledTools)
           : null,

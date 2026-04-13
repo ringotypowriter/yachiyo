@@ -44,6 +44,7 @@ export const threadsTable = sqliteTable('threads', {
   preview: text('preview'),
   branchFromThreadId: text('branch_from_thread_id'),
   branchFromMessageId: text('branch_from_message_id'),
+  handoffFromThreadId: text('handoff_from_thread_id'),
   headMessageId: text('head_message_id'),
   queuedFollowUpMessageId: text('queued_follow_up_message_id'),
   queuedFollowUpEnabledTools: text('queued_follow_up_enabled_tools'),

@@ -493,6 +493,7 @@ export interface ThreadRecord {
   queuedFollowUpEnabledSkillNames?: string[]
   branchFromThreadId?: string
   branchFromMessageId?: string
+  handoffFromThreadId?: string
   privacyMode?: boolean
   modelOverride?: ThreadModelOverride
   source?: 'local' | ChannelPlatform
