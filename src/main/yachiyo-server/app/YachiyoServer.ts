@@ -49,6 +49,8 @@ import type {
   UpdateScheduleInput,
   UserDocument,
   SoulDocument as ProtocolSoulDocument,
+  UsageStatsInput,
+  UsageStatsResponse,
   WebSearchBrowserImportSource,
   YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol.ts'
@@ -1127,6 +1129,14 @@ export class YachiyoServer {
 
   listRecentScheduleRuns(limit?: number): ScheduleRunRecord[] {
     return this.scheduleDomain.listRecentScheduleRuns(limit)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Usage Statistics
+  // ---------------------------------------------------------------------------
+
+  getUsageStats(input: UsageStatsInput): UsageStatsResponse {
+    return this.storage.getUsageStats(input)
   }
 
   // ---------------------------------------------------------------------------

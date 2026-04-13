@@ -857,7 +857,9 @@ function persistTerminalAssistantMessage(
       ...currentThread,
       updatedAt: input.timestamp
     },
-    assistantMessage
+    assistantMessage,
+    modelId: input.settings.model,
+    providerName: input.settings.providerName
   })
 
   return assistantMessage
@@ -1135,11 +1137,18 @@ export async function executeServerRun(
         ? await deps.readUserDocument()
         : await readUserDocument()
     const isLocalOrOwnerDm = !isExternalChannel || isOwnerDm
+    const requestMessage = deps
+      .loadThreadMessages(input.thread.id)
+      .find((message) => message.id === input.requestMessageId && message.role === 'user')
     const now = new Date()
+    // Freeze the hint-layer timestamp to the request message's creation time so
+    // retries and multi-step continuations produce byte-identical reminder text,
+    // keeping the cached prefix stable within a turn.
+    const hintTime = requestMessage?.createdAt ? new Date(requestMessage.createdAt) : now
     const hiddenQueryReminder = formatQueryReminder(
       [
         buildDisabledToolsReminderSection({ enabledTools: modelEnabledTools }),
-        buildCurrentTimeSection(now, { includeDate: !isLocalOrOwnerDm })
+        buildCurrentTimeSection(hintTime, { includeDate: !isLocalOrOwnerDm })
       ].flatMap((section) => (section ? [section] : []))
     )
     const sessionHint = input.thread.lastDelegatedSession
@@ -1147,9 +1156,6 @@ export async function executeServerRun(
       : undefined
     const effectiveReminder =
       [hiddenQueryReminder, sessionHint].filter(Boolean).join('\n\n') || undefined
-    const requestMessage = deps
-      .loadThreadMessages(input.thread.id)
-      .find((message) => message.id === input.requestMessageId && message.role === 'user')
     const fileMentionResolution = await resolveFileMentionsForUserQuery({
       content: requestMessage?.content ?? '',
       workspacePath,
@@ -1967,7 +1973,14 @@ export async function executeServerRun(
           : {})
     }
 
-    deps.storage.completeRun({ runId: input.runId, updatedThread, assistantMessage, ...lastUsage })
+    deps.storage.completeRun({
+      runId: input.runId,
+      updatedThread,
+      assistantMessage,
+      ...lastUsage,
+      modelId: settings.model,
+      providerName: settings.providerName
+    })
     deps.onTerminalState?.()
 
     deps.emit<MessageCompletedEvent>({

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  BarChart3,
   Bot,
   Brain,
   Clock,
@@ -45,6 +46,7 @@ import { AboutPane } from './panes/AboutPane'
 import { ChannelsPane } from './panes/ChannelsPane'
 import { EssentialsPane } from './panes/EssentialsPane'
 import { SchedulePane } from './panes/SchedulePane'
+import { UsagePane } from './panes/UsagePane'
 import {
   hasPendingChannelGroupChanges,
   hasPendingChannelUserChanges,
@@ -76,6 +78,7 @@ type TabId =
   | 'memory'
   | 'channels'
   | 'schedules'
+  | 'usage'
   | 'ui'
   | 'about'
 
@@ -127,6 +130,7 @@ const TABS: Tab[] = [
       { id: 'history', label: 'History' }
     ]
   },
+  { id: 'usage', label: 'Usage', icon: BarChart3 },
   { id: 'ui', label: 'User Interface', icon: Monitor },
   { id: 'about', label: 'About', icon: Info }
 ]
@@ -708,6 +712,10 @@ function SettingsApp(): React.ReactNode {
     } else if (activeTab === 'ui') {
       body = <UIPane draft={draft} onChange={setDraft} />
     }
+  }
+
+  if (activeTab === 'usage') {
+    body = <UsagePane />
   }
 
   if (activeTab === 'about') {

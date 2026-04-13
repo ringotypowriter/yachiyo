@@ -7,7 +7,12 @@ import type {
   ScheduleRecord,
   ScheduleRunRecord,
   ThreadSearchResult,
-  ToolCallRecord
+  ToolCallRecord,
+  UsageStatsInput,
+  UsageStatsBucket,
+  UsageStatsByModel,
+  UsageStatsByWorkspace,
+  UsageStatsResponse
 } from '../../../shared/yachiyo/protocol'
 import {
   groupLatestRunsByThread,
@@ -443,7 +448,11 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         promptTokens: null,
         completionTokens: null,
         totalPromptTokens: null,
-        totalCompletionTokens: null
+        totalCompletionTokens: null,
+        cacheReadTokens: null,
+        cacheWriteTokens: null,
+        modelId: null,
+        providerName: null
       })
     },
 
@@ -454,7 +463,11 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       promptTokens,
       completionTokens,
       totalPromptTokens,
-      totalCompletionTokens
+      totalCompletionTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+      modelId,
+      providerName
     }: CompleteRunInput) {
       const thread = threads.get(updatedThread.id)
       const run = runs.get(runId)
@@ -474,6 +487,10 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         if (completionTokens !== undefined) run.completionTokens = completionTokens
         if (totalPromptTokens !== undefined) run.totalPromptTokens = totalPromptTokens
         if (totalCompletionTokens !== undefined) run.totalCompletionTokens = totalCompletionTokens
+        if (cacheReadTokens !== undefined) run.cacheReadTokens = cacheReadTokens
+        if (cacheWriteTokens !== undefined) run.cacheWriteTokens = cacheWriteTokens
+        if (modelId !== undefined) run.modelId = modelId
+        if (providerName !== undefined) run.providerName = providerName
       }
 
       for (const [toolCallId, toolCall] of toolCalls.entries()) {
@@ -928,6 +945,143 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
           completedAt
         })
       }
+    },
+
+    // Usage statistics
+    getUsageStats(input: UsageStatsInput): UsageStatsResponse {
+      const completedRuns = [...runs.values()].filter((r) => {
+        if (r.status !== 'completed' || !r.completedAt) return false
+        if (input.from && r.completedAt < input.from) return false
+        if (input.to && r.completedAt > input.to) return false
+        if (input.modelId && r.modelId !== input.modelId) return false
+        if (input.providerName && r.providerName !== input.providerName) return false
+        if (input.workspacePath) {
+          const thread = threads.get(r.threadId)
+          if (input.workspacePath === '__null__') {
+            if (thread?.workspacePath != null) return false
+          } else if (thread?.workspacePath !== input.workspacePath) {
+            return false
+          }
+        }
+        return true
+      })
+
+      const formatPeriod = (date: string): string => {
+        const d = date.slice(0, 10) // YYYY-MM-DD
+        switch (input.period) {
+          case 'year':
+            return d.slice(0, 4)
+          case 'month':
+            return d.slice(0, 7)
+          case 'week': {
+            const dt = new Date(d)
+            const jan1 = new Date(dt.getFullYear(), 0, 1)
+            const weekNum = Math.ceil(
+              ((dt.getTime() - jan1.getTime()) / 86400000 + jan1.getDay() + 1) / 7
+            )
+            return `${dt.getFullYear()}-W${String(weekNum).padStart(2, '0')}`
+          }
+          default:
+            return d
+        }
+      }
+
+      // Buckets
+      const bucketMap = new Map<string, UsageStatsBucket>()
+      for (const r of completedRuns) {
+        const key = formatPeriod(r.completedAt!)
+        const b = bucketMap.get(key) ?? {
+          periodStart: key,
+          totalPromptTokens: 0,
+          totalCompletionTokens: 0,
+          totalCacheReadTokens: 0,
+          totalCacheWriteTokens: 0,
+          cacheAwarePromptTokens: 0,
+          runCount: 0
+        }
+        b.totalPromptTokens += r.totalPromptTokens ?? 0
+        b.totalCompletionTokens += r.totalCompletionTokens ?? 0
+        b.totalCacheReadTokens += r.cacheReadTokens ?? 0
+        b.totalCacheWriteTokens += r.cacheWriteTokens ?? 0
+        if (r.cacheReadTokens != null) b.cacheAwarePromptTokens += r.totalPromptTokens ?? 0
+        b.runCount++
+        bucketMap.set(key, b)
+      }
+      const buckets = [...bucketMap.values()].sort((a, b) =>
+        a.periodStart.localeCompare(b.periodStart)
+      )
+
+      // By model
+      const modelMap = new Map<string, UsageStatsByModel>()
+      for (const r of completedRuns) {
+        if (!r.modelId) continue
+        const key = `${r.modelId}|${r.providerName ?? 'unknown'}`
+        const m = modelMap.get(key) ?? {
+          modelId: r.modelId,
+          providerName: r.providerName ?? 'unknown',
+          totalPromptTokens: 0,
+          totalCompletionTokens: 0,
+          totalCacheReadTokens: 0,
+          totalCacheWriteTokens: 0,
+          cacheAwarePromptTokens: 0,
+          runCount: 0
+        }
+        m.totalPromptTokens += r.totalPromptTokens ?? 0
+        m.totalCompletionTokens += r.totalCompletionTokens ?? 0
+        m.totalCacheReadTokens += r.cacheReadTokens ?? 0
+        m.totalCacheWriteTokens += r.cacheWriteTokens ?? 0
+        if (r.cacheReadTokens != null) m.cacheAwarePromptTokens += r.totalPromptTokens ?? 0
+        m.runCount++
+        modelMap.set(key, m)
+      }
+      const byModel = [...modelMap.values()].sort(
+        (a, b) => b.totalPromptTokens - a.totalPromptTokens
+      )
+
+      // By workspace
+      const wsMap = new Map<string, UsageStatsByWorkspace>()
+      for (const r of completedRuns) {
+        const thread = threads.get(r.threadId)
+        const ws = thread?.workspacePath ?? '__null__'
+        const w = wsMap.get(ws) ?? {
+          workspacePath: ws,
+          totalPromptTokens: 0,
+          totalCompletionTokens: 0,
+          totalCacheReadTokens: 0,
+          totalCacheWriteTokens: 0,
+          cacheAwarePromptTokens: 0,
+          runCount: 0
+        }
+        w.totalPromptTokens += r.totalPromptTokens ?? 0
+        w.totalCompletionTokens += r.totalCompletionTokens ?? 0
+        w.totalCacheReadTokens += r.cacheReadTokens ?? 0
+        w.totalCacheWriteTokens += r.cacheWriteTokens ?? 0
+        if (r.cacheReadTokens != null) w.cacheAwarePromptTokens += r.totalPromptTokens ?? 0
+        w.runCount++
+        wsMap.set(ws, w)
+      }
+      const byWorkspace = [...wsMap.values()].sort(
+        (a, b) => b.totalPromptTokens - a.totalPromptTokens
+      )
+
+      // Totals
+      const totals = {
+        promptTokens: 0,
+        completionTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        cacheAwarePromptTokens: 0,
+        runCount: completedRuns.length
+      }
+      for (const r of completedRuns) {
+        totals.promptTokens += r.totalPromptTokens ?? 0
+        totals.completionTokens += r.totalCompletionTokens ?? 0
+        totals.cacheReadTokens += r.cacheReadTokens ?? 0
+        totals.cacheWriteTokens += r.cacheWriteTokens ?? 0
+        if (r.cacheReadTokens != null) totals.cacheAwarePromptTokens += r.totalPromptTokens ?? 0
+      }
+
+      return { buckets, byModel, byWorkspace, totals }
     },
 
     // Group monitor buffer persistence

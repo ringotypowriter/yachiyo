@@ -48,6 +48,8 @@ import type {
   JotdownFull,
   JotdownSaveInput,
   SkillCatalogEntry,
+  UsageStatsInput,
+  UsageStatsResponse,
   WebSearchBrowserImportSource,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
@@ -131,6 +133,7 @@ declare global {
         pruneEmptyTemporaryWorkspaces: () => Promise<number>
         revealFile: (input: { path: string }) => Promise<void>
         openFileInEditor: (input: { path: string; editorApp: string }) => Promise<void>
+        getUsageStats: (input: UsageStatsInput) => Promise<UsageStatsResponse>
 
         getConfig: () => Promise<SettingsConfig>
         getSoulDocument: () => Promise<SoulDocument>

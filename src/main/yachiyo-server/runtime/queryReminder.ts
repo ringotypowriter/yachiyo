@@ -68,10 +68,9 @@ export function buildCurrentTimeSection(
 ): QueryReminderSection {
   const hours = String(now.getHours()).padStart(2, '0')
   const minutes = String(now.getMinutes()).padStart(2, '0')
-  const seconds = String(now.getSeconds()).padStart(2, '0')
   const lines = includeDate
-    ? [`Date: ${formatDateLine(now)}`, `Time: ${hours}:${minutes}:${seconds}`]
-    : [`Time: ${hours}:${minutes}:${seconds}`]
+    ? [`Date: ${formatDateLine(now)}`, `Time: ${hours}:${minutes}`]
+    : [`Time: ${hours}:${minutes}`]
   return {
     key: 'current-time',
     title: includeDate ? 'Current date and time (local)' : 'Current time (local)',

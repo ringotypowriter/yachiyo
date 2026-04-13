@@ -25,7 +25,9 @@ import type {
   ToolCallDetailsSnapshot,
   ToolCallName,
   ToolCallRecord,
-  ToolCallStatus
+  ToolCallStatus,
+  UsageStatsInput,
+  UsageStatsResponse
 } from '../../../shared/yachiyo/protocol'
 import {
   normalizeEnabledTools,
@@ -115,6 +117,10 @@ export interface CompleteRunInput {
   completionTokens?: number
   totalPromptTokens?: number
   totalCompletionTokens?: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+  modelId?: string
+  providerName?: string
 }
 
 export interface CreateThreadInput {
@@ -167,6 +173,10 @@ export interface StoredRunRow {
   completionTokens: number | null
   totalPromptTokens: number | null
   totalCompletionTokens: number | null
+  cacheReadTokens: number | null
+  cacheWriteTokens: number | null
+  modelId: string | null
+  providerName: string | null
 }
 
 export interface RunRecoveryCheckpoint {
@@ -323,6 +333,9 @@ export interface YachiyoStorage {
   listRecentScheduleRuns(limit?: number): ScheduleRunRecord[]
   getScheduleRunByThreadId(threadId: string): ScheduleRunRecord | undefined
   recoverInterruptedScheduleRuns(input: { completedAt: string; error: string }): void
+
+  // Usage statistics
+  getUsageStats(input: UsageStatsInput): UsageStatsResponse
 
   // Group monitor buffer persistence
   saveGroupMonitorBuffer(input: {
@@ -729,6 +742,10 @@ export function toRunRecord(row: StoredRunRow): RunRecord {
     ...(row.totalCompletionTokens == null
       ? {}
       : { totalCompletionTokens: row.totalCompletionTokens }),
+    ...(row.cacheReadTokens == null ? {} : { cacheReadTokens: row.cacheReadTokens }),
+    ...(row.cacheWriteTokens == null ? {} : { cacheWriteTokens: row.cacheWriteTokens }),
+    ...(row.modelId == null ? {} : { modelId: row.modelId }),
+    ...(row.providerName == null ? {} : { providerName: row.providerName }),
     createdAt: row.createdAt,
     id: row.id,
     status: row.status,

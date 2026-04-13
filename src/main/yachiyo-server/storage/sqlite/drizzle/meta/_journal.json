@@ -302,6 +302,13 @@
       "when": 1776066163145,
       "tag": "0042_absent_jimmy_woo",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "6",
+      "when": 1776082113412,
+      "tag": "0043_soft_sabretooth",
+      "breakpoints": true
     }
   ]
 }

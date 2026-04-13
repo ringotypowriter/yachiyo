@@ -29,6 +29,7 @@ import type {
   UpdateChannelGroupInput,
   UpdateChannelUserInput,
   UpdateScheduleInput,
+  UsageStatsInput,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
 import {
@@ -165,7 +166,8 @@ const IPC_CHANNELS = {
   jotdownDelete: 'yachiyo:jotdown-delete',
   pruneEmptyTemporaryWorkspaces: 'yachiyo:prune-empty-temporary-workspaces',
   revealFile: 'yachiyo:reveal-file',
-  openFileInEditor: 'yachiyo:open-file-in-editor'
+  openFileInEditor: 'yachiyo:open-file-in-editor',
+  getUsageStats: 'yachiyo:get-usage-stats'
 } as const
 
 let server: YachiyoServer | null = null
@@ -1041,6 +1043,8 @@ export function registerYachiyoGateway(): YachiyoServer {
     const { shell } = await import('electron')
     shell.showItemInFolder(input.path)
   })
+
+  handle(IPC_CHANNELS.getUsageStats, (input: UsageStatsInput) => server!.getUsageStats(input))
 
   handle(IPC_CHANNELS.openFileInEditor, async (input: { path: string; editorApp: string }) => {
     await new Promise<void>((resolve, reject) => {

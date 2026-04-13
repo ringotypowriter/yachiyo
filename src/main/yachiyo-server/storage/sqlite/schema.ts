@@ -120,7 +120,11 @@ export const runsTable = sqliteTable('runs', {
   promptTokens: integer('prompt_tokens'),
   completionTokens: integer('completion_tokens'),
   totalPromptTokens: integer('total_prompt_tokens'),
-  totalCompletionTokens: integer('total_completion_tokens')
+  totalCompletionTokens: integer('total_completion_tokens'),
+  cacheReadTokens: integer('cache_read_tokens'),
+  cacheWriteTokens: integer('cache_write_tokens'),
+  modelId: text('model_id'),
+  providerName: text('provider_name')
 })
 
 export const runRecoveryCheckpointsTable = sqliteTable('run_recovery_checkpoints', {

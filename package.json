@@ -97,6 +97,7 @@
     "linkedom": "^0.18.12",
     "lucide-react": "^0.577.0",
     "match-sorter": "^8.2.0",
+    "recharts": "^3.8.1",
     "rehype-katex": "^7.0.1",
     "remark-math": "^6.0.0",
     "sharp": "^0.34.5",

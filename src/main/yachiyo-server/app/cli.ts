@@ -3,13 +3,14 @@ import { pathToFileURL } from 'node:url'
 import type {
   ProviderConfig,
   ProviderSettings,
-  SettingsConfig
+  SettingsConfig,
+  UsageStatsPeriod
 } from '../../../shared/yachiyo/protocol'
 import { resolveYachiyoDbPath, resolveYachiyoSettingsPath } from '../config/paths.ts'
 import { createSqliteYachiyoServer, type YachiyoServer } from './YachiyoServer.ts'
 
 const USAGE =
-  'Usage: cli.ts <bootstrap|settings.get|settings.replace|settings.update|settings.provider.upsert|settings.provider.remove|settings.provider.model.enable|settings.provider.model.disable|thread.create|thread.rename|thread.archive> [--db <path>] [--settings <path>] [--json <payload>]'
+  'Usage: cli.ts <bootstrap|settings.get|settings.replace|settings.update|settings.provider.upsert|settings.provider.remove|settings.provider.model.enable|settings.provider.model.disable|thread.create|thread.rename|thread.archive|usage.stats> [--db <path>] [--settings <path>] [--json <payload>]'
 
 interface CliStreams {
   stdout?: Pick<typeof process.stdout, 'write'>
@@ -121,6 +122,27 @@ export async function runCli(
     if (command === 'thread.archive') {
       await server.archiveThread(readJsonFlag<{ threadId: string }>(args, '--json'))
       outputJson(stdout, { ok: true })
+      return
+    }
+
+    if (command === 'usage.stats') {
+      const period = (readFlag(args, '--period') ?? 'day') as UsageStatsPeriod
+      const from = readFlag(args, '--from')
+      const to = readFlag(args, '--to')
+      const workspacePath = readFlag(args, '--workspace')
+      const modelId = readFlag(args, '--model')
+      const providerName = readFlag(args, '--provider')
+      outputJson(
+        stdout,
+        server.getUsageStats({
+          period,
+          ...(from ? { from } : {}),
+          ...(to ? { to } : {}),
+          ...(workspacePath ? { workspacePath } : {}),
+          ...(modelId ? { modelId } : {}),
+          ...(providerName ? { providerName } : {})
+        })
+      )
       return
     }
 

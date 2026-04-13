@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { and, asc, desc, eq, inArray, isNotNull, isNull, like, or } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, like, or, sql } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
 import * as schema from './schema.ts'
@@ -59,7 +59,12 @@ import type {
   ChannelGroupRecord,
   ChannelUserRecord,
   ChannelUserRole,
-  ThreadSearchResult
+  ThreadSearchResult,
+  UsageStatsInput,
+  UsageStatsBucket,
+  UsageStatsByModel,
+  UsageStatsByWorkspace,
+  UsageStatsResponse
 } from '../../../../shared/yachiyo/protocol.ts'
 import { sortToolCallsChronologically } from '../../../../shared/yachiyo/toolCallOrder.ts'
 
@@ -414,7 +419,11 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                   status: runsTable.status,
                   threadId: runsTable.threadId,
                   totalCompletionTokens: runsTable.totalCompletionTokens,
-                  totalPromptTokens: runsTable.totalPromptTokens
+                  totalPromptTokens: runsTable.totalPromptTokens,
+                  cacheReadTokens: runsTable.cacheReadTokens,
+                  cacheWriteTokens: runsTable.cacheWriteTokens,
+                  modelId: runsTable.modelId,
+                  providerName: runsTable.providerName
                 })
                 .from(runsTable)
                 .where(inArray(runsTable.threadId, threadIds))
@@ -941,7 +950,11 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       promptTokens,
       completionTokens,
       totalPromptTokens,
-      totalCompletionTokens
+      totalCompletionTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+      modelId,
+      providerName
     }: CompleteRunInput) {
       db.transaction((tx) => {
         tx.delete(runRecoveryCheckpointsTable)
@@ -997,7 +1010,11 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             ...(promptTokens !== undefined ? { promptTokens } : {}),
             ...(completionTokens !== undefined ? { completionTokens } : {}),
             ...(totalPromptTokens !== undefined ? { totalPromptTokens } : {}),
-            ...(totalCompletionTokens !== undefined ? { totalCompletionTokens } : {})
+            ...(totalCompletionTokens !== undefined ? { totalCompletionTokens } : {}),
+            ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+            ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
+            ...(modelId !== undefined ? { modelId } : {}),
+            ...(providerName !== undefined ? { providerName } : {})
           })
           .where(eq(runsTable.id, runId))
           .run()
@@ -1786,6 +1803,182 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .set({ status: 'failed', error, completedAt })
         .where(eq(scheduleRunsTable.status, 'running'))
         .run()
+    },
+
+    // -----------------------------------------------------------------------
+    // Usage statistics
+    // -----------------------------------------------------------------------
+
+    getUsageStats(input: UsageStatsInput): UsageStatsResponse {
+      const periodFormats: Record<string, string> = {
+        day: '%Y-%m-%d',
+        week: '%Y-W%W',
+        month: '%Y-%m',
+        year: '%Y'
+      }
+      const fmt = periodFormats[input.period] ?? '%Y-%m-%d'
+
+      const conditions = [sql`${runsTable.status} = 'completed'`]
+      if (input.from) conditions.push(sql`${runsTable.completedAt} >= ${input.from}`)
+      if (input.to) conditions.push(sql`${runsTable.completedAt} <= ${input.to}`)
+      if (input.modelId) conditions.push(sql`${runsTable.modelId} = ${input.modelId}`)
+      if (input.providerName)
+        conditions.push(sql`${runsTable.providerName} = ${input.providerName}`)
+      if (input.workspacePath) {
+        if (input.workspacePath === '__null__') {
+          conditions.push(sql`${threadsTable.workspacePath} IS NULL`)
+        } else {
+          conditions.push(sql`${threadsTable.workspacePath} = ${input.workspacePath}`)
+        }
+      }
+      const whereClause = sql.join(conditions, sql` AND `)
+
+      const needsJoin = input.workspacePath != null
+      const fromClause = needsJoin
+        ? sql`${runsTable} INNER JOIN ${threadsTable} ON ${runsTable.threadId} = ${threadsTable.id}`
+        : sql`${runsTable}`
+
+      // Buckets: time-series aggregation
+      const bucketRows = db.all<{
+        period_start: string
+        total_prompt: number
+        total_completion: number
+        total_cache_read: number
+        total_cache_write: number
+        cache_aware_prompt: number
+        run_count: number
+      }>(sql`
+        SELECT
+          strftime(${fmt}, ${runsTable.completedAt}) AS period_start,
+          COALESCE(SUM(${runsTable.totalPromptTokens}), 0) AS total_prompt,
+          COALESCE(SUM(${runsTable.totalCompletionTokens}), 0) AS total_completion,
+          COALESCE(SUM(${runsTable.cacheReadTokens}), 0) AS total_cache_read,
+          COALESCE(SUM(${runsTable.cacheWriteTokens}), 0) AS total_cache_write,
+          COALESCE(SUM(CASE WHEN ${runsTable.cacheReadTokens} IS NOT NULL THEN ${runsTable.totalPromptTokens} ELSE 0 END), 0) AS cache_aware_prompt,
+          COUNT(*) AS run_count
+        FROM ${fromClause}
+        WHERE ${whereClause}
+        GROUP BY period_start
+        ORDER BY period_start ASC
+      `)
+
+      const buckets: UsageStatsBucket[] = bucketRows.map((r) => ({
+        periodStart: r.period_start,
+        totalPromptTokens: r.total_prompt,
+        totalCompletionTokens: r.total_completion,
+        totalCacheReadTokens: r.total_cache_read,
+        totalCacheWriteTokens: r.total_cache_write,
+        cacheAwarePromptTokens: r.cache_aware_prompt,
+        runCount: r.run_count
+      }))
+
+      // By model
+      const modelRows = db.all<{
+        model_id: string | null
+        provider_name: string | null
+        total_prompt: number
+        total_completion: number
+        total_cache_read: number
+        total_cache_write: number
+        cache_aware_prompt: number
+        run_count: number
+      }>(sql`
+        SELECT
+          ${runsTable.modelId} AS model_id,
+          ${runsTable.providerName} AS provider_name,
+          COALESCE(SUM(${runsTable.totalPromptTokens}), 0) AS total_prompt,
+          COALESCE(SUM(${runsTable.totalCompletionTokens}), 0) AS total_completion,
+          COALESCE(SUM(${runsTable.cacheReadTokens}), 0) AS total_cache_read,
+          COALESCE(SUM(${runsTable.cacheWriteTokens}), 0) AS total_cache_write,
+          COALESCE(SUM(CASE WHEN ${runsTable.cacheReadTokens} IS NOT NULL THEN ${runsTable.totalPromptTokens} ELSE 0 END), 0) AS cache_aware_prompt,
+          COUNT(*) AS run_count
+        FROM ${fromClause}
+        WHERE ${whereClause}
+        GROUP BY ${runsTable.modelId}, ${runsTable.providerName}
+        ORDER BY total_prompt DESC
+      `)
+
+      const byModel: UsageStatsByModel[] = modelRows
+        .filter((r) => r.model_id != null)
+        .map((r) => ({
+          modelId: r.model_id!,
+          providerName: r.provider_name ?? 'unknown',
+          totalPromptTokens: r.total_prompt,
+          totalCompletionTokens: r.total_completion,
+          totalCacheReadTokens: r.total_cache_read,
+          totalCacheWriteTokens: r.total_cache_write,
+          cacheAwarePromptTokens: r.cache_aware_prompt,
+          runCount: r.run_count
+        }))
+
+      // By workspace (always needs join)
+      const wsFromClause = sql`${runsTable} INNER JOIN ${threadsTable} ON ${runsTable.threadId} = ${threadsTable.id}`
+      const wsRows = db.all<{
+        workspace_path: string | null
+        total_prompt: number
+        total_completion: number
+        total_cache_read: number
+        total_cache_write: number
+        cache_aware_prompt: number
+        run_count: number
+      }>(sql`
+        SELECT
+          COALESCE(${threadsTable.workspacePath}, '__null__') AS workspace_path,
+          COALESCE(SUM(${runsTable.totalPromptTokens}), 0) AS total_prompt,
+          COALESCE(SUM(${runsTable.totalCompletionTokens}), 0) AS total_completion,
+          COALESCE(SUM(${runsTable.cacheReadTokens}), 0) AS total_cache_read,
+          COALESCE(SUM(${runsTable.cacheWriteTokens}), 0) AS total_cache_write,
+          COALESCE(SUM(CASE WHEN ${runsTable.cacheReadTokens} IS NOT NULL THEN ${runsTable.totalPromptTokens} ELSE 0 END), 0) AS cache_aware_prompt,
+          COUNT(*) AS run_count
+        FROM ${wsFromClause}
+        WHERE ${whereClause}
+        GROUP BY workspace_path
+        ORDER BY total_prompt DESC
+      `)
+
+      const byWorkspace: UsageStatsByWorkspace[] = wsRows.map((r) => ({
+        workspacePath: r.workspace_path ?? '__null__',
+        totalPromptTokens: r.total_prompt,
+        totalCompletionTokens: r.total_completion,
+        totalCacheReadTokens: r.total_cache_read,
+        totalCacheWriteTokens: r.total_cache_write,
+        cacheAwarePromptTokens: r.cache_aware_prompt,
+        runCount: r.run_count
+      }))
+
+      // Totals
+      const totalsRow = db.get<{
+        total_prompt: number
+        total_completion: number
+        total_cache_read: number
+        total_cache_write: number
+        cache_aware_prompt: number
+        run_count: number
+      }>(sql`
+        SELECT
+          COALESCE(SUM(${runsTable.totalPromptTokens}), 0) AS total_prompt,
+          COALESCE(SUM(${runsTable.totalCompletionTokens}), 0) AS total_completion,
+          COALESCE(SUM(${runsTable.cacheReadTokens}), 0) AS total_cache_read,
+          COALESCE(SUM(${runsTable.cacheWriteTokens}), 0) AS total_cache_write,
+          COALESCE(SUM(CASE WHEN ${runsTable.cacheReadTokens} IS NOT NULL THEN ${runsTable.totalPromptTokens} ELSE 0 END), 0) AS cache_aware_prompt,
+          COUNT(*) AS run_count
+        FROM ${fromClause}
+        WHERE ${whereClause}
+      `)
+
+      return {
+        buckets,
+        byModel,
+        byWorkspace,
+        totals: {
+          promptTokens: totalsRow?.total_prompt ?? 0,
+          completionTokens: totalsRow?.total_completion ?? 0,
+          cacheReadTokens: totalsRow?.total_cache_read ?? 0,
+          cacheWriteTokens: totalsRow?.total_cache_write ?? 0,
+          cacheAwarePromptTokens: totalsRow?.cache_aware_prompt ?? 0,
+          runCount: totalsRow?.run_count ?? 0
+        }
+      }
     },
 
     // -----------------------------------------------------------------------

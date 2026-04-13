@@ -118,7 +118,7 @@ test('buildCurrentTimeSection uses local time with day name', () => {
   assert.equal(section.key, 'current-time')
   assert.equal(section.title, 'Current date and time (local)')
   assert.match(section.lines[0], /^Date: 2026-03-30 \(\w+\)$/)
-  assert.equal(section.lines[1], 'Time: 14:05:09')
+  assert.equal(section.lines[1], 'Time: 14:05')
 })
 
 test('buildCurrentTimeSection can omit date when includeDate is false', () => {
@@ -127,7 +127,7 @@ test('buildCurrentTimeSection can omit date when includeDate is false', () => {
   assert.equal(section.key, 'current-time')
   assert.equal(section.title, 'Current time (local)')
   assert.equal(section.lines.length, 1)
-  assert.equal(section.lines[0], 'Time: 14:05:09')
+  assert.equal(section.lines[0], 'Time: 14:05')
 })
 
 test('formatDateLine produces YYYY-MM-DD with day name', () => {

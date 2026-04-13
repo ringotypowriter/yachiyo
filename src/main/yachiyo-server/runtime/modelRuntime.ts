@@ -348,7 +348,14 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             }
 
             if (request.onFinish && 'usage' in result && 'totalUsage' in result) {
-              type AiSdkUsage = { inputTokens?: number; outputTokens?: number }
+              type AiSdkUsage = {
+                inputTokens?: number
+                outputTokens?: number
+                inputTokenDetails?: {
+                  cacheReadTokens?: number
+                  cacheWriteTokens?: number
+                }
+              }
               const responsePromise =
                 'response' in result
                   ? (result.response as PromiseLike<{ messages?: unknown[] }>)
@@ -367,8 +374,10 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               } catch {
                 // Provider didn't expose a usable finishReason — not critical.
               }
+              const cacheRead = usage.inputTokenDetails?.cacheReadTokens
+              const cacheWrite = usage.inputTokenDetails?.cacheWriteTokens
               console.info(
-                `${llmTag} usage provider=${provider} model=${model} promptTokens=${usage.inputTokens ?? '?'} completionTokens=${usage.outputTokens ?? '?'} totalPrompt=${total.inputTokens ?? '?'} totalCompletion=${total.outputTokens ?? '?'} finishReason=${finishReason ?? 'unknown'}`
+                `${llmTag} usage provider=${provider} model=${model} promptTokens=${usage.inputTokens ?? '?'} completionTokens=${usage.outputTokens ?? '?'} totalPrompt=${total.inputTokens ?? '?'} totalCompletion=${total.outputTokens ?? '?'} cacheRead=${cacheRead ?? '-'} cacheWrite=${cacheWrite ?? '-'} finishReason=${finishReason ?? 'unknown'}`
               )
               if (usage.inputTokens != null && usage.outputTokens != null) {
                 const responseMessages = response?.messages
@@ -377,6 +386,12 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                   completionTokens: usage.outputTokens,
                   totalPromptTokens: total.inputTokens ?? usage.inputTokens,
                   totalCompletionTokens: total.outputTokens ?? usage.outputTokens,
+                  ...(usage.inputTokenDetails?.cacheReadTokens != null
+                    ? { cacheReadTokens: usage.inputTokenDetails.cacheReadTokens }
+                    : {}),
+                  ...(usage.inputTokenDetails?.cacheWriteTokens != null
+                    ? { cacheWriteTokens: usage.inputTokenDetails.cacheWriteTokens }
+                    : {}),
                   ...(finishReason ? { finishReason } : {}),
                   ...(Array.isArray(responseMessages) && responseMessages.length > 0
                     ? { responseMessages }

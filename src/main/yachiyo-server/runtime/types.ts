@@ -34,6 +34,8 @@ export interface ModelUsage {
   completionTokens: number
   totalPromptTokens: number
   totalCompletionTokens: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
   /** AI SDK finish reason: 'stop' | 'length' | 'content-filter' | 'tool-calls' | 'error' | 'other' | 'unknown'. */
   finishReason?: string
   /** Structured response messages from the AI SDK (assistant + tool messages), for lossless history replay. */
