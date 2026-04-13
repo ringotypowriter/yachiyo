@@ -39,7 +39,7 @@ Concrete actions needed to complete the task, in priority order. Any blockers or
 **6. Context to Preserve**
 User preferences, style requirements, domain-specific details, and any explicit promises made.
 
-Write in the same language as the conversation.
+**Language continuity is mandatory.** Detect the language used in the most recent assistant message and write the entire summary in that same language. The language of these instructions does not matter — only the conversation's language does.
 Be concise but complete — err on the side of including anything that prevents duplicate work or repeated mistakes. Wrap your summary in <summary></summary> tags.`
 
 function toHistoryMessage(

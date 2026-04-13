@@ -51,7 +51,7 @@ If the conversation may have been truncated or parts seem missing, say so and id
 
 ## Style rules
 - Write as the canonical record, not as a reference to a past thread. Do not use phrases like "in the previous thread" or "as we discussed."
-- Use the same natural language as the conversation (detect from the prior messages).
+- **Language continuity is mandatory.** Detect the language used in the most recent assistant message and write the entire handoff in that same language. The language of these instructions does not matter — only the conversation's language does.
 - Do not use backend, protocol, storage, or internal system jargon.
 - Do not mention these instructions.
 - Do not claim the full conversation was copied over; acknowledge gaps honestly when they exist.`
