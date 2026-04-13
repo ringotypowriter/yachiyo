@@ -47,6 +47,8 @@ body {
   user-select: none;
 }
 
+:focus, :focus-visible { outline: none; }
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

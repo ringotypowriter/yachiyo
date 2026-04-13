@@ -29,7 +29,7 @@ function formatTokens(n: number): string {
 
 function cacheHitRate(read: number, cacheAwarePrompt: number): string {
   if (cacheAwarePrompt === 0) return 'N/A'
-  return `${((read / cacheAwarePrompt) * 100).toFixed(1)}%`
+  return `${Math.round((read / cacheAwarePrompt) * 100)}%`
 }
 
 function computeBucketCacheRate(cacheRead: number, cacheAwarePrompt: number): number | null {
@@ -73,8 +73,8 @@ const CHART_COLORS = {
   completionFill: alpha('warning', 0.45),
   cacheRead: alpha('success', 1),
   cacheReadFill: alpha('success', 0.55),
-  cacheWrite: alpha('warning', 1),
-  cacheWriteFill: alpha('warning', 0.45),
+  cacheWrite: alpha('ink', 0.3),
+  cacheWriteFill: alpha('ink', 0.12),
   cacheRate: alpha('accentStrong', 1),
   grid: alpha('ink', 0.1),
   workspace: alpha('accentStrong', 0.75),
@@ -151,7 +151,7 @@ export function UsagePane(): React.ReactNode {
   const cacheData = (data?.buckets ?? []).map((b) => ({
     name: b.periodStart,
     cacheRead: b.totalCacheReadTokens,
-    cacheWrite: b.totalCacheWriteTokens,
+    uncached: Math.max(0, b.cacheAwarePromptTokens - b.totalCacheReadTokens),
     cacheRate: computeBucketCacheRate(b.totalCacheReadTokens, b.cacheAwarePromptTokens)
   }))
 
@@ -251,7 +251,7 @@ export function UsagePane(): React.ReactNode {
                 />
                 <Tooltip
                   contentStyle={tooltipStyle}
-                  cursor={{ stroke: alpha('ink', 0.08), strokeWidth: 1 }}
+                  cursor={{ fill: alpha('ink', 0.04), stroke: 'none' }}
                   formatter={(value, name) => [
                     formatTokens(Number(value)),
                     name === 'prompt' ? 'Prompt' : 'Completion'
@@ -312,26 +312,28 @@ export function UsagePane(): React.ReactNode {
                     if (value == null) return ['N/A', String(name)]
                     const n = Number(value)
                     if (name === 'cacheRate') return [`${n.toFixed(1)}%`, 'Hit Rate']
-                    return [formatTokens(n), name === 'cacheRead' ? 'Cache Read' : 'Cache Write']
+                    if (name === 'cacheRead') return [formatTokens(n), 'Cached']
+                    return [formatTokens(n), 'Uncached']
                   }}
                 />
                 <Legend
                   formatter={(value: string) => {
-                    if (value === 'cacheRead') return 'Cache Read'
-                    if (value === 'cacheWrite') return 'Cache Write'
+                    if (value === 'cacheRead') return 'Cached'
+                    if (value === 'uncached') return 'Uncached'
                     return 'Hit Rate'
                   }}
                 />
                 <Bar
                   yAxisId="tokens"
                   dataKey="cacheRead"
+                  stackId="prompt"
                   fill={CHART_COLORS.cacheReadFill}
                   stroke={CHART_COLORS.cacheRead}
-                  radius={[3, 3, 0, 0]}
                 />
                 <Bar
                   yAxisId="tokens"
-                  dataKey="cacheWrite"
+                  dataKey="uncached"
+                  stackId="prompt"
                   fill={CHART_COLORS.cacheWriteFill}
                   stroke={CHART_COLORS.cacheWrite}
                   radius={[3, 3, 0, 0]}
@@ -392,7 +394,7 @@ export function UsagePane(): React.ReactNode {
                     onClick={(entry) => {
                       const fullPath = (entry as { fullPath?: string }).fullPath
                       if (fullPath) {
-                        setWorkspaceFilter(fullPath)
+                        setWorkspaceFilter(workspaceFilter === fullPath ? 'all' : fullPath)
                       }
                     }}
                   />
