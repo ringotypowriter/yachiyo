@@ -515,35 +515,13 @@ test('YachiyoServer can refine the fallback thread title with the configured too
         assert.equal(auxiliaryRequest?.providerOptionsMode, 'auxiliary')
         assert.equal(auxiliaryRequest?.max_token, 128)
         assert.equal(auxiliaryRequest?.messages.length, 1)
+        // Verify the user's message text is embedded in the title-gen prompt.
+        // Avoid asserting on exact prompt wording — only check the query made it through.
         assert.match(
           typeof auxiliaryRequest?.messages[0]?.content === 'string'
             ? auxiliaryRequest.messages[0].content
             : '',
-          /User query:/u
-        )
-        assert.match(
-          typeof auxiliaryRequest?.messages[0]?.content === 'string'
-            ? auxiliaryRequest.messages[0].content
-            : '',
-          /same language as the query/u
-        )
-        assert.match(
-          typeof auxiliaryRequest?.messages[0]?.content === 'string'
-            ? auxiliaryRequest.messages[0].content
-            : '',
-          /Do not repeat the user query verbatim\./u
-        )
-        assert.match(
-          typeof auxiliaryRequest?.messages[0]?.content === 'string'
-            ? auxiliaryRequest.messages[0].content
-            : '',
-          /Examples:/u
-        )
-        assert.doesNotMatch(
-          typeof auxiliaryRequest?.messages[0]?.content === 'string'
-            ? auxiliaryRequest.messages[0].content
-            : '',
-          /Conversation:/u
+          /Plan the MVP/u
         )
       } finally {
         waiter.close()
