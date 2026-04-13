@@ -848,6 +848,14 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
     },
 
+    setFolderColor({ folderId, colorTag, updatedAt }) {
+      const folder = folders.get(folderId)
+      if (folder) {
+        folder.colorTag = colorTag
+        folder.updatedAt = updatedAt
+      }
+    },
+
     deleteFolder(folderId) {
       for (const thread of threads.values()) {
         if (thread.folderId === folderId) {

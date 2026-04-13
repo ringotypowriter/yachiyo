@@ -1,4 +1,5 @@
 import type {
+  FolderColorTag,
   FolderCreatedEvent,
   FolderDeletedEvent,
   FolderRecord,
@@ -51,6 +52,7 @@ export class FolderDomain {
     const folder: FolderRecord = {
       id: this.deps.createId(),
       title,
+      colorTag: null,
       createdAt: timestamp,
       updatedAt: timestamp
     }
@@ -104,6 +106,34 @@ export class FolderDomain {
     const updated: FolderRecord = {
       ...folder,
       title: input.title,
+      updatedAt: timestamp
+    }
+
+    this.deps.emit<FolderUpdatedEvent>({
+      type: 'folder.updated',
+      folderId: updated.id,
+      folder: updated
+    })
+
+    return updated
+  }
+
+  setFolderColor(input: { folderId: string; colorTag: FolderColorTag | null }): FolderRecord {
+    const folder = this.deps.storage.getFolder(input.folderId)
+    if (!folder) {
+      throw new Error(`Folder not found: ${input.folderId}`)
+    }
+
+    const timestamp = this.deps.timestamp()
+    this.deps.storage.setFolderColor({
+      folderId: input.folderId,
+      colorTag: input.colorTag,
+      updatedAt: timestamp
+    })
+
+    const updated: FolderRecord = {
+      ...folder,
+      colorTag: input.colorTag,
       updatedAt: timestamp
     }
 

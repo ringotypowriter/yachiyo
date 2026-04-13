@@ -107,6 +107,8 @@ const api = {
       ipcRenderer.invoke('yachiyo:create-folder-for-threads', input),
     renameFolder: (input: { folderId: string; title: string }): Promise<FolderRecord> =>
       ipcRenderer.invoke('yachiyo:rename-folder', input),
+    setFolderColor: (input: { folderId: string; colorTag: string | null }): Promise<FolderRecord> =>
+      ipcRenderer.invoke('yachiyo:set-folder-color', input),
     deleteFolder: (input: { folderId: string }): Promise<void> =>
       ipcRenderer.invoke('yachiyo:delete-folder', input),
     moveThreadToFolder: (input: {

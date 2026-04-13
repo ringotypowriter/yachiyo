@@ -2,6 +2,7 @@ import type {
   ChannelGroupRecord,
   ChannelGroupStatus,
   ChannelPlatform,
+  FolderColorTag,
   FolderRecord,
   ChannelUserRecord,
   ChannelUserRole,
@@ -302,6 +303,11 @@ export interface YachiyoStorage {
   getFolder(folderId: string): FolderRecord | undefined
   createFolder(folder: FolderRecord): void
   renameFolder(input: { folderId: string; title: string; updatedAt: string }): void
+  setFolderColor(input: {
+    folderId: string
+    colorTag: FolderColorTag | null
+    updatedAt: string
+  }): void
   deleteFolder(folderId: string): void
   setThreadFolder(input: { threadId: string; folderId: string | null; updatedAt: string }): void
 

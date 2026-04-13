@@ -102,6 +102,7 @@ const IPC_CHANNELS = {
   getSettings: 'yachiyo:get-settings',
   createFolderForThreads: 'yachiyo:create-folder-for-threads',
   renameFolder: 'yachiyo:rename-folder',
+  setFolderColor: 'yachiyo:set-folder-color',
   deleteFolder: 'yachiyo:delete-folder',
   moveThreadToFolder: 'yachiyo:move-thread-to-folder',
   renameThread: 'yachiyo:rename-thread',
@@ -726,6 +727,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handle(IPC_CHANNELS.renameFolder, (input: { folderId: string; title: string }) =>
     server!.renameFolder(input)
+  )
+  handle(IPC_CHANNELS.setFolderColor, (input: { folderId: string; colorTag: string | null }) =>
+    server!.setFolderColor(input as never)
   )
   handle(IPC_CHANNELS.deleteFolder, (input: { folderId: string }) => server!.deleteFolder(input))
   handle(IPC_CHANNELS.moveThreadToFolder, (input: { threadId: string; folderId: string | null }) =>

@@ -4,6 +4,7 @@ import type {
   ChannelGroupStatus,
   ChannelUserRole,
   ChannelUserStatus,
+  FolderColorTag,
   MessageRecord,
   RunRecord,
   ScheduleResultStatus,
@@ -38,6 +39,7 @@ export const channelGroupsTable = sqliteTable('channel_groups', {
 export const threadFoldersTable = sqliteTable('thread_folders', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
+  colorTag: text('color_tag').$type<FolderColorTag>(),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull()
 })

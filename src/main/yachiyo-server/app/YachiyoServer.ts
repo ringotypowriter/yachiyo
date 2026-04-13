@@ -12,6 +12,7 @@ import type {
   CreateScheduleInput,
   EditMessageInput,
   FileMentionCandidate,
+  FolderColorTag,
   FolderRecord,
   GetMemoryTermDocumentInput,
   ImportWebSearchBrowserSessionInput,
@@ -736,6 +737,13 @@ export class YachiyoServer {
 
   async renameFolder(input: { folderId: string; title: string }): Promise<FolderRecord> {
     return this.folderDomain.renameFolder(input)
+  }
+
+  async setFolderColor(input: {
+    folderId: string
+    colorTag: FolderColorTag | null
+  }): Promise<FolderRecord> {
+    return this.folderDomain.setFolderColor(input)
   }
 
   async deleteFolder(input: { folderId: string }): Promise<void> {

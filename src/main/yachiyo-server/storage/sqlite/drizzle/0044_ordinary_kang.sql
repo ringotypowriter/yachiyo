@@ -1,0 +1,1 @@
+ALTER TABLE `thread_folders` ADD `color_tag` text;

@@ -190,6 +190,7 @@ interface AppState {
   starThread: (threadId: string, starred: boolean) => Promise<void>
   createFolderForThreads: (threadIds: string[]) => Promise<void>
   renameFolder: (folderId: string, title: string) => Promise<void>
+  setFolderColor: (folderId: string, colorTag: string | null) => Promise<void>
   deleteFolder: (folderId: string) => Promise<void>
   moveThreadToFolder: (threadId: string, folderId: string | null) => Promise<void>
   toggleFolderCollapsed: (folderId: string) => void
@@ -2585,6 +2586,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   renameFolder: async (folderId, title) => {
     await window.api.yachiyo.renameFolder({ folderId, title })
+  },
+
+  setFolderColor: async (folderId, colorTag) => {
+    await window.api.yachiyo.setFolderColor({ folderId, colorTag })
   },
 
   deleteFolder: async (folderId) => {

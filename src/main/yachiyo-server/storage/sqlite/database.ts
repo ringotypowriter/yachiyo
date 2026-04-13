@@ -1626,6 +1626,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .values({
           id: folder.id,
           title: folder.title,
+          colorTag: folder.colorTag ?? null,
           createdAt: folder.createdAt,
           updatedAt: folder.updatedAt
         })
@@ -1635,6 +1636,13 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     renameFolder({ folderId, title, updatedAt }) {
       db.update(threadFoldersTable)
         .set({ title, updatedAt })
+        .where(eq(threadFoldersTable.id, folderId))
+        .run()
+    },
+
+    setFolderColor({ folderId, colorTag, updatedAt }) {
+      db.update(threadFoldersTable)
+        .set({ colorTag, updatedAt })
         .where(eq(threadFoldersTable.id, folderId))
         .run()
     },

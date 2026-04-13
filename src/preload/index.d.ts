@@ -98,6 +98,10 @@ declare global {
         pickWorkspaceDirectory: () => Promise<string | null>
         createFolderForThreads: (input: { threadIds: string[] }) => Promise<FolderRecord>
         renameFolder: (input: { folderId: string; title: string }) => Promise<FolderRecord>
+        setFolderColor: (input: {
+          folderId: string
+          colorTag: string | null
+        }) => Promise<FolderRecord>
         deleteFolder: (input: { folderId: string }) => Promise<void>
         moveThreadToFolder: (input: {
           threadId: string

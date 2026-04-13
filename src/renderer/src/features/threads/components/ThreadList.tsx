@@ -585,6 +585,7 @@ function FolderAwareThreadList({
   collapsedFolderIds,
   toggleFolderCollapsed,
   renameFolder,
+  setFolderColor,
   deleteFolder,
   moveThreadToFolder,
   createFolderForThreads,
@@ -595,6 +596,7 @@ function FolderAwareThreadList({
   collapsedFolderIds: Set<string>
   toggleFolderCollapsed: (folderId: string) => void
   renameFolder: (folderId: string, title: string) => Promise<void>
+  setFolderColor: (folderId: string, colorTag: string | null) => Promise<void>
   deleteFolder: (folderId: string) => Promise<void>
   moveThreadToFolder: (threadId: string, folderId: string | null) => Promise<void>
   createFolderForThreads: (threadIds: string[]) => Promise<void>
@@ -702,6 +704,7 @@ function FolderAwareThreadList({
                 threadCount={item.threads.length}
                 onToggle={() => toggleFolderCollapsed(item.folder.id)}
                 onRename={(title) => void renameFolder(item.folder.id, title)}
+                onSetColor={(colorTag) => void setFolderColor(item.folder.id, colorTag)}
                 onDelete={() => void deleteFolder(item.folder.id)}
               >
                 {item.children.map((child) => {
@@ -779,6 +782,7 @@ function ThreadListContent({
   collapsedFolderIds,
   toggleFolderCollapsed,
   renameFolder,
+  setFolderColor,
   deleteFolder,
   moveThreadToFolder,
   createFolderForThreads
@@ -805,6 +809,7 @@ function ThreadListContent({
   collapsedFolderIds: Set<string>
   toggleFolderCollapsed: (folderId: string) => void
   renameFolder: (folderId: string, title: string) => Promise<void>
+  setFolderColor: (folderId: string, colorTag: string | null) => Promise<void>
   deleteFolder: (folderId: string) => Promise<void>
   moveThreadToFolder: (threadId: string, folderId: string | null) => Promise<void>
   createFolderForThreads: (threadIds: string[]) => Promise<void>
@@ -1157,6 +1162,7 @@ function ThreadListContent({
             collapsedFolderIds={collapsedFolderIds}
             toggleFolderCollapsed={toggleFolderCollapsed}
             renameFolder={renameFolder}
+            setFolderColor={setFolderColor}
             deleteFolder={deleteFolder}
             moveThreadToFolder={moveThreadToFolder}
             createFolderForThreads={createFolderForThreads}
@@ -1217,6 +1223,7 @@ export function ThreadList(): React.JSX.Element {
   const collapsedFolderIds = useAppStore((s) => s.collapsedFolderIds)
   const toggleFolderCollapsed = useAppStore((s) => s.toggleFolderCollapsed)
   const renameFolderAction = useAppStore((s) => s.renameFolder)
+  const setFolderColorAction = useAppStore((s) => s.setFolderColor)
   const deleteFolderAction = useAppStore((s) => s.deleteFolder)
   const moveThreadToFolder = useAppStore((s) => s.moveThreadToFolder)
   const createFolderForThreadsAction = useAppStore((s) => s.createFolderForThreads)
@@ -1267,6 +1274,7 @@ export function ThreadList(): React.JSX.Element {
       collapsedFolderIds={collapsedFolderIds}
       toggleFolderCollapsed={toggleFolderCollapsed}
       renameFolder={renameFolderAction}
+      setFolderColor={setFolderColorAction}
       deleteFolder={deleteFolderAction}
       moveThreadToFolder={moveThreadToFolder}
       createFolderForThreads={createFolderForThreadsAction}

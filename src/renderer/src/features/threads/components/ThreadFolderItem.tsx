@@ -1,9 +1,29 @@
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { FolderOpen, FolderClosed } from 'lucide-react'
-import type { FolderRecord } from '@renderer/app/types'
+import { FolderOpen, FolderClosed, PenLine, Trash2, Paintbrush, XCircle } from 'lucide-react'
+import type { FolderColorTag, FolderRecord } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
+
+const FOLDER_COLORS: Record<FolderColorTag, string> = {
+  coral: '#E25D5D',
+  azure: '#4A90D9',
+  emerald: '#3CB371',
+  amethyst: '#9B72CF',
+  slate: '#708090'
+}
+
+const COLOR_LABELS: Record<FolderColorTag, string> = {
+  coral: 'Mark it Coral',
+  azure: 'Mark it Azure',
+  emerald: 'Mark it Emerald',
+  amethyst: 'Mark it Amethyst',
+  slate: 'Mark it Slate'
+}
+
+function folderIconColor(colorTag: FolderColorTag | null | undefined): string {
+  return colorTag && FOLDER_COLORS[colorTag] ? FOLDER_COLORS[colorTag] : theme.text.secondary
+}
 
 interface ThreadFolderItemProps {
   folder: FolderRecord
@@ -12,6 +32,7 @@ interface ThreadFolderItemProps {
   onToggle: () => void
   onRename: (title: string) => void
   onDelete: () => void
+  onSetColor: (colorTag: FolderColorTag | null) => void
   children: React.ReactNode
 }
 
@@ -22,6 +43,7 @@ export function ThreadFolderItem({
   onToggle,
   onRename,
   onDelete,
+  onSetColor,
   children
 }: ThreadFolderItemProps): React.JSX.Element {
   const [isRenaming, setIsRenaming] = useState(false)
@@ -58,6 +80,8 @@ export function ThreadFolderItem({
     setContextMenu({ x: e.clientX, y: e.clientY })
   }
 
+  const iconColor = folderIconColor(folder.colorTag)
+
   return (
     <div>
       <div
@@ -68,9 +92,9 @@ export function ThreadFolderItem({
         onContextMenu={handleContextMenu}
       >
         {isCollapsed ? (
-          <FolderClosed size={16} style={{ color: theme.text.secondary, flexShrink: 0 }} />
+          <FolderClosed size={16} style={{ color: iconColor, flexShrink: 0 }} />
         ) : (
-          <FolderOpen size={16} style={{ color: theme.text.secondary, flexShrink: 0 }} />
+          <FolderOpen size={16} style={{ color: iconColor, flexShrink: 0 }} />
         )}
         {isRenaming ? (
           <input
@@ -108,7 +132,10 @@ export function ThreadFolderItem({
               className="absolute left-0 top-0 bottom-0"
               style={{
                 width: 1,
-                background: theme.border.default
+                background: folder.colorTag
+                  ? folderIconColor(folder.colorTag)
+                  : theme.border.default,
+                opacity: folder.colorTag ? 0.4 : 1
               }}
             />
             {children}
@@ -120,6 +147,7 @@ export function ThreadFolderItem({
         <FolderContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
+          currentColor={folder.colorTag ?? null}
           onRename={() => {
             setContextMenu(null)
             handleDoubleClick()
@@ -127,6 +155,10 @@ export function ThreadFolderItem({
           onDelete={() => {
             setContextMenu(null)
             onDelete()
+          }}
+          onSetColor={(colorTag) => {
+            setContextMenu(null)
+            onSetColor(colorTag)
           }}
           onClose={() => setContextMenu(null)}
         />
@@ -138,17 +170,22 @@ export function ThreadFolderItem({
 function FolderContextMenu({
   x,
   y,
+  currentColor,
   onRename,
   onDelete,
+  onSetColor,
   onClose
 }: {
   x: number
   y: number
+  currentColor: FolderColorTag | null
   onRename: () => void
   onDelete: () => void
+  onSetColor: (colorTag: FolderColorTag | null) => void
   onClose: () => void
 }): React.JSX.Element {
   const menuRef = useRef<HTMLDivElement>(null)
+  const [resolvedTop, setResolvedTop] = useState(y)
 
   useEffect(() => {
     const handlePointerDown = (): void => onClose()
@@ -163,6 +200,20 @@ function FolderContextMenu({
     }
   }, [onClose])
 
+  useEffect(() => {
+    const el = menuRef.current
+    if (!el) return
+    const menuHeight = el.offsetHeight
+    const margin = 12
+    if (y + menuHeight > window.innerHeight - margin) {
+      setResolvedTop(Math.max(margin, y - menuHeight))
+    } else {
+      setResolvedTop(y)
+    }
+  }, [y])
+
+  const colorTags: FolderColorTag[] = ['coral', 'azure', 'emerald', 'amethyst', 'slate']
+
   return createPortal(
     <div
       ref={menuRef}
@@ -173,7 +224,7 @@ function FolderContextMenu({
       style={{
         position: 'fixed',
         left: Math.max(12, Math.min(x, window.innerWidth - 196)),
-        top: y,
+        top: resolvedTop,
         width: 184,
         padding: 6,
         background: theme.background.surfaceFrosted,
@@ -185,33 +236,94 @@ function FolderContextMenu({
         zIndex: 100
       }}
     >
-      <button
-        className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors"
-        style={{ color: theme.text.primary }}
-        onMouseEnter={(e) => {
-          ;(e.currentTarget as HTMLButtonElement).style.background = theme.background.hoverStrong
-        }}
-        onMouseLeave={(e) => {
-          ;(e.currentTarget as HTMLButtonElement).style.background = 'transparent'
-        }}
-        onClick={onRename}
-      >
+      <MenuItem icon={<PenLine size={14} strokeWidth={1.7} />} onClick={onRename}>
         Rename
-      </button>
-      <button
-        className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors"
-        style={{ color: theme.text.danger }}
-        onMouseEnter={(e) => {
-          ;(e.currentTarget as HTMLButtonElement).style.background = theme.background.hoverStrong
-        }}
-        onMouseLeave={(e) => {
-          ;(e.currentTarget as HTMLButtonElement).style.background = 'transparent'
-        }}
+      </MenuItem>
+      <MenuItem
+        icon={<Trash2 size={14} strokeWidth={1.7} />}
         onClick={onDelete}
+        color={theme.text.danger}
       >
         Discard Folder
-      </button>
+      </MenuItem>
+
+      <div
+        style={{
+          height: 1,
+          margin: '4px 8px',
+          background: theme.border.default
+        }}
+      />
+
+      {colorTags.map((tag) => (
+        <MenuItem
+          key={tag}
+          icon={<Paintbrush size={14} strokeWidth={1.7} style={{ color: FOLDER_COLORS[tag] }} />}
+          onClick={() => onSetColor(tag)}
+          active={currentColor === tag}
+        >
+          {COLOR_LABELS[tag]}
+        </MenuItem>
+      ))}
+
+      {currentColor && (
+        <>
+          <div
+            style={{
+              height: 1,
+              margin: '4px 8px',
+              background: theme.border.default
+            }}
+          />
+          <MenuItem icon={<XCircle size={14} strokeWidth={1.7} />} onClick={() => onSetColor(null)}>
+            Clear Color
+          </MenuItem>
+        </>
+      )}
     </div>,
     document.body
+  )
+}
+
+function MenuItem({
+  icon,
+  onClick,
+  color,
+  active,
+  children
+}: {
+  icon: React.ReactNode
+  onClick: () => void
+  color?: string
+  active?: boolean
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <button
+      className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors"
+      style={{
+        color: color ?? theme.text.primary,
+        background: active ? theme.background.hoverStrong : 'transparent'
+      }}
+      onMouseEnter={(e) => {
+        ;(e.currentTarget as HTMLButtonElement).style.background = theme.background.hoverStrong
+      }}
+      onMouseLeave={(e) => {
+        ;(e.currentTarget as HTMLButtonElement).style.background = active
+          ? theme.background.hoverStrong
+          : 'transparent'
+      }}
+      onClick={onClick}
+    >
+      <span className="flex items-center gap-2.5">
+        <span
+          className="flex items-center justify-center shrink-0"
+          style={{ width: 16, height: 16 }}
+        >
+          {icon}
+        </span>
+        <span>{children}</span>
+      </span>
+    </button>
   )
 }

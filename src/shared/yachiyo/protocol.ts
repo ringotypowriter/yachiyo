@@ -1009,9 +1009,12 @@ export interface ProviderSettings {
   serviceAccountPrivateKey?: string
 }
 
+export type FolderColorTag = 'coral' | 'azure' | 'emerald' | 'amethyst' | 'slate'
+
 export interface FolderRecord {
   id: string
   title: string
+  colorTag: FolderColorTag | null
   createdAt: string
   updatedAt: string
 }
