@@ -198,7 +198,10 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
             <>
               <button
                 type="button"
-                onClick={() => window.api.appUpdate.download()}
+                onClick={() => {
+                  setUpdateState((s) => ({ ...s, state: 'downloading', percent: 0 }))
+                  window.api.appUpdate.download()
+                }}
                 className="text-xs font-medium px-3 py-1.5 rounded-full"
                 style={{
                   background: alpha('accent', 0.12),
@@ -238,7 +241,10 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
           {updateState.state === 'ready' && (
             <button
               type="button"
-              onClick={() => window.api.appUpdate.install()}
+              onClick={() => {
+                setUpdateState((s) => ({ ...s, state: 'installing' }))
+                window.api.appUpdate.install()
+              }}
               className="text-xs font-medium px-3 py-1.5 rounded-full"
               style={{
                 background: alpha('accent', 0.12),
@@ -249,6 +255,11 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
             >
               Restart to install v{updateState.version}
             </button>
+          )}
+          {updateState.state === 'installing' && (
+            <span className="text-xs" style={{ color: theme.text.muted }}>
+              Restarting…
+            </span>
           )}
         </div>
       </div>

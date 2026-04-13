@@ -132,7 +132,14 @@ function setupProd(): void {
   })
 
   ipcMain.on('app-update:install', () => {
-    autoUpdater.quitAndInstall()
+    // Destroy hidden auxiliary windows (e.g. jotdown) whose close-event guards
+    // hide instead of closing — they can block the quit sequence on macOS,
+    // leaving the app stuck in the dock without restarting.
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed() && !win.isVisible()) win.destroy()
+    }
+    // Defer so the IPC reply from the settings window settles before quit.
+    setImmediate(() => autoUpdater.quitAndInstall())
   })
 
   ipcMain.on('app-update:open-release', () => {
