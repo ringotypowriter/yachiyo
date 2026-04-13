@@ -497,6 +497,8 @@ export function Composer({
     useState<PendingWorkspaceChangeConfirmation | null>(null)
   const [isComposing, setIsComposing] = useState(false)
   const [isTextareaFocused, setIsTextareaFocused] = useState(false)
+  const [isDragOver, setIsDragOver] = useState(false)
+  const dragCounterRef = useRef(0)
   // Pretext-driven overlay lines — overlay renders these instead of letting CSS wrap.
   // Guarantees the visible text breaks at the same positions pretext uses for the caret.
   const [overlayLineTexts, setOverlayLineTexts] = useState<string[] | null>(null)
@@ -1753,6 +1755,50 @@ export function Composer({
     [queueImageFiles, queueDocumentFiles, upsertComposerImage, upsertComposerFile, activeThreadId]
   )
 
+  const handleDragEnter = useCallback((event: React.DragEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    dragCounterRef.current++
+    if (event.dataTransfer.types.includes('Files')) {
+      setIsDragOver(true)
+    }
+  }, [])
+
+  const handleDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+  }, [])
+
+  const handleDragLeave = useCallback((event: React.DragEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    dragCounterRef.current--
+    if (dragCounterRef.current === 0) {
+      setIsDragOver(false)
+    }
+  }, [])
+
+  const handleDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      dragCounterRef.current = 0
+      setIsDragOver(false)
+
+      const files = Array.from(event.dataTransfer.files)
+      if (files.length === 0) return
+
+      const images = files.filter((f) => f.type.startsWith('image/'))
+      const docs = files.filter(
+        (f) => !f.type.startsWith('image/') && ACCEPTED_FILE_TYPES.includes(f.type)
+      )
+
+      if (images.length > 0) void queueImageFiles(images)
+      if (docs.length > 0) void queueDocumentFiles(docs)
+    },
+    [queueImageFiles, queueDocumentFiles]
+  )
+
   const providerLabel =
     effectiveModel.providerName || (settings.provider === 'openai' ? 'OpenAI' : 'Anthropic')
   const modelLabel = effectiveModel.model || 'Configure provider'
@@ -1766,8 +1812,38 @@ export function Composer({
     <div
       ref={composerRootRef}
       className="flex flex-col"
-      style={{ borderTop: `1px solid ${theme.border.panel}` }}
+      style={{ borderTop: `1px solid ${theme.border.panel}`, position: 'relative' }}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
+      {isDragOver ? (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 50,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: `color-mix(in srgb, ${theme.background.accentPanel} 85%, transparent)`,
+            border: `2px dashed ${theme.text.accent}`,
+            borderRadius: 8,
+            pointerEvents: 'none'
+          }}
+        >
+          <span
+            style={{
+              fontSize: '0.8125rem',
+              fontWeight: 500,
+              color: theme.text.accent
+            }}
+          >
+            Drop files to attach
+          </span>
+        </div>
+      ) : null}
       {editingMessage !== null ? (
         <div
           className="flex items-center justify-between px-4 py-1.5"

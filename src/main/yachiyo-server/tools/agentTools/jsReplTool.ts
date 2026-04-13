@@ -57,7 +57,8 @@ export function createTool(
     description:
       `Run JavaScript code in a persistent REPL session with cwd set to ${context.workspacePath}. ` +
       'Variables and imports persist across calls within the same run. ' +
-      'Use `reset: true` to clear all state. ' +
+      'To start from a clean state, include `reset: true` in the same jsRepl call as the code you want to run. ' +
+      'Do not treat reset as a separate step or a sticky mode. ' +
       'Has access to `require()` for Node built-ins and project dependencies. ' +
       'Relative paths in fs operations resolve against the workspace.\n' +
       'A `tools` object provides async access to built-in tools. ' +
