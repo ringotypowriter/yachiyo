@@ -314,22 +314,22 @@ describe('createScheduleService', () => {
     const fetchRestore = mock.method(globalThis, 'fetch', async () => ({ ok: true }) as Response)
     mock.timers.enable({ apis: ['Date', 'setTimeout'] })
 
-    try {
-      const { server, notifications } = createMockServer()
-      const service = createScheduleService({
-        server,
-        storage,
-        createId: (() => {
-          let next = 0
-          return () => `run-${++next}`
-        })(),
-        timestamp: (() => {
-          let next = 0
-          return () => `2026-01-01T00:00:0${next++}.000Z`
-        })(),
-        tempWorkspaceDir: '/tmp'
-      })
+    const { server, notifications } = createMockServer()
+    const service = createScheduleService({
+      server,
+      storage,
+      createId: (() => {
+        let next = 0
+        return () => `run-${++next}`
+      })(),
+      timestamp: (() => {
+        let next = 0
+        return () => `2026-01-01T00:00:0${next++}.000Z`
+      })(),
+      tempWorkspaceDir: '/tmp'
+    })
 
+    try {
       service.start()
 
       // The schedule is disabled so no timer should have been armed.
@@ -344,6 +344,7 @@ describe('createScheduleService', () => {
       // The schedule should remain disabled (it was already disabled).
       assert.equal(storage.schedules.get('schedule-1')?.enabled, false)
     } finally {
+      service.stop()
       fetchRestore.mock.restore()
       mock.timers.reset()
     }
@@ -353,21 +354,22 @@ describe('createScheduleService', () => {
     const storage = createMockStorage()
     const fetchRestore = mock.method(globalThis, 'fetch', async () => ({ ok: true }) as Response)
 
-    try {
-      const { server } = createMockServer()
-      const service = createScheduleService({
-        server,
-        storage,
-        createId: () => 'run-1',
-        timestamp: () => '2026-01-01T00:00:00.000Z',
-        tempWorkspaceDir: '/tmp'
-      })
+    const { server } = createMockServer()
+    const service = createScheduleService({
+      server,
+      storage,
+      createId: () => 'run-1',
+      timestamp: () => '2026-01-01T00:00:00.000Z',
+      tempWorkspaceDir: '/tmp'
+    })
 
+    try {
       service.start()
       // Should not throw for a missing schedule.
       await service.triggerScheduleNow('nonexistent')
       assert.equal(storage.runs.length, 0)
     } finally {
+      service.stop()
       fetchRestore.mock.restore()
     }
   })
