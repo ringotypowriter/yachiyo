@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.26
+
+### Patch Changes
+
+- [`cffecc6`](https://github.com/ringotypowriter/yachiyo/commit/cffecc6875547cc67eeecb1bcc54c869e4718864) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Cache Improve
+
 ## 1.0.25
 
 ### Patch Changes
