@@ -72,6 +72,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.version.outputs.tag }}
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -91,3 +92,44 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: pnpm run build && pnpm exec electron-builder --mac zip --publish always
+
+      - name: Generate changelog and update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.version.outputs.tag }}"
+
+          # Find the stable tag immediately before the requested tag, ignoring beta tags as boundaries
+          PREV_TAG=$(git tag --sort=v:refname | awk -v t="$TAG" '$0 == t {print prev; exit} $0 !~ /beta/ {prev=$0}')
+
+          if [ -z "$PREV_TAG" ]; then
+            RANGE="$TAG"
+          else
+            RANGE="${PREV_TAG}..${TAG}"
+          fi
+
+          # Collect commits, skip chore/ci and merge commits
+          FEATS=$(git log "$RANGE" --oneline --no-merges --grep="^feat" --format="- %s (%h)" | sed 's/^- feat[^:]*: /- /')
+          FIXES=$(git log "$RANGE" --oneline --no-merges --grep="^fix" --format="- %s (%h)" | sed 's/^- fix[^:]*: /- /')
+          REFACTORS=$(git log "$RANGE" --oneline --no-merges --grep="^refactor" --format="- %s (%h)" | sed 's/^- refactor[^:]*: /- /')
+
+          BODY=""
+          if [ -n "$FEATS" ]; then
+            BODY="${BODY}## Features\n${FEATS}\n\n"
+          fi
+          if [ -n "$FIXES" ]; then
+            BODY="${BODY}## Bug Fixes\n${FIXES}\n\n"
+          fi
+          if [ -n "$REFACTORS" ]; then
+            BODY="${BODY}## Refactors\n${REFACTORS}\n\n"
+          fi
+
+          if [ -z "$BODY" ]; then
+            if [ -n "$PREV_TAG" ]; then
+              BODY="Maintenance release — see [commit history](https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}) for details."
+            else
+              BODY="Initial release."
+            fi
+          fi
+
+          printf '%b' "$BODY" | gh release edit "$TAG" --notes-file -
