@@ -31,6 +31,18 @@ export interface JsReplToolDependencies {
   webSearchService?: WebSearchService
 }
 
+/**
+ * Rewrite `const` / `let` declarations that bind a `require()` call to `var`,
+ * so repeated calls in the persistent VM context don't throw
+ * "Identifier '…' has already been declared".
+ *
+ * Models habitually write `const fs = require("node:fs")` at the top of every
+ * snippet.  `var` allows harmless redeclaration in the same scope.
+ */
+function relaxRequireBindings(code: string): string {
+  return code.replace(/\b(const|let)\s+([\w{},\s]+?)\s*=\s*require\s*\(/g, 'var $2 = require(')
+}
+
 const DEFAULT_TIMEOUT_SECONDS = 30
 const MAX_MODEL_OUTPUT_CHARS = 20_000
 const MAX_DETAILS_OUTPUT_CHARS = 8_000
@@ -84,6 +96,7 @@ export function createTool(
       let error: string | undefined
       let timedOut = false
       const timeoutMs = (input.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000
+      const code = relaxRequireBindings(input.code)
 
       // Chdir to workspace so relative fs paths resolve correctly.
       // Held across both the sync vm.runInContext and any subsequent await
@@ -95,7 +108,7 @@ export function createTool(
         // If it fails because of top-level await, retry wrapped in async IIFE.
         let rawResult: unknown
         try {
-          rawResult = vm.runInContext(input.code, vmContext, {
+          rawResult = vm.runInContext(code, vmContext, {
             timeout: timeoutMs,
             filename: 'jsRepl'
           })
@@ -108,7 +121,7 @@ export function createTool(
                 : ''
           if (errMsg.includes('await is only valid in async function')) {
             rawResult = vm.runInContext(
-              `(async () => {\n${wrapLastExpression(input.code)}\n})()`,
+              `(async () => {\n${wrapLastExpression(code)}\n})()`,
               vmContext,
               { timeout: timeoutMs, filename: 'jsRepl' }
             )

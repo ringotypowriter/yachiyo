@@ -237,6 +237,32 @@ describe('jsReplTool', () => {
     assert.ok(result.details.result !== 'no error')
   })
 
+  it('allows repeated const require() across calls without redeclaration error', async () => {
+    const tool = createTool(makeContext())
+    await execute(tool, { code: 'const fs = require("node:fs"); "first"' })
+    const result = await execute(tool, { code: 'const fs = require("node:fs"); "second"' })
+    assert.equal(result.details.result, 'second')
+    assert.equal(result.error, undefined)
+  })
+
+  it('allows repeated let require() across calls without redeclaration error', async () => {
+    const tool = createTool(makeContext())
+    await execute(tool, { code: 'let path = require("node:path"); "first"' })
+    const result = await execute(tool, {
+      code: 'let path = require("node:path"); path.join("a","b")'
+    })
+    assert.ok(result.details.result?.includes('a'))
+    assert.equal(result.error, undefined)
+  })
+
+  it('preserves const/let for non-require declarations', async () => {
+    const tool = createTool(makeContext())
+    await execute(tool, { code: 'const x = 10' })
+    const result = await execute(tool, { code: 'const x = 20' })
+    // const redeclaration without require should still error
+    assert.ok(result.details.error?.includes('has already been declared'))
+  })
+
   it('tools object only includes service-backed tools when services are provided', async () => {
     const tool = createTool(makeContext())
     const result = await execute(tool, {
