@@ -50,7 +50,10 @@ import { createTool as createWebSearchTool } from './agentTools/webSearchTool.ts
 import { createTool as createWriteTool } from './agentTools/writeTool.ts'
 import {
   createTool as createDelegateCodingTaskTool,
-  type DelegateCodingTaskContext
+  type DelegateCodingTaskContext,
+  type DelegateCodingTaskFinishedEvent,
+  type DelegateCodingTaskProgressEvent,
+  type DelegateCodingTaskStartedEvent
 } from './agentTools/delegateCodingTaskTool.ts'
 import {
   createTool as createUpdateProfileTool,
@@ -96,6 +99,11 @@ export {
 export { createTool as createWebReadTool, runWebReadTool } from './agentTools/webReadTool.ts'
 export { createTool as createWebSearchTool, runWebSearchTool } from './agentTools/webSearchTool.ts'
 export { createTool as createWriteTool, runWriteTool } from './agentTools/writeTool.ts'
+export type {
+  DelegateCodingTaskFinishedEvent,
+  DelegateCodingTaskProgressEvent,
+  DelegateCodingTaskStartedEvent
+} from './agentTools/delegateCodingTaskTool.ts'
 
 export interface AgentToolDependencies {
   availableSkills?: SkillCatalogEntry[]
@@ -112,13 +120,9 @@ export interface AgentToolDependencies {
   subagentProfiles?: SubagentProfile[]
   /** Workspace paths the coding agent is allowed to operate in (from config savedPaths). */
   availableWorkspaces?: string[]
-  onSubagentProgress?: (chunk: string) => void
-  onSubagentStarted?: (agentName: string) => void
-  onSubagentFinished?: (
-    agentName: string,
-    status: 'success' | 'cancelled',
-    lastMessage?: string
-  ) => void
+  onSubagentProgress?: (event: DelegateCodingTaskProgressEvent) => void
+  onSubagentStarted?: (event: DelegateCodingTaskStartedEvent) => void
+  onSubagentFinished?: (event: DelegateCodingTaskFinishedEvent) => void
   /** When provided, the askUser tool is injected into the tool set. */
   askUserContext?: AskUserToolContext
   /** Extra tools merged into the tool set (e.g. schedule-only tools). */
@@ -190,6 +194,14 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
     const query = typeof input === 'object' && input !== null && 'query' in input ? input.query : ''
     return typeof query === 'string' && query.trim().length > 0
       ? takeTail(query, 160).text
+      : toolName
+  }
+
+  if (toolName === 'delegateCodingTask') {
+    const agentName =
+      typeof input === 'object' && input !== null && 'agent_name' in input ? input.agent_name : ''
+    return typeof agentName === 'string' && agentName.trim().length > 0
+      ? takeTail(agentName, 160).text
       : toolName
   }
 

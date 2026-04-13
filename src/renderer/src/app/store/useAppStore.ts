@@ -57,6 +57,20 @@ export interface HarnessRecord {
   error?: string
 }
 
+interface ActiveSubagentState {
+  delegationId: string
+  threadId: string
+  agentName: string
+  progress: string
+  workspacePath?: string
+}
+
+interface SubagentProgressEntry {
+  delegationId: string
+  agentName: string
+  chunk: string
+}
+
 export interface ComposerImageDraft extends MessageImageRecord {
   id: string
   status: 'loading' | 'ready' | 'failed'
@@ -146,8 +160,9 @@ interface AppState {
   deleteThread: (threadId: string) => Promise<void>
   enabledTools: ToolCallName[]
   harnessEvents: Record<string, HarnessRecord[]>
-  subagentActiveByThread: Record<string, boolean>
-  subagentProgressByThread: Record<string, string>
+  subagentActiveIdsByThread: Record<string, string[]>
+  subagentProgressTimelineByThread: Record<string, SubagentProgressEntry[]>
+  subagentStateById: Record<string, ActiveSubagentState>
   initialized: boolean
   isBootstrapping: boolean
   lastError: string | null
@@ -337,6 +352,158 @@ function replaceMessage(
 function upsertToolCall(toolCalls: ToolCall[], toolCall: ToolCall): ToolCall[] {
   const next = [...toolCalls.filter((item) => item.id !== toolCall.id), toolCall]
   return sortToolCallsChronologically(next)
+}
+
+function upsertActiveSubagentId(
+  subagentActiveIdsByThread: Record<string, string[]>,
+  threadId: string,
+  delegationId: string
+): Record<string, string[]> {
+  const current = subagentActiveIdsByThread[threadId] ?? []
+  if (current.includes(delegationId)) {
+    return subagentActiveIdsByThread
+  }
+
+  return {
+    ...subagentActiveIdsByThread,
+    [threadId]: [...current, delegationId]
+  }
+}
+
+function removeActiveSubagentId(
+  subagentActiveIdsByThread: Record<string, string[]>,
+  threadId: string,
+  delegationId: string
+): Record<string, string[]> {
+  const current = subagentActiveIdsByThread[threadId]
+  if (!current) {
+    return subagentActiveIdsByThread
+  }
+
+  const next = current.filter((id) => id !== delegationId)
+  if (next.length === current.length) {
+    return subagentActiveIdsByThread
+  }
+  if (next.length === 0) {
+    const updated = { ...subagentActiveIdsByThread }
+    delete updated[threadId]
+    return updated
+  }
+
+  return {
+    ...subagentActiveIdsByThread,
+    [threadId]: next
+  }
+}
+
+function appendSubagentProgressEntry(
+  progressByThread: Record<string, SubagentProgressEntry[]>,
+  threadId: string,
+  entry: SubagentProgressEntry
+): Record<string, SubagentProgressEntry[]> {
+  return {
+    ...progressByThread,
+    [threadId]: [...(progressByThread[threadId] ?? []), entry]
+  }
+}
+
+function deriveSubagentStateFromToolCalls(
+  toolCallsByThread: Record<string, ToolCall[]>,
+  previousStateById: Record<string, ActiveSubagentState> = {},
+  previousProgressByThread: Record<string, SubagentProgressEntry[]> = {}
+): Pick<
+  AppState,
+  'subagentActiveIdsByThread' | 'subagentProgressTimelineByThread' | 'subagentStateById'
+> {
+  const subagentActiveIdsByThread: Record<string, string[]> = {}
+  const subagentProgressTimelineByThread: Record<string, SubagentProgressEntry[]> = {}
+  const subagentStateById: Record<string, ActiveSubagentState> = {}
+
+  for (const [threadId, toolCalls] of Object.entries(toolCallsByThread)) {
+    const activeDelegationIds: string[] = []
+    for (const toolCall of toolCalls) {
+      if (toolCall.toolName !== 'delegateCodingTask' || toolCall.status !== 'running') {
+        continue
+      }
+
+      activeDelegationIds.push(toolCall.id)
+      subagentActiveIdsByThread[threadId] = [
+        ...(subagentActiveIdsByThread[threadId] ?? []),
+        toolCall.id
+      ]
+      const previous = previousStateById[toolCall.id]
+      subagentStateById[toolCall.id] = {
+        delegationId: toolCall.id,
+        threadId,
+        agentName: previous?.agentName || toolCall.inputSummary || 'Coding agent',
+        progress: previous?.progress ?? '',
+        ...(previous?.workspacePath ? { workspacePath: previous.workspacePath } : {})
+      }
+    }
+
+    if (activeDelegationIds.length > 0) {
+      const activeDelegationIdSet = new Set(activeDelegationIds)
+      subagentProgressTimelineByThread[threadId] = (
+        previousProgressByThread[threadId] ?? []
+      ).filter((entry) => activeDelegationIdSet.has(entry.delegationId))
+    }
+  }
+
+  return {
+    subagentActiveIdsByThread,
+    subagentProgressTimelineByThread,
+    subagentStateById
+  }
+}
+
+function syncSubagentStateWithToolCall(input: {
+  threadId: string
+  toolCall: ToolCall
+  subagentActiveIdsByThread: Record<string, string[]>
+  subagentStateById: Record<string, ActiveSubagentState>
+}): Pick<AppState, 'subagentActiveIdsByThread' | 'subagentStateById'> {
+  if (input.toolCall.toolName !== 'delegateCodingTask') {
+    return {
+      subagentActiveIdsByThread: input.subagentActiveIdsByThread,
+      subagentStateById: input.subagentStateById
+    }
+  }
+
+  if (input.toolCall.status === 'running') {
+    return {
+      subagentActiveIdsByThread: upsertActiveSubagentId(
+        input.subagentActiveIdsByThread,
+        input.threadId,
+        input.toolCall.id
+      ),
+      subagentStateById: {
+        ...input.subagentStateById,
+        [input.toolCall.id]: {
+          delegationId: input.toolCall.id,
+          threadId: input.threadId,
+          agentName:
+            input.subagentStateById[input.toolCall.id]?.agentName ||
+            input.toolCall.inputSummary ||
+            'Coding agent',
+          progress: input.subagentStateById[input.toolCall.id]?.progress ?? '',
+          ...(input.subagentStateById[input.toolCall.id]?.workspacePath
+            ? { workspacePath: input.subagentStateById[input.toolCall.id]?.workspacePath }
+            : {})
+        }
+      }
+    }
+  }
+
+  const subagentStateById = { ...input.subagentStateById }
+  delete subagentStateById[input.toolCall.id]
+  return {
+    subagentActiveIdsByThread: removeActiveSubagentId(
+      input.subagentActiveIdsByThread,
+      input.threadId,
+      input.toolCall.id
+    ),
+    subagentStateById
+  }
 }
 
 function terminateRunToolCalls(
@@ -843,6 +1010,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const snapshot = await window.api.yachiyo.createBranch({ threadId, messageId })
       set((state) => {
+        const toolCalls = {
+          ...state.toolCalls,
+          [snapshot.thread.id]: snapshot.toolCalls
+        }
         const nextState = {
           ...state,
           activeThreadId: snapshot.thread.id,
@@ -856,10 +1027,12 @@ export const useAppStore = create<AppState>((set, get) => ({
             ...state.messages,
             [snapshot.thread.id]: snapshot.messages
           },
-          toolCalls: {
-            ...state.toolCalls,
-            [snapshot.thread.id]: snapshot.toolCalls
-          },
+          toolCalls,
+          ...deriveSubagentStateFromToolCalls(
+            toolCalls,
+            state.subagentStateById,
+            state.subagentProgressTimelineByThread
+          ),
           threads: upsertThread(state.threads, snapshot.thread)
         }
 
@@ -889,8 +1062,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
   harnessEvents: {},
-  subagentActiveByThread: {},
-  subagentProgressByThread: {},
+  subagentActiveIdsByThread: {},
+  subagentProgressTimelineByThread: {},
+  subagentStateById: {},
   initialized: false,
   isBootstrapping: false,
   lastError: null,
@@ -971,6 +1145,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         const nextMessages = activeRunId
           ? (state.messages[threadId] ?? []).filter((m) => m.id !== messageId)
           : snapshot.messages
+        const toolCalls = {
+          ...state.toolCalls,
+          [threadId]: snapshot.toolCalls
+        }
 
         return {
           // Preserve harness progress while a run is active.
@@ -982,10 +1160,12 @@ export const useAppStore = create<AppState>((set, get) => ({
             ...state.messages,
             [threadId]: nextMessages
           },
-          toolCalls: {
-            ...state.toolCalls,
-            [threadId]: snapshot.toolCalls
-          },
+          toolCalls,
+          ...deriveSubagentStateFromToolCalls(
+            toolCalls,
+            state.subagentStateById,
+            state.subagentProgressTimelineByThread
+          ),
           threads: upsertThread(state.threads, snapshot.thread)
         }
       })
@@ -1351,10 +1531,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete runStatusesByThread[event.threadId]
         const toolCalls = { ...state.toolCalls }
         delete toolCalls[event.threadId]
-        const subagentActiveByThread = { ...state.subagentActiveByThread }
-        delete subagentActiveByThread[event.threadId]
-        const subagentProgressByThread = { ...state.subagentProgressByThread }
-        delete subagentProgressByThread[event.threadId]
+        const subagentActiveIdsByThread = { ...state.subagentActiveIdsByThread }
+        delete subagentActiveIdsByThread[event.threadId]
+        const subagentProgressTimelineByThread = { ...state.subagentProgressTimelineByThread }
+        delete subagentProgressTimelineByThread[event.threadId]
+        const subagentStateById = Object.fromEntries(
+          Object.entries(state.subagentStateById).filter(
+            ([, subagent]) => subagent.threadId !== event.threadId
+          )
+        )
 
         const deletingActiveThread = state.activeThreadId === event.threadId
         const activeThreadId = deletingActiveThread
@@ -1389,8 +1574,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           ),
           runPhasesByThread,
           runStatusesByThread,
-          subagentActiveByThread,
-          subagentProgressByThread,
+          subagentActiveIdsByThread,
+          subagentProgressTimelineByThread,
+          subagentStateById,
           externalThreads,
           toolCalls,
           threads
@@ -1470,6 +1656,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         // shows a PreparingBubble instead of empty space while waiting for
         // the first message.delta from the restarted run.
         const hadPendingSteer = Boolean(state.pendingSteerMessages[event.threadId])
+        const toolCalls = {
+          ...state.toolCalls,
+          [event.threadId]: event.toolCalls
+        }
 
         const nextState = {
           ...state,
@@ -1493,10 +1683,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           runPhasesByThread: hadPendingSteer
             ? setThreadRunPhaseValue(state.runPhasesByThread, event.threadId, 'preparing')
             : state.runPhasesByThread,
-          toolCalls: {
-            ...state.toolCalls,
-            [event.threadId]: event.toolCalls
-          },
+          toolCalls,
+          ...deriveSubagentStateFromToolCalls(
+            toolCalls,
+            state.subagentStateById,
+            state.subagentProgressTimelineByThread
+          ),
           threads: upsertThread(state.threads, event.thread)
         }
 
@@ -1735,6 +1927,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         const eventRunId = event.runId
         const pending = eventRunId ? state.pendingAssistantMessages[eventRunId] : undefined
         const currentPhase = state.runPhasesByThread[event.threadId]
+        const nextToolCalls = {
+          ...state.toolCalls,
+          [event.threadId]: upsertToolCall(state.toolCalls[event.threadId] ?? [], event.toolCall)
+        }
+        const nextSubagentState = syncSubagentStateWithToolCall({
+          threadId: event.threadId,
+          toolCall: event.toolCall,
+          subagentActiveIdsByThread: state.subagentActiveIdsByThread,
+          subagentStateById: state.subagentStateById
+        })
         const nextState = {
           ...state,
           pendingAssistantMessages: pending
@@ -1746,10 +1948,8 @@ export const useAppStore = create<AppState>((set, get) => ({
                 }
               }
             : state.pendingAssistantMessages,
-          toolCalls: {
-            ...state.toolCalls,
-            [event.threadId]: upsertToolCall(state.toolCalls[event.threadId] ?? [], event.toolCall)
-          },
+          toolCalls: nextToolCalls,
+          ...nextSubagentState,
           runPhasesByThread:
             currentPhase === 'preparing'
               ? setThreadRunPhaseValue(state.runPhasesByThread, event.threadId, 'streaming')
@@ -2072,26 +2272,82 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       if (event.type === 'subagent.started') {
+        const existing = state.subagentStateById[event.delegationId]
+        const hadActiveDelegates =
+          (state.subagentActiveIdsByThread[event.threadId]?.length ?? 0) > 0
         return {
-          subagentActiveByThread: { ...state.subagentActiveByThread, [event.threadId]: true },
-          subagentProgressByThread: { ...state.subagentProgressByThread, [event.threadId]: '' }
+          subagentActiveIdsByThread: upsertActiveSubagentId(
+            state.subagentActiveIdsByThread,
+            event.threadId,
+            event.delegationId
+          ),
+          subagentProgressTimelineByThread: hadActiveDelegates
+            ? state.subagentProgressTimelineByThread
+            : {
+                ...state.subagentProgressTimelineByThread,
+                [event.threadId]: []
+              },
+          subagentStateById: {
+            ...state.subagentStateById,
+            [event.delegationId]: {
+              delegationId: event.delegationId,
+              threadId: event.threadId,
+              agentName: event.agentName,
+              progress: existing?.progress ?? '',
+              workspacePath: event.workspacePath
+            }
+          }
         }
       }
 
       if (event.type === 'subagent.progress') {
-        const prev = state.subagentProgressByThread[event.threadId] ?? ''
+        const existing = state.subagentStateById[event.delegationId]
+        const agentName = existing?.agentName ?? 'Coding agent'
         return {
-          subagentProgressByThread: {
-            ...state.subagentProgressByThread,
-            [event.threadId]: prev + event.chunk
+          subagentActiveIdsByThread: upsertActiveSubagentId(
+            state.subagentActiveIdsByThread,
+            event.threadId,
+            event.delegationId
+          ),
+          subagentProgressTimelineByThread: appendSubagentProgressEntry(
+            state.subagentProgressTimelineByThread,
+            event.threadId,
+            {
+              delegationId: event.delegationId,
+              agentName,
+              chunk: event.chunk
+            }
+          ),
+          subagentStateById: {
+            ...state.subagentStateById,
+            [event.delegationId]: {
+              delegationId: event.delegationId,
+              threadId: event.threadId,
+              agentName,
+              progress: (existing?.progress ?? '') + event.chunk,
+              ...(existing?.workspacePath ? { workspacePath: existing.workspacePath } : {})
+            }
           }
         }
       }
 
       if (event.type === 'subagent.finished') {
-        const next = { ...state.subagentActiveByThread }
-        delete next[event.threadId]
-        return { subagentActiveByThread: next }
+        const subagentStateById = { ...state.subagentStateById }
+        delete subagentStateById[event.delegationId]
+        const subagentActiveIdsByThread = removeActiveSubagentId(
+          state.subagentActiveIdsByThread,
+          event.threadId,
+          event.delegationId
+        )
+        const subagentProgressTimelineByThread = { ...state.subagentProgressTimelineByThread }
+        if ((subagentActiveIdsByThread[event.threadId]?.length ?? 0) === 0) {
+          delete subagentProgressTimelineByThread[event.threadId]
+        }
+        return {
+          subagentActiveIdsByThread,
+          subagentProgressTimelineByThread,
+          subagentStateById
+        }
       }
 
       return {}
@@ -2225,6 +2481,11 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
         })
         set((state) => ({
+          ...deriveSubagentStateFromToolCalls(
+            payload.toolCallsByThread,
+            state.subagentStateById,
+            state.subagentProgressTimelineByThread
+          ),
           activeThreadId: state.activeThreadId ?? payload.threads[0]?.id ?? null,
           activeArchivedThreadId:
             state.activeArchivedThreadId ?? payload.archivedThreads[0]?.id ?? null,
@@ -2721,10 +2982,18 @@ export const useAppStore = create<AppState>((set, get) => ({
         console.log(
           `[setActiveThread] loaded ${data.messages.length} messages, ${data.toolCalls.length} toolCalls for ${id}`
         )
-        set((state) => ({
-          messages: { ...state.messages, [id]: data.messages },
-          toolCalls: { ...state.toolCalls, [id]: data.toolCalls }
-        }))
+        set((state) => {
+          const toolCalls = { ...state.toolCalls, [id]: data.toolCalls }
+          return {
+            messages: { ...state.messages, [id]: data.messages },
+            toolCalls,
+            ...deriveSubagentStateFromToolCalls(
+              toolCalls,
+              state.subagentStateById,
+              state.subagentProgressTimelineByThread
+            )
+          }
+        })
       })
     }
   },

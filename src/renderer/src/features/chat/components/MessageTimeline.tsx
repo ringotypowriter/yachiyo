@@ -142,7 +142,8 @@ export const ThreadConversationGroup = memo(function ThreadConversationGroup({
   threadIsSaving,
   runs,
   subagentActive,
-  subagentStream,
+  activeSubagents,
+  subagentProgressEntries,
   retryInfo,
   onCancelSubagent,
   threadCapabilities,
@@ -160,9 +161,10 @@ export const ThreadConversationGroup = memo(function ThreadConversationGroup({
   threadIsSaving: boolean
   runs: RunRecord[]
   subagentActive: boolean
-  subagentStream: string
+  activeSubagents: Array<{ delegationId: string; agentName: string; progress: string }>
+  subagentProgressEntries: Array<{ delegationId: string; agentName: string; chunk: string }>
   retryInfo?: RetryInfo
-  onCancelSubagent: () => void
+  onCancelSubagent?: () => void
   threadCapabilities: NonNullable<Thread['capabilities']>
   onCreateBranch: (messageId: string) => Promise<void>
   onEdit: (messageId: string) => void
@@ -468,8 +470,8 @@ export const ThreadConversationGroup = memo(function ThreadConversationGroup({
 
       {subagentActive ? (
         <SubagentRunningIndicator
-          threadId={threadId}
-          stream={subagentStream}
+          agents={activeSubagents}
+          progressEntries={subagentProgressEntries}
           onCancel={onCancelSubagent}
         />
       ) : null}
@@ -507,10 +509,22 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     threadId ? state.savingThreadIds.has(threadId) : false
   )
   const subagentActive = useAppStore((state) =>
-    threadId ? (state.subagentActiveByThread[threadId] ?? false) : false
+    threadId ? (state.subagentActiveIdsByThread[threadId]?.length ?? 0) > 0 : false
   )
-  const subagentStream = useAppStore((state) =>
-    threadId ? (state.subagentProgressByThread[threadId] ?? '') : ''
+  const activeSubagents = useAppStore((state) =>
+    threadId
+      ? (state.subagentActiveIdsByThread[threadId] ?? [])
+          .map((delegationId) => state.subagentStateById[delegationId])
+          .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+          .map((entry) => ({
+            delegationId: entry.delegationId,
+            agentName: entry.agentName,
+            progress: entry.progress
+          }))
+      : []
+  )
+  const subagentProgressEntries = useAppStore((state) =>
+    threadId ? (state.subagentProgressTimelineByThread[threadId] ?? []) : []
   )
   const retryInfo = useAppStore((state) =>
     threadId ? (state.retryInfoByThread[threadId] ?? undefined) : undefined
@@ -953,9 +967,14 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
             threadIsSaving={threadIsSaving}
             runs={runs}
             subagentActive={isActiveGroup && subagentActive}
-            subagentStream={subagentStream}
+            activeSubagents={activeSubagents}
+            subagentProgressEntries={subagentProgressEntries}
             retryInfo={isActiveGroup ? retryInfo : undefined}
-            onCancelSubagent={() => void cancelRunForThread(threadId!)}
+            onCancelSubagent={
+              isActiveGroup && activeSubagents.length === 1
+                ? () => void cancelRunForThread(threadId!)
+                : undefined
+            }
             threadCapabilities={threadCapabilities}
             onCreateBranch={handleCreateBranch}
             onEdit={handleEdit}
@@ -973,7 +992,8 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
       activeRunId,
       activeRequestMessageId,
       subagentActive,
-      subagentStream,
+      activeSubagents,
+      subagentProgressEntries,
       retryInfo,
       inlineToolCalls,
       runs,
