@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Plus, Trash2, Clock, CalendarClock, CalendarDays } from 'lucide-react'
+import { Plus, Trash2, Clock, CalendarClock, CalendarDays, RotateCw } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { theme, alpha } from '@renderer/theme/theme'
 import { inputStyle } from '../components/styles'
@@ -1099,6 +1099,9 @@ function HistorySubTab(): React.ReactNode {
   const [runs, setRuns] = useState<ScheduleRunRecord[]>([])
   const [schedules, setSchedules] = useState<Map<string, ScheduleRecord>>(new Map())
   const [loading, setLoading] = useState(true)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  const refresh = useCallback(() => setRefreshKey((k) => k + 1), [])
 
   useEffect(() => {
     let cancelled = false
@@ -1115,7 +1118,7 @@ function HistorySubTab(): React.ReactNode {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [refreshKey])
 
   if (loading) {
     return (
@@ -1149,7 +1152,12 @@ function HistorySubTab(): React.ReactNode {
         Recent Runs
       </span>
       {runs.map((run) => (
-        <RunRow key={run.id} run={run} scheduleName={schedules.get(run.scheduleId)?.name} />
+        <RunRow
+          key={run.id}
+          run={run}
+          scheduleName={schedules.get(run.scheduleId)?.name}
+          onRetry={refresh}
+        />
       ))}
     </div>
   )
@@ -1170,15 +1178,29 @@ function statusBadgeColors(run: ScheduleRunRecord): { bg: string; fg: string } {
 
 function RunRow({
   run,
-  scheduleName
+  scheduleName,
+  onRetry
 }: {
   run: ScheduleRunRecord
   scheduleName?: string
+  onRetry: () => void
 }): React.ReactNode {
   const badge = statusBadgeColors(run)
-  // Only allow navigation when the run finished (thread is archived).
-  // Running threads aren't archived yet, and restored threads are no longer in the archive.
   const canNavigate = !!run.threadId && run.status !== 'running'
+  const canRetry = run.status === 'skipped' || run.status === 'failed'
+  const [triggering, setTriggering] = useState(false)
+
+  const handleRetry = async (e: React.MouseEvent): Promise<void> => {
+    e.stopPropagation()
+    setTriggering(true)
+    try {
+      await window.api.yachiyo.triggerScheduleNow({ scheduleId: run.scheduleId })
+      // Give the run a moment to start before refreshing.
+      setTimeout(onRetry, 600)
+    } finally {
+      setTriggering(false)
+    }
+  }
 
   return (
     <div
@@ -1206,6 +1228,26 @@ function RunRow({
           </p>
         )}
       </div>
+      {canRetry && (
+        <button
+          className="shrink-0 p-1.5 rounded-md transition-colors"
+          style={{
+            color: theme.text.secondary,
+            background: 'transparent'
+          }}
+          title="Rerun this schedule"
+          disabled={triggering}
+          onClick={(e) => void handleRetry(e)}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = alpha('ink', 0.06)
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent'
+          }}
+        >
+          <RotateCw size={14} className={triggering ? 'animate-spin' : ''} />
+        </button>
+      )}
       <span
         className="text-xs shrink-0 px-2 py-0.5 rounded-full font-medium"
         style={{ background: badge.bg, color: badge.fg }}

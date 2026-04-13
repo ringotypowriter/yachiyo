@@ -278,6 +278,8 @@ const api = {
       limit?: number
     }): Promise<import('../shared/yachiyo/protocol').ScheduleRunRecord[]> =>
       ipcRenderer.invoke('yachiyo:list-recent-schedule-runs', input),
+    triggerScheduleNow: (input: { scheduleId: string }): Promise<void> =>
+      ipcRenderer.invoke('yachiyo:trigger-schedule-now', input),
     markThreadAsRead: (input: {
       threadId: string
     }): Promise<import('../shared/yachiyo/protocol').ThreadRecord> =>

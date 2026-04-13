@@ -149,6 +149,7 @@ const IPC_CHANNELS = {
   disableSchedule: 'yachiyo:disable-schedule',
   listScheduleRuns: 'yachiyo:list-schedule-runs',
   listRecentScheduleRuns: 'yachiyo:list-recent-schedule-runs',
+  triggerScheduleNow: 'yachiyo:trigger-schedule-now',
   markThreadAsRead: 'yachiyo:mark-thread-as-read',
   openSkillsFolder: 'yachiyo:open-skills-folder',
   answerToolQuestion: 'yachiyo:answer-tool-question',
@@ -937,6 +938,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.listRecentScheduleRuns, (input?: { limit?: number }) =>
     server!.listRecentScheduleRuns(input?.limit)
   )
+  handle(IPC_CHANNELS.triggerScheduleNow, async (input: { scheduleId: string }) => {
+    await scheduleService?.triggerScheduleNow(input.scheduleId)
+  })
   handle(IPC_CHANNELS.markThreadAsRead, (input: { threadId: string }) =>
     server!.markThreadAsRead(input)
   )

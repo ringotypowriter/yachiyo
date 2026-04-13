@@ -122,6 +122,8 @@ export interface ScheduleService {
   start(): void
   stop(): void
   reload(): void
+  /** Manually fire a schedule now, bypassing the enabled check. */
+  triggerScheduleNow(scheduleId: string): Promise<void>
 }
 
 /** Build a fingerprint string from the schedule set so we can detect DB-level changes. */
@@ -222,9 +224,10 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
     timers.clear()
   }
 
-  async function fireSchedule(scheduleId: string): Promise<void> {
+  async function fireSchedule(scheduleId: string, opts?: { manual?: boolean }): Promise<void> {
     const schedule = deps.storage.getSchedule(scheduleId)
-    if (!schedule || !schedule.enabled) return
+    if (!schedule) return
+    if (!opts?.manual && !schedule.enabled) return
 
     if (activeRuns.has(scheduleId)) {
       console.warn(`[schedule] skipping overlapping fire for "${schedule.name}"`)
@@ -251,6 +254,10 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
         error: 'No internet connection.'
       })
       console.log(`[schedule] "${schedule.name}" skipped — no internet connection`)
+      deps.server.showNotification({
+        title: `${schedule.name} — skipped`,
+        body: 'No internet connection.'
+      })
       const fresh = deps.storage.getSchedule(scheduleId)
       if (fresh?.runAt) {
         disarmOneOffSchedule(scheduleId, 'skipped')
@@ -515,6 +522,10 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
       console.log(
         `[schedule] reloaded ${lastFingerprint.split('|').filter(Boolean).length} schedule(s)`
       )
+    },
+
+    async triggerScheduleNow(scheduleId: string): Promise<void> {
+      await fireSchedule(scheduleId, { manual: true })
     }
   }
 }

@@ -185,7 +185,7 @@ describe('createScheduleService', () => {
     mock.timers.enable({ apis: ['Date', 'setTimeout'] })
 
     try {
-      const { server } = createMockServer()
+      const { server, notifications } = createMockServer()
       const service = createScheduleService({
         server,
         storage,
@@ -214,6 +214,10 @@ describe('createScheduleService', () => {
       assert.equal(storage.runs[0]?.status, 'skipped')
       assert.equal(storage.schedules.get('schedule-1')?.enabled, false)
       assert.deepEqual(storage.deletedScheduleIds, [])
+      // Skipped schedules should notify the user.
+      assert.equal(notifications.length, 1)
+      assert.equal(notifications[0]?.title, 'One-off — skipped')
+      assert.equal(notifications[0]?.body, 'No internet connection.')
     } finally {
       fetchRestore.mock.restore()
       mock.timers.reset()
@@ -299,6 +303,72 @@ describe('createScheduleService', () => {
     } finally {
       fetchRestore.mock.restore()
       mock.timers.reset()
+    }
+  })
+
+  it('triggerScheduleNow fires a disabled one-off schedule', async () => {
+    // Simulate a one-off schedule that was skipped and auto-disabled.
+    const storage = createMockStorage(
+      createSchedule({ runAt: '1970-01-01T00:00:05.000Z', enabled: false })
+    )
+    const fetchRestore = mock.method(globalThis, 'fetch', async () => ({ ok: true }) as Response)
+    mock.timers.enable({ apis: ['Date', 'setTimeout'] })
+
+    try {
+      const { server, notifications } = createMockServer()
+      const service = createScheduleService({
+        server,
+        storage,
+        createId: (() => {
+          let next = 0
+          return () => `run-${++next}`
+        })(),
+        timestamp: (() => {
+          let next = 0
+          return () => `2026-01-01T00:00:0${next++}.000Z`
+        })(),
+        tempWorkspaceDir: '/tmp'
+      })
+
+      service.start()
+
+      // The schedule is disabled so no timer should have been armed.
+      // Manually trigger it.
+      await service.triggerScheduleNow('schedule-1')
+      await waitFor(() => storage.runs[0]?.status === 'completed')
+
+      assert.equal(storage.runs.length, 1)
+      assert.equal(storage.runs[0]?.status, 'completed')
+      assert.equal(storage.runs[0]?.threadId, 'thread-1')
+      assert.equal(notifications.length, 1)
+      // The schedule should remain disabled (it was already disabled).
+      assert.equal(storage.schedules.get('schedule-1')?.enabled, false)
+    } finally {
+      fetchRestore.mock.restore()
+      mock.timers.reset()
+    }
+  })
+
+  it('triggerScheduleNow returns silently for a nonexistent schedule', async () => {
+    const storage = createMockStorage()
+    const fetchRestore = mock.method(globalThis, 'fetch', async () => ({ ok: true }) as Response)
+
+    try {
+      const { server } = createMockServer()
+      const service = createScheduleService({
+        server,
+        storage,
+        createId: () => 'run-1',
+        timestamp: () => '2026-01-01T00:00:00.000Z',
+        tempWorkspaceDir: '/tmp'
+      })
+
+      service.start()
+      // Should not throw for a missing schedule.
+      await service.triggerScheduleNow('nonexistent')
+      assert.equal(storage.runs.length, 0)
+    } finally {
+      fetchRestore.mock.restore()
     }
   })
 
