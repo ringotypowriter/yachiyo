@@ -12,6 +12,7 @@ import type {
   CreateScheduleInput,
   EditMessageInput,
   FileMentionCandidate,
+  FolderRecord,
   GetMemoryTermDocumentInput,
   ImportWebSearchBrowserSessionInput,
   ListSkillsInput,
@@ -58,6 +59,7 @@ import {
   resolveYachiyoTempWorkspaceRoot,
   resolveYachiyoWebSearchBrowserSessionPath
 } from '../config/paths.ts'
+import { FolderDomain } from './domain/folderDomain.ts'
 import { ScheduleDomain } from './domain/scheduleDomain.ts'
 import { createTtlReaper, type TtlReaper } from './domain/ttlReaper.ts'
 import { acpProcessPool } from '../runtime/acp/acpProcessPool.ts'
@@ -180,6 +182,7 @@ export class YachiyoServer {
   private readonly readSoulDocumentFile: () => Promise<SoulDocument | null>
   private readonly addSoulTraitFile: (trait: string) => Promise<SoulDocument | null>
   private readonly removeSoulTraitFile: (trait: string) => Promise<SoulDocument | null>
+  private readonly folderDomain: FolderDomain
   private readonly scheduleDomain: ScheduleDomain
   private readonly ttlReaper: TtlReaper
   private readonly jotdownStore: JotdownStore | null
@@ -345,6 +348,13 @@ export class YachiyoServer {
       cancelMemoryDistillation: (threadId) => this.runDomain.cancelMemoryDistillation(threadId)
     })
 
+    this.folderDomain = new FolderDomain({
+      storage: this.storage,
+      createId: this.createId,
+      timestamp: this.timestamp.bind(this),
+      emit: this.emit.bind(this)
+    })
+
     this.scheduleDomain = new ScheduleDomain({
       storage: this.storage,
       createId: this.createId,
@@ -407,8 +417,14 @@ export class YachiyoServer {
     const recoveredQueuedFollowUps = this.runDomain.prepareRecoveredQueuedFollowUps()
     const recoveredRuns = this.developmentMode ? [] : this.runDomain.prepareRecoveredRuns()
 
-    const { archivedThreads, threads, messagesByThread, toolCallsByThread, latestRunsByThread } =
-      this.storage.bootstrap()
+    const {
+      archivedThreads,
+      folders,
+      threads,
+      messagesByThread,
+      toolCallsByThread,
+      latestRunsByThread
+    } = this.storage.bootstrap()
 
     this.runDomain.scheduleRecoveredQueuedFollowUps(recoveredQueuedFollowUps)
     this.runDomain.scheduleRecoveredRuns(recoveredRuns)
@@ -416,6 +432,7 @@ export class YachiyoServer {
     return {
       threads,
       archivedThreads,
+      folders,
       messagesByThread,
       toolCallsByThread,
       latestRunsByThread,
@@ -658,6 +675,14 @@ export class YachiyoServer {
         : {})
     })
 
+    // Auto-categorize: group source and destination under a folder
+    if (!sourceThread.source || sourceThread.source === 'local') {
+      this.folderDomain.ensureFolderForDerivedThread({
+        sourceThread,
+        derivedThread: destinationThread
+      })
+    }
+
     return this.runDomain.compactThreadToAnotherThread({
       sourceThread,
       destinationThread
@@ -700,6 +725,26 @@ export class YachiyoServer {
     }
 
     return defaultEnsureThreadWorkspace(thread.id)
+  }
+
+  async createFolderForThreads(input: { threadIds: string[] }): Promise<FolderRecord> {
+    const threads = input.threadIds.map((id) => this.requireThread(id))
+    return this.folderDomain.createFolderForThreads({ threads })
+  }
+
+  async renameFolder(input: { folderId: string; title: string }): Promise<FolderRecord> {
+    return this.folderDomain.renameFolder(input)
+  }
+
+  async deleteFolder(input: { folderId: string }): Promise<void> {
+    this.folderDomain.deleteFolder(input.folderId)
+  }
+
+  async moveThreadToFolder(input: {
+    threadId: string
+    folderId: string | null
+  }): Promise<ThreadRecord> {
+    return this.folderDomain.moveThreadToFolder(input)
   }
 
   async renameThread(input: { threadId: string; title: string }): Promise<ThreadRecord> {
@@ -797,7 +842,18 @@ export class YachiyoServer {
   }
 
   async createBranch(input: { threadId: string; messageId: string }): Promise<ThreadSnapshot> {
-    return this.threadDomain.createBranch(input)
+    const sourceThread = this.requireThread(input.threadId)
+    const result = await this.threadDomain.createBranch(input)
+
+    // Auto-categorize: group source and branch under a folder
+    if (!sourceThread.source || sourceThread.source === 'local') {
+      this.folderDomain.ensureFolderForDerivedThread({
+        sourceThread,
+        derivedThread: result.thread
+      })
+    }
+
+    return result
   }
 
   async deleteMessageFromHere(input: {

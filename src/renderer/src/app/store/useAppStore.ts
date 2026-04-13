@@ -2,6 +2,7 @@ import { create } from 'zustand'
 
 import type {
   ConnectionStatus,
+  FolderRecord,
   Message,
   MessageImageRecord,
   MessageTextBlockRecord,
@@ -172,6 +173,11 @@ interface AppState {
   renameThread: (threadId: string, title: string) => Promise<void>
   setThreadIcon: (threadId: string, icon: string | null) => Promise<void>
   starThread: (threadId: string, starred: boolean) => Promise<void>
+  createFolderForThreads: (threadIds: string[]) => Promise<void>
+  renameFolder: (folderId: string, title: string) => Promise<void>
+  deleteFolder: (folderId: string) => Promise<void>
+  moveThreadToFolder: (threadId: string, folderId: string | null) => Promise<void>
+  toggleFolderCollapsed: (folderId: string) => void
   restoreThread: (threadId: string) => Promise<void>
   retryMessage: (messageId: string) => Promise<void>
   retryInfoByThread: Record<string, { attempt: number; maxAttempts: number; error: string }>
@@ -184,6 +190,8 @@ interface AppState {
   runStatusesByThread: Record<string, RunStatus>
   settings: ProviderSettings
   threads: Thread[]
+  folders: FolderRecord[]
+  collapsedFolderIds: Set<string>
   externalThreads: Thread[]
   showExternalThreads: boolean
   threadListMode: 'active' | 'archived'
@@ -286,6 +294,14 @@ function upsertThread(threads: Thread[], thread: Thread): Thread[] {
 
 function removeThread(threads: Thread[], threadId: string): Thread[] {
   return threads.filter((thread) => thread.id !== threadId)
+}
+
+function upsertFolder(folders: FolderRecord[], folder: FolderRecord): FolderRecord[] {
+  return [folder, ...folders.filter((f) => f.id !== folder.id)]
+}
+
+function removeFolder(folders: FolderRecord[], folderId: string): FolderRecord[] {
+  return folders.filter((f) => f.id !== folderId)
 }
 
 function upsertMessage(messages: Message[], message: Message): Message[] {
@@ -768,6 +784,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeThreadId: null,
   scrollToMessageId: null,
   archivedThreads: [],
+  folders: [],
+  collapsedFolderIds: new Set<string>(),
   availableSkills: [],
   archiveThread: async (threadId) => {
     try {
@@ -2094,6 +2112,19 @@ export const useAppStore = create<AppState>((set, get) => ({
         return { subagentActiveByThread: next }
       }
 
+      if (event.type === 'folder.created' || event.type === 'folder.updated') {
+        return { folders: upsertFolder(state.folders, event.folder) }
+      }
+
+      if (event.type === 'folder.deleted') {
+        const nextCollapsed = new Set(state.collapsedFolderIds)
+        nextCollapsed.delete(event.folderId)
+        return {
+          folders: removeFolder(state.folders, event.folderId),
+          collapsedFolderIds: nextCollapsed
+        }
+      }
+
       return {}
     })
   },
@@ -2250,6 +2281,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           messages: payload.messagesByThread,
           settings: payload.settings ?? state.settings ?? DEFAULT_SETTINGS,
           threads: sortThreads(payload.threads),
+          folders: payload.folders ?? [],
           toolCalls: payload.toolCallsByThread
         }))
         set((state) => deriveActiveThreadRunState(state))
@@ -2284,6 +2316,34 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   starThread: async (threadId, starred) => {
     await window.api.yachiyo.starThread({ threadId, starred })
+  },
+
+  createFolderForThreads: async (threadIds) => {
+    await window.api.yachiyo.createFolderForThreads({ threadIds })
+  },
+
+  renameFolder: async (folderId, title) => {
+    await window.api.yachiyo.renameFolder({ folderId, title })
+  },
+
+  deleteFolder: async (folderId) => {
+    await window.api.yachiyo.deleteFolder({ folderId })
+  },
+
+  moveThreadToFolder: async (threadId, folderId) => {
+    await window.api.yachiyo.moveThreadToFolder({ threadId, folderId })
+  },
+
+  toggleFolderCollapsed: (folderId) => {
+    set((state) => {
+      const next = new Set(state.collapsedFolderIds)
+      if (next.has(folderId)) {
+        next.delete(folderId)
+      } else {
+        next.add(folderId)
+      }
+      return { collapsedFolderIds: next }
+    })
   },
 
   setThreadPrivacyMode: async (threadId, enabled) => {

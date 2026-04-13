@@ -17,6 +17,7 @@ import {
   runsTable,
   scheduleRunsTable,
   schedulesTable,
+  threadFoldersTable,
   threadsTable,
   toolCallsTable
 } from './schema.ts'
@@ -301,6 +302,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           branchFromMessageId: threadsTable.branchFromMessageId,
           branchFromThreadId: threadsTable.branchFromThreadId,
           handoffFromThreadId: threadsTable.handoffFromThreadId,
+          folderId: threadsTable.folderId,
           headMessageId: threadsTable.headMessageId,
           icon: threadsTable.icon,
           id: threadsTable.id,
@@ -421,8 +423,15 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                 .map(toRunRecord)
             )
 
+      const folders = db
+        .select()
+        .from(threadFoldersTable)
+        .orderBy(desc(threadFoldersTable.updatedAt))
+        .all()
+
       return {
         archivedThreads,
+        folders,
         latestRunsByThread,
         threads,
         messagesByThread: groupMessagesByThread(messages),
@@ -530,6 +539,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           branchFromMessageId: threadsTable.branchFromMessageId,
           branchFromThreadId: threadsTable.branchFromThreadId,
           handoffFromThreadId: threadsTable.handoffFromThreadId,
+          folderId: threadsTable.folderId,
           headMessageId: threadsTable.headMessageId,
           icon: threadsTable.icon,
           id: threadsTable.id,
@@ -568,6 +578,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           branchFromMessageId: threadsTable.branchFromMessageId,
           branchFromThreadId: threadsTable.branchFromThreadId,
           handoffFromThreadId: threadsTable.handoffFromThreadId,
+          folderId: threadsTable.folderId,
           headMessageId: threadsTable.headMessageId,
           icon: threadsTable.icon,
           id: threadsTable.id,
@@ -628,6 +639,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             branchFromMessageId: thread.branchFromMessageId ?? null,
             branchFromThreadId: thread.branchFromThreadId ?? null,
             handoffFromThreadId: thread.handoffFromThreadId ?? null,
+            folderId: thread.folderId ?? null,
             createdAt,
             headMessageId: thread.headMessageId ?? null,
             icon: thread.icon ?? null,
@@ -1581,6 +1593,49 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
       const row = rows.find((r) => r.updatedAt >= cutoff)
       return row ? toThreadRecord(row) : undefined
+    },
+
+    // Thread folders
+    listFolders() {
+      return db.select().from(threadFoldersTable).orderBy(desc(threadFoldersTable.updatedAt)).all()
+    },
+
+    getFolder(folderId) {
+      return db.select().from(threadFoldersTable).where(eq(threadFoldersTable.id, folderId)).get()
+    },
+
+    createFolder(folder) {
+      db.insert(threadFoldersTable)
+        .values({
+          id: folder.id,
+          title: folder.title,
+          createdAt: folder.createdAt,
+          updatedAt: folder.updatedAt
+        })
+        .run()
+    },
+
+    renameFolder({ folderId, title, updatedAt }) {
+      db.update(threadFoldersTable)
+        .set({ title, updatedAt })
+        .where(eq(threadFoldersTable.id, folderId))
+        .run()
+    },
+
+    deleteFolder(folderId) {
+      // Unset folderId on all member threads first (FK has onDelete: 'set null' but be explicit)
+      db.update(threadsTable)
+        .set({ folderId: null })
+        .where(eq(threadsTable.folderId, folderId))
+        .run()
+      db.delete(threadFoldersTable).where(eq(threadFoldersTable.id, folderId)).run()
+    },
+
+    setThreadFolder({ threadId, folderId, updatedAt }) {
+      db.update(threadsTable)
+        .set({ folderId, updatedAt })
+        .where(eq(threadsTable.id, threadId))
+        .run()
     },
 
     getImageAltText(imageHash) {

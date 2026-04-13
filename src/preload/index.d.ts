@@ -10,6 +10,7 @@ import type {
   CompactThreadInput,
   CreateScheduleInput,
   EditMessageInput,
+  FolderRecord,
   GetMemoryTermDocumentInput,
   FileMentionCandidate,
   ImportWebSearchBrowserSessionInput,
@@ -93,6 +94,13 @@ declare global {
         editMessage: (input: EditMessageInput) => Promise<ChatAccepted>
         openThreadWorkspace: (input: { threadId: string }) => Promise<void>
         pickWorkspaceDirectory: () => Promise<string | null>
+        createFolderForThreads: (input: { threadIds: string[] }) => Promise<FolderRecord>
+        renameFolder: (input: { folderId: string; title: string }) => Promise<FolderRecord>
+        deleteFolder: (input: { folderId: string }) => Promise<void>
+        moveThreadToFolder: (input: {
+          threadId: string
+          folderId: string | null
+        }) => Promise<ThreadRecord>
         renameThread: (input: { threadId: string; title: string }) => Promise<ThreadRecord>
         setThreadIcon: (input: { threadId: string; icon: string | null }) => Promise<ThreadRecord>
         showEmojiPanel: () => Promise<void>

@@ -8,7 +8,15 @@ test('thread context operations omit select mode by default', () => {
     resolveThreadContextOperations({
       isArchived: false
     }).map((operation) => operation.key),
-    ['star', 'rename', 'regenerate-title', 'compact-to-another-thread', 'archive', 'delete']
+    [
+      'star',
+      'rename',
+      'regenerate-title',
+      'compact-to-another-thread',
+      'create-folder',
+      'archive',
+      'delete'
+    ]
   )
 })
 
@@ -24,6 +32,7 @@ test('thread context operations include select mode when requested', () => {
       'rename',
       'regenerate-title',
       'compact-to-another-thread',
+      'create-folder',
       'archive',
       'delete'
     ]

@@ -1,5 +1,7 @@
 import {
   Archive,
+  FolderPlus,
+  FolderMinus,
   ListChecks,
   MessageSquare,
   PenLine,
@@ -46,6 +48,14 @@ function resolveOperationIcon(operationKey: ThreadContextOperation['key']): Reac
 
   if (operationKey === 'restore') {
     return <MessageSquare size={14} strokeWidth={1.7} />
+  }
+
+  if (operationKey === 'create-folder') {
+    return <FolderPlus size={14} strokeWidth={1.7} />
+  }
+
+  if (operationKey === 'remove-from-folder') {
+    return <FolderMinus size={14} strokeWidth={1.7} />
   }
 
   if (operationKey === 'star') {
@@ -103,6 +113,7 @@ export function ThreadContextMenuPopup({
       onMouseDown={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.preventDefault()}
       className="no-drag"
+      data-no-drag
       style={{
         position: 'fixed',
         top: resolvedTop,

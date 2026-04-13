@@ -2,6 +2,7 @@ import type {
   ChannelGroupRecord,
   ChannelGroupStatus,
   ChannelPlatform,
+  FolderRecord,
   ChannelUserRecord,
   ChannelUserRole,
   ChannelUserStatus,
@@ -43,6 +44,7 @@ export interface StoredThreadRow {
   branchFromThreadId: string | null
   branchFromMessageId: string | null
   handoffFromThreadId: string | null
+  folderId: string | null
   queuedFollowUpMessageId: string | null
   queuedFollowUpEnabledTools: string | null
   queuedFollowUpEnabledSkillNames: string | null
@@ -90,6 +92,7 @@ export interface StoredMessageRow {
 export interface BootstrapState {
   threads: ThreadRecord[]
   archivedThreads: ThreadRecord[]
+  folders: FolderRecord[]
   messagesByThread: Record<string, MessageRecord[]>
   toolCallsByThread: Record<string, ToolCallRecord[]>
   latestRunsByThread: Record<string, RunRecord>
@@ -284,6 +287,14 @@ export interface YachiyoStorage {
   }): ChannelGroupRecord | undefined
   findActiveGroupThread(channelGroupId: string, maxAgeMs: number): ThreadRecord | undefined
 
+  // Thread folders
+  listFolders(): FolderRecord[]
+  getFolder(folderId: string): FolderRecord | undefined
+  createFolder(folder: FolderRecord): void
+  renameFolder(input: { folderId: string; title: string; updatedAt: string }): void
+  deleteFolder(folderId: string): void
+  setThreadFolder(input: { threadId: string; folderId: string | null; updatedAt: string }): void
+
   // Image alt text cache
   getImageAltText(imageHash: string): { imageHash: string; altText: string } | undefined
   saveImageAltText(imageHash: string, altText: string): void
@@ -332,6 +343,7 @@ export function toThreadRecord(
     | 'branchFromMessageId'
     | 'branchFromThreadId'
     | 'handoffFromThreadId'
+    | 'folderId'
     | 'archivedAt'
     | 'starredAt'
     | 'headMessageId'
@@ -373,6 +385,7 @@ export function toThreadRecord(
       ...(row.branchFromMessageId === null ? {} : { branchFromMessageId: row.branchFromMessageId }),
       ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
       ...(row.handoffFromThreadId === null ? {} : { handoffFromThreadId: row.handoffFromThreadId }),
+      ...(row.folderId === null ? {} : { folderId: row.folderId }),
       ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
       ...(row.icon === null ? {} : { icon: row.icon }),
       ...(memoryRecall ? { memoryRecall } : {}),
@@ -409,6 +422,7 @@ export function toThreadRecord(
     ...(row.branchFromMessageId === null ? {} : { branchFromMessageId: row.branchFromMessageId }),
     ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
     ...(row.handoffFromThreadId === null ? {} : { handoffFromThreadId: row.handoffFromThreadId }),
+    ...(row.folderId === null ? {} : { folderId: row.folderId }),
     ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
     ...(row.icon === null ? {} : { icon: row.icon }),
     ...(memoryRecall ? { memoryRecall } : {}),

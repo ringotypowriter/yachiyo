@@ -3,6 +3,8 @@ export type ThreadContextOperationKey =
   | 'rename'
   | 'regenerate-title'
   | 'compact-to-another-thread'
+  | 'create-folder'
+  | 'remove-from-folder'
   | 'archive'
   | 'restore'
   | 'delete'
@@ -20,6 +22,7 @@ export function resolveThreadContextOperations(input: {
   includeSelectMode?: boolean
   isArchived: boolean
   isExternal?: boolean
+  isInFolder?: boolean
   isRenameDisabled?: boolean
   isRunning?: boolean
   isSaving?: boolean
@@ -85,6 +88,22 @@ export function resolveThreadContextOperations(input: {
     key: 'compact-to-another-thread',
     label: 'Handoff'
   })
+
+  if (!input.isExternal) {
+    if (input.isInFolder) {
+      operations.push({
+        disabled: input.isSaving,
+        key: 'remove-from-folder',
+        label: 'Remove from Folder'
+      })
+    } else {
+      operations.push({
+        disabled: input.isSaving,
+        key: 'create-folder',
+        label: 'Create Folder'
+      })
+    }
+  }
 
   if (!input.isExternal) {
     operations.push({

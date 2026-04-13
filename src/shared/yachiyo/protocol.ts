@@ -494,6 +494,7 @@ export interface ThreadRecord {
   branchFromThreadId?: string
   branchFromMessageId?: string
   handoffFromThreadId?: string
+  folderId?: string
   privacyMode?: boolean
   modelOverride?: ThreadModelOverride
   source?: 'local' | ChannelPlatform
@@ -1007,9 +1008,17 @@ export interface ProviderSettings {
   serviceAccountPrivateKey?: string
 }
 
+export interface FolderRecord {
+  id: string
+  title: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface BootstrapPayload {
   threads: ThreadRecord[]
   archivedThreads: ThreadRecord[]
+  folders: FolderRecord[]
   messagesByThread: Record<string, MessageRecord[]>
   toolCallsByThread: Record<string, ToolCallRecord[]>
   latestRunsByThread: Record<string, RunRecord>
@@ -1391,7 +1400,29 @@ export interface NotificationRequestEvent extends RunEvent {
   body: string
 }
 
+// Folder events
+interface FolderEvent extends BaseEvent {
+  folderId: string
+}
+
+export interface FolderCreatedEvent extends FolderEvent {
+  type: 'folder.created'
+  folder: FolderRecord
+}
+
+export interface FolderUpdatedEvent extends FolderEvent {
+  type: 'folder.updated'
+  folder: FolderRecord
+}
+
+export interface FolderDeletedEvent extends FolderEvent {
+  type: 'folder.deleted'
+}
+
 export type YachiyoServerEvent =
+  | FolderCreatedEvent
+  | FolderUpdatedEvent
+  | FolderDeletedEvent
   | ThreadCreatedEvent
   | ThreadUpdatedEvent
   | ThreadStateReplacedEvent

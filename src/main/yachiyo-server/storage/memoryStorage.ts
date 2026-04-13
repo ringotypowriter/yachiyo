@@ -1,6 +1,7 @@
 import type {
   ChannelGroupRecord,
   ChannelUserRecord,
+  FolderRecord,
   GroupMessageEntry,
   MessageRecord,
   ScheduleRecord,
@@ -37,6 +38,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const channelGroups = new Map<string, ChannelGroupRecord>()
   const channelUsers = new Map<string, ChannelUserRecord>()
   const threads = new Map<string, StoredThreadRow>()
+  const folders = new Map<string, FolderRecord>()
   const schedules = new Map<string, ScheduleRecord>()
   const scheduleRuns = new Map<string, ScheduleRunRecord>()
   const messages: MessageRecord[] = []
@@ -76,6 +78,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     storedThread.branchFromThreadId = nextThread.branchFromThreadId ?? null
     storedThread.branchFromMessageId = nextThread.branchFromMessageId ?? null
     storedThread.handoffFromThreadId = nextThread.handoffFromThreadId ?? null
+    storedThread.folderId = nextThread.folderId ?? null
     storedThread.headMessageId = nextThread.headMessageId ?? null
     storedThread.icon = nextThread.icon ?? null
     storedThread.memoryRecallState = serializeThreadMemoryRecallState(nextThread.memoryRecall)
@@ -130,6 +133,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
       return {
         archivedThreads: archivedThreads.map(toThreadRecord),
+        folders: [...folders.values()],
         latestRunsByThread,
         threads: activeThreads.map(toThreadRecord),
         messagesByThread: groupMessagesByThread(allMessages),
@@ -234,6 +238,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         branchFromThreadId: thread.branchFromThreadId ?? null,
         branchFromMessageId: thread.branchFromMessageId ?? null,
         handoffFromThreadId: thread.handoffFromThreadId ?? null,
+        folderId: thread.folderId ?? null,
         queuedFollowUpEnabledTools: thread.queuedFollowUpEnabledTools
           ? JSON.stringify(thread.queuedFollowUpEnabledTools)
           : null,
@@ -803,6 +808,44 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         )
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
       return match ? toThreadRecord(match) : undefined
+    },
+
+    // Thread folders
+    listFolders() {
+      return [...folders.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    },
+
+    getFolder(folderId) {
+      return folders.get(folderId)
+    },
+
+    createFolder(folder) {
+      folders.set(folder.id, { ...folder })
+    },
+
+    renameFolder({ folderId, title, updatedAt }) {
+      const folder = folders.get(folderId)
+      if (folder) {
+        folder.title = title
+        folder.updatedAt = updatedAt
+      }
+    },
+
+    deleteFolder(folderId) {
+      for (const thread of threads.values()) {
+        if (thread.folderId === folderId) {
+          thread.folderId = null
+        }
+      }
+      folders.delete(folderId)
+    },
+
+    setThreadFolder({ threadId, folderId, updatedAt }) {
+      const thread = threads.get(threadId)
+      if (thread) {
+        thread.folderId = folderId
+        thread.updatedAt = updatedAt
+      }
     },
 
     getImageAltText(imageHash) {

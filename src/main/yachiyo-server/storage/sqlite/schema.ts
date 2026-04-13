@@ -35,6 +35,13 @@ export const channelGroupsTable = sqliteTable('channel_groups', {
   createdAt: text('created_at').notNull()
 })
 
+export const threadFoldersTable = sqliteTable('thread_folders', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull()
+})
+
 export const threadsTable = sqliteTable('threads', {
   id: text('id').primaryKey(),
   icon: text('icon'),
@@ -45,6 +52,7 @@ export const threadsTable = sqliteTable('threads', {
   branchFromThreadId: text('branch_from_thread_id'),
   branchFromMessageId: text('branch_from_message_id'),
   handoffFromThreadId: text('handoff_from_thread_id'),
+  folderId: text('folder_id').references(() => threadFoldersTable.id, { onDelete: 'set null' }),
   headMessageId: text('head_message_id'),
   queuedFollowUpMessageId: text('queued_follow_up_message_id'),
   queuedFollowUpEnabledTools: text('queued_follow_up_enabled_tools'),

@@ -5,6 +5,7 @@ export type {
   ConnectionStatus,
   EditToolCallDetails,
   FileMentionCandidate,
+  FolderRecord,
   GlobToolCallDetails,
   GrepToolCallDetails,
   JsReplToolCallDetails,

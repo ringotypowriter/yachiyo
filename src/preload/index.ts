@@ -8,6 +8,7 @@ import type {
   CompactThreadInput,
   CompactThreadAccepted,
   EditMessageInput,
+  FolderRecord,
   GetMemoryTermDocumentInput,
   SearchWorkspaceFilesInput,
   ImportWebSearchBrowserSessionInput,
@@ -102,6 +103,16 @@ const api = {
     openThreadWorkspace: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:open-thread-workspace', input),
     pickWorkspaceDirectory: () => ipcRenderer.invoke('yachiyo:pick-workspace-directory'),
+    createFolderForThreads: (input: { threadIds: string[] }): Promise<FolderRecord> =>
+      ipcRenderer.invoke('yachiyo:create-folder-for-threads', input),
+    renameFolder: (input: { folderId: string; title: string }): Promise<FolderRecord> =>
+      ipcRenderer.invoke('yachiyo:rename-folder', input),
+    deleteFolder: (input: { folderId: string }): Promise<void> =>
+      ipcRenderer.invoke('yachiyo:delete-folder', input),
+    moveThreadToFolder: (input: {
+      threadId: string
+      folderId: string | null
+    }): Promise<ThreadRecord> => ipcRenderer.invoke('yachiyo:move-thread-to-folder', input),
     renameThread: (input: { threadId: string; title: string }) =>
       ipcRenderer.invoke('yachiyo:rename-thread', input),
     setThreadIcon: (input: { threadId: string; icon: string | null }) =>

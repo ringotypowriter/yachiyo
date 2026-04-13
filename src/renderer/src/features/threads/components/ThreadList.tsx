@@ -1,13 +1,24 @@
 import type React from 'react'
-import { useEffect, useRef, useState } from 'react'
-import { Archive, Check, RotateCcw, Sparkles, Star, Trash2, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Archive, Check, FolderPlus, RotateCcw, Sparkles, Star, Trash2, X } from 'lucide-react'
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDraggable,
+  useDroppable,
+  type DragEndEvent
+} from '@dnd-kit/core'
 import { useAppStore } from '@renderer/app/store/useAppStore'
-import type { Thread } from '@renderer/app/types'
+import type { FolderRecord, Thread } from '@renderer/app/types'
 import { ThreadContextMenuPopup } from '@renderer/features/threads/components/ThreadContextMenuPopup'
 import {
   resolveThreadContextOperations,
   type ThreadContextOperationKey
 } from '@renderer/features/threads/lib/threadContextOperations'
+import { ThreadFolderItem } from './ThreadFolderItem'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { theme } from '@renderer/theme/theme'
 import { isMemoryConfigured } from '../../../../../shared/yachiyo/protocol.ts'
@@ -71,40 +82,6 @@ function useTitleAnimation(title: string, skip: boolean): string {
   return displayed
 }
 
-function groupThreadsByDate(threads: Thread[]): Array<{ label: string; threads: Thread[] }> {
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-
-  const groups = new Map<string, Thread[]>()
-
-  for (const thread of threads) {
-    const date = new Date(thread.updatedAt)
-    const threadDay = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-    const diffMs = today.getTime() - threadDay.getTime()
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-
-    let label: string
-    if (diffDays === 0) {
-      label = 'Today'
-    } else if (diffDays === 1) {
-      label = 'Yesterday'
-    } else {
-      label = threadDay.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
-      })
-    }
-
-    if (!groups.has(label)) {
-      groups.set(label, [])
-    }
-    groups.get(label)!.push(thread)
-  }
-
-  return [...groups.entries()].map(([label, threads]) => ({ label, threads }))
-}
-
 function ThreadListItem({
   isActive,
   hasActiveRun,
@@ -147,6 +124,7 @@ function ThreadListItem({
     includeSelectMode: true,
     isArchived: threadListMode === 'archived',
     isExternal,
+    isInFolder: !!thread.folderId,
     isRunning: hasActiveRun,
     isSaving,
     isStarred
@@ -395,6 +373,389 @@ function ThreadListItem({
   )
 }
 
+type FolderChild =
+  | { kind: 'thread'; thread: Thread }
+  | { kind: 'folder-date-header'; label: string }
+
+type SidebarItem =
+  | { kind: 'starred-header' }
+  | { kind: 'thread'; thread: Thread }
+  | { kind: 'folder'; folder: FolderRecord; threads: Thread[]; children: FolderChild[] }
+  | { kind: 'date-header'; label: string }
+
+function buildSidebarItems(threads: Thread[], folders: FolderRecord[]): SidebarItem[] {
+  const folderMap = new Map<string, FolderRecord>()
+  for (const f of folders) folderMap.set(f.id, f)
+
+  // Partition threads
+  const starredNoFolder: Thread[] = []
+  const folderThreads = new Map<string, Thread[]>()
+  const looseThreads: Thread[] = []
+
+  for (const t of threads) {
+    if (t.folderId && folderMap.has(t.folderId)) {
+      const list = folderThreads.get(t.folderId) ?? []
+      list.push(t)
+      folderThreads.set(t.folderId, list)
+    } else if (t.starredAt) {
+      starredNoFolder.push(t)
+    } else {
+      looseThreads.push(t)
+    }
+  }
+
+  // Sort folder threads: starred first, then by updatedAt desc
+  for (const [fid, fThreads] of folderThreads) {
+    fThreads.sort((a, b) => {
+      if (a.starredAt && !b.starredAt) return -1
+      if (!a.starredAt && b.starredAt) return 1
+      return b.updatedAt.localeCompare(a.updatedAt)
+    })
+    folderThreads.set(fid, fThreads)
+  }
+
+  // Build folder items sorted by newest thread's updatedAt
+  const folderItems: Array<{
+    folder: FolderRecord
+    threads: Thread[]
+    effectiveUpdatedAt: string
+  }> = []
+  for (const [fid, fThreads] of folderThreads) {
+    const folder = folderMap.get(fid)!
+    const maxUpdated = fThreads.reduce((max, t) => (t.updatedAt > max ? t.updatedAt : max), '')
+    folderItems.push({ folder, threads: fThreads, effectiveUpdatedAt: maxUpdated })
+  }
+  folderItems.sort((a, b) => b.effectiveUpdatedAt.localeCompare(a.effectiveUpdatedAt))
+
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const result: SidebarItem[] = []
+
+  // 1. Starred section (threads not in any folder)
+  if (starredNoFolder.length > 0) {
+    result.push({ kind: 'starred-header' })
+    for (const t of starredNoFolder) {
+      result.push({ kind: 'thread', thread: t })
+    }
+  }
+
+  // 2. Folders section (own top-level tier, sorted by newest thread)
+  for (const fi of folderItems) {
+    const children: FolderChild[] = []
+    let folderLastLabel = ''
+    for (const t of fi.threads) {
+      const date = new Date(t.updatedAt)
+      const day = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+      const diffDays = Math.floor((today.getTime() - day.getTime()) / (1000 * 60 * 60 * 24))
+      const label =
+        diffDays === 0
+          ? 'Today'
+          : diffDays === 1
+            ? 'Yesterday'
+            : day.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      if (label !== folderLastLabel) {
+        children.push({ kind: 'folder-date-header', label })
+        folderLastLabel = label
+      }
+      children.push({ kind: 'thread', thread: t })
+    }
+    result.push({ kind: 'folder', folder: fi.folder, threads: fi.threads, children })
+  }
+
+  // 3. Loose threads, date-grouped
+  let lastLabel = ''
+
+  for (const t of looseThreads) {
+    const date = new Date(t.updatedAt)
+    const day = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+    const diffDays = Math.floor((today.getTime() - day.getTime()) / (1000 * 60 * 60 * 24))
+    const label =
+      diffDays === 0
+        ? 'Today'
+        : diffDays === 1
+          ? 'Yesterday'
+          : day.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+
+    if (label !== lastLabel) {
+      result.push({ kind: 'date-header', label })
+      lastLabel = label
+    }
+    result.push({ kind: 'thread', thread: t })
+  }
+
+  return result
+}
+
+function DraggableThread({
+  thread,
+  children
+}: {
+  thread: Thread
+  children: React.ReactNode
+}): React.JSX.Element {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `thread-${thread.id}`,
+    data: { type: 'thread', thread }
+  })
+
+  // Wrap pointer-down to skip right-clicks and clicks originating from portaled menus
+  const guardedListeners = listeners
+    ? {
+        ...listeners,
+        onPointerDown: (e: React.PointerEvent) => {
+          // Skip right-click (context menu trigger)
+          if (e.button !== 0) return
+          // Skip if a fixed/portaled overlay is currently in the DOM at the click point
+          const els = document.elementsFromPoint(e.clientX, e.clientY)
+          if (els.some((el) => el.closest('[data-no-drag]'))) return
+          listeners.onPointerDown?.(e)
+        }
+      }
+    : undefined
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...guardedListeners}
+      {...attributes}
+      style={{ opacity: isDragging ? 0.4 : 1 }}
+    >
+      {children}
+    </div>
+  )
+}
+
+function DroppableFolder({
+  folderId,
+  children
+}: {
+  folderId: string
+  children: React.ReactNode
+}): React.JSX.Element {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `folder-${folderId}`,
+    data: { type: 'folder', folderId }
+  })
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        borderRadius: 6,
+        outline: isOver ? `2px solid ${theme.border.accent}` : 'none',
+        outlineOffset: -2,
+        transition: 'outline 0.1s ease'
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+function DroppableThread({
+  threadId,
+  children
+}: {
+  threadId: string
+  children: React.ReactNode
+}): React.JSX.Element {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `drop-thread-${threadId}`,
+    data: { type: 'thread', threadId }
+  })
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        borderRadius: 6,
+        outline: isOver ? `2px solid ${theme.border.accent}` : 'none',
+        outlineOffset: -2,
+        transition: 'outline 0.1s ease'
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+function FolderAwareThreadList({
+  threads,
+  folders,
+  collapsedFolderIds,
+  toggleFolderCollapsed,
+  renameFolder,
+  deleteFolder,
+  moveThreadToFolder,
+  createFolderForThreads,
+  renderThreadItem
+}: {
+  threads: Thread[]
+  folders: FolderRecord[]
+  collapsedFolderIds: Set<string>
+  toggleFolderCollapsed: (folderId: string) => void
+  renameFolder: (folderId: string, title: string) => Promise<void>
+  deleteFolder: (folderId: string) => Promise<void>
+  moveThreadToFolder: (threadId: string, folderId: string | null) => Promise<void>
+  createFolderForThreads: (threadIds: string[]) => Promise<void>
+  renderThreadItem: (thread: Thread) => React.JSX.Element
+}): React.JSX.Element {
+  const items = useMemo(() => buildSidebarItems(threads, folders), [threads, folders])
+  const [draggedThread, setDraggedThread] = useState<Thread | null>(null)
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+
+  function handleDragEnd(event: DragEndEvent): void {
+    setDraggedThread(null)
+    const { active, over } = event
+
+    const activeData = active.data.current as { type: string; thread: Thread } | undefined
+    if (!activeData || activeData.type !== 'thread') return
+
+    // Dropped on empty space — remove from folder if applicable
+    if (!over) {
+      if (activeData.thread.folderId) {
+        void moveThreadToFolder(activeData.thread.id, null)
+      }
+      return
+    }
+
+    const overData = over.data.current as
+      | { type: string; folderId?: string; threadId?: string }
+      | undefined
+
+    if (overData?.type === 'folder' && overData.folderId) {
+      void moveThreadToFolder(activeData.thread.id, overData.folderId)
+    } else if (
+      overData?.type === 'thread' &&
+      overData.threadId &&
+      overData.threadId !== activeData.thread.id
+    ) {
+      // Drop thread on another loose thread → create a folder for both
+      void createFolderForThreads([overData.threadId, activeData.thread.id])
+    } else if (activeData.thread.folderId) {
+      // Dropped on a non-folder/non-thread target (e.g. date header) — remove from folder
+      void moveThreadToFolder(activeData.thread.id, null)
+    }
+  }
+
+  return (
+    <DndContext
+      sensors={sensors}
+      onDragStart={(event) => {
+        const data = event.active.data.current as { type: string; thread: Thread } | undefined
+        if (data?.type === 'thread') setDraggedThread(data.thread)
+      }}
+      onDragEnd={handleDragEnd}
+    >
+      {items.map((item) => {
+        if (item.kind === 'starred-header') {
+          return (
+            <div
+              key="__starred__"
+              className="px-3 pt-2 pb-1"
+              style={{
+                fontSize: '0.7rem',
+                fontWeight: 600,
+                color: theme.text.muted,
+                letterSpacing: '0.04em',
+                textTransform: 'uppercase'
+              }}
+            >
+              Starred
+            </div>
+          )
+        }
+
+        if (item.kind === 'date-header') {
+          return (
+            <div
+              key={`__date__${item.label}`}
+              className="px-3 pt-2 pb-1"
+              style={{
+                fontSize: '0.7rem',
+                fontWeight: 500,
+                color: theme.text.muted
+              }}
+            >
+              {item.label}
+            </div>
+          )
+        }
+
+        if (item.kind === 'thread') {
+          return (
+            <DroppableThread key={item.thread.id} threadId={item.thread.id}>
+              <DraggableThread thread={item.thread}>
+                {renderThreadItem(item.thread)}
+              </DraggableThread>
+            </DroppableThread>
+          )
+        }
+
+        if (item.kind === 'folder') {
+          const isCollapsed = collapsedFolderIds.has(item.folder.id)
+          return (
+            <DroppableFolder key={`folder-${item.folder.id}`} folderId={item.folder.id}>
+              <ThreadFolderItem
+                folder={item.folder}
+                isCollapsed={isCollapsed}
+                threadCount={item.threads.length}
+                onToggle={() => toggleFolderCollapsed(item.folder.id)}
+                onRename={(title) => void renameFolder(item.folder.id, title)}
+                onDelete={() => void deleteFolder(item.folder.id)}
+              >
+                {item.children.map((child) => {
+                  if (child.kind === 'folder-date-header') {
+                    return (
+                      <div
+                        key={`__fdate__${child.label}`}
+                        className="px-2 pt-1.5 pb-0.5"
+                        style={{
+                          fontSize: '0.6rem',
+                          fontWeight: 500,
+                          color: theme.text.muted,
+                          letterSpacing: '0.03em'
+                        }}
+                      >
+                        {child.label}
+                      </div>
+                    )
+                  }
+                  return (
+                    <DraggableThread key={child.thread.id} thread={child.thread}>
+                      {renderThreadItem(child.thread)}
+                    </DraggableThread>
+                  )
+                })}
+              </ThreadFolderItem>
+            </DroppableFolder>
+          )
+        }
+
+        return null
+      })}
+      <DragOverlay>
+        {draggedThread ? (
+          <div
+            className="rounded-md px-3 py-2 text-sm shadow-lg"
+            style={{
+              background: theme.background.surface,
+              border: `1px solid ${theme.border.panel}`,
+              color: theme.text.primary,
+              maxWidth: 240,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {draggedThread.title}
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
+  )
+}
+
 function ThreadListContent({
   activeId,
   archiveThread,
@@ -413,7 +774,14 @@ function ThreadListContent({
   setThreadIcon,
   starThread,
   threadListMode,
-  visibleThreads
+  visibleThreads,
+  folders,
+  collapsedFolderIds,
+  toggleFolderCollapsed,
+  renameFolder,
+  deleteFolder,
+  moveThreadToFolder,
+  createFolderForThreads
 }: {
   activeId: string | null
   archiveThread: (threadId: string) => Promise<void>
@@ -433,6 +801,13 @@ function ThreadListContent({
   starThread: (threadId: string, starred: boolean) => Promise<void>
   threadListMode: 'active' | 'archived'
   visibleThreads: Thread[]
+  folders: FolderRecord[]
+  collapsedFolderIds: Set<string>
+  toggleFolderCollapsed: (folderId: string) => void
+  renameFolder: (folderId: string, title: string) => Promise<void>
+  deleteFolder: (folderId: string) => Promise<void>
+  moveThreadToFolder: (threadId: string, folderId: string | null) => Promise<void>
+  createFolderForThreads: (threadIds: string[]) => Promise<void>
 }): React.JSX.Element {
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -495,6 +870,16 @@ function ThreadListContent({
       if (operationKey === 'compact-to-another-thread') {
         setActiveThread(thread.id)
         await compactThreadToAnotherThread()
+        return
+      }
+
+      if (operationKey === 'remove-from-folder') {
+        await moveThreadToFolder(thread.id, null)
+        return
+      }
+
+      if (operationKey === 'create-folder') {
+        await createFolderForThreads([thread.id])
         return
       }
 
@@ -678,6 +1063,25 @@ function ThreadListContent({
               <Sparkles size={13} strokeWidth={1.8} style={{ color: theme.text.secondary }} />
             </button>
           ) : null}
+          {selectedIds.size >= 2 && threadListMode === 'active' ? (
+            <button
+              title="Create folder from selected"
+              onClick={() => {
+                void createFolderForThreads([...selectedIds])
+                setSelectMode(false)
+                setSelectedIds(new Set())
+              }}
+              className="flex items-center justify-center rounded p-1 transition-colors"
+              onMouseEnter={(e) =>
+                ((e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong)
+              }
+              onMouseLeave={(e) =>
+                ((e.currentTarget as HTMLElement).style.background = 'transparent')
+              }
+            >
+              <FolderPlus size={13} strokeWidth={1.8} style={{ color: theme.text.secondary }} />
+            </button>
+          ) : null}
           {selectedIds.size > 0 && threadListMode === 'active' ? (
             <button
               title="Archive selected"
@@ -747,48 +1151,17 @@ function ThreadListContent({
           </div>
         ) : null}
         {threadListMode === 'active' ? (
-          <>
-            {(() => {
-              const starredThreads = visibleThreads.filter((t) => t.starredAt)
-              if (starredThreads.length === 0) return null
-              return (
-                <>
-                  <div
-                    className="px-3 pt-2 pb-1"
-                    style={{
-                      fontSize: '0.7rem',
-                      fontWeight: 600,
-                      color: theme.text.muted,
-                      letterSpacing: '0.04em',
-                      textTransform: 'uppercase'
-                    }}
-                  >
-                    Starred
-                  </div>
-                  {starredThreads.map(renderThreadItem)}
-                </>
-              )
-            })()}
-            {(() => {
-              const unstarredThreads = visibleThreads.filter((t) => !t.starredAt)
-              const groups = groupThreadsByDate(unstarredThreads)
-              return groups.map(({ label, threads: groupThreads }) => (
-                <div key={label}>
-                  <div
-                    className="px-3 pt-2 pb-1"
-                    style={{
-                      fontSize: '0.7rem',
-                      fontWeight: 500,
-                      color: theme.text.muted
-                    }}
-                  >
-                    {label}
-                  </div>
-                  {groupThreads.map(renderThreadItem)}
-                </div>
-              ))
-            })()}
-          </>
+          <FolderAwareThreadList
+            threads={visibleThreads}
+            folders={folders}
+            collapsedFolderIds={collapsedFolderIds}
+            toggleFolderCollapsed={toggleFolderCollapsed}
+            renameFolder={renameFolder}
+            deleteFolder={deleteFolder}
+            moveThreadToFolder={moveThreadToFolder}
+            createFolderForThreads={createFolderForThreads}
+            renderThreadItem={renderThreadItem}
+          />
         ) : (
           visibleThreads.map(renderThreadItem)
         )}
@@ -840,6 +1213,13 @@ export function ThreadList(): React.JSX.Element {
   const renameThread = useAppStore((s) => s.renameThread)
   const setThreadIcon = useAppStore((s) => s.setThreadIcon)
   const starThread = useAppStore((s) => s.starThread)
+  const folders = useAppStore((s) => s.folders)
+  const collapsedFolderIds = useAppStore((s) => s.collapsedFolderIds)
+  const toggleFolderCollapsed = useAppStore((s) => s.toggleFolderCollapsed)
+  const renameFolderAction = useAppStore((s) => s.renameFolder)
+  const deleteFolderAction = useAppStore((s) => s.deleteFolder)
+  const moveThreadToFolder = useAppStore((s) => s.moveThreadToFolder)
+  const createFolderForThreadsAction = useAppStore((s) => s.createFolderForThreads)
   const restoreThread = useAppStore((s) => s.restoreThread)
   const saveThread = useAppStore((s) => s.saveThread)
   const savingThreadIds = useAppStore((s) => s.savingThreadIds)
@@ -879,6 +1259,13 @@ export function ThreadList(): React.JSX.Element {
       starThread={starThread}
       threadListMode={threadListMode}
       visibleThreads={visibleThreads}
+      folders={folders}
+      collapsedFolderIds={collapsedFolderIds}
+      toggleFolderCollapsed={toggleFolderCollapsed}
+      renameFolder={renameFolderAction}
+      deleteFolder={deleteFolderAction}
+      moveThreadToFolder={moveThreadToFolder}
+      createFolderForThreads={createFolderForThreadsAction}
     />
   )
 }

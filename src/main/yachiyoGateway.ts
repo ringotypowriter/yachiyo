@@ -99,6 +99,10 @@ const IPC_CHANNELS = {
   getMemoryTermDocument: 'yachiyo:get-memory-term-document',
   getUserDocument: 'yachiyo:get-user-document',
   getSettings: 'yachiyo:get-settings',
+  createFolderForThreads: 'yachiyo:create-folder-for-threads',
+  renameFolder: 'yachiyo:rename-folder',
+  deleteFolder: 'yachiyo:delete-folder',
+  moveThreadToFolder: 'yachiyo:move-thread-to-folder',
   renameThread: 'yachiyo:rename-thread',
   setThreadIcon: 'yachiyo:set-thread-icon',
   showEmojiPanel: 'yachiyo:show-emoji-panel',
@@ -714,6 +718,16 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handle(IPC_CHANNELS.compactThreadToAnotherThread, (input: CompactThreadInput) =>
     server!.compactThreadToAnotherThread(input)
+  )
+  handle(IPC_CHANNELS.createFolderForThreads, (input: { threadIds: string[] }) =>
+    server!.createFolderForThreads(input)
+  )
+  handle(IPC_CHANNELS.renameFolder, (input: { folderId: string; title: string }) =>
+    server!.renameFolder(input)
+  )
+  handle(IPC_CHANNELS.deleteFolder, (input: { folderId: string }) => server!.deleteFolder(input))
+  handle(IPC_CHANNELS.moveThreadToFolder, (input: { threadId: string; folderId: string | null }) =>
+    server!.moveThreadToFolder(input)
   )
   handle(IPC_CHANNELS.renameThread, (input: { threadId: string; title: string }) =>
     server!.renameThread(input)
