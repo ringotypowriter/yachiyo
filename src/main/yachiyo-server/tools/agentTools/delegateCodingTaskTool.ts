@@ -33,19 +33,33 @@ interface DelegateCodingTaskOutput {
   error?: string
 }
 
+export interface DelegateCodingTaskStartedEvent {
+  delegationId: string
+  agentName: string
+  workspacePath: string
+}
+
+export interface DelegateCodingTaskProgressEvent {
+  delegationId: string
+  chunk: string
+}
+
+export interface DelegateCodingTaskFinishedEvent {
+  delegationId: string
+  agentName: string
+  status: 'success' | 'cancelled'
+  lastMessage?: string
+  sessionId?: string
+  workspacePath: string
+}
+
 export interface DelegateCodingTaskContext {
   workspacePath: string
   availableWorkspaces: string[]
   profiles: SubagentProfile[]
-  onProgress?: (chunk: string) => void
-  onSubagentStarted?: (agentName: string) => void
-  onSubagentFinished?: (
-    agentName: string,
-    status: 'success' | 'cancelled',
-    lastMessage?: string,
-    sessionId?: string,
-    workspacePath?: string
-  ) => void
+  onProgress?: (event: DelegateCodingTaskProgressEvent) => void
+  onSubagentStarted?: (event: DelegateCodingTaskStartedEvent) => void
+  onSubagentFinished?: (event: DelegateCodingTaskFinishedEvent) => void
   launchAcpProcess?: typeof launchAcpProcess
   runAcpSession?: typeof runAcpSession
 }
@@ -57,10 +71,13 @@ async function runSubagent(
   profile: SubagentProfile,
   prompt: string,
   ctx: DelegateCodingTaskContext,
+  delegationId: string,
   abortSignal?: AbortSignal,
   resumeSessionId?: string
 ): Promise<DelegateCodingTaskOutput & { lastMessage: string }> {
-  const adapter = createAcpStreamAdapter({ onProgress: ctx.onProgress })
+  const adapter = createAcpStreamAdapter({
+    onProgress: (chunk) => ctx.onProgress?.({ delegationId, chunk })
+  })
   const startAcpProcess = ctx.launchAcpProcess ?? launchAcpProcess
   const executeAcpSession = ctx.runAcpSession ?? runAcpSession
   const { proc, stream, procExited } = startAcpProcess(profile, ctx.workspacePath)
@@ -112,6 +129,10 @@ export function createTool(
     inputSchema: delegateCodingTaskInputSchema,
     toModelOutput: ({ output }) => ({ type: 'content', value: output.content }),
     execute: async (input, options) => {
+      const delegationId = options.toolCallId
+      if (!delegationId) {
+        throw new Error('delegateCodingTask requires a toolCallId.')
+      }
       const profile = ctx.profiles.find((p) => p.name === input.agent_name && p.enabled)
       if (!profile) {
         const error = `No enabled agent profile found with name "${input.agent_name}".`
@@ -143,27 +164,41 @@ export function createTool(
         effectiveCtx = { ...ctx, workspacePath: requested }
       }
 
-      ctx.onSubagentStarted?.(input.agent_name)
-      ctx.onProgress?.(`> ${input.prompt}\n${'─'.repeat(40)}\n`)
+      ctx.onSubagentStarted?.({
+        delegationId,
+        agentName: input.agent_name,
+        workspacePath: effectiveCtx.workspacePath
+      })
+      ctx.onProgress?.({
+        delegationId,
+        chunk: `> ${input.prompt}\n${'─'.repeat(40)}\n`
+      })
       try {
         const { lastMessage, ...result } = await runSubagent(
           profile,
           input.prompt,
           effectiveCtx,
+          delegationId,
           options.abortSignal,
           input.session_id || undefined
         )
-        ctx.onSubagentFinished?.(
-          input.agent_name,
-          'success',
+        ctx.onSubagentFinished?.({
+          delegationId,
+          agentName: input.agent_name,
+          status: 'success',
           lastMessage,
-          result.sessionId,
-          effectiveCtx.workspacePath
-        )
+          sessionId: result.sessionId,
+          workspacePath: effectiveCtx.workspacePath
+        })
         return result
       } catch (err) {
         console.log(`[delegateCodingTask:${input.agent_name}] execute caught error:`, err)
-        ctx.onSubagentFinished?.(input.agent_name, 'cancelled')
+        ctx.onSubagentFinished?.({
+          delegationId,
+          agentName: input.agent_name,
+          status: 'cancelled',
+          workspacePath: effectiveCtx.workspacePath
+        })
         // Only re-throw as a run-level abort when the PARENT run signal is
         // aborted. A subagent-internal cancellation or process crash (which
         // may surface as a DOMException/AbortError) must become a tool-level

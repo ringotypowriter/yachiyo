@@ -50,7 +50,10 @@ import { createTool as createWebSearchTool } from './agentTools/webSearchTool.ts
 import { createTool as createWriteTool } from './agentTools/writeTool.ts'
 import {
   createTool as createDelegateCodingTaskTool,
-  type DelegateCodingTaskContext
+  type DelegateCodingTaskContext,
+  type DelegateCodingTaskFinishedEvent,
+  type DelegateCodingTaskProgressEvent,
+  type DelegateCodingTaskStartedEvent
 } from './agentTools/delegateCodingTaskTool.ts'
 import {
   createTool as createUpdateProfileTool,
@@ -96,6 +99,11 @@ export {
 export { createTool as createWebReadTool, runWebReadTool } from './agentTools/webReadTool.ts'
 export { createTool as createWebSearchTool, runWebSearchTool } from './agentTools/webSearchTool.ts'
 export { createTool as createWriteTool, runWriteTool } from './agentTools/writeTool.ts'
+export type {
+  DelegateCodingTaskFinishedEvent,
+  DelegateCodingTaskProgressEvent,
+  DelegateCodingTaskStartedEvent
+} from './agentTools/delegateCodingTaskTool.ts'
 
 export interface AgentToolDependencies {
   availableSkills?: SkillCatalogEntry[]
@@ -112,13 +120,9 @@ export interface AgentToolDependencies {
   subagentProfiles?: SubagentProfile[]
   /** Workspace paths the coding agent is allowed to operate in (from config savedPaths). */
   availableWorkspaces?: string[]
-  onSubagentProgress?: (chunk: string) => void
-  onSubagentStarted?: (agentName: string) => void
-  onSubagentFinished?: (
-    agentName: string,
-    status: 'success' | 'cancelled',
-    lastMessage?: string
-  ) => void
+  onSubagentProgress?: (event: DelegateCodingTaskProgressEvent) => void
+  onSubagentStarted?: (event: DelegateCodingTaskStartedEvent) => void
+  onSubagentFinished?: (event: DelegateCodingTaskFinishedEvent) => void
   /** When provided, the askUser tool is injected into the tool set. */
   askUserContext?: AskUserToolContext
   /** Extra tools merged into the tool set (e.g. schedule-only tools). */
@@ -131,6 +135,59 @@ function isToolFailure(output: unknown): output is AgentToolOutput {
 
 function getOutputError(output: unknown): string | undefined {
   return isToolFailure(output) && typeof output.error === 'string' ? output.error : undefined
+}
+
+function extractTextContent(output: unknown): string | undefined {
+  if (typeof output !== 'object' || output === null || !('content' in output)) {
+    return undefined
+  }
+
+  const content = output.content
+  if (!Array.isArray(content)) {
+    return undefined
+  }
+
+  const text = content
+    .filter(
+      (
+        block
+      ): block is {
+        type: 'text'
+        text: string
+      } =>
+        typeof block === 'object' &&
+        block !== null &&
+        'type' in block &&
+        block.type === 'text' &&
+        'text' in block &&
+        typeof block.text === 'string'
+    )
+    .map((block) => block.text)
+    .join('')
+    .trim()
+
+  return text || undefined
+}
+
+function summarizeDelegateCodingTaskOutput(output: unknown): string | undefined {
+  const text = extractTextContent(output)
+  if (!text) {
+    return undefined
+  }
+
+  const footerMarker =
+    "CRITICAL: The subagent has finished its execution. Before replying to the user, you MUST use your `read`, `bash` (e.g., git status, git diff), or `grep` tools to verify the actual file changes. Do not blindly trust the agent's summary. Once verified, report your findings to the user."
+  const withoutFooter = text.replace(`\n\n${footerMarker}`, '').trim()
+  const sessionLineMatch = /Session ID:\s*([^\n]+)/i.exec(withoutFooter)
+  const sessionSummary = sessionLineMatch ? `session ${sessionLineMatch[1].trim()}` : undefined
+  const body = withoutFooter.replace(/Session ID:[^\n]*\n*/i, '').trim()
+  const bodySummary = body ? takeTail(body, 120).text : undefined
+
+  if (sessionSummary && bodySummary) {
+    return `${sessionSummary} • ${bodySummary}`
+  }
+
+  return sessionSummary ?? bodySummary ?? takeTail(withoutFooter, 120).text
 }
 
 export function summarizeToolInput(toolName: ToolCallName | string, input: unknown): string {
@@ -190,6 +247,14 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
     const query = typeof input === 'object' && input !== null && 'query' in input ? input.query : ''
     return typeof query === 'string' && query.trim().length > 0
       ? takeTail(query, 160).text
+      : toolName
+  }
+
+  if (toolName === 'delegateCodingTask') {
+    const agentName =
+      typeof input === 'object' && input !== null && 'agent_name' in input ? input.agent_name : ''
+    return typeof agentName === 'string' && agentName.trim().length > 0
+      ? takeTail(agentName, 160).text
       : toolName
   }
 
@@ -295,6 +360,10 @@ export function summarizeToolOutput(
       .map((b) => b.text ?? '')
       .join('')
     return text ? takeTail(text, 120).text : 'done'
+  }
+
+  if (toolName === 'delegateCodingTask') {
+    return summarizeDelegateCodingTaskOutput(output) ?? 'delegated task completed'
   }
 
   if (phase === 'update') {

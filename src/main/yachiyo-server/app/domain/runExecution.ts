@@ -83,6 +83,9 @@ import type { JotdownStore } from '../../services/jotdownStore.ts'
 import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../storage/storage.ts'
 import {
   createAgentToolSet,
+  type DelegateCodingTaskFinishedEvent,
+  type DelegateCodingTaskProgressEvent,
+  type DelegateCodingTaskStartedEvent,
   normalizeToolResult,
   summarizeToolInput
 } from '../../tools/agentTools.ts'
@@ -177,16 +180,10 @@ export interface RunExecutionDeps {
   onBackgroundBashAdopted?: (
     task: BackgroundBashAdoptionHandle & { threadId: string }
   ) => Promise<void>
-  onSubagentProgress?: (chunk: string) => void
-  onSubagentStarted?: (agentName: string) => void
+  onSubagentProgress?: (event: DelegateCodingTaskProgressEvent) => void
+  onSubagentStarted?: (event: DelegateCodingTaskStartedEvent) => void
   jotdownStore?: JotdownStore
-  onSubagentFinished?: (
-    agentName: string,
-    status: 'success' | 'cancelled',
-    lastMessage?: string,
-    sessionId?: string,
-    workspacePath?: string
-  ) => void
+  onSubagentFinished?: (event: DelegateCodingTaskFinishedEvent) => void
 }
 
 function appendMessageDeltaToTextBlocks(input: {
@@ -877,10 +874,9 @@ export async function executeServerRun(
   const toolCalls = recoveryCheckpoint
     ? restorePersistedRunToolCalls(deps.loadThreadToolCalls, input.thread.id, input.runId)
     : new Map<string, ToolCallRecord>()
+  const subagentStartedAtByDelegationId = new Map<string, string>()
   const runningToolCallIds = new Set<string>()
   let stepCount = Math.max(0, ...[...toolCalls.values()].map((toolCall) => toolCall.stepIndex ?? 0))
-  let subagentToolCallId: string | undefined
-  let subagentStartedAt: string | undefined
   const bufferParts: string[] = recoveryCheckpoint?.content ? [recoveryCheckpoint.content] : []
   let bufferLength = bufferParts.reduce((sum, part) => sum + part.length, 0)
   const reasoningParts: string[] = recoveryCheckpoint?.reasoning
@@ -1520,143 +1516,59 @@ export async function executeServerRun(
           ? {
               subagentProfiles: enabledSubagentProfiles,
               availableWorkspaces: gitValidatedWorkspaces,
-              onSubagentProgress: (chunk: string) => {
+              onSubagentProgress: (event: DelegateCodingTaskProgressEvent) => {
                 markProgress()
-                deps.onSubagentProgress?.(chunk)
+                deps.onSubagentProgress?.(event)
               },
-              onSubagentStarted: (agentName: string) => {
+              onSubagentStarted: (event: DelegateCodingTaskStartedEvent) => {
                 markProgress()
-                cancelPendingSafeSteerPointAfterTool()
-                setExecutionPhase('tool-running')
-                subagentToolCallId = deps.createId()
-                subagentStartedAt = deps.timestamp()
-                stepCount++
-                const toolCall: ToolCallRecord = {
-                  id: subagentToolCallId,
-                  runId: input.runId,
-                  threadId: input.thread.id,
-                  requestMessageId: input.requestMessageId,
-                  toolName: 'delegateCodingTask',
-                  status: 'running',
-                  inputSummary: agentName,
-                  startedAt: subagentStartedAt,
-                  stepIndex: stepCount,
-                  stepBudget: maxToolSteps
-                }
-                toolCalls.set(toolCall.id, toolCall)
-                deps.storage.createToolCall(toolCall)
-                appendRecoveryToolCall(recoveryResponseMessages, {
-                  toolCallId: toolCall.id,
-                  toolName: toolCall.toolName,
-                  toolInput: { summary: agentName }
-                })
-                persistRecoveryCheckpoint()
-                deps.emit<ToolCallUpdatedEvent>({
-                  type: 'tool.updated',
-                  threadId: input.thread.id,
-                  runId: input.runId,
-                  toolCall
-                })
+                subagentStartedAtByDelegationId.set(event.delegationId, deps.timestamp())
                 deps.emit<SubagentStartedEvent>({
                   type: 'subagent.started',
                   threadId: input.thread.id,
                   runId: input.runId,
-                  agentName
+                  delegationId: event.delegationId,
+                  agentName: event.agentName,
+                  workspacePath: event.workspacePath
                 })
               },
-              onSubagentFinished: (
-                agentName: string,
-                status: 'success' | 'cancelled',
-                lastMessage?: string,
-                sessionId?: string,
-                subagentWorkspacePath?: string
-              ) => {
+              onSubagentFinished: (event: DelegateCodingTaskFinishedEvent) => {
                 markProgress()
-                if (sessionId && subagentWorkspacePath) {
+                if (event.sessionId) {
+                  const delegationStartedAt =
+                    subagentStartedAtByDelegationId.get(event.delegationId) ?? deps.timestamp()
                   const currentThread = deps.readThread(input.thread.id)
-                  const updatedThread: ThreadRecord = {
-                    ...currentThread,
-                    lastDelegatedSession: {
-                      agentName,
-                      sessionId,
-                      workspacePath: subagentWorkspacePath,
-                      timestamp: deps.timestamp()
+                  const existingSession = currentThread.lastDelegatedSession
+                  if (
+                    !existingSession ||
+                    existingSession.timestamp.localeCompare(delegationStartedAt) <= 0
+                  ) {
+                    const updatedThread: ThreadRecord = {
+                      ...currentThread,
+                      lastDelegatedSession: {
+                        agentName: event.agentName,
+                        sessionId: event.sessionId,
+                        workspacePath: event.workspacePath,
+                        timestamp: delegationStartedAt
+                      }
                     }
-                  }
-                  deps.storage.updateThread(updatedThread)
-                  deps.emit<ThreadUpdatedEvent>({
-                    type: 'thread.updated',
-                    threadId: input.thread.id,
-                    thread: updatedThread
-                  })
-                }
-                if (subagentToolCallId) {
-                  const startedToolCall = toolCalls.get(subagentToolCallId)
-                  const finishedAt = deps.timestamp()
-                  const outputSummary = lastMessage
-                    ? lastMessage.slice(0, 120) + (lastMessage.length > 120 ? '…' : '')
-                    : status === 'cancelled'
-                      ? 'cancelled'
-                      : 'done'
-                  const toolCall: ToolCallRecord = {
-                    ...(startedToolCall ?? {
-                      id: subagentToolCallId,
-                      runId: input.runId,
+                    deps.storage.updateThread(updatedThread)
+                    deps.emit<ThreadUpdatedEvent>({
+                      type: 'thread.updated',
                       threadId: input.thread.id,
-                      requestMessageId: input.requestMessageId,
-                      toolName: 'delegateCodingTask',
-                      inputSummary: agentName,
-                      startedAt: subagentStartedAt ?? finishedAt,
-                      stepIndex: ++stepCount,
-                      stepBudget: maxToolSteps
-                    }),
-                    status: status === 'cancelled' ? 'failed' : 'completed',
-                    outputSummary,
-                    finishedAt
-                  }
-                  toolCalls.set(toolCall.id, toolCall)
-                  deps.storage.updateToolCall(toolCall)
-                  if (!startedToolCall) {
-                    appendRecoveryToolCall(recoveryResponseMessages, {
-                      toolCallId: toolCall.id,
-                      toolName: toolCall.toolName,
-                      toolInput: { summary: agentName }
+                      thread: updatedThread
                     })
                   }
-                  appendRecoveryToolResult(recoveryResponseMessages, {
-                    toolCallId: toolCall.id,
-                    toolName: toolCall.toolName,
-                    ...(status === 'cancelled'
-                      ? { error: outputSummary }
-                      : {
-                          output: {
-                            content: [{ type: 'text', text: outputSummary }]
-                          }
-                        })
-                  })
-                  persistRecoveryCheckpoint()
-                  deps.emit<ToolCallUpdatedEvent>({
-                    type: 'tool.updated',
-                    threadId: input.thread.id,
-                    runId: input.runId,
-                    toolCall
-                  })
                 }
                 deps.emit<SubagentFinishedEvent>({
                   type: 'subagent.finished',
                   threadId: input.thread.id,
                   runId: input.runId,
-                  agentName,
-                  status
+                  delegationId: event.delegationId,
+                  agentName: event.agentName,
+                  status: event.status,
+                  ...(event.sessionId ? { sessionId: event.sessionId } : {})
                 })
-                awaitingSafeSteerPointAfterTool = true
-                setExecutionPhase('generating')
-                if (!safeSteerTimer) {
-                  safeSteerTimer = setTimeout(() => {
-                    safeSteerTimer = null
-                    flushSafeSteerPointAfterTool()
-                  }, 0)
-                }
               }
             }
           : {}),

@@ -2,15 +2,17 @@ import { useState, useRef, useEffect } from 'react'
 import type React from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
+import { buildSubagentIndicatorStream, canCancelFromIndicator } from './subagentIndicatorState'
 
 interface SubagentRunningIndicatorProps {
-  threadId: string
-  stream: string
-  onCancel: () => void
+  agents: Array<{ delegationId: string; agentName: string; progress: string }>
+  progressEntries: Array<{ delegationId: string; agentName: string; chunk: string }>
+  onCancel?: () => void
 }
 
 export function SubagentRunningIndicator({
-  stream,
+  agents,
+  progressEntries,
   onCancel
 }: SubagentRunningIndicatorProps): React.JSX.Element {
   const [confirming, setConfirming] = useState(false)
@@ -24,7 +26,7 @@ export function SubagentRunningIndicator({
     if (!userScrolledRef.current) {
       el.scrollTop = el.scrollHeight
     }
-  }, [stream, expanded])
+  }, [agents, expanded])
 
   function handleScroll(): void {
     const el = scrollRef.current
@@ -34,17 +36,23 @@ export function SubagentRunningIndicator({
   }
 
   function handleCancelClick(): void {
+    if (!onCancel) {
+      return
+    }
     setConfirming(true)
   }
 
   function handleConfirm(): void {
     setConfirming(false)
-    onCancel()
+    onCancel?.()
   }
 
   function handleDismiss(): void {
     setConfirming(false)
   }
+
+  const stream = buildSubagentIndicatorStream(progressEntries)
+  const canCancel = onCancel ? canCancelFromIndicator(agents) : false
 
   return (
     <div className="px-6 py-1">
@@ -80,11 +88,13 @@ export function SubagentRunningIndicator({
           </button>
         ) : (
           <span className="text-xs" style={{ color: theme.text.muted }}>
-            Agent is working…
+            {agents.length === 1
+              ? `${agents[0]?.agentName ?? 'Agent'} is working…`
+              : `${agents.length} agents are working…`}
           </span>
         )}
 
-        {confirming ? (
+        {canCancel && confirming ? (
           <span className="flex items-center gap-1.5 ml-1">
             <span className="text-xs" style={{ color: theme.text.muted }}>
               Interrupt?
@@ -114,7 +124,7 @@ export function SubagentRunningIndicator({
               Continue
             </button>
           </span>
-        ) : (
+        ) : canCancel ? (
           <button
             onClick={handleCancelClick}
             className="text-xs px-2 py-0.5 rounded ml-1"
@@ -127,6 +137,10 @@ export function SubagentRunningIndicator({
           >
             Cancel
           </button>
+        ) : (
+          <span className="text-xs ml-1" style={{ color: theme.text.muted }}>
+            Stop the run to cancel all
+          </span>
         )}
       </div>
 

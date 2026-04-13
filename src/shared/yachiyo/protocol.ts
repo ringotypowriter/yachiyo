@@ -234,6 +234,7 @@ export function isCoreToolName(value: string): value is ToolCallName {
 const trackedToolNameSet = new Set<string>([
   ...CORE_TOOL_NAMES,
   'askUser',
+  'delegateCodingTask',
   'remember',
   'searchMemory',
   'updateProfile'
@@ -1380,17 +1381,22 @@ export interface SettingsUpdatedEvent extends BaseEvent {
 
 export interface SubagentStartedEvent extends RunEvent {
   type: 'subagent.started'
+  delegationId: string
   agentName: string
+  workspacePath: string
 }
 
 export interface SubagentFinishedEvent extends RunEvent {
   type: 'subagent.finished'
+  delegationId: string
   agentName: string
   status: 'success' | 'cancelled'
+  sessionId?: string
 }
 
 export interface SubagentProgressEvent extends RunEvent {
   type: 'subagent.progress'
+  delegationId: string
   chunk: string
 }
 

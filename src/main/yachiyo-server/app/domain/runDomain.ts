@@ -1645,12 +1645,13 @@ export class YachiyoServerRunDomain {
               currentRun.pendingSteerMessageId = userMessage.id
               currentRun.abortController.abort(toRestartRunReason(userMessage.id))
             },
-            onSubagentProgress: (chunk: string) => {
+            onSubagentProgress: (event) => {
               this.deps.emit<SubagentProgressEvent>({
                 type: 'subagent.progress',
                 threadId: input.thread.id,
                 runId: input.runId,
-                chunk
+                delegationId: event.delegationId,
+                chunk: event.chunk
               })
             },
             onBackgroundBashStarted: async (task) => {
