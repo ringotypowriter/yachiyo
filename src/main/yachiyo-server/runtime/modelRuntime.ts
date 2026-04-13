@@ -119,7 +119,8 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             model: createLanguageModel(
               request.settings,
               resolvedDependencies,
-              request.providerOptionsMode
+              request.providerOptionsMode,
+              { onReasoningDelta: request.onReasoningDelta }
             ),
             providerOptions,
             ...(request.max_token != null

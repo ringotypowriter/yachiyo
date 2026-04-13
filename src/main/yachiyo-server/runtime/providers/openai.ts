@@ -2,6 +2,7 @@ import type { LanguageModel } from 'ai'
 
 import type { ProviderConfig, ProviderSettings } from '../../../../shared/yachiyo/protocol'
 import type { ResolvedAiSdkRuntimeDependencies } from './dependencies.ts'
+import { createThinkingFetch, type ThinkingFetchOptions } from './openaiCompatibleThinking.ts'
 import {
   cleanBaseUrl,
   DEFAULT_OPENAI_BASE_URL,
@@ -27,16 +28,34 @@ export function shouldUseOpenAIResponsesApi(settings: ProviderSettings): boolean
   )
 }
 
+export interface OpenAiLanguageModelOptions {
+  onReasoningDelta?: (delta: string) => void
+}
+
 export function createOpenAiLanguageModel(
   settings: ProviderSettings,
   dependencies: ResolvedAiSdkRuntimeDependencies,
   mode: 'default' | 'auxiliary',
-  diagnosticFetch?: typeof globalThis.fetch
+  diagnosticFetch?: typeof globalThis.fetch,
+  options: OpenAiLanguageModelOptions = {}
 ): LanguageModel {
+  const thinkingOptions: ThinkingFetchOptions = {
+    onReasoningDelta: options.onReasoningDelta
+  }
+
+  // Layer thinking-param injection + response extraction underneath any diagnostic fetch.
+  // Order: thinkingFetch mutates the body & transforms response → diagnosticFetch logs → real fetch.
+  const thinkingFetch = createThinkingFetch(settings, mode, globalThis.fetch, thinkingOptions)
+  const baseFetch = diagnosticFetch ?? thinkingFetch
+  const composedFetch =
+    diagnosticFetch && thinkingFetch
+      ? createThinkingFetch(settings, mode, diagnosticFetch, thinkingOptions)
+      : baseFetch
+
   const provider = dependencies.createOpenAIProvider({
     apiKey: settings.apiKey,
     baseURL: cleanBaseUrl(settings.baseUrl, DEFAULT_OPENAI_BASE_URL),
-    ...(diagnosticFetch ? { fetch: diagnosticFetch } : {})
+    ...(composedFetch ? { fetch: composedFetch } : {})
   })
 
   if (shouldUseOpenAIResponsesApi(settings)) {

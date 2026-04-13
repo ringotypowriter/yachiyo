@@ -27,17 +27,23 @@ export function assertConfigured(settings: ProviderSettings): void {
   }
 }
 
+export interface CreateLanguageModelOptions {
+  onReasoningDelta?: (delta: string) => void
+}
+
 export function createLanguageModel(
   settings: ProviderSettings,
   dependencies: ResolvedAiSdkRuntimeDependencies,
-  mode: 'default' | 'auxiliary' = 'default'
+  mode: 'default' | 'auxiliary' = 'default',
+  options: CreateLanguageModelOptions = {}
 ): LanguageModel {
   if (settings.provider === 'openai' || settings.provider === 'openai-responses') {
     return createOpenAiLanguageModel(
       settings,
       dependencies,
       mode,
-      createGatewayDiagnosticFetch(settings)
+      createGatewayDiagnosticFetch(settings),
+      { onReasoningDelta: options.onReasoningDelta }
     )
   }
 
