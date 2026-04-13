@@ -19,6 +19,7 @@ export const THINKING_INSIDE_MAX_OUTPUT_HOSTS: readonly string[] = ['api.kimi.co
 export type OpenAiChatRuntimeProviderOptions = {
   openai: {
     store: false
+    promptCacheKey?: string
   }
 }
 
@@ -27,6 +28,7 @@ export type OpenAiResponsesRuntimeProviderOptions = {
     reasoningEffort?: string
     reasoningSummary?: 'auto' | 'detailed'
     store: false
+    promptCacheKey?: string
   }
 }
 

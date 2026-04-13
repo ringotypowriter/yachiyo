@@ -2,6 +2,7 @@ import type { LanguageModel } from 'ai'
 
 import type { ProviderConfig, ProviderSettings } from '../../../../shared/yachiyo/protocol'
 import type { ResolvedAiSdkRuntimeDependencies } from './dependencies.ts'
+import { createCacheFetch } from './openaiCompatibleCache.ts'
 import { createThinkingFetch, type ThinkingFetchOptions } from './openaiCompatibleThinking.ts'
 import {
   cleanBaseUrl,
@@ -43,14 +44,19 @@ export function createOpenAiLanguageModel(
     onReasoningDelta: options.onReasoningDelta
   }
 
-  // Layer thinking-param injection + response extraction underneath any diagnostic fetch.
-  // Order: thinkingFetch mutates the body & transforms response → diagnosticFetch logs → real fetch.
-  const thinkingFetch = createThinkingFetch(settings, mode, globalThis.fetch, thinkingOptions)
-  const baseFetch = diagnosticFetch ?? thinkingFetch
-  const composedFetch =
-    diagnosticFetch && thinkingFetch
-      ? createThinkingFetch(settings, mode, diagnosticFetch, thinkingOptions)
-      : baseFetch
+  // Layer fetch wrappers (innermost → outermost):
+  //   realFetch → cacheFetch (inject cache_control) → thinkingFetch (inject reasoning params)
+  // When diagnosticFetch is present it replaces globalThis.fetch as the
+  // innermost transport for logging, and the same chain stacks on top.
+  const innerFetch = diagnosticFetch ?? globalThis.fetch
+  const cacheFetch = createCacheFetch(settings.baseUrl, innerFetch)
+  const thinkingFetch = createThinkingFetch(
+    settings,
+    mode,
+    cacheFetch ?? innerFetch,
+    thinkingOptions
+  )
+  const composedFetch = thinkingFetch ?? cacheFetch
 
   const provider = dependencies.createOpenAIProvider({
     apiKey: settings.apiKey,

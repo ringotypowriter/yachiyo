@@ -56,6 +56,8 @@ export interface ModelStreamRequest {
   onToolCallFinish?: GenerateTextOnToolCallFinishCallback<ToolSet>
   onToolCallUpdate?: (event: ModelToolCallUpdateEvent) => void
   onToolCallError?: (event: ModelToolCallErrorEvent) => 'abort' | 'continue'
+  /** Opaque key for provider-side prompt prefix caching (e.g. OpenAI Responses API). */
+  promptCacheKey?: string
   onReasoningDelta?: (delta: string) => void
   onRetry?: (attempt: number, maxAttempts: number, delayMs: number, error: unknown) => void
   onFinish?: (usage: ModelUsage) => void

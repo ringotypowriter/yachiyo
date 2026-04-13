@@ -65,6 +65,8 @@ export interface CompileContextLayersInput {
   agent?: AgentLayerInput
   hint?: HintLayerInput
   memory?: MemoryLayerInput
+  /** When true, mark the last system message with an Anthropic cache breakpoint. */
+  anthropicCacheBreakpoints?: boolean
 }
 
 function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
@@ -345,6 +347,45 @@ export function appendTurnContextToUserMessage(
   return { role: 'user', content: turnContextParts.join('\n\n') }
 }
 
+const ANTHROPIC_CACHE_BREAKPOINT = {
+  anthropic: { cacheControl: { type: 'ephemeral' as const } }
+}
+
+/**
+ * Add Anthropic cache breakpoints to the compiled message array.
+ *
+ * Breakpoint 1: last system message — caches the stable system prefix.
+ * Breakpoint 2: last message before the current (last) user message —
+ *               caches system prefix + all prior conversation history.
+ *
+ * Anthropic allows up to 4 breakpoints; we use 2 to cover the two
+ * natural cache boundaries.
+ */
+function applyAnthropicCacheBreakpoints(messages: ModelMessage[]): void {
+  // Breakpoint 1: last system message.
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'system') {
+      messages[i] = { ...messages[i], providerOptions: ANTHROPIC_CACHE_BREAKPOINT }
+      break
+    }
+  }
+
+  // Breakpoint 2: the message just before the last user message.
+  // The last user message is volatile (has hint/memory appended), but
+  // everything before it is stable and cacheable.
+  let lastUserIdx = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') {
+      lastUserIdx = i
+      break
+    }
+  }
+  if (lastUserIdx > 0) {
+    const prev = lastUserIdx - 1
+    messages[prev] = { ...messages[prev], providerOptions: ANTHROPIC_CACHE_BREAKPOINT }
+  }
+}
+
 export function compileContextLayers(input: CompileContextLayersInput): ModelMessage[] {
   const systemLayers = [
     compilePersonalityLayer(input.personality),
@@ -366,7 +407,9 @@ export function compileContextLayers(input: CompileContextLayersInput): ModelMes
   ].flatMap((message) => (message ? [message.content as string] : []))
 
   if (turnContextParts.length === 0) {
-    return removeEmptyMessages([...systemLayers, ...historyMessages])
+    const result = removeEmptyMessages([...systemLayers, ...historyMessages])
+    if (input.anthropicCacheBreakpoints) applyAnthropicCacheBreakpoints(result)
+    return result
   }
 
   const result = [...historyMessages]
@@ -374,14 +417,18 @@ export function compileContextLayers(input: CompileContextLayersInput): ModelMes
   for (let i = result.length - 1; i >= 0; i--) {
     if (result[i].role === 'user') {
       result[i] = appendTurnContextToUserMessage(result[i], turnContextParts)
-      return removeEmptyMessages([...systemLayers, ...result])
+      const final = removeEmptyMessages([...systemLayers, ...result])
+      if (input.anthropicCacheBreakpoints) applyAnthropicCacheBreakpoints(final)
+      return final
     }
   }
 
   // No user message in history — create a standalone turn context message.
-  return removeEmptyMessages([
+  const final = removeEmptyMessages([
     ...systemLayers,
     ...result,
     { role: 'user', content: turnContextParts.join('\n\n') }
   ])
+  if (input.anthropicCacheBreakpoints) applyAnthropicCacheBreakpoints(final)
+  return final
 }

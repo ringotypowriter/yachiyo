@@ -16,6 +16,7 @@ import {
 } from './providers/gateway.ts'
 import { getGeminiMaxOutputTokens } from './providers/google.ts'
 import { createProviderOptions, extractThinkingBudget } from './providers/providerOptions.ts'
+import type { RuntimeProviderOptions } from './providers/shared.ts'
 import { isTransientTransportError, toRunBoundaryError } from './runtimeErrors.ts'
 /** Disable AI SDK's built-in retry — we handle retries ourselves. */
 const SDK_MAX_RETRIES = 0
@@ -56,10 +57,21 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
       assertConfigured(request.settings)
 
       const preparedMessages = prepareAiSdkMessages(request.messages)
-      const providerOptions = createProviderOptions(
+      const baseProviderOptions = createProviderOptions(
         request.settings,
         request.providerOptionsMode ?? 'default'
       )
+      // Merge prompt cache key into OpenAI provider options when present.
+      const providerOptions: RuntimeProviderOptions =
+        request.promptCacheKey && 'openai' in baseProviderOptions
+          ? (() => {
+              const openai = (baseProviderOptions as { openai: Record<string, unknown> }).openai
+              return {
+                ...baseProviderOptions,
+                openai: { ...openai, promptCacheKey: request.promptCacheKey }
+              } as typeof baseProviderOptions
+            })()
+          : baseProviderOptions
 
       const purpose = request.purpose ?? 'unspecified'
       const provider = request.settings.provider
@@ -67,7 +79,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
       const llmTag = `[yachiyo][llm][${purpose}]`
       const startedAt = Date.now()
       console.info(
-        `${llmTag} start provider=${provider} model=${model} messages=${preparedMessages.length} mode=${request.providerOptionsMode ?? 'default'} tools=${request.tools ? Object.keys(request.tools).length : 0} maxToolSteps=${request.maxToolSteps ?? 'default'}`
+        `${llmTag} start provider=${provider} model=${model} messages=${preparedMessages.length} mode=${request.providerOptionsMode ?? 'default'} tools=${request.tools ? Object.keys(request.tools).length : 0} maxToolSteps=${request.maxToolSteps ?? 'default'}${request.promptCacheKey ? ` promptCacheKey=${request.promptCacheKey}` : ''}`
       )
 
       if (shouldLogGatewayDiagnostics(request.settings)) {
@@ -379,6 +391,11 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               console.info(
                 `${llmTag} usage provider=${provider} model=${model} promptTokens=${usage.inputTokens ?? '?'} completionTokens=${usage.outputTokens ?? '?'} totalPrompt=${total.inputTokens ?? '?'} totalCompletion=${total.outputTokens ?? '?'} cacheRead=${cacheRead ?? '-'} cacheWrite=${cacheWrite ?? '-'} finishReason=${finishReason ?? 'unknown'}`
               )
+              if (cacheRead === 0 || cacheRead == null) {
+                console.debug(
+                  `${llmTag} cache-diag inputTokenDetails=${JSON.stringify(usage.inputTokenDetails ?? null)}`
+                )
+              }
               if (usage.inputTokens != null && usage.outputTokens != null) {
                 const responseMessages = response?.messages
                 request.onFinish({

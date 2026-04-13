@@ -1389,6 +1389,7 @@ export async function executeServerRun(
               reminder: effectiveReminder
             },
             memory: { entries: memoryEntries },
+            anthropicCacheBreakpoints: settings.provider === 'anthropic',
             // For owner DM threads with a rolling summary, prepend the summary as a synthetic
             // user message so local context compilation sees the earlier context.
             history: input.thread.rollingSummary?.trim()
@@ -1593,6 +1594,7 @@ export async function executeServerRun(
       settings,
       signal: input.abortController.signal,
       purpose: 'chat',
+      promptCacheKey: input.thread.id,
       maxToolSteps,
       ...(tools ? { tools } : {}),
       onFinish: (usage) => {
