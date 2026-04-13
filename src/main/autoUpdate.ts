@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, net, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { is } from '@electron-toolkit/utils'
 
@@ -40,8 +40,24 @@ function readInitialChannel(): UpdateChannel {
   }
 }
 
+async function fetchReleaseNotes(version: string): Promise<string> {
+  const tag = version.startsWith('v') ? version : `v${version}`
+  const url = `https://api.github.com/repos/ringotypowriter/yachiyo/releases/tags/${tag}`
+  const resp = await net.fetch(url, {
+    headers: { Accept: 'application/vnd.github+json' }
+  })
+  if (!resp.ok) {
+    throw new Error(`GitHub API returned ${resp.status}`)
+  }
+  const data = (await resp.json()) as { body?: string }
+  return data.body ?? ''
+}
+
 function setupDevMock(): void {
   ipcMain.handle('app-update:get-status', (): UpdateStatus => currentStatus)
+  ipcMain.handle('app-update:get-release-notes', (_event, version: string) =>
+    fetchReleaseNotes(version)
+  )
 
   ipcMain.on('app-update:check', () => {
     broadcast({ state: 'checking' })
@@ -132,6 +148,9 @@ function setupProd(): void {
   })
 
   ipcMain.handle('app-update:get-status', (): UpdateStatus => currentStatus)
+  ipcMain.handle('app-update:get-release-notes', (_event, version: string) =>
+    fetchReleaseNotes(version)
+  )
 
   ipcMain.on('app-update:check', () => {
     autoUpdater.checkForUpdates()

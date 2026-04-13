@@ -74,6 +74,7 @@ declare global {
         download: () => void
         install: () => void
         openRelease: () => void
+        getReleaseNotes: (version: string) => Promise<string>
         setChannel: (channel: 'stable' | 'beta') => void
         onStatus: (
           listener: (status: { state: string; version?: string; error?: string }) => void

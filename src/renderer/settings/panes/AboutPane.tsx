@@ -3,6 +3,7 @@ import { theme, alpha } from '@renderer/theme/theme'
 import type { SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
 import avatarUrl from '../../../../resources/branding.jpeg'
 import { SettingSwitch } from '../components/primitives'
+import { ChangelogModal } from '@renderer/components/ChangelogModal'
 
 declare const __APP_VERSION__: string
 
@@ -64,6 +65,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
   const isDevelopment = import.meta.env.DEV
   const [hovered, setHovered] = useState(false)
   const [showNotices, setShowNotices] = useState(false)
+  const [changelogOpen, setChangelogOpen] = useState(false)
   const [updateState, setUpdateState] = useState<{
     state: string
     version?: string
@@ -212,9 +214,77 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
               >
                 v{updateState.version} available — download
               </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.api.appUpdate.check()}
+                  className="text-[11px]"
+                  style={{
+                    color: theme.text.muted,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = theme.text.secondary
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = theme.text.muted
+                  }}
+                >
+                  Check again
+                </button>
+                <span className="text-[11px]" style={{ color: theme.text.muted }}>
+                  ·
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setChangelogOpen(true)}
+                  className="text-[11px]"
+                  style={{
+                    color: theme.text.muted,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = theme.text.secondary
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = theme.text.muted
+                  }}
+                >
+                  What&apos;s new
+                </button>
+              </div>
+            </>
+          )}
+          {updateState.state === 'downloading' && (
+            <span className="text-xs" style={{ color: theme.text.muted }}>
+              Downloading{updateState.percent !== undefined ? ` ${updateState.percent}%` : '…'}
+            </span>
+          )}
+          {updateState.state === 'ready' && (
+            <>
               <button
                 type="button"
-                onClick={() => window.api.appUpdate.check()}
+                onClick={() => {
+                  setUpdateState((s) => ({ ...s, state: 'installing' }))
+                  window.api.appUpdate.install()
+                }}
+                className="text-xs font-medium px-3 py-1.5 rounded-full"
+                style={{
+                  background: alpha('accent', 0.12),
+                  color: theme.text.accent,
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                Restart to install v{updateState.version}
+              </button>
+              <button
+                type="button"
+                onClick={() => setChangelogOpen(true)}
                 className="text-[11px]"
                 style={{
                   color: theme.text.muted,
@@ -229,32 +299,9 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
                   e.currentTarget.style.color = theme.text.muted
                 }}
               >
-                Check again
+                What&apos;s new
               </button>
             </>
-          )}
-          {updateState.state === 'downloading' && (
-            <span className="text-xs" style={{ color: theme.text.muted }}>
-              Downloading{updateState.percent !== undefined ? ` ${updateState.percent}%` : '…'}
-            </span>
-          )}
-          {updateState.state === 'ready' && (
-            <button
-              type="button"
-              onClick={() => {
-                setUpdateState((s) => ({ ...s, state: 'installing' }))
-                window.api.appUpdate.install()
-              }}
-              className="text-xs font-medium px-3 py-1.5 rounded-full"
-              style={{
-                background: alpha('accent', 0.12),
-                color: theme.text.accent,
-                border: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              Restart to install v{updateState.version}
-            </button>
           )}
           {updateState.state === 'installing' && (
             <span className="text-xs" style={{ color: theme.text.muted }}>
@@ -405,6 +452,9 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
           </button>
         </div>
       </div>
+      {changelogOpen && updateState.version && (
+        <ChangelogModal version={updateState.version} onClose={() => setChangelogOpen(false)} />
+      )}
     </div>
   )
 }
