@@ -1,5 +1,6 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { HarnessRecord } from '@renderer/app/store/useAppStore'
 import type { Message, RunRecord, Thread, ToolCall } from '@renderer/app/types'
@@ -44,6 +45,12 @@ const EMPTY_MESSAGES: Message[] = []
 const EMPTY_HARNESSES: HarnessRecord[] = []
 const EMPTY_RUNS: RunRecord[] = []
 const EMPTY_TOOL_CALLS: ToolCall[] = []
+const EMPTY_ACTIVE_SUBAGENT_IDS: string[] = []
+const EMPTY_SUBAGENT_PROGRESS_ENTRIES: Array<{
+  delegationId: string
+  agentName: string
+  chunk: string
+}> = []
 
 const DEFAULT_HARNESS = 'default.reply'
 
@@ -480,73 +487,90 @@ export const ThreadConversationGroup = memo(function ThreadConversationGroup({
 })
 
 export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.Element {
-  const thread = useAppStore((state) =>
-    threadId
-      ? (state.threads.find((entry) => entry.id === threadId) ??
-        state.externalThreads.find((entry) => entry.id === threadId) ??
-        null)
-      : null
+  const {
+    thread,
+    messages,
+    harnessEvents,
+    pendingSteerEntry,
+    toolCalls,
+    runs,
+    activeRunId,
+    threadIsSaving,
+    subagentActive,
+    activeSubagentIds,
+    subagentStateById,
+    subagentProgressEntries,
+    retryInfo,
+    cancelRunForThread,
+    activeRequestMessageId,
+    beginEditMessage,
+    createBranch,
+    deleteMessage,
+    revertQueuedFollowUp,
+    retryMessage,
+    selectReplyBranch,
+    runPhase,
+    scrollToMessageId,
+    clearScrollToMessageId,
+    activeEssentialId,
+    essentials
+  } = useAppStore(
+    useShallow((state) => ({
+      thread: threadId
+        ? (state.threads.find((entry) => entry.id === threadId) ??
+          state.externalThreads.find((entry) => entry.id === threadId) ??
+          null)
+        : null,
+      messages: threadId ? (state.messages[threadId] ?? EMPTY_MESSAGES) : EMPTY_MESSAGES,
+      harnessEvents: threadId
+        ? (state.harnessEvents[threadId] ?? EMPTY_HARNESSES)
+        : EMPTY_HARNESSES,
+      pendingSteerEntry: threadId ? (state.pendingSteerMessages[threadId] ?? null) : null,
+      toolCalls: threadId ? (state.toolCalls[threadId] ?? EMPTY_TOOL_CALLS) : EMPTY_TOOL_CALLS,
+      runs: threadId ? (state.runsByThread[threadId] ?? EMPTY_RUNS) : EMPTY_RUNS,
+      activeRunId: threadId ? (state.activeRunIdsByThread[threadId] ?? null) : null,
+      threadIsSaving: threadId ? state.savingThreadIds.has(threadId) : false,
+      subagentActive: threadId
+        ? (state.subagentActiveIdsByThread[threadId]?.length ?? 0) > 0
+        : false,
+      activeSubagentIds: threadId
+        ? (state.subagentActiveIdsByThread[threadId] ?? EMPTY_ACTIVE_SUBAGENT_IDS)
+        : EMPTY_ACTIVE_SUBAGENT_IDS,
+      subagentStateById: state.subagentStateById,
+      subagentProgressEntries: threadId
+        ? (state.subagentProgressTimelineByThread[threadId] ?? EMPTY_SUBAGENT_PROGRESS_ENTRIES)
+        : EMPTY_SUBAGENT_PROGRESS_ENTRIES,
+      retryInfo: threadId ? (state.retryInfoByThread[threadId] ?? undefined) : undefined,
+      cancelRunForThread: state.cancelRunForThread,
+      activeRequestMessageId: threadId
+        ? (state.activeRequestMessageIdsByThread[threadId] ?? null)
+        : null,
+      beginEditMessage: state.beginEditMessage,
+      createBranch: state.createBranch,
+      deleteMessage: state.deleteMessage,
+      revertQueuedFollowUp: state.revertQueuedFollowUp,
+      retryMessage: state.retryMessage,
+      selectReplyBranch: state.selectReplyBranch,
+      runPhase: threadId ? (state.runPhasesByThread[threadId] ?? 'idle') : 'idle',
+      scrollToMessageId: state.scrollToMessageId,
+      clearScrollToMessageId: state.clearScrollToMessageId,
+      activeEssentialId: state.activeEssentialId,
+      essentials: state.config?.essentials
+    }))
   )
-  const messages = useAppStore((state) =>
-    threadId ? (state.messages[threadId] ?? EMPTY_MESSAGES) : EMPTY_MESSAGES
-  )
-  const harnessEvents = useAppStore((state) =>
-    threadId ? (state.harnessEvents[threadId] ?? EMPTY_HARNESSES) : EMPTY_HARNESSES
-  )
-  const pendingSteerEntry = useAppStore((state) =>
-    threadId ? (state.pendingSteerMessages[threadId] ?? null) : null
-  )
-  const toolCalls = useAppStore((state) =>
-    threadId ? (state.toolCalls[threadId] ?? EMPTY_TOOL_CALLS) : EMPTY_TOOL_CALLS
-  )
-  const runs = useAppStore((state) =>
-    threadId ? (state.runsByThread[threadId] ?? EMPTY_RUNS) : EMPTY_RUNS
-  )
-  const activeRunId = useAppStore((state) =>
-    threadId ? (state.activeRunIdsByThread[threadId] ?? null) : null
-  )
-  const threadIsSaving = useAppStore((state) =>
-    threadId ? state.savingThreadIds.has(threadId) : false
-  )
-  const subagentActive = useAppStore((state) =>
-    threadId ? (state.subagentActiveIdsByThread[threadId]?.length ?? 0) > 0 : false
-  )
-  const activeSubagents = useAppStore((state) =>
-    threadId
-      ? (state.subagentActiveIdsByThread[threadId] ?? [])
-          .map((delegationId) => state.subagentStateById[delegationId])
-          .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-          .map((entry) => ({
-            delegationId: entry.delegationId,
-            agentName: entry.agentName,
-            progress: entry.progress
-          }))
-      : []
-  )
-  const subagentProgressEntries = useAppStore((state) =>
-    threadId ? (state.subagentProgressTimelineByThread[threadId] ?? []) : []
-  )
-  const retryInfo = useAppStore((state) =>
-    threadId ? (state.retryInfoByThread[threadId] ?? undefined) : undefined
-  )
-  const cancelRunForThread = useAppStore((state) => state.cancelRunForThread)
-  const activeRequestMessageId = useAppStore((state) =>
-    threadId ? (state.activeRequestMessageIdsByThread[threadId] ?? null) : null
-  )
-  const beginEditMessage = useAppStore((state) => state.beginEditMessage)
-  const createBranch = useAppStore((state) => state.createBranch)
-  const deleteMessage = useAppStore((state) => state.deleteMessage)
-  const revertQueuedFollowUp = useAppStore((state) => state.revertQueuedFollowUp)
-  const retryMessage = useAppStore((state) => state.retryMessage)
-  const selectReplyBranch = useAppStore((state) => state.selectReplyBranch)
-  const runPhase = useAppStore((state) =>
-    threadId ? (state.runPhasesByThread[threadId] ?? 'idle') : 'idle'
-  )
-  const scrollToMessageId = useAppStore((state) => state.scrollToMessageId)
-  const clearScrollToMessageId = useAppStore((state) => state.clearScrollToMessageId)
-  const activeEssentialId = useAppStore((state) => state.activeEssentialId)
-  const essentials = useAppStore((state) => state.config?.essentials)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const activeSubagents = useMemo(
+    () =>
+      activeSubagentIds
+        .map((delegationId) => subagentStateById[delegationId])
+        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+        .map((entry) => ({
+          delegationId: entry.delegationId,
+          agentName: entry.agentName,
+          progress: entry.progress
+        })),
+    [activeSubagentIds, subagentStateById]
+  )
 
   const messageGroups = useMemo(
     () =>

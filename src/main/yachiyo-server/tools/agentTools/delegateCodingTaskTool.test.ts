@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createTool, type DelegateCodingTaskContext } from './delegateCodingTaskTool.ts'
-import { summarizeToolInput } from '../agentTools.ts'
+import { summarizeToolInput, summarizeToolOutput } from '../agentTools.ts'
 import type { SubagentProfile } from '../../../../shared/yachiyo/protocol.ts'
 
 const profile: SubagentProfile = {
@@ -130,5 +130,40 @@ test('summarizeToolInput uses the delegated agent name for delegateCodingTask', 
       prompt: 'Do the thing'
     }),
     'Worker'
+  )
+})
+
+test('summarizeToolOutput handles delegateCodingTask failures without exitCode details', () => {
+  assert.equal(
+    summarizeToolOutput('delegateCodingTask', {
+      content: [
+        {
+          type: 'text',
+          text: 'Subagent execution failed: ACP agent process exited unexpectedly.'
+        }
+      ],
+      error: 'ACP agent process exited unexpectedly.'
+    }),
+    'ACP agent process exited unexpectedly.'
+  )
+})
+
+test('summarizeToolOutput keeps delegateCodingTask session and result instead of footer text', () => {
+  assert.equal(
+    summarizeToolOutput('delegateCodingTask', {
+      content: [
+        {
+          type: 'text',
+          text: [
+            'Session ID: session-42',
+            '',
+            'Updated the parser and added regression coverage.',
+            '',
+            "CRITICAL: The subagent has finished its execution. Before replying to the user, you MUST use your `read`, `bash` (e.g., git status, git diff), or `grep` tools to verify the actual file changes. Do not blindly trust the agent's summary. Once verified, report your findings to the user."
+          ].join('\n')
+        }
+      ]
+    }),
+    'session session-42 • Updated the parser and added regression coverage.'
   )
 })
