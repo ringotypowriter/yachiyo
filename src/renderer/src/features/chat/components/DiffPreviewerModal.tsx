@@ -11,6 +11,8 @@ import type {
 interface DiffPreviewerModalProps {
   runId: string
   workspacePath: string
+  /** When false, revert buttons are hidden to prevent silently discarding later runs' edits. */
+  isLatestRun?: boolean
   onClose: () => void
 }
 
@@ -29,6 +31,7 @@ const statusColor: Record<FileChangeStatus, string> = {
 export function DiffPreviewerModal({
   runId,
   workspacePath,
+  isLatestRun = true,
   onClose
 }: DiffPreviewerModalProps): React.JSX.Element {
   const [changes, setChanges] = useState<FileChangeForReview[] | null>(null)
@@ -212,22 +215,24 @@ export function DiffPreviewerModal({
                   <span className="text-xs" style={{ color: theme.text.muted }}>
                     {selected.relativePath}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => handleRevertFile(selected.relativePath)}
-                    disabled={reverting}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-opacity hover:opacity-80"
-                    style={{
-                      color: theme.text.danger,
-                      background: alpha('danger', 0.08),
-                      border: 'none',
-                      cursor: reverting ? 'not-allowed' : 'pointer',
-                      opacity: reverting ? 0.5 : 1
-                    }}
-                  >
-                    <RotateCcw size={10} strokeWidth={2} />
-                    Revert
-                  </button>
+                  {isLatestRun ? (
+                    <button
+                      type="button"
+                      onClick={() => handleRevertFile(selected.relativePath)}
+                      disabled={reverting}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-opacity hover:opacity-80"
+                      style={{
+                        color: theme.text.danger,
+                        background: alpha('danger', 0.08),
+                        border: 'none',
+                        cursor: reverting ? 'not-allowed' : 'pointer',
+                        opacity: reverting ? 0.5 : 1
+                      }}
+                    >
+                      <RotateCcw size={10} strokeWidth={2} />
+                      Revert
+                    </button>
+                  ) : null}
                 </div>
                 <ToolCodeBlock
                   key={selected.relativePath}
@@ -252,7 +257,7 @@ export function DiffPreviewerModal({
           className="shrink-0 px-5 py-3 flex justify-end gap-2"
           style={{ borderTop: `1px solid ${theme.border.subtle}` }}
         >
-          {changes && changes.length > 0 ? (
+          {isLatestRun && changes && changes.length > 0 ? (
             <button
               onClick={handleRevertAll}
               disabled={reverting}

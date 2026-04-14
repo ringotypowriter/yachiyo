@@ -1087,8 +1087,16 @@ export function registerYachiyoGateway(): YachiyoServer {
     listSnapshotRuns(hashWorkspacePath(input.workspacePath))
   )
 
-  handle(IPC_CHANNELS.restoreToCheckpoint, (input: { runId: string; workspacePath: string }) =>
-    restoreToCheckpoint(input.workspacePath, input.runId)
+  handle(
+    IPC_CHANNELS.restoreToCheckpoint,
+    async (input: { runId: string; workspacePath: string }) => {
+      const destroyedRunIds = await restoreToCheckpoint(input.workspacePath, input.runId)
+      const storage = server!.getStorage()
+      for (const id of destroyedRunIds) {
+        storage.updateRunSnapshotFileCount(id, 0)
+      }
+      return destroyedRunIds
+    }
   )
 
   handle(IPC_CHANNELS.openFileInEditor, async (input: { path: string; editorApp: string }) => {

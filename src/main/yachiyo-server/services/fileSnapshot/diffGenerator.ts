@@ -43,9 +43,10 @@ function buildDeletedDiff(filePath: string, content: string): string {
 /**
  * Generate file-by-file diffs for a completed run.
  *
- * Compares each tracked file against the current workspace state so
- * reverted files disappear from the diff. Uses the stored backupHash
- * as the "before" side.
+ * For the latest run, compares each tracked file against the current workspace
+ * state so reverted files disappear from the diff. For historical runs, uses the
+ * stored `afterHash` from the snapshot so that later runs' edits are not
+ * attributed to this run.
  */
 export async function generateDiffForRun(
   workspacePath: string,
@@ -55,6 +56,14 @@ export async function generateDiffForRun(
   const snapshot = await loadSnapshotIndex(workspaceHash, runId)
   if (!snapshot) return []
 
+  // Determine whether this is the latest snapshot so we know whether to read
+  // the current workspace (live diffing) or the stored after-state (historical).
+  const allSnapshots = await listSnapshotRuns(workspaceHash)
+  const isLatest =
+    allSnapshots.length > 0 &&
+    allSnapshots.reduce((newest, s) => (s.createdAt > newest.createdAt ? s : newest)).runId ===
+      runId
+
   const changes: FileChangeForReview[] = []
 
   for (const entry of snapshot.entries) {
@@ -62,13 +71,20 @@ export async function generateDiffForRun(
       ? (await readBlob(workspaceHash, entry.backupHash)).toString('utf8')
       : null
 
-    // Always diff against the current workspace so reverted files disappear.
     let afterContent: string | null = null
-    const absolutePath = join(workspacePath, entry.relativePath)
-    try {
-      afterContent = await readFile(absolutePath, 'utf8')
-    } catch {
-      afterContent = null
+    if (isLatest) {
+      // Live diff: read current workspace so reverted files disappear.
+      const absolutePath = join(workspacePath, entry.relativePath)
+      try {
+        afterContent = await readFile(absolutePath, 'utf8')
+      } catch {
+        afterContent = null
+      }
+    } else {
+      // Historical diff: use the stored after-state from when the run completed.
+      afterContent = entry.afterHash
+        ? (await readBlob(workspaceHash, entry.afterHash)).toString('utf8')
+        : null
     }
 
     // If the file has been restored to its pre-run state, skip it.

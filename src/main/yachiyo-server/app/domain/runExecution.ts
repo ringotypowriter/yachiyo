@@ -2076,7 +2076,6 @@ export async function executeServerRun(
     }
   } catch (error) {
     clearSafeSteerTimer()
-    snapshotTracker?.dispose()
 
     // Reject any pending askUser promises so the tool execution unblocks
     for (const [id, pending] of pendingUserAnswers) {
@@ -2198,6 +2197,7 @@ export async function executeServerRun(
         }
 
         deps.storage.deleteRunRecoveryCheckpoint(input.runId)
+        snapshotTracker?.dispose()
         deps.emit<HarnessFinishedEvent>({
           type: 'harness.finished',
           threadId: input.thread.id,
@@ -2299,6 +2299,7 @@ export async function executeServerRun(
           // Best effort — don't fail the cancel path
         }
       }
+      snapshotTracker?.dispose()
 
       deps.onTerminalState?.()
       deps.emit<HarnessFinishedEvent>({
@@ -2443,6 +2444,7 @@ export async function executeServerRun(
         // Best effort — don't fail the failure path
       }
     }
+    snapshotTracker?.dispose()
 
     deps.onTerminalState?.()
     deps.emit<HarnessFinishedEvent>({
