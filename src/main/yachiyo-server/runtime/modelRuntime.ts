@@ -386,8 +386,11 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               } catch {
                 // Provider didn't expose a usable finishReason — not critical.
               }
-              const cacheRead = usage.inputTokenDetails?.cacheReadTokens
-              const cacheWrite = usage.inputTokenDetails?.cacheWriteTokens
+              const cacheRead =
+                total.inputTokenDetails?.cacheReadTokens ?? usage.inputTokenDetails?.cacheReadTokens
+              const cacheWrite =
+                total.inputTokenDetails?.cacheWriteTokens ??
+                usage.inputTokenDetails?.cacheWriteTokens
               console.info(
                 `${llmTag} usage provider=${provider} model=${model} promptTokens=${usage.inputTokens ?? '?'} completionTokens=${usage.outputTokens ?? '?'} totalPrompt=${total.inputTokens ?? '?'} totalCompletion=${total.outputTokens ?? '?'} cacheRead=${cacheRead ?? '-'} cacheWrite=${cacheWrite ?? '-'} finishReason=${finishReason ?? 'unknown'}`
               )
@@ -403,12 +406,8 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                   completionTokens: usage.outputTokens,
                   totalPromptTokens: total.inputTokens ?? usage.inputTokens,
                   totalCompletionTokens: total.outputTokens ?? usage.outputTokens,
-                  ...(usage.inputTokenDetails?.cacheReadTokens != null
-                    ? { cacheReadTokens: usage.inputTokenDetails.cacheReadTokens }
-                    : {}),
-                  ...(usage.inputTokenDetails?.cacheWriteTokens != null
-                    ? { cacheWriteTokens: usage.inputTokenDetails.cacheWriteTokens }
-                    : {}),
+                  ...(cacheRead != null ? { cacheReadTokens: cacheRead } : {}),
+                  ...(cacheWrite != null ? { cacheWriteTokens: cacheWrite } : {}),
                   ...(finishReason ? { finishReason } : {}),
                   ...(Array.isArray(responseMessages) && responseMessages.length > 0
                     ? { responseMessages }

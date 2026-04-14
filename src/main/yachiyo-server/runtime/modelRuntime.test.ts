@@ -857,6 +857,77 @@ test('createAiSdkModelRuntime forwards reasoning deltas from fullStream reasonin
   assert.deepEqual(chunks, ['answer'])
 })
 
+test('createAiSdkModelRuntime reports cache reads from totalUsage instead of final-step usage', async () => {
+  let finishedUsage:
+    | {
+        promptTokens: number
+        completionTokens: number
+        totalPromptTokens: number
+        totalCompletionTokens: number
+        cacheReadTokens?: number
+      }
+    | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => ({ modelId: 'gpt-5', provider: 'openai.responses' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: (() => ({
+      fullStream: (async function* () {
+        yield { type: 'text-delta', id: 'text-1', text: 'answer' }
+      })(),
+      usage: Promise.resolve({
+        inputTokens: 200,
+        outputTokens: 50,
+        inputTokenDetails: {
+          cacheReadTokens: 0
+        }
+      }),
+      totalUsage: Promise.resolve({
+        inputTokens: 1200,
+        outputTokens: 150,
+        inputTokenDetails: {
+          cacheReadTokens: 600
+        }
+      }),
+      finishReason: Promise.resolve('stop')
+    })) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Think carefully.' }],
+    settings: {
+      providerName: 'work',
+      provider: 'openai-responses',
+      model: 'gpt-5',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal,
+    onFinish: (usage) => {
+      finishedUsage = usage
+    }
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['answer'])
+  assert.deepEqual(finishedUsage, {
+    promptTokens: 200,
+    completionTokens: 50,
+    totalPromptTokens: 1200,
+    totalCompletionTokens: 150,
+    cacheReadTokens: 600,
+    finishReason: 'stop'
+  })
+})
+
 test('createAiSdkModelRuntime disables Anthropic thinking for auxiliary generation', async () => {
   let providerOptions:
     | {
