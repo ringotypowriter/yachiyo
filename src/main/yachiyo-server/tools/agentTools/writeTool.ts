@@ -30,7 +30,7 @@ function truncatePreview(content: string): string | undefined {
 
 export function createTool(context: AgentToolContext): Tool<WriteToolInput, WriteToolOutput> {
   return tool({
-    description: `Write a text file in the current thread workspace or at an absolute path. Relative paths resolve from ${context.workspacePath}. Parent directories are created automatically and existing files are overwritten.`,
+    description: `Write a text file in the current thread workspace or at an absolute path. Relative paths resolve from ${context.workspacePath}. Parent directories are created automatically and existing files are overwritten. When overwriting an existing file, you must read it first.`,
     inputSchema: writeToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) => runWriteTool(input, context, options)
@@ -65,6 +65,15 @@ export async function runWriteTool(
 
   try {
     const exists = await hasAccess(resolvedPath)
+
+    if (exists && context.readRecordCache && !context.readRecordCache.hasRecentRead(resolvedPath)) {
+      return createWriteResult(
+        resolvedPath,
+        { path: resolvedPath, bytesWritten: 0, created: false, overwritten: false },
+        'You must read the file with the read tool before overwriting it. Read the file first, then retry.'
+      )
+    }
+
     await mkdir(dirname(resolvedPath), { recursive: true })
     await writeFile(resolvedPath, input.content, { encoding: 'utf8', signal: abortSignal })
 

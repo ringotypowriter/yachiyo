@@ -107,6 +107,8 @@ function buildReadExcerpt(
   nextOffset?: number
   remainingLines?: number
   truncated: boolean
+  /** True when only a partial first line was returned (byte-truncated). */
+  byteTruncatedFirstLine: boolean
 } {
   const offset = input.offset ?? 0
   const limit = input.limit ?? DEFAULT_READ_LIMIT
@@ -115,7 +117,8 @@ function buildReadExcerpt(
     return {
       excerpt: '',
       endLine: offset,
-      truncated: false
+      truncated: false,
+      byteTruncatedFirstLine: false
     }
   }
 
@@ -158,7 +161,8 @@ function buildReadExcerpt(
         : offset + consumedLines,
     ...(truncated ? { nextOffset } : {}),
     ...(truncated ? { remainingLines } : {}),
-    truncated
+    truncated,
+    byteTruncatedFirstLine: returnedPartialFirstLine
   }
 }
 
@@ -344,6 +348,19 @@ export async function runReadTool(
         ? `\n\n[truncated: continue with offset ${excerpt.nextOffset}]`
         : ''
 
+    // Record the range for the read-before-modify guard.
+    if (context.readRecordCache) {
+      if (lines.length === 0) {
+        // Empty file — the model saw everything (nothing). Mark as read so
+        // the write-overwrite guard passes.
+        context.readRecordCache.recordEmptyFileRead(resolvedPath)
+      } else {
+        // When only a byte-truncated fragment of the first line was returned,
+        // exclude it — the model hasn't seen the full line content.
+        const guardEndLine = excerpt.byteTruncatedFirstLine ? details.endLine - 1 : details.endLine
+        context.readRecordCache.recordRead(resolvedPath, details.startLine, guardEndLine)
+      }
+    }
     return {
       content: textContent(`${excerpt.excerpt}${continuationHint}`),
       details,

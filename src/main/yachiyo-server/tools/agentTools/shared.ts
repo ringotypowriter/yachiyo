@@ -21,6 +21,7 @@ import type {
   WriteToolCallDetails
 } from '../../../../shared/yachiyo/protocol.ts'
 import { DEFAULT_WEB_READ_CONTENT_FORMAT } from '../../../../shared/yachiyo/protocol.ts'
+import type { ReadRecordCache } from './readRecordCache.ts'
 
 export const DEFAULT_READ_LIMIT = 200
 export const MAX_READ_LIMIT = 500
@@ -138,6 +139,8 @@ export interface AgentToolContext {
   workspacePath: string
   /** When true, file tools are sandboxed to the workspace — no absolute path escapes. */
   sandboxed?: boolean
+  /** Shared read-record cache for the read-before-edit/write guard. */
+  readRecordCache?: ReadRecordCache
   onBackgroundBashStarted?: (task: BackgroundBashTaskHandle) => Promise<void>
   /** Adopt a foreground bash child that exceeded its timeout, instead of killing it. */
   onBackgroundBashAdopted?: (task: BackgroundBashAdoptionHandle) => Promise<void>

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import test from 'node:test'
 
 import { runReadTool } from './readTool.ts'
+import { ReadRecordCache } from './readRecordCache.ts'
 
 async function withWorkspace(fn: (workspacePath: string) => Promise<void>): Promise<void> {
   const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-read-tool-'))
@@ -136,5 +137,57 @@ test('runReadTool resolves Unicode spaces in deeply nested paths', async () => {
     const textBlock = result.content.find((b) => b.type === 'text')
     assert.ok(textBlock?.type === 'text')
     assert.match(textBlock.text, /found it/)
+  })
+})
+
+test('runReadTool records an empty file as read so overwrite guard passes', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const filePath = join(workspacePath, 'empty.txt')
+    await writeFile(filePath, '', 'utf8')
+
+    const cache = new ReadRecordCache()
+    await runReadTool({ path: filePath }, { workspacePath, readRecordCache: cache })
+
+    assert.equal(cache.hasRecentRead(filePath), true, 'empty file read should create a record')
+  })
+})
+
+test('runReadTool does not record a read when offset is past EOF', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const filePath = join(workspacePath, 'short.txt')
+    await writeFile(filePath, 'line1\nline2', 'utf8')
+
+    const cache = new ReadRecordCache()
+    await runReadTool({ path: filePath, offset: 999 }, { workspacePath, readRecordCache: cache })
+
+    assert.equal(
+      cache.hasRecentRead(filePath),
+      false,
+      'empty past-EOF read should not create a record'
+    )
+  })
+})
+
+test('runReadTool does not record a byte-truncated partial first line as read', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const filePath = join(workspacePath, 'huge-line.txt')
+    // Create a single line longer than the 16 KB byte limit
+    const hugeLine = 'x'.repeat(20_000)
+    await writeFile(filePath, hugeLine, 'utf8')
+
+    const cache = new ReadRecordCache()
+    const result = await runReadTool({ path: filePath }, { workspacePath, readRecordCache: cache })
+
+    // The read should succeed with truncated content
+    assert.equal(result.error, undefined)
+    assert.equal(result.details.truncated, true)
+
+    // But the cache should NOT record line 1 as read — only a fragment was returned
+    assert.equal(
+      cache.hasRecentRead(filePath),
+      false,
+      'byte-truncated partial line should not authorize edits'
+    )
+    assert.equal(cache.coversLine(filePath, 1), false)
   })
 })

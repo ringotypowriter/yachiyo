@@ -45,6 +45,7 @@ import {
   type WebSearchToolOutput,
   type WriteToolOutput
 } from './agentTools/shared.ts'
+import { ReadRecordCache } from './agentTools/readRecordCache.ts'
 import { createTool as createWebReadTool } from './agentTools/webReadTool.ts'
 import { createTool as createWebSearchTool } from './agentTools/webSearchTool.ts'
 import { createTool as createWriteTool } from './agentTools/writeTool.ts'
@@ -78,6 +79,7 @@ export type {
   WebSearchToolOutput,
   WriteToolOutput
 } from './agentTools/shared.ts'
+export { ReadRecordCache } from './agentTools/readRecordCache.ts'
 
 export { createAskUserTool, type AskUserToolContext } from './agentTools/askUserTool.ts'
 
@@ -441,6 +443,11 @@ export function createAgentToolSet(
   context: AgentToolContext,
   dependencies: AgentToolDependencies = {}
 ): ToolSet | undefined {
+  // Inject a shared read-record cache if not already provided.
+  if (!context.readRecordCache) {
+    context.readRecordCache = new ReadRecordCache()
+  }
+
   const enabledTools = new Set(
     normalizeEnabledTools(context.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
   )
