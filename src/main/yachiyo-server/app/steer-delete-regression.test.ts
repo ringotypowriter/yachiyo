@@ -101,6 +101,110 @@ async function withServer(
   }
 }
 
+test('cancelling a run with a pending steer persists the steer and restarts the run', async () => {
+  let toolStarted: (() => void) | null = null
+  const toolStartedPromise = new Promise<void>((resolve) => {
+    toolStarted = resolve
+  })
+
+  await withServer(
+    async ({ server, completeRun, bootstrap }) => {
+      await server.upsertProvider({
+        name: 'default',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: { enabled: ['gpt-5'], disabled: [] }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Run a slow command'
+      })
+
+      // Wait until the tool call has started so the steer becomes pending
+      await toolStartedPromise
+
+      // Send a steer while tool is running — this queues as pendingSteerInput
+      const steerResult = await server.sendChat({
+        threadId: thread.id,
+        content: 'Actually do something else',
+        mode: 'steer'
+      })
+      assert.equal(steerResult.kind, 'active-run-steer-pending')
+
+      // Now the user cancels the run while the steer is still pending
+      await server.cancelRun({ runId: accepted.runId })
+      await completeRun(accepted.runId)
+
+      const bootstrapResult = await bootstrap()
+      const messages = bootstrapResult.messagesByThread[thread.id] ?? []
+
+      // The steer message should have been persisted, not dropped
+      const steerMessage = messages.find(
+        (m) => m.role === 'user' && m.content === 'Actually do something else'
+      )
+      assert.ok(steerMessage, 'pending steer message should be persisted when run is cancelled')
+
+      // The run should have restarted and produced a response to the steer
+      const finalAssistant = messages.find(
+        (m) => m.role === 'assistant' && m.status === 'completed'
+      )
+      assert.ok(finalAssistant, 'run should restart and complete with the steer message')
+    },
+    {
+      createModelRuntime: (() => {
+        let attempt = 0
+        return () => ({
+          async *streamReply(request: ModelStreamRequest) {
+            if (attempt === 0) {
+              attempt += 1
+              yield 'Running command...'
+
+              // Simulate a long-running tool call
+              request.onToolCallStart?.({
+                abortSignal: request.signal,
+                experimental_context: undefined,
+                functionId: undefined,
+                messages: request.messages,
+                metadata: undefined,
+                model: undefined,
+                stepNumber: 0,
+                toolCall: {
+                  input: { command: 'sleep 60' },
+                  toolCallId: 'tool-bash-slow',
+                  toolName: 'bash'
+                }
+              } as never)
+
+              toolStarted?.()
+
+              // Block until aborted (simulates long-running tool)
+              await new Promise<void>((_, reject) => {
+                const abort = (): void => {
+                  const error = new Error('Aborted')
+                  error.name = 'AbortError'
+                  reject(error)
+                }
+                if (request.signal.aborted) {
+                  abort()
+                  return
+                }
+                request.signal.addEventListener('abort', abort, { once: true })
+              })
+              return
+            }
+
+            // Second attempt: respond to the steer
+            yield 'OK, doing something else instead.'
+          }
+        })
+      })()
+    }
+  )
+})
+
 test('deleting the final reply after steer keeps earlier tool calls bound to the stopped assistant', async () => {
   let attempt = 0
   let markFirstAttemptAtAbortWait: (() => void) | null = null

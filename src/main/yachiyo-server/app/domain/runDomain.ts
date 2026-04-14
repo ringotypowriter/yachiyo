@@ -873,6 +873,31 @@ export class YachiyoServerRunDomain {
   cancelRun(input: { runId: string }): void {
     const activeRun = this.activeRuns.get(input.runId)
     if (activeRun) {
+      // If there's a pending steer waiting for a safe point, persist it now
+      // and convert the cancellation into a steer-restart so the user's
+      // message is not silently dropped.
+      if (activeRun.pendingSteerInput) {
+        const currentThread = this.deps.requireThread(activeRun.threadId)
+        const { userMessage } = this.persistSteerMessage({
+          content: activeRun.pendingSteerInput.content,
+          images: activeRun.pendingSteerInput.images,
+          attachments: activeRun.pendingSteerInput.attachments,
+          messageId: activeRun.pendingSteerInput.messageId,
+          runId: input.runId,
+          runState: activeRun,
+          thread: currentThread,
+          timestamp: activeRun.pendingSteerInput.timestamp,
+          hidden: activeRun.pendingSteerInput.hidden
+        })
+
+        this.emitThreadStateReplaced(activeRun.threadId)
+
+        activeRun.pendingSteerInput = undefined
+        activeRun.pendingSteerMessageId = userMessage.id
+        activeRun.abortController.abort(toRestartRunReason(userMessage.id))
+        return
+      }
+
       activeRun.abortController.abort()
       return
     }
