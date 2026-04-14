@@ -235,4 +235,52 @@ test('SnapshotTracker', async (t) => {
 
     tracker.dispose()
   })
+
+  await t.test('scanWorkspace detects new files outside workspace', async () => {
+    const externalFile = join(tempDir, 'external-new.txt')
+
+    const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+    tracker.dispose() // stop baseline to isolate the test
+
+    // Pre-backup the external path (as bashTool would do)
+    await tracker.trackBeforeWrite(externalFile)
+
+    // Create the file after tracking
+    await writeFile(externalFile, 'external content')
+
+    await tracker.scanWorkspace()
+    const snapshot = await tracker.finalize()
+
+    assert.ok(
+      snapshot.entries.some((e) => e.relativePath.endsWith('external-new.txt')),
+      'external new file should be in snapshot'
+    )
+  })
+
+  await t.test('scanWorkspace detects modified files outside workspace', async () => {
+    const externalDir = join(tempDir, 'external-dir')
+    await mkdir(externalDir, { recursive: true })
+    const externalFile = join(externalDir, 'existing.txt')
+    await writeFile(externalFile, 'original')
+
+    const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+    tracker.dispose() // stop baseline to isolate the test
+
+    // Small delay to ensure mtime changes
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Pre-backup the external path
+    await tracker.trackBeforeWrite(externalFile)
+
+    // Modify the file after tracking
+    await writeFile(externalFile, 'modified')
+
+    await tracker.scanWorkspace()
+    const snapshot = await tracker.finalize()
+
+    assert.ok(
+      snapshot.entries.some((e) => e.relativePath.endsWith('existing.txt')),
+      'external modified file should be in snapshot'
+    )
+  })
 })

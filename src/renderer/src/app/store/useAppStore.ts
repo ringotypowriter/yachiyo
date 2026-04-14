@@ -213,7 +213,10 @@ interface AppState {
   threadListMode: 'active' | 'archived'
   toolCalls: Record<string, ToolCall[]>
   /** Snapshot review info per run, set by snapshot.ready events. */
-  snapshotReviewByRun: Record<string, { threadId: string; fileCount: number }>
+  snapshotReviewByRun: Record<
+    string,
+    { threadId: string; fileCount: number; workspacePath: string }
+  >
   clearSnapshotReview: (runId: string) => void
 
   applyServerEvent: (event: YachiyoServerEvent) => void
@@ -1460,7 +1463,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       set((state) => ({
         snapshotReviewByRun: {
           ...state.snapshotReviewByRun,
-          [event.runId]: { threadId: event.threadId, fileCount: event.fileCount }
+          [event.runId]: {
+            threadId: event.threadId,
+            fileCount: event.fileCount,
+            workspacePath: event.workspacePath
+          }
         },
         runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
           ...run!,

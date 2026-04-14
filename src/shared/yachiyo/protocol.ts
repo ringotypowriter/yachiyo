@@ -1118,6 +1118,7 @@ export interface UsageStatsResponse {
 }
 
 export interface ChatAcceptedWithUserMessage {
+  /** @deprecated 'active-run-steer' is no longer produced — steers are always pending until the turn boundary. */
   kind: 'run-started' | 'active-run-steer' | 'active-run-follow-up'
   thread: ThreadRecord
   userMessage: MessageRecord
@@ -1405,6 +1406,7 @@ export interface RunCancelledEvent extends RunEvent {
 export interface SnapshotReadyEvent extends RunEvent {
   type: 'snapshot.ready'
   fileCount: number
+  workspacePath: string
 }
 
 export interface MessageStartedEvent extends RunEvent {

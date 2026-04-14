@@ -303,10 +303,12 @@ export function RunInspectionPanel({ threadId }: RunInspectionPanelProps): React
       </div>
 
       {/* Diff preview modal */}
-      {viewingSnapshotRunId && thread?.workspacePath ? (
+      {viewingSnapshotRunId ? (
         <DiffPreviewerModal
           runId={viewingSnapshotRunId}
-          workspacePath={thread.workspacePath}
+          workspacePath={
+            snapshotReviewByRun[viewingSnapshotRunId]?.workspacePath ?? thread?.workspacePath ?? ''
+          }
           isLatestRun={viewingSnapshotRunId === latestRunId}
           onClose={() => setViewingSnapshotRunId(null)}
         />

@@ -1,5 +1,6 @@
 import { access, readFile, stat } from 'node:fs/promises'
-import { relative, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { dirname, relative, resolve } from 'node:path'
 
 import type {
   FileSnapshotEntry,
@@ -186,6 +187,7 @@ export class SnapshotTracker {
   async scanWorkspace(): Promise<void> {
     await this.baselineReady
 
+    // Scan the workspace
     try {
       const files = await globFiles(this.workspacePath, SCAN_DEPTH, SCAN_IGNORE)
 
@@ -205,6 +207,47 @@ export class SnapshotTracker {
     } catch (err) {
       console.error('[snapshot] Post-run scan failed:', err)
     }
+
+    // Scan external directories for out-of-workspace files that were missed
+    // by the Layer 1/2 pre-backup heuristics.
+    const externalDirs = this.collectExternalDirs()
+    for (const dir of externalDirs) {
+      try {
+        const files = await globFiles(dir, 2, SCAN_IGNORE)
+        for (const file of files) {
+          if (this.trackedFiles.has(file)) continue
+
+          try {
+            const fileStat = await stat(file)
+            if (fileStat.mtimeMs >= this.runStartTime) {
+              this.trackedFiles.set(file, null)
+            }
+          } catch {
+            // Skip files we can't stat
+          }
+        }
+      } catch (err) {
+        console.error(`[snapshot] External scan failed for ${dir}:`, err)
+      }
+    }
+  }
+
+  /** Collect unique parent directories of tracked out-of-workspace files. */
+  private collectExternalDirs(): string[] {
+    const dirs = new Set<string>()
+    const forbiddenRoots = new Set([resolve('/'), resolve(homedir())])
+
+    for (const absolutePath of this.trackedFiles.keys()) {
+      const rel = relative(this.workspacePath, absolutePath)
+      if (rel.startsWith('..') || rel === absolutePath) {
+        const dir = dirname(absolutePath)
+        if (!forbiddenRoots.has(resolve(dir))) {
+          dirs.add(dir)
+        }
+      }
+    }
+
+    return [...dirs]
   }
 
   /** Persist the snapshot index to disk. Returns the snapshot data. */

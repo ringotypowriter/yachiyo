@@ -32,6 +32,7 @@ export function RunStatsFooter({
   const [showDiffModal, setShowDiffModal] = useState(false)
 
   const threads = useAppStore((s) => s.threads)
+  const externalThreads = useAppStore((s) => s.externalThreads)
   const latestRunsByThread = useAppStore((s) => s.latestRunsByThread)
   // Also check the ephemeral event store for runs that just completed
   // (before the RunRecord is refreshed from the database).
@@ -44,15 +45,17 @@ export function RunStatsFooter({
     const elapsedMs = new Date(run.completedAt).getTime() - new Date(run.createdAt).getTime()
     // Prefer persisted snapshotFileCount, fall back to ephemeral event
     const fileCount = run.snapshotFileCount ?? snapshotReviewByRun[run.id]?.fileCount ?? 0
-    const thread = threads.find((t) => t.id === run.threadId)
+    const thread =
+      threads.find((t) => t.id === run.threadId) ??
+      externalThreads.find((t) => t.id === run.threadId)
     return {
       elapsedMs,
       runId: run.id,
       threadId: run.threadId,
       fileCount,
-      workspacePath: thread?.workspacePath
+      workspacePath: snapshotReviewByRun[run.id]?.workspacePath ?? thread?.workspacePath ?? ''
     }
-  }, [runs, requestMessageId, snapshotReviewByRun, threads])
+  }, [runs, requestMessageId, snapshotReviewByRun, threads, externalThreads])
 
   const handleOpenDiff = useCallback(() => {
     setShowDiffModal(true)
@@ -112,7 +115,7 @@ export function RunStatsFooter({
           </button>
         ) : null}
       </div>
-      {showDiffModal && runInfo.workspacePath ? (
+      {showDiffModal ? (
         <DiffPreviewerModal
           runId={runInfo.runId}
           workspacePath={runInfo.workspacePath}
