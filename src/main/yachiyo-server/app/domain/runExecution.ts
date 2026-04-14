@@ -608,7 +608,7 @@ function buildAgentInstructions(input: {
 
   // Anti-Hallucination
   instructions.push(
-    'Never invent file contents, API shapes, configuration keys, or project structures. If you are uncertain about any of these, use tools to discover the ground truth before proceeding.'
+    'Never invent file contents, API shapes, configuration keys, or project structures. Before making any factual claim about the current workspace, read or search the relevant files first. Do not rely on training data or memory in place of reading actual files. If you are uncertain about any of these, use tools to discover the ground truth before proceeding.'
   )
 
   // Response Discipline
