@@ -571,11 +571,17 @@ test('buildConversationGroupTimelineItems does not group same-group tool calls s
     ]
   })
 
+  // tool-1 is separated from tool-2/tool-3 by the text block, but
+  // tool-2 and tool-3 are consecutive same-group (read-files) → grouped.
   assert.deepEqual(items, [
     { kind: 'tool-call', key: 'tool-1', toolCallId: 'tool-1' },
     { kind: 'assistant-text-block', key: 'text-1', textBlockId: 'text-1' },
-    { kind: 'tool-call', key: 'tool-2', toolCallId: 'tool-2' },
-    { kind: 'tool-call', key: 'tool-3', toolCallId: 'tool-3' }
+    {
+      kind: 'tool-call-group',
+      key: 'tool-group:tool-2',
+      group: 'read-files',
+      toolCallIds: ['tool-2', 'tool-3']
+    }
   ])
 })
 
@@ -774,9 +780,15 @@ test('buildConversationGroupTimelineItems keeps bash run commands separate from 
     ]
   })
 
+  // grep (search) breaks from npm/cargo (run), but the two run-commands
+  // are consecutive same-group → grouped together.
   assert.deepEqual(items, [
     { kind: 'tool-call', key: 'tool-1', toolCallId: 'tool-1' },
-    { kind: 'tool-call', key: 'tool-2', toolCallId: 'tool-2' },
-    { kind: 'tool-call', key: 'tool-3', toolCallId: 'tool-3' }
+    {
+      kind: 'tool-call-group',
+      key: 'tool-group:tool-2',
+      group: 'run-commands',
+      toolCallIds: ['tool-2', 'tool-3']
+    }
   ])
 })

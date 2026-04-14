@@ -249,3 +249,30 @@ test('resolveBashSemanticGroup: git add', () => {
 test('resolveBashSemanticGroup: git commit', () => {
   assert.equal(resolveBashSemanticGroup('git commit -m "msg"'), 'run-commands')
 })
+
+// ------------------------------------------------------------------
+// /dev/null redirects should not misclassify as write-files
+// ------------------------------------------------------------------
+
+test('resolveBashSemanticGroup: find with 2>/dev/null stays search', () => {
+  assert.equal(
+    resolveBashSemanticGroup('find /opt/apps/Example -maxdepth 3 -type d 2>/dev/null | head -1'),
+    'search-files'
+  )
+})
+
+test('resolveBashSemanticGroup: find with stderr suppression and no pipe stays search', () => {
+  assert.equal(resolveBashSemanticGroup("find . -name '*.ts' -type f 2>/dev/null"), 'search-files')
+})
+
+test('resolveBashSemanticGroup: grep with >/dev/null is search (stdout suppression)', () => {
+  assert.equal(resolveBashSemanticGroup('grep -r foo . > /dev/null'), 'search-files')
+})
+
+test('resolveBashSemanticGroup: cat with > real-file is still write', () => {
+  assert.equal(resolveBashSemanticGroup('cat file.ts > copy.ts'), 'write-files')
+})
+
+test('resolveBashSemanticGroup: echo > /dev/null is run-commands', () => {
+  assert.equal(resolveBashSemanticGroup('echo hello > /dev/null'), 'run-commands')
+})

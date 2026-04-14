@@ -178,6 +178,10 @@ function splitPipeline(tokens: string[]): string[][] {
 // Stage parsing (redirects, command name, args)
 // ------------------------------------------------------------------
 
+function isNullRedirect(target: string | undefined): boolean {
+  return target === '/dev/null'
+}
+
 function parseStage(tokens: string[]): ParsedStage {
   const args: string[] = []
   let hasOutputRedirect = false
@@ -197,14 +201,28 @@ function parseStage(tokens: string[]): ParsedStage {
     }
 
     // Output redirects: >, >>, 2>, 1>, &>, etc.
+    // preprocessOperators splits `2>/dev/null` into `2`, `>`, `/dev/null`,
+    // so check if the previous arg is an fd number and pop it from args.
     if (t === '>' || t === '>>') {
-      hasOutputRedirect = true
+      const target = i + 1 < tokens.length ? tokens[i + 1] : undefined
+      // Pop trailing fd number from args (e.g. `2` from `2>/dev/null`)
+      const prevArg = args.at(-1)
+      if (prevArg && /^\d$/.test(prevArg)) {
+        args.pop()
+      }
+      // Redirects to /dev/null are noise suppression, not file writes
+      if (!isNullRedirect(target)) {
+        hasOutputRedirect = true
+      }
       i++
       if (i < tokens.length) i++ // skip filename
       continue
     }
     if (/^\d*>$/.test(t) || /^\d*>>$/.test(t) || /^&>$/.test(t)) {
-      hasOutputRedirect = true
+      const target = i + 1 < tokens.length ? tokens[i + 1] : undefined
+      if (!isNullRedirect(target)) {
+        hasOutputRedirect = true
+      }
       i++
       if (i < tokens.length) i++
       continue
