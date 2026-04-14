@@ -40,6 +40,7 @@ export function normalizeGeneralConfig(value: unknown): GeneralConfig {
       input['sidebarVisibility'],
       DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility
     ),
+    sidebarPreview: normalizeOptionalBool(input['sidebarPreview'], true),
     demoMode: normalizeOptionalBool(input['demoMode'], false),
     notifyRunCompleted: normalizeOptionalBool(input['notifyRunCompleted'], true),
     notifyCodingTaskStarted: normalizeOptionalBool(input['notifyCodingTaskStarted'], true),

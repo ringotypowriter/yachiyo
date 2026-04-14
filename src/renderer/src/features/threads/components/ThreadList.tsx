@@ -95,6 +95,7 @@ function ThreadListItem({
   onSetIcon,
   onStar,
   onToggleSelect,
+  showPreview,
   thread,
   threadListMode
 }: {
@@ -110,6 +111,7 @@ function ThreadListItem({
   onSetIcon: (thread: Thread, icon: string | null) => void
   onStar: (thread: Thread) => void
   onToggleSelect: (threadId: string) => void
+  showPreview: boolean
   thread: Thread
   threadListMode: 'active' | 'archived'
 }): React.JSX.Element {
@@ -209,7 +211,7 @@ function ThreadListItem({
       >
         <button
           onClick={handleClick}
-          className="relative w-full text-left px-3 py-2.5 rounded-lg transition-colors no-drag"
+          className={`relative w-full text-left px-3 ${showPreview ? 'py-2.5' : 'py-2'} rounded-lg transition-colors no-drag`}
           style={{
             background: isHighlighted ? theme.background.code : 'transparent'
           }}
@@ -222,7 +224,7 @@ function ThreadListItem({
             if (!isHighlighted) (e.currentTarget as HTMLElement).style.background = 'transparent'
           }}
         >
-          <div className="flex items-stretch gap-2 pr-4">
+          <div className={`flex ${showPreview ? 'items-stretch' : 'items-center'} gap-2 pr-4`}>
             {isSelectMode ? (
               <span
                 className="shrink-0 flex items-center"
@@ -244,7 +246,7 @@ function ThreadListItem({
             ) : thread.icon ? (
               <span
                 className="relative shrink-0 flex items-center cursor-pointer select-none leading-none"
-                style={{ fontSize: '1.45em' }}
+                style={{ fontSize: showPreview ? '1.45em' : '1.15em' }}
                 title="Click to change icon"
               >
                 {thread.icon}
@@ -261,11 +263,31 @@ function ThreadListItem({
                   style={{ fontSize: 'inherit', width: '100%', height: '100%' }}
                 />
               </span>
+            ) : !showPreview ? (
+              <span
+                className="shrink-0 flex items-center justify-center"
+                style={{ width: 16, height: 16 }}
+              >
+                <span
+                  className="rounded-full"
+                  style={{
+                    width: 5,
+                    height: 5,
+                    background: isHighlighted ? theme.text.secondary : theme.text.muted
+                  }}
+                />
+              </span>
             ) : null}
             <div className="min-w-0 flex-1">
               <span
-                className="flex items-center gap-1.5 text-sm font-medium"
-                style={{ color: isHighlighted ? theme.text.primary : theme.text.secondary }}
+                className={`flex items-center gap-1.5 text-sm ${showPreview ? 'font-medium' : 'font-normal'}`}
+                style={{
+                  color: isHighlighted
+                    ? theme.text.primary
+                    : showPreview
+                      ? theme.text.secondary
+                      : theme.text.primary
+                }}
               >
                 {renamingTitle ? (
                   <input
@@ -288,15 +310,17 @@ function ThreadListItem({
                   <span className="min-w-0 flex-1 truncate">{displayedTitle}</span>
                 )}
               </span>
-              <span
-                className="mt-0.5 block truncate"
-                style={{
-                  fontSize: '0.68rem',
-                  color: isHighlighted ? theme.text.secondary : theme.text.muted
-                }}
-              >
-                {preview}
-              </span>
+              {showPreview && (
+                <span
+                  className="mt-0.5 block truncate"
+                  style={{
+                    fontSize: '0.68rem',
+                    color: isHighlighted ? theme.text.secondary : theme.text.muted
+                  }}
+                >
+                  {preview}
+                </span>
+              )}
             </div>
           </div>
           {isSaving ? (
@@ -819,6 +843,7 @@ function ThreadListContent({
   const [archiveTarget, setArchiveTarget] = useState<Thread | null>(null)
   const [bulkArchiveIds, setBulkArchiveIds] = useState<string[] | null>(null)
   const runStatusesByThread = useAppStore((s) => s.runStatusesByThread)
+  const showPreview = useAppStore((s) => s.config?.general?.sidebarPreview) !== false
 
   function exitSelectMode(): void {
     setSelectMode(false)
@@ -1024,6 +1049,7 @@ function ThreadListContent({
         isSelectMode={selectMode}
         isSelected={selectedIds.has(thread.id)}
         isStarred={!!thread.starredAt}
+        showPreview={showPreview}
         threadListMode={threadListMode}
         onRename={(targetThread, nextTitle) => void handleRename(targetThread, nextTitle)}
         onSelectOperation={(targetThread, operationKey) =>

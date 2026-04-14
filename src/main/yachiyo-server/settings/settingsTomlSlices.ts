@@ -35,6 +35,7 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
         general: {
           sidebarVisibility:
             config.general?.sidebarVisibility ?? DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility,
+          sidebarPreview: config.general?.sidebarPreview !== false,
           demoMode: config.general?.demoMode === true,
           notifyRunCompleted: config.general?.notifyRunCompleted !== false,
           notifyCodingTaskStarted: config.general?.notifyCodingTaskStarted !== false,

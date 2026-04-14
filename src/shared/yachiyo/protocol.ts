@@ -640,6 +640,7 @@ export type UpdateChannel = 'stable' | 'beta'
 
 export interface GeneralConfig {
   sidebarVisibility?: SidebarVisibility
+  sidebarPreview?: boolean
   uiFontSize?: number
   chatFontSize?: number
   updateChannel?: UpdateChannel

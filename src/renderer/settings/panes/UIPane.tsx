@@ -1,7 +1,8 @@
 import { useState } from 'react'
+import { DEFAULT_SIDEBAR_VISIBILITY } from '../../../shared/yachiyo/protocol.ts'
 import type { SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
 import { theme, alpha } from '@renderer/theme/theme'
-import { SettingLabel, SettingRow, SettingSection } from '../components/primitives'
+import { SettingLabel, SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
 import {
   DEFAULT_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
@@ -144,6 +145,36 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Show sidebar on launch
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              Off starts focused on the conversation.
+            </div>
+          </div>
+
+          <div className="shrink-0">
+            <SettingSwitch
+              checked={
+                (draft.general?.sidebarVisibility ?? DEFAULT_SIDEBAR_VISIBILITY) === 'expanded'
+              }
+              onChange={() => {
+                const current = draft.general?.sidebarVisibility ?? DEFAULT_SIDEBAR_VISIBILITY
+                onChange({
+                  ...draft,
+                  general: {
+                    ...draft.general,
+                    sidebarVisibility: current === 'expanded' ? 'collapsed' : 'expanded'
+                  }
+                })
+              }}
+              ariaLabel="Toggle sidebar visibility on launch"
+            />
+          </div>
+        </SettingRow>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
               Sidebar width
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
@@ -206,6 +237,33 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
             >
               {sidebarWidth}px
             </span>
+          </div>
+        </SettingRow>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Show message preview
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              Shows a preview line under each thread in the sidebar.
+            </div>
+          </div>
+
+          <div className="shrink-0">
+            <SettingSwitch
+              checked={draft.general?.sidebarPreview !== false}
+              onChange={() =>
+                onChange({
+                  ...draft,
+                  general: {
+                    ...draft.general,
+                    sidebarPreview: draft.general?.sidebarPreview === false
+                  }
+                })
+              }
+              ariaLabel="Toggle message preview in sidebar"
+            />
           </div>
         </SettingRow>
       </SettingSection>

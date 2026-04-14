@@ -9,7 +9,16 @@ import {
   DEFAULT_ENABLED_TOOL_NAMES,
   DEFAULT_TOOL_MODEL_MODE,
   DEFAULT_SIDEBAR_VISIBILITY,
-  normalizeUserPrompts
+  normalizeUserPrompts,
+  type BrowserBackedWebSearchSessionConfig,
+  type ChatConfig,
+  type ExaWebSearchConfig,
+  type GeneralConfig,
+  type MemoryConfig,
+  type SkillsConfig,
+  type ToolModelConfig,
+  type WebSearchConfig,
+  type WorkspaceConfig
 } from '../../../shared/yachiyo/protocol.ts'
 import {
   DEFAULT_SETTINGS_CONFIG,
@@ -32,6 +41,7 @@ test('settings store persists multi-provider config as TOML', async () => {
       enabledTools: ['read', 'bash'],
       general: {
         sidebarVisibility: 'collapsed',
+        sidebarPreview: true,
         demoMode: true,
         notifyRunCompleted: true,
         notifyCodingTaskStarted: true,
@@ -822,6 +832,7 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
     demoMode: false,
     notifyRunCompleted: true,
     notifyCodingTaskStarted: true,
+    sidebarPreview: true,
     notifyCodingTaskFinished: true,
     translatorShortcut: 'CommandOrControl+Shift+T',
     jotdownShortcut: 'CommandOrControl+Shift+J'
@@ -836,6 +847,7 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
     }).general,
     {
       sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
+      sidebarPreview: true,
       demoMode: false,
       notifyRunCompleted: true,
       notifyCodingTaskStarted: true,
@@ -1205,4 +1217,138 @@ env = {}
   assert.equal(profile.showInChatPicker, undefined, 'showInChatPicker absent when not specified')
   assert.equal(profile.allowDirectChat, undefined, 'allowDirectChat absent when not specified')
   assert.equal(profile.allowDelegation, undefined, 'allowDelegation absent when not specified')
+})
+
+// ---------------------------------------------------------------------------
+// Guard: every key in protocol config interfaces must survive normalization.
+// If you add a field to a config interface and forget to handle it in the
+// normalizer, these tests catch the omission at CI time.
+//
+// Each sentinel uses Required<T> so TypeScript forces you to add new keys
+// here, and the runtime assertion catches whether the normalizer preserves
+// them. Two layers of protection.
+// ---------------------------------------------------------------------------
+
+function assertKeysPreserved(
+  actual: object | undefined,
+  sentinel: object,
+  configName: string
+): void {
+  const outputKeys = new Set(Object.keys(actual ?? {}))
+  for (const key of Object.keys(sentinel)) {
+    assert.ok(
+      outputKeys.has(key),
+      `${configName} key "${key}" was stripped by normalization — ` +
+        `add it to normalize${configName} in the settings normalization layer`
+    )
+  }
+}
+
+test('normalization preserves every GeneralConfig key', () => {
+  const sentinel: Required<GeneralConfig> = {
+    sidebarVisibility: 'collapsed',
+    sidebarPreview: false,
+    uiFontSize: 16,
+    chatFontSize: 18,
+    updateChannel: 'beta',
+    demoMode: true,
+    notifyRunCompleted: false,
+    notifyCodingTaskStarted: false,
+    notifyCodingTaskFinished: false,
+    translatorShortcut: 'Alt+T',
+    jotdownShortcut: 'Alt+J'
+  }
+  const result = normalizeSettingsConfig({ providers: [], general: sentinel })
+  assertKeysPreserved(result.general, sentinel, 'GeneralConfig')
+})
+
+test('normalization preserves every ChatConfig key', () => {
+  const sentinel: Required<ChatConfig> = {
+    activeRunEnterBehavior: 'enter-queues-follow-up',
+    stripCompact: false,
+    autoMemoryDistillation: false
+  }
+  const result = normalizeSettingsConfig({ providers: [], chat: sentinel })
+  assertKeysPreserved(result.chat, sentinel, 'ChatConfig')
+})
+
+test('normalization preserves every WorkspaceConfig key', () => {
+  const sentinel: Required<WorkspaceConfig> = {
+    savedPaths: ['/tmp/test'],
+    pathLabels: { '/tmp/test': 'Test' },
+    editorApp: 'zed',
+    terminalApp: 'wezterm'
+  }
+  const result = normalizeSettingsConfig({ providers: [], workspace: sentinel })
+  assertKeysPreserved(result.workspace, sentinel, 'WorkspaceConfig')
+})
+
+test('normalization preserves every SkillsConfig key', () => {
+  const sentinel: Required<SkillsConfig> = {
+    enabled: ['skill-a'],
+    disabled: ['skill-b']
+  }
+  const result = normalizeSettingsConfig({ providers: [], skills: sentinel })
+  assertKeysPreserved(result.skills, sentinel, 'SkillsConfig')
+})
+
+test('normalization preserves every MemoryConfig key', () => {
+  const sentinel: Required<MemoryConfig> = {
+    enabled: true,
+    provider: 'builtin-memory',
+    baseUrl: 'http://localhost:9999'
+  }
+  const result = normalizeSettingsConfig({ providers: [], memory: sentinel })
+  assertKeysPreserved(result.memory, sentinel, 'MemoryConfig')
+})
+
+test('normalization preserves every ToolModelConfig key', () => {
+  const sentinel: Required<ToolModelConfig> = {
+    mode: 'custom',
+    providerId: 'p1',
+    providerName: 'Provider',
+    model: 'gpt-5'
+  }
+  const result = normalizeSettingsConfig({ providers: [], toolModel: sentinel })
+  assertKeysPreserved(result.toolModel, sentinel, 'ToolModelConfig')
+})
+
+test('normalization preserves every WebSearchConfig key', () => {
+  const sentinel: Required<WebSearchConfig> = {
+    defaultProvider: 'exa',
+    browserSession: { sourceBrowser: 'google-chrome' },
+    exa: { apiKey: 'key' }
+  }
+  const result = normalizeSettingsConfig({ providers: [], webSearch: sentinel })
+  assertKeysPreserved(result.webSearch, sentinel, 'WebSearchConfig')
+})
+
+test('normalization preserves every BrowserBackedWebSearchSessionConfig key', () => {
+  const sentinel: Required<BrowserBackedWebSearchSessionConfig> = {
+    sourceBrowser: 'google-chrome',
+    sourceProfileName: 'Default',
+    importedAt: '2025-01-01',
+    lastImportError: 'none'
+  }
+  const result = normalizeSettingsConfig({
+    providers: [],
+    webSearch: { browserSession: sentinel }
+  })
+  assertKeysPreserved(
+    result.webSearch?.browserSession,
+    sentinel,
+    'BrowserBackedWebSearchSessionConfig'
+  )
+})
+
+test('normalization preserves every ExaWebSearchConfig key', () => {
+  const sentinel: Required<ExaWebSearchConfig> = {
+    apiKey: 'test-key',
+    baseUrl: 'https://exa.test'
+  }
+  const result = normalizeSettingsConfig({
+    providers: [],
+    webSearch: { exa: sentinel }
+  })
+  assertKeysPreserved(result.webSearch?.exa, sentinel, 'ExaWebSearchConfig')
 })

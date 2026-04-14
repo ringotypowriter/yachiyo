@@ -34,7 +34,10 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-:focus, :focus-visible { outline: none; }
+:focus,
+:focus-visible {
+  outline: none;
+}
 
 .drag-region {
   -webkit-app-region: drag;

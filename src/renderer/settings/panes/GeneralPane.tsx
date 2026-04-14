@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { DEFAULT_SIDEBAR_VISIBILITY } from '../../../shared/yachiyo/protocol.ts'
 import type {
   SettingsConfig,
   SoulDocument,
@@ -58,7 +57,6 @@ export function GeneralPane({
   onSoulDraftChange,
   onRevertSoulDocument
 }: GeneralPaneProps): React.ReactNode {
-  const sidebarVisibility = draft.general?.sidebarVisibility ?? DEFAULT_SIDEBAR_VISIBILITY
   const [view, setView] = useState<'overview' | 'user-document' | 'soul-document'>('overview')
 
   const hasAttemptedUserDocumentLoadRef = useRef(false)
@@ -398,34 +396,7 @@ export function GeneralPane({
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Window layout</SettingLabel>
-
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Show sidebar on launch
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Off starts focused on the conversation.
-            </div>
-          </div>
-
-          <div className="shrink-0">
-            <SettingSwitch
-              checked={sidebarVisibility === 'expanded'}
-              onChange={() =>
-                onChange({
-                  ...draft,
-                  general: {
-                    ...draft.general,
-                    sidebarVisibility: sidebarVisibility === 'expanded' ? 'collapsed' : 'expanded'
-                  }
-                })
-              }
-              ariaLabel="Toggle sidebar visibility on launch"
-            />
-          </div>
-        </SettingRow>
+        <SettingLabel>Global shortcuts</SettingLabel>
 
         {(
           [

@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
   general: {
     sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
+    sidebarPreview: true,
     demoMode: false,
     notifyRunCompleted: true,
     notifyCodingTaskStarted: true,

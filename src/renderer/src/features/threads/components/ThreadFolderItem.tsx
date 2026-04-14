@@ -1,7 +1,7 @@
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { FolderOpen, FolderClosed, PenLine, Trash2, Paintbrush, XCircle } from 'lucide-react'
+import { FolderOpen, FolderClosed, PenLine, Trash2, Paintbrush } from 'lucide-react'
 import type { FolderColorTag, FolderRecord } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 
@@ -255,6 +255,13 @@ function FolderContextMenu({
         }}
       />
 
+      <MenuItem
+        icon={<FolderClosed size={14} strokeWidth={1.7} style={{ color: theme.text.secondary }} />}
+        onClick={() => onSetColor(null)}
+        active={currentColor === null}
+      >
+        Mark it Default
+      </MenuItem>
       {colorTags.map((tag) => (
         <MenuItem
           key={tag}
@@ -265,21 +272,6 @@ function FolderContextMenu({
           {COLOR_LABELS[tag]}
         </MenuItem>
       ))}
-
-      {currentColor && (
-        <>
-          <div
-            style={{
-              height: 1,
-              margin: '4px 8px',
-              background: theme.border.default
-            }}
-          />
-          <MenuItem icon={<XCircle size={14} strokeWidth={1.7} />} onClick={() => onSetColor(null)}>
-            Clear Color
-          </MenuItem>
-        </>
-      )}
     </div>,
     document.body
   )
