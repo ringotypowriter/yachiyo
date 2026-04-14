@@ -385,6 +385,40 @@ describe('BackgroundBashManager', () => {
     }
   })
 
+  it('adoptTask captures output emitted before async setup finishes', async () => {
+    const tempDir = await createTempDir()
+    try {
+      const manager = new BackgroundBashManager()
+      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
+        manager.setCompletionHandler(resolve)
+      })
+      const logPath = join(tempDir, 'tool-output', 'adopt-early.log')
+      const child = new FakeChildProcess()
+
+      const adoption = manager.adoptTask({
+        taskId: 'adopt-early',
+        command: 'echo early-line',
+        cwd: tempDir,
+        logPath,
+        threadId: 'thread-adopt-early',
+        child: child as unknown as import('node:child_process').ChildProcess,
+        initialOutput: '',
+        initialOutputAlreadyOnDisk: false
+      })
+
+      child.stdout.emit('data', 'early-line\n')
+
+      await adoption
+      child.emit('close', 0)
+      await completed
+
+      const log = await readFile(logPath, 'utf8')
+      assert.ok(log.includes('early-line'))
+    } finally {
+      await rm(tempDir, { recursive: true })
+    }
+  })
+
   it('adoptTask writes initialOutput when not yet on disk and replays it as log lines', async () => {
     const tempDir = await createTempDir()
     try {

@@ -106,6 +106,41 @@ test('diffGenerator', async (t) => {
     assert.equal(content, 'original')
   })
 
+  await t.test('reverted modified file disappears from diff', async () => {
+    const filePath = join(workspaceDir, 'file.txt')
+    await writeFile(filePath, 'original')
+
+    const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+    await tracker.trackBeforeWrite(filePath)
+    await writeFile(filePath, 'modified')
+    await tracker.finalize()
+
+    const changesBefore = await generateDiffForRun(workspaceDir, 'run-1')
+    assert.equal(changesBefore.length, 1)
+
+    await revertFile(workspaceDir, 'run-1', 'file.txt')
+
+    const changesAfter = await generateDiffForRun(workspaceDir, 'run-1')
+    assert.equal(changesAfter.length, 0)
+  })
+
+  await t.test('reverted created file disappears from diff', async () => {
+    const filePath = join(workspaceDir, 'new.txt')
+
+    const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+    await tracker.trackBeforeWrite(filePath)
+    await writeFile(filePath, 'new content')
+    await tracker.finalize()
+
+    const changesBefore = await generateDiffForRun(workspaceDir, 'run-1')
+    assert.equal(changesBefore.length, 1)
+
+    await revertFile(workspaceDir, 'run-1', 'new.txt')
+
+    const changesAfter = await generateDiffForRun(workspaceDir, 'run-1')
+    assert.equal(changesAfter.length, 0)
+  })
+
   await t.test('revertFile deletes created file', async () => {
     const filePath = join(workspaceDir, 'new.txt')
 

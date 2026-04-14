@@ -157,6 +157,7 @@ test('SnapshotTracker', async (t) => {
     await writeFile(join(workspaceDir, 'config.txt'), 'original config')
 
     const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+    tracker.startBaselineScan()
 
     // Wait a tick for the baseline scan to pick up config.txt
     await new Promise((r) => setTimeout(r, 100))
@@ -187,6 +188,7 @@ test('SnapshotTracker', async (t) => {
     }
 
     const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+    tracker.startBaselineScan()
     // Immediately dispose — should not throw or hang
     tracker.dispose()
 
@@ -216,6 +218,7 @@ test('SnapshotTracker', async (t) => {
     await writeFile(join(workspaceDir, 'race.txt'), 'v1')
 
     const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+    tracker.startBaselineScan()
 
     // Layer 1 tracks it immediately (before baseline finishes)
     await tracker.trackBeforeWrite(join(workspaceDir, 'race.txt'))

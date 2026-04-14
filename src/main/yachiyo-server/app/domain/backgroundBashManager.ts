@@ -130,6 +130,27 @@ export class BackgroundBashManager {
     initialOutput: string,
     initialOutputAlreadyOnDisk: boolean
   ): Promise<void> {
+    const earlyChunks: string[] = []
+    let forwardChunk: ((chunk: string) => void) | null = null
+    const onChunk = (chunk: string | Buffer): void => {
+      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8')
+      if (text.length === 0) return
+      if (forwardChunk) {
+        forwardChunk(text)
+        return
+      }
+      earlyChunks.push(text)
+    }
+    const exitCodePromise = new Promise<number>((resolve) => {
+      child.once('close', (code) => resolve(typeof code === 'number' ? code : 1))
+      child.once('error', () => resolve(1))
+    })
+
+    child.stdout?.setEncoding('utf8')
+    child.stderr?.setEncoding('utf8')
+    child.stdout?.on('data', onChunk)
+    child.stderr?.on('data', onChunk)
+
     await mkdir(dirname(input.logPath), { recursive: true })
 
     // When the bytes are already on disk we append; otherwise truncate-and-write.
@@ -163,15 +184,15 @@ export class BackgroundBashManager {
       cancelSignalDelivered: false
     }
 
-    const onChunk = (chunk: string): void => {
+    forwardChunk = (chunk: string): void => {
       logStream.write(chunk)
       this.bufferLogChunk(task, chunk)
     }
 
-    child.stdout?.setEncoding('utf8')
-    child.stderr?.setEncoding('utf8')
-    child.stdout?.on('data', onChunk)
-    child.stderr?.on('data', onChunk)
+    for (const chunk of earlyChunks) {
+      forwardChunk(chunk)
+    }
+    earlyChunks.length = 0
 
     const onAbort = (): void => {
       if (child.exitCode !== null || child.signalCode !== null) return
@@ -229,10 +250,7 @@ export class BackgroundBashManager {
       return result
     }
 
-    task.promise = new Promise<number>((resolve) => {
-      child.once('close', (code) => resolve(typeof code === 'number' ? code : 1))
-      child.once('error', () => resolve(1))
-    }).then((exitCode) => finalize(exitCode))
+    task.promise = exitCodePromise.then((exitCode) => finalize(exitCode))
 
     this.tasks.set(input.taskId, task)
 

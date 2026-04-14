@@ -1115,6 +1115,7 @@ export async function executeServerRun(
       deps.ensureThreadWorkspace
     )
     snapshotTracker = new SnapshotTracker(workspacePath, input.runId, input.thread.id)
+    snapshotTracker.startBaselineScan()
     const runtime = deps.createModelRuntime()
     const availableSkills = await deps.listSkills([workspacePath])
     const activeSkills = resolveActiveSkills({
@@ -2026,23 +2027,7 @@ export async function executeServerRun(
       threadId: input.thread.id,
       thread: updatedThread
     })
-    deps.emit<HarnessFinishedEvent>({
-      type: 'harness.finished',
-      threadId: input.thread.id,
-      runId: input.runId,
-      harnessId,
-      name: DEFAULT_HARNESS_NAME,
-      status: 'completed'
-    })
-    deps.emit<RunCompletedEvent>({
-      type: 'run.completed',
-      threadId: input.thread.id,
-      runId: input.runId,
-      ...lastUsage
-    })
-    perfCollector.finish(input.thread.id)
-
-    // Finalize file snapshot (Layer 3 scan + persist)
+    // Finalize file snapshot (Layer 3 scan + persist).
     if (snapshotTracker) {
       try {
         await snapshotTracker.scanWorkspace()
@@ -2059,8 +2044,27 @@ export async function executeServerRun(
         runGc(snapshotTracker.workspaceHash).catch(() => {})
       } catch (err) {
         console.error('[snapshot] Finalization failed:', err)
+      } finally {
+        snapshotTracker.dispose()
       }
     }
+
+    deps.onTerminalState?.()
+    deps.emit<HarnessFinishedEvent>({
+      type: 'harness.finished',
+      threadId: input.thread.id,
+      runId: input.runId,
+      harnessId,
+      name: DEFAULT_HARNESS_NAME,
+      status: 'completed'
+    })
+    deps.emit<RunCompletedEvent>({
+      type: 'run.completed',
+      threadId: input.thread.id,
+      runId: input.runId,
+      ...lastUsage
+    })
+    perfCollector.finish(input.thread.id)
 
     const usedRememberTool = Array.from(toolCalls.values()).some(
       (tc) => tc.toolName === 'remember' && tc.status === 'completed' && !tc.error
@@ -2275,26 +2279,11 @@ export async function executeServerRun(
         runId: input.runId,
         completedAt: timestamp
       })
-      deps.onTerminalState?.()
-
-      deps.emit<HarnessFinishedEvent>({
-        type: 'harness.finished',
-        threadId: input.thread.id,
-        runId: input.runId,
-        harnessId,
-        name: DEFAULT_HARNESS_NAME,
-        status: 'cancelled'
-      })
-      deps.emit<RunCancelledEvent>({
-        type: 'run.cancelled',
-        threadId: input.thread.id,
-        runId: input.runId
-      })
-      perfCollector.finish(input.thread.id)
 
       // Finalize snapshot for cancelled runs so partial changes are reviewable.
       if (snapshotTracker?.hasTrackedFiles) {
         try {
+          await snapshotTracker.scanWorkspace()
           const snapshot = await snapshotTracker.finalize()
           if (snapshot.entries.length > 0) {
             deps.storage.updateRunSnapshotFileCount(input.runId, snapshot.entries.length)
@@ -2310,6 +2299,22 @@ export async function executeServerRun(
           // Best effort — don't fail the cancel path
         }
       }
+
+      deps.onTerminalState?.()
+      deps.emit<HarnessFinishedEvent>({
+        type: 'harness.finished',
+        threadId: input.thread.id,
+        runId: input.runId,
+        harnessId,
+        name: DEFAULT_HARNESS_NAME,
+        status: 'cancelled'
+      })
+      deps.emit<RunCancelledEvent>({
+        type: 'run.cancelled',
+        threadId: input.thread.id,
+        runId: input.runId
+      })
+      perfCollector.finish(input.thread.id)
 
       return { kind: 'cancelled' }
     }
@@ -2418,8 +2423,28 @@ export async function executeServerRun(
       completedAt: timestamp,
       error: message
     })
-    deps.onTerminalState?.()
 
+    // Finalize file snapshot for failed runs so partial changes are reviewable.
+    if (snapshotTracker?.hasTrackedFiles) {
+      try {
+        await snapshotTracker.scanWorkspace()
+        const snapshot = await snapshotTracker.finalize()
+        if (snapshot.entries.length > 0) {
+          deps.storage.updateRunSnapshotFileCount(input.runId, snapshot.entries.length)
+          deps.emit<SnapshotReadyEvent>({
+            type: 'snapshot.ready',
+            threadId: input.thread.id,
+            runId: input.runId,
+            fileCount: snapshot.entries.length
+          })
+        }
+        runGc(snapshotTracker.workspaceHash).catch(() => {})
+      } catch {
+        // Best effort — don't fail the failure path
+      }
+    }
+
+    deps.onTerminalState?.()
     deps.emit<HarnessFinishedEvent>({
       type: 'harness.finished',
       threadId: input.thread.id,

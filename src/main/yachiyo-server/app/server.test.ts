@@ -4078,73 +4078,90 @@ test('YachiyoServer emits a replacement snapshot when a queued follow-up is repa
 
   await withServer(
     async ({ server, completeRun, waitForEvent }) => {
-      await server.upsertProvider({
-        name: 'work',
-        type: 'openai',
-        apiKey: 'sk-test',
-        baseUrl: 'https://api.openai.com/v1',
-        modelList: {
-          enabled: ['gpt-5'],
-          disabled: []
-        }
-      })
+      const waiter = createServerEventWaiter(server)
+      try {
+        await server.upsertProvider({
+          name: 'work',
+          type: 'openai',
+          apiKey: 'sk-test',
+          baseUrl: 'https://api.openai.com/v1',
+          modelList: {
+            enabled: ['gpt-5'],
+            disabled: []
+          }
+        })
 
-      const thread = await server.createThread()
-      const firstRun = await server.sendChat({
-        threadId: thread.id,
-        content: 'First question'
-      })
-      const firstCreated = (await waitForEvent('run.created')) as { runId: string }
+        const thread = await server.createThread()
+        const firstRun = await server.sendChat({
+          threadId: thread.id,
+          content: 'First question'
+        })
+        const firstCreated = (await waitForEvent('run.created')) as { runId: string }
 
-      assert.equal(firstCreated.runId, firstRun.runId)
-      await waitForEvent('message.delta')
-      await completeRun(firstRun.runId)
+        assert.equal(firstCreated.runId, firstRun.runId)
+        await waitForEvent('message.delta')
+        await completeRun(firstRun.runId)
 
-      const firstBootstrap = await server.bootstrap()
-      const firstUserMessage = (firstBootstrap.messagesByThread[thread.id] ?? []).find(
-        (message) => message.role === 'user'
-      )
+        const firstBootstrap = await server.bootstrap()
+        const firstUserMessage = (firstBootstrap.messagesByThread[thread.id] ?? []).find(
+          (message) => message.role === 'user'
+        )
 
-      assert.ok(firstUserMessage)
+        assert.ok(firstUserMessage)
 
-      const retryAccepted = await server.retryMessage({
-        threadId: thread.id,
-        messageId: firstUserMessage.id
-      })
-      const retryCreated = (await waitForEvent('run.created')) as { runId: string }
+        const retryAccepted = await server.retryMessage({
+          threadId: thread.id,
+          messageId: firstUserMessage.id
+        })
+        const retryCreated = (await waitForEvent('run.created')) as { runId: string }
 
-      assert.equal(retryCreated.runId, retryAccepted.runId)
-      await waitForEvent('message.delta')
+        assert.equal(retryCreated.runId, retryAccepted.runId)
+        await waitForEvent('message.delta')
 
-      const queuedFollowUp = await server.sendChat({
-        threadId: thread.id,
-        content: 'Follow the retry branch',
-        mode: 'follow-up'
-      })
-      assertAcceptedHasUserMessage(queuedFollowUp)
+        const queuedFollowUp = await server.sendChat({
+          threadId: thread.id,
+          content: 'Follow the retry branch',
+          mode: 'follow-up'
+        })
+        assertAcceptedHasUserMessage(queuedFollowUp)
 
-      assert.equal(queuedFollowUp.userMessage.parentMessageId, firstUserMessage.id)
+        assert.equal(queuedFollowUp.userMessage.parentMessageId, firstUserMessage.id)
 
-      const replacementEventPromise = waitForEvent('thread.state.replaced') as Promise<
-        Extract<YachiyoServerEvent, { type: 'thread.state.replaced' }>
-      >
+        const replacementEventPromise = waiter.waitForEvent(
+          'thread.state.replaced',
+          (event) =>
+            event.threadId === thread.id &&
+            event.messages.some(
+              (message) =>
+                message.id === queuedFollowUp.userMessage.id &&
+                message.parentMessageId !== firstUserMessage.id
+            )
+        ) as Promise<Extract<YachiyoServerEvent, { type: 'thread.state.replaced' }>>
+        const followUpRunCreatedPromise = waiter.waitForEvent(
+          'run.created',
+          (event) =>
+            event.threadId === thread.id && event.requestMessageId === queuedFollowUp.userMessage.id
+        ) as Promise<Extract<YachiyoServerEvent, { type: 'run.created' }>>
 
-      releaseRetryRun?.()
-      await completeRun(retryAccepted.runId)
+        releaseRetryRun?.()
+        await completeRun(retryAccepted.runId)
 
-      const replacementEvent = await replacementEventPromise
-      const reparentedQueuedMessage = replacementEvent.messages.find(
-        (message) => message.id === queuedFollowUp.userMessage.id
-      )
-      const retryAssistantMessage = replacementEvent.messages.find(
-        (message) => message.role === 'assistant' && message.content === 'Retry reply'
-      )
+        const replacementEvent = await replacementEventPromise
+        const reparentedQueuedMessage = replacementEvent.messages.find(
+          (message) => message.id === queuedFollowUp.userMessage.id
+        )
+        const retryAssistantMessage = replacementEvent.messages.find(
+          (message) => message.role === 'assistant' && message.content === 'Retry reply'
+        )
 
-      assert.ok(retryAssistantMessage)
-      assert.equal(reparentedQueuedMessage?.parentMessageId, retryAssistantMessage.id)
+        assert.ok(retryAssistantMessage)
+        assert.equal(reparentedQueuedMessage?.parentMessageId, retryAssistantMessage.id)
 
-      const followUpRunCreated = (await waitForEvent('run.created')) as { runId: string }
-      await completeRun(followUpRunCreated.runId)
+        const followUpRunCreated = await followUpRunCreatedPromise
+        await completeRun(followUpRunCreated.runId)
+      } finally {
+        waiter.close()
+      }
     },
     {
       createModelRuntime: () => ({

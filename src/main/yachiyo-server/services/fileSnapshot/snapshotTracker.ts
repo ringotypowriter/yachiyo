@@ -1,6 +1,5 @@
 import { access, readFile, stat } from 'node:fs/promises'
 import { relative, resolve } from 'node:path'
-import { glob } from 'fast-glob'
 
 import type {
   FileSnapshotEntry,
@@ -24,6 +23,34 @@ const SCAN_IGNORE = [
 
 /** Maximum glob depth for workspace scans. */
 const SCAN_DEPTH = 4
+
+/** Cached fast-glob glob function to avoid repeated dynamic imports. */
+let cachedGlob:
+  | ((pattern: string | string[], options: Record<string, unknown>) => Promise<string[]>)
+  | null = null
+
+/** Lazy-import fast-glob to avoid CJS interop issues at module parse time. */
+async function globFiles(
+  cwd: string,
+  deep: number,
+  ignore: string[],
+  signal?: AbortSignal
+): Promise<string[]> {
+  if (signal?.aborted) return []
+  if (!cachedGlob) {
+    const fg = await import('fast-glob')
+    cachedGlob = fg.default.glob
+  }
+  if (signal?.aborted) return []
+  return cachedGlob('**/*', {
+    cwd,
+    absolute: true,
+    onlyFiles: true,
+    deep,
+    ignore,
+    followSymbolicLinks: false
+  })
+}
 
 interface TrackedEntry {
   hash: string
@@ -68,7 +95,7 @@ export class SnapshotTracker {
   private readonly abortController = new AbortController()
 
   /** Resolves when the background baseline scan finishes (or is aborted). */
-  private readonly baselineReady: Promise<void>
+  private baselineReady: Promise<void> = Promise.resolve()
 
   constructor(workspacePath: string, runId: string, threadId: string) {
     this.workspacePath = resolve(workspacePath)
@@ -76,12 +103,33 @@ export class SnapshotTracker {
     this.runId = runId
     this.threadId = threadId
     this.runStartTime = Date.now()
+  }
 
-    this.baselineReady = this.runBaselineScan().catch((err) => {
-      if (!this.abortController.signal.aborted) {
-        console.error('[snapshot] Baseline scan failed:', err)
-      }
+  /**
+   * Start the background baseline scan. Call once after construction.
+   * Fire-and-forget — the scan runs concurrently with the agent run.
+   * Must be called explicitly so tests don't get lingering async work.
+   */
+  startBaselineScan(): void {
+    // Use a deferred promise so the baseline scan's I/O doesn't prevent
+    // the Node process from exiting (important for tests). The scan runs
+    // on the next tick via an unref'd timer; scanWorkspace() awaits the
+    // result before finalization.
+    let resolve!: () => void
+    this.baselineReady = new Promise<void>((r) => {
+      resolve = r
     })
+    const timer = setTimeout(() => {
+      this.runBaselineScan()
+        .catch((err) => {
+          if (!this.abortController.signal.aborted) {
+            console.error('[snapshot] Baseline scan failed:', err)
+          }
+        })
+        .finally(resolve)
+    }, 0)
+    // unref so this timer alone doesn't keep the process alive
+    if (typeof timer === 'object' && 'unref' in timer) timer.unref()
   }
 
   /** Whether any files have been tracked. */
@@ -139,14 +187,7 @@ export class SnapshotTracker {
     await this.baselineReady
 
     try {
-      const files = await glob('**/*', {
-        cwd: this.workspacePath,
-        absolute: true,
-        onlyFiles: true,
-        deep: SCAN_DEPTH,
-        ignore: SCAN_IGNORE,
-        followSymbolicLinks: false
-      })
+      const files = await globFiles(this.workspacePath, SCAN_DEPTH, SCAN_IGNORE)
 
       for (const file of files) {
         if (this.trackedFiles.has(file)) continue
@@ -224,14 +265,8 @@ export class SnapshotTracker {
   private async runBaselineScan(): Promise<void> {
     const signal = this.abortController.signal
 
-    const files = await glob('**/*', {
-      cwd: this.workspacePath,
-      absolute: true,
-      onlyFiles: true,
-      deep: SCAN_DEPTH,
-      ignore: SCAN_IGNORE,
-      followSymbolicLinks: false
-    })
+    const files = await globFiles(this.workspacePath, SCAN_DEPTH, SCAN_IGNORE, signal)
+    if (signal.aborted) return
 
     for (const file of files) {
       if (signal.aborted) return

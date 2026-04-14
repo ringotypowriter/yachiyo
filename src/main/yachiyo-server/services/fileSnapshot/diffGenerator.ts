@@ -43,10 +43,9 @@ function buildDeletedDiff(filePath: string, content: string): string {
 /**
  * Generate file-by-file diffs for a completed run.
  *
- * Uses the stored `afterHash` to produce accurate before→after diffs,
- * even when later runs have since modified the same files. Falls back
- * to comparing against the current workspace when `afterHash` is absent
- * (snapshots created before the afterHash feature).
+ * Compares each tracked file against the current workspace state so
+ * reverted files disappear from the diff. Uses the stored backupHash
+ * as the "before" side.
  */
 export async function generateDiffForRun(
   workspacePath: string,
@@ -63,21 +62,17 @@ export async function generateDiffForRun(
       ? (await readBlob(workspaceHash, entry.backupHash)).toString('utf8')
       : null
 
-    // Use afterHash if available; fall back to current disk for legacy snapshots.
+    // Always diff against the current workspace so reverted files disappear.
     let afterContent: string | null = null
-    if (entry.afterHash !== undefined) {
-      afterContent = entry.afterHash
-        ? (await readBlob(workspaceHash, entry.afterHash)).toString('utf8')
-        : null
-    } else {
-      // Legacy path: compare against current workspace
-      const absolutePath = join(workspacePath, entry.relativePath)
-      try {
-        afterContent = await readFile(absolutePath, 'utf8')
-      } catch {
-        afterContent = null
-      }
+    const absolutePath = join(workspacePath, entry.relativePath)
+    try {
+      afterContent = await readFile(absolutePath, 'utf8')
+    } catch {
+      afterContent = null
     }
+
+    // If the file has been restored to its pre-run state, skip it.
+    if (beforeContent === afterContent) continue
 
     if (beforeContent === null && afterContent !== null) {
       changes.push({

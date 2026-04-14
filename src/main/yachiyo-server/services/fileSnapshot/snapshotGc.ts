@@ -49,32 +49,30 @@ export async function runGc(workspaceHash: string): Promise<void> {
   }
 
   // Phase 1: Retention-based snapshot deletion
-  if (snapshots.length > MAX_SNAPSHOTS) {
-    snapshots.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  snapshots.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
-    const now = Date.now()
-    const cutoffTime = now - MAX_AGE_MS
-    const toKeep = new Set<string>()
+  const now = Date.now()
+  const cutoffTime = now - MAX_AGE_MS
+  const toKeep = new Set<string>()
 
-    for (let i = 0; i < snapshots.length; i++) {
-      const s = snapshots[i]!
-      const age = new Date(s.createdAt).getTime()
-      if (i < MAX_SNAPSHOTS || age >= cutoffTime) {
-        toKeep.add(s.runId)
-      }
+  for (let i = 0; i < snapshots.length; i++) {
+    const s = snapshots[i]!
+    const age = new Date(s.createdAt).getTime()
+    if (i < MAX_SNAPSHOTS && age >= cutoffTime) {
+      toKeep.add(s.runId)
     }
-
-    for (const s of snapshots) {
-      if (!toKeep.has(s.runId)) {
-        await deleteSnapshotIndex(workspaceHash, s.runId)
-      }
-    }
-
-    // Remove deleted snapshots from the working set
-    const surviving = snapshots.filter((s) => toKeep.has(s.runId))
-    snapshots.length = 0
-    snapshots.push(...surviving)
   }
+
+  for (const s of snapshots) {
+    if (!toKeep.has(s.runId)) {
+      await deleteSnapshotIndex(workspaceHash, s.runId)
+    }
+  }
+
+  // Remove deleted snapshots from the working set
+  const surviving = snapshots.filter((s) => toKeep.has(s.runId))
+  snapshots.length = 0
+  snapshots.push(...surviving)
 
   // Phase 2: Orphan blob sweep (always runs)
   const referencedHashes = new Set<string>()
