@@ -189,7 +189,7 @@ test('cancelling a run during tool execution preserves the tool call in bootstra
   )
 })
 
-test('cancelling a run with a pending steer persists the steer and restarts the run', async () => {
+test('cancelling a run with a pending steer persists the steer but does not restart', async () => {
   let toolStarted: (() => void) | null = null
   const toolStartedPromise = new Promise<void>((resolve) => {
     toolStarted = resolve
@@ -235,11 +235,15 @@ test('cancelling a run with a pending steer persists the steer and restarts the 
       )
       assert.ok(steerMessage, 'pending steer message should be persisted when run is cancelled')
 
-      // The run should have restarted and produced a response to the steer
-      const finalAssistant = messages.find(
-        (m) => m.role === 'assistant' && m.status === 'completed'
+      // Cancel is honored — the run does NOT restart, so no completed assistant reply
+      // to the steer exists. The user can re-send or start a new run.
+      const completedAssistant = messages.find(
+        (m) =>
+          m.role === 'assistant' &&
+          m.status === 'completed' &&
+          m.parentMessageId === steerMessage?.id
       )
-      assert.ok(finalAssistant, 'run should restart and complete with the steer message')
+      assert.ok(!completedAssistant, 'cancel should not restart the run')
     },
     {
       createModelRuntime: (() => {
@@ -283,9 +287,6 @@ test('cancelling a run with a pending steer persists the steer and restarts the 
               })
               return
             }
-
-            // Second attempt: respond to the steer
-            yield 'OK, doing something else instead.'
           }
         })
       })()
@@ -295,9 +296,13 @@ test('cancelling a run with a pending steer persists the steer and restarts the 
 
 test('deleting the final reply after steer keeps earlier tool calls bound to the stopped assistant', async () => {
   let attempt = 0
-  let markFirstAttemptAtAbortWait: (() => void) | null = null
-  const firstAttemptAtAbortWait = new Promise<void>((resolve) => {
-    markFirstAttemptAtAbortWait = resolve
+  let markFirstAttemptReady: (() => void) | null = null
+  const firstAttemptReady = new Promise<void>((resolve) => {
+    markFirstAttemptReady = resolve
+  })
+  let markSteerQueued: (() => void) | null = null
+  const steerQueued = new Promise<void>((resolve) => {
+    markSteerQueued = resolve
   })
 
   await withServer(
@@ -316,7 +321,7 @@ test('deleting the final reply after steer keeps earlier tool calls bound to the
         content: 'Check files'
       })
 
-      await firstAttemptAtAbortWait
+      await firstAttemptReady
 
       await server.sendChat({
         threadId: thread.id,
@@ -324,18 +329,23 @@ test('deleting the final reply after steer keeps earlier tool calls bound to the
         mode: 'steer'
       })
 
+      // Signal the mock that the steer has been queued so it can finish
+      markSteerQueued!()
+
       await completeRun(accepted.runId)
 
       const bootstrapBeforeDelete = await bootstrap()
       const messagesBeforeDelete = bootstrapBeforeDelete.messagesByThread[thread.id] ?? []
-      const stoppedAssistant = messagesBeforeDelete.find(
-        (m) => m.role === 'assistant' && m.status === 'stopped'
-      )
-      const finalAssistant = messagesBeforeDelete.find(
+      const assistants = messagesBeforeDelete.filter(
         (m) => m.role === 'assistant' && m.status === 'completed'
       )
-      assert.ok(stoppedAssistant, 'should have stopped assistant')
-      assert.ok(finalAssistant, 'should have final assistant')
+      assert.ok(assistants.length >= 2, 'should have at least two completed assistants')
+      // The first completed assistant is the pre-steer response (with tool calls),
+      // the second is the post-steer response.
+      const stoppedAssistant = assistants.find((m) => m.content.includes('Checking workspace'))
+      const finalAssistant = assistants.find((m) => m.content === 'Concise')
+      assert.ok(stoppedAssistant, 'should have pre-steer assistant')
+      assert.ok(finalAssistant, 'should have post-steer assistant')
 
       const toolCallsBeforeDelete = bootstrapBeforeDelete.toolCallsByThread[thread.id] ?? []
       const stoppedToolCall = toolCallsBeforeDelete.find(
@@ -420,21 +430,12 @@ test('deleting the final reply after steer keeps earlier tool calls bound to the
 
             yield ' Here is the result'
 
-            markFirstAttemptAtAbortWait?.()
-            markFirstAttemptAtAbortWait = null
+            markFirstAttemptReady?.()
+            markFirstAttemptReady = null
 
-            await new Promise<void>((_, reject) => {
-              const abort = (): void => {
-                const error = new Error('Aborted')
-                error.name = 'AbortError'
-                reject(error)
-              }
-              if (request.signal.aborted) {
-                abort()
-                return
-              }
-              request.signal.addEventListener('abort', abort, { once: true })
-            })
+            // Wait for the steer to be queued by the test, then finish
+            // the stream naturally so hasPendingSteer triggers.
+            await steerQueued
             return
           }
 

@@ -40,13 +40,23 @@ export function DiffPreviewerModal({
   const [reverting, setReverting] = useState(false)
 
   useEffect(() => {
+    setChanges(null)
+    setError(false)
+    let ignore = false
     window.api.yachiyo
       .getSnapshotDiff({ runId, workspacePath })
       .then((result) => {
+        if (ignore) return
         setChanges(result)
         if (result.length > 0) setSelectedIdx(0)
       })
-      .catch(() => setError(true))
+      .catch(() => {
+        if (ignore) return
+        setError(true)
+      })
+    return () => {
+      ignore = true
+    }
   }, [runId, workspacePath])
 
   const handleEscape = useCallback(

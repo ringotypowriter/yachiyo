@@ -7,6 +7,22 @@ export interface RunMemorySummary {
   runId: string
 }
 
+function compareRunsNewestFirst(left: RunRecord, right: RunRecord): number {
+  const leftFinishedAt = left.completedAt ?? left.createdAt
+  const rightFinishedAt = right.completedAt ?? right.createdAt
+  const finishedAtComparison = rightFinishedAt.localeCompare(leftFinishedAt)
+  if (finishedAtComparison !== 0) {
+    return finishedAtComparison
+  }
+
+  const createdAtComparison = right.createdAt.localeCompare(left.createdAt)
+  if (createdAtComparison !== 0) {
+    return createdAtComparison
+  }
+
+  return right.id.localeCompare(left.id)
+}
+
 function normalizeNovelTerm(value: string): string {
   return value.trim().replace(/\s+/gu, ' ')
 }
@@ -103,28 +119,39 @@ export function compactNovelTermsForDisplay(terms: string[] | undefined): string
   return compacted
 }
 
+export function findLatestRunForRequest(
+  runs: RunRecord[],
+  requestMessageId: string,
+  predicate: (run: RunRecord) => boolean = () => true
+): RunRecord | null {
+  for (const run of [...runs].sort(compareRunsNewestFirst)) {
+    if (run.requestMessageId !== requestMessageId || !predicate(run)) {
+      continue
+    }
+
+    return run
+  }
+
+  return null
+}
+
 export function findRunMemorySummary(
   runs: RunRecord[],
   requestMessageId: string
 ): RunMemorySummary | null {
-  for (const run of [...runs].sort((left, right) =>
-    right.createdAt.localeCompare(left.createdAt)
-  )) {
-    if (run.requestMessageId !== requestMessageId) {
-      continue
-    }
-
-    const entries = run.recalledMemoryEntries?.filter((entry) => entry.trim().length > 0) ?? []
-    if (entries.length === 0) {
-      return null
-    }
-
-    return {
-      entries,
-      recallDecision: run.recallDecision,
-      runId: run.id
-    }
+  const run = findLatestRunForRequest(runs, requestMessageId)
+  if (!run) {
+    return null
   }
 
-  return null
+  const entries = run.recalledMemoryEntries?.filter((entry) => entry.trim().length > 0) ?? []
+  if (entries.length === 0) {
+    return null
+  }
+
+  return {
+    entries,
+    recallDecision: run.recallDecision,
+    runId: run.id
+  }
 }

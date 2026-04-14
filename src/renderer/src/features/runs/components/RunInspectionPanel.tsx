@@ -307,7 +307,10 @@ export function RunInspectionPanel({ threadId }: RunInspectionPanelProps): React
         <DiffPreviewerModal
           runId={viewingSnapshotRunId}
           workspacePath={
-            snapshotReviewByRun[viewingSnapshotRunId]?.workspacePath ?? thread?.workspacePath ?? ''
+            runsWithSnapshots.find((r) => r.id === viewingSnapshotRunId)?.workspacePath ??
+            snapshotReviewByRun[viewingSnapshotRunId]?.workspacePath ??
+            thread?.workspacePath ??
+            ''
           }
           isLatestRun={viewingSnapshotRunId === latestRunId}
           onClose={() => setViewingSnapshotRunId(null)}

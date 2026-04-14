@@ -2,6 +2,7 @@ import type {
   GenerateTextOnToolCallFinishCallback,
   GenerateTextOnToolCallStartCallback,
   ModelMessage as AiSdkModelMessage,
+  StopCondition,
   ToolSet
 } from 'ai'
 
@@ -56,6 +57,8 @@ export interface ModelStreamRequest {
   onToolCallFinish?: GenerateTextOnToolCallFinishCallback<ToolSet>
   onToolCallUpdate?: (event: ModelToolCallUpdateEvent) => void
   onToolCallError?: (event: ModelToolCallErrorEvent) => 'abort' | 'continue'
+  /** Custom stop condition(s) for the multi-step tool loop. Overrides the default `stepCountIs(maxToolSteps)`. */
+  stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>
   /** Opaque key for provider-side prompt prefix caching (e.g. OpenAI Responses API). */
   promptCacheKey?: string
   onReasoningDelta?: (delta: string) => void

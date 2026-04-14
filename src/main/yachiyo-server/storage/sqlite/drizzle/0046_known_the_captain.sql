@@ -1,0 +1,1 @@
+ALTER TABLE `runs` ADD `workspace_path` text;

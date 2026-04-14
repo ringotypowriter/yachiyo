@@ -1471,7 +1471,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
         runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
           ...run!,
-          snapshotFileCount: event.fileCount
+          snapshotFileCount: event.fileCount,
+          workspacePath: event.workspacePath
         })),
         latestRunsByThread:
           state.latestRunsByThread[event.threadId]?.id === event.runId
@@ -1479,7 +1480,8 @@ export const useAppStore = create<AppState>((set, get) => ({
                 ...state.latestRunsByThread,
                 [event.threadId]: {
                   ...state.latestRunsByThread[event.threadId]!,
-                  snapshotFileCount: event.fileCount
+                  snapshotFileCount: event.fileCount,
+                  workspacePath: event.workspacePath
                 }
               }
             : state.latestRunsByThread
@@ -2587,6 +2589,17 @@ export const useAppStore = create<AppState>((set, get) => ({
           toolCalls: payload.toolCallsByThread
         }))
         set((state) => deriveActiveThreadRunState(state))
+
+        const initialActiveThreadId = useAppStore.getState().activeThreadId
+        if (initialActiveThreadId && window.api?.yachiyo?.loadThreadData) {
+          const data = await window.api.yachiyo.loadThreadData({ threadId: initialActiveThreadId })
+          set((state) => ({
+            ...(data.runs
+              ? { runsByThread: { ...state.runsByThread, [initialActiveThreadId]: data.runs } }
+              : {})
+          }))
+        }
+
         await refreshAvailableSkills(set, get)
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to bootstrap Yachiyo.'

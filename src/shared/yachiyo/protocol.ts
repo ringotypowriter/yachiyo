@@ -1053,6 +1053,8 @@ export interface RunRecord {
   providerName?: string
   /** Number of files changed in this run's snapshot (0 or absent = no snapshot). */
   snapshotFileCount?: number
+  /** Workspace path used for this run's snapshot. */
+  workspacePath?: string
 }
 
 // ---------------------------------------------------------------------------

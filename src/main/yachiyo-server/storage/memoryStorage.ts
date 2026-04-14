@@ -453,7 +453,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         cacheWriteTokens: null,
         modelId: null,
         providerName: null,
-        snapshotFileCount: null
+        snapshotFileCount: null,
+        workspacePath: null
       })
     },
 
@@ -547,9 +548,12 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
     },
 
-    updateRunSnapshotFileCount(runId, fileCount) {
+    updateRunSnapshot(runId, snapshot) {
       const run = runs.get(runId)
-      if (run) run.snapshotFileCount = fileCount
+      if (run) {
+        run.snapshotFileCount = snapshot.fileCount
+        run.workspacePath = snapshot.workspacePath ?? null
+      }
     },
 
     listThreadRuns(threadId) {

@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { compactNovelTermsForDisplay, findRunMemorySummary } from './runMemoryPresentation.ts'
+import {
+  compactNovelTermsForDisplay,
+  findLatestRunForRequest,
+  findRunMemorySummary
+} from './runMemoryPresentation.ts'
 
 test('findRunMemorySummary returns the latest recalled memory for a request', () => {
   const summary = findRunMemorySummary(
@@ -68,6 +72,53 @@ test('findRunMemorySummary returns null when the matched run recalled nothing us
   )
 
   assert.equal(summary, null)
+})
+
+test('findLatestRunForRequest prefers the newest matching retry for a request', () => {
+  const run = findLatestRunForRequest(
+    [
+      {
+        id: 'run-older',
+        threadId: 'thread-1',
+        status: 'completed',
+        createdAt: '2026-03-22T00:00:00.000Z',
+        completedAt: '2026-03-22T00:00:03.000Z',
+        requestMessageId: 'user-1',
+        snapshotFileCount: 0
+      },
+      {
+        id: 'run-newer',
+        threadId: 'thread-1',
+        status: 'completed',
+        createdAt: '2026-03-22T00:00:05.000Z',
+        completedAt: '2026-03-22T00:00:08.000Z',
+        requestMessageId: 'user-1',
+        snapshotFileCount: 4,
+        workspacePath: '/tmp/external-workspace'
+      },
+      {
+        id: 'run-other-request',
+        threadId: 'thread-1',
+        status: 'completed',
+        createdAt: '2026-03-22T00:00:10.000Z',
+        completedAt: '2026-03-22T00:00:11.000Z',
+        requestMessageId: 'user-2',
+        snapshotFileCount: 99
+      }
+    ],
+    'user-1'
+  )
+
+  assert.deepEqual(run, {
+    id: 'run-newer',
+    threadId: 'thread-1',
+    status: 'completed',
+    createdAt: '2026-03-22T00:00:05.000Z',
+    completedAt: '2026-03-22T00:00:08.000Z',
+    requestMessageId: 'user-1',
+    snapshotFileCount: 4,
+    workspacePath: '/tmp/external-workspace'
+  })
 })
 
 test('compactNovelTermsForDisplay hides low-signal mixed-language fragments', () => {

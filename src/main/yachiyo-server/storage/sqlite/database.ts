@@ -424,7 +424,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                   cacheWriteTokens: runsTable.cacheWriteTokens,
                   modelId: runsTable.modelId,
                   providerName: runsTable.providerName,
-                  snapshotFileCount: runsTable.snapshotFileCount
+                  snapshotFileCount: runsTable.snapshotFileCount,
+                  workspacePath: runsTable.workspacePath
                 })
                 .from(runsTable)
                 .where(inArray(runsTable.threadId, threadIds))
@@ -1068,9 +1069,12 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .run()
     },
 
-    updateRunSnapshotFileCount(runId, fileCount) {
+    updateRunSnapshot(runId, snapshot) {
       db.update(runsTable)
-        .set({ snapshotFileCount: fileCount })
+        .set({
+          snapshotFileCount: snapshot.fileCount,
+          workspacePath: snapshot.workspacePath ?? null
+        })
         .where(eq(runsTable.id, runId))
         .run()
     },
@@ -1094,7 +1098,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           cacheWriteTokens: runsTable.cacheWriteTokens,
           modelId: runsTable.modelId,
           providerName: runsTable.providerName,
-          snapshotFileCount: runsTable.snapshotFileCount
+          snapshotFileCount: runsTable.snapshotFileCount,
+          workspacePath: runsTable.workspacePath
         })
         .from(runsTable)
         .where(eq(runsTable.threadId, threadId))

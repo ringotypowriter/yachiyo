@@ -1,3 +1,4 @@
+import { stepCountIs, type StopCondition, type ToolSet } from 'ai'
 import { performance } from 'node:perf_hooks'
 import { SnapshotTracker } from '../../services/fileSnapshot/snapshotTracker.ts'
 import { runGc } from '../../services/fileSnapshot/snapshotGc.ts'
@@ -144,6 +145,7 @@ export type ExecuteRunResult =
   | { kind: 'failed' }
   | { kind: 'cancelled' }
   | { kind: 'restarted'; nextRequestMessageId: string }
+  | { kind: 'steer-pending'; assistantMessageId: string }
   | { kind: 'recovering'; checkpoint: RunRecoveryCheckpoint; harnessId: string }
 
 export interface RunExecutionDeps {
@@ -177,7 +179,7 @@ export interface RunExecutionDeps {
   listSkills: (workspacePaths?: string[]) => Promise<SkillCatalogEntry[]>
   onEnabledToolsUsed: (enabledTools: ToolCallName[]) => void
   onExecutionPhaseChange?: (phase: 'generating' | 'tool-running' | 'waiting-for-user') => void
-  onSafeToSteerAfterTool?: () => void
+  hasPendingSteer?: () => boolean
   /** Called by execution to register the askUser answer handler. */
   onAskUserHandlerReady?: (handler: (toolCallId: string, answer: string) => void) => void
   onTerminalState?: () => void
@@ -911,7 +913,6 @@ export async function executeServerRun(
     : []
   let shouldStartNewTextBlock = textBlocks.length === 0
   let executionPhase: 'generating' | 'tool-running' | 'waiting-for-user' = 'generating'
-  let awaitingSafeSteerPointAfterTool = false
   const markProgress = (): void => {
     // No-op retained for call sites; the inactivity watchdog that consumed
     // this signal has been removed.
@@ -943,7 +944,6 @@ export async function executeServerRun(
   }
   input.abortController.signal.addEventListener('abort', rejectPendingUserAnswers, { once: true })
 
-  let safeSteerTimer: ReturnType<typeof setTimeout> | null = null
   let duplicateTextPrefix = recoveryCheckpoint?.content ?? ''
   let pendingDuplicateText = ''
   const recoveryCreatedAt = recoveryCheckpoint?.createdAt ?? deps.timestamp()
@@ -1060,30 +1060,6 @@ export async function executeServerRun(
     },
     isAborted: () => input.abortController.signal.aborted
   })
-
-  const clearSafeSteerTimer = (): void => {
-    if (!safeSteerTimer) {
-      return
-    }
-
-    clearTimeout(safeSteerTimer)
-    safeSteerTimer = null
-  }
-
-  const cancelPendingSafeSteerPointAfterTool = (): void => {
-    awaitingSafeSteerPointAfterTool = false
-    clearSafeSteerTimer()
-  }
-
-  const flushSafeSteerPointAfterTool = (): void => {
-    if (!awaitingSafeSteerPointAfterTool) {
-      return
-    }
-
-    awaitingSafeSteerPointAfterTool = false
-    clearSafeSteerTimer()
-    deps.onSafeToSteerAfterTool?.()
-  }
 
   const setExecutionPhase = (phase: 'generating' | 'tool-running' | 'waiting-for-user'): void => {
     if (executionPhase === phase) {
@@ -1620,6 +1596,20 @@ export async function executeServerRun(
 
     let lastUsage: ModelUsage | undefined
 
+    const hasPendingSteer = deps.hasPendingSteer
+    const stopWhen: Array<StopCondition<ToolSet>> | undefined = tools
+      ? [
+          stepCountIs(maxToolSteps),
+          ({ steps }) => {
+            if (!hasPendingSteer?.()) {
+              return false
+            }
+
+            return (steps.at(-1)?.toolResults.length ?? 0) > 0
+          }
+        ]
+      : undefined
+
     const stream = runtime.streamReply({
       messages: finalMessages,
       settings,
@@ -1628,6 +1618,7 @@ export async function executeServerRun(
       promptCacheKey: input.thread.id,
       maxToolSteps,
       ...(tools ? { tools } : {}),
+      ...(stopWhen ? { stopWhen } : {}),
       onFinish: (usage) => {
         markProgress()
         lastUsage = usage
@@ -1675,7 +1666,6 @@ export async function executeServerRun(
         markProgress()
         textDeltaBatcher.flush()
         reasoningDeltaBatcher.flush()
-        cancelPendingSafeSteerPointAfterTool()
         runningToolCallIds.add(event.toolCall.toolCallId)
         shouldStartNewTextBlock = true
         setExecutionPhase('tool-running')
@@ -1753,7 +1743,6 @@ export async function executeServerRun(
         markProgress()
         textDeltaBatcher.flush()
         reasoningDeltaBatcher.flush()
-        cancelPendingSafeSteerPointAfterTool()
         setExecutionPhase('tool-running')
         stepCount++
 
@@ -1880,14 +1869,7 @@ export async function executeServerRun(
 
           runningToolCallIds.delete(event.toolCall.toolCallId)
           if (runningToolCallIds.size === 0) {
-            awaitingSafeSteerPointAfterTool = true
             setExecutionPhase('generating')
-            if (!safeSteerTimer) {
-              safeSteerTimer = setTimeout(() => {
-                safeSteerTimer = null
-                flushSafeSteerPointAfterTool()
-              }, 0)
-            }
           }
         } catch (error) {
           console.error('[yachiyo][tool-finish] failed to persist terminal tool state', {
@@ -1917,7 +1899,6 @@ export async function executeServerRun(
 
       markProgress()
       const delta = nextChunk.value
-      flushSafeSteerPointAfterTool()
 
       if (!delta) continue
       const deduped = consumeDuplicatePrefix({
@@ -1936,7 +1917,6 @@ export async function executeServerRun(
 
     textDeltaBatcher.flush()
     reasoningDeltaBatcher.flush()
-    flushSafeSteerPointAfterTool()
 
     console.log(
       `[yachiyo][run] stream finished: runId=${input.runId}, finishReason=${lastUsage?.finishReason ?? 'unknown'}, ` +
@@ -1967,6 +1947,69 @@ export async function executeServerRun(
     // a truncated response as finished.
     if (lastUsage?.finishReason === 'length') {
       throw new RetryableRunError('Model output truncated (finishReason=length)')
+    }
+
+    // Safe steer: the stream ended cleanly (via stopWhen or natural completion)
+    // and a user steer is waiting at the turn boundary. Persist the assistant
+    // message as 'stopped' (the run will continue with the steer as new input)
+    // without completing the run itself.
+    if (hasPendingSteer?.()) {
+      const steerTimestamp = deps.timestamp()
+      const steerResponseMessages =
+        recoveryResponseMessages.length > 0 ? recoveryResponseMessages : lastUsage?.responseMessages
+      const steerAssistantMessage: MessageRecord = {
+        id: messageId,
+        threadId: input.thread.id,
+        parentMessageId: input.requestMessageId,
+        role: 'assistant',
+        content: bufferParts.join(''),
+        ...(textBlocks.length > 0 ? { textBlocks } : {}),
+        ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
+        ...(steerResponseMessages ? { responseMessages: steerResponseMessages } : {}),
+        status: 'completed',
+        createdAt: steerTimestamp,
+        modelId: settings.model,
+        providerName: settings.providerName
+      }
+      const steerThread = deps.readThread(input.thread.id)
+      deps.storage.saveThreadMessage({
+        thread: steerThread,
+        updatedThread: steerThread,
+        message: steerAssistantMessage
+      })
+      deps.emit<MessageCompletedEvent>({
+        type: 'message.completed',
+        threadId: input.thread.id,
+        runId: input.runId,
+        message: steerAssistantMessage
+      })
+      // Bind all tool calls from this run to the completed assistant message so
+      // they are not reassigned to a later assistant message when the run continues.
+      for (const [toolCallId, toolCall] of toolCalls.entries()) {
+        if (toolCall.runId === input.runId && toolCall.assistantMessageId !== messageId) {
+          const bound: ToolCallRecord = { ...toolCall, assistantMessageId: messageId }
+          toolCalls.set(toolCallId, bound)
+          instrumentedUpdateToolCall(bound)
+          deps.emit<ToolCallUpdatedEvent>({
+            type: 'tool.updated',
+            threadId: input.thread.id,
+            runId: input.runId,
+            toolCall: bound
+          })
+        }
+      }
+      deps.storage.deleteRunRecoveryCheckpoint(input.runId)
+      snapshotTracker?.dispose()
+      deps.emit<HarnessFinishedEvent>({
+        type: 'harness.finished',
+        threadId: input.thread.id,
+        runId: input.runId,
+        harnessId,
+        name: DEFAULT_HARNESS_NAME,
+        status: 'completed'
+      })
+
+      return { kind: 'steer-pending', assistantMessageId: messageId }
     }
 
     const timestamp = deps.timestamp()
@@ -2038,12 +2081,16 @@ export async function executeServerRun(
         await snapshotTracker.scanWorkspace()
         const snapshot = await snapshotTracker.finalize()
         if (snapshot.entries.length > 0) {
-          deps.storage.updateRunSnapshotFileCount(input.runId, snapshot.entries.length)
+          deps.storage.updateRunSnapshot(input.runId, {
+            fileCount: snapshot.entries.length,
+            workspacePath: snapshotTracker.workspacePath
+          })
           deps.emit<SnapshotReadyEvent>({
             type: 'snapshot.ready',
             threadId: input.thread.id,
             runId: input.runId,
-            fileCount: snapshot.entries.length
+            fileCount: snapshot.entries.length,
+            workspacePath: snapshotTracker.workspacePath
           })
         }
         runGc(snapshotTracker.workspaceHash).catch(() => {})
@@ -2080,8 +2127,6 @@ export async function executeServerRun(
       usedRememberTool
     }
   } catch (error) {
-    clearSafeSteerTimer()
-
     // Reject any pending askUser promises so the tool execution unblocks
     for (const [id, pending] of pendingUserAnswers) {
       pending.reject(new Error('Run cancelled'))
@@ -2291,12 +2336,16 @@ export async function executeServerRun(
           await snapshotTracker.scanWorkspace()
           const snapshot = await snapshotTracker.finalize()
           if (snapshot.entries.length > 0) {
-            deps.storage.updateRunSnapshotFileCount(input.runId, snapshot.entries.length)
+            deps.storage.updateRunSnapshot(input.runId, {
+              fileCount: snapshot.entries.length,
+              workspacePath: snapshotTracker.workspacePath
+            })
             deps.emit<SnapshotReadyEvent>({
               type: 'snapshot.ready',
               threadId: input.thread.id,
               runId: input.runId,
-              fileCount: snapshot.entries.length
+              fileCount: snapshot.entries.length,
+              workspacePath: snapshotTracker.workspacePath
             })
           }
           runGc(snapshotTracker.workspaceHash).catch(() => {})
@@ -2436,12 +2485,16 @@ export async function executeServerRun(
         await snapshotTracker.scanWorkspace()
         const snapshot = await snapshotTracker.finalize()
         if (snapshot.entries.length > 0) {
-          deps.storage.updateRunSnapshotFileCount(input.runId, snapshot.entries.length)
+          deps.storage.updateRunSnapshot(input.runId, {
+            fileCount: snapshot.entries.length,
+            workspacePath: snapshotTracker.workspacePath
+          })
           deps.emit<SnapshotReadyEvent>({
             type: 'snapshot.ready',
             threadId: input.thread.id,
             runId: input.runId,
-            fileCount: snapshot.entries.length
+            fileCount: snapshot.entries.length,
+            workspacePath: snapshotTracker.workspacePath
           })
         }
         runGc(snapshotTracker.workspaceHash).catch(() => {})

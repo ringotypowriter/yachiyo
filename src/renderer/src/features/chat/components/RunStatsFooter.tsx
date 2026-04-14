@@ -5,6 +5,7 @@ import type { RunRecord } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { theme, alpha } from '@renderer/theme/theme'
 import { DiffPreviewerModal } from './DiffPreviewerModal'
+import { findLatestRunForRequest } from '../lib/runMemoryPresentation.ts'
 
 interface RunStatsFooterProps {
   runs: RunRecord[]
@@ -31,31 +32,28 @@ export function RunStatsFooter({
 }: RunStatsFooterProps): React.JSX.Element | null {
   const [showDiffModal, setShowDiffModal] = useState(false)
 
-  const threads = useAppStore((s) => s.threads)
-  const externalThreads = useAppStore((s) => s.externalThreads)
   const latestRunsByThread = useAppStore((s) => s.latestRunsByThread)
   // Also check the ephemeral event store for runs that just completed
   // (before the RunRecord is refreshed from the database).
   const snapshotReviewByRun = useAppStore((s) => s.snapshotReviewByRun)
 
   const runInfo = useMemo(() => {
-    const run = runs.find((r) => r.requestMessageId === requestMessageId && r.completedAt != null)
+    const run = findLatestRunForRequest(runs, requestMessageId, (candidate) => {
+      return candidate.completedAt != null
+    })
     if (!run || !run.completedAt) return null
 
     const elapsedMs = new Date(run.completedAt).getTime() - new Date(run.createdAt).getTime()
     // Prefer persisted snapshotFileCount, fall back to ephemeral event
     const fileCount = run.snapshotFileCount ?? snapshotReviewByRun[run.id]?.fileCount ?? 0
-    const thread =
-      threads.find((t) => t.id === run.threadId) ??
-      externalThreads.find((t) => t.id === run.threadId)
     return {
       elapsedMs,
       runId: run.id,
       threadId: run.threadId,
       fileCount,
-      workspacePath: snapshotReviewByRun[run.id]?.workspacePath ?? thread?.workspacePath ?? ''
+      workspacePath: run.workspacePath ?? snapshotReviewByRun[run.id]?.workspacePath ?? ''
     }
-  }, [runs, requestMessageId, snapshotReviewByRun, threads, externalThreads])
+  }, [runs, requestMessageId, snapshotReviewByRun])
 
   const handleOpenDiff = useCallback(() => {
     setShowDiffModal(true)
@@ -69,7 +67,7 @@ export function RunStatsFooter({
 
   const showElapsed = runInfo.elapsedMs >= ELAPSED_THRESHOLD_S * 1000
   const showToolCalls = toolCallCount >= TOOL_CALL_THRESHOLD
-  const hasSnapshot = runInfo.fileCount > 0
+  const hasSnapshot = runInfo.fileCount > 0 && runInfo.workspacePath.length > 0
   if (!showElapsed && !showToolCalls && !hasSnapshot) return null
 
   return (

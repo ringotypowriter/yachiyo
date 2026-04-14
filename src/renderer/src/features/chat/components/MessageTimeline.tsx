@@ -13,7 +13,7 @@ import {
   getVisibleToolCallsForGroup,
   partitionToolCallsForGroups
 } from '../lib/messageThreadPresentation'
-import { findRunMemorySummary } from '../lib/runMemoryPresentation.ts'
+import { findLatestRunForRequest, findRunMemorySummary } from '../lib/runMemoryPresentation.ts'
 import { buildConversationGroupTimelineItems } from '../lib/messageTimelineLayout.ts'
 import { UserMessageBubble } from './UserMessageBubble'
 import { AssistantMessageBubble } from './AssistantMessageBubble'
@@ -202,7 +202,7 @@ export const ThreadConversationGroup = memo(function ThreadConversationGroup({
   ).length
   const failedRunError =
     activeBranch?.message.status === 'failed'
-      ? (runs.find((r) => r.requestMessageId === group.userMessage.id && r.status === 'failed')
+      ? (findLatestRunForRequest(runs, group.userMessage.id, (run) => run.status === 'failed')
           ?.error ?? null)
       : null
   const activeAssistantTextBlocks = useMemo(() => {

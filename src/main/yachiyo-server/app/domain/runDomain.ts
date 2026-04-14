@@ -61,7 +61,7 @@ import {
 import { BackgroundBashManager, type BackgroundBashTaskResult } from './backgroundBashManager.ts'
 import { assertSupportedImages, resolveEnabledTools } from './configDomain.ts'
 import { toEffectiveProviderSettings } from '../../settings/settingsStore.ts'
-import { executeServerRun, type RestartRunReason, type ExecuteRunResult } from './runExecution.ts'
+import { executeServerRun, type ExecuteRunResult } from './runExecution.ts'
 import { runAcpChatThread } from '../../runtime/acp/acpChatRuntime.ts'
 import {
   buildThreadTitleGenerationMessages,
@@ -150,13 +150,6 @@ interface DebouncedSendChatEntry {
 }
 
 const SEND_CHAT_DEBOUNCE_WINDOW_MS = 1_500
-
-function toRestartRunReason(nextRequestMessageId: string): RestartRunReason {
-  return {
-    type: 'restart',
-    nextRequestMessageId
-  }
-}
 
 function withParentMessageId(message: MessageRecord, parentMessageId?: string): MessageRecord {
   const rest = { ...message }
@@ -873,12 +866,11 @@ export class YachiyoServerRunDomain {
   cancelRun(input: { runId: string }): void {
     const activeRun = this.activeRuns.get(input.runId)
     if (activeRun) {
-      // If there's a pending steer waiting for a safe point, persist it now
-      // and convert the cancellation into a steer-restart so the user's
-      // message is not silently dropped.
+      // If there's a pending steer, persist it so the user's message is not
+      // silently dropped, then proceed with a plain cancel (no restart).
       if (activeRun.pendingSteerInput) {
         const currentThread = this.deps.requireThread(activeRun.threadId)
-        const { userMessage } = this.persistSteerMessage({
+        this.persistSteerMessage({
           content: activeRun.pendingSteerInput.content,
           images: activeRun.pendingSteerInput.images,
           attachments: activeRun.pendingSteerInput.attachments,
@@ -889,13 +881,8 @@ export class YachiyoServerRunDomain {
           timestamp: activeRun.pendingSteerInput.timestamp,
           hidden: activeRun.pendingSteerInput.hidden
         })
-
         this.emitThreadStateReplaced(activeRun.threadId)
-
         activeRun.pendingSteerInput = undefined
-        activeRun.pendingSteerMessageId = userMessage.id
-        activeRun.abortController.abort(toRestartRunReason(userMessage.id))
-        return
       }
 
       activeRun.abortController.abort()
@@ -1066,48 +1053,22 @@ export class YachiyoServerRunDomain {
       throw new Error('This thread no longer has an active run.')
     }
 
-    if (
-      activeRun.executionPhase === 'tool-running' ||
-      activeRun.executionPhase === 'waiting-for-user'
-    ) {
-      activeRun.enabledSkillNames = input.enabledSkillNames
-        ? [...input.enabledSkillNames]
-        : undefined
-      activeRun.pendingSteerInput = {
-        content: input.content,
-        images: input.images,
-        attachments: input.attachments,
-        messageId: input.messageId,
-        timestamp: this.deps.timestamp()
-      }
-
-      return {
-        kind: 'active-run-steer-pending',
-        runId: input.activeRunId,
-        thread: input.thread
-      }
-    }
-
+    // Always queue the steer — it will be applied at the next turn boundary
+    // (step boundary via stopWhen, or after the assistant message completes).
+    // Never abort the current generation for a steer.
     activeRun.enabledSkillNames = input.enabledSkillNames ? [...input.enabledSkillNames] : undefined
-    const { updatedThread, userMessage } = this.persistSteerMessage({
+    activeRun.pendingSteerInput = {
       content: input.content,
       images: input.images,
       attachments: input.attachments,
       messageId: input.messageId,
-      runId: input.activeRunId,
-      runState: activeRun,
-      thread: input.thread,
       timestamp: this.deps.timestamp()
-    })
-
-    activeRun.pendingSteerMessageId = userMessage.id
-    activeRun.abortController.abort(toRestartRunReason(userMessage.id))
+    }
 
     return {
-      kind: 'active-run-steer',
+      kind: 'active-run-steer-pending',
       runId: input.activeRunId,
-      thread: updatedThread,
-      userMessage
+      thread: input.thread
     }
   }
 
@@ -1343,6 +1304,7 @@ export class YachiyoServerRunDomain {
     timestamp: string
     hidden?: boolean
   }): { updatedThread: ThreadRecord; userMessage: MessageRecord } {
+    const persistedAt = this.deps.timestamp()
     const userMessage = this.createUserMessage({
       id: input.messageId,
       content: input.content,
@@ -1350,13 +1312,13 @@ export class YachiyoServerRunDomain {
       attachments: input.attachments,
       parentMessageId: input.runState.pendingSteerMessageId ?? input.runState.requestMessageId,
       threadId: input.thread.id,
-      timestamp: input.timestamp,
+      timestamp: persistedAt,
       hidden: input.hidden
     })
     const updatedThread: ThreadRecord = {
       ...input.thread,
       headMessageId: userMessage.id,
-      updatedAt: input.timestamp
+      updatedAt: persistedAt
     }
 
     this.deps.storage.saveThreadMessage({
@@ -1639,36 +1601,9 @@ export class YachiyoServerRunDomain {
                 currentRun.answerToolQuestion = handler
               }
             },
-            onSafeToSteerAfterTool: () => {
+            hasPendingSteer: () => {
               const currentRun = this.activeRuns.get(input.runId)
-              if (!currentRun) return
-
-              if (!currentRun.pendingSteerInput) {
-                return
-              }
-
-              const currentThread = this.deps.requireThread(input.thread.id)
-              const { userMessage } = this.persistSteerMessage({
-                content: currentRun.pendingSteerInput.content,
-                images: currentRun.pendingSteerInput.images,
-                attachments: currentRun.pendingSteerInput.attachments,
-                messageId: currentRun.pendingSteerInput.messageId,
-                runId: input.runId,
-                runState: currentRun,
-                thread: currentThread,
-                timestamp: currentRun.pendingSteerInput.timestamp,
-                hidden: currentRun.pendingSteerInput.hidden
-              })
-
-              // Push the full thread state so the frontend receives the new steer user
-              // message in its messages array. thread.updated alone does not carry message
-              // data, which would leave the steer message missing from the client tree and
-              // break group / tool-call visibility until the next bootstrap.
-              this.emitThreadStateReplaced(input.thread.id)
-
-              currentRun.pendingSteerInput = undefined
-              currentRun.pendingSteerMessageId = userMessage.id
-              currentRun.abortController.abort(toRestartRunReason(userMessage.id))
+              return currentRun?.pendingSteerInput != null
             },
             onSubagentProgress: (event) => {
               this.deps.emit<SubagentProgressEvent>({
@@ -1852,6 +1787,41 @@ export class YachiyoServerRunDomain {
           this.memoryScheduler.onRunCompleted(persistedThread, result.usedRememberTool)
         }
 
+        // Safe steer: the stream ended cleanly at a turn boundary and a user
+        // steer is waiting. Persist the steer message and continue the loop
+        // so the next executeServerRun iteration starts from the steer.
+        if (result.kind === 'steer-pending') {
+          if (!activeRun?.pendingSteerInput) break
+
+          // Point requestMessageId to the completed assistant message so
+          // persistSteerMessage parents the steer as a child of the assistant
+          // response — not a sibling. This ensures the model sees all previous
+          // work (including tool calls and results) when processing the steer.
+          activeRun.requestMessageId = result.assistantMessageId
+
+          const steerThread = this.deps.requireThread(input.thread.id)
+          const { userMessage } = this.persistSteerMessage({
+            content: activeRun.pendingSteerInput.content,
+            images: activeRun.pendingSteerInput.images,
+            attachments: activeRun.pendingSteerInput.attachments,
+            messageId: activeRun.pendingSteerInput.messageId,
+            runId: input.runId,
+            runState: activeRun,
+            thread: steerThread,
+            timestamp: activeRun.pendingSteerInput.timestamp,
+            hidden: activeRun.pendingSteerInput.hidden
+          })
+
+          this.emitThreadStateReplaced(input.thread.id)
+          activeRun.pendingSteerInput = undefined
+          activeRun.pendingSteerMessageId = undefined
+          activeRun.executionPhase = 'generating'
+          activeRun.requestMessageId = userMessage.id
+          currentRequestMessageId = userMessage.id
+          currentThread = this.deps.requireThread(input.thread.id)
+          continue
+        }
+
         if (result.kind !== 'restarted') {
           break
         }
@@ -1892,7 +1862,7 @@ export class YachiyoServerRunDomain {
       this.activeRunByThread.delete(input.thread.id)
       this.activeRunTasks.delete(input.runId)
 
-      if (!this.isClosing && result.kind !== 'restarted') {
+      if (!this.isClosing && result.kind !== 'restarted' && result.kind !== 'steer-pending') {
         this.startQueuedFollowUpIfPresent(input.thread.id)
         // Background-bash completion notices stay queued in
         // pendingBackgroundCompletionNotices and are drained by the next run that builds

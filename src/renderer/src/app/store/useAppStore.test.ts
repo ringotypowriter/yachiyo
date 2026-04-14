@@ -96,6 +96,123 @@ function withWindowApiMock(mock: YachiyoApiMock): () => void {
   }
 }
 
+test('initialize hydrates the active thread run history after bootstrap', async () => {
+  resetStore()
+
+  let loadThreadDataCalls = 0
+  const restoreWindow = withWindowApiMock({
+    bootstrap: async () => ({
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Thread 1',
+          updatedAt: TIMESTAMP
+        }
+      ],
+      archivedThreads: [],
+      folders: [],
+      messagesByThread: {
+        'thread-1': [
+          {
+            id: 'user-older',
+            threadId: 'thread-1',
+            role: 'user',
+            content: 'Older request',
+            status: 'completed',
+            createdAt: '2026-03-15T00:00:00.000Z'
+          },
+          {
+            id: 'user-latest',
+            threadId: 'thread-1',
+            role: 'user',
+            content: 'Latest request',
+            status: 'completed',
+            createdAt: '2026-03-15T00:05:00.000Z'
+          }
+        ]
+      },
+      toolCallsByThread: {
+        'thread-1': []
+      },
+      latestRunsByThread: {
+        'thread-1': {
+          id: 'run-latest',
+          threadId: 'thread-1',
+          status: 'completed',
+          createdAt: '2026-03-15T00:05:00.000Z',
+          completedAt: '2026-03-15T00:05:10.000Z',
+          requestMessageId: 'user-latest'
+        }
+      },
+      recoveredInterruptedSaveThreadIds: [],
+      config: {
+        enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+        providers: []
+      },
+      settings: READY_SETTINGS
+    }),
+    subscribe: () => () => undefined,
+    loadThreadData: async ({ threadId }) => {
+      loadThreadDataCalls += 1
+      assert.equal(threadId, 'thread-1')
+      return {
+        messages: [],
+        toolCalls: [],
+        runs: [
+          {
+            id: 'run-older',
+            threadId: 'thread-1',
+            status: 'completed',
+            createdAt: '2026-03-15T00:00:00.000Z',
+            completedAt: '2026-03-15T00:00:10.000Z',
+            requestMessageId: 'user-older',
+            snapshotFileCount: 3,
+            workspacePath: '/tmp/external-workspace'
+          },
+          {
+            id: 'run-latest',
+            threadId: 'thread-1',
+            status: 'completed',
+            createdAt: '2026-03-15T00:05:00.000Z',
+            completedAt: '2026-03-15T00:05:10.000Z',
+            requestMessageId: 'user-latest'
+          }
+        ]
+      }
+    }
+  })
+
+  try {
+    await useAppStore.getState().initialize()
+
+    const state = useAppStore.getState()
+    assert.equal(loadThreadDataCalls, 1)
+    assert.equal(state.activeThreadId, 'thread-1')
+    assert.deepEqual(state.runsByThread['thread-1'], [
+      {
+        id: 'run-older',
+        threadId: 'thread-1',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:00.000Z',
+        completedAt: '2026-03-15T00:00:10.000Z',
+        requestMessageId: 'user-older',
+        snapshotFileCount: 3,
+        workspacePath: '/tmp/external-workspace'
+      },
+      {
+        id: 'run-latest',
+        threadId: 'thread-1',
+        status: 'completed',
+        createdAt: '2026-03-15T00:05:00.000Z',
+        completedAt: '2026-03-15T00:05:10.000Z',
+        requestMessageId: 'user-latest'
+      }
+    ])
+  } finally {
+    restoreWindow()
+  }
+})
+
 test('applyServerEvent keeps a stopped placeholder when a run is cancelled before the first token', () => {
   resetStore()
   useAppStore.setState({ activeThreadId: 'thread-1' })

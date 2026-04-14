@@ -1118,7 +1118,7 @@ export function registerYachiyoGateway(): YachiyoServer {
       const destroyedRunIds = await restoreToCheckpoint(input.workspacePath, input.runId)
       const storage = server!.getStorage()
       for (const id of destroyedRunIds) {
-        storage.updateRunSnapshotFileCount(id, 0)
+        storage.updateRunSnapshot(id, { fileCount: 0 })
       }
       return destroyedRunIds
     }
