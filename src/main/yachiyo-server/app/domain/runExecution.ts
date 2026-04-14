@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks'
 import { execFile } from 'node:child_process'
 import { access, constants, readFile } from 'node:fs/promises'
 import { mkdir } from 'node:fs/promises'
@@ -47,6 +48,7 @@ import {
   collectMessagePath,
   wouldCreateParentCycle
 } from '../../../../shared/yachiyo/threadTree.ts'
+import { createRunPerfCollector } from '../../services/perfMonitor.ts'
 import { applyStripCompact } from '../../runtime/contextStripCompact.ts'
 import { prepareModelMessages } from '../../runtime/messagePrepare.ts'
 import {
@@ -869,6 +871,17 @@ export async function executeServerRun(
   deps: RunExecutionDeps,
   input: ExecuteRunInput
 ): Promise<ExecuteRunResult> {
+  const perfCollector = createRunPerfCollector(input.runId)
+  const instrumentedCreateToolCall = (toolCall: ToolCallRecord): void => {
+    const t0 = performance.now()
+    deps.storage.createToolCall(toolCall)
+    perfCollector.recordToolCallWrite(performance.now() - t0)
+  }
+  const instrumentedUpdateToolCall = (toolCall: ToolCallRecord): void => {
+    const t0 = performance.now()
+    deps.storage.updateToolCall(toolCall)
+    perfCollector.recordToolCallWrite(performance.now() - t0)
+  }
   const settings = deps.readSettings()
   const harnessId = deps.createId()
   const recoveryCheckpoint = input.recoveryCheckpoint
@@ -962,7 +975,9 @@ export async function executeServerRun(
       recoveryAttempts: options.recoveryAttempts ?? recoveryCheckpoint?.recoveryAttempts ?? 0,
       ...(options.lastError ? { lastError: options.lastError } : {})
     }
+    const cpStart = performance.now()
     upsertRunRecoveryCheckpoint(deps, checkpoint)
+    perfCollector.recordCheckpointWrite(performance.now() - cpStart)
     lastCheckpointPersistAtMs = Date.now()
     return checkpoint
   }
@@ -1006,6 +1021,8 @@ export async function executeServerRun(
       textBlocks = nextTextBlockState.textBlocks
       shouldStartNewTextBlock = nextTextBlockState.shouldStartNewBlock
       persistRecoveryCheckpointThrottled()
+      perfCollector.recordDeltaEvent()
+      perfCollector.addTextChars(batch.length)
       deps.emit<MessageDeltaEvent>({
         type: 'message.delta',
         threadId: input.thread.id,
@@ -1024,6 +1041,7 @@ export async function executeServerRun(
       reasoningLength += batch.length
       appendRecoveryReasoningDelta(recoveryResponseMessages, batch)
       persistRecoveryCheckpointThrottled()
+      perfCollector.recordReasoningDeltaEvent()
       deps.emit<MessageReasoningDeltaEvent>({
         type: 'message.reasoning.delta',
         threadId: input.thread.id,
@@ -1494,9 +1512,9 @@ export async function executeServerRun(
 
                     toolCalls.set(toolCallId, waitingToolCall)
                     if (existingToolCall) {
-                      deps.storage.updateToolCall(waitingToolCall)
+                      instrumentedUpdateToolCall(waitingToolCall)
                     } else {
-                      deps.storage.createToolCall(waitingToolCall)
+                      instrumentedCreateToolCall(waitingToolCall)
                     }
                     persistRecoveryCheckpoint()
 
@@ -1664,7 +1682,7 @@ export async function executeServerRun(
         }
 
         toolCalls.set(toolCall.id, toolCall)
-        deps.storage.createToolCall(toolCall)
+        instrumentedCreateToolCall(toolCall)
         appendRecoveryToolCall(recoveryResponseMessages, {
           toolCallId: toolCall.id,
           toolName: toolCall.toolName,
@@ -1705,7 +1723,7 @@ export async function executeServerRun(
         }
 
         toolCalls.set(toolCall.id, toolCall)
-        deps.storage.updateToolCall(toolCall)
+        instrumentedUpdateToolCall(toolCall)
         persistRecoveryCheckpoint()
         deps.emit<ToolCallUpdatedEvent>({
           type: 'tool.updated',
@@ -1754,9 +1772,9 @@ export async function executeServerRun(
 
         toolCalls.set(toolCall.id, toolCall)
         if (existingToolCall) {
-          deps.storage.updateToolCall(toolCall)
+          instrumentedUpdateToolCall(toolCall)
         } else {
-          deps.storage.createToolCall(toolCall)
+          instrumentedCreateToolCall(toolCall)
           appendRecoveryToolCall(recoveryResponseMessages, {
             toolCallId: toolCall.id,
             toolName: event.toolCall.toolName,
@@ -1824,9 +1842,9 @@ export async function executeServerRun(
 
           toolCalls.set(toolCall.id, toolCall)
           if (startedToolCall) {
-            deps.storage.updateToolCall(toolCall)
+            instrumentedUpdateToolCall(toolCall)
           } else {
-            deps.storage.createToolCall(toolCall)
+            instrumentedCreateToolCall(toolCall)
             appendRecoveryToolCall(recoveryResponseMessages, {
               toolCallId: toolCall.id,
               toolName: event.toolCall.toolName,
@@ -2015,6 +2033,7 @@ export async function executeServerRun(
       runId: input.runId,
       ...lastUsage
     })
+    perfCollector.finish(input.thread.id)
     const usedRememberTool = Array.from(toolCalls.values()).some(
       (tc) => tc.toolName === 'remember' && tc.status === 'completed' && !tc.error
     )
@@ -2100,7 +2119,7 @@ export async function executeServerRun(
             if (toolCall.runId === input.runId && toolCall.assistantMessageId !== messageId) {
               const bound: ToolCallRecord = { ...toolCall, assistantMessageId: messageId }
               toolCalls.set(toolCallId, bound)
-              deps.storage.updateToolCall(bound)
+              instrumentedUpdateToolCall(bound)
               deps.emit<ToolCallUpdatedEvent>({
                 type: 'tool.updated',
                 threadId: input.thread.id,
@@ -2212,7 +2231,7 @@ export async function executeServerRun(
           if (toolCall.runId === input.runId && toolCall.assistantMessageId !== messageId) {
             const bound: ToolCallRecord = { ...toolCall, assistantMessageId: messageId }
             toolCalls.set(toolCallId, bound)
-            deps.storage.updateToolCall(bound)
+            instrumentedUpdateToolCall(bound)
             deps.emit<ToolCallUpdatedEvent>({
               type: 'tool.updated',
               threadId: input.thread.id,
@@ -2242,6 +2261,7 @@ export async function executeServerRun(
         threadId: input.thread.id,
         runId: input.runId
       })
+      perfCollector.finish(input.thread.id)
       return { kind: 'cancelled' }
     }
 
@@ -2321,7 +2341,7 @@ export async function executeServerRun(
         if (toolCall.runId === input.runId && toolCall.assistantMessageId !== messageId) {
           const bound: ToolCallRecord = { ...toolCall, assistantMessageId: messageId }
           toolCalls.set(toolCallId, bound)
-          deps.storage.updateToolCall(bound)
+          instrumentedUpdateToolCall(bound)
           deps.emit<ToolCallUpdatedEvent>({
             type: 'tool.updated',
             threadId: input.thread.id,
@@ -2366,6 +2386,7 @@ export async function executeServerRun(
       runId: input.runId,
       error: message
     })
+    perfCollector.finish(input.thread.id)
     return { kind: 'failed' }
   }
 }

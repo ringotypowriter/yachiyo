@@ -50,6 +50,7 @@ import type {
   SkillCatalogEntry,
   UsageStatsInput,
   UsageStatsResponse,
+  PerfStatsResponse,
   WebSearchBrowserImportSource,
   YachiyoServerEvent
 } from '../shared/yachiyo/protocol'
@@ -139,6 +140,7 @@ declare global {
         revealFile: (input: { path: string }) => Promise<void>
         openFileInEditor: (input: { path: string; editorApp: string }) => Promise<void>
         getUsageStats: (input: UsageStatsInput) => Promise<UsageStatsResponse>
+        getPerfStats: () => Promise<PerfStatsResponse>
 
         getConfig: () => Promise<SettingsConfig>
         getSoulDocument: () => Promise<SoulDocument>

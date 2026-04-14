@@ -168,7 +168,8 @@ const IPC_CHANNELS = {
   pruneEmptyTemporaryWorkspaces: 'yachiyo:prune-empty-temporary-workspaces',
   revealFile: 'yachiyo:reveal-file',
   openFileInEditor: 'yachiyo:open-file-in-editor',
-  getUsageStats: 'yachiyo:get-usage-stats'
+  getUsageStats: 'yachiyo:get-usage-stats',
+  getPerfStats: 'yachiyo:get-perf-stats'
 } as const
 
 let server: YachiyoServer | null = null
@@ -490,8 +491,11 @@ function registerFatalRunRecovery(): void {
 }
 
 import { isHighFrequencyChatEvent, isAuxiliaryWindow } from './yachiyoGatewayFilter'
+import { getPerfMonitor, stopPerfMonitor } from './yachiyo-server/services/perfMonitor.ts'
 
 function broadcast(event: YachiyoServerEvent): void {
+  getPerfMonitor().recordIpcEvent(event.type)
+
   // Show OS notification when the agent asks for user input and no window is focused
   if (event.type === 'notification.requested') {
     const anyFocused = BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && w.isFocused())
@@ -1050,6 +1054,8 @@ export function registerYachiyoGateway(): YachiyoServer {
 
   handle(IPC_CHANNELS.getUsageStats, (input: UsageStatsInput) => server!.getUsageStats(input))
 
+  handle(IPC_CHANNELS.getPerfStats, () => getPerfMonitor().getStats())
+
   handle(IPC_CHANNELS.openFileInEditor, async (input: { path: string; editorApp: string }) => {
     await new Promise<void>((resolve, reject) => {
       const child = spawn('open', ['-a', input.editorApp, input.path])
@@ -1062,6 +1068,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   })
 
   app.once('before-quit', () => {
+    stopPerfMonitor()
     if (commandSocketHealthTimer) {
       clearInterval(commandSocketHealthTimer)
       commandSocketHealthTimer = null

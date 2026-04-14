@@ -171,6 +171,8 @@ const api = {
       input: import('../shared/yachiyo/protocol').UsageStatsInput
     ): Promise<import('../shared/yachiyo/protocol').UsageStatsResponse> =>
       ipcRenderer.invoke('yachiyo:get-usage-stats', input),
+    getPerfStats: (): Promise<import('../shared/yachiyo/protocol').PerfStatsResponse> =>
+      ipcRenderer.invoke('yachiyo:get-perf-stats'),
 
     getConfig: () => ipcRenderer.invoke('yachiyo:get-config'),
     getSoulDocument: (): Promise<SoulDocument> => ipcRenderer.invoke('yachiyo:get-soul-document'),

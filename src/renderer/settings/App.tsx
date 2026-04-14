@@ -130,7 +130,15 @@ const TABS: Tab[] = [
       { id: 'history', label: 'History' }
     ]
   },
-  { id: 'usage', label: 'Usage', icon: BarChart3 },
+  {
+    id: 'usage',
+    label: 'Statistics',
+    icon: BarChart3,
+    subTabs: [
+      { id: 'usage', label: 'Usage' },
+      { id: 'performance', label: 'Performance' }
+    ]
+  },
   { id: 'ui', label: 'User Interface', icon: Monitor },
   { id: 'about', label: 'About', icon: Info }
 ]
@@ -715,7 +723,7 @@ function SettingsApp(): React.ReactNode {
   }
 
   if (activeTab === 'usage') {
-    body = <UsagePane />
+    body = <UsagePane activeSubTab={activeSubTab['usage'] ?? 'usage'} />
   }
 
   if (activeTab === 'about') {

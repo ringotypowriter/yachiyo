@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AreaChart,
   Area,
@@ -15,7 +15,12 @@ import {
 } from 'recharts'
 import { theme, alpha } from '@renderer/theme/theme'
 import { SimpleSelect } from '../components/primitives'
-import type { UsageStatsPeriod, UsageStatsResponse } from '../../../shared/yachiyo/protocol.ts'
+import type {
+  PerfStatsResponse,
+  RunPerfRecord,
+  UsageStatsPeriod,
+  UsageStatsResponse
+} from '../../../shared/yachiyo/protocol.ts'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -93,7 +98,18 @@ const tooltipStyle = {
 // Component
 // ---------------------------------------------------------------------------
 
-export function UsagePane(): React.ReactNode {
+export function UsagePane({ activeSubTab }: { activeSubTab: string }): React.ReactNode {
+  if (activeSubTab === 'performance') {
+    return <PerformanceContent />
+  }
+  return <UsageContent />
+}
+
+// ---------------------------------------------------------------------------
+// Usage Content (original)
+// ---------------------------------------------------------------------------
+
+function UsageContent(): React.ReactNode {
   const [period, setPeriod] = useState<UsageStatsPeriod>('day')
   const [range, setRange] = useState<RangeKey>('30d')
   const [workspaceFilter, setWorkspaceFilter] = useState<string>('all')
@@ -460,17 +476,260 @@ export function UsagePane(): React.ReactNode {
 }
 
 // ---------------------------------------------------------------------------
+// Performance Content
+// ---------------------------------------------------------------------------
+
+function formatMs(ms: number): string {
+  if (ms >= 1000) return `${(ms / 1000).toFixed(2)}s`
+  return `${ms.toFixed(2)}ms`
+}
+
+function formatDuration(ms: number): string {
+  if (ms >= 60_000) return `${(ms / 60_000).toFixed(1)}m`
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`
+  return `${ms.toFixed(0)}ms`
+}
+
+function formatUptime(seconds: number): string {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  if (h > 0) return `${h}h ${m}m`
+  return `${m}m`
+}
+
+function eventLoopHealthColor(p99Ms: number): string {
+  if (p99Ms < 16) return theme.text.success
+  if (p99Ms < 50) return theme.text.warning
+  return theme.text.danger
+}
+
+function PerformanceContent(): React.ReactNode {
+  const [data, setData] = useState<PerfStatsResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const result = await window.api.yachiyo.getPerfStats()
+      setData(result)
+    } catch (err) {
+      console.error('[perf] failed to fetch stats', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void fetchStats()
+    intervalRef.current = setInterval(() => void fetchStats(), 3000)
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [fetchStats])
+
+  if (loading && !data) {
+    return (
+      <div
+        className="flex items-center justify-center py-16 text-sm h-full"
+        style={{ color: theme.text.tertiary }}
+      >
+        Loading performance data...
+      </div>
+    )
+  }
+
+  if (!data) return null
+
+  const el = data.eventLoop
+  const ipcRate = data.ipcEventsLast60s
+
+  // Top IPC event types, sorted by count
+  const ipcTypeEntries = Object.entries(data.ipcEventsByType)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+
+  return (
+    <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full">
+      {/* Header with uptime */}
+      <div className="flex items-center justify-between">
+        <div className="text-xs" style={{ color: theme.text.muted }}>
+          Uptime: {formatUptime(data.uptimeSeconds)} — Auto-refreshing every 3s
+        </div>
+      </div>
+
+      {/* Event Loop Delay */}
+      <div className="grid grid-cols-4 gap-4">
+        <SummaryCard
+          label="Event Loop p99"
+          value={formatMs(el.p99)}
+          sub={el.p99 < 16 ? 'Healthy' : el.p99 < 50 ? 'Moderate' : 'Stalled'}
+          valueColor={eventLoopHealthColor(el.p99)}
+        />
+        <SummaryCard label="Event Loop p95" value={formatMs(el.p95)} />
+        <SummaryCard label="Event Loop Mean" value={formatMs(el.mean)} />
+        <SummaryCard
+          label="Event Loop Max"
+          value={formatMs(el.max)}
+          sub={el.max > 100 ? 'Spike detected' : undefined}
+          valueColor={el.max > 100 ? theme.text.warning : undefined}
+        />
+      </div>
+
+      {/* IPC Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        <SummaryCard
+          label="IPC Events (60s)"
+          value={String(ipcRate)}
+          sub={`${(ipcRate / 60).toFixed(1)}/sec avg`}
+        />
+        <SummaryCard label="Total IPC Events" value={formatTokens(data.ipcEventCount)} />
+        <SummaryCard label="Active Runs" value={String(data.activeRunCount)} />
+      </div>
+
+      {/* IPC Breakdown */}
+      {ipcTypeEntries.length > 0 && (
+        <ChartSection title="IPC Events by Type (last 60s)">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
+              <thead>
+                <tr
+                  style={{
+                    borderBottom: `1px solid ${alpha('ink', 0.08)}`,
+                    color: theme.text.tertiary
+                  }}
+                >
+                  <th className="text-left py-2 pr-4 font-medium">Event Type</th>
+                  <th className="text-right py-2 pr-4 font-medium">Count</th>
+                  <th className="text-right py-2 font-medium">Rate (/sec)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ipcTypeEntries.map(([type, count]) => (
+                  <tr
+                    key={type}
+                    style={{
+                      borderBottom: `1px solid ${alpha('ink', 0.04)}`,
+                      color: theme.text.primary
+                    }}
+                  >
+                    <td className="py-1.5 pr-4 font-mono text-xs">{type}</td>
+                    <td className="text-right py-1.5 pr-4">{count}</td>
+                    <td className="text-right py-1.5" style={{ color: theme.text.secondary }}>
+                      {(count / 60).toFixed(1)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </ChartSection>
+      )}
+
+      {/* Recent Runs */}
+      {data.recentRuns.length > 0 && (
+        <ChartSection title="Recent Runs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
+              <thead>
+                <tr
+                  style={{
+                    borderBottom: `1px solid ${alpha('ink', 0.08)}`,
+                    color: theme.text.tertiary
+                  }}
+                >
+                  <th className="text-left py-2 pr-3 font-medium">Duration</th>
+                  <th className="text-right py-2 pr-3 font-medium">Deltas</th>
+                  <th className="text-right py-2 pr-3 font-medium">Chars</th>
+                  <th className="text-right py-2 pr-3 font-medium">CP Writes</th>
+                  <th className="text-right py-2 pr-3 font-medium">CP Total</th>
+                  <th className="text-right py-2 pr-3 font-medium">CP Max</th>
+                  <th className="text-right py-2 pr-3 font-medium">Tool Writes</th>
+                  <th className="text-right py-2 font-medium">Tool Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.recentRuns.map((run) => (
+                  <RunRow key={run.runId} run={run} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </ChartSection>
+      )}
+
+      {data.recentRuns.length === 0 && (
+        <div
+          className="flex items-center justify-center py-12 text-sm"
+          style={{ color: theme.text.tertiary }}
+        >
+          No run data yet. Performance records appear after completing a conversation turn.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RunRow({ run }: { run: RunPerfRecord }): React.ReactNode {
+  const cpAvg =
+    run.checkpointWriteCount > 0 ? run.checkpointWriteTotalMs / run.checkpointWriteCount : 0
+  const toolAvg = run.toolCallWriteCount > 0 ? run.toolCallWriteTotalMs / run.toolCallWriteCount : 0
+
+  return (
+    <tr
+      style={{
+        borderBottom: `1px solid ${alpha('ink', 0.04)}`,
+        color: theme.text.primary
+      }}
+    >
+      <td className="py-1.5 pr-3">{formatDuration(run.durationMs)}</td>
+      <td className="text-right py-1.5 pr-3">
+        {run.deltaEventCount}
+        {run.reasoningDeltaEventCount > 0 && (
+          <span style={{ color: theme.text.muted }}> +{run.reasoningDeltaEventCount}r</span>
+        )}
+      </td>
+      <td className="text-right py-1.5 pr-3">{formatTokens(run.textCharsStreamed)}</td>
+      <td className="text-right py-1.5 pr-3">{run.checkpointWriteCount}</td>
+      <td className="text-right py-1.5 pr-3">
+        <span>{formatMs(run.checkpointWriteTotalMs)}</span>
+        {run.checkpointWriteCount > 0 && (
+          <span style={{ color: theme.text.muted }}> ({formatMs(cpAvg)} avg)</span>
+        )}
+      </td>
+      <td className="text-right py-1.5 pr-3">
+        <span
+          style={{
+            color: run.checkpointWriteMaxMs > 20 ? theme.text.warning : undefined
+          }}
+        >
+          {formatMs(run.checkpointWriteMaxMs)}
+        </span>
+      </td>
+      <td className="text-right py-1.5 pr-3">{run.toolCallWriteCount}</td>
+      <td className="text-right py-1.5">
+        <span>{formatMs(run.toolCallWriteTotalMs)}</span>
+        {run.toolCallWriteCount > 0 && (
+          <span style={{ color: theme.text.muted }}> ({formatMs(toolAvg)} avg)</span>
+        )}
+      </td>
+    </tr>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
 function SummaryCard({
   label,
   value,
-  sub
+  sub,
+  valueColor
 }: {
   label: string
   value: string
   sub?: string
+  valueColor?: string
 }): React.ReactNode {
   return (
     <div
@@ -485,7 +744,7 @@ function SummaryCard({
       </div>
       <div
         className="text-lg font-semibold truncate"
-        style={{ color: theme.text.primary }}
+        style={{ color: valueColor ?? theme.text.primary }}
         title={value}
       >
         {value}
