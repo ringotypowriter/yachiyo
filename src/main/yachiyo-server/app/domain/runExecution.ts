@@ -611,6 +611,11 @@ function buildAgentInstructions(input: {
     'Never invent file contents, API shapes, configuration keys, or project structures. Before making any factual claim about the current workspace, read or search the relevant files first. Do not rely on training data or memory in place of reading actual files. If you are uncertain about any of these, use tools to discover the ground truth before proceeding.'
   )
 
+  // Formatting discipline
+  instructions.push(
+    'If you include mathematical notation, use only $$...$$ KaTeX-style block syntax. Do not use single-dollar inline math ($...$), \\(...\\), or \\[...\\].'
+  )
+
   // Response Discipline
   instructions.push(
     "After completing tool work, always synthesize a direct response to the user's original question. Never end your turn with only tool calls and no user-facing text."
