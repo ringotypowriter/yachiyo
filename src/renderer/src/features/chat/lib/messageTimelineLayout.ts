@@ -1,4 +1,4 @@
-import type { MessageStatus, MessageTextBlockRecord, ToolCall } from '@renderer/app/types'
+import type { MessageTextBlockRecord, ToolCall } from '@renderer/app/types'
 import { resolveBashSemanticGroup } from './bashSemanticAnalyzer.ts'
 
 export type ToolCallSemanticGroup =
@@ -138,7 +138,6 @@ export function buildConversationGroupTimelineItems(input: {
   replyCount: number
   showPreparing: boolean
   showGenerating: boolean
-  activeBranchStatus?: MessageStatus
   activeAssistantTextBlocks: MessageTextBlockRecord[]
   visibleToolCalls: ToolCall[]
 }): ConversationGroupTimelineItem[] {
@@ -148,19 +147,7 @@ export function buildConversationGroupTimelineItems(input: {
     items.push({ kind: 'memory-recall', key: 'memory-recall' })
   }
 
-  const nonEmptyTextBlocks = input.activeAssistantTextBlocks.filter(
-    (textBlock) => textBlock.content.trim().length > 0
-  )
-  const lastVisibleTextBlock = nonEmptyTextBlocks.at(-1)
-  const shouldHidePostTextTools =
-    (input.activeBranchStatus === 'failed' || input.activeBranchStatus === 'stopped') &&
-    lastVisibleTextBlock != null
-
-  const filteredToolCalls = shouldHidePostTextTools
-    ? input.visibleToolCalls.filter(
-        (toolCall) => toolCall.startedAt <= lastVisibleTextBlock.createdAt
-      )
-    : input.visibleToolCalls
+  const filteredToolCalls = input.visibleToolCalls
 
   const chronologicalEntries: ChronologicalTimelineEntry[] = []
 

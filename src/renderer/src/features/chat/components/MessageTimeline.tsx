@@ -233,7 +233,6 @@ export const ThreadConversationGroup = memo(function ThreadConversationGroup({
           activeAssistantTextBlocks.length > 0 &&
           !hasRunningToolCall &&
           !subagentActive,
-        activeBranchStatus: activeBranch?.message.status,
         activeAssistantTextBlocks,
         visibleToolCalls
       }),
