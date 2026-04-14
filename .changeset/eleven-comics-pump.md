@@ -1,0 +1,5 @@
+---
+'yachiyo': patch
+---
+
+Minor Fix
