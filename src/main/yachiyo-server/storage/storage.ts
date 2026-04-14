@@ -178,6 +178,7 @@ export interface StoredRunRow {
   cacheWriteTokens: number | null
   modelId: string | null
   providerName: string | null
+  snapshotFileCount: number | null
 }
 
 export interface RunRecoveryCheckpoint {
@@ -254,6 +255,8 @@ export interface YachiyoStorage {
   completeRun(input: CompleteRunInput): void
   cancelRun(input: { runId: string; completedAt: string }): void
   failRun(input: { runId: string; completedAt: string; error: string }): void
+  updateRunSnapshotFileCount(runId: string, fileCount: number): void
+  listThreadRuns(threadId: string): RunRecord[]
   listThreadMessages(threadId: string): MessageRecord[]
   updateMessage(message: MessageRecord): void
   listThreadToolCalls(threadId: string): ToolCallRecord[]
@@ -752,6 +755,7 @@ export function toRunRecord(row: StoredRunRow): RunRecord {
     ...(row.cacheWriteTokens == null ? {} : { cacheWriteTokens: row.cacheWriteTokens }),
     ...(row.modelId == null ? {} : { modelId: row.modelId }),
     ...(row.providerName == null ? {} : { providerName: row.providerName }),
+    ...(row.snapshotFileCount == null ? {} : { snapshotFileCount: row.snapshotFileCount }),
     createdAt: row.createdAt,
     id: row.id,
     status: row.status,

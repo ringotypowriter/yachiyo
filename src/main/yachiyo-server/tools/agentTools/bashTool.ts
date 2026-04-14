@@ -553,6 +553,25 @@ export async function* streamBashTool(
     try {
       await mkdir(join(context.workspacePath, '.yachiyo', 'tool-output'), { recursive: true })
 
+      // Layer 2: Pre-backup files that bash might modify
+      if (context.snapshotTracker) {
+        try {
+          const { resolveBashSemanticGroup } =
+            await import('../../../../shared/yachiyo/bashSemanticAnalyzer.ts')
+          const { extractBashTargetFiles } =
+            await import('../../services/fileSnapshot/bashTargetExtractor.ts')
+          const group = resolveBashSemanticGroup(command)
+          if (group === 'edit-files' || group === 'write-files') {
+            const targets = extractBashTargetFiles(command, context.workspacePath)
+            for (const target of targets) {
+              await context.snapshotTracker.trackBeforeWrite(target)
+            }
+          }
+        } catch {
+          // Don't block bash execution for snapshot errors
+        }
+      }
+
       const runner = options.runCommand ?? defaultBashRunner
       const adoptHook = context.onBackgroundBashAdopted
       const result = await runner({

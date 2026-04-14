@@ -423,7 +423,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
                   cacheReadTokens: runsTable.cacheReadTokens,
                   cacheWriteTokens: runsTable.cacheWriteTokens,
                   modelId: runsTable.modelId,
-                  providerName: runsTable.providerName
+                  providerName: runsTable.providerName,
+                  snapshotFileCount: runsTable.snapshotFileCount
                 })
                 .from(runsTable)
                 .where(inArray(runsTable.threadId, threadIds))
@@ -1065,6 +1066,41 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .set({ status: 'failed', finishedAt: completedAt })
         .where(and(eq(toolCallsTable.runId, runId), eq(toolCallsTable.status, 'running')))
         .run()
+    },
+
+    updateRunSnapshotFileCount(runId, fileCount) {
+      db.update(runsTable)
+        .set({ snapshotFileCount: fileCount })
+        .where(eq(runsTable.id, runId))
+        .run()
+    },
+
+    listThreadRuns(threadId) {
+      return db
+        .select({
+          assistantMessageId: runsTable.assistantMessageId,
+          completedAt: runsTable.completedAt,
+          completionTokens: runsTable.completionTokens,
+          createdAt: runsTable.createdAt,
+          error: runsTable.error,
+          id: runsTable.id,
+          promptTokens: runsTable.promptTokens,
+          requestMessageId: runsTable.requestMessageId,
+          status: runsTable.status,
+          threadId: runsTable.threadId,
+          totalCompletionTokens: runsTable.totalCompletionTokens,
+          totalPromptTokens: runsTable.totalPromptTokens,
+          cacheReadTokens: runsTable.cacheReadTokens,
+          cacheWriteTokens: runsTable.cacheWriteTokens,
+          modelId: runsTable.modelId,
+          providerName: runsTable.providerName,
+          snapshotFileCount: runsTable.snapshotFileCount
+        })
+        .from(runsTable)
+        .where(eq(runsTable.threadId, threadId))
+        .orderBy(desc(runsTable.createdAt))
+        .all()
+        .map(toRunRecord)
     },
 
     listThreadMessages(threadId) {

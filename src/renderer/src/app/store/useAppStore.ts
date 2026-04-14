@@ -212,6 +212,9 @@ interface AppState {
   showExternalThreads: boolean
   threadListMode: 'active' | 'archived'
   toolCalls: Record<string, ToolCall[]>
+  /** Snapshot review info per run, set by snapshot.ready events. */
+  snapshotReviewByRun: Record<string, { threadId: string; fileCount: number }>
+  clearSnapshotReview: (runId: string) => void
 
   applyServerEvent: (event: YachiyoServerEvent) => void
   cancelActiveRun: () => Promise<void>
@@ -1352,6 +1355,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   showExternalThreads: false,
   threadListMode: 'active',
   toolCalls: {},
+  snapshotReviewByRun: {},
+  clearSnapshotReview: (runId) =>
+    set((state) => {
+      const next = { ...state.snapshotReviewByRun }
+      delete next[runId]
+      return { snapshotReviewByRun: next }
+    }),
 
   applyServerEvent: (event) => {
     const notifyActivity = (key: string, threadId: string, title: string, body: string): void => {
@@ -1444,6 +1454,29 @@ export const useAppStore = create<AppState>((set, get) => ({
           'Run completed'
         notifyActivity(`run.completed:${event.runId}`, event.threadId, thread.title, preview)
       }
+    }
+
+    if (event.type === 'snapshot.ready') {
+      set((state) => ({
+        snapshotReviewByRun: {
+          ...state.snapshotReviewByRun,
+          [event.runId]: { threadId: event.threadId, fileCount: event.fileCount }
+        },
+        runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
+          ...run!,
+          snapshotFileCount: event.fileCount
+        })),
+        latestRunsByThread:
+          state.latestRunsByThread[event.threadId]?.id === event.runId
+            ? {
+                ...state.latestRunsByThread,
+                [event.threadId]: {
+                  ...state.latestRunsByThread[event.threadId]!,
+                  snapshotFileCount: event.fileCount
+                }
+              }
+            : state.latestRunsByThread
+      }))
     }
 
     if (event.type === 'subagent.started') {
@@ -3033,25 +3066,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
     void refreshAvailableSkills(set, get)
 
-    // Load messages on-demand for threads not yet in memory (e.g. external threads).
-    console.log(
-      `[setActiveThread] id=${id} hasMessages=${Boolean(messages[id]?.length)} msgCount=${messages[id]?.length ?? 0}`
-    )
-    if (
-      !messages[id]?.length &&
-      typeof window !== 'undefined' &&
-      window.api?.yachiyo?.loadThreadData
-    ) {
-      console.log(`[setActiveThread] loading thread data for ${id}`)
+    // Load thread data on-demand. Messages and tool calls are loaded only when
+    // not yet in memory; runs are always refreshed so the run history sidebar
+    // shows the full list from the database.
+    if (typeof window !== 'undefined' && window.api?.yachiyo?.loadThreadData) {
+      const needsMessages = !messages[id]?.length
+      if (needsMessages) {
+        console.log(`[setActiveThread] loading thread data for ${id}`)
+      }
       void window.api.yachiyo.loadThreadData({ threadId: id }).then((data) => {
-        console.log(
-          `[setActiveThread] loaded ${data.messages.length} messages, ${data.toolCalls.length} toolCalls for ${id}`
-        )
         set((state) => {
-          const toolCalls = { ...state.toolCalls, [id]: data.toolCalls }
+          const toolCalls = needsMessages
+            ? { ...state.toolCalls, [id]: data.toolCalls }
+            : state.toolCalls
           return {
-            messages: { ...state.messages, [id]: data.messages },
+            ...(needsMessages ? { messages: { ...state.messages, [id]: data.messages } } : {}),
             toolCalls,
+            ...(data.runs ? { runsByThread: { ...state.runsByThread, [id]: data.runs } } : {}),
             ...deriveSubagentStateFromToolCalls(
               toolCalls,
               state.subagentStateById,

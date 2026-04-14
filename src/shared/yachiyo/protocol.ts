@@ -1051,6 +1051,8 @@ export interface RunRecord {
   cacheWriteTokens?: number
   modelId?: string
   providerName?: string
+  /** Number of files changed in this run's snapshot (0 or absent = no snapshot). */
+  snapshotFileCount?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -1400,6 +1402,11 @@ export interface RunCancelledEvent extends RunEvent {
   type: 'run.cancelled'
 }
 
+export interface SnapshotReadyEvent extends RunEvent {
+  type: 'snapshot.ready'
+  fileCount: number
+}
+
 export interface MessageStartedEvent extends RunEvent {
   type: 'message.started'
   messageId: string
@@ -1527,6 +1534,7 @@ export type YachiyoServerEvent =
   | BackgroundTaskCompletedEvent
   | BackgroundTaskStartedEvent
   | BackgroundTaskLogAppendEvent
+  | SnapshotReadyEvent
 
 // ---------------------------------------------------------------------------
 // Schedule

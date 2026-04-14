@@ -1,5 +1,5 @@
 import type { MessageTextBlockRecord, ToolCall } from '@renderer/app/types'
-import { resolveBashSemanticGroup } from './bashSemanticAnalyzer.ts'
+import { resolveBashSemanticGroup } from '../../../../../shared/yachiyo/bashSemanticAnalyzer.ts'
 
 export type ToolCallSemanticGroup =
   | 'search-sources'

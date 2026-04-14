@@ -306,6 +306,25 @@ const api = {
     }): Promise<import('../shared/yachiyo/protocol').ThreadRecord> =>
       ipcRenderer.invoke('yachiyo:mark-thread-as-read', input),
 
+    getSnapshotDiff: (input: {
+      runId: string
+      workspacePath: string
+    }): Promise<import('../shared/yachiyo/fileSnapshot').FileChangeForReview[]> =>
+      ipcRenderer.invoke('yachiyo:get-snapshot-diff', input),
+    revertSnapshotFile: (input: {
+      runId: string
+      workspacePath: string
+      relativePath: string
+    }): Promise<void> => ipcRenderer.invoke('yachiyo:revert-snapshot-file', input),
+    revertSnapshotRun: (input: { runId: string; workspacePath: string }): Promise<void> =>
+      ipcRenderer.invoke('yachiyo:revert-snapshot-run', input),
+    listRunSnapshots: (input: {
+      workspacePath: string
+    }): Promise<import('../shared/yachiyo/fileSnapshot').SnapshotSummary[]> =>
+      ipcRenderer.invoke('yachiyo:list-run-snapshots', input),
+    restoreToCheckpoint: (input: { runId: string; workspacePath: string }): Promise<string[]> =>
+      ipcRenderer.invoke('yachiyo:restore-to-checkpoint', input),
+
     showNotification: (input: { title: string; body?: string }): void =>
       ipcRenderer.send('yachiyo:show-notification', input),
     beep: (): void => ipcRenderer.send('yachiyo:beep'),

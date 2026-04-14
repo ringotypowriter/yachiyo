@@ -74,6 +74,10 @@ export async function runWriteTool(
       )
     }
 
+    if (context.snapshotTracker) {
+      await context.snapshotTracker.trackBeforeWrite(resolvedPath)
+    }
+
     await mkdir(dirname(resolvedPath), { recursive: true })
     await writeFile(resolvedPath, input.content, { encoding: 'utf8', signal: abortSignal })
 

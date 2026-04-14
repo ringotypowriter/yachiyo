@@ -126,7 +126,8 @@ export const runsTable = sqliteTable('runs', {
   cacheReadTokens: integer('cache_read_tokens'),
   cacheWriteTokens: integer('cache_write_tokens'),
   modelId: text('model_id'),
-  providerName: text('provider_name')
+  providerName: text('provider_name'),
+  snapshotFileCount: integer('snapshot_file_count')
 })
 
 export const runRecoveryCheckpointsTable = sqliteTable('run_recovery_checkpoints', {

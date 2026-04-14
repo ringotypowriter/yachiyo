@@ -1,4 +1,6 @@
 import { performance } from 'node:perf_hooks'
+import { SnapshotTracker } from '../../services/fileSnapshot/snapshotTracker.ts'
+import { runGc } from '../../services/fileSnapshot/snapshotGc.ts'
 import { execFile } from 'node:child_process'
 import { access, constants, readFile } from 'node:fs/promises'
 import { mkdir } from 'node:fs/promises'
@@ -39,6 +41,7 @@ import type {
   SubagentFinishedEvent,
   ThreadRecord,
   ThreadUpdatedEvent,
+  SnapshotReadyEvent,
   ToolCallName,
   ToolCallRecord,
   ToolCallUpdatedEvent
@@ -1104,11 +1107,14 @@ export async function executeServerRun(
   }
   persistRecoveryCheckpoint()
 
+  let snapshotTracker: SnapshotTracker | null = null
+
   try {
     const workspacePath = await ensureResolvedWorkspacePath(
       input.thread,
       deps.ensureThreadWorkspace
     )
+    snapshotTracker = new SnapshotTracker(workspacePath, input.runId, input.thread.id)
     const runtime = deps.createModelRuntime()
     const availableSkills = await deps.listSkills([workspacePath])
     const activeSkills = resolveActiveSkills({
@@ -1427,6 +1433,7 @@ export async function executeServerRun(
         enabledTools: modelEnabledTools,
         workspacePath,
         sandboxed: isExternalChannel && !isOwnerDm,
+        snapshotTracker,
         ...(deps.onBackgroundBashStarted
           ? {
               onBackgroundBashStarted: async (task) => {
@@ -2034,6 +2041,27 @@ export async function executeServerRun(
       ...lastUsage
     })
     perfCollector.finish(input.thread.id)
+
+    // Finalize file snapshot (Layer 3 scan + persist)
+    if (snapshotTracker) {
+      try {
+        await snapshotTracker.scanWorkspace()
+        const snapshot = await snapshotTracker.finalize()
+        if (snapshot.entries.length > 0) {
+          deps.storage.updateRunSnapshotFileCount(input.runId, snapshot.entries.length)
+          deps.emit<SnapshotReadyEvent>({
+            type: 'snapshot.ready',
+            threadId: input.thread.id,
+            runId: input.runId,
+            fileCount: snapshot.entries.length
+          })
+        }
+        runGc(snapshotTracker.workspaceHash).catch(() => {})
+      } catch (err) {
+        console.error('[snapshot] Finalization failed:', err)
+      }
+    }
+
     const usedRememberTool = Array.from(toolCalls.values()).some(
       (tc) => tc.toolName === 'remember' && tc.status === 'completed' && !tc.error
     )
@@ -2044,6 +2072,7 @@ export async function executeServerRun(
     }
   } catch (error) {
     clearSafeSteerTimer()
+    snapshotTracker?.dispose()
 
     // Reject any pending askUser promises so the tool execution unblocks
     for (const [id, pending] of pendingUserAnswers) {
@@ -2262,6 +2291,26 @@ export async function executeServerRun(
         runId: input.runId
       })
       perfCollector.finish(input.thread.id)
+
+      // Finalize snapshot for cancelled runs so partial changes are reviewable.
+      if (snapshotTracker?.hasTrackedFiles) {
+        try {
+          const snapshot = await snapshotTracker.finalize()
+          if (snapshot.entries.length > 0) {
+            deps.storage.updateRunSnapshotFileCount(input.runId, snapshot.entries.length)
+            deps.emit<SnapshotReadyEvent>({
+              type: 'snapshot.ready',
+              threadId: input.thread.id,
+              runId: input.runId,
+              fileCount: snapshot.entries.length
+            })
+          }
+          runGc(snapshotTracker.workspaceHash).catch(() => {})
+        } catch {
+          // Best effort — don't fail the cancel path
+        }
+      }
+
       return { kind: 'cancelled' }
     }
 

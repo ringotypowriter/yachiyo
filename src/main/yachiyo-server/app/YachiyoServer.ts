@@ -21,6 +21,7 @@ import type {
   ProviderSettings,
   RetryAccepted,
   RetryInput,
+  RunRecord,
   SaveThreadInput,
   SaveThreadResult,
   ScheduleRecord,
@@ -974,12 +975,14 @@ export class YachiyoServer {
   loadThreadData(threadId: string): {
     messages: MessageRecord[]
     toolCalls: ToolCallRecord[]
+    runs: RunRecord[]
     scheduleRun?: ScheduleRunRecord
   } {
     const scheduleRun = this.storage.getScheduleRunByThreadId(threadId)
     return {
       messages: this.storage.listThreadMessages(threadId),
       toolCalls: this.storage.listThreadToolCalls(threadId),
+      runs: this.storage.listThreadRuns(threadId),
       ...(scheduleRun ? { scheduleRun } : {})
     }
   }

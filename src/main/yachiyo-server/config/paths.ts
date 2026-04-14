@@ -63,6 +63,12 @@ export function resolveYachiyoJotdownsDir(): string {
   return join(resolveYachiyoDataDir(), YACHIYO_JOTDOWNS_DIR_NAME)
 }
 
+export const YACHIYO_FILE_HISTORY_DIR_NAME = 'file-history'
+
+export function resolveYachiyoFileHistoryDir(): string {
+  return join(resolveYachiyoDataDir(), YACHIYO_FILE_HISTORY_DIR_NAME)
+}
+
 export const YACHIYO_WORKSPACE_INDEX_DIR_NAME = 'workspace-indexes'
 
 export function resolveYachiyoWorkspaceIndexDir(): string {

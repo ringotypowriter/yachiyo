@@ -201,6 +201,7 @@ declare global {
         loadThreadData: (input: { threadId: string }) => Promise<{
           messages: import('../shared/yachiyo/protocol').MessageRecord[]
           toolCalls: import('../shared/yachiyo/protocol').ToolCallRecord[]
+          runs: import('../shared/yachiyo/protocol').RunRecord[]
           scheduleRun?: import('../shared/yachiyo/protocol').ScheduleRunRecord
         }>
         listBackgroundTasks: (input: {
@@ -230,6 +231,22 @@ declare global {
         listRecentScheduleRuns: (input?: { limit?: number }) => Promise<ScheduleRunRecord[]>
         triggerScheduleNow: (input: { scheduleId: string }) => Promise<void>
         markThreadAsRead: (input: { threadId: string }) => Promise<ThreadRecord>
+
+        // File snapshots
+        getSnapshotDiff: (input: {
+          runId: string
+          workspacePath: string
+        }) => Promise<import('../shared/yachiyo/fileSnapshot').FileChangeForReview[]>
+        revertSnapshotFile: (input: {
+          runId: string
+          workspacePath: string
+          relativePath: string
+        }) => Promise<void>
+        revertSnapshotRun: (input: { runId: string; workspacePath: string }) => Promise<void>
+        listRunSnapshots: (input: {
+          workspacePath: string
+        }) => Promise<import('../shared/yachiyo/fileSnapshot').SnapshotSummary[]>
+        restoreToCheckpoint: (input: { runId: string; workspacePath: string }) => Promise<string[]>
 
         showNotification: (input: { title: string; body?: string }) => void
         beep: () => void

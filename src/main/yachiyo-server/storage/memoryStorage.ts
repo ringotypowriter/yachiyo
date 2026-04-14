@@ -452,7 +452,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         cacheReadTokens: null,
         cacheWriteTokens: null,
         modelId: null,
-        providerName: null
+        providerName: null,
+        snapshotFileCount: null
       })
     },
 
@@ -544,6 +545,17 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
           toolCall.finishedAt = completedAt
         }
       }
+    },
+
+    updateRunSnapshotFileCount(runId, fileCount) {
+      const run = runs.get(runId)
+      if (run) run.snapshotFileCount = fileCount
+    },
+
+    listThreadRuns(threadId) {
+      return sortByCreatedAt([...runs.values()])
+        .filter((r) => r.threadId === threadId)
+        .map(toRunRecord)
     },
 
     listThreadMessages(threadId) {

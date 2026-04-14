@@ -185,6 +185,10 @@ export async function runEditTool(
       }
     }
 
+    if (context.snapshotTracker) {
+      await context.snapshotTracker.trackBeforeWrite(resolvedPath)
+    }
+
     const nextContent = input.replace_all
       ? original.replaceAll(input.oldText, input.newText)
       : original.replace(input.oldText, input.newText)

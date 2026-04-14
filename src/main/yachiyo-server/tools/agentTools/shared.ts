@@ -141,6 +141,8 @@ export interface AgentToolContext {
   sandboxed?: boolean
   /** Shared read-record cache for the read-before-edit/write guard. */
   readRecordCache?: ReadRecordCache
+  /** Snapshot tracker for capturing file states before modifications. */
+  snapshotTracker?: import('../../services/fileSnapshot/snapshotTracker.ts').SnapshotTracker
   onBackgroundBashStarted?: (task: BackgroundBashTaskHandle) => Promise<void>
   /** Adopt a foreground bash child that exceeded its timeout, instead of killing it. */
   onBackgroundBashAdopted?: (task: BackgroundBashAdoptionHandle) => Promise<void>

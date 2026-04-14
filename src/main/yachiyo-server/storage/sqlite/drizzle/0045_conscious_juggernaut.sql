@@ -1,0 +1,1 @@
+ALTER TABLE `runs` ADD `snapshot_file_count` integer;

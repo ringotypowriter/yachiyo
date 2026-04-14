@@ -73,6 +73,14 @@ import {
   type ScheduleService
 } from './yachiyo-server/services/scheduleService.ts'
 import { createJotdownStore } from './yachiyo-server/services/jotdownStore.ts'
+import {
+  generateDiffForRun,
+  restoreToCheckpoint,
+  revertFile,
+  revertRun
+} from './yachiyo-server/services/fileSnapshot/diffGenerator.ts'
+import { hashWorkspacePath } from './yachiyo-server/services/fileSnapshot/casStore.ts'
+import { listSnapshotRuns } from './yachiyo-server/services/fileSnapshot/snapshotIndex.ts'
 
 const IPC_CHANNELS = {
   showNotification: 'yachiyo:show-notification',
@@ -169,7 +177,12 @@ const IPC_CHANNELS = {
   revealFile: 'yachiyo:reveal-file',
   openFileInEditor: 'yachiyo:open-file-in-editor',
   getUsageStats: 'yachiyo:get-usage-stats',
-  getPerfStats: 'yachiyo:get-perf-stats'
+  getPerfStats: 'yachiyo:get-perf-stats',
+  getSnapshotDiff: 'yachiyo:get-snapshot-diff',
+  revertSnapshotFile: 'yachiyo:revert-snapshot-file',
+  revertSnapshotRun: 'yachiyo:revert-snapshot-run',
+  listRunSnapshots: 'yachiyo:list-run-snapshots',
+  restoreToCheckpoint: 'yachiyo:restore-to-checkpoint'
 } as const
 
 let server: YachiyoServer | null = null
@@ -1055,6 +1068,28 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.getUsageStats, (input: UsageStatsInput) => server!.getUsageStats(input))
 
   handle(IPC_CHANNELS.getPerfStats, () => getPerfMonitor().getStats())
+
+  handle(IPC_CHANNELS.getSnapshotDiff, (input: { runId: string; workspacePath: string }) =>
+    generateDiffForRun(input.workspacePath, input.runId)
+  )
+
+  handle(
+    IPC_CHANNELS.revertSnapshotFile,
+    (input: { runId: string; workspacePath: string; relativePath: string }) =>
+      revertFile(input.workspacePath, input.runId, input.relativePath)
+  )
+
+  handle(IPC_CHANNELS.revertSnapshotRun, (input: { runId: string; workspacePath: string }) =>
+    revertRun(input.workspacePath, input.runId)
+  )
+
+  handle(IPC_CHANNELS.listRunSnapshots, (input: { workspacePath: string }) =>
+    listSnapshotRuns(hashWorkspacePath(input.workspacePath))
+  )
+
+  handle(IPC_CHANNELS.restoreToCheckpoint, (input: { runId: string; workspacePath: string }) =>
+    restoreToCheckpoint(input.workspacePath, input.runId)
+  )
 
   handle(IPC_CHANNELS.openFileInEditor, async (input: { path: string; editorApp: string }) => {
     await new Promise<void>((resolve, reject) => {
