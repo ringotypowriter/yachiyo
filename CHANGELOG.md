@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.27
+
+### Patch Changes
+
+- [`ce28fb0`](https://github.com/ringotypowriter/yachiyo/commit/ce28fb003049497360f1400e1be9b497cc84c212) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Minor Fix
+
 ## 1.0.26
 
 ### Patch Changes
