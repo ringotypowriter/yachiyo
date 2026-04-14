@@ -40,8 +40,14 @@ function readInitialChannel(): UpdateChannel {
   }
 }
 
+const releaseNotesCache = new Map<string, string>()
+
 async function fetchReleaseNotes(version: string): Promise<string> {
   const tag = version.startsWith('v') ? version : `v${version}`
+
+  const cached = releaseNotesCache.get(tag)
+  if (cached !== undefined) return cached
+
   const url = `https://api.github.com/repos/ringotypowriter/yachiyo/releases/tags/${tag}`
   const resp = await net.fetch(url, {
     headers: { Accept: 'application/vnd.github+json' }
@@ -50,7 +56,9 @@ async function fetchReleaseNotes(version: string): Promise<string> {
     throw new Error(`GitHub API returned ${resp.status}`)
   }
   const data = (await resp.json()) as { body?: string }
-  return data.body ?? ''
+  const body = data.body ?? ''
+  releaseNotesCache.set(tag, body)
+  return body
 }
 
 function setupDevMock(): void {
