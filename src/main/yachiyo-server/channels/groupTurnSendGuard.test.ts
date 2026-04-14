@@ -22,7 +22,7 @@ describe('createGroupTurnSendGuard', () => {
 
     assert.equal(
       guard.recordBlockedAttempt('throttled'),
-      'Dropped: speech throttle blocked this message. Stay silent for the rest of this turn.'
+      'Dropped: you have been talking too much recently. Your message was not sent. Stay silent for the rest of this turn.'
     )
 
     assert.throws(() => guard.recordBlockedAttempt('duplicate'), {

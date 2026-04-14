@@ -33,7 +33,7 @@ export function createGroupTurnSendGuard(): GroupTurnSendGuard {
         return 'Dropped: duplicate of a recent outgoing message. Do not retry in this turn.'
       }
 
-      return 'Dropped: speech throttle blocked this message. Stay silent for the rest of this turn.'
+      return 'Dropped: you have been talking too much recently. Your message was not sent. Stay silent for the rest of this turn.'
     },
 
     recordSent() {

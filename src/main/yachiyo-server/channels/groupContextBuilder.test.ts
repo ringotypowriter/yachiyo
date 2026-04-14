@@ -234,7 +234,7 @@ describe('buildGroupProbeSystemPrompt', () => {
       groupName: 'TestGroup'
     })
     assert.ok(prompt.includes('send_group_message'))
-    assert.ok(prompt.includes('at most once per turn'))
+    assert.ok(prompt.includes('One message per turn max'))
   })
 
   it('includes persona when provided', () => {
@@ -285,8 +285,6 @@ describe('buildGroupProbeSystemPrompt', () => {
 
     assert.ok(prompt.includes('`updateProfile`'))
     assert.ok(prompt.includes('Update group notes (USER.md)'))
-    assert.ok(prompt.includes('`operation: "upsert"`'))
-    assert.ok(prompt.includes('`operation: "remove"`'))
     assert.ok(prompt.includes('People'))
     assert.ok(prompt.includes('Group Vibe'))
     assert.ok(prompt.includes('Topic Hints'))

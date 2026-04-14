@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { parseTable, renderTable, type SectionSchema, type TableRow } from './profileTable.ts'
+import {
+  enforceRowCap,
+  expireStaleRows,
+  parseTable,
+  renderTable,
+  type SectionSchema,
+  type TableRow
+} from './profileTable.ts'
 
 const PROFILE_SCHEMA: SectionSchema = { columns: ['Key', 'Value'], keyColumn: 'Key' }
 const PEOPLE_SCHEMA: SectionSchema = {
@@ -94,4 +101,75 @@ test('round-trip: renderTable output can be parsed back without index leaking', 
   assert.equal(rows[0]['#'], undefined)
   assert.equal(rows[1].Nickname, 'lh')
   assert.equal(rows[1]['#'], undefined)
+})
+
+// ---------------------------------------------------------------------------
+// enforceRowCap
+// ---------------------------------------------------------------------------
+
+test('enforceRowCap keeps all rows when under the cap', () => {
+  const rows: TableRow[] = [
+    { Key: 'a', Value: '1', Since: '2026-01-01 00:00' },
+    { Key: 'b', Value: '2', Since: '2026-01-02 00:00' }
+  ]
+  const result = enforceRowCap(rows, 5)
+  assert.equal(result.length, 2)
+})
+
+test('enforceRowCap evicts oldest rows when over the cap', () => {
+  const rows: TableRow[] = [
+    { Key: 'old', Value: '1', Since: '2026-01-01 00:00' },
+    { Key: 'mid', Value: '2', Since: '2026-01-05 00:00' },
+    { Key: 'new', Value: '3', Since: '2026-01-10 00:00' }
+  ]
+  const result = enforceRowCap(rows, 2)
+  assert.equal(result.length, 2)
+  assert.equal(result[0].Key, 'new')
+  assert.equal(result[1].Key, 'mid')
+})
+
+test('enforceRowCap treats missing Since as oldest', () => {
+  const rows: TableRow[] = [
+    { Key: 'no-date', Value: '1' },
+    { Key: 'has-date', Value: '2', Since: '2026-01-10 00:00' }
+  ]
+  const result = enforceRowCap(rows, 1)
+  assert.equal(result.length, 1)
+  assert.equal(result[0].Key, 'has-date')
+})
+
+// ---------------------------------------------------------------------------
+// expireStaleRows
+// ---------------------------------------------------------------------------
+
+test('expireStaleRows removes rows older than ttlDays', () => {
+  const now = new Date('2026-01-10T12:00:00Z')
+  const rows: TableRow[] = [
+    { Key: 'stale', Value: '1', Since: '2026-01-01 00:00' },
+    { Key: 'fresh', Value: '2', Since: '2026-01-09 00:00' }
+  ]
+  const result = expireStaleRows(rows, 3, now)
+  assert.equal(result.length, 1)
+  assert.equal(result[0].Key, 'fresh')
+})
+
+test('expireStaleRows keeps rows without Since timestamp', () => {
+  const now = new Date('2026-01-10T12:00:00Z')
+  const rows: TableRow[] = [
+    { Key: 'no-date', Value: '1' },
+    { Key: 'stale', Value: '2', Since: '2026-01-01 00:00' }
+  ]
+  const result = expireStaleRows(rows, 3, now)
+  assert.equal(result.length, 1)
+  assert.equal(result[0].Key, 'no-date')
+})
+
+test('expireStaleRows keeps all rows when none are stale', () => {
+  const now = new Date('2026-01-10T12:00:00Z')
+  const rows: TableRow[] = [
+    { Key: 'a', Value: '1', Since: '2026-01-08 00:00' },
+    { Key: 'b', Value: '2', Since: '2026-01-09 00:00' }
+  ]
+  const result = expireStaleRows(rows, 3, now)
+  assert.equal(result.length, 2)
 })

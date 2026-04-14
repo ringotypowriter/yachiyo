@@ -5,6 +5,7 @@ import type { UserDocumentMode } from '../../runtime/user.ts'
 import { patchUserDocumentSection, readUserDocument } from '../../runtime/user.ts'
 import {
   buildSectionDescriptionBlock,
+  enforceRowCap,
   formatTimestamp,
   getCanonicalSectionName,
   getSectionSchema,
@@ -256,6 +257,14 @@ export function createTool(
             const removed = migratedRows.length - resultRows.length
             summary = `Removed ${removed} row${removed === 1 ? '' : 's'} from "${canonicalName}".`
           }
+        }
+
+        // Enforce row cap (evict oldest rows when over limit)
+        if (schema.maxRows != null && resultRows.length > schema.maxRows) {
+          const before = resultRows.length
+          resultRows = enforceRowCap(resultRows, schema.maxRows)
+          const evicted = before - resultRows.length
+          summary += ` (${evicted} oldest row${evicted === 1 ? '' : 's'} evicted — section capped at ${schema.maxRows})`
         }
 
         throwIfAborted()

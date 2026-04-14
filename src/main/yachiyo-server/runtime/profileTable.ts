@@ -9,6 +9,10 @@ export interface SectionSchema {
   columns: string[]
   /** Which column serves as the upsert match key. */
   keyColumn: string
+  /** Maximum number of rows allowed. Oldest rows (by Since) are evicted on overflow. undefined = no limit. */
+  maxRows?: number
+  /** Rows older than this many days are auto-pruned at read time. undefined = no expiry. */
+  ttlDays?: number
 }
 
 const OWNER_SECTIONS: Record<string, SectionSchema> = {
@@ -25,8 +29,8 @@ const GUEST_SECTIONS: Record<string, SectionSchema> = {
 
 const GROUP_SECTIONS: Record<string, SectionSchema> = {
   People: { columns: ['Nickname', 'Identity', 'Notes'], keyColumn: 'Nickname' },
-  'Group Vibe': { columns: ['Aspect', 'Description'], keyColumn: 'Aspect' },
-  'Topic Hints': { columns: ['Topic', 'Hint'], keyColumn: 'Topic' }
+  'Group Vibe': { columns: ['Aspect', 'Description'], keyColumn: 'Aspect', maxRows: 8, ttlDays: 7 },
+  'Topic Hints': { columns: ['Topic', 'Hint'], keyColumn: 'Topic', maxRows: 6, ttlDays: 3 }
 }
 
 const SECTIONS_BY_MODE: Record<string, Record<string, SectionSchema>> = {
@@ -308,6 +312,44 @@ export function removeRows(
 }
 
 // ---------------------------------------------------------------------------
+// Row cap & TTL enforcement
+// ---------------------------------------------------------------------------
+
+/** Parse a Since timestamp string back to a Date. Returns undefined on failure. */
+function parseSinceTimestamp(since: string | undefined): Date | undefined {
+  if (!since) return undefined
+  const d = new Date(since)
+  return isNaN(d.getTime()) ? undefined : d
+}
+
+/**
+ * Evict the oldest rows (by Since timestamp) when the table exceeds maxRows.
+ * Returns the trimmed array. Rows without a parseable Since are treated as oldest.
+ */
+export function enforceRowCap(rows: TableRow[], maxRows: number): TableRow[] {
+  if (rows.length <= maxRows) return rows
+  // Sort by Since descending (newest first), keep only maxRows
+  const sorted = [...rows].sort((a, b) => {
+    const da = parseSinceTimestamp(a[SINCE_COLUMN])?.getTime() ?? 0
+    const db = parseSinceTimestamp(b[SINCE_COLUMN])?.getTime() ?? 0
+    return db - da
+  })
+  return sorted.slice(0, maxRows)
+}
+
+/**
+ * Remove rows whose Since timestamp is older than ttlDays from now.
+ * Rows without a parseable Since are kept (benefit of the doubt).
+ */
+export function expireStaleRows(rows: TableRow[], ttlDays: number, now?: Date): TableRow[] {
+  const cutoff = (now ?? new Date()).getTime() - ttlDays * 24 * 60 * 60 * 1_000
+  return rows.filter((row) => {
+    const d = parseSinceTimestamp(row[SINCE_COLUMN])
+    return d == null || d.getTime() >= cutoff
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Markdown table rendering
 // ---------------------------------------------------------------------------
 
@@ -422,7 +464,7 @@ export function migrateDocumentToTables(
 
   for (const [name, schema] of Object.entries(sections)) {
     const spans = findAllSectionSpans(lines, name)
-    const allRows: TableRow[] = []
+    let allRows: TableRow[] = []
 
     if (spans.length > 1) needsMigration = true
 
@@ -433,6 +475,15 @@ export function migrateDocumentToTables(
 
       if (legacyLines.length > 0) {
         allRows.push(...migrateLegacyLines(legacyLines, schema, timestamp))
+        needsMigration = true
+      }
+    }
+
+    // Auto-expire stale rows based on section TTL
+    if (schema.ttlDays != null && allRows.length > 0) {
+      const pruned = expireStaleRows(allRows, schema.ttlDays)
+      if (pruned.length < allRows.length) {
+        allRows = pruned
         needsMigration = true
       }
     }
