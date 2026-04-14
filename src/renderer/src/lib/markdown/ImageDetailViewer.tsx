@@ -8,7 +8,8 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { FolderOpen, Maximize2, RotateCw, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { Check, Copy, FolderOpen, Maximize2, RotateCw, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { Tooltip } from '@renderer/components/Tooltip'
 import { extractLocalPath } from './imageUrl'
 
 interface ImageDetailViewerProps {
@@ -207,11 +208,28 @@ function ImageDetailViewerBody({
     setRotation((r) => (r + 90) % 360)
   }, [])
 
+  const [copied, setCopied] = useState(false)
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const localPath = extractLocalPath(src)
   const handleReveal = useCallback(() => {
     if (!localPath) return
     window.api?.yachiyo?.revealFile?.({ path: localPath })
   }, [localPath])
+
+  const handleCopy = useCallback(() => {
+    window.api?.yachiyo?.copyImageToClipboard?.({ src }).then(() => {
+      setCopied(true)
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = setTimeout(() => setCopied(false), 1500)
+    })
+  }, [src])
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+    }
+  }, [])
 
   // Backdrop click closes — but NOT when the click started as a drag.
   const handleBackdropClick = useCallback(
@@ -255,27 +273,44 @@ function ImageDetailViewerBody({
 
       {/* Toolbar */}
       <div data-toolbar style={toolbarStyle}>
-        <ToolbarButton onClick={handleZoomIn} label="Zoom in">
-          <ZoomIn size={16} />
-        </ToolbarButton>
-        <ToolbarButton onClick={handleZoomOut} label="Zoom out">
-          <ZoomOut size={16} />
-        </ToolbarButton>
-        <ToolbarButton onClick={handleReset} label="Fit to screen">
-          <Maximize2 size={16} />
-        </ToolbarButton>
-        <ToolbarButton onClick={handleRotateCw} label="Rotate clockwise">
-          <RotateCw size={16} />
-        </ToolbarButton>
-        {localPath ? (
-          <ToolbarButton onClick={handleReveal} label="Reveal in Finder">
-            <FolderOpen size={16} />
+        <Tooltip content="Zoom in" placement="bottom" dark>
+          <ToolbarButton onClick={handleZoomIn} label="Zoom in">
+            <ZoomIn size={16} />
           </ToolbarButton>
+        </Tooltip>
+        <Tooltip content="Zoom out" placement="bottom" dark>
+          <ToolbarButton onClick={handleZoomOut} label="Zoom out">
+            <ZoomOut size={16} />
+          </ToolbarButton>
+        </Tooltip>
+        <Tooltip content="Fit to screen" placement="bottom" dark>
+          <ToolbarButton onClick={handleReset} label="Fit to screen">
+            <Maximize2 size={16} />
+          </ToolbarButton>
+        </Tooltip>
+        <Tooltip content="Rotate" placement="bottom" dark>
+          <ToolbarButton onClick={handleRotateCw} label="Rotate clockwise">
+            <RotateCw size={16} />
+          </ToolbarButton>
+        </Tooltip>
+        <Tooltip content={copied ? 'Copied!' : 'Copy image'} placement="bottom" dark>
+          <ToolbarButton onClick={handleCopy} label="Copy image">
+            {copied ? <Check size={16} /> : <Copy size={16} />}
+          </ToolbarButton>
+        </Tooltip>
+        {localPath ? (
+          <Tooltip content="Reveal in Finder" placement="bottom" dark>
+            <ToolbarButton onClick={handleReveal} label="Reveal in Finder">
+              <FolderOpen size={16} />
+            </ToolbarButton>
+          </Tooltip>
         ) : null}
         <div style={separatorStyle} />
-        <ToolbarButton onClick={onClose} label="Close">
-          <X size={16} />
-        </ToolbarButton>
+        <Tooltip content="Close" placement="bottom" dark>
+          <ToolbarButton onClick={onClose} label="Close">
+            <X size={16} />
+          </ToolbarButton>
+        </Tooltip>
       </div>
 
       {showAlt ? <div style={altLabelStyle}>{showAlt}</div> : null}

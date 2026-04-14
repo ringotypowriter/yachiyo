@@ -138,6 +138,7 @@ declare global {
         deleteJotdown: (input: { id: string }) => Promise<void>
         pruneEmptyTemporaryWorkspaces: () => Promise<number>
         revealFile: (input: { path: string }) => Promise<void>
+        copyImageToClipboard: (input: { src: string }) => Promise<void>
         openFileInEditor: (input: { path: string; editorApp: string }) => Promise<void>
         getUsageStats: (input: UsageStatsInput) => Promise<UsageStatsResponse>
         getPerfStats: () => Promise<PerfStatsResponse>

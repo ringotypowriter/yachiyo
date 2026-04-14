@@ -165,6 +165,8 @@ const api = {
       ipcRenderer.invoke('yachiyo:prune-empty-temporary-workspaces'),
     revealFile: (input: { path: string }): Promise<void> =>
       ipcRenderer.invoke('yachiyo:reveal-file', input),
+    copyImageToClipboard: (input: { src: string }): Promise<void> =>
+      ipcRenderer.invoke('yachiyo:copy-image-to-clipboard', input),
     openFileInEditor: (input: { path: string; editorApp: string }): Promise<void> =>
       ipcRenderer.invoke('yachiyo:open-file-in-editor', input),
     getUsageStats: (

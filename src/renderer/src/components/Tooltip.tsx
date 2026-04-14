@@ -10,10 +10,12 @@ interface PopupState {
 
 function TooltipPopup({
   state,
-  children
+  children,
+  dark
 }: {
   state: PopupState
   children: React.ReactNode
+  dark?: boolean
 }): React.JSX.Element {
   const [visible, setVisible] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
@@ -37,10 +39,18 @@ function TooltipPopup({
   const GAP = 4
   const isTop = state.placement === 'top'
 
+  const darkOverrides: React.CSSProperties | undefined = dark
+    ? ({
+        '--yachiyo-rgb-ink': '230 230 230',
+        '--yachiyo-rgb-surface': '40 40 40'
+      } as React.CSSProperties)
+    : undefined
+
   return (
     <div
       ref={ref}
       style={{
+        ...darkOverrides,
         position: 'fixed',
         left,
         top: isTop ? state.anchorY - GAP : state.anchorY + GAP,
@@ -74,13 +84,15 @@ export interface TooltipProps {
   children: React.ReactNode
   placement?: 'top' | 'bottom'
   delay?: number
+  dark?: boolean
 }
 
 export function Tooltip({
   content,
   children,
   placement = 'top',
-  delay = 350
+  delay = 350,
+  dark
 }: TooltipProps): React.JSX.Element {
   const [popup, setPopup] = useState<PopupState | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -125,7 +137,12 @@ export function Tooltip({
         {children}
       </span>
       {popup !== null
-        ? createPortal(<TooltipPopup state={popup}>{content}</TooltipPopup>, document.body)
+        ? createPortal(
+            <TooltipPopup state={popup} dark={dark}>
+              {content}
+            </TooltipPopup>,
+            document.body
+          )
         : null}
     </>
   )

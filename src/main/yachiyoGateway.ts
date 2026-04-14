@@ -175,6 +175,7 @@ const IPC_CHANNELS = {
   jotdownDelete: 'yachiyo:jotdown-delete',
   pruneEmptyTemporaryWorkspaces: 'yachiyo:prune-empty-temporary-workspaces',
   revealFile: 'yachiyo:reveal-file',
+  copyImageToClipboard: 'yachiyo:copy-image-to-clipboard',
   openFileInEditor: 'yachiyo:open-file-in-editor',
   getUsageStats: 'yachiyo:get-usage-stats',
   getPerfStats: 'yachiyo:get-perf-stats',
@@ -1063,6 +1064,30 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.revealFile, async (input: { path: string }) => {
     const { shell } = await import('electron')
     shell.showItemInFolder(input.path)
+  })
+
+  handle(IPC_CHANNELS.copyImageToClipboard, async (input: { src: string }) => {
+    const { clipboard, nativeImage } = await import('electron')
+    const { net } = await import('electron')
+    const src = input.src
+
+    let buffer: Buffer
+    if (/^https?:\/\//i.test(src) || src.startsWith('yachiyo-asset://')) {
+      const resp = await net.fetch(src)
+      if (!resp.ok) throw new Error(`Failed to fetch image: ${resp.status}`)
+      buffer = Buffer.from(await resp.arrayBuffer())
+    } else if (src.startsWith('data:image/')) {
+      const base64 = src.split(',')[1]
+      if (!base64) throw new Error('Invalid data URL')
+      buffer = Buffer.from(base64, 'base64')
+    } else {
+      const fs = await import('node:fs/promises')
+      buffer = Buffer.from(await fs.readFile(src))
+    }
+
+    const image = nativeImage.createFromBuffer(buffer)
+    if (image.isEmpty()) throw new Error('Could not decode image')
+    clipboard.writeImage(image)
   })
 
   handle(IPC_CHANNELS.getUsageStats, (input: UsageStatsInput) => server!.getUsageStats(input))
