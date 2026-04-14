@@ -1,5 +1,5 @@
 import { access, readFile, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, relative, resolve } from 'node:path'
 
 import type {
@@ -24,6 +24,31 @@ const SCAN_IGNORE = [
 
 /** Maximum glob depth for workspace scans. */
 const SCAN_DEPTH = 4
+
+/** Shared system directories to skip during external scans. */
+const SHARED_EXTERNAL_BLACKLIST = new Set(
+  [
+    '/tmp',
+    '/var/tmp',
+    '/dev/shm',
+    '/private/tmp',
+    '/private/var/tmp',
+    '/var/folders',
+    '/run',
+    '/var/run',
+    tmpdir()
+  ].map((p) => resolve(p))
+)
+
+function isBlacklistedExternalDir(dir: string): boolean {
+  const resolvedDir = resolve(dir)
+  for (const blacklisted of SHARED_EXTERNAL_BLACKLIST) {
+    if (resolvedDir === blacklisted || resolvedDir.startsWith(blacklisted + '/')) {
+      return true
+    }
+  }
+  return false
+}
 
 /** Cached fast-glob glob function to avoid repeated dynamic imports. */
 let cachedGlob:
@@ -210,8 +235,11 @@ export class SnapshotTracker {
 
     // Scan external directories for out-of-workspace files that were missed
     // by the Layer 1/2 pre-backup heuristics.
+    // Skip shared system directories (e.g. /tmp) to avoid pulling in unrelated
+    // files that other processes modified during the run.
     const externalDirs = this.collectExternalDirs()
     for (const dir of externalDirs) {
+      if (isBlacklistedExternalDir(dir)) continue
       try {
         const files = await globFiles(dir, 2, SCAN_IGNORE)
         for (const file of files) {

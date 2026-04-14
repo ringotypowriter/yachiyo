@@ -61,7 +61,7 @@ import {
 import { BackgroundBashManager, type BackgroundBashTaskResult } from './backgroundBashManager.ts'
 import { assertSupportedImages, resolveEnabledTools } from './configDomain.ts'
 import { toEffectiveProviderSettings } from '../../settings/settingsStore.ts'
-import { executeServerRun, type ExecuteRunResult } from './runExecution.ts'
+import { executeServerRun, type ExecuteRunInput, type ExecuteRunResult } from './runExecution.ts'
 import { runAcpChatThread } from '../../runtime/acp/acpChatRuntime.ts'
 import {
   buildThreadTitleGenerationMessages,
@@ -1493,6 +1493,7 @@ export class YachiyoServerRunDomain {
     let currentRequestMessageId = input.requestMessageId
     let previousEnabledTools = this.lastRunEnabledTools
     let result: ExecuteRunResult = { kind: 'cancelled' }
+    let accumulatedUsage: ExecuteRunInput['priorUsage'] | undefined
 
     try {
       while (true) {
@@ -1694,7 +1695,8 @@ export class YachiyoServerRunDomain {
             requestMessageId: currentRequestMessageId,
             runId: input.runId,
             thread: currentThread,
-            updateHeadOnComplete: input.updateHeadOnComplete
+            updateHeadOnComplete: input.updateHeadOnComplete,
+            ...(accumulatedUsage ? { priorUsage: accumulatedUsage } : {})
           }
         )
 
@@ -1819,6 +1821,22 @@ export class YachiyoServerRunDomain {
           activeRun.requestMessageId = userMessage.id
           currentRequestMessageId = userMessage.id
           currentThread = this.deps.requireThread(input.thread.id)
+
+          // Accumulate usage from this steer leg so the final completion
+          // includes token counts from all legs of the run.
+          if (result.usage) {
+            const u = result.usage
+            accumulatedUsage = {
+              promptTokens: (accumulatedUsage?.promptTokens ?? 0) + u.promptTokens,
+              completionTokens: (accumulatedUsage?.completionTokens ?? 0) + u.completionTokens,
+              totalPromptTokens: (accumulatedUsage?.totalPromptTokens ?? 0) + u.totalPromptTokens,
+              totalCompletionTokens:
+                (accumulatedUsage?.totalCompletionTokens ?? 0) + u.totalCompletionTokens,
+              cacheReadTokens: (accumulatedUsage?.cacheReadTokens ?? 0) + (u.cacheReadTokens ?? 0),
+              cacheWriteTokens:
+                (accumulatedUsage?.cacheWriteTokens ?? 0) + (u.cacheWriteTokens ?? 0)
+            }
+          }
           continue
         }
 

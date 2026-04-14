@@ -283,4 +283,32 @@ test('SnapshotTracker', async (t) => {
       'external modified file should be in snapshot'
     )
   })
+
+  await t.test('scanWorkspace skips blacklisted shared external directories', async () => {
+    const blacklistedDir = join(tmpdir(), `snapshot-blacklist-${Date.now()}`)
+    await mkdir(blacklistedDir, { recursive: true })
+    const trackedFile = join(blacklistedDir, 'tracked.txt')
+    const untrackedFile = join(blacklistedDir, 'untracked.txt')
+
+    const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+    tracker.dispose() // stop baseline to isolate the test
+
+    await tracker.trackBeforeWrite(trackedFile)
+    await writeFile(trackedFile, 'tracked content')
+    await writeFile(untrackedFile, 'untracked content')
+
+    await tracker.scanWorkspace()
+    const snapshot = await tracker.finalize()
+
+    // Explicitly tracked files in blacklisted dirs are still preserved.
+    assert.ok(
+      snapshot.entries.some((e) => e.relativePath.endsWith('tracked.txt')),
+      'tracked file should still be in snapshot'
+    )
+    // Untracked files must not be pulled in by the external scan.
+    assert.ok(
+      !snapshot.entries.some((e) => e.relativePath.endsWith('untracked.txt')),
+      'untracked file in blacklisted dir should not be in snapshot'
+    )
+  })
 })

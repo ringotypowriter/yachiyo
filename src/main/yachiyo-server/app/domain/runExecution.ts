@@ -133,6 +133,16 @@ export interface ExecuteRunInput {
   abortController: AbortController
   updateHeadOnComplete: boolean
   previousEnabledTools: ToolCallName[] | null
+  /** Accumulated usage from prior steer legs of the same run. */
+  priorUsage?: Pick<
+    ModelUsage,
+    | 'promptTokens'
+    | 'completionTokens'
+    | 'totalPromptTokens'
+    | 'totalCompletionTokens'
+    | 'cacheReadTokens'
+    | 'cacheWriteTokens'
+  >
 }
 
 export interface RestartRunReason {
@@ -145,7 +155,7 @@ export type ExecuteRunResult =
   | { kind: 'failed' }
   | { kind: 'cancelled' }
   | { kind: 'restarted'; nextRequestMessageId: string }
-  | { kind: 'steer-pending'; assistantMessageId: string }
+  | { kind: 'steer-pending'; assistantMessageId: string; usage?: ModelUsage }
   | { kind: 'recovering'; checkpoint: RunRecoveryCheckpoint; harnessId: string }
 
 export interface RunExecutionDeps {
@@ -875,6 +885,24 @@ function persistTerminalAssistantMessage(
   })
 
   return assistantMessage
+}
+
+/** Merge prior steer-leg usage into the current leg's usage for final persistence. */
+function mergeUsage(
+  prior: ExecuteRunInput['priorUsage'],
+  current: ModelUsage | undefined
+): ModelUsage | undefined {
+  if (!prior) return current
+  if (!current) return undefined
+  return {
+    ...current,
+    promptTokens: (prior.promptTokens ?? 0) + current.promptTokens,
+    completionTokens: (prior.completionTokens ?? 0) + current.completionTokens,
+    totalPromptTokens: (prior.totalPromptTokens ?? 0) + current.totalPromptTokens,
+    totalCompletionTokens: (prior.totalCompletionTokens ?? 0) + current.totalCompletionTokens,
+    cacheReadTokens: (prior.cacheReadTokens ?? 0) + (current.cacheReadTokens ?? 0),
+    cacheWriteTokens: (prior.cacheWriteTokens ?? 0) + (current.cacheWriteTokens ?? 0)
+  }
 }
 
 export async function executeServerRun(
@@ -1999,7 +2027,33 @@ export async function executeServerRun(
         }
       }
       deps.storage.deleteRunRecoveryCheckpoint(input.runId)
-      snapshotTracker?.dispose()
+      // Finalize file snapshot so pre-steer edits are persisted — otherwise
+      // the next executeServerRun iteration creates a fresh tracker and only
+      // post-steer changes appear in the diff/revert UI.
+      if (snapshotTracker) {
+        try {
+          await snapshotTracker.scanWorkspace()
+          const snapshot = await snapshotTracker.finalize()
+          if (snapshot.entries.length > 0) {
+            deps.storage.updateRunSnapshot(input.runId, {
+              fileCount: snapshot.entries.length,
+              workspacePath: snapshotTracker.workspacePath
+            })
+            deps.emit<SnapshotReadyEvent>({
+              type: 'snapshot.ready',
+              threadId: input.thread.id,
+              runId: input.runId,
+              fileCount: snapshot.entries.length,
+              workspacePath: snapshotTracker.workspacePath
+            })
+          }
+          runGc(snapshotTracker.workspaceHash).catch(() => {})
+        } catch (err) {
+          console.error('[snapshot] Steer-leg finalization failed:', err)
+        } finally {
+          snapshotTracker.dispose()
+        }
+      }
       deps.emit<HarnessFinishedEvent>({
         type: 'harness.finished',
         threadId: input.thread.id,
@@ -2009,7 +2063,7 @@ export async function executeServerRun(
         status: 'completed'
       })
 
-      return { kind: 'steer-pending', assistantMessageId: messageId }
+      return { kind: 'steer-pending', assistantMessageId: messageId, usage: lastUsage }
     }
 
     const timestamp = deps.timestamp()
@@ -2049,11 +2103,14 @@ export async function executeServerRun(
           : {})
     }
 
+    // Merge prior steer-leg usage so the full run's tokens are persisted.
+    const finalUsage = mergeUsage(input.priorUsage, lastUsage)
+
     deps.storage.completeRun({
       runId: input.runId,
       updatedThread,
       assistantMessage,
-      ...lastUsage,
+      ...finalUsage,
       modelId: settings.model,
       providerName: settings.providerName
     })
@@ -2114,7 +2171,7 @@ export async function executeServerRun(
       type: 'run.completed',
       threadId: input.thread.id,
       runId: input.runId,
-      ...lastUsage
+      ...finalUsage
     })
     perfCollector.finish(input.thread.id)
 
@@ -2123,7 +2180,7 @@ export async function executeServerRun(
     )
     return {
       kind: 'completed',
-      totalPromptTokens: lastUsage?.totalPromptTokens,
+      totalPromptTokens: finalUsage?.totalPromptTokens,
       usedRememberTool
     }
   } catch (error) {
