@@ -164,13 +164,19 @@ async function flushAsyncWork(): Promise<void> {
 
 /**
  * Drain microtasks/macrotasks until `predicate` returns true or `maxAttempts`
- * is reached. This avoids the CI flakiness that comes from hard-coding a
- * fixed number of flushAsyncWork rounds for long sequential-await chains.
+ * is reached. Throws when the predicate never becomes true so the test fails
+ * with a clear timeout message rather than a confusing assertion on stale state.
+ *
+ * The default 100 attempts gives plenty of headroom for slow CI I/O (e.g. the
+ * real `mkdir` call inside `fireSchedule`).
  */
-async function waitFor(predicate: () => boolean, maxAttempts = 30): Promise<void> {
+async function waitFor(predicate: () => boolean, maxAttempts = 100): Promise<void> {
   for (let i = 0; i < maxAttempts; i++) {
     if (predicate()) return
     await flushAsyncWork()
+  }
+  if (!predicate()) {
+    throw new Error(`waitFor timed out after ${maxAttempts} attempts`)
   }
 }
 
