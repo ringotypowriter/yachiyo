@@ -149,10 +149,10 @@ export class ScheduleDomain {
     // Name and prompt are owned by the spec (refreshed on startup); converting
     // to one-off (runAt) would let scheduleService disable it permanently.
     if (isBundledScheduleId(input.id)) {
-      if (input.name !== undefined) {
+      if (input.name !== undefined && input.name !== existing.name) {
         throw new Error('Cannot change the name of a bundled schedule.')
       }
-      if (input.prompt !== undefined) {
+      if (input.prompt !== undefined && input.prompt !== existing.prompt) {
         throw new Error('Cannot change the prompt of a bundled schedule.')
       }
       if (input.runAt !== undefined) {

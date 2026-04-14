@@ -54,6 +54,7 @@ function cronToHuman(cron: string): string {
 // ---------------------------------------------------------------------------
 
 interface CronQuickPickProps {
+  value?: string
   onPick: (cron: string) => void
 }
 
@@ -88,7 +89,69 @@ function builderToCron(
   }
 }
 
-function CronQuickPick({ onPick }: CronQuickPickProps): React.ReactNode {
+function cronToBuilder(
+  cron: string
+): { mode: BuilderMode; hour: string; minute: string; interval: number; days: number[] } | null {
+  const parts = cron.trim().split(/\s+/)
+  if (parts.length !== 5) return null
+  const [minStr, hourStr, , , dowStr] = parts
+
+  // Interval: */n * * * *
+  if (minStr.startsWith('*/') && hourStr === '*' && dowStr === '*') {
+    const n = parseInt(minStr.slice(2), 10)
+    if (!isNaN(n) && INTERVAL_OPTIONS.includes(n as (typeof INTERVAL_OPTIONS)[number])) {
+      return { mode: 'interval', hour: '0', minute: '0', interval: n, days: [] }
+    }
+  }
+
+  // Hourly: m * * * *
+  if (!minStr.includes('*') && !minStr.includes('/') && hourStr === '*' && dowStr === '*') {
+    return { mode: 'hourly', hour: '0', minute: minStr, interval: 30, days: [] }
+  }
+
+  // Daily: m h * * *
+  if (
+    !minStr.includes('*') &&
+    !minStr.includes('/') &&
+    !hourStr.includes('*') &&
+    !hourStr.includes('/') &&
+    dowStr === '*'
+  ) {
+    return { mode: 'daily', hour: hourStr, minute: minStr, interval: 30, days: [] }
+  }
+
+  // Weekdays: m h * * 1-5
+  if (
+    !minStr.includes('*') &&
+    !minStr.includes('/') &&
+    !hourStr.includes('*') &&
+    !hourStr.includes('/') &&
+    dowStr === '1-5'
+  ) {
+    return { mode: 'weekly', hour: hourStr, minute: minStr, interval: 30, days: [1, 2, 3, 4, 5] }
+  }
+
+  // Weekly: m h * * d1,d2,...
+  if (
+    !minStr.includes('*') &&
+    !minStr.includes('/') &&
+    !hourStr.includes('*') &&
+    !hourStr.includes('/') &&
+    /^[\d,]+$/.test(dowStr)
+  ) {
+    const days = dowStr
+      .split(',')
+      .map((d) => parseInt(d, 10))
+      .filter((d) => !isNaN(d) && d >= 0 && d <= 6)
+    if (days.length > 0) {
+      return { mode: 'weekly', hour: hourStr, minute: minStr, interval: 30, days }
+    }
+  }
+
+  return null
+}
+
+function CronQuickPick({ value, onPick }: CronQuickPickProps): React.ReactNode {
   const [open, setOpen] = useState(false)
   const [popupRect, setPopupRect] = useState<DOMRect | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
@@ -102,6 +165,14 @@ function CronQuickPick({ onPick }: CronQuickPickProps): React.ReactNode {
 
   function handleOpen(): void {
     if (btnRef.current) setPopupRect(btnRef.current.getBoundingClientRect())
+    const parsed = value ? cronToBuilder(value) : null
+    if (parsed) {
+      setMode(parsed.mode)
+      setHour(parsed.hour)
+      setMinute(parsed.minute)
+      setInterval(parsed.interval)
+      setDays(parsed.days)
+    }
     setOpen(true)
   }
 
@@ -881,6 +952,7 @@ function ScheduleForm({
     initial?.runAt ? 'one-off' : 'recurring'
   )
   const isOneOff = mode === 'one-off'
+  const isBundled = initial?.bundled === true
   const [name, setName] = useState(initial?.name ?? '')
   const [cron, setCron] = useState(initial?.cronExpression ?? '')
   const [runAt, setRunAt] = useState(() => {
@@ -947,10 +1019,16 @@ function ScheduleForm({
         {/* 1/3 — Name */}
         <input
           className="rounded-md px-2.5 py-1.5 text-sm outline-none min-w-0"
-          style={{ ...inputStyle(), flex: '1 1 0%' }}
+          style={{
+            ...inputStyle(),
+            flex: '1 1 0%',
+            opacity: isBundled ? 0.6 : 1,
+            cursor: isBundled ? 'default' : undefined
+          }}
           placeholder="Name"
           value={name}
           onChange={(e) => setName(e.target.value)}
+          readOnly={isBundled}
           autoFocus
         />
         {/* 1/3 — Mode toggle */}
@@ -967,8 +1045,11 @@ function ScheduleForm({
                 color: mode === m ? theme.text.primary : theme.text.secondary,
                 border: 'none',
                 fontWeight: mode === m ? 500 : 400,
-                letterSpacing: '0.01em'
+                letterSpacing: '0.01em',
+                opacity: isBundled ? 0.6 : 1,
+                cursor: isBundled ? 'default' : 'pointer'
               }}
+              disabled={isBundled}
               onClick={() => setMode(m)}
             >
               {m === 'recurring' ? 'Recurring' : 'One-off'}
@@ -997,7 +1078,7 @@ function ScheduleForm({
                 value={cron}
                 onChange={(e) => setCron(e.target.value)}
               />
-              <CronQuickPick onPick={setCron} />
+              <CronQuickPick value={cron} onPick={setCron} />
             </>
           )}
         </div>
@@ -1009,10 +1090,16 @@ function ScheduleForm({
       )}
       <textarea
         className="rounded-md px-2.5 py-1.5 text-sm outline-none resize-none"
-        style={{ ...inputStyle(), minHeight: 80 }}
+        style={{
+          ...inputStyle(),
+          minHeight: 80,
+          opacity: isBundled ? 0.6 : 1,
+          cursor: isBundled ? 'default' : undefined
+        }}
         placeholder="Prompt — what should the model do?"
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
+        readOnly={isBundled}
       />
       <div className="flex gap-3">
         <div className="flex-1 min-w-0">

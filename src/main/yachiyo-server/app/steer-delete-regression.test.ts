@@ -101,6 +101,94 @@ async function withServer(
   }
 }
 
+test('cancelling a run during tool execution preserves the tool call in bootstrap', async () => {
+  let toolStarted: (() => void) | null = null
+  const toolStartedPromise = new Promise<void>((resolve) => {
+    toolStarted = resolve
+  })
+
+  await withServer(
+    async ({ server, completeRun, bootstrap }) => {
+      await server.upsertProvider({
+        name: 'default',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: { enabled: ['gpt-5'], disabled: [] }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Run something'
+      })
+
+      await toolStartedPromise
+
+      // Cancel while tool is still running (no steer — plain cancel)
+      await server.cancelRun({ runId: accepted.runId })
+      await completeRun(accepted.runId)
+
+      const result = await bootstrap()
+      const messages = result.messagesByThread[thread.id] ?? []
+      const toolCalls = result.toolCallsByThread[thread.id] ?? []
+
+      // The stopped assistant message should exist
+      const stoppedAssistant = messages.find(
+        (m) => m.role === 'assistant' && m.status === 'stopped'
+      )
+      assert.ok(stoppedAssistant, 'stopped assistant message should be persisted')
+
+      // The tool call should still be present and bound to the stopped message
+      assert.ok(toolCalls.length > 0, 'tool call should be preserved after cancel')
+      const toolCall = toolCalls.find((tc) => tc.id === 'tool-bash-cancel')
+      assert.ok(toolCall, 'the specific tool call should exist')
+      assert.equal(toolCall.status, 'failed', 'tool call should be marked failed')
+      assert.equal(
+        toolCall.assistantMessageId,
+        stoppedAssistant.id,
+        'tool call should be bound to the stopped assistant message'
+      )
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          yield 'Starting...'
+          request.onToolCallStart?.({
+            abortSignal: request.signal,
+            experimental_context: undefined,
+            functionId: undefined,
+            messages: request.messages,
+            metadata: undefined,
+            model: undefined,
+            stepNumber: 0,
+            toolCall: {
+              input: { command: 'sleep 60' },
+              toolCallId: 'tool-bash-cancel',
+              toolName: 'bash'
+            }
+          } as never)
+
+          toolStarted?.()
+
+          await new Promise<void>((_, reject) => {
+            const abort = (): void => {
+              const error = new Error('Aborted')
+              error.name = 'AbortError'
+              reject(error)
+            }
+            if (request.signal.aborted) {
+              abort()
+              return
+            }
+            request.signal.addEventListener('abort', abort, { once: true })
+          })
+        }
+      })
+    }
+  )
+})
+
 test('cancelling a run with a pending steer persists the steer and restarts the run', async () => {
   let toolStarted: (() => void) | null = null
   const toolStartedPromise = new Promise<void>((resolve) => {

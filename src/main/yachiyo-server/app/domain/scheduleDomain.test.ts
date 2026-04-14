@@ -496,6 +496,22 @@ describe('ScheduleDomain', () => {
       assert.equal(updated.cronExpression, '0 3 * * *')
     })
 
+    it('updateSchedule allows updates that repeat the current bundled name/prompt', () => {
+      const { domain } = createDomain()
+      domain.ensureBundledSchedules()
+      const existing = domain.getSchedule('bundled:self-review')
+
+      const updated = domain.updateSchedule({
+        id: 'bundled:self-review',
+        name: existing.name,
+        prompt: existing.prompt,
+        cronExpression: '30 12 * * *'
+      })
+      assert.equal(updated.cronExpression, '30 12 * * *')
+      assert.equal(updated.name, existing.name)
+      assert.equal(updated.prompt, existing.prompt)
+    })
+
     it('deleteSchedule rejects bundled schedules', () => {
       const { domain } = createDomain()
       domain.ensureBundledSchedules()

@@ -19,7 +19,7 @@ export interface ScheduleFormSubmitValues {
 }
 
 export type ScheduleFormSubmitInput = Omit<UpdateScheduleInput, 'id'> &
-  Pick<CreateScheduleInput, 'name' | 'prompt'>
+  Partial<Pick<CreateScheduleInput, 'name' | 'prompt'>>
 
 export type ScheduleFormSubmitResult =
   | { ok: true; input: ScheduleFormSubmitInput }
@@ -33,6 +33,7 @@ export function buildScheduleFormSubmitInput(
   const cron = values.cron.trim()
   const runAt = values.runAt.trim()
   const isEdit = Boolean(values.initial)
+  const isBundledEdit = values.initial?.bundled === true
 
   if (!name || !prompt) {
     return { ok: false, error: 'All fields are required.' }
@@ -45,10 +46,9 @@ export function buildScheduleFormSubmitInput(
     return {
       ok: true,
       input: {
-        name,
-        cronExpression: isEdit ? null : undefined,
+        ...(isBundledEdit ? {} : { name, prompt }),
+        ...(isBundledEdit ? {} : { cronExpression: isEdit ? null : undefined }),
         runAt: new Date(runAt.replace(' ', 'T')).toISOString(),
-        prompt,
         modelOverride: values.modelOverride ?? (isEdit ? null : undefined),
         workspacePath: values.workspacePath ?? (isEdit ? null : undefined)
       }
@@ -62,10 +62,9 @@ export function buildScheduleFormSubmitInput(
   return {
     ok: true,
     input: {
-      name,
+      ...(isBundledEdit ? {} : { name, prompt }),
       cronExpression: cron,
-      runAt: isEdit ? null : undefined,
-      prompt,
+      ...(isBundledEdit ? {} : { runAt: isEdit ? null : undefined }),
       modelOverride: values.modelOverride ?? (isEdit ? null : undefined),
       workspacePath: values.workspacePath ?? (isEdit ? null : undefined)
     }
