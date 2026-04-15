@@ -857,6 +857,8 @@ function persistTerminalAssistantMessage(
     status: MessageRecord['status']
     content: string
     textBlocks: MessageTextBlockRecord[]
+    reasoning?: string
+    responseMessages?: unknown[]
   }
 ): MessageRecord {
   const currentThread = deps.readThread(input.threadId)
@@ -867,6 +869,8 @@ function persistTerminalAssistantMessage(
     role: 'assistant',
     content: input.content,
     ...(input.textBlocks.length > 0 ? { textBlocks: input.textBlocks } : {}),
+    ...(input.reasoning ? { reasoning: input.reasoning } : {}),
+    ...(input.responseMessages?.length ? { responseMessages: input.responseMessages } : {}),
     status: input.status,
     createdAt: input.timestamp,
     modelId: input.settings.model,
@@ -2341,6 +2345,15 @@ export async function executeServerRun(
       })
 
       if (input.requestMessageId) {
+        // Balance recovery response messages so every tool-call has a matching
+        // tool-result — this keeps the stopped message valid for model replay.
+        const cancelledResponseMessages =
+          recoveryResponseMessages.length > 0
+            ? balanceRecoveryResponseMessages(
+                recoveryResponseMessages,
+                Array.from(toolCalls.values())
+              )
+            : recoveryResponseMessages
         const currentThread = deps.readThread(input.thread.id)
         const stoppedMessage: MessageRecord = {
           id: messageId,
@@ -2349,6 +2362,10 @@ export async function executeServerRun(
           role: 'assistant',
           content: bufferParts.join(''),
           ...(textBlocks.length > 0 ? { textBlocks } : {}),
+          ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
+          ...(cancelledResponseMessages.length > 0
+            ? { responseMessages: cancelledResponseMessages }
+            : {}),
           status: 'stopped',
           createdAt: timestamp,
           modelId: settings.model,
@@ -2512,6 +2529,15 @@ export async function executeServerRun(
     })
 
     if (input.requestMessageId) {
+      // Balance recovery response messages so every tool-call has a matching
+      // tool-result — keeps the failed message valid for model replay.
+      const failedResponseMessages =
+        recoveryResponseMessages.length > 0
+          ? balanceRecoveryResponseMessages(
+              recoveryResponseMessages,
+              Array.from(toolCalls.values())
+            )
+          : recoveryResponseMessages
       const failedMessage = persistTerminalAssistantMessage(deps, {
         runId: input.runId,
         threadId: input.thread.id,
@@ -2521,7 +2547,9 @@ export async function executeServerRun(
         settings,
         status: 'failed',
         content: bufferParts.join(''),
-        textBlocks
+        textBlocks,
+        ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
+        ...(failedResponseMessages.length > 0 ? { responseMessages: failedResponseMessages } : {})
       })
       // Bind all tool calls from this run to the terminal assistant message so
       // they are not left unbound when the run fails.
