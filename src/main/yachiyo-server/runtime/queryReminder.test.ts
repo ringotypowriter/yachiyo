@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   buildCurrentTimeSection,
   buildDisabledToolsReminderSection,
+  buildSteerReminderSection,
   buildToolAvailabilityReminderSection,
   formatDateLine,
   formatQueryReminder
@@ -133,4 +134,25 @@ test('buildCurrentTimeSection can omit date when includeDate is false', () => {
 test('formatDateLine produces YYYY-MM-DD with day name', () => {
   const date = new Date(2026, 2, 30, 14, 5, 9)
   assert.match(formatDateLine(date), /^2026-03-30 \(\w+\)$/)
+})
+
+test('buildSteerReminderSection returns steer guidance section', () => {
+  const section = buildSteerReminderSection()
+  assert.equal(section.key, 'steer-guidance')
+  assert.ok(section.title.includes('steer'))
+  assert.ok(section.lines.length >= 3)
+  assert.ok(section.lines.some((l) => l.includes('adjust')))
+  assert.ok(section.lines.some((l) => l.includes('stop')))
+  assert.ok(section.lines.some((l) => l.includes('follow-up question')))
+})
+
+test('buildSteerReminderSection integrates into formatQueryReminder', () => {
+  const reminder = formatQueryReminder([
+    buildCurrentTimeSection(new Date(2026, 2, 30, 14, 5)),
+    buildSteerReminderSection()
+  ])
+  assert.ok(reminder)
+  assert.ok(reminder.includes('<reminder>'))
+  assert.ok(reminder.includes('Mid-run steer'))
+  assert.ok(reminder.includes('</reminder>'))
 })

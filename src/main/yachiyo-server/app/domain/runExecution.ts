@@ -70,6 +70,7 @@ import type { BrowserWebPageSnapshotLoader } from '../../services/webRead/browse
 import {
   buildCurrentTimeSection,
   buildDisabledToolsReminderSection,
+  buildSteerReminderSection,
   formatDateLine,
   formatQueryReminder
 } from '../../runtime/queryReminder.ts'
@@ -1292,10 +1293,12 @@ export async function executeServerRun(
     // retries and multi-step continuations produce byte-identical reminder text,
     // keeping the cached prefix stable within a turn.
     const hintTime = requestMessage?.createdAt ? new Date(requestMessage.createdAt) : now
+    const isSteerLeg = input.priorUsage != null
     const hiddenQueryReminder = formatQueryReminder(
       [
         buildDisabledToolsReminderSection({ enabledTools: modelEnabledTools }),
-        buildCurrentTimeSection(hintTime, { includeDate: !isLocalOrOwnerDm })
+        buildCurrentTimeSection(hintTime, { includeDate: !isLocalOrOwnerDm }),
+        isSteerLeg ? buildSteerReminderSection() : null
       ].flatMap((section) => (section ? [section] : []))
     )
     const sessionHint = input.thread.lastDelegatedSession
