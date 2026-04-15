@@ -8,7 +8,12 @@ import type {
   SnapshotSummary
 } from '../../../../shared/yachiyo/fileSnapshot.ts'
 import { hashContent, hashWorkspacePath, storeBlob } from './casStore.ts'
-import { loadSnapshotIndex, listSnapshotRuns, saveSnapshotIndex } from './snapshotIndex.ts'
+import {
+  countSnapshots,
+  loadSnapshotIndex,
+  listSnapshotRuns,
+  saveSnapshotIndex
+} from './snapshotIndex.ts'
 
 /** Directories to skip during workspace scans. */
 const SCAN_IGNORE = [
@@ -24,6 +29,9 @@ const SCAN_IGNORE = [
 
 /** Maximum glob depth for workspace scans. */
 const SCAN_DEPTH = 4
+
+/** Snapshot count at which finalize triggers a background GC pass. */
+const GC_THRESHOLD = 20
 
 /** Shared system directories to skip during external scans. */
 const SHARED_EXTERNAL_BLACKLIST = new Set(
@@ -390,6 +398,17 @@ export class SnapshotTracker {
     }
 
     await saveSnapshotIndex(this.workspaceHash, snapshot)
+
+    // Trigger GC when snapshot count exceeds the retention limit (fire-and-forget).
+    countSnapshots(this.workspaceHash)
+      .then(async (count) => {
+        if (count > GC_THRESHOLD) {
+          const { runGc } = await import('./snapshotGc.ts')
+          await runGc(this.workspaceHash)
+        }
+      })
+      .catch((err) => console.error('[snapshot] Auto-GC failed:', err))
+
     return snapshot
   }
 

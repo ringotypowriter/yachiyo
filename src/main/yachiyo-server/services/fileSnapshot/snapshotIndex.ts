@@ -1,4 +1,5 @@
-import { mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 
 import { resolveYachiyoFileHistoryDir } from '../../config/paths.ts'
@@ -12,14 +13,17 @@ function snapshotPath(workspaceHash: string, runId: string): string {
   return join(snapshotsDir(workspaceHash), `${runId}.json`)
 }
 
-/** Persist a run snapshot to disk. */
+/** Persist a run snapshot to disk atomically (write tmp → rename). */
 export async function saveSnapshotIndex(
   workspaceHash: string,
   snapshot: RunSnapshot
 ): Promise<void> {
   const dir = snapshotsDir(workspaceHash)
   await mkdir(dir, { recursive: true })
-  await writeFile(snapshotPath(workspaceHash, snapshot.runId), JSON.stringify(snapshot), 'utf8')
+  const dest = snapshotPath(workspaceHash, snapshot.runId)
+  const tmp = `${dest}.${randomBytes(4).toString('hex')}.tmp`
+  await writeFile(tmp, JSON.stringify(snapshot), 'utf8')
+  await rename(tmp, dest)
 }
 
 /** Load a specific run snapshot, or null if not found. */
@@ -65,6 +69,17 @@ export async function listSnapshotRuns(workspaceHash: string): Promise<SnapshotS
 
   summaries.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   return summaries
+}
+
+/** Return the number of snapshot files for a workspace (cheap readdir). */
+export async function countSnapshots(workspaceHash: string): Promise<number> {
+  try {
+    const files = await readdir(snapshotsDir(workspaceHash))
+    return files.filter((f) => f.endsWith('.json')).length
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return 0
+    throw err
+  }
 }
 
 /** Delete a specific snapshot index file. */
