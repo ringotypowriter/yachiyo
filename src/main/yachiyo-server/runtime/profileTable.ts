@@ -354,7 +354,7 @@ export function expireStaleRows(rows: TableRow[], ttlDays: number, now?: Date): 
 // ---------------------------------------------------------------------------
 
 function escapeCell(value: string): string {
-  return value.replace(/\|/g, '\\|').replace(/\n/g, ' ')
+  return value.replace(/\|/g, '\\|').replace(/\n/g, '<br>')
 }
 
 /** Auto-managed row index column name. */

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
 
@@ -50,7 +50,8 @@ function parseCells(line: string): string[] {
     }
   }
   cells.push(current.trim())
-  return cells
+  // Decode <br> tags back to newlines for editing
+  return cells.map((c) => c.replace(/<br\s*\/?>/gi, '\n'))
 }
 
 function parseDocument(content: string): ParsedDocument {
@@ -134,7 +135,7 @@ function parseDocument(content: string): ParsedDocument {
 // ---------------------------------------------------------------------------
 
 function escapeCell(value: string): string {
-  return value.replace(/\|/g, '\\|').replace(/\n/g, ' ')
+  return value.replace(/\|/g, '\\|').replace(/\n/g, '<br>')
 }
 
 function serializeDocument(doc: ParsedDocument): string {
@@ -189,6 +190,46 @@ function editableColumnIndices(headers: string[]): number[] {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-resizing textarea for multiline cell editing
+// ---------------------------------------------------------------------------
+
+function AutoResizeTextarea({
+  value,
+  onChange,
+  placeholder
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+}): React.ReactNode {
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = '0'
+    el.style.height = `${el.scrollHeight}px`
+  }, [value])
+
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      rows={1}
+      className="flex-1 resize-none rounded-lg px-2.5 py-1.5 text-sm outline-none"
+      style={{
+        background: alpha('ink', 0.04),
+        border: 'none',
+        color: theme.text.primary,
+        overflow: 'hidden'
+      }}
+      placeholder={placeholder}
+    />
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -201,11 +242,27 @@ export function UserDocumentTableEditor({
   content,
   onChange
 }: UserDocumentTableEditorProps): React.ReactNode {
-  const doc = useMemo(() => parseDocument(content), [content])
+  // Maintain local parsed state to avoid lossy serialize→parse round-trips
+  // (markdown table parsing trims cell whitespace, which eats trailing spaces).
+  const [doc, setDoc] = useState(() => parseDocument(content))
+  const [prevContent, setPrevContent] = useState(content)
 
-  function emitChange(next: ParsedDocument): void {
-    onChange(serializeDocument(next))
+  // Re-parse only when the parent pushes a genuinely new content string
+  // (e.g. initial load, revert).
+  if (content !== prevContent) {
+    setPrevContent(content)
+    setDoc(parseDocument(content))
   }
+
+  const emitChange = useCallback(
+    (next: ParsedDocument) => {
+      setDoc(next)
+      const serialized = serializeDocument(next)
+      setPrevContent(serialized)
+      onChange(serialized)
+    },
+    [onChange]
+  )
 
   function updateCell(sectionIdx: number, rowIdx: number, colIdx: number, value: string): void {
     const next = structuredClone(doc)
@@ -273,23 +330,16 @@ export function UserDocumentTableEditor({
                         const value = row.cells[colIdx] ?? ''
 
                         return (
-                          <div key={colIdx} className="flex items-center gap-2">
+                          <div key={colIdx} className="flex items-start gap-2">
                             <span
-                              className="w-20 shrink-0 text-xs"
+                              className="w-20 shrink-0 pt-1.5 text-xs"
                               style={{ color: theme.text.tertiary }}
                             >
                               {header}
                             </span>
-                            <input
-                              type="text"
+                            <AutoResizeTextarea
                               value={value}
-                              onChange={(e) => updateCell(si, ri, colIdx, e.target.value)}
-                              className="flex-1 rounded-lg px-2.5 py-1.5 text-sm outline-none"
-                              style={{
-                                background: alpha('ink', 0.04),
-                                border: 'none',
-                                color: theme.text.primary
-                              }}
+                              onChange={(v) => updateCell(si, ri, colIdx, v)}
                               placeholder={header}
                             />
                           </div>
