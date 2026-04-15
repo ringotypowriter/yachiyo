@@ -10,6 +10,8 @@ interface ToolCodeBlockProps {
   value: string
   filePath?: string
   variant?: 'diff' | 'preview'
+  /** When true, remove the max-height cap so the block fills its parent. */
+  fillHeight?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -143,9 +145,11 @@ function renderTokens(tokens: HighlightToken[]): React.JSX.Element[] {
 export function ToolCodeBlock({
   value,
   filePath,
-  variant = 'preview'
+  variant = 'preview',
+  fillHeight = false
 }: ToolCodeBlockProps): React.JSX.Element {
-  if (variant === 'diff') return <DiffView value={value} filePath={filePath} />
+  if (variant === 'diff')
+    return <DiffView value={value} filePath={filePath} fillHeight={fillHeight} />
   return <PreviewView value={value} filePath={filePath} />
 }
 
@@ -175,7 +179,15 @@ function PreviewView({ value, filePath }: { value: string; filePath?: string }):
 // Diff variant
 // ---------------------------------------------------------------------------
 
-function DiffView({ value, filePath }: { value: string; filePath?: string }): React.JSX.Element {
+function DiffView({
+  value,
+  filePath,
+  fillHeight = false
+}: {
+  value: string
+  filePath?: string
+  fillHeight?: boolean
+}): React.JSX.Element {
   const diffLines = parseDiffLines(value)
 
   // Build the stripped code for highlighting (only content lines)
@@ -203,7 +215,7 @@ function DiffView({ value, filePath }: { value: string; filePath?: string }): Re
   const startIdx = diffLines[0]?.type === 'hunk' ? 1 : 0
 
   return (
-    <Container maxHeight="200px" filePath={filePath}>
+    <Container maxHeight={fillHeight ? 'none' : '200px'} filePath={filePath}>
       {diffLines.slice(startIdx).map((line, i) => {
         if (line.type === 'hunk') {
           return (

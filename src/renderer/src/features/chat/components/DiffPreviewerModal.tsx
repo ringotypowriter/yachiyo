@@ -180,7 +180,7 @@ export function DiffPreviewerModal({
             <div className="flex flex-1" style={{ minHeight: 0 }}>
               {/* File list sidebar */}
               <div
-                className="shrink-0 overflow-y-auto"
+                className="shrink-0 overflow-y-auto min-h-0"
                 style={{
                   width: 200,
                   borderRight: `1px solid ${theme.border.subtle}`
@@ -242,10 +242,10 @@ export function DiffPreviewerModal({
               </div>
 
               {/* Diff panel */}
-              <div className="flex-1 overflow-y-auto p-4" style={{ minHeight: 0 }}>
+              <div className="flex-1 flex flex-col overflow-hidden p-4" style={{ minHeight: 0 }}>
                 {selected ? (
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between">
+                  <div className="flex flex-col gap-2 min-h-0 flex-1">
+                    <div className="flex items-center justify-between shrink-0">
                       <span className="text-xs" style={{ color: theme.text.muted }}>
                         {selected.relativePath}
                       </span>
@@ -268,12 +268,15 @@ export function DiffPreviewerModal({
                         </button>
                       ) : null}
                     </div>
-                    <ToolCodeBlock
-                      key={selected.relativePath}
-                      value={selected.diff}
-                      filePath={selected.relativePath}
-                      variant="diff"
-                    />
+                    <div className="flex-1 min-h-0 overflow-y-auto">
+                      <ToolCodeBlock
+                        key={selected.relativePath}
+                        value={selected.diff}
+                        filePath={selected.relativePath}
+                        variant="diff"
+                        fillHeight
+                      />
+                    </div>
                   </div>
                 ) : changes && changes.length === 0 ? (
                   <div
