@@ -2,7 +2,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 import type { SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
-import { createPresetProviders } from '../../../shared/yachiyo/providerPresets.ts'
+import {
+  createPresetProviders,
+  mergePresetProviders
+} from '../../../shared/yachiyo/providerPresets.ts'
 import {
   DEFAULT_SETTINGS_CONFIG,
   normalizeSettingsConfig,
@@ -38,15 +41,21 @@ export function createSettingsStore(
 ): SettingsStore {
   mkdirSync(dirname(settingsPath), { recursive: true })
 
-  // Seed preset providers on genuine first launch (no config file yet).
-  // Once written, subsequent reads go through the TOML path and respect
-  // user changes including provider removals.
-  if (options?.seedPresetProviders && !existsSync(settingsPath)) {
-    const seeded: SettingsConfig = {
-      ...DEFAULT_SETTINGS_CONFIG,
-      providers: createPresetProviders()
+  if (options?.seedPresetProviders) {
+    if (!existsSync(settingsPath)) {
+      // First launch: seed all preset providers.
+      const seeded: SettingsConfig = {
+        ...DEFAULT_SETTINGS_CONFIG,
+        providers: createPresetProviders()
+      }
+      writeFileSync(settingsPath, stringifySettingsToml(normalizeSettingsConfig(seeded)), 'utf8')
+    } else {
+      // Subsequent launches: backfill presetKey on legacy entries and merge missing presets.
+      const config = parseSettingsToml(readFileSync(settingsPath, 'utf8'))
+      const merged = mergePresetProviders(config.providers)
+      config.providers = merged
+      writeFileSync(settingsPath, stringifySettingsToml(normalizeSettingsConfig(config)), 'utf8')
     }
-    writeFileSync(settingsPath, stringifySettingsToml(normalizeSettingsConfig(seeded)), 'utf8')
   }
 
   return {

@@ -198,6 +198,7 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
       return {
         providers: config.providers.map((provider) => ({
           id: ensureProviderId(provider.id),
+          presetKey: provider.presetKey ?? '',
           name: provider.name,
           type: provider.type,
           thinkingEnabled: provider.thinkingEnabled !== false,

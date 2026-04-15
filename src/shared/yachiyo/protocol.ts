@@ -616,6 +616,8 @@ export interface ProviderModelList {
 
 export interface ProviderConfig {
   id?: string
+  /** Stable key linking this provider to a built-in preset (e.g. "openai", "google-vertex"). */
+  presetKey?: string
   name: string
   type: ProviderKind
   thinkingEnabled?: boolean

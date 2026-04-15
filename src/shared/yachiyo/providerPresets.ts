@@ -155,6 +155,7 @@ export function matchProviderPreset(name: string, baseUrl: string): ProviderPres
 function presetToProviderConfig(preset: ProviderPreset): ProviderConfig {
   return {
     id: createProviderId(),
+    presetKey: preset.key,
     name: preset.name,
     type: preset.type,
     thinkingEnabled: true,
@@ -170,18 +171,40 @@ export function createPresetProviders(): ProviderConfig[] {
 }
 
 /**
+ * Backfill presetKey on legacy provider entries that were created before
+ * presetKey was introduced. Mutates in place for efficiency.
+ *
+ * Only matches by exact baseUrl — name matching is intentionally excluded
+ * because it would incorrectly tag custom providers that happen to share
+ * a preset name (e.g. a custom "OpenAI" pointing at a proxy).
+ * Each preset key is assigned at most once.
+ */
+function backfillPresetKeys(providers: ProviderConfig[]): void {
+  const claimed = new Set(providers.map((p) => p.presetKey).filter(Boolean))
+
+  for (const provider of providers) {
+    if (provider.presetKey) continue
+    const url = provider.baseUrl.trim()
+    if (!url) continue
+    const match = providerPresets.find((p) => p.baseUrl && p.baseUrl === url)
+    if (match && !claimed.has(match.key)) {
+      provider.presetKey = match.key
+      claimed.add(match.key)
+    }
+  }
+}
+
+/**
  * Merge missing preset providers into an existing provider list.
- * Matching is by base URL first, then by name — existing providers are never replaced.
+ * Backfills presetKey on legacy entries first, then matches by presetKey.
+ * Existing providers are never replaced.
  */
 export function mergePresetProviders(existing: ProviderConfig[]): ProviderConfig[] {
-  const urlSet = new Set(existing.map((p) => p.baseUrl.trim()).filter(Boolean))
-  const nameSet = new Set(existing.map((p) => p.name.toLowerCase()))
+  backfillPresetKeys(existing)
 
-  const missing = providerPresets.filter((preset) => {
-    if (preset.baseUrl && urlSet.has(preset.baseUrl)) return false
-    if (nameSet.has(preset.name.toLowerCase())) return false
-    return true
-  })
+  const keySet = new Set(existing.map((p) => p.presetKey).filter(Boolean))
+
+  const missing = providerPresets.filter((preset) => !keySet.has(preset.key))
 
   if (missing.length === 0) return existing
   return [...existing, ...missing.map(presetToProviderConfig)]

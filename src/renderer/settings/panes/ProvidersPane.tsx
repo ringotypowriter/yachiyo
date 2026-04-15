@@ -391,8 +391,12 @@ export function ProvidersPane({
     onSelectProvider(provider.id ?? '')
   }
 
+  const isLastOfItsPreset =
+    !!selectedProvider?.presetKey &&
+    draft.providers.filter((p) => p.presetKey === selectedProvider!.presetKey).length <= 1
+
   const handleRemoveProvider = (): void => {
-    if (!selectedProvider) {
+    if (!selectedProvider || isLastOfItsPreset) {
       return
     }
 
@@ -493,15 +497,17 @@ export function ProvidersPane({
                 {selectedProvider.name}
               </div>
 
-              <button
-                type="button"
-                onClick={handleRemoveProvider}
-                className="flex items-center gap-1.5 text-xs font-medium transition-opacity opacity-50 hover:opacity-100"
-                style={{ color: theme.text.danger }}
-              >
-                <Trash2 size={12} strokeWidth={1.8} />
-                Remove
-              </button>
+              {!isLastOfItsPreset && (
+                <button
+                  type="button"
+                  onClick={handleRemoveProvider}
+                  className="flex items-center gap-1.5 text-xs font-medium transition-opacity opacity-50 hover:opacity-100"
+                  style={{ color: theme.text.danger }}
+                >
+                  <Trash2 size={12} strokeWidth={1.8} />
+                  Remove
+                </button>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-5">

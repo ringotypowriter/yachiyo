@@ -56,8 +56,11 @@ function normalizeProviderConfig(value: unknown, fallback?: ProviderConfig): Pro
     (model) => !enabled.includes(model)
   )
 
+  const presetKey = normalizeString(input['presetKey'], fallback?.presetKey ?? '')
+
   return sanitizeProviderConfig({
     id: ensureProviderId(normalizeString(input['id'], fallback?.id ?? '')),
+    ...(presetKey ? { presetKey } : {}),
     name,
     type: isLegacyGatewayVertexProvider(input)
       ? 'vercel-gateway'

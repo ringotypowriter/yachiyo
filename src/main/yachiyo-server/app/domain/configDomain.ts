@@ -280,15 +280,22 @@ export class YachiyoServerConfigDomain {
   removeProvider(input: { name: string }): SettingsConfig {
     const name = input.name.trim()
     const current = this.readConfig()
-    const providers = current.providers.filter((provider) => provider.name !== name)
+    const target = current.providers.find((p) => p.name === name)
 
-    if (providers.length === current.providers.length) {
+    if (!target) {
       throw new Error(`Unknown provider: ${name}`)
+    }
+
+    if (
+      target.presetKey &&
+      current.providers.filter((p) => p.presetKey === target.presetKey).length <= 1
+    ) {
+      throw new Error(`Cannot remove the last ${target.name} provider`)
     }
 
     return this.persistConfig({
       ...current,
-      providers
+      providers: current.providers.filter((p) => p.name !== name)
     })
   }
 
