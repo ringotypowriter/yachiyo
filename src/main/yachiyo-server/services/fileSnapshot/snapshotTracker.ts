@@ -138,6 +138,9 @@ export class SnapshotTracker {
   /** Resolves when the background baseline scan finishes (or is aborted). */
   private baselineReady: Promise<void> = Promise.resolve()
 
+  /** Stored resolve so dispose() can unblock code awaiting baselineReady. */
+  private baselineResolve: (() => void) | null = null
+
   /** Filter function loaded from .gitignore (null = no gitignore or load failed). */
   private gitignoreFilter: ((relativePath: string) => boolean) | null = null
   private gitignoreLoaded = false
@@ -175,10 +178,10 @@ export class SnapshotTracker {
     // the Node process from exiting (important for tests). The scan runs
     // on the next tick via an unref'd timer; scanWorkspace() awaits the
     // result before finalization.
-    let resolve!: () => void
     this.baselineReady = new Promise<void>((r) => {
-      resolve = r
+      this.baselineResolve = r
     })
+    const resolve = this.baselineResolve!
     const timer = setTimeout(() => {
       this.runBaselineScan()
         .catch((err) => {
@@ -203,6 +206,7 @@ export class SnapshotTracker {
    */
   dispose(): void {
     this.abortController.abort()
+    this.baselineResolve?.()
   }
 
   /**
