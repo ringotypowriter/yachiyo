@@ -6894,7 +6894,7 @@ test('YachiyoServer persists direct USER.md edits through the settings-facing AP
   })
 })
 
-test('YachiyoServer injects USER.md as a separate context layer and exposes the model edit path', async () => {
+test('YachiyoServer injects USER.md into the consolidated system layer and exposes the model edit path', async () => {
   await withServer(
     async ({ server, completeRun, modelRequests }) => {
       const thread = await server.createThread()
@@ -6942,14 +6942,23 @@ test('YachiyoServer injects USER.md as a separate context layer and exposes the 
         ),
         true
       )
-      assert.equal(
-        systemMessages.some(
-          (message) =>
-            typeof message.content === 'string' &&
-            message.content.includes('Leader prefers direct tradeoff summaries') &&
-            message.content.includes('from SOUL.md')
-        ),
-        false
+      // With consolidated system messages, verify that user content appears
+      // under the user preamble section, not inline with the soul preamble.
+      const consolidated = systemMessages.find(
+        (message) =>
+          typeof message.content === 'string' &&
+          message.content.includes('Leader prefers direct tradeoff summaries')
+      )
+      assert.ok(consolidated)
+      const text = consolidated!.content as string
+      const userPreambleIdx = text.indexOf('durable understanding of the user from USER.md')
+      const soulPreambleIdx = text.indexOf('from SOUL.md')
+      const userContentIdx = text.indexOf('Leader prefers direct tradeoff summaries')
+      // User content must come after the user preamble, not within the soul section
+      assert.ok(userContentIdx > userPreambleIdx, 'user content should follow user preamble')
+      assert.ok(
+        userContentIdx > soulPreambleIdx,
+        'user content should not appear before the soul section ends'
       )
     },
     {

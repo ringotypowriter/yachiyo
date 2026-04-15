@@ -49,26 +49,26 @@ test('message prepare can add soul, agent, hint, and memory layers without mutat
     }
   })
 
+  const soulPreamble =
+    'The following is your self-model and personality continuity record from SOUL.md. Absorb it holistically and integrate it naturally into your current persona:'
+  const userPreamble =
+    'The following is your durable understanding of the user from USER.md. Treat it as a long-term collaboration profile, not as current task state:'
+
   assert.deepEqual(prepared, [
-    // Durable system layers (stable prefix)
-    { role: 'system', content: SYSTEM_PROMPT },
+    // Consolidated system message (stable prefix)
     {
       role: 'system',
       content: [
-        'The following is your self-model and personality continuity record from SOUL.md. Absorb it holistically and integrate it naturally into your current persona:',
-        '',
-        soulContent
-      ].join('\n')
+        SYSTEM_PROMPT,
+        [soulPreamble, '', soulContent].join('\n'),
+        [
+          userPreamble,
+          '',
+          '# USER\n\n## Work Style\n- Likes decisions with explicit tradeoffs'
+        ].join('\n'),
+        'Workspace: /tmp/thread-1'
+      ].join('\n\n')
     },
-    {
-      role: 'system',
-      content: [
-        'The following is your durable understanding of the user from USER.md. Treat it as a long-term collaboration profile, not as current task state:',
-        '',
-        '# USER\n\n## Work Style\n- Likes decisions with explicit tradeoffs'
-      ].join('\n')
-    },
-    { role: 'system', content: 'Workspace: /tmp/thread-1' },
     // User query with per-turn context merged in
     {
       role: 'user',
