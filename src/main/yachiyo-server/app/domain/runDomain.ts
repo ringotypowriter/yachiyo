@@ -481,24 +481,31 @@ export class YachiyoServerRunDomain {
       `Exit code: ${result.exitCode}\n` +
       `Log file: ${result.logPath}\n\n` +
       `The background command has finished. You can read the log file for full output.`
+    const chatOptions = {
+      threadId: thread.id,
+      content,
+      ...(ctx?.enabledTools ? { enabledTools: ctx.enabledTools } : {}),
+      ...(ctx?.enabledSkillNames ? { enabledSkillNames: ctx.enabledSkillNames } : {}),
+      ...(ctx?.channelHint ? { channelHint: ctx.channelHint } : {}),
+      ...(ctx?.extraTools ? { extraTools: ctx.extraTools } : {})
+    }
     try {
-      await this.sendChat({
-        threadId: thread.id,
-        content,
-        // Always deliver as a follow-up so the completion notice queues gracefully
-        // when a run is active and starts a fresh run otherwise.
-        mode: 'follow-up',
-        ...(ctx?.enabledTools ? { enabledTools: ctx.enabledTools } : {}),
-        ...(ctx?.enabledSkillNames ? { enabledSkillNames: ctx.enabledSkillNames } : {}),
-        ...(ctx?.channelHint ? { channelHint: ctx.channelHint } : {}),
-        ...(ctx?.extraTools ? { extraTools: ctx.extraTools } : {})
-      })
-    } catch (error) {
-      console.warn('[yachiyo][background-bash] auto-delivery sendChat failed', {
-        threadId: thread.id,
-        taskId: result.taskId,
-        error: error instanceof Error ? error.message : String(error)
-      })
+      // Prefer steer so the completion notice is injected into the active run's
+      // context at the next turn boundary instead of spawning a separate run.
+      // Falls back to follow-up when no active run exists or the steer is rejected.
+      await this.sendChat({ ...chatOptions, mode: 'steer' as SendChatMode })
+    } catch {
+      // Steer rejected (no active run, or handoff not ready) — fall back to
+      // follow-up which queues gracefully or starts a fresh run.
+      try {
+        await this.sendChat({ ...chatOptions, mode: 'follow-up' })
+      } catch (error) {
+        console.warn('[yachiyo][background-bash] auto-delivery sendChat failed', {
+          threadId: thread.id,
+          taskId: result.taskId,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
     }
   }
 

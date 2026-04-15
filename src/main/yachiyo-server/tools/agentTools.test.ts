@@ -597,12 +597,11 @@ test('runBashTool lifts a timed-out command into a background task when adoption
     assert.equal(result.details.liftedAfterTimeout, true)
     assert.equal(result.details.taskId, adopted[0].taskId)
     assert.ok(result.details.logPath?.includes('.yachiyo/tool-output'))
-    const handle = JSON.parse(flattenToolContent(result.content)) as {
-      taskId: string
-      logPath: string
-    }
-    assert.equal(handle.taskId, adopted[0].taskId)
-    assert.equal(handle.logPath, result.details.logPath)
+    const notice = flattenToolContent(result.content)
+    assert.match(notice, /converted to a background task/)
+    assert.match(notice, /timed out after 1 second/)
+    assert.ok(notice.includes(adopted[0].taskId))
+    assert.ok(notice.includes(result.details.logPath!))
   })
 })
 

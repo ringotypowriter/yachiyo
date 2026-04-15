@@ -630,8 +630,16 @@ export async function* streamBashTool(
 
       if (liftedHandle) {
         await closeWriteStream(spillStream)
+        const liftNotice =
+          `[Notice] Command timed out after ${timeoutSeconds} second${timeoutSeconds === 1 ? '' : 's'} ` +
+          `and has been converted to a background task.\n` +
+          `Task ID: ${liftedHandle.taskId}\n` +
+          `Log file: ${liftedHandle.logPath}\n\n` +
+          `The command is still running in the background. ` +
+          `Do NOT assume it has finished — you will receive a "[Background task completed]" ` +
+          `message when it exits. Until then, you can read the log file to check partial output.`
         queue.push({
-          content: [{ type: 'text', text: JSON.stringify(liftedHandle) }],
+          content: [{ type: 'text', text: liftNotice }],
           details: {
             command,
             cwd: context.workspacePath,
