@@ -174,25 +174,16 @@ export class SnapshotTracker {
    * Must be called explicitly so tests don't get lingering async work.
    */
   startBaselineScan(): void {
-    // Use a deferred promise so the baseline scan's I/O doesn't prevent
-    // the Node process from exiting (important for tests). The scan runs
-    // on the next tick via an unref'd timer; scanWorkspace() awaits the
-    // result before finalization.
     this.baselineReady = new Promise<void>((r) => {
       this.baselineResolve = r
     })
-    const resolve = this.baselineResolve!
-    const timer = setTimeout(() => {
-      this.runBaselineScan()
-        .catch((err) => {
-          if (!this.abortController.signal.aborted) {
-            console.error('[snapshot] Baseline scan failed:', err)
-          }
-        })
-        .finally(resolve)
-    }, 0)
-    // unref so this timer alone doesn't keep the process alive
-    if (typeof timer === 'object' && 'unref' in timer) timer.unref()
+    this.runBaselineScan()
+      .catch((err) => {
+        if (!this.abortController.signal.aborted) {
+          console.error('[snapshot] Baseline scan failed:', err)
+        }
+      })
+      .finally(() => this.baselineResolve?.())
   }
 
   /** Whether any files have been tracked. */
