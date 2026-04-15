@@ -893,7 +893,18 @@ function mergeUsage(
   current: ModelUsage | undefined
 ): ModelUsage | undefined {
   if (!prior) return current
-  if (!current) return undefined
+  if (!current) {
+    // Last leg produced no usage (provider/runtime omitted it) — return
+    // accumulated prior usage so tokens from earlier legs aren't lost.
+    return {
+      promptTokens: prior.promptTokens ?? 0,
+      completionTokens: prior.completionTokens ?? 0,
+      totalPromptTokens: prior.totalPromptTokens ?? 0,
+      totalCompletionTokens: prior.totalCompletionTokens ?? 0,
+      cacheReadTokens: prior.cacheReadTokens ?? 0,
+      cacheWriteTokens: prior.cacheWriteTokens ?? 0
+    }
+  }
   return {
     ...current,
     promptTokens: (prior.promptTokens ?? 0) + current.promptTokens,
@@ -2388,7 +2399,9 @@ export async function executeServerRun(
       })
 
       // Finalize snapshot for cancelled runs so partial changes are reviewable.
-      if (snapshotTracker?.hasTrackedFiles) {
+      // Always scan — Layer 3 discovers files created during the run even when
+      // Layer 1/2 tracking hasn't populated yet (e.g. baseline scan still running).
+      if (snapshotTracker) {
         try {
           await snapshotTracker.scanWorkspace()
           const snapshot = await snapshotTracker.finalize()
@@ -2408,9 +2421,10 @@ export async function executeServerRun(
           runGc(snapshotTracker.workspaceHash).catch(() => {})
         } catch {
           // Best effort — don't fail the cancel path
+        } finally {
+          snapshotTracker.dispose()
         }
       }
-      snapshotTracker?.dispose()
 
       deps.onTerminalState?.()
       deps.emit<HarnessFinishedEvent>({
@@ -2537,7 +2551,9 @@ export async function executeServerRun(
     })
 
     // Finalize file snapshot for failed runs so partial changes are reviewable.
-    if (snapshotTracker?.hasTrackedFiles) {
+    // Always scan — Layer 3 discovers files created during the run even when
+    // Layer 1/2 tracking hasn't populated yet (e.g. baseline scan still running).
+    if (snapshotTracker) {
       try {
         await snapshotTracker.scanWorkspace()
         const snapshot = await snapshotTracker.finalize()
@@ -2557,9 +2573,10 @@ export async function executeServerRun(
         runGc(snapshotTracker.workspaceHash).catch(() => {})
       } catch {
         // Best effort — don't fail the failure path
+      } finally {
+        snapshotTracker.dispose()
       }
     }
-    snapshotTracker?.dispose()
 
     deps.onTerminalState?.()
     deps.emit<HarnessFinishedEvent>({

@@ -315,6 +315,39 @@ export class SnapshotTracker {
       })
     }
 
+    // Merge entries from a prior steer leg of the same run so that
+    // mid-steer snapshot writes don't overwrite earlier file baselines.
+    const priorSnapshot = await loadSnapshotIndex(this.workspaceHash, this.runId)
+    if (priorSnapshot) {
+      const currentByPath = new Map(entries.map((e) => [e.relativePath, e]))
+      for (const priorEntry of priorSnapshot.entries) {
+        const current = currentByPath.get(priorEntry.relativePath)
+        if (current) {
+          // File changed in both legs — keep the original backup from the prior leg.
+          current.backupHash = priorEntry.backupHash
+          current.originalSize = priorEntry.originalSize
+        } else {
+          // File changed only pre-steer — re-read to get the current after-state.
+          const absPath = resolve(this.workspacePath, priorEntry.relativePath)
+          let afterHash: string | null = null
+          try {
+            const content = await readFile(absPath)
+            afterHash = hashContent(content)
+            await storeBlob(this.workspaceHash, content)
+          } catch (err) {
+            if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+              afterHash = null
+            } else {
+              continue
+            }
+          }
+          // Skip if the file reverted to its original state.
+          if (afterHash === priorEntry.backupHash) continue
+          entries.push({ ...priorEntry, afterHash })
+        }
+      }
+    }
+
     entries.sort((a, b) => a.relativePath.localeCompare(b.relativePath))
 
     const snapshot: RunSnapshot = {
