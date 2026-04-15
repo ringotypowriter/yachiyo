@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X, RotateCcw, FilePlus2, FileMinus2, FileEdit } from 'lucide-react'
+import { X, RotateCcw, FilePlus2, FileMinus2, FileEdit, SquareArrowOutUpRight } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
+import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { ToolCodeBlock } from './ToolCodeBlock'
 import type {
@@ -35,6 +36,7 @@ export function DiffPreviewerModal({
   isLatestRun = true,
   onClose
 }: DiffPreviewerModalProps): React.JSX.Element {
+  const editorApp = useAppStore((s) => s.config?.workspace?.editorApp)
   const [changes, setChanges] = useState<FileChangeForReview[] | null>(null)
   const [error, setError] = useState(false)
   const [selectedIdx, setSelectedIdx] = useState(0)
@@ -119,6 +121,21 @@ export function DiffPreviewerModal({
     setConfirmRevertMode(null)
     setConfirmRevertPath(null)
   }, [confirmRevertMode, confirmRevertPath, executeRevertFile, executeRevertAll])
+
+  const handleOpenInEditor = useCallback(
+    async (relativePath: string) => {
+      if (!editorApp) return
+      const fullPath = workspacePath.endsWith('/')
+        ? `${workspacePath}${relativePath}`
+        : `${workspacePath}/${relativePath}`
+      try {
+        await window.api.yachiyo.openFileInEditor({ path: fullPath, editorApp })
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : 'Failed to open in editor.')
+      }
+    },
+    [workspacePath, editorApp]
+  )
 
   const selected = changes?.[selectedIdx]
 
@@ -249,24 +266,42 @@ export function DiffPreviewerModal({
                       <span className="text-xs" style={{ color: theme.text.muted }}>
                         {selected.relativePath}
                       </span>
-                      {isLatestRun ? (
-                        <button
-                          type="button"
-                          onClick={() => handleRevertFile(selected.relativePath)}
-                          disabled={reverting}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-opacity hover:opacity-80"
-                          style={{
-                            color: theme.text.danger,
-                            background: alpha('danger', 0.08),
-                            border: 'none',
-                            cursor: reverting ? 'not-allowed' : 'pointer',
-                            opacity: reverting ? 0.5 : 1
-                          }}
-                        >
-                          <RotateCcw size={10} strokeWidth={2} />
-                          Revert
-                        </button>
-                      ) : null}
+                      <div className="flex items-center gap-1.5">
+                        {editorApp && selected.status !== 'deleted' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenInEditor(selected.relativePath)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-opacity hover:opacity-80"
+                            style={{
+                              color: theme.text.accent,
+                              background: alpha('ink', 0.05),
+                              border: 'none',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <SquareArrowOutUpRight size={10} strokeWidth={2} />
+                            Open in {editorApp}
+                          </button>
+                        ) : null}
+                        {isLatestRun ? (
+                          <button
+                            type="button"
+                            onClick={() => handleRevertFile(selected.relativePath)}
+                            disabled={reverting}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-opacity hover:opacity-80"
+                            style={{
+                              color: theme.text.danger,
+                              background: alpha('danger', 0.08),
+                              border: 'none',
+                              cursor: reverting ? 'not-allowed' : 'pointer',
+                              opacity: reverting ? 0.5 : 1
+                            }}
+                          >
+                            <RotateCcw size={10} strokeWidth={2} />
+                            Revert
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                     <div className="flex-1 min-h-0 overflow-y-auto">
                       <ToolCodeBlock
