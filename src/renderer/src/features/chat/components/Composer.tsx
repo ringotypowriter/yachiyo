@@ -472,6 +472,7 @@ export function Composer({
   // events while the server is mid-accept.
   const inFlightSendIdRef = useRef<string | null>(null)
   const [isSendInFlight, setIsSendInFlight] = useState(false)
+  const [isCancelInFlight, setIsCancelInFlight] = useState(false)
   const overlayRef = useRef<HTMLDivElement>(null)
   const composerInputRef = useRef<HTMLDivElement>(null)
   const popupContainerRef = useRef<HTMLDivElement>(null)
@@ -529,6 +530,11 @@ export function Composer({
   const canAddImages = draftImages.length < MAX_COMPOSER_IMAGES
   const canAddFiles = draftFiles.length < MAX_COMPOSER_FILES
   const hasActiveRun = activeRunId !== null
+
+  // Clear cancel-in-flight when the run actually ends.
+  useEffect(() => {
+    if (!hasActiveRun) setIsCancelInFlight(false)
+  }, [hasActiveRun])
 
   const defaultEnabledSkillNames = useMemo(() => {
     const enabledNames = normalizeSkillNames(config?.skills?.enabled)
@@ -2558,16 +2564,27 @@ export function Composer({
           {showStopButton ? (
             <button
               type="button"
-              onClick={() => void cancelActiveRun()}
+              disabled={isCancelInFlight}
+              onClick={() => {
+                if (isCancelInFlight) return
+                setIsCancelInFlight(true)
+                void cancelActiveRun()
+              }}
               className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
               style={{
                 background: theme.background.accentPanel,
-                border: `1px solid ${theme.border.accent}`
+                border: `1px solid ${theme.border.accent}`,
+                opacity: isCancelInFlight ? 0.6 : 1,
+                cursor: isCancelInFlight ? 'default' : 'pointer'
               }}
               aria-label="Stop generation"
               title="Stop generation"
             >
-              <Square size={10} fill={theme.text.accent} strokeWidth={0} />
+              {isCancelInFlight ? (
+                <LoaderCircle size={12} className="animate-spin" color={theme.text.accent} />
+              ) : (
+                <Square size={10} fill={theme.text.accent} strokeWidth={0} />
+              )}
             </button>
           ) : null}
 
@@ -2585,7 +2602,8 @@ export function Composer({
             className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
             style={{
               background: canSend ? theme.text.accent : theme.border.panel,
-              cursor: canSend ? 'pointer' : 'default'
+              cursor: canSend ? 'pointer' : 'default',
+              opacity: isSendInFlight ? 0.6 : 1
             }}
             aria-label={
               primarySendMode === 'steer'
@@ -2606,11 +2624,15 @@ export function Composer({
                     : 'Send'
             }
           >
-            <SendHorizonal
-              size={14}
-              strokeWidth={1.8}
-              color={canSend ? theme.text.inverse : theme.icon.placeholder}
-            />
+            {isSendInFlight ? (
+              <LoaderCircle size={14} className="animate-spin" color={theme.text.inverse} />
+            ) : (
+              <SendHorizonal
+                size={14}
+                strokeWidth={1.8}
+                color={canSend ? theme.text.inverse : theme.icon.placeholder}
+              />
+            )}
           </button>
         </div>
       </div>
