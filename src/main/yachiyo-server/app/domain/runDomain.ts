@@ -866,11 +866,11 @@ export class YachiyoServerRunDomain {
   cancelRun(input: { runId: string }): void {
     const activeRun = this.activeRuns.get(input.runId)
     if (activeRun) {
-      // If there's a pending steer, persist it so the user's message is not
-      // silently dropped, then proceed with a plain cancel (no restart).
+      // If there's a pending steer, persist it and queue it as a follow-up so
+      // startQueuedFollowUpIfPresent fires a new run after the cancel completes.
       if (activeRun.pendingSteerInput) {
         const currentThread = this.deps.requireThread(activeRun.threadId)
-        this.persistSteerMessage({
+        const { updatedThread, userMessage } = this.persistSteerMessage({
           content: activeRun.pendingSteerInput.content,
           images: activeRun.pendingSteerInput.images,
           attachments: activeRun.pendingSteerInput.attachments,
@@ -881,6 +881,12 @@ export class YachiyoServerRunDomain {
           timestamp: activeRun.pendingSteerInput.timestamp,
           hidden: activeRun.pendingSteerInput.hidden
         })
+        // Queue the steer as a follow-up so it auto-fires after the cancel.
+        const queuedThread: ThreadRecord = {
+          ...updatedThread,
+          queuedFollowUpMessageId: userMessage.id
+        }
+        this.deps.storage.updateThread(queuedThread)
         this.emitThreadStateReplaced(activeRun.threadId)
         activeRun.pendingSteerInput = undefined
       }
@@ -1793,7 +1799,24 @@ export class YachiyoServerRunDomain {
         // steer is waiting. Persist the steer message and continue the loop
         // so the next executeServerRun iteration starts from the steer.
         if (result.kind === 'steer-pending') {
-          if (!activeRun?.pendingSteerInput) break
+          if (!activeRun?.pendingSteerInput) {
+            // The steer was cancelled (e.g. user stopped the run) while snapshot
+            // finalization was in progress. The cancel path in executeServerRun
+            // never ran (the abort arrived after throwIfAborted), so we must
+            // cancel the run in storage ourselves and let the finally block fire
+            // startQueuedFollowUpIfPresent.
+            this.deps.storage.cancelRun({
+              runId: input.runId,
+              completedAt: this.deps.timestamp()
+            })
+            this.deps.emit<RunCancelledEvent>({
+              type: 'run.cancelled',
+              threadId: input.thread.id,
+              runId: input.runId
+            })
+            result = { kind: 'cancelled' }
+            break
+          }
 
           // Point requestMessageId to the completed assistant message so
           // persistSteerMessage parents the steer as a child of the assistant
