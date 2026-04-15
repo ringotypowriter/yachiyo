@@ -3,7 +3,7 @@ import { performance } from 'node:perf_hooks'
 import { SnapshotTracker } from '../../services/fileSnapshot/snapshotTracker.ts'
 import { runGc } from '../../services/fileSnapshot/snapshotGc.ts'
 import { execFile } from 'node:child_process'
-import { access, constants, readFile } from 'node:fs/promises'
+import { access, constants, readFile, stat } from 'node:fs/promises'
 import { mkdir } from 'node:fs/promises'
 import { join, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
@@ -14,6 +14,7 @@ const MEMORY_RECALL_TIMEOUT_MS = 15_000
 const DEFAULT_MAX_TOOL_STEPS = 100
 const OWNER_DM_MAX_TOOL_STEPS = 30
 const EXTERNAL_CHANNEL_MAX_TOOL_STEPS = 10
+const AGENTS_MD_PRELOAD_THRESHOLD_BYTES = 10 * 1024
 
 import type {
   HarnessFinishedEvent,
@@ -387,6 +388,7 @@ interface GitContext {
   currentBranch?: string
   mainBranch?: string
   hasAgentsMd?: boolean
+  agentsMdContent?: string
 }
 
 async function detectGitContext(workspacePath: string): Promise<GitContext> {
@@ -408,14 +410,19 @@ async function detectGitContext(workspacePath: string): Promise<GitContext> {
     const mainBranch = rawMain?.replace(/^origin\//, '') ?? 'main'
 
     let hasAgentsMd = false
+    let agentsMdContent: string | undefined
     try {
-      await access(join(workspacePath, 'AGENTS.md'), constants.F_OK)
+      const agentsMdPath = join(workspacePath, 'AGENTS.md')
+      const stats = await stat(agentsMdPath)
       hasAgentsMd = true
+      if (stats.size <= AGENTS_MD_PRELOAD_THRESHOLD_BYTES) {
+        agentsMdContent = await readFile(agentsMdPath, 'utf8')
+      }
     } catch {
       // file absent
     }
 
-    return { hasGit: true, currentBranch, mainBranch, hasAgentsMd }
+    return { hasGit: true, currentBranch, mainBranch, hasAgentsMd, agentsMdContent }
   } catch {
     return { hasGit: true }
   }
@@ -448,9 +455,16 @@ function buildSubagentContextBlock(
       `- Current Branch: ${gitCtx.currentBranch ?? 'unknown'}`,
       `- Main Branch: ${gitCtx.mainBranch ?? 'main'}`
     )
-    if (gitCtx.hasAgentsMd) {
+    if (gitCtx.agentsMdContent) {
       gitContextLines.push(
-        '- AGENTS.md: Yes (check it before delegating — it may contain project-specific rules or constraints for coding agents)'
+        'Project Agent Rules (AGENTS.md):',
+        '```markdown',
+        gitCtx.agentsMdContent,
+        '```'
+      )
+    } else if (gitCtx.hasAgentsMd) {
+      gitContextLines.push(
+        '- AGENTS.md: Yes (check it before doing any coding work — it may contain project-specific rules or constraints for coding agents)'
       )
     }
   }
