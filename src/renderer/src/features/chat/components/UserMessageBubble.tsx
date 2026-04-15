@@ -1,28 +1,57 @@
-import React, { memo } from 'react'
+import React, { memo, useCallback, useState } from 'react'
 import { FileText } from 'lucide-react'
 import type { Message, Thread } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { linkifyText } from '@renderer/lib/markdown/linkifyText'
+import { ImageDetailViewer } from '@renderer/lib/markdown/ImageDetailViewer'
 import { canRetryUserMessage } from '../lib/messageActionState'
 import { MessageActionBar } from './MessageActionBar'
 
 function UserMessageImages({ message }: { message: Message }): React.JSX.Element | null {
+  const [viewerImage, setViewerImage] = useState<{ src: string; alt: string } | null>(null)
+
+  const handleImageClick = useCallback(
+    (src: string, alt: string) => (e: React.MouseEvent) => {
+      e.stopPropagation()
+      setViewerImage({ src, alt })
+    },
+    []
+  )
+
   if (!message.images || message.images.length === 0) {
     return null
   }
 
   return (
-    <div className="user-message-images">
-      {message.images.map((image, index) => (
-        <div key={`${image.filename ?? 'image'}-${index}`} className="user-message-images__item">
-          <img
-            className="user-message-images__media"
-            src={image.dataUrl}
-            alt={image.filename ?? `Image ${index + 1}`}
-          />
-        </div>
-      ))}
-    </div>
+    <>
+      <div className="user-message-images">
+        {message.images.map((image, index) => {
+          const alt = image.filename ?? `Image ${index + 1}`
+          return (
+            <div
+              key={`${image.filename ?? 'image'}-${index}`}
+              className="user-message-images__item"
+            >
+              <img
+                className="user-message-images__media"
+                src={image.dataUrl}
+                alt={alt}
+                onClick={handleImageClick(image.dataUrl, alt)}
+                style={{ cursor: 'pointer' }}
+              />
+            </div>
+          )
+        })}
+      </div>
+      {viewerImage ? (
+        <ImageDetailViewer
+          src={viewerImage.src}
+          alt={viewerImage.alt}
+          isOpen
+          onClose={() => setViewerImage(null)}
+        />
+      ) : null}
+    </>
   )
 }
 
