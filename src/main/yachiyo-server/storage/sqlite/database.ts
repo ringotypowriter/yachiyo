@@ -2012,7 +2012,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           COUNT(*) AS run_count
         FROM ${wsFromClause}
         WHERE ${whereClause}
-        GROUP BY workspace_path
+        GROUP BY ${threadsTable.workspacePath}
         ORDER BY total_prompt DESC
       `)
 

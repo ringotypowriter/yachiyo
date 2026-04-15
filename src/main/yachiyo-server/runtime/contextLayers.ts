@@ -392,8 +392,25 @@ export function appendTurnContextToUserMessage(
   return { role: 'user', content: turnContextParts.join('\n\n') }
 }
 
-const ANTHROPIC_CACHE_BREAKPOINT = {
-  anthropic: { cacheControl: { type: 'ephemeral' as const } }
+/**
+ * Minimum number of messages between the system breakpoint and the
+ * pre-last-user breakpoint before we insert a midpoint cache breakpoint.
+ * Roughly 6 conversation turns — below this the extra breakpoint is
+ * unlikely to pay for itself.
+ */
+const MIDPOINT_BREAKPOINT_MIN_GAP = 12
+
+/** Merge an ephemeral cache-control marker into a message's providerOptions. */
+function withCacheBreakpoint(message: ModelMessage): ModelMessage {
+  const existing = message.providerOptions as Record<string, unknown> | undefined
+  const existingAnthro = (existing?.anthropic ?? {}) as Record<string, unknown>
+  return {
+    ...message,
+    providerOptions: {
+      ...existing,
+      anthropic: { ...existingAnthro, cacheControl: { type: 'ephemeral' as const } }
+    }
+  }
 }
 
 /**
@@ -402,15 +419,20 @@ const ANTHROPIC_CACHE_BREAKPOINT = {
  * Breakpoint 1: last system message — caches the stable system prefix.
  * Breakpoint 2: last message before the current (last) user message —
  *               caches system prefix + all prior conversation history.
+ * Breakpoint 3 (conditional): midpoint of history when the gap between
+ *               BP1 and BP2 exceeds MIDPOINT_BREAKPOINT_MIN_GAP, giving
+ *               a fallback cache layer for branching / retry from older turns.
  *
- * Anthropic allows up to 4 breakpoints; we use 2 to cover the two
- * natural cache boundaries.
+ * Anthropic allows up to 4 breakpoints; we use 2–3 depending on
+ * conversation length.
  */
 function applyAnthropicCacheBreakpoints(messages: ModelMessage[]): void {
   // Breakpoint 1: last system message.
+  let systemIdx = -1
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].role === 'system') {
-      messages[i] = { ...messages[i], providerOptions: ANTHROPIC_CACHE_BREAKPOINT }
+      systemIdx = i
+      messages[i] = withCacheBreakpoint(messages[i])
       break
     }
   }
@@ -425,20 +447,49 @@ function applyAnthropicCacheBreakpoints(messages: ModelMessage[]): void {
       break
     }
   }
+  let bp2Idx = -1
   if (lastUserIdx > 0) {
-    const prev = lastUserIdx - 1
-    messages[prev] = { ...messages[prev], providerOptions: ANTHROPIC_CACHE_BREAKPOINT }
+    bp2Idx = lastUserIdx - 1
+    messages[bp2Idx] = withCacheBreakpoint(messages[bp2Idx])
+  }
+
+  // Breakpoint 3 (conditional): midpoint between BP1 and BP2 for long
+  // conversations. Placed on the nearest assistant message to the
+  // arithmetic midpoint for a clean turn boundary.
+  const rangeStart = systemIdx + 1
+  const rangeEnd = bp2Idx >= 0 ? bp2Idx : lastUserIdx
+  if (rangeEnd - rangeStart >= MIDPOINT_BREAKPOINT_MIN_GAP) {
+    const mid = Math.floor((rangeStart + rangeEnd) / 2)
+    // Scan outward from the midpoint to find the nearest assistant message.
+    let best = -1
+    for (let offset = 0; offset <= rangeEnd - rangeStart; offset++) {
+      for (const dir of [mid + offset, mid - offset]) {
+        if (dir > rangeStart && dir < rangeEnd && messages[dir].role === 'assistant') {
+          best = dir
+          break
+        }
+      }
+      if (best >= 0) break
+    }
+    if (best >= 0) {
+      messages[best] = withCacheBreakpoint(messages[best])
+    }
   }
 }
 
 export function compileContextLayers(input: CompileContextLayersInput): ModelMessage[] {
-  const systemLayers = [
+  const systemParts = [
     compilePersonalityLayer(input.personality),
     compileSoulLayer(input.soul),
     compileUserLayer(input.user),
     compileSkillsLayer(input.skills),
     compileAgentLayer(input.agent)
-  ].flatMap((message) => (message ? [message] : []))
+  ]
+    .flatMap((message) => (message ? [message.content as string] : []))
+    .filter((part) => part.trim().length > 0)
+
+  const systemLayers: ModelMessage[] =
+    systemParts.length > 0 ? [{ role: 'system', content: systemParts.join('\n\n') }] : []
 
   const historyMessages = input.history.flatMap(toModelHistoryMessages)
 

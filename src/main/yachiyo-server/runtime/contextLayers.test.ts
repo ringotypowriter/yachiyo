@@ -75,34 +75,27 @@ test('compileContextLayers merges turn context into the last user message', () =
     ]
   })
 
+  const soulPreamble =
+    'The following is your self-model and personality continuity record from SOUL.md. Absorb it holistically and integrate it naturally into your current persona:'
+  const userPreamble =
+    'The following is your durable understanding of the user from USER.md. Treat it as a long-term collaboration profile, not as current task state:'
+  const skillsPreamble =
+    'The following Skills are active for this run. You see names and descriptions only; use skillsRead to fetch full SKILL.md content when needed:'
+
   assert.deepEqual(compiled, [
-    // Durable system layers (stable prefix for prompt caching)
-    { role: 'system', content: 'Base persona' },
+    // Consolidated system message (stable prefix for prompt caching)
     {
       role: 'system',
       content: [
-        'The following is your self-model and personality continuity record from SOUL.md. Absorb it holistically and integrate it naturally into your current persona:',
-        '',
-        soulContent
-      ].join('\n')
+        'Base persona',
+        [soulPreamble, '', soulContent].join('\n'),
+        [userPreamble, '', '# USER\n\n## Preferences\n- Prefers direct communication'].join('\n'),
+        [skillsPreamble, '', '- workspace-refactor: Repository-specific refactor workflow'].join(
+          '\n'
+        ),
+        'Workspace: /tmp/thread-1'
+      ].join('\n\n')
     },
-    {
-      role: 'system',
-      content: [
-        'The following is your durable understanding of the user from USER.md. Treat it as a long-term collaboration profile, not as current task state:',
-        '',
-        '# USER\n\n## Preferences\n- Prefers direct communication'
-      ].join('\n')
-    },
-    {
-      role: 'system',
-      content: [
-        'The following Skills are active for this run. You see names and descriptions only; use skillsRead to fetch full SKILL.md content when needed:',
-        '',
-        '- workspace-refactor: Repository-specific refactor workflow'
-      ].join('\n')
-    },
-    { role: 'system', content: 'Workspace: /tmp/thread-1' },
     // Prior history
     { role: 'assistant', content: 'Previous answer' },
     // User query with turn context merged in
@@ -350,12 +343,17 @@ test('responseMessages with interleaved reasoning are preserved in replay', () =
     ]
   })
 
-  // Reasoning parts must be preserved — many models use interleaved thinking
-  assert.deepEqual(compiled.slice(2), responseMessages)
+  // Reasoning parts must be preserved — many models use interleaved thinking.
+  // Reasoning blocks without Anthropic signatures get a synthetic passthrough
+  // signature so the adapter doesn't drop them.
   const firstAssistant = compiled[2] as { content: Array<{ type: string }> }
   assert.equal(firstAssistant.content[0].type, 'reasoning')
+  assert.equal(firstAssistant.content.length, 3)
   const lastAssistant = compiled[4] as { content: Array<{ type: string }> }
   assert.equal(lastAssistant.content[0].type, 'reasoning')
+  assert.equal(lastAssistant.content.length, 2)
+  // Tool message is unchanged
+  assert.deepEqual(compiled[3], responseMessages[1])
 })
 
 test('empty responseMessages array falls back to plain text', () => {
@@ -588,6 +586,132 @@ test('tool results without image-data pass through history replay unchanged', ()
     ...responseMessages,
     { role: 'user', content: 'Thanks' }
   ])
+})
+
+test('anthropic cache breakpoints mark system and pre-last-user messages', () => {
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'Base' },
+    anthropicCacheBreakpoints: true,
+    history: [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Hi' },
+      { role: 'user', content: 'Bye' }
+    ]
+  })
+
+  // BP1: system message
+  const system = compiled[0]
+  assert.equal(system.role, 'system')
+  assert.deepEqual((system.providerOptions as Record<string, unknown>)?.anthropic, {
+    cacheControl: { type: 'ephemeral' }
+  })
+
+  // BP2: message before last user ("Hi" assistant)
+  const preLast = compiled[2]
+  assert.equal(preLast.role, 'assistant')
+  assert.equal(preLast.content, 'Hi')
+  assert.deepEqual((preLast.providerOptions as Record<string, unknown>)?.anthropic, {
+    cacheControl: { type: 'ephemeral' }
+  })
+
+  // Last user message has no breakpoint
+  const lastUser = compiled[3]
+  assert.equal(lastUser.role, 'user')
+  assert.equal(lastUser.providerOptions, undefined)
+})
+
+test('anthropic cache breakpoints merge with existing providerOptions', () => {
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'Base' },
+    anthropicCacheBreakpoints: true,
+    history: [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Reply' },
+      { role: 'user', content: 'Follow up' }
+    ]
+  })
+
+  // System message should have merged providerOptions
+  const system = compiled[0]
+  const opts = system.providerOptions as Record<string, unknown>
+  assert.ok(opts?.anthropic, 'anthropic key should exist')
+  assert.deepEqual((opts.anthropic as Record<string, unknown>).cacheControl, {
+    type: 'ephemeral'
+  })
+})
+
+test('anthropic cache breakpoints add midpoint for long conversations', () => {
+  // Build a conversation with 14 messages between system and BP2 position
+  // (7 user-assistant pairs = 14 messages, exceeding MIDPOINT_BREAKPOINT_MIN_GAP of 12)
+  const history: Array<{ role: 'user' | 'assistant'; content: string }> = []
+  for (let i = 0; i < 8; i++) {
+    history.push({ role: 'user', content: `User ${i}` })
+    history.push({ role: 'assistant', content: `Reply ${i}` })
+  }
+  // Final user message (the volatile one)
+  history.push({ role: 'user', content: 'Latest' })
+
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'Base' },
+    anthropicCacheBreakpoints: true,
+    history
+  })
+
+  // Count messages with cache breakpoints
+  const breakpointMessages = compiled.filter(
+    (m) => (m.providerOptions as Record<string, unknown> | undefined)?.anthropic
+  )
+
+  // Should have 3 breakpoints: system, midpoint, pre-last-user
+  assert.equal(
+    breakpointMessages.length,
+    3,
+    'should have 3 cache breakpoints for long conversation'
+  )
+
+  // Midpoint should be an assistant message
+  const midBp = breakpointMessages[1]
+  assert.equal(midBp.role, 'assistant', 'midpoint breakpoint should be on an assistant message')
+
+  // Last user message should NOT have a breakpoint
+  const lastMsg = compiled[compiled.length - 1]
+  assert.equal(lastMsg.role, 'user')
+  assert.equal(lastMsg.providerOptions, undefined)
+})
+
+test('anthropic cache breakpoints skip midpoint for short conversations', () => {
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'Base' },
+    anthropicCacheBreakpoints: true,
+    history: [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Hi' },
+      { role: 'user', content: 'Bye' }
+    ]
+  })
+
+  const breakpointMessages = compiled.filter(
+    (m) => (m.providerOptions as Record<string, unknown> | undefined)?.anthropic
+  )
+
+  // Only 2 breakpoints: system + pre-last-user
+  assert.equal(breakpointMessages.length, 2, 'short conversation should have only 2 breakpoints')
+})
+
+test('system layers are consolidated into a single system message', () => {
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'Personality' },
+    soul: { content: 'Soul content' },
+    agent: { instructions: 'Agent instructions' },
+    history: [{ role: 'user', content: 'Hello' }]
+  })
+
+  const systemMessages = compiled.filter((m) => m.role === 'system')
+  assert.equal(systemMessages.length, 1, 'should have exactly one consolidated system message')
+  const content = systemMessages[0].content as string
+  assert.ok(content.includes('Personality'), 'should include personality')
+  assert.ok(content.includes('Soul content'), 'should include soul')
+  assert.ok(content.includes('Agent instructions'), 'should include agent')
 })
 
 test('appendTurnContextToUserMessage handles string content', () => {
