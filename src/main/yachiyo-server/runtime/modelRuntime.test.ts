@@ -177,7 +177,12 @@ test('createAiSdkModelRuntime uses responses() with reasoning for openai-respons
   }
   assert.equal(streamCall.abortSignal, controller.signal)
   assert.deepEqual(streamCall.providerOptions, {
-    openai: { reasoningEffort: 'medium', reasoningSummary: 'auto', store: false }
+    openai: {
+      reasoningEffort: 'medium',
+      reasoningSummary: 'auto',
+      textVerbosity: 'low',
+      store: false
+    }
   })
 })
 
@@ -242,7 +247,12 @@ test('createAiSdkModelRuntime preserves legacy openai reasoning models', async (
   assert.deepEqual(chunks, ['ok'])
   assert.deepEqual(selectedModel, { provider: 'openai.responses', modelId: 'gpt-5' })
   assert.deepEqual(providerOptions, {
-    openai: { reasoningEffort: 'medium', reasoningSummary: 'auto', store: false }
+    openai: {
+      reasoningEffort: 'medium',
+      reasoningSummary: 'auto',
+      textVerbosity: 'low',
+      store: false
+    }
   })
 })
 
@@ -688,6 +698,7 @@ test('createAiSdkModelRuntime uses chat() for openai-responses auxiliary generat
   })
   assert.deepEqual(providerOptions, {
     openai: {
+      textVerbosity: 'low',
       store: false
     }
   })
@@ -807,6 +818,7 @@ test('createAiSdkModelRuntime disables OpenAI reasoning when provider thinking i
   assert.deepEqual(chunks, ['ok'])
   assert.deepEqual(providerOptions, {
     openai: {
+      textVerbosity: 'low',
       store: false
     }
   })

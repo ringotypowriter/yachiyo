@@ -80,11 +80,13 @@ export function createOpenAiProviderOptions(
     mode === 'default' &&
     supportsOpenAIReasoningEffort(settings.model)
   const reasoningEffort = enableReasoningPreview ? DEFAULT_OPENAI_REASONING_EFFORT : undefined
+  const isGpt5 = settings.model.trim().toLowerCase().startsWith('gpt-5')
 
   return {
     openai: {
       ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(enableReasoningPreview ? { reasoningSummary: 'auto' as const } : {}),
+      ...(isGpt5 ? { textVerbosity: 'low' as const } : {}),
       store: false
     }
   }

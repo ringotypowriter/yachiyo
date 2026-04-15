@@ -20,6 +20,7 @@ export type OpenAiChatRuntimeProviderOptions = {
   openai: {
     store: false
     promptCacheKey?: string
+    textVerbosity?: 'low' | 'medium' | 'high'
   }
 }
 
@@ -29,6 +30,7 @@ export type OpenAiResponsesRuntimeProviderOptions = {
     reasoningSummary?: 'auto' | 'detailed'
     store: false
     promptCacheKey?: string
+    textVerbosity?: 'low' | 'medium' | 'high'
   }
 }
 
