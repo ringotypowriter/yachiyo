@@ -143,6 +143,8 @@ export interface ExecuteRunInput {
     | 'cacheReadTokens'
     | 'cacheWriteTokens'
   >
+  /** Snapshot tracker carried over from a prior steer/restart leg. */
+  snapshotTracker?: SnapshotTracker
 }
 
 export interface RestartRunReason {
@@ -154,8 +156,18 @@ export type ExecuteRunResult =
   | { kind: 'completed'; totalPromptTokens?: number; usedRememberTool?: boolean }
   | { kind: 'failed'; usage?: ModelUsage }
   | { kind: 'cancelled'; usage?: ModelUsage }
-  | { kind: 'restarted'; nextRequestMessageId: string; usage?: ModelUsage }
-  | { kind: 'steer-pending'; assistantMessageId: string; usage?: ModelUsage }
+  | {
+      kind: 'restarted'
+      nextRequestMessageId: string
+      usage?: ModelUsage
+      snapshotTracker?: SnapshotTracker
+    }
+  | {
+      kind: 'steer-pending'
+      assistantMessageId: string
+      usage?: ModelUsage
+      snapshotTracker?: SnapshotTracker
+    }
   | { kind: 'recovering'; checkpoint: RunRecoveryCheckpoint; harnessId: string }
 
 export interface RunExecutionDeps {
@@ -693,6 +705,74 @@ async function expandSkillMention(
   return remainder ? `${replacement}\n\n${remainder}` : replacement
 }
 
+/**
+ * Ensure every tool-call in an assistant message has a matching tool-result in
+ * the subsequent tool/user message. Parallel tool calls that were interrupted
+ * (e.g. by a steer stopping the model loop mid-step) may leave orphaned
+ * tool_use blocks that cause the next API call to fail validation.
+ *
+ * Returns the original array if already balanced.
+ */
+function balanceResponseMessages(messages: unknown[]): unknown[] {
+  if (!Array.isArray(messages) || messages.length === 0) return messages
+
+  let modified = false
+  const result = [...messages]
+
+  for (let i = 0; i < result.length; i++) {
+    const msg = result[i] as { role?: string; content?: unknown[] }
+    if (msg?.role !== 'assistant' || !Array.isArray(msg.content)) continue
+
+    // Collect tool-call IDs from this assistant message.
+    const toolCallIds = new Set<string>()
+    for (const part of msg.content) {
+      const p = part as { type?: string; toolCallId?: string }
+      if (p.type === 'tool-call' && p.toolCallId) {
+        toolCallIds.add(p.toolCallId)
+      }
+    }
+    if (toolCallIds.size === 0) continue
+
+    // Check subsequent tool/user messages for matching results.
+    for (let j = i + 1; j < result.length; j++) {
+      const toolMsg = result[j] as { role?: string; content?: unknown[] }
+      if (toolMsg?.role !== 'tool' && toolMsg?.role !== 'user') break
+      if (!Array.isArray(toolMsg.content)) continue
+      for (const part of toolMsg.content) {
+        const p = part as { type?: string; toolCallId?: string }
+        if ((p.type === 'tool-result' || p.type === 'tool-error') && p.toolCallId) {
+          toolCallIds.delete(p.toolCallId)
+        }
+      }
+    }
+
+    // Inject synthetic error results for any orphaned tool calls.
+    if (toolCallIds.size > 0) {
+      console.warn(
+        `[snapshot] Balancing ${toolCallIds.size} orphaned tool call(s): ${[...toolCallIds].join(', ')}`
+      )
+      modified = true
+      const syntheticResults = [...toolCallIds].map((toolCallId) => ({
+        type: 'tool-result' as const,
+        toolCallId,
+        toolName: 'unknown',
+        output: { type: 'text', value: '[Interrupted by steer before tool result was received]' }
+      }))
+
+      // Find or create the tool message that follows this assistant message.
+      const nextIdx = i + 1
+      const next = result[nextIdx] as { role?: string; content?: unknown[] } | undefined
+      if (next && (next.role === 'tool' || next.role === 'user') && Array.isArray(next.content)) {
+        result[nextIdx] = { ...next, content: [...next.content, ...syntheticResults] }
+      } else {
+        result.splice(nextIdx, 0, { role: 'tool', content: syntheticResults })
+      }
+    }
+  }
+
+  return modified ? result : messages
+}
+
 function loadRunHistory(
   loadThreadMessages: RunExecutionDeps['loadThreadMessages'],
   threadId: string,
@@ -1131,7 +1211,7 @@ export async function executeServerRun(
   }
   persistRecoveryCheckpoint()
 
-  let snapshotTracker: SnapshotTracker | null = null
+  let snapshotTracker: SnapshotTracker | null = input.snapshotTracker ?? null
   /** Tracks the most recent usage from the model stream; hoisted so catch blocks can persist it. */
   let lastUsage: ModelUsage | undefined
 
@@ -1140,8 +1220,10 @@ export async function executeServerRun(
       input.thread,
       deps.ensureThreadWorkspace
     )
-    snapshotTracker = new SnapshotTracker(workspacePath, input.runId, input.thread.id)
-    snapshotTracker.startBaselineScan()
+    if (!snapshotTracker) {
+      snapshotTracker = new SnapshotTracker(workspacePath, input.runId, input.thread.id)
+      snapshotTracker.startBaselineScan()
+    }
     const runtime = deps.createModelRuntime()
     const availableSkills = await deps.listSkills([workspacePath])
     const activeSkills = resolveActiveSkills({
@@ -1998,8 +2080,14 @@ export async function executeServerRun(
     // without completing the run itself.
     if (hasPendingSteer?.()) {
       const steerTimestamp = deps.timestamp()
-      const steerResponseMessages =
+      const rawSteerResponseMessages =
         recoveryResponseMessages.length > 0 ? recoveryResponseMessages : lastUsage?.responseMessages
+      // Balance response messages so every tool-call has a matching tool-result.
+      // Parallel tool calls interrupted by the steer may leave orphaned tool_use
+      // blocks that break the next model call.
+      const steerResponseMessages = rawSteerResponseMessages
+        ? balanceResponseMessages(rawSteerResponseMessages)
+        : rawSteerResponseMessages
       const steerAssistantMessage: MessageRecord = {
         id: messageId,
         threadId: input.thread.id,
@@ -2042,33 +2130,9 @@ export async function executeServerRun(
         }
       }
       deps.storage.deleteRunRecoveryCheckpoint(input.runId)
-      // Finalize file snapshot so pre-steer edits are persisted — otherwise
-      // the next executeServerRun iteration creates a fresh tracker and only
-      // post-steer changes appear in the diff/revert UI.
-      if (snapshotTracker) {
-        try {
-          await snapshotTracker.scanWorkspace()
-          const snapshot = await snapshotTracker.finalize()
-          if (snapshot.entries.length > 0) {
-            deps.storage.updateRunSnapshot(input.runId, {
-              fileCount: snapshot.entries.length,
-              workspacePath: snapshotTracker.workspacePath
-            })
-            deps.emit<SnapshotReadyEvent>({
-              type: 'snapshot.ready',
-              threadId: input.thread.id,
-              runId: input.runId,
-              fileCount: snapshot.entries.length,
-              workspacePath: snapshotTracker.workspacePath
-            })
-          }
-          runGc(snapshotTracker.workspaceHash).catch(() => {})
-        } catch (err) {
-          console.error('[snapshot] Steer-leg finalization failed:', err)
-        } finally {
-          snapshotTracker.dispose()
-        }
-      }
+      // Hand the snapshot tracker back to the caller so it persists across
+      // steer legs. The same tracker accumulates file changes for the entire
+      // run and is finalized only when the run reaches a terminal state.
       deps.emit<HarnessFinishedEvent>({
         type: 'harness.finished',
         threadId: input.thread.id,
@@ -2078,7 +2142,12 @@ export async function executeServerRun(
         status: 'completed'
       })
 
-      return { kind: 'steer-pending', assistantMessageId: messageId, usage: lastUsage }
+      return {
+        kind: 'steer-pending',
+        assistantMessageId: messageId,
+        usage: lastUsage,
+        snapshotTracker: snapshotTracker ?? undefined
+      }
     }
 
     const timestamp = deps.timestamp()
@@ -2319,7 +2388,7 @@ export async function executeServerRun(
         }
 
         deps.storage.deleteRunRecoveryCheckpoint(input.runId)
-        snapshotTracker?.dispose()
+        // Pass the tracker through so the next leg inherits accumulated changes.
         deps.emit<HarnessFinishedEvent>({
           type: 'harness.finished',
           threadId: input.thread.id,
@@ -2331,7 +2400,8 @@ export async function executeServerRun(
         return {
           kind: 'restarted',
           nextRequestMessageId: restartReason.nextRequestMessageId,
-          usage: lastUsage
+          usage: lastUsage,
+          snapshotTracker: snapshotTracker ?? undefined
         }
       }
 

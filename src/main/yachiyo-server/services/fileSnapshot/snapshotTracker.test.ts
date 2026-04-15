@@ -21,7 +21,11 @@ test('SnapshotTracker', async (t) => {
   })
 
   t.afterEach(async () => {
-    process.env['YACHIYO_HOME'] = originalEnv
+    if (originalEnv === undefined) {
+      delete process.env['YACHIYO_HOME']
+    } else {
+      process.env['YACHIYO_HOME'] = originalEnv
+    }
     await rm(tempDir, { recursive: true, force: true })
   })
 
@@ -159,13 +163,15 @@ test('SnapshotTracker', async (t) => {
     const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
     tracker.startBaselineScan()
 
-    // Wait a tick for the baseline scan to pick up config.txt
-    await new Promise((r) => setTimeout(r, 100))
+    // Await baseline completion via scanWorkspace (which awaits baselineReady)
+    // so the original content is captured before we modify the file.
+    await tracker.scanWorkspace()
 
     // Simulate a subprocess modifying the file (Layer 1/2 don't see this)
     await writeFile(join(workspaceDir, 'config.txt'), 'modified config')
 
-    // Layer 3 scan detects the change — but baseline already has the original
+    // Layer 3 scan again — config.txt is already tracked so it's skipped,
+    // but finalize will compare the baseline hash against current content.
     await tracker.scanWorkspace()
     const snapshot = await tracker.finalize()
 

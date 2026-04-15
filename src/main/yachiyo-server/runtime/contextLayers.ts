@@ -133,6 +133,49 @@ function stripImageDataFromResponseMessages(messages: ModelMessage[]): ModelMess
 }
 
 /**
+ * Ensure reasoning blocks in replayed responseMessages carry a provider
+ * signature so the Anthropic adapter doesn't silently drop them. Non-Anthropic
+ * providers (e.g. Kimi) emit reasoning without signatures; we inject a
+ * synthetic one so the content survives across turns.
+ */
+function patchReasoningSignatures(messages: ModelMessage[]): ModelMessage[] {
+  let patched = false
+  const result = messages.map((msg): ModelMessage => {
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) return msg
+
+    let contentPatched = false
+    const content = (msg.content as Array<Record<string, unknown>>).map((part) => {
+      if (part.type !== 'reasoning') return part
+
+      const providerOptions = part.providerOptions as Record<string, unknown> | undefined
+      const providerMetadata = part.providerMetadata as Record<string, unknown> | undefined
+      const meta =
+        (providerOptions?.anthropic as Record<string, unknown> | undefined) ??
+        (providerMetadata?.anthropic as Record<string, unknown> | undefined)
+      if (meta?.signature) return part
+
+      contentPatched = true
+      const syntheticMeta = {
+        ...(providerOptions?.anthropic as Record<string, unknown> | undefined),
+        ...(providerMetadata?.anthropic as Record<string, unknown> | undefined),
+        signature: 'yachiyo-passthrough'
+      }
+      return {
+        ...part,
+        providerOptions: { ...providerOptions, anthropic: syntheticMeta },
+        providerMetadata: { ...providerMetadata, anthropic: syntheticMeta }
+      }
+    })
+
+    if (!contentPatched) return msg
+    patched = true
+    return { ...msg, content } as ModelMessage
+  })
+
+  return patched ? result : messages
+}
+
+/**
  * Build the per-turn-context parts for a historical user message — the same
  * shape that `compileContextLayers` would build via `compileHintLayer` and
  * `compileMemoryLayer`. Returned as an array of strings so the caller can
@@ -157,7 +200,9 @@ function buildHistoricalTurnContextParts(turnContext: MessageTurnContext | undef
 export function toModelHistoryMessages(message: ContextLayerHistoryMessage): ModelMessage[] {
   if (message.role !== 'user') {
     if (message.responseMessages && message.responseMessages.length > 0) {
-      return stripImageDataFromResponseMessages(message.responseMessages as ModelMessage[])
+      return patchReasoningSignatures(
+        stripImageDataFromResponseMessages(message.responseMessages as ModelMessage[])
+      )
     }
     return [
       {

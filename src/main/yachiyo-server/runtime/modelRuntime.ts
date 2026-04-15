@@ -29,6 +29,64 @@ function readTextDelta(part: { delta?: string; text?: string; textDelta?: string
   return part.delta ?? part.textDelta ?? part.text ?? null
 }
 
+/**
+ * Ensure every reasoning block in responseMessages has the provider metadata
+ * (signature) needed for the Anthropic adapter to round-trip it. Non-Anthropic
+ * providers (e.g. Kimi) emit reasoning blocks without Anthropic signatures,
+ * causing the adapter to silently drop them on the next request. We patch in a
+ * synthetic signature so the content survives across steer/restart legs.
+ */
+function patchReasoningSignatures(messages: unknown[]): unknown[] {
+  let patched = false
+  const result = messages.map((msg) => {
+    const m = msg as { role?: string; content?: unknown[] }
+    if (m.role !== 'assistant' || !Array.isArray(m.content)) return msg
+
+    let contentPatched = false
+    const content = m.content.map((part) => {
+      const p = part as {
+        type?: string
+        text?: string
+        providerMetadata?: Record<string, unknown>
+        providerOptions?: Record<string, unknown>
+      }
+      if (p.type !== 'reasoning') return part
+
+      // Check if it already has a valid signature.
+      const meta =
+        (p.providerMetadata?.anthropic as Record<string, unknown> | undefined) ??
+        (p.providerOptions?.anthropic as Record<string, unknown> | undefined)
+      if (meta?.signature) return part
+
+      // Inject a synthetic signature so the Anthropic adapter accepts it.
+      // The adapter reads `providerOptions`, not `providerMetadata`.
+      contentPatched = true
+      const syntheticAnthropicMeta = {
+        ...(p.providerOptions?.anthropic as Record<string, unknown> | undefined),
+        ...(p.providerMetadata?.anthropic as Record<string, unknown> | undefined),
+        signature: 'yachiyo-passthrough'
+      }
+      return {
+        ...p,
+        providerOptions: {
+          ...p.providerOptions,
+          anthropic: syntheticAnthropicMeta
+        },
+        providerMetadata: {
+          ...p.providerMetadata,
+          anthropic: syntheticAnthropicMeta
+        }
+      }
+    })
+
+    if (!contentPatched) return msg
+    patched = true
+    return { ...m, content }
+  })
+
+  return patched ? result : messages
+}
+
 function toToolError(error: unknown, fallbackMessage = 'Tool execution failed'): Error {
   if (error instanceof Error) {
     return error
@@ -410,7 +468,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                   ...(cacheWrite != null ? { cacheWriteTokens: cacheWrite } : {}),
                   ...(finishReason ? { finishReason } : {}),
                   ...(Array.isArray(responseMessages) && responseMessages.length > 0
-                    ? { responseMessages }
+                    ? { responseMessages: patchReasoningSignatures(responseMessages) }
                     : {})
                 })
               }

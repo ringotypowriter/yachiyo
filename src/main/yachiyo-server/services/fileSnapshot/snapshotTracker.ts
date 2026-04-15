@@ -1,6 +1,6 @@
 import { access, readFile, stat } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 
 import type {
   FileSnapshotEntry,
@@ -78,6 +78,21 @@ async function globFiles(
   })
 }
 
+/** Load .gitignore from the workspace root (if present) and return a filter. */
+async function loadGitignoreFilter(
+  workspacePath: string
+): Promise<((relativePath: string) => boolean) | null> {
+  try {
+    const gitignorePath = join(workspacePath, '.gitignore')
+    const content = await readFile(gitignorePath, 'utf8')
+    const ig = (await import('ignore')).default()
+    ig.add(content)
+    return (rel: string) => ig.ignores(rel)
+  } catch {
+    return null
+  }
+}
+
 interface TrackedEntry {
   hash: string
   size: number
@@ -123,12 +138,31 @@ export class SnapshotTracker {
   /** Resolves when the background baseline scan finishes (or is aborted). */
   private baselineReady: Promise<void> = Promise.resolve()
 
+  /** Filter function loaded from .gitignore (null = no gitignore or load failed). */
+  private gitignoreFilter: ((relativePath: string) => boolean) | null = null
+  private gitignoreLoaded = false
+
   constructor(workspacePath: string, runId: string, threadId: string) {
     this.workspacePath = resolve(workspacePath)
     this.workspaceHash = hashWorkspacePath(this.workspacePath)
     this.runId = runId
     this.threadId = threadId
     this.runStartTime = Date.now()
+  }
+
+  /** Check if a file is gitignored. Returns false if no .gitignore loaded. */
+  private isGitignored(absolutePath: string): boolean {
+    if (!this.gitignoreFilter) return false
+    const rel = relative(this.workspacePath, absolutePath)
+    if (rel.startsWith('..') || rel === absolutePath) return false
+    return this.gitignoreFilter(rel)
+  }
+
+  /** Lazily load the .gitignore filter (once per tracker). */
+  private async ensureGitignore(): Promise<void> {
+    if (this.gitignoreLoaded) return
+    this.gitignoreLoaded = true
+    this.gitignoreFilter = await loadGitignoreFilter(this.workspacePath)
   }
 
   /**
@@ -211,6 +245,7 @@ export class SnapshotTracker {
    */
   async scanWorkspace(): Promise<void> {
     await this.baselineReady
+    await this.ensureGitignore()
 
     // Scan the workspace
     try {
@@ -218,6 +253,7 @@ export class SnapshotTracker {
 
       for (const file of files) {
         if (this.trackedFiles.has(file)) continue
+        if (this.isGitignored(file)) continue
 
         try {
           const fileStat = await stat(file)
@@ -369,11 +405,13 @@ export class SnapshotTracker {
   private async runBaselineScan(): Promise<void> {
     const signal = this.abortController.signal
 
+    await this.ensureGitignore()
     const files = await globFiles(this.workspacePath, SCAN_DEPTH, SCAN_IGNORE, signal)
     if (signal.aborted) return
 
     for (const file of files) {
       if (signal.aborted) return
+      if (this.isGitignored(file)) continue
 
       // Never overwrite a Layer 1/2 entry or a null (new-file) entry.
       const existing = this.trackedFiles.get(file)

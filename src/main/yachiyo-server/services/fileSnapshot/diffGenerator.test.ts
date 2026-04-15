@@ -21,7 +21,11 @@ test('diffGenerator', async (t) => {
   })
 
   t.afterEach(async () => {
-    process.env['YACHIYO_HOME'] = originalEnv
+    if (originalEnv === undefined) {
+      delete process.env['YACHIYO_HOME']
+    } else {
+      process.env['YACHIYO_HOME'] = originalEnv
+    }
     await rm(tempDir, { recursive: true, force: true })
   })
 

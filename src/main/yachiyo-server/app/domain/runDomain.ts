@@ -63,6 +63,7 @@ import { assertSupportedImages, resolveEnabledTools } from './configDomain.ts'
 import { toEffectiveProviderSettings } from '../../settings/settingsStore.ts'
 import type { ModelUsage } from '../../runtime/types.ts'
 import { executeServerRun, type ExecuteRunInput, type ExecuteRunResult } from './runExecution.ts'
+import { SnapshotTracker } from '../../services/fileSnapshot/snapshotTracker.ts'
 import { runAcpChatThread } from '../../runtime/acp/acpChatRuntime.ts'
 import {
   buildThreadTitleGenerationMessages,
@@ -1549,6 +1550,7 @@ export class YachiyoServerRunDomain {
     let previousEnabledTools = this.lastRunEnabledTools
     let result: ExecuteRunResult = { kind: 'cancelled' }
     let accumulatedUsage: ExecuteRunInput['priorUsage'] | undefined
+    let carriedSnapshotTracker: SnapshotTracker | undefined
 
     try {
       while (true) {
@@ -1589,6 +1591,10 @@ export class YachiyoServerRunDomain {
           break
         }
 
+        // Clear the carried reference so executeServerRun owns the tracker
+        // exclusively — the finally block won't double-dispose a live tracker.
+        const passTracker = carriedSnapshotTracker
+        carriedSnapshotTracker = undefined
         result = await executeServerRun(
           {
             storage: this.deps.storage,
@@ -1751,7 +1757,8 @@ export class YachiyoServerRunDomain {
             runId: input.runId,
             thread: currentThread,
             updateHeadOnComplete: input.updateHeadOnComplete,
-            ...(accumulatedUsage ? { priorUsage: accumulatedUsage } : {})
+            ...(accumulatedUsage ? { priorUsage: accumulatedUsage } : {}),
+            ...(passTracker ? { snapshotTracker: passTracker } : {})
           }
         )
 
@@ -1849,12 +1856,15 @@ export class YachiyoServerRunDomain {
         // steer is waiting. Persist the steer message and continue the loop
         // so the next executeServerRun iteration starts from the steer.
         if (result.kind === 'steer-pending') {
+          carriedSnapshotTracker = result.snapshotTracker
           if (!activeRun?.pendingSteerInput) {
-            // The steer was cancelled (e.g. user stopped the run) while snapshot
-            // finalization was in progress. The cancel path in executeServerRun
-            // never ran (the abort arrived after throwIfAborted), so we must
-            // cancel the run in storage ourselves and let the finally block fire
+            // The steer was cancelled (e.g. user stopped the run) while the
+            // model was finishing. The cancel path in executeServerRun never ran
+            // (the abort arrived after throwIfAborted), so we must cancel the
+            // run in storage ourselves and let the finally block fire
             // startQueuedFollowUpIfPresent.
+            carriedSnapshotTracker?.dispose()
+            carriedSnapshotTracker = undefined
             const steerPendingUsage = mergeUsageForTerminal(accumulatedUsage, result.usage)
             this.deps.storage.cancelRun({
               runId: input.runId,
@@ -1919,6 +1929,7 @@ export class YachiyoServerRunDomain {
           break
         }
 
+        carriedSnapshotTracker = result.snapshotTracker
         // Accumulate usage from the restarted leg so it isn't lost if the
         // subsequent leg is cancelled or fails.
         if (result.usage) {
@@ -1967,6 +1978,11 @@ export class YachiyoServerRunDomain {
       })
       result = { kind: 'failed' }
     } finally {
+      // Dispose the carried tracker if it wasn't consumed by the next leg
+      // (e.g. the loop exited via catch or the run was cancelled between legs).
+      carriedSnapshotTracker?.dispose()
+      carriedSnapshotTracker = undefined
+
       this.activeRuns.delete(input.runId)
       this.activeRunByThread.delete(input.thread.id)
       this.activeRunTasks.delete(input.runId)
