@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
 import type {
   AnswerToolQuestionInput,
   ChannelGroupRecord,
@@ -38,6 +37,21 @@ import type {
 } from '../shared/yachiyo/protocol'
 
 const api = {
+  process: {
+    versions: {
+      electron: process.versions.electron,
+      chrome: process.versions.chrome,
+      node: process.versions.node
+    },
+    platform: process.platform
+  },
+  onNavigateSettingsTo: (listener: (tab: string) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, tab: string): void => {
+      listener(tab)
+    }
+    ipcRenderer.on('navigate-settings-to', handler)
+    return () => ipcRenderer.off('navigate-settings-to', handler)
+  },
   openSettings: (tab?: string) => ipcRenderer.send('open-settings', tab),
   openTranslator: () => ipcRenderer.send('open-translator'),
   openJotdown: () => ipcRenderer.send('open-jotdown'),
@@ -346,14 +360,11 @@ const api = {
 
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
   } catch (error) {
     console.error(error)
   }
 } else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
   // @ts-ignore (define in dts)
   window.api = api
 }

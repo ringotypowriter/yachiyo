@@ -189,6 +189,7 @@ export interface RunExecutionDeps {
     recallDecision?: RecallDecisionSnapshot
   }>
   fetchImpl?: typeof globalThis.fetch
+  webExternalFetchImpl?: typeof globalThis.fetch
   loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
   memoryService: MemoryService
   searchService?: SearchService
@@ -1577,7 +1578,7 @@ export async function executeServerRun(
       },
       {
         availableSkills,
-        fetchImpl: deps.fetchImpl,
+        fetchImpl: deps.webExternalFetchImpl ?? deps.fetchImpl,
         loadBrowserSnapshot: deps.loadBrowserSnapshot,
         searchService: deps.searchService,
         memoryService: input.thread.privacyMode

@@ -131,6 +131,7 @@ interface RunDomainDeps {
   createModelRuntime: () => ModelRuntime
   ensureThreadWorkspace: (threadId: string) => Promise<string>
   fetchImpl?: typeof globalThis.fetch
+  webExternalFetchImpl?: typeof globalThis.fetch
   loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
   memoryService: MemoryService
   searchService?: SearchService
@@ -1646,6 +1647,7 @@ export class YachiyoServerRunDomain {
               }
             },
             fetchImpl: this.deps.fetchImpl,
+            webExternalFetchImpl: this.deps.webExternalFetchImpl,
             loadBrowserSnapshot: this.deps.loadBrowserSnapshot,
             memoryService: this.deps.memoryService,
             searchService: this.deps.searchService,

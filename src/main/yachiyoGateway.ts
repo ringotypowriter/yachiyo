@@ -188,6 +188,7 @@ const IPC_CHANNELS = {
 } as const
 
 let server: YachiyoServer | null = null
+let webExternalFetchImpl: typeof globalThis.fetch | undefined
 let telegramService: TelegramService | null = null
 let qqService: QQService | null = null
 let discordService: DiscordService | null = null
@@ -584,7 +585,10 @@ function handleSendChannel(input: SendChannelInput): void {
 }
 
 function createConfiguredServer(
-  jotdownStore?: import('./yachiyo-server/services/jotdownStore.ts').JotdownStore
+  input: {
+    jotdownStore?: import('./yachiyo-server/services/jotdownStore.ts').JotdownStore
+    webExternalFetchImpl?: typeof globalThis.fetch
+  } = {}
 ): YachiyoServer {
   const nextServer = createSqliteYachiyoServer({
     dbPath: resolveYachiyoDbPath(),
@@ -593,7 +597,8 @@ function createConfiguredServer(
     seedPresetProviders: true,
     fetchImpl: (input, init) =>
       net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init),
-    jotdownStore
+    webExternalFetchImpl: input.webExternalFetchImpl,
+    jotdownStore: input.jotdownStore
   })
   nextServer.subscribe(broadcast)
   nextServer.getTtlReaper().start()
@@ -671,7 +676,7 @@ async function restartServerForDemoModeChange(): Promise<void> {
   const previousServer = server
   await stopLiveServices()
   await previousServer?.close()
-  server = createConfiguredServer()
+  server = createConfiguredServer({ webExternalFetchImpl })
   await startLiveServices()
 
   for (const window of BrowserWindow.getAllWindows()) {
@@ -686,19 +691,39 @@ export function registerYachiyoGateway(): YachiyoServer {
     return server
   }
 
-  // net.fetch (used by webRead) runs through the default session. When an
-  // SSL-intercepting proxy is in use, disable strict certificate verification
-  // so the proxy's re-signed certificates are accepted.
-  session.defaultSession.setCertificateVerifyProc((_request, callback) => callback(0))
-
   // Route global fetch through Electron's net module so libraries using the
-  // global fetch (e.g. discord.js) benefit from the proxy/SSL bypass.
+  // global fetch (e.g. discord.js) go through Chromium's network stack.
+  // The default session keeps strict TLS — provider API keys travel over it.
   // Note: Telegraf uses node-fetch internally and needs its own proxy agent.
   globalThis.fetch = (input, init?) =>
     net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init)
 
+  // A dedicated session for external web content (webRead direct-fetch path).
+  // SSL-intercepting proxies re-sign certificates, so we relax verification
+  // here only — provider API traffic stays on the default session with full TLS.
+  const webExternalSession = session.fromPartition('persist:web-external', { cache: true })
+  const webExternalProxyUrl = (
+    process.env.HTTPS_PROXY ??
+    process.env.https_proxy ??
+    process.env.HTTP_PROXY ??
+    process.env.http_proxy ??
+    process.env.ALL_PROXY ??
+    process.env.all_proxy
+  )?.trim()
+  void webExternalSession.setProxy(
+    webExternalProxyUrl
+      ? { mode: 'fixed_servers' as const, proxyRules: webExternalProxyUrl }
+      : { mode: 'system' as const }
+  )
+  webExternalSession.setCertificateVerifyProc((_request, callback) => callback(0))
+  webExternalFetchImpl = (input, init?) =>
+    webExternalSession.fetch(
+      input instanceof URL ? input.toString() : (input as string | Request),
+      init
+    )
+
   const jotdownStore = createJotdownStore(resolveYachiyoJotdownsDir())
-  server = createConfiguredServer(jotdownStore)
+  server = createConfiguredServer({ jotdownStore, webExternalFetchImpl })
   registerFatalRunRecovery()
 
   // Start channel services if already configured.

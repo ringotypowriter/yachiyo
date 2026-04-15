@@ -135,6 +135,8 @@ export interface YachiyoServerOptions {
   seedPresetProviders?: boolean
   developmentMode?: boolean
   fetchImpl?: typeof globalThis.fetch
+  /** TLS-relaxed fetch for external web content (webRead direct path). Falls back to fetchImpl. */
+  webExternalFetchImpl?: typeof globalThis.fetch
   runInactivityTimeoutMs?: number
   now?: () => Date
   createId?: () => string
@@ -320,6 +322,7 @@ export class YachiyoServer {
       createModelRuntime,
       ensureThreadWorkspace,
       fetchImpl: options.fetchImpl,
+      webExternalFetchImpl: options.webExternalFetchImpl,
       loadBrowserSnapshot: browserWebPageSnapshotLoader,
       searchService,
       webSearchService,
@@ -366,9 +369,9 @@ export class YachiyoServer {
     })
     this.scheduleDomain.ensureBundledSchedules()
 
-    const fetchImpl = options.fetchImpl ?? globalThis.fetch
+    const externalFetchImpl = options.webExternalFetchImpl ?? options.fetchImpl ?? globalThis.fetch
     const defaultFetcher: RemoteImageFetcher = async (url) => {
-      const response = await fetchImpl(url, { redirect: 'follow' })
+      const response = await externalFetchImpl(url, { redirect: 'follow' })
       if (!response.ok) {
         throw new Error(`Remote image fetch failed: ${response.status} ${response.statusText}`)
       }

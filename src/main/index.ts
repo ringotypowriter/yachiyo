@@ -87,7 +87,8 @@ function openTranslatorWindow(): void {
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: true,
+      contextIsolation: true
     }
   })
   installEditableContextMenu(translatorWindow)
@@ -144,7 +145,8 @@ function openJotdownWindow(): void {
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: true,
+      contextIsolation: true
     }
   })
   installEditableContextMenu(jotdownWindow)
@@ -200,7 +202,8 @@ function createWindow(): void {
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: true,
+      contextIsolation: true
     }
   })
 
@@ -364,7 +367,8 @@ app.whenReady().then(async () => {
       icon,
       webPreferences: {
         preload: join(__dirname, '../preload/index.js'),
-        sandbox: false
+        sandbox: true,
+        contextIsolation: true
       }
     })
     installEditableContextMenu(settingsWindow)

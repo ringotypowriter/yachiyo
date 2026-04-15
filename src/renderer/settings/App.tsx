@@ -237,15 +237,11 @@ function SettingsApp(): React.ReactNode {
   const previousActiveTabRef = useRef<TabId | null>(null)
 
   useEffect(() => {
-    const handler = (_event: Electron.IpcRendererEvent, tab: string): void => {
+    return window.api.onNavigateSettingsTo((tab) => {
       if (TABS.some((t) => t.id === tab)) {
         setActiveTab(tab as TabId)
       }
-    }
-    window.electron.ipcRenderer.on('navigate-settings-to', handler)
-    return () => {
-      window.electron.ipcRenderer.removeListener('navigate-settings-to', handler)
-    }
+    })
   }, [])
 
   useEffect(() => {

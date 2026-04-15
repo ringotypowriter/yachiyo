@@ -1,4 +1,3 @@
-import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
   AnswerToolQuestionInput,
   BootstrapPayload,
@@ -57,8 +56,12 @@ import type {
 
 declare global {
   interface Window {
-    electron: ElectronAPI
     api: {
+      process: {
+        versions: { electron: string; chrome: string; node: string }
+        platform: NodeJS.Platform
+      }
+      onNavigateSettingsTo: (listener: (tab: string) => void) => () => void
       openSettings: (tab?: string) => void
       openTranslator: () => void
       openJotdown: () => void
