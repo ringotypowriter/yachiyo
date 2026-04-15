@@ -134,6 +134,8 @@ const api = {
     selectReplyBranch: (input: { threadId: string; assistantMessageId: string }) =>
       ipcRenderer.invoke('yachiyo:select-reply-branch', input),
     cancelRun: (input: { runId: string }) => ipcRenderer.invoke('yachiyo:cancel-run', input),
+    withdrawPendingSteer: (input: { threadId: string }) =>
+      ipcRenderer.invoke('yachiyo:withdraw-pending-steer', input),
     answerToolQuestion: (input: AnswerToolQuestionInput) =>
       ipcRenderer.invoke('yachiyo:answer-tool-question', input),
     translate: (input: TranslateInput): Promise<TranslateResult> =>

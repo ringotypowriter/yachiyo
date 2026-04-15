@@ -2482,6 +2482,104 @@ test('YachiyoServer debounces duplicate steer requests while a run is generating
   )
 })
 
+test('withdrawing a pending steer restores the active run skill override before later turns', async () => {
+  let attempt = 0
+  let markReady: (() => void) | null = null
+  const ready = new Promise<void>((resolve) => {
+    markReady = resolve
+  })
+  let releaseFirstRun: (() => void) | null = null
+  const firstRunReleased = new Promise<void>((resolve) => {
+    releaseFirstRun = resolve
+  })
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Start here',
+        enabledTools: ['read']
+      })
+
+      await ready
+
+      const steerAccepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Use the refactor skill',
+        mode: 'steer',
+        enabledSkillNames: ['workspace-refactor']
+      })
+      assert.equal(steerAccepted.kind, 'active-run-steer-pending')
+
+      const beforeWithdraw = (
+        server as unknown as {
+          runDomain: {
+            activeRuns: Map<
+              string,
+              {
+                enabledSkillNames?: string[]
+                pendingSteerInput?: {
+                  previousEnabledSkillNames?: string[]
+                }
+              }
+            >
+          }
+        }
+      ).runDomain.activeRuns.get(accepted.runId)
+      assert.deepEqual(beforeWithdraw?.enabledSkillNames, ['workspace-refactor'])
+      assert.equal(beforeWithdraw?.pendingSteerInput?.previousEnabledSkillNames, undefined)
+
+      server.withdrawPendingSteer({ threadId: thread.id })
+
+      const afterWithdraw = (
+        server as unknown as {
+          runDomain: {
+            activeRuns: Map<
+              string,
+              {
+                enabledSkillNames?: string[]
+                pendingSteerInput?: unknown
+              }
+            >
+          }
+        }
+      ).runDomain.activeRuns.get(accepted.runId)
+      assert.equal(afterWithdraw?.pendingSteerInput, undefined)
+      assert.equal(afterWithdraw?.enabledSkillNames, undefined)
+
+      releaseFirstRun!()
+      await completeRun(accepted.runId)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply() {
+          attempt += 1
+
+          if (attempt === 1) {
+            markReady?.()
+            await firstRunReleased
+            yield 'Original reply'
+            return
+          }
+        }
+      })
+    }
+  )
+})
+
 test('steer after generation preserves full assistant content as a completed message', async () => {
   let attempt = 0
   let markReady: (() => void) | null = null

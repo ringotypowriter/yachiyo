@@ -31,7 +31,7 @@ import {
   type ThreadRuntimeBinding
 } from '../../../../shared/yachiyo/protocol.ts'
 import { sortToolCallsChronologically } from '../../../../shared/yachiyo/toolCallOrder.ts'
-import { collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
+import { collectDescendantIds, collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 import { useBackgroundTasksStore } from '../../features/chat/state/useBackgroundTasksStore.ts'
 
 interface PendingAssistantMessage {
@@ -41,10 +41,20 @@ interface PendingAssistantMessage {
   shouldStartNewTextBlock: boolean
 }
 
+interface PendingSteerSegment {
+  content: string
+  images?: MessageImageRecord[]
+  files?: ComposerFileDraft[]
+  enabledSkillNames?: string[] | null
+}
+
 interface PendingSteerMessage {
+  segments: PendingSteerSegment[]
+  /** Flattened content for display — kept in sync with segments. */
   content: string
   createdAt: string
   images?: MessageImageRecord[]
+  files?: ComposerFileDraft[]
 }
 
 export interface HarnessRecord {
@@ -173,6 +183,7 @@ interface AppState {
   upsertComposerFile: (file: ComposerFileDraft, threadId?: string | null) => void
   removeComposerFile: (fileId: string, threadId?: string | null) => void
   deleteMessage: (messageId: string) => Promise<void>
+  revertPendingSteer: () => Promise<void>
   revertQueuedFollowUp: (messageId: string) => Promise<void>
   editingMessage: EditingMessageState | null
   beginEditMessage: (messageId: string) => void
@@ -765,6 +776,36 @@ function removeComposerDraft(
   return next
 }
 
+function buildPendingSteerFromSegments(segments: PendingSteerSegment[]): PendingSteerMessage {
+  const content = segments.map((s) => s.content).join('\n')
+  const images = segments.flatMap((s) => s.images ?? [])
+  const files = segments.flatMap((s) => s.files ?? [])
+  return {
+    segments,
+    content,
+    createdAt: new Date().toISOString(),
+    ...(images.length > 0 ? { images } : {}),
+    ...(files.length > 0 ? { files } : {})
+  }
+}
+
+function appendPendingSteer(
+  existing: PendingSteerMessage | undefined,
+  content: string,
+  images: MessageImageRecord[],
+  files: ComposerFileDraft[],
+  enabledSkillNames: string[] | null
+): PendingSteerMessage {
+  const newSegment: PendingSteerSegment = {
+    content,
+    ...(images.length > 0 ? { images } : {}),
+    ...(files.length > 0 ? { files } : {}),
+    enabledSkillNames
+  }
+  const segments = [...(existing?.segments ?? []), newSegment]
+  return buildPendingSteerFromSegments(segments)
+}
+
 function removePendingSteerMessage(
   pendingSteerMessages: Record<string, PendingSteerMessage>,
   threadId: string
@@ -1199,6 +1240,48 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ lastError: message })
       throw error
     }
+  },
+  revertPendingSteer: async () => {
+    const state = get()
+    const threadId = state.activeThreadId
+    if (!threadId) return
+    const pending = state.pendingSteerMessages[threadId]
+    if (!pending) return
+
+    // Withdraw on the server so cancelRun won't deliver it as a follow-up
+    await window.api.yachiyo.withdrawPendingSteer({ threadId })
+
+    const draftKey = getComposerDraftKey(threadId)
+    const currentDraft = get().composerDrafts[draftKey] ?? EMPTY_COMPOSER_DRAFT
+    const mergedText = [pending.content, currentDraft.text]
+      .filter((part) => part.length > 0)
+      .join('\n')
+    const imageDrafts: ComposerImageDraft[] = (pending.images ?? []).map((img) => ({
+      id: crypto.randomUUID(),
+      status: 'ready' as const,
+      dataUrl: img.dataUrl,
+      mediaType: img.mediaType,
+      filename: img.filename ?? undefined
+    }))
+    const fileDrafts: ComposerFileDraft[] = (pending.files ?? []).map((file) => ({
+      ...file,
+      id: crypto.randomUUID()
+    }))
+    // Restore the most recent segment's skill override so the user resends
+    // with the same configuration they originally queued.
+    const lastSegment = pending.segments[pending.segments.length - 1]
+    const restoredSkillNames = lastSegment?.enabledSkillNames
+
+    set((s) => ({
+      composerDrafts: updateComposerDraft(s.composerDrafts, draftKey, (draft) => ({
+        ...draft,
+        text: mergedText,
+        images: [...imageDrafts, ...draft.images],
+        files: [...fileDrafts, ...draft.files],
+        enabledSkillNames: restoredSkillNames ?? draft.enabledSkillNames
+      })),
+      pendingSteerMessages: removePendingSteerMessage(s.pendingSteerMessages, threadId)
+    }))
   },
   revertQueuedFollowUp: async (messageId) => {
     const state = get()
@@ -2960,6 +3043,37 @@ export const useAppStore = create<AppState>((set, get) => ({
             nextActiveRunIdsByThread[accepted.thread.id] = accepted.runId
           }
 
+          const nextMessages =
+            acceptedKind === 'active-run-steer-pending'
+              ? (state.messages[accepted.thread.id] ?? [])
+              : replaceMessage(
+                  state.messages[accepted.thread.id] ?? [],
+                  acceptedUserMessage as Message,
+                  acceptedReplacedMessageId
+                )
+
+          // Edit mode deletes the targeted message and all its descendants
+          // (plus their tool calls / harness events) before starting a fresh
+          // run. The authoritative cleanup arrives via thread.state.replaced,
+          // but if that event races with this acceptance handler, stale tool
+          // calls from the deleted subtree can linger. Compute the deleted
+          // descendant IDs and filter them out here.
+          let nextToolCalls = state.toolCalls
+          let nextHarnessEvents = state.harnessEvents
+          if (isEditMode && acceptedReplacedMessageId) {
+            const currentMessages = state.messages[accepted.thread.id] ?? []
+            const deletedIds = collectDescendantIds(currentMessages, acceptedReplacedMessageId)
+            const filteredToolCalls = (state.toolCalls[accepted.thread.id] ?? []).filter(
+              (tc) => !tc.requestMessageId || !deletedIds.has(tc.requestMessageId)
+            )
+            nextToolCalls = { ...state.toolCalls, [accepted.thread.id]: filteredToolCalls }
+            const survivingRunIds = new Set(filteredToolCalls.map((tc) => tc.runId).filter(Boolean))
+            const filteredHarnesses = (state.harnessEvents[accepted.thread.id] ?? []).filter((h) =>
+              survivingRunIds.has(h.runId)
+            )
+            nextHarnessEvents = { ...state.harnessEvents, [accepted.thread.id]: filteredHarnesses }
+          }
+
           const nextState = {
             ...state,
             activeRequestMessageIdsByThread: nextActiveRequestMessageIdsByThread,
@@ -2971,24 +3085,21 @@ export const useAppStore = create<AppState>((set, get) => ({
             lastError: null,
             messages: {
               ...state.messages,
-              [accepted.thread.id]:
-                acceptedKind === 'active-run-steer-pending'
-                  ? (state.messages[accepted.thread.id] ?? [])
-                  : replaceMessage(
-                      state.messages[accepted.thread.id] ?? [],
-                      acceptedUserMessage as Message,
-                      acceptedReplacedMessageId
-                    )
+              [accepted.thread.id]: nextMessages
             },
+            toolCalls: nextToolCalls,
+            harnessEvents: nextHarnessEvents,
             pendingSteerMessages:
               acceptedKind === 'active-run-steer-pending'
                 ? {
                     ...state.pendingSteerMessages,
-                    [accepted.thread.id]: {
-                      content: trimmed,
-                      createdAt: new Date().toISOString(),
-                      ...(images.length > 0 ? { images } : {})
-                    }
+                    [accepted.thread.id]: appendPendingSteer(
+                      state.pendingSteerMessages[accepted.thread.id],
+                      trimmed,
+                      images,
+                      draft.files.filter((f) => f.status === 'ready'),
+                      draft.enabledSkillNames ?? null
+                    )
                   }
                 : acceptedKind === 'active-run-steer'
                   ? removePendingSteerMessage(state.pendingSteerMessages, accepted.thread.id)

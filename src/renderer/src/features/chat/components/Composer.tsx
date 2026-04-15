@@ -27,6 +27,7 @@ import {
 } from '@renderer/app/store/useAppStore'
 import type { FileMentionCandidate, Message } from '@renderer/app/types'
 import { getComposerActionState } from '@renderer/features/chat/lib/composerActionState'
+import { shouldRevertPendingComposerMessagesOnArrowUp } from '@renderer/features/chat/lib/composerArrowUpRevert'
 import { resolveComposerEnterAction } from '@renderer/features/chat/lib/composerEnterBehavior'
 import {
   computePretextLines,
@@ -454,6 +455,16 @@ export function Composer({
   const cancelEditMessage = useAppStore((s) => s.cancelEditMessage)
   const removeComposerImage = useAppStore((s) => s.removeComposerImage)
   const removeComposerFile = useAppStore((s) => s.removeComposerFile)
+  const pendingSteerEntry = useAppStore((s) =>
+    s.activeThreadId ? (s.pendingSteerMessages[s.activeThreadId] ?? null) : null
+  )
+  const queuedFollowUpMessageId = useAppStore((s) => {
+    if (!s.activeThreadId) return null
+    const thread = s.threads.find((t) => t.id === s.activeThreadId)
+    return thread?.queuedFollowUpMessageId ?? null
+  })
+  const revertPendingSteer = useAppStore((s) => s.revertPendingSteer)
+  const revertQueuedFollowUp = useAppStore((s) => s.revertQueuedFollowUp)
   const sendMessage = useAppStore((s) => s.sendMessage)
   const selectModel = useAppStore((s) => s.selectModel)
   const pushToast = useAppStore((s) => s.pushToast)
@@ -1634,6 +1645,29 @@ export function Composer({
         return
       }
 
+      // Empty-composer ArrowUp: revert all pending messages (steer + queued follow-up)
+      // back into the composer for editing. Only fires when the composer is fully
+      // empty — no text, no images, no files — to avoid surprising merges.
+      if (
+        shouldRevertPendingComposerMessagesOnArrowUp({
+          key: event.key,
+          metaKey: event.metaKey,
+          altKey: event.altKey,
+          ctrlKey: event.ctrlKey,
+          shiftKey: event.shiftKey,
+          hasPayload,
+          hasPendingSteer: Boolean(pendingSteerEntry),
+          hasQueuedFollowUp: Boolean(queuedFollowUpMessageId)
+        })
+      ) {
+        event.preventDefault()
+        void (async () => {
+          if (pendingSteerEntry) await revertPendingSteer()
+          if (queuedFollowUpMessageId) await revertQueuedFollowUp(queuedFollowUpMessageId)
+        })()
+        return
+      }
+
       // Pretext-driven up/down navigation — override native arrow keys so cursor
       // movement follows pretext's visual lines, not the textarea's CSS wrapping.
       if (
@@ -1705,6 +1739,11 @@ export function Composer({
       atSkillPrefixMatch,
       composerValue,
       setComposerValue,
+      hasPayload,
+      pendingSteerEntry,
+      queuedFollowUpMessageId,
+      revertPendingSteer,
+      revertQueuedFollowUp,
       skillsSelectorOpen,
       toolSelectorOpen,
       workspaceSelectorOpen

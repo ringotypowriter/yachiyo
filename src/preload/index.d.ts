@@ -126,6 +126,7 @@ declare global {
           assistantMessageId: string
         }) => Promise<ThreadRecord>
         cancelRun: (input: { runId: string }) => Promise<void>
+        withdrawPendingSteer: (input: { threadId: string }) => Promise<void>
         answerToolQuestion: (input: AnswerToolQuestionInput) => Promise<void>
         translate: (input: TranslateInput) => Promise<TranslateResult>
         onTranslateDelta: (listener: (delta: string) => void) => () => void

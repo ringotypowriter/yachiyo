@@ -511,6 +511,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     beginEditMessage,
     createBranch,
     deleteMessage,
+    revertPendingSteer,
     revertQueuedFollowUp,
     retryMessage,
     selectReplyBranch,
@@ -553,6 +554,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
       beginEditMessage: state.beginEditMessage,
       createBranch: state.createBranch,
       deleteMessage: state.deleteMessage,
+      revertPendingSteer: state.revertPendingSteer,
       revertQueuedFollowUp: state.revertQueuedFollowUp,
       retryMessage: state.retryMessage,
       selectReplyBranch: state.selectReplyBranch,
@@ -944,6 +946,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
               onRetry={() => undefined}
               onCreateBranch={() => undefined}
               onDelete={() => undefined}
+              onRevert={() => void revertPendingSteer()}
             />
           </div>
         )
@@ -1035,6 +1038,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
       handleDelete,
       handleSelectReplyBranch,
       cancelRunForThread,
+      revertPendingSteer,
       revertQueuedFollowUp
     ]
   )

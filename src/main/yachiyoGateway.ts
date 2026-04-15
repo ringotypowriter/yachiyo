@@ -94,6 +94,7 @@ const IPC_CHANNELS = {
   importWebSearchBrowserSession: 'yachiyo:import-web-search-browser-session',
   bootstrap: 'yachiyo:bootstrap',
   cancelRun: 'yachiyo:cancel-run',
+  withdrawPendingSteer: 'yachiyo:withdraw-pending-steer',
   compactThreadToAnotherThread: 'yachiyo:compact-thread-to-another-thread',
   createBranch: 'yachiyo:create-branch',
   createThread: 'yachiyo:create-thread',
@@ -820,6 +821,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handle(IPC_CHANNELS.editMessage, (input: EditMessageInput) => server!.editMessage(input))
   handle(IPC_CHANNELS.cancelRun, (input: { runId: string }) => server!.cancelRun(input))
+  handle(IPC_CHANNELS.withdrawPendingSteer, (input: { threadId: string }) =>
+    server!.withdrawPendingSteer(input)
+  )
   handle(IPC_CHANNELS.answerToolQuestion, (input: AnswerToolQuestionInput) =>
     server!.answerToolQuestion(input)
   )

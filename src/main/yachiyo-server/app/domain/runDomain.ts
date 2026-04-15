@@ -104,6 +104,7 @@ interface RunState {
     messageId: string
     timestamp: string
     hidden?: boolean
+    previousEnabledSkillNames?: string[]
   }
   executionPhase: 'generating' | 'tool-running' | 'waiting-for-user'
   updateHeadOnComplete: boolean
@@ -972,6 +973,19 @@ export class YachiyoServerRunDomain {
     return true
   }
 
+  /** Discard the pending steer for a thread without cancelling the run. */
+  withdrawPendingSteer(threadId: string): void {
+    const runId = this.activeRunByThread.get(threadId)
+    if (!runId) return
+    const activeRun = this.activeRuns.get(runId)
+    if (!activeRun?.pendingSteerInput) return
+    // Restore the skill override the steer replaced so the live run
+    // continues with its original configuration.
+    activeRun.enabledSkillNames = activeRun.pendingSteerInput.previousEnabledSkillNames
+    activeRun.pendingSteerInput = undefined
+    activeRun.pendingSteerMessageId = undefined
+  }
+
   /** Cancel any active run owned by the given channel user. Returns true if a run was cancelled. */
   cancelRunForChannelUser(channelUserId: string): boolean {
     for (const [threadId] of this.activeRunByThread) {
@@ -1113,13 +1127,15 @@ export class YachiyoServerRunDomain {
     // Always queue the steer — it will be applied at the next turn boundary
     // (step boundary via stopWhen, or after the assistant message completes).
     // Never abort the current generation for a steer.
+    const previousEnabledSkillNames = activeRun.enabledSkillNames
     activeRun.enabledSkillNames = input.enabledSkillNames ? [...input.enabledSkillNames] : undefined
     activeRun.pendingSteerInput = {
       content: input.content,
       images: input.images,
       attachments: input.attachments,
       messageId: input.messageId,
-      timestamp: this.deps.timestamp()
+      timestamp: this.deps.timestamp(),
+      previousEnabledSkillNames
     }
 
     return {

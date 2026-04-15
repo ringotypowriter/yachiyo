@@ -1680,6 +1680,53 @@ test('sendMessage keeps a tool-waiting steer as a temporary pending marker until
   }
 })
 
+test('revertPendingSteer restores the queued steer skill override into the composer draft', async () => {
+  resetStore()
+
+  const withdrawCalls: string[] = []
+  const restoreWindow = withWindowApiMock({
+    withdrawPendingSteer: async ({ threadId }) => {
+      withdrawCalls.push(threadId)
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      composerDrafts: {
+        'thread-1': {
+          text: '',
+          images: [],
+          files: [],
+          enabledSkillNames: null
+        }
+      },
+      pendingSteerMessages: {
+        'thread-1': {
+          segments: [
+            {
+              content: 'Queued steer',
+              enabledSkillNames: ['workspace-refactor']
+            }
+          ],
+          content: 'Queued steer',
+          createdAt: TIMESTAMP
+        }
+      }
+    })
+
+    await useAppStore.getState().revertPendingSteer()
+
+    const state = useAppStore.getState()
+    assert.deepEqual(withdrawCalls, ['thread-1'])
+    assert.equal(state.pendingSteerMessages['thread-1'], undefined)
+    assert.equal(state.composerDrafts['thread-1']?.text, 'Queued steer')
+    assert.deepEqual(state.composerDrafts['thread-1']?.enabledSkillNames, ['workspace-refactor'])
+  } finally {
+    restoreWindow()
+  }
+})
+
 test('sendMessage replaces the queued follow-up for an active run', async () => {
   resetStore()
 

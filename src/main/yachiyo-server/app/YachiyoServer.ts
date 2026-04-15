@@ -928,6 +928,10 @@ export class YachiyoServer {
     this.runDomain.cancelRun(input)
   }
 
+  withdrawPendingSteer(input: { threadId: string }): void {
+    this.runDomain.withdrawPendingSteer(input.threadId)
+  }
+
   cancelRunForThread(threadId: string): boolean {
     return this.runDomain.cancelRunForThread(threadId)
   }
