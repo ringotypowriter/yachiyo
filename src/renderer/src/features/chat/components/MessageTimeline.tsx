@@ -221,7 +221,9 @@ export const ThreadConversationGroup = memo(function ThreadConversationGroup({
     }
     return []
   }, [activeBranch, group.hideActiveBranchWhilePreparing])
-  const hasRunningToolCall = visibleToolCalls.some((toolCall) => toolCall.status === 'running')
+  const hasRunningToolCall = visibleToolCalls.some(
+    (toolCall) => toolCall.status === 'preparing' || toolCall.status === 'running'
+  )
   const timelineItems = useMemo(
     () =>
       buildConversationGroupTimelineItems({
@@ -385,10 +387,14 @@ export const ThreadConversationGroup = memo(function ThreadConversationGroup({
               : null
           const nextGroupHasRunning =
             nextItem?.kind === 'tool-call-group' &&
-            nextItem.toolCallIds.some(
-              (id) => visibleToolCalls.find((entry) => entry.id === id)?.status === 'running'
-            )
-          const compactBottomSpacing = nextToolCall?.status === 'running' || nextGroupHasRunning
+            nextItem.toolCallIds.some((id) => {
+              const s = visibleToolCalls.find((entry) => entry.id === id)?.status
+              return s === 'preparing' || s === 'running'
+            })
+          const compactBottomSpacing =
+            nextToolCall?.status === 'preparing' ||
+            nextToolCall?.status === 'running' ||
+            nextGroupHasRunning
           return (
             <div
               key={item.key}

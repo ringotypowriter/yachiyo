@@ -2320,6 +2320,41 @@ test('streamReply does not retry after tool-input-available has fired (P1: tool 
   assert.deepEqual(sleepCalls, [])
 })
 
+test('streamReply does not retry after tool-input-start has fired (P1: preparing side-effects)', async () => {
+  const networkErr = new Error('read ECONNRESET')
+  ;(networkErr as { code?: string }).code = 'ECONNRESET'
+
+  const { runtime, defaultSettings, getCallCount, sleepCalls } = createFullStreamRetryRuntime([
+    {
+      streamEvents: [
+        { type: 'tool-input-start', id: 'tc1', toolName: 'bash' },
+        { type: 'error', error: networkErr }
+      ]
+    }
+  ])
+  const preparingEvents: Array<{ toolCallId: string; toolName: string }> = []
+
+  await assert.rejects(
+    async () => {
+      for await (const chunk of runtime.streamReply({
+        messages: [{ role: 'user', content: 'hi' }],
+        settings: defaultSettings,
+        signal: new AbortController().signal,
+        onToolCallPreparing: (event) => {
+          preparingEvents.push(event)
+        }
+      })) {
+        void chunk
+      }
+    },
+    { message: 'read ECONNRESET' }
+  )
+
+  assert.deepEqual(preparingEvents, [{ toolCallId: 'tc1', toolName: 'bash' }])
+  assert.equal(getCallCount(), 1)
+  assert.deepEqual(sleepCalls, [])
+})
+
 test('streamReply does not retry after tool-input-error aborts the turn', async () => {
   const { runtime, defaultSettings, getCallCount, sleepCalls } = createFullStreamRetryRuntime([
     {

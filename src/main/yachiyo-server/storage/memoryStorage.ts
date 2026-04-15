@@ -173,7 +173,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
       for (const toolCall of toolCalls.values()) {
         if (
-          toolCall.status !== 'running' ||
+          (toolCall.status !== 'preparing' && toolCall.status !== 'running') ||
           !toolCall.runId ||
           !interruptedRunIds.includes(toolCall.runId)
         ) {
@@ -537,7 +537,10 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       if (cacheWriteTokens !== undefined) run.cacheWriteTokens = cacheWriteTokens
 
       for (const toolCall of toolCalls.values()) {
-        if (toolCall.runId === runId && toolCall.status === 'running') {
+        if (
+          toolCall.runId === runId &&
+          (toolCall.status === 'preparing' || toolCall.status === 'running')
+        ) {
           toolCall.status = 'failed'
           toolCall.finishedAt = completedAt
         }
@@ -572,7 +575,10 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       if (cacheWriteTokens !== undefined) run.cacheWriteTokens = cacheWriteTokens
 
       for (const toolCall of toolCalls.values()) {
-        if (toolCall.runId === runId && toolCall.status === 'running') {
+        if (
+          toolCall.runId === runId &&
+          (toolCall.status === 'preparing' || toolCall.status === 'running')
+        ) {
           toolCall.status = 'failed'
           toolCall.finishedAt = completedAt
         }

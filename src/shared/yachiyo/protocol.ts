@@ -136,7 +136,13 @@ export const CORE_TOOL_NAMES = [
   'skillsRead'
 ] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
-export type ToolCallStatus = 'running' | 'completed' | 'failed' | 'waiting-for-user' | 'background'
+export type ToolCallStatus =
+  | 'preparing'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'waiting-for-user'
+  | 'background'
 
 const coreToolNameSet = new Set<string>(CORE_TOOL_NAMES)
 const runtimeManagedToolNameSet = new Set<ToolCallName>(['skillsRead'])

@@ -63,7 +63,7 @@ export function createToolProgressReporter(
 
     const existing = allTools.get(toolCall.id)
 
-    if (toolCall.status === 'running' && !existing) {
+    if ((toolCall.status === 'preparing' || toolCall.status === 'running') && !existing) {
       // First time seeing this tool call
       allTools.set(toolCall.id, {
         toolName: toolCall.toolName ?? 'unknown',

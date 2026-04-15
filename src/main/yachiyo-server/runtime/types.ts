@@ -53,6 +53,7 @@ export interface ModelStreamRequest {
   providerOptionsMode?: ModelProviderOptionsMode
   maxToolSteps?: number
   tools?: ToolSet
+  onToolCallPreparing?: (event: { toolCallId: string; toolName: string }) => void
   onToolCallStart?: GenerateTextOnToolCallStartCallback<ToolSet>
   onToolCallFinish?: GenerateTextOnToolCallFinishCallback<ToolSet>
   onToolCallUpdate?: (event: ModelToolCallUpdateEvent) => void

@@ -542,7 +542,7 @@ function terminateRunToolCalls(
   const next = threadToolCalls.map((toolCall) => {
     if (toolCall.runId !== runId) return toolCall
 
-    const needsFailStatus = toolCall.status === 'running'
+    const needsFailStatus = toolCall.status === 'preparing' || toolCall.status === 'running'
     const needsBind = assistantMessageId && !toolCall.assistantMessageId
     if (!needsFailStatus && !needsBind) return toolCall
 
@@ -2012,7 +2012,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           toolCalls: nextToolCalls,
           ...nextSubagentState,
           runPhasesByThread:
-            currentPhase === 'preparing'
+            currentPhase === 'preparing' && event.toolCall.status !== 'preparing'
               ? setThreadRunPhaseValue(state.runPhasesByThread, event.threadId, 'streaming')
               : state.runPhasesByThread
         }

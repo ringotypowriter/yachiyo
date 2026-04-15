@@ -337,6 +337,7 @@ export class YachiyoServerRunDomain {
       .filter(
         (toolCall) =>
           toolCall.runId === input.runId &&
+          toolCall.status !== 'preparing' &&
           toolCall.status !== 'running' &&
           toolCall.assistantMessageId !== input.assistantMessageId
       )

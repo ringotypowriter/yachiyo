@@ -495,7 +495,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           .where(
             and(
               inArray(toolCallsTable.runId, interruptedRunIds),
-              eq(toolCallsTable.status, 'running')
+              inArray(toolCallsTable.status, ['preparing', 'running'])
             )
           )
           .run()
@@ -1060,7 +1060,12 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
       db.update(toolCallsTable)
         .set({ status: 'failed', finishedAt: completedAt })
-        .where(and(eq(toolCallsTable.runId, runId), eq(toolCallsTable.status, 'running')))
+        .where(
+          and(
+            eq(toolCallsTable.runId, runId),
+            inArray(toolCallsTable.status, ['preparing', 'running'])
+          )
+        )
         .run()
     },
 
@@ -1096,7 +1101,12 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
       db.update(toolCallsTable)
         .set({ status: 'failed', finishedAt: completedAt })
-        .where(and(eq(toolCallsTable.runId, runId), eq(toolCallsTable.status, 'running')))
+        .where(
+          and(
+            eq(toolCallsTable.runId, runId),
+            inArray(toolCallsTable.status, ['preparing', 'running'])
+          )
+        )
         .run()
     },
 

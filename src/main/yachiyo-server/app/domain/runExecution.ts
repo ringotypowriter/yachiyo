@@ -838,7 +838,7 @@ function finishPendingToolCalls(
   input: { threadId: string; runId: string; finishedAt: string; error: string }
 ): void {
   for (const current of toolCalls.values()) {
-    if (current.status !== 'running') {
+    if (current.status !== 'preparing' && current.status !== 'running') {
       continue
     }
 
@@ -1800,6 +1800,38 @@ export async function executeServerRun(
         markProgress()
         reasoningDeltaBatcher.push(reasoningDelta)
       },
+      onToolCallPreparing: (event) => {
+        if (!isTrackedToolName(event.toolName)) {
+          return
+        }
+
+        markProgress()
+        textDeltaBatcher.flush()
+        reasoningDeltaBatcher.flush()
+        shouldStartNewTextBlock = true
+
+        const toolCall: ToolCallRecord = {
+          id: event.toolCallId,
+          runId: input.runId,
+          threadId: input.thread.id,
+          requestMessageId: input.requestMessageId,
+          toolName: event.toolName,
+          status: 'preparing',
+          inputSummary: '',
+          startedAt: deps.timestamp(),
+          stepIndex: stepCount + 1,
+          stepBudget: maxToolSteps
+        }
+
+        toolCalls.set(toolCall.id, toolCall)
+        instrumentedCreateToolCall(toolCall)
+        deps.emit<ToolCallUpdatedEvent>({
+          type: 'tool.updated',
+          threadId: input.thread.id,
+          runId: input.runId,
+          toolCall
+        })
+      },
       onToolCallStart: (event) => {
         if (!isTrackedToolName(event.toolCall.toolName)) {
           return
@@ -1813,7 +1845,11 @@ export async function executeServerRun(
         setExecutionPhase('tool-running')
         stepCount++
 
+        // Upgrade from 'preparing' if the early record exists, otherwise create fresh
+        const existing = toolCalls.get(event.toolCall.toolCallId)
+        const upgradingFromPreparing = existing?.status === 'preparing'
         const toolCall: ToolCallRecord = {
+          ...(existing ?? {}),
           id: event.toolCall.toolCallId,
           runId: input.runId,
           threadId: input.thread.id,
@@ -1821,13 +1857,17 @@ export async function executeServerRun(
           toolName: event.toolCall.toolName,
           status: 'running',
           inputSummary: summarizeToolInput(event.toolCall.toolName, event.toolCall.input),
-          startedAt: deps.timestamp(),
+          startedAt: existing?.startedAt ?? deps.timestamp(),
           stepIndex: stepCount,
           stepBudget: maxToolSteps
         }
 
         toolCalls.set(toolCall.id, toolCall)
-        instrumentedCreateToolCall(toolCall)
+        if (upgradingFromPreparing) {
+          instrumentedUpdateToolCall(toolCall)
+        } else {
+          instrumentedCreateToolCall(toolCall)
+        }
         appendRecoveryToolCall(recoveryResponseMessages, {
           toolCallId: toolCall.id,
           toolName: toolCall.toolName,

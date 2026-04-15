@@ -106,7 +106,7 @@ export function getVisibleToolCallsForGroup(input: {
       }
 
       if (!toolCall.assistantMessageId || !knownAssistantIds.has(toolCall.assistantMessageId)) {
-        if (toolCall.status === 'running') return true
+        if (toolCall.status === 'preparing' || toolCall.status === 'running') return true
         if (input.activeRunId) return toolCall.runId === input.activeRunId
         return !activeAssistantMessage || activeAssistantMessage.status !== 'completed'
       }
@@ -114,7 +114,7 @@ export function getVisibleToolCallsForGroup(input: {
       if (
         hiddenActiveAssistantId &&
         toolCall.assistantMessageId === hiddenActiveAssistantId &&
-        toolCall.status === 'running'
+        (toolCall.status === 'preparing' || toolCall.status === 'running')
       ) {
         return true
       }

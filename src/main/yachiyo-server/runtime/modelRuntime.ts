@@ -218,6 +218,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             for await (const part of result.fullStream as AsyncIterable<{
               errorText?: string
               finishReason?: string
+              id?: string
               input?: unknown
               inputTextDelta?: string
               isContinued?: boolean
@@ -257,6 +258,19 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                 const delta = readTextDelta(part) as string
                 totalYieldedChars += delta.length
                 yield delta
+                continue
+              }
+
+              if (
+                part.type === 'tool-input-start' &&
+                typeof part.id === 'string' &&
+                typeof part.toolName === 'string'
+              ) {
+                streamCommitted = true
+                request.onToolCallPreparing?.({
+                  toolCallId: part.id,
+                  toolName: part.toolName
+                })
                 continue
               }
 

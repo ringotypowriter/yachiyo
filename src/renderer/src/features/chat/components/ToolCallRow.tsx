@@ -26,12 +26,14 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
     return <AskUserInlineWidget toolCall={toolCall} />
   }
 
+  const isPreparing = toolCall.status === 'preparing'
   const isRunning = toolCall.status === 'running'
   const isBackground = toolCall.status === 'background'
+  const isActive = isPreparing || isRunning || isBackground
   const isFailed = toolCall.status === 'failed'
   const dotColor = isFailed
     ? theme.status.danger
-    : isRunning || isBackground
+    : isActive
       ? theme.text.accent
       : theme.status.success
   const presentation = buildToolCallDetailsPresentation(toolCall)
@@ -45,21 +47,18 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
         className="w-1.5 h-1.5 rounded-full shrink-0"
         style={{
           background: dotColor,
-          animation:
-            isRunning || isBackground
-              ? 'yachiyo-preparing-pulse 1.2s ease-in-out infinite'
-              : undefined
+          animation: isActive ? 'yachiyo-preparing-pulse 1.2s ease-in-out infinite' : undefined
         }}
       />
       <span>{toolCall.toolName}</span>
-      <span>· {toolCall.inputSummary}</span>
+      {toolCall.inputSummary ? <span>· {toolCall.inputSummary}</span> : null}
       {toolCall.cwd && <span>· cwd {toolCall.cwd}</span>}
       {toolCall.outputSummary && (
         <span style={{ color: isFailed ? theme.text.danger : theme.text.placeholder }}>
           · {toolCall.outputSummary}
         </span>
       )}
-      {!isRunning &&
+      {!isActive &&
         toolCall.finishedAt &&
         (() => {
           const t = elapsedSeconds(toolCall.startedAt, toolCall.finishedAt)
