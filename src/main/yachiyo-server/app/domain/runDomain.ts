@@ -61,6 +61,7 @@ import {
 import { BackgroundBashManager, type BackgroundBashTaskResult } from './backgroundBashManager.ts'
 import { assertSupportedImages, resolveEnabledTools } from './configDomain.ts'
 import { toEffectiveProviderSettings } from '../../settings/settingsStore.ts'
+import type { ModelUsage } from '../../runtime/types.ts'
 import { executeServerRun, type ExecuteRunInput, type ExecuteRunResult } from './runExecution.ts'
 import { runAcpChatThread } from '../../runtime/acp/acpChatRuntime.ts'
 import {
@@ -180,6 +181,47 @@ function resolveEffectiveThreadMessages(
   }
 
   return collectMessagePath(messages, headMessageId)
+}
+
+type UsageFields = Pick<
+  ModelUsage,
+  | 'promptTokens'
+  | 'completionTokens'
+  | 'totalPromptTokens'
+  | 'totalCompletionTokens'
+  | 'cacheReadTokens'
+  | 'cacheWriteTokens'
+>
+
+/** Extract the six token-count fields for passing to cancelRun/failRun. */
+function usageFieldsFrom(usage: UsageFields | undefined): Partial<UsageFields> {
+  if (!usage) return {}
+  return {
+    promptTokens: usage.promptTokens,
+    completionTokens: usage.completionTokens,
+    totalPromptTokens: usage.totalPromptTokens,
+    totalCompletionTokens: usage.totalCompletionTokens,
+    cacheReadTokens: usage.cacheReadTokens,
+    cacheWriteTokens: usage.cacheWriteTokens
+  }
+}
+
+/** Merge accumulated prior-leg usage with the current leg's ModelUsage for terminal persistence. */
+function mergeUsageForTerminal(
+  prior: UsageFields | undefined,
+  current: ModelUsage | undefined
+): UsageFields | undefined {
+  if (!prior && !current) return undefined
+  if (!prior) return current
+  if (!current) return prior
+  return {
+    promptTokens: (prior.promptTokens ?? 0) + current.promptTokens,
+    completionTokens: (prior.completionTokens ?? 0) + current.completionTokens,
+    totalPromptTokens: (prior.totalPromptTokens ?? 0) + current.totalPromptTokens,
+    totalCompletionTokens: (prior.totalCompletionTokens ?? 0) + current.totalCompletionTokens,
+    cacheReadTokens: (prior.cacheReadTokens ?? 0) + (current.cacheReadTokens ?? 0),
+    cacheWriteTokens: (prior.cacheWriteTokens ?? 0) + (current.cacheWriteTokens ?? 0)
+  }
 }
 
 export class YachiyoServerRunDomain {
@@ -1774,7 +1816,8 @@ export class YachiyoServerRunDomain {
             }
             this.deps.storage.cancelRun({
               runId: input.runId,
-              completedAt: timestamp
+              completedAt: timestamp,
+              ...usageFieldsFrom(accumulatedUsage)
             })
             this.emitCancelledHarnessFinished({
               threadId: input.thread.id,
@@ -1812,9 +1855,11 @@ export class YachiyoServerRunDomain {
             // never ran (the abort arrived after throwIfAborted), so we must
             // cancel the run in storage ourselves and let the finally block fire
             // startQueuedFollowUpIfPresent.
+            const steerPendingUsage = mergeUsageForTerminal(accumulatedUsage, result.usage)
             this.deps.storage.cancelRun({
               runId: input.runId,
-              completedAt: this.deps.timestamp()
+              completedAt: this.deps.timestamp(),
+              ...usageFieldsFrom(steerPendingUsage)
             })
             this.deps.emit<RunCancelledEvent>({
               type: 'run.cancelled',
@@ -1874,6 +1919,21 @@ export class YachiyoServerRunDomain {
           break
         }
 
+        // Accumulate usage from the restarted leg so it isn't lost if the
+        // subsequent leg is cancelled or fails.
+        if (result.usage) {
+          const u = result.usage
+          accumulatedUsage = {
+            promptTokens: (accumulatedUsage?.promptTokens ?? 0) + u.promptTokens,
+            completionTokens: (accumulatedUsage?.completionTokens ?? 0) + u.completionTokens,
+            totalPromptTokens: (accumulatedUsage?.totalPromptTokens ?? 0) + u.totalPromptTokens,
+            totalCompletionTokens:
+              (accumulatedUsage?.totalCompletionTokens ?? 0) + u.totalCompletionTokens,
+            cacheReadTokens: (accumulatedUsage?.cacheReadTokens ?? 0) + (u.cacheReadTokens ?? 0),
+            cacheWriteTokens: (accumulatedUsage?.cacheWriteTokens ?? 0) + (u.cacheWriteTokens ?? 0)
+          }
+        }
+
         const nextRequestMessageId = activeRun.pendingSteerMessageId ?? result.nextRequestMessageId
 
         activeRun.pendingSteerMessageId = undefined
@@ -1896,7 +1956,8 @@ export class YachiyoServerRunDomain {
       this.deps.storage.failRun({
         runId: input.runId,
         completedAt: timestamp,
-        error: message
+        error: message,
+        ...usageFieldsFrom(accumulatedUsage)
       })
       this.deps.emit<RunFailedEvent>({
         type: 'run.failed',

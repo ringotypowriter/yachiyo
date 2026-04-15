@@ -511,7 +511,16 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
     },
 
-    cancelRun({ runId, completedAt }) {
+    cancelRun({
+      runId,
+      completedAt,
+      promptTokens,
+      completionTokens,
+      totalPromptTokens,
+      totalCompletionTokens,
+      cacheReadTokens,
+      cacheWriteTokens
+    }) {
       const run = runs.get(runId)
       if (!run) {
         return
@@ -520,6 +529,12 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
       run.status = 'cancelled'
       run.completedAt = completedAt
+      if (promptTokens !== undefined) run.promptTokens = promptTokens
+      if (completionTokens !== undefined) run.completionTokens = completionTokens
+      if (totalPromptTokens !== undefined) run.totalPromptTokens = totalPromptTokens
+      if (totalCompletionTokens !== undefined) run.totalCompletionTokens = totalCompletionTokens
+      if (cacheReadTokens !== undefined) run.cacheReadTokens = cacheReadTokens
+      if (cacheWriteTokens !== undefined) run.cacheWriteTokens = cacheWriteTokens
 
       for (const toolCall of toolCalls.values()) {
         if (toolCall.runId === runId && toolCall.status === 'running') {
@@ -529,7 +544,17 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
     },
 
-    failRun({ runId, completedAt, error }) {
+    failRun({
+      runId,
+      completedAt,
+      error,
+      promptTokens,
+      completionTokens,
+      totalPromptTokens,
+      totalCompletionTokens,
+      cacheReadTokens,
+      cacheWriteTokens
+    }) {
       const run = runs.get(runId)
       if (!run) {
         return
@@ -539,6 +564,12 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       run.status = 'failed'
       run.error = error
       run.completedAt = completedAt
+      if (promptTokens !== undefined) run.promptTokens = promptTokens
+      if (completionTokens !== undefined) run.completionTokens = completionTokens
+      if (totalPromptTokens !== undefined) run.totalPromptTokens = totalPromptTokens
+      if (totalCompletionTokens !== undefined) run.totalCompletionTokens = totalCompletionTokens
+      if (cacheReadTokens !== undefined) run.cacheReadTokens = cacheReadTokens
+      if (cacheWriteTokens !== undefined) run.cacheWriteTokens = cacheWriteTokens
 
       for (const toolCall of toolCalls.values()) {
         if (toolCall.runId === runId && toolCall.status === 'running') {

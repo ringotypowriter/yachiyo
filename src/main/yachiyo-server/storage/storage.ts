@@ -124,6 +124,27 @@ export interface CompleteRunInput {
   providerName?: string
 }
 
+/** Optional token usage fields shared by cancel/fail run inputs. */
+interface TerminalRunUsage {
+  promptTokens?: number
+  completionTokens?: number
+  totalPromptTokens?: number
+  totalCompletionTokens?: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+}
+
+export interface CancelRunInput extends TerminalRunUsage {
+  runId: string
+  completedAt: string
+}
+
+export interface FailRunInput extends TerminalRunUsage {
+  runId: string
+  completedAt: string
+  error: string
+}
+
 export interface CreateThreadInput {
   thread: ThreadRecord
   createdAt: string
@@ -254,8 +275,8 @@ export interface YachiyoStorage {
   saveThreadMessage(input: SaveThreadMessageInput): void
   startRun(input: StartRunInput): void
   completeRun(input: CompleteRunInput): void
-  cancelRun(input: { runId: string; completedAt: string }): void
-  failRun(input: { runId: string; completedAt: string; error: string }): void
+  cancelRun(input: CancelRunInput): void
+  failRun(input: FailRunInput): void
   updateRunSnapshot(runId: string, snapshot: { fileCount: number; workspacePath?: string }): void
   listThreadRuns(threadId: string): RunRecord[]
   listThreadMessages(threadId: string): MessageRecord[]

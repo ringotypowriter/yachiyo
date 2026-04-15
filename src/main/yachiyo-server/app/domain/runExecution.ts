@@ -152,9 +152,9 @@ export interface RestartRunReason {
 
 export type ExecuteRunResult =
   | { kind: 'completed'; totalPromptTokens?: number; usedRememberTool?: boolean }
-  | { kind: 'failed' }
-  | { kind: 'cancelled' }
-  | { kind: 'restarted'; nextRequestMessageId: string }
+  | { kind: 'failed'; usage?: ModelUsage }
+  | { kind: 'cancelled'; usage?: ModelUsage }
+  | { kind: 'restarted'; nextRequestMessageId: string; usage?: ModelUsage }
   | { kind: 'steer-pending'; assistantMessageId: string; usage?: ModelUsage }
   | { kind: 'recovering'; checkpoint: RunRecoveryCheckpoint; harnessId: string }
 
@@ -1128,6 +1128,8 @@ export async function executeServerRun(
   persistRecoveryCheckpoint()
 
   let snapshotTracker: SnapshotTracker | null = null
+  /** Tracks the most recent usage from the model stream; hoisted so catch blocks can persist it. */
+  let lastUsage: ModelUsage | undefined
 
   try {
     const workspacePath = await ensureResolvedWorkspacePath(
@@ -1632,8 +1634,6 @@ export async function executeServerRun(
       `[yachiyo][run] toolSet: ${tools ? Object.keys(tools).join(', ') : 'none'}, extraTools: ${input.extraTools ? Object.keys(input.extraTools).join(', ') : 'none'}`
     )
     deps.onEnabledToolsUsed(input.enabledTools)
-
-    let lastUsage: ModelUsage | undefined
 
     const hasPendingSteer = deps.hasPendingSteer
     const stopWhen: Array<StopCondition<ToolSet>> | undefined = tools
@@ -2326,7 +2326,8 @@ export async function executeServerRun(
         })
         return {
           kind: 'restarted',
-          nextRequestMessageId: restartReason.nextRequestMessageId
+          nextRequestMessageId: restartReason.nextRequestMessageId,
+          usage: lastUsage
         }
       }
 
@@ -2393,9 +2394,16 @@ export async function executeServerRun(
         }
       }
 
+      const cancelUsage = mergeUsage(input.priorUsage, lastUsage)
       deps.storage.cancelRun({
         runId: input.runId,
-        completedAt: timestamp
+        completedAt: timestamp,
+        promptTokens: cancelUsage?.promptTokens,
+        completionTokens: cancelUsage?.completionTokens,
+        totalPromptTokens: cancelUsage?.totalPromptTokens,
+        totalCompletionTokens: cancelUsage?.totalCompletionTokens,
+        cacheReadTokens: cancelUsage?.cacheReadTokens,
+        cacheWriteTokens: cancelUsage?.cacheWriteTokens
       })
 
       // Finalize snapshot for cancelled runs so partial changes are reviewable.
@@ -2442,7 +2450,7 @@ export async function executeServerRun(
       })
       perfCollector.finish(input.thread.id)
 
-      return { kind: 'cancelled' }
+      return { kind: 'cancelled', usage: cancelUsage }
     }
 
     const message = extractRetryErrorMessage(error) || 'Unknown model runtime error'
@@ -2544,10 +2552,17 @@ export async function executeServerRun(
       })
     }
 
+    const failUsage = mergeUsage(input.priorUsage, lastUsage)
     deps.storage.failRun({
       runId: input.runId,
       completedAt: timestamp,
-      error: message
+      error: message,
+      promptTokens: failUsage?.promptTokens,
+      completionTokens: failUsage?.completionTokens,
+      totalPromptTokens: failUsage?.totalPromptTokens,
+      totalCompletionTokens: failUsage?.totalCompletionTokens,
+      cacheReadTokens: failUsage?.cacheReadTokens,
+      cacheWriteTokens: failUsage?.cacheWriteTokens
     })
 
     // Finalize file snapshot for failed runs so partial changes are reviewable.
@@ -2595,6 +2610,6 @@ export async function executeServerRun(
       error: message
     })
     perfCollector.finish(input.thread.id)
-    return { kind: 'failed' }
+    return { kind: 'failed', usage: failUsage }
   }
 }

@@ -1030,7 +1030,16 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       })
     },
 
-    cancelRun({ runId, completedAt }) {
+    cancelRun({
+      runId,
+      completedAt,
+      promptTokens,
+      completionTokens,
+      totalPromptTokens,
+      totalCompletionTokens,
+      cacheReadTokens,
+      cacheWriteTokens
+    }) {
       db.delete(runRecoveryCheckpointsTable)
         .where(eq(runRecoveryCheckpointsTable.runId, runId))
         .run()
@@ -1038,7 +1047,13 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       db.update(runsTable)
         .set({
           completedAt,
-          status: 'cancelled'
+          status: 'cancelled',
+          ...(promptTokens !== undefined ? { promptTokens } : {}),
+          ...(completionTokens !== undefined ? { completionTokens } : {}),
+          ...(totalPromptTokens !== undefined ? { totalPromptTokens } : {}),
+          ...(totalCompletionTokens !== undefined ? { totalCompletionTokens } : {}),
+          ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+          ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {})
         })
         .where(eq(runsTable.id, runId))
         .run()
@@ -1049,7 +1064,17 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .run()
     },
 
-    failRun({ runId, completedAt, error }) {
+    failRun({
+      runId,
+      completedAt,
+      error,
+      promptTokens,
+      completionTokens,
+      totalPromptTokens,
+      totalCompletionTokens,
+      cacheReadTokens,
+      cacheWriteTokens
+    }) {
       db.delete(runRecoveryCheckpointsTable)
         .where(eq(runRecoveryCheckpointsTable.runId, runId))
         .run()
@@ -1058,7 +1083,13 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .set({
           completedAt,
           error,
-          status: 'failed'
+          status: 'failed',
+          ...(promptTokens !== undefined ? { promptTokens } : {}),
+          ...(completionTokens !== undefined ? { completionTokens } : {}),
+          ...(totalPromptTokens !== undefined ? { totalPromptTokens } : {}),
+          ...(totalCompletionTokens !== undefined ? { totalCompletionTokens } : {}),
+          ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+          ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {})
         })
         .where(eq(runsTable.id, runId))
         .run()
