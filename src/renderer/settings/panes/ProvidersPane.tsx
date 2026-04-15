@@ -1,4 +1,4 @@
-import { Eraser, Factory, Loader2, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
+import { Copy, Eraser, Factory, Loader2, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
 import { ProviderIconAvatar } from '../../src/lib/providerIcons'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { theme, alpha } from '@renderer/theme/theme'
@@ -10,6 +10,7 @@ import type {
 import {
   createDisabledToolModelConfig,
   createProviderConfig,
+  createProviderId,
   getToolModelConfig,
   providerMatchesReference,
   sanitizeProviderConfig,
@@ -382,6 +383,28 @@ export function ProvidersPane({
     onSelectProvider(next.nextSelectedId)
   }
 
+  const handleDuplicateProvider = (): void => {
+    if (!selectedProvider) return
+    const existingNames = draft.providers.map((p) => p.name)
+    let candidate = `${selectedProvider.name} copy`
+    let index = 1
+    while (existingNames.includes(candidate)) {
+      index += 1
+      candidate = `${selectedProvider.name} copy ${index}`
+    }
+    const duplicated: ProviderConfig = {
+      ...selectedProvider,
+      id: createProviderId(),
+      presetKey: undefined,
+      name: candidate
+    }
+    onChange({
+      ...draft,
+      providers: [...draft.providers, duplicated]
+    })
+    onSelectProvider(duplicated.id!)
+  }
+
   const handleAddProvider = (): void => {
     const provider = createProviderConfig(draft.providers.map((entry) => entry.name))
     onChange({
@@ -497,17 +520,28 @@ export function ProvidersPane({
                 {selectedProvider.name}
               </div>
 
-              {!isLastOfItsPreset && (
+              <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={handleRemoveProvider}
+                  onClick={handleDuplicateProvider}
                   className="flex items-center gap-1.5 text-xs font-medium transition-opacity opacity-50 hover:opacity-100"
-                  style={{ color: theme.text.danger }}
+                  style={{ color: theme.text.secondary }}
                 >
-                  <Trash2 size={12} strokeWidth={1.8} />
-                  Remove
+                  <Copy size={12} strokeWidth={1.8} />
+                  Duplicate
                 </button>
-              )}
+                {!isLastOfItsPreset && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveProvider}
+                    className="flex items-center gap-1.5 text-xs font-medium transition-opacity opacity-50 hover:opacity-100"
+                    style={{ color: theme.text.danger }}
+                  >
+                    <Trash2 size={12} strokeWidth={1.8} />
+                    Remove
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-5">
