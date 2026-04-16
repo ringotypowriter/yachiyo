@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.29
+
+### Patch Changes
+
+- [`74a5564`](https://github.com/ringotypowriter/yachiyo/commit/74a55648cba58138fcb741d1158ea15ac9dc8547) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Tool call pair guard fix
+
 ## 1.0.28
 
 ### Patch Changes
