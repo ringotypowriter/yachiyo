@@ -795,10 +795,19 @@ function balanceResponseMessages(messages: unknown[]): unknown[] {
         `[snapshot] Balancing ${toolCallIds.size} orphaned tool call(s): ${[...toolCallIds].join(', ')}`
       )
       modified = true
+      // Build a toolCallId → toolName lookup from the assistant message so
+      // synthetic results carry the correct tool name instead of 'unknown'.
+      const toolNameById = new Map<string, string>()
+      for (const part of msg.content) {
+        const p = part as { type?: string; toolCallId?: string; toolName?: string }
+        if (p.type === 'tool-call' && p.toolCallId && p.toolName) {
+          toolNameById.set(p.toolCallId, p.toolName)
+        }
+      }
       const syntheticResults = [...toolCallIds].map((toolCallId) => ({
         type: 'tool-result' as const,
         toolCallId,
-        toolName: 'unknown',
+        toolName: toolNameById.get(toolCallId) ?? 'unknown',
         output: { type: 'text', value: '[Interrupted by steer before tool result was received]' }
       }))
 
@@ -1873,8 +1882,27 @@ export async function executeServerRun(
         setExecutionPhase('tool-running')
         stepCount++
 
-        // Upgrade from 'preparing' if the early record exists, otherwise create fresh
-        const existing = toolCalls.get(event.toolCall.toolCallId)
+        // Upgrade from 'preparing' if the early record exists, otherwise create fresh.
+        // The preparing record may have been stored under a different key if
+        // the fullStream's tool-input-start `part.id` diverged from the SDK's
+        // canonical `toolCallId`. When the direct lookup misses, fall back to
+        // the most recent preparing record for the same tool name and clean up
+        // the stale key so the map stays consistent.
+        let existing = toolCalls.get(event.toolCall.toolCallId)
+        let orphanedPreparingKey: string | undefined
+        if (!existing) {
+          for (const [key, record] of toolCalls) {
+            if (
+              record.status === 'preparing' &&
+              record.toolName === event.toolCall.toolName &&
+              key !== event.toolCall.toolCallId
+            ) {
+              existing = record
+              orphanedPreparingKey = key
+              break
+            }
+          }
+        }
         const upgradingFromPreparing = existing?.status === 'preparing'
         const toolCall: ToolCallRecord = {
           ...(existing ?? {}),
@@ -1890,10 +1918,21 @@ export async function executeServerRun(
           stepBudget: maxToolSteps
         }
 
+        // Remove the orphaned preparing entry from the in-memory map so it
+        // doesn't linger or get bound to the assistant message with a stale ID.
+        // The storage record will be superseded by the create/update below.
+        if (orphanedPreparingKey) {
+          toolCalls.delete(orphanedPreparingKey)
+        }
+
         toolCalls.set(toolCall.id, toolCall)
-        if (upgradingFromPreparing) {
+        if (upgradingFromPreparing && !orphanedPreparingKey) {
+          // Normal upgrade: same key, record exists in storage.
           instrumentedUpdateToolCall(toolCall)
         } else {
+          // Either fresh record or the ID changed (orphan remap) — the old
+          // storage row is keyed by the stale ID so update would be a no-op.
+          // Always create a new row under the canonical ID.
           instrumentedCreateToolCall(toolCall)
         }
         appendRecoveryToolCall(recoveryResponseMessages, {
@@ -2165,8 +2204,14 @@ export async function executeServerRun(
     // without completing the run itself.
     if (hasPendingSteer?.()) {
       const steerTimestamp = deps.timestamp()
+      // Prefer the SDK's authoritative response.messages over the incrementally
+      // built recoveryResponseMessages. The recovery messages can be incomplete
+      // when a steer interrupts mid-step (e.g. parallel tool results shift to
+      // later positions). The SDK's messages are finalized after the full stream
+      // completes and are always self-consistent.
       const rawSteerResponseMessages =
-        recoveryResponseMessages.length > 0 ? recoveryResponseMessages : lastUsage?.responseMessages
+        lastUsage?.responseMessages ??
+        (recoveryResponseMessages.length > 0 ? recoveryResponseMessages : undefined)
       // Balance response messages so every tool-call has a matching tool-result.
       // Parallel tool calls interrupted by the steer may leave orphaned tool_use
       // blocks that break the next model call.
