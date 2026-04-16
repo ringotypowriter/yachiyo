@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.28
+
+### Patch Changes
+
+- [`d11e44b`](https://github.com/ringotypowriter/yachiyo/commit/d11e44b3ac03af02dd3e4f898f43d15574bad7c9) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - File Changes Preview & Steer Improvement & Reminder Refine
+
 ## 1.0.27
 
 ### Patch Changes
