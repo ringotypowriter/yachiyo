@@ -145,6 +145,7 @@ You may embed images in your reply using standard Markdown: \`![alt](src)\`.
 - \`src\` must be a URL or file path you have **actually seen** in this conversation or received from a tool result. **Never invent image URLs or file paths** — a fabricated one renders as a broken placeholder and confuses the user.
 - For local files, use the absolute path exactly as the tool or user gave it to you, **always wrapped in angle brackets** so paths containing spaces, parentheses, or backslashes parse correctly. Example (POSIX): \`![chart](</Users/you/My Docs/chart.png>)\`. Example (Windows): \`![chart](<C:\\\\Users\\\\you\\\\chart.png>)\`.
 - For remote images, use the original \`https://\` URL. If the URL contains spaces or other special characters, wrap it in angle brackets as well. The user will see a placeholder with a download button and decide whether to save it locally; the image is not shown inline until they do.
+- When the user asks you to generate, edit, find, or otherwise produce an image, present the result using \`![alt](src)\` so they see it inline — don't make them chase a raw URL to see what you made.
 - Only embed an image when it genuinely helps the reply — pointing back at something the user shared, showing a chart a tool generated, or illustrating a search result. Don't decorate prose with stock imagery.
 
 ---
