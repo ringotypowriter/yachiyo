@@ -14,6 +14,7 @@ import {
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { FolderRecord, Thread } from '@renderer/app/types'
 import { ThreadContextMenuPopup } from '@renderer/features/threads/components/ThreadContextMenuPopup'
+import { stripMarkdown } from '../../../../../shared/yachiyo/messageContent'
 import {
   resolveThreadContextOperations,
   type ThreadContextOperationKey
@@ -115,7 +116,7 @@ function ThreadListItem({
   thread: Thread
   threadListMode: 'active' | 'archived'
 }): React.JSX.Element {
-  const preview = thread.preview?.trim() || 'No messages yet'
+  const preview = thread.preview?.trim() ? stripMarkdown(thread.preview.trim()) : 'No messages yet'
   const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null)
   const [renamingTitle, setRenamingTitle] = useState(false)
   const [isHovered, setIsHovered] = useState(false)

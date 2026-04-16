@@ -5,6 +5,7 @@ import {
   extractBase64DataUrlPayload,
   hasMessagePayload,
   normalizeMessageImages,
+  stripMarkdown,
   summarizeMessageInput
 } from './messageContent.ts'
 
@@ -88,6 +89,61 @@ test('hasMessagePayload detects content, images, and attachments', () => {
     }),
     true
   )
+})
+
+test('stripMarkdown removes headings', () => {
+  assert.equal(stripMarkdown('# Hello'), 'Hello')
+  assert.equal(stripMarkdown('## Sub heading'), 'Sub heading')
+  assert.equal(stripMarkdown('### Deep'), 'Deep')
+})
+
+test('stripMarkdown removes bold and italic markers', () => {
+  assert.equal(stripMarkdown('**bold**'), 'bold')
+  assert.equal(stripMarkdown('__bold__'), 'bold')
+  assert.equal(stripMarkdown('*italic*'), 'italic')
+  assert.equal(stripMarkdown('_italic_'), 'italic')
+  assert.equal(stripMarkdown('***both***'), 'both')
+  assert.equal(stripMarkdown('~~struck~~'), 'struck')
+})
+
+test('stripMarkdown unwraps inline code', () => {
+  assert.equal(stripMarkdown('use `foo()` here'), 'use foo() here')
+})
+
+test('stripMarkdown strips fenced code blocks', () => {
+  assert.equal(stripMarkdown('```ts\nconst x = 1\n```'), 'const x = 1')
+  assert.equal(stripMarkdown('```\nplain\n```'), 'plain')
+})
+
+test('stripMarkdown extracts link text', () => {
+  assert.equal(stripMarkdown('[click here](https://example.com)'), 'click here')
+  assert.equal(stripMarkdown('![alt text](image.png)'), 'alt text')
+})
+
+test('stripMarkdown removes blockquote markers', () => {
+  assert.equal(stripMarkdown('> quoted text'), 'quoted text')
+  assert.equal(stripMarkdown('>> nested'), 'nested')
+})
+
+test('stripMarkdown removes list markers', () => {
+  assert.equal(stripMarkdown('- item one\n- item two'), 'item one item two')
+  assert.equal(stripMarkdown('* star item'), 'star item')
+  assert.equal(stripMarkdown('1. numbered'), 'numbered')
+})
+
+test('stripMarkdown removes horizontal rules', () => {
+  assert.equal(stripMarkdown('above\n---\nbelow'), 'above below')
+  assert.equal(stripMarkdown('above\n***\nbelow'), 'above below')
+})
+
+test('stripMarkdown collapses whitespace', () => {
+  assert.equal(stripMarkdown('hello\n\n\nworld'), 'hello world')
+  assert.equal(stripMarkdown('  spaced  out  '), 'spaced out')
+})
+
+test('stripMarkdown handles plain text passthrough', () => {
+  assert.equal(stripMarkdown('just plain text'), 'just plain text')
+  assert.equal(stripMarkdown(''), '')
 })
 
 test('summarizeMessageInput returns text or image summary', () => {

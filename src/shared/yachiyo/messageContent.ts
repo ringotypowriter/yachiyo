@@ -69,6 +69,37 @@ export function hasMessagePayload(input: MessagePayloadLike): boolean {
   )
 }
 
+export function stripMarkdown(md: string): string {
+  let s = md
+  // fenced code blocks → keep content only
+  s = s.replace(/```[\s\S]*?```/g, (m) => {
+    const inner = m.replace(/^```\w*\n?/, '').replace(/\n?```$/, '')
+    return inner
+  })
+  // images / links → keep display text
+  s = s.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+  // inline code
+  s = s.replace(/`([^`]+)`/g, '$1')
+  // headings
+  s = s.replace(/^#{1,6}\s+/gm, '')
+  // bold / italic / strikethrough
+  s = s.replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1')
+  s = s.replace(/_{1,3}([^_]+)_{1,3}/g, '$1')
+  s = s.replace(/~~([^~]+)~~/g, '$1')
+  // blockquotes
+  s = s.replace(/^>+\s?/gm, '')
+  // unordered list markers
+  s = s.replace(/^[\t ]*[-*+]\s+/gm, '')
+  // ordered list markers
+  s = s.replace(/^[\t ]*\d+\.\s+/gm, '')
+  // horizontal rules (standalone lines of ---, ***, ___)
+  s = s.replace(/^[-*_]{3,}\s*$/gm, '')
+  // collapse whitespace
+  s = s.replace(/\n/g, ' ')
+  s = s.replace(/ {2,}/g, ' ')
+  return s.trim()
+}
+
 export function summarizeMessageInput(input: MessagePayloadLike): string {
   const text = input.content.trim()
   if (text) {
