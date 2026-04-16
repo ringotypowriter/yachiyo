@@ -1,7 +1,8 @@
 import type React from 'react'
 import { useMemo } from 'react'
 import type { Components, LinkSafetyConfig, UrlTransform } from 'streamdown'
-import { Streamdown } from 'streamdown'
+import { defaultRehypePlugins, Streamdown } from 'streamdown'
+import type { PluggableList } from 'unified'
 import { MarkdownErrorBoundary } from './MarkdownErrorBoundary'
 import { LinkSafetyModal } from './LinkSafetyModal'
 import { LinkableCode } from './LinkableCode'
@@ -14,6 +15,27 @@ import {
   MarkdownImageProvider,
   type MarkdownImageContextValue
 } from './MarkdownImage'
+
+/**
+ * Extend Streamdown's default rehype-sanitize schema to allow `magnet:` in
+ * href attributes so magnet links render as clickable links instead of
+ * "[blocked]".
+ */
+const rehypePlugins: PluggableList = (() => {
+  const [sanitizeFn, sanitizeSchema] = defaultRehypePlugins.sanitize as [
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    any,
+    { protocols?: Record<string, string[]> }
+  ]
+  const extendedSchema = {
+    ...sanitizeSchema,
+    protocols: {
+      ...sanitizeSchema.protocols,
+      href: [...(sanitizeSchema.protocols?.href ?? []), 'magnet']
+    }
+  }
+  return [defaultRehypePlugins.raw, [sanitizeFn, extendedSchema], defaultRehypePlugins.harden]
+})()
 
 interface MessageMarkdownProps {
   content: string
@@ -81,6 +103,7 @@ export function MessageMarkdown({
             mode={isStreaming ? 'streaming' : 'static'}
             controls={true}
             plugins={plugins}
+            rehypePlugins={rehypePlugins}
             linkSafety={linkSafety}
             components={components}
             urlTransform={urlTransform}
