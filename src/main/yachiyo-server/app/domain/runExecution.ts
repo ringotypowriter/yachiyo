@@ -154,6 +154,18 @@ export interface RestartRunReason {
   nextRequestMessageId: string
 }
 
+export interface CancelWithSteerReason {
+  type: 'cancel-with-steer'
+  steerInput: {
+    content: string
+    images: MessageRecord['images']
+    attachments: NonNullable<MessageRecord['attachments']>
+    messageId: string
+    timestamp: string
+    hidden?: boolean
+  }
+}
+
 export type ExecuteRunResult =
   | { kind: 'completed'; totalPromptTokens?: number; usedRememberTool?: boolean }
   | { kind: 'failed'; usage?: ModelUsage }
@@ -169,6 +181,12 @@ export type ExecuteRunResult =
       assistantMessageId: string
       usage?: ModelUsage
       snapshotTracker?: SnapshotTracker
+    }
+  | {
+      kind: 'cancelled-with-steer'
+      stoppedMessageId: string
+      steerInput: CancelWithSteerReason['steerInput']
+      usage?: ModelUsage
     }
   | { kind: 'recovering'; checkpoint: RunRecoveryCheckpoint; harnessId: string }
 
@@ -261,6 +279,15 @@ function isRestartRunReason(value: unknown): value is RestartRunReason {
     typeof value === 'object' &&
     (value as { type?: unknown }).type === 'restart' &&
     typeof (value as { nextRequestMessageId?: unknown }).nextRequestMessageId === 'string'
+  )
+}
+
+function isCancelWithSteerReason(value: unknown): value is CancelWithSteerReason {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    (value as { type?: unknown }).type === 'cancel-with-steer' &&
+    (value as { steerInput?: unknown }).steerInput != null
   )
 }
 
@@ -2460,6 +2487,143 @@ export async function executeServerRun(
           nextRequestMessageId: restartReason.nextRequestMessageId,
           usage: lastUsage,
           snapshotTracker: snapshotTracker ?? undefined
+        }
+      }
+
+      // Cancel-with-steer: the user cancelled the run while a steer was
+      // pending. Persist the stopped assistant message first so the run loop
+      // can parent the steer message under it — keeping the ancestor chain
+      // intact for future LLM context assembly.
+      if (isCancelWithSteerReason(restartReason)) {
+        textDeltaBatcher.flush()
+        reasoningDeltaBatcher.flush()
+        finishPendingToolCalls(deps, toolCalls, {
+          error: 'Run cancelled before the tool call finished.',
+          finishedAt: timestamp,
+          runId: input.runId,
+          threadId: input.thread.id
+        })
+
+        if (input.requestMessageId) {
+          const cancelledResponseMessages =
+            recoveryResponseMessages.length > 0
+              ? balanceRecoveryResponseMessages(
+                  recoveryResponseMessages,
+                  Array.from(toolCalls.values())
+                )
+              : recoveryResponseMessages
+          const currentThread = deps.readThread(input.thread.id)
+          const stoppedMessage: MessageRecord = {
+            id: messageId,
+            threadId: input.thread.id,
+            parentMessageId: input.requestMessageId,
+            role: 'assistant',
+            content: bufferParts.join(''),
+            ...(textBlocks.length > 0 ? { textBlocks } : {}),
+            ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
+            ...(cancelledResponseMessages.length > 0
+              ? { responseMessages: cancelledResponseMessages }
+              : {}),
+            status: 'stopped',
+            createdAt: timestamp,
+            modelId: settings.model,
+            providerName: settings.providerName
+          }
+          const updatedThread: ThreadRecord = {
+            ...currentThread,
+            updatedAt: timestamp,
+            ...(bufferLength > 0 ? { preview: bufferParts.join('').slice(0, 240) } : {})
+          }
+          deps.storage.saveThreadMessage({
+            thread: currentThread,
+            updatedThread,
+            message: stoppedMessage
+          })
+          deps.emit<MessageCompletedEvent>({
+            type: 'message.completed',
+            threadId: input.thread.id,
+            runId: input.runId,
+            message: stoppedMessage
+          })
+          deps.emit<ThreadUpdatedEvent>({
+            type: 'thread.updated',
+            threadId: input.thread.id,
+            thread: updatedThread
+          })
+
+          for (const [toolCallId, toolCall] of toolCalls.entries()) {
+            if (toolCall.runId === input.runId && toolCall.assistantMessageId !== messageId) {
+              const bound: ToolCallRecord = { ...toolCall, assistantMessageId: messageId }
+              toolCalls.set(toolCallId, bound)
+              instrumentedUpdateToolCall(bound)
+              deps.emit<ToolCallUpdatedEvent>({
+                type: 'tool.updated',
+                threadId: input.thread.id,
+                runId: input.runId,
+                toolCall: bound
+              })
+            }
+          }
+        }
+
+        const cancelUsage = mergeUsage(input.priorUsage, lastUsage)
+        deps.storage.cancelRun({
+          runId: input.runId,
+          completedAt: timestamp,
+          promptTokens: cancelUsage?.promptTokens,
+          completionTokens: cancelUsage?.completionTokens,
+          totalPromptTokens: cancelUsage?.totalPromptTokens,
+          totalCompletionTokens: cancelUsage?.totalCompletionTokens,
+          cacheReadTokens: cancelUsage?.cacheReadTokens,
+          cacheWriteTokens: cancelUsage?.cacheWriteTokens
+        })
+
+        if (snapshotTracker) {
+          try {
+            await snapshotTracker.scanWorkspace()
+            const snapshot = await snapshotTracker.finalize()
+            if (snapshot.entries.length > 0) {
+              deps.storage.updateRunSnapshot(input.runId, {
+                fileCount: snapshot.entries.length,
+                workspacePath: snapshotTracker.workspacePath
+              })
+              deps.emit<SnapshotReadyEvent>({
+                type: 'snapshot.ready',
+                threadId: input.thread.id,
+                runId: input.runId,
+                fileCount: snapshot.entries.length,
+                workspacePath: snapshotTracker.workspacePath
+              })
+            }
+            runGc(snapshotTracker.workspaceHash).catch(() => {})
+          } catch {
+            // Best effort — don't fail the cancel path
+          } finally {
+            snapshotTracker.dispose()
+          }
+        }
+
+        deps.onTerminalState?.()
+        deps.emit<HarnessFinishedEvent>({
+          type: 'harness.finished',
+          threadId: input.thread.id,
+          runId: input.runId,
+          harnessId,
+          name: DEFAULT_HARNESS_NAME,
+          status: 'cancelled'
+        })
+        deps.emit<RunCancelledEvent>({
+          type: 'run.cancelled',
+          threadId: input.thread.id,
+          runId: input.runId
+        })
+        perfCollector.finish(input.thread.id)
+
+        return {
+          kind: 'cancelled-with-steer',
+          stoppedMessageId: messageId,
+          steerInput: restartReason.steerInput,
+          usage: cancelUsage
         }
       }
 

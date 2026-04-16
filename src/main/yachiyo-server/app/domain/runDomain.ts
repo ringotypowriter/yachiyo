@@ -919,29 +919,26 @@ export class YachiyoServerRunDomain {
   cancelRun(input: { runId: string }): void {
     const activeRun = this.activeRuns.get(input.runId)
     if (activeRun) {
-      // If there's a pending steer, persist it and queue it as a follow-up so
-      // startQueuedFollowUpIfPresent fires a new run after the cancel completes.
+      // If there's a pending steer, pass it through the abort reason so the
+      // catch block in executeServerRun can persist the stopped assistant
+      // message first, then the run loop parents the steer under it — keeping
+      // the ancestor chain intact for future LLM context assembly.
+      //
+      // Do NOT clear pendingSteerInput here — it must survive as a fallback
+      // for race conditions where executeServerRun returns 'steer-pending'
+      // (model finished before observing the abort). The steer-pending handler
+      // and the cancelled-with-steer handler each clear it after persisting.
       if (activeRun.pendingSteerInput) {
-        const currentThread = this.deps.requireThread(activeRun.threadId)
-        const { updatedThread, userMessage } = this.persistSteerMessage({
+        const steerInput = {
           content: activeRun.pendingSteerInput.content,
           images: activeRun.pendingSteerInput.images,
           attachments: activeRun.pendingSteerInput.attachments,
           messageId: activeRun.pendingSteerInput.messageId,
-          runId: input.runId,
-          runState: activeRun,
-          thread: currentThread,
           timestamp: activeRun.pendingSteerInput.timestamp,
           hidden: activeRun.pendingSteerInput.hidden
-        })
-        // Queue the steer as a follow-up so it auto-fires after the cancel.
-        const queuedThread: ThreadRecord = {
-          ...updatedThread,
-          queuedFollowUpMessageId: userMessage.id
         }
-        this.deps.storage.updateThread(queuedThread)
-        this.emitThreadStateReplaced(activeRun.threadId)
-        activeRun.pendingSteerInput = undefined
+        activeRun.abortController.abort({ type: 'cancel-with-steer', steerInput })
+        return
       }
 
       activeRun.abortController.abort()
@@ -1942,6 +1939,39 @@ export class YachiyoServerRunDomain {
             }
           }
           continue
+        }
+
+        // Cancel-with-steer: the stopped assistant message has been persisted
+        // by executeServerRun. Now persist the steer message as its child and
+        // queue it as a follow-up so startQueuedFollowUpIfPresent fires a new run.
+        //
+        // Guard: if pendingSteerInput was already cleared by a prior
+        // steer-pending iteration (race: model finished before observing the
+        // abort), the steer is already persisted — skip to avoid double-persist.
+        if (result.kind === 'cancelled-with-steer') {
+          if (activeRun.pendingSteerInput) {
+            const steerThread = this.deps.requireThread(input.thread.id)
+            const { updatedThread, userMessage } = this.persistSteerMessage({
+              content: result.steerInput.content,
+              images: result.steerInput.images,
+              attachments: result.steerInput.attachments,
+              messageId: result.steerInput.messageId,
+              runId: input.runId,
+              runState: { ...activeRun, requestMessageId: result.stoppedMessageId },
+              thread: steerThread,
+              timestamp: result.steerInput.timestamp,
+              hidden: result.steerInput.hidden
+            })
+            const queuedThread: ThreadRecord = {
+              ...updatedThread,
+              queuedFollowUpMessageId: userMessage.id
+            }
+            this.deps.storage.updateThread(queuedThread)
+            this.emitThreadStateReplaced(input.thread.id)
+            activeRun.pendingSteerInput = undefined
+          }
+          result = { kind: 'cancelled', usage: result.usage }
+          break
         }
 
         if (result.kind !== 'restarted') {
