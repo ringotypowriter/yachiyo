@@ -579,8 +579,9 @@ test('YachiyoServer injects recalled memory into the compiled context before the
           (message) =>
             message.role === 'user' &&
             typeof message.content === 'string' &&
+            message.content.includes('<memory>\n') &&
             message.content.includes(
-              '<memory>\n- Deploy workflow: Always run the staging smoke test first.\n</memory>'
+              '- Deploy workflow: Always run the staging smoke test first.\n</memory>'
             )
         )
       )
