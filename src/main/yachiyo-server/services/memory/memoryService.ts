@@ -749,15 +749,19 @@ function compactMemoryEntry(result: MemorySearchResult): string | null {
   }
 
   const compactContent = truncate(content, 220)
+  let body: string
   if (!title) {
-    return compactContent
+    body = compactContent
+  } else if (compactContent.toLowerCase().startsWith(title.toLowerCase())) {
+    body = compactContent
+  } else {
+    body = `${title}: ${compactContent}`
   }
 
-  if (compactContent.toLowerCase().startsWith(title.toLowerCase())) {
-    return compactContent
+  if (result.unitType) {
+    return `[${result.unitType}] ${body}`
   }
-
-  return `${title}: ${compactContent}`
+  return body
 }
 
 async function collectStreamText(

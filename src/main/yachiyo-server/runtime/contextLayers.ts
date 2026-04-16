@@ -359,7 +359,13 @@ export function compileMemoryLayer(input: MemoryLayerInput | undefined): ModelMe
 
   return {
     role: 'system',
-    content: ['<memory>', ...entries.map((entry) => `- ${entry}`), '</memory>'].join('\n')
+    content: [
+      '<memory>',
+      "Background context from past conversations. Focus on the user's query first;",
+      'overlapping terms do not make an entry relevant — judge by actual applicability.',
+      ...entries.map((entry) => `- ${entry}`),
+      '</memory>'
+    ].join('\n')
   }
 }
 

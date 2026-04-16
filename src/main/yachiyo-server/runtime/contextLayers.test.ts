@@ -38,7 +38,13 @@ test('compileSoulLayer wraps raw SOUL.md content', () => {
 test('compileContextLayers merges turn context into the last user message', () => {
   const reminder =
     '<reminder>\nTool availability changed for this turn:\n- Disabled: write.\n</reminder>'
-  const memoryBlock = ['<memory>', '- Remember the preferred repo root.', '</memory>'].join('\n')
+  const memoryBlock = [
+    '<memory>',
+    "Background context from past conversations. Focus on the user's query first;",
+    'overlapping terms do not make an entry relevant — judge by actual applicability.',
+    '- Remember the preferred repo root.',
+    '</memory>'
+  ].join('\n')
   const soulContent =
     '# SOUL\n\n## Evolved Traits\n### 2026-03-25\n- Leans toward concise execution'
 
@@ -397,7 +403,13 @@ test('turn context is merged into current query after tool-history replay', () =
     }
   ]
 
-  const memoryBlock = ['<memory>', '- user likes tests', '</memory>'].join('\n')
+  const memoryBlock = [
+    '<memory>',
+    "Background context from past conversations. Focus on the user's query first;",
+    'overlapping terms do not make an entry relevant — judge by actual applicability.',
+    '- user likes tests',
+    '</memory>'
+  ].join('\n')
 
   const compiled = compileContextLayers({
     personality: { basePersona: 'Base' },
@@ -455,7 +467,13 @@ test('no turn context leaves system layers and history unchanged', () => {
 })
 
 test('first message in thread: turn context is merged into the only user message', () => {
-  const memoryBlock = ['<memory>', '- mem1', '</memory>'].join('\n')
+  const memoryBlock = [
+    '<memory>',
+    "Background context from past conversations. Focus on the user's query first;",
+    'overlapping terms do not make an entry relevant — judge by actual applicability.',
+    '- mem1',
+    '</memory>'
+  ].join('\n')
 
   const compiled = compileContextLayers({
     personality: { basePersona: 'Base' },
