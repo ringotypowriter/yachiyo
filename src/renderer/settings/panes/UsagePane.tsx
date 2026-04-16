@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  AreaChart,
   Area,
   ComposedChart,
   Bar,
@@ -247,10 +246,10 @@ function UsageContent(): React.ReactNode {
         </div>
       ) : (
         <>
-          {/* Token usage area chart */}
+          {/* Token usage area chart — dual Y-axes for prompt vs completion */}
           <ChartSection title="Token Usage">
             <ResponsiveContainer width="100%" height={260}>
-              <AreaChart data={areaData}>
+              <ComposedChart data={areaData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} />
                 <XAxis
                   dataKey="name"
@@ -259,8 +258,18 @@ function UsageContent(): React.ReactNode {
                   axisLine={false}
                 />
                 <YAxis
+                  yAxisId="prompt"
                   tickFormatter={formatTokens}
-                  tick={{ fontSize: 11, fill: theme.text.tertiary }}
+                  tick={{ fontSize: 11, fill: CHART_COLORS.prompt }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={55}
+                />
+                <YAxis
+                  yAxisId="completion"
+                  orientation="right"
+                  tickFormatter={formatTokens}
+                  tick={{ fontSize: 11, fill: CHART_COLORS.completion }}
                   tickLine={false}
                   axisLine={false}
                   width={55}
@@ -277,18 +286,20 @@ function UsageContent(): React.ReactNode {
                   formatter={(value: string) => (value === 'prompt' ? 'Prompt' : 'Completion')}
                 />
                 <Area
+                  yAxisId="prompt"
                   type="monotone"
                   dataKey="prompt"
                   stroke={CHART_COLORS.prompt}
                   fill={CHART_COLORS.promptFill}
                 />
                 <Area
+                  yAxisId="completion"
                   type="monotone"
                   dataKey="completion"
                   stroke={CHART_COLORS.completion}
                   fill={CHART_COLORS.completionFill}
                 />
-              </AreaChart>
+              </ComposedChart>
             </ResponsiveContainer>
           </ChartSection>
 
