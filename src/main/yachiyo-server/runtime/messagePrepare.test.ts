@@ -75,7 +75,7 @@ test('message prepare can add soul, agent, hint, and memory layers without mutat
       content: [
         'Inspect the workspace',
         '<reminder>\nTool availability changed for this turn:\n- Disabled: edit.\n</reminder>',
-        '<memory>\n- No persisted memories yet.\n</memory>'
+        "<memory>\nBackground context from past conversations. Focus on the user's query first;\noverlapping terms do not make an entry relevant — judge by actual applicability.\n- No persisted memories yet.\n</memory>"
       ].join('\n\n')
     }
   ])
@@ -188,7 +188,7 @@ test('message prepare replays historical turn context inline on older user messa
       content: [
         'Check the news',
         turn1Reminder,
-        '<memory>\n- User cares about Apex coverage\n</memory>'
+        "<memory>\nBackground context from past conversations. Focus on the user's query first;\noverlapping terms do not make an entry relevant — judge by actual applicability.\n- User cares about Apex coverage\n</memory>"
       ].join('\n\n')
     },
     { role: 'assistant', content: 'Done. Three new headlines.' },
@@ -197,7 +197,7 @@ test('message prepare replays historical turn context inline on older user messa
       content: [
         'Now check the weather',
         turn2Reminder,
-        '<memory>\n- User prefers metric units\n</memory>'
+        "<memory>\nBackground context from past conversations. Focus on the user's query first;\noverlapping terms do not make an entry relevant — judge by actual applicability.\n- User prefers metric units\n</memory>"
       ].join('\n\n')
     }
   ])
@@ -244,7 +244,10 @@ test('message prepare emits historical multimodal turn context as separate text 
         { type: 'text', text: 'What is in this picture?' },
         { type: 'image', image: 'AAAA', mediaType: 'image/png' },
         { type: 'text', text: turn1Reminder },
-        { type: 'text', text: '<memory>\n- User likes cats\n</memory>' }
+        {
+          type: 'text',
+          text: "<memory>\nBackground context from past conversations. Focus on the user's query first;\noverlapping terms do not make an entry relevant — judge by actual applicability.\n- User likes cats\n</memory>"
+        }
       ]
     },
     { role: 'assistant', content: 'A tabby cat on a windowsill.' },
