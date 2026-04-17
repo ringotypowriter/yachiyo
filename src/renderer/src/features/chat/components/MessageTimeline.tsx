@@ -677,25 +677,72 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
 
   const timelineRef = useRef(timeline)
   timelineRef.current = timeline
+  const inlineToolCallsRef = useRef(inlineToolCalls)
+  inlineToolCallsRef.current = inlineToolCalls
+
+  // Size cache keyed by timeline-item key. Survives unmount/remount so a row
+  // scrolled offscreen and back doesn't snap back to a coarse estimate and
+  // push later rows onto the same translateY — the original overlap bug.
+  const measuredSizeCache = useRef<Map<string, number>>(new Map())
 
   const getScrollElement = useCallback(() => scrollContainerRef.current, [])
+  // Conservative estimate: over-approximate on uncertainty. Overestimating
+  // creates a transient scroll gap that self-corrects on measure; underestimating
+  // causes rows to overlap until measure, and scrollToIndex lands too high.
   const estimateSize = useCallback((index: number) => {
     const item = timelineRef.current[index]
     if (!item) return 200
+    const cached = measuredSizeCache.current.get(item.key)
+    if (cached != null && cached > 0) return cached
     switch (item.kind) {
       case 'harness':
-        return 52
+        return 56
       case 'tool':
-        return 64
+        return 72
       case 'pending-steer':
       case 'queued-follow-up':
-        return 100
-      case 'assistant-root':
-        return 300
-      case 'group':
-        return 400
+        return 120
+      case 'assistant-root': {
+        const msg = item.data
+        const lines = Math.max(1, Math.ceil(msg.content.length / 80))
+        let height = lines * 22 + 64
+        if (msg.reasoning) height += 56
+        return height
+      }
+      case 'group': {
+        const group = item.data
+        const userLines = Math.max(1, Math.ceil(group.userMessage.content.length / 60))
+        let height = userLines * 22 + 48
+        const branch = group.assistantBranches[group.activeBranchIndex]
+        if (branch) {
+          if (branch.message.reasoning) height += 56
+          const textBlocks = branch.message.textBlocks ?? []
+          if (textBlocks.length > 0) {
+            for (const tb of textBlocks) {
+              const lines = Math.max(1, Math.ceil(tb.content.length / 80))
+              height += lines * 22 + 16
+            }
+          } else if (branch.message.content) {
+            const lines = Math.max(1, Math.ceil(branch.message.content.length / 80))
+            height += lines * 22 + 16
+          }
+          // Action bar + run stats footer once the branch has settled.
+          if (branch.message.status !== 'streaming') height += 48
+        }
+        if (group.assistantBranches.length > 1) height += 28
+        if (group.showPreparing) height += 40
+        // Inline tool calls: 28px per call; semantic groups collapse consecutive
+        // same-kind calls into one row, so this over-counts, which is intentional.
+        const toolCallCount = inlineToolCallsRef.current.reduce(
+          (count, tc) => (tc.requestMessageId === group.userMessage.id ? count + 1 : count),
+          0
+        )
+        // Safety margin covering memory recall, subagent indicator, and other
+        // conditionally-rendered chrome we can't cheaply inspect here.
+        return height + toolCallCount * 28 + 48
+      }
       default:
-        return 200
+        return 240
     }
   }, [])
   const getItemKey = useCallback((index: number) => timelineRef.current[index].key, [])
@@ -709,6 +756,18 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     getItemKey,
     paddingStart: 16,
     paddingEnd: 16
+  })
+
+  // Sync measuredSizeCache from virtualizer's own measurements on every render.
+  // getVirtualItems().size reflects the current ResizeObserver-driven size, so
+  // post-mount growth (streaming text, tool group expansion, footer appearing)
+  // flows into the cache and survives unmount/remount.
+  useEffect(() => {
+    for (const v of virtualizer.getVirtualItems()) {
+      if (v.size > 0) {
+        measuredSizeCache.current.set(String(v.key), v.size)
+      }
+    }
   })
 
   const findTimelineIndex = useCallback(
@@ -1125,7 +1184,8 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
                   top: 0,
                   left: 0,
                   width: '100%',
-                  transform: `translateY(${virtualRow.start}px)`
+                  transform: `translateY(${virtualRow.start}px)`,
+                  contain: 'content'
                 }}
               >
                 {renderTimelineItem(item)}
