@@ -553,6 +553,54 @@ test('buildConversationGroupTimelineItems groups bash search commands with nativ
   ])
 })
 
+test('buildConversationGroupTimelineItems groups consecutive searchMemory tool calls', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'searchMemory',
+        status: 'completed',
+        inputSummary: 'preferences',
+        startedAt: '2026-03-22T00:00:01.000Z'
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'searchMemory',
+        status: 'completed',
+        inputSummary: 'decisions',
+        startedAt: '2026-03-22T00:00:02.000Z'
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'searchMemory',
+        status: 'completed',
+        inputSummary: 'workflows',
+        startedAt: '2026-03-22T00:00:03.000Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    {
+      kind: 'tool-call-group',
+      key: 'tool-group:tool-1',
+      group: 'search-memory',
+      toolCallIds: ['tool-1', 'tool-2', 'tool-3']
+    }
+  ])
+})
+
 test('buildConversationGroupTimelineItems keeps bash run commands separate from search tools', () => {
   const items = buildConversationGroupTimelineItems({
     hasMemoryRecall: false,
