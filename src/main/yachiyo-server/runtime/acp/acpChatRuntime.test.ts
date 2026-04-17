@@ -272,6 +272,7 @@ test('runAcpChatThread persists a stopped assistant message when cancellation ha
   assert.equal(storedToolCall?.assistantMessageId, stoppedMessage?.id)
 
   const storedThread = deps.storage.getThread('thread-1')
+  assert.equal(storedThread?.headMessageId, stoppedMessage?.id)
   assert.equal(storedThread?.preview, 'partial reply')
   assert.equal(
     deps.emittedEvents.some(
@@ -279,6 +280,43 @@ test('runAcpChatThread persists a stopped assistant message when cancellation ha
     ),
     true
   )
+})
+
+test('runAcpChatThread cancel preserves the existing head when head updates are disabled', async () => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'acp-test-'))
+  const deps = makeDeps(workspacePath)
+  const abortController = new AbortController()
+  const thread = {
+    ...makeThread(workspacePath),
+    headMessageId: 'msg-req'
+  } satisfies ThreadRecord
+
+  deps.storage.updateThread(thread)
+  deps.launchAcpProcess = () => makeFakeLaunchResult()
+  deps.runAcpSession = async (_stream, _proc, _procExited, _cwd, _prompt, adapter) => {
+    adapter.onStderr(Buffer.from('partial reply'))
+    abortController.abort()
+    throw new Error('Aborted mid-stream')
+  }
+
+  const result = await runAcpChatThread(deps, {
+    runId: 'run-1',
+    thread,
+    requestMessageId: 'msg-req',
+    abortController,
+    updateHeadOnComplete: false
+  })
+
+  assert.equal(result.kind, 'cancelled')
+
+  const messages = deps.storage.listThreadMessages('thread-1')
+  const stoppedMessage = messages.at(-1)
+  assert.equal(stoppedMessage?.status, 'stopped')
+  assert.equal(stoppedMessage?.content, 'partial reply')
+
+  const storedThread = deps.storage.getThread('thread-1')
+  assert.equal(storedThread?.headMessageId, 'msg-req')
+  assert.equal(storedThread?.preview, 'partial reply')
 })
 
 test('runAcpChatThread persists ACP tool-call bindings on successful completion', async () => {

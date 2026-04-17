@@ -2577,7 +2577,8 @@ export async function executeServerRun(
           const updatedThread: ThreadRecord = {
             ...currentThread,
             updatedAt: timestamp,
-            ...(bufferLength > 0 ? { preview: bufferParts.join('').slice(0, 240) } : {})
+            ...(bufferLength > 0 ? { preview: bufferParts.join('').slice(0, 240) } : {}),
+            ...(input.updateHeadOnComplete ? { headMessageId: messageId } : {})
           }
           deps.storage.saveThreadMessage({
             thread: currentThread,
@@ -2711,7 +2712,8 @@ export async function executeServerRun(
         const updatedThread: ThreadRecord = {
           ...currentThread,
           updatedAt: timestamp,
-          ...(bufferLength > 0 ? { preview: bufferParts.join('').slice(0, 240) } : {})
+          ...(bufferLength > 0 ? { preview: bufferParts.join('').slice(0, 240) } : {}),
+          ...(input.updateHeadOnComplete ? { headMessageId: messageId } : {})
         }
         deps.storage.saveThreadMessage({
           thread: currentThread,

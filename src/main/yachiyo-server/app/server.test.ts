@@ -6518,7 +6518,13 @@ test('YachiyoServer can retry directly from a user request that has no assistant
       const stoppedMessage = (bootstrap.messagesByThread[thread.id] ?? []).find(
         (message) => message.role === 'assistant' && message.status === 'stopped'
       )
+      const persistedThread = bootstrap.threads.find((candidate) => candidate.id === thread.id)
       assert.ok(stoppedMessage, 'cancelled run should persist a stopped assistant message')
+      assert.equal(
+        persistedThread?.headMessageId,
+        stoppedMessage?.id,
+        'cancelled run should move the thread head to the stopped assistant'
+      )
 
       const retried = await server.retryMessage({
         threadId: thread.id,
@@ -6609,10 +6615,16 @@ test('YachiyoServer binds recovered tool calls and closes the harness when retry
         (message) => message.role === 'assistant' && message.status === 'stopped'
       )
       const toolCall = (bootstrap.toolCallsByThread[thread.id] ?? [])[0]
+      const persistedThread = bootstrap.threads.find((candidate) => candidate.id === thread.id)
 
       assert.ok(stoppedMessage)
       assert.equal(toolCall?.status, 'completed')
       assert.equal(toolCall?.assistantMessageId, stoppedMessage?.id)
+      assert.equal(
+        persistedThread?.headMessageId,
+        stoppedMessage?.id,
+        'retry-backoff cancellation should keep the stopped assistant on the active path'
+      )
     },
     {
       createModelRuntime: () => ({
@@ -6678,6 +6690,137 @@ test('YachiyoServer binds recovered tool calls and closes the harness when retry
       })
     }
   )
+})
+
+test('YachiyoServer recovery-backoff cancellation preserves the existing head when head updates are disabled', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-recovery-cancel-head-test-'))
+  const settingsPath = join(root, 'config.toml')
+  await writeFile(settingsPath, '[toolModel]\nmode = "disabled"\n', 'utf8')
+  const userDocumentPath = join(root, '.yachiyo', 'USER.md')
+  const workspacePathForThread = (threadId: string): string =>
+    join(root, '.yachiyo', 'temp-workspace', threadId)
+  const storage = createInMemoryYachiyoStorage()
+  const createdAt = '2026-03-16T09:00:00.000Z'
+  const interruptedAt = '2026-03-17T09:30:00.000Z'
+
+  try {
+    await mkdir(workspacePathForThread('thread-1'), { recursive: true })
+
+    storage.createThread({
+      thread: {
+        id: 'thread-1',
+        title: 'Interrupted thread',
+        updatedAt: createdAt,
+        headMessageId: 'user-1'
+      },
+      createdAt,
+      messages: [
+        {
+          id: 'user-1',
+          threadId: 'thread-1',
+          role: 'user',
+          content: 'Resume but keep the current branch head.',
+          status: 'completed',
+          createdAt
+        }
+      ]
+    })
+    storage.startRun({
+      runId: 'run-1',
+      thread: {
+        id: 'thread-1',
+        title: 'Interrupted thread',
+        updatedAt: createdAt,
+        headMessageId: 'user-1'
+      },
+      updatedThread: {
+        id: 'thread-1',
+        title: 'Interrupted thread',
+        updatedAt: createdAt,
+        headMessageId: 'user-1'
+      },
+      requestMessageId: 'user-1',
+      createdAt
+    })
+    storage.upsertRunRecoveryCheckpoint({
+      runId: 'run-1',
+      threadId: 'thread-1',
+      requestMessageId: 'user-1',
+      assistantMessageId: 'assistant-recovery-1',
+      content: 'Recovered prefix. ',
+      enabledTools: ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'webRead', 'webSearch'],
+      updateHeadOnComplete: false,
+      createdAt,
+      updatedAt: interruptedAt,
+      recoveryAttempts: 1,
+      lastError: 'net::ERR_CONNECTION_CLOSED'
+    })
+
+    const resumedServer = new YachiyoServer({
+      storage,
+      settingsPath,
+      now: () => new Date(interruptedAt),
+      readSoulDocument: async () => null,
+      readUserDocument: () => readUserDocument({ filePath: userDocumentPath }),
+      saveUserDocument: (content) => writeUserDocument({ filePath: userDocumentPath, content }),
+      ensureThreadWorkspace: async (threadId) => {
+        const workspacePath = workspacePathForThread(threadId)
+        await mkdir(workspacePath, { recursive: true })
+        return workspacePath
+      },
+      createModelRuntime: () => ({
+        streamReply(): AsyncIterable<string> {
+          const iterator: AsyncIterator<string> & AsyncIterable<string> = {
+            next() {
+              return Promise.reject(
+                new RetryableRunError('temporary upstream failure', {
+                  cause: Object.assign(new Error('temporary upstream failure'), { status: 500 })
+                })
+              )
+            },
+            [Symbol.asyncIterator]() {
+              return iterator
+            }
+          }
+          return iterator
+        }
+      })
+    })
+    const waiter = createServerEventWaiter(resumedServer)
+
+    await resumedServer.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    })
+
+    try {
+      await resumedServer.bootstrap()
+      await waiter.waitForEvent('run.retrying', (event) => event.runId === 'run-1')
+      await resumedServer.cancelRun({ runId: 'run-1' })
+      await waiter.waitForEvent('run.cancelled', (event) => event.runId === 'run-1')
+
+      const bootstrap = await resumedServer.bootstrap()
+      const stoppedMessage = (bootstrap.messagesByThread['thread-1'] ?? []).find(
+        (message) => message.role === 'assistant' && message.status === 'stopped'
+      )
+      const persistedThread = bootstrap.threads.find((thread) => thread.id === 'thread-1')
+
+      assert.ok(stoppedMessage)
+      assert.equal(stoppedMessage?.id, 'assistant-recovery-1')
+      assert.equal(persistedThread?.headMessageId, 'user-1')
+    } finally {
+      waiter.close()
+      await resumedServer.close()
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test('YachiyoServer points the thread head at the retried request immediately', async () => {

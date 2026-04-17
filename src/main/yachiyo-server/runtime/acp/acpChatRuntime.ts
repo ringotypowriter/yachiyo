@@ -523,6 +523,7 @@ function emitCancelledAndReturn(
     const updatedThread: ThreadRecord = {
       ...currentThread,
       updatedAt: timestamp,
+      ...(input.updateHeadOnComplete ? { headMessageId: options.messageId } : {}),
       preview: options.buffer.slice(0, 240)
     }
     deps.storage.saveThreadMessage({

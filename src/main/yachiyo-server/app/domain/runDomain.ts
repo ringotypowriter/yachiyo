@@ -1828,7 +1828,11 @@ export class YachiyoServerRunDomain {
               const latestThread = this.deps.requireThread(checkpoint.threadId)
               const updatedThread: ThreadRecord = {
                 ...latestThread,
-                updatedAt: timestamp
+                updatedAt: timestamp,
+                ...(checkpoint.updateHeadOnComplete
+                  ? { headMessageId: checkpoint.assistantMessageId }
+                  : {}),
+                ...(checkpoint.content ? { preview: checkpoint.content.slice(0, 240) } : {})
               }
               this.deps.storage.saveThreadMessage({
                 thread: latestThread,
