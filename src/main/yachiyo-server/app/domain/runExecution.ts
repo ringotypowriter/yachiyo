@@ -650,7 +650,7 @@ function buildAgentInstructions(input: {
 
   if (input.enabledTools.includes('skillsRead')) {
     instructions.push(
-      'Use skillsRead to inspect discovered Skills by name. It returns paths by default and only includes full SKILL.md content when you explicitly request it.'
+      'Use skillsRead to inspect discovered Skills by name. It returns the skill folder path and SKILL.md path. To use a skill, first call skillsRead to get its exact SKILL.md path, then use the read tool on that exact path. Read SKILL.md before using the skill. If SKILL.md references other files and your work needs them, read those too.'
     )
   }
 
