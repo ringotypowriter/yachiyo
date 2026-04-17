@@ -25,6 +25,7 @@ import { runBashTool } from './bashTool.ts'
 import { runGlobTool } from './globTool.ts'
 import { runGrepTool } from './grepTool.ts'
 import { runWebSearchTool } from './webSearchTool.ts'
+import { withInjectedEnv } from './injectedEnv.ts'
 
 export interface JsReplToolDependencies {
   searchService?: SearchService
@@ -324,7 +325,7 @@ function createFreshContext(
     require: contextRequire,
     __dirname: workspacePath,
     __filename: workspacePath + '/jsRepl.js',
-    process: { env: process.env, cwd: () => workspacePath, argv: [] },
+    process: { env: withInjectedEnv(process.env), cwd: () => workspacePath, argv: [] },
     setTimeout: (cb: (...args: unknown[]) => void, ms?: number) =>
       timerTracker.trackedSetTimeout(cb, ms),
     setInterval: (cb: (...args: unknown[]) => void, ms?: number) =>

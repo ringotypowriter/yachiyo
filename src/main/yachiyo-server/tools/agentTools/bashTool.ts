@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import type { BashToolCallDetails } from '../../../../shared/yachiyo/protocol.ts'
 
 import { validateBashCommand } from './bashSecurity.ts'
+import { withInjectedEnv } from './injectedEnv.ts'
 import {
   bashToolInputSchema,
   DEFAULT_BASH_TIMEOUT_SECONDS,
@@ -260,7 +261,7 @@ const defaultBashRunner: BashRunner = async ({
 }) => {
   const child = spawn('/bin/zsh', ['-lc', command], {
     cwd,
-    env: process.env,
+    env: withInjectedEnv(process.env),
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true
   })
