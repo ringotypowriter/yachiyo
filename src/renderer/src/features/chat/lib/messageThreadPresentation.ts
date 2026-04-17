@@ -82,12 +82,18 @@ export function getVisibleToolCallsForGroup(input: {
   const knownAssistantIds = new Set(
     input.group.assistantBranches.map((branch) => branch.message.id)
   )
+  // Keep failed / stopped branches visible so their anchored tool calls
+  // stay inspectable even when the user has pinned the group to an older
+  // successful reply. Without this, the retry's tool trace would vanish
+  // after the user navigates back to the original answer.
   const visibleAssistantIds = new Set(
     input.group.assistantBranches
       .filter(
         (branch) =>
           (!input.group.hideActiveBranchWhilePreparing && branch.isActive) ||
-          branch.message.status === 'streaming'
+          branch.message.status === 'streaming' ||
+          branch.message.status === 'failed' ||
+          branch.message.status === 'stopped'
       )
       .map((branch) => branch.message.id)
   )
@@ -161,6 +167,45 @@ function truncatePathAtRequest(path: Message[], requestMessageId: string | null)
   return endIndex >= 0 ? path.slice(0, endIndex + 1) : path
 }
 
+interface CachedGroup {
+  userMessage: Message
+  assistantMessages: readonly Message[]
+  activeBranchIndex: number
+  hideActiveBranchWhilePreparing: boolean
+  showPreparing: boolean
+  group: MessageGroup
+}
+
+interface ThreadGroupCache {
+  byUserMessageId: Map<string, CachedGroup>
+  lastResult: MessageGroup[]
+}
+
+// Module-level per-thread cache so repeated calls during streaming can
+// reuse MessageGroup object identities for user requests whose inputs
+// didn't change. Without this, every token delta produces a fresh set of
+// group objects, breaking React.memo on ThreadConversationGroup for
+// every group — not just the streaming one.
+const groupCacheByThreadId = new Map<string, ThreadGroupCache>()
+
+function sameAssistantMessages(a: readonly Message[], b: readonly Message[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
+function sameGroupArray(a: MessageGroup[], b: MessageGroup[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
 export function buildMessageGroups(input: {
   thread: Thread
   messages: Message[]
@@ -198,44 +243,84 @@ export function buildMessageGroups(input: {
     }
   }
 
-  return visiblePath
-    .filter((message): message is Message => message.role === 'user')
-    .map((userMessage) => {
-      const assistantMessages = (maps.childrenByParent.get(userMessage.id) ?? []).filter(
-        (message): message is Message => message.role === 'assistant'
-      )
-      const activeAssistantIdFromPath = activeAssistantIdsByRequest.get(userMessage.id)
-      const activeAssistantFromPath = assistantMessages.find(
-        (message) => message.id === activeAssistantIdFromPath
-      )
-      const newestAssistant = assistantMessages.at(-1)
-      const shouldPreferNewestAssistant =
-        input.runPhase === 'streaming' &&
-        input.activeRequestMessageId === userMessage.id &&
-        newestAssistant &&
-        newestAssistant.id !== activeAssistantIdFromPath &&
-        (!activeAssistantFromPath ||
-          newestAssistant.createdAt.localeCompare(activeAssistantFromPath.createdAt) >= 0)
-      const selectedAssistantId = shouldPreferNewestAssistant
-        ? newestAssistant?.id
-        : (activeAssistantIdFromPath ?? newestAssistant?.id)
-      const activeBranchIndex = assistantMessages.findIndex(
-        (message) => message.id === selectedAssistantId
-      )
+  const threadId = input.thread.id
+  const prevCache = groupCacheByThreadId.get(threadId)
+  const nextByUserMessageId = new Map<string, CachedGroup>()
+  const nextGroups: MessageGroup[] = []
 
-      return {
-        userMessage,
-        assistantBranches: assistantMessages.map((message, index) => ({
-          message,
-          isActive: index === activeBranchIndex
-        })),
-        activeBranchIndex,
-        hideActiveBranchWhilePreparing:
-          input.runPhase === 'preparing' &&
-          input.activeRequestMessageId === userMessage.id &&
-          assistantMessages.length > 0,
-        showPreparing:
-          input.runPhase === 'preparing' && input.activeRequestMessageId === userMessage.id
-      }
+  for (const message of visiblePath) {
+    if (message.role !== 'user') continue
+    const userMessage = message
+
+    const assistantMessages = (maps.childrenByParent.get(userMessage.id) ?? []).filter(
+      (m): m is Message => m.role === 'assistant'
+    )
+    const activeAssistantIdFromPath = activeAssistantIdsByRequest.get(userMessage.id)
+    const activeAssistantFromPath = assistantMessages.find(
+      (m) => m.id === activeAssistantIdFromPath
+    )
+    const newestAssistant = assistantMessages.at(-1)
+    const shouldPreferNewestAssistant =
+      input.runPhase === 'streaming' &&
+      input.activeRequestMessageId === userMessage.id &&
+      newestAssistant &&
+      newestAssistant.id !== activeAssistantIdFromPath &&
+      (!activeAssistantFromPath ||
+        newestAssistant.createdAt.localeCompare(activeAssistantFromPath.createdAt) >= 0)
+    const selectedAssistantId = shouldPreferNewestAssistant
+      ? newestAssistant?.id
+      : (activeAssistantIdFromPath ?? newestAssistant?.id)
+    const activeBranchIndex = assistantMessages.findIndex((m) => m.id === selectedAssistantId)
+    const hideActiveBranchWhilePreparing =
+      input.runPhase === 'preparing' &&
+      input.activeRequestMessageId === userMessage.id &&
+      assistantMessages.length > 0
+    const showPreparing =
+      input.runPhase === 'preparing' && input.activeRequestMessageId === userMessage.id
+
+    const prev = prevCache?.byUserMessageId.get(userMessage.id)
+    if (
+      prev &&
+      prev.userMessage === userMessage &&
+      prev.activeBranchIndex === activeBranchIndex &&
+      prev.hideActiveBranchWhilePreparing === hideActiveBranchWhilePreparing &&
+      prev.showPreparing === showPreparing &&
+      sameAssistantMessages(prev.assistantMessages, assistantMessages)
+    ) {
+      nextByUserMessageId.set(userMessage.id, prev)
+      nextGroups.push(prev.group)
+      continue
+    }
+
+    const group: MessageGroup = {
+      userMessage,
+      assistantBranches: assistantMessages.map((m, index) => ({
+        message: m,
+        isActive: index === activeBranchIndex
+      })),
+      activeBranchIndex,
+      hideActiveBranchWhilePreparing,
+      showPreparing
+    }
+
+    nextByUserMessageId.set(userMessage.id, {
+      userMessage,
+      assistantMessages,
+      activeBranchIndex,
+      hideActiveBranchWhilePreparing,
+      showPreparing,
+      group
     })
+    nextGroups.push(group)
+  }
+
+  const result =
+    prevCache && sameGroupArray(prevCache.lastResult, nextGroups)
+      ? prevCache.lastResult
+      : nextGroups
+  groupCacheByThreadId.set(threadId, {
+    byUserMessageId: nextByUserMessageId,
+    lastResult: result
+  })
+  return result
 }

@@ -835,6 +835,24 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     virtualizer.scrollToIndex(timelineRef.current.length - 1, { align: 'end' })
   }, [virtualizer])
 
+  // Re-pin after the virtualizer measures newly-mounted rows. The first
+  // scrollToIndex uses estimateSize, which can over/under-shoot the real
+  // height of a brand-new group; after measureElement corrects the total
+  // size, the browser clamps scrollTop and the bubble can land below the
+  // visible area. One rAF gets us past the commit, a second past paint +
+  // ResizeObserver delivery.
+  const reScrollToBottomAfterMeasure = useCallback((): void => {
+    if (!stickToBottomRef.current) return
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!stickToBottomRef.current) return
+        if (timelineRef.current.length === 0) return
+        programmaticScrollUntilRef.current = Date.now() + 300
+        virtualizer.scrollToIndex(timelineRef.current.length - 1, { align: 'end' })
+      })
+    })
+  }, [virtualizer])
+
   // Scroll to bottom on thread switch — suppression already set above
   useEffect(() => {
     if (timeline.length === 0) return
@@ -849,9 +867,11 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
       stickToBottomRef.current = true
       // Immediately scroll so the user sees their own message without waiting for streaming
       scrollToBottom()
+      // Re-scroll after the new row is measured; the first pass used estimateSize.
+      reScrollToBottomAfterMeasure()
     }
     prevActiveRequestRef.current = activeRequestMessageId
-  }, [activeRequestMessageId, scrollToBottom])
+  }, [activeRequestMessageId, scrollToBottom, reScrollToBottomAfterMeasure])
 
   // Keep pinned to bottom during streaming — throttled with RAF to avoid per-token thrash
   const streamingScrollRafRef = useRef<number | null>(null)
