@@ -92,7 +92,8 @@ end tell'
 
 ## Limitations
 
-- **No screen buffer read**: AppleScript cannot read the visible text/output of a terminal. You can only observe metadata (name, working directory) and send input.
+- **No direct screen buffer read via AppleScript**: AppleScript itself cannot read the visible text/output of a terminal. Metadata (name, working directory) and input are the only first-class channels.
+- **Workaround — `screencapture` + image read**: If the agent can read images, run `screencapture` against the Ghostty window and read the resulting PNG. This bypasses the AppleScript text-buffer gap entirely. Requires macOS Screen Recording permission. See [recipe-observe-output.md](references/recipe-observe-output.md) Strategy 7.
 - **Name reflects foreground process**: The `name` property shows what the terminal title is set to, which usually reflects the running command — use this as a proxy for "what is running."
 - **macOS only**: This skill does not work on Linux or Windows.
 
