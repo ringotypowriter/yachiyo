@@ -1127,13 +1127,28 @@ export class YachiyoServerRunDomain {
     // Never abort the current generation for a steer.
     const previousEnabledSkillNames = activeRun.enabledSkillNames
     activeRun.enabledSkillNames = input.enabledSkillNames ? [...input.enabledSkillNames] : undefined
-    activeRun.pendingSteerInput = {
-      content: input.content,
-      images: input.images,
-      attachments: input.attachments,
-      messageId: input.messageId,
-      timestamp: this.deps.timestamp(),
-      previousEnabledSkillNames
+
+    if (activeRun.pendingSteerInput) {
+      activeRun.pendingSteerInput = {
+        content: [activeRun.pendingSteerInput.content, input.content]
+          .filter((part) => part.length > 0)
+          .join('\n'),
+        images: [...(activeRun.pendingSteerInput.images ?? []), ...(input.images ?? [])],
+        attachments: [...activeRun.pendingSteerInput.attachments, ...(input.attachments ?? [])],
+        messageId: activeRun.pendingSteerInput.messageId,
+        timestamp: activeRun.pendingSteerInput.timestamp,
+        previousEnabledSkillNames: activeRun.pendingSteerInput.previousEnabledSkillNames,
+        hidden: activeRun.pendingSteerInput.hidden
+      }
+    } else {
+      activeRun.pendingSteerInput = {
+        content: input.content,
+        images: input.images,
+        attachments: input.attachments,
+        messageId: input.messageId,
+        timestamp: this.deps.timestamp(),
+        previousEnabledSkillNames
+      }
     }
 
     return {

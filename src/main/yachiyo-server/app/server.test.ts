@@ -2483,6 +2483,80 @@ test('YachiyoServer debounces duplicate steer requests while a run is generating
   )
 })
 
+test('multiple steers during an active run are merged into a single pending steer message', async () => {
+  let attempt = 0
+  let markReady: (() => void) | null = null
+  const ready = new Promise<void>((resolve) => {
+    markReady = resolve
+  })
+  let markSteerQueued: (() => void) | null = null
+  const steerQueued = new Promise<void>((resolve) => {
+    markSteerQueued = resolve
+  })
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'default',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: { enabled: ['gpt-5'], disabled: [] }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Start the run'
+      })
+
+      await ready
+
+      const firstSteer = await server.sendChat({
+        threadId: thread.id,
+        content: 'line 1',
+        mode: 'steer'
+      })
+      const secondSteer = await server.sendChat({
+        threadId: thread.id,
+        content: 'line 2',
+        mode: 'steer'
+      })
+
+      assert.equal(firstSteer.kind, 'active-run-steer-pending')
+      assert.equal(secondSteer.kind, 'active-run-steer-pending')
+      assert.equal(firstSteer.runId, secondSteer.runId)
+
+      markSteerQueued!()
+      await completeRun(accepted.runId)
+
+      const result = await server.bootstrap()
+      const messages = result.messagesByThread[thread.id] ?? []
+      const steerMessage = messages.find((m) => m.role === 'user' && m.content.includes('line 1'))
+      assert.ok(steerMessage, 'merged steer message should exist')
+      assert.equal(
+        steerMessage.content,
+        'line 1\nline 2',
+        'steer contents should be merged with newline'
+      )
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply() {
+          if (attempt === 0) {
+            attempt += 1
+            yield 'Partial'
+            markReady?.()
+            await steerQueued
+            return
+          }
+          yield 'Done'
+        }
+      })
+    }
+  )
+})
+
 test('withdrawing a pending steer restores the active run skill override before later turns', async () => {
   let attempt = 0
   let markReady: (() => void) | null = null
