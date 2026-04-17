@@ -86,7 +86,7 @@ test('compileContextLayers merges turn context into the last user message', () =
   const userPreamble =
     'The following is your durable understanding of the user from USER.md. Treat it as a long-term collaboration profile, not as current task state:'
   const skillsPreamble =
-    'The following Skills are active for this run. You see names and descriptions only; use skillsRead to fetch full SKILL.md content when needed:'
+    'The following Skills are active for this run. You see names and descriptions only. You MUST read the SKILL.md for any skill you intend to use — do not guess how a skill works. Use skillsRead to discover skill paths, then use the read tool on the SKILL.md file to get full context. If SKILL.md references other files and your work needs them, read those as well:'
 
   assert.deepEqual(compiled, [
     // Consolidated system message (stable prefix for prompt caching)

@@ -257,10 +257,10 @@ purpose only:
    description plausibly covers the task class you're considering
    creating a skill for.
 2. If a match exists:
-   a. Call \`skillsRead\` on the matching skill yourself (with
-      \`includeContent: true\`) to read its body and its \`origin\`
-      field. The live tool result carries \`origin\` on each resolved
-      skill — read it directly.
+   a. Call \`skillsRead\` on the matching skill yourself to get its
+      \`skillFilePath\`, then use the \`read\` tool on that path to read
+      its body. The \`skillsRead\` result also carries \`origin\` on each
+      resolved skill — read it directly.
    b. If its body genuinely covers the failing case → **do NOT create**
       a duplicate. Either fall through to a trait / memory, or if the
       existing skill's \`origin\` is \`"bundled"\`, record the gap under

@@ -97,8 +97,7 @@ export const webSearchToolInputSchema = z.object({
 })
 
 export const skillsReadToolInputSchema = z.object({
-  names: z.array(z.string().min(1)).min(1).max(20),
-  includeContent: z.boolean().optional()
+  names: z.array(z.string().min(1)).min(1).max(20)
 })
 
 export type ReadToolInput = z.infer<typeof readToolInputSchema>

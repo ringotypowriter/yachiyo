@@ -1,12 +1,9 @@
-import { readFile } from 'node:fs/promises'
-
 import { tool, type Tool } from 'ai'
 
 import type {
   SkillCatalogEntry,
   SkillsReadToolCallDetails
 } from '../../../../shared/yachiyo/protocol.ts'
-import { rewriteRelativeMarkdownLinks } from '../../services/skills/skillContent.ts'
 import {
   type AgentToolContext,
   type SkillsReadToolInput,
@@ -33,11 +30,7 @@ function buildModelContent(details: SkillsReadToolCallDetails): string {
     if (skill.description) {
       lines.push(`Description: ${skill.description}`)
     }
-    if (skill.content !== undefined) {
-      lines.push('', skill.content)
-    } else {
-      lines.push('Use the read tool on SKILL.md if you need the full instructions.')
-    }
+    lines.push('Use the read tool on SKILL.md if you need the full instructions.')
     lines.push(
       'Any referenced files are relative to the skill folder; use absolute paths under that folder when reading them.'
     )
@@ -73,10 +66,10 @@ export function createTool(
 ): Tool<SkillsReadToolInput, SkillsReadToolOutput> {
   return tool({
     description:
-      'Read discovered Skills by name. Returns the skill name, directory path, SKILL.md path, and any concise description by default. Set includeContent to true only when you need the full SKILL.md text.',
+      'Read discovered Skills by name. Returns the skill name, directory path, SKILL.md path, and any concise description. To get full instructions, use the read tool on the SKILL.md path.',
     inputSchema: skillsReadToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
-    execute: (input, options) => runSkillsReadTool(input, dependencies, options)
+    execute: (input) => runSkillsReadTool(input, dependencies)
   })
 }
 
@@ -84,10 +77,8 @@ export async function runSkillsReadTool(
   input: SkillsReadToolInput,
   dependencies: {
     availableSkills: SkillCatalogEntry[]
-  },
-  options: { abortSignal?: AbortSignal } = {}
+  }
 ): Promise<SkillsReadToolOutput> {
-  const abortSignal = options.abortSignal
   const availableSkillByName = new Map(
     dependencies.availableSkills.map((skill) => [skill.name, skill] as const)
   )
@@ -101,22 +92,12 @@ export async function runSkillsReadTool(
       continue
     }
 
-    let content: string | undefined
-    if (input.includeContent) {
-      const rawContent = await readFile(skill.skillFilePath, {
-        encoding: 'utf8',
-        signal: abortSignal
-      })
-      content = rewriteRelativeMarkdownLinks(rawContent, skill.directoryPath)
-    }
-
     resolvedSkills.push({
       name: skill.name,
       directoryPath: skill.directoryPath,
       skillFilePath: skill.skillFilePath,
       ...(skill.description ? { description: skill.description } : {}),
-      ...(skill.origin ? { origin: skill.origin } : {}),
-      ...(content !== undefined ? { content } : {})
+      ...(skill.origin ? { origin: skill.origin } : {})
     })
   }
 

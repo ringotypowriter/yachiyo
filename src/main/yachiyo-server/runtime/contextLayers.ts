@@ -330,7 +330,7 @@ export function compileSkillsLayer(input: SkillsLayerInput | undefined): ModelMe
   return {
     role: 'system',
     content: [
-      'The following Skills are active for this run. You see names and descriptions only; use skillsRead to fetch full SKILL.md content when needed:',
+      'The following Skills are active for this run. You see names and descriptions only. You MUST read the SKILL.md for any skill you intend to use — do not guess how a skill works. Use skillsRead to discover skill paths, then use the read tool on the SKILL.md file to get full context. If SKILL.md references other files and your work needs them, read those as well:',
       '',
       ...activeSkills.map((skill) =>
         skill.description ? `- ${skill.name}: ${skill.description}` : `- ${skill.name}`
