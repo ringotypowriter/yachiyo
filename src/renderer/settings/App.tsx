@@ -376,7 +376,7 @@ function SettingsApp(): React.ReactNode {
     let cancelled = false
 
     void window.api.yachiyo
-      .listSkills({ workspacePaths: draft.workspace?.savedPaths ?? [] })
+      .listSkills({ workspacePaths: [] })
       .then((skills) => {
         if (!cancelled) {
           setAvailableSkills(skills)

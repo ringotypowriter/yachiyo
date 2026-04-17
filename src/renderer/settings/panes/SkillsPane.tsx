@@ -4,7 +4,7 @@ import { theme, alpha } from '@renderer/theme/theme'
 import type { SettingsConfig, SkillCatalogEntry } from '../../../shared/yachiyo/protocol.ts'
 import { normalizeSkillNames } from '../../../shared/yachiyo/protocol.ts'
 import { SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
-import { filterSkills } from './skillsPaneModel'
+import { filterSkills, sortSkills } from './skillsPaneModel'
 
 interface SkillsPaneProps {
   availableSkills: SkillCatalogEntry[]
@@ -29,8 +29,11 @@ export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const filteredSkills = useMemo(
-    () => filterSkills(availableSkills, deferredQuery),
-    [availableSkills, deferredQuery]
+    () =>
+      sortSkills(filterSkills(availableSkills, deferredQuery), (skill) =>
+        isSkillEnabled(skill, enabledSkillNames, disabledSkillNames)
+      ),
+    [availableSkills, deferredQuery, enabledSkillNames, disabledSkillNames]
   )
 
   return (
@@ -76,7 +79,7 @@ export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps
               borderTop: `1px solid ${theme.border.subtle}`
             }}
           >
-            No Skills are currently discoverable from saved workspaces or global sources.
+            No Skills are currently discoverable from global sources.
           </div>
         ) : filteredSkills.length === 0 ? (
           <div
