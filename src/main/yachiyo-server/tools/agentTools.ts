@@ -139,6 +139,24 @@ function getOutputError(output: unknown): string | undefined {
   return isToolFailure(output) && typeof output.error === 'string' ? output.error : undefined
 }
 
+function formatByteSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return `${bytes} bytes`
+  }
+  if (bytes < 1024) {
+    return `${bytes} bytes`
+  }
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let value = bytes / 1024
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  const rounded = value >= 100 ? value.toFixed(0) : value.toFixed(1)
+  return `${rounded} ${units[unitIndex]}`
+}
+
 function extractTextContent(output: unknown): string | undefined {
   if (typeof output !== 'object' || output === null || !('content' in output)) {
     return undefined
@@ -291,7 +309,7 @@ export function summarizeToolOutput(
       return `${pages} page${pages === 1 ? '' : 's'}, ${lines}${cached}${truncated}`
     }
     if (details.mediaType) {
-      return `read image (${details.mediaType}, ${details.totalBytes} bytes)`
+      return `read image (${details.mediaType}, ${formatByteSize(details.totalBytes)})`
     }
     const summary = `lines ${details.startLine}-${details.endLine}`
     return details.truncated ? `${summary} (truncated)` : summary
