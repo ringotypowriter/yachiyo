@@ -1264,6 +1264,7 @@ export function ThreadList(): React.JSX.Element {
   const threads = useAppStore((s) => s.threads)
   const externalThreads = useAppStore((s) => s.externalThreads)
   const showExternalThreads = useAppStore((s) => s.showExternalThreads)
+  const runStatusesByThread = useAppStore((s) => s.runStatusesByThread)
   const config = useAppStore((s) => s.config)
   const baseThreads = threadListMode === 'archived' ? archivedThreads : threads
   const allThreads =
@@ -1271,8 +1272,13 @@ export function ThreadList(): React.JSX.Element {
       ? [...baseThreads, ...externalThreads]
       : baseThreads
   // Hide empty "New Chat" threads — they only appear in the sidebar once the user sends a message
+  // or when they already have an active run (e.g. kicked off from elsewhere).
   const visibleThreads = allThreads.filter(
-    (t) => t.title !== 'New Chat' || t.preview || t.headMessageId
+    (t) =>
+      t.title !== 'New Chat' ||
+      t.preview ||
+      t.headMessageId ||
+      runStatusesByThread[t.id] === 'running'
   )
   const activeId = threadListMode === 'archived' ? activeArchivedThreadId : activeThreadId
   const memoryEnabled = isMemoryConfigured(config)
