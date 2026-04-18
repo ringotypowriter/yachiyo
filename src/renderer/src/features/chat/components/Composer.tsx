@@ -1946,6 +1946,25 @@ export function Composer({
         return
       }
 
+      // Plain Enter on an empty composer while a payload is staged = send now.
+      // Natural finger-memory shortcut: the user has stopped typing, looks at
+      // the staged bubble, and hits Enter again to commit it immediately.
+      if (
+        event.key === 'Enter' &&
+        !event.shiftKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !isComposing &&
+        !event.nativeEvent.isComposing &&
+        inputBuffer.staged &&
+        !hasPayload
+      ) {
+        event.preventDefault()
+        inputBuffer.flushNow()
+        return
+      }
+
       const action = resolveComposerEnterAction({
         activeRunEnterBehavior,
         event: {
