@@ -100,19 +100,14 @@ test('buildToolCallDetailsPresentation exposes bash metadata, tails, and explici
       value: 'Command timed out after 1 second.',
       tone: 'danger'
     },
+    { label: 'command', value: 'sleep 10' },
     // stderr with danger tone stays secondary (shown inline in chat)
     {
       label: 'stderr',
       value: 'timed out',
       tone: 'danger'
     },
-    // stdout is inspection-only; output summary in the collapsed row is sufficient
-    {
-      label: 'stdout tail',
-      value:
-        'line 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20',
-      displayTier: 'inspection'
-    }
+    { label: 'stdout', value: Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join('\n') }
   ])
 })
 

@@ -244,6 +244,8 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
       return { fields, codeBlocks }
     }
 
+    pushCodeBlock(codeBlocks, 'command', details.command)
+
     if (details.background) {
       pushField(fields, 'task id', details.taskId)
       pushField(fields, 'log file', details.logPath)
