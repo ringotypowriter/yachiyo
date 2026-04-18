@@ -461,8 +461,8 @@ export const ThreadConversationGroup = memo(function ThreadConversationGroup({
           ) : null}
           <RunStatsFooter
             runs={runs}
+            toolCalls={toolCalls}
             requestMessageId={group.userMessage.id}
-            toolCallCount={visibleToolCalls.length}
           />
           <MessageActionBar
             align="start"

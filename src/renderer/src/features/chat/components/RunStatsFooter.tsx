@@ -1,16 +1,16 @@
 import type React from 'react'
 import { useCallback, useMemo, useState } from 'react'
 import { Clock, Wrench, GitCompareArrows } from 'lucide-react'
-import type { RunRecord } from '@renderer/app/types'
+import type { RunRecord, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { theme, alpha } from '@renderer/theme/theme'
 import { DiffPreviewerModal } from './DiffPreviewerModal'
-import { findLatestRunForRequest } from '../lib/runMemoryPresentation.ts'
+import { countToolCallsForRun, findLatestRunForRequest } from '../lib/runMemoryPresentation.ts'
 
 interface RunStatsFooterProps {
   runs: RunRecord[]
+  toolCalls: ToolCall[]
   requestMessageId: string
-  toolCallCount: number
 }
 
 /** Minimum elapsed seconds before the footer is shown. */
@@ -27,8 +27,8 @@ function formatElapsed(ms: number): string {
 
 export function RunStatsFooter({
   runs,
-  requestMessageId,
-  toolCallCount
+  toolCalls,
+  requestMessageId
 }: RunStatsFooterProps): React.JSX.Element | null {
   const [showDiffModal, setShowDiffModal] = useState(false)
 
@@ -46,14 +46,18 @@ export function RunStatsFooter({
     const elapsedMs = new Date(run.completedAt).getTime() - new Date(run.createdAt).getTime()
     // Prefer persisted snapshotFileCount, fall back to ephemeral event
     const fileCount = run.snapshotFileCount ?? snapshotReviewByRun[run.id]?.fileCount ?? 0
+    // Count by runId so steer legs that re-anchor to a later requestMessageId
+    // still roll up into the original run's footer.
+    const toolCallCount = countToolCallsForRun(toolCalls, run.id)
     return {
       elapsedMs,
       runId: run.id,
       threadId: run.threadId,
       fileCount,
+      toolCallCount,
       workspacePath: run.workspacePath ?? snapshotReviewByRun[run.id]?.workspacePath ?? ''
     }
-  }, [runs, requestMessageId, snapshotReviewByRun])
+  }, [runs, toolCalls, requestMessageId, snapshotReviewByRun])
 
   const handleOpenDiff = useCallback(() => {
     setShowDiffModal(true)
@@ -66,7 +70,7 @@ export function RunStatsFooter({
   if (!runInfo) return null
 
   const showElapsed = runInfo.elapsedMs >= ELAPSED_THRESHOLD_S * 1000
-  const showToolCalls = toolCallCount >= TOOL_CALL_THRESHOLD
+  const showToolCalls = runInfo.toolCallCount >= TOOL_CALL_THRESHOLD
   const hasSnapshot = runInfo.fileCount > 0 && runInfo.workspacePath.length > 0
   if (!showElapsed && !showToolCalls && !hasSnapshot) return null
 
@@ -85,7 +89,7 @@ export function RunStatsFooter({
         {showToolCalls ? (
           <span className="inline-flex items-center gap-1">
             <Wrench size={11} strokeWidth={1.7} />
-            {toolCallCount} tool {toolCallCount === 1 ? 'call' : 'calls'}
+            {runInfo.toolCallCount} tool {runInfo.toolCallCount === 1 ? 'call' : 'calls'}
           </span>
         ) : null}
         {hasSnapshot ? (

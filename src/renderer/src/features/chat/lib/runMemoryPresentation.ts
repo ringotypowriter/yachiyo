@@ -1,5 +1,5 @@
 import type { RecallDecisionSnapshot } from '@renderer/app/types'
-import type { RunRecord } from '@renderer/app/types'
+import type { RunRecord, ToolCall } from '@renderer/app/types'
 
 export interface RunMemorySummary {
   entries: string[]
@@ -117,6 +117,19 @@ export function compactNovelTermsForDisplay(terms: string[] | undefined): string
   }
 
   return compacted
+}
+
+/**
+ * Count tool calls that belong to a run. A safe steer re-anchors later tool
+ * calls to the steer's new requestMessageId, so per-group counts undershoot
+ * the real run total. The runId on each tool call is the stable key.
+ */
+export function countToolCallsForRun(toolCalls: ToolCall[], runId: string): number {
+  let count = 0
+  for (const toolCall of toolCalls) {
+    if (toolCall.runId === runId) count += 1
+  }
+  return count
 }
 
 export function findLatestRunForRequest(

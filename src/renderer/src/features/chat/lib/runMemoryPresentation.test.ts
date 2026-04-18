@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import type { ToolCall } from '@renderer/app/types'
+
 import {
   compactNovelTermsForDisplay,
+  countToolCallsForRun,
   findLatestRunForRequest,
   findRunMemorySummary
 } from './runMemoryPresentation.ts'
@@ -144,4 +147,55 @@ test('compactNovelTermsForDisplay keeps strong single technical terms and remove
   ])
 
   assert.deepEqual(terms, ['deploy', 'system prompt', 'deploy workflow'])
+})
+
+test('countToolCallsForRun includes post-steer tool calls re-anchored to a new requestMessageId', () => {
+  const toolCalls: ToolCall[] = [
+    {
+      id: 'tc-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      requestMessageId: 'user-1',
+      toolName: 'bash',
+      status: 'completed',
+      inputSummary: '',
+      startedAt: '2026-03-22T00:00:00.000Z'
+    },
+    {
+      id: 'tc-2',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      requestMessageId: 'user-1',
+      toolName: 'bash',
+      status: 'completed',
+      inputSummary: '',
+      startedAt: '2026-03-22T00:00:01.000Z'
+    },
+    // Post-steer: same run, but requestMessageId is the steer user message.
+    {
+      id: 'tc-3',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      requestMessageId: 'user-steer',
+      toolName: 'bash',
+      status: 'completed',
+      inputSummary: '',
+      startedAt: '2026-03-22T00:00:02.000Z'
+    },
+    // Unrelated run must be excluded.
+    {
+      id: 'tc-4',
+      runId: 'run-2',
+      threadId: 'thread-1',
+      requestMessageId: 'user-2',
+      toolName: 'bash',
+      status: 'completed',
+      inputSummary: '',
+      startedAt: '2026-03-22T00:00:03.000Z'
+    }
+  ]
+
+  assert.equal(countToolCallsForRun(toolCalls, 'run-1'), 3)
+  assert.equal(countToolCallsForRun(toolCalls, 'run-2'), 1)
+  assert.equal(countToolCallsForRun(toolCalls, 'run-missing'), 0)
 })
