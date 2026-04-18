@@ -299,7 +299,28 @@ function BackgroundTaskRow({
           </button>
         )}
       </div>
-      {expanded && <BackgroundTaskLogView lines={task.logTail} />}
+      {expanded && (
+        <>
+          <BackgroundTaskCommandView command={task.command} />
+          <BackgroundTaskLogView lines={task.logTail} />
+        </>
+      )}
+    </div>
+  )
+}
+
+function BackgroundTaskCommandView({ command }: { command: string }): React.JSX.Element {
+  return (
+    <div
+      className="text-[11px] font-mono px-3 py-2 whitespace-pre-wrap break-all"
+      style={{
+        background: theme.background.codeBlock,
+        color: theme.text.primary,
+        borderTop: `1px solid ${theme.border.subtle}`,
+        userSelect: 'text'
+      }}
+    >
+      {command}
     </div>
   )
 }

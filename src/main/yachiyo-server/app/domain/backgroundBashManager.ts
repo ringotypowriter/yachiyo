@@ -197,20 +197,65 @@ export class BackgroundBashManager {
     earlyChunks.length = 0
 
     const onAbort = (): void => {
-      if (child.exitCode !== null || child.signalCode !== null) return
+      if (child.exitCode !== null || child.signalCode !== null) {
+        console.warn('[yachiyo][background-bash] onAbort: already exited', {
+          taskId: input.taskId,
+          exitCode: child.exitCode,
+          signalCode: child.signalCode
+        })
+        return
+      }
       try {
         // Walk the full pid tree and SIGKILL every descendant, not just the
         // process group — daemons (e.g. the zen-bridge connector) spawn
         // detached grandchildren that live in a new session and would survive
         // a plain kill(-pid). Falls back to child.kill for fakes without a pid.
         if (child.pid != null) {
-          const { delivered } = killProcessTree(child.pid)
-          task.cancelSignalDelivered = delivered || child.kill('SIGKILL')
+          const result = killProcessTree(child.pid)
+          console.warn('[yachiyo][background-bash] killProcessTree', {
+            taskId: input.taskId,
+            rootPid: child.pid,
+            descendants: result.descendants,
+            delivered: result.delivered
+          })
+          setTimeout(() => {
+            const stillAlive: number[] = []
+            if (child.pid != null) {
+              try {
+                process.kill(child.pid, 0)
+                stillAlive.push(child.pid)
+              } catch {
+                // ESRCH: reaped, as expected.
+              }
+            }
+            for (const pid of result.descendants) {
+              try {
+                process.kill(pid, 0)
+                stillAlive.push(pid)
+              } catch {
+                // ESRCH: reaped, as expected.
+              }
+            }
+            if (stillAlive.length > 0) {
+              console.warn('[yachiyo][background-bash] STILL ALIVE after SIGKILL', {
+                taskId: input.taskId,
+                stillAlive
+              })
+            } else {
+              console.warn('[yachiyo][background-bash] tree reaped', {
+                taskId: input.taskId
+              })
+            }
+          }, 500)
+          task.cancelSignalDelivered = result.delivered || child.kill('SIGKILL')
         } else {
           task.cancelSignalDelivered = child.kill('SIGKILL')
         }
-      } catch {
-        // ESRCH if already reaped
+      } catch (error) {
+        console.warn('[yachiyo][background-bash] onAbort threw', {
+          taskId: input.taskId,
+          error: error instanceof Error ? error.message : String(error)
+        })
       }
     }
     abortController.signal.addEventListener('abort', onAbort, { once: true })
