@@ -9,6 +9,7 @@ import { join } from 'node:path'
 
 import type { BashToolCallDetails } from '../../../../shared/yachiyo/protocol.ts'
 
+import { killProcessTree } from '../../app/domain/killProcessTree.ts'
 import { validateBashCommand } from './bashSecurity.ts'
 import { withInjectedEnv } from './injectedEnv.ts'
 import {
@@ -280,12 +281,10 @@ const defaultBashRunner: BashRunner = async ({
     }
     try {
       if (child.pid != null) {
-        try {
-          process.kill(-child.pid, 'SIGKILL')
-          return
-        } catch {
-          // Fall through to killing only the shell if the process group no longer exists.
-        }
+        // Walks the pid tree and SIGKILLs every descendant, covering daemons
+        // that setsid themselves out of the shell's process group.
+        killProcessTree(child.pid)
+        return
       }
       child.kill('SIGKILL')
     } catch {

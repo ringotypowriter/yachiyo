@@ -3,6 +3,8 @@ import { createWriteStream, type WriteStream } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
+import { killProcessTree } from './killProcessTree.ts'
+
 export interface BackgroundBashTaskInput {
   taskId: string
   command: string
@@ -197,16 +199,13 @@ export class BackgroundBashManager {
     const onAbort = (): void => {
       if (child.exitCode !== null || child.signalCode !== null) return
       try {
-        // Kill the entire process group (shell + children) when spawned with
-        // detached: true. Falls back to killing just the shell for adopted
-        // tasks that may not lead their own group.
+        // Walk the full pid tree and SIGKILL every descendant, not just the
+        // process group — daemons (e.g. the zen-bridge connector) spawn
+        // detached grandchildren that live in a new session and would survive
+        // a plain kill(-pid). Falls back to child.kill for fakes without a pid.
         if (child.pid != null) {
-          try {
-            process.kill(-child.pid, 'SIGKILL')
-            task.cancelSignalDelivered = true
-          } catch {
-            task.cancelSignalDelivered = child.kill('SIGKILL')
-          }
+          const { delivered } = killProcessTree(child.pid)
+          task.cancelSignalDelivered = delivered || child.kill('SIGKILL')
         } else {
           task.cancelSignalDelivered = child.kill('SIGKILL')
         }
