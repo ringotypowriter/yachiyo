@@ -14,6 +14,7 @@ import {
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { FolderRecord, Thread } from '@renderer/app/types'
 import { ThreadContextMenuPopup } from '@renderer/features/threads/components/ThreadContextMenuPopup'
+import { imeSafeEnter } from '@renderer/lib/imeUtils'
 import { stripMarkdown } from '../../../../../shared/yachiyo/messageContent'
 import {
   resolveThreadContextOperations,
@@ -170,11 +171,11 @@ function ThreadListItem({
 
   function handleTitleInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
     e.stopPropagation()
-    if (e.key === 'Enter') {
-      e.currentTarget.blur()
-    } else if (e.key === 'Escape') {
+    if (e.key === 'Escape') {
       setRenamingTitle(false)
+      return
     }
+    imeSafeEnter(() => e.currentTarget.blur())(e)
   }
 
   function handleClick(): void {

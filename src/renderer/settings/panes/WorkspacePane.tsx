@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { theme, alpha } from '@renderer/theme/theme'
 import type { SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
 import { SettingLabel, SettingSection } from '../components/primitives'
-import { imeSafeEnter } from '../components/imeUtils'
+import { imeSafeEnter } from '@renderer/lib/imeUtils'
 
 interface DiscoveredApp {
   name: string

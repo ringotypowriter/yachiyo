@@ -7,7 +7,7 @@ import type {
   UserDocument
 } from '../../../shared/yachiyo/protocol.ts'
 import { theme, alpha } from '@renderer/theme/theme'
-import { imeSafeEnter } from '../components/imeUtils'
+import { imeSafeEnter } from '@renderer/lib/imeUtils'
 import {
   SettingLabel,
   SettingRow,

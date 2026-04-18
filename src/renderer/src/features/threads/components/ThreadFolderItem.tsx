@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { FolderOpen, FolderClosed, PenLine, Trash2, Paintbrush } from 'lucide-react'
 import type { FolderColorTag, FolderRecord } from '@renderer/app/types'
+import { imeSafeEnter } from '@renderer/lib/imeUtils'
 import { theme } from '@renderer/theme/theme'
 
 const FOLDER_COLORS: Record<FolderColorTag, string> = {
@@ -65,13 +66,12 @@ export function ThreadFolderItem({
     setIsRenaming(false)
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      commitRename()
-    } else if (e.key === 'Escape') {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === 'Escape') {
       setIsRenaming(false)
+      return
     }
+    imeSafeEnter(commitRename)(e)
   }
 
   const handleContextMenu = (e: React.MouseEvent): void => {

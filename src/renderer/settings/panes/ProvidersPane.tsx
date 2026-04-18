@@ -18,7 +18,7 @@ import {
   toolModelTargetsProvider
 } from '../../../shared/yachiyo/providerConfig.ts'
 import { matchProviderPreset } from '../../../shared/yachiyo/providerPresets.ts'
-import { imeSafeEnter } from '../components/imeUtils'
+import { imeSafeEnter } from '@renderer/lib/imeUtils'
 import { Field, PlaceholderPane, SettingSwitch, SimpleSelect } from '../components/primitives'
 import { inputStyle } from '../components/styles'
 import { filterProviderModels } from './providersPaneModel'

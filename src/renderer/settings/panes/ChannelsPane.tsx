@@ -19,7 +19,7 @@ import {
   SettingSwitch,
   SimpleSelect
 } from '../components/primitives'
-import { imeSafeEnter } from '../components/imeUtils'
+import { imeSafeEnter } from '@renderer/lib/imeUtils'
 
 export function ChannelsPane({
   activeSubTab,
