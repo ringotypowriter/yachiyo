@@ -15,6 +15,7 @@ import {
 } from '../lib/messageThreadPresentation'
 import { findLatestRunForRequest, findRunMemorySummary } from '../lib/runMemoryPresentation.ts'
 import { buildConversationGroupTimelineItems } from '../lib/messageTimelineLayout.ts'
+import { buildMessageTimelineRows, type MessageTimelineRow } from '../lib/messageTimelineRows.ts'
 import { UserMessageBubble } from './UserMessageBubble'
 import { AssistantMessageBubble } from './AssistantMessageBubble'
 import { GeneratingRow, type RetryInfo } from './GeneratingRow'
@@ -51,82 +52,6 @@ const EMPTY_SUBAGENT_PROGRESS_ENTRIES: Array<{
   agentName: string
   chunk: string
 }> = []
-
-const DEFAULT_HARNESS = 'default.reply'
-
-type TimelineItem =
-  | ReturnType<typeof buildConversationTimeline>[number]
-  | { kind: 'assistant-root'; key: string; time: string; data: Message }
-  | { kind: 'pending-steer'; key: string; time: string; data: Message }
-  | { kind: 'queued-follow-up'; key: string; time: string; data: Message }
-  | { kind: 'harness'; key: string; time: string; data: HarnessRecord }
-  | { kind: 'tool'; key: string; time: string; data: ToolCall }
-
-function buildConversationTimeline(
-  groups: ReturnType<typeof buildMessageGroups>
-): Array<{ kind: 'group'; key: string; time: string; data: (typeof groups)[number] }> {
-  return groups.map((group) => ({
-    kind: 'group' as const,
-    key: group.userMessage.id,
-    time: group.userMessage.createdAt,
-    data: group
-  }))
-}
-
-function buildTimeline(
-  groups: ReturnType<typeof buildMessageGroups>,
-  rootAssistantMessages: Message[],
-  harnesses: HarnessRecord[],
-  orphanToolCalls: ToolCall[],
-  pendingSteerMessage: Message | null,
-  queuedFollowUpMessage: Message | null
-): TimelineItem[] {
-  const items: TimelineItem[] = [
-    ...buildConversationTimeline(groups),
-    ...rootAssistantMessages.map((message) => ({
-      kind: 'assistant-root' as const,
-      key: message.id,
-      time: message.createdAt,
-      data: message
-    })),
-    ...(pendingSteerMessage
-      ? [
-          {
-            kind: 'pending-steer' as const,
-            key: pendingSteerMessage.id,
-            time: pendingSteerMessage.createdAt,
-            data: pendingSteerMessage
-          }
-        ]
-      : []),
-    ...(queuedFollowUpMessage
-      ? [
-          {
-            kind: 'queued-follow-up' as const,
-            key: queuedFollowUpMessage.id,
-            time: queuedFollowUpMessage.createdAt,
-            data: queuedFollowUpMessage
-          }
-        ]
-      : []),
-    ...orphanToolCalls.map((toolCall) => ({
-      kind: 'tool' as const,
-      key: toolCall.id,
-      time: toolCall.startedAt,
-      data: toolCall
-    })),
-    ...harnesses
-      .filter((harness) => harness.name !== DEFAULT_HARNESS)
-      .map((harness) => ({
-        kind: 'harness' as const,
-        key: harness.id,
-        time: harness.startedAt,
-        data: harness
-      }))
-  ]
-
-  return items.sort((left, right) => left.time.localeCompare(right.time))
-}
 
 function confirmDelete(message: Message): boolean {
   if (message.role === 'user') {
@@ -630,23 +555,33 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     : null
   const canBranchHere = threadActionContext ? canCreateBranch(threadActionContext) : false
   const canDeleteHere = threadActionContext ? canDeleteMessage(threadActionContext) : false
-  const timeline = useMemo(
+  const timelineRows = useMemo(
     () =>
-      buildTimeline(
+      buildMessageTimelineRows({
         messageGroups,
         rootAssistantMessages,
         harnessEvents,
         orphanToolCalls,
         pendingSteerMessage,
-        queuedFollowUpMessage
-      ),
+        queuedFollowUpMessage,
+        inlineToolCalls,
+        runs,
+        activeRunId,
+        activeRequestMessageId,
+        subagentActive
+      }),
     [
       messageGroups,
       rootAssistantMessages,
       harnessEvents,
       orphanToolCalls,
       pendingSteerMessage,
-      queuedFollowUpMessage
+      queuedFollowUpMessage,
+      inlineToolCalls,
+      runs,
+      activeRunId,
+      activeRequestMessageId,
+      subagentActive
     ]
   )
 
@@ -675,10 +610,8 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     prevThreadIdRef.current = threadId
   }
 
-  const timelineRef = useRef(timeline)
-  timelineRef.current = timeline
-  const inlineToolCallsRef = useRef(inlineToolCalls)
-  inlineToolCallsRef.current = inlineToolCalls
+  const timelineRef = useRef(timelineRows)
+  timelineRef.current = timelineRows
 
   // Size cache keyed by timeline-item key. Survives unmount/remount so a row
   // scrolled offscreen and back doesn't snap back to a coarse estimate and
@@ -709,38 +642,26 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
         if (msg.reasoning) height += 56
         return height
       }
-      case 'group': {
-        const group = item.data
-        const userLines = Math.max(1, Math.ceil(group.userMessage.content.length / 60))
-        let height = userLines * 22 + 48
-        const branch = group.assistantBranches[group.activeBranchIndex]
-        if (branch) {
-          if (branch.message.reasoning) height += 56
-          const textBlocks = branch.message.textBlocks ?? []
-          if (textBlocks.length > 0) {
-            for (const tb of textBlocks) {
-              const lines = Math.max(1, Math.ceil(tb.content.length / 80))
-              height += lines * 22 + 16
-            }
-          } else if (branch.message.content) {
-            const lines = Math.max(1, Math.ceil(branch.message.content.length / 80))
-            height += lines * 22 + 16
-          }
-          // Action bar + run stats footer once the branch has settled.
-          if (branch.message.status !== 'streaming') height += 48
-        }
-        if (group.assistantBranches.length > 1) height += 28
-        if (group.showPreparing) height += 40
-        // Inline tool calls: 28px per call; semantic groups collapse consecutive
-        // same-kind calls into one row, so this over-counts, which is intentional.
-        const toolCallCount = inlineToolCallsRef.current.reduce(
-          (count, tc) => (tc.requestMessageId === group.userMessage.id ? count + 1 : count),
-          0
-        )
-        // Safety margin covering memory recall, subagent indicator, and other
-        // conditionally-rendered chrome we can't cheaply inspect here.
-        return height + toolCallCount * 28 + 48
-      }
+      case 'group-user':
+        return Math.max(70, Math.ceil(item.group.userMessage.content.length / 60) * 22 + 48)
+      case 'group-branch-navigation':
+        return 36
+      case 'group-thinking':
+        return item.assistantMessage.status === 'streaming' ? 120 : 56
+      case 'group-memory-recall':
+        return 44
+      case 'group-tool-call':
+      case 'group-tool-call-group':
+        return 32
+      case 'group-assistant-text-block':
+        return Math.max(48, Math.ceil(item.textBlock.content.length / 80) * 22 + 16)
+      case 'group-generating':
+      case 'group-preparing':
+        return 40
+      case 'group-footer':
+        return 84
+      case 'group-subagent':
+        return 96
       default:
         return 240
     }
@@ -749,7 +670,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
 
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
-    count: timeline.length,
+    count: timelineRows.length,
     getScrollElement,
     estimateSize,
     overscan: 5,
@@ -772,15 +693,12 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
 
   const findTimelineIndex = useCallback(
     (messageId: string): number =>
-      timelineRef.current.findIndex((item) => {
-        if (item.key === messageId) return true
-        if (item.kind === 'group') {
-          if (item.data.userMessage.id === messageId) return true
-          const branch = item.data.assistantBranches[item.data.activeBranchIndex]
-          if (branch?.message.id === messageId) return true
-        }
-        return false
-      }),
+      timelineRef.current.findIndex(
+        (item) =>
+          item.key === messageId ||
+          ('assistantMessageId' in item && item.assistantMessageId === messageId) ||
+          ('scrollMessageId' in item && item.scrollMessageId === messageId)
+      ),
     []
   )
 
@@ -827,7 +745,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
 
     container.addEventListener('scroll', handleScroll, { passive: true })
     return () => container.removeEventListener('scroll', handleScroll)
-  }, [threadId, timeline.length])
+  }, [threadId, timelineRows.length])
 
   const scrollToBottom = useCallback((): void => {
     if (timelineRef.current.length === 0) return
@@ -855,8 +773,8 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
 
   // Scroll to bottom on thread switch — suppression already set above
   useEffect(() => {
-    if (timeline.length === 0) return
-    virtualizer.scrollToIndex(timeline.length - 1, { align: 'end' })
+    if (timelineRows.length === 0) return
+    virtualizer.scrollToIndex(timelineRows.length - 1, { align: 'end' })
   }, [threadId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Re-pin to bottom when the user sends a new message (activeRequestMessageId changes).
@@ -876,7 +794,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   // Keep pinned to bottom during streaming — throttled with RAF to avoid per-token thrash
   const streamingScrollRafRef = useRef<number | null>(null)
   useEffect(() => {
-    if (!stickToBottomRef.current || timeline.length === 0) return
+    if (!stickToBottomRef.current || timelineRows.length === 0) return
 
     // Cancel any pending RAF so we always use the latest layout
     if (streamingScrollRafRef.current !== null) {
@@ -895,7 +813,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     messages,
     runPhase,
     toolCalls,
-    timeline.length,
+    timelineRows.length,
     scrollToBottom
   ])
   useEffect(() => {
@@ -908,7 +826,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
 
   // Scroll-to-message: bring the group into view via virtualizer, then refine to exact element
   useEffect(() => {
-    if (!scrollToMessageId || timeline.length === 0) return
+    if (!scrollToMessageId || timelineRows.length === 0) return
     const targetMessageId = scrollToMessageId
     clearScrollToMessageId()
 
@@ -926,7 +844,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
         }
       })
     })
-  }, [scrollToMessageId, timeline, clearScrollToMessageId, findTimelineIndex]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [scrollToMessageId, timelineRows, clearScrollToMessageId, findTimelineIndex]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleEdit = useCallback(
     (messageId: string): void => {
@@ -988,7 +906,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   const isAcpThread = thread?.runtimeBinding?.kind === 'acp'
 
   const renderTimelineItem = useCallback(
-    (item: TimelineItem): React.JSX.Element | null => {
+    (item: MessageTimelineRow): React.JSX.Element | null => {
       if (item.kind === 'harness') {
         return <RunEventRow harness={item.data} />
       }
@@ -1064,50 +982,227 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
         )
       }
 
-      const isActiveGroup = item.data.userMessage.id === activeRequestMessageId
       if (!threadCapabilities) return null
 
-      return (
-        <div data-message-id={item.key}>
-          <ThreadConversationGroup
-            threadId={threadId!}
-            group={item.data}
-            toolCalls={inlineToolCalls}
-            activeRunId={activeRunId}
-            threadHasActiveRun={threadHasActiveRun}
-            threadIsSaving={threadIsSaving}
-            runs={runs}
-            subagentActive={isActiveGroup && subagentActive}
-            activeSubagents={activeSubagents}
-            subagentProgressEntries={subagentProgressEntries}
-            retryInfo={isActiveGroup ? retryInfo : undefined}
-            onCancelSubagent={
-              isActiveGroup && activeSubagents.length === 1
-                ? () => void cancelRunForThread(threadId!)
-                : undefined
-            }
-            threadCapabilities={threadCapabilities}
-            onCreateBranch={handleCreateBranch}
-            onEdit={handleEdit}
-            onRetry={handleRetry}
-            onSelectReplyBranch={handleSelectReplyBranch}
-            onDelete={handleDelete}
+      const group = item.group
+      const responseCount = group.assistantBranches.length
+      const activeBranch =
+        group.activeBranchIndex >= 0 ? group.assistantBranches[group.activeBranchIndex] : null
+      const previousBranch =
+        group.activeBranchIndex > 0 ? group.assistantBranches[group.activeBranchIndex - 1] : null
+      const nextBranch =
+        group.activeBranchIndex >= 0 && group.activeBranchIndex < responseCount - 1
+          ? group.assistantBranches[group.activeBranchIndex + 1]
+          : null
+      const retryTargetMessageId = resolveRetryTargetMessageId({
+        userMessageId: group.userMessage.id,
+        ...(activeBranch ? { activeAssistantMessage: activeBranch.message } : {})
+      })
+      const canBranchMessages = canCreateBranch({
+        threadCapabilities,
+        threadHasActiveRun,
+        threadIsSaving
+      })
+      const canEditMessages = canEditUserMessage({
+        threadCapabilities,
+        threadHasActiveRun,
+        threadIsSaving
+      })
+      const canDeleteMessages = canDeleteMessage({
+        threadCapabilities,
+        threadHasActiveRun,
+        threadIsSaving
+      })
+      const canSwitchReplyBranches = canSelectReplyBranch({
+        threadCapabilities,
+        threadHasActiveRun,
+        threadIsSaving
+      })
+      const isActiveGroup = item.requestMessageId === activeRequestMessageId
+      const groupRetryInfo = isActiveGroup ? retryInfo : undefined
+      const cancelSubagent =
+        isActiveGroup && activeSubagents.length === 1
+          ? () => void cancelRunForThread(threadId!)
+          : undefined
+
+      if (item.kind === 'group-user') {
+        return (
+          <div data-message-id={group.userMessage.id}>
+            <UserMessageBubble
+              message={group.userMessage}
+              threadHasActiveRun={threadHasActiveRun}
+              threadCapabilities={threadCapabilities}
+              threadIsSaving={threadIsSaving}
+              onEdit={canEditMessages ? () => handleEdit(group.userMessage.id) : undefined}
+              onRetry={
+                threadCapabilities.canRetry ? () => handleRetry(retryTargetMessageId) : undefined
+              }
+              onCreateBranch={
+                canBranchMessages ? () => handleCreateBranch(group.userMessage.id) : undefined
+              }
+              onDelete={canDeleteMessages ? () => handleDelete(group.userMessage.id) : undefined}
+            />
+          </div>
+        )
+      }
+
+      if (item.kind === 'group-branch-navigation') {
+        return (
+          <div className="px-6 py-0.5">
+            <ReplyBranchNavigation
+              replyCount={responseCount}
+              canSelectPreviousReply={canSwitchReplyBranches && Boolean(previousBranch)}
+              canSelectNextReply={canSwitchReplyBranches && Boolean(nextBranch)}
+              onSelectPreviousReply={
+                canSwitchReplyBranches && previousBranch
+                  ? () => void handleSelectReplyBranch(previousBranch.message.id)
+                  : undefined
+              }
+              onSelectNextReply={
+                canSwitchReplyBranches && nextBranch
+                  ? () => void handleSelectReplyBranch(nextBranch.message.id)
+                  : undefined
+              }
+            />
+          </div>
+        )
+      }
+
+      if (item.kind === 'group-thinking') {
+        return (
+          <div {...(item.scrollMessageId ? { 'data-message-id': item.scrollMessageId } : {})}>
+            <ThinkingBlock
+              reasoning={item.assistantMessage.reasoning ?? ''}
+              isActive={item.assistantMessage.status === 'streaming'}
+            />
+          </div>
+        )
+      }
+
+      if (item.kind === 'group-memory-recall') {
+        return <RunMemoryRecallRow entries={item.entries} recallDecision={item.recallDecision} />
+      }
+
+      if (item.kind === 'group-tool-call') {
+        return <ToolCallRow toolCall={item.toolCall} />
+      }
+
+      if (item.kind === 'group-tool-call-group') {
+        return <ToolCallGroupRow group={item.toolGroup} toolCalls={item.toolCalls} />
+      }
+
+      if (item.kind === 'group-assistant-text-block') {
+        return (
+          <div className="message-response-cluster" data-message-id={item.assistantMessage.id}>
+            <AssistantMessageBubble
+              message={item.assistantMessage}
+              contentOverride={item.textBlock.content}
+              showFooter={false}
+              suppressGeneratingLabel={
+                item.hasRunningToolCall || item.assistantMessage.status === 'streaming'
+              }
+              pauseStreaming={isActiveGroup && subagentActive}
+              showCaret={item.isLastTextBlock ? undefined : false}
+              compactBottomSpacing={item.compactBottomSpacing}
+            />
+          </div>
+        )
+      }
+
+      if (item.kind === 'group-generating') {
+        return <GeneratingRow retryInfo={groupRetryInfo} />
+      }
+
+      if (item.kind === 'group-preparing') {
+        if (groupRetryInfo) {
+          return <GeneratingRow retryInfo={groupRetryInfo} />
+        }
+
+        return (
+          <div className="message-response-cluster">
+            <div className="message-response-cluster__preparing">
+              <PreparingBubble />
+            </div>
+          </div>
+        )
+      }
+
+      if (item.kind === 'group-footer') {
+        return (
+          <div className="message-bubble-group px-6 py-1 flex flex-col gap-0.5">
+            {item.assistantMessage.status === 'stopped' ? (
+              <div className="message-footer message-footer--always-visible">Stopped</div>
+            ) : item.assistantMessage.status === 'failed' ? (
+              <div
+                className="message-footer message-footer--always-visible"
+                style={{ color: theme.text.danger }}
+              >
+                {item.failedRunError ? `Failed: ${item.failedRunError}` : 'Failed to generate'}
+              </div>
+            ) : null}
+            {item.savedMemoryCount > 0 ? (
+              <div
+                className="message-footer message-footer--always-visible inline-flex items-center gap-1"
+                style={{ color: theme.text.accent }}
+              >
+                {item.savedMemoryCount === 1
+                  ? 'Memory saved'
+                  : `${item.savedMemoryCount} memories saved`}
+              </div>
+            ) : null}
+            <RunStatsFooter
+              runs={runs}
+              toolCalls={toolCalls}
+              requestMessageId={item.requestMessageId}
+            />
+            <MessageActionBar
+              align="start"
+              content={item.assistantMessage.content}
+              canRetry={canRetryAssistantMessage({
+                messageStatus: item.assistantMessage.status,
+                threadCapabilities,
+                threadHasActiveRun,
+                threadIsSaving
+              })}
+              onRetry={
+                threadCapabilities.canRetry
+                  ? () => handleRetry(item.assistantMessage.id)
+                  : undefined
+              }
+              onCreateBranch={
+                canBranchMessages ? () => handleCreateBranch(item.assistantMessage.id) : undefined
+              }
+              onDelete={
+                canDeleteMessages ? () => handleDelete(item.assistantMessage.id) : undefined
+              }
+            />
+          </div>
+        )
+      }
+
+      if (item.kind === 'group-subagent') {
+        return (
+          <SubagentRunningIndicator
+            agents={activeSubagents}
+            progressEntries={subagentProgressEntries}
+            onCancel={cancelSubagent}
           />
-        </div>
-      )
+        )
+      }
+
+      return null
     },
     [
       threadCapabilities,
       threadHasActiveRun,
       threadIsSaving,
-      activeRunId,
       activeRequestMessageId,
       subagentActive,
       activeSubagents,
       subagentProgressEntries,
       retryInfo,
-      inlineToolCalls,
       runs,
+      toolCalls,
       canBranchHere,
       canDeleteHere,
       threadId,
@@ -1160,7 +1255,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     )
   }
 
-  if (timeline.length === 0) {
+  if (timelineRows.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <p className="text-sm" style={{ color: theme.text.placeholder }}>
@@ -1192,7 +1287,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
           }}
         >
           {virtualizer.getVirtualItems().map((virtualRow) => {
-            const item = timeline[virtualRow.index]
+            const item = timelineRows[virtualRow.index]
 
             return (
               <div
@@ -1204,8 +1299,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
                   top: 0,
                   left: 0,
                   width: '100%',
-                  transform: `translateY(${virtualRow.start}px)`,
-                  contain: 'content'
+                  transform: `translateY(${virtualRow.start}px)`
                 }}
               >
                 {renderTimelineItem(item)}
