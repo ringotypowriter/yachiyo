@@ -642,6 +642,7 @@ export interface ChatConfig {
   activeRunEnterBehavior?: ActiveRunEnterBehavior
   stripCompact?: boolean
   autoMemoryDistillation?: boolean
+  inputBufferEnabled?: boolean
 }
 
 export type UpdateChannel = 'stable' | 'beta'

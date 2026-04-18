@@ -82,6 +82,17 @@ interface SubagentProgressEntry {
   chunk: string
 }
 
+export interface SendMessageOverride {
+  content: string
+  images: MessageImageRecord[]
+  attachments: SendChatAttachment[]
+  enabledSkillNames?: string[] | null
+  // Required: explicit target thread. Overrides activeThreadId resolution
+  // and skips new-thread creation. Callers that need new-thread semantics
+  // must route through the normal draft-based send path instead.
+  threadId: string
+}
+
 export interface ComposerImageDraft extends MessageImageRecord {
   id: string
   status: 'loading' | 'ready' | 'failed'
@@ -237,7 +248,16 @@ interface AppState {
   initialize: () => Promise<void>
   selectModel: (providerName: string, model: string) => Promise<void>
   clearThreadModelOverride: (threadId: string) => Promise<void>
-  sendMessage: (mode?: SendChatMode) => Promise<void>
+  sendMessage: (mode?: SendChatMode, override?: SendMessageOverride) => Promise<boolean>
+  mergeBufferedPayloadIntoDraft: (
+    payload: {
+      content: string
+      images: MessageImageRecord[]
+      attachments: SendChatAttachment[]
+      enabledSkillNames: string[] | null | undefined
+    },
+    targetThreadId?: string | null
+  ) => void
   setEnabledTools: (enabledTools: ToolCallName[]) => Promise<void>
   scrollToMessageId: string | null
   setScrollToMessageId: (messageId: string) => void
@@ -2858,27 +2878,33 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({ threads: upsertThread(s.threads, updatedThread) }))
   },
 
-  sendMessage: async (mode = 'normal') => {
+  sendMessage: async (mode = 'normal', override) => {
     // Guard against accidental double-submits (double Enter, key repeat,
     // Composer remount during steer, etc). Module-level so it survives
     // component lifecycles. Combines an in-flight lock with a content+thread
     // fingerprint within a recency window.
-    if (sendInFlight) return
+    if (sendInFlight) return false
     const currentState = get()
     const draft = getComposerDraft(currentState)
-    const trimmed = draft.text.trim()
-    const images = toReadyMessageImages(draft.images)
-    const attachments = toReadyFileAttachments(draft.files)
+    const trimmed = override ? override.content.trim() : draft.text.trim()
+    const images = override ? override.images : toReadyMessageImages(draft.images)
+    const attachments = override ? override.attachments : toReadyFileAttachments(draft.files)
 
     // Reject locally-invalid drafts BEFORE arming the dedup window. Otherwise
     // an invalid attempt would poison the window and silently drop the user's
-    // immediate retry after they fix the draft.
-    if (
-      draft.images.some((image) => image.status === 'loading' || image.status === 'failed') ||
-      draft.files.some((file) => file.status === 'loading' || file.status === 'failed') ||
-      !hasMessagePayload({ content: trimmed, images, attachments })
-    ) {
-      return
+    // immediate retry after they fix the draft. The override path (e.g. input
+    // buffer flush) carries an already-ready payload so the draft status
+    // checks do not apply.
+    if (!override) {
+      if (
+        draft.images.some((image) => image.status === 'loading' || image.status === 'failed') ||
+        draft.files.some((file) => file.status === 'loading' || file.status === 'failed') ||
+        !hasMessagePayload({ content: trimmed, images, attachments })
+      ) {
+        return false
+      }
+    } else if (!hasMessagePayload({ content: trimmed, images, attachments })) {
+      return false
     }
 
     const fingerprint = JSON.stringify({
@@ -2894,19 +2920,29 @@ export const useAppStore = create<AppState>((set, get) => ({
       lastSendFingerprint === fingerprint &&
       fpNow - lastSendAt < SEND_DEDUP_WINDOW_MS
     ) {
-      return
+      return false
     }
     lastSendFingerprint = fingerprint
     lastSendAt = fpNow
     sendInFlight = true
     try {
       const enabledTools = currentState.enabledTools
-      const enabledSkillNames = resolveEffectiveEnabledSkillNames({
-        config: currentState.config,
-        draft
-      })
+      const enabledSkillNames = override
+        ? normalizeSkillNames(override.enabledSkillNames ?? currentState.config?.skills?.enabled)
+        : resolveEffectiveEnabledSkillNames({
+            config: currentState.config,
+            draft
+          })
+      // Whether the caller explicitly scoped skills (null = use defaults).
+      // Mirrors the draft.enabledSkillNames !== null semantics for overrides.
+      const hasExplicitSkillNames = override
+        ? override.enabledSkillNames !== undefined && override.enabledSkillNames !== null
+        : draft.enabledSkillNames !== null
 
-      let threadId = currentState.activeThreadId
+      // Override carries an explicit threadId; never fall back to
+      // activeThreadId for override sends, so the payload cannot be
+      // delivered into a thread the user switched to mid-flush.
+      let threadId: string | null = override ? override.threadId : currentState.activeThreadId
       const workspacePath = normalizeWorkspacePath(
         threadId
           ? currentState.threads.find((thread) => thread.id === threadId)?.workspacePath
@@ -2914,7 +2950,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       )
 
       if (!threadId && mode !== 'normal') {
-        return
+        return false
       }
 
       if (!threadId) {
@@ -2990,7 +3026,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const editingMessage = currentState.editingMessage
       const isEditMode =
-        mode === 'normal' && editingMessage !== null && editingMessage.threadId === threadId
+        !override &&
+        mode === 'normal' &&
+        editingMessage !== null &&
+        editingMessage.threadId === threadId
 
       try {
         const accepted = isEditMode
@@ -3007,9 +3046,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               content: trimmed,
               enabledTools,
               enabledSkillNames:
-                mode === 'follow-up' || draft.enabledSkillNames !== null
-                  ? enabledSkillNames
-                  : undefined,
+                mode === 'follow-up' || hasExplicitSkillNames ? enabledSkillNames : undefined,
               ...(images.length > 0 ? { images } : {}),
               ...(attachments.length > 0 ? { attachments } : {}),
               ...(mode !== 'normal' ? { mode } : {}),
@@ -3080,8 +3117,16 @@ export const useAppStore = create<AppState>((set, get) => ({
             activeRunIdsByThread: nextActiveRunIdsByThread,
             activeThreadId: accepted.thread.id,
             archivedThreads: removeThread(state.archivedThreads, accepted.thread.id),
-            composerDrafts: removeComposerDraft(state.composerDrafts, accepted.thread.id),
-            editingMessage: null,
+            // Preserve the live draft when the payload came from an override
+            // (e.g. input buffer flush). The user may already be typing the
+            // next message into the composer while the buffered one is
+            // sending, and that text must not be discarded.
+            composerDrafts: override
+              ? state.composerDrafts
+              : removeComposerDraft(state.composerDrafts, accepted.thread.id),
+            // Buffered flushes are unrelated to any active edit — do not
+            // silently abandon an edit the user started after staging.
+            editingMessage: override ? state.editingMessage : null,
             lastError: null,
             messages: {
               ...state.messages,
@@ -3121,6 +3166,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             ...deriveActiveThreadRunState(nextState)
           }
         })
+        return true
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unable to send the message.'
         // Clear the dedup fingerprint so the user can immediately retry the
@@ -3132,6 +3178,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           lastError: message,
           runStatus: 'failed'
         })
+        return false
       }
     } finally {
       sendInFlight = false
@@ -3280,6 +3327,55 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...draft,
           text: value
         }))
+      }
+    }),
+
+  mergeBufferedPayloadIntoDraft: (payload, targetThreadId) =>
+    set((state) => {
+      const draftKey = getComposerDraftKey(
+        targetThreadId !== undefined ? targetThreadId : state.activeThreadId
+      )
+      const makeId = (): string =>
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random()}`
+
+      const newImageDrafts: ComposerImageDraft[] = payload.images.map((img) => ({
+        id: makeId(),
+        dataUrl: img.dataUrl,
+        mediaType: img.mediaType,
+        ...(img.filename !== undefined ? { filename: img.filename } : {}),
+        status: 'ready'
+      }))
+      const newFileDrafts: ComposerFileDraft[] = payload.attachments.map((att) => ({
+        id: makeId(),
+        filename: att.filename,
+        mediaType: att.mediaType,
+        dataUrl: att.dataUrl,
+        status: 'ready'
+      }))
+
+      return {
+        composerDrafts: updateComposerDraft(state.composerDrafts, draftKey, (draft) => {
+          // Buffered content predates the live draft; prepend it with a
+          // newline so both segments remain editable and in order.
+          const mergedText =
+            draft.text.length > 0 && payload.content.length > 0
+              ? `${payload.content}\n${draft.text}`
+              : payload.content.length > 0
+                ? payload.content
+                : draft.text
+          // Keep the live draft's skill selection. The staged payload predates
+          // the current draft, so if the user adjusted skills for the new
+          // draft those choices must win; on send, the merged content will be
+          // scoped by the selection that is live at that moment.
+          return {
+            ...draft,
+            text: mergedText,
+            images: [...draft.images, ...newImageDrafts],
+            files: [...draft.files, ...newFileDrafts]
+          }
+        })
       }
     }),
 

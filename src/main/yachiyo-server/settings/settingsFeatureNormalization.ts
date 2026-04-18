@@ -79,7 +79,8 @@ export function normalizeChatConfig(value: unknown): ChatConfig {
       DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
     ),
     stripCompact: normalizeOptionalBool(input['stripCompact'], true),
-    autoMemoryDistillation: normalizeOptionalBool(input['autoMemoryDistillation'], true)
+    autoMemoryDistillation: normalizeOptionalBool(input['autoMemoryDistillation'], true),
+    inputBufferEnabled: normalizeOptionalBool(input['inputBufferEnabled'], false)
   }
 }
 

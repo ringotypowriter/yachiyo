@@ -185,6 +185,37 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
       </SettingSection>
 
       <SettingSection>
+        <SettingLabel>Input buffering</SettingLabel>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Merge rapid messages before sending
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              Off = send immediately. Composer has a per-session override.
+            </div>
+          </div>
+
+          <div className="shrink-0">
+            <SettingSwitch
+              checked={draft.chat?.inputBufferEnabled === true}
+              onChange={() =>
+                onChange({
+                  ...draft,
+                  chat: {
+                    ...draft.chat,
+                    inputBufferEnabled: draft.chat?.inputBufferEnabled !== true
+                  }
+                })
+              }
+              ariaLabel="Toggle input buffering"
+            />
+          </div>
+        </SettingRow>
+      </SettingSection>
+
+      <SettingSection>
         <SettingLabel>Context management</SettingLabel>
 
         <SettingRow>

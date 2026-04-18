@@ -3,6 +3,7 @@ import { useRef, useCallback, useState, useEffect, useLayoutEffect, useMemo } fr
 import { useShallow } from 'zustand/react/shallow'
 import {
   AlertCircle,
+  Brain,
   ChevronDown,
   CircleCheck,
   Cpu,
@@ -13,6 +14,7 @@ import {
   SendHorizonal,
   Sparkles,
   Square,
+  Timer,
   TriangleAlert,
   Wrench,
   X
@@ -29,6 +31,8 @@ import type { FileMentionCandidate, Message } from '@renderer/app/types'
 import { getComposerActionState } from '@renderer/features/chat/lib/composerActionState'
 import { shouldRevertPendingComposerMessagesOnArrowUp } from '@renderer/features/chat/lib/composerArrowUpRevert'
 import { resolveComposerEnterAction } from '@renderer/features/chat/lib/composerEnterBehavior'
+import type { ChatInputBufferPayload } from '@renderer/features/chat/lib/chatInputBuffer'
+import { useChatInputBuffer } from '@renderer/features/chat/hooks/useChatInputBuffer'
 import {
   computePretextLines,
   buildFontString,
@@ -40,7 +44,9 @@ import {
 import { theme } from '@renderer/theme/theme'
 import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
-  normalizeSkillNames
+  normalizeSkillNames,
+  type MessageImageRecord,
+  type SendChatAttachment
 } from '../../../../../shared/yachiyo/protocol.ts'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import { ModelSelectorPopup } from './ModelSelectorPopup'
@@ -414,6 +420,139 @@ function ComposerImagePreview({
   )
 }
 
+const STAGED_RING_SIZE_PX = 30
+const STAGED_RING_RADIUS = 12
+const STAGED_RING_CIRCUMFERENCE = 2 * Math.PI * STAGED_RING_RADIUS
+
+function StagedInputBufferBubble({
+  staged,
+  progress,
+  remainingMs,
+  onSendNow,
+  onCancel
+}: {
+  staged: ChatInputBufferPayload
+  progress: number
+  remainingMs: number
+  onSendNow: () => void
+  onCancel: () => void
+}): React.JSX.Element {
+  const clampedProgress = Math.max(0, Math.min(1, progress))
+  const dashOffset = STAGED_RING_CIRCUMFERENCE * clampedProgress
+  const secondsRemaining = Math.max(0, Math.ceil(remainingMs / 1000))
+  const attachmentSummary: string[] = []
+  if (staged.images.length > 0) {
+    attachmentSummary.push(`${staged.images.length} image${staged.images.length === 1 ? '' : 's'}`)
+  }
+  if (staged.attachments.length > 0) {
+    attachmentSummary.push(
+      `${staged.attachments.length} file${staged.attachments.length === 1 ? '' : 's'}`
+    )
+  }
+
+  return (
+    <div
+      className="group flex items-start gap-3 px-4 py-2.5"
+      style={{
+        background: theme.background.accentSoft,
+        borderBottom: `1px solid ${theme.border.accent}`
+      }}
+    >
+      <div
+        className="relative flex items-center justify-center shrink-0"
+        style={{ width: STAGED_RING_SIZE_PX, height: STAGED_RING_SIZE_PX }}
+        aria-label={`Merging next message in ${secondsRemaining}s`}
+      >
+        <svg
+          width={STAGED_RING_SIZE_PX}
+          height={STAGED_RING_SIZE_PX}
+          viewBox={`0 0 ${STAGED_RING_SIZE_PX} ${STAGED_RING_SIZE_PX}`}
+        >
+          <circle
+            cx={STAGED_RING_SIZE_PX / 2}
+            cy={STAGED_RING_SIZE_PX / 2}
+            r={STAGED_RING_RADIUS}
+            fill="none"
+            stroke={theme.border.panel}
+            strokeWidth={2}
+          />
+          <circle
+            cx={STAGED_RING_SIZE_PX / 2}
+            cy={STAGED_RING_SIZE_PX / 2}
+            r={STAGED_RING_RADIUS}
+            fill="none"
+            stroke={theme.text.accent}
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeDasharray={STAGED_RING_CIRCUMFERENCE}
+            strokeDashoffset={dashOffset}
+            transform={`rotate(-90 ${STAGED_RING_SIZE_PX / 2} ${STAGED_RING_SIZE_PX / 2})`}
+          />
+        </svg>
+        <Brain
+          size={14}
+          strokeWidth={1.8}
+          className="absolute animate-spin"
+          style={{
+            color: theme.text.accent,
+            animationDuration: '2.2s',
+            animationDirection: 'reverse'
+          }}
+        />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div
+          className="text-[11px] font-medium uppercase tracking-wide mb-0.5"
+          style={{ color: theme.text.accent }}
+        >
+          Merging next message · {secondsRemaining}s
+        </div>
+        {staged.content.length > 0 ? (
+          <div
+            className="text-sm whitespace-pre-wrap wrap-break-word"
+            style={{
+              color: theme.text.primary,
+              maxHeight: 80,
+              overflowY: 'auto'
+            }}
+          >
+            {staged.content}
+          </div>
+        ) : (
+          <div className="text-sm italic" style={{ color: theme.text.muted }}>
+            (attachments only)
+          </div>
+        )}
+        {attachmentSummary.length > 0 ? (
+          <div className="text-xs mt-1" style={{ color: theme.text.secondary }}>
+            {attachmentSummary.join(' · ')}
+          </div>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          type="button"
+          onClick={onSendNow}
+          className="text-xs px-2 py-1 rounded transition-colors"
+          style={{ color: theme.text.accent }}
+          aria-label="Send buffered message now"
+        >
+          Send now
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-xs px-2 py-1 rounded transition-colors"
+          style={{ color: theme.text.muted }}
+          aria-label="Cancel buffered message"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function Composer({
   onSelectThreadOperation
 }: {
@@ -469,6 +608,7 @@ export function Composer({
   const selectModel = useAppStore((s) => s.selectModel)
   const pushToast = useAppStore((s) => s.pushToast)
   const setComposerEnabledSkillNames = useAppStore((s) => s.setComposerEnabledSkillNames)
+  const mergeBufferedPayloadIntoDraft = useAppStore((s) => s.mergeBufferedPayloadIntoDraft)
   const setComposerValue = useAppStore((s) => s.setComposerValue)
   const setThreadWorkspace = useAppStore((s) => s.setThreadWorkspace)
   const toggleEnabledTool = useAppStore((s) => s.toggleEnabledTool)
@@ -510,6 +650,13 @@ export function Composer({
   const [isComposing, setIsComposing] = useState(false)
   const [isTextareaFocused, setIsTextareaFocused] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
+  const inputBufferDurable = config?.chat?.inputBufferEnabled === true
+  // Session-local override: starts from the durable setting, follows durable
+  // changes, but any in-session flip stays in component memory only.
+  const [inputBufferSession, setInputBufferSession] = useState(inputBufferDurable)
+  useEffect(() => {
+    setInputBufferSession(inputBufferDurable)
+  }, [inputBufferDurable])
   const dragCounterRef = useRef(0)
   // Pretext-driven overlay lines — overlay renders these instead of letting CSS wrap.
   // Guarantees the visible text breaks at the same positions pretext uses for the caret.
@@ -985,9 +1132,71 @@ export function Composer({
   })
   const canSend = canSendBase && !isSendInFlight
 
+  // Buffering only runs on real threads. In the new-thread composer we don't
+  // have a stable target yet; forcing a staged payload through sendMessage's
+  // new-thread path would create the thread before the send attempt, which
+  // leaks state on failure and races with the user switching threads.
+  const inputBufferApplicable =
+    inputBufferSession && !hasActiveRun && editingMessage === null && activeThreadId !== null
+
+  // Buffered flush sends the merged payload directly via the send override so
+  // the user's in-progress draft (text typed AFTER staging) is never
+  // overwritten or cleared by the send pipeline.
+  const handleBufferedFlush = useCallback(
+    async (payload: ChatInputBufferPayload) => {
+      // Propagate sendMessage's boolean so the buffer hook can re-stage the
+      // payload when the send was skipped (in-flight lock, dedup) or failed
+      // outright. sourceThreadId pins the delivery to the thread where the
+      // payload was composed regardless of where the user is now.
+      return await sendMessage('normal', {
+        content: payload.content,
+        images: payload.images,
+        attachments: payload.attachments,
+        enabledSkillNames: payload.enabledSkillNames ?? null,
+        threadId: payload.sourceThreadId
+      })
+    },
+    [sendMessage]
+  )
+
+  const inputBuffer = useChatInputBuffer({ onFlush: handleBufferedFlush })
+
   const dispatchSend = useCallback(
     (mode: 'normal' | 'steer' | 'follow-up') => {
       if (inFlightSendIdRef.current !== null) return
+
+      if (mode === 'normal' && inputBufferApplicable && activeThreadId !== null) {
+        const trimmed = composerValue.trim()
+        const readyImages: MessageImageRecord[] = draftImages
+          .filter((img) => img.status === 'ready')
+          .map((img) => ({
+            dataUrl: img.dataUrl,
+            mediaType: img.mediaType,
+            ...(img.filename !== undefined ? { filename: img.filename } : {})
+          }))
+        const readyAttachments: SendChatAttachment[] = draftFiles
+          .filter((file) => file.status === 'ready')
+          .map((file) => ({
+            filename: file.filename,
+            mediaType: file.mediaType,
+            dataUrl: file.dataUrl
+          }))
+        if (trimmed.length === 0 && readyImages.length === 0 && readyAttachments.length === 0) {
+          return
+        }
+        inputBuffer.stage({
+          sourceThreadId: activeThreadId,
+          content: trimmed,
+          images: readyImages,
+          attachments: readyAttachments,
+          enabledSkillNames: composerDraft.enabledSkillNames
+        })
+        setComposerValue('')
+        for (const img of draftImages) removeComposerImage(img.id)
+        for (const file of draftFiles) removeComposerFile(file.id)
+        return
+      }
+
       const sendId =
         typeof crypto !== 'undefined' && 'randomUUID' in crypto
           ? crypto.randomUUID()
@@ -1005,8 +1214,40 @@ export function Composer({
         }
       })()
     },
-    [sendMessage]
+    [
+      activeThreadId,
+      composerDraft.enabledSkillNames,
+      composerValue,
+      draftFiles,
+      draftImages,
+      inputBuffer,
+      inputBufferApplicable,
+      removeComposerFile,
+      removeComposerImage,
+      sendMessage,
+      setComposerValue
+    ]
   )
+
+  // When buffering stops being applicable (settings toggle off, active run
+  // kicked off, user starts editing) or the user navigates away from the
+  // staging thread, move the staged payload back into its source thread's
+  // draft so no content is ever silently dropped. `payload.sourceThreadId`
+  // is captured at stage time so the merge lands on the correct thread even
+  // if `activeThreadId` has already advanced.
+  useEffect(() => {
+    if (!inputBuffer.staged) return
+    const payload = inputBuffer.staged
+    const navigatedAway = payload.sourceThreadId !== activeThreadId
+    if (!inputBufferApplicable || navigatedAway) {
+      inputBuffer.cancel()
+      mergeBufferedPayloadIntoDraft(payload, payload.sourceThreadId)
+    }
+  }, [activeThreadId, inputBufferApplicable, inputBuffer, mergeBufferedPayloadIntoDraft])
+
+  const toggleInputBufferSession = useCallback(() => {
+    setInputBufferSession((v) => !v)
+  }, [])
   const activeRunEnterBehavior =
     config?.chat?.activeRunEnterBehavior ?? DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
   const primarySendMode = hasActiveRun
@@ -1692,6 +1933,19 @@ export function Composer({
         clearGoalX()
       }
 
+      // Cmd/Ctrl+Enter forces an immediate flush of any staged buffer so the
+      // user can bypass the merge window without disabling buffering.
+      if (
+        event.key === 'Enter' &&
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        inputBuffer.staged
+      ) {
+        event.preventDefault()
+        inputBuffer.flushNow()
+        return
+      }
+
       const action = resolveComposerEnterAction({
         activeRunEnterBehavior,
         event: {
@@ -1725,6 +1979,7 @@ export function Composer({
       handleSlashCommandSelect,
       hasActiveRun,
       isComposing,
+      inputBuffer,
       matchingSlashCommands,
       dismissSlashPopup,
       dispatchSend,
@@ -1910,6 +2165,15 @@ export function Composer({
             Cancel
           </button>
         </div>
+      ) : null}
+      {inputBuffer.staged ? (
+        <StagedInputBufferBubble
+          staged={inputBuffer.staged}
+          progress={inputBuffer.progress}
+          remainingMs={inputBuffer.remainingMs}
+          onSendNow={inputBuffer.flushNow}
+          onCancel={inputBuffer.cancel}
+        />
       ) : null}
       {draftImages.length > 0 || draftFiles.length > 0 ? (
         <div className="composer-image-strip">
@@ -2288,6 +2552,31 @@ export function Composer({
             ) : null}
           </div>
         )}
+
+        {inputBufferDurable ? (
+          <Tooltip
+            content={
+              inputBufferSession
+                ? 'Buffering on · merges rapid messages before send'
+                : 'Buffering off · send immediately'
+            }
+            placement="top"
+          >
+            <button
+              type="button"
+              onClick={toggleInputBufferSession}
+              className="relative p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity"
+              aria-label="Toggle input buffering"
+              aria-pressed={inputBufferSession}
+            >
+              <Timer
+                size={16}
+                strokeWidth={1.5}
+                color={inputBufferSession ? theme.icon.accent : theme.icon.muted}
+              />
+            </button>
+          </Tooltip>
+        ) : null}
 
         <div
           ref={workspaceSelectorRef}

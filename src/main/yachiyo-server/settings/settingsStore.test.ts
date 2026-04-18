@@ -52,7 +52,8 @@ test('settings store persists multi-provider config as TOML', async () => {
       chat: {
         activeRunEnterBehavior: 'enter-queues-follow-up',
         stripCompact: true,
-        autoMemoryDistillation: true
+        autoMemoryDistillation: true,
+        inputBufferEnabled: true
       },
       workspace: {
         savedPaths: ['/Users/ringo/projects/yachiyo', '/Users/ringo/projects/handshake']
@@ -469,7 +470,8 @@ test('normalizeSettingsConfig falls back to the default active-run input behavio
   assert.deepEqual(normalizeSettingsConfig({ providers: [] }).chat, {
     activeRunEnterBehavior: 'enter-steers',
     stripCompact: true,
-    autoMemoryDistillation: true
+    autoMemoryDistillation: true,
+    inputBufferEnabled: false
   })
 
   assert.deepEqual(
@@ -482,7 +484,8 @@ test('normalizeSettingsConfig falls back to the default active-run input behavio
     {
       activeRunEnterBehavior: 'enter-steers',
       stripCompact: true,
-      autoMemoryDistillation: true
+      autoMemoryDistillation: true,
+      inputBufferEnabled: false
     }
   )
 })
@@ -1266,7 +1269,8 @@ test('normalization preserves every ChatConfig key', () => {
   const sentinel: Required<ChatConfig> = {
     activeRunEnterBehavior: 'enter-queues-follow-up',
     stripCompact: false,
-    autoMemoryDistillation: false
+    autoMemoryDistillation: false,
+    inputBufferEnabled: true
   }
   const result = normalizeSettingsConfig({ providers: [], chat: sentinel })
   assertKeysPreserved(result.chat, sentinel, 'ChatConfig')
