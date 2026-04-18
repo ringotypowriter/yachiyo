@@ -145,6 +145,8 @@ export interface ExecuteRunInput {
     | 'cacheReadTokens'
     | 'cacheWriteTokens'
   >
+  /** True when this leg continues from a prior steer/restart within the same run. */
+  isSteerLeg?: boolean
   /** Snapshot tracker carried over from a prior steer/restart leg. */
   snapshotTracker?: SnapshotTracker
 }
@@ -1330,7 +1332,7 @@ export async function executeServerRun(
     // retries and multi-step continuations produce byte-identical reminder text,
     // keeping the cached prefix stable within a turn.
     const hintTime = requestMessage?.createdAt ? new Date(requestMessage.createdAt) : now
-    const isSteerLeg = input.priorUsage != null
+    const isSteerLeg = input.isSteerLeg === true || input.priorUsage != null
     const hiddenQueryReminder = formatQueryReminder(
       [
         buildDisabledToolsReminderSection({ enabledTools: modelEnabledTools }),
@@ -1389,7 +1391,10 @@ export async function executeServerRun(
 
     let memoryEntries: string[] = []
     let recallDecision: RecallDecisionSnapshot | undefined
-    if (deps.buildMemoryLayerEntries && !isGuest) {
+    // Steer legs continue the same turn — the opening leg already recalled for
+    // this request, so re-running recall here would double-inject memory and
+    // inflate the cached prefix without any new signal.
+    if (deps.buildMemoryLayerEntries && !isGuest && !isSteerLeg) {
       try {
         const result = await deps.buildMemoryLayerEntries({
           requestMessageId: input.requestMessageId,

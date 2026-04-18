@@ -2345,6 +2345,91 @@ test('YachiyoServer accepts active-run steer as an ordinary message and forwards
   )
 })
 
+test('YachiyoServer does not run memory recall on a steer leg', async () => {
+  const recalledQueries: string[] = []
+  let attempt = 0
+  let markReady: (() => void) | null = null
+  const ready = new Promise<void>((resolve) => {
+    markReady = resolve
+  })
+  let markSteerQueued: (() => void) | null = null
+  const steerQueued = new Promise<void>((resolve) => {
+    markSteerQueued = resolve
+  })
+
+  await withServer(
+    async ({ completeRun, server }) => {
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Plan the deploy'
+      })
+      assertAcceptedHasUserMessage(accepted)
+
+      await ready
+
+      const steerAccepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Actually use the staging plan',
+        mode: 'steer'
+      })
+
+      markSteerQueued!()
+      await completeRun(accepted.runId)
+
+      assert.equal(steerAccepted.kind, 'active-run-steer-pending')
+      assert.deepEqual(
+        recalledQueries,
+        ['Plan the deploy'],
+        'recall should fire only for the opening leg, never for the steer continuation'
+      )
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply() {
+          if (attempt === 0) {
+            attempt += 1
+            yield 'Partial'
+            markReady?.()
+            await steerQueued
+            return
+          }
+
+          yield 'Steered'
+          yield ' reply'
+        }
+      }),
+      memoryService: {
+        hasHiddenSearchCapability: () => true,
+        isConfigured: () => true,
+        searchMemories: async () => [],
+        testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+        recallForContext: async ({ thread, userQuery }) => {
+          recalledQueries.push(userQuery)
+          return {
+            decision: {
+              shouldRecall: true,
+              score: 1,
+              reasons: ['thread-cold-start'],
+              messagesSinceLastRecall: 1,
+              charsSinceLastRecall: userQuery.length,
+              idleMs: 0,
+              noveltyScore: 0.8,
+              novelTerms: ['deploy']
+            },
+            entries: ['Deploy workflow: Always run the staging smoke test first.'],
+            thread
+          }
+        },
+        createMemory: async () => ({ savedCount: 0 }),
+        validateAndCreateMemory: async () => ({ savedCount: 0 }),
+        distillCompletedRun: async () => ({ savedCount: 0 }),
+        saveThread: async () => ({ savedCount: 0 })
+      }
+    }
+  )
+})
+
 test('YachiyoServer debounces duplicate sendChat requests for a fresh run', async () => {
   let now = new Date('2026-04-05T00:00:00.000Z')
 

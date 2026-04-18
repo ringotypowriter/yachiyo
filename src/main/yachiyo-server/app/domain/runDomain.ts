@@ -1581,6 +1581,7 @@ export class YachiyoServerRunDomain {
     let result: ExecuteRunResult = { kind: 'cancelled' }
     let accumulatedUsage: ExecuteRunInput['priorUsage'] | undefined
     let carriedSnapshotTracker: SnapshotTracker | undefined
+    let isSteerLeg = false
 
     try {
       while (true) {
@@ -1789,6 +1790,7 @@ export class YachiyoServerRunDomain {
             thread: currentThread,
             updateHeadOnComplete: input.updateHeadOnComplete,
             ...(accumulatedUsage ? { priorUsage: accumulatedUsage } : {}),
+            ...(isSteerLeg ? { isSteerLeg: true } : {}),
             ...(passTracker ? { snapshotTracker: passTracker } : {})
           }
         )
@@ -1957,6 +1959,7 @@ export class YachiyoServerRunDomain {
                 (accumulatedUsage?.cacheWriteTokens ?? 0) + (u.cacheWriteTokens ?? 0)
             }
           }
+          isSteerLeg = true
           continue
         }
 
@@ -2021,6 +2024,7 @@ export class YachiyoServerRunDomain {
         activeRun.requestMessageId = nextRequestMessageId
         currentRequestMessageId = nextRequestMessageId
         currentThread = this.deps.requireThread(input.thread.id)
+        isSteerLeg = true
         this.emitThreadStateReplaced(currentThread.id)
       }
     } catch (error) {
