@@ -1,13 +1,16 @@
 import { tool, type Tool } from 'ai'
 
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, realpath, stat, writeFile } from 'node:fs/promises'
+import { isAbsolute, relative } from 'node:path'
 
 import type { EditToolCallDetails } from '../../../../shared/yachiyo/protocol.ts'
 
 import {
   countNewlines,
   countOccurrences,
+  expandTilde,
   type AgentToolContext,
+  type EditSpec,
   type EditToolInput,
   type EditToolOutput,
   editToolInputSchema,
@@ -31,11 +34,26 @@ function findAllMatchPositions(haystack: string, needle: string): number[] {
 
 export function createTool(context: AgentToolContext): Tool<EditToolInput, EditToolOutput> {
   return tool({
-    description: `Edit an existing text file with a targeted oldText -> newText replacement. Relative paths resolve from ${context.workspacePath}. The edit fails when oldText is missing or ambiguous. Set replace_all to true to replace every occurrence. You must read the file before editing it.`,
+    description: `Edit an existing text file. Three input shapes are supported. (1) Inline replacement: \`{ oldText, newText, replace_all? }\` — best for short surgical edits where the match is stable. (2) Line-range replacement: \`{ replaceLines: { start, end }, newText }\` — addresses lines by position (1-indexed, inclusive) using the same coordinates the read tool returned. Prefer this for multi-line block rewrites where reproducing exact whitespace via oldText is error-prone. (3) Batched inline edits: \`{ edits: [{ oldText, newText, replace_all? }, ...] }\` — applies multiple inline edits to the same file atomically. Relative paths resolve from ${context.workspacePath}; files outside the workspace require an absolute path. Every shape requires you to have read the target region first.`,
     inputSchema: editToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) => runEditTool(input, context, options)
   })
+}
+
+function normalizeEdits(input: Exclude<EditToolInput, { replaceLines: unknown }>): EditSpec[] {
+  if ('edits' in input) return input.edits
+  return [{ oldText: input.oldText, newText: input.newText, replace_all: input.replace_all }]
+}
+
+function isInputEffectivelyAbsolute(rawPath: string): boolean {
+  const unquoted = rawPath.trim().replace(/^(['"`])(.*)\1$/, '$2')
+  return isAbsolute(expandTilde(unquoted))
+}
+
+function isPathInsideWorkspace(workspacePath: string, resolvedPath: string): boolean {
+  const rel = relative(workspacePath, resolvedPath)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
 function buildEditDiff(
@@ -120,39 +138,88 @@ export async function runEditTool(
     resolveToolPath(context.workspacePath, input.path)
   )
 
+  // --- Fast-path absolute-path-outside-workspace guard (pre-stat) ---
+  // Cheap string-level check catches obvious `..` escapes before any filesystem I/O.
+  // The realpath-based check below handles the symlink case.
+  if (
+    !isInputEffectivelyAbsolute(input.path) &&
+    !isPathInsideWorkspace(context.workspacePath, resolvedPath)
+  ) {
+    return createEditResult(
+      resolvedPath,
+      { path: resolvedPath, replacements: 0 },
+      `Relative path \`${input.path}\` escapes the workspace. Use an absolute path to edit files outside ${context.workspacePath}.`
+    )
+  }
+
+  // --- Explicit file existence + type checks ---
+  try {
+    const info = await stat(resolvedPath)
+    if (!info.isFile()) {
+      return createEditResult(
+        resolvedPath,
+        { path: resolvedPath, replacements: 0 },
+        `\`${resolvedPath}\` is not a regular file.`
+      )
+    }
+  } catch (err) {
+    if (err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
+      return createEditResult(
+        resolvedPath,
+        { path: resolvedPath, replacements: 0 },
+        `File not found at \`${resolvedPath}\`.`
+      )
+    }
+    return createEditResult(
+      resolvedPath,
+      { path: resolvedPath, replacements: 0 },
+      err instanceof Error ? err.message : 'Unable to access file.'
+    )
+  }
+
+  // --- Symlink-aware workspace escape guard (post-stat) ---
+  // stat() and writeFile() follow symlinks, so a relative `link.txt` that points outside
+  // the workspace would slip past the string-only check above. Canonicalize both sides
+  // via realpath and re-check containment. Only enforced for relative inputs — absolute
+  // paths are an explicit, opt-in escape hatch.
+  if (!isInputEffectivelyAbsolute(input.path)) {
+    try {
+      const [realResolved, realWorkspace] = await Promise.all([
+        realpath(resolvedPath),
+        realpath(context.workspacePath)
+      ])
+      if (!isPathInsideWorkspace(realWorkspace, realResolved)) {
+        return createEditResult(
+          resolvedPath,
+          { path: resolvedPath, replacements: 0 },
+          `Relative path \`${input.path}\` resolves outside the workspace via a symlink. Use an absolute path to edit files outside ${context.workspacePath}.`
+        )
+      }
+    } catch (err) {
+      return createEditResult(
+        resolvedPath,
+        { path: resolvedPath, replacements: 0 },
+        err instanceof Error ? err.message : 'Unable to canonicalize path.'
+      )
+    }
+  }
+
+  if ('replaceLines' in input) {
+    return runRangedEdit(resolvedPath, input, context, abortSignal)
+  }
+
+  const edits = normalizeEdits(input)
+  const batched = edits.length > 1
+  const editLabel = (i: number): string => (batched ? `Edit ${i + 1}: ` : '')
+
   try {
     const original = await readFile(resolvedPath, { encoding: 'utf8', signal: abortSignal })
-    const occurrences = countOccurrences(original, input.oldText)
 
-    if (occurrences === 0) {
-      return createEditResult(
-        resolvedPath,
-        {
-          path: resolvedPath,
-          replacements: 0
-        },
-        'Search text was not found in the target file.'
-      )
-    }
-
-    if (occurrences > 1 && !input.replace_all) {
-      return createEditResult(
-        resolvedPath,
-        {
-          path: resolvedPath,
-          replacements: 0
-        },
-        'Search text matched multiple locations. Make oldText more specific before retrying, or set replace_all to true.'
-      )
-    }
-
-    // --- Read-before-edit guard (range-aware) ---
-    // Check after locating matches so the error can report the exact lines.
-    const matchPositions = findAllMatchPositions(original, input.oldText)
-    const oldTextLineSpan = countNewlines(input.oldText) // 0 for single-line oldText
-    const matchStartLines = matchPositions.map((pos) => countNewlines(original.slice(0, pos)) + 1)
-    const firstChangedLine = matchStartLines[0]
-
+    // --- Read-before-edit guard ---
+    // Coverage requirements are derived from the ORIGINAL content: that's what the model
+    // actually saw when planning the batch. If an edit's oldText does not appear in the
+    // original at all (e.g., it targets content synthesized by an earlier edit), skip its
+    // coverage requirement here; the per-edit apply step will catch it cleanly.
     if (context.readRecordCache) {
       if (!context.readRecordCache.hasRecentRead(resolvedPath)) {
         return createEditResult(
@@ -161,18 +228,28 @@ export async function runEditTool(
           'You must read the file with the read tool before editing it. Read the file first, then retry.'
         )
       }
-      // Collect every line touched by every match (start through end of oldText).
-      const uncoveredLines: number[] = []
-      for (const startLine of matchStartLines) {
-        for (let line = startLine; line <= startLine + oldTextLineSpan; line++) {
-          if (!context.readRecordCache.coversLine(resolvedPath, line)) {
-            uncoveredLines.push(line)
+      const uncoveredLines = new Set<number>()
+      for (const edit of edits) {
+        const positions = findAllMatchPositions(original, edit.oldText)
+        if (positions.length === 0) continue
+        // In batched mode we must require coverage of EVERY occurrence: an earlier edit
+        // may consume occurrences ahead of the "first match", so the occurrence actually
+        // written by this edit at apply time is only knowable once the buffer has evolved.
+        // Requiring all-occurrences in batched mode closes that hole conservatively.
+        const requireAll = edit.replace_all || batched
+        const targets = requireAll ? positions : positions.slice(0, 1)
+        const span = countNewlines(edit.oldText)
+        for (const pos of targets) {
+          const startLine = countNewlines(original.slice(0, pos)) + 1
+          for (let line = startLine; line <= startLine + span; line++) {
+            if (!context.readRecordCache.coversLine(resolvedPath, line)) {
+              uncoveredLines.add(line)
+            }
           }
         }
       }
-      if (uncoveredLines.length > 0) {
-        // Deduplicate and sort for a clean message.
-        const unique = [...new Set(uncoveredLines)].sort((a, b) => a - b)
+      if (uncoveredLines.size > 0) {
+        const unique = [...uncoveredLines].sort((a, b) => a - b)
         const lineList =
           unique.length <= 5
             ? unique.join(', ')
@@ -189,28 +266,70 @@ export async function runEditTool(
       await context.snapshotTracker.trackBeforeWrite(resolvedPath)
     }
 
-    const nextContent = input.replace_all
-      ? original.replaceAll(input.oldText, input.newText)
-      : original.replace(input.oldText, input.newText)
-    await writeFile(resolvedPath, nextContent, { encoding: 'utf8', signal: abortSignal })
+    let content = original
+    const hunks: string[] = []
+    let totalReplacements = 0
+    let firstChangedLineOverall: number | undefined
 
-    const matchStart = matchPositions[0]
-    let diff: string | undefined
-    if (occurrences === 1) {
-      diff = buildEditDiff(
-        resolvedPath,
-        original,
-        nextContent,
-        matchStart,
-        input.oldText,
-        input.newText
-      ).diff
+    for (let i = 0; i < edits.length; i++) {
+      const edit = edits[i]
+      const occurrences = countOccurrences(content, edit.oldText)
+
+      if (occurrences === 0) {
+        return createEditResult(
+          resolvedPath,
+          { path: resolvedPath, replacements: 0 },
+          `${editLabel(i)}Search text was not found in the ${batched ? 'current file state (a prior edit may have altered it).' : 'target file.'}`
+        )
+      }
+      if (occurrences > 1 && !edit.replace_all) {
+        return createEditResult(
+          resolvedPath,
+          { path: resolvedPath, replacements: 0 },
+          `${editLabel(i)}Search text matched multiple locations. Make oldText more specific before retrying, or set replace_all to true.`
+        )
+      }
+
+      const pre = content
+      const matchStart = pre.indexOf(edit.oldText)
+      const next = edit.replace_all
+        ? pre.replaceAll(edit.oldText, edit.newText)
+        : pre.replace(edit.oldText, edit.newText)
+
+      if (occurrences === 1) {
+        const hunk = buildEditDiff(resolvedPath, pre, next, matchStart, edit.oldText, edit.newText)
+        hunks.push(hunk.diff)
+        firstChangedLineOverall = Math.min(
+          firstChangedLineOverall ?? hunk.firstChangedLine,
+          hunk.firstChangedLine
+        )
+      } else {
+        const startLine = countNewlines(pre.slice(0, matchStart)) + 1
+        firstChangedLineOverall = Math.min(firstChangedLineOverall ?? startLine, startLine)
+      }
+
+      totalReplacements += occurrences
+      content = next
     }
+
+    // Post-apply safety net: edits that collectively no-op (rare, but possible if a
+    // later edit reverses an earlier one, or every replacement substitutes identical text).
+    if (content === original) {
+      return createEditResult(
+        resolvedPath,
+        { path: resolvedPath, replacements: 0 },
+        'No net changes were produced by the provided edits.'
+      )
+    }
+
+    await writeFile(resolvedPath, content, { encoding: 'utf8', signal: abortSignal })
+
+    const diff = hunks.length > 0 ? hunks.join('\n\n') : undefined
 
     return createEditResult(resolvedPath, {
       path: resolvedPath,
-      replacements: occurrences,
-      firstChangedLine,
+      replacements: totalReplacements,
+      firstChangedLine: firstChangedLineOverall,
       ...(diff ? { diff } : {})
     })
   } catch (error) {
@@ -220,6 +339,132 @@ export async function runEditTool(
         path: resolvedPath,
         replacements: 0
       },
+      error instanceof Error ? error.message : 'Unable to edit file.'
+    )
+  }
+}
+
+async function runRangedEdit(
+  resolvedPath: string,
+  input: Extract<EditToolInput, { replaceLines: unknown }>,
+  context: AgentToolContext,
+  abortSignal: AbortSignal | undefined
+): Promise<EditToolOutput> {
+  const { start, end } = input.replaceLines
+  if (end < start) {
+    return createEditResult(
+      resolvedPath,
+      { path: resolvedPath, replacements: 0 },
+      `Invalid range: end (${end}) must be >= start (${start}).`
+    )
+  }
+
+  try {
+    const original = await readFile(resolvedPath, { encoding: 'utf8', signal: abortSignal })
+    const originalLines = original.length === 0 ? [] : original.split(/\r?\n/)
+    const totalLines = originalLines.length
+
+    if (start > totalLines) {
+      return createEditResult(
+        resolvedPath,
+        { path: resolvedPath, replacements: 0 },
+        `Range start ${start} is past end of file (file has ${totalLines} line${totalLines === 1 ? '' : 's'}).`
+      )
+    }
+    if (end > totalLines) {
+      return createEditResult(
+        resolvedPath,
+        { path: resolvedPath, replacements: 0 },
+        `Range end ${end} is past end of file (file has ${totalLines} line${totalLines === 1 ? '' : 's'}).`
+      )
+    }
+
+    // --- Read-before-edit guard (range-aware) ---
+    if (context.readRecordCache) {
+      if (!context.readRecordCache.hasRecentRead(resolvedPath)) {
+        return createEditResult(
+          resolvedPath,
+          { path: resolvedPath, replacements: 0 },
+          'You must read the file with the read tool before editing it. Read the file first, then retry.'
+        )
+      }
+      const uncoveredLines: number[] = []
+      for (let line = start; line <= end; line++) {
+        if (!context.readRecordCache.coversLine(resolvedPath, line)) {
+          uncoveredLines.push(line)
+        }
+      }
+      if (uncoveredLines.length > 0) {
+        const lineList =
+          uncoveredLines.length <= 5
+            ? uncoveredLines.join(', ')
+            : `${uncoveredLines.slice(0, 5).join(', ')} and ${uncoveredLines.length - 5} more`
+        return createEditResult(
+          resolvedPath,
+          { path: resolvedPath, replacements: 0 },
+          `The edit targets line${uncoveredLines.length > 1 ? 's' : ''} ${lineList}, but your most recent read did not cover that region. Read the relevant section first (use offset), then retry.`
+        )
+      }
+    }
+
+    if (context.snapshotTracker) {
+      await context.snapshotTracker.trackBeforeWrite(resolvedPath)
+    }
+
+    // Preserve the file's existing line-ending style. If the file uses CRLF anywhere,
+    // rebuild with CRLF; otherwise LF. Prevents a ranged edit from silently converting
+    // every untouched line's line-ending on a CRLF file.
+    const eol = original.includes('\r\n') ? '\r\n' : '\n'
+
+    // Splice the range. originalLines is 0-indexed; input range is 1-indexed inclusive.
+    // newText from the model may use LF or CRLF; split tolerantly and rejoin with eol.
+    // Note: ''.split(/\r?\n/) === ['']. An empty newText therefore replaces the range with
+    // a single empty line — NOT zero lines — which preserves the file's trailing newline
+    // when the phantom last line (the empty element produced by a trailing \n) is targeted.
+    const newLines = input.newText.split(/\r?\n/)
+    const nextLines = [
+      ...originalLines.slice(0, start - 1),
+      ...newLines,
+      ...originalLines.slice(end)
+    ]
+    const nextContent = nextLines.join(eol)
+
+    if (nextContent === original) {
+      return createEditResult(
+        resolvedPath,
+        { path: resolvedPath, replacements: 0 },
+        'No changes: newText is identical to the current contents of the target range.'
+      )
+    }
+
+    await writeFile(resolvedPath, nextContent, { encoding: 'utf8', signal: abortSignal })
+
+    // Build a diff hunk using the existing helper. buildEditDiff splits on /\r?\n/ itself,
+    // so it works identically for LF and CRLF source.
+    const preSliceByteOffset = originalLines
+      .slice(0, start - 1)
+      .reduce((sum, line) => sum + line.length + eol.length, 0)
+    const oldSliceText = originalLines.slice(start - 1, end).join(eol)
+    const newSliceText = newLines.join(eol)
+    const { diff } = buildEditDiff(
+      resolvedPath,
+      original,
+      nextContent,
+      preSliceByteOffset,
+      oldSliceText,
+      newSliceText
+    )
+
+    return createEditResult(resolvedPath, {
+      path: resolvedPath,
+      replacements: 1,
+      firstChangedLine: start,
+      diff
+    })
+  } catch (error) {
+    return createEditResult(
+      resolvedPath,
+      { path: resolvedPath, replacements: 0 },
       error instanceof Error ? error.message : 'Unable to edit file.'
     )
   }

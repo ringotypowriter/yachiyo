@@ -48,12 +48,40 @@ export const writeToolInputSchema = z.object({
   content: z.string()
 })
 
-export const editToolInputSchema = z.object({
-  path: z.string().min(1),
+export const editSpecSchema = z.object({
   oldText: z.string().min(1),
   newText: z.string(),
   replace_all: z.boolean().optional()
 })
+
+export const replaceLinesSchema = z.object({
+  start: z.number().int().min(1),
+  end: z.number().int().min(1)
+})
+
+export const editToolInputSchema = z.union([
+  z
+    .object({
+      path: z.string().min(1),
+      oldText: z.string().min(1),
+      newText: z.string(),
+      replace_all: z.boolean().optional()
+    })
+    .strict(),
+  z
+    .object({
+      path: z.string().min(1),
+      replaceLines: replaceLinesSchema,
+      newText: z.string()
+    })
+    .strict(),
+  z
+    .object({
+      path: z.string().min(1),
+      edits: z.array(editSpecSchema).min(1).max(50)
+    })
+    .strict()
+])
 
 export const bashToolInputSchema = z.object({
   command: z.string().min(1),
@@ -102,6 +130,7 @@ export const skillsReadToolInputSchema = z.object({
 
 export type ReadToolInput = z.infer<typeof readToolInputSchema>
 export type WriteToolInput = z.infer<typeof writeToolInputSchema>
+export type EditSpec = z.infer<typeof editSpecSchema>
 export type EditToolInput = z.infer<typeof editToolInputSchema>
 export type BashToolInput = z.infer<typeof bashToolInputSchema>
 export type JsReplToolInput = z.infer<typeof jsReplToolInputSchema>
