@@ -295,6 +295,9 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
       return { fields, codeBlocks }
     }
 
+    if (details.cwd) {
+      pushField(fields, 'cwd', details.cwd)
+    }
     if (details.timedOut) {
       pushField(fields, 'timed out', 'yes')
     }

@@ -2,6 +2,8 @@ import { tool, type Tool } from 'ai'
 
 import vm from 'node:vm'
 import { createRequire } from 'node:module'
+import { statSync } from 'node:fs'
+import { isAbsolute, resolve as resolvePath } from 'node:path'
 
 import type { JsReplToolCallDetails } from '../../../../shared/yachiyo/protocol.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
@@ -10,6 +12,7 @@ import type { WebSearchService } from '../../services/webSearch/webSearchService
 import {
   jsReplToolInputSchema,
   flattenToolContent,
+  resolvePathWithinWorkspace,
   type AgentToolContext,
   type AgentToolOutput,
   type JsReplToolInput,
@@ -56,12 +59,14 @@ export function createTool(
   // GC'd naturally when the run ends and the closure goes out of scope.
   let vmContext: vm.Context
   let timerTracker: TimerTracker
-  const toolBindings = buildToolBindings(context, dependencies)
+  const cwdRef: CwdRef = { value: context.workspacePath }
+  const toolBindings = buildToolBindings(context, dependencies, cwdRef)
 
   function resetContext(): void {
     timerTracker?.clearAll()
     timerTracker = new TimerTracker()
-    vmContext = createFreshContext(context.workspacePath, timerTracker, toolBindings)
+    cwdRef.value = context.workspacePath
+    vmContext = createFreshContext(context.workspacePath, cwdRef, timerTracker, toolBindings)
   }
 
   resetContext()
@@ -74,6 +79,8 @@ export function createTool(
       'Do not treat reset as a separate step or a sticky mode. ' +
       'Has access to `require()` for Node built-ins and project dependencies. ' +
       'Relative paths in fs operations resolve against the workspace.\n' +
+      'Optional `cwd` overrides the working directory for this call only; it must be a relative path inside the workspace — ' +
+      'absolute paths, `~`, and any `..` segments are rejected.\n' +
       'A `tools` object provides async access to built-in tools. ' +
       'Use `await` when calling tools — code is automatically wrapped in an async context. ' +
       'Each tool returns an object `{ content: string, error?: string }`, not a raw string.\n' +
@@ -86,6 +93,24 @@ export function createTool(
     inputSchema: jsReplToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: async (input): Promise<JsReplToolOutput> => {
+      // Validate cwd BEFORE resetting the VM context — a typo must not wipe
+      // persistent REPL state in the same call.
+      const cwdResolution = resolveCallCwd(context.workspacePath, input.cwd)
+      if ('error' in cwdResolution) {
+        const details: JsReplToolCallDetails = {
+          code: input.code,
+          error: cwdResolution.error,
+          ...(input.cwd ? { cwd: input.cwd } : {})
+        }
+        return {
+          content: textContent(cwdResolution.error),
+          details,
+          metadata: {},
+          error: cwdResolution.error
+        }
+      }
+      const callCwd = cwdResolution.resolved
+
       if (input.reset) {
         resetContext()
       }
@@ -99,11 +124,14 @@ export function createTool(
       const timeoutMs = (input.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000
       const code = relaxRequireBindings(input.code)
 
-      // Chdir to workspace so relative fs paths resolve correctly.
+      // Chdir to the resolved cwd so relative fs paths resolve correctly.
       // Held across both the sync vm.runInContext and any subsequent await
       // (tool calls are I/O-bound so Promise.race timeout works).
-      const previousCwd = process.cwd()
-      process.chdir(context.workspacePath)
+      const previousProcessCwd = process.cwd()
+      cwdRef.value = callCwd
+      vmContext.__dirname = callCwd
+      vmContext.__filename = callCwd + '/jsRepl.js'
+      process.chdir(callCwd)
       try {
         // Try running code directly first (preserves var/let/const in VM scope).
         // If it fails because of top-level await, retry wrapped in async IIFE.
@@ -170,7 +198,7 @@ export function createTool(
           error = String(err)
         }
       } finally {
-        process.chdir(previousCwd)
+        process.chdir(previousProcessCwd)
         // Clear all timers after each execution so scheduled handles cannot
         // outlive the tool call or pin the event loop after the run ends.
         timerTracker.clearAll()
@@ -197,7 +225,8 @@ export function createTool(
           : {}),
         ...(error ? { error } : {}),
         ...(timedOut ? { timedOut } : {}),
-        ...(input.reset ? { contextReset: true } : {})
+        ...(input.reset ? { contextReset: true } : {}),
+        ...(input.cwd ? { cwd: input.cwd } : {})
       }
 
       return {
@@ -269,38 +298,70 @@ function simplifyToolResult(output: AgentToolOutput): { content: string; error?:
 
 type ToolBinding = (input: unknown) => Promise<{ content: string; error?: string }>
 
+function rewriteRelativePath(input: unknown, cwd: string): unknown {
+  if (!input || typeof input !== 'object') return input
+  const copy = { ...(input as Record<string, unknown>) }
+  const path = copy.path
+  if (typeof path === 'string' && path.length > 0 && !isAbsolute(path) && !path.startsWith('~')) {
+    copy.path = resolvePath(cwd, path)
+  }
+  return copy
+}
+
+function singleQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
+
 function buildToolBindings(
   context: AgentToolContext,
-  dependencies: JsReplToolDependencies
+  dependencies: JsReplToolDependencies,
+  cwdRef: CwdRef
 ): Record<string, ToolBinding> {
   const enabled = new Set(context.enabledTools)
   const isEnabled = (name: string): boolean => !context.enabledTools || enabled.has(name as never)
 
   const bindings: Record<string, ToolBinding> = {}
+  const withCwd = (input: unknown): unknown => rewriteRelativePath(input, cwdRef.value)
 
   if (isEnabled('read')) {
-    bindings.read = async (input) => simplifyToolResult(await runReadTool(input as never, context))
+    bindings.read = async (input) =>
+      simplifyToolResult(await runReadTool(withCwd(input) as never, context))
   }
   if (isEnabled('write')) {
     bindings.write = async (input) =>
-      simplifyToolResult(await runWriteTool(input as never, context))
+      simplifyToolResult(await runWriteTool(withCwd(input) as never, context))
   }
   if (isEnabled('edit')) {
-    bindings.edit = async (input) => simplifyToolResult(await runEditTool(input as never, context))
+    bindings.edit = async (input) =>
+      simplifyToolResult(await runEditTool(withCwd(input) as never, context))
   }
   if (isEnabled('bash')) {
-    bindings.bash = async (input) => simplifyToolResult(await runBashTool(input as never, context))
+    bindings.bash = async (input) => {
+      const parsed = input as { command?: unknown }
+      const command = typeof parsed?.command === 'string' ? parsed.command : ''
+      // The shared bash tool runs commands in context.workspacePath. If the
+      // current call asked for a sub-cwd, prefix a `cd` so relative paths and
+      // external processes see that directory as their working dir.
+      const rewritten =
+        cwdRef.value !== context.workspacePath
+          ? {
+              ...(input as Record<string, unknown>),
+              command: `cd ${singleQuote(cwdRef.value)} && ${command}`
+            }
+          : input
+      return simplifyToolResult(await runBashTool(rewritten as never, context))
+    }
   }
 
   if (dependencies.searchService) {
     const searchService = dependencies.searchService
     if (isEnabled('grep')) {
       bindings.grep = async (input) =>
-        simplifyToolResult(await runGrepTool(input as never, context, { searchService }))
+        simplifyToolResult(await runGrepTool(withCwd(input) as never, context, { searchService }))
     }
     if (isEnabled('glob')) {
       bindings.glob = async (input) =>
-        simplifyToolResult(await runGlobTool(input as never, context, { searchService }))
+        simplifyToolResult(await runGlobTool(withCwd(input) as never, context, { searchService }))
     }
   }
 
@@ -315,8 +376,35 @@ function buildToolBindings(
   return bindings
 }
 
+interface CwdRef {
+  value: string
+}
+
+function resolveCallCwd(
+  workspacePath: string,
+  requested: string | undefined
+): { resolved: string } | { error: string } {
+  if (!requested) return { resolved: workspacePath }
+  const resolved = resolvePathWithinWorkspace(workspacePath, requested)
+  if (!resolved) {
+    return {
+      error: `Invalid cwd "${requested}" — must be a relative path inside the workspace (no "..", no absolute, no "~").`
+    }
+  }
+  try {
+    const info = statSync(resolved)
+    if (!info.isDirectory()) {
+      return { error: `Invalid cwd "${requested}" — not a directory.` }
+    }
+  } catch {
+    return { error: `Invalid cwd "${requested}" — directory does not exist.` }
+  }
+  return { resolved }
+}
+
 function createFreshContext(
   workspacePath: string,
+  cwdRef: CwdRef,
   timerTracker: TimerTracker,
   toolBindings: Record<string, (input: unknown) => Promise<{ content: string; error?: string }>>
 ): vm.Context {
@@ -325,7 +413,7 @@ function createFreshContext(
     require: contextRequire,
     __dirname: workspacePath,
     __filename: workspacePath + '/jsRepl.js',
-    process: { env: withInjectedEnv(process.env), cwd: () => workspacePath, argv: [] },
+    process: { env: withInjectedEnv(process.env), cwd: () => cwdRef.value, argv: [] },
     setTimeout: (cb: (...args: unknown[]) => void, ms?: number) =>
       timerTracker.trackedSetTimeout(cb, ms),
     setInterval: (cb: (...args: unknown[]) => void, ms?: number) =>

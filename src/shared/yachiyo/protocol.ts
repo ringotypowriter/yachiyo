@@ -328,6 +328,7 @@ export interface JsReplToolCallDetails {
   error?: string
   timedOut?: boolean
   contextReset?: boolean
+  cwd?: string
 }
 
 export interface GrepToolCallMatch {
