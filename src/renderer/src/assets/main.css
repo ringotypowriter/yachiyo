@@ -656,6 +656,32 @@ body > div:not(#root) {
   }
 }
 
+/* Thinking page teleprompter swap: fades in the next 4-line buffer. */
+@keyframes yachiyo-thinking-page-swap {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Thinking block unfold: opacity + subtle rise on mount.
+   No height transition — expand/collapse changes layout instantly so the
+   timeline doesn't pay a reflow tax while many thinking blocks coexist. */
+@keyframes yachiyo-thinking-fold-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* Streaming caret blink */
 @keyframes yachiyo-caret-blink {
   0%,

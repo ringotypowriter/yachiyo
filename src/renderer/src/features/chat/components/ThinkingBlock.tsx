@@ -3,6 +3,7 @@ import { Streamdown } from 'streamdown'
 import { mathPlugin } from '@renderer/lib/markdown/mathPlugin'
 import { code } from '@streamdown/code'
 import { theme } from '@renderer/theme/theme'
+import { useThinkingPager } from '../hooks/useThinkingPager'
 
 interface ThinkingBlockProps {
   reasoning: string
@@ -19,20 +20,14 @@ export function ThinkingBlock({
   const isExpanded = override && override.duringActive === isActive ? override.expanded : isActive
   const contentRef = useRef<HTMLDivElement>(null)
 
-  // Scroll to bottom while streaming
+  const page = useThinkingPager(reasoning, isActive)
+
   useEffect(() => {
-    if (isActive && contentRef.current) {
+    if (!isActive && contentRef.current) {
       contentRef.current.scrollTop = contentRef.current.scrollHeight
     }
-  }, [reasoning, isActive])
+  }, [isActive])
 
-  const animated = useMemo(
-    () =>
-      isActive
-        ? ({ sep: 'char', animation: 'slideUp', duration: 120, easing: 'ease-out' } as const)
-        : false,
-    [isActive]
-  )
   const plugins = useMemo(() => ({ math: mathPlugin, code }), [])
 
   if (!reasoning) return null
@@ -91,26 +86,40 @@ export function ThinkingBlock({
         </button>
 
         {isExpanded && (
-          <div
-            ref={contentRef}
-            className="px-3 pb-3 overflow-y-auto message-selectable"
-            style={{ maxHeight: '240px' }}
-          >
-            <div
-              className="streamdown-content message-selectable"
-              style={{ color: theme.text.tertiary }}
-            >
-              <Streamdown
-                isAnimating={isActive}
-                animated={animated}
-                caret={isActive ? 'circle' : undefined}
-                mode={isActive ? 'streaming' : 'static'}
-                controls={true}
-                plugins={plugins}
+          <div style={{ animation: 'yachiyo-thinking-fold-in 180ms ease-out' }}>
+            {isActive ? (
+              <div className="px-3 pb-3 streamdown-content" style={{ color: theme.text.tertiary }}>
+                <pre
+                  key={page.index}
+                  className="whitespace-pre-wrap wrap-break-word m-0"
+                  style={{
+                    fontFamily: 'inherit',
+                    fontSize: 'inherit',
+                    lineHeight: 'inherit',
+                    height: 'calc(1.6em * 4)',
+                    overflow: 'hidden',
+                    animation: 'yachiyo-thinking-page-swap 280ms ease-out'
+                  }}
+                >
+                  {page.text}
+                </pre>
+              </div>
+            ) : (
+              <div
+                ref={contentRef}
+                className="px-3 pb-3 overflow-y-auto message-selectable"
+                style={{ maxHeight: '240px' }}
               >
-                {reasoning}
-              </Streamdown>
-            </div>
+                <div
+                  className="streamdown-content message-selectable"
+                  style={{ color: theme.text.tertiary }}
+                >
+                  <Streamdown mode="static" controls={true} plugins={plugins}>
+                    {reasoning}
+                  </Streamdown>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
