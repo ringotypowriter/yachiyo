@@ -689,8 +689,25 @@ export class YachiyoServerRunDomain {
       }
 
       if (mode === 'steer') {
-        if (!this.activeRuns.get(activeRunId)?.requestMessageId) {
+        const activeRun = this.activeRuns.get(activeRunId)
+        if (!activeRun?.requestMessageId) {
           throw new Error('Wait for the handoff to finish before sending a new message.')
+        }
+        // Race guard: stop was already clicked, but the tool's long-running
+        // interval hasn't observed the abort yet. Writing pendingSteerInput now
+        // would attach it to a run heading down the plain-cancelled path, where
+        // it gets wiped when activeRuns is cleared. Route the steer through the
+        // follow-up queue so startQueuedFollowUpIfPresent picks it up.
+        if (activeRun.abortController.signal.aborted) {
+          return this.queueFollowUp({
+            content,
+            enabledTools,
+            enabledSkillNames,
+            images: enrichedImages,
+            attachments: fileAttachments,
+            messageId,
+            thread
+          })
         }
         return this.sendActiveRunSteer({
           activeRunId,

@@ -294,6 +294,124 @@ test('cancelling a run with a pending steer persists the steer but does not rest
   )
 })
 
+test('steer sent after cancel (tool still winding down) is persisted as a follow-up, not dropped', async () => {
+  let toolStarted: (() => void) | null = null
+  const toolStartedPromise = new Promise<void>((resolve) => {
+    toolStarted = resolve
+  })
+  let releaseFirstTool: (() => void) | null = null
+  const firstToolReleased = new Promise<void>((resolve) => {
+    releaseFirstTool = resolve
+  })
+
+  await withServer(
+    async ({ server, completeRun, bootstrap }) => {
+      await server.upsertProvider({
+        name: 'default',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: { enabled: ['gpt-5'], disabled: [] }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Run a slow command'
+      })
+
+      await toolStartedPromise
+
+      // Stop — plain cancel (no pending steer yet, so plain abort() is used)
+      await server.cancelRun({ runId: accepted.runId })
+
+      // Steer arrives AFTER cancel but BEFORE the tool's interval observes the
+      // abort. With the race guard in place, this must route through the
+      // follow-up queue instead of setting pendingSteerInput on a dying run.
+      const steerResult = await server.sendChat({
+        threadId: thread.id,
+        content: 'Do this instead',
+        mode: 'steer'
+      })
+      assert.equal(
+        steerResult.kind,
+        'active-run-follow-up',
+        'steer after abort should fall through to follow-up queue'
+      )
+
+      // Now let the tool actually exit so the run finishes cancelling.
+      releaseFirstTool!()
+
+      await completeRun(accepted.runId)
+
+      // The queued follow-up triggers a second run — wait for it to finish.
+      // It has the same threadId but a different runId, so wait for any
+      // subsequent run.completed / run.cancelled on this thread.
+      await new Promise<void>((resolve) => {
+        const unsub = server.subscribe((event) => {
+          if (
+            (event.type === 'run.completed' || event.type === 'run.cancelled') &&
+            (event as { threadId: string }).threadId === thread.id &&
+            (event as { runId: string }).runId !== accepted.runId
+          ) {
+            unsub()
+            resolve()
+          }
+        })
+      })
+
+      const bootstrapResult = await bootstrap()
+      const messages = bootstrapResult.messagesByThread[thread.id] ?? []
+
+      const steerMessage = messages.find(
+        (m) => m.role === 'user' && m.content === 'Do this instead'
+      )
+      assert.ok(steerMessage, 'steer content sent after abort must be persisted, not dropped')
+    },
+    {
+      createModelRuntime: (() => {
+        let attempt = 0
+        return () => ({
+          async *streamReply(request: ModelStreamRequest) {
+            if (attempt === 0) {
+              attempt += 1
+              yield 'Running command...'
+
+              request.onToolCallStart?.({
+                abortSignal: request.signal,
+                experimental_context: undefined,
+                functionId: undefined,
+                messages: request.messages,
+                metadata: undefined,
+                model: undefined,
+                stepNumber: 0,
+                toolCall: {
+                  input: { command: 'sleep 60' },
+                  toolCallId: 'tool-bash-race',
+                  toolName: 'bash'
+                }
+              } as never)
+
+              toolStarted?.()
+
+              // Crucially: do NOT react to the abort signal immediately.
+              // Wait until the test releases us — this models a tool whose
+              // own interval is still running when abort fires.
+              await firstToolReleased
+
+              const error = new Error('Aborted')
+              error.name = 'AbortError'
+              throw error
+            }
+
+            yield 'Acknowledged the redirect.'
+          }
+        })
+      })()
+    }
+  )
+})
+
 test('deleting the final reply after steer keeps earlier tool calls bound to the stopped assistant', async () => {
   let attempt = 0
   let markFirstAttemptReady: (() => void) | null = null
