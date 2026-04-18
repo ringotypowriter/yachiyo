@@ -1,7 +1,13 @@
 import { describe, it } from 'node:test'
 import { strict as assert } from 'node:assert'
+import type { Stats } from 'node:fs'
 
-import { resolveAssetUrl, buildAssetUrl, YACHIYO_ASSET_SCHEME } from './yachiyoAssetProtocol.ts'
+import {
+  resolveAssetUrl,
+  buildAssetUrl,
+  buildAssetCacheHeaders,
+  YACHIYO_ASSET_SCHEME
+} from './yachiyoAssetProtocol.ts'
 
 describe('yachiyoAssetProtocol.resolveAssetUrl', () => {
   it('resolves a valid absolute png path', () => {
@@ -90,6 +96,39 @@ describe('yachiyoAssetProtocol.resolveAssetUrl', () => {
 
   it('rejects malformed URLs', () => {
     assert.equal(resolveAssetUrl('not-a-url'), null)
+  })
+})
+
+describe('yachiyoAssetProtocol.buildAssetCacheHeaders', () => {
+  function fakeStats(mtimeMs: number, size: number): Stats {
+    return { mtime: new Date(mtimeMs), mtimeMs, size } as unknown as Stats
+  }
+
+  it('encodes mtime and size into a weak ETag', () => {
+    const headers = buildAssetCacheHeaders(fakeStats(1_700_000_000_123, 42))
+    assert.equal(headers.etag, 'W/"1700000000123-42"')
+  })
+
+  it('floors fractional mtimeMs to avoid ETag churn on unchanged files', () => {
+    const headers = buildAssetCacheHeaders(fakeStats(1_700_000_000_123.9, 42))
+    assert.equal(headers.etag, 'W/"1700000000123-42"')
+  })
+
+  it('changes ETag when mtime changes even if size is the same', () => {
+    const a = buildAssetCacheHeaders(fakeStats(1_700_000_000_000, 1024))
+    const b = buildAssetCacheHeaders(fakeStats(1_700_000_000_500, 1024))
+    assert.notEqual(a.etag, b.etag)
+  })
+
+  it('changes ETag when size changes even if mtime is the same', () => {
+    const a = buildAssetCacheHeaders(fakeStats(1_700_000_000_000, 1024))
+    const b = buildAssetCacheHeaders(fakeStats(1_700_000_000_000, 2048))
+    assert.notEqual(a.etag, b.etag)
+  })
+
+  it('emits an RFC 7231 HTTP-date for Last-Modified', () => {
+    const headers = buildAssetCacheHeaders(fakeStats(Date.UTC(2026, 3, 17, 12, 0, 0), 1))
+    assert.equal(headers.lastModified, 'Fri, 17 Apr 2026 12:00:00 GMT')
   })
 })
 

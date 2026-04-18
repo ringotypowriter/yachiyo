@@ -1,5 +1,6 @@
 import { protocol } from 'electron'
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
+import type { Stats } from 'node:fs'
 import { posix as posixPath, win32 as win32Path } from 'node:path'
 
 /**
@@ -110,6 +111,24 @@ export function buildAssetUrl(absPath: string): string | null {
   return `${YACHIYO_ASSET_SCHEME}://local/?p=${encodeURIComponent(absPath)}`
 }
 
+export interface AssetCacheHeaders {
+  etag: string
+  lastModified: string
+}
+
+/**
+ * Derive cache-validation headers from a file stat. The weak ETag combines
+ * mtime (ms) and size — enough to pick up any rewrite of the same path.
+ * Without this, the renderer's HTTP cache would happily serve the previous
+ * body when an agent overwrites a file and re-renders the same URL.
+ */
+export function buildAssetCacheHeaders(stats: Stats): AssetCacheHeaders {
+  return {
+    etag: `W/"${Math.floor(stats.mtimeMs)}-${stats.size}"`,
+    lastModified: stats.mtime.toUTCString()
+  }
+}
+
 /**
  * Register the scheme as privileged. MUST be called before `app.whenReady()`.
  */
@@ -139,13 +158,31 @@ export function installYachiyoAssetProtocolHandler(): void {
     }
 
     try {
+      const stats = await stat(parsed.absPath)
+      const { etag, lastModified } = buildAssetCacheHeaders(stats)
+
+      // Honor conditional GETs so the renderer can skip the readFile when
+      // the file hasn't changed since its last request.
+      const ifNoneMatch = request.headers.get('if-none-match')
+      if (ifNoneMatch && ifNoneMatch === etag) {
+        return new Response(null, {
+          status: 304,
+          headers: { ETag: etag, 'Last-Modified': lastModified }
+        })
+      }
+
       const data = await readFile(parsed.absPath)
       // Buffer is a Uint8Array subclass, which Response accepts directly.
       return new Response(new Uint8Array(data), {
         status: 200,
         headers: {
           'Content-Type': parsed.mimeType,
-          'Cache-Control': 'private, max-age=3600'
+          // no-cache (not no-store) — the renderer may keep a copy, but
+          // must revalidate every request so an overwrite of the same path
+          // is picked up the next time the same URL renders.
+          'Cache-Control': 'no-cache',
+          ETag: etag,
+          'Last-Modified': lastModified
         }
       })
     } catch (error) {
