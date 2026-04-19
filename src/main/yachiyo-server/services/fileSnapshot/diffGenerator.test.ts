@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
+import { hashWorkspacePath } from './casStore.ts'
 import { SnapshotTracker } from './snapshotTracker.ts'
 import { generateDiffForRun, revertFile, revertRun } from './diffGenerator.ts'
 
@@ -180,5 +181,47 @@ test('diffGenerator', async (t) => {
   await t.test('returns empty for unknown run', async () => {
     const changes = await generateDiffForRun(workspaceDir, 'nonexistent')
     assert.equal(changes.length, 0)
+  })
+
+  await t.test('survives a missing backup blob without blanking other entries', async () => {
+    const good = join(workspaceDir, 'keep.txt')
+    const broken = join(workspaceDir, 'orphan.txt')
+    await writeFile(good, 'good-original\n')
+    await writeFile(broken, 'broken-original\n')
+
+    const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+    await tracker.trackBeforeWrite(good)
+    await tracker.trackBeforeWrite(broken)
+
+    await writeFile(good, 'good-modified\n')
+    await writeFile(broken, 'broken-modified\n')
+    const snapshot = await tracker.finalize()
+
+    // Simulate the exact failure mode: an older run's backup blob gets
+    // swept while its snapshot index still references it.
+    const brokenEntry = snapshot.entries.find((e) => e.relativePath === 'orphan.txt')!
+    assert.ok(brokenEntry.backupHash)
+    const backupsDir = join(tempDir, 'file-history', hashWorkspacePath(workspaceDir), 'backups')
+    await unlink(join(backupsDir, brokenEntry.backupHash!))
+
+    const originalWarn = console.warn
+    const warnings: string[] = []
+    console.warn = (msg: string) => warnings.push(msg)
+    try {
+      const changes = await generateDiffForRun(workspaceDir, 'run-1')
+      const byPath = new Map(changes.map((c) => [c.relativePath, c]))
+      const goodChange = byPath.get('keep.txt')
+      const brokenChange = byPath.get('orphan.txt')
+      assert.ok(goodChange, 'healthy entry must still be reported')
+      assert.equal(goodChange!.status, 'modified')
+      assert.ok(goodChange!.diff.includes('+good-modified'))
+      assert.ok(brokenChange, 'entry with missing backup must still appear')
+      assert.equal(brokenChange!.status, 'modified')
+      assert.ok(brokenChange!.diff.includes('unavailable'))
+      assert.ok(brokenChange!.diff.includes('+broken-modified'))
+      assert.ok(warnings.some((w) => w.includes('Missing backup blob')))
+    } finally {
+      console.warn = originalWarn
+    }
   })
 })

@@ -41,6 +41,31 @@ function buildDeletedDiff(filePath: string, content: string): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * Read a CAS blob, returning null (with a warning) when the blob file is
+ * missing. A single orphaned blob must not blank the whole diff view.
+ */
+async function readBlobSafe(
+  workspaceHash: string,
+  hash: string,
+  relativePath: string,
+  kind: 'backup' | 'after'
+): Promise<string | null> {
+  try {
+    return (await readBlob(workspaceHash, hash)).toString('utf8')
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      console.warn(
+        `[snapshot] Missing ${kind} blob for ${relativePath} (hash ${hash.slice(0, 12)}…); entry will be marked unavailable.`
+      )
+      return null
+    }
+    throw err
+  }
+}
+
+const UNAVAILABLE_PLACEHOLDER = '<< original content unavailable — backup blob was pruned >>\n'
+
+/**
  * Generate file-by-file diffs for a completed run.
  *
  * For the latest run, compares each tracked file against the current workspace
@@ -67,9 +92,17 @@ export async function generateDiffForRun(
   const changes: FileChangeForReview[] = []
 
   for (const entry of snapshot.entries) {
-    const beforeContent = entry.backupHash
-      ? (await readBlob(workspaceHash, entry.backupHash)).toString('utf8')
-      : null
+    let beforeContent: string | null = null
+    let beforeUnavailable = false
+    if (entry.backupHash) {
+      beforeContent = await readBlobSafe(
+        workspaceHash,
+        entry.backupHash,
+        entry.relativePath,
+        'backup'
+      )
+      if (beforeContent === null) beforeUnavailable = true
+    }
 
     let afterContent: string | null = null
     if (isLatest) {
@@ -80,17 +113,24 @@ export async function generateDiffForRun(
       } catch {
         afterContent = null
       }
-    } else {
+    } else if (entry.afterHash) {
       // Historical diff: use the stored after-state from when the run completed.
-      afterContent = entry.afterHash
-        ? (await readBlob(workspaceHash, entry.afterHash)).toString('utf8')
-        : null
+      afterContent = await readBlobSafe(workspaceHash, entry.afterHash, entry.relativePath, 'after')
     }
 
     // If the file has been restored to its pre-run state, skip it.
-    if (beforeContent === afterContent) continue
+    if (!beforeUnavailable && beforeContent === afterContent) continue
 
-    if (beforeContent === null && afterContent !== null) {
+    if (beforeUnavailable) {
+      // Original blob was pruned. Surface the current content with a banner
+      // instead of dropping the whole entry (and blanking the modal).
+      const rendered = afterContent ?? ''
+      changes.push({
+        relativePath: entry.relativePath,
+        status: 'modified',
+        diff: buildUnifiedDiff(entry.relativePath, UNAVAILABLE_PLACEHOLDER, rendered)
+      })
+    } else if (beforeContent === null && afterContent !== null) {
       changes.push({
         relativePath: entry.relativePath,
         status: 'created',

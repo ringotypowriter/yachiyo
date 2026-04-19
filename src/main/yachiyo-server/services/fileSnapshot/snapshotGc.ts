@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { resolveYachiyoFileHistoryDir } from '../../config/paths.ts'
@@ -10,6 +10,14 @@ import { deleteSnapshotIndex } from './snapshotIndex.ts'
 const MAX_SNAPSHOTS = 20
 /** Maximum age in milliseconds (7 days). */
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+/**
+ * Protect blobs created recently from the orphan sweep. Backup blobs are
+ * stored by `trackBeforeWrite` at the start of a run, but the snapshot index
+ * that references them is only written in `finalize()`. A concurrent run
+ * finishing between those two moments would otherwise delete blobs that
+ * belong to the in-flight run. One hour comfortably covers normal agent runs.
+ */
+const GC_GRACE_MS = 60 * 60 * 1000
 
 /**
  * Run garbage collection for a workspace's snapshots and backup blobs.
@@ -99,9 +107,19 @@ async function sweepOrphanBlobs(
     throw err
   }
 
+  const now = Date.now()
   for (const blobFile of blobFiles) {
-    if (!referencedHashes.has(blobFile)) {
-      await deleteBlob(workspaceHash, blobFile)
+    if (referencedHashes.has(blobFile)) continue
+    // Grace-period guard: a parallel run may have just stored this blob and
+    // not yet written its snapshot index. Deleting it would leave that run's
+    // snapshot with an unrecoverable backupHash.
+    try {
+      const st = await stat(join(backupsDir, blobFile))
+      if (now - st.mtimeMs < GC_GRACE_MS) continue
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue
+      throw err
     }
+    await deleteBlob(workspaceHash, blobFile)
   }
 }

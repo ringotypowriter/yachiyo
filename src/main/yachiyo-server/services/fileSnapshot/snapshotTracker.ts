@@ -76,13 +76,17 @@ async function globFiles(
     cachedGlob = fg.default.glob
   }
   if (signal?.aborted) return []
+  // followSymbolicLinks must be true: fast-glob with it set to false drops
+  // symlink entries entirely (returns []), so a file accessed through a
+  // symlinked path would never be baseline-backed. Loop and cost are bounded
+  // by `deep` and the SCAN_IGNORE list.
   return cachedGlob('**/*', {
     cwd,
     absolute: true,
     onlyFiles: true,
     deep,
     ignore,
-    followSymbolicLinks: false
+    followSymbolicLinks: true
   })
 }
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -353,6 +353,41 @@ test('SnapshotTracker', async (t) => {
       remaining.includes('run-gc-trigger.json'),
       'the freshly finalized snapshot should survive GC'
     )
+  })
+
+  await t.test('baseline captures symlinked files edited through the symlink', async () => {
+    // Simulates: the model edits a symlink inside the workspace whose target
+    // lives elsewhere, via a bash command that never fires a Layer 1/2 hook.
+    // The baseline must still have captured the pre-edit content so the run
+    // produces a real diff instead of either missing the file entirely or
+    // falsely marking it as "created".
+    const externalDir = join(tempDir, 'external')
+    await mkdir(externalDir, { recursive: true })
+    const target = join(externalDir, 'shared.py')
+    await writeFile(target, 'symlink-original\n')
+
+    const link = join(workspaceDir, 'linked.py')
+    await symlink(target, link)
+
+    const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+    tracker.startBaselineScan()
+    // Waiting on scanWorkspace() forces the baseline to finish first.
+    await tracker.scanWorkspace()
+
+    // Bash-style edit through the symlink — no trackBeforeWrite.
+    await writeFile(link, 'symlink-modified\n')
+
+    await tracker.scanWorkspace()
+    const snapshot = await tracker.finalize()
+
+    const entry = snapshot.entries.find((e) => e.relativePath === 'linked.py')
+    assert.ok(entry, 'symlinked file should appear in the snapshot')
+    assert.ok(entry.backupHash, 'baseline should have captured the pre-edit content')
+
+    const blob = await readBlob(tracker.workspaceHash, entry.backupHash!)
+    assert.equal(blob.toString('utf8'), 'symlink-original\n')
+
+    tracker.dispose()
   })
 
   await t.test('scanWorkspace skips blacklisted shared external directories', async () => {
