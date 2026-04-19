@@ -50,7 +50,13 @@ test('isTransientTransportError matches known network error codes', () => {
     'ETIMEDOUT',
     'ECONNREFUSED',
     'ENOTFOUND',
+    'ENETDOWN',
+    'ENETUNREACH',
+    'ENETRESET',
+    'EHOSTUNREACH',
     'ERR_CONNECTION_CLOSED',
+    'ERR_NETWORK_CHANGED',
+    'ERR_INTERNET_DISCONNECTED',
     'UND_ERR_SOCKET',
     'UND_ERR_CONNECT_TIMEOUT'
   ]
@@ -69,6 +75,13 @@ test('isTransientTransportError matches known network message signatures', () =>
     ),
     true
   )
+  // Chromium / Electron surfaces a network change mid-stream as ERR_NETWORK_CHANGED,
+  // sometimes only in the message. Wi-Fi → cellular handoff and VPN toggles also
+  // produce "network changed" / "network is unreachable" variants on the Node side.
+  assert.equal(isTransientTransportError(new Error('net::ERR_NETWORK_CHANGED')), true)
+  assert.equal(isTransientTransportError(new Error('net::ERR_INTERNET_DISCONNECTED')), true)
+  assert.equal(isTransientTransportError(new Error('fetch failed: network changed')), true)
+  assert.equal(isTransientTransportError(new Error('connect ENETUNREACH 1.2.3.4:443')), true)
 })
 
 test('isTransientTransportError defaults to false for unknown errors', () => {
