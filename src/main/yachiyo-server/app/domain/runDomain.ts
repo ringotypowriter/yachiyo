@@ -2090,7 +2090,7 @@ export class YachiyoServerRunDomain {
     thread: ThreadRecord
     sourceMessages: MessageRecord[]
   }): Promise<void> {
-    const settings = this.deps.readSettings()
+    const settings = toEffectiveProviderSettings(this.deps.readConfig(), input.thread.modelOverride)
     const runtime = this.deps.createModelRuntime()
     const messageId = this.deps.createId()
     const bufferParts: string[] = []

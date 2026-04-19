@@ -168,6 +168,7 @@ export class YachiyoServerThreadDomain {
       createdFromEssentialId?: string
       handoffFromThreadId?: string
       privacyMode?: boolean
+      modelOverride?: ThreadModelOverride
     } = {}
   ): Promise<ThreadRecord> {
     const timestamp = this.deps.timestamp()
@@ -186,7 +187,8 @@ export class YachiyoServerThreadDomain {
       ...(input.createdFromEssentialId
         ? { createdFromEssentialId: input.createdFromEssentialId }
         : {}),
-      ...(input.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {})
+      ...(input.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {}),
+      ...(input.modelOverride ? { modelOverride: input.modelOverride } : {})
     })
 
     if (workspacePath) {

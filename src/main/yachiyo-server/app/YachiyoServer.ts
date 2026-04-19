@@ -679,7 +679,8 @@ export class YachiyoServer {
       ...(sourceThread.channelUserId ? { channelUserId: sourceThread.channelUserId } : {}),
       ...(sourceThread.source && sourceThread.source !== 'local'
         ? { title: sourceThread.title }
-        : {})
+        : {}),
+      ...(sourceThread.modelOverride ? { modelOverride: sourceThread.modelOverride } : {})
     })
 
     // Auto-categorize: group source and destination under a folder

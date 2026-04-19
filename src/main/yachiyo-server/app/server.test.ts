@@ -7071,6 +7071,59 @@ test('YachiyoServer compacts a thread into a new assistant-first thread and allo
   )
 })
 
+test('YachiyoServer.compactThreadToAnotherThread inherits the source thread model override', async () => {
+  const requests: ModelStreamRequest[] = []
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const sourceThread = await server.createThread()
+      await server.setThreadModelOverride({
+        threadId: sourceThread.id,
+        modelOverride: { providerName: 'work', model: 'gpt-5' }
+      })
+      const sourceAccepted = await server.sendChat({
+        threadId: sourceThread.id,
+        content: 'Preserve the chosen model across handoff.'
+      })
+      await completeRun(sourceAccepted.runId)
+
+      const compacted = await server.compactThreadToAnotherThread({
+        threadId: sourceThread.id
+      })
+      await completeRun(compacted.runId)
+
+      assert.deepEqual(compacted.thread.modelOverride, {
+        providerName: 'work',
+        model: 'gpt-5'
+      })
+
+      const handoffRequest = requests.findLast((request) => request.purpose === 'thread-handoff')
+      assert.ok(handoffRequest)
+      assert.equal(handoffRequest.settings.model, 'gpt-5')
+      assert.equal(handoffRequest.settings.providerName, 'work')
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+          yield 'ok'
+        }
+      })
+    }
+  )
+})
+
 test('YachiyoServer allows changing a fresh handoff thread workspace before the first user continuation', async () => {
   await withServer(
     async ({ server, completeRun }) => {
