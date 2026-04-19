@@ -652,7 +652,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
         return 44
       case 'group-tool-call':
       case 'group-tool-call-group':
-        return 32
+        return 48
       case 'group-assistant-text-block':
         return Math.max(48, Math.ceil(item.textBlock.content.length / 80) * 22 + 16)
       case 'group-generating':
@@ -1299,7 +1299,8 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
                   top: 0,
                   left: 0,
                   width: '100%',
-                  transform: `translateY(${virtualRow.start}px)`
+                  transform: `translateY(${virtualRow.start}px)`,
+                  contain: 'content'
                 }}
               >
                 {renderTimelineItem(item)}
