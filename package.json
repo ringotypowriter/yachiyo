@@ -37,6 +37,8 @@
     "native:prepare": "node scripts/ensure-electron-native-deps.mjs",
     "native:rebuild": "pnpm exec electron-rebuild -f -w better-sqlite3",
     "search:download": "node scripts/download-search-binaries.mjs",
+    "skills:sync": "node scripts/sync-upstream-skill.mjs",
+    "skills:check": "node scripts/sync-upstream-skill.mjs --check",
     "test:server": "node scripts/run-server-tests.mjs",
     "test:server:native": "pnpm run native:prepare && ELECTRON_RUN_AS_NODE=1 electron --experimental-strip-types --test src/main/yachiyo-server/storage/sqlite/sqlite.native.test.ts",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
