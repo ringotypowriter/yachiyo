@@ -59,29 +59,45 @@ export const replaceLinesSchema = z.object({
   end: z.number().int().min(1)
 })
 
-export const editToolInputSchema = z.union([
-  z
-    .object({
-      path: z.string().min(1),
-      oldText: z.string().min(1),
-      newText: z.string(),
-      replace_all: z.boolean().optional()
-    })
-    .strict(),
-  z
-    .object({
-      path: z.string().min(1),
-      replaceLines: replaceLinesSchema,
-      newText: z.string()
-    })
-    .strict(),
-  z
-    .object({
-      path: z.string().min(1),
-      edits: z.array(editSpecSchema).min(1).max(50)
-    })
-    .strict()
-])
+export const editToolInputSchema = z
+  .object({
+    path: z.string().min(1),
+    oldText: z.string().min(1).optional(),
+    newText: z.string().optional(),
+    replace_all: z.boolean().optional(),
+    replaceLines: replaceLinesSchema.optional(),
+    edits: z.array(editSpecSchema).min(1).max(50).optional()
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    const hasInline = data.oldText !== undefined
+    const hasRange = data.replaceLines !== undefined
+    const hasBatch = data.edits !== undefined
+    const modes = [hasInline, hasRange, hasBatch].filter(Boolean).length
+    if (modes === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'Provide one of: (oldText + newText), (replaceLines + newText), or (edits). None were given.'
+      })
+    } else if (modes > 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'Provide exactly one of: (oldText + newText), (replaceLines + newText), or (edits). Multiple were given.'
+      })
+    } else if (hasInline && data.newText === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'newText is required when using oldText.'
+      })
+    } else if (hasRange && data.newText === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'newText is required when using replaceLines.'
+      })
+    }
+  })
 
 export const bashToolInputSchema = z.object({
   command: z.string().min(1),

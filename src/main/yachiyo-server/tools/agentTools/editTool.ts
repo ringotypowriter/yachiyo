@@ -41,9 +41,9 @@ export function createTool(context: AgentToolContext): Tool<EditToolInput, EditT
   })
 }
 
-function normalizeEdits(input: Exclude<EditToolInput, { replaceLines: unknown }>): EditSpec[] {
-  if ('edits' in input) return input.edits
-  return [{ oldText: input.oldText, newText: input.newText, replace_all: input.replace_all }]
+function normalizeEdits(input: EditToolInput): EditSpec[] {
+  if (input.edits) return input.edits
+  return [{ oldText: input.oldText!, newText: input.newText!, replace_all: input.replace_all }]
 }
 
 function isInputEffectivelyAbsolute(rawPath: string): boolean {
@@ -204,7 +204,7 @@ export async function runEditTool(
     }
   }
 
-  if ('replaceLines' in input) {
+  if (input.replaceLines) {
     return runRangedEdit(resolvedPath, input, context, abortSignal)
   }
 
@@ -346,11 +346,11 @@ export async function runEditTool(
 
 async function runRangedEdit(
   resolvedPath: string,
-  input: Extract<EditToolInput, { replaceLines: unknown }>,
+  input: EditToolInput,
   context: AgentToolContext,
   abortSignal: AbortSignal | undefined
 ): Promise<EditToolOutput> {
-  const { start, end } = input.replaceLines
+  const { start, end } = input.replaceLines!
   if (end < start) {
     return createEditResult(
       resolvedPath,
@@ -421,7 +421,7 @@ async function runRangedEdit(
     // Note: ''.split(/\r?\n/) === ['']. An empty newText therefore replaces the range with
     // a single empty line — NOT zero lines — which preserves the file's trailing newline
     // when the phantom last line (the empty element produced by a trailing \n) is targeted.
-    const newLines = input.newText.split(/\r?\n/)
+    const newLines = input.newText!.split(/\r?\n/)
     const nextLines = [
       ...originalLines.slice(0, start - 1),
       ...newLines,
