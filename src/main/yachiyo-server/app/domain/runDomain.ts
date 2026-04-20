@@ -63,6 +63,7 @@ import { assertSupportedImages, resolveEnabledTools } from './configDomain.ts'
 import { toEffectiveProviderSettings } from '../../settings/settingsStore.ts'
 import type { ModelUsage } from '../../runtime/types.ts'
 import { executeServerRun, type ExecuteRunInput, type ExecuteRunResult } from './runExecution.ts'
+import { ReadRecordCache } from '../../tools/agentTools.ts'
 import { SnapshotTracker } from '../../services/fileSnapshot/snapshotTracker.ts'
 import { runAcpChatThread } from '../../runtime/acp/acpChatRuntime.ts'
 import {
@@ -289,6 +290,7 @@ export class YachiyoServerRunDomain {
     }
   >()
   private readonly memoryScheduler: MemoryDistillationScheduler
+  private readonly readRecordCaches = new Map<string, ReadRecordCache>()
   private lastRunEnabledTools: ToolCallName[] | null
   private isClosing = false
 
@@ -370,6 +372,11 @@ export class YachiyoServerRunDomain {
     this.backgroundTitleTasks.clear()
     this.debouncedSendChats.clear()
     this.backgroundTaskRunContext.clear()
+    this.readRecordCaches.clear()
+  }
+
+  clearReadRecordCache(threadId: string): void {
+    this.readRecordCaches.delete(threadId)
   }
 
   private bindTerminalToolCallsToAssistant(input: {
@@ -1747,6 +1754,12 @@ export class YachiyoServerRunDomain {
         // exclusively — the finally block won't double-dispose a live tracker.
         const passTracker = carriedSnapshotTracker
         carriedSnapshotTracker = undefined
+        const threadId = currentThread.id
+        if (!this.readRecordCaches.has(threadId)) {
+          this.readRecordCaches.set(threadId, new ReadRecordCache())
+        }
+        const readRecordCache = this.readRecordCaches.get(threadId)!
+
         const isRecapRun = activeRun?.recap === true
         const recapStorage = isRecapRun
           ? createEphemeralStorageProxy(this.deps.storage)
@@ -1927,7 +1940,8 @@ export class YachiyoServerRunDomain {
             ...(accumulatedUsage ? { priorUsage: accumulatedUsage } : {}),
             ...(isSteerLeg ? { isSteerLeg: true } : {}),
             ...(passTracker ? { snapshotTracker: passTracker } : {}),
-            ...(isRecapRun ? { maxToolStepsOverride: 0 } : {})
+            ...(isRecapRun ? { maxToolStepsOverride: 0 } : {}),
+            readRecordCache
           }
         )
 

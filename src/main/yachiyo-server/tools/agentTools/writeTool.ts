@@ -1,6 +1,6 @@
 import { tool, type Tool } from 'ai'
 
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, stat, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
 import type { WriteToolCallDetails } from '../../../../shared/yachiyo/protocol.ts'
@@ -66,7 +66,17 @@ export async function runWriteTool(
   try {
     const exists = await hasAccess(resolvedPath)
 
-    if (exists && context.readRecordCache && !context.readRecordCache.hasRecentRead(resolvedPath)) {
+    const currentMtimeMs = exists
+      ? await stat(resolvedPath).then(
+          (s) => s.mtimeMs,
+          () => undefined
+        )
+      : undefined
+    if (
+      exists &&
+      context.readRecordCache &&
+      !context.readRecordCache.hasRecentRead(resolvedPath, currentMtimeMs)
+    ) {
       return createWriteResult(
         resolvedPath,
         { path: resolvedPath, bytesWritten: 0, created: false, overwritten: false },
@@ -80,6 +90,16 @@ export async function runWriteTool(
 
     await mkdir(dirname(resolvedPath), { recursive: true })
     await writeFile(resolvedPath, input.content, { encoding: 'utf8', signal: abortSignal })
+
+    if (context.readRecordCache) {
+      const newMtimeMs = await stat(resolvedPath).then(
+        (s) => s.mtimeMs,
+        () => undefined
+      )
+      if (newMtimeMs !== undefined) {
+        context.readRecordCache.refreshMtime(resolvedPath, newMtimeMs)
+      }
+    }
 
     return createWriteResult(resolvedPath, {
       path: resolvedPath,

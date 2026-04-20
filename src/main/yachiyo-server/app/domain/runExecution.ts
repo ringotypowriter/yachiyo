@@ -95,6 +95,7 @@ import {
   type DelegateCodingTaskProgressEvent,
   type DelegateCodingTaskStartedEvent,
   normalizeToolResult,
+  ReadRecordCache,
   summarizeToolInput
 } from '../../tools/agentTools.ts'
 import type {
@@ -151,6 +152,8 @@ export interface ExecuteRunInput {
   snapshotTracker?: SnapshotTracker
   /** Override the computed max tool steps. */
   maxToolStepsOverride?: number
+  /** Shared read-record cache, persisted across runs within the same thread. */
+  readRecordCache?: ReadRecordCache
 }
 
 export interface RestartRunReason {
@@ -1606,6 +1609,7 @@ export async function executeServerRun(
         workspacePath,
         sandboxed: isExternalChannel && !isOwnerDm,
         snapshotTracker,
+        readRecordCache: input.readRecordCache,
         ...(deps.onBackgroundBashStarted
           ? {
               onBackgroundBashStarted: async (task) => {

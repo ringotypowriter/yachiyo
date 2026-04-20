@@ -352,7 +352,8 @@ export class YachiyoServer {
       isThreadRunning: (threadId) => this.runDomain.hasActiveThread(threadId),
       auxiliaryGeneration,
       evictAcpIdleThread: (threadId) => acpProcessPool.evictThread(threadId),
-      cancelMemoryDistillation: (threadId) => this.runDomain.cancelMemoryDistillation(threadId)
+      cancelMemoryDistillation: (threadId) => this.runDomain.cancelMemoryDistillation(threadId),
+      clearReadRecordCache: (threadId) => this.runDomain.clearReadRecordCache(threadId)
     })
 
     this.folderDomain = new FolderDomain({

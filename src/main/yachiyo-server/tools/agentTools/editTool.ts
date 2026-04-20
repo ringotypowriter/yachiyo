@@ -221,7 +221,11 @@ export async function runEditTool(
     // original at all (e.g., it targets content synthesized by an earlier edit), skip its
     // coverage requirement here; the per-edit apply step will catch it cleanly.
     if (context.readRecordCache) {
-      if (!context.readRecordCache.hasRecentRead(resolvedPath)) {
+      const currentMtimeMs = await stat(resolvedPath).then(
+        (s) => s.mtimeMs,
+        () => undefined
+      )
+      if (!context.readRecordCache.hasRecentRead(resolvedPath, currentMtimeMs)) {
         return createEditResult(
           resolvedPath,
           { path: resolvedPath, replacements: 0 },
@@ -232,17 +236,13 @@ export async function runEditTool(
       for (const edit of edits) {
         const positions = findAllMatchPositions(original, edit.oldText)
         if (positions.length === 0) continue
-        // In batched mode we must require coverage of EVERY occurrence: an earlier edit
-        // may consume occurrences ahead of the "first match", so the occurrence actually
-        // written by this edit at apply time is only knowable once the buffer has evolved.
-        // Requiring all-occurrences in batched mode closes that hole conservatively.
         const requireAll = edit.replace_all || batched
         const targets = requireAll ? positions : positions.slice(0, 1)
         const span = countNewlines(edit.oldText)
         for (const pos of targets) {
           const startLine = countNewlines(original.slice(0, pos)) + 1
           for (let line = startLine; line <= startLine + span; line++) {
-            if (!context.readRecordCache.coversLine(resolvedPath, line)) {
+            if (!context.readRecordCache.coversLine(resolvedPath, line, currentMtimeMs)) {
               uncoveredLines.add(line)
             }
           }
@@ -324,6 +324,16 @@ export async function runEditTool(
 
     await writeFile(resolvedPath, content, { encoding: 'utf8', signal: abortSignal })
 
+    if (context.readRecordCache) {
+      const newMtimeMs = await stat(resolvedPath).then(
+        (s) => s.mtimeMs,
+        () => undefined
+      )
+      if (newMtimeMs !== undefined) {
+        context.readRecordCache.refreshMtime(resolvedPath, newMtimeMs)
+      }
+    }
+
     const diff = hunks.length > 0 ? hunks.join('\n\n') : undefined
 
     return createEditResult(resolvedPath, {
@@ -381,7 +391,11 @@ async function runRangedEdit(
 
     // --- Read-before-edit guard (range-aware) ---
     if (context.readRecordCache) {
-      if (!context.readRecordCache.hasRecentRead(resolvedPath)) {
+      const currentMtimeMs = await stat(resolvedPath).then(
+        (s) => s.mtimeMs,
+        () => undefined
+      )
+      if (!context.readRecordCache.hasRecentRead(resolvedPath, currentMtimeMs)) {
         return createEditResult(
           resolvedPath,
           { path: resolvedPath, replacements: 0 },
@@ -390,7 +404,7 @@ async function runRangedEdit(
       }
       const uncoveredLines: number[] = []
       for (let line = start; line <= end; line++) {
-        if (!context.readRecordCache.coversLine(resolvedPath, line)) {
+        if (!context.readRecordCache.coversLine(resolvedPath, line, currentMtimeMs)) {
           uncoveredLines.push(line)
         }
       }
@@ -438,6 +452,16 @@ async function runRangedEdit(
     }
 
     await writeFile(resolvedPath, nextContent, { encoding: 'utf8', signal: abortSignal })
+
+    if (context.readRecordCache) {
+      const newMtimeMs = await stat(resolvedPath).then(
+        (s) => s.mtimeMs,
+        () => undefined
+      )
+      if (newMtimeMs !== undefined) {
+        context.readRecordCache.refreshMtime(resolvedPath, newMtimeMs)
+      }
+    }
 
     // Build a diff hunk using the existing helper. buildEditDiff splits on /\r?\n/ itself,
     // so it works identically for LF and CRLF source.

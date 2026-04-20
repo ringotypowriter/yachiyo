@@ -61,6 +61,7 @@ interface ThreadDomainDeps {
   auxiliaryGeneration: AuxiliaryGenerationService
   evictAcpIdleThread: (threadId: string) => Promise<void>
   cancelMemoryDistillation?: (threadId: string) => void
+  clearReadRecordCache?: (threadId: string) => void
 }
 
 export interface RetryRequestResolution {
@@ -494,6 +495,7 @@ export class YachiyoServerThreadDomain {
     }
 
     this.deps.cancelMemoryDistillation?.(thread.id)
+    this.deps.clearReadRecordCache?.(thread.id)
     if (thread.runtimeBinding?.kind === 'acp') {
       await this.deps.evictAcpIdleThread(thread.id)
     }

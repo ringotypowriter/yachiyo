@@ -25,8 +25,14 @@ interface ReadRange {
   timestamp: number
 }
 
+interface FileEntry {
+  ranges: ReadRange[]
+  /** File mtime (ms) captured at read time. A later mtime invalidates all ranges. */
+  mtimeMs: number | undefined
+}
+
 export class ReadRecordCache {
-  private entries = new Map<string, ReadRange[]>()
+  private entries = new Map<string, FileEntry>()
   private readonly maxEntries: number
   private readonly stalenessMs: number
 
@@ -41,25 +47,26 @@ export class ReadRecordCache {
   /**
    * Record that lines [startLine, endLine] (1-based inclusive) of a file
    * were just read. Overlapping or adjacent ranges are merged automatically.
+   * If `mtimeMs` is provided, a later mtime will invalidate all prior ranges.
    */
-  recordRead(path: string, startLine: number, endLine: number): void {
-    // Empty range (e.g. offset past EOF) — nothing was actually seen.
+  recordRead(path: string, startLine: number, endLine: number, mtimeMs?: number): void {
     if (startLine > endLine) return
 
-    // Move to tail for LRU ordering.
     const existing = this.entries.get(path)
     this.entries.delete(path)
 
     const now = Date.now()
     const newRange: ReadRange = { startLine, endLine, timestamp: now }
 
-    if (!existing) {
-      this.entries.set(path, [newRange])
+    if (
+      !existing ||
+      (mtimeMs !== undefined && existing.mtimeMs !== undefined && mtimeMs !== existing.mtimeMs)
+    ) {
+      this.entries.set(path, { ranges: [newRange], mtimeMs })
     } else {
-      // Drop stale ranges, then merge with the new one.
-      const fresh = existing.filter((r) => now - r.timestamp < this.stalenessMs)
+      const fresh = existing.ranges.filter((r) => now - r.timestamp < this.stalenessMs)
       fresh.push(newRange)
-      this.entries.set(path, mergeRanges(fresh))
+      this.entries.set(path, { ranges: mergeRanges(fresh), mtimeMs: mtimeMs ?? existing.mtimeMs })
     }
 
     this.evict()
@@ -71,36 +78,60 @@ export class ReadRecordCache {
    * but `coversLine` will still return false for any line number since
    * there are no lines to cover.
    */
-  recordEmptyFileRead(path: string): void {
+  recordEmptyFileRead(path: string, mtimeMs?: number): void {
     this.entries.delete(path)
-    this.entries.set(path, [{ startLine: 0, endLine: 0, timestamp: Date.now() }])
+    this.entries.set(path, {
+      ranges: [{ startLine: 0, endLine: 0, timestamp: Date.now() }],
+      mtimeMs
+    })
     this.evict()
   }
 
   /**
    * Returns true if the given 1-based line number falls within a
    * recently-read range for this path.
+   * If `currentMtimeMs` is provided and differs from the recorded mtime,
+   * the file has been modified since the read — returns false.
    */
-  coversLine(path: string, line: number): boolean {
-    const ranges = this.getFreshRanges(path)
+  coversLine(path: string, line: number, currentMtimeMs?: number): boolean {
+    const ranges = this.getFreshRanges(path, currentMtimeMs)
     if (!ranges) return false
     return ranges.some((r) => line >= r.startLine && line <= r.endLine)
   }
 
   /**
    * Returns true if the path has any recent read record at all.
-   * Used by the write-overwrite guard (which doesn't need line precision).
+   * If `currentMtimeMs` is provided and differs from the recorded mtime,
+   * the file has been modified since the read — returns false.
    */
-  hasRecentRead(path: string): boolean {
-    const ranges = this.getFreshRanges(path)
+  /**
+   * Update the stored mtime for a path after a successful self-modification
+   * (edit/write), keeping existing ranges valid for the next mutation.
+   */
+  refreshMtime(path: string, newMtimeMs: number): void {
+    const entry = this.entries.get(path)
+    if (entry) {
+      entry.mtimeMs = newMtimeMs
+    }
+  }
+
+  hasRecentRead(path: string, currentMtimeMs?: number): boolean {
+    const ranges = this.getFreshRanges(path, currentMtimeMs)
     return ranges !== undefined && ranges.length > 0
   }
 
-  private getFreshRanges(path: string): ReadRange[] | undefined {
-    const ranges = this.entries.get(path)
-    if (!ranges) return undefined
+  private getFreshRanges(path: string, currentMtimeMs?: number): ReadRange[] | undefined {
+    const entry = this.entries.get(path)
+    if (!entry) return undefined
+    if (
+      currentMtimeMs !== undefined &&
+      entry.mtimeMs !== undefined &&
+      currentMtimeMs !== entry.mtimeMs
+    ) {
+      return undefined
+    }
     const now = Date.now()
-    const fresh = ranges.filter((r) => now - r.timestamp < this.stalenessMs)
+    const fresh = entry.ranges.filter((r) => now - r.timestamp < this.stalenessMs)
     return fresh.length > 0 ? fresh : undefined
   }
 

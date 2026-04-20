@@ -348,17 +348,16 @@ export async function runReadTool(
         ? `\n\n[truncated: continue with offset ${excerpt.nextOffset}]`
         : ''
 
-    // Record the range for the read-before-modify guard.
     if (context.readRecordCache) {
+      const mtimeMs = await stat(resolvedPath).then(
+        (s) => s.mtimeMs,
+        () => undefined
+      )
       if (lines.length === 0) {
-        // Empty file — the model saw everything (nothing). Mark as read so
-        // the write-overwrite guard passes.
-        context.readRecordCache.recordEmptyFileRead(resolvedPath)
+        context.readRecordCache.recordEmptyFileRead(resolvedPath, mtimeMs)
       } else {
-        // When only a byte-truncated fragment of the first line was returned,
-        // exclude it — the model hasn't seen the full line content.
         const guardEndLine = excerpt.byteTruncatedFirstLine ? details.endLine - 1 : details.endLine
-        context.readRecordCache.recordRead(resolvedPath, details.startLine, guardEndLine)
+        context.readRecordCache.recordRead(resolvedPath, details.startLine, guardEndLine, mtimeMs)
       }
     }
     return {
