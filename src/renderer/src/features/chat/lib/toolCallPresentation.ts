@@ -8,6 +8,7 @@ import type {
   ReadToolCallDetails,
   ToolCall,
   WebReadToolCallDetails,
+  WebSearchResultItem,
   WebSearchToolCallDetails,
   WriteToolCallDetails
 } from '../../../app/types.ts'
@@ -39,6 +40,7 @@ export interface ToolCallDetailCodeBlock {
 export interface ToolCallDetailsPresentation {
   fields: ToolCallDetailField[]
   codeBlocks: ToolCallDetailCodeBlock[]
+  searchResults?: WebSearchResultItem[]
 }
 
 const OUTPUT_TAIL_MAX_LINES = 12
@@ -405,26 +407,9 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
 
     pushField(fields, 'provider', details.provider)
     pushField(fields, 'query', details.query)
-    pushField(fields, 'search url', details.searchUrl)
-    pushField(fields, 'loaded url', details.finalUrl)
-    pushField(fields, 'results', details.resultCount)
     pushField(fields, 'failure code', details.failureCode)
-    // Full search result listing deferred to inspection panel; count shown in fields
-    pushCodeBlock(
-      codeBlocks,
-      'results',
-      details.results
-        .map((result) =>
-          [`${result.rank}. ${result.title}`, result.url, result.snippet ?? '']
-            .filter(Boolean)
-            .join('\n')
-        )
-        .join('\n\n'),
-      undefined,
-      'inspection'
-    )
 
-    return { fields, codeBlocks }
+    return { fields, codeBlocks, searchResults: details.results }
   }
 
   return { fields, codeBlocks }

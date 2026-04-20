@@ -32,6 +32,7 @@ export type {
   ToolCallRecord as ToolCall,
   ToolCallDetailsSnapshot,
   WebSearchBrowserImportSource,
+  WebSearchResultItem,
   WebSearchToolCallDetails,
   WriteToolCallDetails,
   WebReadToolCallDetails,

@@ -1,7 +1,12 @@
 import type React from 'react'
 import { Fragment, useId, useState } from 'react'
-import { ChevronRight } from 'lucide-react'
-import type { EditToolCallDetails, ToolCall, WriteToolCallDetails } from '@renderer/app/types'
+import { ChevronRight, ExternalLink } from 'lucide-react'
+import type {
+  EditToolCallDetails,
+  ToolCall,
+  WebSearchResultItem,
+  WriteToolCallDetails
+} from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { buildToolCallDetailsPresentation } from '../lib/toolCallPresentation.ts'
 import { ToolCodeBlock } from './ToolCodeBlock.tsx'
@@ -39,7 +44,9 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
   const presentation = buildToolCallDetailsPresentation(toolCall)
   // Only show secondary-tier blocks inline; inspection-tier blocks belong in the run inspector
   const secondaryCodeBlocks = presentation.codeBlocks.filter((b) => b.displayTier !== 'inspection')
-  const hasExpandableDetails = presentation.fields.length > 0 || secondaryCodeBlocks.length > 0
+  const hasSearchResults = (presentation.searchResults?.length ?? 0) > 0
+  const hasExpandableDetails =
+    presentation.fields.length > 0 || secondaryCodeBlocks.length > 0 || hasSearchResults
 
   const summaryContent = (
     <>
@@ -192,8 +199,97 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
               )}
             </div>
           ))}
+
+          {hasSearchResults ? <SearchResultsList results={presentation.searchResults!} /> : null}
         </div>
       ) : null}
+    </div>
+  )
+}
+
+function formatDisplayUrl(raw: string): string {
+  try {
+    const u = new URL(raw)
+    return u.hostname + (u.pathname !== '/' ? u.pathname : '')
+  } catch {
+    return raw
+  }
+}
+
+function SearchResultsList({ results }: { results: WebSearchResultItem[] }): React.JSX.Element {
+  return (
+    <div className="overflow-y-auto" style={{ maxHeight: '200px' }}>
+      {results.map((result, i) => (
+        <a
+          key={`${result.rank}-${result.url}`}
+          href={result.url}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => {
+            e.preventDefault()
+            window.open(result.url, '_blank', 'noreferrer')
+          }}
+          className="group flex items-start gap-2 py-1.5 no-underline"
+          style={{
+            borderTop: i > 0 ? `1px solid ${theme.border.subtle}` : undefined,
+            cursor: 'pointer'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = theme.background.hover
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent'
+          }}
+        >
+          <span
+            className="shrink-0 mt-px"
+            style={{
+              color: theme.text.placeholder,
+              fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
+              fontSize: '10px',
+              width: '12px',
+              textAlign: 'right'
+            }}
+          >
+            {result.rank}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1" style={{ lineHeight: 1.4 }}>
+              <span className="truncate" style={{ color: theme.text.accent, fontWeight: 500 }}>
+                {result.title}
+              </span>
+              <ExternalLink
+                size={9}
+                strokeWidth={1.6}
+                className="shrink-0 opacity-0 group-hover:opacity-100"
+                style={{ color: theme.text.placeholder, transition: 'opacity 0.1s ease' }}
+              />
+            </div>
+            <div
+              className="truncate"
+              style={{ color: theme.text.placeholder, fontSize: '10px', lineHeight: 1.3 }}
+            >
+              {formatDisplayUrl(result.url)}
+            </div>
+            {result.snippet ? (
+              <div
+                style={{
+                  color: theme.text.muted,
+                  fontSize: '10.5px',
+                  lineHeight: 1.4,
+                  marginTop: '1px',
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden'
+                }}
+              >
+                {result.snippet}
+              </div>
+            ) : null}
+          </div>
+        </a>
+      ))}
     </div>
   )
 }
