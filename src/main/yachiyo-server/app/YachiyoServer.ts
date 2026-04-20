@@ -838,6 +838,17 @@ export class YachiyoServer {
     })
   }
 
+  clearRecapText(input: { threadId: string }): void {
+    const thread = this.storage.getThread(input.threadId)
+    if (thread?.recapText) {
+      this.storage.updateThread({ ...thread, recapText: undefined })
+    }
+  }
+
+  async requestRecap(input: { threadId: string }): Promise<string | null> {
+    return this.runDomain.requestRecap(input)
+  }
+
   async sendChat(input: SendChatInput): Promise<ChatAccepted> {
     return this.runDomain.sendChat(input)
   }

@@ -140,6 +140,10 @@ const api = {
       ipcRenderer.invoke('yachiyo:restore-thread', input),
     saveToolPreferences: (input: ToolPreferencesInput) =>
       ipcRenderer.invoke('yachiyo:save-tool-preferences', input),
+    clearRecapText: (input: { threadId: string }) =>
+      ipcRenderer.invoke('yachiyo:clear-recap-text', input),
+    requestRecap: (input: { threadId: string }) =>
+      ipcRenderer.invoke('yachiyo:request-recap', input),
     sendChat: (input: SendChatInput) => ipcRenderer.invoke('yachiyo:send-chat', input),
     retryMessage: (input: RetryInput) => ipcRenderer.invoke('yachiyo:retry-message', input),
     saveThread: (input: SaveThreadInput) => ipcRenderer.invoke('yachiyo:save-thread', input),

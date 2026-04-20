@@ -337,6 +337,13 @@
       "when": 1776659396055,
       "tag": "0047_sweet_angel",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1776681155515,
+      "tag": "0048_curious_harrier",
+      "breakpoints": true
     }
   ]
 }

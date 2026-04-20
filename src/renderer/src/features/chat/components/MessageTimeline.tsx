@@ -1,6 +1,7 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useShallow } from 'zustand/react/shallow'
+import { Waypoints } from 'lucide-react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { HarnessRecord } from '@renderer/app/store/useAppStore'
 import type { Message, RunRecord, Thread, ToolCall } from '@renderer/app/types'
@@ -40,6 +41,7 @@ import { RunStatsFooter } from './RunStatsFooter'
 
 interface MessageTimelineProps {
   threadId: string | null
+  recapText?: string
 }
 
 const EMPTY_MESSAGES: Message[] = []
@@ -416,7 +418,7 @@ export const ThreadConversationGroup = memo(function ThreadConversationGroup({
   )
 })
 
-export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.Element {
+export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): React.JSX.Element {
   const {
     thread,
     messages,
@@ -491,6 +493,7 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
     }))
   )
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const recapRef = useRef<HTMLDivElement>(null)
   const activeSubagents = useMemo(
     () =>
       activeSubagentIds
@@ -724,6 +727,12 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
   )
 
   // Track user scroll to detect manual scroll-away
+  useEffect(() => {
+    if (recapText && recapRef.current && stickToBottomRef.current) {
+      recapRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    }
+  }, [recapText])
+
   // Deps include threadId and timeline.length so the listener reattaches
   // when the scroll container first appears (empty thread → first message)
   useEffect(() => {
@@ -1308,6 +1317,17 @@ export function MessageTimeline({ threadId }: MessageTimelineProps): React.JSX.E
             )
           })}
         </div>
+        {recapText ? (
+          <div
+            ref={recapRef}
+            className="px-6 py-3 text-xs opacity-50 italic leading-relaxed inline-flex items-start gap-1.5"
+          >
+            <Waypoints size={14} className="shrink-0 mt-px" />
+            <span>
+              <strong className="not-italic">Recap:</strong> {recapText}
+            </span>
+          </div>
+        ) : null}
       </div>
     </div>
   )

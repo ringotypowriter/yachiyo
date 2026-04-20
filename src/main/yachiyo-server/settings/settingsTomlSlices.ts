@@ -70,7 +70,8 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
             config.chat?.activeRunEnterBehavior ?? DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
           stripCompact: config.chat?.stripCompact !== false,
           autoMemoryDistillation: config.chat?.autoMemoryDistillation !== false,
-          inputBufferEnabled: config.chat?.inputBufferEnabled === true
+          inputBufferEnabled: config.chat?.inputBufferEnabled === true,
+          recapEnabled: config.chat?.recapEnabled !== false
         }
       }
     }

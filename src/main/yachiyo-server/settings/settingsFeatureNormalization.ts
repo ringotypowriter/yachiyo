@@ -80,7 +80,8 @@ export function normalizeChatConfig(value: unknown): ChatConfig {
     ),
     stripCompact: normalizeOptionalBool(input['stripCompact'], true),
     autoMemoryDistillation: normalizeOptionalBool(input['autoMemoryDistillation'], true),
-    inputBufferEnabled: normalizeOptionalBool(input['inputBufferEnabled'], false)
+    inputBufferEnabled: normalizeOptionalBool(input['inputBufferEnabled'], false),
+    recapEnabled: normalizeOptionalBool(input['recapEnabled'], true)
   }
 }
 

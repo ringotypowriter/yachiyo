@@ -149,6 +149,8 @@ export interface ExecuteRunInput {
   isSteerLeg?: boolean
   /** Snapshot tracker carried over from a prior steer/restart leg. */
   snapshotTracker?: SnapshotTracker
+  /** Override the computed max tool steps. */
+  maxToolStepsOverride?: number
 }
 
 export interface RestartRunReason {
@@ -1304,11 +1306,13 @@ export async function executeServerRun(
         `[yachiyo] external channel run: user=${channelUser?.username ?? 'unknown'}, role=${channelUser?.role ?? 'guest'}, isGuest=${isGuest}, isOwnerDm=${isOwnerDm}`
       )
     }
-    const maxToolSteps = isExternalChannel
-      ? isOwnerDm
-        ? OWNER_DM_MAX_TOOL_STEPS
-        : EXTERNAL_CHANNEL_MAX_TOOL_STEPS
-      : DEFAULT_MAX_TOOL_STEPS
+    const maxToolSteps =
+      input.maxToolStepsOverride ??
+      (isExternalChannel
+        ? isOwnerDm
+          ? OWNER_DM_MAX_TOOL_STEPS
+          : EXTERNAL_CHANNEL_MAX_TOOL_STEPS
+        : DEFAULT_MAX_TOOL_STEPS)
     // Owner DMs use the owner's configured full tool set; all other runs use whatever
     // the caller passed in (which for channel services is policy.allowedTools).
     const modelEnabledTools = resolveModelEnabledTools({

@@ -235,6 +235,31 @@ export function AppMainPanel({
     }
   }, [activeThreadId, bgRunningCount])
 
+  const recapText = useAppStore((s) => {
+    if (!activeThreadId) return undefined
+    return s.recapByThread[activeThreadId] ?? activeThread?.recapText
+  })
+  useEffect(() => {
+    if (!activeThreadId || !activeThread) return
+    if (config?.chat?.recapEnabled === false) return
+    if (activeThread.source != null && activeThread.source !== 'local') return
+    if (activeThread.runtimeBinding?.kind === 'acp') return
+    if (Date.now() - new Date(activeThread.updatedAt).getTime() < 10 * 60 * 1000) return
+    if (messageCount <= 5) return
+    if (hasActiveRun) return
+    if (useAppStore.getState().recapByThread[activeThreadId] || activeThread.recapText) return
+    void window.api.yachiyo
+      .requestRecap({ threadId: activeThreadId })
+      .then((text) => {
+        if (text) {
+          useAppStore.setState((s) => ({
+            recapByThread: { ...s.recapByThread, [activeThreadId]: text }
+          }))
+        }
+      })
+      .catch(() => {})
+  }, [activeThreadId, messageCount]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!pendingFindQuery) return
     setFindOpen(true)
@@ -544,7 +569,11 @@ export function AppMainPanel({
 
       <div className="flex flex-col flex-1 min-h-0 relative">
         <div className="flex flex-row flex-1 min-h-0 min-w-0">
-          <MessageTimeline key={activeThreadId ?? 'empty'} threadId={activeThreadId} />
+          <MessageTimeline
+            key={activeThreadId ?? 'empty'}
+            threadId={activeThreadId}
+            recapText={recapText}
+          />
           {isInspectionPanelOpen ? <RunInspectionPanel threadId={activeThreadId} /> : null}
         </div>
         <RunStatusStrip />

@@ -244,6 +244,37 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
       </SettingSection>
 
       <SettingSection>
+        <SettingLabel>Recap</SettingLabel>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Auto-recap on idle threads
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              Generate a brief summary when returning to a thread idle for 10+ minutes.
+            </div>
+          </div>
+
+          <div className="shrink-0">
+            <SettingSwitch
+              checked={draft.chat?.recapEnabled !== false}
+              onChange={() =>
+                onChange({
+                  ...draft,
+                  chat: {
+                    ...draft.chat,
+                    recapEnabled: draft.chat?.recapEnabled === false
+                  }
+                })
+              }
+              ariaLabel="Toggle auto-recap on idle threads"
+            />
+          </div>
+        </SettingRow>
+      </SettingSection>
+
+      <SettingSection>
         <SettingLabel>Memory</SettingLabel>
 
         <SettingRow>

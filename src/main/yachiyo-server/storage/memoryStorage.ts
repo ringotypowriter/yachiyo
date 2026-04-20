@@ -103,6 +103,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     storedThread.lastDelegatedSession = serializeLastDelegatedSession(
       nextThread.lastDelegatedSession
     )
+    storedThread.recapText = nextThread.recapText ?? null
     storedThread.starredAt = nextThread.starredAt ?? null
     storedThread.title = nextThread.title
     storedThread.updatedAt = nextThread.updatedAt
@@ -266,6 +267,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         createdFromScheduleId: thread.createdFromScheduleId ?? null,
         runtimeBinding: serializeRuntimeBinding(thread.runtimeBinding),
         lastDelegatedSession: serializeLastDelegatedSession(thread.lastDelegatedSession),
+        recapText: thread.recapText ?? null,
         updatedAt: thread.updatedAt,
         createdAt
       })

@@ -1270,7 +1270,8 @@ test('normalization preserves every ChatConfig key', () => {
     activeRunEnterBehavior: 'enter-queues-follow-up',
     stripCompact: false,
     autoMemoryDistillation: false,
-    inputBufferEnabled: true
+    inputBufferEnabled: true,
+    recapEnabled: true
   }
   const result = normalizeSettingsConfig({ providers: [], chat: sentinel })
   assertKeysPreserved(result.chat, sentinel, 'ChatConfig')

@@ -66,6 +66,7 @@ export interface StoredThreadRow {
   createdFromScheduleId: string | null
   runtimeBinding: string | null
   lastDelegatedSession: string | null
+  recapText: string | null
   updatedAt: string
   createdAt: string
   headMessageId: string | null
@@ -411,6 +412,7 @@ export function toThreadRecord(
     | 'createdFromScheduleId'
     | 'runtimeBinding'
     | 'lastDelegatedSession'
+    | 'recapText'
     | 'title'
     | 'updatedAt'
     | 'workspacePath'
@@ -459,6 +461,7 @@ export function toThreadRecord(
         : { createdFromScheduleId: row.createdFromScheduleId }),
       ...(runtimeBinding ? { runtimeBinding } : {}),
       ...(lastDelegatedSession ? { lastDelegatedSession } : {}),
+      ...(row.recapText === null ? {} : { recapText: row.recapText }),
       id: row.id,
       title: row.title,
       updatedAt: row.updatedAt
@@ -495,6 +498,7 @@ export function toThreadRecord(
       : { createdFromScheduleId: row.createdFromScheduleId }),
     ...(runtimeBinding ? { runtimeBinding } : {}),
     ...(lastDelegatedSession ? { lastDelegatedSession } : {}),
+    ...(row.recapText === null ? {} : { recapText: row.recapText }),
     id: row.id,
     preview: row.preview,
     title: row.title,

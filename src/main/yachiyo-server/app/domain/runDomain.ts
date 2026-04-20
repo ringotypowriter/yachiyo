@@ -110,6 +110,10 @@ interface RunState {
   updateHeadOnComplete: boolean
   /** Resolves a pending askUser tool call with the user's answer. Set by execution. */
   answerToolQuestion?: (toolCallId: string, answer: string) => void
+  /** When true, this run is an ephemeral recap — no messages persisted, result returned via recapResolve. */
+  recap?: boolean
+  recapResolve?: (text: string | null) => void
+  recapUserMessage?: MessageRecord
 }
 
 interface PreparedQueuedFollowUpStart {
@@ -154,6 +158,38 @@ interface DebouncedSendChatEntry {
 }
 
 const SEND_CHAT_DEBOUNCE_WINDOW_MS = 1_500
+
+type EphemeralStorage = YachiyoStorage & { lastAssistantContent: string | null }
+
+function createEphemeralStorageProxy(real: YachiyoStorage): EphemeralStorage {
+  const state = { lastAssistantContent: null as string | null }
+  return new Proxy(real, {
+    get(target, prop, receiver) {
+      if (prop === 'lastAssistantContent') return state.lastAssistantContent
+      if (
+        prop === 'startRun' ||
+        prop === 'cancelRun' ||
+        prop === 'failRun' ||
+        prop === 'saveThreadMessage' ||
+        prop === 'updateThread' ||
+        prop === 'updateMessage' ||
+        prop === 'createToolCall' ||
+        prop === 'updateToolCall' ||
+        prop === 'upsertRunRecoveryCheckpoint' ||
+        prop === 'deleteRunRecoveryCheckpoint' ||
+        prop === 'updateRunSnapshot'
+      ) {
+        return () => {}
+      }
+      if (prop === 'completeRun') {
+        return (input: { assistantMessage?: MessageRecord }) => {
+          state.lastAssistantContent = input.assistantMessage?.content ?? null
+        }
+      }
+      return Reflect.get(target, prop, receiver)
+    }
+  }) as EphemeralStorage
+}
 
 function withParentMessageId(message: MessageRecord, parentMessageId?: string): MessageRecord {
   const rest = { ...message }
@@ -296,7 +332,14 @@ export class YachiyoServerRunDomain {
   }
 
   hasActiveThread(threadId: string): boolean {
-    return this.activeRunByThread.has(threadId)
+    return this.hasNonRecapActiveRun(threadId)
+  }
+
+  private hasNonRecapActiveRun(threadId: string): boolean {
+    const runId = this.activeRunByThread.get(threadId)
+    if (!runId) return false
+    const run = this.activeRuns.get(runId)
+    return run != null && !run.recap
   }
 
   async close(): Promise<void> {
@@ -672,7 +715,15 @@ export class YachiyoServerRunDomain {
             })
           : []
 
-      const activeRunId = this.activeRunByThread.get(thread.id)
+      let activeRunId = this.activeRunByThread.get(thread.id)
+
+      if (activeRunId) {
+        const activeRun = this.activeRuns.get(activeRunId)
+        if (activeRun?.recap) {
+          activeRun.abortController.abort()
+          activeRunId = undefined
+        }
+      }
 
       if (!activeRunId) {
         return this.startFreshRun({
@@ -744,7 +795,7 @@ export class YachiyoServerRunDomain {
     if (!getThreadCapabilities(thread).canRetry) {
       throw new Error('ACP threads do not support retry.')
     }
-    if (this.activeRunByThread.has(thread.id)) {
+    if (this.hasNonRecapActiveRun(thread.id)) {
       throw new Error('This thread already has an active run.')
     }
 
@@ -811,7 +862,7 @@ export class YachiyoServerRunDomain {
     sourceThread: ThreadRecord
     destinationThread: ThreadRecord
   }): Promise<CompactThreadAccepted> {
-    if (this.activeRunByThread.has(input.sourceThread.id)) {
+    if (this.hasNonRecapActiveRun(input.sourceThread.id)) {
       throw new Error('Cannot compact a thread with an active run.')
     }
 
@@ -853,7 +904,7 @@ export class YachiyoServerRunDomain {
    * subsequent runs only replay messages after the watermark.
    */
   async compactExternalThread(input: { thread: ThreadRecord }): Promise<{ thread: ThreadRecord }> {
-    if (this.activeRunByThread.has(input.thread.id)) {
+    if (this.hasNonRecapActiveRun(input.thread.id)) {
       throw new Error('Cannot compact a thread with an active run.')
     }
 
@@ -931,6 +982,55 @@ export class YachiyoServerRunDomain {
     })
 
     return { thread: updatedThread }
+  }
+
+  async requestRecap(input: { threadId: string }): Promise<string | null> {
+    try {
+      const thread = this.deps.requireThread(input.threadId)
+      if (this.activeRunByThread.has(input.threadId)) return null
+
+      const messages = this.deps.loadThreadMessages(input.threadId)
+      if (messages.length <= 5) return null
+
+      const runId = this.deps.createId()
+      const messageId = this.deps.createId()
+      const timestamp = this.deps.timestamp()
+
+      const recapUserMessage: MessageRecord = {
+        id: messageId,
+        threadId: thread.id,
+        parentMessageId: thread.headMessageId,
+        role: 'user',
+        content:
+          'Quick recap — no deep thinking needed. The user stepped away and is coming back. Summarize in under 40 words, 1-2 plain sentences, no markdown. Match the language used in the conversation. Lead with the overall goal and current task, then the one next action. Skip root-cause narrative, fix internals, secondary to-dos, and em-dash tangents.',
+        hidden: true,
+        status: 'completed',
+        createdAt: timestamp
+      }
+
+      const enabledTools = resolveEnabledTools(undefined, this.deps.readConfig().enabledTools)
+
+      return new Promise<string | null>((resolve) => {
+        this.startActiveRun({
+          enabledTools,
+          runId,
+          thread,
+          requestMessageId: messageId,
+          updateHeadOnComplete: false,
+          recap: true
+        })
+
+        const activeRun = this.activeRuns.get(runId)
+        if (activeRun) {
+          activeRun.recapResolve = resolve
+          activeRun.recapUserMessage = recapUserMessage
+        } else {
+          resolve(null)
+        }
+      })
+    } catch {
+      return null
+    }
   }
 
   cancelRun(input: { runId: string }): void {
@@ -1058,8 +1158,10 @@ export class YachiyoServerRunDomain {
       timestamp,
       hidden: input.hidden
     })
+    const threadWithoutRecap = { ...input.thread }
+    if (!input.hidden) delete threadWithoutRecap.recapText
     const updatedThread: ThreadRecord = {
-      ...input.thread,
+      ...threadWithoutRecap,
       headMessageId: userMessage.id,
       ...(messageSummary ? { preview: messageSummary.slice(0, 240) } : {}),
       title: fallbackTitle ?? input.thread.title,
@@ -1457,6 +1559,7 @@ export class YachiyoServerRunDomain {
     thread: ThreadRecord
     requestMessageId: string
     updateHeadOnComplete: boolean
+    recap?: boolean
   }): void {
     this.activeRuns.set(input.runId, {
       threadId: input.thread.id,
@@ -1466,7 +1569,8 @@ export class YachiyoServerRunDomain {
       ...(input.recoveryCheckpoint ? { recoveryCheckpoint: input.recoveryCheckpoint } : {}),
       abortController: new AbortController(),
       executionPhase: 'generating',
-      updateHeadOnComplete: input.updateHeadOnComplete
+      updateHeadOnComplete: input.updateHeadOnComplete,
+      ...(input.recap ? { recap: true } : {})
     })
     this.activeRunByThread.set(input.thread.id, input.runId)
 
@@ -1643,16 +1747,22 @@ export class YachiyoServerRunDomain {
         // exclusively — the finally block won't double-dispose a live tracker.
         const passTracker = carriedSnapshotTracker
         carriedSnapshotTracker = undefined
+        const isRecapRun = activeRun?.recap === true
+        const recapStorage = isRecapRun
+          ? createEphemeralStorageProxy(this.deps.storage)
+          : this.deps.storage
+        const recapEmit: typeof this.deps.emit = isRecapRun ? () => {} : this.deps.emit
+
         result = await executeServerRun(
           {
-            storage: this.deps.storage,
+            storage: recapStorage,
             createId: this.deps.createId,
             timestamp: this.deps.timestamp,
-            emit: this.deps.emit,
+            emit: recapEmit,
             createModelRuntime: this.deps.createModelRuntime,
             ensureThreadWorkspace: this.deps.ensureThreadWorkspace,
             buildMemoryLayerEntries: async (context) => {
-              if (context.thread.privacyMode) {
+              if (context.thread.privacyMode || isRecapRun) {
                 return { entries: [], recallDecision: undefined }
               }
               const branchHistory = collectMessagePath(
@@ -1691,7 +1801,15 @@ export class YachiyoServerRunDomain {
                 this.deps.readConfig(),
                 this.deps.requireThread(currentThread.id).modelOverride
               ),
-            loadThreadMessages: this.deps.loadThreadMessages,
+            loadThreadMessages: isRecapRun
+              ? (threadId: string) => {
+                  const msgs = this.deps.loadThreadMessages(threadId)
+                  if (threadId === currentThread.id && activeRun?.recapUserMessage) {
+                    return [...msgs, activeRun.recapUserMessage]
+                  }
+                  return msgs
+                }
+              : this.deps.loadThreadMessages,
             loadThreadToolCalls: this.deps.loadThreadToolCalls,
             listSkills: this.deps.listSkills,
             jotdownStore: this.deps.jotdownStore,
@@ -1808,7 +1926,8 @@ export class YachiyoServerRunDomain {
             updateHeadOnComplete: input.updateHeadOnComplete,
             ...(accumulatedUsage ? { priorUsage: accumulatedUsage } : {}),
             ...(isSteerLeg ? { isSteerLeg: true } : {}),
-            ...(passTracker ? { snapshotTracker: passTracker } : {})
+            ...(passTracker ? { snapshotTracker: passTracker } : {}),
+            ...(isRecapRun ? { maxToolStepsOverride: 0 } : {})
           }
         )
 
@@ -1900,6 +2019,16 @@ export class YachiyoServerRunDomain {
         activeRun.recoveringHarnessId = undefined
 
         if (result.kind === 'completed') {
+          if (isRecapRun) {
+            const text = (recapStorage as EphemeralStorage).lastAssistantContent ?? null
+            if (text) {
+              const thread = this.deps.requireThread(currentThread.id)
+              this.deps.storage.updateThread({ ...thread, recapText: text })
+            }
+            activeRun?.recapResolve?.(text)
+            activeRun!.recapResolve = undefined
+            break
+          }
           // Re-read the persisted thread so headMessageId reflects the
           // assistant reply, not the pre-run snapshot.
           const persistedThread = this.deps.requireThread(currentThread.id)
@@ -2045,42 +2174,61 @@ export class YachiyoServerRunDomain {
         this.emitThreadStateReplaced(currentThread.id)
       }
     } catch (error) {
-      const persistedRun = this.deps.storage.getRun(input.runId)
+      const recapRun = this.activeRuns.get(input.runId)
+      if (recapRun?.recap) {
+        recapRun.recapResolve?.(null)
+        recapRun.recapResolve = undefined
+        result = { kind: 'failed' }
+      } else {
+        const persistedRun = this.deps.storage.getRun(input.runId)
 
-      if (!persistedRun || persistedRun.status !== 'running') {
-        throw error
+        if (!persistedRun || persistedRun.status !== 'running') {
+          throw error
+        }
+
+        const timestamp = this.deps.timestamp()
+        const message = error instanceof Error ? error.message : String(error)
+        this.deps.storage.failRun({
+          runId: input.runId,
+          completedAt: timestamp,
+          error: message,
+          ...usageFieldsFrom(accumulatedUsage)
+        })
+        this.deps.emit<RunFailedEvent>({
+          type: 'run.failed',
+          threadId: input.thread.id,
+          runId: input.runId,
+          error: message
+        })
+        result = { kind: 'failed' }
+      }
+    } finally {
+      // Resolve any dangling recap promise on cancellation/unexpected exit.
+      const finalRun = this.activeRuns.get(input.runId)
+      if (finalRun?.recapResolve) {
+        finalRun.recapResolve(null)
+        finalRun.recapResolve = undefined
       }
 
-      const timestamp = this.deps.timestamp()
-      const message = error instanceof Error ? error.message : String(error)
-      this.deps.storage.failRun({
-        runId: input.runId,
-        completedAt: timestamp,
-        error: message,
-        ...usageFieldsFrom(accumulatedUsage)
-      })
-      this.deps.emit<RunFailedEvent>({
-        type: 'run.failed',
-        threadId: input.thread.id,
-        runId: input.runId,
-        error: message
-      })
-      result = { kind: 'failed' }
-    } finally {
       // Dispose the carried tracker if it wasn't consumed by the next leg
       // (e.g. the loop exited via catch or the run was cancelled between legs).
       carriedSnapshotTracker?.dispose()
       carriedSnapshotTracker = undefined
 
       this.activeRuns.delete(input.runId)
-      this.activeRunByThread.delete(input.thread.id)
+      if (this.activeRunByThread.get(input.thread.id) === input.runId) {
+        this.activeRunByThread.delete(input.thread.id)
+      }
       this.activeRunTasks.delete(input.runId)
 
-      if (!this.isClosing && result.kind !== 'restarted' && result.kind !== 'steer-pending') {
+      const wasRecap = finalRun?.recap === true
+      if (
+        !wasRecap &&
+        !this.isClosing &&
+        result.kind !== 'restarted' &&
+        result.kind !== 'steer-pending'
+      ) {
         this.startQueuedFollowUpIfPresent(input.thread.id)
-        // Background-bash completion notices stay queued in
-        // pendingBackgroundCompletionNotices and are drained by the next run that builds
-        // model context on this thread. No hidden runs are started here.
       }
     }
   }

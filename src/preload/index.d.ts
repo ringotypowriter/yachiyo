@@ -117,6 +117,8 @@ declare global {
         showEmojiPanel: () => Promise<void>
         restoreThread: (input: { threadId: string }) => Promise<ThreadRecord>
         saveToolPreferences: (input: ToolPreferencesInput) => Promise<SettingsConfig>
+        clearRecapText: (input: { threadId: string }) => Promise<void>
+        requestRecap: (input: { threadId: string }) => Promise<string | null>
         sendChat: (input: SendChatInput) => Promise<ChatAccepted>
         retryMessage: (input: RetryInput) => Promise<RetryAccepted>
         saveThread: (input: SaveThreadInput) => Promise<SaveThreadResult>

@@ -26,7 +26,8 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
     activeRunEnterBehavior: DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
     stripCompact: true,
     autoMemoryDistillation: true,
-    inputBufferEnabled: false
+    inputBufferEnabled: false,
+    recapEnabled: true
   },
   workspace: {
     savedPaths: []

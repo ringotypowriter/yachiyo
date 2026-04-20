@@ -259,6 +259,7 @@ interface AppState {
     targetThreadId?: string | null
   ) => void
   setEnabledTools: (enabledTools: ToolCallName[]) => Promise<void>
+  recapByThread: Record<string, string>
   scrollToMessageId: string | null
   setScrollToMessageId: (messageId: string) => void
   clearScrollToMessageId: () => void
@@ -1004,6 +1005,32 @@ async function refreshAvailableSkills(
 // callers (Enter key, Send button, programmatic). Keyed by thread+mode+content
 // fingerprint with both an in-flight lock and a recency window.
 const SEND_DEDUP_WINDOW_MS = 1500
+function clearRecapForThread(
+  set: (partial: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void,
+  get: () => AppState,
+  threadId: string
+): void {
+  const state = get()
+  const hasCache = Boolean(state.recapByThread[threadId])
+  const thread = state.threads.find((t) => t.id === threadId)
+  const hasPersisted = Boolean(thread?.recapText)
+  if (!hasCache && !hasPersisted) return
+
+  const updates: Partial<AppState> = {}
+  if (hasCache) {
+    const next = { ...state.recapByThread }
+    delete next[threadId]
+    updates.recapByThread = next
+  }
+  if (hasPersisted && thread) {
+    updates.threads = state.threads.map((t) =>
+      t.id === threadId ? { ...t, recapText: undefined } : t
+    )
+  }
+  set(updates)
+  void window.api.yachiyo.clearRecapText({ threadId }).catch(() => {})
+}
+
 let sendInFlight = false
 let lastSendFingerprint: string | null = null
 let lastSendAt = 0
@@ -1017,6 +1044,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeRequestMessageIdsByThread: {},
   activeRunThreadId: null,
   activeThreadId: null,
+  recapByThread: {},
   scrollToMessageId: null,
   archivedThreads: [],
   folders: [],
@@ -1217,6 +1245,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!threadId) {
       return
     }
+    clearRecapForThread(set, get, threadId)
 
     try {
       const snapshot = await window.api.yachiyo.deleteMessage({ threadId, messageId })
@@ -2779,6 +2808,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!threadId) {
       return
     }
+    clearRecapForThread(set, get, threadId)
 
     const enabledSkillNames = resolveEffectiveEnabledSkillNames({
       config: currentState.config,
@@ -2837,6 +2867,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!threadId) {
       return
     }
+    clearRecapForThread(set, get, threadId)
 
     try {
       await window.api.yachiyo.selectReplyBranch({ threadId, assistantMessageId: messageId })
@@ -2925,6 +2956,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     lastSendFingerprint = fingerprint
     lastSendAt = fpNow
     sendInFlight = true
+    if (currentState.activeThreadId) {
+      clearRecapForThread(set, get, currentState.activeThreadId)
+    }
     try {
       const enabledTools = currentState.enabledTools
       const enabledSkillNames = override

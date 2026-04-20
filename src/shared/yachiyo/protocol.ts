@@ -529,6 +529,7 @@ export interface ThreadRecord {
     workspacePath: string
     timestamp: string
   }
+  recapText?: string
 }
 
 export function deriveThreadCapabilities(
@@ -646,6 +647,7 @@ export interface ChatConfig {
   stripCompact?: boolean
   autoMemoryDistillation?: boolean
   inputBufferEnabled?: boolean
+  recapEnabled?: boolean
 }
 
 export type UpdateChannel = 'stable' | 'beta'

@@ -132,6 +132,8 @@ const IPC_CHANNELS = {
   saveSettings: 'yachiyo:save-settings',
   saveToolPreferences: 'yachiyo:save-tool-preferences',
   selectReplyBranch: 'yachiyo:select-reply-branch',
+  clearRecapText: 'yachiyo:clear-recap-text',
+  requestRecap: 'yachiyo:request-recap',
   sendChat: 'yachiyo:send-chat',
   updateThreadWorkspace: 'yachiyo:update-thread-workspace',
   upsertProvider: 'yachiyo:upsert-provider',
@@ -834,6 +836,10 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.saveToolPreferences, (input: ToolPreferencesInput) =>
     server!.saveToolPreferences(input)
   )
+  handle(IPC_CHANNELS.clearRecapText, (input: { threadId: string }) =>
+    server!.clearRecapText(input)
+  )
+  handle(IPC_CHANNELS.requestRecap, (input: { threadId: string }) => server!.requestRecap(input))
   handle(IPC_CHANNELS.sendChat, (input: SendChatInput) => server!.sendChat(input))
   handle(IPC_CHANNELS.retryMessage, (input: RetryInput) => server!.retryMessage(input))
   handle(IPC_CHANNELS.saveThread, (input: SaveThreadInput) => server!.saveThread(input))
