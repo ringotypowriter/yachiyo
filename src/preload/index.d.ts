@@ -223,6 +223,9 @@ declare global {
         clearGroupMonitorBuffer: (groupId: string) => Promise<void>
         getChannelsConfig: () => Promise<ChannelsConfig>
         saveChannelsConfig: (input: ChannelsConfig) => Promise<ChannelsConfig>
+        restartChannelService: (
+          platform: 'telegram' | 'qq' | 'discord' | 'qqbot' | 'all'
+        ) => Promise<void>
 
         // Schedules
         listSchedules: () => Promise<ScheduleRecord[]>

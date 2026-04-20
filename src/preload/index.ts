@@ -292,6 +292,9 @@ const api = {
       ipcRenderer.invoke('yachiyo:get-channels-config'),
     saveChannelsConfig: (input: ChannelsConfig): Promise<ChannelsConfig> =>
       ipcRenderer.invoke('yachiyo:save-channels-config', input),
+    restartChannelService: (
+      platform: 'telegram' | 'qq' | 'discord' | 'qqbot' | 'all'
+    ): Promise<void> => ipcRenderer.invoke('yachiyo:restart-channel-service', { platform }),
 
     // Schedules
     listSchedules: (): Promise<import('../shared/yachiyo/protocol').ScheduleRecord[]> =>

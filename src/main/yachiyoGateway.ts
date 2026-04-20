@@ -158,6 +158,7 @@ const IPC_CHANNELS = {
   listChannelGroups: 'yachiyo:list-channel-groups',
   updateChannelGroup: 'yachiyo:update-channel-group',
   clearGroupMonitorBuffer: 'yachiyo:clear-group-monitor-buffer',
+  restartChannelService: 'yachiyo:restart-channel-service',
   listSchedules: 'yachiyo:list-schedules',
   createSchedule: 'yachiyo:create-schedule',
   updateSchedule: 'yachiyo:update-schedule',
@@ -979,6 +980,42 @@ export function registerYachiyoGateway(): YachiyoServer {
     await applyQQBotConfig(saved)
     return saved
   })
+  handle(
+    IPC_CHANNELS.restartChannelService,
+    async (input: { platform: 'telegram' | 'qq' | 'discord' | 'qqbot' | 'all' }) => {
+      const cfg = server!.getChannelsConfig()
+      if (input.platform === 'all') {
+        const restarts = [
+          { label: 'telegram', start: () => applyTelegramConfig(cfg) },
+          { label: 'qq', start: () => applyQQConfig(cfg) },
+          { label: 'discord', start: () => applyDiscordConfig(cfg) },
+          { label: 'qqbot', start: () => applyQQBotConfig(cfg) }
+        ]
+        for (const channel of restarts) {
+          try {
+            await channel.start()
+          } catch (error) {
+            console.error(`[${channel.label}] restart failed:`, error)
+          }
+        }
+        return
+      }
+      switch (input.platform) {
+        case 'telegram':
+          await applyTelegramConfig(cfg)
+          break
+        case 'qq':
+          await applyQQConfig(cfg)
+          break
+        case 'discord':
+          await applyDiscordConfig(cfg)
+          break
+        case 'qqbot':
+          await applyQQBotConfig(cfg)
+          break
+      }
+    }
+  )
   // Schedule CRUD
   handle(IPC_CHANNELS.listSchedules, () => server!.listSchedules())
   handle(IPC_CHANNELS.createSchedule, (input: CreateScheduleInput) => {

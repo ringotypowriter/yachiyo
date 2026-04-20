@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, RefreshCw } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { inputStyle } from '../components/styles'
 
@@ -20,6 +20,51 @@ import {
   SimpleSelect
 } from '../components/primitives'
 import { imeSafeEnter } from '@renderer/lib/imeUtils'
+
+function RestartServiceButton({
+  platform,
+  enabled,
+  label
+}: {
+  platform: 'telegram' | 'qq' | 'discord' | 'qqbot' | 'all'
+  enabled: boolean
+  label?: string
+}): React.ReactNode {
+  const [restarting, setRestarting] = useState(false)
+
+  async function handleRestart(): Promise<void> {
+    setRestarting(true)
+    try {
+      await window.api.yachiyo.restartChannelService(platform)
+    } finally {
+      setRestarting(false)
+    }
+  }
+
+  const text = label ?? 'Restart service'
+
+  return (
+    <SettingRow>
+      <button
+        type="button"
+        disabled={!enabled || restarting}
+        onClick={handleRestart}
+        className="flex items-center gap-1.5 text-sm transition-opacity"
+        style={{
+          color: enabled ? theme.text.accent : theme.text.tertiary,
+          background: 'none',
+          border: 'none',
+          cursor: enabled ? 'pointer' : 'default',
+          opacity: enabled ? 1 : 0.5,
+          padding: 0
+        }}
+      >
+        <RefreshCw size={14} className={restarting ? 'animate-spin' : ''} />
+        {restarting ? 'Restarting...' : text}
+      </button>
+    </SettingRow>
+  )
+}
 
 export function ChannelsPane({
   activeSubTab,
@@ -277,6 +322,8 @@ export function ChannelsPane({
               </div>
             </SettingRow>
           )}
+
+          <RestartServiceButton platform="telegram" enabled={telegramEnabled} />
         </SettingSection>
       </div>
     )
@@ -430,6 +477,8 @@ export function ChannelsPane({
               </div>
             </SettingRow>
           )}
+
+          <RestartServiceButton platform="qq" enabled={qqEnabled} />
         </SettingSection>
       </div>
     )
@@ -542,6 +591,8 @@ export function ChannelsPane({
               </div>
             </SettingRow>
           )}
+
+          <RestartServiceButton platform="qqbot" enabled={qqbotEnabled} />
         </SettingSection>
       </div>
     )
@@ -695,6 +746,8 @@ export function ChannelsPane({
               </div>
             </SettingRow>
           )}
+
+          <RestartServiceButton platform="discord" enabled={discordEnabled} />
         </SettingSection>
       </div>
     )
@@ -706,8 +759,18 @@ export function ChannelsPane({
   const dmCompactTokenThresholdK = config.dmCompactTokenThresholdK ?? 64
   const groupContextWindowK = config.groupContextWindowK ?? 64
 
+  const anyChannelEnabled = telegramEnabled || qqEnabled || discordEnabled || qqbotEnabled
+
   return (
     <div className="flex-1 overflow-y-auto pb-6">
+      <SettingSection>
+        <RestartServiceButton
+          platform="all"
+          enabled={anyChannelEnabled}
+          label="Restart all services"
+        />
+      </SettingSection>
+
       <SettingSection>
         <SettingLabel>Token Limits</SettingLabel>
 
