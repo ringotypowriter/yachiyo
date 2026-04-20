@@ -346,7 +346,23 @@ export function GeneralPane({
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Notifications</SettingLabel>
+        <SettingLabel
+          action={
+            <button
+              className="text-[11px] font-medium hover:underline cursor-pointer"
+              style={{ color: theme.text.secondary }}
+              onClick={() =>
+                window.open(
+                  'x-apple.systempreferences:com.apple.Notifications-Settings?id=sh.ringo.yachiyo'
+                )
+              }
+            >
+              System Settings…
+            </button>
+          }
+        >
+          Notifications
+        </SettingLabel>
 
         {(
           [
