@@ -18,6 +18,7 @@ import { RunInspectionPanel } from '@renderer/features/runs/components/RunInspec
 import { RunStatusStrip } from '@renderer/features/runs/components/RunStatusStrip'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import { isOpenFindBarShortcut } from '@renderer/features/layout/lib/findBarShortcut'
+import { hasRecapIdleThresholdElapsed } from '@renderer/features/layout/lib/recapIdle'
 import { MessageSquare, Trash2 } from 'lucide-react'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { Tooltip } from '@renderer/components/Tooltip'
@@ -244,7 +245,7 @@ export function AppMainPanel({
     if (config?.chat?.recapEnabled === false) return
     if (activeThread.source != null && activeThread.source !== 'local') return
     if (activeThread.runtimeBinding?.kind === 'acp') return
-    if (Date.now() - new Date(activeThread.updatedAt).getTime() < 10 * 60 * 1000) return
+    if (!hasRecapIdleThresholdElapsed(new Date(activeThread.updatedAt).getTime())) return
     if (messageCount <= 5) return
     if (hasActiveRun) return
     if (useAppStore.getState().recapByThread[activeThreadId] || activeThread.recapText) return

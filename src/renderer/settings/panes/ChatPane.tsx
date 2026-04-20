@@ -9,6 +9,7 @@ import {
 import { formatStoredModelChip } from '../../src/lib/model/modelLabel'
 import { ModelSelectorPopup } from '../../src/features/chat/components/ModelSelectorPopup'
 import { canOpenToolModelPicker } from '../../src/features/chat/lib/modelSelectorState'
+import { RECAP_IDLE_LABEL } from '../../src/features/layout/lib/recapIdle'
 import { SettingLabel, SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
 
 interface ChatPaneProps {
@@ -252,7 +253,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
               Auto-recap on idle threads
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Generate a brief summary when returning to a thread idle for 10+ minutes.
+              Generate a brief summary when returning to a thread idle for {RECAP_IDLE_LABEL}+.
             </div>
           </div>
 
