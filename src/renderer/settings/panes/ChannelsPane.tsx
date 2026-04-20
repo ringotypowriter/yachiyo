@@ -764,14 +764,6 @@ export function ChannelsPane({
   return (
     <div className="flex-1 overflow-y-auto pb-6">
       <SettingSection>
-        <RestartServiceButton
-          platform="all"
-          enabled={anyChannelEnabled}
-          label="Restart all services"
-        />
-      </SettingSection>
-
-      <SettingSection>
         <SettingLabel>Token Limits</SettingLabel>
 
         <SettingRow>
@@ -1076,6 +1068,14 @@ export function ChannelsPane({
           onChange={(keywords) => {
             onConfigChange({ ...config, memoryFilterKeywords: keywords })
           }}
+        />
+      </SettingSection>
+
+      <SettingSection>
+        <RestartServiceButton
+          platform="all"
+          enabled={anyChannelEnabled}
+          label="Restart all services"
         />
       </SettingSection>
     </div>
