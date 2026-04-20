@@ -1,0 +1,48 @@
+name: Sync Upstream Skills
+
+on:
+  schedule:
+    - cron: '0 9 * * 1' # Weekly on Monday 09:00 UTC
+  workflow_dispatch: # Manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - name: Sync upstream skills
+        run: node scripts/sync-upstream-skill.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for changes
+        id: diff
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create pull request
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: chore/sync-upstream-skills
+          commit-message: 'chore(skills): sync upstream skill documents'
+          title: 'chore(skills): sync upstream skill documents'
+          body: |
+            Automated sync of bundled core skills from upstream repositories.
+
+            Check the diff for updated skill documents.
+          labels: dependencies
+          delete-branch: true
