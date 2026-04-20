@@ -204,7 +204,7 @@ export function createTool(
         // may surface as a DOMException/AbortError) must become a tool-level
         // error so the model can see it and recover, not kill the whole run.
         if (options.abortSignal?.aborted) {
-          const abortErr = err instanceof Error ? err : new Error('Subagent execution aborted.')
+          const abortErr = new Error('Subagent execution aborted.', { cause: err })
           abortErr.name = 'AbortError'
           throw abortErr
         }
