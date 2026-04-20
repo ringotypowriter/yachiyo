@@ -997,7 +997,9 @@ export class YachiyoServerRunDomain {
       if (this.activeRunByThread.has(input.threadId)) return null
 
       const messages = this.deps.loadThreadMessages(input.threadId)
-      if (messages.length <= 5) return null
+      const lastPromptTokens =
+        this.deps.storage.listThreadRuns(input.threadId)[0]?.promptTokens ?? 0
+      if (messages.length <= 5 && lastPromptTokens <= 32_000) return null
 
       const runId = this.deps.createId()
       const messageId = this.deps.createId()

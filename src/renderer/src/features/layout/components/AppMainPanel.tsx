@@ -246,7 +246,9 @@ export function AppMainPanel({
     if (activeThread.source != null && activeThread.source !== 'local') return
     if (activeThread.runtimeBinding?.kind === 'acp') return
     if (!hasRecapIdleThresholdElapsed(new Date(activeThread.updatedAt).getTime())) return
-    if (messageCount <= 5) return
+    const lastPromptTokens =
+      useAppStore.getState().latestRunsByThread[activeThreadId]?.promptTokens ?? 0
+    if (messageCount <= 5 && lastPromptTokens <= 32_000) return
     if (hasActiveRun) return
     if (useAppStore.getState().recapByThread[activeThreadId] || activeThread.recapText) return
     void window.api.yachiyo
