@@ -609,23 +609,29 @@ function FolderAwareThreadList({
   threads,
   folders,
   collapsedFolderIds,
+  mode,
   toggleFolderCollapsed,
   renameFolder,
   setFolderColor,
   deleteFolder,
   moveThreadToFolder,
   createFolderForThreads,
+  archiveFolder,
+  restoreFolder,
   renderThreadItem
 }: {
   threads: Thread[]
   folders: FolderRecord[]
   collapsedFolderIds: Set<string>
+  mode: 'active' | 'archived'
   toggleFolderCollapsed: (folderId: string) => void
   renameFolder: (folderId: string, title: string) => Promise<void>
   setFolderColor: (folderId: string, colorTag: string | null) => Promise<void>
   deleteFolder: (folderId: string) => Promise<void>
   moveThreadToFolder: (threadId: string, folderId: string | null) => Promise<void>
   createFolderForThreads: (threadIds: string[]) => Promise<void>
+  archiveFolder: (folder: FolderRecord, threads: Thread[]) => void
+  restoreFolder: (folder: FolderRecord, threads: Thread[]) => void
   renderThreadItem: (thread: Thread) => React.JSX.Element
 }): React.JSX.Element {
   const items = useMemo(() => buildSidebarItems(threads, folders), [threads, folders])
@@ -666,6 +672,114 @@ function FolderAwareThreadList({
     }
   }
 
+  const renderedItems = items.map((item) => {
+    if (item.kind === 'starred-header') {
+      return (
+        <div
+          key="__starred__"
+          className="px-3 pt-2 pb-1"
+          style={{
+            fontSize: '0.7rem',
+            fontWeight: 600,
+            color: theme.text.muted,
+            letterSpacing: '0.04em',
+            textTransform: 'uppercase'
+          }}
+        >
+          Starred
+        </div>
+      )
+    }
+
+    if (item.kind === 'date-header') {
+      return (
+        <div
+          key={`__date__${item.label}`}
+          className="px-3 pt-2 pb-1"
+          style={{
+            fontSize: '0.7rem',
+            fontWeight: 500,
+            color: theme.text.muted
+          }}
+        >
+          {item.label}
+        </div>
+      )
+    }
+
+    if (item.kind === 'thread') {
+      const threadNode = renderThreadItem(item.thread)
+      if (mode === 'archived') {
+        return <div key={item.thread.id}>{threadNode}</div>
+      }
+      return (
+        <DroppableThread key={item.thread.id} threadId={item.thread.id}>
+          <DraggableThread thread={item.thread}>{threadNode}</DraggableThread>
+        </DroppableThread>
+      )
+    }
+
+    if (item.kind === 'folder') {
+      const isCollapsed = collapsedFolderIds.has(item.folder.id)
+      const folderThreads = item.threads
+      const folderNode = (
+        <ThreadFolderItem
+          folder={item.folder}
+          isCollapsed={isCollapsed}
+          threadCount={folderThreads.length}
+          mode={mode}
+          onToggle={() => toggleFolderCollapsed(item.folder.id)}
+          onRename={(title) => void renameFolder(item.folder.id, title)}
+          onSetColor={(colorTag) => void setFolderColor(item.folder.id, colorTag)}
+          onDelete={() => void deleteFolder(item.folder.id)}
+          onArchiveAll={() => archiveFolder(item.folder, folderThreads)}
+          onRestoreAll={() => restoreFolder(item.folder, folderThreads)}
+        >
+          {item.children.map((child) => {
+            if (child.kind === 'folder-date-header') {
+              return (
+                <div
+                  key={`__fdate__${child.label}`}
+                  className="px-2 pt-1.5 pb-0.5"
+                  style={{
+                    fontSize: '0.6rem',
+                    fontWeight: 500,
+                    color: theme.text.muted,
+                    letterSpacing: '0.03em'
+                  }}
+                >
+                  {child.label}
+                </div>
+              )
+            }
+            if (mode === 'archived') {
+              return <div key={child.thread.id}>{renderThreadItem(child.thread)}</div>
+            }
+            return (
+              <DraggableThread key={child.thread.id} thread={child.thread}>
+                {renderThreadItem(child.thread)}
+              </DraggableThread>
+            )
+          })}
+        </ThreadFolderItem>
+      )
+      if (mode === 'archived') {
+        return <div key={`folder-${item.folder.id}`}>{folderNode}</div>
+      }
+      return (
+        <DroppableFolder key={`folder-${item.folder.id}`} folderId={item.folder.id}>
+          {folderNode}
+        </DroppableFolder>
+      )
+    }
+
+    return null
+  })
+
+  if (mode === 'archived') {
+    return <>{renderedItems}</>
+  }
+
   return (
     <DndContext
       sensors={sensors}
@@ -675,94 +789,7 @@ function FolderAwareThreadList({
       }}
       onDragEnd={handleDragEnd}
     >
-      {items.map((item) => {
-        if (item.kind === 'starred-header') {
-          return (
-            <div
-              key="__starred__"
-              className="px-3 pt-2 pb-1"
-              style={{
-                fontSize: '0.7rem',
-                fontWeight: 600,
-                color: theme.text.muted,
-                letterSpacing: '0.04em',
-                textTransform: 'uppercase'
-              }}
-            >
-              Starred
-            </div>
-          )
-        }
-
-        if (item.kind === 'date-header') {
-          return (
-            <div
-              key={`__date__${item.label}`}
-              className="px-3 pt-2 pb-1"
-              style={{
-                fontSize: '0.7rem',
-                fontWeight: 500,
-                color: theme.text.muted
-              }}
-            >
-              {item.label}
-            </div>
-          )
-        }
-
-        if (item.kind === 'thread') {
-          return (
-            <DroppableThread key={item.thread.id} threadId={item.thread.id}>
-              <DraggableThread thread={item.thread}>
-                {renderThreadItem(item.thread)}
-              </DraggableThread>
-            </DroppableThread>
-          )
-        }
-
-        if (item.kind === 'folder') {
-          const isCollapsed = collapsedFolderIds.has(item.folder.id)
-          return (
-            <DroppableFolder key={`folder-${item.folder.id}`} folderId={item.folder.id}>
-              <ThreadFolderItem
-                folder={item.folder}
-                isCollapsed={isCollapsed}
-                threadCount={item.threads.length}
-                onToggle={() => toggleFolderCollapsed(item.folder.id)}
-                onRename={(title) => void renameFolder(item.folder.id, title)}
-                onSetColor={(colorTag) => void setFolderColor(item.folder.id, colorTag)}
-                onDelete={() => void deleteFolder(item.folder.id)}
-              >
-                {item.children.map((child) => {
-                  if (child.kind === 'folder-date-header') {
-                    return (
-                      <div
-                        key={`__fdate__${child.label}`}
-                        className="px-2 pt-1.5 pb-0.5"
-                        style={{
-                          fontSize: '0.6rem',
-                          fontWeight: 500,
-                          color: theme.text.muted,
-                          letterSpacing: '0.03em'
-                        }}
-                      >
-                        {child.label}
-                      </div>
-                    )
-                  }
-                  return (
-                    <DraggableThread key={child.thread.id} thread={child.thread}>
-                      {renderThreadItem(child.thread)}
-                    </DraggableThread>
-                  )
-                })}
-              </ThreadFolderItem>
-            </DroppableFolder>
-          )
-        }
-
-        return null
-      })}
+      {renderedItems}
       <DragOverlay>
         {draggedThread ? (
           <div
@@ -844,6 +871,14 @@ function ThreadListContent({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [archiveTarget, setArchiveTarget] = useState<Thread | null>(null)
   const [bulkArchiveIds, setBulkArchiveIds] = useState<string[] | null>(null)
+  const [folderArchiveTarget, setFolderArchiveTarget] = useState<{
+    folder: FolderRecord
+    threads: Thread[]
+  } | null>(null)
+  const [folderRestoreTarget, setFolderRestoreTarget] = useState<{
+    folder: FolderRecord
+    threads: Thread[]
+  } | null>(null)
   const runStatusesByThread = useAppStore((s) => s.runStatusesByThread)
   const showPreview = useAppStore((s) => s.config?.general?.sidebarPreview) !== false
 
@@ -1023,6 +1058,46 @@ function ThreadListContent({
     }
   }
 
+  function dropSelectionIds(ids: string[]): void {
+    if (ids.length === 0) return
+    setSelectedIds((prev) => {
+      let changed = false
+      const next = new Set(prev)
+      for (const id of ids) {
+        if (next.delete(id)) changed = true
+      }
+      return changed ? next : prev
+    })
+  }
+
+  async function handleFolderArchiveConfirm(choice: string): Promise<void> {
+    const target = folderArchiveTarget
+    setFolderArchiveTarget(null)
+    if (choice !== 'archive' || !target) return
+    try {
+      for (const thread of target.threads) {
+        await archiveThread(thread.id)
+      }
+      dropSelectionIds(target.threads.map((t) => t.id))
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to archive folder threads.')
+    }
+  }
+
+  async function handleFolderRestoreConfirm(choice: string): Promise<void> {
+    const target = folderRestoreTarget
+    setFolderRestoreTarget(null)
+    if (choice !== 'restore' || !target) return
+    try {
+      for (const thread of target.threads) {
+        await restoreThread(thread.id)
+      }
+      dropSelectionIds(target.threads.map((t) => t.id))
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to restore folder threads.')
+    }
+  }
+
   async function handleArchiveConfirm(choice: string): Promise<void> {
     if (!archiveTarget) return
     const thread = archiveTarget
@@ -1183,22 +1258,21 @@ function ThreadListContent({
               : 'No chats yet. Start one from the compose box or the new chat button.'}
           </div>
         ) : null}
-        {threadListMode === 'active' ? (
-          <FolderAwareThreadList
-            threads={visibleThreads}
-            folders={folders}
-            collapsedFolderIds={collapsedFolderIds}
-            toggleFolderCollapsed={toggleFolderCollapsed}
-            renameFolder={renameFolder}
-            setFolderColor={setFolderColor}
-            deleteFolder={deleteFolder}
-            moveThreadToFolder={moveThreadToFolder}
-            createFolderForThreads={createFolderForThreads}
-            renderThreadItem={renderThreadItem}
-          />
-        ) : (
-          visibleThreads.map(renderThreadItem)
-        )}
+        <FolderAwareThreadList
+          threads={visibleThreads}
+          folders={folders}
+          collapsedFolderIds={collapsedFolderIds}
+          mode={threadListMode}
+          toggleFolderCollapsed={toggleFolderCollapsed}
+          renameFolder={renameFolder}
+          setFolderColor={setFolderColor}
+          deleteFolder={deleteFolder}
+          moveThreadToFolder={moveThreadToFolder}
+          createFolderForThreads={createFolderForThreads}
+          archiveFolder={(folder, threads) => setFolderArchiveTarget({ folder, threads })}
+          restoreFolder={(folder, threads) => setFolderRestoreTarget({ folder, threads })}
+          renderThreadItem={renderThreadItem}
+        />
       </div>
       {archiveTarget && (
         <ConfirmDialog
@@ -1228,6 +1302,28 @@ function ThreadListContent({
           ]}
           onSelect={(key) => void handleBulkArchiveConfirm(key)}
           onClose={() => setBulkArchiveIds(null)}
+        />
+      )}
+      {folderArchiveTarget && (
+        <ConfirmDialog
+          title={`Archive all ${folderArchiveTarget.threads.length} thread${folderArchiveTarget.threads.length !== 1 ? 's' : ''} in "${folderArchiveTarget.folder.title}"?`}
+          actions={[
+            { key: 'archive', label: 'Archive', tone: 'accent' },
+            { key: 'cancel', label: 'Cancel' }
+          ]}
+          onSelect={(key) => void handleFolderArchiveConfirm(key)}
+          onClose={() => setFolderArchiveTarget(null)}
+        />
+      )}
+      {folderRestoreTarget && (
+        <ConfirmDialog
+          title={`Restore all ${folderRestoreTarget.threads.length} thread${folderRestoreTarget.threads.length !== 1 ? 's' : ''} in "${folderRestoreTarget.folder.title}"?`}
+          actions={[
+            { key: 'restore', label: 'Restore', tone: 'accent' },
+            { key: 'cancel', label: 'Cancel' }
+          ]}
+          onSelect={(key) => void handleFolderRestoreConfirm(key)}
+          onClose={() => setFolderRestoreTarget(null)}
         />
       )}
     </div>

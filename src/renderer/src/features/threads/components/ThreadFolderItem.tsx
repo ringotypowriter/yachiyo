@@ -1,7 +1,15 @@
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { FolderOpen, FolderClosed, PenLine, Trash2, Paintbrush } from 'lucide-react'
+import {
+  FolderOpen,
+  FolderClosed,
+  PenLine,
+  Trash2,
+  Paintbrush,
+  Archive,
+  RotateCcw
+} from 'lucide-react'
 import type { FolderColorTag, FolderRecord } from '@renderer/app/types'
 import { imeSafeEnter } from '@renderer/lib/imeUtils'
 import { theme } from '@renderer/theme/theme'
@@ -30,10 +38,13 @@ interface ThreadFolderItemProps {
   folder: FolderRecord
   isCollapsed: boolean
   threadCount: number
+  mode: 'active' | 'archived'
   onToggle: () => void
   onRename: (title: string) => void
   onDelete: () => void
   onSetColor: (colorTag: FolderColorTag | null) => void
+  onArchiveAll: () => void
+  onRestoreAll: () => void
   children: React.ReactNode
 }
 
@@ -41,10 +52,13 @@ export function ThreadFolderItem({
   folder,
   isCollapsed,
   threadCount,
+  mode,
   onToggle,
   onRename,
   onDelete,
   onSetColor,
+  onArchiveAll,
+  onRestoreAll,
   children
 }: ThreadFolderItemProps): React.JSX.Element {
   const [isRenaming, setIsRenaming] = useState(false)
@@ -148,6 +162,7 @@ export function ThreadFolderItem({
           x={contextMenu.x}
           y={contextMenu.y}
           currentColor={folder.colorTag ?? null}
+          mode={mode}
           onRename={() => {
             setContextMenu(null)
             handleDoubleClick()
@@ -160,6 +175,14 @@ export function ThreadFolderItem({
             setContextMenu(null)
             onSetColor(colorTag)
           }}
+          onArchiveAll={() => {
+            setContextMenu(null)
+            onArchiveAll()
+          }}
+          onRestoreAll={() => {
+            setContextMenu(null)
+            onRestoreAll()
+          }}
           onClose={() => setContextMenu(null)}
         />
       )}
@@ -171,17 +194,23 @@ function FolderContextMenu({
   x,
   y,
   currentColor,
+  mode,
   onRename,
   onDelete,
   onSetColor,
+  onArchiveAll,
+  onRestoreAll,
   onClose
 }: {
   x: number
   y: number
   currentColor: FolderColorTag | null
+  mode: 'active' | 'archived'
   onRename: () => void
   onDelete: () => void
   onSetColor: (colorTag: FolderColorTag | null) => void
+  onArchiveAll: () => void
+  onRestoreAll: () => void
   onClose: () => void
 }): React.JSX.Element {
   const menuRef = useRef<HTMLDivElement>(null)
@@ -239,6 +268,15 @@ function FolderContextMenu({
       <MenuItem icon={<PenLine size={14} strokeWidth={1.7} />} onClick={onRename}>
         Rename
       </MenuItem>
+      {mode === 'active' ? (
+        <MenuItem icon={<Archive size={14} strokeWidth={1.7} />} onClick={onArchiveAll}>
+          Archive All
+        </MenuItem>
+      ) : (
+        <MenuItem icon={<RotateCcw size={14} strokeWidth={1.7} />} onClick={onRestoreAll}>
+          Restore All
+        </MenuItem>
+      )}
       <MenuItem
         icon={<Trash2 size={14} strokeWidth={1.7} />}
         onClick={onDelete}
