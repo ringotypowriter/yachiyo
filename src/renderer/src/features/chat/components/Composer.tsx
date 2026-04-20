@@ -437,6 +437,14 @@ function StagedInputBufferBubble({
   onSendNow: () => void
   onCancel: () => void
 }): React.JSX.Element {
+  const contentRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (contentRef.current) {
+      contentRef.current.scrollTop = contentRef.current.scrollHeight
+    }
+  }, [staged.content])
+
   const clampedProgress = Math.max(0, Math.min(1, progress))
   const dashOffset = STAGED_RING_CIRCUMFERENCE * clampedProgress
   const secondsRemaining = Math.max(0, Math.ceil(remainingMs / 1000))
@@ -509,6 +517,7 @@ function StagedInputBufferBubble({
         </div>
         {staged.content.length > 0 ? (
           <div
+            ref={contentRef}
             className="text-sm whitespace-pre-wrap wrap-break-word"
             style={{
               color: theme.text.primary,
@@ -2191,7 +2200,13 @@ export function Composer({
           progress={inputBuffer.progress}
           remainingMs={inputBuffer.remainingMs}
           onSendNow={inputBuffer.flushNow}
-          onCancel={inputBuffer.cancel}
+          onCancel={() => {
+            const payload = inputBuffer.staged
+            inputBuffer.cancel()
+            if (payload) {
+              mergeBufferedPayloadIntoDraft(payload, payload.sourceThreadId)
+            }
+          }}
         />
       ) : null}
       {draftImages.length > 0 || draftFiles.length > 0 ? (
