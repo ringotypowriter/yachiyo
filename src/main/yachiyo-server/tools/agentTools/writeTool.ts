@@ -97,7 +97,8 @@ export async function runWriteTool(
         () => undefined
       )
       if (newMtimeMs !== undefined) {
-        context.readRecordCache.refreshMtime(resolvedPath, newMtimeMs)
+        const lineCount = input.content.split('\n').length
+        context.readRecordCache.recordRead(resolvedPath, 1, lineCount, newMtimeMs)
       }
     }
 

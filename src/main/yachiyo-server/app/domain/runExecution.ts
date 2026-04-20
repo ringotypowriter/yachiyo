@@ -1535,7 +1535,7 @@ export async function executeServerRun(
               enabledTools: modelEnabledTools,
               guest: isGuest,
               guestInstruction: isGuest ? readChannelsConfig().guestInstruction : undefined,
-              maxToolSteps
+              maxToolSteps: maxToolSteps || DEFAULT_MAX_TOOL_STEPS
             }),
             channelInstruction: input.channelHint ?? '',
             rollingSummary: input.thread.rollingSummary,
@@ -1570,7 +1570,7 @@ export async function executeServerRun(
                   userDocumentPath: userDocument?.filePath,
                   subagentContextBlock: subagentContextBlock || undefined,
                   isUserSpecifiedWorkspace: !!input.thread.workspacePath?.trim(),
-                  maxToolSteps
+                  maxToolSteps: maxToolSteps || DEFAULT_MAX_TOOL_STEPS
                 }),
                 // For owner DMs the channel transport contract (reply tags, plain-text,
                 // length limits) must stay in the system prefix so it applies every turn.

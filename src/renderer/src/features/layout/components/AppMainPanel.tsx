@@ -18,7 +18,7 @@ import { RunInspectionPanel } from '@renderer/features/runs/components/RunInspec
 import { RunStatusStrip } from '@renderer/features/runs/components/RunStatusStrip'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import { isOpenFindBarShortcut } from '@renderer/features/layout/lib/findBarShortcut'
-import { hasRecapIdleThresholdElapsed } from '@renderer/features/layout/lib/recapIdle'
+import { computeRecapDecision } from '@renderer/features/layout/lib/recapIdle'
 import { MessageSquare, Trash2 } from 'lucide-react'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { Tooltip } from '@renderer/components/Tooltip'
@@ -240,28 +240,53 @@ export function AppMainPanel({
     if (!activeThreadId) return undefined
     return s.recapByThread[activeThreadId] ?? activeThread?.recapText
   })
+  const isEditingMessage = useAppStore((s) => s.editingMessage != null)
   useEffect(() => {
     if (!activeThreadId || !activeThread) return
-    if (config?.chat?.recapEnabled === false) return
-    if (activeThread.source != null && activeThread.source !== 'local') return
-    if (activeThread.runtimeBinding?.kind === 'acp') return
-    if (!hasRecapIdleThresholdElapsed(new Date(activeThread.updatedAt).getTime())) return
-    const lastPromptTokens =
-      useAppStore.getState().latestRunsByThread[activeThreadId]?.promptTokens ?? 0
-    if (messageCount <= 5 && lastPromptTokens <= 32_000) return
-    if (hasActiveRun) return
-    if (useAppStore.getState().recapByThread[activeThreadId] || activeThread.recapText) return
-    void window.api.yachiyo
-      .requestRecap({ threadId: activeThreadId })
-      .then((text) => {
-        if (text) {
-          useAppStore.setState((s) => ({
-            recapByThread: { ...s.recapByThread, [activeThreadId]: text }
-          }))
-        }
-      })
-      .catch(() => {})
-  }, [activeThreadId, messageCount]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    const state = useAppStore.getState()
+    const decision = computeRecapDecision({
+      recapEnabled: config?.chat?.recapEnabled !== false,
+      isExternalThread: activeThread.source != null && activeThread.source !== 'local',
+      isAcpThread: activeThread.runtimeBinding?.kind === 'acp',
+      hasActiveRun,
+      isEditingMessage,
+      messageCount,
+      lastPromptTokens: state.latestRunsByThread[activeThreadId]?.promptTokens ?? 0,
+      hasExistingRecap: !!(state.recapByThread[activeThreadId] || activeThread.recapText),
+      updatedAtMs: new Date(activeThread.updatedAt).getTime()
+    })
+
+    if (decision.action === 'skip') return
+
+    const fireRecap = (): void => {
+      const s = useAppStore.getState()
+      const thread = s.threads.find((t) => t.id === activeThreadId)
+      if (!thread) return
+      if (s.config?.chat?.recapEnabled === false) return
+      if (thread.source != null && thread.source !== 'local') return
+      if (thread.runtimeBinding?.kind === 'acp') return
+      if (s.recapByThread[activeThreadId] || thread.recapText) return
+      void window.api.yachiyo
+        .requestRecap({ threadId: activeThreadId })
+        .then((text) => {
+          if (text) {
+            useAppStore.setState((s) => ({
+              recapByThread: { ...s.recapByThread, [activeThreadId]: text }
+            }))
+          }
+        })
+        .catch(() => {})
+    }
+
+    if (decision.action === 'fire') {
+      fireRecap()
+      return
+    }
+
+    const timerId = setTimeout(fireRecap, decision.delayMs)
+    return () => clearTimeout(timerId)
+  }, [activeThreadId, messageCount, hasActiveRun, isEditingMessage]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!pendingFindQuery) return

@@ -101,6 +101,27 @@ describe('writeTool', () => {
     assert.strictEqual(content, 'original')
   })
 
+  it('allows consecutive writes to the same file without intermediate read', async () => {
+    const workspace = await makeWorkspace()
+    const cache = new ReadRecordCache()
+
+    const first = await runWriteTool(
+      { path: 'file.txt', content: 'first version' },
+      { workspacePath: workspace, readRecordCache: cache }
+    )
+    assert.strictEqual(first.error, undefined)
+    assert.strictEqual(first.details.created, true)
+
+    const second = await runWriteTool(
+      { path: 'file.txt', content: 'second version' },
+      { workspacePath: workspace, readRecordCache: cache }
+    )
+    assert.strictEqual(second.error, undefined)
+    assert.strictEqual(second.details.overwritten, true)
+    const content = await readFile(join(workspace, 'file.txt'), 'utf8')
+    assert.strictEqual(content, 'second version')
+  })
+
   it('bypasses guard when no readRecordCache is provided', async () => {
     const workspace = await makeWorkspace()
     const filePath = join(workspace, 'existing.txt')
