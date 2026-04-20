@@ -263,6 +263,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         summaryWatermarkMessageId: thread.summaryWatermarkMessageId ?? null,
         readAt: thread.readAt ?? null,
         createdFromEssentialId: thread.createdFromEssentialId ?? null,
+        createdFromScheduleId: thread.createdFromScheduleId ?? null,
         runtimeBinding: serializeRuntimeBinding(thread.runtimeBinding),
         lastDelegatedSession: serializeLastDelegatedSession(thread.lastDelegatedSession),
         updatedAt: thread.updatedAt,
@@ -327,6 +328,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
       thread.archivedAt = null
       thread.updatedAt = updatedAt
+      thread.createdFromScheduleId = null
     },
 
     beginThreadSave({ threadId, savingStartedAt }) {

@@ -166,6 +166,7 @@ export class YachiyoServerThreadDomain {
       channelGroupId?: string
       title?: string
       createdFromEssentialId?: string
+      createdFromScheduleId?: string
       handoffFromThreadId?: string
       privacyMode?: boolean
       modelOverride?: ThreadModelOverride
@@ -186,6 +187,9 @@ export class YachiyoServerThreadDomain {
       ...(input.privacyMode ? { privacyMode: true } : {}),
       ...(input.createdFromEssentialId
         ? { createdFromEssentialId: input.createdFromEssentialId }
+        : {}),
+      ...(input.createdFromScheduleId
+        ? { createdFromScheduleId: input.createdFromScheduleId }
         : {}),
       ...(input.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {}),
       ...(input.modelOverride ? { modelOverride: input.modelOverride } : {})
@@ -457,6 +461,10 @@ export class YachiyoServerThreadDomain {
       updatedAt: timestamp
     }
     delete restoredThread.archivedAt
+    // A restored thread is no longer a background schedule execution — the user is
+    // continuing it manually. Drop the origin marker so sidebar filters stop treating
+    // subsequent user-initiated runs as hidden background work.
+    delete restoredThread.createdFromScheduleId
 
     this.deps.storage.restoreThread({
       threadId: thread.id,

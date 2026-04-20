@@ -516,6 +516,8 @@ export interface ThreadRecord {
   readAt?: string
   /** Essential preset that spawned this thread. */
   createdFromEssentialId?: string
+  /** Schedule that spawned this thread. Set once by the schedule runner at thread creation. */
+  createdFromScheduleId?: string
   /** Backend runtime binding: stores kind, ACP profile, and session state. */
   runtimeBinding?: ThreadRuntimeBinding
   /** Derived thread action flags for UI and domain policy checks. */

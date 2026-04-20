@@ -325,6 +325,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
           readAt: threadsTable.readAt,
           createdFromEssentialId: threadsTable.createdFromEssentialId,
+          createdFromScheduleId: threadsTable.createdFromScheduleId,
           runtimeBinding: threadsTable.runtimeBinding,
           lastDelegatedSession: threadsTable.lastDelegatedSession,
           title: threadsTable.title,
@@ -568,6 +569,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
           readAt: threadsTable.readAt,
           createdFromEssentialId: threadsTable.createdFromEssentialId,
+          createdFromScheduleId: threadsTable.createdFromScheduleId,
           runtimeBinding: threadsTable.runtimeBinding,
           lastDelegatedSession: threadsTable.lastDelegatedSession,
           title: threadsTable.title,
@@ -607,6 +609,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           summaryWatermarkMessageId: threadsTable.summaryWatermarkMessageId,
           readAt: threadsTable.readAt,
           createdFromEssentialId: threadsTable.createdFromEssentialId,
+          createdFromScheduleId: threadsTable.createdFromScheduleId,
           runtimeBinding: threadsTable.runtimeBinding,
           lastDelegatedSession: threadsTable.lastDelegatedSession,
           title: threadsTable.title,
@@ -670,6 +673,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             rollingSummary: thread.rollingSummary ?? null,
             summaryWatermarkMessageId: thread.summaryWatermarkMessageId ?? null,
             createdFromEssentialId: thread.createdFromEssentialId ?? null,
+            createdFromScheduleId: thread.createdFromScheduleId ?? null,
             title: thread.title,
             updatedAt: thread.updatedAt,
             workspacePath: thread.workspacePath ?? null,
@@ -742,7 +746,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       db.update(threadsTable)
         .set({
           archivedAt: null,
-          updatedAt
+          updatedAt,
+          createdFromScheduleId: null
         })
         .where(eq(threadsTable.id, threadId))
         .run()

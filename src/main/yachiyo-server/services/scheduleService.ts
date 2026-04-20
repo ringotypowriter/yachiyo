@@ -17,6 +17,7 @@ export interface ScheduleServerApi {
     source?: ThreadRecord['source']
     workspacePath?: string
     title?: string
+    createdFromScheduleId?: string
   }): Promise<ThreadRecord>
   setThreadModelOverride(input: {
     threadId: string
@@ -297,7 +298,8 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
       const thread = await deps.server.createThread({
         source: 'local',
         workspacePath,
-        title: `Schedule: ${schedule.name}`
+        title: `Schedule: ${schedule.name}`,
+        createdFromScheduleId: schedule.id
       })
 
       threadId = thread.id

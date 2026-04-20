@@ -63,6 +63,7 @@ export interface StoredThreadRow {
   summaryWatermarkMessageId: string | null
   readAt: string | null
   createdFromEssentialId: string | null
+  createdFromScheduleId: string | null
   runtimeBinding: string | null
   lastDelegatedSession: string | null
   updatedAt: string
@@ -407,6 +408,7 @@ export function toThreadRecord(
     | 'summaryWatermarkMessageId'
     | 'readAt'
     | 'createdFromEssentialId'
+    | 'createdFromScheduleId'
     | 'runtimeBinding'
     | 'lastDelegatedSession'
     | 'title'
@@ -452,6 +454,9 @@ export function toThreadRecord(
       ...(row.createdFromEssentialId === null
         ? {}
         : { createdFromEssentialId: row.createdFromEssentialId }),
+      ...(row.createdFromScheduleId === null
+        ? {}
+        : { createdFromScheduleId: row.createdFromScheduleId }),
       ...(runtimeBinding ? { runtimeBinding } : {}),
       ...(lastDelegatedSession ? { lastDelegatedSession } : {}),
       id: row.id,
@@ -485,6 +490,9 @@ export function toThreadRecord(
       ? {}
       : { summaryWatermarkMessageId: row.summaryWatermarkMessageId }),
     ...(row.readAt === null ? {} : { readAt: row.readAt }),
+    ...(row.createdFromScheduleId === null
+      ? {}
+      : { createdFromScheduleId: row.createdFromScheduleId }),
     ...(runtimeBinding ? { runtimeBinding } : {}),
     ...(lastDelegatedSession ? { lastDelegatedSession } : {}),
     id: row.id,

@@ -71,6 +71,7 @@ export const threadsTable = sqliteTable('threads', {
   summaryWatermarkMessageId: text('summary_watermark_message_id'),
   readAt: text('read_at'),
   createdFromEssentialId: text('created_from_essential_id'),
+  createdFromScheduleId: text('created_from_schedule_id'),
   runtimeBinding: text('runtime_binding'),
   lastDelegatedSession: text('last_delegated_session'),
   selfReviewedAt: text('self_reviewed_at'),

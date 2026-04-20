@@ -330,6 +330,13 @@
       "when": 1776185017690,
       "tag": "0046_known_the_captain",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1776659396055,
+      "tag": "0047_sweet_angel",
+      "breakpoints": true
     }
   ]
 }

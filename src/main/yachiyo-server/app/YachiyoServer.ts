@@ -650,6 +650,7 @@ export class YachiyoServer {
       channelGroupId?: string
       title?: string
       createdFromEssentialId?: string
+      createdFromScheduleId?: string
       privacyMode?: boolean
     } = {}
   ): Promise<ThreadRecord> {

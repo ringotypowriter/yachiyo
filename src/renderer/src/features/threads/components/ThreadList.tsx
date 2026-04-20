@@ -1273,13 +1273,13 @@ export function ThreadList(): React.JSX.Element {
       : baseThreads
   // Hide empty "New Chat" threads — they only appear in the sidebar once the user sends a message
   // or when they already have an active run (e.g. kicked off from elsewhere).
-  const visibleThreads = allThreads.filter(
-    (t) =>
-      t.title !== 'New Chat' ||
-      t.preview ||
-      t.headMessageId ||
-      runStatusesByThread[t.id] === 'running'
-  )
+  // Also hide schedule-spawned threads while they're still running: they auto-archive on
+  // completion (see scheduleService), so surfacing them mid-run is just sidebar noise.
+  const visibleThreads = allThreads.filter((t) => {
+    const isRunning = runStatusesByThread[t.id] === 'running'
+    if (isRunning && t.createdFromScheduleId) return false
+    return t.title !== 'New Chat' || t.preview || t.headMessageId || isRunning
+  })
   const activeId = threadListMode === 'archived' ? activeArchivedThreadId : activeThreadId
   const memoryEnabled = isMemoryConfigured(config)
 
