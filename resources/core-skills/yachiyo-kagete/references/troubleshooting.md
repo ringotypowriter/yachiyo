@@ -65,7 +65,9 @@ Adding `kagete` to the Accessibility list in System Settings **does nothing**. T
 kagete doctor --prompt
 ```
 
-The text output of `kagete doctor` names the detected host process and the exact System Settings path. Relay that verbatim to the user — don't substitute "kagete" for it. After the user toggles the right app on, re-run `kagete doctor` to confirm.
+This opens a GUI window showing each missing permission with an "Open Settings" button that navigates directly to the correct System Settings pane (Accessibility or Screen Recording). The window detects the host process (e.g. Ghostty, Terminal, Claude Code) and tells the user to grant permission to that app. The user can click "Refresh" after toggling the permission to verify without closing the window. After the user is done, re-run `kagete doctor` to confirm.
+
+**Important:** some apps (especially terminals and agent harnesses) require a full restart after granting Accessibility or Screen Recording for the permission to take effect. If `kagete doctor` still reports missing permissions after the user toggled them on, ask the user to quit and relaunch the host app, then re-run `kagete doctor`.
 
 macOS also revokes Accessibility when a binary is moved, replaced, or re-signed — if your terminal / harness was updated recently, its checkbox may have silently flipped off. A toggle-off / toggle-on usually refreshes the grant.
 

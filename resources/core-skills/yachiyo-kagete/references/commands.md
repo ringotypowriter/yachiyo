@@ -11,8 +11,10 @@ Check Accessibility + Screen Recording permissions.
 ```bash
 kagete doctor                # JSON envelope, exit 1 if anything missing
 kagete doctor --text         # human-readable report
-kagete doctor --prompt       # also trigger system permission prompts
+kagete doctor --prompt       # GUI window to guide the user through granting permissions
 ```
+
+`--prompt` opens a native macOS window listing each missing permission with its status and an "Open Settings" button that navigates directly to the correct System Settings pane. The window stays open so the user can grant one permission, click "Refresh" to re-check, then grant the next. The detected host process (e.g. Ghostty, not fish or kagete) is shown so the user knows which app to add.
 
 `result` shape: `{accessibility, screenRecording, allGranted}`. When missing grants exist, `hint` names them.
 
