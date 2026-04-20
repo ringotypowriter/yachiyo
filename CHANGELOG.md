@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.31
+
+### Patch Changes
+
+- [`1f088cf`](https://github.com/ringotypowriter/yachiyo/commit/1f088cf2ba1d957b6c3c4eca20d4d61390d58630) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Computer-Use & Thread Recap
+
 ## 1.0.30
 
 ### Patch Changes
