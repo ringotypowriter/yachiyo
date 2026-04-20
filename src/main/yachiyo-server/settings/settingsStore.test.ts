@@ -53,7 +53,8 @@ test('settings store persists multi-provider config as TOML', async () => {
         activeRunEnterBehavior: 'enter-queues-follow-up',
         stripCompact: true,
         autoMemoryDistillation: true,
-        inputBufferEnabled: true
+        inputBufferEnabled: true,
+        recapEnabled: true
       },
       workspace: {
         savedPaths: ['/Users/ringo/projects/yachiyo', '/Users/ringo/projects/handshake']
@@ -471,7 +472,8 @@ test('normalizeSettingsConfig falls back to the default active-run input behavio
     activeRunEnterBehavior: 'enter-steers',
     stripCompact: true,
     autoMemoryDistillation: true,
-    inputBufferEnabled: false
+    inputBufferEnabled: false,
+    recapEnabled: true
   })
 
   assert.deepEqual(
@@ -485,7 +487,8 @@ test('normalizeSettingsConfig falls back to the default active-run input behavio
       activeRunEnterBehavior: 'enter-steers',
       stripCompact: true,
       autoMemoryDistillation: true,
-      inputBufferEnabled: false
+      inputBufferEnabled: false,
+      recapEnabled: true
     }
   )
 })
