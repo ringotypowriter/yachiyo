@@ -57,6 +57,7 @@ test('isTransientTransportError matches known network error codes', () => {
     'ERR_CONNECTION_CLOSED',
     'ERR_NETWORK_CHANGED',
     'ERR_INTERNET_DISCONNECTED',
+    'ERR_HTTP2_PROTOCOL_ERROR',
     'UND_ERR_SOCKET',
     'UND_ERR_CONNECT_TIMEOUT'
   ]
@@ -80,6 +81,7 @@ test('isTransientTransportError matches known network message signatures', () =>
   // produce "network changed" / "network is unreachable" variants on the Node side.
   assert.equal(isTransientTransportError(new Error('net::ERR_NETWORK_CHANGED')), true)
   assert.equal(isTransientTransportError(new Error('net::ERR_INTERNET_DISCONNECTED')), true)
+  assert.equal(isTransientTransportError(new Error('net::ERR_HTTP2_PROTOCOL_ERROR')), true)
   assert.equal(isTransientTransportError(new Error('fetch failed: network changed')), true)
   assert.equal(isTransientTransportError(new Error('connect ENETUNREACH 1.2.3.4:443')), true)
 })

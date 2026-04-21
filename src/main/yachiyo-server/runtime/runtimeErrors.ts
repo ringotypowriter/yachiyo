@@ -85,6 +85,7 @@ export function isTransientTransportError(error: unknown): boolean {
     code === 'ERR_CONNECTION_CLOSED' ||
     code === 'ERR_NETWORK_CHANGED' ||
     code === 'ERR_INTERNET_DISCONNECTED' ||
+    code === 'ERR_HTTP2_PROTOCOL_ERROR' ||
     code === 'UND_ERR_SOCKET' ||
     code === 'UND_ERR_CONNECT_TIMEOUT'
   ) {
@@ -93,7 +94,7 @@ export function isTransientTransportError(error: unknown): boolean {
 
   const message = error instanceof Error ? error.message : ''
   if (
-    /ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|ENETDOWN|ENETUNREACH|ENETRESET|EHOSTUNREACH|ERR_CONNECTION_CLOSED|ERR_NETWORK_CHANGED|ERR_INTERNET_DISCONNECTED|network (?:changed|is unreachable|is down)|fetch failed|socket hang up/i.test(
+    /ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|ENETDOWN|ENETUNREACH|ENETRESET|EHOSTUNREACH|ERR_CONNECTION_CLOSED|ERR_NETWORK_CHANGED|ERR_INTERNET_DISCONNECTED|ERR_HTTP2_PROTOCOL_ERROR|network (?:changed|is unreachable|is down)|fetch failed|socket hang up/i.test(
       message
     )
   ) {
