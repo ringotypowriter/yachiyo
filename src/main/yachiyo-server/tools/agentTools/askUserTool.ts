@@ -30,7 +30,7 @@ export interface AskUserToolContext {
   waitForUserAnswer: (toolCallId: string, question: string, choices?: string[]) => Promise<string>
 }
 
-const MAX_ASK_USER_PER_RUN = 3
+const MAX_ASK_USER_PER_RUN = 10
 
 export function createAskUserTool(
   ctx: AskUserToolContext,
@@ -39,7 +39,8 @@ export function createAskUserTool(
   return tool({
     description:
       'Ask the user a question and wait for their answer. ' +
-      'Use when you need clarification, confirmation, or a decision before proceeding. ' +
+      'Use when you need to gather preferences or requirements, clarify ambiguous instructions, ' +
+      'decide between implementation options, or offer directional choices before proceeding. ' +
       'Do not use for rhetorical questions or when you can reasonably infer the answer.',
     inputSchema: askUserToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
