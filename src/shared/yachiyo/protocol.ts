@@ -1501,6 +1501,22 @@ export interface NotificationRequestEvent extends RunEvent {
   body: string
 }
 
+export interface ChannelGroupHistoryClearStartedEvent extends BaseEvent {
+  type: 'channel-group-history-clear.started'
+  groupId: string
+}
+
+export interface ChannelGroupHistoryClearCompletedEvent extends BaseEvent {
+  type: 'channel-group-history-clear.completed'
+  groupId: string
+}
+
+export interface ChannelGroupHistoryClearFailedEvent extends BaseEvent {
+  type: 'channel-group-history-clear.failed'
+  groupId: string
+  error: string
+}
+
 // Folder events
 interface FolderEvent extends BaseEvent {
   folderId: string
@@ -1549,6 +1565,9 @@ export type YachiyoServerEvent =
   | SubagentFinishedEvent
   | SubagentProgressEvent
   | NotificationRequestEvent
+  | ChannelGroupHistoryClearStartedEvent
+  | ChannelGroupHistoryClearCompletedEvent
+  | ChannelGroupHistoryClearFailedEvent
   | BackgroundTaskCompletedEvent
   | BackgroundTaskStartedEvent
   | BackgroundTaskLogAppendEvent

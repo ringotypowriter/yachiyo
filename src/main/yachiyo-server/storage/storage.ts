@@ -273,6 +273,8 @@ export interface YachiyoStorage {
   recoverInterruptedSaves(): string[]
   deleteThread(input: { threadId: string }): void
   resetThreadHistory(input: { threadId: string; updatedAt: string }): void
+  resetThreadsHistory(input: { threadIds: string[]; updatedAt: string }): void
+  resetChannelGroupThreadsHistory(input: { channelGroupId: string; updatedAt: string }): void
   updateThread(thread: ThreadRecord): void
   setThreadPrivacyMode(input: { threadId: string; privacyMode: boolean; updatedAt: string }): void
   saveThreadMessage(input: SaveThreadMessageInput): void

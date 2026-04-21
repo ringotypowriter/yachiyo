@@ -506,6 +506,16 @@ function registerFatalRunRecovery(): void {
     }
   })
 
+  // Keep the main process alive and prevent Electron error dialogs when
+  // sandboxed code (e.g. jsRepl timers) leaks an async error.
+  process.on('uncaughtException', (error) => {
+    console.error('[yachiyo] uncaughtException:', error)
+  })
+
+  process.on('unhandledRejection', (reason) => {
+    console.error('[yachiyo] unhandledRejection:', reason)
+  })
+
   fatalRunRecoveryRegistered = true
 }
 
@@ -966,7 +976,7 @@ export function registerYachiyoGateway(): YachiyoServer {
     return updated
   })
   handle(IPC_CHANNELS.clearGroupMonitorBuffer, async (input: { groupId: string }) => {
-    await server!.clearChannelGroupHistory(input)
+    server!.startClearChannelGroupHistory(input)
     telegramService?.clearGroupMessages(input.groupId)
     qqService?.clearGroupMessages(input.groupId)
     discordService?.clearGroupMessages(input.groupId)

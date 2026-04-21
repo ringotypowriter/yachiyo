@@ -344,6 +344,13 @@
       "when": 1776681155515,
       "tag": "0048_curious_harrier",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1776772853923,
+      "tag": "0049_lyrical_stryfe",
+      "breakpoints": true
     }
   ]
 }

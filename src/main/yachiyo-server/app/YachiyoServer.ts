@@ -4,6 +4,9 @@ import { join, resolve } from 'node:path'
 
 import type {
   BootstrapPayload,
+  ChannelGroupHistoryClearCompletedEvent,
+  ChannelGroupHistoryClearFailedEvent,
+  ChannelGroupHistoryClearStartedEvent,
   ChannelGroupRecord,
   ChannelUserRecord,
   ChatAccepted,
@@ -167,6 +170,8 @@ export class YachiyoServer {
   private readonly now: () => Date
   private readonly createId: () => string
   private readonly listeners = new Set<(event: YachiyoServerEvent) => void>()
+  private readonly activeChannelGroupHistoryClears = new Set<string>()
+  private readonly retiredGroupProbeThreadIdsByGroup = new Map<string, Set<string>>()
   private readonly auxiliaryGeneration: import('../runtime/auxiliaryGeneration.ts').AuxiliaryGenerationService
   private readonly createModelRuntimeFn: () => ModelRuntime
   private readonly memoryService: MemoryService
@@ -1064,16 +1069,72 @@ export class YachiyoServer {
   }
 
   findActiveGroupThread(channelGroupId: string, maxAgeMs: number): ThreadRecord | undefined {
-    return this.storage.findActiveGroupThread(channelGroupId, maxAgeMs)
+    const cutoff = new Date(Date.now() - maxAgeMs).toISOString()
+    const retiredIds = this.retiredGroupProbeThreadIdsByGroup.get(channelGroupId)
+
+    return this.storage
+      .listThreadsByChannelGroupId(channelGroupId)
+      .find((thread) => thread.updatedAt >= cutoff && !retiredIds?.has(thread.id))
   }
 
   async clearChannelGroupHistory(input: { groupId: string }): Promise<void> {
     const updatedAt = this.now().toISOString()
     this.storage.deleteGroupMonitorBuffer(input.groupId)
+    this.storage.resetChannelGroupThreadsHistory({
+      channelGroupId: input.groupId,
+      updatedAt
+    })
+  }
 
-    for (const thread of this.storage.listThreadsByChannelGroupId(input.groupId)) {
-      this.storage.resetThreadHistory({ threadId: thread.id, updatedAt })
+  startClearChannelGroupHistory(input: { groupId: string }): boolean {
+    if (this.activeChannelGroupHistoryClears.has(input.groupId)) {
+      return false
     }
+
+    this.storage.deleteGroupMonitorBuffer(input.groupId)
+    const retiredThreadIds = this.storage
+      .listThreadsByChannelGroupId(input.groupId)
+      .map((thread) => thread.id)
+
+    if (retiredThreadIds.length > 0) {
+      const retiredIds = this.retiredGroupProbeThreadIdsByGroup.get(input.groupId) ?? new Set()
+      for (const threadId of retiredThreadIds) {
+        retiredIds.add(threadId)
+      }
+      this.retiredGroupProbeThreadIdsByGroup.set(input.groupId, retiredIds)
+    }
+
+    this.activeChannelGroupHistoryClears.add(input.groupId)
+    this.emit<ChannelGroupHistoryClearStartedEvent>({
+      type: 'channel-group-history-clear.started',
+      groupId: input.groupId
+    })
+
+    setTimeout(() => {
+      try {
+        this.storage.resetThreadsHistory({
+          threadIds: retiredThreadIds,
+          updatedAt: this.now().toISOString()
+        })
+        this.emit<ChannelGroupHistoryClearCompletedEvent>({
+          type: 'channel-group-history-clear.completed',
+          groupId: input.groupId
+        })
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Failed to clear channel group history.'
+        console.error('[channels] failed to clear channel group history:', error)
+        this.emit<ChannelGroupHistoryClearFailedEvent>({
+          type: 'channel-group-history-clear.failed',
+          groupId: input.groupId,
+          error: message
+        })
+      } finally {
+        this.activeChannelGroupHistoryClears.delete(input.groupId)
+      }
+    }, 0)
+
+    return true
   }
 
   getAuxiliaryGenerationService(): import('../runtime/auxiliaryGeneration.ts').AuxiliaryGenerationService {

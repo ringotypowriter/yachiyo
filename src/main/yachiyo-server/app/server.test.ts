@@ -7290,7 +7290,7 @@ test('YachiyoServer rolls up external DM threads in place', async () => {
   )
 })
 
-test('YachiyoServer clearChannelGroupHistory removes monitor buffer and resets hidden group probe threads in place', async () => {
+test('YachiyoServer clearChannelGroupHistory resets every hidden group probe thread in place', async () => {
   await withServer(async ({ server, storage }) => {
     const group = server.createChannelGroup({
       id: 'group-1',
@@ -7301,12 +7301,92 @@ test('YachiyoServer clearChannelGroupHistory removes monitor buffer and resets h
       status: 'approved',
       workspacePath: '/tmp/group-workspace'
     })
+    const otherGroup = server.createChannelGroup({
+      id: 'group-2',
+      platform: 'telegram',
+      externalGroupId: 'telegram-group-2',
+      name: 'Other Group',
+      label: 'Other Group',
+      status: 'approved',
+      workspacePath: '/tmp/other-group-workspace'
+    })
 
     const hiddenThread = await server.createThread({
       source: 'telegram',
       channelGroupId: group.id,
       workspacePath: group.workspacePath,
       title: `${group.name} [group probe]`
+    })
+    const hiddenThread2 = await server.createThread({
+      source: 'telegram',
+      channelGroupId: group.id,
+      workspacePath: group.workspacePath,
+      title: `${group.name} [group probe 2]`
+    })
+    const untouchedThread = await server.createThread({
+      source: 'telegram',
+      channelGroupId: otherGroup.id,
+      workspacePath: otherGroup.workspacePath,
+      title: `${otherGroup.name} [group probe]`
+    })
+
+    const hiddenThreadMessage = {
+      id: 'group-1-message',
+      threadId: hiddenThread.id,
+      role: 'assistant' as const,
+      content: 'Hidden group probe history',
+      hidden: true,
+      status: 'completed' as const,
+      createdAt: '2026-04-21T00:00:00.000Z'
+    }
+    const hiddenThread2Message = {
+      id: 'group-1-message-2',
+      threadId: hiddenThread2.id,
+      role: 'assistant' as const,
+      content: 'More hidden group probe history',
+      hidden: true,
+      status: 'completed' as const,
+      createdAt: '2026-04-21T00:01:00.000Z'
+    }
+    const untouchedMessage = {
+      id: 'group-2-message',
+      threadId: untouchedThread.id,
+      role: 'assistant' as const,
+      content: 'Other group history',
+      hidden: true,
+      status: 'completed' as const,
+      createdAt: '2026-04-21T00:02:00.000Z'
+    }
+
+    storage.saveThreadMessage({
+      thread: hiddenThread,
+      updatedThread: {
+        ...hiddenThread,
+        headMessageId: hiddenThreadMessage.id,
+        preview: hiddenThreadMessage.content,
+        updatedAt: hiddenThreadMessage.createdAt
+      },
+      message: hiddenThreadMessage
+    })
+    storage.saveThreadMessage({
+      thread: hiddenThread2,
+      updatedThread: {
+        ...hiddenThread2,
+        headMessageId: hiddenThread2Message.id,
+        preview: hiddenThread2Message.content,
+        updatedAt: hiddenThread2Message.createdAt
+      },
+      message: hiddenThread2Message
+    })
+    storage.saveThreadMessage({
+      thread: untouchedThread,
+      updatedThread: {
+        ...untouchedThread,
+        headMessageId: untouchedMessage.id,
+        preview: untouchedMessage.content,
+        updatedAt: untouchedMessage.createdAt
+      },
+      message: untouchedMessage
     })
 
     storage.saveGroupMonitorBuffer({
@@ -7332,9 +7412,165 @@ test('YachiyoServer clearChannelGroupHistory removes monitor buffer and resets h
       hiddenThread.id
     )
     assert.equal(storage.getThread(hiddenThread.id)?.headMessageId, undefined)
+    assert.equal(storage.getThread(hiddenThread2.id)?.headMessageId, undefined)
     assert.deepEqual(storage.listThreadMessages(hiddenThread.id), [])
+    assert.deepEqual(storage.listThreadMessages(hiddenThread2.id), [])
     assert.deepEqual(storage.listThreadRuns(hiddenThread.id), [])
+    assert.deepEqual(storage.listThreadRuns(hiddenThread2.id), [])
     assert.deepEqual(storage.listThreadToolCalls(hiddenThread.id), [])
+    assert.deepEqual(storage.listThreadToolCalls(hiddenThread2.id), [])
+    assert.equal(storage.getThread(untouchedThread.id)?.headMessageId, untouchedMessage.id)
+    assert.deepEqual(storage.listThreadMessages(untouchedThread.id), [untouchedMessage])
+  })
+})
+
+test('YachiyoServer starts channel group history clear in the background and emits lifecycle events', async () => {
+  await withServer(async ({ server, storage, waitForEvent }) => {
+    const group = server.createChannelGroup({
+      id: 'group-clear-1',
+      platform: 'telegram',
+      externalGroupId: 'telegram-group-clear-1',
+      name: 'Clear Group',
+      label: 'Clear Group',
+      status: 'approved',
+      workspacePath: '/tmp/group-clear-workspace'
+    })
+
+    const hiddenThread = await server.createThread({
+      source: 'telegram',
+      channelGroupId: group.id,
+      workspacePath: group.workspacePath,
+      title: `${group.name} [group probe]`
+    })
+
+    storage.saveThreadMessage({
+      thread: hiddenThread,
+      updatedThread: {
+        ...hiddenThread,
+        headMessageId: 'clear-hidden-message',
+        preview: 'Hidden group probe history',
+        updatedAt: '2026-04-21T00:00:00.000Z'
+      },
+      message: {
+        id: 'clear-hidden-message',
+        threadId: hiddenThread.id,
+        role: 'assistant',
+        content: 'Hidden group probe history',
+        hidden: true,
+        status: 'completed',
+        createdAt: '2026-04-21T00:00:00.000Z'
+      }
+    })
+
+    let resetCalls = 0
+    const originalReset = storage.resetThreadsHistory
+    storage.resetThreadsHistory = ((input) => {
+      resetCalls++
+      originalReset(input)
+    }) as typeof storage.resetThreadsHistory
+
+    server.startClearChannelGroupHistory({ groupId: group.id })
+
+    const started = (await waitForEvent('channel-group-history-clear.started')) as {
+      groupId: string
+    }
+    assert.equal(started.groupId, group.id)
+    assert.equal(resetCalls, 0)
+    assert.equal(storage.getThread(hiddenThread.id)?.headMessageId, 'clear-hidden-message')
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const completed = (await waitForEvent('channel-group-history-clear.completed')) as {
+      groupId: string
+    }
+    assert.equal(completed.groupId, group.id)
+    assert.equal(resetCalls, 1)
+    assert.equal(storage.getThread(hiddenThread.id)?.headMessageId, undefined)
+    assert.deepEqual(storage.listThreadMessages(hiddenThread.id), [])
+  })
+})
+
+test('YachiyoServer background clear does not wipe post-clear group probe traffic', async () => {
+  await withServer(async ({ server, storage, waitForEvent }) => {
+    const group = server.createChannelGroup({
+      id: 'group-clear-2',
+      platform: 'telegram',
+      externalGroupId: 'telegram-group-clear-2',
+      name: 'Clear Group Two',
+      label: 'Clear Group Two',
+      status: 'approved',
+      workspacePath: '/tmp/group-clear-workspace-2'
+    })
+
+    const oldThread = await server.createThread({
+      source: 'telegram',
+      channelGroupId: group.id,
+      workspacePath: group.workspacePath,
+      title: `${group.name} [group probe]`
+    })
+
+    storage.saveThreadMessage({
+      thread: oldThread,
+      updatedThread: {
+        ...oldThread,
+        headMessageId: 'old-hidden-message',
+        preview: 'Old hidden history',
+        updatedAt: '2026-04-21T00:00:00.000Z'
+      },
+      message: {
+        id: 'old-hidden-message',
+        threadId: oldThread.id,
+        role: 'assistant',
+        content: 'Old hidden history',
+        hidden: true,
+        status: 'completed',
+        createdAt: '2026-04-21T00:00:00.000Z'
+      }
+    })
+
+    server.startClearChannelGroupHistory({ groupId: group.id })
+    await waitForEvent('channel-group-history-clear.started')
+
+    const freshThread = await server.createThread({
+      source: 'telegram',
+      channelGroupId: group.id,
+      workspacePath: group.workspacePath,
+      title: `${group.name} [group probe after clear]`
+    })
+
+    storage.saveThreadMessage({
+      thread: freshThread,
+      updatedThread: {
+        ...freshThread,
+        headMessageId: 'fresh-hidden-message',
+        preview: 'Fresh hidden history',
+        updatedAt: '2026-04-21T00:01:00.000Z'
+      },
+      message: {
+        id: 'fresh-hidden-message',
+        threadId: freshThread.id,
+        role: 'assistant',
+        content: 'Fresh hidden history',
+        hidden: true,
+        status: 'completed',
+        createdAt: '2026-04-21T00:01:00.000Z'
+      }
+    })
+
+    await waitForEvent('channel-group-history-clear.completed')
+
+    assert.deepEqual(storage.listThreadMessages(oldThread.id), [])
+    assert.deepEqual(storage.listThreadMessages(freshThread.id), [
+      {
+        id: 'fresh-hidden-message',
+        threadId: freshThread.id,
+        role: 'assistant',
+        content: 'Fresh hidden history',
+        hidden: true,
+        status: 'completed',
+        createdAt: '2026-04-21T00:01:00.000Z'
+      }
+    ])
   })
 })
 

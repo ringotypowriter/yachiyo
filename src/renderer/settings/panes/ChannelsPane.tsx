@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Loader2, RefreshCw } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { inputStyle } from '../components/styles'
@@ -93,6 +93,8 @@ export function ChannelsPane({
   const [showQQToken, setShowQQToken] = useState(false)
   const [showDiscordToken, setShowDiscordToken] = useState(false)
   const [showQQBotSecret, setShowQQBotSecret] = useState(false)
+  const [clearingGroupIds, setClearingGroupIds] = useState<string[]>([])
+  const [clearErrorsByGroupId, setClearErrorsByGroupId] = useState<Record<string, string>>({})
 
   const telegram = config.telegram
   const telegramEnabled = telegram?.enabled ?? false
@@ -192,8 +194,57 @@ export function ChannelsPane({
   }
 
   async function handleClearGroupMessages(groupId: string): Promise<void> {
-    await window.api.yachiyo.clearGroupMonitorBuffer(groupId)
+    if (clearingGroupIds.includes(groupId)) {
+      return
+    }
+
+    setClearingGroupIds((current) => (current.includes(groupId) ? current : [...current, groupId]))
+    setClearErrorsByGroupId((current) => {
+      const next = { ...current }
+      delete next[groupId]
+      return next
+    })
+
+    try {
+      await window.api.yachiyo.clearGroupMonitorBuffer(groupId)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to start clearing.'
+      setClearingGroupIds((current) => current.filter((id) => id !== groupId))
+      setClearErrorsByGroupId((current) => ({ ...current, [groupId]: message }))
+      throw error
+    }
   }
+
+  useEffect(() => {
+    return window.api.yachiyo.subscribe((event) => {
+      if (event.type === 'channel-group-history-clear.started') {
+        setClearingGroupIds((current) =>
+          current.includes(event.groupId) ? current : [...current, event.groupId]
+        )
+        setClearErrorsByGroupId((current) => {
+          const next = { ...current }
+          delete next[event.groupId]
+          return next
+        })
+        return
+      }
+
+      if (event.type === 'channel-group-history-clear.completed') {
+        setClearingGroupIds((current) => current.filter((id) => id !== event.groupId))
+        setClearErrorsByGroupId((current) => {
+          const next = { ...current }
+          delete next[event.groupId]
+          return next
+        })
+        return
+      }
+
+      if (event.type === 'channel-group-history-clear.failed') {
+        setClearingGroupIds((current) => current.filter((id) => id !== event.groupId))
+        setClearErrorsByGroupId((current) => ({ ...current, [event.groupId]: event.error }))
+      }
+    })
+  }, [])
 
   const modelSelector = providers.length > 0
 
@@ -1040,7 +1091,8 @@ export function ChannelsPane({
             <ChannelGroupRow
               key={`${group.id}:${group.label}`}
               group={group}
-              busy={false}
+              busy={clearingGroupIds.includes(group.id)}
+              clearError={clearErrorsByGroupId[group.id] ?? null}
               onStatusChange={(s) => handleGroupStatusChange(group.id, s)}
               onLabelChange={(l) => handleGroupLabelChange(group.id, l)}
               onClearMessages={() => void handleClearGroupMessages(group.id)}
@@ -1326,12 +1378,14 @@ function ChannelUserRow({
 function ChannelGroupRow({
   group,
   busy,
+  clearError,
   onStatusChange,
   onLabelChange,
   onClearMessages
 }: {
   group: ChannelGroupRecord
   busy: boolean
+  clearError: string | null
   onStatusChange: (status: ChannelGroupStatus) => void
   onLabelChange: (label: string) => void
   onClearMessages: () => void
@@ -1372,6 +1426,11 @@ function ChannelGroupRow({
             className="text-xs bg-transparent outline-none w-full"
             style={{ color: theme.text.secondary }}
           />
+          {clearError ? (
+            <div className="text-xs truncate" style={{ color: '#c25151' }}>
+              {clearError}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -1383,11 +1442,22 @@ function ChannelGroupRow({
       </span>
 
       <div className="flex items-center gap-1 shrink-0">
-        <ActionButton
-          label="Clear Messages"
-          color={theme.text.tertiary}
+        <button
+          type="button"
+          disabled={busy}
           onClick={onClearMessages}
-        />
+          className="text-xs font-medium px-2.5 py-1 rounded-md transition-opacity inline-flex items-center gap-1.5"
+          style={{
+            color: theme.text.tertiary,
+            background: `${theme.text.tertiary}14`,
+            border: 'none',
+            cursor: busy ? 'default' : 'pointer',
+            opacity: busy ? 0.55 : 0.75
+          }}
+        >
+          {busy ? <Loader2 size={12} className="animate-spin" /> : null}
+          {busy ? 'Clearing...' : 'Clear Messages'}
+        </button>
         {group.status === 'pending' && (
           <>
             <ActionButton

@@ -416,6 +416,55 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       thread.updatedAt = updatedAt
     },
 
+    resetThreadsHistory({ threadIds, updatedAt }) {
+      if (threadIds.length === 0) {
+        return
+      }
+
+      const threadIdSet = new Set(threadIds)
+
+      const nextMessages = messages.filter((message) => !threadIdSet.has(message.threadId))
+      messages.length = 0
+      messages.push(...nextMessages)
+
+      const deletedRunIds = new Set(
+        [...runs.values()].filter((run) => threadIdSet.has(run.threadId)).map((run) => run.id)
+      )
+      for (const runId of deletedRunIds) {
+        runs.delete(runId)
+        runRecoveryCheckpoints.delete(runId)
+      }
+
+      for (const [toolCallId, toolCall] of toolCalls.entries()) {
+        if (threadIdSet.has(toolCall.threadId)) {
+          toolCalls.delete(toolCallId)
+        }
+      }
+
+      for (const threadId of threadIds) {
+        const thread = threads.get(threadId)
+        if (!thread) {
+          continue
+        }
+        thread.headMessageId = null
+        thread.preview = null
+        thread.queuedFollowUpEnabledTools = null
+        thread.queuedFollowUpEnabledSkillNames = null
+        thread.queuedFollowUpMessageId = null
+        thread.rollingSummary = null
+        thread.summaryWatermarkMessageId = null
+        thread.recapText = null
+        thread.updatedAt = updatedAt
+      }
+    },
+
+    resetChannelGroupThreadsHistory({ channelGroupId, updatedAt }) {
+      const threadIds = [...threads.values()]
+        .filter((thread) => thread.channelGroupId === channelGroupId)
+        .map((thread) => thread.id)
+      this.resetThreadsHistory({ threadIds, updatedAt })
+    },
+
     updateThread(nextThread) {
       const storedThread = threads.get(nextThread.id)
       if (!storedThread || storedThread.archivedAt !== null) {

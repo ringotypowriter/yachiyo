@@ -814,6 +814,47 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       })
     },
 
+    resetThreadsHistory({ threadIds, updatedAt }) {
+      if (threadIds.length === 0) {
+        return
+      }
+
+      db.transaction((tx) => {
+        tx.delete(toolCallsTable).where(inArray(toolCallsTable.threadId, threadIds)).run()
+        tx.delete(runsTable).where(inArray(runsTable.threadId, threadIds)).run()
+        tx.delete(messagesTable).where(inArray(messagesTable.threadId, threadIds)).run()
+        tx.update(threadsTable)
+          .set({
+            headMessageId: null,
+            preview: null,
+            queuedFollowUpEnabledTools: null,
+            queuedFollowUpEnabledSkillNames: null,
+            queuedFollowUpMessageId: null,
+            rollingSummary: null,
+            summaryWatermarkMessageId: null,
+            recapText: null,
+            updatedAt
+          })
+          .where(inArray(threadsTable.id, threadIds))
+          .run()
+      })
+    },
+
+    resetChannelGroupThreadsHistory({ channelGroupId, updatedAt }) {
+      const threadIds = db
+        .select({ id: threadsTable.id })
+        .from(threadsTable)
+        .where(eq(threadsTable.channelGroupId, channelGroupId))
+        .all()
+        .map((thread) => thread.id)
+
+      if (threadIds.length === 0) {
+        return
+      }
+
+      this.resetThreadsHistory({ threadIds, updatedAt })
+    },
+
     updateThread(thread) {
       db.update(threadsTable)
         .set({

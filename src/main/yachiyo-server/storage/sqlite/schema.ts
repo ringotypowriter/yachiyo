@@ -1,4 +1,11 @@
-import { integer, real, sqliteTable, text, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
+import {
+  index,
+  integer,
+  real,
+  sqliteTable,
+  text,
+  type AnySQLiteColumn
+} from 'drizzle-orm/sqlite-core'
 
 import type {
   ChannelGroupStatus,
@@ -44,94 +51,106 @@ export const threadFoldersTable = sqliteTable('thread_folders', {
   updatedAt: text('updated_at').notNull()
 })
 
-export const threadsTable = sqliteTable('threads', {
-  id: text('id').primaryKey(),
-  icon: text('icon'),
-  title: text('title').notNull(),
-  memoryRecallState: text('memory_recall_state'),
-  workspacePath: text('workspace_path'),
-  preview: text('preview'),
-  branchFromThreadId: text('branch_from_thread_id'),
-  branchFromMessageId: text('branch_from_message_id'),
-  handoffFromThreadId: text('handoff_from_thread_id'),
-  folderId: text('folder_id').references(() => threadFoldersTable.id, { onDelete: 'set null' }),
-  headMessageId: text('head_message_id'),
-  queuedFollowUpMessageId: text('queued_follow_up_message_id'),
-  queuedFollowUpEnabledTools: text('queued_follow_up_enabled_tools'),
-  queuedFollowUpEnabledSkillNames: text('queued_follow_up_enabled_skill_names'),
-  archivedAt: text('archived_at'),
-  savingStartedAt: text('saving_started_at'),
-  starredAt: text('starred_at'),
-  privacyMode: text('privacy_mode'),
-  modelOverride: text('model_override'),
-  source: text('source').default('local'),
-  channelUserId: text('channel_user_id').references(() => channelUsersTable.id),
-  channelGroupId: text('channel_group_id').references(() => channelGroupsTable.id),
-  rollingSummary: text('rolling_summary'),
-  summaryWatermarkMessageId: text('summary_watermark_message_id'),
-  readAt: text('read_at'),
-  createdFromEssentialId: text('created_from_essential_id'),
-  createdFromScheduleId: text('created_from_schedule_id'),
-  runtimeBinding: text('runtime_binding'),
-  lastDelegatedSession: text('last_delegated_session'),
-  recapText: text('recap_text'),
-  selfReviewedAt: text('self_reviewed_at'),
-  updatedAt: text('updated_at').notNull(),
-  createdAt: text('created_at').notNull()
-})
+export const threadsTable = sqliteTable(
+  'threads',
+  {
+    id: text('id').primaryKey(),
+    icon: text('icon'),
+    title: text('title').notNull(),
+    memoryRecallState: text('memory_recall_state'),
+    workspacePath: text('workspace_path'),
+    preview: text('preview'),
+    branchFromThreadId: text('branch_from_thread_id'),
+    branchFromMessageId: text('branch_from_message_id'),
+    handoffFromThreadId: text('handoff_from_thread_id'),
+    folderId: text('folder_id').references(() => threadFoldersTable.id, { onDelete: 'set null' }),
+    headMessageId: text('head_message_id'),
+    queuedFollowUpMessageId: text('queued_follow_up_message_id'),
+    queuedFollowUpEnabledTools: text('queued_follow_up_enabled_tools'),
+    queuedFollowUpEnabledSkillNames: text('queued_follow_up_enabled_skill_names'),
+    archivedAt: text('archived_at'),
+    savingStartedAt: text('saving_started_at'),
+    starredAt: text('starred_at'),
+    privacyMode: text('privacy_mode'),
+    modelOverride: text('model_override'),
+    source: text('source').default('local'),
+    channelUserId: text('channel_user_id').references(() => channelUsersTable.id),
+    channelGroupId: text('channel_group_id').references(() => channelGroupsTable.id),
+    rollingSummary: text('rolling_summary'),
+    summaryWatermarkMessageId: text('summary_watermark_message_id'),
+    readAt: text('read_at'),
+    createdFromEssentialId: text('created_from_essential_id'),
+    createdFromScheduleId: text('created_from_schedule_id'),
+    runtimeBinding: text('runtime_binding'),
+    lastDelegatedSession: text('last_delegated_session'),
+    recapText: text('recap_text'),
+    selfReviewedAt: text('self_reviewed_at'),
+    updatedAt: text('updated_at').notNull(),
+    createdAt: text('created_at').notNull()
+  },
+  (table) => [index('threads_channel_group_id_idx').on(table.channelGroupId)]
+)
 
-export const messagesTable = sqliteTable('messages', {
-  id: text('id').primaryKey(),
-  threadId: text('thread_id')
-    .notNull()
-    .references(() => threadsTable.id, { onDelete: 'cascade' }),
-  parentMessageId: text('parent_message_id').references((): AnySQLiteColumn => messagesTable.id, {
-    onDelete: 'cascade'
-  }),
-  role: text('role').$type<MessageRecord['role']>().notNull(),
-  content: text('content').notNull(),
-  textBlocks: text('text_blocks'),
-  images: text('images'),
-  attachments: text('attachments'),
-  reasoning: text('reasoning'),
-  responseMessages: text('response_messages'),
-  turnContext: text('turn_context'),
-  visibleReply: text('visible_reply'),
-  senderName: text('sender_name'),
-  senderExternalUserId: text('sender_external_user_id'),
-  hidden: integer('hidden', { mode: 'boolean' }),
-  status: text('status').$type<MessageRecord['status']>().notNull(),
-  createdAt: text('created_at').notNull(),
-  modelId: text('model_id'),
-  providerName: text('provider_name')
-})
+export const messagesTable = sqliteTable(
+  'messages',
+  {
+    id: text('id').primaryKey(),
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => threadsTable.id, { onDelete: 'cascade' }),
+    parentMessageId: text('parent_message_id').references((): AnySQLiteColumn => messagesTable.id, {
+      onDelete: 'cascade'
+    }),
+    role: text('role').$type<MessageRecord['role']>().notNull(),
+    content: text('content').notNull(),
+    textBlocks: text('text_blocks'),
+    images: text('images'),
+    attachments: text('attachments'),
+    reasoning: text('reasoning'),
+    responseMessages: text('response_messages'),
+    turnContext: text('turn_context'),
+    visibleReply: text('visible_reply'),
+    senderName: text('sender_name'),
+    senderExternalUserId: text('sender_external_user_id'),
+    hidden: integer('hidden', { mode: 'boolean' }),
+    status: text('status').$type<MessageRecord['status']>().notNull(),
+    createdAt: text('created_at').notNull(),
+    modelId: text('model_id'),
+    providerName: text('provider_name')
+  },
+  (table) => [index('messages_thread_id_idx').on(table.threadId)]
+)
 
-export const runsTable = sqliteTable('runs', {
-  id: text('id').primaryKey(),
-  threadId: text('thread_id')
-    .notNull()
-    .references(() => threadsTable.id, { onDelete: 'cascade' }),
-  requestMessageId: text('request_message_id').references(() => messagesTable.id, {
-    onDelete: 'set null'
-  }),
-  assistantMessageId: text('assistant_message_id').references(() => messagesTable.id, {
-    onDelete: 'set null'
-  }),
-  status: text('status').$type<RunRecord['status']>().notNull(),
-  error: text('error'),
-  createdAt: text('created_at').notNull(),
-  completedAt: text('completed_at'),
-  promptTokens: integer('prompt_tokens'),
-  completionTokens: integer('completion_tokens'),
-  totalPromptTokens: integer('total_prompt_tokens'),
-  totalCompletionTokens: integer('total_completion_tokens'),
-  cacheReadTokens: integer('cache_read_tokens'),
-  cacheWriteTokens: integer('cache_write_tokens'),
-  modelId: text('model_id'),
-  providerName: text('provider_name'),
-  snapshotFileCount: integer('snapshot_file_count'),
-  workspacePath: text('workspace_path')
-})
+export const runsTable = sqliteTable(
+  'runs',
+  {
+    id: text('id').primaryKey(),
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => threadsTable.id, { onDelete: 'cascade' }),
+    requestMessageId: text('request_message_id').references(() => messagesTable.id, {
+      onDelete: 'set null'
+    }),
+    assistantMessageId: text('assistant_message_id').references(() => messagesTable.id, {
+      onDelete: 'set null'
+    }),
+    status: text('status').$type<RunRecord['status']>().notNull(),
+    error: text('error'),
+    createdAt: text('created_at').notNull(),
+    completedAt: text('completed_at'),
+    promptTokens: integer('prompt_tokens'),
+    completionTokens: integer('completion_tokens'),
+    totalPromptTokens: integer('total_prompt_tokens'),
+    totalCompletionTokens: integer('total_completion_tokens'),
+    cacheReadTokens: integer('cache_read_tokens'),
+    cacheWriteTokens: integer('cache_write_tokens'),
+    modelId: text('model_id'),
+    providerName: text('provider_name'),
+    snapshotFileCount: integer('snapshot_file_count'),
+    workspacePath: text('workspace_path')
+  },
+  (table) => [index('runs_thread_id_idx').on(table.threadId)]
+)
 
 export const runRecoveryCheckpointsTable = sqliteTable('run_recovery_checkpoints', {
   runId: text('run_id')
@@ -160,30 +179,34 @@ export const runRecoveryCheckpointsTable = sqliteTable('run_recovery_checkpoints
   lastError: text('last_error')
 })
 
-export const toolCallsTable = sqliteTable('tool_calls', {
-  id: text('id').primaryKey(),
-  runId: text('run_id').references(() => runsTable.id),
-  requestMessageId: text('request_message_id').references(() => messagesTable.id, {
-    onDelete: 'set null'
-  }),
-  assistantMessageId: text('assistant_message_id').references(() => messagesTable.id, {
-    onDelete: 'set null'
-  }),
-  threadId: text('thread_id')
-    .notNull()
-    .references(() => threadsTable.id, { onDelete: 'cascade' }),
-  toolName: text('tool_name').$type<ToolCallRecord['toolName']>().notNull(),
-  status: text('status').$type<ToolCallRecord['status']>().notNull(),
-  inputSummary: text('input_summary').notNull(),
-  outputSummary: text('output_summary'),
-  cwd: text('cwd'),
-  error: text('error'),
-  details: text('details'),
-  startedAt: text('started_at').notNull(),
-  finishedAt: text('finished_at'),
-  stepIndex: integer('step_index'),
-  stepBudget: integer('step_budget')
-})
+export const toolCallsTable = sqliteTable(
+  'tool_calls',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id').references(() => runsTable.id),
+    requestMessageId: text('request_message_id').references(() => messagesTable.id, {
+      onDelete: 'set null'
+    }),
+    assistantMessageId: text('assistant_message_id').references(() => messagesTable.id, {
+      onDelete: 'set null'
+    }),
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => threadsTable.id, { onDelete: 'cascade' }),
+    toolName: text('tool_name').$type<ToolCallRecord['toolName']>().notNull(),
+    status: text('status').$type<ToolCallRecord['status']>().notNull(),
+    inputSummary: text('input_summary').notNull(),
+    outputSummary: text('output_summary'),
+    cwd: text('cwd'),
+    error: text('error'),
+    details: text('details'),
+    startedAt: text('started_at').notNull(),
+    finishedAt: text('finished_at'),
+    stepIndex: integer('step_index'),
+    stepBudget: integer('step_budget')
+  },
+  (table) => [index('tool_calls_thread_id_idx').on(table.threadId)]
+)
 
 export const imageAltTextsTable = sqliteTable('image_alt_texts', {
   imageHash: text('image_hash').primaryKey(),
