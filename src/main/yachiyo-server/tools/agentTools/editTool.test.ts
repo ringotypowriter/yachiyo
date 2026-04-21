@@ -18,7 +18,7 @@ describe('editTool', () => {
     await writeFile(filePath, 'hello world\nhello universe', 'utf8')
 
     const result = await runEditTool(
-      { path: 'file.txt', oldText: 'world', newText: 'there' },
+      { mode: 'inline', path: 'file.txt', oldText: 'world', newText: 'there' },
       { workspacePath: workspace }
     )
 
@@ -34,7 +34,7 @@ describe('editTool', () => {
     await writeFile(filePath, 'hello hello hello', 'utf8')
 
     const result = await runEditTool(
-      { path: 'file.txt', oldText: 'hello', newText: 'hi' },
+      { mode: 'inline', path: 'file.txt', oldText: 'hello', newText: 'hi' },
       { workspacePath: workspace }
     )
 
@@ -50,7 +50,7 @@ describe('editTool', () => {
     await writeFile(filePath, 'hello hello hello', 'utf8')
 
     const result = await runEditTool(
-      { path: 'file.txt', oldText: 'hello', newText: 'hi', replace_all: true },
+      { mode: 'inline', path: 'file.txt', oldText: 'hello', newText: 'hi', replace_all: true },
       { workspacePath: workspace }
     )
 
@@ -67,7 +67,7 @@ describe('editTool', () => {
     await writeFile(filePath, 'hello world', 'utf8')
 
     const result = await runEditTool(
-      { path: 'file.txt', oldText: 'missing', newText: 'found', replace_all: true },
+      { mode: 'inline', path: 'file.txt', oldText: 'missing', newText: 'found', replace_all: true },
       { workspacePath: workspace }
     )
 
@@ -82,7 +82,7 @@ describe('editTool', () => {
 
     const cache = new ReadRecordCache()
     const result = await runEditTool(
-      { path: 'file.txt', oldText: 'hello', newText: 'hi' },
+      { mode: 'inline', path: 'file.txt', oldText: 'hello', newText: 'hi' },
       { workspacePath: workspace, readRecordCache: cache }
     )
 
@@ -103,7 +103,7 @@ describe('editTool', () => {
     cache.recordRead(join(workspace, 'file.txt'), 1, 1) // read line 1
 
     const result = await runEditTool(
-      { path: 'file.txt', oldText: 'hello', newText: 'hi' },
+      { mode: 'inline', path: 'file.txt', oldText: 'hello', newText: 'hi' },
       { workspacePath: workspace, readRecordCache: cache }
     )
 
@@ -123,7 +123,7 @@ describe('editTool', () => {
     cache.recordRead(join(workspace, 'file.txt'), 1, 3) // only read lines 1-3
 
     const result = await runEditTool(
-      { path: 'file.txt', oldText: 'target text', newText: 'replaced' },
+      { mode: 'inline', path: 'file.txt', oldText: 'target text', newText: 'replaced' },
       { workspacePath: workspace, readRecordCache: cache }
     )
 
@@ -146,7 +146,7 @@ describe('editTool', () => {
     cache.recordRead(join(workspace, 'file.txt'), 4, 6) // now lines 1-6 covered
 
     const result = await runEditTool(
-      { path: 'file.txt', oldText: 'target text', newText: 'replaced' },
+      { mode: 'inline', path: 'file.txt', oldText: 'target text', newText: 'replaced' },
       { workspacePath: workspace, readRecordCache: cache }
     )
 
@@ -164,7 +164,7 @@ describe('editTool', () => {
     cache.recordRead(filePath, 1, 2) // only read lines 1-2; line 3 not covered
 
     const result = await runEditTool(
-      { path: 'file.txt', oldText: 'b\nc', newText: 'X' },
+      { mode: 'inline', path: 'file.txt', oldText: 'b\nc', newText: 'X' },
       { workspacePath: workspace, readRecordCache: cache }
     )
 
@@ -185,7 +185,7 @@ describe('editTool', () => {
     cache.recordRead(filePath, 1, 4) // all lines read
 
     const result = await runEditTool(
-      { path: 'file.txt', oldText: 'b\nc', newText: 'X' },
+      { mode: 'inline', path: 'file.txt', oldText: 'b\nc', newText: 'X' },
       { workspacePath: workspace, readRecordCache: cache }
     )
 
@@ -205,7 +205,7 @@ describe('editTool', () => {
     cache.recordRead(filePath, 1, 2) // only read lines 1-2
 
     const result = await runEditTool(
-      { path: 'file.txt', oldText: 'hello', newText: 'hi', replace_all: true },
+      { mode: 'inline', path: 'file.txt', oldText: 'hello', newText: 'hi', replace_all: true },
       { workspacePath: workspace, readRecordCache: cache }
     )
 
@@ -226,7 +226,7 @@ describe('editTool', () => {
     cache.recordRead(filePath, 1, 5) // read all 5 lines
 
     const result = await runEditTool(
-      { path: 'file.txt', oldText: 'hello', newText: 'hi', replace_all: true },
+      { mode: 'inline', path: 'file.txt', oldText: 'hello', newText: 'hi', replace_all: true },
       { workspacePath: workspace, readRecordCache: cache }
     )
 
@@ -243,7 +243,7 @@ describe('editTool', () => {
 
     // No cache = no guard (backwards compatible)
     const result = await runEditTool(
-      { path: 'file.txt', oldText: 'hello', newText: 'hi' },
+      { mode: 'inline', path: 'file.txt', oldText: 'hello', newText: 'hi' },
       { workspacePath: workspace }
     )
 
@@ -254,7 +254,7 @@ describe('editTool', () => {
   it('returns a clean "File not found" brief when the target does not exist', async () => {
     const workspace = await makeWorkspace()
     const result = await runEditTool(
-      { path: 'missing.txt', oldText: 'a', newText: 'b' },
+      { mode: 'inline', path: 'missing.txt', oldText: 'a', newText: 'b' },
       { workspacePath: workspace }
     )
     assert.ok(result.error)
@@ -266,7 +266,7 @@ describe('editTool', () => {
   it('returns a clean error when the path is a directory', async () => {
     const workspace = await makeWorkspace()
     const result = await runEditTool(
-      { path: '.', oldText: 'a', newText: 'b' },
+      { mode: 'inline', path: '.', oldText: 'a', newText: 'b' },
       { workspacePath: workspace }
     )
     assert.ok(result.error)
@@ -277,7 +277,7 @@ describe('editTool', () => {
   it('rejects relative paths that escape the workspace', async () => {
     const workspace = await makeWorkspace()
     const result = await runEditTool(
-      { path: '../etc/passwd', oldText: 'a', newText: 'b' },
+      { mode: 'inline', path: '../etc/passwd', oldText: 'a', newText: 'b' },
       { workspacePath: workspace }
     )
     assert.ok(result.error)
@@ -296,7 +296,7 @@ describe('editTool', () => {
     await symlink(outsideFile, linkPath)
 
     const result = await runEditTool(
-      { path: 'link.txt', oldText: 'secret', newText: 'public' },
+      { mode: 'inline', path: 'link.txt', oldText: 'secret', newText: 'public' },
       { workspacePath: workspace }
     )
 
@@ -315,7 +315,7 @@ describe('editTool', () => {
     await symlink(realFile, linkPath)
 
     const result = await runEditTool(
-      { path: 'link.txt', oldText: 'hello', newText: 'bye' },
+      { mode: 'inline', path: 'link.txt', oldText: 'hello', newText: 'bye' },
       { workspacePath: workspace }
     )
 
@@ -331,7 +331,7 @@ describe('editTool', () => {
     await writeFile(filePath, 'hello world', 'utf8')
 
     const result = await runEditTool(
-      { path: filePath, oldText: 'hello', newText: 'hi' },
+      { mode: 'inline', path: filePath, oldText: 'hello', newText: 'hi' },
       { workspacePath: workspace }
     )
     assert.strictEqual(result.error, undefined)
@@ -351,6 +351,7 @@ describe('editTool', () => {
 
       const result = await runEditTool(
         {
+          mode: 'range',
           path: 'file.txt',
           replaceLines: { start: 2, end: 3 },
           newText: 'BETA\nGAMMA'
@@ -374,7 +375,7 @@ describe('editTool', () => {
       cache.recordRead(filePath, 1, 5)
 
       const result = await runEditTool(
-        { path: 'file.txt', replaceLines: { start: 2, end: 3 }, newText: 'X' },
+        { mode: 'range', path: 'file.txt', replaceLines: { start: 2, end: 3 }, newText: 'X' },
         { workspacePath: workspace, readRecordCache: cache }
       )
       assert.strictEqual(result.error, undefined)
@@ -391,7 +392,7 @@ describe('editTool', () => {
       cache.recordRead(filePath, 1, 4)
 
       const result = await runEditTool(
-        { path: 'file.txt', replaceLines: { start: 2, end: 2 }, newText: 'X\nY\nZ' },
+        { mode: 'range', path: 'file.txt', replaceLines: { start: 2, end: 2 }, newText: 'X\nY\nZ' },
         { workspacePath: workspace, readRecordCache: cache }
       )
       assert.strictEqual(result.error, undefined)
@@ -411,6 +412,7 @@ describe('editTool', () => {
 
       const result = await runEditTool(
         {
+          mode: 'range',
           path: 'file.py',
           replaceLines: { start: 2, end: 2 },
           newText: '    return 2' // space indent — model's "drifted" version
@@ -429,7 +431,7 @@ describe('editTool', () => {
       await writeFile(filePath, 'a\nb\n', 'utf8')
 
       const result = await runEditTool(
-        { path: 'file.txt', replaceLines: { start: 10, end: 12 }, newText: 'X' },
+        { mode: 'range', path: 'file.txt', replaceLines: { start: 10, end: 12 }, newText: 'X' },
         { workspacePath: workspace }
       )
       assert.ok(result.error)
@@ -443,7 +445,7 @@ describe('editTool', () => {
       await writeFile(filePath, 'a\nb\nc\n', 'utf8')
 
       const result = await runEditTool(
-        { path: 'file.txt', replaceLines: { start: 3, end: 1 }, newText: 'X' },
+        { mode: 'range', path: 'file.txt', replaceLines: { start: 3, end: 1 }, newText: 'X' },
         { workspacePath: workspace }
       )
       assert.ok(result.error)
@@ -460,7 +462,7 @@ describe('editTool', () => {
       cache.recordRead(filePath, 1, 2) // only lines 1-2 read
 
       const result = await runEditTool(
-        { path: 'file.txt', replaceLines: { start: 4, end: 5 }, newText: 'X' },
+        { mode: 'range', path: 'file.txt', replaceLines: { start: 4, end: 5 }, newText: 'X' },
         { workspacePath: workspace, readRecordCache: cache }
       )
       assert.ok(result.error)
@@ -478,7 +480,7 @@ describe('editTool', () => {
 
       const cache = new ReadRecordCache()
       const result = await runEditTool(
-        { path: 'file.txt', replaceLines: { start: 1, end: 2 }, newText: 'X' },
+        { mode: 'range', path: 'file.txt', replaceLines: { start: 1, end: 2 }, newText: 'X' },
         { workspacePath: workspace, readRecordCache: cache }
       )
       assert.ok(result.error)
@@ -499,7 +501,7 @@ describe('editTool', () => {
 
       // Replacing the phantom line (line 4) with empty should no-op cleanly.
       const result = await runEditTool(
-        { path: 'file.txt', replaceLines: { start: 4, end: 4 }, newText: '' },
+        { mode: 'range', path: 'file.txt', replaceLines: { start: 4, end: 4 }, newText: '' },
         { workspacePath: workspace, readRecordCache: cache }
       )
       // Expected: no-op rejection (newText is identical to existing empty line); file on disk unchanged.
@@ -518,7 +520,7 @@ describe('editTool', () => {
       cache.recordRead(filePath, 1, 4)
 
       const result = await runEditTool(
-        { path: 'file.txt', replaceLines: { start: 2, end: 2 }, newText: '' },
+        { mode: 'range', path: 'file.txt', replaceLines: { start: 2, end: 2 }, newText: '' },
         { workspacePath: workspace, readRecordCache: cache }
       )
       assert.strictEqual(result.error, undefined)
@@ -539,6 +541,7 @@ describe('editTool', () => {
 
       const result = await runEditTool(
         {
+          mode: 'range',
           path: 'file.txt',
           replaceLines: { start: 2, end: 3 },
           // Model emits LF; tool should normalize to the file's CRLF convention.
@@ -564,7 +567,7 @@ describe('editTool', () => {
       cache.recordRead(filePath, 1, 4)
 
       const result = await runEditTool(
-        { path: 'file.txt', replaceLines: { start: 2, end: 2 }, newText: 'b' },
+        { mode: 'range', path: 'file.txt', replaceLines: { start: 2, end: 2 }, newText: 'b' },
         { workspacePath: workspace, readRecordCache: cache }
       )
       assert.ok(result.error)
@@ -581,6 +584,7 @@ describe('editTool', () => {
 
       const result = await runEditTool(
         {
+          mode: 'batch',
           path: 'file.txt',
           edits: [
             { oldText: 'alpha', newText: 'A' },
@@ -603,6 +607,7 @@ describe('editTool', () => {
 
       const result = await runEditTool(
         {
+          mode: 'batch',
           path: 'file.txt',
           edits: [
             { oldText: 'alpha', newText: 'A' },
@@ -626,6 +631,7 @@ describe('editTool', () => {
 
       const result = await runEditTool(
         {
+          mode: 'batch',
           path: 'file.txt',
           edits: [{ oldText: 'x', newText: 'y' }]
         },
@@ -643,6 +649,7 @@ describe('editTool', () => {
 
       const result = await runEditTool(
         {
+          mode: 'batch',
           path: 'file.txt',
           edits: [
             { oldText: 'foo', newText: 'bar' },
@@ -665,6 +672,7 @@ describe('editTool', () => {
 
       const result = await runEditTool(
         {
+          mode: 'batch',
           path: 'file.txt',
           edits: [
             { oldText: 'foo', newText: 'bar' },
@@ -696,6 +704,7 @@ describe('editTool', () => {
 
       const result = await runEditTool(
         {
+          mode: 'batch',
           path: 'file.txt',
           edits: [
             // Edit 1 uniquely matches line 1's "foo" (via the "\na" context)
@@ -725,6 +734,7 @@ describe('editTool', () => {
 
       const result = await runEditTool(
         {
+          mode: 'batch',
           path: 'file.txt',
           edits: [
             { oldText: 'one', newText: '1' }, // line 1 — covered
@@ -744,10 +754,35 @@ describe('editTool', () => {
   })
 
   describe('input schema validation', () => {
-    // Regression for P3: strict union branches — a mixed-shape payload must fail
-    // validation rather than silently coerce to the first matching branch.
-    it('rejects input that mixes inline and ranged fields', () => {
+    it('requires mode for inline edits', () => {
       const parsed = editToolInputSchema.safeParse({
+        path: 'file.txt',
+        oldText: 'hello',
+        newText: 'hi'
+      })
+      assert.strictEqual(parsed.success, false)
+    })
+
+    it('requires mode for ranged edits', () => {
+      const parsed = editToolInputSchema.safeParse({
+        path: 'file.txt',
+        replaceLines: { start: 1, end: 1 },
+        newText: 'hi'
+      })
+      assert.strictEqual(parsed.success, false)
+    })
+
+    it('requires mode for batched edits', () => {
+      const parsed = editToolInputSchema.safeParse({
+        path: 'file.txt',
+        edits: [{ oldText: 'x', newText: 'y' }]
+      })
+      assert.strictEqual(parsed.success, false)
+    })
+
+    it('rejects input that mixes inline and ranged fields for inline mode', () => {
+      const parsed = editToolInputSchema.safeParse({
+        mode: 'inline',
         path: 'file.txt',
         oldText: 'hello',
         newText: 'hi',
@@ -756,8 +791,9 @@ describe('editTool', () => {
       assert.strictEqual(parsed.success, false)
     })
 
-    it('rejects input that mixes batched and inline fields', () => {
+    it('rejects input that mixes batched and inline fields for inline mode', () => {
       const parsed = editToolInputSchema.safeParse({
+        mode: 'inline',
         path: 'file.txt',
         oldText: 'hello',
         newText: 'hi',
@@ -766,8 +802,9 @@ describe('editTool', () => {
       assert.strictEqual(parsed.success, false)
     })
 
-    it('rejects input that mixes batched and ranged fields', () => {
+    it('rejects input that mixes batched and ranged fields for range mode', () => {
       const parsed = editToolInputSchema.safeParse({
+        mode: 'range',
         path: 'file.txt',
         replaceLines: { start: 1, end: 1 },
         newText: 'hi',
@@ -778,6 +815,7 @@ describe('editTool', () => {
 
     it('rejects unknown top-level fields', () => {
       const parsed = editToolInputSchema.safeParse({
+        mode: 'inline',
         path: 'file.txt',
         oldText: 'hello',
         newText: 'hi',
@@ -788,11 +826,17 @@ describe('editTool', () => {
 
     it('accepts each of the three valid shapes on its own', () => {
       assert.strictEqual(
-        editToolInputSchema.safeParse({ path: 'a', oldText: 'x', newText: 'y' }).success,
+        editToolInputSchema.safeParse({
+          mode: 'inline',
+          path: 'a',
+          oldText: 'x',
+          newText: 'y'
+        }).success,
         true
       )
       assert.strictEqual(
         editToolInputSchema.safeParse({
+          mode: 'range',
           path: 'a',
           replaceLines: { start: 1, end: 2 },
           newText: 'y'
@@ -800,8 +844,11 @@ describe('editTool', () => {
         true
       )
       assert.strictEqual(
-        editToolInputSchema.safeParse({ path: 'a', edits: [{ oldText: 'x', newText: 'y' }] })
-          .success,
+        editToolInputSchema.safeParse({
+          mode: 'batch',
+          path: 'a',
+          edits: [{ oldText: 'x', newText: 'y' }]
+        }).success,
         true
       )
     })

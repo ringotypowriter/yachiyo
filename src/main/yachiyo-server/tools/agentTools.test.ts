@@ -351,6 +351,7 @@ test('runEditTool rejects ambiguous matches and returns diff metadata for a targ
 
     const ambiguous = await runEditTool(
       {
+        mode: 'inline',
         path: 'ambiguous.txt',
         oldText: 'alpha',
         newText: 'omega'
@@ -365,6 +366,7 @@ test('runEditTool rejects ambiguous matches and returns diff metadata for a targ
 
     const replaced = await runEditTool(
       {
+        mode: 'inline',
         path: 'draft.txt',
         oldText: 'beta',
         newText: 'omega'

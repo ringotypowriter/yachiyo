@@ -34,7 +34,7 @@ function findAllMatchPositions(haystack: string, needle: string): number[] {
 
 export function createTool(context: AgentToolContext): Tool<EditToolInput, EditToolOutput> {
   return tool({
-    description: `Edit an existing text file. Three input shapes are supported. (1) Inline replacement: \`{ oldText, newText, replace_all? }\` — best for short surgical edits where the match is stable. (2) Line-range replacement: \`{ replaceLines: { start, end }, newText }\` — addresses lines by position (1-indexed, inclusive) using the same coordinates the read tool returned. Prefer this for multi-line block rewrites where reproducing exact whitespace via oldText is error-prone. (3) Batched inline edits: \`{ edits: [{ oldText, newText, replace_all? }, ...] }\` — applies multiple inline edits to the same file atomically. Relative paths resolve from ${context.workspacePath}; files outside the workspace require an absolute path. Every shape requires you to have read the target region first.`,
+    description: `Edit an existing text file. You must choose one explicit mode. (1) Inline replacement: \`{ mode: 'inline', oldText, newText, replace_all? }\` — best for short surgical edits where the match is stable. (2) Line-range replacement: \`{ mode: 'range', replaceLines: { start, end }, newText }\` — addresses lines by position (1-indexed, inclusive) using the same coordinates the read tool returned. Prefer this for multi-line block rewrites where reproducing exact whitespace via oldText is error-prone. (3) Batched inline edits: \`{ mode: 'batch', edits: [{ oldText, newText, replace_all? }, ...] }\` — applies multiple inline edits to the same file atomically. Relative paths resolve from ${context.workspacePath}; files outside the workspace require an absolute path. Every shape requires you to have read the target region first.`,
     inputSchema: editToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) => runEditTool(input, context, options)
@@ -42,8 +42,13 @@ export function createTool(context: AgentToolContext): Tool<EditToolInput, EditT
 }
 
 function normalizeEdits(input: EditToolInput): EditSpec[] {
-  if (input.edits) return input.edits
-  return [{ oldText: input.oldText!, newText: input.newText!, replace_all: input.replace_all }]
+  if (input.mode === 'batch') return input.edits
+  if (input.mode !== 'inline') {
+    throw new Error(
+      `normalizeEdits only supports inline or batch inputs, received mode "${input.mode}".`
+    )
+  }
+  return [{ oldText: input.oldText, newText: input.newText, replace_all: input.replace_all }]
 }
 
 function isInputEffectivelyAbsolute(rawPath: string): boolean {
@@ -204,7 +209,7 @@ export async function runEditTool(
     }
   }
 
-  if (input.replaceLines) {
+  if (input.mode === 'range') {
     return runRangedEdit(resolvedPath, input, context, abortSignal)
   }
 
@@ -356,11 +361,11 @@ export async function runEditTool(
 
 async function runRangedEdit(
   resolvedPath: string,
-  input: EditToolInput,
+  input: Extract<EditToolInput, { mode: 'range' }>,
   context: AgentToolContext,
   abortSignal: AbortSignal | undefined
 ): Promise<EditToolOutput> {
-  const { start, end } = input.replaceLines!
+  const { start, end } = input.replaceLines
   if (end < start) {
     return createEditResult(
       resolvedPath,
@@ -435,7 +440,7 @@ async function runRangedEdit(
     // Note: ''.split(/\r?\n/) === ['']. An empty newText therefore replaces the range with
     // a single empty line — NOT zero lines — which preserves the file's trailing newline
     // when the phantom last line (the empty element produced by a trailing \n) is targeted.
-    const newLines = input.newText!.split(/\r?\n/)
+    const newLines = input.newText.split(/\r?\n/)
     const nextLines = [
       ...originalLines.slice(0, start - 1),
       ...newLines,
