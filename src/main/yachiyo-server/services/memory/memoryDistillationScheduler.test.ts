@@ -18,26 +18,22 @@ function makeThread(id: string, headMessageId?: string): ThreadRecord {
   }
 }
 
-function makeMessages(threadId: string): MessageRecord[] {
-  return [
-    {
-      id: 'msg-1',
+function makeMessages(threadId: string, count: number = 2): MessageRecord[] {
+  const messages: MessageRecord[] = []
+  for (let i = 0; i < count; i++) {
+    const id = `msg-${i + 1}`
+    const msg: MessageRecord = {
+      id,
       threadId,
-      role: 'user',
-      content: 'Hello',
+      role: i % 2 === 0 ? 'user' : 'assistant',
+      content: `Message ${i + 1}`,
       status: 'completed',
-      createdAt: '2026-04-01T00:00:00.000Z'
-    },
-    {
-      id: 'msg-2',
-      threadId,
-      role: 'assistant',
-      content: 'Hi there!',
-      status: 'completed',
-      createdAt: '2026-04-01T00:00:01.000Z',
-      parentMessageId: 'msg-1'
+      createdAt: `2026-04-01T00:00:0${i}.000Z`,
+      ...(i > 0 ? { parentMessageId: `msg-${i}` } : {})
     }
-  ]
+    messages.push(msg)
+  }
+  return messages
 }
 
 interface StubMemoryService extends MemoryService {
@@ -96,6 +92,7 @@ function createDeps(overrides?: {
   config?: SettingsConfig
   messages?: Map<string, MessageRecord[]>
   threads?: Map<string, ThreadRecord>
+  tokens?: Map<string, number>
 }): {
   memoryService: StubMemoryService
   deps: Parameters<typeof createMemoryDistillationScheduler>[0]
@@ -104,13 +101,15 @@ function createDeps(overrides?: {
   const config: SettingsConfig = overrides?.config ?? { providers: [] }
   const messagesMap = overrides?.messages ?? new Map<string, MessageRecord[]>()
   const threadsMap = overrides?.threads ?? new Map<string, ThreadRecord>()
+  const tokensMap = overrides?.tokens ?? new Map<string, number>()
   return {
     memoryService,
     deps: {
       memoryService,
       readConfig: () => config,
       loadThreadMessages: (threadId) => messagesMap.get(threadId) ?? makeMessages(threadId),
-      getThread: (threadId) => threadsMap.get(threadId) ?? makeThread(threadId)
+      getThread: (threadId) => threadsMap.get(threadId) ?? makeThread(threadId),
+      getThreadTotalTokens: (threadId) => tokensMap.get(threadId) ?? 16_000
     }
   }
 }
@@ -273,9 +272,26 @@ test('scheduler skips empty message threads', async () => {
   await scheduler.close()
 })
 
+test('scheduler skips threads with too few prompt tokens', async () => {
+  const { memoryService, deps } = createDeps({
+    tokens: new Map([['t1', 10_000]])
+  })
+  const scheduler = createMemoryDistillationScheduler(deps)
+
+  const thread = makeThread('t1')
+  for (let i = 0; i < 8; i++) {
+    scheduler.onRunCompleted(thread)
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.equal(memoryService.saveThreadCalls.length, 0)
+
+  await scheduler.close()
+})
+
 test('scheduler filters messages to the canonical branch using headMessageId', async () => {
   const threadId = 't-branch'
-  // Branched thread: msg-1 → msg-2a (abandoned) and msg-1 → msg-2b (canonical)
+  // Branched thread: msg-1 → msg-2a (abandoned) and msg-1 → msg-2b → msg-3b → msg-4b (canonical)
   const branchedMessages: MessageRecord[] = [
     {
       id: 'msg-1',
@@ -302,12 +318,30 @@ test('scheduler filters messages to the canonical branch using headMessageId', a
       status: 'completed',
       createdAt: '2026-04-01T00:00:02.000Z',
       parentMessageId: 'msg-1'
+    },
+    {
+      id: 'msg-3b',
+      threadId,
+      role: 'user',
+      content: 'Canonical follow-up',
+      status: 'completed',
+      createdAt: '2026-04-01T00:00:03.000Z',
+      parentMessageId: 'msg-2b'
+    },
+    {
+      id: 'msg-4b',
+      threadId,
+      role: 'assistant',
+      content: 'Canonical follow-up response',
+      status: 'completed',
+      createdAt: '2026-04-01T00:00:04.000Z',
+      parentMessageId: 'msg-3b'
     }
   ]
 
   const messages = new Map<string, MessageRecord[]>()
   messages.set(threadId, branchedMessages)
-  const thread = makeThread(threadId, 'msg-2b')
+  const thread = makeThread(threadId, 'msg-4b')
   const threads = new Map<string, ThreadRecord>()
   threads.set(threadId, thread)
   const { memoryService, deps } = createDeps({ messages, threads })
@@ -319,8 +353,13 @@ test('scheduler filters messages to the canonical branch using headMessageId', a
   await new Promise((resolve) => setTimeout(resolve, 50))
 
   assert.equal(memoryService.saveThreadCalls.length, 1)
-  // Only the canonical path (msg-1 → msg-2b), not the abandoned msg-2a
-  assert.deepEqual(memoryService.saveThreadCalls[0]!.messageIds, ['msg-1', 'msg-2b'])
+  // Only the canonical path (msg-1 → msg-2b → msg-3b → msg-4b), not the abandoned msg-2a
+  assert.deepEqual(memoryService.saveThreadCalls[0]!.messageIds, [
+    'msg-1',
+    'msg-2b',
+    'msg-3b',
+    'msg-4b'
+  ])
 
   await scheduler.close()
 })
@@ -353,6 +392,24 @@ test('scheduler reads current thread at flush time, not the stale snapshot', asy
       status: 'completed',
       createdAt: '2026-04-01T00:00:02.000Z',
       parentMessageId: 'msg-1'
+    },
+    {
+      id: 'msg-3b',
+      threadId,
+      role: 'user',
+      content: 'New branch follow-up',
+      status: 'completed',
+      createdAt: '2026-04-01T00:00:03.000Z',
+      parentMessageId: 'msg-2b'
+    },
+    {
+      id: 'msg-4b',
+      threadId,
+      role: 'assistant',
+      content: 'New branch follow-up response',
+      status: 'completed',
+      createdAt: '2026-04-01T00:00:04.000Z',
+      parentMessageId: 'msg-3b'
     }
   ]
 
@@ -371,7 +428,7 @@ test('scheduler reads current thread at flush time, not the stale snapshot', asy
   }
 
   // User switches branch during debounce window
-  threads.set(threadId, makeThread(threadId, 'msg-2b'))
+  threads.set(threadId, makeThread(threadId, 'msg-4b'))
 
   // 8th run triggers threshold flush — should read the updated thread
   scheduler.onRunCompleted(oldThread)
@@ -379,8 +436,13 @@ test('scheduler reads current thread at flush time, not the stale snapshot', asy
   await new Promise((resolve) => setTimeout(resolve, 50))
 
   assert.equal(memoryService.saveThreadCalls.length, 1)
-  // Should follow the NEW branch (msg-1 → msg-2b), not the old one
-  assert.deepEqual(memoryService.saveThreadCalls[0]!.messageIds, ['msg-1', 'msg-2b'])
+  // Should follow the NEW branch (msg-1 → msg-2b → msg-3b → msg-4b), not the old one
+  assert.deepEqual(memoryService.saveThreadCalls[0]!.messageIds, [
+    'msg-1',
+    'msg-2b',
+    'msg-3b',
+    'msg-4b'
+  ])
 
   await scheduler.close()
 })

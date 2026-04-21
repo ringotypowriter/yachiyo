@@ -301,7 +301,8 @@ export class YachiyoServerRunDomain {
       memoryService: deps.memoryService,
       readConfig: deps.readConfig,
       loadThreadMessages: deps.loadThreadMessages,
-      getThread: (threadId) => deps.storage.getThread(threadId)
+      getThread: (threadId) => deps.storage.getThread(threadId),
+      getThreadTotalTokens: (threadId) => deps.storage.getThreadTotalTokens(threadId)
     })
 
     this.backgroundBashManager.setCompletionHandler((result) => {

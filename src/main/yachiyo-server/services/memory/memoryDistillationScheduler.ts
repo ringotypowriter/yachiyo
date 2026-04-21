@@ -9,6 +9,7 @@ import type { MemoryService } from './memoryService.ts'
 const LOG_PREFIX = '[yachiyo][memory-distill]'
 const IDLE_DEBOUNCE_MS = 10 * 60 * 1000 // 10 minutes
 const RUN_THRESHOLD = 8
+const MIN_PROMPT_TOKENS_FOR_DISTILLATION = 16_000
 
 export interface MemoryDistillationSchedulerDeps {
   memoryService: MemoryService
@@ -16,6 +17,8 @@ export interface MemoryDistillationSchedulerDeps {
   loadThreadMessages: (threadId: string) => MessageRecord[]
   /** Read the current persisted thread. Returns undefined if deleted. */
   getThread: (threadId: string) => ThreadRecord | undefined
+  /** Read the latest completed run's prompt-token count for a thread. */
+  getThreadTotalTokens: (threadId: string) => number
 }
 
 interface ThreadEntry {
@@ -73,10 +76,19 @@ async function runDistillation(
       console.log(LOG_PREFIX, 'skipped (no messages)', { threadId: input.threadId })
       return
     }
+    const promptTokens = deps.getThreadTotalTokens(input.threadId)
+    if (promptTokens < MIN_PROMPT_TOKENS_FOR_DISTILLATION) {
+      console.log(LOG_PREFIX, 'skipped (too few prompt tokens)', {
+        threadId: input.threadId,
+        promptTokens
+      })
+      return
+    }
 
     console.log(LOG_PREFIX, 'starting batch distillation', {
       threadId: input.threadId,
-      messageCount: messages.length
+      messageCount: messages.length,
+      promptTokens
     })
 
     const result = await deps.memoryService.saveThread({
