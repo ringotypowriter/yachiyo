@@ -50,7 +50,7 @@ Follow `.editorconfig` and Prettier: 2-space indentation, LF endings, single quo
 
 This repo uses `node:test`. Keep tests next to the code they verify using `*.test.ts`; reserve `*.native.test.ts` for Electron/sqlite coverage only. Default tests should prefer in-memory storage so they stay fast and do not depend on native modules. Add or update tests for new CLI commands, storage behavior, protocol changes, and state transformation helpers.
 
-- **Run domain-specific tests first.** The full suite (`pnpm run test:server`) takes several minutes; save it for CI. During development, run only the test file(s) relevant to your change via `npx tsx --test path/to/file.test.ts`.
+- **Run domain-specific tests first.** The full suite (`pnpm run test:server`) takes several minutes; save it for CI. During development, run only the test file(s) relevant to your change via `node --experimental-strip-types --test path/to/file.test.ts`.
 
 ## Icon Usage
 
