@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test'
+import { describe, it, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -15,8 +15,16 @@ function makeContext(overrides?: Partial<AgentToolContext>): AgentToolContext {
   }
 }
 
+const createdTools: Array<{ dispose(): Promise<void> }> = []
+
+function createTrackedTool(context: AgentToolContext): { dispose(): Promise<void> } {
+  const tool = createTool(context) as unknown as { dispose(): Promise<void> }
+  createdTools.push(tool)
+  return tool
+}
+
 async function execute(
-  toolInstance: ReturnType<typeof createTool>,
+  toolInstance: ReturnType<typeof createTrackedTool>,
   input: { code: string; reset?: boolean; timeout?: number; cwd?: string }
 ): Promise<{ details: JsReplToolCallDetails; error?: string }> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,22 +33,26 @@ async function execute(
 }
 
 describe('jsReplTool', () => {
+  afterEach(async () => {
+    await Promise.all(createdTools.map((t) => t.dispose().catch(() => {})))
+    createdTools.length = 0
+  })
   it('evaluates basic expressions and returns the result', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, { code: '1 + 2' })
     assert.equal(result.details.result, '3')
     assert.equal(result.error, undefined)
   })
 
   it('captures console.log output', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, { code: 'console.log("hello"); 42' })
     assert.equal(result.details.consoleOutput, 'hello')
     assert.equal(result.details.result, '42')
   })
 
   it('captures console.warn and console.error with prefixes', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, {
       code: 'console.warn("caution"); console.error("oops")'
     })
@@ -49,14 +61,14 @@ describe('jsReplTool', () => {
   })
 
   it('persists state across calls within the same tool instance', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     await execute(tool, { code: 'var x = 42' })
     const result = await execute(tool, { code: 'x * 2' })
     assert.equal(result.details.result, '84')
   })
 
   it('resets state when reset is true', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     await execute(tool, { code: 'var x = 42' })
     const result = await execute(tool, { code: 'typeof x', reset: true })
     assert.equal(result.details.result, 'undefined')
@@ -64,39 +76,39 @@ describe('jsReplTool', () => {
   })
 
   it('catches and returns errors', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, { code: 'throw new Error("boom")' })
     assert.ok(result.details.error?.includes('Error: boom'))
     assert.ok(result.error?.includes('Error: boom'))
   })
 
   it('catches syntax errors', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, { code: 'const =' })
     assert.ok(result.details.error?.includes('SyntaxError'))
   })
 
   it('catches reference errors', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, { code: 'nonExistentVariable' })
     assert.ok(result.details.error?.includes('ReferenceError'))
   })
 
   it('returns undefined result without result field when expression is void', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, { code: 'var a = 1' })
     assert.equal(result.details.result, undefined)
   })
 
   it('serializes objects as JSON', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, { code: '({ a: 1, b: [2, 3] })' })
     const parsed = JSON.parse(result.details.result!)
     assert.deepEqual(parsed, { a: 1, b: [2, 3] })
   })
 
   it('provides require() for Node built-ins', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, {
       code: 'const path = require("node:path"); path.join("a", "b")'
     })
@@ -105,7 +117,7 @@ describe('jsReplTool', () => {
   })
 
   it('provides Buffer in the context', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, {
       code: 'Buffer.from("hello").toString("hex")'
     })
@@ -113,14 +125,14 @@ describe('jsReplTool', () => {
   })
 
   it('times out on infinite loops', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, { code: 'while(true) {}', timeout: 1 })
     assert.equal(result.details.timedOut, true)
     assert.ok(result.details.error?.includes('timed out'))
   })
 
   it('handles multiple console lines', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, {
       code: 'console.log("line1"); console.log("line2"); console.log("line3")'
     })
@@ -132,27 +144,27 @@ describe('jsReplTool', () => {
   })
 
   it('console output does not leak between calls', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     await execute(tool, { code: 'console.log("first call")' })
     const result = await execute(tool, { code: 'console.log("second call")' })
     assert.equal(result.details.consoleOutput, 'second call')
   })
 
   it('awaits and returns resolved promise results', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, { code: 'await Promise.resolve(42)' })
     assert.equal(result.details.result, '42')
     assert.equal(result.error, undefined)
   })
 
   it('catches rejected promises', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, { code: 'await Promise.reject(new Error("async boom"))' })
     assert.ok(result.details.error?.includes('async boom'))
   })
 
   it('clears timers after each execution automatically', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     // Schedule timers that would pin the event loop if not cleared
     await execute(tool, { code: 'setInterval(() => {}, 50); setTimeout(() => {}, 60000); "ok"' })
     // If timers leaked, this test's process would hang after completion.
@@ -162,18 +174,49 @@ describe('jsReplTool', () => {
   })
 
   it('allows clearInterval from within REPL code', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, {
       code: 'var id = setInterval(() => {}, 50); clearInterval(id); "cleared"'
     })
     assert.equal(result.details.result, 'cleared')
   })
 
+  it('suppresses setTimeout callback throws instead of leaking as uncaught exceptions', async () => {
+    const tool = createTrackedTool(makeContext())
+    // Return a promise so the execution stays alive long enough for the 0ms
+    // timer to fire before finally{} clears all timers.
+    const result = await execute(tool, {
+      code:
+        'setTimeout(() => { throw new Error("timer boom") }, 0);' +
+        'new Promise((r) => setTimeout(r, 10))'
+    })
+    assert.ok(
+      result.details.consoleOutput?.includes('timer boom'),
+      `expected console to capture timer error, got: ${result.details.consoleOutput}`
+    )
+    assert.equal(result.error, undefined)
+  })
+
+  it('suppresses setInterval callback throws instead of leaking as uncaught exceptions', async () => {
+    const tool = createTrackedTool(makeContext())
+    // Keep execution alive until the interval fires at least once.
+    const result = await execute(tool, {
+      code:
+        'var id = setInterval(() => { throw new Error("interval boom") }, 10);' +
+        'new Promise((r) => setTimeout(() => { clearInterval(id); r() }, 50))'
+    })
+    assert.ok(
+      result.details.consoleOutput?.includes('interval boom'),
+      `expected console to capture interval error, got: ${result.details.consoleOutput}`
+    )
+    assert.equal(result.error, undefined)
+  })
+
   it('resolves relative fs paths against workspace, not process cwd', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-test-'))
     const originalCwd = process.cwd()
     try {
-      const tool = createTool(makeContext({ workspacePath: tempDir }))
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
       await execute(tool, {
         code: 'require("node:fs").writeFileSync("test-file.txt", "hello from repl")'
       })
@@ -187,7 +230,7 @@ describe('jsReplTool', () => {
 
   it('restores process cwd even if execution throws', async () => {
     const originalCwd = process.cwd()
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     await execute(tool, { code: 'throw new Error("fail")' })
     assert.equal(process.cwd(), originalCwd)
   })
@@ -196,7 +239,7 @@ describe('jsReplTool', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-cwd-'))
     try {
       mkdirSync(join(tempDir, 'sub', 'deep'), { recursive: true })
-      const tool = createTool(makeContext({ workspacePath: tempDir }))
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
       const result = await execute(tool, {
         code: 'require("node:fs").writeFileSync("out.txt", "x"); process.cwd()',
         cwd: 'sub/deep'
@@ -213,7 +256,7 @@ describe('jsReplTool', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-cwd-reset-'))
     try {
       mkdirSync(join(tempDir, 'sub'))
-      const tool = createTool(makeContext({ workspacePath: tempDir }))
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
       await execute(tool, { code: 'null', cwd: 'sub' })
       const result = await execute(tool, { code: 'process.cwd()' })
       assert.equal(result.details.result, tempDir)
@@ -222,10 +265,34 @@ describe('jsReplTool', () => {
     }
   })
 
+  it('require("node:process").cwd() returns the per-call cwd', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-node-process-'))
+    try {
+      mkdirSync(join(tempDir, 'sub'))
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
+      const result = await execute(tool, {
+        code: 'require("node:process").cwd()',
+        cwd: 'sub'
+      })
+      assert.equal(result.details.result, join(tempDir, 'sub'))
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('process.env mutations do not leak across calls', async () => {
+    const tool = createTrackedTool(makeContext())
+    await execute(tool, { code: 'process.env.JS_REPL_TEST_VAR = "leaked"' })
+    const result = await execute(tool, {
+      code: 'process.env.JS_REPL_TEST_VAR || "not-leaked"'
+    })
+    assert.equal(result.details.result, 'not-leaked')
+  })
+
   it('rejects absolute cwd', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-cwd-abs-'))
     try {
-      const tool = createTool(makeContext({ workspacePath: tempDir }))
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
       const result = await execute(tool, { code: '1', cwd: '/etc' })
       assert.ok(result.error?.includes('relative path inside the workspace'))
     } finally {
@@ -236,7 +303,7 @@ describe('jsReplTool', () => {
   it('rejects cwd with parent traversal (..)', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-cwd-parent-'))
     try {
-      const tool = createTool(makeContext({ workspacePath: tempDir }))
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
       const result = await execute(tool, { code: '1', cwd: '../secret' })
       // Zod refinement rejects before execute is reached, or runtime rejection — both surface as error.
       assert.ok(
@@ -251,7 +318,7 @@ describe('jsReplTool', () => {
   it('rejects cwd pointing to a non-existent directory', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-cwd-missing-'))
     try {
-      const tool = createTool(makeContext({ workspacePath: tempDir }))
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
       const result = await execute(tool, { code: '1', cwd: 'does/not/exist' })
       assert.ok(result.error?.includes('does not exist'))
     } finally {
@@ -263,7 +330,7 @@ describe('jsReplTool', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-cwd-file-'))
     try {
       writeFileSync(join(tempDir, 'a-file.txt'), 'x')
-      const tool = createTool(makeContext({ workspacePath: tempDir }))
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
       const result = await execute(tool, { code: '1', cwd: 'a-file.txt' })
       assert.ok(result.error?.includes('not a directory'))
     } finally {
@@ -277,7 +344,7 @@ describe('jsReplTool', () => {
       mkdirSync(join(tempDir, 'sub'))
       writeFileSync(join(tempDir, 'sub', 'hi.txt'), 'sub-contents')
       writeFileSync(join(tempDir, 'hi.txt'), 'root-contents')
-      const tool = createTool(makeContext({ workspacePath: tempDir }))
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
       const result = await execute(tool, {
         code: '(async () => (await tools.read({ path: "hi.txt" })).content)()',
         cwd: 'sub'
@@ -295,7 +362,7 @@ describe('jsReplTool', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-cwd-bash-'))
     try {
       mkdirSync(join(tempDir, 'nested'))
-      const tool = createTool(makeContext({ workspacePath: tempDir }))
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
       const result = await execute(tool, {
         code: '(async () => (await tools.bash({ command: "pwd" })).content)()',
         cwd: 'nested'
@@ -312,7 +379,7 @@ describe('jsReplTool', () => {
   it('invalid cwd does not wipe persistent state even when reset is set', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-cwd-guard-'))
     try {
-      const tool = createTool(makeContext({ workspacePath: tempDir }))
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
       await execute(tool, { code: 'var keep = 123' })
       const failed = await execute(tool, {
         code: 'keep',
@@ -333,7 +400,7 @@ describe('jsReplTool', () => {
     try {
       const { writeFileSync } = await import('node:fs')
       writeFileSync(join(tempDir, 'hello.txt'), 'world')
-      const tool = createTool(makeContext({ workspacePath: tempDir }))
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
       const result = await execute(tool, {
         code: 'const r = await tools.read({ path: "hello.txt" }); return r.content'
       })
@@ -346,7 +413,7 @@ describe('jsReplTool', () => {
   it('tools.write creates a file in workspace', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-tools-'))
     try {
-      const tool = createTool(makeContext({ workspacePath: tempDir }))
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
       await execute(tool, {
         code: 'await tools.write({ path: "out.txt", content: "written by repl" })'
       })
@@ -358,7 +425,7 @@ describe('jsReplTool', () => {
   })
 
   it('tools.bash runs a command and returns output', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, {
       code: 'const r = await tools.bash({ command: "echo hello-from-bash" }); return r.content'
     })
@@ -366,7 +433,7 @@ describe('jsReplTool', () => {
   })
 
   it('tool call errors are returned, not thrown', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, {
       code: 'const r = await tools.read({ path: "/nonexistent/path/file.txt" }); return r.error || "no error"'
     })
@@ -374,7 +441,7 @@ describe('jsReplTool', () => {
   })
 
   it('allows repeated const require() across calls without redeclaration error', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     await execute(tool, { code: 'const fs = require("node:fs"); "first"' })
     const result = await execute(tool, { code: 'const fs = require("node:fs"); "second"' })
     assert.equal(result.details.result, 'second')
@@ -382,7 +449,7 @@ describe('jsReplTool', () => {
   })
 
   it('allows repeated let require() across calls without redeclaration error', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     await execute(tool, { code: 'let path = require("node:path"); "first"' })
     const result = await execute(tool, {
       code: 'let path = require("node:path"); path.join("a","b")'
@@ -392,7 +459,7 @@ describe('jsReplTool', () => {
   })
 
   it('preserves const/let for non-require declarations', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     await execute(tool, { code: 'const x = 10' })
     const result = await execute(tool, { code: 'const x = 20' })
     // const redeclaration without require should still error
@@ -400,7 +467,7 @@ describe('jsReplTool', () => {
   })
 
   it('tools object only includes service-backed tools when services are provided', async () => {
-    const tool = createTool(makeContext())
+    const tool = createTrackedTool(makeContext())
     const result = await execute(tool, {
       code: 'Object.keys(tools).sort().join(",")'
     })

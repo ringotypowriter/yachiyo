@@ -1273,6 +1273,7 @@ export async function executeServerRun(
   let snapshotTracker: SnapshotTracker | null = input.snapshotTracker ?? null
   /** Tracks the most recent usage from the model stream; hoisted so catch blocks can persist it. */
   let lastUsage: ModelUsage | undefined
+  let tools: ToolSet | undefined
 
   try {
     const workspacePath = await ensureResolvedWorkspacePath(
@@ -1603,7 +1604,7 @@ export async function executeServerRun(
           })
     const stripCompactEnabled = config.chat?.stripCompact !== false
     const finalMessages = stripCompactEnabled ? applyStripCompact(messages) : messages
-    const tools = createAgentToolSet(
+    tools = createAgentToolSet(
       {
         enabledTools: modelEnabledTools,
         workspacePath,
@@ -2991,5 +2992,10 @@ export async function executeServerRun(
     })
     perfCollector.finish(input.thread.id)
     return { kind: 'failed', usage: failUsage }
+  } finally {
+    const jsReplTool = tools?.jsRepl as { dispose?: () => Promise<void> } | undefined
+    if (jsReplTool?.dispose) {
+      await jsReplTool.dispose().catch(() => {})
+    }
   }
 }

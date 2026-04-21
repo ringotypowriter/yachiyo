@@ -19,7 +19,7 @@ import {
 // Override console.log/warn/error so all existing log calls persist to file.
 // Logs go to ~/Library/Logs/Yachiyo/main.log on macOS.
 Object.assign(console, log.functions)
-log.errorHandler.startCatching()
+log.errorHandler.startCatching({ showDialog: false })
 
 const APP_NAME = 'Yachiyo'
 
