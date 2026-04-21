@@ -121,6 +121,56 @@ export function formatGroupMessages(
   return lines.join('\n')
 }
 
+/**
+ * Format only the fresh group-message delta for the next probe turn.
+ *
+ * Older context must come from the persisted hidden probe history, not by
+ * re-sending the entire recent-message buffer again. When the fresh block
+ * starts after a long silence relative to the immediately preceding buffered
+ * message, prepend a leading `<gap>` marker so the model still sees that
+ * discontinuity.
+ */
+export function formatGroupProbeTurnDelta(
+  recentMessages: GroupMessageEntry[],
+  botName: string,
+  knownUsers?: Map<string, string>,
+  idleGapThresholdMs?: number,
+  freshCount?: number
+): string {
+  if (recentMessages.length === 0) {
+    return ''
+  }
+
+  const effectiveFreshCount =
+    freshCount == null
+      ? recentMessages.length
+      : Math.max(0, Math.min(freshCount, recentMessages.length))
+
+  if (effectiveFreshCount === 0) {
+    return ''
+  }
+
+  const freshMessages = recentMessages.slice(-effectiveFreshCount)
+  const lines: string[] = []
+  const threshold = idleGapThresholdMs ?? DEFAULT_IDLE_GAP_THRESHOLD_MS
+
+  if (effectiveFreshCount < recentMessages.length) {
+    const previousMessage = recentMessages[recentMessages.length - effectiveFreshCount - 1]
+    const firstFreshMessage = freshMessages[0]
+    const gapMs = (firstFreshMessage.timestamp - previousMessage.timestamp) * 1_000
+    if (gapMs >= threshold) {
+      lines.push(`<gap duration="${formatGapDuration(gapMs)}"/>`)
+    }
+  }
+
+  const freshFormatted = formatGroupMessages(freshMessages, botName, knownUsers, idleGapThresholdMs)
+  if (freshFormatted.trim().length > 0) {
+    lines.push(freshFormatted)
+  }
+
+  return lines.join('\n')
+}
+
 // ---------------------------------------------------------------------------
 // Unified probe system prompt
 // ---------------------------------------------------------------------------
@@ -138,51 +188,15 @@ export interface BuildGroupProbeSystemPromptInput {
   groupUserDocument?: string
 }
 
-/**
- * Build a system prompt for the probe+tool pattern.
- *
- * The prompt merges:
- *   1. Persona (who the bot is)
- *   2. Group context + tool instruction
- *   3. Social instinct rules (KOL style)
- *   4. Tone guidance
- *   5. Owner instructions
- */
-export function buildGroupProbeSystemPrompt(input: BuildGroupProbeSystemPromptInput): string {
-  const { botName, groupName, groupLabel, personaSummary, ownerInstruction, groupUserDocument } =
-    input
-
-  const personaBlock = personaSummary
-    ? `\n## Who you are\n\n${personaSummary}\n\nUse this personality to decide whether to speak. If the topic or vibe doesn't match your character, stay silent.\n`
-    : ''
-
-  const ownerBlock = ownerInstruction?.trim()
-    ? `\n## Owner rules\n\nThe owner has set these rules. They override soft judgment — if a rule says don't engage with a topic, that's a hard NO.\n\n${ownerInstruction.trim()}\n`
-    : ''
-
-  const groupDocBlock = groupUserDocument?.trim()
-    ? `\n## Group notes\n\n${groupUserDocument.trim()}\n`
-    : ''
-
-  const now = new Date()
-  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-  const y = now.getFullYear()
-  const m = String(now.getMonth() + 1).padStart(2, '0')
-  const d = String(now.getDate()).padStart(2, '0')
-  const today = `${y}-${m}-${d} (${dayNames[now.getDay()]})`
-
+export function buildGroupProbeBehaviorPrompt(): string {
   return `\
-Today is ${today}.
-
-You are "${botName}" in group "${groupName}"${groupLabel ? ` (${groupLabel})` : ''}.
-You're hanging out here like everyone else — you have your own interests, your own taste, your own sense of humor. Jump into conversations that genuinely catch your attention.
-${personaBlock}${groupDocBlock}${ownerBlock}
 ## How this works
 
-Call \`send_group_message\` when you want to say something. No call = comfortable silence.
+Call \`send_group_message\` when you want to say something. No call = silence for this turn.
 One message per turn max. If your attempt gets dropped or rejected, let it go — don't retry.
 
 Your raw text output is private monologue — think out loud about the chat, whether to respond, and what you'd say. Nobody sees this.
+Older private monologues in history are just past scratch notes, not commitments. Do not copy their hesitation or treat past silence as a rule. Re-evaluate each turn from the current chat, and if this turn has a real opening, you can speak.
 
 ## Your voice
 
@@ -195,11 +209,12 @@ Your raw text output is private monologue — think out loud about the chat, whe
 
 ## When to jump in
 
-Only speak on topics you genuinely understand. If people are discussing something you have real knowledge about — great, join in. If they're deep into something niche or technical that you'd just be skimming the surface of, stay out. A shallow "oh that's cool!" or a vague take that misses the point is worse than silence. You don't need to have an opinion on everything.
+You do not need expert-level knowledge to join in. If you can add a real reaction, a playful comment, a small useful observation, or a clear opinion, that's enough. Join when you genuinely have something to say, not only when you're the room's top expert.
+A topic does not need to be about you, your identity, or your core interests. If someone else says something you can naturally react to, riff on, sympathize with, tease, encourage, or lightly add to, that is enough reason to speak.
 
-Good reasons to speak: you actually know something useful about the topic, you have a real take (not a lukewarm one), the energy is playful and you can match it, or the owner (role="owner") is steering your way.
+Good reasons to speak: you know something useful about the topic, you have a genuine reaction, the energy is playful and you can match it, someone leaves a clear opening for you, or the owner (role="owner") is steering your way. A short genuine reaction, playful comment, or simple useful observation is enough.
 
-Stay quiet when you just spoke and nobody responded yet, when people are in rapid back-and-forth, when you'd just be echoing someone, when you only half-understand the topic, or when the group is winding down. If you've been the most frequent speaker recently, definitely take a break.
+Stay quiet when you'd be bluffing, when you just spoke and nobody picked it up yet, when people are in a fast back-and-forth that has no room for you, or when you'd only be repeating what was already said. Silence is normal when you have nothing real to add, but it isn't the goal.
 
 ## Reading the chat
 
@@ -227,7 +242,52 @@ Most turns need zero tools. Only use \`updateProfile\` for genuinely durable inf
 
 ## Speech throttle
 
-A system-level throttle increases the chance of dropping your message the more you speak in a short window. Silence lets it recover. Pick the ONE moment that matters most and speak there — there's always another chance.`
+A system-level throttle can drop messages if you speak too often in a short window. Don't force silence; just avoid piling on and pick your moments naturally.`
+}
+
+export function buildGroupProbeContextPrompt(input: BuildGroupProbeSystemPromptInput): string {
+  const { botName, groupName, groupLabel, personaSummary, ownerInstruction, groupUserDocument } =
+    input
+
+  const personaBlock = personaSummary
+    ? `\n## Who you are\n\n${personaSummary}\n\nUse this personality to shape how you speak, not as a hard filter on whether you may speak at all. Even when the topic is not "your thing", you can still join if you have a natural social reaction, question, joke, or small contribution.\n`
+    : ''
+
+  const ownerBlock = ownerInstruction?.trim()
+    ? `\n## Owner rules\n\nThe owner has set these rules. They override soft judgment — if a rule says don't engage with a topic, that's a hard NO.\n\n${ownerInstruction.trim()}\n`
+    : ''
+
+  const groupDocBlock = groupUserDocument?.trim()
+    ? `\n## Group notes\n\n${groupUserDocument.trim()}\n`
+    : ''
+
+  const now = new Date()
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  const today = `${y}-${m}-${d} (${dayNames[now.getDay()]})`
+
+  return `\
+Today is ${today}.
+
+You are "${botName}" in group "${groupName}"${groupLabel ? ` (${groupLabel})` : ''}.
+You're hanging out here like everyone else — you have your own interests, your own taste, your own sense of humor. Jump into conversations that genuinely catch your attention.
+${personaBlock}${groupDocBlock}${ownerBlock}`.trim()
+}
+
+/**
+ * Build a system prompt for the probe+tool pattern.
+ *
+ * The prompt merges:
+ *   1. Persona (who the bot is)
+ *   2. Group context + tool instruction
+ *   3. Social instinct rules (KOL style)
+ *   4. Tone guidance
+ *   5. Owner instructions
+ */
+export function buildGroupProbeSystemPrompt(input: BuildGroupProbeSystemPromptInput): string {
+  return [buildGroupProbeContextPrompt(input), buildGroupProbeBehaviorPrompt()].join('\n\n')
 }
 
 // ---------------------------------------------------------------------------
@@ -249,7 +309,8 @@ export interface DeriveNextGroupProbeMessageCountInput {
 }
 
 export function buildGroupProbeMessages(input: BuildGroupProbeMessagesInput): ModelMessage[] {
-  const systemPrompt = buildGroupProbeSystemPrompt(input)
+  const stableSystemPrompt = buildGroupProbeBehaviorPrompt()
+  const dynamicSystemPrompt = buildGroupProbeContextPrompt(input)
   const textContent = formatGroupMessages(
     input.recentMessages,
     input.botName,
@@ -258,7 +319,8 @@ export function buildGroupProbeMessages(input: BuildGroupProbeMessagesInput): Mo
     input.freshCount
   )
   return [
-    { role: 'system' as const, content: systemPrompt },
+    { role: 'system' as const, content: stableSystemPrompt },
+    { role: 'system' as const, content: dynamicSystemPrompt },
     { role: 'user' as const, content: textContent }
   ]
 }

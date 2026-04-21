@@ -34,19 +34,17 @@ import { fetchImageAsDataUrl } from './channelImageDownload.ts'
 import { createDirectMessageService, resolveDirectMessageThread } from './directMessageService.ts'
 import { handleDmSlashCommand, shouldDiscardPendingBatchForDmCommand } from './dmSlashCommands.ts'
 import {
-  buildGroupProbeMessages,
-  deriveNextGroupProbeMessageCount,
-  formatGroupMessages,
-  isBareSymbolMessage,
-  selectGroupProbeRecentMessages
+  buildGroupProbeBehaviorPrompt,
+  buildGroupProbeContextPrompt,
+  formatGroupProbeTurnDelta,
+  isBareSymbolMessage
 } from './groupContextBuilder.ts'
 import {
-  appendGroupReplyHistory,
-  type GroupReplyHistory,
-  hasForbiddenGroupReplyPrefix,
-  hasVisibleGroupReplyContent,
-  shouldSuppressGroupReply
-} from './groupReplyGuard.ts'
+  loadGroupProbeHistory,
+  persistSuccessfulGroupProbeTurn,
+  resolveGroupProbeThread
+} from './groupProbeThread.ts'
+import { hasForbiddenGroupReplyPrefix, hasVisibleGroupReplyContent } from './groupReplyGuard.ts'
 import { describeGroupImages } from './groupImageDescriptions.ts'
 import {
   createGroupMonitorRegistry,
@@ -65,6 +63,7 @@ import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool
 import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool.ts'
 import { createTool as createUpdateProfileTool } from '../tools/agentTools/updateProfileTool.ts'
 import { notifyAutoCompact } from './autoCompactNotice.ts'
+import { compileGroupProbeContextLayers } from '../runtime/groupProbeContextLayers.ts'
 
 import { resolveYachiyoTempWorkspaceRoot, YACHIYO_USER_FILE_NAME } from '../config/paths.ts'
 
@@ -140,8 +139,6 @@ export function createDiscordService({
   policy: policyOverride
 }: DiscordServiceOptions): DiscordService {
   const policy = policyOverride ?? discordPolicy
-
-  const groupProbeMessageCountLimit = new Map<string, number>()
 
   /** Resolved bot user ID (set after login). */
   let botUserId: string | null = null
@@ -416,33 +413,6 @@ export function createDiscordService({
 
   const speechThrottle = createSpeechThrottle(groupVerbosity ?? 0)
 
-  /** Per-group dedup ring buffer for outgoing messages. */
-  const recentOutgoing = new Map<string, GroupReplyHistory>()
-  const DEDUP_MAX_ENTRIES = 10
-
-  function isDuplicateOutgoing(groupId: string, message: string): boolean {
-    const entry = recentOutgoing.get(groupId)
-    const shouldSuppress = shouldSuppressGroupReply(entry, message)
-    if (entry && entry.texts.length === 0) {
-      recentOutgoing.delete(groupId)
-    }
-    return shouldSuppress
-  }
-
-  function recordOutgoing(groupId: string, message: string, sentAtMs = Date.now()): void {
-    const entry = appendGroupReplyHistory(
-      recentOutgoing.get(groupId),
-      message,
-      sentAtMs,
-      DEDUP_MAX_ENTRIES
-    )
-    if (entry.texts.length === 0) {
-      recentOutgoing.delete(groupId)
-      return
-    }
-    recentOutgoing.set(groupId, entry)
-  }
-
   if (groupConfig?.enabled) {
     const bufferPersistence: GroupMonitorPersistence = {
       save(groupId, phase, buffer) {
@@ -483,12 +453,6 @@ export function createDiscordService({
     for (const group of server.listChannelGroups()) {
       if (group.platform === 'discord' && group.status === 'approved') {
         groupRegistry.startMonitor(group)
-        // Seed dedup from restored __self__ messages so the bot doesn't repeat itself.
-        for (const msg of groupRegistry.getRecentMessages(group.id)) {
-          if (msg.senderExternalUserId === '__self__') {
-            recordOutgoing(group.id, msg.text, msg.timestamp * 1_000)
-          }
-        }
       }
     }
   }
@@ -540,25 +504,17 @@ export function createDiscordService({
           return 'Rejected: message contains only punctuation. Write actual words or stay silent.'
         }
 
-        if (isDuplicateOutgoing(group.id, message)) {
-          console.log(
-            `[discord-group] dropped duplicate message for "${group.name}": ${message.slice(0, 80)}`
-          )
-          return turnSendGuard.recordBlockedAttempt('duplicate')
-        }
-
         if (speechThrottle.shouldDrop(group.id)) {
           const rate = speechThrottle.getDropRate(group.id)
           console.log(
             `[discord-group] throttled message for "${group.name}" (drop rate ${Math.round(rate * 100)}%): ${message.slice(0, 80)}`
           )
-          return turnSendGuard.recordBlockedAttempt('throttled')
+          return turnSendGuard.recordBlockedAttempt()
         }
 
         try {
           await sendMessage(group.externalGroupId, message)
           turnSendGuard.recordSent()
-          recordOutgoing(group.id, message)
           speechThrottle.recordSend(group.id)
           console.log(`[discord-group] sent reply to "${group.name}": ${message.slice(0, 100)}`)
 
@@ -604,23 +560,41 @@ export function createDiscordService({
 
     const settingsOverride = server.resolveProviderSettings(groupConfig?.model)
 
-    const messageCountLimit = groupProbeMessageCountLimit.get(group.id)
-    const probeRecentMessages = selectGroupProbeRecentMessages(recentMessages, messageCountLimit)
-    const effectiveFreshCount = Math.min(freshCount, probeRecentMessages.length)
-    const messages = buildGroupProbeMessages({
+    const knownUsers = buildKnownUsersMap()
+    const currentTurnContent = formatGroupProbeTurnDelta(
+      recentMessages,
+      'Yachiyo',
+      knownUsers,
+      undefined,
+      freshCount
+    )
+    const stableSystemPrompt = buildGroupProbeBehaviorPrompt()
+    const dynamicSystemPrompt = buildGroupProbeContextPrompt({
       botName: 'Yachiyo',
       groupName: group.name,
       groupLabel: group.label || undefined,
-      recentMessages: probeRecentMessages,
-      knownUsers: buildKnownUsersMap(),
       personaSummary: EXTERNAL_GROUP_PROMPT,
       ownerInstruction: readChannelsConfig().guestInstruction,
-      groupUserDocument: groupUserDoc?.content,
-      freshCount: effectiveFreshCount
+      groupUserDocument: groupUserDoc?.content
+    })
+    const { thread: probeThread } = await resolveGroupProbeThread({
+      logLabel: 'discord-group',
+      server,
+      group,
+      groupThreadReuseWindowMs: policy.groupDefaults.groupThreadReuseWindowMs,
+      contextTokenLimit: policy.groupContextTokenLimit,
+      modelOverride: groupConfig?.model
+    })
+    const messages = compileGroupProbeContextLayers({
+      stableSystemPrompt,
+      dynamicSystemPrompt,
+      rollingSummary: probeThread.rollingSummary,
+      history: loadGroupProbeHistory(server.getStorage(), probeThread),
+      currentTurnContent
     })
 
     console.log(
-      `[discord-group] group="${group.name}" probing ${probeRecentMessages.length}/${recentMessages.length} message(s) (${effectiveFreshCount} new) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${formatGroupMessages(probeRecentMessages, 'Yachiyo', buildKnownUsersMap(), undefined, effectiveFreshCount)}`
+      `[discord-group] group="${group.name}" probing ${freshCount}/${recentMessages.length} fresh message(s) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${currentTurnContent}`
     )
 
     const result = await auxService.generateText({
@@ -633,23 +607,13 @@ export function createDiscordService({
     })
 
     if (result.status === 'success') {
-      const nextMessageCountLimit = deriveNextGroupProbeMessageCount({
-        currentMessageCount: probeRecentMessages.length,
-        availableMessageCount: recentMessages.length,
-        totalPromptTokens: result.usage?.totalPromptTokens,
-        contextTokenLimit: policy.groupContextTokenLimit
+      persistSuccessfulGroupProbeTurn({
+        storage: server.getStorage(),
+        generateId: () => server.generateId(),
+        thread: probeThread,
+        requestContent: currentTurnContent,
+        result
       })
-      const previousMessageCountLimit = groupProbeMessageCountLimit.get(group.id)
-      if (nextMessageCountLimit == null) {
-        groupProbeMessageCountLimit.delete(group.id)
-      } else {
-        groupProbeMessageCountLimit.set(group.id, nextMessageCountLimit)
-      }
-      if (previousMessageCountLimit !== nextMessageCountLimit) {
-        console.log(
-          `[discord-group] group="${group.name}" moved token window ${previousMessageCountLimit ?? 'full'} -> ${nextMessageCountLimit ?? 'full'} message(s) after promptTokens=${result.usage?.totalPromptTokens ?? 'unknown'}`
-        )
-      }
       console.log(
         `[discord-group] group="${group.name}" monologue: ${result.text.slice(0, 200)}${result.text.length > 200 ? '…' : ''}`
       )

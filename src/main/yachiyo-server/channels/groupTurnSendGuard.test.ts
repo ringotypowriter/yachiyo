@@ -8,12 +8,12 @@ import {
 } from './groupTurnSendGuard.ts'
 
 describe('createGroupTurnSendGuard', () => {
-  it('returns an honest duplicate-drop message on the first blocked attempt', () => {
+  it('returns the throttle-drop message on the first blocked attempt', () => {
     const guard = createGroupTurnSendGuard()
 
     assert.equal(
-      guard.recordBlockedAttempt('duplicate'),
-      'Dropped: duplicate of a recent outgoing message. Do not retry in this turn.'
+      guard.recordBlockedAttempt(),
+      'Dropped: you have been talking too much recently. Your message was not sent. Stay silent for the rest of this turn.'
     )
   })
 
@@ -21,11 +21,11 @@ describe('createGroupTurnSendGuard', () => {
     const guard = createGroupTurnSendGuard()
 
     assert.equal(
-      guard.recordBlockedAttempt('throttled'),
+      guard.recordBlockedAttempt(),
       'Dropped: you have been talking too much recently. Your message was not sent. Stay silent for the rest of this turn.'
     )
 
-    assert.throws(() => guard.recordBlockedAttempt('duplicate'), {
+    assert.throws(() => guard.recordBlockedAttempt(), {
       message: GROUP_TURN_BLOCKED_SEND_MELTDOWN_MESSAGE
     })
   })

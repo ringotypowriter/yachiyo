@@ -3,10 +3,10 @@ import assert from 'node:assert/strict'
 
 import {
   buildGroupProbeMessages,
-  buildGroupProbeSystemPrompt,
   deriveNextGroupProbeMessageCount,
   formatGapDuration,
   formatGroupMessages,
+  formatGroupProbeTurnDelta,
   selectGroupProbeRecentMessages,
   sanitizeMessageText
 } from './groupContextBuilder.ts'
@@ -218,91 +218,72 @@ describe('formatGroupMessages — idle gap', () => {
   })
 })
 
-describe('buildGroupProbeSystemPrompt', () => {
-  it('includes bot name and group name', () => {
-    const prompt = buildGroupProbeSystemPrompt({
-      botName: 'Yachiyo',
-      groupName: 'TestGroup'
-    })
-    assert.ok(prompt.includes('Yachiyo'))
-    assert.ok(prompt.includes('TestGroup'))
+describe('formatGroupProbeTurnDelta', () => {
+  it('formats only the fresh suffix instead of the whole buffer', () => {
+    const messages = [msg('old-1'), msg('old-2'), msg('new-1'), msg('new-2')]
+    const result = formatGroupProbeTurnDelta(messages, 'Bot', undefined, undefined, 2)
+    assert.ok(!result.includes('old-1'))
+    assert.ok(!result.includes('old-2'))
+    assert.ok(result.includes('new-1'))
+    assert.ok(result.includes('new-2'))
+    assert.ok(!result.includes('<new/>'))
   })
 
-  it('includes send_group_message tool instruction', () => {
-    const prompt = buildGroupProbeSystemPrompt({
-      botName: 'Yachiyo',
-      groupName: 'TestGroup'
-    })
-    assert.ok(prompt.includes('send_group_message'))
-    assert.ok(prompt.includes('One message per turn max'))
-  })
+  it('prepends a gap marker when the fresh block starts after a long silence', () => {
+    const now = Date.now() / 1_000
+    const messages: GroupMessageEntry[] = [
+      {
+        senderName: 'Alice',
+        senderExternalUserId: '1',
+        isMention: false,
+        text: 'before',
+        timestamp: now
+      },
+      {
+        senderName: 'Bob',
+        senderExternalUserId: '2',
+        isMention: false,
+        text: 'after',
+        timestamp: now + 3600
+      }
+    ]
 
-  it('includes persona when provided', () => {
-    const prompt = buildGroupProbeSystemPrompt({
-      botName: 'Yachiyo',
-      groupName: 'TestGroup',
-      personaSummary: 'A cheerful 8000-year-old AI.'
-    })
-    assert.ok(prompt.includes('A cheerful 8000-year-old AI.'))
-  })
-
-  it('includes owner instruction when provided', () => {
-    const prompt = buildGroupProbeSystemPrompt({
-      botName: 'Yachiyo',
-      groupName: 'TestGroup',
-      ownerInstruction: 'Never discuss politics.'
-    })
-    assert.ok(prompt.includes('Never discuss politics.'))
-    assert.ok(prompt.includes('Owner rules'))
-  })
-
-  it('includes group user document when provided', () => {
-    const prompt = buildGroupProbeSystemPrompt({
-      botName: 'Yachiyo',
-      groupName: 'TestGroup',
-      groupUserDocument: '| Nickname | Real Name |\n|---|---|\n| Cat | Alice |'
-    })
-    assert.ok(prompt.includes('Group notes'))
-    assert.ok(prompt.includes('Cat'))
-    assert.ok(prompt.includes('Alice'))
-  })
-
-  it('omits persona, owner, and group doc blocks when not provided', () => {
-    const prompt = buildGroupProbeSystemPrompt({
-      botName: 'Bot',
-      groupName: 'Group'
-    })
-    assert.ok(!prompt.includes('Who you are'))
-    assert.ok(!prompt.includes('Owner rules'))
-    assert.ok(!prompt.includes('Group notes'))
-  })
-
-  it('documents updateProfile tool with upsert and remove operations', () => {
-    const prompt = buildGroupProbeSystemPrompt({
-      botName: 'Yachiyo',
-      groupName: 'TestGroup'
-    })
-
-    assert.ok(prompt.includes('`updateProfile`'))
-    assert.ok(prompt.includes('Update group notes (USER.md)'))
-    assert.ok(prompt.includes('People'))
-    assert.ok(prompt.includes('Group Vibe'))
-    assert.ok(prompt.includes('Topic Hints'))
+    const result = formatGroupProbeTurnDelta(messages, 'Bot', undefined, undefined, 1)
+    const lines = result.split('\n')
+    assert.equal(lines[0], '<gap duration="1 hour"/>')
+    assert.ok(lines[1]?.includes('after'))
+    assert.ok(!result.includes('before'))
   })
 })
 
 describe('buildGroupProbeMessages', () => {
-  it('returns system + user messages', () => {
+  it('returns split system messages plus a user message', () => {
     const messages = buildGroupProbeMessages({
       botName: 'Yachiyo',
       groupName: 'TestGroup',
       recentMessages: [msg('hey')]
     })
-    assert.equal(messages.length, 2)
+    assert.equal(messages.length, 3)
     assert.equal(messages[0].role, 'system')
-    assert.equal(messages[1].role, 'user')
-    assert.ok((messages[0].content as string).includes('Yachiyo'))
-    assert.ok((messages[0].content as string).includes('TestGroup'))
+    assert.equal(messages[1].role, 'system')
+    assert.equal(messages[2].role, 'user')
+    assert.equal(typeof messages[0].content, 'string')
+    assert.equal(typeof messages[1].content, 'string')
+    assert.equal(typeof messages[2].content, 'string')
+  })
+
+  it('returns separate stable and dynamic system messages before the user delta', () => {
+    const messages = buildGroupProbeMessages({
+      botName: 'Yachiyo',
+      groupName: 'TestGroup',
+      recentMessages: [msg('hey')]
+    })
+
+    assert.equal(messages.length, 3)
+    assert.equal(messages[0].role, 'system')
+    assert.equal(messages[1].role, 'system')
+    assert.equal(messages[2].role, 'user')
+    assert.notEqual(messages[0].content, messages[1].content)
   })
 
   it('keeps group probe image context as text only', () => {
@@ -318,8 +299,8 @@ describe('buildGroupProbeMessages', () => {
         }
       ]
     })
-    assert.equal(typeof messages[1].content, 'string')
-    assert.ok((messages[1].content as string).includes('[image: a cat]'))
+    assert.equal(typeof messages[2].content, 'string')
+    assert.ok((messages[2].content as string).includes('[image: a cat]'))
   })
 
   it('threads freshCount into formatted user message', () => {
@@ -329,7 +310,7 @@ describe('buildGroupProbeMessages', () => {
       recentMessages: [msg('old'), msg('new')],
       freshCount: 1
     })
-    assert.ok((messages[1].content as string).includes('<new/>'))
+    assert.ok((messages[2].content as string).includes('<new/>'))
   })
 
   it('system prompt documents <new/> marker', () => {

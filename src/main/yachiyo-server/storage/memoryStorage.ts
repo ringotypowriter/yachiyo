@@ -803,7 +803,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
     listExternalThreads() {
       return [...threads.values()]
-        .filter((t) => t.source && t.source !== 'local' && !t.archivedAt)
+        .filter((t) => t.source && t.source !== 'local' && !t.archivedAt && !t.channelGroupId)
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
         .map(toThreadRecord)
     },

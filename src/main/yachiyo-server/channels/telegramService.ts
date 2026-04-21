@@ -34,19 +34,17 @@ import { fetchImageAsDataUrl } from './channelImageDownload'
 import { createDirectMessageService, resolveDirectMessageThread } from './directMessageService.ts'
 import { handleDmSlashCommand, shouldDiscardPendingBatchForDmCommand } from './dmSlashCommands.ts'
 import {
-  buildGroupProbeMessages,
-  deriveNextGroupProbeMessageCount,
-  formatGroupMessages,
-  isBareSymbolMessage,
-  selectGroupProbeRecentMessages
+  buildGroupProbeBehaviorPrompt,
+  buildGroupProbeContextPrompt,
+  formatGroupProbeTurnDelta,
+  isBareSymbolMessage
 } from './groupContextBuilder'
 import {
-  appendGroupReplyHistory,
-  type GroupReplyHistory,
-  hasForbiddenGroupReplyPrefix,
-  hasVisibleGroupReplyContent,
-  shouldSuppressGroupReply
-} from './groupReplyGuard'
+  loadGroupProbeHistory,
+  persistSuccessfulGroupProbeTurn,
+  resolveGroupProbeThread
+} from './groupProbeThread.ts'
+import { hasForbiddenGroupReplyPrefix, hasVisibleGroupReplyContent } from './groupReplyGuard'
 import { describeGroupImages } from './groupImageDescriptions'
 import {
   createGroupMonitorRegistry,
@@ -65,6 +63,7 @@ import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool
 import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool'
 import { createTool as createUpdateProfileTool } from '../tools/agentTools/updateProfileTool'
 import { notifyAutoCompact } from './autoCompactNotice'
+import { compileGroupProbeContextLayers } from '../runtime/groupProbeContextLayers.ts'
 
 import { resolveYachiyoTempWorkspaceRoot, YACHIYO_USER_FILE_NAME } from '../config/paths'
 import { join } from 'node:path'
@@ -115,8 +114,6 @@ export function createTelegramService({
   policy: policyOverride
 }: TelegramServiceOptions): TelegramService {
   const policy = policyOverride ?? telegramPolicy
-
-  const groupProbeMessageCountLimit = new Map<string, number>()
 
   const storage: TelegramChannelStorage = {
     findChannelUser(platform, externalUserId) {
@@ -435,33 +432,6 @@ export function createTelegramService({
 
   const speechThrottle = createSpeechThrottle(groupVerbosity ?? 0)
 
-  /** Per-group dedup ring buffer for outgoing messages. */
-  const recentOutgoing = new Map<string, GroupReplyHistory>()
-  const DEDUP_MAX_ENTRIES = 10
-
-  function isDuplicateOutgoing(groupId: string, message: string): boolean {
-    const entry = recentOutgoing.get(groupId)
-    const shouldSuppress = shouldSuppressGroupReply(entry, message)
-    if (entry && entry.texts.length === 0) {
-      recentOutgoing.delete(groupId)
-    }
-    return shouldSuppress
-  }
-
-  function recordOutgoing(groupId: string, message: string, sentAtMs = Date.now()): void {
-    const entry = appendGroupReplyHistory(
-      recentOutgoing.get(groupId),
-      message,
-      sentAtMs,
-      DEDUP_MAX_ENTRIES
-    )
-    if (entry.texts.length === 0) {
-      recentOutgoing.delete(groupId)
-      return
-    }
-    recentOutgoing.set(groupId, entry)
-  }
-
   if (groupConfig?.enabled) {
     const bufferPersistence: GroupMonitorPersistence = {
       save(groupId, phase, buffer) {
@@ -502,12 +472,6 @@ export function createTelegramService({
     for (const group of server.listChannelGroups()) {
       if (group.platform === 'telegram' && group.status === 'approved') {
         groupRegistry.startMonitor(group)
-        // Seed dedup from restored __self__ messages so the bot doesn't repeat itself.
-        for (const msg of groupRegistry.getRecentMessages(group.id)) {
-          if (msg.senderExternalUserId === '__self__') {
-            recordOutgoing(group.id, msg.text, msg.timestamp * 1_000)
-          }
-        }
       }
     }
   }
@@ -564,25 +528,17 @@ export function createTelegramService({
           return 'Rejected: message contains only punctuation. Write actual words or stay silent.'
         }
 
-        if (isDuplicateOutgoing(group.id, message)) {
-          console.log(
-            `[telegram-group] dropped duplicate message for "${group.name}": ${message.slice(0, 80)}`
-          )
-          return turnSendGuard.recordBlockedAttempt('duplicate')
-        }
-
         if (speechThrottle.shouldDrop(group.id)) {
           const rate = speechThrottle.getDropRate(group.id)
           console.log(
             `[telegram-group] throttled message for "${group.name}" (drop rate ${Math.round(rate * 100)}%): ${message.slice(0, 80)}`
           )
-          return turnSendGuard.recordBlockedAttempt('throttled')
+          return turnSendGuard.recordBlockedAttempt()
         }
 
         try {
           await sendMessage(group.externalGroupId, message)
           turnSendGuard.recordSent()
-          recordOutgoing(group.id, message)
           speechThrottle.recordSend(group.id)
           console.log(`[telegram-group] sent reply to "${group.name}": ${message.slice(0, 100)}`)
 
@@ -629,23 +585,41 @@ export function createTelegramService({
     // Resolve model settings: group-specific override -> default primary model.
     const settingsOverride = server.resolveProviderSettings(groupConfig?.model)
 
-    const messageCountLimit = groupProbeMessageCountLimit.get(group.id)
-    const probeRecentMessages = selectGroupProbeRecentMessages(recentMessages, messageCountLimit)
-    const effectiveFreshCount = Math.min(freshCount, probeRecentMessages.length)
-    const messages = buildGroupProbeMessages({
+    const knownUsers = buildKnownUsersMap()
+    const currentTurnContent = formatGroupProbeTurnDelta(
+      recentMessages,
+      'Yachiyo',
+      knownUsers,
+      undefined,
+      freshCount
+    )
+    const stableSystemPrompt = buildGroupProbeBehaviorPrompt()
+    const dynamicSystemPrompt = buildGroupProbeContextPrompt({
       botName: 'Yachiyo',
       groupName: group.name,
       groupLabel: group.label || undefined,
-      recentMessages: probeRecentMessages,
-      knownUsers: buildKnownUsersMap(),
       personaSummary: EXTERNAL_GROUP_PROMPT,
       ownerInstruction: readChannelsConfig().guestInstruction,
-      groupUserDocument: groupUserDoc?.content,
-      freshCount: effectiveFreshCount
+      groupUserDocument: groupUserDoc?.content
+    })
+    const { thread: probeThread } = await resolveGroupProbeThread({
+      logLabel: 'telegram-group',
+      server,
+      group,
+      groupThreadReuseWindowMs: policy.groupDefaults.groupThreadReuseWindowMs,
+      contextTokenLimit: policy.groupContextTokenLimit,
+      modelOverride: groupConfig?.model
+    })
+    const messages = compileGroupProbeContextLayers({
+      stableSystemPrompt,
+      dynamicSystemPrompt,
+      rollingSummary: probeThread.rollingSummary,
+      history: loadGroupProbeHistory(server.getStorage(), probeThread),
+      currentTurnContent
     })
 
     console.log(
-      `[telegram-group] group="${group.name}" probing ${probeRecentMessages.length}/${recentMessages.length} message(s) (${effectiveFreshCount} new) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${formatGroupMessages(probeRecentMessages, 'Yachiyo', buildKnownUsersMap(), undefined, effectiveFreshCount)}`
+      `[telegram-group] group="${group.name}" probing ${freshCount}/${recentMessages.length} fresh message(s) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${currentTurnContent}`
     )
 
     const result = await auxService.generateText({
@@ -658,23 +632,13 @@ export function createTelegramService({
     })
 
     if (result.status === 'success') {
-      const nextMessageCountLimit = deriveNextGroupProbeMessageCount({
-        currentMessageCount: probeRecentMessages.length,
-        availableMessageCount: recentMessages.length,
-        totalPromptTokens: result.usage?.totalPromptTokens,
-        contextTokenLimit: policy.groupContextTokenLimit
+      persistSuccessfulGroupProbeTurn({
+        storage: server.getStorage(),
+        generateId: () => server.generateId(),
+        thread: probeThread,
+        requestContent: currentTurnContent,
+        result
       })
-      const previousMessageCountLimit = groupProbeMessageCountLimit.get(group.id)
-      if (nextMessageCountLimit == null) {
-        groupProbeMessageCountLimit.delete(group.id)
-      } else {
-        groupProbeMessageCountLimit.set(group.id, nextMessageCountLimit)
-      }
-      if (previousMessageCountLimit !== nextMessageCountLimit) {
-        console.log(
-          `[telegram-group] group="${group.name}" moved token window ${previousMessageCountLimit ?? 'full'} -> ${nextMessageCountLimit ?? 'full'} message(s) after promptTokens=${result.usage?.totalPromptTokens ?? 'unknown'}`
-        )
-      }
       console.log(
         `[telegram-group] group="${group.name}" monologue: ${result.text.slice(0, 200)}${result.text.length > 200 ? '…' : ''}`
       )

@@ -1548,7 +1548,13 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       return db
         .select()
         .from(threadsTable)
-        .where(and(isNotNull(threadsTable.source), isNull(threadsTable.archivedAt)))
+        .where(
+          and(
+            isNotNull(threadsTable.source),
+            isNull(threadsTable.archivedAt),
+            isNull(threadsTable.channelGroupId)
+          )
+        )
         .orderBy(desc(threadsTable.updatedAt))
         .all()
         .filter((row) => row.source !== 'local')

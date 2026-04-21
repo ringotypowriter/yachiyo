@@ -329,6 +329,10 @@ function isExternalThread(thread: Thread): boolean {
   return false
 }
 
+function isVisibleExternalThread(thread: Thread): boolean {
+  return isExternalThread(thread) && !thread.channelGroupId
+}
+
 /** Find a thread by ID across both local and external thread lists. */
 export function findThread(
   state: { threads: Thread[]; externalThreads?: Thread[] },
@@ -1804,6 +1808,12 @@ export const useAppStore = create<AppState>((set, get) => ({
             nextActiveRequestMessageId
           ),
           archivedThreads: removeThread(state.archivedThreads, event.threadId),
+          externalThreads: isVisibleExternalThread(event.thread)
+            ? sortThreads([
+                event.thread,
+                ...state.externalThreads.filter((item) => item.id !== event.thread.id)
+              ])
+            : state.externalThreads,
           pendingSteerMessages: shouldClearPendingSteer
             ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
             : state.pendingSteerMessages,

@@ -807,6 +807,85 @@ test('applyServerEvent removes deleted external threads from the cached sidebar 
   assert.equal(state.showExternalThreads, true)
 })
 
+test('applyServerEvent updates and re-sorts cached external threads on thread.updated', () => {
+  resetStore()
+
+  useAppStore.setState({
+    externalThreads: [
+      {
+        id: 'external-thread-old',
+        title: 'Older external thread',
+        updatedAt: '2026-03-15T00:00:01.000Z',
+        source: 'discord'
+      },
+      {
+        id: 'external-thread-new',
+        title: 'Newer external thread',
+        updatedAt: '2026-03-15T00:00:02.000Z',
+        source: 'discord'
+      }
+    ],
+    showExternalThreads: true
+  })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'thread.updated',
+    eventId: 'event-external-thread-updated',
+    timestamp: '2026-03-15T00:00:03.000Z',
+    threadId: 'external-thread-old',
+    thread: {
+      id: 'external-thread-old',
+      title: 'Older external thread',
+      updatedAt: '2026-03-15T00:00:03.000Z',
+      source: 'discord'
+    }
+  })
+
+  const state = useAppStore.getState()
+
+  assert.deepEqual(
+    state.externalThreads.map((thread) => thread.id),
+    ['external-thread-old', 'external-thread-new']
+  )
+})
+
+test('applyServerEvent keeps hidden group probe threads out of cached external threads', () => {
+  resetStore()
+
+  useAppStore.setState({
+    externalThreads: [
+      {
+        id: 'external-thread',
+        title: 'Visible external thread',
+        updatedAt: '2026-03-15T00:00:01.000Z',
+        source: 'discord'
+      }
+    ],
+    showExternalThreads: true
+  })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'thread.updated',
+    eventId: 'event-group-probe-thread-updated',
+    timestamp: '2026-03-15T00:00:02.000Z',
+    threadId: 'group-probe-thread',
+    thread: {
+      id: 'group-probe-thread',
+      title: 'Hidden group probe thread',
+      updatedAt: '2026-03-15T00:00:02.000Z',
+      source: 'discord',
+      channelGroupId: 'group-1'
+    }
+  })
+
+  const state = useAppStore.getState()
+
+  assert.deepEqual(
+    state.externalThreads.map((thread) => thread.id),
+    ['external-thread']
+  )
+})
+
 test('applyServerEvent retargets the active request when an active thread head moves to a steer user', () => {
   resetStore()
 
