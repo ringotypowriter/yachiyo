@@ -187,34 +187,6 @@ export const editToolInputSchema = z
         message: 'edits is required and must be non-empty when mode is "batch".'
       })
     }
-    if (hasOldText) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['oldText'],
-        message: 'oldText must be omitted or empty unless mode is "inline".'
-      })
-    }
-    if (hasReplaceLines) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['replaceLines'],
-        message: 'replaceLines must be omitted or empty unless mode is "range".'
-      })
-    }
-    if (hasProvidedNewText(data.newText) && data.newText !== '') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['newText'],
-        message: 'newText must be omitted or empty unless mode is "inline" or "range".'
-      })
-    }
-    if (hasConflictingReplaceAll) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['replace_all'],
-        message: 'replace_all must be omitted or false unless mode is "inline".'
-      })
-    }
   })
 
 export const bashToolInputSchema = z.object({

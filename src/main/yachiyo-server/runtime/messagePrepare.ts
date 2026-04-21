@@ -16,6 +16,11 @@ function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
 
 type ContentPart = { type?: string; toolCallId?: string; toolName?: string; [key: string]: unknown }
 
+export interface NormalizeStoredResponseMessagesResult {
+  responseMessages: unknown[]
+  modified: boolean
+}
+
 function toolNamesMatch(left?: string, right?: string): boolean {
   return !left || !right || left === right
 }
@@ -259,23 +264,22 @@ export function balanceHistoryMessages(messages: ModelMessage[]): ModelMessage[]
   return modified ? result : messages
 }
 
-export function prepareModelMessages(input: MessagePrepareInput): ModelMessage[] {
-  return compileContextLayers(input)
+export function normalizeStoredResponseMessages(
+  responseMessages: unknown[]
+): NormalizeStoredResponseMessagesResult {
+  if (!Array.isArray(responseMessages) || responseMessages.length === 0) {
+    return { responseMessages, modified: false }
+  }
+
+  const normalizedResponseMessages = balanceHistoryMessages(responseMessages as ModelMessage[])
+  return {
+    responseMessages: normalizedResponseMessages,
+    modified: normalizedResponseMessages !== responseMessages
+  }
 }
 
-export function stripReasoningParts(messages: ModelMessage[]): ModelMessage[] {
-  let stripped = false
-  const result = messages.map((msg): ModelMessage => {
-    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) return msg
-    const filtered = msg.content.filter((part) => {
-      const p = part as { type?: string }
-      return p.type !== 'reasoning'
-    })
-    if (filtered.length === msg.content.length) return msg
-    stripped = true
-    return { ...msg, content: filtered }
-  })
-  return stripped ? result : messages
+export function prepareModelMessages(input: MessagePrepareInput): ModelMessage[] {
+  return compileContextLayers(input)
 }
 
 export function prepareAiSdkMessages(

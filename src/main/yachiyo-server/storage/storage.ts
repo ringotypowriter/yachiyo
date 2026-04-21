@@ -165,6 +165,11 @@ export interface SaveThreadMessageInput {
   replacedMessageId?: string
 }
 
+export interface PersistResponseMessagesRepairInput {
+  messageId: string
+  responseMessages: unknown[]
+}
+
 export interface StoredToolCallRow {
   id: string
   runId: string | null
@@ -245,6 +250,7 @@ export interface StoredRunRecoveryCheckpointRow {
 
 export interface YachiyoStorage {
   close(): void
+  flushBackgroundTasks?(): Promise<void>
   bootstrap(): BootstrapState
   recoverInterruptedRuns(input: { finishedAt: string; error: string }): void
   listRunRecoveryCheckpoints(): RunRecoveryCheckpoint[]
@@ -286,6 +292,7 @@ export interface YachiyoStorage {
   listThreadRuns(threadId: string): RunRecord[]
   listThreadMessages(threadId: string): MessageRecord[]
   updateMessage(message: MessageRecord): void
+  persistResponseMessagesRepairInBackground?(input: PersistResponseMessagesRepairInput): void
   listThreadToolCalls(threadId: string): ToolCallRecord[]
   createToolCall(toolCall: ToolCallRecord): void
   updateToolCall(toolCall: ToolCallRecord): void

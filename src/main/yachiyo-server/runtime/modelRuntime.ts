@@ -1,7 +1,7 @@
 import { stepCountIs } from 'ai'
 
-import { prepareAiSdkMessages, stripReasoningParts } from './messagePrepare.ts'
-import type { ModelRuntime } from './types.ts'
+import { prepareAiSdkMessages } from './messagePrepare.ts'
+import type { ModelMessage, ModelRuntime } from './types.ts'
 import {
   type AiSdkRuntimeDependencies,
   type FetchModelsDependencies,
@@ -36,8 +36,13 @@ function readTextDelta(part: { delta?: string; text?: string; textDelta?: string
  * causing the adapter to silently drop them on the next request. We patch in a
  * synthetic signature so the content survives across steer/restart legs.
  *
- * We only inject when the block has no provider metadata at all — if OpenAI
- * (or another provider) already stamped it, leave it untouched.
+ * We skip injection when the block already has an Anthropic signature in
+ * providerOptions or metadata from any non-Anthropic provider (OpenAI, Google,
+ * etc.) so we don't pile provider-specific metadata on top of each other.
+ *
+ * If the signature only lives in providerMetadata (as the AI SDK stores it
+ * after an Anthropic response), we copy it into providerOptions because the
+ * Anthropic adapter reads from providerOptions when building the prompt.
  */
 function patchReasoningSignatures(messages: unknown[]): unknown[] {
   let patched = false
@@ -55,20 +60,41 @@ function patchReasoningSignatures(messages: unknown[]): unknown[] {
       }
       if (p.type !== 'reasoning') return part
 
-      const hasProviderMeta = [p.providerOptions, p.providerMetadata].some((obj) => {
-        if (!obj) return false
-        return Object.values(obj).some(
-          (value) => value != null && typeof value === 'object' && Object.keys(value).length > 0
-        )
-      })
-      if (hasProviderMeta) return part
+      const anthropicOptions = p.providerOptions?.anthropic as Record<string, unknown> | undefined
+      const anthropicMetadata = p.providerMetadata?.anthropic as Record<string, unknown> | undefined
 
-      // Inject a synthetic signature so the Anthropic adapter accepts it.
+      // Already has the signature where the adapter looks — nothing to do.
+      if (anthropicOptions?.signature) return part
+
+      // Signature only lives in providerMetadata — copy it to providerOptions
+      // so the Anthropic adapter can find it on the next request.
+      if (anthropicMetadata?.signature) {
+        contentPatched = true
+        return {
+          ...p,
+          providerOptions: {
+            ...p.providerOptions,
+            anthropic: { ...anthropicOptions, signature: anthropicMetadata.signature }
+          }
+        }
+      }
+
+      // Skip injection for any non-Anthropic provider metadata.
+      const nonAnthropicEntries = [
+        ...Object.entries(p.providerOptions ?? {}).filter(([key]) => key !== 'anthropic'),
+        ...Object.entries(p.providerMetadata ?? {}).filter(([key]) => key !== 'anthropic')
+      ]
+      const hasNonAnthropicMeta = nonAnthropicEntries.some(
+        ([, value]) => value != null && typeof value === 'object' && Object.keys(value).length > 0
+      )
+      if (hasNonAnthropicMeta) return part
+
+      // Bare reasoning block — inject synthetic signature for Anthropic compatibility.
       // The adapter reads `providerOptions`, not `providerMetadata`.
       contentPatched = true
       const syntheticAnthropicMeta = {
-        ...(p.providerOptions?.anthropic as Record<string, unknown> | undefined),
-        ...(p.providerMetadata?.anthropic as Record<string, unknown> | undefined),
+        ...(anthropicOptions as Record<string, unknown> | undefined),
+        ...(anthropicMetadata as Record<string, unknown> | undefined),
         signature: 'yachiyo-passthrough'
       }
       return {
@@ -119,13 +145,30 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
     async *streamReply(request) {
       assertConfigured(request.settings)
 
-      let preparedMessages = prepareAiSdkMessages(request.messages)
-      if (
-        request.settings.provider === 'openai' ||
-        request.settings.provider === 'openai-responses'
-      ) {
-        preparedMessages = stripReasoningParts(preparedMessages)
+      const preparedMessages = patchReasoningSignatures(
+        prepareAiSdkMessages(request.messages) as unknown[]
+      ) as ModelMessage[]
+
+      // Debug: log reasoning parts to diagnose adapter warnings
+      const reasoningParts: unknown[] = []
+      for (const msg of preparedMessages) {
+        if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue
+        for (const part of msg.content) {
+          if ((part as Record<string, unknown>).type === 'reasoning') {
+            reasoningParts.push({
+              text: (part as Record<string, unknown>).text,
+              providerOptions: (part as Record<string, unknown>).providerOptions,
+              providerMetadata: (part as Record<string, unknown>).providerMetadata
+            })
+          }
+        }
       }
+      if (reasoningParts.length > 0) {
+        console.debug(
+          `[yachiyo][reasoning-debug] provider=${request.settings.provider} model=${request.settings.model} reasoningCount=${reasoningParts.length} parts=${JSON.stringify(reasoningParts)}`
+        )
+      }
+
       const baseProviderOptions = createProviderOptions(
         request.settings,
         request.providerOptionsMode ?? 'default'

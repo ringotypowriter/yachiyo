@@ -402,6 +402,45 @@ test('responseMessages with OpenAI-native reasoning are not patched with Anthrop
   )
 })
 
+test('responseMessages with signature only in providerMetadata copies it to providerOptions', () => {
+  const responseMessages = [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'reasoning',
+          text: 'Real Anthropic thinking',
+          providerMetadata: { anthropic: { signature: 'real-sig-abc' } }
+        },
+        { type: 'text', text: 'Here is the answer.' }
+      ]
+    }
+  ]
+
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'Base' },
+    history: [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Here is the answer.', responseMessages }
+    ]
+  })
+
+  const assistant = compiled[2] as {
+    content: Array<{ type: string; providerOptions?: Record<string, unknown> }>
+  }
+  assert.equal(assistant.content[0].type, 'reasoning')
+  const copiedSig = (
+    (assistant.content[0].providerOptions as Record<string, unknown> | undefined)?.anthropic as
+      | Record<string, unknown>
+      | undefined
+  )?.signature
+  assert.equal(
+    copiedSig,
+    'real-sig-abc',
+    'should copy signature from providerMetadata into providerOptions'
+  )
+})
+
 test('empty responseMessages array falls back to plain text', () => {
   const compiled = compileContextLayers({
     personality: { basePersona: 'Base' },

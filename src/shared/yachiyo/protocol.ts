@@ -1358,6 +1358,7 @@ export interface RunContextCompiledEvent extends RunEvent {
 
 export interface RunCompletedEvent extends RunEvent {
   type: 'run.completed'
+  recap?: boolean
   promptTokens?: number
   completionTokens?: number
   totalPromptTokens?: number
@@ -1418,6 +1419,7 @@ export interface BackgroundTaskLogAppendEvent extends ThreadEvent {
 
 export interface RunCancelledEvent extends RunEvent {
   type: 'run.cancelled'
+  recap?: boolean
 }
 
 export interface SnapshotReadyEvent extends RunEvent {

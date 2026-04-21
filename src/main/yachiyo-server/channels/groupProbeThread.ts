@@ -6,6 +6,7 @@ import type {
 } from '../../../shared/yachiyo/protocol.ts'
 import type { AuxiliaryTextGenerationResult } from '../runtime/auxiliaryGeneration.ts'
 import type { ContextLayerHistoryMessage } from '../runtime/contextLayers.ts'
+import { repairReplayHistoryMessages } from '../runtime/replayHistoryRepair.ts'
 import type { YachiyoStorage } from '../storage/storage.ts'
 
 export interface ResolveGroupProbeThreadOptions {
@@ -126,13 +127,18 @@ function trimHistoryToWatermark(
 }
 
 export function loadGroupProbeHistory(
-  storage: Pick<YachiyoStorage, 'listThreadMessages'>,
+  storage: Pick<YachiyoStorage, 'listThreadMessages' | 'persistResponseMessagesRepairInBackground'>,
   thread: Pick<ThreadRecord, 'id' | 'summaryWatermarkMessageId'>
 ): ContextLayerHistoryMessage[] {
-  return trimHistoryToWatermark(
-    storage.listThreadMessages(thread.id),
-    thread.summaryWatermarkMessageId
-  ).map((message) => ({
+  return repairReplayHistoryMessages({
+    messages: trimHistoryToWatermark(
+      storage.listThreadMessages(thread.id),
+      thread.summaryWatermarkMessageId
+    ),
+    persistRepairedResponseMessages: (repair) => {
+      storage.persistResponseMessagesRepairInBackground?.(repair)
+    }
+  }).map((message) => ({
     role: message.role,
     content: message.content,
     ...(message.images ? { images: message.images } : {}),

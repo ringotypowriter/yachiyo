@@ -7,6 +7,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, like, or, sql } from 'd
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
 import * as schema from './schema.ts'
+import { createBackgroundResponseMessagesRepairQueue } from './backgroundResponseMessagesRepair.ts'
 import {
   channelGroupsTable,
   channelUsersTable,
@@ -286,10 +287,16 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
   const db = drizzle(client, { schema })
   migrate(db, { migrationsFolder: MIGRATIONS_DIR })
   ensureThreadSearchIndex(client)
+  const backgroundResponseMessagesRepairQueue = createBackgroundResponseMessagesRepairQueue(dbPath)
 
   return {
     close() {
+      backgroundResponseMessagesRepairQueue.close()
       client.close()
+    },
+
+    flushBackgroundTasks(): Promise<void> {
+      return backgroundResponseMessagesRepairQueue.flush()
     },
 
     bootstrap() {
@@ -1271,6 +1278,18 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         })
         .where(eq(messagesTable.id, message.id))
         .run()
+    },
+
+    persistResponseMessagesRepairInBackground(input) {
+      const responseMessages = serializeResponseMessages(input.responseMessages)
+      if (!responseMessages) {
+        return
+      }
+
+      backgroundResponseMessagesRepairQueue.schedule({
+        messageId: input.messageId,
+        responseMessages
+      })
     },
 
     listThreadToolCalls(threadId) {

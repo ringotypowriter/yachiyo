@@ -56,6 +56,7 @@ import {
 import { createRunPerfCollector } from '../../services/perfMonitor.ts'
 import { applyStripCompact } from '../../runtime/contextStripCompact.ts'
 import { prepareModelMessages } from '../../runtime/messagePrepare.ts'
+import { repairReplayHistoryMessages } from '../../runtime/replayHistoryRepair.ts'
 import {
   buildExternalAgentInstructions,
   compileExternalContextLayers
@@ -834,6 +835,7 @@ function balanceResponseMessages(messages: unknown[]): unknown[] {
 
 function loadRunHistory(
   loadThreadMessages: RunExecutionDeps['loadThreadMessages'],
+  storage: Pick<YachiyoStorage, 'persistResponseMessagesRepairInBackground'>,
   threadId: string,
   requestMessageId: string,
   requestMessageContentOverride?: string,
@@ -845,7 +847,12 @@ function loadRunHistory(
     'content' | 'images' | 'attachments' | 'role' | 'responseMessages' | 'turnContext'
   >
 > {
-  let messagePath = collectMessagePath(loadThreadMessages(threadId), requestMessageId)
+  let messagePath = repairReplayHistoryMessages({
+    messages: collectMessagePath(loadThreadMessages(threadId), requestMessageId),
+    persistRepairedResponseMessages: (repair) => {
+      storage.persistResponseMessagesRepairInBackground?.(repair)
+    }
+  })
 
   // For external channels with a rolling summary watermark, trim history to only
   // messages after the watermark. The rolling summary covers everything before it.
@@ -1508,6 +1515,7 @@ export async function executeServerRun(
       : augmentedUserQuery
     const history = loadRunHistory(
       deps.loadThreadMessages,
+      deps.storage,
       input.thread.id,
       input.requestMessageId,
       modelUserQuery,

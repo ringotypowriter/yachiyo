@@ -55,6 +55,27 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     string,
     { phase: string; buffer: GroupMessageEntry[]; savedAt: string }
   >()
+  const pendingResponseMessageRepairs = new Map<string, unknown[]>()
+  let responseMessageRepairFlushQueued = false
+
+  const flushPendingResponseMessageRepairs = (): void => {
+    responseMessageRepairFlushQueued = false
+
+    for (const [messageId, responseMessages] of pendingResponseMessageRepairs) {
+      const currentIndex = messages.findIndex((message) => message.id === messageId)
+      if (currentIndex < 0) {
+        continue
+      }
+
+      const currentMessage = messages[currentIndex]
+      messages[currentIndex] = {
+        ...currentMessage,
+        responseMessages: structuredClone(responseMessages)
+      }
+    }
+
+    pendingResponseMessageRepairs.clear()
+  }
 
   const readThread = (threadId: string): StoredThreadRow | undefined => {
     const thread = threads.get(threadId)
@@ -113,6 +134,10 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   return {
     close() {
       // In-memory storage does not hold external resources.
+    },
+
+    async flushBackgroundTasks(): Promise<void> {
+      await Promise.resolve()
     },
 
     bootstrap() {
@@ -698,6 +723,16 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
 
       messages[currentIndex] = message
+    },
+
+    persistResponseMessagesRepairInBackground(input) {
+      pendingResponseMessageRepairs.set(input.messageId, structuredClone(input.responseMessages))
+      if (responseMessageRepairFlushQueued) {
+        return
+      }
+
+      responseMessageRepairFlushQueued = true
+      queueMicrotask(flushPendingResponseMessageRepairs)
     },
 
     listThreadToolCalls(threadId) {

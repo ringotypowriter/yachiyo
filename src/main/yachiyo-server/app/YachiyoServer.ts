@@ -410,6 +410,7 @@ export class YachiyoServer {
     this.ttlReaper.stop()
     await this.runDomain.close()
     await acpProcessPool.shutdown()
+    await this.storage.flushBackgroundTasks?.()
     this.storage.close()
   }
 

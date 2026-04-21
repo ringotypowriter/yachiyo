@@ -821,6 +821,19 @@ describe('editTool', () => {
       assert.strictEqual(parsed.success, true)
     })
 
+    it('accepts stray inline and range fields for batch mode when edits are present', () => {
+      const parsed = editToolInputSchema.safeParse({
+        mode: 'batch',
+        path: 'file.txt',
+        oldText: 'stale inline field',
+        newText: 'stale top-level replacement',
+        replace_all: true,
+        replaceLines: { start: 1, end: 1 },
+        edits: [{ oldText: 'x', newText: 'y' }]
+      })
+      assert.strictEqual(parsed.success, true)
+    })
+
     it('rejects non-empty ranged fields for inline mode', () => {
       const parsed = editToolInputSchema.safeParse({
         mode: 'inline',
@@ -854,14 +867,13 @@ describe('editTool', () => {
       assert.strictEqual(parsed.success, false)
     })
 
-    it('rejects non-empty inline fields for batch mode', () => {
+    it('rejects batch mode when edits are missing even if stray inline fields are present', () => {
       const parsed = editToolInputSchema.safeParse({
         mode: 'batch',
         path: 'file.txt',
         oldText: 'hello',
         newText: '',
-        replaceLines: null,
-        edits: [{ oldText: 'x', newText: 'y' }]
+        replaceLines: { start: 1, end: 1 }
       })
       assert.strictEqual(parsed.success, false)
     })

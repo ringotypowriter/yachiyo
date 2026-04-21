@@ -206,12 +206,14 @@ export function collectDirectMessageRunOutput(
       }
 
       if (event.type === 'run.completed') {
+        if (event.recap) return
         unsubscribe()
         resolve(buffer)
         return
       }
 
       if (event.type === 'run.cancelled') {
+        if (event.recap) return
         unsubscribe()
         resolve(null)
         return

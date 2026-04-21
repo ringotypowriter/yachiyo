@@ -347,6 +347,9 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
         const { promise, resolve } = Promise.withResolvers<TurnOutcome>()
         const unsubscribe = deps.server.subscribe((event: YachiyoServerEvent) => {
           if ('threadId' in event && event.threadId !== thread.id) return
+          if ((event.type === 'run.completed' || event.type === 'run.cancelled') && event.recap) {
+            return
+          }
           if (event.type === 'run.completed') {
             unsubscribe()
             resolve({

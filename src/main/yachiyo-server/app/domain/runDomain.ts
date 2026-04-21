@@ -174,6 +174,7 @@ function createEphemeralStorageProxy(real: YachiyoStorage): EphemeralStorage {
         prop === 'saveThreadMessage' ||
         prop === 'updateThread' ||
         prop === 'updateMessage' ||
+        prop === 'persistResponseMessagesRepairInBackground' ||
         prop === 'createToolCall' ||
         prop === 'updateToolCall' ||
         prop === 'upsertRunRecoveryCheckpoint' ||
@@ -181,6 +182,9 @@ function createEphemeralStorageProxy(real: YachiyoStorage): EphemeralStorage {
         prop === 'updateRunSnapshot'
       ) {
         return () => {}
+      }
+      if (prop === 'flushBackgroundTasks') {
+        return async () => {}
       }
       if (prop === 'completeRun') {
         return (input: { assistantMessage?: MessageRecord }) => {
@@ -2049,7 +2053,8 @@ export class YachiyoServerRunDomain {
             this.deps.emit<RunCompletedEvent>({
               type: 'run.completed',
               threadId: input.thread.id,
-              runId: input.runId
+              runId: input.runId,
+              recap: true
             })
             break
           }
@@ -2174,7 +2179,8 @@ export class YachiyoServerRunDomain {
           this.deps.emit<RunCancelledEvent>({
             type: 'run.cancelled',
             threadId: input.thread.id,
-            runId: input.runId
+            runId: input.runId,
+            recap: true
           })
           break
         }
@@ -2218,7 +2224,8 @@ export class YachiyoServerRunDomain {
         this.deps.emit<RunCancelledEvent>({
           type: 'run.cancelled',
           threadId: input.thread.id,
-          runId: input.runId
+          runId: input.runId,
+          recap: true
         })
         result = { kind: 'failed' }
       } else {

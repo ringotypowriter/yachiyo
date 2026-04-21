@@ -1579,6 +1579,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     if (event.type === 'run.completed') {
+      if (event.recap) return
       const { config, threads, messages } = get()
       const thread = threads.find((t) => t.id === event.threadId)
       if (thread && !isExternalThread(thread) && config?.general?.notifyRunCompleted !== false) {
