@@ -23,8 +23,9 @@ test('compileGroupProbeContextLayers keeps stable prefix, summary, history, and 
   assert.equal(messages[3]?.role, 'user')
   assert.equal(messages[3]?.content, '<msg from="Alice">old turn</msg>')
   assert.equal(messages[4]?.role, 'assistant')
-  assert.equal(messages.at(-1)?.role, 'user')
-  assert.equal(messages.at(-1)?.content, '<msg from="Bob">fresh turn</msg>')
+  assert.equal(messages[4]?.content, 'silent, not worth joining')
+  assert.equal(messages[5]?.role, 'user')
+  assert.equal(messages[5]?.content, '<msg from="Bob">fresh turn</msg>')
 })
 
 test('compileGroupProbeContextLayers preserves assistant responseMessages for cache-stable replay', () => {
@@ -70,4 +71,116 @@ test('compileGroupProbeContextLayers preserves assistant responseMessages for ca
   assert.deepEqual(messages[4], responseMessages[1])
   assert.equal(messages[5]?.role, 'user')
   assert.equal(messages[5]?.content, '<msg from="Bob">fresh turn</msg>')
+})
+
+test('compileGroupProbeContextLayers trims the last sentence from plain assistant monologue replay', () => {
+  const messages = compileGroupProbeContextLayers({
+    stableSystemPrompt: 'Stable group behavior rules.',
+    dynamicSystemPrompt: 'You are the group probe.',
+    history: [
+      {
+        role: 'assistant',
+        content: '她刚刚是在试探我，群里节奏也很快，我现在插话有点怪。先不说了。'
+      }
+    ],
+    currentTurnContent: '<msg from="Bob">fresh turn</msg>'
+  })
+
+  assert.equal(messages[2]?.role, 'assistant')
+  assert.equal(messages[2]?.content, '她刚刚是在试探我，群里节奏也很快，我现在插话有点怪。')
+  assert.equal(messages[3]?.role, 'user')
+})
+
+test('compileGroupProbeContextLayers trims the last sentence from text-only assistant responseMessages', () => {
+  const responseMessages = [
+    {
+      role: 'assistant' as const,
+      content: [
+        {
+          type: 'text' as const,
+          text: 'The room is moving fast. I should probably stay quiet.'
+        }
+      ]
+    }
+  ]
+
+  const messages = compileGroupProbeContextLayers({
+    stableSystemPrompt: 'Stable group behavior rules.',
+    dynamicSystemPrompt: 'You are the group probe.',
+    history: [
+      {
+        role: 'assistant',
+        content: 'The room is moving fast. I should probably stay quiet.',
+        responseMessages
+      }
+    ],
+    currentTurnContent: '<msg from="Bob">fresh turn</msg>'
+  })
+
+  assert.deepEqual(messages[2], {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'The room is moving fast.' }]
+  })
+  assert.equal(messages[3]?.role, 'user')
+})
+
+test('compileGroupProbeContextLayers preserves one-sentence assistant monologue replay', () => {
+  const messages = compileGroupProbeContextLayers({
+    stableSystemPrompt: 'Stable group behavior rules.',
+    dynamicSystemPrompt: 'You are the group probe.',
+    history: [{ role: 'assistant', content: 'Not worth jumping in.' }],
+    currentTurnContent: '<msg from="Bob">fresh turn</msg>'
+  })
+
+  assert.equal(messages[2]?.role, 'assistant')
+  assert.equal(messages[2]?.content, 'Not worth jumping in.')
+  assert.equal(messages[3]?.role, 'user')
+})
+
+test('compileGroupProbeContextLayers trims tool-assisted silent turns unless they sent a group message', () => {
+  const responseMessages = [
+    {
+      role: 'assistant' as const,
+      content: [
+        { type: 'text' as const, text: 'checking context' },
+        { type: 'tool-call' as const, toolCallId: 'tc1', toolName: 'web_search', input: {} }
+      ]
+    },
+    {
+      role: 'tool' as const,
+      content: [
+        {
+          type: 'tool-result' as const,
+          toolCallId: 'tc1',
+          toolName: 'web_search',
+          output: { type: 'text' as const, value: 'search results' }
+        }
+      ]
+    },
+    {
+      role: 'assistant' as const,
+      content: [{ type: 'text' as const, text: 'The room is moving fast. I should stay quiet.' }]
+    }
+  ]
+
+  const messages = compileGroupProbeContextLayers({
+    stableSystemPrompt: 'Stable group behavior rules.',
+    dynamicSystemPrompt: 'You are the group probe.',
+    history: [
+      {
+        role: 'assistant',
+        content: 'The room is moving fast. I should stay quiet.',
+        responseMessages
+      }
+    ],
+    currentTurnContent: '<msg from="Bob">fresh turn</msg>'
+  })
+
+  assert.deepEqual(messages[2], responseMessages[0])
+  assert.deepEqual(messages[3], responseMessages[1])
+  assert.deepEqual(messages[4], {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'The room is moving fast.' }]
+  })
+  assert.equal(messages[5]?.role, 'user')
 })
