@@ -2039,8 +2039,10 @@ export class YachiyoServerRunDomain {
           if (isRecapRun) {
             const text = (recapStorage as EphemeralStorage).lastAssistantContent ?? null
             if (text) {
-              const thread = this.deps.requireThread(currentThread.id)
-              this.deps.storage.updateThread({ ...thread, recapText: text })
+              const thread = this.deps.storage.getThread(currentThread.id)
+              if (thread) {
+                this.deps.storage.updateThread({ ...thread, recapText: text })
+              }
             }
             activeRun?.recapResolve?.(text)
             activeRun!.recapResolve = undefined
@@ -2048,8 +2050,10 @@ export class YachiyoServerRunDomain {
           }
           // Re-read the persisted thread so headMessageId reflects the
           // assistant reply, not the pre-run snapshot.
-          const persistedThread = this.deps.requireThread(currentThread.id)
-          this.memoryScheduler.onRunCompleted(persistedThread, result.usedRememberTool)
+          const persistedThread = this.deps.storage.getThread(currentThread.id)
+          if (persistedThread) {
+            this.memoryScheduler.onRunCompleted(persistedThread, result.usedRememberTool)
+          }
         }
 
         // Safe steer: the stream ended cleanly at a turn boundary and a user
@@ -2682,7 +2686,10 @@ export class YachiyoServerRunDomain {
       return null
     }
 
-    const thread = this.deps.requireThread(threadId)
+    const thread = this.deps.storage.getThread(threadId)
+    if (!thread) {
+      return null
+    }
     const queuedMessageId = thread.queuedFollowUpMessageId
     if (!queuedMessageId) {
       if (thread.queuedFollowUpEnabledTools || thread.queuedFollowUpEnabledSkillNames) {
