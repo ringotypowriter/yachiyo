@@ -160,6 +160,82 @@ test('persistSuccessfulGroupProbeTurn stores hidden request/assistant messages a
   assert.equal(storage.getThreadTotalTokens(thread.id), 321)
 })
 
+test('persistSuccessfulGroupProbeTurn rebases on the live thread head after history reset', () => {
+  const storage = createInMemoryYachiyoStorage()
+  const thread = makeThread('thread-1')
+  storage.createThread({ thread, createdAt: '2026-04-21T00:00:00.000Z' })
+
+  const staleThread = persistSuccessfulGroupProbeTurn({
+    storage,
+    generateId: (() => {
+      const ids = ['msg-user-old', 'run-old', 'msg-assistant-old']
+      return () => ids.shift() ?? 'unexpected-old'
+    })(),
+    thread,
+    requestContent: '<msg from="Alice">before clear</msg>',
+    result: {
+      status: 'success',
+      settings: {
+        providerName: 'tool-model',
+        provider: 'openai',
+        model: 'gpt-4.1',
+        apiKey: 'sk-test',
+        baseUrl: ''
+      },
+      text: 'Old monologue.',
+      usage: {
+        promptTokens: 100,
+        completionTokens: 10,
+        totalPromptTokens: 100,
+        totalCompletionTokens: 10
+      }
+    },
+    requestAt: '2026-04-21T00:00:01.000Z',
+    assistantAt: '2026-04-21T00:00:02.000Z'
+  })
+
+  storage.resetThreadHistory({
+    threadId: thread.id,
+    updatedAt: '2026-04-21T00:01:00.000Z'
+  })
+
+  persistSuccessfulGroupProbeTurn({
+    storage,
+    generateId: (() => {
+      const ids = ['msg-user-new', 'run-new', 'msg-assistant-new']
+      return () => ids.shift() ?? 'unexpected-new'
+    })(),
+    thread: staleThread,
+    requestContent: '<msg from="Bob">after clear</msg>',
+    result: {
+      status: 'success',
+      settings: {
+        providerName: 'tool-model',
+        provider: 'openai',
+        model: 'gpt-4.1',
+        apiKey: 'sk-test',
+        baseUrl: ''
+      },
+      text: 'Fresh monologue.',
+      usage: {
+        promptTokens: 120,
+        completionTokens: 12,
+        totalPromptTokens: 120,
+        totalCompletionTokens: 12
+      }
+    },
+    requestAt: '2026-04-21T00:01:01.000Z',
+    assistantAt: '2026-04-21T00:01:02.000Z'
+  })
+
+  const messages = storage.listThreadMessages(thread.id)
+  assert.equal(messages.length, 2)
+  assert.equal(messages[0]?.id, 'msg-user-new')
+  assert.equal(messages[0]?.parentMessageId, undefined)
+  assert.equal(messages[1]?.id, 'msg-assistant-new')
+  assert.equal(messages[1]?.parentMessageId, 'msg-user-new')
+})
+
 test('listExternalThreads excludes hidden group probe threads', () => {
   const storage = createInMemoryYachiyoStorage()
 

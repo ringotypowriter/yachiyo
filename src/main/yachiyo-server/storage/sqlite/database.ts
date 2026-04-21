@@ -792,6 +792,28 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       db.delete(threadsTable).where(eq(threadsTable.id, threadId)).run()
     },
 
+    resetThreadHistory({ threadId, updatedAt }) {
+      db.transaction((tx) => {
+        tx.delete(toolCallsTable).where(eq(toolCallsTable.threadId, threadId)).run()
+        tx.delete(runsTable).where(eq(runsTable.threadId, threadId)).run()
+        tx.delete(messagesTable).where(eq(messagesTable.threadId, threadId)).run()
+        tx.update(threadsTable)
+          .set({
+            headMessageId: null,
+            preview: null,
+            queuedFollowUpEnabledTools: null,
+            queuedFollowUpEnabledSkillNames: null,
+            queuedFollowUpMessageId: null,
+            rollingSummary: null,
+            summaryWatermarkMessageId: null,
+            recapText: null,
+            updatedAt
+          })
+          .where(eq(threadsTable.id, threadId))
+          .run()
+      })
+    },
+
     updateThread(thread) {
       db.update(threadsTable)
         .set({
@@ -1709,6 +1731,16 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
       const row = rows.find((r) => r.updatedAt >= cutoff)
       return row ? toThreadRecord(row) : undefined
+    },
+
+    listThreadsByChannelGroupId(channelGroupId) {
+      return db
+        .select()
+        .from(threadsTable)
+        .where(eq(threadsTable.channelGroupId, channelGroupId))
+        .orderBy(desc(threadsTable.updatedAt))
+        .all()
+        .map(toThreadRecord)
     },
 
     // Thread folders

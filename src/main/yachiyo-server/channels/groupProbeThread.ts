@@ -143,7 +143,7 @@ export function loadGroupProbeHistory(
 }
 
 export interface PersistSuccessfulGroupProbeTurnInput {
-  storage: Pick<YachiyoStorage, 'startRun' | 'completeRun'>
+  storage: Pick<YachiyoStorage, 'getThread' | 'startRun' | 'completeRun'>
   generateId: () => string
   thread: ThreadRecord
   requestContent: string
@@ -157,6 +157,7 @@ export function persistSuccessfulGroupProbeTurn(
 ): ThreadRecord {
   const requestAt = input.requestAt ?? new Date().toISOString()
   const assistantAt = input.assistantAt ?? requestAt
+  const liveThread = input.storage.getThread(input.thread.id) ?? input.thread
   const requestMessageId = input.generateId()
   const runId = input.generateId()
   const assistantMessageId = input.generateId()
@@ -164,7 +165,7 @@ export function persistSuccessfulGroupProbeTurn(
   const userMessage: MessageRecord = {
     id: requestMessageId,
     threadId: input.thread.id,
-    ...(input.thread.headMessageId ? { parentMessageId: input.thread.headMessageId } : {}),
+    ...(liveThread.headMessageId ? { parentMessageId: liveThread.headMessageId } : {}),
     role: 'user',
     content: input.requestContent,
     hidden: true,
@@ -173,7 +174,7 @@ export function persistSuccessfulGroupProbeTurn(
   }
 
   const threadAfterRequest: ThreadRecord = {
-    ...input.thread,
+    ...liveThread,
     headMessageId: userMessage.id,
     updatedAt: requestAt
   }

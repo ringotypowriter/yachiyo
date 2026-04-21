@@ -1067,6 +1067,15 @@ export class YachiyoServer {
     return this.storage.findActiveGroupThread(channelGroupId, maxAgeMs)
   }
 
+  async clearChannelGroupHistory(input: { groupId: string }): Promise<void> {
+    const updatedAt = this.now().toISOString()
+    this.storage.deleteGroupMonitorBuffer(input.groupId)
+
+    for (const thread of this.storage.listThreadsByChannelGroupId(input.groupId)) {
+      this.storage.resetThreadHistory({ threadId: thread.id, updatedAt })
+    }
+  }
+
   getAuxiliaryGenerationService(): import('../runtime/auxiliaryGeneration.ts').AuxiliaryGenerationService {
     return this.auxiliaryGeneration
   }

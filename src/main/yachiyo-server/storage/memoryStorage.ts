@@ -381,6 +381,41 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
     },
 
+    resetThreadHistory({ threadId, updatedAt }) {
+      const thread = threads.get(threadId)
+      if (!thread) {
+        return
+      }
+
+      const nextMessages = messages.filter((message) => message.threadId !== threadId)
+      messages.length = 0
+      messages.push(...nextMessages)
+
+      const deletedRunIds = new Set(
+        [...runs.values()].filter((run) => run.threadId === threadId).map((run) => run.id)
+      )
+      for (const runId of deletedRunIds) {
+        runs.delete(runId)
+        runRecoveryCheckpoints.delete(runId)
+      }
+
+      for (const [toolCallId, toolCall] of toolCalls.entries()) {
+        if (toolCall.threadId === threadId) {
+          toolCalls.delete(toolCallId)
+        }
+      }
+
+      thread.headMessageId = null
+      thread.preview = null
+      thread.queuedFollowUpEnabledTools = null
+      thread.queuedFollowUpEnabledSkillNames = null
+      thread.queuedFollowUpMessageId = null
+      thread.rollingSummary = null
+      thread.summaryWatermarkMessageId = null
+      thread.recapText = null
+      thread.updatedAt = updatedAt
+    },
+
     updateThread(nextThread) {
       const storedThread = threads.get(nextThread.id)
       if (!storedThread || storedThread.archivedAt !== null) {
@@ -882,6 +917,13 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         )
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
       return match ? toThreadRecord(match) : undefined
+    },
+
+    listThreadsByChannelGroupId(channelGroupId) {
+      return [...threads.values()]
+        .filter((thread) => thread.channelGroupId === channelGroupId)
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        .map(toThreadRecord)
     },
 
     // Thread folders

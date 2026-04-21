@@ -272,6 +272,7 @@ export interface YachiyoStorage {
   clearThreadSave(input: { threadId: string }): void
   recoverInterruptedSaves(): string[]
   deleteThread(input: { threadId: string }): void
+  resetThreadHistory(input: { threadId: string; updatedAt: string }): void
   updateThread(thread: ThreadRecord): void
   setThreadPrivacyMode(input: { threadId: string; privacyMode: boolean; updatedAt: string }): void
   saveThreadMessage(input: SaveThreadMessageInput): void
@@ -324,6 +325,7 @@ export interface YachiyoStorage {
     label?: string
   }): ChannelGroupRecord | undefined
   findActiveGroupThread(channelGroupId: string, maxAgeMs: number): ThreadRecord | undefined
+  listThreadsByChannelGroupId(channelGroupId: string): ThreadRecord[]
 
   // Thread folders
   listFolders(): FolderRecord[]

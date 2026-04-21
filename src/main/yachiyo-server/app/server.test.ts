@@ -7290,6 +7290,54 @@ test('YachiyoServer rolls up external DM threads in place', async () => {
   )
 })
 
+test('YachiyoServer clearChannelGroupHistory removes monitor buffer and resets hidden group probe threads in place', async () => {
+  await withServer(async ({ server, storage }) => {
+    const group = server.createChannelGroup({
+      id: 'group-1',
+      platform: 'telegram',
+      externalGroupId: 'telegram-group-1',
+      name: 'Test Group',
+      label: 'Test Group',
+      status: 'approved',
+      workspacePath: '/tmp/group-workspace'
+    })
+
+    const hiddenThread = await server.createThread({
+      source: 'telegram',
+      channelGroupId: group.id,
+      workspacePath: group.workspacePath,
+      title: `${group.name} [group probe]`
+    })
+
+    storage.saveGroupMonitorBuffer({
+      groupId: group.id,
+      phase: 'active',
+      buffer: [
+        {
+          senderName: 'Alice',
+          senderExternalUserId: 'user-1',
+          isMention: false,
+          text: 'hello',
+          timestamp: Date.now() / 1_000
+        }
+      ],
+      savedAt: new Date().toISOString()
+    })
+
+    await server.clearChannelGroupHistory({ groupId: group.id })
+
+    assert.equal(storage.loadGroupMonitorBuffer(group.id), undefined)
+    assert.equal(
+      server.findActiveGroupThread(group.id, 7 * 24 * 60 * 60 * 1_000)?.id,
+      hiddenThread.id
+    )
+    assert.equal(storage.getThread(hiddenThread.id)?.headMessageId, undefined)
+    assert.deepEqual(storage.listThreadMessages(hiddenThread.id), [])
+    assert.deepEqual(storage.listThreadRuns(hiddenThread.id), [])
+    assert.deepEqual(storage.listThreadToolCalls(hiddenThread.id), [])
+  })
+})
+
 test('YachiyoServer does not create a destination thread when compact workspace cloning fails', async () => {
   await withServer(
     async ({ server, completeRun }) => {
