@@ -130,6 +130,7 @@ interface WorkerResultMessage {
   consoleLines: string[]
   error?: string
   timedOut: boolean
+  stateHint?: string
 }
 
 interface WorkerMessage {
@@ -325,8 +326,8 @@ export function createTool(
   } = {
     description:
       `Run JavaScript code in a persistent REPL session with cwd set to ${context.workspacePath}. ` +
-      'Variables and imports persist across calls within the same run. ' +
-      'To start from a clean state, include `reset: true` in the same jsRepl call as the code you want to run. ' +
+      'CRITICAL: Variables and imports persist across jsRepl calls within the same run. ' +
+      'If you are unsure what is already defined, or if your code assumes a clean slate, include `reset: true`. ' +
       'Do not treat reset as a separate step or a sticky mode. ' +
       'Has access to `require()` for Node built-ins and project dependencies. ' +
       'Relative paths in fs operations resolve against the workspace.\n' +
@@ -336,7 +337,7 @@ export function createTool(
       'Use `await` when calling tools — code is automatically wrapped in an async context. ' +
       'Each tool returns an object `{ content: string, error?: string }`, not a raw string.\n' +
       'Available tools: ' +
-      'tools.read({ path }), tools.write({ path, content }), tools.edit({ path, oldText, newText }), ' +
+      "tools.read({ path }), tools.write({ path, content }), tools.edit({ mode: 'inline', path, oldText, newText }), " +
       'tools.bash({ command }), tools.grep({ pattern }), tools.glob({ pattern }).\n' +
       'Prefer jsRepl over individual tool calls for: ' +
       'batch file operations, looping over search results, programmatic code generation, ' +
@@ -391,10 +392,13 @@ export function createTool(
       const error = workerResult.error
       const timedOut = workerResult.timedOut
 
+      const stateHint = workerResult.stateHint
+
       const parts: string[] = []
       if (consoleOutput) parts.push(`[console]\n${consoleOutput}`)
       if (result !== undefined) parts.push(`[result]\n${result}`)
       if (error) parts.push(`[error]\n${error}`)
+      if (stateHint) parts.push(`[vars] ${stateHint}`)
 
       const outputText = parts.join('\n\n') || '(no output)'
       const tail = takeTail(outputText, MAX_MODEL_OUTPUT_CHARS)
