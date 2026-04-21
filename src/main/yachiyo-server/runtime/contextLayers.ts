@@ -132,11 +132,29 @@ function stripImageDataFromResponseMessages(messages: ModelMessage[]): ModelMess
   })
 }
 
+function hasProviderMetadata(
+  providerOptions?: Record<string, unknown>,
+  providerMetadata?: Record<string, unknown>
+): boolean {
+  for (const obj of [providerOptions, providerMetadata]) {
+    if (!obj) continue
+    for (const [, value] of Object.entries(obj)) {
+      if (value != null && typeof value === 'object' && Object.keys(value).length > 0) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
 /**
  * Ensure reasoning blocks in replayed responseMessages carry a provider
  * signature so the Anthropic adapter doesn't silently drop them. Non-Anthropic
  * providers (e.g. Kimi) emit reasoning without signatures; we inject a
  * synthetic one so the content survives across turns.
+ *
+ * We only inject when the block has no provider metadata at all — if OpenAI
+ * (or another provider) already stamped it, leave it untouched.
  */
 function patchReasoningSignatures(messages: ModelMessage[]): ModelMessage[] {
   let patched = false
@@ -149,10 +167,8 @@ function patchReasoningSignatures(messages: ModelMessage[]): ModelMessage[] {
 
       const providerOptions = part.providerOptions as Record<string, unknown> | undefined
       const providerMetadata = part.providerMetadata as Record<string, unknown> | undefined
-      const meta =
-        (providerOptions?.anthropic as Record<string, unknown> | undefined) ??
-        (providerMetadata?.anthropic as Record<string, unknown> | undefined)
-      if (meta?.signature) return part
+
+      if (hasProviderMetadata(providerOptions, providerMetadata)) return part
 
       contentPatched = true
       const syntheticMeta = {

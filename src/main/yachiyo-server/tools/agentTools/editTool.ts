@@ -42,11 +42,22 @@ export function createTool(context: AgentToolContext): Tool<EditToolInput, EditT
 }
 
 function normalizeEdits(input: EditToolInput): EditSpec[] {
-  if (input.mode === 'batch') return input.edits
+  if (input.mode === 'batch') {
+    if (!input.edits || input.edits.length === 0) {
+      throw new Error('Batch edit requires a non-empty edits array.')
+    }
+    return input.edits
+  }
   if (input.mode !== 'inline') {
     throw new Error(
       `normalizeEdits only supports inline or batch inputs, received mode "${input.mode}".`
     )
+  }
+  if (!input.oldText) {
+    throw new Error('Inline edit requires a non-empty oldText.')
+  }
+  if (input.newText === undefined) {
+    throw new Error('Inline edit requires newText.')
   }
   return [{ oldText: input.oldText, newText: input.newText, replace_all: input.replace_all }]
 }
@@ -133,6 +144,17 @@ function createEditResult(
   }
 }
 
+function createEmptyEditDetails(
+  path: string,
+  mode: EditToolCallDetails['mode']
+): EditToolCallDetails {
+  return {
+    path,
+    mode,
+    replacements: 0
+  }
+}
+
 export async function runEditTool(
   input: EditToolInput,
   context: AgentToolContext,
@@ -142,6 +164,7 @@ export async function runEditTool(
   const resolvedPath = await resolveUnicodeSpacePath(
     resolveToolPath(context.workspacePath, input.path)
   )
+  const emptyDetails = createEmptyEditDetails(resolvedPath, input.mode)
 
   // --- Fast-path absolute-path-outside-workspace guard (pre-stat) ---
   // Cheap string-level check catches obvious `..` escapes before any filesystem I/O.
@@ -152,7 +175,7 @@ export async function runEditTool(
   ) {
     return createEditResult(
       resolvedPath,
-      { path: resolvedPath, replacements: 0 },
+      emptyDetails,
       `Relative path \`${input.path}\` escapes the workspace. Use an absolute path to edit files outside ${context.workspacePath}.`
     )
   }
@@ -163,21 +186,17 @@ export async function runEditTool(
     if (!info.isFile()) {
       return createEditResult(
         resolvedPath,
-        { path: resolvedPath, replacements: 0 },
+        emptyDetails,
         `\`${resolvedPath}\` is not a regular file.`
       )
     }
   } catch (err) {
     if (err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
-      return createEditResult(
-        resolvedPath,
-        { path: resolvedPath, replacements: 0 },
-        `File not found at \`${resolvedPath}\`.`
-      )
+      return createEditResult(resolvedPath, emptyDetails, `File not found at \`${resolvedPath}\`.`)
     }
     return createEditResult(
       resolvedPath,
-      { path: resolvedPath, replacements: 0 },
+      emptyDetails,
       err instanceof Error ? err.message : 'Unable to access file.'
     )
   }
@@ -196,14 +215,14 @@ export async function runEditTool(
       if (!isPathInsideWorkspace(realWorkspace, realResolved)) {
         return createEditResult(
           resolvedPath,
-          { path: resolvedPath, replacements: 0 },
+          emptyDetails,
           `Relative path \`${input.path}\` resolves outside the workspace via a symlink. Use an absolute path to edit files outside ${context.workspacePath}.`
         )
       }
     } catch (err) {
       return createEditResult(
         resolvedPath,
-        { path: resolvedPath, replacements: 0 },
+        emptyDetails,
         err instanceof Error ? err.message : 'Unable to canonicalize path.'
       )
     }
@@ -233,7 +252,7 @@ export async function runEditTool(
       if (!context.readRecordCache.hasRecentRead(resolvedPath, currentMtimeMs)) {
         return createEditResult(
           resolvedPath,
-          { path: resolvedPath, replacements: 0 },
+          emptyDetails,
           'You must read the file with the read tool before editing it. Read the file first, then retry.'
         )
       }
@@ -261,7 +280,7 @@ export async function runEditTool(
             : `${unique.slice(0, 5).join(', ')} and ${unique.length - 5} more`
         return createEditResult(
           resolvedPath,
-          { path: resolvedPath, replacements: 0 },
+          emptyDetails,
           `The edit targets line${unique.length > 1 ? 's' : ''} ${lineList}, but your most recent read did not cover that region. Read the relevant section first (use offset), then retry.`
         )
       }
@@ -283,14 +302,14 @@ export async function runEditTool(
       if (occurrences === 0) {
         return createEditResult(
           resolvedPath,
-          { path: resolvedPath, replacements: 0 },
+          emptyDetails,
           `${editLabel(i)}Search text was not found in the ${batched ? 'current file state (a prior edit may have altered it).' : 'target file.'}`
         )
       }
       if (occurrences > 1 && !edit.replace_all) {
         return createEditResult(
           resolvedPath,
-          { path: resolvedPath, replacements: 0 },
+          emptyDetails,
           `${editLabel(i)}Search text matched multiple locations. Make oldText more specific before retrying, or set replace_all to true.`
         )
       }
@@ -322,7 +341,7 @@ export async function runEditTool(
     if (content === original) {
       return createEditResult(
         resolvedPath,
-        { path: resolvedPath, replacements: 0 },
+        emptyDetails,
         'No net changes were produced by the provided edits.'
       )
     }
@@ -343,6 +362,7 @@ export async function runEditTool(
 
     return createEditResult(resolvedPath, {
       path: resolvedPath,
+      mode: input.mode,
       replacements: totalReplacements,
       firstChangedLine: firstChangedLineOverall,
       ...(diff ? { diff } : {})
@@ -350,10 +370,7 @@ export async function runEditTool(
   } catch (error) {
     return createEditResult(
       resolvedPath,
-      {
-        path: resolvedPath,
-        replacements: 0
-      },
+      emptyDetails,
       error instanceof Error ? error.message : 'Unable to edit file.'
     )
   }
@@ -361,15 +378,30 @@ export async function runEditTool(
 
 async function runRangedEdit(
   resolvedPath: string,
-  input: Extract<EditToolInput, { mode: 'range' }>,
+  input: EditToolInput,
   context: AgentToolContext,
   abortSignal: AbortSignal | undefined
 ): Promise<EditToolOutput> {
+  const emptyDetails = createEmptyEditDetails(resolvedPath, 'range')
+  if (
+    input.mode !== 'range' ||
+    !input.replaceLines ||
+    typeof input.replaceLines !== 'object' ||
+    !('start' in input.replaceLines) ||
+    !('end' in input.replaceLines) ||
+    typeof input.replaceLines.start !== 'number' ||
+    typeof input.replaceLines.end !== 'number'
+  ) {
+    throw new Error('Range edit requires replaceLines with numeric start and end.')
+  }
+  if (input.newText === undefined) {
+    throw new Error('Range edit requires newText.')
+  }
   const { start, end } = input.replaceLines
   if (end < start) {
     return createEditResult(
       resolvedPath,
-      { path: resolvedPath, replacements: 0 },
+      emptyDetails,
       `Invalid range: end (${end}) must be >= start (${start}).`
     )
   }
@@ -382,14 +414,14 @@ async function runRangedEdit(
     if (start > totalLines) {
       return createEditResult(
         resolvedPath,
-        { path: resolvedPath, replacements: 0 },
+        emptyDetails,
         `Range start ${start} is past end of file (file has ${totalLines} line${totalLines === 1 ? '' : 's'}).`
       )
     }
     if (end > totalLines) {
       return createEditResult(
         resolvedPath,
-        { path: resolvedPath, replacements: 0 },
+        emptyDetails,
         `Range end ${end} is past end of file (file has ${totalLines} line${totalLines === 1 ? '' : 's'}).`
       )
     }
@@ -403,7 +435,7 @@ async function runRangedEdit(
       if (!context.readRecordCache.hasRecentRead(resolvedPath, currentMtimeMs)) {
         return createEditResult(
           resolvedPath,
-          { path: resolvedPath, replacements: 0 },
+          emptyDetails,
           'You must read the file with the read tool before editing it. Read the file first, then retry.'
         )
       }
@@ -420,7 +452,7 @@ async function runRangedEdit(
             : `${uncoveredLines.slice(0, 5).join(', ')} and ${uncoveredLines.length - 5} more`
         return createEditResult(
           resolvedPath,
-          { path: resolvedPath, replacements: 0 },
+          emptyDetails,
           `The edit targets line${uncoveredLines.length > 1 ? 's' : ''} ${lineList}, but your most recent read did not cover that region. Read the relevant section first (use offset), then retry.`
         )
       }
@@ -451,7 +483,7 @@ async function runRangedEdit(
     if (nextContent === original) {
       return createEditResult(
         resolvedPath,
-        { path: resolvedPath, replacements: 0 },
+        emptyDetails,
         'No changes: newText is identical to the current contents of the target range.'
       )
     }
@@ -486,6 +518,7 @@ async function runRangedEdit(
 
     return createEditResult(resolvedPath, {
       path: resolvedPath,
+      mode: 'range',
       replacements: 1,
       firstChangedLine: start,
       diff
@@ -493,7 +526,7 @@ async function runRangedEdit(
   } catch (error) {
     return createEditResult(
       resolvedPath,
-      { path: resolvedPath, replacements: 0 },
+      emptyDetails,
       error instanceof Error ? error.message : 'Unable to edit file.'
     )
   }

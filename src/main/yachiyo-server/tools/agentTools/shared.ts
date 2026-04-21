@@ -59,38 +59,163 @@ export const replaceLinesSchema = z.object({
   end: z.number().int().min(1)
 })
 
-const editToolInlineInputSchema = z
+const emptyReplaceLinesSchema = z.object({}).strict()
+const editReplaceLinesInputSchema = z
+  .union([replaceLinesSchema, emptyReplaceLinesSchema, z.null()])
+  .optional()
+
+function hasMeaningfulOldText(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0
+}
+
+function hasProvidedNewText(value: unknown): value is string {
+  return typeof value === 'string'
+}
+
+function hasMeaningfulReplaceAll(value: unknown): value is true {
+  return value === true
+}
+
+function hasMeaningfulReplaceLines(value: unknown): value is z.infer<typeof replaceLinesSchema> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'start' in value &&
+    'end' in value &&
+    typeof value.start === 'number' &&
+    typeof value.end === 'number'
+  )
+}
+
+function hasMeaningfulEdits(value: unknown): value is z.infer<typeof editSpecSchema>[] {
+  return Array.isArray(value) && value.length > 0
+}
+
+export const editToolInputSchema = z
   .object({
-    mode: z.literal('inline'),
+    mode: z.enum(['inline', 'range', 'batch']),
     path: z.string().min(1),
-    oldText: z.string().min(1),
-    newText: z.string(),
-    replace_all: z.boolean().optional()
+    oldText: z.string().optional(),
+    newText: z.string().optional(),
+    replace_all: z.boolean().optional(),
+    replaceLines: editReplaceLinesInputSchema,
+    edits: z.array(editSpecSchema).max(50).optional()
   })
   .strict()
+  .superRefine((data, ctx) => {
+    const hasOldText = hasMeaningfulOldText(data.oldText)
+    const hasNewText = hasProvidedNewText(data.newText)
+    const hasReplaceLines = hasMeaningfulReplaceLines(data.replaceLines)
+    const hasEdits = hasMeaningfulEdits(data.edits)
+    const hasConflictingReplaceAll = hasMeaningfulReplaceAll(data.replace_all)
 
-const editToolRangeInputSchema = z
-  .object({
-    mode: z.literal('range'),
-    path: z.string().min(1),
-    replaceLines: replaceLinesSchema,
-    newText: z.string()
+    if (data.mode === 'inline') {
+      if (!hasOldText) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['oldText'],
+          message: 'oldText is required and must be non-empty when mode is "inline".'
+        })
+      }
+      if (!hasNewText) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['newText'],
+          message: 'newText is required when mode is "inline".'
+        })
+      }
+      if (hasReplaceLines) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['replaceLines'],
+          message: 'replaceLines must be omitted or empty unless mode is "range".'
+        })
+      }
+      if (hasEdits) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['edits'],
+          message: 'edits must be omitted or empty unless mode is "batch".'
+        })
+      }
+      return
+    }
+
+    if (data.mode === 'range') {
+      if (!hasReplaceLines) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['replaceLines'],
+          message: 'replaceLines is required when mode is "range".'
+        })
+      }
+      if (!hasNewText) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['newText'],
+          message: 'newText is required when mode is "range".'
+        })
+      }
+      if (hasOldText) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['oldText'],
+          message: 'oldText must be omitted or empty unless mode is "inline".'
+        })
+      }
+      if (hasEdits) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['edits'],
+          message: 'edits must be omitted or empty unless mode is "batch".'
+        })
+      }
+      if (hasConflictingReplaceAll) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['replace_all'],
+          message: 'replace_all must be omitted or false unless mode is "inline".'
+        })
+      }
+      return
+    }
+
+    if (!hasEdits) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['edits'],
+        message: 'edits is required and must be non-empty when mode is "batch".'
+      })
+    }
+    if (hasOldText) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['oldText'],
+        message: 'oldText must be omitted or empty unless mode is "inline".'
+      })
+    }
+    if (hasReplaceLines) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['replaceLines'],
+        message: 'replaceLines must be omitted or empty unless mode is "range".'
+      })
+    }
+    if (hasProvidedNewText(data.newText) && data.newText !== '') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['newText'],
+        message: 'newText must be omitted or empty unless mode is "inline" or "range".'
+      })
+    }
+    if (hasConflictingReplaceAll) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['replace_all'],
+        message: 'replace_all must be omitted or false unless mode is "inline".'
+      })
+    }
   })
-  .strict()
-
-const editToolBatchInputSchema = z
-  .object({
-    mode: z.literal('batch'),
-    path: z.string().min(1),
-    edits: z.array(editSpecSchema).min(1).max(50)
-  })
-  .strict()
-
-export const editToolInputSchema = z.discriminatedUnion('mode', [
-  editToolInlineInputSchema,
-  editToolRangeInputSchema,
-  editToolBatchInputSchema
-])
 
 export const bashToolInputSchema = z.object({
   command: z.string().min(1),

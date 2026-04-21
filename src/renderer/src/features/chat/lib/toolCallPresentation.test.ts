@@ -55,6 +55,7 @@ test('buildToolCallDetailsPresentation exposes edit metadata and diff blocks', (
     toolName: 'edit',
     details: {
       path: '/tmp/draft.txt',
+      mode: 'range',
       replacements: 1,
       firstChangedLine: 8,
       diff: '@@ -8 +8 @@\n-old line\n+new line\n'
@@ -62,6 +63,7 @@ test('buildToolCallDetailsPresentation exposes edit metadata and diff blocks', (
   })
 
   assert.deepEqual(presentation.fields, [
+    { label: 'mode', value: 'range' },
     { label: 'replacements', value: '1' },
     { label: 'first changed line', value: '8' }
   ])

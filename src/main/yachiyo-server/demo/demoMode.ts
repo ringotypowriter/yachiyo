@@ -424,6 +424,7 @@ function createAgenticChatThread(storage: YachiyoStorage): ThreadRecord {
       stepBudget: 4,
       details: {
         path: DEMO_PRICING_DOC_PATH,
+        mode: 'batch',
         replacements: 2,
         firstChangedLine: 47,
         diff: `- Gemini pricing still references the 1.5-era launch table.\n+ Gemini pricing now points at the current 3.1 Pro table.\n- Historical launch notes are mixed into the current pricing section.\n+ Historical launch notes were moved into a short changelog note.`
@@ -940,6 +941,7 @@ function createReplyBranchingThread(storage: YachiyoStorage): ThreadRecord {
       stepBudget: 3,
       details: {
         path: DEMO_BRIEF_PATH,
+        mode: 'inline',
         replacements: 1,
         firstChangedLine: 18,
         diff: `- Added a development-only demo mode backed by richer in-memory storage.\n+ Added a clean demo mode with richer sample threads and a friendlier README line.`

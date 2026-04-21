@@ -362,6 +362,46 @@ test('responseMessages with interleaved reasoning are preserved in replay', () =
   assert.deepEqual(compiled[3], responseMessages[1])
 })
 
+test('responseMessages with OpenAI-native reasoning are not patched with Anthropic signature', () => {
+  const responseMessages = [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'reasoning',
+          text: 'OpenAI encrypted reasoning',
+          providerOptions: { openai: { itemId: 'item_123' } }
+        },
+        { type: 'text', text: 'Here is the answer.' }
+      ]
+    }
+  ]
+
+  const compiled = compileContextLayers({
+    personality: { basePersona: 'Base' },
+    history: [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Here is the answer.', responseMessages }
+    ]
+  })
+
+  const assistant = compiled[2] as {
+    content: Array<{ type: string; providerOptions?: Record<string, unknown> }>
+  }
+  assert.equal(assistant.content[0].type, 'reasoning')
+  const openaiMeta = (
+    (assistant.content[0].providerOptions as Record<string, unknown> | undefined)?.openai as
+      | Record<string, unknown>
+      | undefined
+  )?.itemId
+  assert.equal(openaiMeta, 'item_123')
+  assert.equal(
+    (assistant.content[0].providerOptions as Record<string, unknown> | undefined)?.anthropic,
+    undefined,
+    'should not inject synthetic anthropic signature into OpenAI-native reasoning'
+  )
+})
+
 test('empty responseMessages array falls back to plain text', () => {
   const compiled = compileContextLayers({
     personality: { basePersona: 'Base' },

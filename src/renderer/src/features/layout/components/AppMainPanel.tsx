@@ -238,6 +238,7 @@ export function AppMainPanel({
 
   const recapText = useAppStore((s) => {
     if (!activeThreadId) return undefined
+    if (hasActiveRun) return undefined
     return s.recapByThread[activeThreadId] ?? activeThread?.recapText
   })
   const isEditingMessage = useAppStore((s) => s.editingMessage != null)
@@ -270,6 +271,9 @@ export function AppMainPanel({
       void window.api.yachiyo
         .requestRecap({ threadId: activeThreadId })
         .then((text) => {
+          const currentHasActiveRun =
+            useAppStore.getState().runStatusesByThread[activeThreadId] === 'running'
+          if (currentHasActiveRun) return
           if (text) {
             useAppStore.setState((s) => ({
               recapByThread: { ...s.recapByThread, [activeThreadId]: text }

@@ -23,6 +23,7 @@ describe('editTool', () => {
     )
 
     assert.strictEqual(result.error, undefined)
+    assert.strictEqual(result.details.mode, 'inline')
     assert.strictEqual(result.details.replacements, 1)
     const content = await readFile(filePath, 'utf8')
     assert.strictEqual(content, 'hello there\nhello universe')
@@ -360,6 +361,7 @@ describe('editTool', () => {
       )
 
       assert.strictEqual(result.error, undefined)
+      assert.strictEqual(result.details.mode, 'range')
       assert.strictEqual(result.details.replacements, 1)
       assert.strictEqual(result.details.firstChangedLine, 2)
       const content = await readFile(filePath, 'utf8')
@@ -595,6 +597,7 @@ describe('editTool', () => {
       )
 
       assert.strictEqual(result.error, undefined)
+      assert.strictEqual(result.details.mode, 'batch')
       assert.strictEqual(result.details.replacements, 2)
       const content = await readFile(filePath, 'utf8')
       assert.strictEqual(content, 'A\nbeta\nG\n')
@@ -780,7 +783,45 @@ describe('editTool', () => {
       assert.strictEqual(parsed.success, false)
     })
 
-    it('rejects input that mixes inline and ranged fields for inline mode', () => {
+    it('accepts empty placeholders from other modes for inline mode', () => {
+      const parsed = editToolInputSchema.safeParse({
+        mode: 'inline',
+        path: 'file.txt',
+        oldText: 'hello',
+        newText: 'hi',
+        replaceLines: null,
+        edits: []
+      })
+      assert.strictEqual(parsed.success, true)
+    })
+
+    it('accepts empty placeholders from other modes for range mode', () => {
+      const parsed = editToolInputSchema.safeParse({
+        mode: 'range',
+        path: 'file.txt',
+        oldText: '',
+        newText: 'hi',
+        replace_all: false,
+        replaceLines: { start: 1, end: 1 },
+        edits: []
+      })
+      assert.strictEqual(parsed.success, true)
+    })
+
+    it('accepts empty placeholders from other modes for batch mode', () => {
+      const parsed = editToolInputSchema.safeParse({
+        mode: 'batch',
+        path: 'file.txt',
+        oldText: '',
+        newText: '',
+        replace_all: false,
+        replaceLines: null,
+        edits: [{ oldText: 'x', newText: 'y' }]
+      })
+      assert.strictEqual(parsed.success, true)
+    })
+
+    it('rejects non-empty ranged fields for inline mode', () => {
       const parsed = editToolInputSchema.safeParse({
         mode: 'inline',
         path: 'file.txt',
@@ -791,7 +832,7 @@ describe('editTool', () => {
       assert.strictEqual(parsed.success, false)
     })
 
-    it('rejects input that mixes batched and inline fields for inline mode', () => {
+    it('rejects non-empty batched fields for inline mode', () => {
       const parsed = editToolInputSchema.safeParse({
         mode: 'inline',
         path: 'file.txt',
@@ -802,12 +843,24 @@ describe('editTool', () => {
       assert.strictEqual(parsed.success, false)
     })
 
-    it('rejects input that mixes batched and ranged fields for range mode', () => {
+    it('rejects non-empty batched fields for range mode', () => {
       const parsed = editToolInputSchema.safeParse({
         mode: 'range',
         path: 'file.txt',
         replaceLines: { start: 1, end: 1 },
         newText: 'hi',
+        edits: [{ oldText: 'x', newText: 'y' }]
+      })
+      assert.strictEqual(parsed.success, false)
+    })
+
+    it('rejects non-empty inline fields for batch mode', () => {
+      const parsed = editToolInputSchema.safeParse({
+        mode: 'batch',
+        path: 'file.txt',
+        oldText: 'hello',
+        newText: '',
+        replaceLines: null,
         edits: [{ oldText: 'x', newText: 'y' }]
       })
       assert.strictEqual(parsed.success, false)

@@ -2046,6 +2046,11 @@ export class YachiyoServerRunDomain {
             }
             activeRun?.recapResolve?.(text)
             activeRun!.recapResolve = undefined
+            this.deps.emit<RunCompletedEvent>({
+              type: 'run.completed',
+              threadId: input.thread.id,
+              runId: input.runId
+            })
             break
           }
           // Re-read the persisted thread so headMessageId reflects the
@@ -2163,6 +2168,17 @@ export class YachiyoServerRunDomain {
           break
         }
 
+        if (isRecapRun && (result.kind === 'cancelled' || result.kind === 'failed')) {
+          activeRun?.recapResolve?.(null)
+          activeRun!.recapResolve = undefined
+          this.deps.emit<RunCancelledEvent>({
+            type: 'run.cancelled',
+            threadId: input.thread.id,
+            runId: input.runId
+          })
+          break
+        }
+
         if (result.kind !== 'restarted') {
           break
         }
@@ -2199,6 +2215,11 @@ export class YachiyoServerRunDomain {
       if (recapRun?.recap) {
         recapRun.recapResolve?.(null)
         recapRun.recapResolve = undefined
+        this.deps.emit<RunCancelledEvent>({
+          type: 'run.cancelled',
+          threadId: input.thread.id,
+          runId: input.runId
+        })
         result = { kind: 'failed' }
       } else {
         const persistedRun = this.deps.storage.getRun(input.runId)

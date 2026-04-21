@@ -1,6 +1,6 @@
 import { stepCountIs } from 'ai'
 
-import { prepareAiSdkMessages } from './messagePrepare.ts'
+import { prepareAiSdkMessages, stripReasoningParts } from './messagePrepare.ts'
 import type { ModelRuntime } from './types.ts'
 import {
   type AiSdkRuntimeDependencies,
@@ -35,6 +35,9 @@ function readTextDelta(part: { delta?: string; text?: string; textDelta?: string
  * providers (e.g. Kimi) emit reasoning blocks without Anthropic signatures,
  * causing the adapter to silently drop them on the next request. We patch in a
  * synthetic signature so the content survives across steer/restart legs.
+ *
+ * We only inject when the block has no provider metadata at all — if OpenAI
+ * (or another provider) already stamped it, leave it untouched.
  */
 function patchReasoningSignatures(messages: unknown[]): unknown[] {
   let patched = false
@@ -52,11 +55,13 @@ function patchReasoningSignatures(messages: unknown[]): unknown[] {
       }
       if (p.type !== 'reasoning') return part
 
-      // Check if it already has a valid signature.
-      const meta =
-        (p.providerMetadata?.anthropic as Record<string, unknown> | undefined) ??
-        (p.providerOptions?.anthropic as Record<string, unknown> | undefined)
-      if (meta?.signature) return part
+      const hasProviderMeta = [p.providerOptions, p.providerMetadata].some((obj) => {
+        if (!obj) return false
+        return Object.values(obj).some(
+          (value) => value != null && typeof value === 'object' && Object.keys(value).length > 0
+        )
+      })
+      if (hasProviderMeta) return part
 
       // Inject a synthetic signature so the Anthropic adapter accepts it.
       // The adapter reads `providerOptions`, not `providerMetadata`.
@@ -114,7 +119,13 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
     async *streamReply(request) {
       assertConfigured(request.settings)
 
-      const preparedMessages = prepareAiSdkMessages(request.messages)
+      let preparedMessages = prepareAiSdkMessages(request.messages)
+      if (
+        request.settings.provider === 'openai' ||
+        request.settings.provider === 'openai-responses'
+      ) {
+        preparedMessages = stripReasoningParts(preparedMessages)
+      }
       const baseProviderOptions = createProviderOptions(
         request.settings,
         request.providerOptionsMode ?? 'default'

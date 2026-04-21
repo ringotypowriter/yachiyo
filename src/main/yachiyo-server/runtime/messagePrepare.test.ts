@@ -4,7 +4,8 @@ import test from 'node:test'
 import {
   balanceHistoryMessages,
   prepareAiSdkMessages,
-  prepareModelMessages
+  prepareModelMessages,
+  stripReasoningParts
 } from './messagePrepare.ts'
 import { SYSTEM_PROMPT } from './prompt.ts'
 
@@ -535,4 +536,41 @@ test('prepareAiSdkMessages applies balanceHistoryMessages guard', () => {
   const result = prepareAiSdkMessages(messages as never)
   // The orphaned tool message should be stripped
   assert.ok(!result.some((m) => m.role === 'tool'), 'orphaned tool message should be removed')
+})
+
+test('stripReasoningParts removes reasoning blocks from assistant messages', () => {
+  const messages = [
+    { role: 'user' as const, content: 'Think deeply.' },
+    {
+      role: 'assistant' as const,
+      content: [
+        { type: 'reasoning', text: 'Let me consider...' },
+        { type: 'text', text: 'The answer is 42.' }
+      ]
+    },
+    { role: 'user' as const, content: 'Why?' },
+    {
+      role: 'assistant' as const,
+      content: [{ type: 'text', text: 'Because.' }]
+    }
+  ]
+
+  const result = stripReasoningParts(messages as never)
+  assert.equal(result.length, 4)
+  const firstAssistant = result[1] as { content: Array<{ type: string }> }
+  assert.equal(firstAssistant.content.length, 1)
+  assert.equal(firstAssistant.content[0].type, 'text')
+  const secondAssistant = result[3] as { content: Array<{ type: string }> }
+  assert.equal(secondAssistant.content.length, 1)
+  assert.equal(secondAssistant.content[0].type, 'text')
+})
+
+test('stripReasoningParts returns original reference when no reasoning exists', () => {
+  const messages = [
+    { role: 'user' as const, content: 'Hello' },
+    { role: 'assistant' as const, content: 'Hi there!' }
+  ]
+
+  const result = stripReasoningParts(messages as never)
+  assert.equal(result, messages)
 })

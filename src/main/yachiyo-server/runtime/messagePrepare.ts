@@ -263,6 +263,21 @@ export function prepareModelMessages(input: MessagePrepareInput): ModelMessage[]
   return compileContextLayers(input)
 }
 
+export function stripReasoningParts(messages: ModelMessage[]): ModelMessage[] {
+  let stripped = false
+  const result = messages.map((msg): ModelMessage => {
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) return msg
+    const filtered = msg.content.filter((part) => {
+      const p = part as { type?: string }
+      return p.type !== 'reasoning'
+    })
+    if (filtered.length === msg.content.length) return msg
+    stripped = true
+    return { ...msg, content: filtered }
+  })
+  return stripped ? result : messages
+}
+
 export function prepareAiSdkMessages(
   messages: ModelStreamRequest['messages']
 ): AiSdkModelMessage[] {

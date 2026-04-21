@@ -90,6 +90,125 @@ test('createAiSdkModelRuntime uses chat() for openai (Chat Completions) provider
   assert.deepEqual(streamCall.providerOptions, { openai: { store: false } })
 })
 
+test('createAiSdkModelRuntime strips reasoning parts from history when provider is openai', async () => {
+  let capturedMessages: unknown[] | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        chat: () => ({ modelId: 'gpt-4o', provider: 'openai.chat' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: ((input: { messages: unknown }) => {
+      capturedMessages = input.messages as unknown[]
+      return {
+        textStream: (async function* () {
+          yield 'ok'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+  for await (const chunk of runtime.streamReply({
+    messages: [
+      { role: 'user', content: 'Hello' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'reasoning', text: 'Thinking...' },
+          { type: 'text', text: 'Hi!' }
+        ]
+      },
+      { role: 'user', content: 'Again' }
+    ],
+    settings: {
+      providerName: 'work',
+      provider: 'openai',
+      model: 'gpt-4o',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
+  assert.ok(capturedMessages)
+  const assistantMsg = (capturedMessages as Array<{ role: string; content: unknown[] }>).find(
+    (m) => m.role === 'assistant' && Array.isArray(m.content)
+  )
+  assert.ok(assistantMsg)
+  assert.ok(
+    !(assistantMsg.content as Array<{ type: string }>).some((p) => p.type === 'reasoning'),
+    'reasoning parts should be stripped for OpenAI provider'
+  )
+})
+
+test('createAiSdkModelRuntime strips reasoning parts from history when provider is openai-responses', async () => {
+  let capturedMessages: unknown[] | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => ({ modelId: 'gpt-5', provider: 'openai.responses' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: ((input: { messages: unknown }) => {
+      capturedMessages = input.messages as unknown[]
+      return {
+        textStream: (async function* () {
+          yield 'ok'
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+  for await (const chunk of runtime.streamReply({
+    messages: [
+      { role: 'user', content: 'Hello' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'reasoning',
+            text: 'Thinking...',
+            providerOptions: { anthropic: { signature: 'yachiyo-passthrough' } }
+          },
+          { type: 'text', text: 'Hi!' }
+        ]
+      }
+    ],
+    settings: {
+      providerName: 'work',
+      provider: 'openai-responses',
+      model: 'gpt-5',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
+  assert.ok(capturedMessages)
+  const assistantMsg = (capturedMessages as Array<{ role: string; content: unknown[] }>).find(
+    (m) => m.role === 'assistant' && Array.isArray(m.content)
+  )
+  assert.ok(assistantMsg)
+  assert.ok(
+    !(assistantMsg.content as Array<{ type: string }>).some((p) => p.type === 'reasoning'),
+    'reasoning parts should be stripped for openai-responses provider'
+  )
+})
+
 test('createAiSdkModelRuntime uses responses() with reasoning for openai-responses provider', async () => {
   let openAiOptions: { apiKey?: string; baseURL?: string } | undefined
   let selectedModel: { provider: string; modelId: string } | null = null

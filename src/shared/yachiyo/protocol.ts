@@ -299,6 +299,7 @@ export interface WriteToolCallDetails {
 
 export interface EditToolCallDetails {
   path: string
+  mode: 'inline' | 'range' | 'batch'
   replacements: number
   diff?: string
   firstChangedLine?: number

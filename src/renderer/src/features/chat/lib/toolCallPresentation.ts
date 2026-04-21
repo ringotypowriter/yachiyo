@@ -221,6 +221,7 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
       return { fields, codeBlocks }
     }
 
+    pushField(fields, 'mode', details.mode)
     pushField(fields, 'replacements', details.replacements)
     pushField(fields, 'first changed line', details.firstChangedLine)
     pushCodeBlock(codeBlocks, 'diff', details.diff)
