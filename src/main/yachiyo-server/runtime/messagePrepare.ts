@@ -16,162 +16,244 @@ function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
 
 type ContentPart = { type?: string; toolCallId?: string; toolName?: string; [key: string]: unknown }
 
+function toolNamesMatch(left?: string, right?: string): boolean {
+  return !left || !right || left === right
+}
+
+function repairAdjacentToolCallIds(input: {
+  assistantContent: ContentPart[]
+  toolContent: ContentPart[]
+}): { assistantContent: ContentPart[]; toolContent: ContentPart[]; repaired: boolean } {
+  const toolCalls = input.assistantContent.flatMap((part, index) =>
+    part.type === 'tool-call' ? [{ index, part }] : []
+  )
+  const toolResults = input.toolContent.flatMap((part, index) =>
+    part.type === 'tool-result' || part.type === 'tool-error' ? [{ index, part }] : []
+  )
+
+  const matchedToolCallIndexes = new Set<number>()
+  const matchedToolResultIndexes = new Set<number>()
+
+  for (const toolCall of toolCalls) {
+    if (!toolCall.part.toolCallId) {
+      continue
+    }
+
+    const matchingResult = toolResults.find(
+      (toolResult) =>
+        !matchedToolResultIndexes.has(toolResult.index) &&
+        toolResult.part.toolCallId === toolCall.part.toolCallId
+    )
+
+    if (!matchingResult) {
+      continue
+    }
+
+    matchedToolCallIndexes.add(toolCall.index)
+    matchedToolResultIndexes.add(matchingResult.index)
+  }
+
+  const unmatchedToolCalls = toolCalls.filter(
+    (toolCall) => !matchedToolCallIndexes.has(toolCall.index)
+  )
+  const unmatchedToolResults = toolResults.filter(
+    (toolResult) => !matchedToolResultIndexes.has(toolResult.index)
+  )
+
+  let repairedAssistantContent = input.assistantContent
+  let repairedToolContent = input.toolContent
+  let repaired = false
+  const repairablePairCount = Math.min(unmatchedToolCalls.length, unmatchedToolResults.length)
+
+  for (let pairIndex = 0; pairIndex < repairablePairCount; pairIndex++) {
+    const toolCall = unmatchedToolCalls[pairIndex]
+    const toolResult = unmatchedToolResults[pairIndex]
+    const toolCallId = toolCall.part.toolCallId
+    const toolResultId = toolResult.part.toolCallId
+
+    if (!toolNamesMatch(toolCall.part.toolName, toolResult.part.toolName)) {
+      continue
+    }
+
+    if (toolCallId && toolResultId) {
+      continue
+    }
+
+    if (!toolCallId && !toolResultId) {
+      continue
+    }
+
+    const repairedToolCallId = toolCallId ?? toolResultId
+    if (!repairedToolCallId) {
+      continue
+    }
+
+    if (!toolCallId) {
+      if (repairedAssistantContent === input.assistantContent) {
+        repairedAssistantContent = input.assistantContent.slice()
+      }
+      repairedAssistantContent[toolCall.index] = {
+        ...toolCall.part,
+        toolCallId: repairedToolCallId
+      }
+      repaired = true
+      continue
+    }
+
+    if (repairedToolContent === input.toolContent) {
+      repairedToolContent = input.toolContent.slice()
+    }
+    repairedToolContent[toolResult.index] = {
+      ...toolResult.part,
+      toolCallId: repairedToolCallId
+    }
+    repaired = true
+  }
+
+  return {
+    assistantContent: repairedAssistantContent,
+    toolContent: repairedToolContent,
+    repaired
+  }
+}
+
 /**
  * Ensure tool-call/tool-result pairs are well-formed before the messages reach
- * the model API:
+ * the model API.
  *
- * 1. **Patch missing toolCallId on tool-call parts** — Some providers or
- *    recovery paths produce tool-call objects where `toolCallId` is undefined.
- *    The subsequent tool-result references the ID, but the tool-call block
- *    doesn't carry it, causing the API to reject with "tool call id X is not
- *    found". We rebuild the ID from the next tool-result that references it.
- *
- * 2. **Strip orphaned tool-results** — tool-result blocks whose `toolCallId`
- *    does not match any preceding tool-call are removed.
- *
- * 3. **Inject synthetic results** — tool-call blocks with no subsequent
- *    tool-result get a synthetic error result so the API sees a complete pair.
+ * Strategy: if an otherwise adjacent tool-call / tool-result pair has lost a
+ * `toolCallId` on only one side, repair it from the matching neighbour before
+ * filtering. Truly malformed pairs (ID mismatch, both IDs missing, or dangling
+ * tool-call with no result) are still dropped to prevent upstream errors like
+ * "tool_call_id is not found".
  */
 export function balanceHistoryMessages(messages: ModelMessage[]): ModelMessage[] {
   let modified = false
-
-  // --- Phase 1: Patch tool-call parts that are missing their toolCallId ------
-  // For each assistant message with tool-call parts that lack a toolCallId,
-  // look at the immediately following tool message and assign the ID from the
-  // matching tool-result (by position/toolName).
-  const patched = messages.map((msg, idx): ModelMessage => {
-    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) return msg
-
-    const content = msg.content as ContentPart[]
-    const toolCallParts = content.filter((p) => p.type === 'tool-call')
-    const hasMissingId = toolCallParts.some((p) => !p.toolCallId)
-    if (!hasMissingId) return msg
-
-    // Find the next tool message to harvest IDs from
-    const nextTool = messages[idx + 1]
-    const toolResults =
-      nextTool?.role === 'tool' && Array.isArray(nextTool.content)
-        ? (nextTool.content as ContentPart[]).filter(
-            (p) => p.type === 'tool-result' || p.type === 'tool-error'
-          )
-        : []
-
-    // Match missing tool-call IDs by strict position only — never by tool
-    // name, because parallel calls of the same tool would cross-match and
-    // corrupt the history by pairing the wrong input with the wrong output.
-    let resultIdx = 0
-    const newContent = content.map((part) => {
-      if (part.type !== 'tool-call') return part
-      if (part.toolCallId) {
-        resultIdx++
-        return part
-      }
-      const positionalMatch = toolResults[resultIdx]
-      resultIdx++
-      if (positionalMatch?.toolCallId) {
-        console.warn(
-          `[messagePrepare] tool-call missing toolCallId: toolName=${part.toolName} ` +
-            `patched from positional tool-result id=${positionalMatch.toolCallId}`
-        )
-        modified = true
-        return { ...part, toolCallId: positionalMatch.toolCallId }
-      }
-      // No positional match — generate a synthetic ID so the block isn't malformed
-      const syntheticId = `patched_${part.toolName ?? 'unknown'}_${idx}_${resultIdx}`
-      console.warn(
-        `[messagePrepare] tool-call missing toolCallId with no matching result: ` +
-          `toolName=${part.toolName} assigned synthetic id=${syntheticId}`
-      )
-      modified = true
-      return { ...part, toolCallId: syntheticId }
-    })
-
-    return { ...msg, content: newContent } as ModelMessage
-  })
-
-  // --- Phase 2: Strip orphaned & duplicate tool-results, inject synthetic results
-  const declaredToolCallIds = new Set<string>()
-  const toolNameById = new Map<string, string>()
-  for (const msg of patched) {
-    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue
-    for (const part of msg.content as ContentPart[]) {
-      if (part.type === 'tool-call' && part.toolCallId) {
-        declaredToolCallIds.add(part.toolCallId)
-        if (part.toolName) toolNameById.set(part.toolCallId, part.toolName)
-      }
-    }
-  }
-
   const result: ModelMessage[] = []
-  const pendingToolCallIds = new Set<string>()
-  // Track toolCallIds that already have a result — strip later duplicates.
-  const consumedToolCallIds = new Set<string>()
 
-  for (const msg of patched) {
-    if (msg.role === 'assistant' && Array.isArray(msg.content)) {
-      for (const part of msg.content as ContentPart[]) {
-        if (part.type === 'tool-call' && part.toolCallId) {
-          pendingToolCallIds.add(part.toolCallId)
-        }
-      }
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+
+    // Drop orphaned tool messages that aren't part of a recognised pair.
+    if (msg.role === 'tool' && Array.isArray(msg.content)) {
+      modified = true
+      continue
+    }
+
+    // Pass through non-assistant messages (and assistant messages without
+    // array content) untouched.
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) {
       result.push(msg)
       continue
     }
 
-    if (msg.role === 'tool' && Array.isArray(msg.content)) {
-      const filtered = (msg.content as ContentPart[]).filter((part) => {
-        if (part.type !== 'tool-result' && part.type !== 'tool-error') return true
-        if (!part.toolCallId) return true
-        // Strip orphaned: no matching tool-call declared anywhere
-        if (!declaredToolCallIds.has(part.toolCallId)) {
-          modified = true
-          return false
-        }
-        // Strip duplicate: a result for this toolCallId already appeared earlier
-        if (consumedToolCallIds.has(part.toolCallId)) {
-          modified = true
-          return false
-        }
-        consumedToolCallIds.add(part.toolCallId)
-        pendingToolCallIds.delete(part.toolCallId)
-        return true
-      })
-      if (filtered.length > 0) {
-        result.push({ ...msg, content: filtered } as ModelMessage)
-      } else {
-        modified = true
-      }
+    const assistantContent = msg.content as ContentPart[]
+    const assistantToolCallParts = assistantContent.filter((p) => p.type === 'tool-call')
+    if (assistantToolCallParts.length === 0) {
+      result.push(msg)
       continue
     }
 
-    if (msg.role === 'user' && pendingToolCallIds.size > 0) {
+    const nextMsg = i + 1 < messages.length ? messages[i + 1] : undefined
+    const hasToolMessage = nextMsg?.role === 'tool' && Array.isArray(nextMsg.content)
+
+    // Dangling tool-calls with no following tool message: drop the calls.
+    if (!hasToolMessage) {
+      const withoutToolCalls = assistantContent.filter((p) => p.type !== 'tool-call')
+      if (withoutToolCalls.length === 0) {
+        modified = true
+        continue
+      }
       modified = true
-      const syntheticResults = [...pendingToolCallIds].map((toolCallId) => ({
-        type: 'tool-result' as const,
-        toolCallId,
-        toolName: toolNameById.get(toolCallId) ?? 'unknown',
-        output: { type: 'text', value: '[Interrupted before tool result was received]' }
-      }))
-      result.push({ role: 'tool', content: syntheticResults } as ModelMessage)
-      pendingToolCallIds.clear()
+      result.push({ ...msg, content: withoutToolCalls } as ModelMessage)
+      continue
     }
 
-    result.push(msg)
-  }
+    // We have an assistant + tool pair. Reconcile IDs bidirectionally:
+    // an ID is valid only when it appears in BOTH a tool-call and a tool-result.
+    const repairedPair = repairAdjacentToolCallIds({
+      assistantContent,
+      toolContent: nextMsg.content as ContentPart[]
+    })
+    const balancedAssistantContent = repairedPair.assistantContent
+    const balancedToolContent = repairedPair.toolContent
+    const toolCallParts = balancedAssistantContent.filter((p) => p.type === 'tool-call')
+    const toolResultParts = balancedToolContent.filter(
+      (p) => p.type === 'tool-result' || p.type === 'tool-error'
+    )
 
-  if (pendingToolCallIds.size > 0) {
-    modified = true
-    const syntheticResults = [...pendingToolCallIds].map((toolCallId) => ({
-      type: 'tool-result' as const,
-      toolCallId,
-      toolName: 'unknown',
-      output: { type: 'text', value: '[Interrupted before tool result was received]' }
-    }))
-    result.push({ role: 'tool', content: syntheticResults } as ModelMessage)
+    const callIds = new Set<string>()
+    for (const p of toolCallParts) {
+      if (p.toolCallId) callIds.add(p.toolCallId)
+    }
+    const resultIds = new Set<string>()
+    for (const p of toolResultParts) {
+      if (p.toolCallId) resultIds.add(p.toolCallId)
+    }
+
+    const validIds = new Set<string>()
+    for (const id of callIds) {
+      if (resultIds.has(id)) validIds.add(id)
+    }
+
+    // Filter assistant: drop tool-calls with missing or mismatched IDs.
+    const filteredAssistant = balancedAssistantContent.filter((part) => {
+      if (part.type !== 'tool-call') return true
+      return part.toolCallId && validIds.has(part.toolCallId)
+    })
+
+    // Filter tool message: drop results with missing or mismatched IDs,
+    // and drop duplicate results for the same ID (keep first).
+    const seenIds = new Set<string>()
+    const filteredTool = balancedToolContent.filter((part) => {
+      if (part.type !== 'tool-result' && part.type !== 'tool-error') return true
+      const toolCallId = part.toolCallId
+      if (!toolCallId) return false
+      const keep = validIds.has(toolCallId) && !seenIds.has(toolCallId)
+      if (keep) seenIds.add(toolCallId)
+      return keep
+    })
+
+    const assistantChanged =
+      balancedAssistantContent !== assistantContent ||
+      filteredAssistant.length !== balancedAssistantContent.length
+    const toolChanged =
+      balancedToolContent !== nextMsg.content || filteredTool.length !== balancedToolContent.length
+
+    // If the assistant message is empty after filtering, drop the whole pair.
+    if (filteredAssistant.length === 0) {
+      modified = true
+      i++ // skip the paired tool message
+      continue
+    }
+
+    // If the tool message is empty after filtering, the remaining tool-calls
+    // are dangling — drop them as well.
+    if (filteredTool.length === 0) {
+      modified = true
+      const withoutToolCalls = filteredAssistant.filter((p) => p.type !== 'tool-call')
+      if (withoutToolCalls.length === 0) {
+        i++ // skip the paired tool message
+        continue
+      }
+      result.push({ ...msg, content: withoutToolCalls } as ModelMessage)
+      i++ // skip the paired tool message
+      continue
+    }
+
+    if (assistantChanged || toolChanged) {
+      modified = true
+    }
+
+    result.push(assistantChanged ? ({ ...msg, content: filteredAssistant } as ModelMessage) : msg)
+    result.push(toolChanged ? ({ ...nextMsg, content: filteredTool } as ModelMessage) : nextMsg)
+    i++ // advance past the tool message
   }
 
   if (modified) {
-    console.warn('[messagePrepare] balanceHistoryMessages repaired tool-call/tool-result pairs')
+    console.warn(
+      '[messagePrepare] balanceHistoryMessages repaired or dropped malformed tool-call pairs'
+    )
   }
 
   return modified ? result : messages

@@ -330,7 +330,7 @@ test('balanceHistoryMessages strips orphaned tool-result without matching tool-c
   assert.equal(result[2].role, 'user')
 })
 
-test('balanceHistoryMessages injects synthetic result for unmatched tool-call before user message', () => {
+test('balanceHistoryMessages drops dangling tool-call before user message', () => {
   const messages = [
     { role: 'user' as const, content: 'Search for it' },
     {
@@ -344,14 +344,12 @@ test('balanceHistoryMessages injects synthetic result for unmatched tool-call be
   ]
 
   const result = balanceHistoryMessages(messages as never)
-  assert.equal(result.length, 4, 'should inject synthetic tool message')
-  assert.equal(result[2].role, 'tool')
-  const toolContent = (result[2] as { content: Array<{ toolCallId: string }> }).content
-  assert.equal(toolContent[0].toolCallId, 'tc-1')
-  assert.equal(result[3].role, 'user')
+  assert.equal(result.length, 2, 'should drop the dangling assistant tool-call')
+  assert.equal(result[0].role, 'user')
+  assert.equal(result[1].role, 'user')
 })
 
-test('balanceHistoryMessages injects synthetic result for unmatched tool-call at end', () => {
+test('balanceHistoryMessages drops dangling tool-call at end', () => {
   const messages = [
     { role: 'user' as const, content: 'Search' },
     {
@@ -363,8 +361,8 @@ test('balanceHistoryMessages injects synthetic result for unmatched tool-call at
   ]
 
   const result = balanceHistoryMessages(messages as never)
-  assert.equal(result.length, 3)
-  assert.equal(result[2].role, 'tool')
+  assert.equal(result.length, 1)
+  assert.equal(result[0].role, 'user')
 })
 
 test('balanceHistoryMessages handles mixed valid and orphaned tool-results', () => {
@@ -395,9 +393,7 @@ test('balanceHistoryMessages handles mixed valid and orphaned tool-results', () 
   assert.equal(toolMsg.content[0].toolCallId, 'tc-1')
 })
 
-test('balanceHistoryMessages patches tool-call parts missing toolCallId from adjacent tool-result', () => {
-  // Simulates a stored responseMessages where the tool-call object lost its
-  // toolCallId but the adjacent tool-result still has it.
+test('balanceHistoryMessages repairs tool-call toolCallId from matching tool-result', () => {
   const messages = [
     { role: 'user' as const, content: 'Search files' },
     {
@@ -420,26 +416,105 @@ test('balanceHistoryMessages patches tool-call parts missing toolCallId from adj
 
   const result = balanceHistoryMessages(messages as never)
 
-  // The tool-call for glob should now have toolCallId: 'glob:1' from the result
+  // The missing glob toolCallId should be restored from the matching result.
   const assistantMsg = result.find((m) => m.role === 'assistant' && Array.isArray(m.content)) as {
     content: Array<{ type?: string; toolCallId?: string; toolName?: string }>
   }
   const globCall = (
     assistantMsg.content as Array<{ type?: string; toolCallId?: string; toolName?: string }>
   ).find((p) => p.type === 'tool-call' && p.toolName === 'glob')
-  assert.equal(globCall?.toolCallId, 'glob:1', 'should patch toolCallId from adjacent tool-result')
+  assert.equal(globCall?.toolCallId, 'glob:1')
 
-  // The read tool-call should be unchanged
   const readCall = (
     assistantMsg.content as Array<{ type?: string; toolCallId?: string; toolName?: string }>
   ).find((p) => p.type === 'tool-call' && p.toolName === 'read')
   assert.equal(readCall?.toolCallId, 'read:1')
 
-  // Both tool-results should be preserved (no orphans now)
   const toolMsg = result.find((m) => m.role === 'tool') as {
     content: Array<{ toolCallId: string }>
   }
   assert.equal(toolMsg.content.length, 2)
+  assert.equal(toolMsg.content[0].toolCallId, 'glob:1')
+  assert.equal(toolMsg.content[1].toolCallId, 'read:1')
+})
+
+test('balanceHistoryMessages repairs tool-result toolCallId from matching tool-call', () => {
+  const messages = [
+    { role: 'user' as const, content: 'Read file' },
+    {
+      role: 'assistant' as const,
+      content: [
+        { type: 'tool-call', toolCallId: 'tc-1', toolName: 'read', input: { path: 'a.ts' } }
+      ]
+    },
+    {
+      role: 'tool' as const,
+      content: [
+        // toolCallId is missing on the result
+        { type: 'tool-result', toolName: 'read', output: 'content' }
+      ]
+    },
+    { role: 'assistant' as const, content: 'Done.' }
+  ]
+
+  const result = balanceHistoryMessages(messages as never)
+
+  const toolMsg = result.find((m) => m.role === 'tool') as {
+    content: Array<{ toolCallId?: string; toolName?: string; output?: unknown }>
+  }
+  assert.equal(toolMsg.content.length, 1)
+  assert.equal(toolMsg.content[0].toolCallId, 'tc-1')
+  assert.equal(toolMsg.content[0].toolName, 'read')
+})
+
+test('balanceHistoryMessages does not repair mismatched tool names when toolCallId is missing', () => {
+  const messages = [
+    { role: 'user' as const, content: 'Search files' },
+    {
+      role: 'assistant' as const,
+      content: [{ type: 'tool-call', toolName: 'glob', input: { pattern: '*.ts' } }]
+    },
+    {
+      role: 'tool' as const,
+      content: [{ type: 'tool-result', toolCallId: 'read:1', toolName: 'read', output: 'content' }]
+    },
+    { role: 'assistant' as const, content: 'Done.' }
+  ]
+
+  const result = balanceHistoryMessages(messages as never)
+  assert.equal(result.length, 2)
+  assert.equal(result[0].role, 'user')
+  assert.equal(result[1].role, 'assistant')
+  assert.equal((result[1] as { content: string }).content, 'Done.')
+})
+
+test('balanceHistoryMessages drops assistant tool-calls but keeps text when tool msg is empty', () => {
+  const messages = [
+    { role: 'user' as const, content: 'Do things' },
+    {
+      role: 'assistant' as const,
+      content: [
+        { type: 'text', text: 'Let me check.' },
+        { type: 'tool-call', toolCallId: 'tc-1', toolName: 'glob', input: {} }
+      ]
+    },
+    {
+      role: 'tool' as const,
+      // All results are orphaned / invalid, so the tool message ends up empty.
+      content: [{ type: 'tool-result', toolCallId: 'orphan', toolName: 'read', output: 'bad' }]
+    },
+    { role: 'user' as const, content: 'Next' }
+  ]
+
+  const result = balanceHistoryMessages(messages as never)
+  // Assistant text is kept, tool-call is dropped, orphaned tool msg is dropped.
+  assert.equal(result.length, 3)
+  assert.equal(result[0].role, 'user')
+  assert.equal(result[1].role, 'assistant')
+  const assistantContent = (result[1] as { content: Array<{ type: string }> }).content
+  assert.equal(assistantContent.length, 1)
+  assert.equal(assistantContent[0].type, 'text')
+  assert.equal(result[2].role, 'user')
 })
 
 test('prepareAiSdkMessages applies balanceHistoryMessages guard', () => {
