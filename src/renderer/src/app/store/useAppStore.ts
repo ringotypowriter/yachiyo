@@ -2339,7 +2339,19 @@ export const useAppStore = create<AppState>((set, get) => ({
             recalledMemoryEntries: existingLatestRun?.recalledMemoryEntries,
             recallDecision: existingLatestRun?.recallDecision,
             contextSources: existingLatestRun?.contextSources,
-            completedAt: event.timestamp
+            completedAt: event.timestamp,
+            ...(existingLatestRun?.promptTokens !== undefined
+              ? { promptTokens: existingLatestRun.promptTokens }
+              : {}),
+            ...(existingLatestRun?.completionTokens !== undefined
+              ? { completionTokens: existingLatestRun.completionTokens }
+              : {}),
+            ...(existingLatestRun?.totalPromptTokens !== undefined
+              ? { totalPromptTokens: existingLatestRun.totalPromptTokens }
+              : {}),
+            ...(existingLatestRun?.totalCompletionTokens !== undefined
+              ? { totalCompletionTokens: existingLatestRun.totalCompletionTokens }
+              : {})
           }),
           runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
             ...run,
@@ -2421,7 +2433,19 @@ export const useAppStore = create<AppState>((set, get) => ({
             recalledMemoryEntries: existingLatestRun?.recalledMemoryEntries,
             recallDecision: existingLatestRun?.recallDecision,
             contextSources: existingLatestRun?.contextSources,
-            completedAt: event.timestamp
+            completedAt: event.timestamp,
+            ...(existingLatestRun?.promptTokens !== undefined
+              ? { promptTokens: existingLatestRun.promptTokens }
+              : {}),
+            ...(existingLatestRun?.completionTokens !== undefined
+              ? { completionTokens: existingLatestRun.completionTokens }
+              : {}),
+            ...(existingLatestRun?.totalPromptTokens !== undefined
+              ? { totalPromptTokens: existingLatestRun.totalPromptTokens }
+              : {}),
+            ...(existingLatestRun?.totalCompletionTokens !== undefined
+              ? { totalCompletionTokens: existingLatestRun.totalCompletionTokens }
+              : {})
           }),
           runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
             ...run,

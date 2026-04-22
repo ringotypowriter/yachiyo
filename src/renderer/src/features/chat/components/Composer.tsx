@@ -57,6 +57,7 @@ import { scoreCandidates } from '../lib/completionMatch'
 import { longestCommonPrefix } from '../lib/longestCommonPrefix'
 import { SkillsSelectorPopup } from './SkillsSelectorPopup'
 import { ToolSelectorPopup } from './ToolSelectorPopup'
+import { RunArrowIndicator } from './RunArrowIndicator'
 import { WorkspaceSelectorPopup } from './WorkspaceSelectorPopup'
 import { SmoothCaretOverlay } from './SmoothCaretOverlay'
 import { formatTokenCount } from '@renderer/lib/formatTokenCount'
@@ -2851,76 +2852,75 @@ export function Composer({
           ) : null}
         </div>
 
-        {latestRun?.promptTokens != null ? (
-          <Tooltip
-            content={
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <div style={{ fontWeight: 600, marginBottom: 2 }}>Last run token usage</div>
+        <Tooltip
+          content={
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <div style={{ fontWeight: 600, marginBottom: 2 }}>Last run token usage</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                <span style={{ color: theme.text.secondary }}>Prompt</span>
+                <span>{(latestRun?.promptTokens ?? 0).toLocaleString()}</span>
+              </div>
+              {latestRun?.completionTokens != null ? (
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                  <span style={{ color: theme.text.secondary }}>Prompt</span>
-                  <span>{latestRun.promptTokens.toLocaleString()}</span>
+                  <span style={{ color: theme.text.secondary }}>Completion</span>
+                  <span>{latestRun.completionTokens.toLocaleString()}</span>
                 </div>
-                {latestRun.completionTokens != null ? (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                    <span style={{ color: theme.text.secondary }}>Completion</span>
-                    <span>{latestRun.completionTokens.toLocaleString()}</span>
-                  </div>
-                ) : null}
-                {latestRun.totalPromptTokens != null &&
-                latestRun.totalPromptTokens !== latestRun.promptTokens ? (
-                  <>
-                    <div
-                      style={{
-                        height: 1,
-                        background: theme.border.default,
-                        margin: '2px 0'
-                      }}
-                    />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                      <span style={{ color: theme.text.secondary }}>Total prompt</span>
-                      <span>{latestRun.totalPromptTokens.toLocaleString()}</span>
-                    </div>
-                    {latestRun.totalCompletionTokens != null ? (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                        <span style={{ color: theme.text.secondary }}>Total completion</span>
-                        <span>{latestRun.totalCompletionTokens.toLocaleString()}</span>
-                      </div>
-                    ) : null}
-                  </>
-                ) : null}
-                {(latestRun.promptTokens ?? 0) > 200_000 ? (
+              ) : null}
+              {latestRun?.totalPromptTokens != null &&
+              latestRun.totalPromptTokens !== (latestRun.promptTokens ?? 0) ? (
+                <>
                   <div
                     style={{
-                      marginTop: 4,
-                      paddingTop: 6,
-                      borderTop: `1px solid ${theme.border.default}`,
-                      color: '#f59e0b',
-                      fontSize: 11,
-                      lineHeight: 1.4
+                      height: 1,
+                      background: theme.border.default,
+                      margin: '2px 0'
                     }}
-                  >
-                    Context is over 200K. Consider using{' '}
-                    <span style={{ fontFamily: 'monospace' }}>/handoff</span> to compact and
-                    continue in a new thread.
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                    <span style={{ color: theme.text.secondary }}>Total prompt</span>
+                    <span>{latestRun.totalPromptTokens.toLocaleString()}</span>
                   </div>
-                ) : null}
-              </div>
-            }
-          >
-            <span
-              className="text-xs px-1.5 flex items-center gap-1"
-              style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
-            >
-              {(latestRun.promptTokens ?? 0) > 200_000 ? (
-                <TriangleAlert
-                  size={11}
-                  style={{ color: '#f59e0b', flexShrink: 0, opacity: 1, display: 'block' }}
-                />
+                  {latestRun.totalCompletionTokens != null ? (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                      <span style={{ color: theme.text.secondary }}>Total completion</span>
+                      <span>{latestRun.totalCompletionTokens.toLocaleString()}</span>
+                    </div>
+                  ) : null}
+                </>
               ) : null}
-              {formatTokenCount(latestRun.promptTokens)}
-            </span>
-          </Tooltip>
-        ) : null}
+              {(latestRun?.promptTokens ?? 0) > 200_000 ? (
+                <div
+                  style={{
+                    marginTop: 4,
+                    paddingTop: 6,
+                    borderTop: `1px solid ${theme.border.default}`,
+                    color: '#f59e0b',
+                    fontSize: 11,
+                    lineHeight: 1.4
+                  }}
+                >
+                  Context is over 200K. Consider using{' '}
+                  <span style={{ fontFamily: 'monospace' }}>/handoff</span> to compact and continue
+                  in a new thread.
+                </div>
+              ) : null}
+            </div>
+          }
+        >
+          <span
+            className="text-xs px-1.5 flex items-center gap-1"
+            style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
+          >
+            {(latestRun?.promptTokens ?? 0) > 200_000 ? (
+              <TriangleAlert
+                size={11}
+                style={{ color: '#f59e0b', flexShrink: 0, opacity: 1, display: 'block' }}
+              />
+            ) : null}
+            {formatTokenCount(latestRun?.promptTokens ?? 0)}
+            <RunArrowIndicator />
+          </span>
+        </Tooltip>
 
         <div className="ml-auto flex items-center gap-2">
           {showStopButton ? (
