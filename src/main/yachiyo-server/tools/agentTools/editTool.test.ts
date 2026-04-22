@@ -4,7 +4,9 @@ import { mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runEditTool } from './editTool.ts'
+import { runGrepTool } from './grepTool.ts'
 import { ReadRecordCache } from './readRecordCache.ts'
+import { createSearchService } from '../../services/search/searchService.ts'
 import { editToolInputSchema } from './shared.ts'
 
 describe('editTool', () => {
@@ -235,6 +237,31 @@ describe('editTool', () => {
     assert.strictEqual(result.details.replacements, 3)
     const content = await readFile(filePath, 'utf8')
     assert.strictEqual(content, 'hi\nworld\nhi\nworld\nhi')
+  })
+
+  it('allows edit after grep tool covered the target line', async () => {
+    const workspace = await makeWorkspace()
+    const filePath = join(workspace, 'file.txt')
+    await writeFile(filePath, 'a\nb\nc\nd\ne\n', 'utf8')
+
+    const cache = new ReadRecordCache()
+    const searchService = createSearchService()
+    // Grep line 3 with context 1 → covers lines 2-4
+    await runGrepTool(
+      { pattern: 'c', path: workspace, context: 1 },
+      { workspacePath: workspace, readRecordCache: cache },
+      { searchService }
+    )
+
+    const result = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: 'c', newText: 'C' },
+      { workspacePath: workspace, readRecordCache: cache }
+    )
+
+    assert.strictEqual(result.error, undefined)
+    assert.strictEqual(result.details.replacements, 1)
+    const content = await readFile(filePath, 'utf8')
+    assert.strictEqual(content, 'a\nb\nC\nd\ne\n')
   })
 
   it('bypasses guard when no readRecordCache is provided', async () => {

@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, stat, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import { tool, type Tool } from 'ai'
@@ -103,6 +103,32 @@ export async function runGrepTool(
     const content = input.filesOnly
       ? formatGrepFilesOnly(matches, result.truncated)
       : formatGrepContent(matches, result.truncated)
+
+    // Record reads for the line ranges the model actually saw.
+    // Only when content is inlined (not spilled to file) and not files-only.
+    if (!input.filesOnly && content.length <= INLINE_CONTENT_LIMIT && context.readRecordCache) {
+      const fileRanges = new Map<string, Array<{ startLine: number; endLine: number }>>()
+      for (const match of result.matches) {
+        const absPath = isAbsolute(match.path) ? match.path : resolve(result.rootPath, match.path)
+        const startLine = Math.max(1, match.line - (match.contextBefore?.length ?? 0))
+        const endLine = match.line + (match.contextAfter?.length ?? 0)
+        const existing = fileRanges.get(absPath)
+        if (existing) {
+          existing.push({ startLine, endLine })
+        } else {
+          fileRanges.set(absPath, [{ startLine, endLine }])
+        }
+      }
+      for (const [absPath, ranges] of fileRanges) {
+        const mtimeMs = await stat(absPath).then(
+          (s) => s.mtimeMs,
+          () => undefined
+        )
+        for (const range of ranges) {
+          context.readRecordCache.recordRead(absPath, range.startLine, range.endLine, mtimeMs)
+        }
+      }
+    }
 
     if (content.length > INLINE_CONTENT_LIMIT) {
       const saved = await spillToFile(context.workspacePath, content)
