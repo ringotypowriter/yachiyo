@@ -1,12 +1,82 @@
 import type { ModelMessage } from './types.ts'
+import { estimateTextTokens } from '../../../shared/yachiyo/estimateTokens.ts'
 
 export const STRIP_COMPACT_TOKEN_THRESHOLD = 200_000
-const CHARS_PER_TOKEN_ESTIMATE = 4
 const SUMMARY_PREVIEW_CHARS = 200
+const MESSAGE_OVERHEAD_TOKENS = 4
 
 interface RunSpan {
   startIndex: number
   endIndex: number
+}
+
+function extractTextContent(value: unknown, seen = new WeakSet<object>()): string {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => extractTextContent(item, seen))
+      .filter((text) => text.length > 0)
+      .join(' ')
+  }
+  if (!value || typeof value !== 'object') return ''
+
+  if (seen.has(value)) return ''
+  seen.add(value)
+
+  const record = value as Record<string, unknown>
+  if (record.type === 'image' || record.type === 'image-data') {
+    return ''
+  }
+
+  const fragments: string[] = []
+
+  if (typeof record.text === 'string') {
+    fragments.push(record.text)
+  }
+  if (typeof record.value === 'string') {
+    fragments.push(record.value)
+  }
+
+  for (const nestedKey of ['value', 'output', 'input', 'content']) {
+    const nested = record[nestedKey]
+    if (Array.isArray(nested) || (nested && typeof nested === 'object')) {
+      const nestedText = extractTextContent(nested, seen)
+      if (nestedText.length > 0) {
+        fragments.push(nestedText)
+      }
+    }
+  }
+
+  for (const [key, nested] of Object.entries(record)) {
+    if (
+      key === 'text' ||
+      key === 'value' ||
+      key === 'output' ||
+      key === 'input' ||
+      key === 'content' ||
+      key === 'image' ||
+      key === 'data' ||
+      key === 'dataUrl'
+    ) {
+      continue
+    }
+    if (typeof nested === 'string' || Array.isArray(nested) || typeof nested === 'object') {
+      const nestedText = extractTextContent(nested, seen)
+      if (nestedText.length > 0) {
+        fragments.push(nestedText)
+      }
+    }
+  }
+
+  return fragments.join(' ')
+}
+
+function extractMessageText(msg: ModelMessage): string {
+  return extractTextContent(msg.content)
+}
+
+function estimateModelMessageTokens(msg: ModelMessage): number {
+  return estimateTextTokens(extractMessageText(msg)) + MESSAGE_OVERHEAD_TOKENS
 }
 
 /**
@@ -31,26 +101,11 @@ export function identifyRunSpans(messages: ModelMessage[]): RunSpan[] {
 }
 
 export function estimateTokenCount(messages: ModelMessage[]): number {
-  return JSON.stringify(messages).length / CHARS_PER_TOKEN_ESTIMATE
+  return messages.reduce((sum, msg) => sum + estimateModelMessageTokens(msg), 0)
 }
 
 function estimateTokenSavings(before: ModelMessage, after: ModelMessage): number {
-  const charsBefore = JSON.stringify(before).length
-  const charsAfter = JSON.stringify(after).length
-  return Math.max(0, (charsBefore - charsAfter) / CHARS_PER_TOKEN_ESTIMATE)
-}
-
-function extractText(output: unknown): string {
-  if (!output || typeof output !== 'object') return ''
-  const o = output as Record<string, unknown>
-  if (o.type === 'text' && typeof o.value === 'string') return o.value
-  if (o.type === 'content' && Array.isArray(o.value)) {
-    return (o.value as Array<Record<string, unknown>>)
-      .filter((v) => v.type === 'text' && typeof v.text === 'string')
-      .map((v) => v.text as string)
-      .join('\n')
-  }
-  return ''
+  return Math.max(0, estimateModelMessageTokens(before) - estimateModelMessageTokens(after))
 }
 
 function buildStrippedSummary(part: {
@@ -58,7 +113,7 @@ function buildStrippedSummary(part: {
   result?: unknown
   output: unknown
 }): string {
-  const text = extractText(part.output)
+  const text = extractTextContent(part.output)
   const lineCount = text ? text.split('\n').length : 0
   const preview = text.slice(0, SUMMARY_PREVIEW_CHARS)
   const toolLabel = part.toolName ?? 'unknown'
@@ -87,8 +142,8 @@ function stripToolResultsInMessage(msg: ModelMessage): ModelMessage {
 /**
  * Strip old tool results from messages to reduce context size.
  *
- * Estimates token count directly from the compiled messages array (via
- * JSON.stringify character count / 4). This avoids a feedback loop where
+ * Estimates token count from message text content using the same CJK-aware
+ * heuristic shared with the renderer. This avoids a feedback loop where
  * a previous stripped run reports low promptTokens, causing the next turn
  * to skip compaction and re-send the full unstripped history.
  *

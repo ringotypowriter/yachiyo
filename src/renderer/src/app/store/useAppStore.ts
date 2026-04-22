@@ -604,6 +604,27 @@ function upsertLatestRun(
   }
 }
 
+function stripLatestRunTokens(
+  latestRunsByThread: Record<string, RunRecord>,
+  threadId: string
+): Record<string, RunRecord> {
+  const existing = latestRunsByThread[threadId]
+  if (!existing) return latestRunsByThread
+  const stripped = Object.fromEntries(
+    Object.entries(existing).filter(
+      ([key]) =>
+        key !== 'promptTokens' &&
+        key !== 'completionTokens' &&
+        key !== 'totalPromptTokens' &&
+        key !== 'totalCompletionTokens'
+    )
+  ) as RunRecord
+  return {
+    ...latestRunsByThread,
+    [threadId]: stripped
+  }
+}
+
 function upsertRunRecord(runs: RunRecord[], run: RunRecord): RunRecord[] {
   const next = [...runs.filter((entry) => entry.id !== run.id), run]
   return next.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
@@ -1282,6 +1303,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             [threadId]: nextMessages
           },
           toolCalls,
+          latestRunsByThread: activeRunId
+            ? state.latestRunsByThread
+            : stripLatestRunTokens(state.latestRunsByThread, threadId),
           ...deriveSubagentStateFromToolCalls(
             toolCalls,
             state.subagentStateById,
@@ -1860,6 +1884,11 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
         }
 
+        const currentMessages = state.messages[event.threadId] ?? []
+        const hadMessageDecrease =
+          event.messages.length < currentMessages.length ||
+          currentMessages.some((m) => !event.messages.some((em) => em.id === m.id))
+
         // When a pending steer resolves (tool just finished), the run is
         // about to restart. Reset to 'preparing' so the conversation group
         // shows a PreparingBubble instead of empty space while waiting for
@@ -1893,6 +1922,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             ? setThreadRunPhaseValue(state.runPhasesByThread, event.threadId, 'preparing')
             : state.runPhasesByThread,
           toolCalls,
+          latestRunsByThread: hadMessageDecrease
+            ? stripLatestRunTokens(state.latestRunsByThread, event.threadId)
+            : state.latestRunsByThread,
           ...deriveSubagentStateFromToolCalls(
             toolCalls,
             state.subagentStateById,

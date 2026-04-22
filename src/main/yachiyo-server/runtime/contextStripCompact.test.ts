@@ -89,6 +89,20 @@ test('estimateTokenCount returns a positive estimate for non-empty messages', ()
   assert.ok(estimate > 0)
 })
 
+test('estimateTokenCount includes nested tool-result output text', () => {
+  const messages: ModelMessage[] = [
+    makeSystemMessage('system'),
+    makeUserMessage('hello'),
+    makeAssistantMessage('checking'),
+    makeToolMessage('tc1', makeLargeToolOutput(900_000))
+  ]
+
+  assert.ok(
+    estimateTokenCount(messages) > STRIP_COMPACT_TOKEN_THRESHOLD,
+    'nested tool-result text should count toward compaction threshold'
+  )
+})
+
 test('applyStripCompact returns messages unchanged when under threshold', () => {
   const messages: ModelMessage[] = [
     makeSystemMessage('system'),

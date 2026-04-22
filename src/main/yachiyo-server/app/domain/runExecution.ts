@@ -1450,23 +1450,6 @@ export async function executeServerRun(
       recalledMemoryEntries: memoryEntries,
       ...(recallDecision ? { recallDecision } : {})
     })
-    deps.emit<RunContextCompiledEvent>({
-      type: 'run.context.compiled',
-      threadId: input.thread.id,
-      runId: input.runId,
-      contextSources: buildContextSources({
-        evolvedTraitCount: (soulDocument?.evolvedTraits ?? []).filter((t) => t.trim()).length,
-        hasUserContent: (userDocument?.content ?? '').trim().length > 0,
-        enabledTools: modelEnabledTools,
-        activeSkills,
-        fileMentionCount: fileMentionResolution.mentions.length,
-        inlinedFileCount: (fileMentionResolution.inlinedPath ? 1 : 0) + (hasInlinedJotdown ? 1 : 0),
-        workspacePath,
-        hasToolReminder: hiddenQueryReminder !== undefined,
-        memoryEntries,
-        recallDecision
-      })
-    })
     const config = deps.readConfig()
     const enabledSubagentProfiles = (config.subagentProfiles ?? []).filter((p) => p.enabled)
     const savedWorkspacePaths = config.workspace?.savedPaths ?? []
@@ -1618,6 +1601,23 @@ export async function executeServerRun(
           })
     const stripCompactEnabled = config.chat?.stripCompact !== false
     const finalMessages = stripCompactEnabled ? applyStripCompact(messages) : messages
+    deps.emit<RunContextCompiledEvent>({
+      type: 'run.context.compiled',
+      threadId: input.thread.id,
+      runId: input.runId,
+      contextSources: buildContextSources({
+        evolvedTraitCount: (soulDocument?.evolvedTraits ?? []).filter((t) => t.trim()).length,
+        hasUserContent: (userDocument?.content ?? '').trim().length > 0,
+        enabledTools: modelEnabledTools,
+        activeSkills,
+        fileMentionCount: fileMentionResolution.mentions.length,
+        inlinedFileCount: (fileMentionResolution.inlinedPath ? 1 : 0) + (hasInlinedJotdown ? 1 : 0),
+        workspacePath,
+        hasToolReminder: hiddenQueryReminder !== undefined,
+        memoryEntries,
+        recallDecision
+      })
+    })
     tools = createAgentToolSet(
       {
         enabledTools: modelEnabledTools,

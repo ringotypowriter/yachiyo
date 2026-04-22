@@ -61,6 +61,7 @@ import { RunArrowIndicator } from './RunArrowIndicator'
 import { WorkspaceSelectorPopup } from './WorkspaceSelectorPopup'
 import { SmoothCaretOverlay } from './SmoothCaretOverlay'
 import { formatTokenCount } from '@renderer/lib/formatTokenCount'
+import { estimateDraftPromptTokens, estimatePromptTokens } from '@renderer/lib/estimatePromptTokens'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { Tooltip } from '@renderer/components/Tooltip'
 import {
@@ -699,6 +700,14 @@ export function Composer({
   const canAddFiles = draftFiles.length < MAX_COMPOSER_FILES
   const hasActiveRun = activeRunId !== null
 
+  const estimatedDraftTokens = useMemo(() => {
+    return estimateDraftPromptTokens({
+      text: composerValue,
+      imageCount: draftImages.filter((image) => image.status === 'ready').length,
+      files: draftFiles.filter((file) => file.status === 'ready')
+    })
+  }, [composerValue, draftImages, draftFiles])
+
   // Clear cancel-in-flight when the run actually ends. Delay slightly so that
   // if a queued follow-up starts immediately after cancellation the composer
   // doesn't flicker from stop → send → stop.
@@ -731,6 +740,13 @@ export function Composer({
   const hasCustomSkillOverride =
     composerDraft.enabledSkillNames !== null && composerDraft.enabledSkillNames !== undefined
   const enabledSkillCount = effectiveEnabledSkillNames.length
+  const estimatedThreadTokens = useMemo(
+    () => estimatePromptTokens(activeThreadMessages),
+    [activeThreadMessages]
+  )
+  const hasMessages = activeThreadMessages.length > 0
+  const displayPromptTokens = latestRun?.promptTokens ?? estimatedThreadTokens
+  const isEstimated = latestRun?.promptTokens == null && hasMessages
   const externalThreads = useAppStore((s) => s.externalThreads)
   const activeThread =
     threads.find((thread) => thread.id === activeThreadId) ??
@@ -2859,75 +2875,93 @@ export function Composer({
           ) : null}
         </div>
 
-        <Tooltip
-          content={
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              <div style={{ fontWeight: 600, marginBottom: 2 }}>Last run token usage</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                <span style={{ color: theme.text.secondary }}>Prompt</span>
-                <span>{(latestRun?.promptTokens ?? 0).toLocaleString()}</span>
-              </div>
-              {latestRun?.completionTokens != null ? (
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                  <span style={{ color: theme.text.secondary }}>Completion</span>
-                  <span>{latestRun.completionTokens.toLocaleString()}</span>
+        {hasMessages || latestRun?.promptTokens != null ? (
+          <Tooltip
+            content={
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <div style={{ fontWeight: 600, marginBottom: 2 }}>
+                  {isEstimated ? 'Estimated prompt tokens' : 'Last run token usage'}
                 </div>
-              ) : null}
-              {latestRun?.totalPromptTokens != null &&
-              latestRun.totalPromptTokens !== (latestRun.promptTokens ?? 0) ? (
-                <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                  <span style={{ color: theme.text.secondary }}>Prompt</span>
+                  <span>{displayPromptTokens.toLocaleString()}</span>
+                </div>
+                {latestRun?.completionTokens != null ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                    <span style={{ color: theme.text.secondary }}>Completion</span>
+                    <span>{latestRun.completionTokens.toLocaleString()}</span>
+                  </div>
+                ) : null}
+                {latestRun?.totalPromptTokens != null &&
+                latestRun.totalPromptTokens !== displayPromptTokens ? (
+                  <>
+                    <div
+                      style={{
+                        height: 1,
+                        background: theme.border.default,
+                        margin: '2px 0'
+                      }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                      <span style={{ color: theme.text.secondary }}>Total prompt</span>
+                      <span>{latestRun.totalPromptTokens.toLocaleString()}</span>
+                    </div>
+                    {latestRun.totalCompletionTokens != null ? (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                        <span style={{ color: theme.text.secondary }}>Total completion</span>
+                        <span>{latestRun.totalCompletionTokens.toLocaleString()}</span>
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+                {estimatedDraftTokens > 0 ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                    <span style={{ color: theme.text.secondary }}>Draft estimate</span>
+                    <span>{estimatedDraftTokens.toLocaleString()}</span>
+                  </div>
+                ) : null}
+                {displayPromptTokens + estimatedDraftTokens > 200_000 ? (
                   <div
                     style={{
-                      height: 1,
-                      background: theme.border.default,
-                      margin: '2px 0'
+                      marginTop: 4,
+                      paddingTop: 6,
+                      borderTop: `1px solid ${theme.border.default}`,
+                      color: '#f59e0b',
+                      fontSize: 11,
+                      lineHeight: 1.4
                     }}
-                  />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                    <span style={{ color: theme.text.secondary }}>Total prompt</span>
-                    <span>{latestRun.totalPromptTokens.toLocaleString()}</span>
+                  >
+                    Context is over 200K. Consider using{' '}
+                    <span style={{ fontFamily: 'monospace' }}>/handoff</span> to compact and
+                    continue in a new thread.
                   </div>
-                  {latestRun.totalCompletionTokens != null ? (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                      <span style={{ color: theme.text.secondary }}>Total completion</span>
-                      <span>{latestRun.totalCompletionTokens.toLocaleString()}</span>
-                    </div>
-                  ) : null}
-                </>
-              ) : null}
-              {(latestRun?.promptTokens ?? 0) > 200_000 ? (
-                <div
-                  style={{
-                    marginTop: 4,
-                    paddingTop: 6,
-                    borderTop: `1px solid ${theme.border.default}`,
-                    color: '#f59e0b',
-                    fontSize: 11,
-                    lineHeight: 1.4
-                  }}
-                >
-                  Context is over 200K. Consider using{' '}
-                  <span style={{ fontFamily: 'monospace' }}>/handoff</span> to compact and continue
-                  in a new thread.
-                </div>
-              ) : null}
-            </div>
-          }
-        >
-          <span
-            className="text-xs px-1.5 flex items-center gap-1"
-            style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
+                ) : null}
+              </div>
+            }
           >
-            {(latestRun?.promptTokens ?? 0) > 200_000 ? (
-              <TriangleAlert
-                size={11}
-                style={{ color: '#f59e0b', flexShrink: 0, opacity: 1, display: 'block' }}
-              />
-            ) : null}
-            {formatTokenCount(latestRun?.promptTokens ?? 0)}
-            <RunArrowIndicator />
-          </span>
-        </Tooltip>
+            <span
+              className="text-xs px-1.5 flex items-center gap-1"
+              style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
+            >
+              {displayPromptTokens + estimatedDraftTokens > 200_000 ? (
+                <TriangleAlert
+                  size={11}
+                  style={{ color: '#f59e0b', flexShrink: 0, opacity: 1, display: 'block' }}
+                />
+              ) : null}
+              {displayPromptTokens > 0 || isEstimated
+                ? formatTokenCount(displayPromptTokens)
+                : null}
+              {estimatedDraftTokens > 0 ? (
+                <span style={{ opacity: 0.6 }}>
+                  {displayPromptTokens > 0 ? '+' : ''}
+                  {formatTokenCount(estimatedDraftTokens)}
+                </span>
+              ) : null}
+              <RunArrowIndicator />
+            </span>
+          </Tooltip>
+        ) : null}
 
         <div className="ml-auto flex items-center gap-2">
           {showStopButton ? (
