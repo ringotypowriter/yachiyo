@@ -80,17 +80,15 @@ export function buildCurrentTimeSection(
 
 /**
  * Reminder injected when the user sends a mid-run steer message.
- * Tells the model how to handle the steer without derailing in-progress work.
+ * The detailed steer protocol lives in the system instructions (agent layer);
+ * this marker only signals that the current message is a steer.
  */
 export function buildSteerReminderSection(): QueryReminderSection {
   return {
     key: 'steer-guidance',
-    title: 'Mid-run steer from the user',
+    title: 'Mid-run steer',
     lines: [
-      'This message arrived while you were already working. It is a steer, not a fresh request.',
-      'If the steer adjusts your current work: incorporate the adjustment and continue to completion. Do not abandon in-progress work.',
-      'If the steer asks you to stop: stop immediately, summarize what you have completed so far, and ask the user what they need.',
-      'If the steer is a follow-up question: finish your current work first, then summarize what you did, and finally answer the question.'
+      'This message arrived while you were already working. It is a steer — follow the mid-run steer protocol in your instructions.'
     ]
   }
 }

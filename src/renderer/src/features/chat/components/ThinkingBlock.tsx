@@ -4,6 +4,7 @@ import { mathPlugin } from '@renderer/lib/markdown/mathPlugin'
 import { code } from '@streamdown/code'
 import { theme } from '@renderer/theme/theme'
 import { useThinkingPager } from '../hooks/useThinkingPager'
+import { useThinkingTimer } from '../hooks/useThinkingTimer'
 
 interface ThinkingBlockProps {
   reasoning: string
@@ -21,6 +22,7 @@ export function ThinkingBlock({
   const contentRef = useRef<HTMLDivElement>(null)
 
   const page = useThinkingPager(reasoning, isActive)
+  const timer = useThinkingTimer(isActive)
 
   useEffect(() => {
     if (!isActive && contentRef.current) {
@@ -81,7 +83,7 @@ export function ThinkingBlock({
             </svg>
           )}
           <span className="text-xs font-medium tracking-wide" style={{ color: theme.text.accent }}>
-            {isActive ? 'Thinking...' : 'Thought'}
+            {isActive ? `Thinking · ${timer}` : 'Thought'}
           </span>
         </button>
 

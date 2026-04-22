@@ -149,26 +149,6 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
         prepareAiSdkMessages(request.messages) as unknown[]
       ) as ModelMessage[]
 
-      // Debug: log reasoning parts to diagnose adapter warnings
-      const reasoningParts: unknown[] = []
-      for (const msg of preparedMessages) {
-        if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue
-        for (const part of msg.content) {
-          if ((part as Record<string, unknown>).type === 'reasoning') {
-            reasoningParts.push({
-              text: (part as Record<string, unknown>).text,
-              providerOptions: (part as Record<string, unknown>).providerOptions,
-              providerMetadata: (part as Record<string, unknown>).providerMetadata
-            })
-          }
-        }
-      }
-      if (reasoningParts.length > 0) {
-        console.debug(
-          `[yachiyo][reasoning-debug] provider=${request.settings.provider} model=${request.settings.model} reasoningCount=${reasoningParts.length} parts=${JSON.stringify(reasoningParts)}`
-        )
-      }
-
       const baseProviderOptions = createProviderOptions(
         request.settings,
         request.providerOptionsMode ?? 'default'

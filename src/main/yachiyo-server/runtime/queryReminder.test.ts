@@ -140,10 +140,9 @@ test('buildSteerReminderSection returns steer guidance section', () => {
   const section = buildSteerReminderSection()
   assert.equal(section.key, 'steer-guidance')
   assert.ok(section.title.includes('steer'))
-  assert.ok(section.lines.length >= 3)
-  assert.ok(section.lines.some((l) => l.includes('adjust')))
-  assert.ok(section.lines.some((l) => l.includes('stop')))
-  assert.ok(section.lines.some((l) => l.includes('follow-up question')))
+  assert.ok(section.lines.length >= 1)
+  assert.ok(section.lines.some((l) => l.includes('steer')))
+  assert.ok(section.lines.some((l) => l.includes('instructions')))
 })
 
 test('buildSteerReminderSection integrates into formatQueryReminder', () => {

@@ -701,6 +701,10 @@ function buildAgentInstructions(input: {
     )
   }
 
+  instructions.push(
+    'Mid-run steer protocol: A steer is a message that arrives while you are already working. It is an adjustment to your current task, not a new request. When you receive a steer, incorporate the adjustment and continue from where you left off. Do not abandon in-progress work unless the steer explicitly tells you to stop.'
+  )
+
   const parts: string[] = [instructions.join('\n')]
   if (input.subagentContextBlock) {
     parts.push(input.subagentContextBlock)
