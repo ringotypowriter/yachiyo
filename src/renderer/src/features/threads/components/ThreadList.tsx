@@ -1259,7 +1259,7 @@ function ThreadListContent({
           </div>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto px-2 py-1">
+      <div key={threadListMode} className="flex-1 overflow-y-auto px-2 py-1 yachiyo-thread-enter">
         {visibleThreads.length === 0 ? (
           <div className="px-4 py-6 text-sm leading-6" style={{ color: theme.text.muted }}>
             {threadListMode === 'archived'
