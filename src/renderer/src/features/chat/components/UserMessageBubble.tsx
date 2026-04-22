@@ -135,7 +135,13 @@ export const UserMessageBubble = memo(function UserMessageBubble({
             </p>
           ) : null}
         </div>
-        {!pending ? (
+        {pending ? (
+          onRevert ? (
+            <div className="mt-2 flex justify-end">
+              <MessageActionBar content={message.content} onRevert={onRevert} />
+            </div>
+          ) : null
+        ) : (
           <div className="mt-2 flex justify-end">
             <MessageActionBar
               content={message.content}
@@ -147,7 +153,7 @@ export const UserMessageBubble = memo(function UserMessageBubble({
               onRevert={onRevert}
             />
           </div>
-        ) : null}
+        )}
       </div>
     </div>
   )
