@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import type { Message, Thread, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ThreadFindBar } from '@renderer/features/chat/components/ThreadFindBar'
@@ -557,25 +558,35 @@ export function AppMainPanel({
 
   return (
     <div className="flex flex-col flex-1 h-full min-w-0 overflow-hidden relative" style={cardStyle}>
-      {findOpen && (
-        <ThreadFindBar
-          matches={findMatches}
-          currentIndex={findCurrentIndex}
-          query={findQuery}
-          onQueryChange={setFindQuery}
-          onNext={() =>
-            setFindCurrentIndex((i) =>
-              findMatches.length === 0 ? 0 : (i + 1) % findMatches.length
-            )
-          }
-          onPrev={() =>
-            setFindCurrentIndex((i) =>
-              findMatches.length === 0 ? 0 : (i - 1 + findMatches.length) % findMatches.length
-            )
-          }
-          onClose={handleFindClose}
-        />
-      )}
+      <AnimatePresence>
+        {findOpen && (
+          <motion.div
+            key="find-bar"
+            initial={{ opacity: 0, scale: 0.95, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: -4 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
+          >
+            <ThreadFindBar
+              matches={findMatches}
+              currentIndex={findCurrentIndex}
+              query={findQuery}
+              onQueryChange={setFindQuery}
+              onNext={() =>
+                setFindCurrentIndex((i) =>
+                  findMatches.length === 0 ? 0 : (i + 1) % findMatches.length
+                )
+              }
+              onPrev={() =>
+                setFindCurrentIndex((i) =>
+                  findMatches.length === 0 ? 0 : (i - 1 + findMatches.length) % findMatches.length
+                )
+              }
+              onClose={handleFindClose}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
       <AppMainPanelHeader
         activeThread={activeThread}
         headerPaddingLeft={headerPaddingLeft}
@@ -606,7 +617,20 @@ export function AppMainPanel({
             threadId={activeThreadId}
             recapText={recapText}
           />
-          {isInspectionPanelOpen ? <RunInspectionPanel threadId={activeThreadId} /> : null}
+          <AnimatePresence initial={false}>
+            {isInspectionPanelOpen && (
+              <motion.div
+                key="inspection-panel"
+                initial={{ width: 0, opacity: 0 }}
+                animate={{ width: 300, opacity: 1 }}
+                exit={{ width: 0, opacity: 0 }}
+                transition={{ duration: 0.2, ease: 'easeOut' }}
+                className="shrink-0 overflow-hidden"
+              >
+                <RunInspectionPanel threadId={activeThreadId} />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
         <RunStatusStrip />
         <div className="relative">

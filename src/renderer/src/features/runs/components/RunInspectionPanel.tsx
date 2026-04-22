@@ -255,7 +255,8 @@ export function RunInspectionPanel({ threadId }: RunInspectionPanelProps): React
       className="flex flex-col shrink-0 overflow-hidden"
       style={{
         borderLeft: `1px solid ${theme.border.default}`,
-        width: '300px'
+        width: '300px',
+        minWidth: '300px'
       }}
     >
       {/* Panel header */}

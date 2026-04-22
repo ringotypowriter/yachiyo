@@ -742,6 +742,21 @@ body > div:not(#root) {
   animation: yachiyo-preparing-enter 200ms ease-out;
 }
 
+/* Detail panel reveal inside virtualizer rows — opacity-only so the
+   virtualizer measures the final height in one pass, no layout thrash. */
+@keyframes yachiyo-detail-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.yachiyo-detail-reveal {
+  animation: yachiyo-detail-reveal 150ms ease-out;
+}
+
 /* Thread find bar — inline text highlights (CSS Custom Highlight API) */
 ::highlight(yachiyo-find) {
   background-color: rgb(var(--yachiyo-rgb-accent) / 0.22);

@@ -72,13 +72,16 @@ export function ToolCallGroupRow({ group, toolCalls }: ToolCallGroupRowProps): R
         </span>
       </button>
 
-      {isExpanded ? (
-        <div className="ml-7 mt-0.5 border-l pl-1" style={{ borderColor: theme.border.panel }}>
+      {isExpanded && (
+        <div
+          className="ml-7 mt-0.5 border-l pl-1 yachiyo-detail-reveal"
+          style={{ borderColor: theme.border.panel }}
+        >
           {toolCalls.map((tc) => (
             <ToolCallRow key={tc.id} toolCall={tc} />
           ))}
         </div>
-      ) : null}
+      )}
     </div>
   )
 }

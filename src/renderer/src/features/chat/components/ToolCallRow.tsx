@@ -117,10 +117,10 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
         </span>
       </button>
 
-      {isExpanded ? (
+      {isExpanded && (
         <div
           id={detailsId}
-          className="mt-1 ml-3 flex flex-col gap-1.5 border-l pl-3 pr-6"
+          className="mt-1 ml-3 flex flex-col gap-1.5 border-l pl-3 pr-6 yachiyo-detail-reveal"
           style={{ borderColor: theme.border.panel }}
         >
           {presentation.fields.length > 0 ? (
@@ -202,7 +202,7 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
 
           {hasSearchResults ? <SearchResultsList results={presentation.searchResults!} /> : null}
         </div>
-      ) : null}
+      )}
     </div>
   )
 }
