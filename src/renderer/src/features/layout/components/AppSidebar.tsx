@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   Archive,
   ArrowDownCircle,
@@ -137,21 +138,41 @@ export function AppSidebar({
 
       <EssentialsBar />
 
-      {isSearchOpen ? (
-        <SidebarSearch
-          onClose={onCloseSearch}
-          onSelectThread={(threadId, query) => {
-            setActiveThread(threadId)
-            onSearchSelect(query)
-          }}
-          onSelectMessage={(threadId, messageId, query) => {
-            setActiveThread(threadId, messageId)
-            onSearchSelect(query)
-          }}
-        />
-      ) : (
-        <ThreadList />
-      )}
+      <AnimatePresence mode="wait" initial={false}>
+        {isSearchOpen ? (
+          <motion.div
+            key="search"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="flex flex-col flex-1 min-h-0"
+          >
+            <SidebarSearch
+              onClose={onCloseSearch}
+              onSelectThread={(threadId, query) => {
+                setActiveThread(threadId)
+                onSearchSelect(query)
+              }}
+              onSelectMessage={(threadId, messageId, query) => {
+                setActiveThread(threadId, messageId)
+                onSearchSelect(query)
+              }}
+            />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="thread-list"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="flex flex-col flex-1 min-h-0"
+          >
+            <ThreadList />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="shrink-0 px-3 py-3 no-drag">
         <div className="flex items-center">

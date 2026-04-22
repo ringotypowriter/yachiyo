@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronUp, Square, Terminal, X } from 'lucide-react'
 
 import { theme } from '@renderer/theme/theme'
@@ -62,18 +63,28 @@ export function BackgroundTasksChip({
       className="absolute z-20"
       style={{ bottom: '100%', right: 16, marginBottom: 8 }}
     >
-      {open && (
-        <div className="absolute right-0" style={{ bottom: '100%', marginBottom: 8 }}>
-          <BackgroundTasksPanel
-            threadId={threadId ?? ''}
-            tasks={tasks}
-            expandedTaskId={expandedTaskId}
-            onToggleExpand={(id) => setExpandedTaskId((cur) => (cur === id ? null : id))}
-            onClose={() => setOpen(false)}
-            ignoreClickOutsideRef={wrapperRef}
-          />
-        </div>
-      )}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            key="bg-tasks-panel"
+            initial={{ opacity: 0, scale: 0.95, y: 4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 4 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
+            className="absolute right-0"
+            style={{ bottom: '100%', marginBottom: 8 }}
+          >
+            <BackgroundTasksPanel
+              threadId={threadId ?? ''}
+              tasks={tasks}
+              expandedTaskId={expandedTaskId}
+              onToggleExpand={(id) => setExpandedTaskId((cur) => (cur === id ? null : id))}
+              onClose={() => setOpen(false)}
+              ignoreClickOutsideRef={wrapperRef}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -300,10 +311,10 @@ function BackgroundTaskRow({
         )}
       </div>
       {expanded && (
-        <>
+        <div className="yachiyo-detail-reveal">
           <BackgroundTaskCommandView command={task.command} />
           <BackgroundTaskLogView lines={task.logTail} />
-        </>
+        </div>
       )}
     </div>
   )

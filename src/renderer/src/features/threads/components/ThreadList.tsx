@@ -1148,108 +1148,117 @@ function ThreadListContent({
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      {selectMode ? (
-        <div
-          className="flex items-center gap-1.5 mx-2 mt-1 mb-0.5 px-3 py-2 rounded-lg"
-          style={{ background: theme.background.code }}
-        >
-          <span className="flex-1 text-xs" style={{ color: theme.text.secondary }}>
-            {selectedIds.size === 0 ? 'Select threads' : `${selectedIds.size} selected`}
-          </span>
-          {selectedIds.size > 0 ? (
-            <button
-              title="Regenerate titles"
-              onClick={() => void handleBulkRegenerateTitle()}
-              className="flex items-center justify-center rounded p-1 transition-colors"
-              onMouseEnter={(e) =>
-                ((e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong)
-              }
-              onMouseLeave={(e) =>
-                ((e.currentTarget as HTMLElement).style.background = 'transparent')
-              }
-            >
-              <Sparkles size={13} strokeWidth={1.8} style={{ color: theme.text.secondary }} />
-            </button>
-          ) : null}
-          {selectedIds.size >= 2 && threadListMode === 'active' ? (
-            <button
-              title="Create folder from selected"
-              onClick={() => {
-                void createFolderForThreads([...selectedIds])
-                setSelectMode(false)
-                setSelectedIds(new Set())
-              }}
-              className="flex items-center justify-center rounded p-1 transition-colors"
-              onMouseEnter={(e) =>
-                ((e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong)
-              }
-              onMouseLeave={(e) =>
-                ((e.currentTarget as HTMLElement).style.background = 'transparent')
-              }
-            >
-              <FolderPlus size={13} strokeWidth={1.8} style={{ color: theme.text.secondary }} />
-            </button>
-          ) : null}
-          {selectedIds.size > 0 && threadListMode === 'active' ? (
-            <button
-              title="Archive selected"
-              onClick={() => void handleBulkArchive()}
-              className="flex items-center justify-center rounded p-1 transition-colors"
-              onMouseEnter={(e) =>
-                ((e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong)
-              }
-              onMouseLeave={(e) =>
-                ((e.currentTarget as HTMLElement).style.background = 'transparent')
-              }
-            >
-              <Archive size={13} strokeWidth={1.8} style={{ color: theme.text.secondary }} />
-            </button>
-          ) : null}
-          {selectedIds.size > 0 && threadListMode === 'archived' ? (
-            <button
-              title="Restore selected"
-              onClick={() => void handleBulkRestore()}
-              className="flex items-center justify-center rounded p-1 transition-colors"
-              onMouseEnter={(e) =>
-                ((e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong)
-              }
-              onMouseLeave={(e) =>
-                ((e.currentTarget as HTMLElement).style.background = 'transparent')
-              }
-            >
-              <RotateCcw size={13} strokeWidth={1.8} style={{ color: theme.text.secondary }} />
-            </button>
-          ) : null}
-          {selectedIds.size > 0 ? (
-            <button
-              title="Delete selected"
-              onClick={() => void handleBulkDelete()}
-              className="flex items-center justify-center rounded p-1 transition-colors"
-              onMouseEnter={(e) =>
-                ((e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong)
-              }
-              onMouseLeave={(e) =>
-                ((e.currentTarget as HTMLElement).style.background = 'transparent')
-              }
-            >
-              <Trash2 size={13} strokeWidth={1.8} style={{ color: theme.text.dangerStrong }} />
-            </button>
-          ) : null}
-          <button
-            title="Exit select mode"
-            onClick={exitSelectMode}
-            className="flex items-center justify-center rounded p-1 transition-colors"
-            onMouseEnter={(e) =>
-              ((e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong)
-            }
-            onMouseLeave={(e) =>
-              ((e.currentTarget as HTMLElement).style.background = 'transparent')
-            }
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateRows: selectMode ? '1fr' : '0fr',
+          opacity: selectMode ? 1 : 0,
+          transition: 'grid-template-rows 0.2s ease, opacity 0.15s ease'
+        }}
+      >
+        <div className="overflow-hidden">
+          <div
+            className="flex items-center gap-1.5 mx-2 mt-1 mb-0.5 px-3 py-2 rounded-lg"
+            style={{ background: theme.background.code }}
           >
-            <X size={13} strokeWidth={1.8} style={{ color: theme.text.secondary }} />
-          </button>
+            <span className="flex-1 text-xs" style={{ color: theme.text.secondary }}>
+              {selectedIds.size === 0 ? 'Select threads' : `${selectedIds.size} selected`}
+            </span>
+            {selectedIds.size > 0 ? (
+              <button
+                title="Regenerate titles"
+                onClick={() => void handleBulkRegenerateTitle()}
+                className="flex items-center justify-center rounded p-1 transition-colors"
+                onMouseEnter={(e) =>
+                  ((e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong)
+                }
+                onMouseLeave={(e) =>
+                  ((e.currentTarget as HTMLElement).style.background = 'transparent')
+                }
+              >
+                <Sparkles size={13} strokeWidth={1.8} style={{ color: theme.text.secondary }} />
+              </button>
+            ) : null}
+            {selectedIds.size >= 2 && threadListMode === 'active' ? (
+              <button
+                title="Create folder from selected"
+                onClick={() => {
+                  void createFolderForThreads([...selectedIds])
+                  setSelectMode(false)
+                  setSelectedIds(new Set())
+                }}
+                className="flex items-center justify-center rounded p-1 transition-colors"
+                onMouseEnter={(e) =>
+                  ((e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong)
+                }
+                onMouseLeave={(e) =>
+                  ((e.currentTarget as HTMLElement).style.background = 'transparent')
+                }
+              >
+                <FolderPlus size={13} strokeWidth={1.8} style={{ color: theme.text.secondary }} />
+              </button>
+            ) : null}
+            {selectedIds.size > 0 && threadListMode === 'active' ? (
+              <button
+                title="Archive selected"
+                onClick={() => void handleBulkArchive()}
+                className="flex items-center justify-center rounded p-1 transition-colors"
+                onMouseEnter={(e) =>
+                  ((e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong)
+                }
+                onMouseLeave={(e) =>
+                  ((e.currentTarget as HTMLElement).style.background = 'transparent')
+                }
+              >
+                <Archive size={13} strokeWidth={1.8} style={{ color: theme.text.secondary }} />
+              </button>
+            ) : null}
+            {selectedIds.size > 0 && threadListMode === 'archived' ? (
+              <button
+                title="Restore selected"
+                onClick={() => void handleBulkRestore()}
+                className="flex items-center justify-center rounded p-1 transition-colors"
+                onMouseEnter={(e) =>
+                  ((e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong)
+                }
+                onMouseLeave={(e) =>
+                  ((e.currentTarget as HTMLElement).style.background = 'transparent')
+                }
+              >
+                <RotateCcw size={13} strokeWidth={1.8} style={{ color: theme.text.secondary }} />
+              </button>
+            ) : null}
+            {selectedIds.size > 0 ? (
+              <button
+                title="Delete selected"
+                onClick={() => void handleBulkDelete()}
+                className="flex items-center justify-center rounded p-1 transition-colors"
+                onMouseEnter={(e) =>
+                  ((e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong)
+                }
+                onMouseLeave={(e) =>
+                  ((e.currentTarget as HTMLElement).style.background = 'transparent')
+                }
+              >
+                <Trash2 size={13} strokeWidth={1.8} style={{ color: theme.text.dangerStrong }} />
+              </button>
+            ) : null}
+            <button
+              title="Exit select mode"
+              onClick={exitSelectMode}
+              className="flex items-center justify-center rounded p-1 transition-colors"
+              onMouseEnter={(e) =>
+                ((e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong)
+              }
+              onMouseLeave={(e) =>
+                ((e.currentTarget as HTMLElement).style.background = 'transparent')
+              }
+            >
+              <X size={13} strokeWidth={1.8} style={{ color: theme.text.secondary }} />
+            </button>
+          </div>
         </div>
-      ) : null}
+      </div>
       <div className="flex-1 overflow-y-auto px-2 py-1">
         {visibleThreads.length === 0 ? (
           <div className="px-4 py-6 text-sm leading-6" style={{ color: theme.text.muted }}>
