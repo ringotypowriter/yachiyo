@@ -21,6 +21,7 @@ import type {
   RetryInput,
   RunFailedEvent,
   RunCreatedEvent,
+  RunUsageUpdatedEvent,
   SendChatInput,
   SendChatMode,
   SkillCatalogEntry,
@@ -2343,6 +2344,7 @@ export class YachiyoServerRunDomain {
         isAborted: () => activeRun.abortController.signal.aborted
       })
 
+      let handoffUsage: ModelUsage | undefined
       for await (const delta of runtime.streamReply({
         messages: buildCompactThreadHandoffMessages({
           history: input.sourceMessages,
@@ -2353,6 +2355,9 @@ export class YachiyoServerRunDomain {
         purpose: 'thread-handoff',
         onReasoningDelta: (reasoningDelta) => {
           reasoningDeltaBatcher.push(reasoningDelta)
+        },
+        onFinish: (usage) => {
+          handoffUsage = usage
         }
       })) {
         if (!delta) {
@@ -2366,12 +2371,30 @@ export class YachiyoServerRunDomain {
       reasoningDeltaBatcher.flush()
 
       const timestamp = this.deps.timestamp()
+      const handoffResponseMessages = handoffUsage?.responseMessages
+        ? (handoffUsage.responseMessages as Array<{ role?: string; content?: unknown[] }>)
+            .map((msg) => {
+              if (msg.role !== 'assistant' || !Array.isArray(msg.content)) return msg
+              return {
+                ...msg,
+                content: msg.content.filter(
+                  (part) => (part as { type?: string }).type !== 'reasoning'
+                )
+              }
+            })
+            .filter(
+              (msg) =>
+                msg.role !== 'assistant' || !Array.isArray(msg.content) || msg.content.length > 0
+            )
+        : undefined
+
       const assistantMessage: MessageRecord = {
         id: messageId,
         threadId: input.thread.id,
         role: 'assistant',
         content: bufferParts.join(''),
         ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
+        ...(handoffResponseMessages?.length ? { responseMessages: handoffResponseMessages } : {}),
         status: 'completed',
         createdAt: timestamp,
         modelId: settings.model,
@@ -2403,11 +2426,35 @@ export class YachiyoServerRunDomain {
       this.deps.storage.completeRun({
         runId: input.runId,
         updatedThread,
-        assistantMessage
+        assistantMessage,
+        ...(handoffUsage
+          ? {
+              promptTokens: handoffUsage.completionTokens,
+              completionTokens: handoffUsage.completionTokens,
+              totalPromptTokens: handoffUsage.totalCompletionTokens,
+              totalCompletionTokens: handoffUsage.totalCompletionTokens,
+              ...(handoffUsage.cacheReadTokens != null
+                ? { cacheReadTokens: handoffUsage.cacheReadTokens }
+                : {}),
+              ...(handoffUsage.cacheWriteTokens != null
+                ? { cacheWriteTokens: handoffUsage.cacheWriteTokens }
+                : {})
+            }
+          : {})
       })
       this.activeRuns.delete(input.runId)
       this.activeRunByThread.delete(input.thread.id)
       this.activeRunTasks.delete(input.runId)
+
+      if (handoffUsage) {
+        this.deps.emit<RunUsageUpdatedEvent>({
+          type: 'run.usage.updated',
+          threadId: input.thread.id,
+          runId: input.runId,
+          promptTokens: handoffUsage.completionTokens,
+          completionTokens: handoffUsage.completionTokens
+        })
+      }
 
       this.deps.emit<MessageCompletedEvent>({
         type: 'message.completed',
@@ -2423,7 +2470,15 @@ export class YachiyoServerRunDomain {
       this.deps.emit<RunCompletedEvent>({
         type: 'run.completed',
         threadId: input.thread.id,
-        runId: input.runId
+        runId: input.runId,
+        ...(handoffUsage
+          ? {
+              promptTokens: handoffUsage.completionTokens,
+              completionTokens: handoffUsage.completionTokens,
+              totalPromptTokens: handoffUsage.totalCompletionTokens,
+              totalCompletionTokens: handoffUsage.totalCompletionTokens
+            }
+          : {})
       })
 
       if (handoffFallbackTitle && firstMeaningfulMessage?.content) {
