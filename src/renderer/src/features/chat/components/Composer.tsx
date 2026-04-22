@@ -699,9 +699,16 @@ export function Composer({
   const canAddFiles = draftFiles.length < MAX_COMPOSER_FILES
   const hasActiveRun = activeRunId !== null
 
-  // Clear cancel-in-flight when the run actually ends.
+  // Clear cancel-in-flight when the run actually ends. Delay slightly so that
+  // if a queued follow-up starts immediately after cancellation the composer
+  // doesn't flicker from stop → send → stop.
   useEffect(() => {
-    if (!hasActiveRun) setIsCancelInFlight(false)
+    if (!hasActiveRun) {
+      const timer = setTimeout(() => setIsCancelInFlight(false), 100)
+      return () => clearTimeout(timer)
+    }
+    setIsCancelInFlight(false)
+    return undefined
   }, [hasActiveRun])
 
   const defaultEnabledSkillNames = useMemo(() => {
@@ -1140,7 +1147,7 @@ export function Composer({
     threadIsSaving: threadIsBusy,
     isConfigured
   })
-  const canSend = canSendBase && !isSendInFlight
+  const canSend = canSendBase && !isSendInFlight && !isCancelInFlight
 
   // Buffering only runs on real threads. In the new-thread composer we don't
   // have a stable target yet; forcing a staged payload through sendMessage's
