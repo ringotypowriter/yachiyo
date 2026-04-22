@@ -35,6 +35,7 @@ import type {
   RunFailedEvent,
   RunMemoryRecalledEvent,
   RunRetryingEvent,
+  RunUsageUpdatedEvent,
   SkillCatalogEntry,
   SkillSummary,
   SettingsConfig,
@@ -1284,6 +1285,7 @@ export async function executeServerRun(
   let snapshotTracker: SnapshotTracker | null = input.snapshotTracker ?? null
   /** Tracks the most recent usage from the model stream; hoisted so catch blocks can persist it. */
   let lastUsage: ModelUsage | undefined
+  let cumulativeCompletionTokens = input.priorUsage?.totalCompletionTokens ?? 0
   let tools: ToolSet | undefined
 
   try {
@@ -1824,6 +1826,16 @@ export async function executeServerRun(
       maxToolSteps,
       ...(tools ? { tools } : {}),
       ...(stopWhen ? { stopWhen } : {}),
+      onStepUsage: (stepUsage) => {
+        cumulativeCompletionTokens += stepUsage.completionTokens
+        deps.emit<RunUsageUpdatedEvent>({
+          type: 'run.usage.updated',
+          threadId: input.thread.id,
+          runId: input.runId,
+          promptTokens: stepUsage.promptTokens,
+          completionTokens: cumulativeCompletionTokens
+        })
+      },
       onFinish: (usage) => {
         markProgress()
         lastUsage = usage

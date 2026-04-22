@@ -1912,6 +1912,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       if (event.type === 'run.created') {
+        const prevRun = state.latestRunsByThread[event.threadId]
         const nextState = {
           ...state,
           activeRequestMessageIdsByThread: event.requestMessageId
@@ -1930,7 +1931,11 @@ export const useAppStore = create<AppState>((set, get) => ({
             threadId: event.threadId,
             status: 'running',
             createdAt: event.timestamp,
-            ...(event.requestMessageId ? { requestMessageId: event.requestMessageId } : {})
+            ...(event.requestMessageId ? { requestMessageId: event.requestMessageId } : {}),
+            ...(prevRun?.promptTokens != null ? { promptTokens: prevRun.promptTokens } : {}),
+            ...(prevRun?.completionTokens != null
+              ? { completionTokens: prevRun.completionTokens }
+              : {})
           }),
           runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
             ...run,
@@ -2162,6 +2167,22 @@ export const useAppStore = create<AppState>((set, get) => ({
         return {
           ...nextState,
           ...deriveActiveThreadRunState(nextState)
+        }
+      }
+
+      if (event.type === 'run.usage.updated') {
+        if (state.activeRunIdsByThread[event.threadId] !== event.runId) return {}
+        const existing = state.latestRunsByThread[event.threadId]
+        if (!existing || existing.id !== event.runId) return {}
+        return {
+          latestRunsByThread: {
+            ...state.latestRunsByThread,
+            [event.threadId]: {
+              ...existing,
+              promptTokens: event.promptTokens,
+              completionTokens: event.completionTokens
+            }
+          }
         }
       }
 

@@ -1356,6 +1356,12 @@ export interface RunContextCompiledEvent extends RunEvent {
   contextSources: RunContextSourceSummary[]
 }
 
+export interface RunUsageUpdatedEvent extends RunEvent {
+  type: 'run.usage.updated'
+  promptTokens: number
+  completionTokens: number
+}
+
 export interface RunCompletedEvent extends RunEvent {
   type: 'run.completed'
   recap?: boolean
@@ -1552,6 +1558,7 @@ export type YachiyoServerEvent =
   | RunCreatedEvent
   | RunMemoryRecalledEvent
   | RunContextCompiledEvent
+  | RunUsageUpdatedEvent
   | RunCompletedEvent
   | RunRetryingEvent
   | RunFailedEvent

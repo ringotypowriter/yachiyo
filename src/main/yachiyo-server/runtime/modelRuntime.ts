@@ -264,11 +264,20 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               toolCallId?: string
               toolName?: string
               type: string
+              usage?: { inputTokens?: number; outputTokens?: number }
+              totalUsage?: { inputTokens?: number; outputTokens?: number }
             }>) {
-              if (part.type === 'step-finish' || part.type === 'finish') {
+              if (part.type === 'finish-step' || part.type === 'finish') {
                 console.log(
                   `[yachiyo][stream] ${part.type}: finishReason=${part.finishReason ?? 'unknown'}, step=${part.stepNumber ?? '?'}, isContinued=${part.isContinued ?? false}`
                 )
+                if (request.onStepUsage && part.usage) {
+                  const prompt = part.usage.inputTokens ?? 0
+                  const completion = part.usage.outputTokens ?? 0
+                  if (prompt > 0 || completion > 0) {
+                    request.onStepUsage({ promptTokens: prompt, completionTokens: completion })
+                  }
+                }
               }
 
               if (part.type === 'error') {

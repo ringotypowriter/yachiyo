@@ -64,6 +64,7 @@ export interface ModelStreamRequest {
   promptCacheKey?: string
   onReasoningDelta?: (delta: string) => void
   onRetry?: (attempt: number, maxAttempts: number, delayMs: number, error: unknown) => void
+  onStepUsage?: (usage: { promptTokens: number; completionTokens: number }) => void
   onFinish?: (usage: ModelUsage) => void
 }
 
