@@ -702,6 +702,46 @@ body > div:not(#root) {
   margin-left: 1px;
 }
 
+/* Timeline row mount — subtle opacity fade so new rows don't pop */
+@keyframes yachiyo-row-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Thread switch — fade the entire scroll container on remount */
+@keyframes yachiyo-thread-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.yachiyo-thread-enter {
+  animation: yachiyo-thread-enter 180ms ease-out;
+}
+
+/* Preparing bubble mount — scale + fade so the dots don't hard-pop */
+@keyframes yachiyo-preparing-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.yachiyo-preparing-enter {
+  animation: yachiyo-preparing-enter 200ms ease-out;
+}
+
 /* Thread find bar — inline text highlights (CSS Custom Highlight API) */
 ::highlight(yachiyo-find) {
   background-color: rgb(var(--yachiyo-rgb-accent) / 0.22);

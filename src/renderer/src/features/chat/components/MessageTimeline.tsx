@@ -1286,7 +1286,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       <div
         ref={scrollContainerRef}
         data-timeline-scroll
-        className="h-full overflow-y-auto overflow-x-hidden"
+        className="h-full overflow-y-auto overflow-x-hidden yachiyo-thread-enter"
       >
         <div
           style={{
@@ -1309,7 +1309,8 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
                   left: 0,
                   width: '100%',
                   transform: `translateY(${virtualRow.start}px)`,
-                  contain: 'content'
+                  contain: 'content',
+                  animation: 'yachiyo-row-enter 150ms ease-out'
                 }}
               >
                 {renderTimelineItem(item)}
