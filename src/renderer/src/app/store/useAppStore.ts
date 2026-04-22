@@ -220,6 +220,7 @@ interface AppState {
   retryMessage: (messageId: string) => Promise<void>
   retryInfoByThread: Record<string, { attempt: number; maxAttempts: number; error: string }>
   runPhasesByThread: Record<string, 'idle' | 'preparing' | 'streaming'>
+  receivingModelOutputByThread: Record<string, boolean>
   savingThreadIds: Set<string>
   saveThread: (threadId: string, options?: { archiveAfterSave?: boolean }) => Promise<void>
   selectReplyBranch: (messageId: string) => Promise<void>
@@ -1190,6 +1191,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   runsByThread: {},
   retryInfoByThread: {},
   runPhasesByThread: {},
+  receivingModelOutputByThread: {},
   removeComposerImage: (imageId, threadId) =>
     set((state) => {
       const draftKey = getComposerDraftKey(threadId ?? state.activeThreadId)
@@ -1725,6 +1727,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete runsByThread[event.threadId]
         const runPhasesByThread = { ...state.runPhasesByThread }
         delete runPhasesByThread[event.threadId]
+        const receivingModelOutputByThread = { ...state.receivingModelOutputByThread }
+        delete receivingModelOutputByThread[event.threadId]
         const runStatusesByThread = { ...state.runStatusesByThread }
         delete runStatusesByThread[event.threadId]
         const toolCalls = { ...state.toolCalls }
@@ -1770,6 +1774,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             state.pendingSteerMessages,
             event.threadId
           ),
+          receivingModelOutputByThread,
           runPhasesByThread,
           runStatusesByThread,
           subagentActiveIdsByThread,
@@ -2053,7 +2058,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         )
 
         return {
-          messages: { ...state.messages, [event.threadId]: nextThreadMessages }
+          messages: { ...state.messages, [event.threadId]: nextThreadMessages },
+          receivingModelOutputByThread: {
+            ...state.receivingModelOutputByThread,
+            [event.threadId]: true
+          }
         }
       }
 
@@ -2100,6 +2109,10 @@ export const useAppStore = create<AppState>((set, get) => ({
             [event.runId]: nextPendingAssistantMessage
           },
           retryInfoByThread,
+          receivingModelOutputByThread: {
+            ...state.receivingModelOutputByThread,
+            [event.threadId]: true
+          },
           runPhasesByThread: setThreadRunPhaseValue(
             state.runPhasesByThread,
             event.threadId,
@@ -2159,6 +2172,10 @@ export const useAppStore = create<AppState>((set, get) => ({
             : state.pendingAssistantMessages,
           toolCalls: nextToolCalls,
           ...nextSubagentState,
+          receivingModelOutputByThread:
+            event.toolCall.status === 'completed' || event.toolCall.status === 'failed'
+              ? { ...state.receivingModelOutputByThread, [event.threadId]: false }
+              : state.receivingModelOutputByThread,
           runPhasesByThread:
             currentPhase === 'preparing' && event.toolCall.status !== 'preparing'
               ? setThreadRunPhaseValue(state.runPhasesByThread, event.threadId, 'streaming')
@@ -2290,6 +2307,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           pendingSteerMessages: isCurrentActiveRun
             ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
             : state.pendingSteerMessages,
+          receivingModelOutputByThread: isCurrentActiveRun
+            ? { ...state.receivingModelOutputByThread, [event.threadId]: false }
+            : state.receivingModelOutputByThread,
           runPhasesByThread: isCurrentActiveRun
             ? setThreadRunPhaseValue(state.runPhasesByThread, event.threadId, 'idle')
             : state.runPhasesByThread,
@@ -2386,6 +2406,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             event.runId,
             pending?.messageId
           ),
+          receivingModelOutputByThread: isCurrentActiveRun
+            ? { ...state.receivingModelOutputByThread, [event.threadId]: false }
+            : state.receivingModelOutputByThread,
           runPhasesByThread: isCurrentActiveRun
             ? setThreadRunPhaseValue(state.runPhasesByThread, event.threadId, 'idle')
             : state.runPhasesByThread,
@@ -2480,6 +2503,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             event.runId,
             pending?.messageId
           ),
+          receivingModelOutputByThread: isCurrentActiveRun
+            ? { ...state.receivingModelOutputByThread, [event.threadId]: false }
+            : state.receivingModelOutputByThread,
           runPhasesByThread: isCurrentActiveRun
             ? setThreadRunPhaseValue(state.runPhasesByThread, event.threadId, 'idle')
             : state.runPhasesByThread,

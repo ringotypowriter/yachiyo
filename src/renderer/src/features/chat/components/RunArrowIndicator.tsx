@@ -1,3 +1,4 @@
+import { Cog } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { theme } from '@renderer/theme/theme'
@@ -12,25 +13,22 @@ function useArrowPhase(): ArrowPhase {
     const runPhase = s.runPhasesByThread[threadId] ?? 'idle'
     if (runPhase === 'idle') return 'idle'
 
-    const activeRunId = s.activeRunIdsByThread[threadId]
-    const pending = activeRunId ? s.pendingAssistantMessages[activeRunId] : undefined
-
     if (runPhase === 'preparing') {
+      const activeRunId = s.activeRunIdsByThread[threadId]
+      const pending = activeRunId ? s.pendingAssistantMessages[activeRunId] : undefined
       if (pending) {
-        const messages = s.messages[threadId] ?? []
-        const streamingMsg = messages.find((m) => m.id === pending.messageId)
-        if (streamingMsg?.reasoning) return 'downloading'
+        const msg = (s.messages[threadId] ?? []).find((m) => m.id === pending.messageId)
+        if (msg?.reasoning) return 'downloading'
       }
       return 'uploading'
     }
 
     const toolCalls = s.toolCalls[threadId] ?? []
-    const hasActiveToolCall = toolCalls.some(
-      (tc) => tc.status === 'preparing' || tc.status === 'running'
-    )
-    if (hasActiveToolCall) return 'toolcall'
+    if (toolCalls.some((tc) => tc.status === 'preparing' || tc.status === 'running')) {
+      return 'toolcall'
+    }
 
-    if (pending?.shouldStartNewTextBlock && toolCalls.length > 0) {
+    if (toolCalls.length > 0 && !s.receivingModelOutputByThread[threadId]) {
       return 'uploading'
     }
 
@@ -98,50 +96,20 @@ function SingleArrow({ phase }: { phase: 'uploading' | 'downloading' }): React.R
   )
 }
 
-function ToolCallArrows(): React.ReactElement {
+function ToolCallGear(): React.ReactElement {
   return (
     <motion.span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        position: 'relative',
-        width: 14,
-        height: 10
+      style={{ display: 'inline-flex' }}
+      animate={{
+        rotate: 360,
+        opacity: [0.5, 1, 0.5]
+      }}
+      transition={{
+        rotate: { duration: 2.4, repeat: Infinity, ease: 'linear' },
+        opacity: shimmerTransition
       }}
     >
-      <motion.span
-        style={{ position: 'absolute', display: 'inline-flex' }}
-        initial={{ x: 0, rotate: -90, opacity: 0 }}
-        animate={{
-          x: [-3, -4.5, -3],
-          rotate: -90,
-          opacity: [0.5, 1, 0.5]
-        }}
-        transition={{
-          x: { ...bounceTransition, duration: 1.4 },
-          rotate: arrowTransition,
-          opacity: shimmerTransition
-        }}
-      >
-        <ArrowSvg />
-      </motion.span>
-      <motion.span
-        style={{ position: 'absolute', display: 'inline-flex' }}
-        initial={{ x: 0, rotate: 90, opacity: 0 }}
-        animate={{
-          x: [3, 4.5, 3],
-          rotate: 90,
-          opacity: [0.5, 1, 0.5]
-        }}
-        transition={{
-          x: { ...bounceTransition, duration: 1.4 },
-          rotate: arrowTransition,
-          opacity: { ...shimmerTransition, delay: 0.9 }
-        }}
-      >
-        <ArrowSvg />
-      </motion.span>
+      <Cog size={10} strokeWidth={1.8} />
     </motion.span>
   )
 }
@@ -172,7 +140,7 @@ export function RunArrowIndicator(): React.ReactElement | null {
             transition={{ duration: 0.2 }}
             style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
           >
-            <ToolCallArrows />
+            <ToolCallGear />
           </motion.span>
         ) : (
           <motion.span
