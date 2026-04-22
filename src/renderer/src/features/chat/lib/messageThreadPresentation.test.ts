@@ -1065,6 +1065,82 @@ test('getVisibleToolCallsForGroup hides unanchored tool calls from older runs wh
   )
 })
 
+test('getVisibleToolCallsForGroup hides stopped-branch tool calls from older runs while retry is streaming', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-retry'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'First question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-stopped',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: '',
+        status: 'stopped',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'assistant-retry',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Streaming…',
+        status: 'streaming',
+        createdAt: '2026-03-15T00:00:04.000Z'
+      }
+    ],
+    runPhase: 'streaming',
+    activeRequestMessageId: 'user-1'
+  })
+
+  const toolCalls = getVisibleToolCallsForGroup({
+    group: group!,
+    activeRunId: 'run-retry',
+    toolCalls: [
+      {
+        id: 'tool-stopped-anchored',
+        runId: 'run-old',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'failed',
+        inputSummary: 'sleep 5',
+        outputSummary: 'Run cancelled before the tool call finished.',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-stopped',
+        startedAt: '2026-03-15T00:00:01.100Z',
+        finishedAt: '2026-03-15T00:00:01.500Z'
+      },
+      {
+        id: 'tool-retry-running',
+        runId: 'run-retry',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'running',
+        inputSummary: 'draft.txt',
+        requestMessageId: 'user-1',
+        startedAt: '2026-03-15T00:00:04.200Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    toolCalls.map((toolCall) => toolCall.id),
+    ['tool-retry-running']
+  )
+})
+
 test('partitionToolCallsForGroups hides anchored tool calls that belong to hidden downstream requests', () => {
   const groups = buildMessageGroups({
     thread: {

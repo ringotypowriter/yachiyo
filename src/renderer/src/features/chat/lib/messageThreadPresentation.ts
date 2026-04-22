@@ -129,6 +129,16 @@ export function getVisibleToolCallsForGroup(input: {
         return false
       }
 
+      if (input.activeRunId && toolCall.runId && toolCall.runId !== input.activeRunId) {
+        const activeBranchMessageId =
+          input.group.activeBranchIndex >= 0
+            ? input.group.assistantBranches[input.group.activeBranchIndex]?.message.id
+            : undefined
+        if (toolCall.assistantMessageId !== activeBranchMessageId) {
+          return false
+        }
+      }
+
       return visibleAssistantIds.has(toolCall.assistantMessageId)
     })
     .sort((left, right) => {
