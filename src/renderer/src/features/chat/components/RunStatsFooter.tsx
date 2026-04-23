@@ -120,6 +120,7 @@ export function RunStatsFooter({
       {showDiffModal ? (
         <DiffPreviewerModal
           runId={runInfo.runId}
+          threadId={runInfo.threadId}
           workspacePath={runInfo.workspacePath}
           isLatestRun={latestRunsByThread[runInfo.threadId]?.id === runInfo.runId}
           onClose={handleCloseDiff}

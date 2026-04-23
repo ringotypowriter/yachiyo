@@ -261,19 +261,23 @@ function Container({
   children: React.ReactNode
 }): React.JSX.Element {
   const editorApp = useAppStore((s) => s.config?.workspace?.editorApp)
+  const markdownApp = useAppStore((s) => s.config?.workspace?.markdownApp)
 
   const handleReveal = useCallback(() => {
     if (filePath) window.api.yachiyo.revealFile({ path: filePath })
   }, [filePath])
 
   const handleOpenInEditor = useCallback(async () => {
-    if (!filePath || !editorApp) return
+    if (!filePath) return
+    const isMd = filePath.toLowerCase().endsWith('.md')
+    const app = isMd ? markdownApp || editorApp : editorApp
+    if (!app) return
     try {
-      await window.api.yachiyo.openFileInEditor({ path: filePath, editorApp })
+      await window.api.yachiyo.openFileInEditor({ path: filePath, editorApp: app })
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'Failed to open in editor.')
     }
-  }, [filePath, editorApp])
+  }, [filePath, editorApp, markdownApp])
 
   const hasActions = !!filePath
 
@@ -299,11 +303,15 @@ function Container({
           <ActionButton title="Reveal in Finder" onClick={handleReveal}>
             <FolderOpen size={12} strokeWidth={1.5} />
           </ActionButton>
-          {editorApp && (
-            <ActionButton title={`Open in ${editorApp}`} onClick={handleOpenInEditor}>
-              <SquareArrowOutUpRight size={12} strokeWidth={1.5} />
-            </ActionButton>
-          )}
+          {(() => {
+            const isMd = filePath?.toLowerCase().endsWith('.md') ?? false
+            const app = isMd ? markdownApp || editorApp : editorApp
+            return app ? (
+              <ActionButton title={`Open in ${app}`} onClick={handleOpenInEditor}>
+                <SquareArrowOutUpRight size={12} strokeWidth={1.5} />
+              </ActionButton>
+            ) : null
+          })()}
         </div>
       )}
     </div>

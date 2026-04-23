@@ -94,7 +94,8 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
           savedPaths,
           ...(pathLabels && Object.keys(pathLabels).length > 0 ? { pathLabels } : {}),
           editorApp: config.workspace?.editorApp ?? '',
-          terminalApp: config.workspace?.terminalApp ?? ''
+          terminalApp: config.workspace?.terminalApp ?? '',
+          markdownApp: config.workspace?.markdownApp ?? ''
         }
       }
     }

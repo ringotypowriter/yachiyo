@@ -1285,7 +1285,8 @@ test('normalization preserves every WorkspaceConfig key', () => {
     savedPaths: ['/tmp/test'],
     pathLabels: { '/tmp/test': 'Test' },
     editorApp: 'zed',
-    terminalApp: 'wezterm'
+    terminalApp: 'wezterm',
+    markdownApp: 'obsidian'
   }
   const result = normalizeSettingsConfig({ providers: [], workspace: sentinel })
   assertKeysPreserved(result.workspace, sentinel, 'WorkspaceConfig')

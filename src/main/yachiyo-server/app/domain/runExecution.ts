@@ -305,11 +305,43 @@ function isCancelWithSteerReason(value: unknown): value is CancelWithSteerReason
   )
 }
 
+const FRIENDLY_ERROR_LABELS: Array<[test: RegExp | string, label: string]> = [
+  ['ERR_HTTP2_PROTOCOL_ERROR', 'Connection interrupted (HTTP/2 stream reset)'],
+  ['ECONNRESET', 'Connection reset by server'],
+  ['ETIMEDOUT', 'Connection timed out'],
+  ['ECONNREFUSED', 'Connection refused'],
+  ['ENOTFOUND', 'Could not resolve host'],
+  ['ENETDOWN', 'Network is down'],
+  ['ENETUNREACH', 'Network is unreachable'],
+  ['ENETRESET', 'Network connection reset'],
+  ['EHOSTUNREACH', 'Host is unreachable'],
+  ['ERR_CONNECTION_CLOSED', 'Connection closed unexpectedly'],
+  ['ERR_NETWORK_CHANGED', 'Network changed during request'],
+  ['ERR_INTERNET_DISCONNECTED', 'Internet connection lost'],
+  ['UND_ERR_SOCKET', 'Socket error'],
+  ['UND_ERR_CONNECT_TIMEOUT', 'Connection timed out'],
+  [/socket hang up/i, 'Connection dropped (socket hang up)'],
+  [/fetch failed/i, 'Network request failed']
+]
+
+function humanizeErrorMessage(raw: string): string {
+  for (const [test, label] of FRIENDLY_ERROR_LABELS) {
+    if (typeof test === 'string' ? raw.includes(test) : test.test(raw)) return label
+  }
+  if (/^HTTP (\d{3})$/.test(raw)) return `Server error (${raw})`
+  return raw
+}
+
 function extractRetryErrorMessage(error: unknown): string {
-  if (!(error instanceof Error)) return String(error)
-  if (error.message) return error.message
+  if (!(error instanceof Error)) return humanizeErrorMessage(String(error))
+  const code = (error as { code?: string }).code
+  if (code) {
+    const label = humanizeErrorMessage(code)
+    if (label !== code) return label
+  }
+  if (error.message) return humanizeErrorMessage(error.message)
   const statusCode = (error as { statusCode?: number }).statusCode
-  return statusCode ? `HTTP ${statusCode}` : 'Provider error'
+  return statusCode ? humanizeErrorMessage(`HTTP ${statusCode}`) : 'Provider error'
 }
 
 function throwIfAborted(signal: AbortSignal): void {
@@ -2444,19 +2476,17 @@ export async function executeServerRun(
       try {
         await snapshotTracker.scanWorkspace()
         const snapshot = await snapshotTracker.finalize()
-        if (snapshot.entries.length > 0) {
-          deps.storage.updateRunSnapshot(input.runId, {
-            fileCount: snapshot.entries.length,
-            workspacePath: snapshotTracker.workspacePath
-          })
-          deps.emit<SnapshotReadyEvent>({
-            type: 'snapshot.ready',
-            threadId: input.thread.id,
-            runId: input.runId,
-            fileCount: snapshot.entries.length,
-            workspacePath: snapshotTracker.workspacePath
-          })
-        }
+        deps.storage.updateRunSnapshot(input.runId, {
+          fileCount: snapshot.entries.length,
+          workspacePath: snapshotTracker.workspacePath
+        })
+        deps.emit<SnapshotReadyEvent>({
+          type: 'snapshot.ready',
+          threadId: input.thread.id,
+          runId: input.runId,
+          fileCount: snapshot.entries.length,
+          workspacePath: snapshotTracker.workspacePath
+        })
         runGc(snapshotTracker.workspaceHash).catch(() => {})
       } catch (err) {
         console.error('[snapshot] Finalization failed:', err)
@@ -2721,19 +2751,17 @@ export async function executeServerRun(
           try {
             await snapshotTracker.scanWorkspace()
             const snapshot = await snapshotTracker.finalize()
-            if (snapshot.entries.length > 0) {
-              deps.storage.updateRunSnapshot(input.runId, {
-                fileCount: snapshot.entries.length,
-                workspacePath: snapshotTracker.workspacePath
-              })
-              deps.emit<SnapshotReadyEvent>({
-                type: 'snapshot.ready',
-                threadId: input.thread.id,
-                runId: input.runId,
-                fileCount: snapshot.entries.length,
-                workspacePath: snapshotTracker.workspacePath
-              })
-            }
+            deps.storage.updateRunSnapshot(input.runId, {
+              fileCount: snapshot.entries.length,
+              workspacePath: snapshotTracker.workspacePath
+            })
+            deps.emit<SnapshotReadyEvent>({
+              type: 'snapshot.ready',
+              threadId: input.thread.id,
+              runId: input.runId,
+              fileCount: snapshot.entries.length,
+              workspacePath: snapshotTracker.workspacePath
+            })
             runGc(snapshotTracker.workspaceHash).catch(() => {})
           } catch {
             // Best effort — don't fail the cancel path
@@ -2862,19 +2890,17 @@ export async function executeServerRun(
         try {
           await snapshotTracker.scanWorkspace()
           const snapshot = await snapshotTracker.finalize()
-          if (snapshot.entries.length > 0) {
-            deps.storage.updateRunSnapshot(input.runId, {
-              fileCount: snapshot.entries.length,
-              workspacePath: snapshotTracker.workspacePath
-            })
-            deps.emit<SnapshotReadyEvent>({
-              type: 'snapshot.ready',
-              threadId: input.thread.id,
-              runId: input.runId,
-              fileCount: snapshot.entries.length,
-              workspacePath: snapshotTracker.workspacePath
-            })
-          }
+          deps.storage.updateRunSnapshot(input.runId, {
+            fileCount: snapshot.entries.length,
+            workspacePath: snapshotTracker.workspacePath
+          })
+          deps.emit<SnapshotReadyEvent>({
+            type: 'snapshot.ready',
+            threadId: input.thread.id,
+            runId: input.runId,
+            fileCount: snapshot.entries.length,
+            workspacePath: snapshotTracker.workspacePath
+          })
           runGc(snapshotTracker.workspaceHash).catch(() => {})
         } catch {
           // Best effort — don't fail the cancel path
@@ -3032,19 +3058,17 @@ export async function executeServerRun(
       try {
         await snapshotTracker.scanWorkspace()
         const snapshot = await snapshotTracker.finalize()
-        if (snapshot.entries.length > 0) {
-          deps.storage.updateRunSnapshot(input.runId, {
-            fileCount: snapshot.entries.length,
-            workspacePath: snapshotTracker.workspacePath
-          })
-          deps.emit<SnapshotReadyEvent>({
-            type: 'snapshot.ready',
-            threadId: input.thread.id,
-            runId: input.runId,
-            fileCount: snapshot.entries.length,
-            workspacePath: snapshotTracker.workspacePath
-          })
-        }
+        deps.storage.updateRunSnapshot(input.runId, {
+          fileCount: snapshot.entries.length,
+          workspacePath: snapshotTracker.workspacePath
+        })
+        deps.emit<SnapshotReadyEvent>({
+          type: 'snapshot.ready',
+          threadId: input.thread.id,
+          runId: input.runId,
+          fileCount: snapshot.entries.length,
+          workspacePath: snapshotTracker.workspacePath
+        })
         runGc(snapshotTracker.workspaceHash).catch(() => {})
       } catch {
         // Best effort — don't fail the failure path

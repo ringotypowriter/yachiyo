@@ -5307,7 +5307,10 @@ test('YachiyoServer stops recovery after the final allowed committed retry attem
 
       assert.equal(resumedRequests.length, 1)
       assert.equal(bootstrap.latestRunsByThread['thread-1']?.status, 'failed')
-      assert.equal(bootstrap.latestRunsByThread['thread-1']?.error, 'net::ERR_CONNECTION_CLOSED')
+      assert.equal(
+        bootstrap.latestRunsByThread['thread-1']?.error,
+        'Connection closed unexpectedly'
+      )
       assert.equal(storage.getRunRecoveryCheckpoint('run-1'), undefined)
     } finally {
       waiter.close()

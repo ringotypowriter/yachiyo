@@ -364,7 +364,8 @@ export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.Re
   const [discoveredApps, setDiscoveredApps] = useState<{
     editors: DiscoveredApp[]
     terminals: DiscoveredApp[]
-  }>({ editors: [], terminals: [] })
+    markdownEditors: DiscoveredApp[]
+  }>({ editors: [], terminals: [], markdownEditors: [] })
 
   useEffect(() => {
     void window.api.yachiyo
@@ -519,6 +520,23 @@ export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.Re
               options={discoveredApps.terminals}
               placeholder="Select a terminal…"
               onChange={(v) => updateWorkspace({ terminalApp: v })}
+            />
+          </div>
+        </div>
+
+        <div
+          className="flex items-center justify-between gap-4 px-7 py-3"
+          style={{ borderTop: `1px solid ${theme.border.subtle}` }}
+        >
+          <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+            Markdown document
+          </div>
+          <div style={{ width: 220 }}>
+            <AppPicker
+              value={draft.workspace?.markdownApp ?? ''}
+              options={discoveredApps.markdownEditors}
+              placeholder="Select a markdown editor…"
+              onChange={(v) => updateWorkspace({ markdownApp: v })}
             />
           </div>
         </div>

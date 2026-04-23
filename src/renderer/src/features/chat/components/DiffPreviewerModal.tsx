@@ -12,6 +12,7 @@ import type {
 
 interface DiffPreviewerModalProps {
   runId: string
+  threadId: string
   workspacePath: string
   /** When false, revert buttons are hidden to prevent silently discarding later runs' edits. */
   isLatestRun?: boolean
@@ -32,11 +33,13 @@ const statusColor: Record<FileChangeStatus, string> = {
 
 export function DiffPreviewerModal({
   runId,
+  threadId,
   workspacePath,
   isLatestRun = true,
   onClose
 }: DiffPreviewerModalProps): React.JSX.Element {
   const editorApp = useAppStore((s) => s.config?.workspace?.editorApp)
+  const markdownApp = useAppStore((s) => s.config?.workspace?.markdownApp)
   const [changes, setChanges] = useState<FileChangeForReview[] | null>(null)
   const [error, setError] = useState(false)
   const [selectedIdx, setSelectedIdx] = useState(0)
@@ -54,6 +57,7 @@ export function DiffPreviewerModal({
         if (ignore) return
         setChanges(result)
         if (result.length > 0) setSelectedIdx(0)
+        useAppStore.getState().updateSnapshotFileCount(threadId, runId, result.length)
       })
       .catch(() => {
         if (ignore) return
@@ -62,7 +66,7 @@ export function DiffPreviewerModal({
     return () => {
       ignore = true
     }
-  }, [runId, workspacePath])
+  }, [runId, threadId, workspacePath])
 
   const handleEscape = useCallback(
     (e: KeyboardEvent) => {
@@ -94,11 +98,12 @@ export function DiffPreviewerModal({
         const updated = await window.api.yachiyo.getSnapshotDiff({ runId, workspacePath })
         setChanges(updated)
         if (selectedIdx >= updated.length) setSelectedIdx(Math.max(0, updated.length - 1))
+        useAppStore.getState().updateSnapshotFileCount(threadId, runId, updated.length)
       } finally {
         setReverting(false)
       }
     },
-    [runId, workspacePath, selectedIdx]
+    [runId, threadId, workspacePath, selectedIdx]
   )
 
   const executeRevertAll = useCallback(async () => {
@@ -107,10 +112,11 @@ export function DiffPreviewerModal({
       await window.api.yachiyo.revertSnapshotRun({ runId, workspacePath })
       setChanges([])
       setSelectedIdx(0)
+      useAppStore.getState().updateSnapshotFileCount(threadId, runId, 0)
     } finally {
       setReverting(false)
     }
-  }, [runId, workspacePath])
+  }, [runId, threadId, workspacePath])
 
   const handleConfirmRevert = useCallback(async () => {
     if (confirmRevertMode === 'file' && confirmRevertPath) {
@@ -124,17 +130,19 @@ export function DiffPreviewerModal({
 
   const handleOpenInEditor = useCallback(
     async (relativePath: string) => {
-      if (!editorApp) return
       const fullPath = workspacePath.endsWith('/')
         ? `${workspacePath}${relativePath}`
         : `${workspacePath}/${relativePath}`
+      const isMd = relativePath.toLowerCase().endsWith('.md')
+      const app = isMd ? markdownApp || editorApp : editorApp
+      if (!app) return
       try {
-        await window.api.yachiyo.openFileInEditor({ path: fullPath, editorApp })
+        await window.api.yachiyo.openFileInEditor({ path: fullPath, editorApp: app })
       } catch (error) {
         window.alert(error instanceof Error ? error.message : 'Failed to open in editor.')
       }
     },
-    [workspacePath, editorApp]
+    [workspacePath, editorApp, markdownApp]
   )
 
   const selected = changes?.[selectedIdx]
@@ -267,22 +275,28 @@ export function DiffPreviewerModal({
                         {selected.relativePath}
                       </span>
                       <div className="flex items-center gap-1.5">
-                        {editorApp && selected.status !== 'deleted' ? (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenInEditor(selected.relativePath)}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-opacity hover:opacity-80"
-                            style={{
-                              color: theme.text.accent,
-                              background: alpha('ink', 0.05),
-                              border: 'none',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            <SquareArrowOutUpRight size={10} strokeWidth={2} />
-                            Open in {editorApp}
-                          </button>
-                        ) : null}
+                        {selected.status !== 'deleted'
+                          ? (() => {
+                              const isMd = selected.relativePath.toLowerCase().endsWith('.md')
+                              const app = isMd ? markdownApp || editorApp : editorApp
+                              return app ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenInEditor(selected.relativePath)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-opacity hover:opacity-80"
+                                  style={{
+                                    color: theme.text.accent,
+                                    background: alpha('ink', 0.05),
+                                    border: 'none',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  <SquareArrowOutUpRight size={10} strokeWidth={2} />
+                                  Open in {app}
+                                </button>
+                              ) : null
+                            })()
+                          : null}
                         {isLatestRun ? (
                           <button
                             type="button"

@@ -307,6 +307,7 @@ export function RunInspectionPanel({ threadId }: RunInspectionPanelProps): React
       {viewingSnapshotRunId ? (
         <DiffPreviewerModal
           runId={viewingSnapshotRunId}
+          threadId={threadId ?? ''}
           workspacePath={
             runsWithSnapshots.find((r) => r.id === viewingSnapshotRunId)?.workspacePath ??
             snapshotReviewByRun[viewingSnapshotRunId]?.workspacePath ??

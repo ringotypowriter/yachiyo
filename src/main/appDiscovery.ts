@@ -24,6 +24,8 @@ const KNOWN_EDITORS = [
 
 const KNOWN_TERMINALS = ['Ghostty', 'Warp', 'iTerm', 'Terminal', 'Alacritty', 'Hyper', 'kitty']
 
+const KNOWN_MARKDOWN_EDITORS = ['Obsidian', 'Typora', 'MarkEdit', 'Zettlr']
+
 export interface DiscoveredApp {
   name: string
   iconDataUrl?: string
@@ -32,6 +34,7 @@ export interface DiscoveredApp {
 export interface DiscoveredApps {
   editors: DiscoveredApp[]
   terminals: DiscoveredApp[]
+  markdownEditors: DiscoveredApp[]
 }
 
 async function listAppsInDir(dir: string): Promise<Map<string, string>> {
@@ -113,17 +116,20 @@ export async function discoverApps(): Promise<DiscoveredApps> {
       return { name, iconDataUrl }
     }
 
-    const [editors, terminals] = await Promise.all([
+    const [editors, terminals, markdownEditors] = await Promise.all([
       Promise.all(KNOWN_EDITORS.map(toDiscoveredApp)).then((r) =>
         r.filter((x): x is DiscoveredApp => x !== null)
       ),
       Promise.all(KNOWN_TERMINALS.map(toDiscoveredApp)).then((r) =>
         r.filter((x): x is DiscoveredApp => x !== null)
+      ),
+      Promise.all(KNOWN_MARKDOWN_EDITORS.map(toDiscoveredApp)).then((r) =>
+        r.filter((x): x is DiscoveredApp => x !== null)
       )
     ])
 
-    return { editors, terminals }
+    return { editors, terminals, markdownEditors }
   } catch {
-    return { editors: [], terminals: [] }
+    return { editors: [], terminals: [], markdownEditors: [] }
   }
 }

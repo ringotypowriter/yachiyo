@@ -98,6 +98,10 @@ export function normalizeWorkspaceConfig(
     input['terminalApp'] !== undefined ? input['terminalApp'] : (fallback.terminalApp ?? ''),
     ''
   )
+  const markdownApp = normalizeString(
+    input['markdownApp'] !== undefined ? input['markdownApp'] : (fallback.markdownApp ?? ''),
+    ''
+  )
 
   const rawLabels = asRecord(input['pathLabels'] ?? fallback.pathLabels)
   const pathLabels: Record<string, string> = {}
@@ -109,7 +113,8 @@ export function normalizeWorkspaceConfig(
     savedPaths: normalizeStringList(input['savedPaths'] ?? fallback.savedPaths),
     ...(Object.keys(pathLabels).length > 0 ? { pathLabels } : {}),
     ...(editorApp ? { editorApp } : {}),
-    ...(terminalApp ? { terminalApp } : {})
+    ...(terminalApp ? { terminalApp } : {}),
+    ...(markdownApp ? { markdownApp } : {})
   }
 }
 

@@ -713,6 +713,7 @@ export interface WorkspaceConfig {
   pathLabels?: Record<string, string>
   editorApp?: string
   terminalApp?: string
+  markdownApp?: string
 }
 
 export interface ToolModelConfig {

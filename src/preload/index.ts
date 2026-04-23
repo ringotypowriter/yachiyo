@@ -260,6 +260,7 @@ const api = {
     listDiscoveredApps: (): Promise<{
       editors: { name: string; iconDataUrl?: string }[]
       terminals: { name: string; iconDataUrl?: string }[]
+      markdownEditors: { name: string; iconDataUrl?: string }[]
     }> => ipcRenderer.invoke('yachiyo:list-discovered-apps'),
     openWorkspaceWithApp: (input: { threadId: string; appName: string }): Promise<void> =>
       ipcRenderer.invoke('yachiyo:open-workspace-with-app', input),

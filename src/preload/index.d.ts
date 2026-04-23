@@ -203,6 +203,7 @@ declare global {
         listDiscoveredApps: () => Promise<{
           editors: { name: string; iconDataUrl?: string }[]
           terminals: { name: string; iconDataUrl?: string }[]
+          markdownEditors: { name: string; iconDataUrl?: string }[]
         }>
         openWorkspaceWithApp: (input: { threadId: string; appName: string }) => Promise<void>
         loadThreadData: (input: { threadId: string }) => Promise<{

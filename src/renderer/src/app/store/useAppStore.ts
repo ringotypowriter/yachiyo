@@ -265,6 +265,7 @@ interface AppState {
     { threadId: string; fileCount: number; workspacePath: string }
   >
   clearSnapshotReview: (runId: string) => void
+  updateSnapshotFileCount: (threadId: string, runId: string, fileCount: number) => void
 
   applyServerEvent: (event: YachiyoServerEvent) => void
   cancelActiveRun: () => Promise<void>
@@ -1551,6 +1552,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       delete next[runId]
       return { snapshotReviewByRun: next }
     }),
+  updateSnapshotFileCount: (threadId, runId, fileCount) =>
+    set((state) => ({
+      runsByThread: updateRunRecord(state.runsByThread, threadId, runId, (run) => ({
+        ...run!,
+        snapshotFileCount: fileCount
+      })),
+      latestRunsByThread:
+        state.latestRunsByThread[threadId]?.id === runId
+          ? {
+              ...state.latestRunsByThread,
+              [threadId]: { ...state.latestRunsByThread[threadId]!, snapshotFileCount: fileCount }
+            }
+          : state.latestRunsByThread
+    })),
 
   applyServerEvent: (event) => {
     const notifyActivity = (key: string, threadId: string, title: string, body: string): void => {
