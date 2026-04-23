@@ -34,6 +34,30 @@ import { sortToolCallsChronologically } from '../../../../shared/yachiyo/toolCal
 import { collectDescendantIds, collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 import { useBackgroundTasksStore } from '../../features/chat/state/useBackgroundTasksStore.ts'
 
+const COLLAPSED_FOLDER_IDS_KEY = 'yachiyo.collapsedFolderIds'
+
+function loadCollapsedFolderIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_FOLDER_IDS_KEY)
+    if (!raw) return new Set<string>()
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      return new Set<string>(parsed.filter((id): id is string => typeof id === 'string'))
+    }
+  } catch {
+    // ignore corrupt storage
+  }
+  return new Set<string>()
+}
+
+function saveCollapsedFolderIds(ids: Set<string>): void {
+  try {
+    localStorage.setItem(COLLAPSED_FOLDER_IDS_KEY, JSON.stringify([...ids]))
+  } catch {
+    // ignore storage errors
+  }
+}
+
 interface PendingAssistantMessage {
   messageId: string
   threadId: string
@@ -1074,7 +1098,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   scrollToMessageId: null,
   archivedThreads: [],
   folders: [],
-  collapsedFolderIds: new Set<string>(),
+  collapsedFolderIds: loadCollapsedFolderIds(),
   availableSkills: [],
   archiveThread: async (threadId) => {
     try {
@@ -2664,6 +2688,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (event.type === 'folder.deleted') {
         const nextCollapsed = new Set(state.collapsedFolderIds)
         nextCollapsed.delete(event.folderId)
+        saveCollapsedFolderIds(nextCollapsed)
         return {
           folders: removeFolder(state.folders, event.folderId),
           collapsedFolderIds: nextCollapsed
@@ -2907,6 +2932,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       } else {
         next.add(folderId)
       }
+      saveCollapsedFolderIds(next)
       return { collapsedFolderIds: next }
     })
   },
