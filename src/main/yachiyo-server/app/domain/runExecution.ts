@@ -1859,8 +1859,6 @@ export async function executeServerRun(
           cloneRecoveryResponseMessages(recoveryCheckpoint?.responseMessages) ??
           []
         persistRecoveryCheckpoint()
-        reasoningParts.length = 0
-        reasoningLength = 0
         deps.emit<RunRetryingEvent>({
           type: 'run.retrying',
           threadId: input.thread.id,
