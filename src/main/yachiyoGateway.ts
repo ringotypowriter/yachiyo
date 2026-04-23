@@ -664,7 +664,11 @@ async function startLiveServices(): Promise<void> {
     timestamp: () => new Date().toISOString(),
     tempWorkspaceDir: resolveYachiyoTempWorkspaceRoot()
   })
-  scheduleService.start()
+  // In dev mode, schedules are skipped by default to avoid unintended automated
+  // runs. Set YACHIYO_DEV_SCHEDULES=1 (or run `pnpm dev:schedules`) to opt in.
+  if (!is.dev || process.env['YACHIYO_DEV_SCHEDULES']) {
+    scheduleService.start()
+  }
 
   if (!is.dev || process.env['YACHIYO_DEV_CHANNELS']) {
     const channelsConfig = server.getChannelsConfig()
