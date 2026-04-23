@@ -41,6 +41,8 @@ export function createAskUserTool(
       'Ask the user a question and wait for their answer. ' +
       'Use when you need to gather preferences or requirements, clarify ambiguous instructions, ' +
       'decide between implementation options, or offer directional choices before proceeding. ' +
+      'When you want to present 2–4 options for the user to pick from, provide them as `choices` ' +
+      'so the user can answer quickly and work can continue without interruption. ' +
       'Do not use for rhetorical questions or when you can reasonably infer the answer.',
     inputSchema: askUserToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
