@@ -46,6 +46,8 @@ export interface FileChangeForReview {
   status: FileChangeStatus
   /** Unified diff string suitable for rendering in ToolCodeBlock variant="diff". */
   diff: string
+  /** True when the file has been restored to its pre-run state since the run completed. */
+  reverted?: boolean
 }
 
 // ---------------------------------------------------------------------------

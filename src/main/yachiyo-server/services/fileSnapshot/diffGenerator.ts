@@ -118,8 +118,30 @@ export async function generateDiffForRun(
       afterContent = await readBlobSafe(workspaceHash, entry.afterHash, entry.relativePath, 'after')
     }
 
-    // If the file has been restored to its pre-run state, skip it.
-    if (!beforeUnavailable && beforeContent === afterContent) continue
+    // If the file has been restored to its pre-run state, fall back to the
+    // stored afterHash so the diff shows what the agent originally changed.
+    if (!beforeUnavailable && beforeContent === afterContent) {
+      if (isLatest && entry.afterHash) {
+        const storedAfter = await readBlobSafe(
+          workspaceHash,
+          entry.afterHash,
+          entry.relativePath,
+          'after'
+        )
+        if (storedAfter !== null && storedAfter !== beforeContent) {
+          changes.push({
+            relativePath: entry.relativePath,
+            status: beforeContent === null ? 'created' : 'modified',
+            diff:
+              beforeContent === null
+                ? buildCreatedDiff(entry.relativePath, storedAfter)
+                : buildUnifiedDiff(entry.relativePath, beforeContent, storedAfter),
+            reverted: true
+          })
+        }
+      }
+      continue
+    }
 
     if (beforeUnavailable) {
       // Original blob was pruned. Surface the current content with a banner

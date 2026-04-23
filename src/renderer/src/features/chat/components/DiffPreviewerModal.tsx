@@ -57,7 +57,6 @@ export function DiffPreviewerModal({
         if (ignore) return
         setChanges(result)
         if (result.length > 0) setSelectedIdx(0)
-        useAppStore.getState().updateSnapshotFileCount(threadId, runId, result.length)
       })
       .catch(() => {
         if (ignore) return
@@ -98,7 +97,8 @@ export function DiffPreviewerModal({
         const updated = await window.api.yachiyo.getSnapshotDiff({ runId, workspacePath })
         setChanges(updated)
         if (selectedIdx >= updated.length) setSelectedIdx(Math.max(0, updated.length - 1))
-        useAppStore.getState().updateSnapshotFileCount(threadId, runId, updated.length)
+        const activeCount = updated.filter((c) => !c.reverted).length
+        useAppStore.getState().updateSnapshotFileCount(threadId, runId, activeCount)
       } finally {
         setReverting(false)
       }
@@ -237,7 +237,8 @@ export function DiffPreviewerModal({
                           background: isSelected ? alpha('ink', 0.06) : 'transparent',
                           border: 'none',
                           cursor: 'pointer',
-                          borderBottom: `1px solid ${alpha('ink', 0.04)}`
+                          borderBottom: `1px solid ${alpha('ink', 0.04)}`,
+                          opacity: change.reverted ? 0.5 : 1
                         }}
                         onMouseEnter={(e) => {
                           if (!isSelected) e.currentTarget.style.background = alpha('ink', 0.03)
@@ -297,7 +298,18 @@ export function DiffPreviewerModal({
                               ) : null
                             })()
                           : null}
-                        {isLatestRun ? (
+                        {selected.reverted ? (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs"
+                            style={{
+                              color: theme.text.muted,
+                              background: alpha('ink', 0.05)
+                            }}
+                          >
+                            <RotateCcw size={10} strokeWidth={2} />
+                            Reverted
+                          </span>
+                        ) : isLatestRun ? (
                           <button
                             type="button"
                             onClick={() => handleRevertFile(selected.relativePath)}
@@ -347,7 +359,7 @@ export function DiffPreviewerModal({
               className="shrink-0 px-5 py-3 flex justify-end gap-2"
               style={{ borderTop: `1px solid ${theme.border.subtle}` }}
             >
-              {isLatestRun && changes && changes.length > 0 ? (
+              {isLatestRun && changes && changes.some((c) => !c.reverted) ? (
                 <button
                   onClick={handleRevertAll}
                   disabled={reverting}
