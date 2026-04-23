@@ -102,7 +102,7 @@ test('shouldRecallBeforeRun stays quiet for small local growth after a recent re
   assert.deepEqual(decision.reasons, [])
 })
 
-test('shouldRecallBeforeRun stays quiet until six new messages land after the last recall', () => {
+test('shouldRecallBeforeRun stays quiet until eight new messages land after the last recall', () => {
   const decision = shouldRecallBeforeRun({
     history: [
       createMessage({
@@ -198,10 +198,21 @@ test('shouldRecallBeforeRun triggers after enough growth since the last recall',
       createMessage({
         id: 'm8',
         createdAt: '2026-03-23T00:07:00.000Z',
-        content: '最后确认值班人'
+        content: '再看 release note'
+      }),
+      createMessage({
+        id: 'm9',
+        createdAt: '2026-03-23T00:08:00.000Z',
+        content: '核对 changelog',
+        role: 'assistant'
+      }),
+      createMessage({
+        id: 'm10',
+        createdAt: '2026-03-23T00:09:00.000Z',
+        content: '发布窗口安排好了吗'
       })
     ],
-    now: '2026-03-23T00:07:00.000Z',
+    now: '2026-03-23T00:09:00.000Z',
     thread: createThread({
       memoryRecall: {
         lastRunAt: '2026-03-23T00:00:00.000Z',
@@ -276,7 +287,7 @@ test('detectNoveltySignal boosts emphasized and syntax-heavy terms', () => {
     userQuery: '另外，帮我看一下 `toolTimeout`、"Sonnet-4.6" 和 [agent] 这几个点'
   })
 
-  assert.equal(novelty.noveltyScore >= 0.75, true)
+  assert.equal(novelty.noveltyScore >= 0.85, true)
   assert.equal(novelty.novelTerms.includes('tooltimeout'), true)
   assert.equal(novelty.novelTerms.includes('sonnet-4.6'), true)
   assert.equal(novelty.novelTerms.includes('agent'), true)
@@ -314,7 +325,7 @@ test('shouldRecallBeforeRun skips topic novelty when only two strong code-switch
     userQuery: '另外，帮我看 MCP 和 agent 的行为'
   })
 
-  assert.equal(decision.noveltyScore < 0.75, true)
+  assert.equal(decision.noveltyScore < 0.85, true)
   assert.equal(decision.novelTerms.length, 2)
   assert.equal(decision.shouldRecall, false)
   assert.equal(decision.reasons.includes('topic-novelty'), false)
@@ -351,7 +362,7 @@ test('shouldRecallBeforeRun requires three strong novel terms before topic novel
     }),
     userQuery: '新的问题来了',
     novelty: {
-      noveltyScore: 0.8,
+      noveltyScore: 0.9,
       novelTerms: ['vector index', 'agent scheduling', 'tool timeout']
     }
   })
