@@ -1212,10 +1212,15 @@ export function registerYachiyoGateway(): YachiyoServer {
 
   handle(IPC_CHANNELS.openFileInEditor, async (input: { path: string; editorApp: string }) => {
     await new Promise<void>((resolve, reject) => {
+      const chunks: Buffer[] = []
       const child = spawn('open', ['-a', input.editorApp, input.path])
+      child.stderr.on('data', (d: Buffer) => chunks.push(d))
       child.on('close', (code) => {
         if (code === 0) resolve()
-        else reject(new Error(`Failed to open "${input.editorApp}" (exit code ${code})`))
+        else {
+          const stderr = Buffer.concat(chunks).toString().trim()
+          reject(new Error(stderr || `Failed to open "${input.editorApp}" (exit code ${code})`))
+        }
       })
       child.on('error', reject)
     })

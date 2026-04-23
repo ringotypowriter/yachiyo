@@ -307,7 +307,11 @@ export function DiffPreviewerModal({
                       <ToolCodeBlock
                         key={selected.relativePath}
                         value={selected.diff}
-                        filePath={selected.relativePath}
+                        filePath={
+                          selected.status !== 'deleted'
+                            ? `${workspacePath}${workspacePath.endsWith('/') ? '' : '/'}${selected.relativePath}`
+                            : undefined
+                        }
                         variant="diff"
                         fillHeight
                       />
