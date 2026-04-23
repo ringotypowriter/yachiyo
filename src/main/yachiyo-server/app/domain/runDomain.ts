@@ -1250,6 +1250,7 @@ export class YachiyoServerRunDomain {
     attachments: MessageFileAttachment[]
     messageId: string
     thread: ThreadRecord
+    hidden?: boolean
   }): ChatAccepted {
     const activeRun = this.activeRuns.get(input.activeRunId)
     if (!activeRun) {
@@ -1281,7 +1282,8 @@ export class YachiyoServerRunDomain {
         attachments: input.attachments,
         messageId: input.messageId,
         timestamp: this.deps.timestamp(),
-        previousEnabledSkillNames
+        previousEnabledSkillNames,
+        hidden: input.hidden
       }
     }
 
@@ -1717,6 +1719,7 @@ export class YachiyoServerRunDomain {
     let result: ExecuteRunResult = { kind: 'cancelled' }
     let accumulatedUsage: ExecuteRunInput['priorUsage'] | undefined
     let carriedSnapshotTracker: SnapshotTracker | undefined
+    let carriedToolFailLoopSteers = 0
     let isSteerLeg = false
 
     try {
@@ -1855,6 +1858,21 @@ export class YachiyoServerRunDomain {
               const currentRun = this.activeRuns.get(input.runId)
               return currentRun?.pendingSteerInput != null
             },
+            injectPendingSteer: (steerInput) => {
+              const activeRun = this.activeRuns.get(input.runId)
+              if (!activeRun) {
+                return
+              }
+              this.sendActiveRunSteer({
+                activeRunId: input.runId,
+                content: steerInput.content,
+                enabledSkillNames: activeRun.enabledSkillNames,
+                images: [],
+                attachments: [],
+                messageId: this.deps.createId(),
+                thread: currentThread
+              })
+            },
             onSubagentProgress: (event) => {
               this.deps.emit<SubagentProgressEvent>({
                 type: 'subagent.progress',
@@ -1947,6 +1965,9 @@ export class YachiyoServerRunDomain {
             updateHeadOnComplete: input.updateHeadOnComplete,
             ...(accumulatedUsage ? { priorUsage: accumulatedUsage } : {}),
             ...(isSteerLeg ? { isSteerLeg: true } : {}),
+            ...(carriedToolFailLoopSteers > 0
+              ? { priorToolFailLoopSteers: carriedToolFailLoopSteers }
+              : {}),
             ...(passTracker ? { snapshotTracker: passTracker } : {}),
             ...(isRecapRun ? { maxToolStepsOverride: 0 } : {}),
             readRecordCache
@@ -2137,6 +2158,7 @@ export class YachiyoServerRunDomain {
                 (accumulatedUsage?.cacheWriteTokens ?? 0) + (u.cacheWriteTokens ?? 0)
             }
           }
+          carriedToolFailLoopSteers = result.toolFailLoopSteersInjected ?? carriedToolFailLoopSteers
           isSteerLeg = true
           continue
         }

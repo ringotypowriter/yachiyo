@@ -156,6 +156,8 @@ export interface ExecuteRunInput {
   maxToolStepsOverride?: number
   /** Shared read-record cache, persisted across runs within the same thread. */
   readRecordCache?: ReadRecordCache
+  /** Number of tool-fail loop steers already injected in prior legs of this run. */
+  priorToolFailLoopSteers?: number
 }
 
 export interface RestartRunReason {
@@ -190,6 +192,7 @@ export type ExecuteRunResult =
       assistantMessageId: string
       usage?: ModelUsage
       snapshotTracker?: SnapshotTracker
+      toolFailLoopSteersInjected?: number
     }
   | {
       kind: 'cancelled-with-steer'
@@ -232,6 +235,8 @@ export interface RunExecutionDeps {
   onEnabledToolsUsed: (enabledTools: ToolCallName[]) => void
   onExecutionPhaseChange?: (phase: 'generating' | 'tool-running' | 'waiting-for-user') => void
   hasPendingSteer?: () => boolean
+  /** Called by execution to inject a system steer that breaks loops or redirects the model. */
+  injectPendingSteer?: (input: { content: string }) => void
   /** Called by execution to register the askUser answer handler. */
   onAskUserHandlerReady?: (handler: (toolCallId: string, answer: string) => void) => void
   onTerminalState?: () => void
@@ -1098,6 +1103,18 @@ export async function executeServerRun(
   const subagentStartedAtByDelegationId = new Map<string, string>()
   const runningToolCallIds = new Set<string>()
   let stepCount = Math.max(0, ...[...toolCalls.values()].map((toolCall) => toolCall.stepIndex ?? 0))
+
+  // Tool-fail loop guard: if the model repeats the same invalid tool input
+  // multiple times, inject a system steer to break the cycle instead of
+  // burning the entire step budget.
+  const TOOL_FAIL_LOOP_WINDOW = 10
+  const TOOL_FAIL_LOOP_THRESHOLD = 3
+  const MAX_TOOL_FAIL_STEERS = 2
+  const recentToolErrorKeys: string[] = []
+  const seenFailedToolCallIds = new Set<string>()
+  let toolFailLoopSteersInjected = input.priorToolFailLoopSteers ?? 0
+  let lastLoopActionKey: string | undefined
+
   const bufferParts: string[] = recoveryCheckpoint?.content ? [recoveryCheckpoint.content] : []
   let bufferLength = bufferParts.reduce((sum, part) => sum + part.length, 0)
   const reasoningParts: string[] = recoveryCheckpoint?.reasoning
@@ -2023,6 +2040,36 @@ export async function executeServerRun(
         })
       },
       onToolCallError: (event) => {
+        // Tool-fail loop guard: deduplicate by toolCallId and track recent errors.
+        if (!seenFailedToolCallIds.has(event.toolCall.toolCallId)) {
+          seenFailedToolCallIds.add(event.toolCall.toolCallId)
+          const errorMessage =
+            event.error instanceof Error ? event.error.message : String(event.error)
+          const inputJson = JSON.stringify(event.toolCall.input)
+          const key = `${event.toolCall.toolName}:${errorMessage}:${inputJson}`
+          recentToolErrorKeys.push(key)
+          if (recentToolErrorKeys.length > TOOL_FAIL_LOOP_WINDOW) {
+            recentToolErrorKeys.shift()
+          }
+          const count = recentToolErrorKeys.filter((k) => k === key).length
+          if (count >= TOOL_FAIL_LOOP_THRESHOLD && key !== lastLoopActionKey) {
+            lastLoopActionKey = key
+            if (toolFailLoopSteersInjected >= MAX_TOOL_FAIL_STEERS) {
+              throw new Error(
+                `Tool fail loop melt-out: the model repeatedly called '${event.toolCall.toolName}' ` +
+                  `with the same invalid input after ${MAX_TOOL_FAIL_STEERS} steering attempts. Stopping the run.`
+              )
+            }
+            toolFailLoopSteersInjected++
+            deps.injectPendingSteer?.({
+              content:
+                `You appear to be stuck in a loop sending the same invalid '${event.toolCall.toolName}' tool input ` +
+                `(${count} consecutive failures). Please stop and reconsider your approach. ` +
+                `Analyze the validation error, fix your input, or try a different tool.`
+            })
+          }
+        }
+
         if (!isTrackedToolName(event.toolCall.toolName)) {
           return 'continue'
         }
@@ -2082,6 +2129,13 @@ export async function executeServerRun(
       },
       onToolCallFinish: (event) => {
         try {
+          // Reset the tool-fail loop guard whenever a tool finishes successfully.
+          if (event.success) {
+            recentToolErrorKeys.length = 0
+            seenFailedToolCallIds.clear()
+            lastLoopActionKey = undefined
+          }
+
           if (!isTrackedToolName(event.toolCall.toolName)) {
             return
           }
@@ -2314,7 +2368,8 @@ export async function executeServerRun(
         kind: 'steer-pending',
         assistantMessageId: messageId,
         usage: lastUsage,
-        snapshotTracker: snapshotTracker ?? undefined
+        snapshotTracker: snapshotTracker ?? undefined,
+        toolFailLoopSteersInjected
       }
     }
 
