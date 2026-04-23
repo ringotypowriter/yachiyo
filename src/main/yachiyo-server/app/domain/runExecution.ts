@@ -83,7 +83,7 @@ import {
 import { readSoulDocument, type SoulDocument } from '../../runtime/soul.ts'
 import { readUserDocument, type UserDocument } from '../../runtime/user.ts'
 import { resolveYachiyoUserPath } from '../../config/paths.ts'
-import { homedir } from 'node:os'
+import { homedir, platform, release } from 'node:os'
 import { readChannelsConfig } from '../../runtime/channelsConfig.ts'
 import type { ModelRuntime, ModelUsage } from '../../runtime/types.ts'
 import { RETRY_MAX_ATTEMPTS } from '../../runtime/modelRuntime.ts'
@@ -574,10 +574,12 @@ function buildAgentInstructions(input: {
   const workspaceLine = input.workspaceLabel
     ? `The current thread workspace is ${input.workspacePath} (${input.workspaceLabel}).`
     : `The current thread workspace is ${input.workspacePath}.`
+  const systemLine = `System Platform: ${platform()} ${release()}`
   const instructions = [
     'You are operating as a tool-using local agent.',
     'Default execution mode is YOLO: use tools directly for normal local work instead of asking for per-step confirmation.',
     workspaceLine,
+    systemLine,
     'Relative paths should resolve from that workspace unless you intentionally use an absolute path.'
   ]
 
