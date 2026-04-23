@@ -327,6 +327,7 @@ export function createTool(
   } = {
     description:
       `Run JavaScript code in a REPL session with cwd set to ${context.workspacePath}. ` +
+      'Only JavaScript is supported — never write Python code or treat this as a Python interpreter. ' +
       'Context is reset by default so each call starts with a clean slate. ' +
       'Pass `reset: false` to preserve variables and imports from the previous call when you need multi-step state. ' +
       'Has access to `require()` for Node built-ins and project dependencies. ' +
