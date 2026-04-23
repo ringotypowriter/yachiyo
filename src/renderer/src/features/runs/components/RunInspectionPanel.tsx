@@ -17,7 +17,7 @@ function formatRunDuration(run: RunRecord): string {
   if (!run.completedAt) return ''
   const ms = new Date(run.completedAt).getTime() - new Date(run.createdAt).getTime()
   if (ms < 1000) return `${ms}ms`
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
+  if (ms < 60_000) return `${Math.floor(ms / 100) / 10}s`
   const minutes = Math.floor(ms / 60_000)
   const seconds = Math.round((ms % 60_000) / 1000)
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`
