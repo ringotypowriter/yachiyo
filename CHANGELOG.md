@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.32
+
+### Patch Changes
+
+- [`494e321`](https://github.com/ringotypowriter/yachiyo/commit/494e321f4d652bc06dc8ae939a7562aa39e3dac5) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Animation
+
 ## 1.0.31
 
 ### Patch Changes
