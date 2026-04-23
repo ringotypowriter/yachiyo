@@ -7,6 +7,19 @@ import { join } from 'node:path'
 import { runGrepTool } from './grepTool.ts'
 import { ReadRecordCache } from './readRecordCache.ts'
 import { createSearchService } from '../../services/search/searchService.ts'
+import type { GrepToolInput } from './shared.ts'
+import { DEFAULT_SEARCH_LIMIT } from './shared.ts'
+
+function grepInput(partial: Partial<GrepToolInput> & { pattern: string }): GrepToolInput {
+  return {
+    limit: DEFAULT_SEARCH_LIMIT,
+    literal: false,
+    caseSensitive: true,
+    context: 0,
+    filesOnly: false,
+    ...partial
+  }
+}
 
 describe('grepTool', () => {
   async function makeWorkspace(): Promise<string> {
@@ -21,7 +34,7 @@ describe('grepTool', () => {
     const cache = new ReadRecordCache()
     const searchService = createSearchService()
     await runGrepTool(
-      { pattern: 'three', path: workspace, context: 1 },
+      grepInput({ pattern: 'three', path: workspace, context: 1 }),
       { workspacePath: workspace, readRecordCache: cache },
       { searchService }
     )
@@ -41,7 +54,7 @@ describe('grepTool', () => {
     const cache = new ReadRecordCache()
     const searchService = createSearchService()
     await runGrepTool(
-      { pattern: 'hello', path: workspace, filesOnly: true },
+      grepInput({ pattern: 'hello', path: workspace, filesOnly: true }),
       { workspacePath: workspace, readRecordCache: cache },
       { searchService }
     )
@@ -59,7 +72,7 @@ describe('grepTool', () => {
     const cache = new ReadRecordCache()
     const searchService = createSearchService()
     await runGrepTool(
-      { pattern: 'alpha|delta', path: workspace },
+      grepInput({ pattern: 'alpha|delta', path: workspace }),
       { workspacePath: workspace, readRecordCache: cache },
       { searchService }
     )
@@ -76,7 +89,7 @@ describe('grepTool', () => {
     const cache = new ReadRecordCache()
     const searchService = createSearchService()
     await runGrepTool(
-      { pattern: 'two|six', path: workspace, context: 1 },
+      grepInput({ pattern: 'two|six', path: workspace, context: 1 }),
       { workspacePath: workspace, readRecordCache: cache },
       { searchService }
     )

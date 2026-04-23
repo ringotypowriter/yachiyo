@@ -390,7 +390,8 @@ test('streamBashTool emits preliminary updates and runBashTool returns a structu
     for await (const result of streamBashTool(
       {
         command: 'pwd',
-        timeout: 5
+        timeout: 5,
+        background: false
       },
       { workspacePath },
       {
@@ -421,7 +422,8 @@ test('streamBashTool emits preliminary updates and runBashTool returns a structu
     const finalResult = await runBashTool(
       {
         command: 'pwd',
-        timeout: 5
+        timeout: 5,
+        background: false
       },
       { workspacePath },
       {
@@ -457,7 +459,8 @@ test('streamBashTool abortSignal stops a long-running command without waiting fo
       streamBashTool(
         {
           command: 'sleep 60',
-          timeout: 120
+          timeout: 120,
+          background: false
         },
         { workspacePath },
         { abortSignal: controller.signal }
@@ -489,7 +492,8 @@ test('streamBashTool abortSignal kills spawned child processes, not just the she
       streamBashTool(
         {
           command: `nohup sleep 60 >/dev/null 2>&1 & echo $! > ${JSON.stringify(childPidPath)}; wait`,
-          timeout: 120
+          timeout: 120,
+          background: false
         },
         { workspacePath },
         { abortSignal: controller.signal }
@@ -538,7 +542,8 @@ test('runBashTool maps timeout failures into structured metadata', async () => {
     const result = await runBashTool(
       {
         command: 'sleep 10',
-        timeout: 1
+        timeout: 1,
+        background: false
       },
       { workspacePath },
       {
@@ -565,7 +570,7 @@ test('runBashTool lifts a timed-out command into a background task when adoption
     const fakeChild = {} as unknown as import('node:child_process').ChildProcess
 
     const result = await runBashTool(
-      { command: 'sleep 9999', timeout: 1 },
+      { command: 'sleep 9999', timeout: 1, background: false },
       {
         workspacePath,
         onBackgroundBashAdopted: async (task) => {
@@ -610,7 +615,7 @@ test('runBashTool lifts a timed-out command into a background task when adoption
 test('runBashTool falls back to a normal timeout error when no adoption hook is wired', async () => {
   await withWorkspace(async (workspacePath) => {
     const result = await runBashTool(
-      { command: 'sleep 5', timeout: 1 },
+      { command: 'sleep 5', timeout: 1, background: false },
       { workspacePath },
       {
         runCommand: async ({ onTimeoutLift }) => {
@@ -637,7 +642,7 @@ test('runBashTool auto-saves to .yachiyo/tool-output when output exceeds inline 
     const largeOutput = 'x'.repeat(25_000)
 
     const result = await runBashTool(
-      { command: 'echo large' },
+      { command: 'echo large', timeout: 30, background: false },
       { workspacePath },
       {
         runCommand: async () => ({
@@ -664,7 +669,11 @@ test('runGrepTool maps normalized search results into structured details and sum
       {
         pattern: 'needle',
         path: '.',
-        limit: 5
+        limit: 5,
+        literal: false,
+        caseSensitive: true,
+        context: 0,
+        filesOnly: false
       },
       { workspacePath },
       {
@@ -803,7 +812,11 @@ test('runGlobTool refuses to scan `~` or `/` without calling the search service'
     }
 
     for (const path of ['~', '/']) {
-      const result = await runGlobTool({ pattern: '*', path }, { workspacePath }, { searchService })
+      const result = await runGlobTool(
+        { pattern: '*', path, limit: 50 },
+        { workspacePath },
+        { searchService }
+      )
 
       assert.match(result.error ?? '', /too large/i)
       assert.match(flattenToolContent(result.content), /too large/i)
@@ -832,7 +845,15 @@ test('runGrepTool refuses to scan `~` or `/` without calling the search service'
 
     for (const path of ['~', '/']) {
       const result = await runGrepTool(
-        { pattern: 'anything', path },
+        {
+          pattern: 'anything',
+          path,
+          limit: 50,
+          literal: false,
+          caseSensitive: true,
+          context: 0,
+          filesOnly: false
+        },
         { workspacePath },
         { searchService }
       )
@@ -860,7 +881,8 @@ test('runWebReadTool maps service results into structured details and summaries'
 
     const result = await runWebReadTool(
       {
-        url: 'https://example.com/article'
+        url: 'https://example.com/article',
+        format: 'markdown'
       },
       { workspacePath },
       {
@@ -921,7 +943,8 @@ test('runWebReadTool reports raw format for non-HTML responses', async () => {
 
     const result = await runWebReadTool(
       {
-        url: 'https://example.com/data'
+        url: 'https://example.com/data',
+        format: 'markdown'
       },
       { workspacePath },
       {
@@ -957,7 +980,7 @@ test('runWebReadTool auto-saves to .yachiyo/tool-result when content exceeds inl
     })
 
     const result = await runWebReadTool(
-      { url: 'https://example.com/article' },
+      { url: 'https://example.com/article', format: 'markdown' },
       { workspacePath },
       {
         fetchImpl: async () => response,

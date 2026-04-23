@@ -59,7 +59,9 @@ function normalizeEdits(input: EditToolInput): EditSpec[] {
   if (input.newText === undefined) {
     throw new Error('Inline edit requires newText.')
   }
-  return [{ oldText: input.oldText, newText: input.newText, replace_all: input.replace_all }]
+  return [
+    { oldText: input.oldText, newText: input.newText, replace_all: input.replace_all ?? false }
+  ]
 }
 
 function isInputEffectivelyAbsolute(rawPath: string): boolean {

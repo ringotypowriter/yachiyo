@@ -7,7 +7,19 @@ import { runEditTool } from './editTool.ts'
 import { runGrepTool } from './grepTool.ts'
 import { ReadRecordCache } from './readRecordCache.ts'
 import { createSearchService } from '../../services/search/searchService.ts'
-import { editToolInputSchema } from './shared.ts'
+import { editToolInputSchema, DEFAULT_SEARCH_LIMIT } from './shared.ts'
+import type { GrepToolInput } from './shared.ts'
+
+function grepInput(partial: Partial<GrepToolInput> & { pattern: string }): GrepToolInput {
+  return {
+    limit: DEFAULT_SEARCH_LIMIT,
+    literal: false,
+    caseSensitive: true,
+    context: 0,
+    filesOnly: false,
+    ...partial
+  }
+}
 
 describe('editTool', () => {
   async function makeWorkspace(): Promise<string> {
@@ -248,7 +260,7 @@ describe('editTool', () => {
     const searchService = createSearchService()
     // Grep line 3 with context 1 → covers lines 2-4
     await runGrepTool(
-      { pattern: 'c', path: workspace, context: 1 },
+      grepInput({ pattern: 'c', path: workspace, context: 1 }),
       { workspacePath: workspace, readRecordCache: cache },
       { searchService }
     )
@@ -616,8 +628,8 @@ describe('editTool', () => {
           mode: 'batch',
           path: 'file.txt',
           edits: [
-            { oldText: 'alpha', newText: 'A' },
-            { oldText: 'gamma', newText: 'G' }
+            { oldText: 'alpha', newText: 'A', replace_all: false },
+            { oldText: 'gamma', newText: 'G', replace_all: false }
           ]
         },
         { workspacePath: workspace }
@@ -640,8 +652,8 @@ describe('editTool', () => {
           mode: 'batch',
           path: 'file.txt',
           edits: [
-            { oldText: 'alpha', newText: 'A' },
-            { oldText: 'does-not-exist', newText: 'X' }
+            { oldText: 'alpha', newText: 'A', replace_all: false },
+            { oldText: 'does-not-exist', newText: 'X', replace_all: false }
           ]
         },
         { workspacePath: workspace }
@@ -663,7 +675,7 @@ describe('editTool', () => {
         {
           mode: 'batch',
           path: 'file.txt',
-          edits: [{ oldText: 'x', newText: 'y' }]
+          edits: [{ oldText: 'x', newText: 'y', replace_all: false }]
         },
         { workspacePath: workspace }
       )
@@ -682,8 +694,8 @@ describe('editTool', () => {
           mode: 'batch',
           path: 'file.txt',
           edits: [
-            { oldText: 'foo', newText: 'bar' },
-            { oldText: 'bar', newText: 'baz' }
+            { oldText: 'foo', newText: 'bar', replace_all: false },
+            { oldText: 'bar', newText: 'baz', replace_all: false }
           ]
         },
         { workspacePath: workspace }
@@ -705,8 +717,8 @@ describe('editTool', () => {
           mode: 'batch',
           path: 'file.txt',
           edits: [
-            { oldText: 'foo', newText: 'bar' },
-            { oldText: 'bar', newText: 'foo' }
+            { oldText: 'foo', newText: 'bar', replace_all: false },
+            { oldText: 'bar', newText: 'foo', replace_all: false }
           ]
         },
         { workspacePath: workspace }
@@ -738,9 +750,9 @@ describe('editTool', () => {
           path: 'file.txt',
           edits: [
             // Edit 1 uniquely matches line 1's "foo" (via the "\na" context)
-            { oldText: 'foo\na', newText: 'FOO\na' },
+            { oldText: 'foo\na', newText: 'FOO\na', replace_all: false },
             // Edit 2 would now match only line 5's "foo" at apply time, but line 5 was never read
-            { oldText: 'foo', newText: 'bar' }
+            { oldText: 'foo', newText: 'bar', replace_all: false }
           ]
         },
         { workspacePath: workspace, readRecordCache: cache }
@@ -767,8 +779,8 @@ describe('editTool', () => {
           mode: 'batch',
           path: 'file.txt',
           edits: [
-            { oldText: 'one', newText: '1' }, // line 1 — covered
-            { oldText: 'five', newText: '5' } // line 5 — NOT covered
+            { oldText: 'one', newText: '1', replace_all: false }, // line 1 — covered
+            { oldText: 'five', newText: '5', replace_all: false } // line 5 — NOT covered
           ]
         },
         { workspacePath: workspace, readRecordCache: cache }

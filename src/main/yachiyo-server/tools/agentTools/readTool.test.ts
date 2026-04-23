@@ -6,6 +6,12 @@ import test from 'node:test'
 
 import { runReadTool } from './readTool.ts'
 import { ReadRecordCache } from './readRecordCache.ts'
+import type { ReadToolInput } from './shared.ts'
+import { DEFAULT_READ_LIMIT } from './shared.ts'
+
+function readInput(partial: { path: string; offset?: number; limit?: number }): ReadToolInput {
+  return { offset: 0, limit: DEFAULT_READ_LIMIT, ...partial }
+}
 
 async function withWorkspace(fn: (workspacePath: string) => Promise<void>): Promise<void> {
   const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-read-tool-'))
@@ -28,7 +34,7 @@ test('runReadTool reads image file as base64 with image-data content block', asy
     const imagePath = join(workspacePath, 'photo.png')
     await writeFile(imagePath, pngBuffer)
 
-    const result = await runReadTool({ path: imagePath }, { workspacePath })
+    const result = await runReadTool(readInput({ path: imagePath }), { workspacePath })
 
     assert.equal(result.error, undefined)
     assert.equal(result.details.mediaType, 'image/png')
@@ -63,7 +69,7 @@ test('runReadTool detects .jpg, .jpeg, .webp extensions', async () => {
     ] as const) {
       const filePath = join(workspacePath, filename)
       await writeFile(filePath, data)
-      const result = await runReadTool({ path: filePath }, { workspacePath })
+      const result = await runReadTool(readInput({ path: filePath }), { workspacePath })
       assert.equal(result.details.mediaType, expectedMime, `${filename} → ${expectedMime}`)
       assert.ok(
         result.content.some((b) => b.type === 'image-data'),
@@ -78,7 +84,7 @@ test('runReadTool falls back to text for non-image extensions', async () => {
     const textPath = join(workspacePath, 'hello.txt')
     await writeFile(textPath, 'hello world', 'utf8')
 
-    const result = await runReadTool({ path: textPath }, { workspacePath })
+    const result = await runReadTool(readInput({ path: textPath }), { workspacePath })
 
     assert.equal(result.details.mediaType, undefined)
     assert.ok(
@@ -94,10 +100,9 @@ test('runReadTool falls back to text for non-image extensions', async () => {
 
 test('runReadTool returns error result for missing image file', async () => {
   await withWorkspace(async (workspacePath) => {
-    const result = await runReadTool(
-      { path: join(workspacePath, 'missing.png') },
-      { workspacePath }
-    )
+    const result = await runReadTool(readInput({ path: join(workspacePath, 'missing.png') }), {
+      workspacePath
+    })
     assert.ok(result.error, 'should have an error for missing file')
   })
 })
@@ -111,7 +116,7 @@ test('runReadTool resolves Unicode spaces in intermediate directory names', asyn
 
     // LLM sends regular spaces (U+0020) because it normalizes Unicode spaces
     const result = await runReadTool(
-      { path: join(workspacePath, 'my notes', 'design doc.md') },
+      readInput({ path: join(workspacePath, 'my notes', 'design doc.md') }),
       { workspacePath }
     )
 
@@ -129,7 +134,7 @@ test('runReadTool resolves Unicode spaces in deeply nested paths', async () => {
     await writeFile(join(deepPath, 'file\u202Fname.txt'), 'found it\n', 'utf8')
 
     const result = await runReadTool(
-      { path: join(workspacePath, 'docs here', 'sub dir', 'file name.txt') },
+      readInput({ path: join(workspacePath, 'docs here', 'sub dir', 'file name.txt') }),
       { workspacePath }
     )
 
@@ -146,7 +151,7 @@ test('runReadTool records an empty file as read so overwrite guard passes', asyn
     await writeFile(filePath, '', 'utf8')
 
     const cache = new ReadRecordCache()
-    await runReadTool({ path: filePath }, { workspacePath, readRecordCache: cache })
+    await runReadTool(readInput({ path: filePath }), { workspacePath, readRecordCache: cache })
 
     assert.equal(cache.hasRecentRead(filePath), true, 'empty file read should create a record')
   })
@@ -158,7 +163,10 @@ test('runReadTool does not record a read when offset is past EOF', async () => {
     await writeFile(filePath, 'line1\nline2', 'utf8')
 
     const cache = new ReadRecordCache()
-    await runReadTool({ path: filePath, offset: 999 }, { workspacePath, readRecordCache: cache })
+    await runReadTool(readInput({ path: filePath, offset: 999 }), {
+      workspacePath,
+      readRecordCache: cache
+    })
 
     assert.equal(
       cache.hasRecentRead(filePath),
@@ -176,7 +184,10 @@ test('runReadTool does not record a byte-truncated partial first line as read', 
     await writeFile(filePath, hugeLine, 'utf8')
 
     const cache = new ReadRecordCache()
-    const result = await runReadTool({ path: filePath }, { workspacePath, readRecordCache: cache })
+    const result = await runReadTool(readInput({ path: filePath }), {
+      workspacePath,
+      readRecordCache: cache
+    })
 
     // The read should succeed with truncated content
     assert.equal(result.error, undefined)
