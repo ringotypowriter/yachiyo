@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
 import { createWriteStream, type WriteStream } from 'node:fs'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type { BashToolCallDetails } from '../../../../shared/yachiyo/protocol.ts'
@@ -12,6 +12,7 @@ import type { BashToolCallDetails } from '../../../../shared/yachiyo/protocol.ts
 import { killProcessTree } from '../../app/domain/killProcessTree.ts'
 import { validateBashCommand } from './bashSecurity.ts'
 import { withInjectedEnv } from './injectedEnv.ts'
+import { extractBashReadRanges } from './bashReadExtractor.ts'
 import {
   bashToolInputSchema,
   DEFAULT_BASH_TIMEOUT_SECONDS,
@@ -666,6 +667,33 @@ export async function* streamBashTool(
       }
 
       await closeWriteStream(spillStream)
+
+      // --- Record read-only bash commands in the read-before-edit cache ---
+      // Only when the model actually saw the output inline (not spilled to disk).
+      if (result.exitCode === 0 && !result.timedOut && !spillStarted && context.readRecordCache) {
+        try {
+          const reads = await extractBashReadRanges(command, context.workspacePath)
+          for (const read of reads) {
+            const mtimeMs = await stat(read.resolvedPath).then(
+              (s) => s.mtimeMs,
+              () => undefined
+            )
+            if (read.endLine === 0) {
+              context.readRecordCache.recordEmptyFileRead(read.resolvedPath, mtimeMs)
+            } else {
+              context.readRecordCache.recordRead(
+                read.resolvedPath,
+                read.startLine,
+                read.endLine,
+                mtimeMs
+              )
+            }
+          }
+        } catch {
+          // Best-effort: don't fail the bash tool if read extraction fails.
+        }
+      }
+
       const error = result.timedOut
         ? `Command timed out after ${timeoutSeconds} second${timeoutSeconds === 1 ? '' : 's'}.`
         : result.exitCode === 0

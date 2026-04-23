@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runEditTool } from './editTool.ts'
 import { runGrepTool } from './grepTool.ts'
+import { runBashTool } from './bashTool.ts'
 import { ReadRecordCache } from './readRecordCache.ts'
 import { createSearchService } from '../../services/search/searchService.ts'
 import { editToolInputSchema, DEFAULT_SEARCH_LIMIT } from './shared.ts'
@@ -289,6 +290,51 @@ describe('editTool', () => {
 
     assert.strictEqual(result.error, undefined)
     assert.strictEqual(result.details.replacements, 1)
+  })
+
+  it('allows edit after a read-only bash command covered the target line', async () => {
+    const workspace = await makeWorkspace()
+    const filePath = join(workspace, 'file.txt')
+    await writeFile(filePath, 'a\nb\nc\nd\ne\n', 'utf8')
+
+    const cache = new ReadRecordCache()
+    await runBashTool(
+      { command: "sed -n '3,4p' file.txt", timeout: 30, background: false },
+      { workspacePath: workspace, readRecordCache: cache }
+    )
+
+    const result = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: 'c', newText: 'C' },
+      { workspacePath: workspace, readRecordCache: cache }
+    )
+
+    assert.strictEqual(result.error, undefined)
+    assert.strictEqual(result.details.replacements, 1)
+    const content = await readFile(filePath, 'utf8')
+    assert.strictEqual(content, 'a\nb\nC\nd\ne\n')
+  })
+
+  it('rejects edit when bash command only covered a different region', async () => {
+    const workspace = await makeWorkspace()
+    const filePath = join(workspace, 'file.txt')
+    await writeFile(filePath, 'a\nb\nc\nd\ne\n', 'utf8')
+
+    const cache = new ReadRecordCache()
+    await runBashTool(
+      { command: "sed -n '1,2p' file.txt", timeout: 30, background: false },
+      { workspacePath: workspace, readRecordCache: cache }
+    )
+
+    const result = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: 'c', newText: 'C' },
+      { workspacePath: workspace, readRecordCache: cache }
+    )
+
+    assert.ok(result.error)
+    assert.match(result.error, /did not cover/)
+    assert.strictEqual(result.details.replacements, 0)
+    const content = await readFile(filePath, 'utf8')
+    assert.strictEqual(content, 'a\nb\nc\nd\ne\n')
   })
 
   it('returns a clean "File not found" brief when the target does not exist', async () => {
