@@ -60,10 +60,17 @@ describe('jsReplTool', () => {
     assert.ok(result.details.consoleOutput?.includes('[error] oops'))
   })
 
-  it('persists state across calls within the same tool instance', async () => {
+  it('resets context by default when reset is not specified', async () => {
     const tool = createTrackedTool(makeContext())
-    await execute(tool, { code: 'var x = 42' })
-    const result = await execute(tool, { code: 'x * 2' })
+    await execute(tool, { code: 'var x = 42', reset: false })
+    const result = await execute(tool, { code: 'typeof x' })
+    assert.equal(result.details.result, 'undefined')
+  })
+
+  it('persists state across calls when reset is false', async () => {
+    const tool = createTrackedTool(makeContext())
+    await execute(tool, { code: 'var x = 42', reset: false })
+    const result = await execute(tool, { code: 'x * 2', reset: false })
     assert.equal(result.details.result, '84')
   })
 
@@ -380,15 +387,14 @@ describe('jsReplTool', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-cwd-guard-'))
     try {
       const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
-      await execute(tool, { code: 'var keep = 123' })
+      await execute(tool, { code: 'var keep = 123', reset: false })
       const failed = await execute(tool, {
         code: 'keep',
         reset: true,
         cwd: 'does/not/exist'
       })
       assert.ok(failed.error?.includes('does not exist'))
-      // State survives the aborted reset — variable still defined.
-      const after = await execute(tool, { code: 'keep' })
+      const after = await execute(tool, { code: 'keep', reset: false })
       assert.equal(after.details.result, '123')
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
@@ -440,29 +446,32 @@ describe('jsReplTool', () => {
     assert.ok(result.details.result !== 'no error')
   })
 
-  it('allows repeated const require() across calls without redeclaration error', async () => {
+  it('allows repeated const require() across calls without redeclaration error (persistent mode)', async () => {
     const tool = createTrackedTool(makeContext())
-    await execute(tool, { code: 'const fs = require("node:fs"); "first"' })
-    const result = await execute(tool, { code: 'const fs = require("node:fs"); "second"' })
+    await execute(tool, { code: 'const fs = require("node:fs"); "first"', reset: false })
+    const result = await execute(tool, {
+      code: 'const fs = require("node:fs"); "second"',
+      reset: false
+    })
     assert.equal(result.details.result, 'second')
     assert.equal(result.error, undefined)
   })
 
-  it('allows repeated let require() across calls without redeclaration error', async () => {
+  it('allows repeated let require() across calls without redeclaration error (persistent mode)', async () => {
     const tool = createTrackedTool(makeContext())
-    await execute(tool, { code: 'let path = require("node:path"); "first"' })
+    await execute(tool, { code: 'let path = require("node:path"); "first"', reset: false })
     const result = await execute(tool, {
-      code: 'let path = require("node:path"); path.join("a","b")'
+      code: 'let path = require("node:path"); path.join("a","b")',
+      reset: false
     })
     assert.ok(result.details.result?.includes('a'))
     assert.equal(result.error, undefined)
   })
 
-  it('preserves const/let for non-require declarations', async () => {
+  it('preserves const/let for non-require declarations (persistent mode)', async () => {
     const tool = createTrackedTool(makeContext())
-    await execute(tool, { code: 'const x = 10' })
-    const result = await execute(tool, { code: 'const x = 20' })
-    // const redeclaration without require should still error
+    await execute(tool, { code: 'const x = 10', reset: false })
+    const result = await execute(tool, { code: 'const x = 20', reset: false })
     assert.ok(result.details.error?.includes('has already been declared'))
   })
 

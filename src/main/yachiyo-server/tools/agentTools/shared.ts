@@ -199,7 +199,7 @@ export const MAX_JSREPL_TIMEOUT_SECONDS = 120
 
 export const jsReplToolInputSchema = z.object({
   code: z.string().min(1),
-  reset: z.boolean().optional(),
+  reset: z.boolean().default(true),
   timeout: z.number().int().min(1).max(MAX_JSREPL_TIMEOUT_SECONDS).optional(),
   cwd: z
     .string()

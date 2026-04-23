@@ -325,10 +325,9 @@ export function createTool(
     dispose(): Promise<void>
   } = {
     description:
-      `Run JavaScript code in a persistent REPL session with cwd set to ${context.workspacePath}. ` +
-      'CRITICAL: Variables and imports persist across jsRepl calls within the same run. ' +
-      'If you are unsure what is already defined, or if your code assumes a clean slate, include `reset: true`. ' +
-      'Do not treat reset as a separate step or a sticky mode. ' +
+      `Run JavaScript code in a REPL session with cwd set to ${context.workspacePath}. ` +
+      'Context is reset by default so each call starts with a clean slate. ' +
+      'Pass `reset: false` to preserve variables and imports from the previous call when you need multi-step state. ' +
       'Has access to `require()` for Node built-ins and project dependencies. ' +
       'Relative paths in fs operations resolve against the workspace.\n' +
       'Optional `cwd` overrides the working directory for this call only; it must be a relative path inside the workspace — ' +
@@ -368,7 +367,7 @@ export function createTool(
           input.code,
           timeoutMs,
           cwdResolution.resolved,
-          input.reset
+          input.reset ?? true
         )
       } catch (workerError) {
         const errorMessage =
