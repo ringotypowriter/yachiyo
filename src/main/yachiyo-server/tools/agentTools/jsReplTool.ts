@@ -10,6 +10,7 @@ import {
   jsReplToolInputSchema,
   flattenToolContent,
   resolvePathWithinWorkspace,
+  DEFAULT_JSREPL_TIMEOUT_SECONDS,
   type AgentToolContext,
   type AgentToolOutput,
   type JsReplToolInput,
@@ -32,7 +33,7 @@ export interface JsReplToolDependencies {
   webSearchService?: WebSearchService
 }
 
-const DEFAULT_TIMEOUT_SECONDS = 30
+const DEFAULT_TIMEOUT_SECONDS = DEFAULT_JSREPL_TIMEOUT_SECONDS
 const MAX_MODEL_OUTPUT_CHARS = 20_000
 const MAX_DETAILS_OUTPUT_CHARS = 8_000
 

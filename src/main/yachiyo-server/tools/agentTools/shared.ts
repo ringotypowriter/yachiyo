@@ -39,8 +39,8 @@ export const MAX_WEB_SEARCH_LIMIT = 10
 
 export const readToolInputSchema = z.object({
   path: z.string().min(1),
-  offset: z.number().int().min(0).optional(),
-  limit: z.number().int().min(1).max(MAX_READ_LIMIT).optional()
+  offset: z.number().int().min(0).default(0),
+  limit: z.number().int().min(1).max(MAX_READ_LIMIT).default(DEFAULT_READ_LIMIT)
 })
 
 export const writeToolInputSchema = z.object({
@@ -51,7 +51,7 @@ export const writeToolInputSchema = z.object({
 export const editSpecSchema = z.object({
   oldText: z.string().min(1),
   newText: z.string(),
-  replace_all: z.boolean().optional()
+  replace_all: z.boolean().default(false)
 })
 
 export const replaceLinesSchema = z.object({
@@ -191,16 +191,27 @@ export const editToolInputSchema = z
 
 export const bashToolInputSchema = z.object({
   command: z.string().min(1),
-  timeout: z.number().int().min(1).max(MAX_BASH_TIMEOUT_SECONDS).optional(),
-  background: z.boolean().optional()
+  timeout: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_BASH_TIMEOUT_SECONDS)
+    .default(DEFAULT_BASH_TIMEOUT_SECONDS),
+  background: z.boolean().default(false)
 })
 
+export const DEFAULT_JSREPL_TIMEOUT_SECONDS = 30
 export const MAX_JSREPL_TIMEOUT_SECONDS = 120
 
 export const jsReplToolInputSchema = z.object({
   code: z.string().min(1),
   reset: z.boolean().default(true),
-  timeout: z.number().int().min(1).max(MAX_JSREPL_TIMEOUT_SECONDS).optional(),
+  timeout: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_JSREPL_TIMEOUT_SECONDS)
+    .default(DEFAULT_JSREPL_TIMEOUT_SECONDS),
   cwd: z
     .string()
     .min(1)
@@ -221,28 +232,28 @@ export const jsReplToolInputSchema = z.object({
 export const grepToolInputSchema = z.object({
   pattern: z.string().min(1),
   path: z.string().min(1).optional(),
-  limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).optional(),
-  literal: z.boolean().optional(),
-  caseSensitive: z.boolean().optional(),
+  limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).default(DEFAULT_SEARCH_LIMIT),
+  literal: z.boolean().default(false),
+  caseSensitive: z.boolean().default(true),
   include: z.string().min(1).optional(),
-  context: z.number().int().min(0).max(5).optional(),
-  filesOnly: z.boolean().optional()
+  context: z.number().int().min(0).max(5).default(0),
+  filesOnly: z.boolean().default(false)
 })
 
 export const globToolInputSchema = z.object({
   pattern: z.string().min(1),
   path: z.string().min(1).optional(),
-  limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).optional()
+  limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).default(DEFAULT_SEARCH_LIMIT)
 })
 
 export const webReadToolInputSchema = z.object({
   url: z.string().min(1),
-  format: z.enum(['markdown', 'html']).optional()
+  format: z.enum(['markdown', 'html']).default(DEFAULT_WEB_READ_FORMAT)
 })
 
 export const webSearchToolInputSchema = z.object({
   query: z.string().min(1),
-  limit: z.number().int().min(1).max(MAX_WEB_SEARCH_LIMIT).optional()
+  limit: z.number().int().min(1).max(MAX_WEB_SEARCH_LIMIT).default(DEFAULT_WEB_SEARCH_LIMIT)
 })
 
 export const skillsReadToolInputSchema = z.object({
