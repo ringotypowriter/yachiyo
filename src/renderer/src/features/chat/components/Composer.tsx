@@ -1909,6 +1909,13 @@ export function Composer({
           setWorkspaceSelectorOpen(false)
           return
         }
+        if (inputBuffer.staged) {
+          event.preventDefault()
+          const payload = inputBuffer.staged
+          inputBuffer.cancel()
+          mergeBufferedPayloadIntoDraft(payload, payload.sourceThreadId)
+          return
+        }
         if (editingMessage !== null) {
           event.preventDefault()
           cancelEditMessage()
