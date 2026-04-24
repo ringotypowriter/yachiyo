@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.33
+
+### Patch Changes
+
+- [`1922e1e`](https://github.com/ringotypowriter/yachiyo/commit/1922e1ef4dd7e60ed8cac784ef1708fa7696cd48) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - DeepSeek support
+
 ## 1.0.32
 
 ### Patch Changes
