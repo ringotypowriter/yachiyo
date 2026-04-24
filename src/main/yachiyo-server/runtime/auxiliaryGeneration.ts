@@ -1,6 +1,7 @@
 import type { ToolSet } from 'ai'
 
 import type { ProviderSettings } from '../../../shared/yachiyo/protocol.ts'
+import { formatErrorForLog } from './providers/gateway.ts'
 import type { ModelMessage, ModelRuntime, ModelToolCallErrorEvent, ModelUsage } from './types.ts'
 
 export type AuxiliaryGenerationUnavailableReason =
@@ -150,7 +151,7 @@ export function createAuxiliaryGenerationService(
       } catch (error) {
         return {
           status: 'failed',
-          error: error instanceof Error ? error.message : String(error),
+          error: formatErrorForLog(error),
           settings: resolvedSettings
         }
       }

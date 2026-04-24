@@ -63,7 +63,10 @@ import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool
 import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool'
 import { createTool as createUpdateProfileTool } from '../tools/agentTools/updateProfileTool'
 import { notifyAutoCompact } from './autoCompactNotice'
-import { compileGroupProbeContextLayers } from '../runtime/groupProbeContextLayers.ts'
+import {
+  compileGroupProbeContextLayers,
+  requiresAssistantReasoningForGroupProbeReplay
+} from '../runtime/groupProbeContextLayers.ts'
 
 import { resolveYachiyoTempWorkspaceRoot, YACHIYO_USER_FILE_NAME } from '../config/paths'
 import { join } from 'node:path'
@@ -615,7 +618,9 @@ export function createTelegramService({
       dynamicSystemPrompt,
       rollingSummary: probeThread.rollingSummary,
       history: loadGroupProbeHistory(server.getStorage(), probeThread),
-      currentTurnContent
+      currentTurnContent,
+      requireAssistantReasoningForReplay:
+        requiresAssistantReasoningForGroupProbeReplay(settingsOverride)
     })
 
     console.log(

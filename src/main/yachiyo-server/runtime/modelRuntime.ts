@@ -10,6 +10,7 @@ import {
 import { fetchModels as fetchModelsImpl } from './providers/fetchModels.ts'
 import { assertConfigured, createLanguageModel } from './providers/languageModel.ts'
 import {
+  formatErrorForLog,
   logGatewayDiagnostics,
   shouldLogGatewayDiagnostics,
   toSerializableError
@@ -558,8 +559,9 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             throw error
           }
 
+          const errorLogMessage = formatErrorForLog(error)
           console.error(
-            `${llmTag} error provider=${provider} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} committed=${streamCommitted}: ${error instanceof Error ? error.message : String(error)}`
+            `${llmTag} error provider=${provider} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} committed=${streamCommitted}: ${errorLogMessage}`
           )
 
           if (shouldLogGatewayDiagnostics(request.settings)) {
@@ -593,7 +595,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
           }
 
           console.warn(
-            `${llmTag} retrying attempt=${attempt}/${RETRY_MAX_ATTEMPTS} delayMs=${retryDelay}: ${error instanceof Error ? error.message : String(error)}`
+            `${llmTag} retrying attempt=${attempt}/${RETRY_MAX_ATTEMPTS} delayMs=${retryDelay}: ${errorLogMessage}`
           )
           request.onRetry?.(attempt, RETRY_MAX_ATTEMPTS, retryDelay, error)
 

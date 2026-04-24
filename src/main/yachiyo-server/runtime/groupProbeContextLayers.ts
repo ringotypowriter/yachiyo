@@ -1,3 +1,4 @@
+import type { ProviderSettings } from '../../../shared/yachiyo/protocol.ts'
 import type { ModelMessage } from './types.ts'
 import { toModelHistoryMessages, type ContextLayerHistoryMessage } from './contextLayers.ts'
 
@@ -7,6 +8,7 @@ export interface CompileGroupProbeContextLayersInput {
   rollingSummary?: string
   history: ContextLayerHistoryMessage[]
   currentTurnContent: string
+  requireAssistantReasoningForReplay?: boolean
 }
 
 function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
@@ -19,105 +21,156 @@ function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
   })
 }
 
-const STRONG_SENTENCE_STOP_PATTERN = /[.!?。！？]/g
-
-function trimReplayDecisionTail(text: string): string {
-  const trimmed = text.trim()
-  if (trimmed.length === 0) {
-    return ''
+export function requiresAssistantReasoningForGroupProbeReplay(
+  settings: Pick<ProviderSettings, 'provider' | 'baseUrl'>
+): boolean {
+  if (settings.provider !== 'anthropic') {
+    return false
   }
 
-  const matches = Array.from(trimmed.matchAll(STRONG_SENTENCE_STOP_PATTERN))
-  if (matches.length < 2) {
-    return trimmed
+  try {
+    return new URL(settings.baseUrl).hostname === 'api.deepseek.com'
+  } catch {
+    return settings.baseUrl.includes('api.deepseek.com')
   }
+}
 
-  const secondLastMatch = matches.at(-2)
-  if (!secondLastMatch || secondLastMatch.index == null) {
-    return ''
-  }
-
-  return trimmed.slice(0, secondLastMatch.index + secondLastMatch[0].length).trim()
+function isSuccessfulGroupMessageSendResult(output: unknown): boolean {
+  return (
+    typeof output === 'object' &&
+    output !== null &&
+    (output as { type?: unknown; value?: unknown }).type === 'text' &&
+    (output as { value?: unknown }).value === 'Message sent.'
+  )
 }
 
 function hasReplayableGroupMessageSend(messages: ModelMessage[]): boolean {
   return messages.some((message) => {
     if (message.role === 'tool') {
       return message.content.some(
-        (part) => part.type === 'tool-result' && part.toolName === 'send_group_message'
+        (part) =>
+          part.type === 'tool-result' &&
+          part.toolName === 'send_group_message' &&
+          isSuccessfulGroupMessageSendResult(part.output)
       )
     }
 
+    return false
+  })
+}
+
+function sanitizeSyntheticGroupMessageText(text: string): string {
+  return text
+    .replace(/\[/g, '⟦')
+    .replace(/\]/g, '⟧')
+    .replace(/<\/?msg[\s>]/gi, '')
+}
+
+function extractSuccessfulGroupMessageText(messages: ModelMessage[]): string | null {
+  const successfulToolCallIds = new Set<string>()
+
+  for (const message of messages) {
+    if (message.role !== 'tool') {
+      continue
+    }
+
+    for (const part of message.content) {
+      if (
+        part.type === 'tool-result' &&
+        part.toolName === 'send_group_message' &&
+        isSuccessfulGroupMessageSendResult(part.output)
+      ) {
+        successfulToolCallIds.add(part.toolCallId)
+      }
+    }
+  }
+
+  if (successfulToolCallIds.size === 0) {
+    return null
+  }
+
+  for (const message of messages) {
+    if (message.role !== 'assistant' || typeof message.content === 'string') {
+      continue
+    }
+
+    for (const part of message.content) {
+      if (
+        part.type === 'tool-call' &&
+        part.toolName === 'send_group_message' &&
+        successfulToolCallIds.has(part.toolCallId)
+      ) {
+        const input = part.input as { message?: unknown }
+        if (typeof input.message === 'string' && input.message.trim().length > 0) {
+          return input.message.trim()
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+function hasReplayableAnthropicReasoning(messages: ModelMessage[]): boolean {
+  return messages.some((message) => {
     if (message.role !== 'assistant' || typeof message.content === 'string') {
       return false
     }
 
-    return message.content.some(
-      (part) => part.type === 'tool-call' && part.toolName === 'send_group_message'
-    )
+    return message.content.some((part) => {
+      if (part.type !== 'reasoning') {
+        return false
+      }
+
+      const reasoningPart = part as unknown as {
+        providerMetadata?: Record<string, unknown>
+        providerOptions?: Record<string, unknown>
+      }
+      const providerOptions = reasoningPart.providerOptions
+      const providerMetadata = reasoningPart.providerMetadata
+      const anthropicOptions = providerOptions?.anthropic as Record<string, unknown> | undefined
+      const anthropicMetadata = providerMetadata?.anthropic as Record<string, unknown> | undefined
+
+      return Boolean(
+        anthropicOptions?.signature ||
+        anthropicOptions?.redactedData ||
+        anthropicMetadata?.signature ||
+        anthropicMetadata?.redactedData
+      )
+    })
   })
 }
 
-function trimAssistantReplayResponseMessages(responseMessages: unknown[]): unknown[] {
-  const messages = responseMessages as ModelMessage[]
-  if (hasReplayableGroupMessageSend(messages)) {
-    return responseMessages
+function toSafeGroupProbeSelfMessage(messageText: string): ModelMessage {
+  return {
+    role: 'user',
+    content: `<msg from="Yachiyo">${sanitizeSyntheticGroupMessageText(messageText)}</msg>`
   }
-
-  const trimmedMessages = [...messages]
-
-  for (let messageIndex = trimmedMessages.length - 1; messageIndex >= 0; messageIndex -= 1) {
-    const message = trimmedMessages[messageIndex]
-    if (message.role !== 'assistant') {
-      continue
-    }
-
-    if (typeof message.content === 'string') {
-      trimmedMessages[messageIndex] = {
-        ...message,
-        content: trimReplayDecisionTail(message.content)
-      }
-      break
-    }
-
-    const content = [...message.content]
-    for (let contentIndex = content.length - 1; contentIndex >= 0; contentIndex -= 1) {
-      const part = content[contentIndex]
-      if (part.type !== 'text') {
-        continue
-      }
-
-      content[contentIndex] = { ...part, text: trimReplayDecisionTail(part.text) }
-      trimmedMessages[messageIndex] = { ...message, content }
-      break
-    }
-
-    if (trimmedMessages[messageIndex] !== message) {
-      break
-    }
-  }
-
-  return trimmedMessages
 }
 
-function trimGroupProbeReplayHistoryMessage(
-  message: ContextLayerHistoryMessage
-): ContextLayerHistoryMessage {
+function toGroupProbeHistoryMessages(
+  message: ContextLayerHistoryMessage,
+  requireAssistantReasoningForReplay: boolean
+): ModelMessage[] {
   if (message.role !== 'assistant') {
-    return message
+    return toModelHistoryMessages(message)
   }
 
   if (message.responseMessages && message.responseMessages.length > 0) {
-    return {
-      ...message,
-      responseMessages: trimAssistantReplayResponseMessages(message.responseMessages)
+    const responseMessages = message.responseMessages as ModelMessage[]
+    if (!hasReplayableGroupMessageSend(responseMessages)) {
+      return []
     }
+
+    if (!requireAssistantReasoningForReplay || hasReplayableAnthropicReasoning(responseMessages)) {
+      return toModelHistoryMessages(message)
+    }
+
+    const sentMessageText = extractSuccessfulGroupMessageText(responseMessages)
+    return sentMessageText ? [toSafeGroupProbeSelfMessage(sentMessageText)] : []
   }
 
-  return {
-    ...message,
-    content: trimReplayDecisionTail(message.content)
-  }
+  return []
 }
 
 export function compileGroupProbeContextLayers(
@@ -144,9 +197,9 @@ export function compileGroupProbeContextLayers(
       ]
     : []
 
-  const historyMessages = input.history
-    .map(trimGroupProbeReplayHistoryMessage)
-    .flatMap(toModelHistoryMessages)
+  const historyMessages = input.history.flatMap((message) =>
+    toGroupProbeHistoryMessages(message, input.requireAssistantReasoningForReplay === true)
+  )
 
   const currentTurn: ModelMessage[] = input.currentTurnContent.trim()
     ? [{ role: 'user', content: input.currentTurnContent.trim() }]

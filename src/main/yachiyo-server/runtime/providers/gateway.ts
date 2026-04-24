@@ -59,6 +59,44 @@ export function toSerializableError(error: unknown): Record<string, unknown> {
   }
 }
 
+function stringifyErrorField(value: unknown): string | null {
+  if (value == null) {
+    return null
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed.length > 0 ? trimmed : null
+  }
+
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+export function formatErrorForLog(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return stringifyErrorField(error) ?? 'Unknown error'
+  }
+
+  const serialized = toSerializableError(error)
+  const parts = [
+    stringifyErrorField(serialized.name),
+    stringifyErrorField(serialized.message),
+    typeof serialized.statusCode === 'number' ? `statusCode=${serialized.statusCode}` : null,
+    typeof serialized.status === 'number' ? `status=${serialized.status}` : null,
+    typeof serialized.url === 'string' && serialized.url.trim() ? `url=${serialized.url}` : null,
+    stringifyErrorField(serialized.responseBody) ??
+      stringifyErrorField(serialized.responseText) ??
+      stringifyErrorField(serialized.body) ??
+      stringifyErrorField(serialized.data)
+  ].filter((part): part is string => part != null)
+
+  return parts.length > 0 ? parts.join(' ') : 'Unknown error'
+}
+
 function safeJsonStringify(value: unknown): string {
   const seen = new WeakSet<object>()
 

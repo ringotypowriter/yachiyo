@@ -63,7 +63,10 @@ import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool
 import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool.ts'
 import { createTool as createUpdateProfileTool } from '../tools/agentTools/updateProfileTool.ts'
 import { notifyAutoCompact } from './autoCompactNotice.ts'
-import { compileGroupProbeContextLayers } from '../runtime/groupProbeContextLayers.ts'
+import {
+  compileGroupProbeContextLayers,
+  requiresAssistantReasoningForGroupProbeReplay
+} from '../runtime/groupProbeContextLayers.ts'
 
 import { resolveYachiyoTempWorkspaceRoot, YACHIYO_USER_FILE_NAME } from '../config/paths.ts'
 
@@ -590,7 +593,9 @@ export function createDiscordService({
       dynamicSystemPrompt,
       rollingSummary: probeThread.rollingSummary,
       history: loadGroupProbeHistory(server.getStorage(), probeThread),
-      currentTurnContent
+      currentTurnContent,
+      requireAssistantReasoningForReplay:
+        requiresAssistantReasoningForGroupProbeReplay(settingsOverride)
     })
 
     console.log(
