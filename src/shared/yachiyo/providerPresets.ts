@@ -36,8 +36,8 @@ export const providerPresets: readonly ProviderPreset[] = [
   {
     key: 'deepseek',
     name: 'DeepSeek',
-    type: 'openai',
-    baseUrl: 'https://api.deepseek.com',
+    type: 'anthropic',
+    baseUrl: 'https://api.deepseek.com/anthropic',
     iconKey: 'deepseek'
   },
   {
@@ -120,15 +120,15 @@ export const providerPresets: readonly ProviderPreset[] = [
   {
     key: 'zhipu-glm',
     name: 'Zhipu GLM',
-    type: 'openai',
-    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    type: 'anthropic',
+    baseUrl: 'https://open.bigmodel.cn/api/anthropic',
     iconKey: 'zhipu'
   },
   {
     key: 'zai',
     name: 'Z.ai',
-    type: 'openai',
-    baseUrl: 'https://api.z.ai/api/paas/v4',
+    type: 'anthropic',
+    baseUrl: 'https://api.z.ai/api/anthropic',
     iconKey: 'zai'
   }
 ]
