@@ -231,6 +231,29 @@ function buildHistoricalTurnContextParts(turnContext: MessageTurnContext | undef
   return parts
 }
 
+export async function preprocessImagesForNonVisionModel(
+  history: ContextLayerHistoryMessage[],
+  imageToTextService: {
+    describe(dataUrl: string, caption?: string): Promise<{ altText: string } | null>
+  }
+): Promise<ContextLayerHistoryMessage[]> {
+  return Promise.all(
+    history.map(async (msg) => {
+      if (msg.role !== 'user' || !msg.images?.length) return msg
+      const processed = await Promise.all(
+        msg.images.map(async (img) => {
+          if (img.altText) return { ...img, dataUrl: '' }
+          if (!img.dataUrl) return img
+          const result = await imageToTextService.describe(img.dataUrl, '')
+          if (!result) return { ...img, dataUrl: '' }
+          return { ...img, altText: result.altText, dataUrl: '' }
+        })
+      )
+      return { ...msg, images: processed }
+    })
+  )
+}
+
 export function toModelHistoryMessages(message: ContextLayerHistoryMessage): ModelMessage[] {
   if (message.role !== 'user') {
     if (message.responseMessages && message.responseMessages.length > 0) {
@@ -246,7 +269,8 @@ export function toModelHistoryMessages(message: ContextLayerHistoryMessage): Mod
     ]
   }
 
-  const images = normalizeMessageImages(message.images)
+  const describedImages = (message.images ?? []).filter((img) => !img.dataUrl && img.altText)
+  const images = [...normalizeMessageImages(message.images), ...describedImages]
   const attachedFilesBlock = buildAttachedFilesBlock(message.images, message.attachments)
   const turnContextParts = buildHistoricalTurnContextParts(message.turnContext)
   const textContent = attachedFilesBlock
@@ -277,11 +301,24 @@ export function toModelHistoryMessages(message: ContextLayerHistoryMessage): Mod
       role: 'user',
       content: [
         ...(textContent.trim().length > 0 ? [{ type: 'text' as const, text: textContent }] : []),
-        ...images.map((image) => ({
-          type: 'image' as const,
-          image: extractBase64DataUrlPayload(image.dataUrl)?.base64 ?? image.dataUrl,
-          mediaType: image.mediaType
-        })),
+        ...images.flatMap(
+          (
+            image
+          ): Array<
+            { type: 'text'; text: string } | { type: 'image'; image: string; mediaType: string }
+          > => {
+            if (!image.dataUrl) {
+              return image.altText ? [{ type: 'text', text: `[Image: ${image.altText}]` }] : []
+            }
+            return [
+              {
+                type: 'image',
+                image: extractBase64DataUrlPayload(image.dataUrl)?.base64 ?? image.dataUrl,
+                mediaType: image.mediaType
+              }
+            ]
+          }
+        ),
         ...turnContextParts.map((text) => ({ type: 'text' as const, text }))
       ]
     }

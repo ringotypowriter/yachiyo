@@ -88,13 +88,6 @@ export function sanitizeChannelsConfig(
     }
   }
 
-  if (config.imageToText) {
-    sanitizedConfig.imageToText = {
-      ...config.imageToText,
-      model: sanitizeModelOverride(config.imageToText.model, providerNames)
-    }
-  }
-
   return sanitizedConfig
 }
 

@@ -1298,7 +1298,8 @@ test('normalization preserves every ChatConfig key', () => {
     stripCompactThresholdTokens: 120_000,
     autoMemoryDistillation: false,
     inputBufferEnabled: true,
-    recapEnabled: true
+    recapEnabled: true,
+    imageToTextModel: { providerName: 'openai', model: 'gpt-4o' }
   }
   const result = normalizeSettingsConfig({ providers: [], chat: sentinel })
   assertKeysPreserved(result.chat, sentinel, 'ChatConfig')
@@ -1384,4 +1385,46 @@ test('normalization preserves every ExaWebSearchConfig key', () => {
     webSearch: { exa: sentinel }
   })
   assertKeysPreserved(result.webSearch?.exa, sentinel, 'ExaWebSearchConfig')
+})
+
+test('chat.imageToTextModel round-trips through TOML serialization', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-i2t-'))
+  const settingsPath = join(root, 'config.toml')
+  const store = createSettingsStore(settingsPath)
+
+  try {
+    store.write({
+      providers: [PROVIDER_WORK],
+      chat: {
+        imageToTextModel: { providerName: 'work', model: 'gpt-5' }
+      }
+    })
+
+    const loaded = store.read()
+    assert.deepEqual(loaded.chat?.imageToTextModel, { providerName: 'work', model: 'gpt-5' })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('provider imageIncapable list round-trips through TOML serialization', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-imgcap-'))
+  const settingsPath = join(root, 'config.toml')
+  const store = createSettingsStore(settingsPath)
+
+  try {
+    store.write({
+      providers: [
+        {
+          ...PROVIDER_WORK,
+          modelList: { enabled: ['gpt-5', 'gpt-4.1'], disabled: [], imageIncapable: ['gpt-4.1'] }
+        }
+      ]
+    })
+
+    const loaded = store.read()
+    assert.deepEqual(loaded.providers[0].modelList.imageIncapable, ['gpt-4.1'])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })

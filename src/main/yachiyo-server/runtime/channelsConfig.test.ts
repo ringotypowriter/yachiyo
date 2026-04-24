@@ -50,8 +50,7 @@ test('channels config round-trips through TOML', async () => {
       guestInstruction: 'Keep replies concise for guest conversations.',
       memoryFilterKeywords: ['secret', 'private'],
       imageToText: {
-        enabled: true,
-        model: { providerName: 'vision-main', model: 'gpt-4.1-mini' }
+        enabled: true
       },
       groupVerbosity: 0.4,
       groupCheckIntervalMs: 9000,

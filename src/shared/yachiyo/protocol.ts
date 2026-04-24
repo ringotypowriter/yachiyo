@@ -625,6 +625,8 @@ export interface ToolCallRecord {
 export interface ProviderModelList {
   enabled: string[]
   disabled: string[]
+  /** Models explicitly marked as not image-capable. Default: all models are image-capable. */
+  imageIncapable?: string[]
 }
 
 export interface ProviderConfig {
@@ -652,6 +654,8 @@ export interface ChatConfig {
   autoMemoryDistillation?: boolean
   inputBufferEnabled?: boolean
   recapEnabled?: boolean
+  /** Model override for image-to-text descriptions. Falls back to tool model when unset. */
+  imageToTextModel?: ThreadModelOverride
 }
 
 export type UpdateChannel = 'stable' | 'beta'
@@ -930,8 +934,6 @@ export interface QQBotChannelConfig {
 export interface ImageToTextConfig {
   /** When true, images in group messages are pre-described as alt text. Default false. */
   enabled?: boolean
-  /** Model override for the vision model. Falls back to tool model when unset. */
-  model?: ThreadModelOverride
 }
 
 export interface ChannelsConfig {

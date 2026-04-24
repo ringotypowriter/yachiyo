@@ -85,8 +85,17 @@ export function normalizeChatConfig(value: unknown): ChatConfig {
       DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
     autoMemoryDistillation: normalizeOptionalBool(input['autoMemoryDistillation'], true),
     inputBufferEnabled: normalizeOptionalBool(input['inputBufferEnabled'], false),
-    recapEnabled: normalizeOptionalBool(input['recapEnabled'], true)
+    recapEnabled: normalizeOptionalBool(input['recapEnabled'], true),
+    ...normalizeImageToTextModel(input['imageToTextModel'])
   }
+}
+
+function normalizeImageToTextModel(value: unknown): Pick<ChatConfig, 'imageToTextModel'> {
+  const input = asRecord(value)
+  const providerName = normalizeString(input['providerName'], '')
+  const model = normalizeString(input['model'], '')
+  if (!providerName || !model) return {}
+  return { imageToTextModel: { providerName, model } }
 }
 
 export function normalizeWorkspaceConfig(

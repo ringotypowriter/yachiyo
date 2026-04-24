@@ -62,7 +62,20 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
     key: 'chat',
     read(doc) {
       const chat = readTomlTable(doc['chat'])
-      return chat ? { chat: chat as SettingsConfig['chat'] } : {}
+      if (!chat) return {}
+      const i2tModel = readTomlTable(chat['imageToTextModel'])
+      const imageToTextModel =
+        i2tModel &&
+        typeof i2tModel['providerName'] === 'string' &&
+        typeof i2tModel['model'] === 'string'
+          ? { providerName: i2tModel['providerName'] as string, model: i2tModel['model'] as string }
+          : undefined
+      return {
+        chat: {
+          ...(chat as SettingsConfig['chat']),
+          ...(imageToTextModel ? { imageToTextModel } : {})
+        }
+      }
     },
     write(config) {
       return {
@@ -74,7 +87,15 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
             config.chat?.stripCompactThresholdTokens ?? DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
           autoMemoryDistillation: config.chat?.autoMemoryDistillation !== false,
           inputBufferEnabled: config.chat?.inputBufferEnabled === true,
-          recapEnabled: config.chat?.recapEnabled !== false
+          recapEnabled: config.chat?.recapEnabled !== false,
+          ...(config.chat?.imageToTextModel
+            ? {
+                imageToTextModel: {
+                  providerName: config.chat.imageToTextModel.providerName,
+                  model: config.chat.imageToTextModel.model
+                }
+              }
+            : {})
         }
       }
     }
@@ -216,7 +237,10 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
           serviceAccountPrivateKey: provider.serviceAccountPrivateKey ?? '',
           modelList: {
             enabled: provider.modelList.enabled,
-            disabled: provider.modelList.disabled
+            disabled: provider.modelList.disabled,
+            ...(provider.modelList.imageIncapable?.length
+              ? { imageIncapable: provider.modelList.imageIncapable }
+              : {})
           }
         }))
       }

@@ -291,10 +291,8 @@ export class YachiyoServer {
     this.imageToTextServiceInstance = createImageToTextService({
       auxService: auxiliaryGeneration,
       resolveSettings: () => {
-        const channelsConfig = readChannelsConfig()
         const settingsConfig = this.configDomain.readConfig()
-        const imageToTextModel = channelsConfig.imageToText?.model
-        // Fall back to tool model settings when no override is configured.
+        const imageToTextModel = settingsConfig.chat?.imageToTextModel
         return imageToTextModel
           ? toEffectiveProviderSettings(settingsConfig, imageToTextModel)
           : (this.configDomain.readToolModelSettings() ??
@@ -341,7 +339,8 @@ export class YachiyoServer {
       requireThread: this.requireThread.bind(this),
       loadThreadMessages: (threadId) => this.storage.listThreadMessages(threadId),
       loadThreadToolCalls: (threadId) => this.storage.listThreadToolCalls(threadId),
-      jotdownStore: this.jotdownStore ?? undefined
+      jotdownStore: this.jotdownStore ?? undefined,
+      imageToTextService: this.imageToTextServiceInstance
     })
     this.threadDomain = new YachiyoServerThreadDomain({
       storage: this.storage,

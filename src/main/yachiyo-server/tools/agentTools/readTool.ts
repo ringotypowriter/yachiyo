@@ -261,6 +261,7 @@ async function runPdfReadTool(
 async function runImageReadTool(
   resolvedPath: string,
   mediaType: string,
+  context: AgentToolContext,
   abortSignal?: AbortSignal
 ): Promise<ReadToolOutput> {
   const fileData = await readFile(resolvedPath, { signal: abortSignal })
@@ -277,6 +278,17 @@ async function runImageReadTool(
     totalBytes: fileStat.size,
     truncated: false,
     mediaType
+  }
+
+  if (context.isModelImageCapable === false && context.imageToTextService) {
+    const dataUrl = `data:${mediaType};base64,${base64}`
+    const result = await context.imageToTextService.describe(dataUrl)
+    const altText = result?.altText ?? '(image could not be described)'
+    return {
+      content: textContent(`[Image: ${altText}]\n${summary}`),
+      details,
+      metadata: {}
+    }
   }
 
   return {
@@ -320,7 +332,7 @@ export async function runReadTool(
   const imageMimeType = detectImageMimeType(resolvedPath)
   if (imageMimeType) {
     try {
-      return await runImageReadTool(resolvedPath, imageMimeType, abortSignal)
+      return await runImageReadTool(resolvedPath, imageMimeType, context, abortSignal)
     } catch (error) {
       return createReadErrorResult(
         resolvedPath,

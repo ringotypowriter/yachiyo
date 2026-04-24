@@ -57,6 +57,8 @@ import {
 import { createRunPerfCollector } from '../../services/perfMonitor.ts'
 import { applyStripCompact } from '../../runtime/contextStripCompact.ts'
 import { prepareModelMessages } from '../../runtime/messagePrepare.ts'
+import { preprocessImagesForNonVisionModel } from '../../runtime/contextLayers.ts'
+import type { ImageToTextService } from '../../services/imageToText/imageToTextService.ts'
 import { repairReplayHistoryMessages } from '../../runtime/replayHistoryRepair.ts'
 import {
   buildExternalAgentInstructions,
@@ -248,6 +250,8 @@ export interface RunExecutionDeps {
   onSubagentStarted?: (event: DelegateCodingTaskStartedEvent) => void
   jotdownStore?: JotdownStore
   onSubagentFinished?: (event: DelegateCodingTaskFinishedEvent) => void
+  imageToTextService?: ImageToTextService
+  isModelImageCapable?: boolean
 }
 
 function appendMessageDeltaToTextBlocks(input: {
@@ -1597,7 +1601,14 @@ export async function executeServerRun(
           toolCalls: recoveredToolCalls
         })
       : []
-    const contextHistory = [...history, ...recoveryHistory]
+    let contextHistory = [...history, ...recoveryHistory]
+
+    if (deps.isModelImageCapable === false && deps.imageToTextService) {
+      contextHistory = await preprocessImagesForNonVisionModel(
+        contextHistory,
+        deps.imageToTextService
+      )
+    }
 
     const messages =
       isExternalChannel && !isOwnerDm
@@ -1715,6 +1726,8 @@ export async function executeServerRun(
         sandboxed: isExternalChannel && !isOwnerDm,
         snapshotTracker,
         readRecordCache: input.readRecordCache,
+        imageToTextService: deps.imageToTextService,
+        isModelImageCapable: deps.isModelImageCapable,
         ...(deps.onBackgroundBashStarted
           ? {
               onBackgroundBashStarted: async (task) => {

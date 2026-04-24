@@ -318,12 +318,9 @@ export const channelsTomlSlices: readonly TomlConfigSlice<ChannelsConfig, TomlDo
         return {}
       }
 
-      const model = readModel(section)
-
       return {
         imageToText: {
-          enabled: readBoolean(section['enabled']),
-          ...(model ? { model } : {})
+          enabled: readBoolean(section['enabled'])
         }
       }
     },
@@ -333,10 +330,7 @@ export const channelsTomlSlices: readonly TomlConfigSlice<ChannelsConfig, TomlDo
       }
 
       return {
-        image_to_text: buildSection([
-          ['enabled', config.imageToText.enabled === true],
-          ...buildModelEntries(config.imageToText.model)
-        ])
+        image_to_text: buildSection([['enabled', config.imageToText.enabled === true]])
       }
     }
   },

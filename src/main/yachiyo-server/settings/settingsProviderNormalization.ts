@@ -55,6 +55,7 @@ function normalizeProviderConfig(value: unknown, fallback?: ProviderConfig): Pro
   const disabled = normalizeStringList(modelList['disabled']).filter(
     (model) => !enabled.includes(model)
   )
+  const imageIncapable = normalizeStringList(modelList['imageIncapable'])
 
   const presetKey = normalizeString(input['presetKey'], fallback?.presetKey ?? '')
 
@@ -83,7 +84,8 @@ function normalizeProviderConfig(value: unknown, fallback?: ProviderConfig): Pro
     ),
     modelList: {
       enabled,
-      disabled
+      disabled,
+      ...(imageIncapable.length > 0 ? { imageIncapable } : {})
     }
   })
 }

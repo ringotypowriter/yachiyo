@@ -8,6 +8,7 @@ import type {
   SettingsConfig
 } from '../../../shared/yachiyo/protocol.ts'
 import {
+  computeImageIncapableForNewModels,
   createDisabledToolModelConfig,
   createProviderConfig,
   createProviderId,
@@ -26,8 +27,10 @@ import { filterProviderModels } from './providersPaneModel'
 interface ModelToggleProps {
   enabled: boolean
   model: string
+  imageCapable: boolean
   onRemove: () => void
   onToggle: () => void
+  onToggleImageCapable: () => void
 }
 
 interface ModelListSectionProps {
@@ -76,7 +79,14 @@ function withSelectedProvider(
   }
 }
 
-function ModelToggle({ model, enabled, onToggle, onRemove }: ModelToggleProps): React.ReactNode {
+function ModelToggle({
+  model,
+  enabled,
+  imageCapable,
+  onToggle,
+  onRemove,
+  onToggleImageCapable
+}: ModelToggleProps): React.ReactNode {
   const [hovered, setHovered] = useState(false)
 
   return (
@@ -88,9 +98,28 @@ function ModelToggle({ model, enabled, onToggle, onRemove }: ModelToggleProps): 
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <span className="text-sm truncate mr-3" style={{ color: theme.text.primary }}>
-        {model}
-      </span>
+      <div className="flex items-center gap-1.5 min-w-0 mr-3">
+        <span className="text-sm truncate" style={{ color: theme.text.primary }}>
+          {model}
+        </span>
+        <button
+          type="button"
+          onClick={onToggleImageCapable}
+          className={`shrink-0 rounded px-1 py-px text-[10px] font-medium leading-tight transition-opacity ${imageCapable ? 'opacity-0 group-hover:opacity-100' : 'opacity-80'}`}
+          style={{
+            color: imageCapable ? theme.icon.accent : theme.text.muted,
+            background: imageCapable ? `${theme.icon.accent}18` : `${theme.text.muted}12`,
+            textDecoration: imageCapable ? 'none' : 'line-through'
+          }}
+          title={
+            imageCapable
+              ? 'Image capable — click to mark as text-only'
+              : 'Text-only — click to mark as image capable'
+          }
+        >
+          Image Capable
+        </button>
+      </div>
       <div className="flex items-center gap-2 shrink-0">
         <button
           type="button"
@@ -132,13 +161,19 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
       if (models.length === 0) return
 
       onProviderChange((p) => {
-        const existing = new Set([...p.modelList.enabled, ...p.modelList.disabled])
+        const allExisting = [...p.modelList.enabled, ...p.modelList.disabled]
+        const existing = new Set(allExisting)
         const newModels = models.filter((m) => !existing.has(m))
         return {
           ...p,
           modelList: {
             ...p.modelList,
-            disabled: [...p.modelList.disabled, ...newModels]
+            disabled: [...p.modelList.disabled, ...newModels],
+            imageIncapable: computeImageIncapableForNewModels(
+              p.modelList.imageIncapable,
+              allExisting,
+              newModels
+            )
           }
         }
       })
@@ -174,9 +209,26 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
       ...p,
       modelList: {
         enabled: p.modelList.enabled.filter((m) => m !== model),
-        disabled: p.modelList.disabled.filter((m) => m !== model)
+        disabled: p.modelList.disabled.filter((m) => m !== model),
+        imageIncapable: p.modelList.imageIncapable?.filter((m) => m !== model)
       }
     }))
+  }
+
+  const handleToggleImageCapable = (model: string): void => {
+    onProviderChange((p) => {
+      const current = p.modelList.imageIncapable ?? []
+      const next = current.includes(model)
+        ? current.filter((m) => m !== model)
+        : [...current, model]
+      return {
+        ...p,
+        modelList: {
+          ...p.modelList,
+          imageIncapable: next.length > 0 ? next : undefined
+        }
+      }
+    })
   }
 
   const handleClearAll = (): void => {
@@ -197,7 +249,12 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
       ...p,
       modelList: {
         ...p.modelList,
-        disabled: [...p.modelList.disabled, model]
+        disabled: [...p.modelList.disabled, model],
+        imageIncapable: computeImageIncapableForNewModels(
+          p.modelList.imageIncapable,
+          [...p.modelList.enabled, ...p.modelList.disabled],
+          [model]
+        )
       }
     }))
     setManualInput('')
@@ -295,8 +352,10 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
                     key={model}
                     model={model}
                     enabled
+                    imageCapable={!(provider.modelList.imageIncapable ?? []).includes(model)}
                     onToggle={() => handleToggle(model)}
                     onRemove={() => handleRemoveModel(model)}
+                    onToggleImageCapable={() => handleToggleImageCapable(model)}
                   />
                 ))}
                 {filteredModelList.disabled.map((model) => (
@@ -304,8 +363,10 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
                     key={model}
                     model={model}
                     enabled={false}
+                    imageCapable={!(provider.modelList.imageIncapable ?? []).includes(model)}
                     onToggle={() => handleToggle(model)}
                     onRemove={() => handleRemoveModel(model)}
+                    onToggleImageCapable={() => handleToggleImageCapable(model)}
                   />
                 ))}
               </div>

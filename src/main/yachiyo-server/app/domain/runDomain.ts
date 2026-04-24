@@ -62,6 +62,7 @@ import {
 import { BackgroundBashManager, type BackgroundBashTaskResult } from './backgroundBashManager.ts'
 import { assertSupportedImages, resolveEnabledTools } from './configDomain.ts'
 import { toEffectiveProviderSettings } from '../../settings/settingsStore.ts'
+import { isModelImageCapable } from '../../../../shared/yachiyo/providerConfig.ts'
 import type { ModelUsage } from '../../runtime/types.ts'
 import { executeServerRun, type ExecuteRunInput, type ExecuteRunResult } from './runExecution.ts'
 import { ReadRecordCache } from '../../tools/agentTools.ts'
@@ -151,6 +152,7 @@ interface RunDomainDeps {
   loadThreadMessages: (threadId: string) => MessageRecord[]
   loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
   jotdownStore?: JotdownStore
+  imageToTextService?: import('../../services/imageToText/imageToTextService.ts').ImageToTextService
 }
 
 interface DebouncedSendChatEntry {
@@ -1837,6 +1839,22 @@ export class YachiyoServerRunDomain {
             loadThreadToolCalls: this.deps.loadThreadToolCalls,
             listSkills: this.deps.listSkills,
             jotdownStore: this.deps.jotdownStore,
+            imageToTextService: this.deps.imageToTextService,
+            isModelImageCapable: (() => {
+              const cfg = this.deps.readConfig()
+              const effective =
+                this.deps.requireThread(currentThread.id).modelOverride ??
+                cfg.defaultModel ??
+                (() => {
+                  const primary =
+                    cfg.providers.find((p) => p.modelList.enabled.length > 0) ?? cfg.providers[0]
+                  return primary
+                    ? { providerName: primary.name, model: primary.modelList.enabled[0] ?? '' }
+                    : undefined
+                })()
+              if (!effective) return true
+              return isModelImageCapable(cfg, effective.providerName, effective.model)
+            })(),
             onEnabledToolsUsed: (enabledTools) => {
               this.lastRunEnabledTools = [...enabledTools]
             },

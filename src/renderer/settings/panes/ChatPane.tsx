@@ -51,6 +51,12 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
   const [defaultModelSelectorOpen, setDefaultModelSelectorOpen] = useState(false)
   const [defaultModelAnchorRect, setDefaultModelAnchorRect] = useState<DOMRect | null>(null)
 
+  const i2tModelSelectorRef = useRef<HTMLDivElement>(null)
+  const i2tModelPopupRef = useRef<HTMLDivElement>(null)
+  const i2tModelTriggerRef = useRef<HTMLButtonElement>(null)
+  const [i2tModelSelectorOpen, setI2tModelSelectorOpen] = useState(false)
+  const [i2tModelAnchorRect, setI2tModelAnchorRect] = useState<DOMRect | null>(null)
+
   const updateToolModelAnchorRect = (): void => {
     setToolModelAnchorRect(toolModelTriggerRef.current?.getBoundingClientRect() ?? null)
   }
@@ -131,6 +137,31 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
     }
   }, [defaultModelSelectorOpen])
 
+  useEffect(() => {
+    if (!i2tModelSelectorOpen) return
+
+    const handlePointerDown = (event: MouseEvent): void => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (i2tModelSelectorRef.current?.contains(target)) return
+      if (i2tModelPopupRef.current?.contains(target)) return
+      setI2tModelSelectorOpen(false)
+    }
+
+    const handleViewportChange = (): void => {
+      setI2tModelAnchorRect(i2tModelTriggerRef.current?.getBoundingClientRect() ?? null)
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    window.addEventListener('resize', handleViewportChange)
+    window.addEventListener('scroll', handleViewportChange, true)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      window.removeEventListener('resize', handleViewportChange)
+      window.removeEventListener('scroll', handleViewportChange, true)
+    }
+  }, [i2tModelSelectorOpen])
+
   const enabledProviderCount = draft.providers.filter(
     (provider) => provider.modelList.enabled.length > 0
   ).length
@@ -155,6 +186,15 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
       : toolModel.mode === 'default'
         ? `Default${defaultModelLabel ? ` — ${defaultModelLabel}` : ''}`
         : 'Disabled'
+
+  const currentI2tModel = draft.chat?.imageToTextModel
+  const i2tModelProvider = currentI2tModel
+    ? (draft.providers.find((p) => p.name === currentI2tModel.providerName) ?? null)
+    : null
+  const i2tModelLabel =
+    i2tModelProvider && currentI2tModel?.model
+      ? `${i2tModelProvider.name} - ${formatStoredModelChip(currentI2tModel.model, i2tModelProvider.name).model}`
+      : 'Default (same as tool model)'
 
   return (
     <div className="flex-1 overflow-y-auto pb-6">
@@ -534,6 +574,97 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
                 onClose={() => setToolModelSelectorOpen(false)}
                 align="right"
                 anchorRect={toolModelAnchorRect}
+                placement="bottom"
+                portal
+              />
+            ) : null}
+          </div>
+        </SettingRow>
+      </SettingSection>
+
+      <SettingSection>
+        <SettingLabel>Image to Text model</SettingLabel>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Vision model for image descriptions
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              {hasEnabledModels
+                ? 'Used when non-image-capable models need to process images.'
+                : 'Enable a model in Providers first.'}
+            </div>
+          </div>
+
+          <div ref={i2tModelSelectorRef} className="relative shrink-0">
+            <button
+              ref={i2tModelTriggerRef}
+              type="button"
+              onClick={() => {
+                if (!hasEnabledModels) return
+                setI2tModelAnchorRect(i2tModelTriggerRef.current?.getBoundingClientRect() ?? null)
+                setI2tModelSelectorOpen((open) => !open)
+              }}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity"
+              style={{
+                color: theme.text.primary,
+                opacity: i2tModelSelectorOpen ? 1 : 0.72,
+                cursor: hasEnabledModels ? 'pointer' : 'default'
+              }}
+              aria-label="Image to Text model selection"
+            >
+              <CircleCheck
+                size={12}
+                strokeWidth={1.5}
+                color={currentI2tModel ? theme.icon.success : theme.icon.muted}
+              />
+              {i2tModelLabel}
+              {hasEnabledModels ? (
+                <ChevronDown
+                  size={10}
+                  strokeWidth={1.5}
+                  color={theme.icon.muted}
+                  style={{
+                    transform: i2tModelSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.15s ease'
+                  }}
+                />
+              ) : null}
+            </button>
+
+            {i2tModelSelectorOpen ? (
+              <ModelSelectorPopup
+                config={draft}
+                containerRef={i2tModelPopupRef}
+                currentProviderName={currentI2tModel?.providerName ?? ''}
+                currentModel={currentI2tModel?.model ?? ''}
+                leadingOptions={[
+                  {
+                    label: 'Default (same as tool model)',
+                    isSelected: !currentI2tModel,
+                    onSelect: () =>
+                      onChange({
+                        ...draft,
+                        chat: {
+                          ...draft.chat,
+                          imageToTextModel: undefined
+                        }
+                      })
+                  }
+                ]}
+                onSelect={(providerName, model) => {
+                  onChange({
+                    ...draft,
+                    chat: {
+                      ...draft.chat,
+                      imageToTextModel: { providerName, model }
+                    }
+                  })
+                }}
+                onClose={() => setI2tModelSelectorOpen(false)}
+                align="right"
+                anchorRect={i2tModelAnchorRect}
                 placement="bottom"
                 portal
               />

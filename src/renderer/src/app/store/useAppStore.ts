@@ -31,6 +31,7 @@ import {
   type ThreadRuntimeBinding
 } from '../../../../shared/yachiyo/protocol.ts'
 import { sortToolCallsChronologically } from '../../../../shared/yachiyo/toolCallOrder.ts'
+import { isModelImageCapable } from '../../../../shared/yachiyo/providerConfig.ts'
 import { collectDescendantIds, collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 import { useBackgroundTasksStore } from '../../features/chat/state/useBackgroundTasksStore.ts'
 
@@ -3041,6 +3042,40 @@ export const useAppStore = create<AppState>((set, get) => ({
       getThreadRunStatus(state, state.activeThreadId) === 'running'
     ) {
       return
+    }
+
+    if (state.activeThreadId && state.config) {
+      const thread = findThread(state, state.activeThreadId)
+      if (thread) {
+        const currentOverride = thread.modelOverride ?? state.config.defaultModel
+        const currentCapable = currentOverride
+          ? isModelImageCapable(state.config, currentOverride.providerName, currentOverride.model)
+          : true
+        const targetCapable = isModelImageCapable(state.config, providerName, model)
+
+        const draft = getComposerDraft(state)
+        if (currentCapable && !targetCapable && draft.images.length > 0) {
+          state.pushToast({
+            threadId: state.activeThreadId,
+            title: 'Cannot switch model',
+            body: 'Remove images from the composer before switching to a non-image-capable model.',
+            eventKey: 'model-switch-blocked-images'
+          })
+          return
+        }
+
+        if (currentCapable !== targetCapable && thread.headMessageId) {
+          state.pushToast({
+            threadId: state.activeThreadId,
+            title: 'Cannot switch model',
+            body: currentCapable
+              ? 'This thread uses an image-capable model. Switching to a non-image-capable model is not allowed.'
+              : 'This thread uses a non-image-capable model with I2T processing. Switching to an image-capable model is not allowed.',
+            eventKey: 'model-switch-blocked-isolation'
+          })
+          return
+        }
+      }
     }
 
     if (state.activeThreadId) {

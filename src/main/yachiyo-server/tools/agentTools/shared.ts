@@ -306,6 +306,10 @@ export interface AgentToolContext {
   onBackgroundBashStarted?: (task: BackgroundBashTaskHandle) => Promise<void>
   /** Adopt a foreground bash child that exceeded its timeout, instead of killing it. */
   onBackgroundBashAdopted?: (task: BackgroundBashAdoptionHandle) => Promise<void>
+  /** Image-to-text service for converting images when the model is not image-capable. */
+  imageToTextService?: import('../../services/imageToText/imageToTextService.ts').ImageToTextService
+  /** Whether the current thread model supports vision/image input. */
+  isModelImageCapable?: boolean
 }
 
 export type ToolContentBlock =

@@ -292,8 +292,7 @@ test('sanitizeChannelsConfig drops overrides that reference unsaved provider nam
       model: { providerName: 'renamed-provider', model: 'gpt-5' }
     },
     imageToText: {
-      enabled: true,
-      model: { providerName: 'work', model: 'gpt-5' }
+      enabled: true
     }
   }
 
@@ -314,8 +313,7 @@ test('sanitizeChannelsConfig drops overrides that reference unsaved provider nam
       model: undefined
     },
     imageToText: {
-      enabled: true,
-      model: { providerName: 'work', model: 'gpt-5' }
+      enabled: true
     }
   })
 })

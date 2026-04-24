@@ -960,39 +960,6 @@ export function ChannelsPane({
             }}
           />
         </SettingRow>
-
-        {modelSelector && (
-          <SettingRow>
-            <div className="flex items-center gap-2.5 flex-1 min-w-0">
-              <span className="text-sm font-medium shrink-0" style={{ color: theme.text.primary }}>
-                Model
-              </span>
-              <ModelSelect
-                value={
-                  config.imageToText?.model
-                    ? `${config.imageToText.model.providerName}::${config.imageToText.model.model}`
-                    : ''
-                }
-                providers={providers}
-                onChange={(val) => {
-                  onConfigChange({
-                    ...config,
-                    imageToText: {
-                      ...config.imageToText,
-                      enabled: config.imageToText?.enabled ?? false,
-                      model: val
-                        ? {
-                            providerName: val.split('::')[0],
-                            model: val.split('::')[1]
-                          }
-                        : undefined
-                    }
-                  })
-                }}
-              />
-            </div>
-          </SettingRow>
-        )}
       </SettingSection>
 
       <SettingSection>
