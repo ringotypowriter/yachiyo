@@ -44,6 +44,7 @@ import {
 import { theme } from '@renderer/theme/theme'
 import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
+  DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
   normalizeSkillNames,
   type MessageImageRecord,
   type SendChatAttachment
@@ -747,6 +748,8 @@ export function Composer({
   const hasMessages = activeThreadMessages.length > 0
   const displayPromptTokens = latestRun?.promptTokens ?? estimatedThreadTokens
   const isEstimated = latestRun?.promptTokens == null && hasMessages
+  const stripCompactThresholdTokens =
+    config?.chat?.stripCompactThresholdTokens ?? DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD
   const externalThreads = useAppStore((s) => s.externalThreads)
   const activeThread =
     threads.find((thread) => thread.id === activeThreadId) ??
@@ -2885,7 +2888,15 @@ export function Composer({
         {hasMessages || latestRun?.promptTokens != null ? (
           <Tooltip
             content={
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 3,
+                  width: 240,
+                  whiteSpace: 'normal'
+                }}
+              >
                 <div style={{ fontWeight: 600, marginBottom: 2 }}>
                   {isEstimated ? 'Estimated prompt tokens' : 'Last run token usage'}
                 </div>
@@ -2927,7 +2938,7 @@ export function Composer({
                     <span>{estimatedDraftTokens.toLocaleString()}</span>
                   </div>
                 ) : null}
-                {displayPromptTokens + estimatedDraftTokens > 200_000 ? (
+                {displayPromptTokens + estimatedDraftTokens > stripCompactThresholdTokens ? (
                   <div
                     style={{
                       marginTop: 4,
@@ -2938,7 +2949,7 @@ export function Composer({
                       lineHeight: 1.4
                     }}
                   >
-                    Context is over 200K. Consider using{' '}
+                    Context is over {formatTokenCount(stripCompactThresholdTokens)}. Consider using{' '}
                     <span style={{ fontFamily: 'monospace' }}>/handoff</span> to compact and
                     continue in a new thread.
                   </div>
@@ -2950,7 +2961,7 @@ export function Composer({
               className="text-xs px-1.5 flex items-center gap-1"
               style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
             >
-              {displayPromptTokens + estimatedDraftTokens > 200_000 ? (
+              {displayPromptTokens + estimatedDraftTokens > stripCompactThresholdTokens ? (
                 <TriangleAlert
                   size={11}
                   style={{ color: '#f59e0b', flexShrink: 0, opacity: 1, display: 'block' }}

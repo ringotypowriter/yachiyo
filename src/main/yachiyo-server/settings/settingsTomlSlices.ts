@@ -2,6 +2,7 @@ import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
   DEFAULT_MEMORY_BASE_URL,
   DEFAULT_MEMORY_PROVIDER,
+  DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
   DEFAULT_TOOL_MODEL_MODE,
   DEFAULT_WEB_SEARCH_PROVIDER,
   type SettingsConfig
@@ -69,6 +70,8 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
           activeRunEnterBehavior:
             config.chat?.activeRunEnterBehavior ?? DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
           stripCompact: config.chat?.stripCompact !== false,
+          stripCompactThresholdTokens:
+            config.chat?.stripCompactThresholdTokens ?? DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
           autoMemoryDistillation: config.chat?.autoMemoryDistillation !== false,
           inputBufferEnabled: config.chat?.inputBufferEnabled === true,
           recapEnabled: config.chat?.recapEnabled !== false

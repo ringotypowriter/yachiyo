@@ -1,7 +1,10 @@
 import { ChevronDown, CircleCheck } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { theme } from '@renderer/theme/theme'
-import type { SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
+import {
+  DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
+  type SettingsConfig
+} from '../../../shared/yachiyo/protocol.ts'
 import {
   getToolModelConfig,
   resolveToolModelProvider
@@ -11,6 +14,7 @@ import { ModelSelectorPopup } from '../../src/features/chat/components/ModelSele
 import { canOpenToolModelPicker } from '../../src/features/chat/lib/modelSelectorState'
 import { RECAP_IDLE_LABEL } from '../../src/features/layout/lib/recapIdle'
 import { SettingLabel, SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
+import { inputStyle } from '../components/styles'
 
 interface ChatPaneProps {
   draft: SettingsConfig
@@ -19,6 +23,9 @@ interface ChatPaneProps {
 
 export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
   const activeRunEnterBehavior = draft.chat?.activeRunEnterBehavior ?? 'enter-steers'
+  const stripCompactThresholdK = Math.round(
+    (draft.chat?.stripCompactThresholdTokens ?? DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD) / 1000
+  )
   const toolModel = getToolModelConfig(draft)
   const selectedToolProvider = resolveToolModelProvider(draft, toolModel)
   const toolModelSelectorRef = useRef<HTMLDivElement>(null)
@@ -225,7 +232,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
               Strip Compact
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Trim old tool results when context exceeds 200K tokens.
+              Trim old tool results when context exceeds the threshold.
             </div>
           </div>
 
@@ -240,6 +247,44 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
               }
               ariaLabel="Toggle Strip Compact"
             />
+          </div>
+        </SettingRow>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Strip threshold
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              Also controls the Composer context warning.
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-1">
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={stripCompactThresholdK}
+              onChange={(e) => {
+                const raw = parseInt(e.target.value, 10)
+                if (!Number.isNaN(raw) && raw > 0) {
+                  onChange({
+                    ...draft,
+                    chat: {
+                      ...draft.chat,
+                      stripCompactThresholdTokens: raw * 1000
+                    }
+                  })
+                }
+              }}
+              className="w-20 rounded-lg px-2 py-1 text-sm text-right outline-none"
+              style={inputStyle()}
+              aria-label="Strip compact threshold in thousands of tokens"
+            />
+            <span className="text-sm" style={{ color: theme.text.secondary }}>
+              K
+            </span>
           </div>
         </SettingRow>
       </SettingSection>

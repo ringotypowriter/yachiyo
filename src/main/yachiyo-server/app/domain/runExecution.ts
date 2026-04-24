@@ -1684,7 +1684,12 @@ export async function executeServerRun(
       input.requestMessageId
     )
     const finalMessages = stripCompactEnabled
-      ? applyStripCompact(messages, modelEnabledTools.length, previousActualPromptTokens)
+      ? applyStripCompact(
+          messages,
+          modelEnabledTools.length,
+          previousActualPromptTokens,
+          config.chat?.stripCompactThresholdTokens
+        )
       : messages
     deps.emit<RunContextCompiledEvent>({
       type: 'run.context.compiled',

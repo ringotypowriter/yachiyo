@@ -177,6 +177,24 @@ test('applyStripCompact uses previous actual prompt tokens as a floor', () => {
   assert.match(firstOutput.value, /\[Stripped: read/)
 })
 
+test('applyStripCompact uses the configured threshold', () => {
+  const messages: ModelMessage[] = [
+    makeSystemMessage('system'),
+    makeUserMessage('hello'),
+    makeAssistantMessage('hi'),
+    makeToolMessage('tc1', makeLargeToolOutput(100)),
+    makeUserMessage('q2'),
+    makeAssistantMessage('a2'),
+    makeToolMessage('tc2', makeLargeToolOutput(100))
+  ]
+
+  const result = applyStripCompact(messages, 0, 150_000, 100_000)
+  const firstToolMsg = result[3] as { role: string; content: Array<{ output: unknown }> }
+  assert.equal(firstToolMsg.role, 'tool')
+  const firstOutput = firstToolMsg.content[0].output as { type: string; value: string }
+  assert.match(firstOutput.value, /\[Stripped: read/)
+})
+
 test('applyStripCompact subtracts image overhead after stripping image-heavy tool results', () => {
   const imageOutput = makeImageToolOutput(120)
   const messages: ModelMessage[] = [

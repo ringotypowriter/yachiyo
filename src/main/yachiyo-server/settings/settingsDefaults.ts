@@ -4,6 +4,7 @@ import {
   DEFAULT_MEMORY_BASE_URL,
   DEFAULT_MEMORY_PROVIDER,
   DEFAULT_SIDEBAR_VISIBILITY,
+  DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
   DEFAULT_TOOL_MODEL_MODE,
   DEFAULT_WEB_SEARCH_PROVIDER,
   type SettingsConfig
@@ -25,6 +26,7 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   chat: {
     activeRunEnterBehavior: DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
     stripCompact: true,
+    stripCompactThresholdTokens: DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
     autoMemoryDistillation: true,
     inputBufferEnabled: false,
     recapEnabled: true

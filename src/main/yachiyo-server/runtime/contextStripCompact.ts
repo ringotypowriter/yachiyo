@@ -1,7 +1,8 @@
 import type { ModelMessage } from './types.ts'
+import { DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD } from '../../../shared/yachiyo/protocol.ts'
 import { estimateTextTokens } from '../../../shared/yachiyo/estimateTokens.ts'
 
-export const STRIP_COMPACT_TOKEN_THRESHOLD = 200_000
+export const STRIP_COMPACT_TOKEN_THRESHOLD = DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD
 const SUMMARY_PREVIEW_CHARS = 200
 const MESSAGE_OVERHEAD_TOKENS = 4
 const BASELINE_TOKEN_OVERHEAD = 2_000
@@ -187,14 +188,15 @@ function stripToolResultsInMessage(msg: ModelMessage): ModelMessage {
  *
  * Strips from the newest-eligible run spans first (preserving the oldest
  * prefix for prompt cache stability), re-estimating after each span,
- * until under 200K or all spans except the last are exhausted.
+ * until under the configured threshold or all spans except the last are exhausted.
  *
  * Returns the original array unchanged if estimated tokens <= threshold.
  */
 export function applyStripCompact(
   messages: ModelMessage[],
   toolCount = 0,
-  previousActualPromptTokens?: number
+  previousActualPromptTokens?: number,
+  thresholdTokens = STRIP_COMPACT_TOKEN_THRESHOLD
 ): ModelMessage[] {
   // Use the provider-reported actual token count from the previous comparable
   // run as the floor, and estimate the current message array from scratch.
@@ -204,7 +206,7 @@ export function applyStripCompact(
   if (previousActualPromptTokens != null) {
     estimatedTokens = Math.max(estimatedTokens, previousActualPromptTokens)
   }
-  if (estimatedTokens <= STRIP_COMPACT_TOKEN_THRESHOLD) return messages
+  if (estimatedTokens <= thresholdTokens) return messages
 
   const result = [...messages]
   const spans = identifyRunSpans(result)
@@ -223,7 +225,7 @@ export function applyStripCompact(
       estimatedTokens -= estimateTokenSavings(original, stripped)
       result[i] = stripped
     }
-    if (estimatedTokens <= STRIP_COMPACT_TOKEN_THRESHOLD) break
+    if (estimatedTokens <= thresholdTokens) break
   }
 
   return result

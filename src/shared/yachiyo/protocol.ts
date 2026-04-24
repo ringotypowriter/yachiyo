@@ -119,6 +119,8 @@ export type WebSearchFailureCode =
   | 'extraction-failed'
   | 'provider-failed'
   | 'aborted'
+
+export const DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD = 200_000
 export const DEFAULT_WEB_READ_CONTENT_FORMAT: WebReadRequestFormat = 'markdown'
 export const DEFAULT_MEMORY_PROVIDER: MemoryProviderId = 'builtin-memory'
 export const DEFAULT_MEMORY_BASE_URL = 'http://127.0.0.1:14242'
@@ -646,6 +648,7 @@ export interface ProviderConfig {
 export interface ChatConfig {
   activeRunEnterBehavior?: ActiveRunEnterBehavior
   stripCompact?: boolean
+  stripCompactThresholdTokens?: number
   autoMemoryDistillation?: boolean
   inputBufferEnabled?: boolean
   recapEnabled?: boolean

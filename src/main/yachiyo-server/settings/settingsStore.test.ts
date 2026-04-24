@@ -9,6 +9,7 @@ import {
   DEFAULT_ENABLED_TOOL_NAMES,
   DEFAULT_TOOL_MODEL_MODE,
   DEFAULT_SIDEBAR_VISIBILITY,
+  DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
   normalizeUserPrompts,
   type BrowserBackedWebSearchSessionConfig,
   type ChatConfig,
@@ -52,6 +53,7 @@ test('settings store persists multi-provider config as TOML', async () => {
       chat: {
         activeRunEnterBehavior: 'enter-queues-follow-up',
         stripCompact: true,
+        stripCompactThresholdTokens: 250_000,
         autoMemoryDistillation: true,
         inputBufferEnabled: true,
         recapEnabled: true
@@ -134,6 +136,7 @@ test('settings store persists multi-provider config as TOML', async () => {
     assert.match(toml, /sidebarVisibility = "collapsed"/)
     assert.match(toml, /demoMode = true/)
     assert.match(toml, /activeRunEnterBehavior = "enter-queues-follow-up"/)
+    assert.match(toml, /stripCompactThresholdTokens = 250000/)
     assert.match(toml, /\[workspace\]/)
     assert.match(
       toml,
@@ -471,6 +474,7 @@ test('normalizeSettingsConfig falls back to the default active-run input behavio
   assert.deepEqual(normalizeSettingsConfig({ providers: [] }).chat, {
     activeRunEnterBehavior: 'enter-steers',
     stripCompact: true,
+    stripCompactThresholdTokens: DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
     autoMemoryDistillation: true,
     inputBufferEnabled: false,
     recapEnabled: true
@@ -486,10 +490,29 @@ test('normalizeSettingsConfig falls back to the default active-run input behavio
     {
       activeRunEnterBehavior: 'enter-steers',
       stripCompact: true,
+      stripCompactThresholdTokens: DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
       autoMemoryDistillation: true,
       inputBufferEnabled: false,
       recapEnabled: true
     }
+  )
+})
+
+test('normalizeSettingsConfig normalizes strip compact threshold', () => {
+  assert.equal(
+    normalizeSettingsConfig({
+      providers: [],
+      chat: { stripCompactThresholdTokens: 150_000 }
+    }).chat?.stripCompactThresholdTokens,
+    150_000
+  )
+
+  assert.equal(
+    normalizeSettingsConfig({
+      providers: [],
+      chat: { stripCompactThresholdTokens: 0 }
+    }).chat?.stripCompactThresholdTokens,
+    DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD
   )
 })
 
@@ -1272,6 +1295,7 @@ test('normalization preserves every ChatConfig key', () => {
   const sentinel: Required<ChatConfig> = {
     activeRunEnterBehavior: 'enter-queues-follow-up',
     stripCompact: false,
+    stripCompactThresholdTokens: 120_000,
     autoMemoryDistillation: false,
     inputBufferEnabled: true,
     recapEnabled: true

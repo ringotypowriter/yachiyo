@@ -2,6 +2,7 @@ import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
   DEFAULT_MEMORY_BASE_URL,
   DEFAULT_MEMORY_PROVIDER,
+  DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
   DEFAULT_WEB_SEARCH_PROVIDER,
   normalizeActiveRunEnterBehavior,
   normalizeMemoryProviderId,
@@ -79,6 +80,9 @@ export function normalizeChatConfig(value: unknown): ChatConfig {
       DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR
     ),
     stripCompact: normalizeOptionalBool(input['stripCompact'], true),
+    stripCompactThresholdTokens:
+      normalizePositiveInt(input['stripCompactThresholdTokens']) ??
+      DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
     autoMemoryDistillation: normalizeOptionalBool(input['autoMemoryDistillation'], true),
     inputBufferEnabled: normalizeOptionalBool(input['inputBufferEnabled'], false),
     recapEnabled: normalizeOptionalBool(input['recapEnabled'], true)
