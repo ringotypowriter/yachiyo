@@ -43,6 +43,13 @@ function makeLargeToolOutput(sizeChars: number): { type: string; value: unknown[
   }
 }
 
+function makeImageToolOutput(imageCount: number): { type: string; value: unknown[] } {
+  return {
+    type: 'content',
+    value: Array.from({ length: imageCount }, () => ({ type: 'image', data: 'image-bytes' }))
+  }
+}
+
 /** Build messages whose estimated token count exceeds the threshold. */
 function buildOverThresholdMessages(): ModelMessage[] {
   // Each 400K-char tool output ≈ 100K tokens. Two runs with these outputs push past 200K.
@@ -89,6 +96,13 @@ test('estimateTokenCount returns a positive estimate for non-empty messages', ()
   assert.ok(estimate > 0)
 })
 
+test('estimateTokenCount includes baseline and tool overhead', () => {
+  const messages: ModelMessage[] = [makeSystemMessage('system'), makeUserMessage('hello')]
+  const withoutTools = estimateTokenCount(messages)
+  const withTools = estimateTokenCount(messages, 10)
+  assert.equal(withTools - withoutTools, 10 * 300)
+})
+
 test('estimateTokenCount includes nested tool-result output text', () => {
   const messages: ModelMessage[] = [
     makeSystemMessage('system'),
@@ -113,6 +127,81 @@ test('applyStripCompact returns messages unchanged when under threshold', () => 
 
   const result = applyStripCompact(messages)
   assert.deepEqual(result, messages)
+})
+
+test('applyStripCompact accounts for tool count when estimating', () => {
+  // Two runs so the first is eligible for stripping
+  const messages: ModelMessage[] = [
+    makeSystemMessage('system'),
+    makeUserMessage('hello'),
+    makeAssistantMessage('hi'),
+    makeToolMessage('tc1', makeLargeToolOutput(100)),
+    makeUserMessage('q2'),
+    makeAssistantMessage('a2'),
+    makeToolMessage('tc2', makeLargeToolOutput(100))
+  ]
+
+  // Without many tools, should stay under threshold
+  const resultWithoutTools = applyStripCompact(messages)
+  assert.deepEqual(resultWithoutTools, messages)
+
+  // With enough tools to push estimate over threshold, should strip the first run
+  const resultWithTools = applyStripCompact(messages, 1000)
+  const firstToolMsg = resultWithTools[3] as { role: string; content: Array<{ output: unknown }> }
+  assert.equal(firstToolMsg.role, 'tool')
+  const firstOutput = firstToolMsg.content[0].output as { type: string; value: string }
+  assert.match(firstOutput.value, /\[Stripped: read/)
+})
+
+test('applyStripCompact uses previous actual prompt tokens as a floor', () => {
+  // Small messages that are under threshold by estimate alone
+  const messages: ModelMessage[] = [
+    makeSystemMessage('system'),
+    makeUserMessage('hello'),
+    makeAssistantMessage('hi'),
+    makeToolMessage('tc1', makeLargeToolOutput(100)),
+    makeUserMessage('q2'),
+    makeAssistantMessage('a2'),
+    makeToolMessage('tc2', makeLargeToolOutput(100))
+  ]
+
+  // Without previous actual, stays under threshold
+  const resultWithoutActual = applyStripCompact(messages)
+  assert.deepEqual(resultWithoutActual, messages)
+
+  // With a high previous actual that exceeds threshold, should trigger stripping
+  const resultWithActual = applyStripCompact(messages, 0, 250_000)
+  const firstToolMsg = resultWithActual[3] as { role: string; content: Array<{ output: unknown }> }
+  assert.equal(firstToolMsg.role, 'tool')
+  const firstOutput = firstToolMsg.content[0].output as { type: string; value: string }
+  assert.match(firstOutput.value, /\[Stripped: read/)
+})
+
+test('applyStripCompact subtracts image overhead after stripping image-heavy tool results', () => {
+  const imageOutput = makeImageToolOutput(120)
+  const messages: ModelMessage[] = [
+    makeSystemMessage('system'),
+    makeUserMessage('q1'),
+    makeAssistantMessage('a1'),
+    makeToolMessage('tc1', imageOutput),
+    makeUserMessage('q2'),
+    makeAssistantMessage('a2'),
+    makeToolMessage('tc2', imageOutput),
+    makeUserMessage('q3'),
+    makeAssistantMessage('a3'),
+    makeToolMessage('tc3', makeLargeToolOutput(100))
+  ]
+  assert.ok(estimateTokenCount(messages) > STRIP_COMPACT_TOKEN_THRESHOLD)
+
+  const result = applyStripCompact(messages)
+
+  const run2Tool = result[6] as { content: Array<{ output: { type: string; value: string } }> }
+  assert.match(run2Tool.content[0].output.value, /\[Stripped: read/)
+
+  const run1Tool = result[3] as {
+    content: Array<{ output: { type: string; value: Array<{ type: string }> } }>
+  }
+  assert.equal(run1Tool.content[0].output.value[0].type, 'image')
 })
 
 test('applyStripCompact strips oldest run tool results when over threshold', () => {

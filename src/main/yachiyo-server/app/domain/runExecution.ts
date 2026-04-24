@@ -1081,8 +1081,8 @@ function persistTerminalAssistantMessage(
   return assistantMessage
 }
 
-/** Merge prior steer-leg usage into the current leg's usage for final persistence. */
-function mergeUsage(
+/** Merge prior steer-leg totals into the current leg's usage for final persistence. */
+export function mergeRunUsage(
   prior: ExecuteRunInput['priorUsage'],
   current: ModelUsage | undefined
 ): ModelUsage | undefined {
@@ -1101,13 +1101,38 @@ function mergeUsage(
   }
   return {
     ...current,
-    promptTokens: (prior.promptTokens ?? 0) + current.promptTokens,
+    promptTokens: current.promptTokens,
     completionTokens: (prior.completionTokens ?? 0) + current.completionTokens,
     totalPromptTokens: (prior.totalPromptTokens ?? 0) + current.totalPromptTokens,
     totalCompletionTokens: (prior.totalCompletionTokens ?? 0) + current.totalCompletionTokens,
     cacheReadTokens: (prior.cacheReadTokens ?? 0) + (current.cacheReadTokens ?? 0),
     cacheWriteTokens: (prior.cacheWriteTokens ?? 0) + (current.cacheWriteTokens ?? 0)
   }
+}
+
+/** Get the most recent completed run's actual prompt tokens on the same branch. */
+function getPreviousRunActualPromptTokens(
+  storage: RunExecutionDeps['storage'],
+  loadThreadMessages: RunExecutionDeps['loadThreadMessages'],
+  threadId: string,
+  currentRunId: string,
+  currentRequestMessageId: string
+): number | undefined {
+  const messagePath = collectMessagePath(loadThreadMessages(threadId), currentRequestMessageId)
+  const messageIdsInPath = new Set(messagePath.map((m) => m.id))
+
+  const runs = storage.listThreadRuns(threadId)
+  const previousRuns = runs.filter(
+    (run) =>
+      run.id !== currentRunId &&
+      run.status === 'completed' &&
+      run.promptTokens != null &&
+      run.requestMessageId != null &&
+      messageIdsInPath.has(run.requestMessageId)
+  )
+  if (previousRuns.length === 0) return undefined
+  previousRuns.sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''))
+  return previousRuns[0].promptTokens
 }
 
 export async function executeServerRun(
@@ -1651,7 +1676,16 @@ export async function executeServerRun(
               : contextHistory
           })
     const stripCompactEnabled = config.chat?.stripCompact !== false
-    const finalMessages = stripCompactEnabled ? applyStripCompact(messages) : messages
+    const previousActualPromptTokens = getPreviousRunActualPromptTokens(
+      deps.storage,
+      deps.loadThreadMessages,
+      input.thread.id,
+      input.runId,
+      input.requestMessageId
+    )
+    const finalMessages = stripCompactEnabled
+      ? applyStripCompact(messages, modelEnabledTools.length, previousActualPromptTokens)
+      : messages
     deps.emit<RunContextCompiledEvent>({
       type: 'run.context.compiled',
       threadId: input.thread.id,
@@ -2442,8 +2476,8 @@ export async function executeServerRun(
           : {})
     }
 
-    // Merge prior steer-leg usage so the full run's tokens are persisted.
-    const finalUsage = mergeUsage(input.priorUsage, lastUsage)
+    // Merge prior steer-leg totals so the full run's total tokens are persisted.
+    const finalUsage = mergeRunUsage(input.priorUsage, lastUsage)
 
     deps.storage.completeRun({
       runId: input.runId,
@@ -2735,7 +2769,7 @@ export async function executeServerRun(
           }
         }
 
-        const cancelUsage = mergeUsage(input.priorUsage, lastUsage)
+        const cancelUsage = mergeRunUsage(input.priorUsage, lastUsage)
         deps.storage.cancelRun({
           runId: input.runId,
           completedAt: timestamp,
@@ -2871,7 +2905,7 @@ export async function executeServerRun(
         }
       }
 
-      const cancelUsage = mergeUsage(input.priorUsage, lastUsage)
+      const cancelUsage = mergeRunUsage(input.priorUsage, lastUsage)
       deps.storage.cancelRun({
         runId: input.runId,
         completedAt: timestamp,
@@ -3038,7 +3072,7 @@ export async function executeServerRun(
       })
     }
 
-    const failUsage = mergeUsage(input.priorUsage, lastUsage)
+    const failUsage = mergeRunUsage(input.priorUsage, lastUsage)
     deps.storage.failRun({
       runId: input.runId,
       completedAt: timestamp,

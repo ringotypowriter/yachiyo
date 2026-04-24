@@ -251,7 +251,7 @@ function usageFieldsFrom(usage: UsageFields | undefined): Partial<UsageFields> {
   }
 }
 
-/** Merge accumulated prior-leg usage with the current leg's ModelUsage for terminal persistence. */
+/** Merge accumulated prior-leg totals with the current leg's ModelUsage for terminal persistence. */
 function mergeUsageForTerminal(
   prior: UsageFields | undefined,
   current: ModelUsage | undefined
@@ -260,7 +260,7 @@ function mergeUsageForTerminal(
   if (!prior) return current
   if (!current) return prior
   return {
-    promptTokens: (prior.promptTokens ?? 0) + current.promptTokens,
+    promptTokens: current.promptTokens,
     completionTokens: (prior.completionTokens ?? 0) + current.completionTokens,
     totalPromptTokens: (prior.totalPromptTokens ?? 0) + current.totalPromptTokens,
     totalCompletionTokens: (prior.totalCompletionTokens ?? 0) + current.totalCompletionTokens,
@@ -2143,12 +2143,12 @@ export class YachiyoServerRunDomain {
           currentRequestMessageId = userMessage.id
           currentThread = this.deps.requireThread(input.thread.id)
 
-          // Accumulate usage from this steer leg so the final completion
-          // includes token counts from all legs of the run.
+          // Accumulate totals from this steer leg so the final completion
+          // includes total token counts from all legs of the run.
           if (result.usage) {
             const u = result.usage
             accumulatedUsage = {
-              promptTokens: (accumulatedUsage?.promptTokens ?? 0) + u.promptTokens,
+              promptTokens: u.promptTokens,
               completionTokens: (accumulatedUsage?.completionTokens ?? 0) + u.completionTokens,
               totalPromptTokens: (accumulatedUsage?.totalPromptTokens ?? 0) + u.totalPromptTokens,
               totalCompletionTokens:
@@ -2213,12 +2213,12 @@ export class YachiyoServerRunDomain {
         }
 
         carriedSnapshotTracker = result.snapshotTracker
-        // Accumulate usage from the restarted leg so it isn't lost if the
+        // Accumulate totals from the restarted leg so they aren't lost if the
         // subsequent leg is cancelled or fails.
         if (result.usage) {
           const u = result.usage
           accumulatedUsage = {
-            promptTokens: (accumulatedUsage?.promptTokens ?? 0) + u.promptTokens,
+            promptTokens: u.promptTokens,
             completionTokens: (accumulatedUsage?.completionTokens ?? 0) + u.completionTokens,
             totalPromptTokens: (accumulatedUsage?.totalPromptTokens ?? 0) + u.totalPromptTokens,
             totalCompletionTokens:

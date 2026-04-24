@@ -4,6 +4,9 @@ import { estimateTextTokens } from '../../../shared/yachiyo/estimateTokens.ts'
 export const STRIP_COMPACT_TOKEN_THRESHOLD = 200_000
 const SUMMARY_PREVIEW_CHARS = 200
 const MESSAGE_OVERHEAD_TOKENS = 4
+const BASELINE_TOKEN_OVERHEAD = 2_000
+const TOKENS_PER_TOOL = 300
+const TOKENS_PER_IMAGE = 1_000
 
 interface RunSpan {
   startIndex: number
@@ -100,12 +103,47 @@ export function identifyRunSpans(messages: ModelMessage[]): RunSpan[] {
   return spans
 }
 
-export function estimateTokenCount(messages: ModelMessage[]): number {
-  return messages.reduce((sum, msg) => sum + estimateModelMessageTokens(msg), 0)
+function countImagesInContent(value: unknown, seen = new WeakSet<object>()): number {
+  if (!value || typeof value !== 'object') return 0
+  if (seen.has(value)) return 0
+  seen.add(value)
+
+  if (Array.isArray(value)) {
+    return value.reduce((sum, item) => sum + countImagesInContent(item, seen), 0)
+  }
+
+  const record = value as Record<string, unknown>
+  if (record.type === 'image' || record.type === 'image-data') {
+    return 1
+  }
+
+  let count = 0
+  for (const nested of Object.values(record)) {
+    if (Array.isArray(nested) || (nested && typeof nested === 'object')) {
+      count += countImagesInContent(nested, seen)
+    }
+  }
+  return count
+}
+
+function countImagesInMessage(msg: ModelMessage): number {
+  return countImagesInContent(msg.content)
+}
+
+function estimateMessageTokenCount(msg: ModelMessage): number {
+  return estimateModelMessageTokens(msg) + countImagesInMessage(msg) * TOKENS_PER_IMAGE
+}
+
+export function estimateTokenCount(messages: ModelMessage[], toolCount = 0): number {
+  let tokens = BASELINE_TOKEN_OVERHEAD + toolCount * TOKENS_PER_TOOL
+  for (const msg of messages) {
+    tokens += estimateMessageTokenCount(msg)
+  }
+  return Math.round(tokens)
 }
 
 function estimateTokenSavings(before: ModelMessage, after: ModelMessage): number {
-  return Math.max(0, estimateModelMessageTokens(before) - estimateModelMessageTokens(after))
+  return Math.max(0, estimateMessageTokenCount(before) - estimateMessageTokenCount(after))
 }
 
 function buildStrippedSummary(part: {
@@ -153,8 +191,19 @@ function stripToolResultsInMessage(msg: ModelMessage): ModelMessage {
  *
  * Returns the original array unchanged if estimated tokens <= threshold.
  */
-export function applyStripCompact(messages: ModelMessage[]): ModelMessage[] {
-  let estimatedTokens = estimateTokenCount(messages)
+export function applyStripCompact(
+  messages: ModelMessage[],
+  toolCount = 0,
+  previousActualPromptTokens?: number
+): ModelMessage[] {
+  // Use the provider-reported actual token count from the previous comparable
+  // run as the floor, and estimate the current message array from scratch.
+  // This aligns server-side strip compact with the UI warning (which shows
+  // actual promptTokens when available) while still capturing new content.
+  let estimatedTokens = estimateTokenCount(messages, toolCount)
+  if (previousActualPromptTokens != null) {
+    estimatedTokens = Math.max(estimatedTokens, previousActualPromptTokens)
+  }
   if (estimatedTokens <= STRIP_COMPACT_TOKEN_THRESHOLD) return messages
 
   const result = [...messages]
