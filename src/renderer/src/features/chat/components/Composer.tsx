@@ -2042,6 +2042,7 @@ export function Composer({
       hasActiveRun,
       isComposing,
       inputBuffer,
+      mergeBufferedPayloadIntoDraft,
       matchingSlashCommands,
       dismissSlashPopup,
       dispatchSend,
