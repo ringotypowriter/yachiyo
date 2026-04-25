@@ -1472,3 +1472,25 @@ test('provider imageIncapable list round-trips through TOML serialization', asyn
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('explicit empty imageIncapable list survives round-trip', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-imgcap-empty-'))
+  const settingsPath = join(root, 'config.toml')
+  const store = createSettingsStore(settingsPath)
+
+  try {
+    store.write({
+      providers: [
+        {
+          ...PROVIDER_WORK,
+          modelList: { enabled: ['deepseek-v4-pro'], disabled: [], imageIncapable: [] }
+        }
+      ]
+    })
+
+    const loaded = store.read()
+    assert.deepEqual(loaded.providers[0].modelList.imageIncapable, [])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

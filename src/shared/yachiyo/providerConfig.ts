@@ -35,7 +35,7 @@ export function sanitizeProviderConfig(provider: ProviderConfig): ProviderConfig
     modelList: {
       enabled: [...new Set(provider.modelList.enabled.filter(Boolean))],
       disabled: [...new Set(provider.modelList.disabled.filter(Boolean))],
-      ...(provider.modelList.imageIncapable?.length
+      ...(provider.modelList.imageIncapable !== undefined
         ? { imageIncapable: [...new Set(provider.modelList.imageIncapable.filter(Boolean))] }
         : {})
     }
@@ -110,7 +110,10 @@ export function isModelImageCapable(
 ): boolean {
   const provider = config.providers.find((p) => p.name === providerName)
   if (!provider) return true
-  return !(provider.modelList.imageIncapable ?? []).includes(model)
+  if (provider.modelList.imageIncapable !== undefined) {
+    return !provider.modelList.imageIncapable.includes(model)
+  }
+  return !isKnownImageIncapableModel(model)
 }
 
 export function getToolModelConfig(

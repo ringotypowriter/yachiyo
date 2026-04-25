@@ -24,6 +24,7 @@ import {
 } from './shared.ts'
 
 const DEFAULT_READ_TIMEOUT_MS = 30_000
+const INSPECT_READ_TIMEOUT_MS = 90_000
 
 const IMAGE_EXTENSIONS: Record<string, string> = {
   '.png': 'image/png',
@@ -269,7 +270,8 @@ async function runImageReadTool(
   resolvedPath: string,
   mediaType: string,
   context: AgentToolContext,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  focus?: string
 ): Promise<ReadToolOutput> {
   const fileData = await readFile(resolvedPath, { signal: abortSignal })
   const fileStat = await (abortSignal
@@ -287,6 +289,16 @@ async function runImageReadTool(
     totalBytes: fileStat.size,
     truncated: false,
     mediaType
+  }
+
+  if (focus?.trim() && context.imageToTextService) {
+    const dataUrl = `data:${mediaType};base64,${base64}`
+    const result = await context.imageToTextService.inspect(dataUrl, focus.trim(), abortSignal)
+    return {
+      content: textContent(`${result ?? '(image could not be inspected)'}\n${summary}`),
+      details,
+      metadata: {}
+    }
   }
 
   if (context.isModelImageCapable === false && context.imageToTextService) {
@@ -313,8 +325,12 @@ export async function runReadTool(
   options: { abortSignal?: AbortSignal } = {}
 ): Promise<ReadToolOutput> {
   const userSignal = options.abortSignal
-  const timeoutSignal = AbortSignal.timeout(DEFAULT_READ_TIMEOUT_MS)
+  const isInspect = !!input.focus?.trim()
+  const timeoutMs = isInspect ? INSPECT_READ_TIMEOUT_MS : DEFAULT_READ_TIMEOUT_MS
+  const timeoutSignal = AbortSignal.timeout(timeoutMs)
   const effectiveSignal = userSignal ? AbortSignal.any([timeoutSignal, userSignal]) : timeoutSignal
+
+  const focusIgnoredHint = isInspect ? '\n\n[Note: focus is only supported for image files]' : ''
 
   const pathResult = resolveSandboxedToolPath(context, input.path)
   if ('error' in pathResult) {
@@ -332,7 +348,11 @@ export async function runReadTool(
 
   if (isPdfFile(resolvedPath)) {
     try {
-      return await runPdfReadTool(input, resolvedPath, context, effectiveSignal)
+      const pdfResult = await runPdfReadTool(input, resolvedPath, context, effectiveSignal)
+      if (focusIgnoredHint) {
+        pdfResult.content = [...pdfResult.content, ...textContent(focusIgnoredHint)]
+      }
+      return pdfResult
     } catch (error) {
       return createReadErrorResult(
         resolvedPath,
@@ -344,7 +364,13 @@ export async function runReadTool(
   const imageMimeType = detectImageMimeType(resolvedPath)
   if (imageMimeType) {
     try {
-      return await runImageReadTool(resolvedPath, imageMimeType, context, effectiveSignal)
+      return await runImageReadTool(
+        resolvedPath,
+        imageMimeType,
+        context,
+        effectiveSignal,
+        input.focus
+      )
     } catch (error) {
       return createReadErrorResult(
         resolvedPath,
@@ -389,7 +415,7 @@ export async function runReadTool(
       }
     }
     return {
-      content: textContent(`${excerpt.excerpt}${continuationHint}`),
+      content: textContent(`${excerpt.excerpt}${continuationHint}${focusIgnoredHint}`),
       details,
       metadata: {}
     }

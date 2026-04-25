@@ -93,7 +93,13 @@ export const readToolInputSchema = withShadowFallbacks(
   z.object({
     path: z.string().min(1),
     offset: z.number().int().min(0).default(0),
-    limit: z.number().int().min(1).max(MAX_READ_LIMIT).default(DEFAULT_READ_LIMIT)
+    limit: z.number().int().min(1).max(MAX_READ_LIMIT).default(DEFAULT_READ_LIMIT),
+    focus: z
+      .string()
+      .optional()
+      .describe(
+        'For image files: a specific question about the image content. Returns a text description instead of the image.'
+      )
   }),
   { filePath: 'path' }
 )

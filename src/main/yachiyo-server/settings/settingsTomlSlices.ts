@@ -238,7 +238,7 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
           modelList: {
             enabled: provider.modelList.enabled,
             disabled: provider.modelList.disabled,
-            ...(provider.modelList.imageIncapable?.length
+            ...(provider.modelList.imageIncapable !== undefined
               ? { imageIncapable: provider.modelList.imageIncapable }
               : {})
           }

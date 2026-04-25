@@ -183,6 +183,41 @@ test('isModelImageCapable returns false for denylisted model', () => {
   assert.equal(isModelImageCapable(config, 'work', 'gpt-5-mini'), false)
 })
 
+test('isModelImageCapable falls back to known patterns when imageIncapable is undefined', () => {
+  const config = {
+    providers: [
+      {
+        name: 'ds',
+        type: 'openai' as const,
+        apiKey: '',
+        baseUrl: '',
+        modelList: { enabled: ['deepseek-v4-pro'], disabled: [] }
+      }
+    ]
+  }
+  assert.equal(isModelImageCapable(config, 'ds', 'deepseek-v4-pro'), false)
+  assert.equal(isModelImageCapable(config, 'ds', 'deepseek-chat'), false)
+})
+
+test('isModelImageCapable defers to explicit imageIncapable list over known patterns', () => {
+  const config = {
+    providers: [
+      {
+        name: 'ds',
+        type: 'openai' as const,
+        apiKey: '',
+        baseUrl: '',
+        modelList: {
+          enabled: ['deepseek-v4-pro'],
+          disabled: [],
+          imageIncapable: []
+        }
+      }
+    ]
+  }
+  assert.equal(isModelImageCapable(config, 'ds', 'deepseek-v4-pro'), true)
+})
+
 test('isModelImageCapable returns true for unknown provider or model', () => {
   const config = {
     providers: [

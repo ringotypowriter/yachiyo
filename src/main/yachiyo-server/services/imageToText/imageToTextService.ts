@@ -31,6 +31,11 @@ export interface ImageToTextService {
    * @param caption - optional surrounding text for context
    */
   describe(dataUrl: string, caption?: string): Promise<ImageToTextResult | null>
+  /**
+   * Inspect an image with a specific focus question. Never cached — each call
+   * hits the vision model directly and is treated as a regular tool call.
+   */
+  inspect(dataUrl: string, focus: string, signal?: AbortSignal): Promise<string | null>
 }
 
 export interface ImageToTextServiceDeps {
@@ -197,6 +202,47 @@ export function createImageToTextService(deps: ImageToTextServiceDeps): ImageToT
       inflight.set(hash, task)
       task.finally(() => inflight.delete(hash))
       return task
+    },
+
+    async inspect(dataUrl, focus, signal) {
+      const payload = extractBase64DataUrlPayload(dataUrl)
+      if (!payload) return null
+
+      await acquire()
+      try {
+        const messages: ModelMessage[] = [
+          {
+            role: 'system',
+            content: [
+              "Inspect the image and answer the user's question about it.",
+              '',
+              'Rules:',
+              '- Only describe what is visually present. Never infer, guess, or fabricate.',
+              '- If part of the image is unclear, say so instead of guessing.',
+              '- Preserve all visible text verbatim.',
+              '- Be concise and focus on what the user asked about.'
+            ].join('\n')
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'text' as const, text: focus },
+              { type: 'image' as const, image: payload.base64, mediaType: payload.mediaType }
+            ]
+          }
+        ]
+
+        const result = await deps.auxService.generateText({
+          messages,
+          signal,
+          settingsOverride: deps.resolveSettings(),
+          purpose: 'image-to-text'
+        })
+
+        return result.status === 'success' ? result.text.trim() || null : null
+      } finally {
+        release()
+      }
     }
   }
 }
