@@ -577,3 +577,181 @@ test('createThinkingFetch extracts reasoning_content for MiniMax on DashScope (a
   await response.text()
   assert.deepEqual(reasoningDeltas, ['Thinking...'])
 })
+
+// ---------------------------------------------------------------------------
+// Multi-step tool call: reasoning_content echo-back
+// ---------------------------------------------------------------------------
+
+test('createThinkingFetch echoes reasoning_content back in subsequent requests', async () => {
+  let callCount = 0
+  const capturedBodies: Array<Record<string, unknown>> = []
+
+  const fakeFetch: typeof globalThis.fetch = async (_input, init) => {
+    capturedBodies.push(JSON.parse(init?.body as string))
+    callCount++
+
+    if (callCount === 1) {
+      const sseBody = [
+        'data: {"choices":[{"delta":{"reasoning_content":"I should use bash"}}]}\n\n',
+        'data: {"choices":[{"delta":{"content":null,"tool_calls":[{"index":0,"id":"tc1","type":"function","function":{"name":"bash","arguments":"{\\"cmd\\":\\"ls\\"}"}}]}}]}\n\n',
+        'data: [DONE]\n\n'
+      ].join('')
+      return new Response(sseBody, {
+        headers: { 'content-type': 'text/event-stream' }
+      })
+    }
+
+    const sseBody = [
+      'data: {"choices":[{"delta":{"content":"Here are the files."}}]}\n\n',
+      'data: [DONE]\n\n'
+    ].join('')
+    return new Response(sseBody, {
+      headers: { 'content-type': 'text/event-stream' }
+    })
+  }
+
+  const settings = makeSettings({
+    model: 'deepseek-reasoner',
+    baseUrl: 'https://api.deepseek.com/v1'
+  })
+  const wrappedFetch = createThinkingFetch(settings, 'default', fakeFetch, {
+    onReasoningDelta: () => {}
+  })
+  assert.ok(wrappedFetch)
+
+  // First call: model reasons then calls a tool
+  const response1 = await wrappedFetch('https://api.deepseek.com/v1/chat/completions', {
+    method: 'POST',
+    body: JSON.stringify({
+      model: 'deepseek-reasoner',
+      messages: [{ role: 'user', content: 'List files' }]
+    })
+  })
+  await response1.text()
+
+  // Second call: SDK sends tool result — should have reasoning_content echoed back
+  const response2 = await wrappedFetch('https://api.deepseek.com/v1/chat/completions', {
+    method: 'POST',
+    body: JSON.stringify({
+      model: 'deepseek-reasoner',
+      messages: [
+        { role: 'user', content: 'List files' },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            { id: 'tc1', type: 'function', function: { name: 'bash', arguments: '{"cmd":"ls"}' } }
+          ]
+        },
+        { role: 'tool', tool_call_id: 'tc1', content: 'file.txt' }
+      ]
+    })
+  })
+  await response2.text()
+
+  assert.equal(capturedBodies.length, 2)
+
+  // The second request's assistant message should have reasoning_content injected
+  const secondMessages = capturedBodies[1].messages as Array<Record<string, unknown>>
+  const assistantMsg = secondMessages.find((m) => m.role === 'assistant')
+  assert.ok(assistantMsg, 'assistant message should exist in second request')
+  assert.equal(assistantMsg.reasoning_content, 'I should use bash')
+})
+
+test('createThinkingFetch echoes empty reasoning_content to preserve field presence', async () => {
+  let callCount = 0
+  const capturedBodies: Array<Record<string, unknown>> = []
+
+  const fakeFetch: typeof globalThis.fetch = async (_input, init) => {
+    capturedBodies.push(JSON.parse(init?.body as string))
+    callCount++
+
+    if (callCount === 1) {
+      // Step 1: reasoning + tool call
+      const sseBody = [
+        'data: {"choices":[{"delta":{"reasoning_content":"Think first"}}]}\n\n',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tc1","type":"function","function":{"name":"read","arguments":"{}"}}]}}]}\n\n',
+        'data: [DONE]\n\n'
+      ].join('')
+      return new Response(sseBody, { headers: { 'content-type': 'text/event-stream' } })
+    }
+
+    if (callCount === 2) {
+      // Step 2: NO reasoning, just another tool call
+      const sseBody = [
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tc2","type":"function","function":{"name":"write","arguments":"{}"}}]}}]}\n\n',
+        'data: [DONE]\n\n'
+      ].join('')
+      return new Response(sseBody, { headers: { 'content-type': 'text/event-stream' } })
+    }
+
+    // Step 3: final response
+    const sseBody = [
+      'data: {"choices":[{"delta":{"content":"Done"}}]}\n\n',
+      'data: [DONE]\n\n'
+    ].join('')
+    return new Response(sseBody, { headers: { 'content-type': 'text/event-stream' } })
+  }
+
+  const settings = makeSettings({
+    model: 'deepseek-reasoner',
+    baseUrl: 'https://api.deepseek.com/v1'
+  })
+  const wrappedFetch = createThinkingFetch(settings, 'default', fakeFetch, {
+    onReasoningDelta: () => {}
+  })
+  assert.ok(wrappedFetch)
+
+  // Step 1
+  const r1 = await wrappedFetch('https://api.deepseek.com/v1/chat/completions', {
+    method: 'POST',
+    body: JSON.stringify({
+      model: 'deepseek-reasoner',
+      messages: [{ role: 'user', content: 'go' }]
+    })
+  })
+  await r1.text()
+
+  // Step 2: 1 assistant message
+  const r2 = await wrappedFetch('https://api.deepseek.com/v1/chat/completions', {
+    method: 'POST',
+    body: JSON.stringify({
+      model: 'deepseek-reasoner',
+      messages: [
+        { role: 'user', content: 'go' },
+        { role: 'assistant', content: null, tool_calls: [{ id: 'tc1' }] },
+        { role: 'tool', tool_call_id: 'tc1', content: 'result1' }
+      ]
+    })
+  })
+  await r2.text()
+
+  // Step 3: 2 assistant messages — first should have reasoning, second should have empty field
+  const r3 = await wrappedFetch('https://api.deepseek.com/v1/chat/completions', {
+    method: 'POST',
+    body: JSON.stringify({
+      model: 'deepseek-reasoner',
+      messages: [
+        { role: 'user', content: 'go' },
+        { role: 'assistant', content: null, tool_calls: [{ id: 'tc1' }] },
+        { role: 'tool', tool_call_id: 'tc1', content: 'result1' },
+        { role: 'assistant', content: null, tool_calls: [{ id: 'tc2' }] },
+        { role: 'tool', tool_call_id: 'tc2', content: 'result2' }
+      ]
+    })
+  })
+  await r3.text()
+
+  assert.equal(capturedBodies.length, 3)
+
+  // Step 3 request should have both assistant messages with reasoning_content
+  const thirdMessages = capturedBodies[2].messages as Array<Record<string, unknown>>
+  const assistantMsgs = thirdMessages.filter((m) => m.role === 'assistant')
+  assert.equal(assistantMsgs.length, 2)
+  assert.equal(assistantMsgs[0].reasoning_content, 'Think first')
+  assert.equal(
+    assistantMsgs[1].reasoning_content,
+    '',
+    'empty reasoning must still be present as field'
+  )
+})

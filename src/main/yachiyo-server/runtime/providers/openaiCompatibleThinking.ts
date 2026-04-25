@@ -179,12 +179,11 @@ function matchEntry(baseUrl: string): HostResolverEntry | undefined {
 // ---------------------------------------------------------------------------
 
 /**
- * Inject `reasoning_content` back into outgoing assistant messages so
- * providers that require it (e.g. DeepSeek) can continue a multi-step
- * tool call sequence.
- *
- * The Nth collected reasoning string is mapped to the Nth assistant message
- * in the messages array (positional 1:1 mapping).
+ * Inject `reasoning_content` back into ALL outgoing assistant messages.
+ * The Nth collected reasoning string is mapped to the Nth assistant message;
+ * assistant messages beyond the collected range get an empty string.
+ * DeepSeek requires the field to be present on every assistant message
+ * when thinking mode is enabled, even if the value is empty.
  */
 function injectReasoningContentIntoMessages(
   messages: Array<Record<string, unknown>>,
@@ -192,8 +191,8 @@ function injectReasoningContentIntoMessages(
 ): void {
   let idx = 0
   for (const msg of messages) {
-    if (msg.role === 'assistant' && idx < reasoningContents.length) {
-      msg.reasoning_content = reasoningContents[idx]
+    if (msg.role === 'assistant') {
+      msg.reasoning_content = idx < reasoningContents.length ? reasoningContents[idx] : ''
       idx++
     }
   }
@@ -302,6 +301,8 @@ export function needsReasoningExtraction(baseUrl: string): boolean {
 export interface ThinkingFetchOptions {
   /** Callback invoked with each reasoning delta extracted from the SSE stream. */
   onReasoningDelta?: (delta: string) => void
+  /** Pre-seeded reasoning_content from stored conversation history (one per historical assistant message). */
+  historicalReasoningContents?: string[]
 }
 
 /**
@@ -356,34 +357,40 @@ export function createThinkingFetch(
   }
 
   const extraParams = entry.resolve(settings.model)
-  // Always create the wrapper when a resolver matched: even without
-  // onReasoningDelta we need the SSE transform to capture reasoning_content
-  // for echo-back in multi-step tool call requests.
+  // Models without reasoning params AND no reasoning callback don't need
+  // the wrapper — they won't emit reasoning_content to track.
+  if (!extraParams && !options.onReasoningDelta) {
+    console.info(`${tag} skip: no params and no reasoning callback for model=${settings.model}`)
+    return undefined
+  }
 
   console.info(
     `${tag} active: model=${settings.model} injecting=${JSON.stringify(extraParams ?? null)} extractReasoning=${!!options.onReasoningDelta}`
   )
 
-  // Track reasoning_content across multi-step tool call requests.
-  // DeepSeek (and other providers) require reasoning_content to be echoed
-  // back in assistant messages — the SDK strips it because it doesn't know
-  // about the field.
-  const collectedReasoningContents: string[] = []
+  // Only track and inject reasoning_content when the model actually has
+  // thinking enabled (extraParams present). Models like deepseek-chat on a
+  // recognized host don't emit reasoning_content and must not receive it.
+  const thinkingActive = extraParams != null
+  const collectedReasoningContents: string[] = thinkingActive
+    ? [...(options.historicalReasoningContents ?? [])]
+    : []
   let currentReasoningBuffer = ''
+  let hasOutstandingResponse = false
 
   return async (input, init) => {
-    // Finalize the previous response's reasoning before sending the next request.
-    if (currentReasoningBuffer) {
+    if (thinkingActive && hasOutstandingResponse) {
       collectedReasoningContents.push(currentReasoningBuffer)
       currentReasoningBuffer = ''
     }
+    hasOutstandingResponse = true
 
     // 1. Inject thinking params + reasoning_content into request body
     if (init?.body && typeof init.body === 'string') {
       try {
         const body = JSON.parse(init.body) as Record<string, unknown>
         if (extraParams) Object.assign(body, extraParams)
-        if (collectedReasoningContents.length > 0 && Array.isArray(body.messages)) {
+        if (thinkingActive && Array.isArray(body.messages)) {
           injectReasoningContentIntoMessages(
             body.messages as Array<Record<string, unknown>>,
             collectedReasoningContents
@@ -400,7 +407,7 @@ export function createThinkingFetch(
     // 2. Transform response stream to extract reasoning_content
     if (response.body) {
       const transformedBody = createReasoningExtractStream(response.body, (delta) => {
-        currentReasoningBuffer += delta
+        if (thinkingActive) currentReasoningBuffer += delta
         options.onReasoningDelta?.(delta)
       })
       return new Response(transformedBody, {

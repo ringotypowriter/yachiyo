@@ -119,6 +119,64 @@ function patchReasoningSignatures(messages: unknown[]): unknown[] {
   return patched ? result : messages
 }
 
+type ResponseMessage = { role?: string; content?: unknown[]; reasoning_content?: string }
+
+/**
+ * Extract `reasoning_content` from stored assistant messages in the
+ * conversation history. These values pre-seed the fetch wrapper so it
+ * can echo them back on the first API request of a new run.
+ */
+function extractHistoricalReasoningContents(messages: ModelMessage[]): string[] {
+  const result: string[] = []
+  for (const msg of messages) {
+    if (msg.role === 'assistant') {
+      const rc = (msg as ResponseMessage).reasoning_content
+      result.push(rc ?? '')
+    }
+  }
+  return result.some((r) => r.length > 0) ? result : []
+}
+
+/**
+ * Inject `reasoning_content` into assistant messages in responseMessages
+ * when the SDK's OpenAI chat model didn't capture it from the SSE stream.
+ *
+ * Uses the ChatCompletion wire format: `reasoning_content` as a top-level
+ * field on the assistant message object (not a content-part type).
+ *
+ * Each entry in `perStepReasoning` maps 1:1 to the Nth assistant message.
+ * Empty entries preserve step alignment without modifying the message.
+ * Skips injection when `reasoning_content` already exists.
+ */
+export function injectStepReasoning(
+  responseMessages: unknown[],
+  perStepReasoning: string[]
+): unknown[] {
+  if (perStepReasoning.every((text) => text.length === 0)) return responseMessages
+
+  const msgs = responseMessages as ResponseMessage[]
+  const hasExisting = msgs.some(
+    (msg) => msg.role === 'assistant' && typeof msg.reasoning_content === 'string'
+  )
+  if (hasExisting) return responseMessages
+
+  let modified = false
+  const result = [...responseMessages]
+  let reasoningIdx = 0
+  for (let i = 0; i < result.length && reasoningIdx < perStepReasoning.length; i++) {
+    const msg = result[i] as ResponseMessage
+    if (msg.role === 'assistant') {
+      if (perStepReasoning[reasoningIdx]) {
+        result[i] = { ...msg, reasoning_content: perStepReasoning[reasoningIdx] }
+        modified = true
+      }
+      reasoningIdx++
+    }
+  }
+
+  return modified ? result : responseMessages
+}
+
 function toToolError(error: unknown, fallbackMessage = 'Tool execution failed'): Error {
   if (error instanceof Error) {
     return error
@@ -207,7 +265,16 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
       let retryDelay = RETRY_BASE_DELAY_MS
       let totalYieldedChars = 0
 
+      let stepReasoningChunks: string[][] = [[]]
+      const interceptReasoningDelta = request.onReasoningDelta
+        ? (delta: string) => {
+            stepReasoningChunks[stepReasoningChunks.length - 1].push(delta)
+            request.onReasoningDelta!(delta)
+          }
+        : undefined
+
       for (let attempt = 1; attempt <= RETRY_MAX_ATTEMPTS; attempt++) {
+        stepReasoningChunks = [[]]
         const attemptStartedAt = Date.now()
         console.info(
           `${llmTag} attempt ${attempt}/${RETRY_MAX_ATTEMPTS} provider=${provider} model=${model}`
@@ -225,7 +292,15 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               request.settings,
               resolvedDependencies,
               request.providerOptionsMode,
-              { onReasoningDelta: request.onReasoningDelta }
+              {
+                onReasoningDelta: interceptReasoningDelta,
+                ...(provider === 'openai'
+                  ? {
+                      historicalReasoningContents:
+                        extractHistoricalReasoningContents(preparedMessages)
+                    }
+                  : {})
+              }
             ),
             providerOptions,
             ...(request.max_token != null
@@ -279,6 +354,9 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                     request.onStepUsage({ promptTokens: prompt, completionTokens: completion })
                   }
                 }
+                if (part.type === 'finish-step') {
+                  stepReasoningChunks.push([])
+                }
               }
 
               if (part.type === 'error') {
@@ -293,7 +371,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                   part.type === 'reasoning-part-finish') &&
                 readTextDelta(part)
               ) {
-                request.onReasoningDelta?.(readTextDelta(part) as string)
+                interceptReasoningDelta?.(readTextDelta(part) as string)
                 continue
               }
 
@@ -517,6 +595,16 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               }
               if (usage.inputTokens != null && usage.outputTokens != null) {
                 const responseMessages = response?.messages
+                const isOpenAiChatProvider = provider === 'openai'
+                const perStepReasoning = isOpenAiChatProvider
+                  ? stepReasoningChunks.map((chunks) => chunks.join(''))
+                  : []
+                const enrichedResponseMessages =
+                  Array.isArray(responseMessages) && responseMessages.length > 0
+                    ? patchReasoningSignatures(
+                        injectStepReasoning(responseMessages, perStepReasoning) as unknown[]
+                      )
+                    : undefined
                 request.onFinish({
                   promptTokens: usage.inputTokens,
                   completionTokens: usage.outputTokens,
@@ -525,8 +613,8 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                   ...(cacheRead != null ? { cacheReadTokens: cacheRead } : {}),
                   ...(cacheWrite != null ? { cacheWriteTokens: cacheWrite } : {}),
                   ...(finishReason ? { finishReason } : {}),
-                  ...(Array.isArray(responseMessages) && responseMessages.length > 0
-                    ? { responseMessages: patchReasoningSignatures(responseMessages) }
+                  ...(enrichedResponseMessages
+                    ? { responseMessages: enrichedResponseMessages }
                     : {})
                 })
               }

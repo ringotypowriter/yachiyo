@@ -29,6 +29,7 @@ export function assertConfigured(settings: ProviderSettings): void {
 
 export interface CreateLanguageModelOptions {
   onReasoningDelta?: (delta: string) => void
+  historicalReasoningContents?: string[]
 }
 
 export function createLanguageModel(
@@ -43,7 +44,12 @@ export function createLanguageModel(
       dependencies,
       mode,
       createGatewayDiagnosticFetch(settings),
-      { onReasoningDelta: options.onReasoningDelta }
+      {
+        onReasoningDelta: options.onReasoningDelta,
+        ...(settings.provider === 'openai'
+          ? { historicalReasoningContents: options.historicalReasoningContents }
+          : {})
+      }
     )
   }
 

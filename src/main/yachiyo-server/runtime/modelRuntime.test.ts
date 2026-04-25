@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createAiSdkModelRuntime, fetchModels } from './modelRuntime.ts'
+import { createAiSdkModelRuntime, fetchModels, injectStepReasoning } from './modelRuntime.ts'
 
 test('createAiSdkModelRuntime uses chat() for openai (Chat Completions) provider', async () => {
   let openAiOptions: { apiKey?: string; baseURL?: string } | undefined
@@ -2430,4 +2430,249 @@ test('streamReply retries after reasoning deltas when assistant text has not sta
   assert.deepEqual(chunks, ['Recovered answer'])
   assert.equal(getCallCount(), 2)
   assert.deepEqual(sleepCalls, [1000])
+})
+
+test('injectStepReasoning sets reasoning_content on first assistant message', () => {
+  const responseMessages = [{ role: 'assistant', content: [{ type: 'text', text: 'Hello!' }] }]
+  const result = injectStepReasoning(responseMessages, ['Let me think...']) as Array<{
+    role: string
+    reasoning_content?: string
+  }>
+
+  assert.equal(result.length, 1)
+  assert.equal(result[0].reasoning_content, 'Let me think...')
+})
+
+test('injectStepReasoning maps per-step reasoning_content to corresponding assistant messages', () => {
+  const responseMessages = [
+    { role: 'assistant', content: [{ type: 'tool-call', toolName: 'bash', toolCallId: 'tc1' }] },
+    { role: 'tool', content: [{ type: 'tool-result', toolCallId: 'tc1' }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] }
+  ]
+  const result = injectStepReasoning(responseMessages, [
+    'Step 1 thinking',
+    'Step 2 thinking'
+  ]) as Array<{
+    role: string
+    reasoning_content?: string
+  }>
+
+  assert.equal(result.length, 3)
+  assert.equal(result[0].reasoning_content, 'Step 1 thinking')
+  assert.equal(result[1].role, 'tool')
+  assert.equal(result[2].reasoning_content, 'Step 2 thinking')
+})
+
+test('injectStepReasoning skips when reasoning_content already exists', () => {
+  const responseMessages = [
+    {
+      role: 'assistant',
+      reasoning_content: 'Already here',
+      content: [{ type: 'text', text: 'Hello!' }]
+    }
+  ]
+  const result = injectStepReasoning(responseMessages, ['New reasoning'])
+
+  assert.equal(result, responseMessages, 'should return the same reference unchanged')
+})
+
+test('injectStepReasoning returns unchanged when perStepReasoning is all empty', () => {
+  const responseMessages = [{ role: 'assistant', content: [{ type: 'text', text: 'Hi' }] }]
+  const result = injectStepReasoning(responseMessages, ['', ''])
+
+  assert.equal(result, responseMessages)
+})
+
+test('injectStepReasoning preserves step alignment with empty entries', () => {
+  const responseMessages = [
+    { role: 'assistant', content: [{ type: 'tool-call', toolName: 'bash', toolCallId: 'tc1' }] },
+    { role: 'tool', content: [{ type: 'tool-result', toolCallId: 'tc1' }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] }
+  ]
+  const result = injectStepReasoning(responseMessages, ['', 'Only step 2 thinking']) as Array<{
+    role: string
+    reasoning_content?: string
+  }>
+
+  assert.equal(result[0].reasoning_content, undefined, 'first assistant has no reasoning')
+  assert.equal(result[2].reasoning_content, 'Only step 2 thinking')
+})
+
+// ---------------------------------------------------------------------------
+// Integration: reasoning_content injected into responseMessages via fullStream
+// ---------------------------------------------------------------------------
+
+test('streamReply injects reasoning_content into responseMessages for OpenAI-compatible provider', async () => {
+  let finishedUsage:
+    | {
+        responseMessages?: unknown[]
+      }
+    | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        chat: (modelId: string) => ({ modelId, provider: 'openai.chat' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('unused')
+    },
+    streamTextImpl: (() => ({
+      fullStream: (async function* () {
+        yield { type: 'reasoning-delta', delta: 'Thinking step 1... ' }
+        yield { type: 'reasoning-delta', delta: 'done.' }
+        yield {
+          type: 'tool-input-start',
+          id: 'tc1',
+          toolName: 'bash'
+        }
+        yield {
+          type: 'tool-input-available',
+          toolCallId: 'tc1',
+          toolName: 'bash',
+          input: { command: 'ls' }
+        }
+        yield {
+          type: 'tool-output-available',
+          toolCallId: 'tc1',
+          toolName: 'bash',
+          output: { stdout: 'file.txt' }
+        }
+        yield { type: 'finish-step', finishReason: 'tool-calls', stepNumber: 0 }
+        yield { type: 'reasoning-delta', delta: 'Step 2 reasoning' }
+        yield { type: 'text-delta', delta: 'Here are the files.' }
+        yield { type: 'finish-step', finishReason: 'stop', stepNumber: 1 }
+      })(),
+      usage: Promise.resolve({ inputTokens: 100, outputTokens: 50 }),
+      totalUsage: Promise.resolve({ inputTokens: 200, outputTokens: 100 }),
+      finishReason: Promise.resolve('stop'),
+      response: Promise.resolve({
+        messages: [
+          {
+            role: 'assistant',
+            content: [
+              { type: 'tool-call', toolCallId: 'tc1', toolName: 'bash', args: { command: 'ls' } }
+            ]
+          },
+          {
+            role: 'tool',
+            content: [{ type: 'tool-result', toolCallId: 'tc1', result: { stdout: 'file.txt' } }]
+          },
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'Here are the files.' }]
+          }
+        ]
+      })
+    })) as never
+  })
+
+  const reasoningDeltas: string[] = []
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'List files.' }],
+    settings: {
+      providerName: 'deepseek',
+      provider: 'openai',
+      model: 'deepseek-v4',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.deepseek.com/v1'
+    },
+    signal: new AbortController().signal,
+    tools: { bash: { description: 'run command' } } as never,
+    onReasoningDelta: (delta) => {
+      reasoningDeltas.push(delta)
+    },
+    onFinish: (usage) => {
+      finishedUsage = usage
+    }
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(reasoningDeltas, ['Thinking step 1... ', 'done.', 'Step 2 reasoning'])
+  assert.deepEqual(chunks, ['Here are the files.'])
+
+  const responseMessages = finishedUsage?.responseMessages as Array<{
+    role: string
+    reasoning_content?: string
+    content: Array<{ type: string }>
+  }>
+  assert.ok(responseMessages, 'responseMessages should be set')
+  assert.equal(responseMessages.length, 3)
+
+  assert.equal(responseMessages[0].role, 'assistant')
+  assert.equal(responseMessages[0].reasoning_content, 'Thinking step 1... done.')
+  assert.equal(responseMessages[0].content[0].type, 'tool-call')
+
+  assert.equal(responseMessages[1].role, 'tool')
+  assert.equal((responseMessages[1] as { reasoning_content?: string }).reasoning_content, undefined)
+
+  assert.equal(responseMessages[2].role, 'assistant')
+  assert.equal(responseMessages[2].reasoning_content, 'Step 2 reasoning')
+  assert.equal(responseMessages[2].content[0].type, 'text')
+})
+
+test('streamReply does not double-inject reasoning_content when it already exists', async () => {
+  let finishedUsage:
+    | {
+        responseMessages?: unknown[]
+      }
+    | undefined
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        chat: (modelId: string) => ({ modelId, provider: 'openai.chat' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('unused')
+    },
+    streamTextImpl: (() => ({
+      fullStream: (async function* () {
+        yield { type: 'reasoning-delta', delta: 'Thinking' }
+        yield { type: 'text-delta', delta: 'Answer' }
+      })(),
+      usage: Promise.resolve({ inputTokens: 100, outputTokens: 50 }),
+      totalUsage: Promise.resolve({ inputTokens: 100, outputTokens: 50 }),
+      finishReason: Promise.resolve('stop'),
+      response: Promise.resolve({
+        messages: [
+          {
+            role: 'assistant',
+            reasoning_content: 'Already captured',
+            content: [{ type: 'text', text: 'Answer' }]
+          }
+        ]
+      })
+    })) as never
+  })
+
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Think.' }],
+    settings: {
+      providerName: 'test',
+      provider: 'openai',
+      model: 'test-model',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com'
+    },
+    signal: new AbortController().signal,
+    onReasoningDelta: () => {},
+    onFinish: (usage) => {
+      finishedUsage = usage
+    }
+  })) {
+    chunks.push(chunk)
+  }
+
+  const responseMessages = finishedUsage?.responseMessages as Array<{
+    role: string
+    reasoning_content?: string
+  }>
+  assert.ok(responseMessages)
+  assert.equal(responseMessages[0].reasoning_content, 'Already captured')
 })

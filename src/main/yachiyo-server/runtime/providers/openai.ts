@@ -31,6 +31,7 @@ export function shouldUseOpenAIResponsesApi(settings: ProviderSettings): boolean
 
 export interface OpenAiLanguageModelOptions {
   onReasoningDelta?: (delta: string) => void
+  historicalReasoningContents?: string[]
 }
 
 export function createOpenAiLanguageModel(
@@ -41,7 +42,8 @@ export function createOpenAiLanguageModel(
   options: OpenAiLanguageModelOptions = {}
 ): LanguageModel {
   const thinkingOptions: ThinkingFetchOptions = {
-    onReasoningDelta: options.onReasoningDelta
+    onReasoningDelta: options.onReasoningDelta,
+    historicalReasoningContents: options.historicalReasoningContents
   }
 
   // Layer fetch wrappers (innermost → outermost):
