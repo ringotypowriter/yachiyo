@@ -22,13 +22,13 @@ interface ThinkingBodyParams {
 type ThinkingParamResolver = (model: string) => ThinkingBodyParams | undefined
 
 /**
- * DeepSeek: `reasoning_effort` on the `deepseek-reasoner` model family.
- * The reasoner model enables thinking implicitly; effort controls depth.
+ * DeepSeek: nested `thinking` object with type `enabled`.
+ * Supported on the deepseek-reasoner, R1, V3, and V4 model families.
  */
 function deepseekParams(model: string): ThinkingBodyParams | undefined {
   const m = model.toLowerCase()
-  if (m.includes('reasoner') || m.includes('r1')) {
-    return { reasoning_effort: 'medium' }
+  if (m.includes('reasoner') || m.includes('r1') || m.includes('v3') || m.includes('v4')) {
+    return { thinking: { type: 'enabled' } }
   }
   return undefined
 }
@@ -102,13 +102,34 @@ function openRouterParams(model: string): ThinkingBodyParams | undefined {
 }
 
 /**
+ * OpenCode Go: multi-provider endpoint that hosts models from various vendors.
+ * Dispatches thinking params by model family.
+ */
+function opencodeParams(model: string): ThinkingBodyParams | undefined {
+  const m = model.toLowerCase()
+  if (m.includes('glm')) {
+    return { enable_thinking: true, thinking_budget: 4096 }
+  }
+  if (m.includes('kimi-k2') || m.includes('k2')) {
+    return { thinking: { type: 'enabled', budget_tokens: 8192 } }
+  }
+  if (m.includes('deepseek')) {
+    return { thinking: { type: 'enabled' } }
+  }
+  return undefined
+}
+
+/**
  * SiliconFlow: pass-through — mirrors upstream model conventions.
- * DeepSeek-family → `reasoning_effort`, Qwen-family → `enable_thinking`.
+ * DeepSeek-family → `thinking: {type: 'enabled'}`, Qwen-family → `enable_thinking`.
  */
 function siliconFlowParams(model: string): ThinkingBodyParams | undefined {
   const m = model.toLowerCase()
-  if (m.includes('deepseek') && (m.includes('r1') || m.includes('reasoner'))) {
-    return { reasoning_effort: 'medium' }
+  if (
+    m.includes('deepseek') &&
+    (m.includes('r1') || m.includes('reasoner') || m.includes('v3') || m.includes('v4'))
+  ) {
+    return { thinking: { type: 'enabled' } }
   }
   if (m.includes('qwq') || m.includes('qwen3')) {
     return { enable_thinking: true, thinking_budget: 4096 }
@@ -134,7 +155,8 @@ const HOST_RESOLVERS: ReadonlyArray<HostResolverEntry> = [
   { host: 'api.minimaxi.com', resolve: minimaxParams },
   { host: 'api.moonshot.cn', resolve: kimiParams, resolveDisable: kimiDisableParams },
   { host: 'api.siliconflow.cn', resolve: siliconFlowParams },
-  { host: 'openrouter.ai', resolve: openRouterParams }
+  { host: 'openrouter.ai', resolve: openRouterParams },
+  { host: 'opencode.ai', resolve: opencodeParams }
 ]
 
 function matchEntry(baseUrl: string): HostResolverEntry | undefined {
@@ -150,6 +172,31 @@ function matchEntry(baseUrl: string): HostResolverEntry | undefined {
     }
   }
   return undefined
+}
+
+// ---------------------------------------------------------------------------
+// Request-body reasoning_content injection
+// ---------------------------------------------------------------------------
+
+/**
+ * Inject `reasoning_content` back into outgoing assistant messages so
+ * providers that require it (e.g. DeepSeek) can continue a multi-step
+ * tool call sequence.
+ *
+ * The Nth collected reasoning string is mapped to the Nth assistant message
+ * in the messages array (positional 1:1 mapping).
+ */
+function injectReasoningContentIntoMessages(
+  messages: Array<Record<string, unknown>>,
+  reasoningContents: string[]
+): void {
+  let idx = 0
+  for (const msg of messages) {
+    if (msg.role === 'assistant' && idx < reasoningContents.length) {
+      msg.reasoning_content = reasoningContents[idx]
+      idx++
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -309,26 +356,40 @@ export function createThinkingFetch(
   }
 
   const extraParams = entry.resolve(settings.model)
-  // Even if no extra params are needed (e.g. MiniMax always-on), we still
-  // need the response transform if we want to extract reasoning_content.
-  // But if both are absent, there's nothing to do.
-  if (!extraParams && !options.onReasoningDelta) {
-    console.info(`${tag} skip: no params and no reasoning callback for model=${settings.model}`)
-    return undefined
-  }
+  // Always create the wrapper when a resolver matched: even without
+  // onReasoningDelta we need the SSE transform to capture reasoning_content
+  // for echo-back in multi-step tool call requests.
 
   console.info(
     `${tag} active: model=${settings.model} injecting=${JSON.stringify(extraParams ?? null)} extractReasoning=${!!options.onReasoningDelta}`
   )
 
+  // Track reasoning_content across multi-step tool call requests.
+  // DeepSeek (and other providers) require reasoning_content to be echoed
+  // back in assistant messages — the SDK strips it because it doesn't know
+  // about the field.
+  const collectedReasoningContents: string[] = []
+  let currentReasoningBuffer = ''
+
   return async (input, init) => {
-    // 1. Inject thinking params into request body
-    if (extraParams && init?.body && typeof init.body === 'string') {
+    // Finalize the previous response's reasoning before sending the next request.
+    if (currentReasoningBuffer) {
+      collectedReasoningContents.push(currentReasoningBuffer)
+      currentReasoningBuffer = ''
+    }
+
+    // 1. Inject thinking params + reasoning_content into request body
+    if (init?.body && typeof init.body === 'string') {
       try {
         const body = JSON.parse(init.body) as Record<string, unknown>
-        Object.assign(body, extraParams)
+        if (extraParams) Object.assign(body, extraParams)
+        if (collectedReasoningContents.length > 0 && Array.isArray(body.messages)) {
+          injectReasoningContentIntoMessages(
+            body.messages as Array<Record<string, unknown>>,
+            collectedReasoningContents
+          )
+        }
         init = { ...init, body: JSON.stringify(body) }
-        console.info(`${tag} injected thinking params into request body`)
       } catch {
         // Not JSON — pass through unchanged
       }
@@ -337,8 +398,11 @@ export function createThinkingFetch(
     const response = await baseFetch(input, init)
 
     // 2. Transform response stream to extract reasoning_content
-    if (options.onReasoningDelta && response.body) {
-      const transformedBody = createReasoningExtractStream(response.body, options.onReasoningDelta)
+    if (response.body) {
+      const transformedBody = createReasoningExtractStream(response.body, (delta) => {
+        currentReasoningBuffer += delta
+        options.onReasoningDelta?.(delta)
+      })
       return new Response(transformedBody, {
         status: response.status,
         statusText: response.statusText,

@@ -62,7 +62,7 @@ test('isOpenAiCompatibleThinkingHost rejects invalid URL', () => {
 // createThinkingFetch — DeepSeek
 // ---------------------------------------------------------------------------
 
-test('createThinkingFetch injects reasoning_effort for DeepSeek reasoner', async () => {
+test('createThinkingFetch injects thinking object for DeepSeek reasoner', async () => {
   let capturedBody: Record<string, unknown> | undefined
   const fakeFetch: typeof globalThis.fetch = async (_input, init) => {
     capturedBody = JSON.parse(init?.body as string)
@@ -81,7 +81,51 @@ test('createThinkingFetch injects reasoning_effort for DeepSeek reasoner', async
     body: JSON.stringify({ model: 'deepseek-reasoner', messages: [] })
   })
 
-  assert.equal(capturedBody?.reasoning_effort, 'medium')
+  assert.deepEqual(capturedBody?.thinking, { type: 'enabled' })
+})
+
+test('createThinkingFetch injects thinking object for DeepSeek V3', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+  const fakeFetch: typeof globalThis.fetch = async (_input, init) => {
+    capturedBody = JSON.parse(init?.body as string)
+    return new Response('{}')
+  }
+
+  const settings = makeSettings({
+    model: 'deepseek-v3',
+    baseUrl: 'https://api.deepseek.com/v1'
+  })
+  const wrappedFetch = createThinkingFetch(settings, 'default', fakeFetch)
+  assert.ok(wrappedFetch)
+
+  await wrappedFetch('https://api.deepseek.com/v1/chat/completions', {
+    method: 'POST',
+    body: JSON.stringify({ model: 'deepseek-v3', messages: [] })
+  })
+
+  assert.deepEqual(capturedBody?.thinking, { type: 'enabled' })
+})
+
+test('createThinkingFetch injects thinking object for DeepSeek V4', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+  const fakeFetch: typeof globalThis.fetch = async (_input, init) => {
+    capturedBody = JSON.parse(init?.body as string)
+    return new Response('{}')
+  }
+
+  const settings = makeSettings({
+    model: 'deepseek-v4',
+    baseUrl: 'https://api.deepseek.com/v1'
+  })
+  const wrappedFetch = createThinkingFetch(settings, 'default', fakeFetch)
+  assert.ok(wrappedFetch)
+
+  await wrappedFetch('https://api.deepseek.com/v1/chat/completions', {
+    method: 'POST',
+    body: JSON.stringify({ model: 'deepseek-v4', messages: [] })
+  })
+
+  assert.deepEqual(capturedBody?.thinking, { type: 'enabled' })
 })
 
 test('createThinkingFetch skips DeepSeek non-reasoner models', () => {
@@ -306,7 +350,29 @@ test('createThinkingFetch uses DeepSeek params for SiliconFlow DeepSeek model', 
     body: JSON.stringify({ model: 'deepseek-ai/DeepSeek-R1', messages: [] })
   })
 
-  assert.equal(capturedBody?.reasoning_effort, 'medium')
+  assert.deepEqual(capturedBody?.thinking, { type: 'enabled' })
+})
+
+test('createThinkingFetch uses DeepSeek V3 params for SiliconFlow DeepSeek model', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+  const fakeFetch: typeof globalThis.fetch = async (_input, init) => {
+    capturedBody = JSON.parse(init?.body as string)
+    return new Response('{}')
+  }
+
+  const settings = makeSettings({
+    model: 'deepseek-ai/DeepSeek-V3',
+    baseUrl: 'https://api.siliconflow.cn/v1'
+  })
+  const wrappedFetch = createThinkingFetch(settings, 'default', fakeFetch)
+  assert.ok(wrappedFetch)
+
+  await wrappedFetch('https://api.siliconflow.cn/v1/chat/completions', {
+    method: 'POST',
+    body: JSON.stringify({ model: 'deepseek-ai/DeepSeek-V3', messages: [] })
+  })
+
+  assert.deepEqual(capturedBody?.thinking, { type: 'enabled' })
 })
 
 test('createThinkingFetch uses Qwen params for SiliconFlow QwQ model', async () => {
@@ -330,6 +396,90 @@ test('createThinkingFetch uses Qwen params for SiliconFlow QwQ model', async () 
 
   assert.equal(capturedBody?.enable_thinking, true)
   assert.equal(capturedBody?.thinking_budget, 4096)
+})
+
+// ---------------------------------------------------------------------------
+// createThinkingFetch — OpenCode Go
+// ---------------------------------------------------------------------------
+
+test('isOpenAiCompatibleThinkingHost recognises OpenCode Go', () => {
+  assert.equal(isOpenAiCompatibleThinkingHost('https://opencode.ai/zen/go/v1'), true)
+})
+
+test('createThinkingFetch injects enable_thinking for OpenCode Go GLM model', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+  const fakeFetch: typeof globalThis.fetch = async (_input, init) => {
+    capturedBody = JSON.parse(init?.body as string)
+    return new Response('{}')
+  }
+
+  const settings = makeSettings({
+    model: 'glm-5.1',
+    baseUrl: 'https://opencode.ai/zen/go/v1'
+  })
+  const wrappedFetch = createThinkingFetch(settings, 'default', fakeFetch)
+  assert.ok(wrappedFetch)
+
+  await wrappedFetch('https://opencode.ai/zen/go/v1/chat/completions', {
+    method: 'POST',
+    body: JSON.stringify({ model: 'glm-5.1', messages: [] })
+  })
+
+  assert.equal(capturedBody?.enable_thinking, true)
+  assert.equal(capturedBody?.thinking_budget, 4096)
+})
+
+test('createThinkingFetch injects thinking object for OpenCode Go Kimi K2 model', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+  const fakeFetch: typeof globalThis.fetch = async (_input, init) => {
+    capturedBody = JSON.parse(init?.body as string)
+    return new Response('{}')
+  }
+
+  const settings = makeSettings({
+    model: 'kimi-k2.5',
+    baseUrl: 'https://opencode.ai/zen/go/v1'
+  })
+  const wrappedFetch = createThinkingFetch(settings, 'default', fakeFetch)
+  assert.ok(wrappedFetch)
+
+  await wrappedFetch('https://opencode.ai/zen/go/v1/chat/completions', {
+    method: 'POST',
+    body: JSON.stringify({ model: 'kimi-k2.5', messages: [] })
+  })
+
+  assert.deepEqual(capturedBody?.thinking, { type: 'enabled', budget_tokens: 8192 })
+})
+
+test('createThinkingFetch injects thinking object for OpenCode Go DeepSeek model', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+  const fakeFetch: typeof globalThis.fetch = async (_input, init) => {
+    capturedBody = JSON.parse(init?.body as string)
+    return new Response('{}')
+  }
+
+  const settings = makeSettings({
+    model: 'deepseek-v4-pro',
+    baseUrl: 'https://opencode.ai/zen/go/v1'
+  })
+  const wrappedFetch = createThinkingFetch(settings, 'default', fakeFetch)
+  assert.ok(wrappedFetch)
+
+  await wrappedFetch('https://opencode.ai/zen/go/v1/chat/completions', {
+    method: 'POST',
+    body: JSON.stringify({ model: 'deepseek-v4-pro', messages: [] })
+  })
+
+  assert.deepEqual(capturedBody?.thinking, { type: 'enabled' })
+})
+
+test('createThinkingFetch skips OpenCode Go unknown models', () => {
+  const settings = makeSettings({
+    model: 'some-unknown-model',
+    baseUrl: 'https://opencode.ai/zen/go/v1'
+  })
+  const wrappedFetch = createThinkingFetch(settings, 'default')
+  assert.equal(wrappedFetch, undefined)
 })
 
 // ---------------------------------------------------------------------------
