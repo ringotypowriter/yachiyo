@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.34
+
+### Patch Changes
+
+- [`61b49a6`](https://github.com/ringotypowriter/yachiyo/commit/61b49a6ce9273e5e628084d16924880bc06258e1) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Chat Completion Fix
+
 ## 1.0.33
 
 ### Patch Changes
