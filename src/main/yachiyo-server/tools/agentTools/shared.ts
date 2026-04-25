@@ -37,16 +37,42 @@ export const DEFAULT_WEB_READ_FORMAT = DEFAULT_WEB_READ_CONTENT_FORMAT
 export const DEFAULT_WEB_SEARCH_LIMIT = 5
 export const MAX_WEB_SEARCH_LIMIT = 10
 
-export const readToolInputSchema = z.object({
-  path: z.string().min(1),
-  offset: z.number().int().min(0).default(0),
-  limit: z.number().int().min(1).max(MAX_READ_LIMIT).default(DEFAULT_READ_LIMIT)
-})
+function applyShadowFallbacks(value: unknown, mappings: Record<string, string>): unknown {
+  if (typeof value !== 'object' || value === null) return value
+  const obj = value as Record<string, unknown>
+  const result = { ...obj }
+  for (const [alias, canonical] of Object.entries(mappings)) {
+    if (alias in result && !(canonical in result)) {
+      result[canonical] = result[alias]
+      delete result[alias]
+    }
+  }
+  return result
+}
 
-export const writeToolInputSchema = z.object({
-  path: z.string().min(1),
-  content: z.string()
-})
+export function withShadowFallbacks<T extends z.ZodTypeAny>(
+  schema: T,
+  mappings: Record<string, string>
+): z.ZodType<z.infer<T>> {
+  return z.preprocess((val) => applyShadowFallbacks(val, mappings), schema)
+}
+
+export const readToolInputSchema = withShadowFallbacks(
+  z.object({
+    path: z.string().min(1),
+    offset: z.number().int().min(0).default(0),
+    limit: z.number().int().min(1).max(MAX_READ_LIMIT).default(DEFAULT_READ_LIMIT)
+  }),
+  { filePath: 'path' }
+)
+
+export const writeToolInputSchema = withShadowFallbacks(
+  z.object({
+    path: z.string().min(1),
+    content: z.string()
+  }),
+  { filePath: 'path' }
+)
 
 export const editSpecSchema = z.object({
   oldText: z.string().min(1),
@@ -91,103 +117,106 @@ function hasMeaningfulEdits(value: unknown): value is z.infer<typeof editSpecSch
   return Array.isArray(value) && value.length > 0
 }
 
-export const editToolInputSchema = z
-  .object({
-    mode: z.enum(['inline', 'range', 'batch']),
-    path: z.string().min(1),
-    oldText: z.string().optional(),
-    newText: z.string().optional(),
-    replace_all: z.boolean().optional(),
-    replaceLines: editReplaceLinesInputSchema,
-    edits: z.array(editSpecSchema).max(50).optional()
-  })
-  .strict()
-  .superRefine((data, ctx) => {
-    const hasOldText = hasMeaningfulOldText(data.oldText)
-    const hasNewText = hasProvidedNewText(data.newText)
-    const hasReplaceLines = hasMeaningfulReplaceLines(data.replaceLines)
-    const hasEdits = hasMeaningfulEdits(data.edits)
-    const hasConflictingReplaceAll = hasMeaningfulReplaceAll(data.replace_all)
+export const editToolInputSchema = withShadowFallbacks(
+  z
+    .object({
+      mode: z.enum(['inline', 'range', 'batch']),
+      path: z.string().min(1),
+      oldText: z.string().optional(),
+      newText: z.string().optional(),
+      replace_all: z.boolean().optional(),
+      replaceLines: editReplaceLinesInputSchema,
+      edits: z.array(editSpecSchema).max(50).optional()
+    })
+    .strict()
+    .superRefine((data, ctx) => {
+      const hasOldText = hasMeaningfulOldText(data.oldText)
+      const hasNewText = hasProvidedNewText(data.newText)
+      const hasReplaceLines = hasMeaningfulReplaceLines(data.replaceLines)
+      const hasEdits = hasMeaningfulEdits(data.edits)
+      const hasConflictingReplaceAll = hasMeaningfulReplaceAll(data.replace_all)
 
-    if (data.mode === 'inline') {
-      if (!hasOldText) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['oldText'],
-          message: 'oldText is required and must be non-empty when mode is "inline".'
-        })
+      if (data.mode === 'inline') {
+        if (!hasOldText) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['oldText'],
+            message: 'oldText is required and must be non-empty when mode is "inline".'
+          })
+        }
+        if (!hasNewText) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['newText'],
+            message: 'newText is required when mode is "inline".'
+          })
+        }
+        if (hasReplaceLines) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['replaceLines'],
+            message: 'replaceLines must be omitted or empty unless mode is "range".'
+          })
+        }
+        if (hasEdits) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['edits'],
+            message: 'edits must be omitted or empty unless mode is "batch".'
+          })
+        }
+        return
       }
-      if (!hasNewText) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['newText'],
-          message: 'newText is required when mode is "inline".'
-        })
+
+      if (data.mode === 'range') {
+        if (!hasReplaceLines) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['replaceLines'],
+            message: 'replaceLines is required when mode is "range".'
+          })
+        }
+        if (!hasNewText) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['newText'],
+            message: 'newText is required when mode is "range".'
+          })
+        }
+        if (hasOldText) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['oldText'],
+            message: 'oldText must be omitted or empty unless mode is "inline".'
+          })
+        }
+        if (hasEdits) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['edits'],
+            message: 'edits must be omitted or empty unless mode is "batch".'
+          })
+        }
+        if (hasConflictingReplaceAll) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['replace_all'],
+            message: 'replace_all must be omitted or false unless mode is "inline".'
+          })
+        }
+        return
       }
-      if (hasReplaceLines) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['replaceLines'],
-          message: 'replaceLines must be omitted or empty unless mode is "range".'
-        })
-      }
-      if (hasEdits) {
+
+      if (!hasEdits) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['edits'],
-          message: 'edits must be omitted or empty unless mode is "batch".'
+          message: 'edits is required and must be non-empty when mode is "batch".'
         })
       }
-      return
-    }
-
-    if (data.mode === 'range') {
-      if (!hasReplaceLines) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['replaceLines'],
-          message: 'replaceLines is required when mode is "range".'
-        })
-      }
-      if (!hasNewText) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['newText'],
-          message: 'newText is required when mode is "range".'
-        })
-      }
-      if (hasOldText) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['oldText'],
-          message: 'oldText must be omitted or empty unless mode is "inline".'
-        })
-      }
-      if (hasEdits) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['edits'],
-          message: 'edits must be omitted or empty unless mode is "batch".'
-        })
-      }
-      if (hasConflictingReplaceAll) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['replace_all'],
-          message: 'replace_all must be omitted or false unless mode is "inline".'
-        })
-      }
-      return
-    }
-
-    if (!hasEdits) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['edits'],
-        message: 'edits is required and must be non-empty when mode is "batch".'
-      })
-    }
-  })
+    }),
+  { filePath: 'path' }
+)
 
 export const bashToolInputSchema = z.object({
   command: z.string().min(1),
@@ -229,22 +258,28 @@ export const jsReplToolInputSchema = z.object({
     .optional()
 })
 
-export const grepToolInputSchema = z.object({
-  pattern: z.string().min(1),
-  path: z.string().min(1).optional(),
-  limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).default(DEFAULT_SEARCH_LIMIT),
-  literal: z.boolean().default(false),
-  caseSensitive: z.boolean().default(true),
-  include: z.string().min(1).optional(),
-  context: z.number().int().min(0).max(5).default(0),
-  filesOnly: z.boolean().default(false)
-})
+export const grepToolInputSchema = withShadowFallbacks(
+  z.object({
+    pattern: z.string().min(1),
+    path: z.string().min(1).optional(),
+    limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).default(DEFAULT_SEARCH_LIMIT),
+    literal: z.boolean().default(false),
+    caseSensitive: z.boolean().default(true),
+    include: z.string().min(1).optional(),
+    context: z.number().int().min(0).max(5).default(0),
+    filesOnly: z.boolean().default(false)
+  }),
+  { filePath: 'path' }
+)
 
-export const globToolInputSchema = z.object({
-  pattern: z.string().min(1),
-  path: z.string().min(1).optional(),
-  limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).default(DEFAULT_SEARCH_LIMIT)
-})
+export const globToolInputSchema = withShadowFallbacks(
+  z.object({
+    pattern: z.string().min(1),
+    path: z.string().min(1).optional(),
+    limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).default(DEFAULT_SEARCH_LIMIT)
+  }),
+  { filePath: 'path' }
+)
 
 export const webReadToolInputSchema = z.object({
   url: z.string().min(1),
