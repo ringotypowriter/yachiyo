@@ -210,8 +210,19 @@ function parseStage(tokens: string[]): ParsedStage {
       if (prevArg && /^\d$/.test(prevArg)) {
         args.pop()
       }
-      // Redirects to /dev/null are noise suppression, not file writes
+      // Redirects to /dev/null are noise suppression, not file writes.
       if (!isNullRedirect(target)) {
+        if (target === '&') {
+          // >& can be fd dup (2>&1, >&1, >&-) or >& file redirect.
+          // Only the latter is a real file write.
+          const fdTarget = i + 2 < tokens.length ? tokens[i + 2] : undefined
+          if (fdTarget !== undefined && fdTarget !== '-' && !/^\d+$/.test(fdTarget)) {
+            hasOutputRedirect = true
+          }
+          i += 2
+          if (i < tokens.length) i++ // skip fdTarget / filename
+          continue
+        }
         hasOutputRedirect = true
       }
       i++

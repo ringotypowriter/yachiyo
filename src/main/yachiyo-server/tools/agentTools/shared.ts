@@ -23,6 +23,38 @@ import type {
 import { DEFAULT_WEB_READ_CONTENT_FORMAT } from '../../../../shared/yachiyo/protocol.ts'
 import type { ReadRecordCache } from './readRecordCache.ts'
 
+/**
+/**
+ * Race a promise against an AbortSignal — rejects with an AbortError when the
+ * signal fires. Useful for wrapping calls that don't natively accept a signal.
+ */
+export async function raceAgainstSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  // Register listener first to avoid a TOCTOU race: if we check signal.aborted
+  // before registering, the signal could abort between the check and the listener
+  // registration, and we'd miss the event permanently.
+  let onAbort: (() => void) | undefined
+  let cleanup: (() => void) | undefined
+
+  const abortPromise = new Promise<never>((_, reject) => {
+    onAbort = (): void => {
+      reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    cleanup = () => signal.removeEventListener('abort', onAbort!)
+
+    // Signal was already aborted before we could register — fire immediately.
+    if (signal.aborted) {
+      onAbort()
+    }
+  })
+
+  try {
+    return await Promise.race([promise, abortPromise])
+  } finally {
+    cleanup?.()
+  }
+}
+
 export const DEFAULT_READ_LIMIT = 200
 export const MAX_READ_LIMIT = 500
 export const DEFAULT_READ_MAX_BYTES = 16_000
@@ -455,10 +487,17 @@ export function resolveToolPath(workspacePath: string, targetPath: string): stri
 function normalizeUnicodeSpaces(s: string): string {
   return s.replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, '\u0020')
 }
+export async function resolveUnicodeSpacePath(
+  resolvedPath: string,
+  signal?: AbortSignal
+): Promise<string> {
+  const statWithSignal = (p: string): Promise<unknown> =>
+    signal ? raceAgainstSignal(stat(p), signal) : stat(p)
+  const readdirWithSignal = (p: string): Promise<string[]> =>
+    signal ? raceAgainstSignal(readdir(p), signal) : readdir(p)
 
-export async function resolveUnicodeSpacePath(resolvedPath: string): Promise<string> {
   try {
-    await stat(resolvedPath)
+    await statWithSignal(resolvedPath)
     return resolvedPath
   } catch {
     try {
@@ -468,7 +507,7 @@ export async function resolveUnicodeSpacePath(resolvedPath: string): Promise<str
       for (const segment of segments) {
         const direct = join(current, segment)
         try {
-          await stat(direct)
+          await statWithSignal(direct)
           current = direct
           continue
         } catch {
@@ -477,7 +516,7 @@ export async function resolveUnicodeSpacePath(resolvedPath: string): Promise<str
 
         const normalizedSegment = normalizeUnicodeSpaces(segment)
         try {
-          const entries = await readdir(current)
+          const entries = await readdirWithSignal(current)
           const match = entries.find((e) => normalizeUnicodeSpaces(e) === normalizedSegment)
           if (match) {
             current = join(current, match)

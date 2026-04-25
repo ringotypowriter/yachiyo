@@ -276,3 +276,36 @@ test('resolveBashSemanticGroup: cat with > real-file is still write', () => {
 test('resolveBashSemanticGroup: echo > /dev/null is run-commands', () => {
   assert.equal(resolveBashSemanticGroup('echo hello > /dev/null'), 'run-commands')
 })
+
+// ------------------------------------------------------------------
+// 2>&1 fd dup should not misclassify as write-files
+// ------------------------------------------------------------------
+
+test('resolveBashSemanticGroup: grep | head with 2>&1 stays read', () => {
+  assert.equal(resolveBashSemanticGroup('grep foo file.ts | head -20 2>&1'), 'read-files')
+})
+
+test('resolveBashSemanticGroup: grep specific file with stderr-to-stdout', () => {
+  assert.equal(
+    resolveBashSemanticGroup(
+      "grep 'StatOptions\\|stat(' node_modules/@types/node/fs.d.ts | head -20 2>&1"
+    ),
+    'read-files'
+  )
+})
+
+test('resolveBashSemanticGroup: echo with 2>&1 is still run-commands', () => {
+  assert.equal(resolveBashSemanticGroup('echo hello 2>&1'), 'run-commands')
+})
+
+test('resolveBashSemanticGroup: echo > file with 2>&1 is still write', () => {
+  assert.equal(resolveBashSemanticGroup('echo hello > file.ts 2>&1'), 'write-files')
+})
+
+test('resolveBashSemanticGroup: cat with 2>&1 stays read', () => {
+  assert.equal(resolveBashSemanticGroup('cat file.ts 2>&1'), 'read-files')
+})
+
+test('resolveBashSemanticGroup: >& file redirect is write', () => {
+  assert.equal(resolveBashSemanticGroup('echo hi >& out.txt'), 'write-files')
+})

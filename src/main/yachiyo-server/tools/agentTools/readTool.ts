@@ -14,6 +14,7 @@ import {
   type ReadToolInput,
   type ReadToolOutput,
   readToolInputSchema,
+  raceAgainstSignal,
   resolveSandboxedToolPath,
   resolveUnicodeSpacePath,
   imageDataContent,
@@ -21,6 +22,8 @@ import {
   toToolModelOutput,
   truncateUtf8ByBytes
 } from './shared.ts'
+
+const DEFAULT_READ_TIMEOUT_MS = 30_000
 
 const IMAGE_EXTENSIONS: Record<string, string> = {
   '.png': 'image/png',
@@ -203,7 +206,9 @@ async function runPdfReadTool(
   abortSignal?: AbortSignal
 ): Promise<ReadToolOutput> {
   const fileData = await readFile(resolvedPath, { signal: abortSignal })
-  const fileStat = await stat(resolvedPath)
+  const fileStat = await (abortSignal
+    ? raceAgainstSignal(stat(resolvedPath), abortSignal)
+    : stat(resolvedPath))
   const hash = createHash('sha256').update(fileData).digest('hex').slice(0, 16)
   const cachePath = pdfCachePath(context.workspacePath, hash)
 
@@ -219,8 +224,10 @@ async function runPdfReadTool(
     totalPages = pageMatch ? Number(pageMatch[1]) : 0
     cached = true
   } else {
-    // Extract and cache
-    const pdf = await extractPdfText(fileData)
+    // Extract and cache — unpdf doesn't accept an abort signal, so race it.
+    const pdf = abortSignal
+      ? await raceAgainstSignal(extractPdfText(fileData), abortSignal)
+      : await extractPdfText(fileData)
     body = pdf.hint ? `${pdf.text}\n\n${pdf.hint}` : pdf.text
     totalPages = pdf.totalPages
     cached = false
@@ -265,7 +272,9 @@ async function runImageReadTool(
   abortSignal?: AbortSignal
 ): Promise<ReadToolOutput> {
   const fileData = await readFile(resolvedPath, { signal: abortSignal })
-  const fileStat = await stat(resolvedPath)
+  const fileStat = await (abortSignal
+    ? raceAgainstSignal(stat(resolvedPath), abortSignal)
+    : stat(resolvedPath))
   const base64 = fileData.toString('base64')
   const filename = resolvedPath.split('/').pop() ?? resolvedPath
   const summary = `Read image ${filename} (${mediaType}, ${fileStat.size} bytes)`
@@ -303,12 +312,15 @@ export async function runReadTool(
   context: AgentToolContext,
   options: { abortSignal?: AbortSignal } = {}
 ): Promise<ReadToolOutput> {
-  const abortSignal = options.abortSignal
+  const userSignal = options.abortSignal
+  const timeoutSignal = AbortSignal.timeout(DEFAULT_READ_TIMEOUT_MS)
+  const effectiveSignal = userSignal ? AbortSignal.any([timeoutSignal, userSignal]) : timeoutSignal
+
   const pathResult = resolveSandboxedToolPath(context, input.path)
   if ('error' in pathResult) {
     return createReadErrorResult(input.path, pathResult.error)
   }
-  const resolvedPath = await resolveUnicodeSpacePath(pathResult.resolved)
+  const resolvedPath = await resolveUnicodeSpacePath(pathResult.resolved, effectiveSignal)
 
   if (isUnreadableBinary(resolvedPath)) {
     const ext = extname(resolvedPath).toLowerCase()
@@ -320,7 +332,7 @@ export async function runReadTool(
 
   if (isPdfFile(resolvedPath)) {
     try {
-      return await runPdfReadTool(input, resolvedPath, context, abortSignal)
+      return await runPdfReadTool(input, resolvedPath, context, effectiveSignal)
     } catch (error) {
       return createReadErrorResult(
         resolvedPath,
@@ -332,7 +344,7 @@ export async function runReadTool(
   const imageMimeType = detectImageMimeType(resolvedPath)
   if (imageMimeType) {
     try {
-      return await runImageReadTool(resolvedPath, imageMimeType, context, abortSignal)
+      return await runImageReadTool(resolvedPath, imageMimeType, context, effectiveSignal)
     } catch (error) {
       return createReadErrorResult(
         resolvedPath,
@@ -342,7 +354,7 @@ export async function runReadTool(
   }
 
   try {
-    const rawContent = await readFile(resolvedPath, { encoding: 'utf8', signal: abortSignal })
+    const rawContent = await readFile(resolvedPath, { encoding: 'utf8', signal: effectiveSignal })
     const lines = rawContent.length === 0 ? [] : rawContent.split(/\r?\n/)
     const excerpt = buildReadExcerpt(lines, input)
     const details: ReadToolCallDetails = {
@@ -361,7 +373,11 @@ export async function runReadTool(
         : ''
 
     if (context.readRecordCache) {
-      const mtimeMs = await stat(resolvedPath).then(
+      const mtimeMs = await (
+        effectiveSignal
+          ? raceAgainstSignal(stat(resolvedPath), effectiveSignal)
+          : stat(resolvedPath)
+      ).then(
         (s) => s.mtimeMs,
         () => undefined
       )
