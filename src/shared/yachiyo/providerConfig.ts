@@ -2,6 +2,7 @@ import {
   DEFAULT_TOOL_MODEL_MODE,
   type ProviderConfig,
   type SettingsConfig,
+  type ThreadModelOverride,
   type ToolModelConfig
 } from './protocol.ts'
 import type { ProviderPreset } from './providerPresets.ts'
@@ -207,6 +208,31 @@ export function syncToolModelWithProvider(
   return {
     ...currentToolModel,
     providerId: provider.id ?? '',
+    providerName: provider.name,
+    model
+  }
+}
+
+export function modelOverrideTargetsProvider(
+  modelOverride: ThreadModelOverride | null | undefined,
+  provider: ProviderConfig
+): boolean {
+  return normalizeReferenceValue(modelOverride?.providerName) === provider.name
+}
+
+export function syncModelOverrideWithProvider(
+  modelOverride: ThreadModelOverride,
+  provider: ProviderConfig
+): ThreadModelOverride | undefined {
+  const providerModels = getProviderModels(provider)
+  const model = providerModels.includes(modelOverride.model)
+    ? modelOverride.model
+    : (providerModels[0] ?? '')
+  if (!model) {
+    return undefined
+  }
+
+  return {
     providerName: provider.name,
     model
   }

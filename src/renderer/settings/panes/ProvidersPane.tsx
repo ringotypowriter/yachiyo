@@ -13,8 +13,10 @@ import {
   createProviderConfig,
   createProviderId,
   getToolModelConfig,
+  modelOverrideTargetsProvider,
   providerMatchesReference,
   sanitizeProviderConfig,
+  syncModelOverrideWithProvider,
   syncToolModelWithProvider,
   toolModelTargetsProvider
 } from '../../../shared/yachiyo/providerConfig.ts'
@@ -62,6 +64,15 @@ function withSelectedProvider(
   const toolModel = getToolModelConfig(config)
   const toolModelTargetsCurrentProvider =
     toolModel.mode === 'custom' && toolModelTargetsProvider(toolModel, current)
+  const imageToTextModel = config.chat?.imageToTextModel
+  const imageToTextModelTargetsCurrentProvider = modelOverrideTargetsProvider(
+    imageToTextModel,
+    current
+  )
+  const syncedImageToTextModel =
+    imageToTextModel && imageToTextModelTargetsCurrentProvider
+      ? syncModelOverrideWithProvider(imageToTextModel, nextProvider)
+      : undefined
 
   return {
     config: {
@@ -69,6 +80,14 @@ function withSelectedProvider(
       ...(toolModelTargetsCurrentProvider
         ? {
             toolModel: syncToolModelWithProvider(toolModel, nextProvider)
+          }
+        : {}),
+      ...(imageToTextModelTargetsCurrentProvider
+        ? {
+            chat: {
+              ...config.chat,
+              imageToTextModel: syncedImageToTextModel
+            }
           }
         : {}),
       providers: config.providers.map((provider) =>
@@ -485,12 +504,21 @@ export function ProvidersPane({
     }
 
     const toolModel = getToolModelConfig(draft)
+    const imageToTextModel = draft.chat?.imageToTextModel
     const providers = draft.providers.filter((provider) => provider.id !== selectedProvider.id)
     onChange({
       ...draft,
       ...(toolModel.mode === 'custom' && toolModelTargetsProvider(toolModel, selectedProvider)
         ? {
             toolModel: createDisabledToolModelConfig()
+          }
+        : {}),
+      ...(modelOverrideTargetsProvider(imageToTextModel, selectedProvider)
+        ? {
+            chat: {
+              ...draft.chat,
+              imageToTextModel: undefined
+            }
           }
         : {}),
       providers

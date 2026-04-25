@@ -100,6 +100,20 @@ check_interval_ms = 12000
   assert.equal(config.groupCheckIntervalMs, 12000)
 })
 
+test('parseChannelsToml preserves legacy image-to-text model fields for migration', () => {
+  const config = parseChannelsToml(`
+[image_to_text]
+enabled = true
+model_provider = "vision"
+model_name = "gpt-4o"
+`)
+
+  assert.deepEqual(config.imageToText, {
+    enabled: true,
+    model: { providerName: 'vision', model: 'gpt-4o' }
+  })
+})
+
 test('stringifyChannelsToml omits empty optional sections', () => {
   const toml = stringifyChannelsToml({
     telegram: {

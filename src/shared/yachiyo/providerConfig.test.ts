@@ -5,7 +5,9 @@ import {
   computeImageIncapableForNewModels,
   isKnownImageIncapableModel,
   isModelImageCapable,
+  modelOverrideTargetsProvider,
   sanitizeProviderConfig,
+  syncModelOverrideWithProvider,
   syncToolModelWithProvider
 } from './providerConfig.ts'
 
@@ -83,6 +85,67 @@ test('syncToolModelWithProvider replaces a stale tool-model model with the first
     providerName: 'work',
     model: 'gpt-5'
   })
+})
+
+test('syncModelOverrideWithProvider updates provider name and keeps a valid model', () => {
+  const synced = syncModelOverrideWithProvider(
+    { providerName: 'work', model: 'gpt-5-mini' },
+    {
+      id: 'provider-work',
+      name: 'work-renamed',
+      type: 'openai',
+      apiKey: 'sk-openai',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5-mini', 'gpt-5'],
+        disabled: []
+      }
+    }
+  )
+
+  assert.deepEqual(synced, {
+    providerName: 'work-renamed',
+    model: 'gpt-5-mini'
+  })
+})
+
+test('syncModelOverrideWithProvider replaces a removed model with the first provider model', () => {
+  const synced = syncModelOverrideWithProvider(
+    { providerName: 'work', model: 'gpt-5-mini' },
+    {
+      id: 'provider-work',
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-openai',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: ['gpt-4.1']
+      }
+    }
+  )
+
+  assert.deepEqual(synced, {
+    providerName: 'work',
+    model: 'gpt-5'
+  })
+})
+
+test('modelOverrideTargetsProvider matches image-to-text selections by provider name', () => {
+  assert.equal(
+    modelOverrideTargetsProvider(
+      { providerName: 'work', model: 'gpt-5' },
+      {
+        id: 'provider-work',
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-openai',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: { enabled: ['gpt-5'], disabled: [] }
+      }
+    ),
+    true
+  )
 })
 
 test('isModelImageCapable returns true by default', () => {

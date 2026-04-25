@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 
-import type { SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
+import type { SettingsConfig, ThreadModelOverride } from '../../../shared/yachiyo/protocol.ts'
 import {
   createPresetProviders,
   mergePresetProviders
@@ -14,6 +14,7 @@ import {
   toToolModelSettings
 } from './settingsConfig.ts'
 import { parseSettingsToml, stringifySettingsToml } from './settingsTomlCodec.ts'
+import { parseChannelsToml } from '../runtime/channelsTomlCodec.ts'
 
 export {
   DEFAULT_SETTINGS_CONFIG,
@@ -33,6 +34,53 @@ export interface SettingsStore {
 export interface SettingsStoreOptions {
   /** Seed preset providers on first launch when no config file exists. */
   seedPresetProviders?: boolean
+}
+
+function readLegacyImageToTextModel(settingsPath: string): ThreadModelOverride | undefined {
+  const channelsPath = join(dirname(settingsPath), 'channels.toml')
+  if (!existsSync(channelsPath)) {
+    return undefined
+  }
+
+  try {
+    return (
+      parseChannelsToml(readFileSync(channelsPath, 'utf8')).imageToText as
+        | { model?: ThreadModelOverride }
+        | undefined
+    )?.model
+  } catch {
+    return undefined
+  }
+}
+
+function migrateLegacyImageToTextModel(settingsPath: string): void {
+  if (!existsSync(settingsPath)) {
+    return
+  }
+
+  const config = parseSettingsToml(readFileSync(settingsPath, 'utf8'))
+  if (config.chat?.imageToTextModel) {
+    return
+  }
+
+  const imageToTextModel = readLegacyImageToTextModel(settingsPath)
+  if (!imageToTextModel) {
+    return
+  }
+
+  writeFileSync(
+    settingsPath,
+    stringifySettingsToml(
+      normalizeSettingsConfig({
+        ...config,
+        chat: {
+          ...config.chat,
+          imageToTextModel
+        }
+      })
+    ),
+    'utf8'
+  )
 }
 
 export function createSettingsStore(
@@ -57,6 +105,8 @@ export function createSettingsStore(
       writeFileSync(settingsPath, stringifySettingsToml(normalizeSettingsConfig(config)), 'utf8')
     }
   }
+
+  migrateLegacyImageToTextModel(settingsPath)
 
   return {
     read(): SettingsConfig {

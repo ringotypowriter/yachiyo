@@ -318,10 +318,12 @@ export const channelsTomlSlices: readonly TomlConfigSlice<ChannelsConfig, TomlDo
         return {}
       }
 
+      const model = readModel(section)
       return {
         imageToText: {
-          enabled: readBoolean(section['enabled'])
-        }
+          enabled: readBoolean(section['enabled']),
+          ...(model ? { model } : {})
+        } as ChannelsConfig['imageToText'] & { model?: ThreadModelOverride }
       }
     },
     write(config) {

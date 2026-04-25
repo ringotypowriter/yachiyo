@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
@@ -1402,6 +1402,50 @@ test('chat.imageToTextModel round-trips through TOML serialization', async () =>
 
     const loaded = store.read()
     assert.deepEqual(loaded.chat?.imageToTextModel, { providerName: 'work', model: 'gpt-5' })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('settings store migrates legacy channels image-to-text model into chat config', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-i2t-legacy-'))
+  const settingsPath = join(root, 'config.toml')
+  const channelsPath = join(root, 'channels.toml')
+
+  try {
+    await writeFile(
+      settingsPath,
+      stringifySettingsToml({
+        providers: [PROVIDER_WORK],
+        chat: {
+          inputBufferEnabled: true
+        }
+      }),
+      'utf8'
+    )
+    await writeFile(
+      channelsPath,
+      [
+        '[image_to_text]',
+        'enabled = true',
+        'model_provider = "work"',
+        'model_name = "gpt-4.1"',
+        ''
+      ].join('\n'),
+      'utf8'
+    )
+
+    const store = createSettingsStore(settingsPath)
+    const loaded = store.read()
+    const saved = await readFile(settingsPath, 'utf8')
+
+    assert.deepEqual(loaded.chat?.imageToTextModel, {
+      providerName: 'work',
+      model: 'gpt-4.1'
+    })
+    assert.match(saved, /\[chat.imageToTextModel\]/)
+    assert.match(saved, /providerName = "work"/)
+    assert.match(saved, /model = "gpt-4.1"/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
