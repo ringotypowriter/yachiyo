@@ -1,5 +1,5 @@
 import type React from 'react'
-import { useId, useState } from 'react'
+import { Fragment, useId, useState } from 'react'
 import { ChevronRight, ExternalLink } from 'lucide-react'
 import type {
   EditToolCallDetails,
@@ -124,16 +124,16 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
           style={{ borderColor: theme.border.panel }}
         >
           {presentation.fields.length > 0 ? (
-            <div className="flex flex-col gap-0.5">
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'max-content 1fr max-content 1fr',
+                columnGap: '10px',
+                rowGap: '2px'
+              }}
+            >
               {presentation.fields.map((field) => (
-                <div
-                  key={field.label}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'max-content 1fr',
-                    columnGap: '10px'
-                  }}
-                >
+                <Fragment key={field.label}>
                   <span style={{ color: theme.text.placeholder, textAlign: 'right' }}>
                     {field.label}
                   </span>
@@ -146,7 +146,7 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
                   >
                     {field.value}
                   </span>
-                </div>
+                </Fragment>
               ))}
             </div>
           ) : null}
