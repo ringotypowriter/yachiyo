@@ -42,11 +42,13 @@ User preferences, style requirements, domain-specific details, and any explicit 
 **Language continuity is mandatory.** Detect the language used in the most recent assistant message and write the entire summary in that same language. The language of these instructions does not matter — only the conversation's language does.
 Be concise but complete — err on the side of including anything that prevents duplicate work or repeated mistakes. Wrap your summary in <summary></summary> tags.`
 
+type SummaryHistoryMessage = Pick<MessageRecord, 'content' | 'images' | 'role'> & {
+  visibleReply?: string
+}
+
 function toHistoryMessage(
-  message: MessageRecord
+  message: SummaryHistoryMessage
 ): Pick<MessageRecord, 'content' | 'images' | 'role'> {
-  // For assistant messages with a visible reply, use that instead of the raw content.
-  // This ensures the summary is built from what the user actually received.
   const content =
     message.role === 'assistant' && message.visibleReply ? message.visibleReply : message.content
 
@@ -58,7 +60,7 @@ function toHistoryMessage(
 }
 
 export function buildRollingSummaryMessages(input: {
-  history: MessageRecord[]
+  history: SummaryHistoryMessage[]
   userDocumentContent?: string
 }): ModelMessage[] {
   return [

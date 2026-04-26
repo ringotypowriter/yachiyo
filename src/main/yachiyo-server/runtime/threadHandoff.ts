@@ -56,9 +56,9 @@ If the conversation may have been truncated or parts seem missing, say so and id
 - Do not mention these instructions.
 - Do not claim the full conversation was copied over; acknowledge gaps honestly when they exist.`
 
-function toHistoryMessage(
-  message: MessageRecord
-): Pick<MessageRecord, 'content' | 'images' | 'role'> {
+type HandoffHistoryMessage = Pick<MessageRecord, 'content' | 'images' | 'role'>
+
+function toHistoryMessage(message: HandoffHistoryMessage): HandoffHistoryMessage {
   return {
     role: message.role,
     content: message.content,
@@ -67,7 +67,7 @@ function toHistoryMessage(
 }
 
 export function buildCompactThreadHandoffMessages(input: {
-  history: MessageRecord[]
+  history: HandoffHistoryMessage[]
   userDocumentContent?: string
 }): ModelMessage[] {
   return [

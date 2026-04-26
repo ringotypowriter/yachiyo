@@ -77,6 +77,10 @@ import {
 } from './threadTitle.ts'
 import { resolveRetryRequest } from './threadDomain.ts'
 import { buildCompactThreadHandoffMessages } from '../../runtime/threadHandoff.ts'
+import {
+  preprocessImagesForNonVisionModel,
+  type ContextLayerHistoryMessage
+} from '../../runtime/contextLayers.ts'
 import { buildRollingSummaryMessages } from '../../runtime/rollingSummary.ts'
 import { sleep } from '../../channels/connectionRetry.ts'
 import {
@@ -944,7 +948,8 @@ export class YachiyoServerRunDomain {
 
     // Respect the thread's model override so Telegram threads pinned to a
     // specific provider/model use that model for summary generation too.
-    const settings = toEffectiveProviderSettings(this.deps.readConfig(), input.thread.modelOverride)
+    const rollingSummaryConfig = this.deps.readConfig()
+    const settings = toEffectiveProviderSettings(rollingSummaryConfig, input.thread.modelOverride)
     const runtime = this.deps.createModelRuntime()
     const userDocument = this.deps.readUserDocument ? await this.deps.readUserDocument() : null
 
@@ -964,10 +969,24 @@ export class YachiyoServerRunDomain {
       })
     }
 
+    let summarySourceMessages: ContextLayerHistoryMessage[] = [
+      ...summaryHistory,
+      ...effectiveMessages
+    ]
+    if (
+      !isModelImageCapable(rollingSummaryConfig, settings.providerName, settings.model) &&
+      this.deps.imageToTextService
+    ) {
+      summarySourceMessages = await preprocessImagesForNonVisionModel(
+        summarySourceMessages,
+        this.deps.imageToTextService
+      )
+    }
+
     let buffer = ''
     for await (const delta of runtime.streamReply({
       messages: buildRollingSummaryMessages({
-        history: [...summaryHistory, ...effectiveMessages],
+        history: summarySourceMessages,
         userDocumentContent: userDocument?.content
       }),
       settings,
@@ -2328,7 +2347,8 @@ export class YachiyoServerRunDomain {
     thread: ThreadRecord
     sourceMessages: MessageRecord[]
   }): Promise<void> {
-    const settings = toEffectiveProviderSettings(this.deps.readConfig(), input.thread.modelOverride)
+    const config = this.deps.readConfig()
+    const settings = toEffectiveProviderSettings(config, input.thread.modelOverride)
     const runtime = this.deps.createModelRuntime()
     const messageId = this.deps.createId()
     const bufferParts: string[] = []
@@ -2384,10 +2404,22 @@ export class YachiyoServerRunDomain {
         isAborted: () => activeRun.abortController.signal.aborted
       })
 
+      let handoffSourceMessages: Array<Pick<MessageRecord, 'content' | 'images' | 'role'>> =
+        input.sourceMessages
+      if (
+        !isModelImageCapable(config, settings.providerName, settings.model) &&
+        this.deps.imageToTextService
+      ) {
+        handoffSourceMessages = await preprocessImagesForNonVisionModel(
+          input.sourceMessages,
+          this.deps.imageToTextService
+        )
+      }
+
       let handoffUsage: ModelUsage | undefined
       for await (const delta of runtime.streamReply({
         messages: buildCompactThreadHandoffMessages({
-          history: input.sourceMessages,
+          history: handoffSourceMessages,
           userDocumentContent: userDocument?.content
         }),
         settings,
