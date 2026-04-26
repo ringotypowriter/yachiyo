@@ -288,6 +288,7 @@ export interface YachiyoStorage {
   completeRun(input: CompleteRunInput): void
   cancelRun(input: CancelRunInput): void
   failRun(input: FailRunInput): void
+  updateRunRequestMessageId(runId: string, requestMessageId: string): void
   updateRunSnapshot(runId: string, snapshot: { fileCount: number; workspacePath?: string }): void
   listThreadRuns(threadId: string): RunRecord[]
   listThreadMessages(threadId: string): MessageRecord[]

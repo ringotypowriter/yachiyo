@@ -2178,6 +2178,7 @@ export class YachiyoServerRunDomain {
           activeRun.executionPhase = 'generating'
           activeRun.requestMessageId = userMessage.id
           currentRequestMessageId = userMessage.id
+          this.deps.storage.updateRunRequestMessageId(input.runId, userMessage.id)
           currentThread = this.deps.requireThread(input.thread.id)
 
           // Accumulate totals from this steer leg so the final completion
@@ -2272,6 +2273,7 @@ export class YachiyoServerRunDomain {
         activeRun.executionPhase = 'generating'
         activeRun.requestMessageId = nextRequestMessageId
         currentRequestMessageId = nextRequestMessageId
+        this.deps.storage.updateRunRequestMessageId(input.runId, nextRequestMessageId)
         currentThread = this.deps.requireThread(input.thread.id)
         isSteerLeg = true
         this.emitThreadStateReplaced(currentThread.id)

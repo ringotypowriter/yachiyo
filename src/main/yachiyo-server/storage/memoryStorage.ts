@@ -698,6 +698,13 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
     },
 
+    updateRunRequestMessageId(runId, requestMessageId) {
+      const run = runs.get(runId)
+      if (run) {
+        run.requestMessageId = requestMessageId
+      }
+    },
+
     updateRunSnapshot(runId, snapshot) {
       const run = runs.get(runId)
       if (run) {

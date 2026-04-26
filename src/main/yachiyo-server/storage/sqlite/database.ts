@@ -1191,6 +1191,10 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .run()
     },
 
+    updateRunRequestMessageId(runId, requestMessageId) {
+      db.update(runsTable).set({ requestMessageId }).where(eq(runsTable.id, runId)).run()
+    },
+
     updateRunSnapshot(runId, snapshot) {
       db.update(runsTable)
         .set({
