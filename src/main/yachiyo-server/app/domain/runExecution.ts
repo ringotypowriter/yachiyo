@@ -506,7 +506,6 @@ async function detectGitContext(workspacePath: string): Promise<GitContext> {
     return { hasGit: true }
   }
 }
-
 function buildSubagentContextBlock(
   gitCtx: GitContext,
   workspacePath: string,
@@ -521,8 +520,7 @@ function buildSubagentContextBlock(
   if (!gitCtx.hasGit && availableWorkspaces.length === 0) {
     return [
       '<coding_agents>',
-      '⚠️ CRITICAL: The current workspace is NOT a Git repository.',
-      'You CANNOT use the `delegateCodingTask` tool. If the user asks you to delegate a task, inform them that a Git repository must be initialized first to ensure safe YOLO execution.',
+      'The `delegateCodingTask` tool is unavailable because the current workspace is not a Git repository. If asked to delegate, inform the user that a Git repository must be initialized first for safe execution.',
       '</coding_agents>'
     ].join('\n')
   }
@@ -550,18 +548,22 @@ function buildSubagentContextBlock(
 
   const workspaceRule =
     availableWorkspaces.length > 0 && gitCtx.hasGit
-      ? `CRITICAL RULE 1: By default agents operate in the current thread workspace: ${workspacePath}. You may also specify one of the available workspaces below using the \`workspace\` parameter. Agents MUST ONLY operate in the thread workspace or one of the listed workspaces — never an arbitrary path.`
+      ? `Agents operate in the current thread workspace by default: ${workspacePath}. To use a different workspace, pass the \`workspace\` parameter with one of the listed paths below. Agents MUST NOT operate outside the thread workspace or the listed workspaces.`
       : availableWorkspaces.length > 0
-        ? `CRITICAL RULE 1: The current thread workspace is NOT a Git repository. You MUST use the \`workspace\` parameter to select one of the available workspaces below. Agents MUST ONLY operate in the listed workspaces — never an arbitrary path.`
-        : `CRITICAL RULE 1: Agents MUST ONLY operate within the current thread workspace: ${workspacePath}.`
+        ? `Agents MUST use the \`workspace\` parameter to select one of the available workspaces below. Agents MUST NOT operate outside the listed workspaces.`
+        : `Agents MUST ONLY operate within the current thread workspace: ${workspacePath}.`
 
   const lines = [
     '<coding_agents>',
-    'You can delegate complex coding tasks to the following ACP-compatible agents using the `delegateCodingTask` tool.',
-    workspaceRule,
+    "You have a `delegateCodingTask` tool that forwards work to external agent processes. This section applies only when the user explicitly asks you to delegate — it does not guide how you interpret the user's messages otherwise.",
     '',
-    ...gitContextLines
+    '<agent_rules>',
+    workspaceRule
   ]
+
+  if (gitContextLines.length > 0) {
+    lines.push('', ...gitContextLines)
+  }
 
   if (availableWorkspaces.length > 0) {
     lines.push('')
@@ -573,28 +575,25 @@ function buildSubagentContextBlock(
 
   lines.push(
     '',
-    'CRITICAL RULE 2 (PROMPT AUTHORING):',
-    'When writing the `prompt` parameter for the delegated agent, you MUST follow these constraints:',
+    'When writing the `prompt` parameter:',
     '- Write strictly in English.',
-    '- Use direct, imperative natural language (e.g., "Implement X", "Ensure Y").',
-    '- Provide ONLY: the objective, current context/constraints, and acceptance criteria.',
+    '- Use direct, imperative natural language (e.g. "Implement X", "Ensure Y").',
+    '- Provide ONLY the objective, context/constraints, and acceptance criteria.',
     '- DO NOT predefine architectural structures; let the agent decide the implementation.',
     '- DO NOT use overly structured, markdown-heavy formatting.',
     '',
-    'CRITICAL RULE 3 (SESSION RESUME):',
-    '- For a new delegated task, omit `session_id`.',
-    '- Use `session_id` only when the user explicitly asks to continue or resume the same delegated task.',
-    '- Only copy the exact `session_id` from a previous `delegateCodingTask` tool result that is present in the current context.',
-    '- Never invent, guess, infer, or transform a `session_id`.',
+    'Session resume:',
+    '- Omit `session_id` for new tasks.',
+    '- Only pass `session_id` when the user explicitly asks to resume, with an exact ID from a prior `delegateCodingTask` result already in context. Never invent one.',
     '',
-    'Available Agents:'
+    'Available agent profiles:'
   )
 
   for (const profile of enabledProfiles) {
     lines.push(`- Name: "${profile.name}" (Description: ${profile.description})`)
   }
 
-  lines.push('</coding_agents>')
+  lines.push('</agent_rules>', '</coding_agents>')
   return lines.join('\n')
 }
 
