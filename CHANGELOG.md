@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.0.35
+
+### Patch Changes
+
+- [`c0914ea`](https://github.com/ringotypowriter/yachiyo/commit/c0914ea1063b15e23567cc3b56a92debaddbfd26) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Respect I2T in Handoff
+
 ## 1.0.34
 
 ### Patch Changes
