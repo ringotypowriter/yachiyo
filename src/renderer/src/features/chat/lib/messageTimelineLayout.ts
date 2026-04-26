@@ -10,6 +10,7 @@ export type ToolCallSemanticGroup =
   | 'write-files'
   | 'run-commands'
   | 'inspect-workspace'
+  | 'evaluate-code'
   | 'search-memory'
 
 const TOOL_CALL_GROUP_LABELS: Record<
@@ -64,6 +65,12 @@ const TOOL_CALL_GROUP_LABELS: Record<
     doneSingular: 'Inspected workspace',
     donePlural: 'Inspected workspace · %n commands'
   },
+  'evaluate-code': {
+    singular: 'Evaluating JavaScript',
+    plural: 'Evaluating JavaScript · %n snippets',
+    doneSingular: 'Evaluated JavaScript',
+    donePlural: 'Evaluated JavaScript · %n snippets'
+  },
   'search-memory': {
     singular: 'Searching memory',
     plural: 'Searching memory %n times',
@@ -87,6 +94,8 @@ function getToolCallSemanticGroup(toolCall: ToolCall): ToolCallSemanticGroup | n
       return 'edit-files'
     case 'write':
       return 'write-files'
+    case 'jsRepl':
+      return 'evaluate-code'
     case 'searchMemory':
       return 'search-memory'
     case 'bash': {

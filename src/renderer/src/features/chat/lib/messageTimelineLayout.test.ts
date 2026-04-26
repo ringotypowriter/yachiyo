@@ -1439,6 +1439,11 @@ test('getToolCallGroupLabel describes pathless read groups as workspace inspecti
   assert.equal(getToolCallGroupLabel(displayGroup, 3, true), 'Inspected workspace · 3 commands')
 })
 
+test('getToolCallGroupLabel describes jsRepl groups as JavaScript snippets', () => {
+  assert.equal(getToolCallGroupLabel('evaluate-code', 1), 'Evaluating JavaScript')
+  assert.equal(getToolCallGroupLabel('evaluate-code', 3, true), 'Evaluated JavaScript · 3 snippets')
+})
+
 test('buildConversationGroupTimelineItems groups bash read commands with native read tools', () => {
   const items = buildConversationGroupTimelineItems({
     hasMemoryRecall: false,
@@ -1583,6 +1588,47 @@ test('buildConversationGroupTimelineItems groups consecutive searchMemory tool c
       key: 'tool-group:tool-1',
       group: 'search-memory',
       toolCallIds: ['tool-1', 'tool-2', 'tool-3']
+    }
+  ])
+})
+
+test('buildConversationGroupTimelineItems groups consecutive jsRepl tool calls', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'jsRepl',
+        status: 'completed',
+        inputSummary: 'const a = 1',
+        startedAt: '2026-03-22T00:00:01.000Z',
+        details: { code: 'const a = 1', consoleOutput: '' }
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'jsRepl',
+        status: 'completed',
+        inputSummary: 'a + 1',
+        startedAt: '2026-03-22T00:00:02.000Z',
+        details: { code: 'a + 1', result: '2' }
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    {
+      kind: 'tool-call-group',
+      key: 'tool-group:tool-1',
+      group: 'evaluate-code',
+      toolCallIds: ['tool-1', 'tool-2']
     }
   ])
 })
