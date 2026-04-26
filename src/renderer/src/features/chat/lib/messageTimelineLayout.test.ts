@@ -1088,6 +1088,38 @@ test('getToolCallGroupCount counts unique files for editing groups', () => {
   )
 })
 
+test('getToolCallGroupCount ignores preparing file tool placeholders', () => {
+  const toolCalls = [
+    {
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'edit' as const,
+      status: 'completed' as const,
+      inputSummary: '/workspace/src/file.ts',
+      startedAt: '2026-03-22T00:00:01.000Z',
+      details: {
+        path: '/workspace/src/file.ts',
+        mode: 'inline' as const,
+        replacements: 1,
+        firstChangedLine: 20
+      }
+    },
+    {
+      id: 'tool-2',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'edit' as const,
+      status: 'preparing' as const,
+      inputSummary: '/workspace/src/temporary-summary.ts',
+      startedAt: '2026-03-22T00:00:02.000Z'
+    }
+  ]
+
+  assert.equal(getToolCallGroupCount('edit-files', toolCalls), 1)
+  assert.deepEqual(getToolCallGroupFilePaths('edit-files', toolCalls), ['/workspace/src/file.ts'])
+})
+
 test('getToolCallGroupFilePaths returns up to five file targets in a file group', () => {
   assert.deepEqual(
     getToolCallGroupFilePaths('edit-files', [

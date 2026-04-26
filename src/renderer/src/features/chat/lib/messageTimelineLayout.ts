@@ -134,6 +134,10 @@ function getToolCallFilePath(toolCall: ToolCall): string | null {
     return details.path
   }
 
+  if (toolCall.status === 'preparing') {
+    return null
+  }
+
   return toolCall.inputSummary.trim() || null
 }
 
@@ -273,7 +277,11 @@ export function getToolCallGroupCount(group: ToolCallSemanticGroup, toolCalls: T
       continue
     }
     const filePath = getToolCallFilePath(toolCall)
-    countedFiles.add(filePath ? `path:${filePath}` : `tool:${toolCall.id}`)
+    if (filePath) {
+      countedFiles.add(`path:${filePath}`)
+    } else if (toolCall.status !== 'preparing') {
+      countedFiles.add(`tool:${toolCall.id}`)
+    }
   }
   return countedFiles.size
 }
