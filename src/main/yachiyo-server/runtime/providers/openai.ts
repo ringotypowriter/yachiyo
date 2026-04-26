@@ -2,6 +2,10 @@ import type { LanguageModel } from 'ai'
 
 import type { ProviderConfig, ProviderSettings } from '../../../../shared/yachiyo/protocol'
 import type { ResolvedAiSdkRuntimeDependencies } from './dependencies.ts'
+import {
+  createDeepSeekV4ProMaxEffortFetch,
+  isDeepSeekV4ProMaxEffortModel
+} from './deepseekMaxEffort.ts'
 import { createCacheFetch } from './openaiCompatibleCache.ts'
 import { createThinkingFetch, type ThinkingFetchOptions } from './openaiCompatibleThinking.ts'
 import {
@@ -48,6 +52,7 @@ export function createOpenAiLanguageModel(
 
   // Layer fetch wrappers (innermost → outermost):
   //   realFetch → cacheFetch (inject cache_control) → thinkingFetch (inject reasoning params)
+  //   → maxEffortFetch (DeepSeek v4 Pro chat-completions effort)
   // When diagnosticFetch is present it replaces globalThis.fetch as the
   // innermost transport for logging, and the same chain stacks on top.
   const innerFetch = diagnosticFetch ?? globalThis.fetch
@@ -58,7 +63,18 @@ export function createOpenAiLanguageModel(
     cacheFetch ?? innerFetch,
     thinkingOptions
   )
-  const composedFetch = thinkingFetch ?? cacheFetch
+  const maxEffortFetch =
+    settings.thinkingEnabled !== false && isDeepSeekV4ProMaxEffortModel(settings.model)
+      ? createDeepSeekV4ProMaxEffortFetch(
+          {
+            provider: 'openai',
+            model: settings.model,
+            thinkingEnabled: settings.thinkingEnabled
+          },
+          thinkingFetch ?? cacheFetch ?? innerFetch
+        )
+      : undefined
+  const composedFetch = maxEffortFetch ?? thinkingFetch ?? cacheFetch
 
   const provider = dependencies.createOpenAIProvider({
     apiKey: settings.apiKey,

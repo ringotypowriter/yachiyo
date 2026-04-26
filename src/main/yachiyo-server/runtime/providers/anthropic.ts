@@ -3,6 +3,10 @@ import type { LanguageModel } from 'ai'
 import type { ProviderConfig, ProviderSettings } from '../../../../shared/yachiyo/protocol'
 import type { ResolvedAiSdkRuntimeDependencies } from './dependencies.ts'
 import {
+  createDeepSeekV4ProMaxEffortFetch,
+  isDeepSeekV4ProMaxEffortModel
+} from './deepseekMaxEffort.ts'
+import {
   cleanBaseUrl,
   DEFAULT_ANTHROPIC_BASE_URL,
   DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS,
@@ -13,9 +17,21 @@ export function createAnthropicLanguageModel(
   settings: ProviderSettings,
   dependencies: ResolvedAiSdkRuntimeDependencies
 ): LanguageModel {
+  const maxEffortFetch =
+    settings.thinkingEnabled !== false && isDeepSeekV4ProMaxEffortModel(settings.model)
+      ? createDeepSeekV4ProMaxEffortFetch(
+          {
+            provider: 'anthropic',
+            model: settings.model,
+            thinkingEnabled: settings.thinkingEnabled
+          },
+          dependencies.fetchImpl
+        )
+      : undefined
   const provider = dependencies.createAnthropicProvider({
     apiKey: settings.apiKey,
-    baseURL: cleanBaseUrl(settings.baseUrl, DEFAULT_ANTHROPIC_BASE_URL)
+    baseURL: cleanBaseUrl(settings.baseUrl, DEFAULT_ANTHROPIC_BASE_URL),
+    ...(maxEffortFetch ? { fetch: maxEffortFetch } : {})
   })
 
   return provider(settings.model)
