@@ -15,6 +15,7 @@ import {
   MarkdownImageProvider,
   type MarkdownImageContextValue
 } from './MarkdownImage'
+import { getMessageMarkdownAnimation } from './messageMarkdownAnimation'
 
 /**
  * Extend Streamdown's default rehype-sanitize schema to allow `magnet:` in
@@ -83,13 +84,7 @@ export function MessageMarkdown({
     }
   }, [imagesEnabled])
 
-  const animated = useMemo(
-    () =>
-      isStreaming
-        ? ({ sep: 'word', animation: 'blurIn', duration: 120, easing: 'ease-out' } as const)
-        : false,
-    [isStreaming]
-  )
+  const animated = useMemo(() => getMessageMarkdownAnimation(isStreaming), [isStreaming])
   const plugins = useMemo(() => ({ math: mathPlugin, mermaid, code }), [])
 
   return (
