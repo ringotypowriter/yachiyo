@@ -8,7 +8,7 @@ import type {
   WriteToolCallDetails
 } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
-import { buildToolCallDetailsPresentation } from '../lib/toolCallPresentation.ts'
+import { buildToolCallDetailsPresentation, compressPath } from '../lib/toolCallPresentation.ts'
 import { ToolCodeBlock } from './ToolCodeBlock.tsx'
 import { AskUserInlineWidget } from './AskUserInlineWidget.tsx'
 
@@ -48,6 +48,13 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
   const hasExpandableDetails =
     presentation.fields.length > 0 || secondaryCodeBlocks.length > 0 || hasSearchResults
 
+  const isPathTool =
+    toolCall.toolName === 'read' || toolCall.toolName === 'write' || toolCall.toolName === 'edit'
+  const displaySummary =
+    isPathTool && toolCall.inputSummary
+      ? compressPath(toolCall.inputSummary)
+      : toolCall.inputSummary
+
   const summaryContent = (
     <>
       <span
@@ -57,8 +64,10 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
           animation: isActive ? 'yachiyo-preparing-pulse 1.2s ease-in-out infinite' : undefined
         }}
       />
-      <span>{toolCall.toolName}</span>
-      {toolCall.inputSummary ? <span>· {toolCall.inputSummary}</span> : null}
+      <span style={{ color: theme.text.placeholder }}>{toolCall.toolName}</span>
+      {displaySummary ? (
+        <span style={{ color: theme.text.secondary }}>· {displaySummary}</span>
+      ) : null}
       {toolCall.cwd && <span>· cwd {toolCall.cwd}</span>}
       {toolCall.outputSummary && (
         <span style={{ color: isFailed ? theme.text.danger : theme.text.placeholder }}>

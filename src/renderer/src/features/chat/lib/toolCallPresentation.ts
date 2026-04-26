@@ -415,3 +415,48 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
 
   return { fields, codeBlocks }
 }
+
+/**
+ * Compress a file path for compact display in tool call summaries.
+ *
+ * Rules:
+ * - Paths <= 45 chars are returned as-is.
+ * - For longer paths: keep the first 2 meaningful segments and the last segment
+ *   intact; abbreviate every middle segment longer than 4 chars to its first letter.
+ *
+ * Examples:
+ *   /a/b/c/d.txt               → /a/b/c/d.txt          (short enough)
+ *   /a/verylong/path/to/f.txt  → /a/verylong/p/t/f.txt (middle compressed)
+ */
+export function compressPath(path: string, maxLen: number = 45): string {
+  if (path.length <= maxLen) return path
+
+  const segments = path.split('/')
+  if (segments.length <= 3) return path
+
+  const result: string[] = []
+  const start = segments[0] === '' ? 1 : 0
+
+  if (start === 1) result.push('')
+
+  // Keep first 2 meaningful segments
+  const keepHead = Math.min(start + 2, segments.length - 1)
+  for (let i = start; i < keepHead; i++) {
+    result.push(segments[i])
+  }
+
+  // Compress middle segments: if length > 4, keep only the first letter
+  const shortenThreshold = 5
+  for (let i = keepHead; i < segments.length - 1; i++) {
+    if (segments[i].length > shortenThreshold) {
+      result.push(segments[i][0])
+    } else {
+      result.push(segments[i])
+    }
+  }
+
+  // Keep last segment intact
+  result.push(segments[segments.length - 1])
+
+  return result.join('/')
+}

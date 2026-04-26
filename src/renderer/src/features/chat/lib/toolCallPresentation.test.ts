@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildToolCallDetailsPresentation } from './toolCallPresentation.ts'
+import { buildToolCallDetailsPresentation, compressPath } from './toolCallPresentation.ts'
 
 const BASE_TOOL_CALL = {
   id: 'tool-1',
@@ -301,7 +301,8 @@ test('buildToolCallDetailsPresentation marks bash stdout as inspection-tier rega
 
   const stdoutBlock = presentation.codeBlocks.find((b) => b.label === 'stdout')
   assert.ok(stdoutBlock, 'stdout block should be present')
-  assert.equal(stdoutBlock.displayTier, 'inspection')
+  // stdout is shown inline (no displayTier) so the user can see command output directly
+  assert.equal(stdoutBlock.displayTier, undefined)
 })
 
 test('buildToolCallDetailsPresentation keeps bash stderr secondary when it carries danger signal', () => {
@@ -353,4 +354,55 @@ test('buildToolCallDetailsPresentation marks grep and glob match lists as inspec
 
   assert.equal(grepPresentation.codeBlocks[0].displayTier, 'inspection')
   assert.equal(globPresentation.codeBlocks[0].displayTier, 'inspection')
+})
+
+test('compressPath returns short paths unchanged', () => {
+  assert.equal(compressPath('/a/b/c.txt'), '/a/b/c.txt')
+  assert.equal(compressPath('src/file.ts'), 'src/file.ts')
+})
+
+test('compressPath returns shallow paths unchanged', () => {
+  assert.equal(compressPath('/root/deep/file.txt'), '/root/deep/file.txt')
+})
+
+test('compressPath abbreviates long middle segments', () => {
+  assert.equal(
+    compressPath('/a/verylong-folder/deeply-nested/pathway/toward/file.txt'),
+    '/a/verylong-folder/d/p/t/file.txt'
+  )
+})
+
+test('compressPath keeps short middle segments intact', () => {
+  assert.equal(
+    compressPath('/a/b/srcfolder/core/lib/utils/helpers/helper.ts'),
+    '/a/b/s/core/lib/utils/h/helper.ts'
+  )
+})
+
+test('compressPath handles relative deep paths', () => {
+  assert.equal(
+    compressPath('src/renderer/src/features/chat/components/ToolCallRow.tsx'),
+    'src/renderer/src/f/chat/c/ToolCallRow.tsx'
+  )
+})
+
+test('compressPath preserves leading slash on absolute paths', () => {
+  const result = compressPath('/home/user/projects/myapp/src/lib/util/file.ts')
+  assert.ok(result.startsWith('/'), 'absolute path should start with /')
+  assert.ok(result.endsWith('/file.ts'), 'tail filename should be intact')
+})
+
+test('compressPath result is never longer than original', () => {
+  const cases = [
+    '/a/b/c/d/e/f/g/h/i/j/k/file.txt',
+    'very/long/relative/path/chain/that/goes/deep/file.ts',
+    '/short/path.txt'
+  ]
+  for (const p of cases) {
+    const result = compressPath(p)
+    assert.ok(
+      result.length <= p.length,
+      `compressed "${p}" (${p.length}) → "${result}" (${result.length}) should not be longer`
+    )
+  }
 })
