@@ -9,9 +9,14 @@ import { ToolCallRow } from './ToolCallRow.tsx'
 interface ToolCallGroupRowProps {
   group: ToolCallSemanticGroup
   toolCalls: ToolCall[]
+  workspacePath?: string | null
 }
 
-export function ToolCallGroupRow({ group, toolCalls }: ToolCallGroupRowProps): React.JSX.Element {
+export function ToolCallGroupRow({
+  group,
+  toolCalls,
+  workspacePath
+}: ToolCallGroupRowProps): React.JSX.Element {
   const [isExpanded, setIsExpanded] = useState(false)
 
   // A `background` bash call has returned its handle but the subprocess is still running,
@@ -78,7 +83,7 @@ export function ToolCallGroupRow({ group, toolCalls }: ToolCallGroupRowProps): R
           style={{ borderColor: theme.border.panel }}
         >
           {toolCalls.map((tc) => (
-            <ToolCallRow key={tc.id} toolCall={tc} />
+            <ToolCallRow key={tc.id} toolCall={tc} workspacePath={workspacePath} />
           ))}
         </div>
       )}

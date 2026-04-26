@@ -9,11 +9,13 @@ import { useThinkingTimer } from '../hooks/useThinkingTimer'
 interface ThinkingBlockProps {
   reasoning: string
   isActive: boolean
+  startedAt: string
 }
 
 export function ThinkingBlock({
   reasoning,
-  isActive
+  isActive,
+  startedAt
 }: ThinkingBlockProps): React.JSX.Element | null {
   const [override, setOverride] = useState<{ expanded: boolean; duringActive: boolean } | null>(
     null
@@ -22,7 +24,7 @@ export function ThinkingBlock({
   const contentRef = useRef<HTMLDivElement>(null)
 
   const page = useThinkingPager(reasoning, isActive)
-  const timer = useThinkingTimer(isActive)
+  const timer = useThinkingTimer(isActive, startedAt)
 
   useEffect(() => {
     if (!isActive && contentRef.current) {

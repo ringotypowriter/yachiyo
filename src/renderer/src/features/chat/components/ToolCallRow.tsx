@@ -14,6 +14,7 @@ import { AskUserInlineWidget } from './AskUserInlineWidget.tsx'
 
 interface ToolCallRowProps {
   toolCall: ToolCall
+  workspacePath?: string | null
 }
 
 function elapsedSeconds(startedAt: string, finishedAt: string): string | null {
@@ -22,7 +23,7 @@ function elapsedSeconds(startedAt: string, finishedAt: string): string | null {
   return s >= 0.1 ? `${s.toFixed(1)}s` : null
 }
 
-export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
+export function ToolCallRow({ toolCall, workspacePath }: ToolCallRowProps): React.JSX.Element {
   const [isExpanded, setIsExpanded] = useState(false)
   const detailsId = useId()
 
@@ -68,7 +69,9 @@ export function ToolCallRow({ toolCall }: ToolCallRowProps): React.JSX.Element {
       {displaySummary ? (
         <span style={{ color: theme.text.secondary }}>· {displaySummary}</span>
       ) : null}
-      {toolCall.cwd && <span>· cwd {toolCall.cwd}</span>}
+      {toolCall.cwd && (!workspacePath || toolCall.cwd !== workspacePath) ? (
+        <span>· cwd {toolCall.cwd}</span>
+      ) : null}
       {toolCall.outputSummary && (
         <span style={{ color: isFailed ? theme.text.danger : theme.text.placeholder }}>
           · {toolCall.outputSummary}
