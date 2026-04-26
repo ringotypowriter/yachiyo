@@ -8,7 +8,10 @@ import type {
   WriteToolCallDetails
 } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
-import { buildToolCallDetailsPresentation, compressPath } from '../lib/toolCallPresentation.ts'
+import {
+  buildToolCallDetailsPresentation,
+  formatToolFilePath
+} from '../lib/toolCallPresentation.ts'
 import { ToolCodeBlock } from './ToolCodeBlock.tsx'
 import { AskUserInlineWidget } from './AskUserInlineWidget.tsx'
 
@@ -53,7 +56,7 @@ export function ToolCallRow({ toolCall, workspacePath }: ToolCallRowProps): Reac
     toolCall.toolName === 'read' || toolCall.toolName === 'write' || toolCall.toolName === 'edit'
   const displaySummary =
     isPathTool && toolCall.inputSummary
-      ? compressPath(toolCall.inputSummary)
+      ? formatToolFilePath(toolCall.inputSummary, workspacePath)
       : toolCall.inputSummary
 
   const summaryContent = (

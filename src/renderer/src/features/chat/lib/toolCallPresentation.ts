@@ -460,3 +460,51 @@ export function compressPath(path: string, maxLen: number = 45): string {
 
   return result.join('/')
 }
+
+export function stripWorkspacePath(path: string, workspacePath?: string | null): string {
+  const normalizedWorkspace = workspacePath?.trim().replace(/\/+$/, '')
+  if (!path.startsWith('/') || !normalizedWorkspace) {
+    return path
+  }
+
+  if (path === normalizedWorkspace) {
+    return '.'
+  }
+
+  const workspacePrefix = `${normalizedWorkspace}/`
+  return path.startsWith(workspacePrefix) ? path.slice(workspacePrefix.length) : path
+}
+
+export function formatToolFilePath(path: string, workspacePath?: string | null): string {
+  return compressPath(stripWorkspacePath(path, workspacePath))
+}
+
+function splitPathDirectory(path: string): { directory: string; basename: string } {
+  const slashIndex = path.lastIndexOf('/')
+  if (slashIndex === -1) {
+    return { directory: '', basename: path }
+  }
+
+  return {
+    directory: path.slice(0, slashIndex),
+    basename: path.slice(slashIndex + 1)
+  }
+}
+
+export function formatToolFilePathList(paths: string[], workspacePath?: string | null): string[] {
+  const strippedPaths = paths.map((path) => stripWorkspacePath(path, workspacePath))
+  if (strippedPaths.length <= 1) {
+    return strippedPaths.map((path) => compressPath(path))
+  }
+
+  const pathParts = strippedPaths.map(splitPathDirectory)
+  const firstDirectory = pathParts[0]!.directory
+  const sameDirectory = pathParts.every((part) => part.directory === firstDirectory)
+  if (!sameDirectory) {
+    return strippedPaths.map((path) => compressPath(path))
+  }
+
+  return pathParts.map((part, index) =>
+    index === 0 ? compressPath(strippedPaths[index]!) : part.basename
+  )
+}

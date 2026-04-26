@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildToolCallDetailsPresentation, compressPath } from './toolCallPresentation.ts'
+import {
+  buildToolCallDetailsPresentation,
+  compressPath,
+  formatToolFilePath,
+  formatToolFilePathList,
+  stripWorkspacePath
+} from './toolCallPresentation.ts'
 
 const BASE_TOOL_CALL = {
   id: 'tool-1',
@@ -405,4 +411,54 @@ test('compressPath result is never longer than original', () => {
       `compressed "${p}" (${p.length}) → "${result}" (${result.length}) should not be longer`
     )
   }
+})
+
+test('stripWorkspacePath returns relative paths inside the active workspace', () => {
+  assert.equal(
+    stripWorkspacePath(
+      '/Users/ringotypowriter/project/src/file.ts',
+      '/Users/ringotypowriter/project'
+    ),
+    'src/file.ts'
+  )
+})
+
+test('stripWorkspacePath does not strip sibling absolute paths', () => {
+  assert.equal(
+    stripWorkspacePath(
+      '/Users/ringotypowriter/project-other/src/file.ts',
+      '/Users/ringotypowriter/project'
+    ),
+    '/Users/ringotypowriter/project-other/src/file.ts'
+  )
+})
+
+test('formatToolFilePath strips workspace before compressing', () => {
+  assert.equal(
+    formatToolFilePath(
+      '/Users/ringotypowriter/project/src/renderer/src/features/chat/components/ToolCallRow.tsx',
+      '/Users/ringotypowriter/project'
+    ),
+    'src/renderer/src/f/chat/c/ToolCallRow.tsx'
+  )
+})
+
+test('formatToolFilePathList keeps the shared directory only on the first path', () => {
+  assert.deepEqual(
+    formatToolFilePathList(
+      ['/Users/ringotypowriter/project/src/a.ts', '/Users/ringotypowriter/project/src/b.ts'],
+      '/Users/ringotypowriter/project'
+    ),
+    ['src/a.ts', 'b.ts']
+  )
+})
+
+test('formatToolFilePathList keeps distinct directories when paths differ', () => {
+  assert.deepEqual(
+    formatToolFilePathList(
+      ['/Users/ringotypowriter/project/src/a.ts', '/Users/ringotypowriter/project/test/b.ts'],
+      '/Users/ringotypowriter/project'
+    ),
+    ['src/a.ts', 'test/b.ts']
+  )
 })

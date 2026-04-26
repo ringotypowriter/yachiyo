@@ -3,7 +3,14 @@ import { useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import type { ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
-import { getToolCallGroupLabel, type ToolCallSemanticGroup } from '../lib/messageTimelineLayout.ts'
+import {
+  getToolCallGroupCount,
+  getToolCallGroupDisplayGroup,
+  getToolCallGroupFilePaths,
+  getToolCallGroupLabel,
+  type ToolCallSemanticGroup
+} from '../lib/messageTimelineLayout.ts'
+import { formatToolFilePathList } from '../lib/toolCallPresentation.ts'
 import { ToolCallRow } from './ToolCallRow.tsx'
 
 interface ToolCallGroupRowProps {
@@ -33,7 +40,16 @@ export function ToolCallGroupRow({
       ? theme.status.danger
       : theme.status.success
 
-  const label = getToolCallGroupLabel(group, toolCalls.length, allDone)
+  const filePaths = getToolCallGroupFilePaths(group, toolCalls)
+  const displayGroup = getToolCallGroupDisplayGroup(group, toolCalls)
+  const baseLabel = getToolCallGroupLabel(
+    displayGroup,
+    getToolCallGroupCount(group, toolCalls),
+    allDone
+  )
+  const label = filePaths.length
+    ? `${baseLabel} · ${formatToolFilePathList(filePaths, workspacePath).join(', ')}`
+    : baseLabel
 
   return (
     <div className="py-0.5" style={{ fontSize: '11px' }}>

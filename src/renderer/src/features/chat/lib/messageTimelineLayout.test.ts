@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildConversationGroupTimelineItems } from './messageTimelineLayout.ts'
+import {
+  buildConversationGroupTimelineItems,
+  getToolCallGroupCount,
+  getToolCallGroupDisplayGroup,
+  getToolCallGroupFilePaths,
+  getToolCallGroupLabel
+} from './messageTimelineLayout.ts'
 
 test('buildConversationGroupTimelineItems keeps replies before memory recall and orders tools with the assistant by time', () => {
   const items = buildConversationGroupTimelineItems({
@@ -451,6 +457,986 @@ test('buildConversationGroupTimelineItems groups same-group tool calls across em
     },
     { kind: 'assistant-text-block', key: 'text-1', textBlockId: 'text-1' }
   ])
+})
+
+test('buildConversationGroupTimelineItems treats read and edit calls on the same file as editing', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: '/workspace/src/file.ts',
+        startedAt: '2026-03-22T00:00:01.000Z',
+        details: {
+          path: '/workspace/src/file.ts',
+          startLine: 1,
+          endLine: 40,
+          totalLines: 100,
+          totalBytes: 2000,
+          truncated: true
+        }
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/file.ts',
+        startedAt: '2026-03-22T00:00:02.000Z',
+        details: {
+          path: '/workspace/src/file.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 20
+        }
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: '/workspace/src/file.ts',
+        startedAt: '2026-03-22T00:00:03.000Z',
+        details: {
+          path: '/workspace/src/file.ts',
+          startLine: 1,
+          endLine: 40,
+          totalLines: 100,
+          totalBytes: 2000,
+          truncated: true
+        }
+      },
+      {
+        id: 'tool-4',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/file.ts',
+        startedAt: '2026-03-22T00:00:04.000Z',
+        details: {
+          path: '/workspace/src/file.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 60
+        }
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    {
+      kind: 'tool-call-group',
+      key: 'tool-group:tool-1',
+      group: 'edit-files',
+      toolCallIds: ['tool-1', 'tool-2', 'tool-3', 'tool-4']
+    }
+  ])
+})
+
+test('buildConversationGroupTimelineItems treats grep and edit calls as editing', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'grep',
+        status: 'completed',
+        inputSummary: 'fraction.*percent',
+        startedAt: '2026-03-22T00:00:01.000Z',
+        details: {
+          backend: 'rg',
+          pattern: 'fraction.*percent',
+          path: '/workspace',
+          resultCount: 3,
+          truncated: false,
+          matches: [
+            {
+              path: '/workspace/src/tools/sympy-tools.ts',
+              line: 106,
+              text: 'fraction percent'
+            }
+          ]
+        }
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/tools/sympy-tools.ts',
+        startedAt: '2026-03-22T00:00:02.000Z',
+        details: {
+          path: '/workspace/src/tools/sympy-tools.ts',
+          mode: 'inline',
+          replacements: 3,
+          firstChangedLine: 106
+        }
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'grep',
+        status: 'completed',
+        inputSummary: 'fraction.*percent',
+        startedAt: '2026-03-22T00:00:03.000Z',
+        details: {
+          backend: 'rg',
+          pattern: 'fraction.*percent',
+          path: '/workspace',
+          resultCount: 1,
+          truncated: false,
+          matches: [
+            {
+              path: '/workspace/src/tools/engine_cli.py',
+              line: 74,
+              text: 'fraction percent'
+            }
+          ]
+        }
+      },
+      {
+        id: 'tool-4',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/tools/engine_cli.py',
+        startedAt: '2026-03-22T00:00:04.000Z',
+        details: {
+          path: '/workspace/src/tools/engine_cli.py',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 74
+        }
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    {
+      kind: 'tool-call-group',
+      key: 'tool-group:tool-1',
+      group: 'edit-files',
+      toolCallIds: ['tool-1', 'tool-2', 'tool-3', 'tool-4']
+    }
+  ])
+})
+
+test('buildConversationGroupTimelineItems keeps editing groups alive after an intervening grep', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: '/workspace/src/tools/engine_cli.py',
+        startedAt: '2026-03-22T00:00:01.000Z',
+        details: {
+          path: '/workspace/src/tools/engine_cli.py',
+          startLine: 125,
+          endLine: 184,
+          totalLines: 400,
+          totalBytes: 9000,
+          truncated: true
+        }
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/tools/engine_cli.py',
+        startedAt: '2026-03-22T00:00:02.000Z',
+        details: {
+          path: '/workspace/src/tools/engine_cli.py',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 64
+        }
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'grep',
+        status: 'completed',
+        inputSummary: 'if __name__|argparse|args|dispatch',
+        startedAt: '2026-03-22T00:00:03.000Z',
+        details: {
+          backend: 'rg',
+          pattern: 'if __name__|argparse|args|dispatch',
+          path: '/workspace',
+          resultCount: 7,
+          truncated: false,
+          matches: []
+        }
+      },
+      {
+        id: 'tool-4',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: '/workspace/src/tools/engine_cli.py',
+        startedAt: '2026-03-22T00:00:04.000Z',
+        details: {
+          path: '/workspace/src/tools/engine_cli.py',
+          startLine: 310,
+          endLine: 377,
+          totalLines: 400,
+          totalBytes: 9000,
+          truncated: false
+        }
+      },
+      {
+        id: 'tool-5',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/tools/engine_cli.py',
+        startedAt: '2026-03-22T00:00:05.000Z',
+        details: {
+          path: '/workspace/src/tools/engine_cli.py',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 316
+        }
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    {
+      kind: 'tool-call-group',
+      key: 'tool-group:tool-1',
+      group: 'edit-files',
+      toolCallIds: ['tool-1', 'tool-2', 'tool-3', 'tool-4', 'tool-5']
+    }
+  ])
+})
+
+test('buildConversationGroupTimelineItems can return to an earlier file after grep in a multi-file edit group', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: '/workspace/uncertainty-agent/src/pipeline.ts',
+        startedAt: '2026-03-22T00:00:01.000Z',
+        details: {
+          path: '/workspace/uncertainty-agent/src/pipeline.ts',
+          startLine: 299,
+          endLine: 313,
+          totalLines: 500,
+          totalBytes: 12000,
+          truncated: true
+        }
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/uncertainty-agent/src/pipeline.ts',
+        startedAt: '2026-03-22T00:00:02.000Z',
+        details: {
+          path: '/workspace/uncertainty-agent/src/pipeline.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 298
+        }
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/uncertainty-agent/src/main.ts',
+        startedAt: '2026-03-22T00:00:03.000Z',
+        details: {
+          path: '/workspace/uncertainty-agent/src/main.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 196
+        }
+      },
+      {
+        id: 'tool-4',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'grep',
+        status: 'completed',
+        inputSummary: 'buildPrompt|extraPrompt.*system',
+        startedAt: '2026-03-22T00:00:04.000Z',
+        details: {
+          backend: 'rg',
+          pattern: 'buildPrompt|extraPrompt.*system',
+          path: '/workspace',
+          resultCount: 1,
+          truncated: false,
+          matches: []
+        }
+      },
+      {
+        id: 'tool-5',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: '/workspace/uncertainty-agent/src/pipeline.ts',
+        startedAt: '2026-03-22T00:00:05.000Z',
+        details: {
+          path: '/workspace/uncertainty-agent/src/pipeline.ts',
+          startLine: 131,
+          endLine: 150,
+          totalLines: 500,
+          totalBytes: 12000,
+          truncated: true
+        }
+      },
+      {
+        id: 'tool-6',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/uncertainty-agent/src/pipeline.ts',
+        startedAt: '2026-03-22T00:00:06.000Z',
+        details: {
+          path: '/workspace/uncertainty-agent/src/pipeline.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 142
+        }
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    {
+      kind: 'tool-call-group',
+      key: 'tool-group:tool-1',
+      group: 'edit-files',
+      toolCallIds: ['tool-1', 'tool-2', 'tool-3', 'tool-4', 'tool-5', 'tool-6']
+    }
+  ])
+})
+
+test('buildConversationGroupTimelineItems can expand an editing group to a newly read file', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: '/workspace/src/tools/engine_cli.py',
+        startedAt: '2026-03-22T00:00:01.000Z',
+        details: {
+          path: '/workspace/src/tools/engine_cli.py',
+          startLine: 310,
+          endLine: 377,
+          totalLines: 400,
+          totalBytes: 9000,
+          truncated: false
+        }
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/tools/engine_cli.py',
+        startedAt: '2026-03-22T00:00:02.000Z',
+        details: {
+          path: '/workspace/src/tools/engine_cli.py',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 316
+        }
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: '/workspace/uncertainty-agent/src/tools/sympy-tools.ts',
+        startedAt: '2026-03-22T00:00:03.000Z',
+        details: {
+          path: '/workspace/uncertainty-agent/src/tools/sympy-tools.ts',
+          startLine: 95,
+          endLine: 174,
+          totalLines: 500,
+          totalBytes: 12000,
+          truncated: true
+        }
+      },
+      {
+        id: 'tool-4',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/uncertainty-agent/src/tools/sympy-tools.ts',
+        startedAt: '2026-03-22T00:00:04.000Z',
+        details: {
+          path: '/workspace/uncertainty-agent/src/tools/sympy-tools.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 101
+        }
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    {
+      kind: 'tool-call-group',
+      key: 'tool-group:tool-1',
+      group: 'edit-files',
+      toolCallIds: ['tool-1', 'tool-2', 'tool-3', 'tool-4']
+    }
+  ])
+})
+
+test('buildConversationGroupTimelineItems does not count unrelated reads as edited files', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: '/workspace/src/a.ts',
+        startedAt: '2026-03-22T00:00:01.000Z',
+        details: {
+          path: '/workspace/src/a.ts',
+          startLine: 1,
+          endLine: 20,
+          totalLines: 100,
+          totalBytes: 2000,
+          truncated: false
+        }
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/a.ts',
+        startedAt: '2026-03-22T00:00:02.000Z',
+        details: {
+          path: '/workspace/src/a.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 12
+        }
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: '/workspace/src/b.ts',
+        startedAt: '2026-03-22T00:00:03.000Z',
+        details: {
+          path: '/workspace/src/b.ts',
+          startLine: 1,
+          endLine: 20,
+          totalLines: 100,
+          totalBytes: 2000,
+          truncated: false
+        }
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    {
+      kind: 'tool-call-group',
+      key: 'tool-group:tool-1',
+      group: 'edit-files',
+      toolCallIds: ['tool-1', 'tool-2']
+    },
+    { kind: 'tool-call', key: 'tool-3', toolCallId: 'tool-3' }
+  ])
+})
+
+test('getToolCallGroupCount counts unique files for editing groups', () => {
+  assert.equal(
+    getToolCallGroupCount('edit-files', [
+      {
+        id: 'tool-0',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'grep',
+        status: 'completed',
+        inputSummary: 'needle',
+        startedAt: '2026-03-22T00:00:00.000Z',
+        details: {
+          backend: 'rg',
+          pattern: 'needle',
+          path: '/workspace',
+          resultCount: 1,
+          truncated: false,
+          matches: []
+        }
+      },
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: '/workspace/src/file.ts',
+        startedAt: '2026-03-22T00:00:01.000Z',
+        details: {
+          path: '/workspace/src/file.ts',
+          startLine: 1,
+          endLine: 40,
+          totalLines: 100,
+          totalBytes: 2000,
+          truncated: true
+        }
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/file.ts',
+        startedAt: '2026-03-22T00:00:02.000Z',
+        details: {
+          path: '/workspace/src/file.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 20
+        }
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/other.ts',
+        startedAt: '2026-03-22T00:00:03.000Z',
+        details: {
+          path: '/workspace/src/other.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 12
+        }
+      }
+    ]),
+    2
+  )
+})
+
+test('getToolCallGroupFilePaths returns up to five file targets in a file group', () => {
+  assert.deepEqual(
+    getToolCallGroupFilePaths('edit-files', [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: '/workspace/src/file.ts',
+        startedAt: '2026-03-22T00:00:01.000Z',
+        details: {
+          path: '/workspace/src/file.ts',
+          startLine: 1,
+          endLine: 40,
+          totalLines: 100,
+          totalBytes: 2000,
+          truncated: true
+        }
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/file.ts',
+        startedAt: '2026-03-22T00:00:02.000Z',
+        details: {
+          path: '/workspace/src/file.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 20
+        }
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/other.ts',
+        startedAt: '2026-03-22T00:00:03.000Z',
+        details: {
+          path: '/workspace/src/other.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 12
+        }
+      },
+      {
+        id: 'tool-4',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/third.ts',
+        startedAt: '2026-03-22T00:00:04.000Z',
+        details: {
+          path: '/workspace/src/third.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 18
+        }
+      },
+      {
+        id: 'tool-5',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/fourth.ts',
+        startedAt: '2026-03-22T00:00:05.000Z',
+        details: {
+          path: '/workspace/src/fourth.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 24
+        }
+      },
+      {
+        id: 'tool-6',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/fifth.ts',
+        startedAt: '2026-03-22T00:00:06.000Z',
+        details: {
+          path: '/workspace/src/fifth.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 30
+        }
+      }
+    ]),
+    [
+      '/workspace/src/file.ts',
+      '/workspace/src/other.ts',
+      '/workspace/src/third.ts',
+      '/workspace/src/fourth.ts',
+      '/workspace/src/fifth.ts'
+    ]
+  )
+})
+
+test('getToolCallGroupFilePaths omits groups with more than five file targets', () => {
+  assert.deepEqual(
+    getToolCallGroupFilePaths('edit-files', [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/file.ts',
+        startedAt: '2026-03-22T00:00:01.000Z',
+        details: {
+          path: '/workspace/src/file.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 20
+        }
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/other.ts',
+        startedAt: '2026-03-22T00:00:02.000Z',
+        details: {
+          path: '/workspace/src/other.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 12
+        }
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/third.ts',
+        startedAt: '2026-03-22T00:00:03.000Z',
+        details: {
+          path: '/workspace/src/third.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 18
+        }
+      },
+      {
+        id: 'tool-4',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/fourth.ts',
+        startedAt: '2026-03-22T00:00:04.000Z',
+        details: {
+          path: '/workspace/src/fourth.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 24
+        }
+      },
+      {
+        id: 'tool-5',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/fifth.ts',
+        startedAt: '2026-03-22T00:00:05.000Z',
+        details: {
+          path: '/workspace/src/fifth.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 30
+        }
+      },
+      {
+        id: 'tool-6',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'edit',
+        status: 'completed',
+        inputSummary: '/workspace/src/sixth.ts',
+        startedAt: '2026-03-22T00:00:06.000Z',
+        details: {
+          path: '/workspace/src/sixth.ts',
+          mode: 'inline',
+          replacements: 1,
+          firstChangedLine: 36
+        }
+      }
+    ]),
+    []
+  )
+})
+
+test('getToolCallGroupCount counts unique files for reading groups', () => {
+  assert.equal(
+    getToolCallGroupCount('read-files', [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: '/workspace/src/file.ts',
+        startedAt: '2026-03-22T00:00:01.000Z',
+        details: {
+          path: '/workspace/src/file.ts',
+          startLine: 1,
+          endLine: 40,
+          totalLines: 100,
+          totalBytes: 2000,
+          truncated: true
+        }
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: '/workspace/src/file.ts',
+        startedAt: '2026-03-22T00:00:02.000Z',
+        details: {
+          path: '/workspace/src/file.ts',
+          startLine: 41,
+          endLine: 80,
+          totalLines: 100,
+          totalBytes: 2000,
+          truncated: true
+        }
+      }
+    ]),
+    1
+  )
+})
+
+test('getToolCallGroupCount counts unique files for writing groups', () => {
+  assert.equal(
+    getToolCallGroupCount('write-files', [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'write',
+        status: 'completed',
+        inputSummary: '/workspace/src/file.ts',
+        startedAt: '2026-03-22T00:00:01.000Z',
+        details: {
+          path: '/workspace/src/file.ts',
+          bytesWritten: 120,
+          created: true,
+          overwritten: false
+        }
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'write',
+        status: 'completed',
+        inputSummary: '/workspace/src/file.ts',
+        startedAt: '2026-03-22T00:00:02.000Z',
+        details: {
+          path: '/workspace/src/file.ts',
+          bytesWritten: 180,
+          created: false,
+          overwritten: true
+        }
+      },
+      {
+        id: 'tool-3',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'write',
+        status: 'completed',
+        inputSummary: '/workspace/src/other.ts',
+        startedAt: '2026-03-22T00:00:03.000Z',
+        details: {
+          path: '/workspace/src/other.ts',
+          bytesWritten: 90,
+          created: true,
+          overwritten: false
+        }
+      }
+    ]),
+    2
+  )
+})
+
+test('getToolCallGroupLabel describes file searches as patterns', () => {
+  assert.equal(getToolCallGroupLabel('search-files', 1), 'Searching 1 pattern')
+  assert.equal(getToolCallGroupLabel('search-files', 2, true), 'Searched 2 patterns')
+})
+
+test('getToolCallGroupLabel describes pathless read groups as workspace inspection', () => {
+  const toolCalls = [
+    {
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'bash' as const,
+      status: 'completed' as const,
+      inputSummary: 'git status',
+      startedAt: '2026-03-22T00:00:01.000Z',
+      details: { command: 'git status', cwd: '/workspace', stdout: '', stderr: '', exitCode: 0 }
+    },
+    {
+      id: 'tool-2',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'bash' as const,
+      status: 'completed' as const,
+      inputSummary: 'git diff --stat',
+      startedAt: '2026-03-22T00:00:02.000Z',
+      details: {
+        command: 'git diff --stat',
+        cwd: '/workspace',
+        stdout: '',
+        stderr: '',
+        exitCode: 0
+      }
+    },
+    {
+      id: 'tool-3',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'bash' as const,
+      status: 'completed' as const,
+      inputSummary: 'git diff',
+      startedAt: '2026-03-22T00:00:03.000Z',
+      details: { command: 'git diff', cwd: '/workspace', stdout: '', stderr: '', exitCode: 0 }
+    }
+  ]
+
+  const displayGroup = getToolCallGroupDisplayGroup('read-files', toolCalls)
+
+  assert.equal(displayGroup, 'inspect-workspace')
+  assert.equal(getToolCallGroupCount('read-files', toolCalls), 3)
+  assert.equal(getToolCallGroupLabel(displayGroup, 3, true), 'Inspected workspace · 3 commands')
 })
 
 test('buildConversationGroupTimelineItems groups bash read commands with native read tools', () => {
