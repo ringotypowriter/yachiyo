@@ -2559,6 +2559,7 @@ export async function executeServerRun(
       type: 'run.completed',
       threadId: input.thread.id,
       runId: input.runId,
+      requestMessageId: input.requestMessageId,
       ...finalUsage
     })
     perfCollector.finish(input.thread.id)
@@ -2833,7 +2834,8 @@ export async function executeServerRun(
         deps.emit<RunCancelledEvent>({
           type: 'run.cancelled',
           threadId: input.thread.id,
-          runId: input.runId
+          runId: input.runId,
+          requestMessageId: input.requestMessageId
         })
         perfCollector.finish(input.thread.id)
 
@@ -2972,7 +2974,8 @@ export async function executeServerRun(
       deps.emit<RunCancelledEvent>({
         type: 'run.cancelled',
         threadId: input.thread.id,
-        runId: input.runId
+        runId: input.runId,
+        requestMessageId: input.requestMessageId
       })
       perfCollector.finish(input.thread.id)
 
@@ -3142,6 +3145,7 @@ export async function executeServerRun(
       type: 'run.failed',
       threadId: input.thread.id,
       runId: input.runId,
+      requestMessageId: input.requestMessageId,
       error: message
     })
     perfCollector.finish(input.thread.id)

@@ -254,6 +254,28 @@ function rebuildFtsTable(
   }
 }
 
+/**
+ * One-time repair: for completed runs whose assistantMessageId points to a
+ * message with a different parentMessageId than the run's requestMessageId,
+ * update the run to match. This fixes stale requestMessageIds from steered
+ * runs that were persisted before the fix was shipped.
+ */
+function repairRunRequestMessageIds(client: BetterSqlite3Client): void {
+  client
+    .prepare(
+      `UPDATE runs
+       SET request_message_id = (
+         SELECT m.parent_message_id FROM messages m WHERE m.id = runs.assistant_message_id
+       )
+       WHERE assistant_message_id IS NOT NULL
+         AND request_message_id IS NOT NULL
+         AND request_message_id != (
+           SELECT m2.parent_message_id FROM messages m2 WHERE m2.id = runs.assistant_message_id
+         )`
+    )
+    .run()
+}
+
 function ensureThreadSearchIndex(client: BetterSqlite3Client): void {
   client.exec(FTS_DDL)
 
@@ -287,6 +309,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
   const db = drizzle(client, { schema })
   migrate(db, { migrationsFolder: MIGRATIONS_DIR })
   ensureThreadSearchIndex(client)
+  repairRunRequestMessageIds(client)
   const backgroundResponseMessagesRepairQueue = createBackgroundResponseMessagesRepairQueue(dbPath)
 
   return {

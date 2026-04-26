@@ -1312,6 +1312,7 @@ interface ThreadEvent extends BaseEvent {
 
 interface RunEvent extends ThreadEvent {
   runId: string
+  requestMessageId?: string
 }
 
 export interface ThreadCreatedEvent extends ThreadEvent {
@@ -1347,12 +1348,10 @@ export interface ThreadDeletedEvent extends ThreadEvent {
 
 export interface RunCreatedEvent extends RunEvent {
   type: 'run.created'
-  requestMessageId?: string
 }
 
 export interface RunMemoryRecalledEvent extends RunEvent {
   type: 'run.memory.recalled'
-  requestMessageId?: string
   recalledMemoryEntries: string[]
   recallDecision?: RecallDecisionSnapshot
 }

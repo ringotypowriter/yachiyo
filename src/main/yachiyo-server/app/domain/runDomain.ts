@@ -2087,7 +2087,8 @@ export class YachiyoServerRunDomain {
             this.deps.emit<RunCancelledEvent>({
               type: 'run.cancelled',
               threadId: input.thread.id,
-              runId: input.runId
+              runId: input.runId,
+              requestMessageId: currentRequestMessageId
             })
             result = { kind: 'cancelled' }
             break
@@ -2113,6 +2114,7 @@ export class YachiyoServerRunDomain {
               type: 'run.completed',
               threadId: input.thread.id,
               runId: input.runId,
+              requestMessageId: currentRequestMessageId,
               recap: true
             })
             break
@@ -2147,7 +2149,8 @@ export class YachiyoServerRunDomain {
             this.deps.emit<RunCancelledEvent>({
               type: 'run.cancelled',
               threadId: input.thread.id,
-              runId: input.runId
+              runId: input.runId,
+              requestMessageId: currentRequestMessageId
             })
             result = { kind: 'cancelled' }
             break
@@ -2241,6 +2244,7 @@ export class YachiyoServerRunDomain {
             type: 'run.cancelled',
             threadId: input.thread.id,
             runId: input.runId,
+            requestMessageId: currentRequestMessageId,
             recap: true
           })
           break
@@ -2287,6 +2291,7 @@ export class YachiyoServerRunDomain {
           type: 'run.cancelled',
           threadId: input.thread.id,
           runId: input.runId,
+          requestMessageId: currentRequestMessageId,
           recap: true
         })
         result = { kind: 'failed' }
