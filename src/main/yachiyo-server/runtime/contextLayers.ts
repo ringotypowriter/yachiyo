@@ -69,7 +69,7 @@ export interface CompileContextLayersInput {
   anthropicCacheBreakpoints?: boolean
 }
 
-function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
+export function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
   return messages.filter((message) => {
     if (typeof message.content === 'string') {
       return message.content.trim().length > 0
@@ -77,6 +77,43 @@ function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
 
     return message.content.length > 0
   })
+}
+
+/** Merge compiled layer messages into a single system message. */
+export function joinSystemLayers(layers: (ModelMessage | null)[]): ModelMessage[] {
+  const parts = layers
+    .flatMap((m) => (m ? [m.content] : []))
+    .filter((p) => (typeof p === 'string' ? p.trim().length > 0 : p.length > 0))
+  return parts.length > 0 ? [{ role: 'system', content: parts.join('\n\n') }] : []
+}
+
+/**
+ * Append turn-context parts (hint + memory) to the last user message.
+ * If no user message exists, appends a standalone user message.
+ */
+export function injectTurnContext(
+  messages: ModelMessage[],
+  turnContextParts: string[]
+): ModelMessage[] {
+  if (turnContextParts.length === 0) return messages
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') {
+      const copy = [...messages]
+      copy[i] = appendTurnContextToUserMessage(copy[i], turnContextParts)
+      return copy
+    }
+  }
+  return [...messages, { role: 'user', content: turnContextParts.join('\n\n') }]
+}
+
+/** Turn hint + memory inputs into a flat string array for append. */
+export function turnContextPartsFromHintAndMemory(
+  hint?: HintLayerInput,
+  memory?: MemoryLayerInput
+): string[] {
+  return [compileHintLayer(hint), compileMemoryLayer(memory)].flatMap((m) =>
+    m ? [m.content as string] : []
+  )
 }
 
 function buildAttachedFilesBlock(
@@ -558,18 +595,13 @@ function applyAnthropicCacheBreakpoints(messages: ModelMessage[]): void {
 }
 
 export function compileContextLayers(input: CompileContextLayersInput): ModelMessage[] {
-  const systemParts = [
+  const systemPrefix = joinSystemLayers([
     compilePersonalityLayer(input.personality),
     compileSoulLayer(input.soul),
     compileUserLayer(input.user),
     compileSkillsLayer(input.skills),
     compileAgentLayer(input.agent)
-  ]
-    .flatMap((message) => (message ? [message.content as string] : []))
-    .filter((part) => part.trim().length > 0)
-
-  const systemLayers: ModelMessage[] =
-    systemParts.length > 0 ? [{ role: 'system', content: systemParts.join('\n\n') }] : []
+  ])
 
   const historyMessages = input.history.flatMap(toModelHistoryMessages)
 
@@ -577,34 +609,10 @@ export function compileContextLayers(input: CompileContextLayersInput): ModelMes
   // user's query remains the final user turn. This avoids injected context
   // becoming the "latest user message" that the model responds to, while
   // keeping the message array prefix stable for prompt caching.
-  const turnContextParts: string[] = [
-    compileHintLayer(input.hint),
-    compileMemoryLayer(input.memory)
-  ].flatMap((message) => (message ? [message.content as string] : []))
+  const turnContextParts = turnContextPartsFromHintAndMemory(input.hint, input.memory)
 
-  if (turnContextParts.length === 0) {
-    const result = removeEmptyMessages([...systemLayers, ...historyMessages])
-    if (input.anthropicCacheBreakpoints) applyAnthropicCacheBreakpoints(result)
-    return result
-  }
-
-  const result = [...historyMessages]
-  // Find the last user message and append turn context to it.
-  for (let i = result.length - 1; i >= 0; i--) {
-    if (result[i].role === 'user') {
-      result[i] = appendTurnContextToUserMessage(result[i], turnContextParts)
-      const final = removeEmptyMessages([...systemLayers, ...result])
-      if (input.anthropicCacheBreakpoints) applyAnthropicCacheBreakpoints(final)
-      return final
-    }
-  }
-
-  // No user message in history — create a standalone turn context message.
-  const final = removeEmptyMessages([
-    ...systemLayers,
-    ...result,
-    { role: 'user', content: turnContextParts.join('\n\n') }
-  ])
-  if (input.anthropicCacheBreakpoints) applyAnthropicCacheBreakpoints(final)
-  return final
+  const messages = [...systemPrefix, ...injectTurnContext(historyMessages, turnContextParts)]
+  const result = removeEmptyMessages(messages)
+  if (input.anthropicCacheBreakpoints) applyAnthropicCacheBreakpoints(result)
+  return result
 }

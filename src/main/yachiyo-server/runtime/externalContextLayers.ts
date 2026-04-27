@@ -12,9 +12,10 @@
 
 import type { ToolCallName } from '../../../shared/yachiyo/protocol.ts'
 import {
-  appendTurnContextToUserMessage,
-  compileHintLayer,
-  compileMemoryLayer,
+  injectTurnContext,
+  joinSystemLayers,
+  removeEmptyMessages,
+  turnContextPartsFromHintAndMemory,
   compilePersonalityLayer,
   compileSoulLayer,
   compileUserLayer,
@@ -148,15 +149,6 @@ export interface ExternalContextLayersInput {
   memory?: MemoryLayerInput
 }
 
-function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
-  return messages.filter((message) => {
-    if (typeof message.content === 'string') {
-      return message.content.trim().length > 0
-    }
-    return message.content.length > 0
-  })
-}
-
 /**
  * Compile context layers for an external channel conversation.
  *
@@ -179,35 +171,19 @@ function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
  */
 export function compileExternalContextLayers(input: ExternalContextLayersInput): ModelMessage[] {
   // --- Stable system prefix ---
-  // Consolidate personality, soul, user, execution contract, and channel instruction
-  // into a single system message to maximize cache hit rate.
-  const systemParts: string[] = []
-
-  const personalityMsg = compilePersonalityLayer(input.personality)
-  if (personalityMsg) {
-    systemParts.push(personalityMsg.content as string)
-  }
-
-  const soulMsg = compileSoulLayer(input.soul)
-  if (soulMsg) {
-    systemParts.push(soulMsg.content as string)
-  }
-
-  const userMsg = compileUserLayer(input.user)
-  if (userMsg) {
-    systemParts.push(userMsg.content as string)
-  }
-
-  if (input.executionContract.trim()) {
-    systemParts.push(input.executionContract.trim())
-  }
-
-  if (input.channelInstruction.trim()) {
-    systemParts.push(input.channelInstruction.trim())
-  }
-
-  const systemPrefix: ModelMessage[] =
-    systemParts.length > 0 ? [{ role: 'system', content: systemParts.join('\n\n') }] : []
+  // Personality + soul + user are standard layers; execution contract and
+  // channel instruction are plain strings wrapped as ModelMessage for joinSystemLayers.
+  const systemPrefix = joinSystemLayers([
+    compilePersonalityLayer(input.personality),
+    compileSoulLayer(input.soul),
+    compileUserLayer(input.user),
+    input.executionContract.trim()
+      ? { role: 'system' as const, content: input.executionContract.trim() }
+      : null,
+    input.channelInstruction.trim()
+      ? { role: 'system' as const, content: input.channelInstruction.trim() }
+      : null
+  ])
 
   // --- Rolling summary (stable between compactions) ---
   const summaryMessages: ModelMessage[] = input.rollingSummary?.trim()
@@ -227,29 +203,11 @@ export function compileExternalContextLayers(input: ExternalContextLayersInput):
   const historyMessages = input.history.flatMap(toModelHistoryMessages)
 
   // --- Per-turn context (hint + memory, merged into last user message) ---
-  // Merged so the user's query remains the final user turn. This avoids
-  // injected context becoming the "latest user message" the model responds to.
-  const turnContextParts: string[] = [
-    compileHintLayer(input.hint),
-    compileMemoryLayer(input.memory)
-  ].flatMap((message) => (message ? [message.content as string] : []))
-
-  if (turnContextParts.length === 0) {
-    return removeEmptyMessages([...systemPrefix, ...summaryMessages, ...historyMessages])
-  }
-
-  const result = [...historyMessages]
-  for (let i = result.length - 1; i >= 0; i--) {
-    if (result[i].role === 'user') {
-      result[i] = appendTurnContextToUserMessage(result[i], turnContextParts)
-      return removeEmptyMessages([...systemPrefix, ...summaryMessages, ...result])
-    }
-  }
+  const turnContextParts = turnContextPartsFromHintAndMemory(input.hint, input.memory)
 
   return removeEmptyMessages([
     ...systemPrefix,
     ...summaryMessages,
-    ...result,
-    { role: 'user', content: turnContextParts.join('\n\n') }
+    ...injectTurnContext(historyMessages, turnContextParts)
   ])
 }
