@@ -491,6 +491,25 @@ function splitPathDirectory(path: string): { directory: string; basename: string
   }
 }
 
+function getSharedPathPrefix(paths: string[]): string {
+  const firstSegments = paths[0]?.split('/') ?? []
+  let sharedLength = firstSegments.length
+
+  for (const path of paths.slice(1)) {
+    const segments = path.split('/')
+    sharedLength = Math.min(sharedLength, segments.length)
+
+    for (let index = 0; index < sharedLength; index++) {
+      if (segments[index] !== firstSegments[index]) {
+        sharedLength = index
+        break
+      }
+    }
+  }
+
+  return firstSegments.slice(0, sharedLength).join('/')
+}
+
 export function formatToolFilePathList(paths: string[], workspacePath?: string | null): string[] {
   const strippedPaths = paths.map((path) => stripWorkspacePath(path, workspacePath))
   if (strippedPaths.length <= 1) {
@@ -498,13 +517,16 @@ export function formatToolFilePathList(paths: string[], workspacePath?: string |
   }
 
   const pathParts = strippedPaths.map(splitPathDirectory)
-  const firstDirectory = pathParts[0]!.directory
-  const sameDirectory = pathParts.every((part) => part.directory === firstDirectory)
-  if (!sameDirectory) {
+  if (pathParts.some((part) => !part.directory)) {
     return strippedPaths.map((path) => compressPath(path))
   }
 
-  return pathParts.map((part, index) =>
-    index === 0 ? compressPath(strippedPaths[index]!) : part.basename
-  )
+  const sharedPrefix = getSharedPathPrefix(pathParts.map((part) => part.directory))
+  if (sharedPrefix) {
+    return strippedPaths.map((path, index) =>
+      index === 0 ? compressPath(path) : compressPath(path.slice(sharedPrefix.length + 1))
+    )
+  }
+
+  return strippedPaths.map((path) => compressPath(path))
 }

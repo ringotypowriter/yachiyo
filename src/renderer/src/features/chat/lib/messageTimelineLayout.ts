@@ -244,6 +244,17 @@ export function getToolCallGroupLabel(
   count: number,
   done?: boolean
 ): string {
+  if (count === 0) {
+    switch (group) {
+      case 'read-files':
+        return done ? 'Read files' : 'Reading files'
+      case 'edit-files':
+        return done ? 'Edited files' : 'Editing files'
+      case 'write-files':
+        return done ? 'Wrote files' : 'Writing files'
+    }
+  }
+
   const labels = TOOL_CALL_GROUP_LABELS[group]
   if (done) {
     return count === 1 ? labels.doneSingular : labels.donePlural.replace('%n', String(count))

@@ -415,29 +415,23 @@ test('compressPath result is never longer than original', () => {
 
 test('stripWorkspacePath returns relative paths inside the active workspace', () => {
   assert.equal(
-    stripWorkspacePath(
-      '/Users/ringotypowriter/project/src/file.ts',
-      '/Users/ringotypowriter/project'
-    ),
+    stripWorkspacePath('/workspace/project/src/file.ts', '/workspace/project'),
     'src/file.ts'
   )
 })
 
 test('stripWorkspacePath does not strip sibling absolute paths', () => {
   assert.equal(
-    stripWorkspacePath(
-      '/Users/ringotypowriter/project-other/src/file.ts',
-      '/Users/ringotypowriter/project'
-    ),
-    '/Users/ringotypowriter/project-other/src/file.ts'
+    stripWorkspacePath('/workspace/project-other/src/file.ts', '/workspace/project'),
+    '/workspace/project-other/src/file.ts'
   )
 })
 
 test('formatToolFilePath strips workspace before compressing', () => {
   assert.equal(
     formatToolFilePath(
-      '/Users/ringotypowriter/project/src/renderer/src/features/chat/components/ToolCallRow.tsx',
-      '/Users/ringotypowriter/project'
+      '/workspace/project/src/renderer/src/features/chat/components/ToolCallRow.tsx',
+      '/workspace/project'
     ),
     'src/renderer/src/f/chat/c/ToolCallRow.tsx'
   )
@@ -446,8 +440,32 @@ test('formatToolFilePath strips workspace before compressing', () => {
 test('formatToolFilePathList keeps the shared directory only on the first path', () => {
   assert.deepEqual(
     formatToolFilePathList(
-      ['/Users/ringotypowriter/project/src/a.ts', '/Users/ringotypowriter/project/src/b.ts'],
-      '/Users/ringotypowriter/project'
+      ['/workspace/project/src/a.ts', '/workspace/project/src/b.ts'],
+      '/workspace/project'
+    ),
+    ['src/a.ts', 'b.ts']
+  )
+})
+
+test('formatToolFilePathList keeps a shared parent prefix only on the first path', () => {
+  assert.deepEqual(
+    formatToolFilePathList(
+      [
+        '/workspace/project/uncertainty-agent/src/agents/prompts.ts',
+        '/workspace/project/uncertainty-agent/src/agents/stage-configs.ts',
+        '/workspace/project/uncertainty-agent/src/pipeline.ts'
+      ],
+      '/workspace/project'
+    ),
+    ['uncertainty-agent/src/agents/prompts.ts', 'agents/stage-configs.ts', 'pipeline.ts']
+  )
+})
+
+test('formatToolFilePathList preserves root-level paths mixed with nested paths', () => {
+  assert.deepEqual(
+    formatToolFilePathList(
+      ['/workspace/project/src/a.ts', '/workspace/project/b.ts'],
+      '/workspace/project'
     ),
     ['src/a.ts', 'b.ts']
   )
@@ -456,8 +474,8 @@ test('formatToolFilePathList keeps the shared directory only on the first path',
 test('formatToolFilePathList keeps distinct directories when paths differ', () => {
   assert.deepEqual(
     formatToolFilePathList(
-      ['/Users/ringotypowriter/project/src/a.ts', '/Users/ringotypowriter/project/test/b.ts'],
-      '/Users/ringotypowriter/project'
+      ['/workspace/project/src/a.ts', '/workspace/project/test/b.ts'],
+      '/workspace/project'
     ),
     ['src/a.ts', 'test/b.ts']
   )

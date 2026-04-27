@@ -1120,6 +1120,12 @@ test('getToolCallGroupCount ignores preparing file tool placeholders', () => {
   assert.deepEqual(getToolCallGroupFilePaths('edit-files', toolCalls), ['/workspace/src/file.ts'])
 })
 
+test('getToolCallGroupLabel omits zero counts for file groups without confirmed targets', () => {
+  assert.equal(getToolCallGroupLabel('read-files', 0), 'Reading files')
+  assert.equal(getToolCallGroupLabel('edit-files', 0), 'Editing files')
+  assert.equal(getToolCallGroupLabel('write-files', 0), 'Writing files')
+})
+
 test('getToolCallGroupFilePaths returns up to five file targets in a file group', () => {
   assert.deepEqual(
     getToolCallGroupFilePaths('edit-files', [
