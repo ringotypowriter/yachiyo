@@ -55,7 +55,7 @@ export function ToolCallGroupRow({
     <div className="py-0.5" style={{ fontSize: '11px' }}>
       <button
         type="button"
-        className="flex w-full items-center gap-1.5 rounded-sm text-left"
+        className="flex w-full items-start gap-1.5 rounded-sm text-left"
         aria-expanded={isExpanded}
         aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${label}`}
         onClick={() => setIsExpanded((current) => !current)}
@@ -71,15 +71,17 @@ export function ToolCallGroupRow({
         }}
       >
         <span
-          className="w-1.5 h-1.5 rounded-full shrink-0"
+          className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full"
           style={{
             background: dotColor,
             animation: !allDone ? 'yachiyo-preparing-pulse 1.2s ease-in-out infinite' : undefined
           }}
         />
-        <span>{label}</span>
+        <span className="min-w-0 flex-1 leading-snug" style={{ overflowWrap: 'anywhere' }}>
+          {label}
+        </span>
         <span
-          className="inline-flex shrink-0"
+          className="mt-0.5 inline-flex shrink-0"
           style={{
             color: theme.text.placeholder,
             transition: 'transform 0.15s ease'
