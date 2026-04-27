@@ -67,7 +67,6 @@ import { createTool as createReadTool } from '../tools/agentTools/readTool.ts'
 import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool.ts'
 import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool.ts'
 import { createTool as createUpdateProfileTool } from '../tools/agentTools/updateProfileTool.ts'
-import { notifyAutoCompact } from './autoCompactNotice.ts'
 import {
   compileGroupProbeContextLayers,
   requiresAssistantReasoningForGroupProbeReplay
@@ -153,21 +152,20 @@ export function createQQService({
     await client.sendPrivateMessage(userId, text)
   }
 
-  async function resolveThread(
-    channelUser: ChannelUserRecord
-  ): Promise<{ thread: ThreadRecord; compacted: boolean }> {
+  async function resolveThread(channelUser: ChannelUserRecord): Promise<{ thread: ThreadRecord }> {
     return resolveDirectMessageThread({
       logLabel: 'qq',
       server,
       channelUser,
       policy,
       modelOverride,
-      createThread: async (): Promise<ThreadRecord> =>
+      createThread: async (input): Promise<ThreadRecord> =>
         server.createThread({
           workspacePath: channelUser.workspacePath,
           source: 'qq',
           channelUserId: channelUser.id,
-          title: `QQ:${channelUser.username}`
+          title: `QQ:${channelUser.username}`,
+          ...(input?.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {})
         })
     })
   }
@@ -185,7 +183,6 @@ export function createQQService({
       sendTyping(qqUserId)
       return () => stopTyping(qqUserId)
     },
-    onCompacted: (qqUserId) => notifyAutoCompact(sendPrivateMessage, qqUserId),
     nonRunReply: '抱歉，出了点问题。',
     errorReply: '出了点问题，请稍后再试。',
     shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
@@ -524,7 +521,6 @@ export function createQQService({
       server,
       group,
       groupThreadReuseWindowMs: policy.groupDefaults.groupThreadReuseWindowMs,
-      contextTokenLimit: policy.groupContextTokenLimit,
       modelOverride: groupConfig?.model
     })
     const messages = compileGroupProbeContextLayers({

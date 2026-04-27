@@ -23,7 +23,6 @@ import { createDirectMessageService, resolveDirectMessageThread } from './direct
 import { handleDmSlashCommand, shouldDiscardPendingBatchForDmCommand } from './dmSlashCommands.ts'
 import { createQQBotClient, type QQBotClient } from './qqbotClient.ts'
 import { routeQQBotMessage, type QQBotChannelStorage } from './qqbot.ts'
-import { notifyAutoCompact } from './autoCompactNotice.ts'
 
 export interface QQBotServiceOptions {
   /** QQ Official Bot appId. */
@@ -106,21 +105,20 @@ export function createQQBotService({
     await client.sendC2CMessage(openId, text, replyMsgId)
   }
 
-  async function resolveThread(
-    channelUser: ChannelUserRecord
-  ): Promise<{ thread: ThreadRecord; compacted: boolean }> {
+  async function resolveThread(channelUser: ChannelUserRecord): Promise<{ thread: ThreadRecord }> {
     return resolveDirectMessageThread({
       logLabel: 'qqbot',
       server,
       channelUser,
       policy,
       modelOverride,
-      createThread: async (): Promise<ThreadRecord> =>
+      createThread: async (input): Promise<ThreadRecord> =>
         server.createThread({
           workspacePath: channelUser.workspacePath,
           source: 'qqbot',
           channelUserId: channelUser.id,
-          title: `QQBot:${channelUser.username}`
+          title: `QQBot:${channelUser.username}`,
+          ...(input?.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {})
         })
     })
   }
@@ -152,7 +150,6 @@ export function createQQBotService({
       }, 10_000)
       return () => clearInterval(timer)
     },
-    onCompacted: (target) => notifyAutoCompact(sendMessageWithTarget, target),
     nonRunReply: '抱歉，出了点问题。',
     errorReply: '出了点问题，请稍后再试。',
     shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,

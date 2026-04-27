@@ -62,7 +62,6 @@ import { createTool as createReadTool } from '../tools/agentTools/readTool'
 import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool'
 import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool'
 import { createTool as createUpdateProfileTool } from '../tools/agentTools/updateProfileTool'
-import { notifyAutoCompact } from './autoCompactNotice'
 import {
   compileGroupProbeContextLayers,
   requiresAssistantReasoningForGroupProbeReplay
@@ -158,21 +157,20 @@ export function createTelegramService({
     return join(resolveYachiyoTempWorkspaceRoot(), `tg-${username}`)
   }
 
-  async function resolveThread(
-    channelUser: ChannelUserRecord
-  ): Promise<{ thread: ThreadRecord; compacted: boolean }> {
+  async function resolveThread(channelUser: ChannelUserRecord): Promise<{ thread: ThreadRecord }> {
     return resolveDirectMessageThread({
       logLabel: 'telegram',
       server,
       channelUser,
       policy,
       modelOverride,
-      createThread: async (): Promise<ThreadRecord> =>
+      createThread: async (input): Promise<ThreadRecord> =>
         server.createThread({
           workspacePath: resolveUserWorkspace(channelUser.username),
           source: 'telegram',
           channelUserId: channelUser.id,
-          title: `Telegram:@${channelUser.username}`
+          title: `Telegram:@${channelUser.username}`,
+          ...(input?.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {})
         })
     })
   }
@@ -185,7 +183,6 @@ export function createTelegramService({
     sendMessage,
     startBatchIndicator: startTypingLoop,
     startHandlingIndicator: startTypingLoop,
-    onCompacted: (chatId) => notifyAutoCompact(sendMessage, chatId),
     nonRunReply: 'Sorry, something went wrong on my end.',
     errorReply: 'Something went wrong. Please try again in a moment.',
     shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
@@ -610,7 +607,6 @@ export function createTelegramService({
       server,
       group,
       groupThreadReuseWindowMs: policy.groupDefaults.groupThreadReuseWindowMs,
-      contextTokenLimit: policy.groupContextTokenLimit,
       modelOverride: groupConfig?.model
     })
     const messages = compileGroupProbeContextLayers({

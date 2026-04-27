@@ -46,29 +46,28 @@ export interface DirectMessageServer {
     threadId: string
     modelOverride: ThreadModelOverride | null
   }): Promise<ThreadRecord>
-  compactExternalThread(input: { threadId: string }): Promise<{ thread: ThreadRecord }>
   cancelRunForThread(threadId: string): boolean
   cancelRunForChannelUser(channelUserId: string): boolean
 }
 
 export interface DirectMessageThreadResolution {
   thread: ThreadRecord
-  compacted: boolean
+}
+
+export interface DirectMessageCreateThreadInput {
+  handoffFromThreadId?: string
 }
 
 export interface ResolveDirectMessageThreadOptions {
   logLabel: string
   server: Pick<
     DirectMessageServer,
-    | 'findActiveChannelThread'
-    | 'setThreadModelOverride'
-    | 'getThreadTotalTokens'
-    | 'compactExternalThread'
+    'findActiveChannelThread' | 'setThreadModelOverride' | 'getThreadTotalTokens'
   >
   channelUser: ChannelUserRecord
-  policy: Pick<ChannelPolicy, 'threadReuseWindowMs' | 'contextTokenLimit'>
+  policy: Pick<ChannelPolicy, 'contextTokenLimit' | 'threadReuseWindowMs'>
   modelOverride?: ThreadModelOverride
-  createThread: () => Promise<ThreadRecord>
+  createThread: (input?: DirectMessageCreateThreadInput) => Promise<ThreadRecord>
 }
 
 export async function resolveDirectMessageThread(
@@ -77,6 +76,19 @@ export async function resolveDirectMessageThread(
   const { logLabel, server, channelUser, policy, modelOverride, createThread } = options
   const existing = server.findActiveChannelThread(channelUser.id, policy.threadReuseWindowMs)
   const wantedOverride = toWantedModelOverride(modelOverride)
+
+  const createResolvedThread = async (
+    input?: DirectMessageCreateThreadInput
+  ): Promise<ThreadRecord> => {
+    let thread = await createThread(input)
+    if (wantedOverride) {
+      thread = await server.setThreadModelOverride({
+        threadId: thread.id,
+        modelOverride: wantedOverride
+      })
+    }
+    return thread
+  }
 
   if (existing) {
     let thread = existing
@@ -98,28 +110,21 @@ export async function resolveDirectMessageThread(
 
     const totalTokens = server.getThreadTotalTokens(thread.id)
     console.log(`[${logLabel}] existing thread ${thread.id} — ${totalTokens} tokens`)
-
-    if (totalTokens < policy.contextTokenLimit) {
-      return { thread, compacted: false }
+    if (policy.contextTokenLimit > 0 && totalTokens >= policy.contextTokenLimit) {
+      console.log(
+        `[${logLabel}] thread ${thread.id} reached ${totalTokens}/${policy.contextTokenLimit} tokens; creating handoff thread`
+      )
+      return {
+        thread: await createResolvedThread({
+          handoffFromThreadId: thread.id
+        })
+      }
     }
 
-    console.log(
-      `[${logLabel}] thread ${thread.id} exceeded ${policy.contextTokenLimit} tokens, generating rolling summary`
-    )
-    const { thread: compactedThread } = await server.compactExternalThread({
-      threadId: existing.id
-    })
-    return { thread: compactedThread, compacted: true }
+    return { thread }
   }
 
-  let thread = await createThread()
-  if (wantedOverride) {
-    thread = await server.setThreadModelOverride({
-      threadId: thread.id,
-      modelOverride: wantedOverride
-    })
-  }
-  return { thread, compacted: false }
+  return { thread: await createResolvedThread() }
 }
 
 export interface DirectMessageServiceOptions<TTarget> {
@@ -130,7 +135,6 @@ export interface DirectMessageServiceOptions<TTarget> {
   sendMessage(target: TTarget, text: string): Promise<void>
   startBatchIndicator?(target: TTarget): void | (() => void)
   startHandlingIndicator?(target: TTarget): void | (() => void)
-  onCompacted?(target: TTarget): Promise<void>
   replyDelayMs?(): number
   nonRunReply: string
   errorReply: string
@@ -262,14 +266,8 @@ export function createDirectMessageService<TTarget>(
         `[${options.logLabel}] handling allowed message for user ${channelUser.username} (${images.length} image(s))`
       )
 
-      const { thread, compacted } = await options.resolveThread(channelUser)
-      console.log(
-        `[${options.logLabel}] using thread ${thread.id}${compacted ? ' (rolling summary generated)' : ''}`
-      )
-
-      if (compacted) {
-        await options.onCompacted?.(target)
-      }
+      const { thread } = await options.resolveThread(channelUser)
+      console.log(`[${options.logLabel}] using thread ${thread.id}`)
 
       if (stopController.signal.aborted) {
         console.log(`[${options.logLabel}] aborted before sendChat for ${channelUser.username}`)

@@ -16,8 +16,8 @@ import type {
 import { telegramPolicy } from './channelPolicy.ts'
 import {
   createDirectMessageService,
-  type DirectMessageServer,
-  resolveDirectMessageThread
+  resolveDirectMessageThread,
+  type DirectMessageServer
 } from './directMessageService.ts'
 import { handleDmSlashCommand, shouldDiscardPendingBatchForDmCommand } from './dmSlashCommands.ts'
 
@@ -57,61 +57,44 @@ function createUserMessage(threadId: string): MessageRecord {
 }
 
 describe('resolveDirectMessageThread', () => {
-  it('reconciles the model override and compacts oversized reused threads', async () => {
+  it('creates a fresh handoff thread when the active DM reaches the token threshold', async () => {
     const existing = createThread('thread-existing', {
-      modelOverride: { providerName: 'old', model: 'old-model' },
       source: 'telegram',
       channelUserId: 'tg-user-1'
     })
-    const compacted = createThread('thread-existing', {
-      modelOverride: { providerName: 'new', model: 'new-model' },
-      rollingSummary: 'summary'
+    const fresh = createThread('thread-fresh', {
+      source: 'telegram',
+      channelUserId: 'tg-user-1',
+      handoffFromThreadId: existing.id
     })
-    const modelOverride: ThreadModelOverride = { providerName: 'new', model: 'new-model' }
-    const calls: string[] = []
-
-    const server = {
-      findActiveChannelThread(channelUserId: string, maxAgeMs: number): ThreadRecord | undefined {
-        assert.equal(channelUserId, 'tg-user-1')
-        assert.equal(maxAgeMs, telegramPolicy.threadReuseWindowMs)
-        return existing
-      },
-      async setThreadModelOverride(input: {
-        threadId: string
-        modelOverride: ThreadModelOverride | null
-      }): Promise<ThreadRecord> {
-        calls.push(`override:${input.threadId}`)
-        assert.deepEqual(input.modelOverride, modelOverride)
-        return createThread(existing.id, { modelOverride })
-      },
-      getThreadTotalTokens(threadId: string): number {
-        calls.push(`tokens:${threadId}`)
-        return telegramPolicy.contextTokenLimit + 1
-      },
-      async compactExternalThread(input: { threadId: string }): Promise<{ thread: ThreadRecord }> {
-        calls.push(`compact:${input.threadId}`)
-        return { thread: compacted }
-      }
-    }
+    const createCalls: Array<{ handoffFromThreadId?: string } | undefined> = []
 
     const result = await resolveDirectMessageThread({
       logLabel: 'telegram',
-      server,
+      server: {
+        findActiveChannelThread(channelUserId, maxAgeMs) {
+          assert.equal(channelUserId, 'tg-user-1')
+          assert.equal(maxAgeMs, telegramPolicy.threadReuseWindowMs)
+          return existing
+        },
+        getThreadTotalTokens(threadId) {
+          assert.equal(threadId, existing.id)
+          return telegramPolicy.contextTokenLimit
+        },
+        async setThreadModelOverride() {
+          throw new Error('setThreadModelOverride should not be called')
+        }
+      },
       channelUser: createChannelUser(),
       policy: telegramPolicy,
-      modelOverride,
-      createThread: async () => {
-        throw new Error('should not create a new thread')
+      createThread: async (input) => {
+        createCalls.push(input)
+        return fresh
       }
     })
 
-    assert.equal(result.compacted, true)
-    assert.equal(result.thread, compacted)
-    assert.deepEqual(calls, [
-      'override:thread-existing',
-      'tokens:thread-existing',
-      'compact:thread-existing'
-    ])
+    assert.equal(result.thread, fresh)
+    assert.deepEqual(createCalls, [{ handoffFromThreadId: existing.id }])
   })
 })
 
@@ -188,10 +171,6 @@ describe('createDirectMessageService', () => {
       }): Promise<ThreadRecord> {
         assert.fail(`setThreadModelOverride should not be called for ${input.threadId}`)
       },
-      async compactExternalThread(input: { threadId: string }): Promise<{ thread: ThreadRecord }> {
-        assert.fail(`compactExternalThread should not be called for ${input.threadId}`)
-        throw new Error('setThreadModelOverride should not be called')
-      },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
 
@@ -218,7 +197,7 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 0,
-      resolveThread: async () => ({ thread, compacted: false }),
+      resolveThread: async () => ({ thread }),
       sendMessage: async (_chatId: string, text: string) => {
         sentMessages.push(text)
       },
@@ -258,9 +237,6 @@ describe('createDirectMessageService', () => {
       async setThreadModelOverride() {
         throw new Error('should not be called')
       },
-      async compactExternalThread() {
-        throw new Error('should not be called')
-      },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
 
@@ -274,7 +250,7 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 0,
-      resolveThread: async () => ({ thread: createThread('t1'), compacted: false }),
+      resolveThread: async () => ({ thread: createThread('t1') }),
       sendMessage: async () => {},
       nonRunReply: 'non-run',
       errorReply: 'error',
@@ -329,9 +305,6 @@ describe('createDirectMessageService', () => {
       async setThreadModelOverride() {
         throw new Error('should not be called')
       },
-      async compactExternalThread() {
-        throw new Error('should not be called')
-      },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
 
@@ -345,7 +318,7 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 0,
-      resolveThread: async () => ({ thread, compacted: false }),
+      resolveThread: async () => ({ thread }),
       sendMessage: async () => {},
       nonRunReply: 'non-run',
       errorReply: 'error',
@@ -397,9 +370,6 @@ describe('createDirectMessageService', () => {
       async setThreadModelOverride() {
         throw new Error('should not be called')
       },
-      async compactExternalThread() {
-        throw new Error('should not be called')
-      },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
 
@@ -413,7 +383,7 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 0,
-      resolveThread: async () => ({ thread, compacted: false }),
+      resolveThread: async () => ({ thread }),
       sendMessage: async () => {},
       nonRunReply: 'non-run',
       errorReply: 'error',
@@ -472,9 +442,6 @@ describe('createDirectMessageService', () => {
       async setThreadModelOverride() {
         throw new Error('should not be called')
       },
-      async compactExternalThread() {
-        throw new Error('should not be called')
-      },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
 
@@ -489,11 +456,11 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 50,
-      resolveThread: async () => ({ thread, compacted: false }),
+      resolveThread: async () => ({ thread }),
       sendMessage: async () => {},
       nonRunReply: 'non-run',
       errorReply: 'error',
-      shouldDiscardPendingBatch: (command) => command === '/new' || command === '/compact',
+      shouldDiscardPendingBatch: (command) => command === '/new',
       handleSlashCommand: async () => {
         commandHandled = true
         return true
@@ -546,9 +513,6 @@ describe('createDirectMessageService', () => {
       async setThreadModelOverride() {
         throw new Error('should not be called')
       },
-      async compactExternalThread() {
-        throw new Error('should not be called')
-      },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
 
@@ -563,11 +527,11 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 50,
-      resolveThread: async () => ({ thread, compacted: false }),
+      resolveThread: async () => ({ thread }),
       sendMessage: async () => {},
       nonRunReply: 'non-run',
       errorReply: 'error',
-      shouldDiscardPendingBatch: (command) => command === '/new' || command === '/compact',
+      shouldDiscardPendingBatch: (command) => command === '/new',
       handleSlashCommand: async () => {
         commandHandled = true
         return true
@@ -601,9 +565,6 @@ describe('createDirectMessageService', () => {
       async setThreadModelOverride() {
         throw new Error('should not be called')
       },
-      async compactExternalThread() {
-        throw new Error('should not be called')
-      },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
 
@@ -617,7 +578,7 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 0,
-      resolveThread: async () => ({ thread: createThread('t1'), compacted: false }),
+      resolveThread: async () => ({ thread: createThread('t1') }),
       sendMessage: async (_target, text) => {
         sentMessages.push(text)
       },
@@ -628,7 +589,7 @@ describe('createDirectMessageService', () => {
       }
     })
 
-    directMessages.enqueueMessage('chat-1', channelUser, '/compact')
+    directMessages.enqueueMessage('chat-1', channelUser, '/help')
 
     await delay(20)
 
@@ -671,9 +632,6 @@ describe('createDirectMessageService', () => {
       async setThreadModelOverride() {
         throw new Error('should not be called')
       },
-      async compactExternalThread() {
-        throw new Error('should not be called')
-      },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
@@ -688,7 +646,7 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 0,
-      resolveThread: async () => ({ thread, compacted: false }),
+      resolveThread: async () => ({ thread }),
       sendMessage: async () => {},
       nonRunReply: 'non-run',
       errorReply: 'error'
@@ -727,9 +685,6 @@ describe('createDirectMessageService', () => {
       async setThreadModelOverride() {
         throw new Error('should not be called')
       },
-      async compactExternalThread() {
-        throw new Error('should not be called')
-      },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
@@ -744,7 +699,7 @@ describe('createDirectMessageService', () => {
       replyDelayMs: () => 0,
       resolveThread: () =>
         new Promise((resolve) => {
-          resolveThreadGate = () => resolve({ thread, compacted: false })
+          resolveThreadGate = () => resolve({ thread })
         }),
       sendMessage: async () => {},
       nonRunReply: 'non-run',
@@ -804,9 +759,6 @@ describe('createDirectMessageService', () => {
       async setThreadModelOverride() {
         throw new Error('should not be called')
       },
-      async compactExternalThread() {
-        throw new Error('should not be called')
-      },
       cancelRunForThread: () => true,
       cancelRunForChannelUser: (userId) => {
         if (userId === channelUser.id) cancelRunForChannelUserCalled = true
@@ -822,7 +774,7 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 0,
-      resolveThread: async () => ({ thread, compacted: false }),
+      resolveThread: async () => ({ thread }),
       sendMessage: async () => {},
       nonRunReply: 'non-run',
       errorReply: 'error',

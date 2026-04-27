@@ -62,7 +62,6 @@ import { createTool as createReadTool } from '../tools/agentTools/readTool.ts'
 import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool.ts'
 import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool.ts'
 import { createTool as createUpdateProfileTool } from '../tools/agentTools/updateProfileTool.ts'
-import { notifyAutoCompact } from './autoCompactNotice.ts'
 import {
   compileGroupProbeContextLayers,
   requiresAssistantReasoningForGroupProbeReplay
@@ -197,21 +196,20 @@ export function createDiscordService({
     return join(resolveYachiyoTempWorkspaceRoot(), `dc-${username}`)
   }
 
-  async function resolveThread(
-    channelUser: ChannelUserRecord
-  ): Promise<{ thread: ThreadRecord; compacted: boolean }> {
+  async function resolveThread(channelUser: ChannelUserRecord): Promise<{ thread: ThreadRecord }> {
     return resolveDirectMessageThread({
       logLabel: 'discord',
       server,
       channelUser,
       policy,
       modelOverride,
-      createThread: async (): Promise<ThreadRecord> =>
+      createThread: async (input): Promise<ThreadRecord> =>
         server.createThread({
           workspacePath: resolveUserWorkspace(channelUser.username),
           source: 'discord',
           channelUserId: channelUser.id,
-          title: `Discord:@${channelUser.username}`
+          title: `Discord:@${channelUser.username}`,
+          ...(input?.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {})
         })
     })
   }
@@ -224,7 +222,6 @@ export function createDiscordService({
     sendMessage,
     startBatchIndicator: startTypingLoop,
     startHandlingIndicator: startTypingLoop,
-    onCompacted: (channelId) => notifyAutoCompact(sendMessage, channelId),
     nonRunReply: 'Sorry, something went wrong on my end.',
     errorReply: 'Something went wrong. Please try again in a moment.',
     shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
@@ -585,7 +582,6 @@ export function createDiscordService({
       server,
       group,
       groupThreadReuseWindowMs: policy.groupDefaults.groupThreadReuseWindowMs,
-      contextTokenLimit: policy.groupContextTokenLimit,
       modelOverride: groupConfig?.model
     })
     const messages = compileGroupProbeContextLayers({
