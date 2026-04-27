@@ -123,6 +123,9 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   ): void => {
     storedThread.branchFromThreadId = nextThread.branchFromThreadId ?? null
     storedThread.branchFromMessageId = nextThread.branchFromMessageId ?? null
+    storedThread.source = nextThread.source ?? null
+    storedThread.channelUserId = nextThread.channelUserId ?? null
+    storedThread.channelGroupId = nextThread.channelGroupId ?? null
     storedThread.handoffFromThreadId = nextThread.handoffFromThreadId ?? null
     storedThread.folderId = nextThread.folderId ?? null
     storedThread.headMessageId = nextThread.headMessageId ?? null
@@ -567,6 +570,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         ? JSON.stringify(updatedThread.queuedFollowUpEnabledTools)
         : null
       storedThread.queuedFollowUpMessageId = updatedThread.queuedFollowUpMessageId ?? null
+      storedThread.recapText = updatedThread.recapText ?? null
       if (userMessage) {
         messages.push(userMessage)
       }

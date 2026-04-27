@@ -1422,6 +1422,13 @@ describe('createDirectMessageService', () => {
               ...server,
               getConfig: async () => ({ providers: [], workspace: { savedPaths: [] } }),
               hasActiveThread: () => false,
+              listOwnerDmTakeoverThreads: () => [],
+              takeOverThreadForChannelUser: async () => {
+                throw new Error('takeOverThreadForChannelUser should not be called')
+              },
+              buildThreadTakeoverContext: () => {
+                throw new Error('buildThreadTakeoverContext should not be called')
+              },
               getThreadWorkspaceChangeBlocker: () => null,
               updateThreadWorkspace: async () => {
                 throw new Error('updateThreadWorkspace should not be called')
@@ -1504,6 +1511,13 @@ describe('createDirectMessageService', () => {
               ...server,
               getConfig: async () => ({ providers: [], workspace: { savedPaths: [] } }),
               hasActiveThread: () => false,
+              listOwnerDmTakeoverThreads: () => [],
+              takeOverThreadForChannelUser: async () => {
+                throw new Error('takeOverThreadForChannelUser should not be called')
+              },
+              buildThreadTakeoverContext: () => {
+                throw new Error('buildThreadTakeoverContext should not be called')
+              },
               getThreadWorkspaceChangeBlocker: () => null,
               updateThreadWorkspace: async () => {
                 throw new Error('updateThreadWorkspace should not be called')

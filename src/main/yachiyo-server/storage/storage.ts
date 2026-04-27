@@ -502,6 +502,7 @@ export function toThreadRecord(
     ...(source ? { source } : {}),
     ...(row.channelUserId === null ? {} : { channelUserId: row.channelUserId }),
     ...(row.channelUserRole == null ? {} : { channelUserRole: row.channelUserRole }),
+    ...(row.channelGroupId === null ? {} : { channelGroupId: row.channelGroupId }),
     ...(row.rollingSummary === null ? {} : { rollingSummary: row.rollingSummary }),
     ...(row.summaryWatermarkMessageId === null
       ? {}

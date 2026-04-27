@@ -7224,6 +7224,202 @@ test('YachiyoServer gives owner DM threads the same turn budget as local threads
   })
 })
 
+test('YachiyoServer lists only owner-visible threads for owner DM takeover', async () => {
+  await withServer(async ({ server }) => {
+    const owner = server.createChannelUser({
+      id: 'tg-owner-1',
+      platform: 'telegram',
+      externalUserId: '123',
+      username: 'owner',
+      label: '',
+      status: 'allowed',
+      role: 'owner',
+      usageLimitKTokens: null,
+      workspacePath: '/tmp/tg-owner'
+    })
+    const guest = server.createChannelUser({
+      id: 'tg-guest-1',
+      platform: 'telegram',
+      externalUserId: '456',
+      username: 'guest',
+      label: '',
+      status: 'allowed',
+      role: 'guest',
+      usageLimitKTokens: null,
+      workspacePath: '/tmp/tg-guest'
+    })
+
+    let localThread = await server.createThread({ title: 'Local work' })
+    localThread = await server.setThreadIcon({ threadId: localThread.id, icon: '🛠️' })
+    const ownerDmThread = await server.createThread({
+      source: 'telegram',
+      channelUserId: owner.id,
+      title: 'Owner DM'
+    })
+    const guestDmThread = await server.createThread({
+      source: 'telegram',
+      channelUserId: guest.id,
+      title: 'Guest DM'
+    })
+    const groupThread = await server.createThread({
+      source: 'telegram',
+      channelGroupId: 'telegram-group-1',
+      title: 'Group'
+    })
+
+    const candidates = server.listOwnerDmTakeoverThreads({
+      channelUserId: owner.id,
+      limit: 10
+    })
+    const candidateIds = candidates.map((thread) => thread.id)
+
+    assert.ok(candidateIds.includes(localThread.id))
+    assert.ok(candidateIds.includes(ownerDmThread.id))
+    assert.equal(candidateIds.includes(guestDmThread.id), false)
+    assert.equal(candidateIds.includes(groupThread.id), false)
+  })
+})
+
+test('YachiyoServer takes over a local thread for the owner DM channel', async () => {
+  await withServer(async ({ server }) => {
+    const owner = server.createChannelUser({
+      id: 'tg-owner-1',
+      platform: 'telegram',
+      externalUserId: '123',
+      username: 'owner',
+      label: '',
+      status: 'allowed',
+      role: 'owner',
+      usageLimitKTokens: null,
+      workspacePath: '/tmp/tg-owner'
+    })
+    let thread = await server.createThread({ title: 'Fix DM reply ordering' })
+    thread = await server.setThreadIcon({ threadId: thread.id, icon: '🛠️' })
+
+    const updated = await server.takeOverThreadForChannelUser({
+      threadId: thread.id,
+      channelUser: owner
+    })
+    const active = server.findActiveChannelThread(owner.id, 60_000)
+
+    assert.equal(updated.id, thread.id)
+    assert.equal(updated.source, 'telegram')
+    assert.equal(updated.channelUserId, owner.id)
+    assert.equal(updated.channelUserRole, 'owner')
+    assert.equal(active?.id, thread.id)
+  })
+})
+
+test('YachiyoServer clears stale recap text when an external channel run starts', async () => {
+  await withServer(async ({ server, storage }) => {
+    const owner = server.createChannelUser({
+      id: 'tg-owner-1',
+      platform: 'telegram',
+      externalUserId: '123',
+      username: 'owner',
+      label: '',
+      status: 'allowed',
+      role: 'owner',
+      usageLimitKTokens: null,
+      workspacePath: '/tmp/tg-owner'
+    })
+    const thread = await server.createThread({
+      source: 'telegram',
+      channelUserId: owner.id,
+      title: 'Owner DM'
+    })
+    storage.updateThread({
+      ...thread,
+      recapText: 'Old recap that should disappear when the owner replies from IM.'
+    })
+
+    await server.sendChat({
+      threadId: thread.id,
+      content: 'Continue from Telegram.',
+      channelHint: '<channel_reply_instruction>Use reply.</channel_reply_instruction>'
+    })
+
+    const updatedThread = (await server.bootstrap()).threads.find(
+      (candidate) => candidate.id === thread.id
+    )
+    assert.ok(updatedThread)
+    assert.equal(updatedThread.recapText, undefined)
+  })
+})
+
+test('YachiyoServer builds owner DM takeover context from recap, visible delta, and tool calls', async () => {
+  await withServer(async ({ server, storage, completeRun }) => {
+    let thread = await server.createThread({ title: 'Fix DM reply ordering' })
+    thread = await server.setThreadIcon({ threadId: thread.id, icon: '🛠️' })
+    const firstAccepted = await server.sendChat({
+      threadId: thread.id,
+      content: 'First request before recap.'
+    })
+    await completeRun(firstAccepted.runId)
+
+    let bootstrap = await server.bootstrap()
+    const firstAssistant = (bootstrap.messagesByThread[thread.id] ?? []).find(
+      (message) => message.role === 'assistant'
+    )
+    assert.ok(firstAssistant)
+    const afterFirstRunThread = bootstrap.threads.find((candidate) => candidate.id === thread.id)
+    assert.ok(afterFirstRunThread)
+    storage.updateThread({
+      ...afterFirstRunThread,
+      rollingSummary: 'Earlier recap: the reply ordering issue was narrowed to outbound delivery.',
+      summaryWatermarkMessageId: firstAssistant.id
+    })
+
+    const secondAccepted = await server.sendChat({
+      threadId: thread.id,
+      content: 'Fix the duplicated reply after normal text.'
+    })
+    await completeRun(secondAccepted.runId)
+
+    bootstrap = await server.bootstrap()
+    const messages = bootstrap.messagesByThread[thread.id] ?? []
+    const secondUser = messages.find(
+      (message) => message.role === 'user' && message.content.includes('duplicated reply')
+    )
+    const secondAssistant = messages.find(
+      (message) => message.role === 'assistant' && message.parentMessageId === secondUser?.id
+    )
+    assert.ok(secondUser)
+    assert.ok(secondAssistant)
+
+    storage.createToolCall({
+      id: 'tool-1',
+      threadId: thread.id,
+      requestMessageId: secondUser.id,
+      assistantMessageId: secondAssistant.id,
+      toolName: 'bash',
+      status: 'completed',
+      inputSummary: 'pnpm test directMessageService',
+      outputSummary: '19 tests passed',
+      startedAt: '2026-03-31T00:00:03.000Z',
+      finishedAt: '2026-03-31T00:00:04.000Z'
+    })
+
+    const context = server.buildThreadTakeoverContext({
+      threadId: thread.id,
+      contextTokenLimit: 100_000
+    })
+
+    assert.match(context, /^Took over:\n🛠️ Fix DM reply ordering/)
+    assert.match(context, /\n---\n\nLast recap:/)
+    assert.match(context, /Last recap:/)
+    assert.match(context, /Earlier recap: the reply ordering issue/)
+    assert.match(context, /\n---\n\nSince then:/)
+    assert.match(context, /User: Fix the duplicated reply after normal text\./)
+    assert.match(context, /Assistant: Hello world/)
+    assert.match(context, /\n---\n\nRecent tool activity:/)
+    assert.match(context, /- bash pnpm test directMessageService — completed/)
+    assert.match(context, /\n---\n\nWorkspace:/)
+    assert.match(context, /\nContext:/)
+    assert.equal(context.includes('19 tests passed'), false)
+  })
+})
+
 test('YachiyoServer compacts a thread into a new assistant-first thread and allows normal continuation', async () => {
   const requests: ModelStreamRequest[] = []
 

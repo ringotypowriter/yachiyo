@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 
 import type {
   BootstrapPayload,
@@ -44,6 +44,7 @@ import type {
   ThreadSearchResult,
   ThreadSnapshot,
   ThreadStateReplacedEvent,
+  ThreadUpdatedEvent,
   ChannelsConfig,
   ToolCallRecord,
   ToolPreferencesInput,
@@ -59,7 +60,9 @@ import type {
   WebSearchBrowserImportSource,
   YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol.ts'
-import { getThreadCapabilities } from '../../../shared/yachiyo/protocol.ts'
+import { getThreadCapabilities, withThreadCapabilities } from '../../../shared/yachiyo/protocol.ts'
+import { collectMessagePath, sortMessagesByCreatedAt } from '../../../shared/yachiyo/threadTree.ts'
+import { sortToolCallsChronologically } from '../../../shared/yachiyo/toolCallOrder.ts'
 import {
   resolveYachiyoDbPath,
   resolveYachiyoSettingsPath,
@@ -131,6 +134,207 @@ import {
   hasMessagePayload,
   normalizeMessageImages
 } from '../../../shared/yachiyo/messageContent.ts'
+
+const TAKEOVER_MESSAGE_LIMIT = 6
+const TAKEOVER_TOOL_LIMIT = 6
+const TAKEOVER_MESSAGE_TEXT_LIMIT = 500
+const TAKEOVER_RECAP_TEXT_LIMIT = 1_800
+const TAKEOVER_TOOL_TEXT_LIMIT = 140
+const TAKEOVER_SECTION_DIVIDER = '---'
+
+function formatTakeoverThreadTitle(thread: Pick<ThreadRecord, 'title' | 'icon'>): string {
+  return thread.icon ? `${thread.icon} ${thread.title}` : thread.title
+}
+
+function isOwnerDmTakeoverCandidate(thread: ThreadRecord): boolean {
+  if (thread.channelGroupId) {
+    return false
+  }
+  if (thread.channelUserId && thread.channelUserRole !== 'owner') {
+    return false
+  }
+  if (!thread.source || thread.source === 'local') {
+    return true
+  }
+  return thread.channelUserRole === 'owner'
+}
+
+function truncateForTakeover(text: string, limit: number): string {
+  const trimmed = text.trim()
+  if (trimmed.length <= limit) {
+    return trimmed
+  }
+  return `${trimmed.slice(0, Math.max(0, limit - 3)).trimEnd()}...`
+}
+
+function compactForTakeover(text: string, limit: number): string {
+  return truncateForTakeover(text.replace(/\s+/g, ' '), limit)
+}
+
+function visibleTakeoverMessageText(message: MessageRecord): string {
+  const text = (message.visibleReply ?? message.content).trim()
+  if (text) {
+    return text
+  }
+  return (
+    message.textBlocks
+      ?.map((block) => block.content)
+      .join('')
+      .trim() ?? ''
+  )
+}
+
+function takeoverMessageRoleLabel(message: MessageRecord): string {
+  return message.role === 'assistant' ? 'Assistant' : 'User'
+}
+
+function selectTakeoverMessagePath(
+  thread: ThreadRecord,
+  messages: MessageRecord[]
+): MessageRecord[] {
+  if (thread.headMessageId && messages.some((message) => message.id === thread.headMessageId)) {
+    return collectMessagePath(messages, thread.headMessageId)
+  }
+  return sortMessagesByCreatedAt(messages)
+}
+
+function visibleTakeoverMessages(thread: ThreadRecord, messages: MessageRecord[]): MessageRecord[] {
+  return selectTakeoverMessagePath(thread, messages).filter((message) => {
+    if (message.hidden) {
+      return false
+    }
+    if (message.role !== 'user' && message.role !== 'assistant') {
+      return false
+    }
+    return visibleTakeoverMessageText(message).length > 0
+  })
+}
+
+function messagesAfterWatermark(
+  messages: MessageRecord[],
+  watermarkMessageId?: string
+): MessageRecord[] {
+  if (!watermarkMessageId) {
+    return []
+  }
+  const watermarkIndex = messages.findIndex((message) => message.id === watermarkMessageId)
+  if (watermarkIndex < 0) {
+    return []
+  }
+  return messages.slice(watermarkIndex + 1)
+}
+
+function formatTakeoverMessage(message: MessageRecord): string {
+  return `${takeoverMessageRoleLabel(message)}: ${compactForTakeover(
+    visibleTakeoverMessageText(message),
+    TAKEOVER_MESSAGE_TEXT_LIMIT
+  )}`
+}
+
+function formatTakeoverToolCall(toolCall: ToolCallRecord): string {
+  const summary = compactForTakeover(toolCall.inputSummary, TAKEOVER_TOOL_TEXT_LIMIT)
+  const status =
+    toolCall.status === 'failed' && toolCall.error
+      ? `failed: ${compactForTakeover(toolCall.error, TAKEOVER_TOOL_TEXT_LIMIT)}`
+      : toolCall.status
+  return `- ${toolCall.toolName}${summary ? ` ${summary}` : ''} — ${status}`
+}
+
+function appendTakeoverSection(lines: string[], title: string, content: string[]): void {
+  if (lines.length > 0) {
+    lines.push('', TAKEOVER_SECTION_DIVIDER, '')
+  }
+  lines.push(title, ...content)
+}
+
+function selectTakeoverToolCalls(input: {
+  messages: MessageRecord[]
+  thread: ThreadRecord
+  toolCalls: ToolCallRecord[]
+}): ToolCallRecord[] {
+  const sortedToolCalls = sortToolCallsChronologically(input.toolCalls)
+  const afterWatermark = messagesAfterWatermark(
+    input.messages,
+    input.thread.summaryWatermarkMessageId
+  )
+  if (afterWatermark.length === 0) {
+    return sortedToolCalls.slice(-TAKEOVER_TOOL_LIMIT)
+  }
+
+  const afterWatermarkIds = new Set(afterWatermark.map((message) => message.id))
+  const matchingToolCalls = sortedToolCalls.filter((toolCall) => {
+    if (toolCall.requestMessageId && afterWatermarkIds.has(toolCall.requestMessageId)) {
+      return true
+    }
+    return !!toolCall.assistantMessageId && afterWatermarkIds.has(toolCall.assistantMessageId)
+  })
+  return matchingToolCalls.slice(-TAKEOVER_TOOL_LIMIT)
+}
+
+function formatOwnerDmTakeoverContext(input: {
+  messages: MessageRecord[]
+  thread: ThreadRecord
+  toolCalls: ToolCallRecord[]
+}): string {
+  const messages = visibleTakeoverMessages(input.thread, input.messages)
+  const recap = (input.thread.recapText ?? input.thread.rollingSummary ?? '').trim()
+  const sinceRecap = messagesAfterWatermark(messages, input.thread.summaryWatermarkMessageId)
+  const conversationMessages = recap
+    ? sinceRecap.slice(-TAKEOVER_MESSAGE_LIMIT)
+    : messages.slice(-TAKEOVER_MESSAGE_LIMIT)
+  const toolCalls = selectTakeoverToolCalls({
+    messages,
+    thread: input.thread,
+    toolCalls: input.toolCalls
+  })
+
+  const lines = ['Took over:', formatTakeoverThreadTitle(input.thread)]
+
+  if (recap) {
+    appendTakeoverSection(lines, 'Last recap:', [
+      truncateForTakeover(recap, TAKEOVER_RECAP_TEXT_LIMIT)
+    ])
+  }
+
+  if (conversationMessages.length > 0) {
+    appendTakeoverSection(
+      lines,
+      recap ? 'Since then:' : 'Recent conversation:',
+      conversationMessages.map(formatTakeoverMessage)
+    )
+  } else if (!recap) {
+    appendTakeoverSection(lines, 'Recent conversation:', ['No visible conversation yet.'])
+  }
+
+  if (toolCalls.length > 0) {
+    appendTakeoverSection(lines, 'Recent tool activity:', toolCalls.map(formatTakeoverToolCall))
+  }
+
+  return lines.join('\n')
+}
+
+function formatTakeoverTokenCount(tokens: number): string {
+  return `${Math.ceil(Math.max(0, tokens) / 1_000)}k`
+}
+
+function formatTakeoverTokens(tokens: number, limit: number): string {
+  const used = formatTakeoverTokenCount(tokens)
+  if (limit <= 0) {
+    return `${used} / unlimited`
+  }
+  const normalizedTokens = Math.max(0, tokens)
+  const percent = Math.round((normalizedTokens / limit) * 100)
+  const remaining = Math.max(0, limit - normalizedTokens)
+  return `${used} / ${formatTakeoverTokenCount(limit)} (${percent}%, ${formatTakeoverTokenCount(
+    remaining
+  )} remaining)`
+}
+
+function formatTakeoverWorkspace(path: string, config: SettingsConfig): string {
+  const configuredLabel = config.workspace?.pathLabels?.[path]?.trim()
+  const label = configuredLabel || basename(path) || path
+  return label === path ? path : `${label} (${path})`
+}
 
 export interface YachiyoServerOptions {
   storage: YachiyoStorage
@@ -1010,6 +1214,71 @@ export class YachiyoServer {
 
   listExternalThreads(): ThreadRecord[] {
     return this.storage.listExternalThreads()
+  }
+
+  listOwnerDmTakeoverThreads(input: { channelUserId: string; limit: number }): ThreadRecord[] {
+    const { threads } = this.storage.bootstrap()
+    return threads.filter(isOwnerDmTakeoverCandidate).slice(0, Math.max(0, input.limit))
+  }
+
+  async takeOverThreadForChannelUser(input: {
+    threadId: string
+    channelUser: ChannelUserRecord
+  }): Promise<ThreadRecord> {
+    if (input.channelUser.role !== 'owner') {
+      throw new Error('Only owner DMs can take over threads.')
+    }
+
+    const thread = this.requireThread(input.threadId)
+    if (!isOwnerDmTakeoverCandidate(thread)) {
+      throw new Error('This thread cannot be taken over from owner DM.')
+    }
+    if (this.runDomain.hasActiveThread(thread.id)) {
+      throw new Error('Cannot take over a thread while it is running.')
+    }
+
+    const updatedThread = withThreadCapabilities({
+      ...thread,
+      source: input.channelUser.platform,
+      channelUserId: input.channelUser.id,
+      channelUserRole: input.channelUser.role,
+      updatedAt: this.timestamp()
+    })
+    delete updatedThread.channelGroupId
+
+    this.storage.updateThread(updatedThread)
+    this.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: updatedThread.id,
+      thread: updatedThread
+    })
+
+    return updatedThread
+  }
+
+  buildThreadTakeoverContext(input: { threadId: string; contextTokenLimit: number }): string {
+    const thread = this.requireThread(input.threadId)
+    const context = formatOwnerDmTakeoverContext({
+      thread,
+      messages: this.storage.listThreadMessages(thread.id),
+      toolCalls: this.storage.listThreadToolCalls(thread.id)
+    })
+    const workspace = thread.workspacePath
+      ? formatTakeoverWorkspace(thread.workspacePath, this.configDomain.readConfig())
+      : 'temporary'
+    const tokens = this.storage.getThreadTotalTokens(thread.id)
+
+    return [
+      context,
+      '',
+      TAKEOVER_SECTION_DIVIDER,
+      '',
+      'Workspace:',
+      workspace,
+      '',
+      'Context:',
+      formatTakeoverTokens(tokens, input.contextTokenLimit)
+    ].join('\n')
   }
 
   findActiveChannelThread(channelUserId: string, maxAgeMs: number): ThreadRecord | undefined {

@@ -13,6 +13,12 @@ type DmSlashCommandServer = Pick<
 > & {
   getConfig(): Promise<SettingsConfig>
   hasActiveThread(threadId: string): boolean
+  listOwnerDmTakeoverThreads(input: { channelUserId: string; limit: number }): ThreadRecord[]
+  takeOverThreadForChannelUser(input: {
+    threadId: string
+    channelUser: ChannelUserRecord
+  }): Promise<ThreadRecord>
+  buildThreadTakeoverContext(input: { threadId: string; contextTokenLimit: number }): string
   getThreadWorkspaceChangeBlocker(input: { threadId: string }): string | null
   updateThreadWorkspace(input: {
     threadId: string
@@ -53,6 +59,31 @@ interface CommandDef<TTarget> {
 interface WorkspaceChoice {
   path: string
   label: string
+}
+
+const TAKEOVER_PREVIEW_MAX_LENGTH = 72
+const SECTION_DIVIDER = '---'
+
+function formatDiscardNotice(discarded: boolean): string {
+  return discarded ? 'Your unsent message was discarded.\n\n' : ''
+}
+
+function formatThreadTitle(thread: Pick<ThreadRecord, 'title' | 'icon'>): string {
+  return thread.icon ? `${thread.icon} ${thread.title}` : thread.title
+}
+
+function formatTakeoverPreview(preview: string | undefined): string | null {
+  const compact = preview?.replace(/\s+/g, ' ').trim()
+  if (!compact) {
+    return null
+  }
+  if (compact.length <= TAKEOVER_PREVIEW_MAX_LENGTH) {
+    return compact
+  }
+  const trimmed = compact.slice(0, TAKEOVER_PREVIEW_MAX_LENGTH - 3).trimEnd()
+  const wordBoundary = trimmed.lastIndexOf(' ')
+  const readable = wordBoundary > 0 ? trimmed.slice(0, wordBoundary) : trimmed
+  return `${readable}...`
 }
 
 function formatTokens(tokens: number, limit: number): string {
@@ -104,13 +135,42 @@ function workspaceChoices(config: SettingsConfig): WorkspaceChoice[] {
 }
 
 function formatWorkspaceChoices(choices: WorkspaceChoice[], currentWorkspacePath?: string): string {
-  const lines = ['Saved workspaces:']
+  const lines = ['Saved workspaces:', '']
   choices.forEach((choice, index) => {
     const current = choice.path === currentWorkspacePath ? ' (current)' : ''
     lines.push(`${index + 1}. ${choice.label}${current}`)
-    lines.push(`   ${choice.path}`)
+    lines.push('')
+    lines.push('Path:')
+    lines.push(choice.path)
+    if (index < choices.length - 1) {
+      lines.push('')
+      lines.push(SECTION_DIVIDER)
+      lines.push('')
+    }
   })
+  lines.push('')
   lines.push('Send /workspace 1, /workspace 2, etc. to switch.')
+  return lines.join('\n')
+}
+
+function formatTakeoverThreadChoices(threads: ThreadRecord[]): string {
+  const lines = ['Threads available to take over:', '']
+  threads.forEach((thread, index) => {
+    lines.push(`${index + 1}. ${formatThreadTitle(thread)}`)
+    const preview = formatTakeoverPreview(thread.preview)
+    if (preview) {
+      lines.push('')
+      lines.push('Preview:')
+      lines.push(preview)
+    }
+    if (index < threads.length - 1) {
+      lines.push('')
+      lines.push(SECTION_DIVIDER)
+      lines.push('')
+    }
+  })
+  lines.push('')
+  lines.push('Send /takeover 1, /takeover 2, etc. to switch.')
   return lines.join('\n')
 }
 
@@ -133,6 +193,20 @@ function parseWorkspaceIndex(args: string, choiceCount: number): number | null {
   return index - 1
 }
 
+function parseTakeoverIndex(args: string, choiceCount: number): number | null {
+  const trimmed = args.trim()
+  if (!/^[1-9]\d*$/.test(trimmed)) {
+    return null
+  }
+
+  const index = Number(trimmed)
+  if (!Number.isSafeInteger(index) || index > choiceCount) {
+    return null
+  }
+
+  return index - 1
+}
+
 async function handleWorkspaceCommand<TTarget>(
   options: DmSlashCommandOptions<TTarget>,
   target: TTarget,
@@ -140,7 +214,7 @@ async function handleWorkspaceCommand<TTarget>(
   args: string,
   context: { batchDiscarded: boolean }
 ): Promise<void> {
-  const notice = context.batchDiscarded ? 'Your unsent message was discarded.\n' : ''
+  const notice = formatDiscardNotice(context.batchDiscarded)
   const currentThread = options.server.findActiveChannelThread(
     channelUser.id,
     options.threadReuseWindowMs
@@ -172,7 +246,7 @@ async function handleWorkspaceCommand<TTarget>(
   if (selectedIndex === null) {
     await options.sendMessage(
       target,
-      `${notice}Choose a workspace number from the list.\n${formatWorkspaceChoices(
+      `${notice}Choose a workspace number from the list.\n\n${formatWorkspaceChoices(
         choices,
         currentThread?.workspacePath
       )}`
@@ -198,7 +272,70 @@ async function handleWorkspaceCommand<TTarget>(
 
   await options.sendMessage(
     target,
-    `${notice}Workspace switched to ${selected.label}.\n${selected.path}`
+    `${notice}Workspace switched:\n\n${selected.label}\n\nPath:\n${selected.path}`
+  )
+}
+
+async function handleTakeoverCommand<TTarget>(
+  options: DmSlashCommandOptions<TTarget>,
+  target: TTarget,
+  channelUser: ChannelUserRecord,
+  args: string,
+  context: { batchDiscarded: boolean }
+): Promise<void> {
+  const notice = formatDiscardNotice(context.batchDiscarded)
+  const threads = options.server.listOwnerDmTakeoverThreads({
+    channelUserId: channelUser.id,
+    limit: 10
+  })
+
+  if (threads.length === 0) {
+    await options.sendMessage(target, `${notice}No threads available to take over.`)
+    return
+  }
+
+  if (!args.trim()) {
+    await options.sendMessage(target, `${notice}${formatTakeoverThreadChoices(threads)}`)
+    return
+  }
+
+  const selectedIndex = parseTakeoverIndex(args, threads.length)
+  if (selectedIndex === null) {
+    await options.sendMessage(
+      target,
+      `${notice}Choose a thread number from the list.\n\n${formatTakeoverThreadChoices(threads)}`
+    )
+    return
+  }
+
+  const thread = threads[selectedIndex]
+  if (options.server.hasActiveThread(thread.id)) {
+    await options.sendMessage(target, `${notice}Cannot take over a thread while it is running.`)
+    return
+  }
+
+  options.requestStop?.(channelUser.id)
+  options.server.cancelRunForChannelUser(channelUser.id)
+
+  try {
+    await options.server.takeOverThreadForChannelUser({
+      threadId: thread.id,
+      channelUser
+    })
+  } catch (error) {
+    await options.sendMessage(
+      target,
+      error instanceof Error ? error.message : 'Failed to take over thread.'
+    )
+    return
+  }
+
+  await options.sendMessage(
+    target,
+    `${notice}${options.server.buildThreadTakeoverContext({
+      threadId: thread.id,
+      contextTokenLimit: options.contextTokenLimit
+    })}`
   )
 }
 
@@ -211,7 +348,7 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
       await options.createFreshThread(channelUser)
       options.requestStop?.(channelUser.id)
       options.server.cancelRunForChannelUser(channelUser.id)
-      const notice = batchDiscarded ? 'Your unsent message was discarded.\n' : ''
+      const notice = formatDiscardNotice(batchDiscarded)
       await options.sendMessage(target, `${notice}New conversation started.`)
     }
   },
@@ -229,7 +366,11 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
       }
       const tokens = options.server.getThreadTotalTokens(thread.id)
       const lines = [
-        `Conversation: ${thread.title}`,
+        'Status:',
+        '',
+        'Conversation:',
+        formatThreadTitle(thread),
+        '',
         `State: ${options.server.hasActiveThread(thread.id) ? 'running' : 'idle'}`,
         `Channel: ${channelUser.platform} · ${channelUser.role}`,
         `Model: ${modelLabel(thread)}`,
@@ -241,7 +382,7 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
         const workspace = thread.workspacePath
           ? formatWorkspaceStatus(thread.workspacePath, await options.server.getConfig())
           : 'temporary'
-        lines.push(`Workspace: ${workspace}`)
+        lines.push('', 'Workspace:', workspace)
       }
 
       await options.sendMessage(target, lines.join('\n'))
@@ -252,7 +393,7 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
     description: 'Force-stop the current run',
     discardPendingBatch: true,
     handler: async (options, target, channelUser, _args, { batchDiscarded }) => {
-      const notice = batchDiscarded ? 'Your unsent message was discarded.\n' : ''
+      const notice = formatDiscardNotice(batchDiscarded)
       options.requestStop?.(channelUser.id)
       const cancelled = options.server.cancelRunForChannelUser(channelUser.id)
       if (cancelled) {
@@ -270,10 +411,17 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
     handler: handleWorkspaceCommand
   },
 
+  '/takeover': {
+    description: 'Take over an existing thread',
+    discardPendingBatch: true,
+    ownerOnly: true,
+    handler: handleTakeoverCommand
+  },
+
   '/help': {
     description: 'Show this help message',
     handler: async (options, target, channelUser) => {
-      const lines = ['Available commands:']
+      const lines = ['Available commands:', '']
       for (const [name, def] of Object.entries(COMMANDS)) {
         if (def.ownerOnly && channelUser.role !== 'owner') {
           continue
@@ -315,7 +463,7 @@ export async function handleDmSlashCommand<TTarget>(
   if (!def) {
     await options.sendMessage(
       target,
-      `Unknown command: ${command}. Type /help for a list of commands.`
+      `Unknown command: ${command}.\n\nType /help for a list of commands.`
     )
     return true
   }
@@ -323,7 +471,7 @@ export async function handleDmSlashCommand<TTarget>(
   if (def.ownerOnly && channelUser.role !== 'owner') {
     await options.sendMessage(
       target,
-      `Unknown command: ${command}. Type /help for a list of commands.`
+      `Unknown command: ${command}.\n\nType /help for a list of commands.`
     )
     return true
   }

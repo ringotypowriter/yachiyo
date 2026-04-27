@@ -933,6 +933,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             thread.queuedFollowUpEnabledSkillNames
           ),
           queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
+          source: thread.source ?? null,
+          channelUserId: thread.channelUserId ?? null,
           channelGroupId: thread.channelGroupId ?? null,
           rollingSummary: thread.rollingSummary ?? null,
           summaryWatermarkMessageId: thread.summaryWatermarkMessageId ?? null,
@@ -1005,6 +1007,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
               updatedThread.queuedFollowUpEnabledSkillNames
             ),
             queuedFollowUpMessageId: updatedThread.queuedFollowUpMessageId ?? null,
+            recapText: updatedThread.recapText ?? null,
             title: updatedThread.title,
             updatedAt: updatedThread.updatedAt,
             workspacePath: updatedThread.workspacePath ?? null
@@ -1057,6 +1060,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
               updatedThread.queuedFollowUpEnabledSkillNames
             ),
             queuedFollowUpMessageId: updatedThread.queuedFollowUpMessageId ?? null,
+            recapText: updatedThread.recapText ?? null,
             title: updatedThread.title,
             updatedAt: updatedThread.updatedAt,
             workspacePath: updatedThread.workspacePath ?? null

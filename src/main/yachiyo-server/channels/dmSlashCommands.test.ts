@@ -64,6 +64,13 @@ function makeOptions<TTarget>(
     hasActiveThread: () => false,
     cancelRunForChannelUser: () => false,
     getConfig: async () => createConfig(),
+    listOwnerDmTakeoverThreads: () => [],
+    takeOverThreadForChannelUser: async () => {
+      throw new Error('takeOverThreadForChannelUser should not be called')
+    },
+    buildThreadTakeoverContext: () => {
+      throw new Error('buildThreadTakeoverContext should not be called')
+    },
     getThreadWorkspaceChangeBlocker: () => null,
     updateThreadWorkspace: async () => {
       throw new Error('updateThreadWorkspace should not be called')
@@ -195,13 +202,26 @@ describe('handleDmSlashCommand', () => {
 
       assert.equal(handled, true)
       assert.equal(sent.length, 1)
-      assert.match(sent[0], /Conversation: Launch Review/)
-      assert.match(sent[0], /State: running/)
+      assert.equal(
+        sent[0],
+        [
+          'Status:',
+          '',
+          'Conversation:',
+          'Launch Review',
+          '',
+          'State: running',
+          'Channel: telegram · owner',
+          'Model: anthropic / claude-opus-4-6',
+          'Context: 18k / 100k (18%, 82k remaining)',
+          'Usage: 42k / 120k',
+          '',
+          'Workspace:',
+          'Yachiyo (/work/yachiyo)'
+        ].join('\n')
+      )
+      assert.match(sent[0], /Conversation:\nLaunch Review/)
       assert.match(sent[0], /Channel: telegram · owner/)
-      assert.match(sent[0], /Model: anthropic \/ claude-opus-4-6/)
-      assert.match(sent[0], /Context: 18k \/ 100k \(18%, 82k remaining\)/)
-      assert.match(sent[0], /Usage: 42k \/ 120k/)
-      assert.match(sent[0], /Workspace: Yachiyo/)
       assert.match(sent[0], /\/work\/yachiyo/)
     })
 
@@ -394,9 +414,10 @@ describe('handleDmSlashCommand', () => {
       for (const cmd of ['/new', '/status', '/stop', '/help']) {
         assert.ok(sent[0].includes(cmd), `reply should mention ${cmd}, got: ${sent[0]}`)
       }
+      assert.match(sent[0], /^Available commands:\n\n\/new/m)
     })
 
-    it('includes /workspace for owner users only', async () => {
+    it('includes owner-only commands for owner users only', async () => {
       const owner = createChannelUser({ role: 'owner' })
       const guest = createChannelUser()
       const ownerReplies: string[] = []
@@ -428,7 +449,210 @@ describe('handleDmSlashCommand', () => {
       assert.equal(ownerReplies.length, 1)
       assert.equal(guestReplies.length, 1)
       assert.ok(ownerReplies[0].includes('/workspace'))
+      assert.ok(ownerReplies[0].includes('/takeover'))
       assert.equal(guestReplies[0].includes('/workspace'), false)
+      assert.equal(guestReplies[0].includes('/takeover'), false)
+    })
+  })
+
+  describe('/takeover', () => {
+    it('lists takeover threads in a readable picker layout for owner users', async () => {
+      const channelUser = createChannelUser({ role: 'owner' })
+      const sent: string[] = []
+
+      const handled = await handleDmSlashCommand(
+        makeOptions<string>({
+          server: {
+            listOwnerDmTakeoverThreads: (input) => {
+              assert.equal(input.channelUserId, channelUser.id)
+              assert.equal(input.limit, 10)
+              return [
+                createThread('thread-1', {
+                  icon: '🛠️',
+                  title: 'Fix DM reply ordering',
+                  preview:
+                    'Resolved duplicate live replies.\n\nThe follow-up explains how queued text segments and reply tool calls stay ordered in IM history without duplicating outbound messages.'
+                }),
+                createThread('thread-2', {
+                  title: 'Graduate Paper'
+                })
+              ]
+            }
+          },
+          sendMessage: async (_target, text) => {
+            sent.push(text)
+          }
+        }),
+        'chat-1',
+        channelUser,
+        '/takeover',
+        ''
+      )
+
+      assert.equal(handled, true)
+      assert.equal(sent.length, 1)
+      assert.equal(
+        sent[0],
+        [
+          'Threads available to take over:',
+          '',
+          '1. 🛠️ Fix DM reply ordering',
+          '',
+          'Preview:',
+          'Resolved duplicate live replies. The follow-up explains how queued...',
+          '',
+          '---',
+          '',
+          '2. Graduate Paper',
+          '',
+          'Send /takeover 1, /takeover 2, etc. to switch.'
+        ].join('\n')
+      )
+    })
+
+    it('takes over the selected thread and sends the takeover context', async () => {
+      const channelUser = createChannelUser({ role: 'owner' })
+      const targetThread = createThread('thread-1', {
+        icon: '🛠️',
+        title: 'Fix DM reply ordering'
+      })
+      const sent: string[] = []
+      const calls: string[] = []
+      let stoppedUserId: string | undefined
+      let cancelledUserId: string | undefined
+      let takeoverInput: { threadId: string; channelUser: ChannelUserRecord } | undefined
+
+      const handled = await handleDmSlashCommand(
+        makeOptions<string>({
+          server: {
+            listOwnerDmTakeoverThreads: () => [targetThread],
+            cancelRunForChannelUser: (userId) => {
+              calls.push('cancel')
+              cancelledUserId = userId
+              return true
+            },
+            takeOverThreadForChannelUser: async (input) => {
+              calls.push('takeover')
+              takeoverInput = input
+              return { ...targetThread, source: 'telegram', channelUserId: channelUser.id }
+            },
+            buildThreadTakeoverContext: (input) => {
+              assert.equal(input.threadId, targetThread.id)
+              assert.equal(input.contextTokenLimit, 100_000)
+              return [
+                'Took over:',
+                '🛠️ Fix DM reply ordering',
+                '',
+                '---',
+                '',
+                'Last recap:',
+                'The reply-ordering fix is complete.',
+                '',
+                '---',
+                '',
+                'Recent tool activity:',
+                '- edit directMessageService.ts — completed'
+              ].join('\n')
+            }
+          },
+          sendMessage: async (_target, text) => {
+            sent.push(text)
+          },
+          requestStop: (userId) => {
+            calls.push('stop')
+            stoppedUserId = userId
+          }
+        }),
+        'chat-1',
+        channelUser,
+        '/takeover',
+        '1',
+        { batchDiscarded: true }
+      )
+
+      assert.equal(handled, true)
+      assert.equal(stoppedUserId, channelUser.id)
+      assert.equal(cancelledUserId, channelUser.id)
+      assert.deepEqual(calls, ['stop', 'cancel', 'takeover'])
+      assert.deepEqual(takeoverInput, { threadId: targetThread.id, channelUser })
+      assert.equal(sent.length, 1)
+      assert.match(
+        sent[0],
+        /^Your unsent message was discarded\.\n\nTook over:\n🛠️ Fix DM reply ordering/
+      )
+      assert.match(sent[0], /Last recap:/)
+      assert.match(sent[0], /Recent tool activity:/)
+    })
+
+    it('rejects takeover when the selected thread is running', async () => {
+      const channelUser = createChannelUser({ role: 'owner' })
+      const targetThread = createThread('thread-running')
+      const sent: string[] = []
+      let takeoverCalled = false
+
+      const handled = await handleDmSlashCommand(
+        makeOptions<string>({
+          server: {
+            listOwnerDmTakeoverThreads: () => [targetThread],
+            hasActiveThread: (threadId) => {
+              assert.equal(threadId, targetThread.id)
+              return true
+            },
+            takeOverThreadForChannelUser: async () => {
+              takeoverCalled = true
+              return targetThread
+            }
+          },
+          sendMessage: async (_target, text) => {
+            sent.push(text)
+          }
+        }),
+        'chat-1',
+        channelUser,
+        '/takeover',
+        '1'
+      )
+
+      assert.equal(handled, true)
+      assert.equal(takeoverCalled, false)
+      assert.deepEqual(sent, ['Cannot take over a thread while it is running.'])
+    })
+
+    it('hides the takeover command from guest users', async () => {
+      const channelUser = createChannelUser()
+      const sent: string[] = []
+      let listedThreads = false
+
+      const handled = await handleDmSlashCommand(
+        makeOptions<string>({
+          server: {
+            listOwnerDmTakeoverThreads: () => {
+              listedThreads = true
+              return []
+            }
+          },
+          sendMessage: async (_target, text) => {
+            sent.push(text)
+          }
+        }),
+        'chat-1',
+        channelUser,
+        '/takeover',
+        ''
+      )
+
+      assert.equal(handled, true)
+      assert.equal(listedThreads, false)
+      assert.equal(sent.length, 1)
+      assert.match(sent[0], /Unknown command: \/takeover/)
+    })
+
+    it('discards pending batches for owner takeover commands only', () => {
+      assert.equal(
+        shouldDiscardPendingBatchForDmCommand('/takeover', createChannelUser({ role: 'owner' })),
+        true
+      )
+      assert.equal(shouldDiscardPendingBatchForDmCommand('/takeover', createChannelUser()), false)
     })
   })
 
@@ -451,11 +675,26 @@ describe('handleDmSlashCommand', () => {
 
       assert.equal(handled, true)
       assert.equal(sent.length, 1)
-      assert.match(sent[0], /1\. Yachiyo/)
-      assert.match(sent[0], /\/work\/yachiyo/)
-      assert.match(sent[0], /2\. Research Notes/)
-      assert.match(sent[0], /\/work\/research-notes/)
-      assert.match(sent[0], /\/workspace 1/)
+      assert.equal(
+        sent[0],
+        [
+          'Saved workspaces:',
+          '',
+          '1. Yachiyo',
+          '',
+          'Path:',
+          '/work/yachiyo',
+          '',
+          '---',
+          '',
+          '2. Research Notes',
+          '',
+          'Path:',
+          '/work/research-notes',
+          '',
+          'Send /workspace 1, /workspace 2, etc. to switch.'
+        ].join('\n')
+      )
     })
 
     it('switches the active owner thread to the selected workspace index', async () => {
@@ -495,6 +734,10 @@ describe('handleDmSlashCommand', () => {
       assert.equal(sent.length, 1)
       assert.match(sent[0], /Research Notes/)
       assert.match(sent[0], /\/work\/research-notes/)
+      assert.match(
+        sent[0],
+        /^Workspace switched:\n\nResearch Notes\n\nPath:\n\/work\/research-notes$/
+      )
     })
 
     it('returns the workspace lock message before showing choices', async () => {
@@ -555,7 +798,7 @@ describe('handleDmSlashCommand', () => {
       assert.equal(handled, true)
       assert.equal(sent.length, 1)
       assert.match(sent[0], /Your unsent message was discarded\./)
-      assert.match(sent[0], /Workspace switched to Yachiyo\./)
+      assert.match(sent[0], /Workspace switched:\n\nYachiyo/)
     })
 
     it('creates a fresh owner thread before switching when no active thread exists', async () => {

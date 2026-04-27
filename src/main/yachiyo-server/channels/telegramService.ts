@@ -70,6 +70,7 @@ import {
   compileGroupProbeContextLayers,
   requiresAssistantReasoningForGroupProbeReplay
 } from '../runtime/groupProbeContextLayers.ts'
+import { splitTelegramMessage } from './telegramMessageSplit.ts'
 
 import { resolveYachiyoTempWorkspaceRoot, YACHIYO_USER_FILE_NAME } from '../config/paths'
 import { join } from 'node:path'
@@ -154,7 +155,9 @@ export function createTelegramService({
 
   /** Send a text message to a Telegram chat. */
   async function sendMessage(chatId: string, text: string): Promise<void> {
-    await bot.telegram.sendMessage(chatId, text)
+    for (const chunk of splitTelegramMessage(text)) {
+      await bot.telegram.sendMessage(chatId, chunk)
+    }
   }
 
   function resolveUserWorkspace(username: string): string {
