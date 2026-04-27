@@ -170,7 +170,7 @@ export function createQQService({
           workspacePath: channelUser.workspacePath,
           source: 'qq',
           channelUserId: channelUser.id,
-          title: `QQ:${channelUser.username}`,
+          ...(channelUser.role === 'owner' ? {} : { title: `QQ:${channelUser.username}` }),
           ...(input?.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {})
         })
     })
@@ -203,7 +203,7 @@ export function createQQService({
               workspacePath: user.workspacePath,
               source: 'qq',
               channelUserId: user.id,
-              title: `QQ:${user.username}`
+              ...(user.role === 'owner' ? {} : { title: `QQ:${user.username}` })
             }),
           sendMessage: sendPrivateMessage,
           requestStop: (userId) => directMessages.requestStop(userId)

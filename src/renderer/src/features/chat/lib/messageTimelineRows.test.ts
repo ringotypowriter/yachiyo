@@ -29,6 +29,7 @@ function createAssistantMessage(input: {
   createdAt?: string
   reasoning?: string
   textBlocks?: MessageTextBlockRecord[]
+  visibleReply?: string
 }): Message {
   return {
     id: input.id,
@@ -39,7 +40,8 @@ function createAssistantMessage(input: {
     status: input.status,
     createdAt: input.createdAt ?? TIMESTAMP,
     ...(input.reasoning ? { reasoning: input.reasoning } : {}),
-    ...(input.textBlocks ? { textBlocks: input.textBlocks } : {})
+    ...(input.textBlocks ? { textBlocks: input.textBlocks } : {}),
+    ...(input.visibleReply !== undefined ? { visibleReply: input.visibleReply } : {})
   }
 }
 
@@ -150,6 +152,43 @@ test('buildConversationGroupRows keeps branch navigation, thinking, and footer a
     'group-assistant-text-block',
     'group-footer'
   ])
+})
+
+test('buildConversationGroupRows displays channel visible replies instead of raw assistant output', () => {
+  const activeAssistant = createAssistantMessage({
+    id: 'assistant-owner-dm',
+    content: '<internal>tool routing details</internal>',
+    status: 'completed',
+    textBlocks: [
+      {
+        id: 'raw-1',
+        content: '<internal>',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'raw-2',
+        content: 'tool routing details</internal>',
+        createdAt: TIMESTAMP
+      }
+    ],
+    visibleReply: 'Clean channel reply'
+  })
+  const group = createGroup({ activeAssistant })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [],
+    runs: [],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false
+  })
+  const textRows = rows.filter((row) => row.kind === 'group-assistant-text-block')
+
+  assert.deepEqual(
+    textRows.map((row) => row.textBlock.content),
+    ['Clean channel reply']
+  )
 })
 
 test('buildMessageTimelineRows keeps each conversation flattened into separate virtual rows', () => {

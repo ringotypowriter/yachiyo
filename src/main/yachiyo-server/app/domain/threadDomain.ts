@@ -176,6 +176,9 @@ export class YachiyoServerThreadDomain {
     const timestamp = this.deps.timestamp()
     const workspacePath = input.workspacePath?.trim() ? resolve(input.workspacePath) : undefined
     const defaultIcon = channelSourceIcon(input.source)
+    const channelUserRole = input.channelUserId
+      ? this.deps.storage.getChannelUser(input.channelUserId)?.role
+      : undefined
     const thread = withThreadCapabilities({
       id: input.threadId ?? this.deps.createId(),
       title: input.title ?? DEFAULT_THREAD_TITLE,
@@ -184,6 +187,7 @@ export class YachiyoServerThreadDomain {
       ...(workspacePath ? { workspacePath } : {}),
       ...(input.source ? { source: input.source } : {}),
       ...(input.channelUserId ? { channelUserId: input.channelUserId } : {}),
+      ...(channelUserRole ? { channelUserRole } : {}),
       ...(input.channelGroupId ? { channelGroupId: input.channelGroupId } : {}),
       ...(input.privacyMode ? { privacyMode: true } : {}),
       ...(input.createdFromEssentialId

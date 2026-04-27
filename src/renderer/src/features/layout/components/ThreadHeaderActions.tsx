@@ -6,6 +6,10 @@ import {
   resolveThreadContextOperations,
   type ThreadContextOperationKey
 } from '@renderer/features/threads/lib/threadContextOperations'
+import {
+  canCompactThreadToAnotherThread,
+  isExternalThread
+} from '@renderer/features/threads/lib/threadVisibility'
 import { theme } from '@renderer/theme/theme'
 
 export interface ThreadHeaderActionsProps {
@@ -15,10 +19,6 @@ export interface ThreadHeaderActionsProps {
   isSaving?: boolean
   isStarred?: boolean
   onSelectOperation: (operationKey: ThreadContextOperationKey) => void
-}
-
-function isExternalThread(thread: Thread): boolean {
-  return thread.source != null && thread.source !== 'local'
 }
 
 export function ThreadHeaderActions({
@@ -36,6 +36,7 @@ export function ThreadHeaderActions({
   }
 
   const operations = resolveThreadContextOperations({
+    canHandoff: canCompactThreadToAnotherThread(activeThread),
     isArchived: false,
     isExternal: isExternalThread(activeThread),
     isRenameDisabled,

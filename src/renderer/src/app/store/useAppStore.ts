@@ -33,6 +33,11 @@ import {
 import { sortToolCallsChronologically } from '../../../../shared/yachiyo/toolCallOrder.ts'
 import { isModelImageCapable } from '../../../../shared/yachiyo/providerConfig.ts'
 import { collectDescendantIds, collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
+import {
+  canCompactThreadToAnotherThread,
+  isExternalThread,
+  isVisibleExternalThread
+} from '../../features/threads/lib/threadVisibility.ts'
 import { useBackgroundTasksStore } from '../../features/chat/state/useBackgroundTasksStore.ts'
 
 const COLLAPSED_FOLDER_IDS_KEY = 'yachiyo.collapsedFolderIds'
@@ -348,16 +353,6 @@ function toggleEnabledTools(enabledTools: ToolCallName[], toolName: ToolCallName
 
 function sortThreads(threads: Thread[]): Thread[] {
   return [...threads].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-}
-
-function isExternalThread(thread: Thread): boolean {
-  if (thread.source && thread.source !== 'local') return true
-  if (thread.channelUserId) return true
-  return false
-}
-
-function isVisibleExternalThread(thread: Thread): boolean {
-  return isExternalThread(thread) && !thread.channelGroupId
 }
 
 /** Find a thread by ID across both local and external thread lists. */
@@ -1116,6 +1111,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     const threadId = get().activeThreadId
     if (!threadId) {
       return
+    }
+    const thread = findThread(get(), threadId)
+    if (!thread || !canCompactThreadToAnotherThread(thread)) {
+      const message = 'Handoff is only supported for local threads.'
+      set({ lastError: message })
+      throw new Error(message)
     }
 
     try {
@@ -1883,7 +1884,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                 event.thread,
                 ...state.externalThreads.filter((item) => item.id !== event.thread.id)
               ])
-            : state.externalThreads,
+            : removeThread(state.externalThreads, event.threadId),
           pendingSteerMessages: shouldClearPendingSteer
             ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
             : state.pendingSteerMessages,

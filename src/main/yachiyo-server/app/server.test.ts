@@ -524,6 +524,7 @@ test('YachiyoServer can refine the fallback thread title with the configured too
           /Plan the MVP/u
         )
       } finally {
+        releaseMainRun?.()
         waiter.close()
       }
     },
@@ -544,6 +545,162 @@ test('YachiyoServer can refine the fallback thread title with the configured too
       })
     }
   )
+})
+
+test('YachiyoServer refines owner DM thread titles like local threads', async () => {
+  const requests: ModelStreamRequest[] = []
+  let releaseMainRun: (() => void) | null = null
+  const mainRunGate = new Promise<void>((resolve) => {
+    releaseMainRun = resolve
+  })
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: ['gpt-5-mini']
+        }
+      })
+
+      await server.saveConfig({
+        ...(await server.getConfig()),
+        toolModel: {
+          mode: 'custom',
+          providerName: 'work',
+          model: 'gpt-5-mini'
+        }
+      })
+
+      const owner = server.createChannelUser({
+        id: 'tg-owner-title',
+        platform: 'telegram',
+        externalUserId: '123',
+        username: 'owner',
+        label: '',
+        status: 'allowed',
+        role: 'owner',
+        usageLimitKTokens: null,
+        workspacePath: '/tmp/tg-owner-title'
+      })
+      const thread = await server.createThread({
+        source: 'telegram',
+        channelUserId: owner.id
+      })
+      const waiter = createServerEventWaiter(server)
+
+      try {
+        const titleUpdatedEvent = waiter.waitForEvent(
+          'thread.updated',
+          (event) => event.threadId === thread.id && event.thread.title === 'Owner DM launch plan'
+        )
+
+        const accepted = await server.sendChat({
+          threadId: thread.id,
+          content: 'Plan the owner DM launch'
+        })
+
+        const titleUpdate = await Promise.race([
+          titleUpdatedEvent,
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Timed out waiting for owner DM title update')), 1000)
+          })
+        ])
+
+        releaseMainRun?.()
+        await completeRun(accepted.runId)
+        const bootstrap = await server.bootstrap()
+        const ownerThread = bootstrap.threads.find((candidate) => candidate.id === thread.id)
+        const auxiliaryRequest = requests.find(
+          (request) => request.providerOptionsMode === 'auxiliary'
+        )
+
+        assert.equal(titleUpdate.thread.title, 'Owner DM launch plan')
+        assert.equal(ownerThread?.title, 'Owner DM launch plan')
+        assert.equal(requests.length, 2)
+        assert.equal(auxiliaryRequest?.settings.model, 'gpt-5-mini')
+        assert.match(
+          typeof auxiliaryRequest?.messages[0]?.content === 'string'
+            ? auxiliaryRequest.messages[0].content
+            : '',
+          /Plan the owner DM launch/u
+        )
+      } finally {
+        releaseMainRun?.()
+        waiter.close()
+      }
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          if (request.providerOptionsMode === 'auxiliary') {
+            yield 'Owner DM launch plan'
+            return
+          }
+
+          await mainRunGate
+          yield 'Hello'
+          yield ' world'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer exposes owner DM threads through the normal bootstrap list', async () => {
+  await withServer(async ({ server }) => {
+    const owner = server.createChannelUser({
+      id: 'tg-owner-normal-thread',
+      platform: 'telegram',
+      externalUserId: 'owner-123',
+      username: 'owner',
+      label: '',
+      status: 'allowed',
+      role: 'owner',
+      usageLimitKTokens: null,
+      workspacePath: '/tmp/tg-owner-normal-thread'
+    })
+    const guest = server.createChannelUser({
+      id: 'tg-guest-external-thread',
+      platform: 'telegram',
+      externalUserId: 'guest-456',
+      username: 'guest',
+      label: '',
+      status: 'allowed',
+      role: 'guest',
+      usageLimitKTokens: null,
+      workspacePath: '/tmp/tg-guest-external-thread'
+    })
+
+    const ownerThread = await server.createThread({
+      source: 'telegram',
+      channelUserId: owner.id
+    })
+    const guestThread = await server.createThread({
+      source: 'telegram',
+      channelUserId: guest.id,
+      title: 'Telegram:@guest'
+    })
+
+    const bootstrap = await server.bootstrap()
+    const normalThreadIds = bootstrap.threads.map((thread) => thread.id)
+    const externalThreadIds = server.listExternalThreads().map((thread) => thread.id)
+
+    assert.equal(ownerThread.channelUserRole, 'owner')
+    assert.equal(guestThread.channelUserRole, 'guest')
+    assert.deepEqual(normalThreadIds, [ownerThread.id])
+    assert.equal(
+      bootstrap.threads.find((thread) => thread.id === ownerThread.id)?.channelUserRole,
+      'owner'
+    )
+    assert.deepEqual(externalThreadIds, [guestThread.id])
+  })
 })
 
 test('YachiyoServer injects recalled memory into the compiled context before the main run', async () => {
@@ -6966,6 +7123,63 @@ test('YachiyoServer points the thread head at the retried request immediately', 
       })
     }
   )
+})
+
+test('YachiyoServer gives owner DM threads the same turn budget as local threads', async () => {
+  await withServer(async ({ server, completeRun, modelRequests }) => {
+    const owner = server.createChannelUser({
+      id: 'tg-owner-1',
+      platform: 'telegram',
+      externalUserId: '123',
+      username: 'owner',
+      label: '',
+      status: 'allowed',
+      role: 'owner',
+      usageLimitKTokens: null,
+      workspacePath: '/tmp/tg-owner'
+    })
+
+    const localThread = await server.createThread()
+    const ownerDmThread = await server.createThread({
+      source: 'telegram',
+      channelUserId: owner.id,
+      title: 'Telegram:@owner'
+    })
+
+    const localAccepted = await server.sendChat({
+      threadId: localThread.id,
+      content: 'Use the local turn budget.'
+    })
+    await completeRun(localAccepted.runId)
+
+    const ownerAccepted = await server.sendChat({
+      threadId: ownerDmThread.id,
+      content: 'Use the owner DM turn budget.',
+      channelHint: '<channel_reply_instruction>Use reply.</channel_reply_instruction>'
+    })
+    await completeRun(ownerAccepted.runId)
+
+    const chatRequests = modelRequests.filter((request) => request.purpose === 'chat')
+    const localRequest = chatRequests.find((request) =>
+      request.messages.some(
+        (message) =>
+          message.role === 'user' &&
+          typeof message.content === 'string' &&
+          message.content.includes('Use the local turn budget.')
+      )
+    )
+    const ownerRequest = chatRequests.find((request) =>
+      request.messages.some(
+        (message) =>
+          message.role === 'user' &&
+          typeof message.content === 'string' &&
+          message.content.includes('Use the owner DM turn budget.')
+      )
+    )
+
+    assert.equal(localRequest?.maxToolSteps, 100)
+    assert.equal(ownerRequest?.maxToolSteps, localRequest?.maxToolSteps)
+  })
 })
 
 test('YachiyoServer compacts a thread into a new assistant-first thread and allows normal continuation', async () => {

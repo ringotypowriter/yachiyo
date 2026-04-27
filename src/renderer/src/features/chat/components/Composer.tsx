@@ -50,6 +50,7 @@ import {
   type SendChatAttachment
 } from '../../../../../shared/yachiyo/protocol.ts'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
+import { canCompactThreadToAnotherThread } from '@renderer/features/threads/lib/threadVisibility'
 import { ModelSelectorPopup } from './ModelSelectorPopup'
 import type { AcpAgentEntry } from '../lib/modelSelectorState'
 import { SlashCommandPopup } from './SlashCommandPopup'
@@ -763,7 +764,6 @@ export function Composer({
   // from the model selector. Show it in the toolbar and allow send until a thread exists.
   const effectiveAcpBinding =
     activeAcpBinding ?? (activeThreadId === null ? pendingAcpBinding : null)
-  const isExternalThread = activeThread?.source !== undefined && activeThread.source !== 'local'
   const isModelSelectorLocked =
     isBackendSwitchPending || runPhase === 'preparing' || runPhase === 'streaming'
   const needsApiKey = settings.provider !== 'vertex'
@@ -853,7 +853,8 @@ export function Composer({
 
   const userPrompts = useMemo(() => config?.prompts ?? [], [config?.prompts])
   const canRunThreadOperations = activeThreadId !== null
-  const canHandoffActiveThread = canRunThreadOperations && !isExternalThread
+  const canHandoffActiveThread =
+    canRunThreadOperations && activeThread ? canCompactThreadToAnotherThread(activeThread) : false
 
   const commitWorkspaceSelection = useCallback(
     async (selection: PendingWorkspaceChangeConfirmation): Promise<void> => {

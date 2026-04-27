@@ -73,7 +73,7 @@ export const AssistantMessageBubble = memo(function AssistantMessageBubble({
     effectiveShowFooter &&
     footer !== null &&
     (footer.kind !== 'streaming' || shouldShowGeneratingLabel)
-  const content = contentOverride ?? message.content
+  const content = contentOverride ?? message.visibleReply ?? message.content
 
   const imageContext = useMemo<MarkdownImageContextValue>(
     () => ({

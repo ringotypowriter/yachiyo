@@ -18,6 +18,7 @@ import { AppMainPanelHeader } from '@renderer/features/layout/components/AppMain
 import { RunInspectionPanel } from '@renderer/features/runs/components/RunInspectionPanel'
 import { RunStatusStrip } from '@renderer/features/runs/components/RunStatusStrip'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
+import { isExternalThread } from '@renderer/features/threads/lib/threadVisibility'
 import { isOpenFindBarShortcut } from '@renderer/features/layout/lib/findBarShortcut'
 import { computeRecapDecision } from '@renderer/features/layout/lib/recapIdle'
 import { MessageSquare, Trash2 } from 'lucide-react'
@@ -249,7 +250,7 @@ export function AppMainPanel({
     const state = useAppStore.getState()
     const decision = computeRecapDecision({
       recapEnabled: config?.chat?.recapEnabled !== false,
-      isExternalThread: activeThread.source != null && activeThread.source !== 'local',
+      isExternalThread: isExternalThread(activeThread),
       isAcpThread: activeThread.runtimeBinding?.kind === 'acp',
       hasActiveRun,
       isEditingMessage,
@@ -266,7 +267,7 @@ export function AppMainPanel({
       const thread = s.threads.find((t) => t.id === activeThreadId)
       if (!thread) return
       if (s.config?.chat?.recapEnabled === false) return
-      if (thread.source != null && thread.source !== 'local') return
+      if (isExternalThread(thread)) return
       if (thread.runtimeBinding?.kind === 'acp') return
       if (s.recapByThread[activeThreadId] || thread.recapText) return
       void window.api.yachiyo
@@ -525,10 +526,9 @@ export function AppMainPanel({
     )
   }
 
-  const isExternalThread =
-    activeThread != null && activeThread.source != null && activeThread.source !== 'local'
+  const isExternal = activeThread != null && isExternalThread(activeThread)
 
-  if (isExternalThread) {
+  if (isExternal) {
     return (
       <div className="flex flex-col flex-1 h-full min-w-0 overflow-hidden" style={cardStyle}>
         <AppMainPanelHeader

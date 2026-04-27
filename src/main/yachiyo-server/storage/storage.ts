@@ -428,7 +428,7 @@ export function toThreadRecord(
     | 'title'
     | 'updatedAt'
     | 'workspacePath'
-  >
+  > & { channelUserRole?: ChannelUserRole | null }
 ): ThreadRecord {
   const queuedFollowUpEnabledTools = parseEnabledTools(row.queuedFollowUpEnabledTools)
   const queuedFollowUpEnabledSkillNames = parseSkillNames(row.queuedFollowUpEnabledSkillNames)
@@ -459,6 +459,7 @@ export function toThreadRecord(
       ...(row.workspacePath === null ? {} : { workspacePath: row.workspacePath }),
       ...(source ? { source } : {}),
       ...(row.channelUserId === null ? {} : { channelUserId: row.channelUserId }),
+      ...(row.channelUserRole == null ? {} : { channelUserRole: row.channelUserRole }),
       ...(row.channelGroupId === null ? {} : { channelGroupId: row.channelGroupId }),
       ...(row.rollingSummary === null ? {} : { rollingSummary: row.rollingSummary }),
       ...(row.summaryWatermarkMessageId === null
@@ -500,6 +501,7 @@ export function toThreadRecord(
     ...(row.workspacePath === null ? {} : { workspacePath: row.workspacePath }),
     ...(source ? { source } : {}),
     ...(row.channelUserId === null ? {} : { channelUserId: row.channelUserId }),
+    ...(row.channelUserRole == null ? {} : { channelUserRole: row.channelUserRole }),
     ...(row.rollingSummary === null ? {} : { rollingSummary: row.rollingSummary }),
     ...(row.summaryWatermarkMessageId === null
       ? {}

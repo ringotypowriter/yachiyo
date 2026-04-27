@@ -656,6 +656,12 @@ export class YachiyoServerRunDomain {
   private isAutoDeliveryEligible(thread: ThreadRecord): boolean {
     const source = thread.source
     if (source == null || source === 'local') return true
+    return this.isOwnerDmThread(thread)
+  }
+
+  private isOwnerDmThread(thread: ThreadRecord): boolean {
+    const source = thread.source
+    if (source == null || source === 'local') return false
     if (thread.channelGroupId) return false
     if (!thread.channelUserId) return false
     const user = this.deps.storage.getChannelUser(thread.channelUserId)
@@ -2717,7 +2723,7 @@ export class YachiyoServerRunDomain {
     threadId: string
   }): Promise<void> {
     const thread = this.deps.requireThread(input.threadId)
-    if (thread.source && thread.source !== 'local') {
+    if (thread.source && thread.source !== 'local' && !this.isOwnerDmThread(thread)) {
       this.logThreadTitleDebug({
         phase: 'skipped',
         runId: input.runId,

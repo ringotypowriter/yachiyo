@@ -214,7 +214,7 @@ export function createDiscordService({
           workspacePath: resolveUserWorkspace(channelUser.username),
           source: 'discord',
           channelUserId: channelUser.id,
-          title: `Discord:@${channelUser.username}`,
+          ...(channelUser.role === 'owner' ? {} : { title: `Discord:@${channelUser.username}` }),
           ...(input?.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {})
         })
     })
@@ -242,7 +242,7 @@ export function createDiscordService({
               workspacePath: resolveUserWorkspace(user.username),
               source: 'discord',
               channelUserId: user.id,
-              title: `Discord:@${user.username}`
+              ...(user.role === 'owner' ? {} : { title: `Discord:@${user.username}` })
             }),
           sendMessage,
           requestStop: (userId) => directMessages.requestStop(userId)

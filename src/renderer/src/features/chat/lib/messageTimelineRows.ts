@@ -139,6 +139,35 @@ function compareBlocks(
   return left.time.localeCompare(right.time)
 }
 
+function resolveAssistantTextBlocks(message: Message): MessageTextBlockRecord[] {
+  if (message.visibleReply !== undefined) {
+    if (message.visibleReply.trim().length === 0) return []
+    return [
+      {
+        id: `${message.id}:visible-reply`,
+        content: message.visibleReply,
+        createdAt: message.createdAt
+      }
+    ]
+  }
+
+  if (message.textBlocks && message.textBlocks.length > 0) {
+    return message.textBlocks
+  }
+
+  if (message.content.trim().length > 0) {
+    return [
+      {
+        id: message.id,
+        content: message.content,
+        createdAt: message.createdAt
+      }
+    ]
+  }
+
+  return []
+}
+
 export function buildConversationGroupRows(
   input: BuildConversationGroupRowsInput
 ): MessageTimelineRow[] {
@@ -165,19 +194,7 @@ export function buildConversationGroupRows(
 
   const activeAssistantTextBlocks: MessageTextBlockRecord[] = (() => {
     if (!activeBranch || group.hideActiveBranchWhilePreparing) return []
-    if (activeBranch.message.textBlocks && activeBranch.message.textBlocks.length > 0) {
-      return activeBranch.message.textBlocks
-    }
-    if (activeBranch.message.content.trim().length > 0) {
-      return [
-        {
-          id: activeBranch.message.id,
-          content: activeBranch.message.content,
-          createdAt: activeBranch.message.createdAt
-        }
-      ]
-    }
-    return []
+    return resolveAssistantTextBlocks(activeBranch.message)
   })()
 
   const hasRunningToolCall = visibleToolCalls.some(

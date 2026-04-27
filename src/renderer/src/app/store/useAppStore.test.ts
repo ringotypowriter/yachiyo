@@ -886,6 +886,56 @@ test('applyServerEvent keeps hidden group probe threads out of cached external t
   )
 })
 
+test('applyServerEvent treats owner DM threads as normal threads', () => {
+  resetStore()
+
+  useAppStore.setState({
+    externalThreads: [
+      {
+        id: 'owner-dm-thread',
+        title: 'Owner DM',
+        updatedAt: '2026-03-15T00:00:01.000Z',
+        source: 'telegram',
+        channelUserId: 'tg-owner'
+      },
+      {
+        id: 'guest-dm-thread',
+        title: 'Guest DM',
+        updatedAt: '2026-03-15T00:00:01.000Z',
+        source: 'telegram',
+        channelUserId: 'tg-guest'
+      }
+    ],
+    showExternalThreads: true
+  })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'thread.updated',
+    eventId: 'event-owner-dm-thread-updated',
+    timestamp: '2026-03-15T00:00:02.000Z',
+    threadId: 'owner-dm-thread',
+    thread: {
+      id: 'owner-dm-thread',
+      title: 'Owner DM plan',
+      updatedAt: '2026-03-15T00:00:02.000Z',
+      source: 'telegram',
+      channelUserId: 'tg-owner',
+      channelUserRole: 'owner'
+    }
+  })
+
+  const state = useAppStore.getState()
+
+  assert.deepEqual(
+    state.threads.map((thread) => thread.id),
+    ['owner-dm-thread']
+  )
+  assert.deepEqual(
+    state.externalThreads.map((thread) => thread.id),
+    ['guest-dm-thread']
+  )
+})
+
 test('applyServerEvent retargets the active request when an active thread head moves to a steer user', () => {
   resetStore()
 
@@ -2125,6 +2175,45 @@ test('compactThreadToAnotherThread switches into the destination thread and star
     assert.equal(state.runStatus, 'running')
     assert.equal(state.composerDrafts['thread-1']?.text, 'Keep me here too')
     assert.equal(state.composerDrafts['thread-2'], undefined)
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('compactThreadToAnotherThread blocks owner DM threads before IPC', async () => {
+  resetStore()
+
+  let compactCalls = 0
+  const restoreWindow = withWindowApiMock({
+    compactThreadToAnotherThread: async () => {
+      compactCalls += 1
+      throw new Error('compact should not be called')
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'owner-dm-thread',
+      threads: [
+        {
+          id: 'owner-dm-thread',
+          title: 'Owner DM',
+          updatedAt: TIMESTAMP,
+          source: 'telegram',
+          channelUserId: 'tg-owner',
+          channelUserRole: 'owner'
+        }
+      ]
+    })
+
+    await assert.rejects(
+      useAppStore.getState().compactThreadToAnotherThread(),
+      /Handoff is only supported for local threads\./u
+    )
+
+    const state = useAppStore.getState()
+    assert.equal(compactCalls, 0)
+    assert.equal(state.lastError, 'Handoff is only supported for local threads.')
   } finally {
     restoreWindow()
   }

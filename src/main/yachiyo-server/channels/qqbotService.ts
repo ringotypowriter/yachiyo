@@ -123,7 +123,7 @@ export function createQQBotService({
           workspacePath: channelUser.workspacePath,
           source: 'qqbot',
           channelUserId: channelUser.id,
-          title: `QQBot:${channelUser.username}`,
+          ...(channelUser.role === 'owner' ? {} : { title: `QQBot:${channelUser.username}` }),
           ...(input?.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {})
         })
     })
@@ -170,7 +170,7 @@ export function createQQBotService({
               workspacePath: user.workspacePath,
               source: 'qqbot',
               channelUserId: user.id,
-              title: `QQBot:${user.username}`
+              ...(user.role === 'owner' ? {} : { title: `QQBot:${user.username}` })
             }),
           sendMessage: sendMessageWithTarget,
           requestStop: (userId) => directMessages.requestStop(userId)

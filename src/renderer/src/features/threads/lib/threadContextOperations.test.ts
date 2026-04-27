@@ -87,6 +87,20 @@ test('thread context operations disable handoff when a run is active', () => {
   assert.ok(otherOperations.every((op) => !op.disabled))
 })
 
+test('thread context operations can hide handoff for normal-visible channel threads', () => {
+  const operations = resolveThreadContextOperations({
+    canHandoff: false,
+    isArchived: false,
+    isExternal: false
+  })
+
+  assert.ok(!operations.some((op) => op.key === 'compact-to-another-thread'))
+  assert.deepEqual(
+    operations.map((op) => op.key),
+    ['star', 'rename', 'regenerate-title', 'create-folder', 'archive', 'delete']
+  )
+})
+
 test('archived thread operations do not include regenerate-title', () => {
   const operations = resolveThreadContextOperations({
     isArchived: true

@@ -311,6 +311,39 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
   ensureThreadSearchIndex(client)
   repairRunRequestMessageIds(client)
   const backgroundResponseMessagesRepairQueue = createBackgroundResponseMessagesRepairQueue(dbPath)
+  const getChannelUserRole = (channelUserId: string | null): ChannelUserRole | undefined => {
+    if (channelUserId === null) return undefined
+    const row = db
+      .select({ role: channelUsersTable.role })
+      .from(channelUsersTable)
+      .where(eq(channelUsersTable.id, channelUserId))
+      .get()
+    return row ? ((row.role ?? 'guest') as ChannelUserRole) : undefined
+  }
+  const isOwnerDmThread = (thread: {
+    channelGroupId: string | null
+    channelUserId: string | null
+  }): boolean => {
+    if (thread.channelGroupId !== null || thread.channelUserId === null) return false
+    return getChannelUserRole(thread.channelUserId) === 'owner'
+  }
+  const isBootstrapThread = (thread: {
+    channelGroupId: string | null
+    channelUserId: string | null
+    source: string | null
+  }): boolean => {
+    if ((thread.source === null || thread.source === 'local') && thread.channelUserId === null) {
+      return true
+    }
+    return isOwnerDmThread(thread)
+  }
+  const toThreadRecordWithChannelUserRole = (
+    row: Parameters<typeof toThreadRecord>[0]
+  ): ReturnType<typeof toThreadRecord> => {
+    const record = toThreadRecord(row)
+    const role = getChannelUserRole(row.channelUserId)
+    return role ? { ...record, channelUserRole: role } : record
+  }
 
   return {
     close() {
@@ -366,15 +399,13 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .from(threadsTable)
         .orderBy(desc(threadsTable.updatedAt))
         .all()
-      const localThreads = allThreads.filter(
-        (thread) => (thread.source === null || thread.source === 'local') && !thread.channelUserId
-      )
+      const localThreads = allThreads.filter(isBootstrapThread)
       const threads = localThreads
         .filter((thread) => thread.archivedAt === null)
-        .map(toThreadRecord)
+        .map(toThreadRecordWithChannelUserRole)
       const archivedThreads = localThreads
         .filter((thread) => thread.archivedAt !== null)
-        .map(toThreadRecord)
+        .map(toThreadRecordWithChannelUserRole)
       const threadIds = localThreads.map((thread) => thread.id)
       const messages =
         threadIds.length === 0
@@ -612,7 +643,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .where(and(eq(threadsTable.id, threadId), isNull(threadsTable.archivedAt)))
         .get()
 
-      return thread ? toThreadRecord(thread) : undefined
+      return thread ? toThreadRecordWithChannelUserRole(thread) : undefined
     },
 
     getArchivedThread(threadId) {
@@ -657,7 +688,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         return undefined
       }
 
-      return toThreadRecord(thread)
+      return toThreadRecordWithChannelUserRole(thread)
     },
 
     getThreadCreatedAt(threadId) {
@@ -1636,7 +1667,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .all()
 
       const row = rows.find((r) => r.updatedAt >= cutoff)
-      return row ? toThreadRecord(row) : undefined
+      return row ? toThreadRecordWithChannelUserRole(row) : undefined
     },
 
     getThreadTotalTokens(threadId) {
@@ -1666,8 +1697,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         )
         .orderBy(desc(threadsTable.updatedAt))
         .all()
-        .filter((row) => row.source !== 'local')
-        .map(toThreadRecord)
+        .filter((row) => row.source !== 'local' && !isOwnerDmThread(row))
+        .map(toThreadRecordWithChannelUserRole)
     },
 
     listChannelUsers() {
@@ -1817,7 +1848,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .all()
 
       const row = rows.find((r) => r.updatedAt >= cutoff)
-      return row ? toThreadRecord(row) : undefined
+      return row ? toThreadRecordWithChannelUserRole(row) : undefined
     },
 
     listThreadsByChannelGroupId(channelGroupId) {
@@ -1827,7 +1858,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .where(eq(threadsTable.channelGroupId, channelGroupId))
         .orderBy(desc(threadsTable.updatedAt))
         .all()
-        .map(toThreadRecord)
+        .map(toThreadRecordWithChannelUserRole)
     },
 
     // Thread folders

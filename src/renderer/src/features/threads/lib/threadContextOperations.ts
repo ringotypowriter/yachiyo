@@ -19,6 +19,7 @@ export interface ThreadContextOperation {
 }
 
 export function resolveThreadContextOperations(input: {
+  canHandoff?: boolean
   includeSelectMode?: boolean
   isArchived: boolean
   isExternal?: boolean
@@ -74,6 +75,7 @@ export function resolveThreadContextOperations(input: {
       label: 'Rename'
     }
   ]
+  const canHandoff = !input.isExternal && (input.canHandoff ?? true)
 
   if (!input.isExternal) {
     operations.push({
@@ -83,7 +85,7 @@ export function resolveThreadContextOperations(input: {
     })
   }
 
-  if (!input.isExternal) {
+  if (canHandoff) {
     operations.push({
       disabled: input.isSaving || input.isRunning,
       key: 'compact-to-another-thread',

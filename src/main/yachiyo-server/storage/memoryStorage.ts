@@ -6,6 +6,7 @@ import type {
   MessageRecord,
   ScheduleRecord,
   ScheduleRunRecord,
+  ThreadRecord,
   ThreadSearchResult,
   ToolCallRecord,
   UsageStatsInput,
@@ -92,6 +93,25 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     return thread
   }
 
+  const isOwnerDmThread = (thread: StoredThreadRow): boolean => {
+    if (thread.channelGroupId !== null || thread.channelUserId === null) return false
+    return channelUsers.get(thread.channelUserId)?.role === 'owner'
+  }
+
+  const isBootstrapThread = (thread: StoredThreadRow): boolean => {
+    if ((thread.source === null || thread.source === 'local') && thread.channelUserId === null) {
+      return true
+    }
+    return isOwnerDmThread(thread)
+  }
+
+  const toThreadRecordWithChannelUserRole = (thread: StoredThreadRow): ThreadRecord => {
+    const record = toThreadRecord(thread)
+    if (thread.channelUserId === null) return record
+    const role = channelUsers.get(thread.channelUserId)?.role
+    return role ? { ...record, channelUserRole: role } : record
+  }
+
   const sortByCreatedAt = <T extends { createdAt: string }>(items: T[]): T[] =>
     [...items].sort((left, right) => left.createdAt.localeCompare(right.createdAt))
   const sortToolCalls = (items: ToolCallRecord[]): ToolCallRecord[] =>
@@ -144,9 +164,10 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       const sortedThreads = [...threads.values()].sort((left, right) =>
         right.updatedAt.localeCompare(left.updatedAt)
       )
-      const activeThreads = sortedThreads.filter((thread) => thread.archivedAt === null)
-      const archivedThreads = sortedThreads.filter((thread) => thread.archivedAt !== null)
-      const threadIds = new Set(sortedThreads.map((thread) => thread.id))
+      const bootstrapThreads = sortedThreads.filter(isBootstrapThread)
+      const activeThreads = bootstrapThreads.filter((thread) => thread.archivedAt === null)
+      const archivedThreads = bootstrapThreads.filter((thread) => thread.archivedAt !== null)
+      const threadIds = new Set(bootstrapThreads.map((thread) => thread.id))
       const allMessages = sortByCreatedAt(
         messages.filter((message) => threadIds.has(message.threadId))
       )
@@ -163,10 +184,10 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       )
 
       return {
-        archivedThreads: archivedThreads.map(toThreadRecord),
+        archivedThreads: archivedThreads.map(toThreadRecordWithChannelUserRole),
         folders: [...folders.values()],
         latestRunsByThread,
-        threads: activeThreads.map(toThreadRecord),
+        threads: activeThreads.map(toThreadRecordWithChannelUserRole),
         messagesByThread: groupMessagesByThread(allMessages),
         toolCallsByThread: groupToolCallsByThread(allToolCalls)
       }
@@ -245,12 +266,12 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
     getThread(threadId) {
       const thread = readThread(threadId)
-      return thread ? toThreadRecord(thread) : undefined
+      return thread ? toThreadRecordWithChannelUserRole(thread) : undefined
     },
 
     getArchivedThread(threadId) {
       const thread = readArchivedThread(threadId)
-      return thread ? toThreadRecord(thread) : undefined
+      return thread ? toThreadRecordWithChannelUserRole(thread) : undefined
     },
 
     getThreadCreatedAt(threadId) {
@@ -914,7 +935,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       const match = [...threads.values()]
         .filter((t) => t.channelUserId === channelUserId && !t.archivedAt && t.updatedAt >= cutoff)
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
-      return match ? toThreadRecord(match) : undefined
+      return match ? toThreadRecordWithChannelUserRole(match) : undefined
     },
 
     getThreadTotalTokens(threadId) {
@@ -929,9 +950,16 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
     listExternalThreads() {
       return [...threads.values()]
-        .filter((t) => t.source && t.source !== 'local' && !t.archivedAt && !t.channelGroupId)
+        .filter(
+          (t) =>
+            t.source &&
+            t.source !== 'local' &&
+            !t.archivedAt &&
+            !t.channelGroupId &&
+            !isOwnerDmThread(t)
+        )
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-        .map(toThreadRecord)
+        .map(toThreadRecordWithChannelUserRole)
     },
 
     listChannelUsers() {
@@ -1007,14 +1035,14 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
           (t) => t.channelGroupId === channelGroupId && !t.archivedAt && t.updatedAt >= cutoff
         )
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
-      return match ? toThreadRecord(match) : undefined
+      return match ? toThreadRecordWithChannelUserRole(match) : undefined
     },
 
     listThreadsByChannelGroupId(channelGroupId) {
       return [...threads.values()]
         .filter((thread) => thread.channelGroupId === channelGroupId)
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-        .map(toThreadRecord)
+        .map(toThreadRecordWithChannelUserRole)
     },
 
     // Thread folders

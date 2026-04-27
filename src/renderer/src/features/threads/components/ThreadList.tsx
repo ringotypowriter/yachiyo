@@ -20,6 +20,10 @@ import {
   resolveThreadContextOperations,
   type ThreadContextOperationKey
 } from '@renderer/features/threads/lib/threadContextOperations'
+import {
+  canCompactThreadToAnotherThread,
+  isExternalThread
+} from '@renderer/features/threads/lib/threadVisibility'
 import { ThreadFolderItem } from './ThreadFolderItem'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { theme } from '@renderer/theme/theme'
@@ -123,8 +127,9 @@ function ThreadListItem({
   const [isHovered, setIsHovered] = useState(false)
   const iconInputRef = useRef<HTMLInputElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
-  const isExternal = thread.source != null && thread.source !== 'local'
+  const isExternal = isExternalThread(thread)
   const operations = resolveThreadContextOperations({
+    canHandoff: canCompactThreadToAnotherThread(thread),
     includeSelectMode: true,
     isArchived: threadListMode === 'archived',
     isExternal,

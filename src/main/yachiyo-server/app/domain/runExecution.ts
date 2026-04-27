@@ -12,7 +12,6 @@ const execFileAsync = promisify(execFile)
 
 const MEMORY_RECALL_TIMEOUT_MS = 15_000
 export const DEFAULT_MAX_TOOL_STEPS = 100
-const OWNER_DM_MAX_TOOL_STEPS = 30
 const EXTERNAL_CHANNEL_MAX_TOOL_STEPS = 10
 const AGENTS_MD_PRELOAD_THRESHOLD_BYTES = 10 * 1024
 
@@ -1373,11 +1372,7 @@ export async function executeServerRun(
     }
     const maxToolSteps =
       input.maxToolStepsOverride ??
-      (isExternalChannel
-        ? isOwnerDm
-          ? OWNER_DM_MAX_TOOL_STEPS
-          : EXTERNAL_CHANNEL_MAX_TOOL_STEPS
-        : DEFAULT_MAX_TOOL_STEPS)
+      (isExternalChannel && !isOwnerDm ? EXTERNAL_CHANNEL_MAX_TOOL_STEPS : DEFAULT_MAX_TOOL_STEPS)
     // Owner DMs use the owner's configured full tool set; all other runs use whatever
     // the caller passed in (which for channel services is policy.allowedTools).
     const modelEnabledTools = resolveModelEnabledTools({

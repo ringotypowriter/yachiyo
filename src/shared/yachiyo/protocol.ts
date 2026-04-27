@@ -510,6 +510,7 @@ export interface ThreadRecord {
   modelOverride?: ThreadModelOverride
   source?: 'local' | ChannelPlatform
   channelUserId?: string
+  channelUserRole?: ChannelUserRole
   channelGroupId?: string
   /** Legacy external-safe summary from older external auto-rolling. Preserved for replay. */
   rollingSummary?: string

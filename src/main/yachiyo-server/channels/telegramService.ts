@@ -175,7 +175,7 @@ export function createTelegramService({
           workspacePath: resolveUserWorkspace(channelUser.username),
           source: 'telegram',
           channelUserId: channelUser.id,
-          title: `Telegram:@${channelUser.username}`,
+          ...(channelUser.role === 'owner' ? {} : { title: `Telegram:@${channelUser.username}` }),
           ...(input?.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {})
         })
     })
@@ -203,7 +203,7 @@ export function createTelegramService({
               workspacePath: resolveUserWorkspace(user.username),
               source: 'telegram',
               channelUserId: user.id,
-              title: `Telegram:@${user.username}`
+              ...(user.role === 'owner' ? {} : { title: `Telegram:@${user.username}` })
             }),
           sendMessage,
           requestStop: (userId) => directMessages.requestStop(userId)
