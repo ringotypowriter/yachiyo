@@ -120,10 +120,13 @@ export function createQQBotService({
       modelOverride,
       createThread: async (input): Promise<ThreadRecord> =>
         server.createThread({
-          workspacePath: channelUser.workspacePath,
           source: 'qqbot',
           channelUserId: channelUser.id,
-          ...(channelUser.role === 'owner' ? {} : { title: `QQBot:${channelUser.username}` }),
+          ...(channelUser.role === 'owner'
+            ? input?.workspacePath
+              ? { workspacePath: input.workspacePath }
+              : {}
+            : { workspacePath: channelUser.workspacePath, title: `QQBot:${channelUser.username}` }),
           ...(input?.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {})
         })
     })
@@ -167,10 +170,11 @@ export function createQQBotService({
           contextTokenLimit: policy.contextTokenLimit,
           createFreshThread: (user) =>
             server.createThread({
-              workspacePath: user.workspacePath,
               source: 'qqbot',
               channelUserId: user.id,
-              ...(user.role === 'owner' ? {} : { title: `QQBot:${user.username}` })
+              ...(user.role === 'owner'
+                ? {}
+                : { workspacePath: user.workspacePath, title: `QQBot:${user.username}` })
             }),
           sendMessage: sendMessageWithTarget,
           requestStop: (userId) => directMessages.requestStop(userId)

@@ -3,12 +3,17 @@ import { describe, it } from 'node:test'
 
 import type {
   ChannelUserRecord,
+  SettingsConfig,
   ThreadModelOverride,
   ThreadRecord
 } from '../../../shared/yachiyo/protocol.ts'
-import { handleDmSlashCommand, type DmSlashCommandOptions } from './dmSlashCommands.ts'
+import {
+  handleDmSlashCommand,
+  shouldDiscardPendingBatchForDmCommand,
+  type DmSlashCommandOptions
+} from './dmSlashCommands.ts'
 
-function createChannelUser(): ChannelUserRecord {
+function createChannelUser(overrides: Partial<ChannelUserRecord> = {}): ChannelUserRecord {
   return {
     id: 'tg-user-1',
     platform: 'telegram',
@@ -19,7 +24,8 @@ function createChannelUser(): ChannelUserRecord {
     role: 'guest',
     usageLimitKTokens: null,
     usedKTokens: 0,
-    workspacePath: '/tmp/tg-alice'
+    workspacePath: '/tmp/tg-alice',
+    ...overrides
   }
 }
 
@@ -32,23 +38,46 @@ function createThread(id: string, overrides: Partial<ThreadRecord> = {}): Thread
   }
 }
 
+function createConfig(overrides: Partial<SettingsConfig> = {}): SettingsConfig {
+  return {
+    providers: [],
+    workspace: {
+      savedPaths: ['/work/yachiyo', '/work/research-notes'],
+      pathLabels: {
+        '/work/yachiyo': 'Yachiyo',
+        '/work/research-notes': 'Research Notes'
+      }
+    },
+    ...overrides
+  }
+}
+
 function makeOptions<TTarget>(
-  overrides: Partial<DmSlashCommandOptions<TTarget>> & {
+  overrides: Omit<Partial<DmSlashCommandOptions<TTarget>>, 'server'> & {
+    server?: Partial<DmSlashCommandOptions<TTarget>['server']>
     sendMessage: DmSlashCommandOptions<TTarget>['sendMessage']
   }
 ): DmSlashCommandOptions<TTarget> {
+  const defaultServer: DmSlashCommandOptions<TTarget>['server'] = {
+    findActiveChannelThread: () => undefined,
+    getThreadTotalTokens: () => 0,
+    hasActiveThread: () => false,
+    cancelRunForChannelUser: () => false,
+    getConfig: async () => createConfig(),
+    getThreadWorkspaceChangeBlocker: () => null,
+    updateThreadWorkspace: async () => {
+      throw new Error('updateThreadWorkspace should not be called')
+    }
+  }
+  const { server, ...rest } = overrides
   return {
-    server: {
-      findActiveChannelThread: () => undefined,
-      getThreadTotalTokens: () => 0,
-      cancelRunForChannelUser: () => false
-    },
+    server: { ...defaultServer, ...(server ?? {}) },
     threadReuseWindowMs: 3_600_000,
     contextTokenLimit: 100_000,
     createFreshThread: async () => {
       throw new Error('createFreshThread should not be called')
     },
-    ...overrides
+    ...rest
   }
 }
 
@@ -123,13 +152,21 @@ describe('handleDmSlashCommand', () => {
   })
 
   describe('/status', () => {
-    it('reports model and token usage for an active thread with model override', async () => {
+    it('reports detailed status for an active owner thread', async () => {
       const modelOverride: ThreadModelOverride = {
         providerName: 'anthropic',
         model: 'claude-opus-4-6'
       }
-      const thread = createThread('thread-1', { modelOverride })
-      const channelUser = createChannelUser()
+      const thread = createThread('thread-1', {
+        title: 'Launch Review',
+        modelOverride,
+        workspacePath: '/work/yachiyo'
+      })
+      const channelUser = createChannelUser({
+        role: 'owner',
+        usedKTokens: 42,
+        usageLimitKTokens: 120
+      })
       const sent: string[] = []
 
       const options = makeOptions<string>({
@@ -143,6 +180,10 @@ describe('handleDmSlashCommand', () => {
             assert.equal(threadId, thread.id)
             return 18_000
           },
+          hasActiveThread: (threadId) => {
+            assert.equal(threadId, thread.id)
+            return true
+          },
           cancelRunForChannelUser: () => false
         },
         sendMessage: async (_target, text) => {
@@ -154,12 +195,14 @@ describe('handleDmSlashCommand', () => {
 
       assert.equal(handled, true)
       assert.equal(sent.length, 1)
-      assert.ok(
-        sent[0].includes('claude-opus-4-6'),
-        `reply should include model name, got: ${sent[0]}`
-      )
-      assert.ok(sent[0].includes('18k'), `reply should include token count, got: ${sent[0]}`)
-      assert.ok(sent[0].includes('100k'), `reply should include token limit, got: ${sent[0]}`)
+      assert.match(sent[0], /Conversation: Launch Review/)
+      assert.match(sent[0], /State: running/)
+      assert.match(sent[0], /Channel: telegram · owner/)
+      assert.match(sent[0], /Model: anthropic \/ claude-opus-4-6/)
+      assert.match(sent[0], /Context: 18k \/ 100k \(18%, 82k remaining\)/)
+      assert.match(sent[0], /Usage: 42k \/ 120k/)
+      assert.match(sent[0], /Workspace: Yachiyo/)
+      assert.match(sent[0], /\/work\/yachiyo/)
     })
 
     it('uses "default" as model label when thread has no model override', async () => {
@@ -183,6 +226,29 @@ describe('handleDmSlashCommand', () => {
       assert.equal(handled, true)
       assert.equal(sent.length, 1)
       assert.ok(sent[0].includes('default'), `reply should say "default", got: ${sent[0]}`)
+    })
+
+    it('does not expose workspace details to guest users', async () => {
+      const thread = createThread('thread-1', { workspacePath: '/tmp/tg-alice' })
+      const channelUser = createChannelUser()
+      const sent: string[] = []
+
+      const options = makeOptions<string>({
+        server: {
+          findActiveChannelThread: () => thread,
+          getThreadTotalTokens: () => 5_000
+        },
+        sendMessage: async (_target, text) => {
+          sent.push(text)
+        }
+      })
+
+      const handled = await handleDmSlashCommand(options, 'chat-1', channelUser, '/status', '')
+
+      assert.equal(handled, true)
+      assert.equal(sent.length, 1)
+      assert.equal(sent[0].includes('Workspace:'), false)
+      assert.equal(sent[0].includes('/tmp/tg-alice'), false)
     })
 
     it('reports no active conversation when no thread exists', async () => {
@@ -328,6 +394,250 @@ describe('handleDmSlashCommand', () => {
       for (const cmd of ['/new', '/status', '/stop', '/help']) {
         assert.ok(sent[0].includes(cmd), `reply should mention ${cmd}, got: ${sent[0]}`)
       }
+    })
+
+    it('includes /workspace for owner users only', async () => {
+      const owner = createChannelUser({ role: 'owner' })
+      const guest = createChannelUser()
+      const ownerReplies: string[] = []
+      const guestReplies: string[] = []
+
+      await handleDmSlashCommand(
+        makeOptions<string>({
+          sendMessage: async (_target, text) => {
+            ownerReplies.push(text)
+          }
+        }),
+        'chat-1',
+        owner,
+        '/help',
+        ''
+      )
+      await handleDmSlashCommand(
+        makeOptions<string>({
+          sendMessage: async (_target, text) => {
+            guestReplies.push(text)
+          }
+        }),
+        'chat-1',
+        guest,
+        '/help',
+        ''
+      )
+
+      assert.equal(ownerReplies.length, 1)
+      assert.equal(guestReplies.length, 1)
+      assert.ok(ownerReplies[0].includes('/workspace'))
+      assert.equal(guestReplies[0].includes('/workspace'), false)
+    })
+  })
+
+  describe('/workspace', () => {
+    it('lists saved workspaces by index for owner users', async () => {
+      const channelUser = createChannelUser({ role: 'owner' })
+      const sent: string[] = []
+
+      const handled = await handleDmSlashCommand(
+        makeOptions<string>({
+          sendMessage: async (_target, text) => {
+            sent.push(text)
+          }
+        }),
+        'chat-1',
+        channelUser,
+        '/workspace',
+        ''
+      )
+
+      assert.equal(handled, true)
+      assert.equal(sent.length, 1)
+      assert.match(sent[0], /1\. Yachiyo/)
+      assert.match(sent[0], /\/work\/yachiyo/)
+      assert.match(sent[0], /2\. Research Notes/)
+      assert.match(sent[0], /\/work\/research-notes/)
+      assert.match(sent[0], /\/workspace 1/)
+    })
+
+    it('switches the active owner thread to the selected workspace index', async () => {
+      const channelUser = createChannelUser({ role: 'owner' })
+      const activeThread = createThread('thread-active')
+      const sent: string[] = []
+      const workspaceUpdates: Array<{ threadId: string; workspacePath?: string | null }> = []
+
+      const handled = await handleDmSlashCommand(
+        makeOptions<string>({
+          server: {
+            findActiveChannelThread: () => activeThread,
+            getThreadTotalTokens: () => 0,
+            cancelRunForChannelUser: () => false,
+            getConfig: async () => createConfig(),
+            updateThreadWorkspace: async (input) => {
+              workspaceUpdates.push(input)
+              return createThread(input.threadId, {
+                workspacePath: input.workspacePath ?? undefined
+              })
+            }
+          },
+          sendMessage: async (_target, text) => {
+            sent.push(text)
+          }
+        }),
+        'chat-1',
+        channelUser,
+        '/workspace',
+        '2'
+      )
+
+      assert.equal(handled, true)
+      assert.deepEqual(workspaceUpdates, [
+        { threadId: activeThread.id, workspacePath: '/work/research-notes' }
+      ])
+      assert.equal(sent.length, 1)
+      assert.match(sent[0], /Research Notes/)
+      assert.match(sent[0], /\/work\/research-notes/)
+    })
+
+    it('returns the workspace lock message before showing choices', async () => {
+      const channelUser = createChannelUser({ role: 'owner' })
+      const activeThread = createThread('thread-active')
+      const sent: string[] = []
+      let configRead = false
+
+      const handled = await handleDmSlashCommand(
+        makeOptions<string>({
+          server: {
+            findActiveChannelThread: () => activeThread,
+            getConfig: async () => {
+              configRead = true
+              return createConfig()
+            },
+            getThreadWorkspaceChangeBlocker: () =>
+              'Workspace can only be changed before the first message is sent.'
+          },
+          sendMessage: async (_target, text) => {
+            sent.push(text)
+          }
+        }),
+        'chat-1',
+        channelUser,
+        '/workspace',
+        ''
+      )
+
+      assert.equal(handled, true)
+      assert.equal(configRead, false)
+      assert.deepEqual(sent, ['Workspace can only be changed before the first message is sent.'])
+    })
+
+    it('includes a discard notice when batchDiscarded is true', async () => {
+      const channelUser = createChannelUser({ role: 'owner' })
+      const activeThread = createThread('thread-active')
+      const sent: string[] = []
+
+      const handled = await handleDmSlashCommand(
+        makeOptions<string>({
+          server: {
+            findActiveChannelThread: () => activeThread,
+            updateThreadWorkspace: async (input) =>
+              createThread(input.threadId, { workspacePath: input.workspacePath ?? undefined })
+          },
+          sendMessage: async (_target, text) => {
+            sent.push(text)
+          }
+        }),
+        'chat-1',
+        channelUser,
+        '/workspace',
+        '1',
+        { batchDiscarded: true }
+      )
+
+      assert.equal(handled, true)
+      assert.equal(sent.length, 1)
+      assert.match(sent[0], /Your unsent message was discarded\./)
+      assert.match(sent[0], /Workspace switched to Yachiyo\./)
+    })
+
+    it('creates a fresh owner thread before switching when no active thread exists', async () => {
+      const channelUser = createChannelUser({ role: 'owner' })
+      const freshThread = createThread('thread-fresh')
+      const workspaceUpdates: Array<{ threadId: string; workspacePath?: string | null }> = []
+      let createdForUserId: string | undefined
+
+      const handled = await handleDmSlashCommand(
+        makeOptions<string>({
+          server: {
+            findActiveChannelThread: () => undefined,
+            getThreadTotalTokens: () => 0,
+            cancelRunForChannelUser: () => false,
+            getConfig: async () => createConfig(),
+            updateThreadWorkspace: async (input) => {
+              workspaceUpdates.push(input)
+              return createThread(input.threadId, {
+                workspacePath: input.workspacePath ?? undefined
+              })
+            }
+          },
+          createFreshThread: async (user) => {
+            createdForUserId = user.id
+            return freshThread
+          },
+          sendMessage: async () => {}
+        }),
+        'chat-1',
+        channelUser,
+        '/workspace',
+        '1'
+      )
+
+      assert.equal(handled, true)
+      assert.equal(createdForUserId, channelUser.id)
+      assert.deepEqual(workspaceUpdates, [
+        { threadId: freshThread.id, workspacePath: '/work/yachiyo' }
+      ])
+    })
+
+    it('hides the workspace command from guest users', async () => {
+      const channelUser = createChannelUser()
+      const sent: string[] = []
+      let configRead = false
+
+      const handled = await handleDmSlashCommand(
+        makeOptions<string>({
+          server: {
+            findActiveChannelThread: () => undefined,
+            getThreadTotalTokens: () => 0,
+            cancelRunForChannelUser: () => false,
+            getConfig: async () => {
+              configRead = true
+              return createConfig()
+            },
+            updateThreadWorkspace: async () => {
+              throw new Error('updateThreadWorkspace should not be called')
+            }
+          },
+          sendMessage: async (_target, text) => {
+            sent.push(text)
+          }
+        }),
+        'chat-1',
+        channelUser,
+        '/workspace',
+        ''
+      )
+
+      assert.equal(handled, true)
+      assert.equal(configRead, false)
+      assert.equal(sent.length, 1)
+      assert.match(sent[0], /Unknown command: \/workspace/)
+    })
+
+    it('discards pending batches for owner workspace commands only', () => {
+      assert.equal(
+        shouldDiscardPendingBatchForDmCommand('/workspace', createChannelUser({ role: 'owner' })),
+        true
+      )
+      assert.equal(shouldDiscardPendingBatchForDmCommand('/workspace', createChannelUser()), false)
     })
   })
 })

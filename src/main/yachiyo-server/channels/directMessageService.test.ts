@@ -60,14 +60,16 @@ describe('resolveDirectMessageThread', () => {
   it('creates a fresh handoff thread when the active DM reaches the token threshold', async () => {
     const existing = createThread('thread-existing', {
       source: 'telegram',
-      channelUserId: 'tg-user-1'
+      channelUserId: 'tg-user-1',
+      workspacePath: '/work/yachiyo'
     })
     const fresh = createThread('thread-fresh', {
       source: 'telegram',
       channelUserId: 'tg-user-1',
       handoffFromThreadId: existing.id
     })
-    const createCalls: Array<{ handoffFromThreadId?: string } | undefined> = []
+    const createCalls: Array<{ handoffFromThreadId?: string; workspacePath?: string } | undefined> =
+      []
 
     const result = await resolveDirectMessageThread({
       logLabel: 'telegram',
@@ -95,7 +97,9 @@ describe('resolveDirectMessageThread', () => {
 
     assert.equal(result.thread, fresh)
     assert.equal(result.usageBaselineKTokens, 128)
-    assert.deepEqual(createCalls, [{ handoffFromThreadId: existing.id }])
+    assert.deepEqual(createCalls, [
+      { handoffFromThreadId: existing.id, workspacePath: '/work/yachiyo' }
+    ])
   })
 })
 
@@ -559,6 +563,76 @@ describe('createDirectMessageService', () => {
     assert.deepEqual(sentContents, [])
   })
 
+  it('discards a pending batch for owner /workspace before the slash command runs', async () => {
+    const channelUser = { ...createChannelUser(), role: 'owner' as const }
+    const thread = createThread('thread-workspace-discard')
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    const sentContents: string[] = []
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input) {
+        sentContents.push(input.content)
+        queueMicrotask(() => {
+          for (const l of listeners) {
+            l({
+              type: 'run.completed',
+              eventId: 'e1',
+              timestamp: '2026-03-31T00:00:00.000Z',
+              threadId: thread.id,
+              runId: 'r1'
+            })
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'r1',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    let batchDiscarded: boolean | undefined
+    const directMessages = createDirectMessageService({
+      logLabel: 'test',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 50,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async () => {},
+      nonRunReply: 'non-run',
+      errorReply: 'error',
+      shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
+      handleSlashCommand: async (_target, _channelUser, _command, _args, context) => {
+        batchDiscarded = context.batchDiscarded
+        return true
+      }
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'hello')
+    directMessages.enqueueMessage('chat-1', channelUser, '/workspace 1')
+
+    await delay(100)
+
+    assert.equal(batchDiscarded, true)
+    assert.deepEqual(sentContents, [])
+  })
+
   it('does not discard a pending batch for no-side-effect slash commands like /help', async () => {
     const channelUser = createChannelUser()
     const thread = createThread('thread-keep')
@@ -790,7 +864,15 @@ describe('createDirectMessageService', () => {
       handleSlashCommand: (target, channelUser, command, args, context) =>
         handleDmSlashCommand(
           {
-            server,
+            server: {
+              ...server,
+              getConfig: async () => ({ providers: [], workspace: { savedPaths: [] } }),
+              hasActiveThread: () => false,
+              getThreadWorkspaceChangeBlocker: () => null,
+              updateThreadWorkspace: async () => {
+                throw new Error('updateThreadWorkspace should not be called')
+              }
+            },
             threadReuseWindowMs: telegramPolicy.threadReuseWindowMs,
             contextTokenLimit: telegramPolicy.contextTokenLimit,
             createFreshThread: async () => createThread('t-fresh'),
@@ -864,7 +946,15 @@ describe('createDirectMessageService', () => {
       handleSlashCommand: (target, channelUser, command, args, context) =>
         handleDmSlashCommand(
           {
-            server,
+            server: {
+              ...server,
+              getConfig: async () => ({ providers: [], workspace: { savedPaths: [] } }),
+              hasActiveThread: () => false,
+              getThreadWorkspaceChangeBlocker: () => null,
+              updateThreadWorkspace: async () => {
+                throw new Error('updateThreadWorkspace should not be called')
+              }
+            },
             threadReuseWindowMs: telegramPolicy.threadReuseWindowMs,
             contextTokenLimit: telegramPolicy.contextTokenLimit,
             createFreshThread: async () => createThread('thread-fresh'),

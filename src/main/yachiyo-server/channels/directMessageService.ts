@@ -64,6 +64,7 @@ export interface DirectMessageThreadResolution {
 
 export interface DirectMessageCreateThreadInput {
   handoffFromThreadId?: string
+  workspacePath?: string
 }
 
 export interface ResolveDirectMessageThreadOptions {
@@ -125,7 +126,8 @@ export async function resolveDirectMessageThread(
       )
       return {
         thread: await createResolvedThread({
-          handoffFromThreadId: thread.id
+          handoffFromThreadId: thread.id,
+          ...(thread.workspacePath ? { workspacePath: thread.workspacePath } : {})
         }),
         usageBaselineKTokens: Math.max(channelUser.usedKTokens, currentThreadKTokens)
       }
@@ -170,7 +172,7 @@ export interface DirectMessageServiceOptions<TTarget> {
    * Optional predicate that decides whether a pending batch should be discarded
    * before executing the given slash command.
    */
-  shouldDiscardPendingBatch?(command: string): boolean
+  shouldDiscardPendingBatch?(command: string, channelUser: ChannelUserRecord, args: string): boolean
 }
 
 export interface DirectMessageService<TTarget> {
@@ -489,7 +491,7 @@ export function createDirectMessageService<TTarget>(
         const args = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim()
 
         let batchDiscarded = false
-        if (options.shouldDiscardPendingBatch?.(command)) {
+        if (options.shouldDiscardPendingBatch?.(command, channelUser, args)) {
           const pending = pendingBatches.get(channelUser.id)
           if (pending) {
             clearTimeout(pending.timer)

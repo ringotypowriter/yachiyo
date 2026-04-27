@@ -211,10 +211,16 @@ export function createDiscordService({
       modelOverride,
       createThread: async (input): Promise<ThreadRecord> =>
         server.createThread({
-          workspacePath: resolveUserWorkspace(channelUser.username),
           source: 'discord',
           channelUserId: channelUser.id,
-          ...(channelUser.role === 'owner' ? {} : { title: `Discord:@${channelUser.username}` }),
+          ...(channelUser.role === 'owner'
+            ? input?.workspacePath
+              ? { workspacePath: input.workspacePath }
+              : {}
+            : {
+                workspacePath: resolveUserWorkspace(channelUser.username),
+                title: `Discord:@${channelUser.username}`
+              }),
           ...(input?.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {})
         })
     })
@@ -239,10 +245,14 @@ export function createDiscordService({
           contextTokenLimit: policy.contextTokenLimit,
           createFreshThread: (user) =>
             server.createThread({
-              workspacePath: resolveUserWorkspace(user.username),
               source: 'discord',
               channelUserId: user.id,
-              ...(user.role === 'owner' ? {} : { title: `Discord:@${user.username}` })
+              ...(user.role === 'owner'
+                ? {}
+                : {
+                    workspacePath: resolveUserWorkspace(user.username),
+                    title: `Discord:@${user.username}`
+                  })
             }),
           sendMessage,
           requestStop: (userId) => directMessages.requestStop(userId)

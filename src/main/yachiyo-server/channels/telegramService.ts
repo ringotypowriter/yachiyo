@@ -172,10 +172,16 @@ export function createTelegramService({
       modelOverride,
       createThread: async (input): Promise<ThreadRecord> =>
         server.createThread({
-          workspacePath: resolveUserWorkspace(channelUser.username),
           source: 'telegram',
           channelUserId: channelUser.id,
-          ...(channelUser.role === 'owner' ? {} : { title: `Telegram:@${channelUser.username}` }),
+          ...(channelUser.role === 'owner'
+            ? input?.workspacePath
+              ? { workspacePath: input.workspacePath }
+              : {}
+            : {
+                workspacePath: resolveUserWorkspace(channelUser.username),
+                title: `Telegram:@${channelUser.username}`
+              }),
           ...(input?.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {})
         })
     })
@@ -200,10 +206,14 @@ export function createTelegramService({
           contextTokenLimit: policy.contextTokenLimit,
           createFreshThread: (user) =>
             server.createThread({
-              workspacePath: resolveUserWorkspace(user.username),
               source: 'telegram',
               channelUserId: user.id,
-              ...(user.role === 'owner' ? {} : { title: `Telegram:@${user.username}` })
+              ...(user.role === 'owner'
+                ? {}
+                : {
+                    workspacePath: resolveUserWorkspace(user.username),
+                    title: `Telegram:@${user.username}`
+                  })
             }),
           sendMessage,
           requestStop: (userId) => directMessages.requestStop(userId)

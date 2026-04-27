@@ -661,6 +661,15 @@ export class YachiyoServer {
       privacyMode?: boolean
     } = {}
   ): Promise<ThreadRecord> {
+    if (input.handoffFromThreadId && !input.workspacePath?.trim()) {
+      const sourceThread = this.requireThread(input.handoffFromThreadId)
+      if (!sourceThread.workspacePath) {
+        const threadId = this.createId()
+        await this.cloneThreadWorkspace(sourceThread.id, threadId)
+        return this.threadDomain.createThread({ ...input, threadId })
+      }
+    }
+
     return this.threadDomain.createThread(input)
   }
 
@@ -705,6 +714,10 @@ export class YachiyoServer {
     workspacePath?: string | null
   }): Promise<ThreadRecord> {
     return this.threadDomain.updateWorkspace(input)
+  }
+
+  getThreadWorkspaceChangeBlocker(input: { threadId: string }): string | null {
+    return this.threadDomain.getWorkspaceChangeBlocker(input)
   }
 
   async openThreadWorkspace(input: { threadId: string }): Promise<string> {
@@ -938,6 +951,10 @@ export class YachiyoServer {
 
   cancelRunForChannelUser(channelUserId: string): boolean {
     return this.runDomain.cancelRunForChannelUser(channelUserId)
+  }
+
+  hasActiveThread(threadId: string): boolean {
+    return this.runDomain.hasActiveThread(threadId)
   }
 
   answerToolQuestion(input: { runId: string; toolCallId: string; answer: string }): void {

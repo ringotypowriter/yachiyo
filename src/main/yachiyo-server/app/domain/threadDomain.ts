@@ -219,22 +219,12 @@ export class YachiyoServerThreadDomain {
     threadId: string
     workspacePath?: string | null
   }): Promise<ThreadRecord> {
+    const blocker = this.getWorkspaceChangeBlocker({ threadId: input.threadId })
+    if (blocker) {
+      throw new Error(blocker)
+    }
+
     const thread = this.deps.requireThread(input.threadId)
-    if (this.deps.isThreadRunning(thread.id)) {
-      throw new Error('Cannot change the workspace while this thread is running.')
-    }
-
-    const messages = this.loadThreadMessages(thread.id)
-    const threadCreatedAt = this.deps.storage.getThreadCreatedAt(thread.id)
-    if (
-      !canChangeThreadWorkspace({
-        messages,
-        threadCreatedAt
-      })
-    ) {
-      throw new Error('Workspace can only be changed before the first message is sent.')
-    }
-
     const workspacePath = input.workspacePath?.trim()
       ? resolve(input.workspacePath.trim())
       : undefined
@@ -261,6 +251,26 @@ export class YachiyoServerThreadDomain {
     })
 
     return updatedThread
+  }
+
+  getWorkspaceChangeBlocker(input: { threadId: string }): string | null {
+    const thread = this.deps.requireThread(input.threadId)
+    if (this.deps.isThreadRunning(thread.id)) {
+      return 'Cannot change the workspace while this thread is running.'
+    }
+
+    const messages = this.loadThreadMessages(thread.id)
+    const threadCreatedAt = this.deps.storage.getThreadCreatedAt(thread.id)
+    if (
+      !canChangeThreadWorkspace({
+        messages,
+        threadCreatedAt
+      })
+    ) {
+      return 'Workspace can only be changed before the first message is sent.'
+    }
+
+    return null
   }
 
   renameThread(input: { threadId: string; title: string }): ThreadRecord {

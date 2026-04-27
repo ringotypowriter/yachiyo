@@ -704,6 +704,47 @@ test('YachiyoServer exposes owner DM threads through the normal bootstrap list',
   })
 })
 
+test('YachiyoServer clones implicit owner DM workspace when creating a handoff thread', async () => {
+  const cloneCalls: Array<{ sourceThreadId: string; targetThreadId: string }> = []
+
+  await withServer(
+    async ({ server }) => {
+      const owner = server.createChannelUser({
+        id: 'tg-owner-handoff-workspace',
+        platform: 'telegram',
+        externalUserId: 'owner-implicit-workspace',
+        username: 'owner',
+        label: '',
+        status: 'allowed',
+        role: 'owner',
+        usageLimitKTokens: null,
+        workspacePath: '/tmp/tg-owner-handoff-workspace'
+      })
+      const sourceThread = await server.createThread({
+        source: 'telegram',
+        channelUserId: owner.id
+      })
+      const handoffThread = await server.createThread({
+        source: 'telegram',
+        channelUserId: owner.id,
+        handoffFromThreadId: sourceThread.id
+      })
+
+      assert.equal(handoffThread.workspacePath, undefined)
+      assert.deepEqual(cloneCalls, [
+        { sourceThreadId: sourceThread.id, targetThreadId: handoffThread.id }
+      ])
+    },
+    {
+      cloneThreadWorkspace: async (sourceThreadId, targetThreadId, workspacePathForThread) => {
+        cloneCalls.push({ sourceThreadId, targetThreadId })
+        await mkdir(workspacePathForThread(targetThreadId), { recursive: true })
+        return workspacePathForThread(targetThreadId)
+      }
+    }
+  )
+})
+
 test('YachiyoServer injects recalled memory into the compiled context before the main run', async () => {
   const recalledQueries: string[] = []
 
