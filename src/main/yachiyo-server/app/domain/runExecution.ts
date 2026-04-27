@@ -701,7 +701,7 @@ function buildAgentInstructions(input: {
 
   if (input.enabledTools.includes('skillsRead')) {
     instructions.push(
-      'Use skillsRead to inspect discovered Skills by name. It returns the skill folder path and SKILL.md path. To use a skill, first call skillsRead to get its exact SKILL.md path, then use the read tool on that exact path. Read SKILL.md before using the skill. If SKILL.md references other files and your work needs them, read those too.'
+      'Use skillsRead to inspect discovered Skills by name. It returns the skill folder path and SKILL.md path. The full workflow for activating a skill is described in the Skills section above.'
     )
   }
 
@@ -711,42 +711,11 @@ function buildAgentInstructions(input: {
     )
   }
 
-  // Tool Execution Discipline
-  instructions.push(
-    'Before modifying any file, use read or grep to verify the exact content and context; never assume or guess file contents.',
-    'Prefer native search tools (grep, glob) over complex bash pipelines for file and content discovery; this avoids shell-escaping errors and produces more reliable results.',
-    'After any write or edit operation, verify the result by reading the affected location before proceeding.'
-  )
-
-  // Blast Radius & Risk Management
-  instructions.push(
-    'Before executing destructive or large-scale operations (mass file deletion, heavy refactoring, database wipes, force-overwriting existing work), output an explicit plan stating the scope and consequences, then pause for user confirmation.',
-    'When a tool call is blocked or fails, diagnose the root cause and try an alternative approach; never brute-force retry the same blocked action.'
-  )
-
-  // Anti-Hallucination
-  instructions.push(
-    'Never invent file contents, API shapes, configuration keys, or project structures. Before making any factual claim about the current workspace, read or search the relevant files first. Do not rely on training data or memory in place of reading actual files. If you are uncertain about any of these, use tools to discover the ground truth before proceeding.'
-  )
-
-  // Formatting discipline
-  instructions.push(
-    'If you include mathematical notation, use only $$...$$ KaTeX-style block syntax. Do not use single-dollar inline math ($...$), \\(...\\), or \\[...\\].'
-  )
-
-  // Response Discipline
-  instructions.push(
-    "After completing tool work, always synthesize a direct response to the user's original question. Never end your turn with only tool calls and no user-facing text."
-  )
   if (input.maxToolSteps != null) {
     instructions.push(
       `You have a turn budget of ${input.maxToolSteps} generation rounds for this conversation turn. Each round may include multiple parallel tool calls. Plan tool usage efficiently — prefer targeted reads over broad exploration.`
     )
   }
-
-  instructions.push(
-    'Mid-run steer protocol: A steer is a message that arrives while you are already working. It is an adjustment to your current task, not a new request. When you receive a steer, incorporate the adjustment and continue from where you left off. Do not abandon in-progress work unless the steer explicitly tells you to stop.'
-  )
 
   const parts: string[] = [instructions.join('\n')]
   if (input.subagentContextBlock) {
