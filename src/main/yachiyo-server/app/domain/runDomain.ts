@@ -1,4 +1,7 @@
-import { resolve } from 'node:path'
+import { access } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { join, resolve } from 'node:path'
+import type { ToolSet } from 'ai'
 
 import type {
   BackgroundTaskCompletedEvent,
@@ -42,8 +45,6 @@ import {
 } from '../../../../shared/yachiyo/messageContent.ts'
 import { getThreadCapabilities, normalizeSkillNames } from '../../../../shared/yachiyo/protocol.ts'
 import type { AuxiliaryGenerationService } from '../../runtime/auxiliaryGeneration.ts'
-import type { SoulDocument } from '../../runtime/soul.ts'
-import type { UserDocument } from '../../runtime/user.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'
 import {
   createMemoryDistillationScheduler,
@@ -64,8 +65,17 @@ import { assertSupportedImages, resolveEnabledTools } from './configDomain.ts'
 import { toEffectiveProviderSettings } from '../../settings/settingsStore.ts'
 import { isModelImageCapable } from '../../../../shared/yachiyo/providerConfig.ts'
 import type { ModelUsage } from '../../runtime/types.ts'
-import { executeServerRun, type ExecuteRunInput, type ExecuteRunResult } from './runExecution.ts'
-import { ReadRecordCache } from '../../tools/agentTools.ts'
+import {
+  buildAgentInstructions,
+  buildSubagentContextBlock,
+  DEFAULT_MAX_TOOL_STEPS,
+  detectGitContext,
+  executeServerRun,
+  resolveModelEnabledTools,
+  type ExecuteRunInput,
+  type ExecuteRunResult
+} from './runExecution.ts'
+import { createAgentToolSet, ReadRecordCache } from '../../tools/agentTools.ts'
 import { SnapshotTracker } from '../../services/fileSnapshot/snapshotTracker.ts'
 import { runAcpChatThread } from '../../runtime/acp/acpChatRuntime.ts'
 import {
@@ -81,7 +91,12 @@ import {
   preprocessImagesForNonVisionModel,
   type ContextLayerHistoryMessage
 } from '../../runtime/contextLayers.ts'
-import { buildRollingSummaryMessages } from '../../runtime/rollingSummary.ts'
+import { SYSTEM_PROMPT } from '../../runtime/prompt.ts'
+import { formatDateLine } from '../../runtime/queryReminder.ts'
+import { resolveActiveSkills } from '../../services/skills/skillResolver.ts'
+import { readSoulDocument, type SoulDocument } from '../../runtime/soul.ts'
+import { readUserDocument, type UserDocument } from '../../runtime/user.ts'
+import { resolveYachiyoUserPath } from '../../config/paths.ts'
 import { sleep } from '../../channels/connectionRetry.ts'
 import {
   DEFAULT_HARNESS_NAME,
@@ -232,6 +247,23 @@ function resolveEffectiveThreadMessages(
   }
 
   return collectMessagePath(messages, headMessageId)
+}
+
+function disableHandoffToolExecution(tools: ToolSet | undefined): ToolSet | undefined {
+  if (!tools) {
+    return undefined
+  }
+
+  const disabledTools: ToolSet = {}
+  for (const [name, tool] of Object.entries(tools)) {
+    disabledTools[name] = Object.assign(Object.create(Object.getPrototypeOf(tool)), tool, {
+      execute: async () => {
+        throw new Error('Tool execution is disabled during handoff creation.')
+      }
+    })
+  }
+
+  return disabledTools
 }
 
 type UsageFields = Pick<
@@ -906,6 +938,7 @@ export class YachiyoServerRunDomain {
     this.startAssistantOnlyRun({
       runId,
       thread: input.destinationThread,
+      sourceThreadId: input.sourceThread.id,
       sourceMessages: effectiveMessages
     })
 
@@ -914,108 +947,6 @@ export class YachiyoServerRunDomain {
       sourceThreadId: input.sourceThread.id,
       thread: input.destinationThread
     }
-  }
-
-  /**
-   * Generate a rolling summary for an external channel thread in-place.
-   * Unlike `compactThreadToAnotherThread`, this does not create a new thread —
-   * it stores the summary on the existing thread and sets a watermark so
-   * subsequent runs only replay messages after the watermark.
-   */
-  async compactExternalThread(input: { thread: ThreadRecord }): Promise<{ thread: ThreadRecord }> {
-    if (this.hasNonRecapActiveRun(input.thread.id)) {
-      throw new Error('Cannot compact a thread with an active run.')
-    }
-
-    const sourceMessages = this.deps.loadThreadMessages(input.thread.id)
-    let effectiveMessages = resolveEffectiveThreadMessages(input.thread, sourceMessages)
-
-    // On repeated compactions, only feed the prior rolling summary + messages
-    // after the watermark into the model. This keeps the compaction input bounded
-    // instead of growing monotonically with every compaction cycle.
-    if (input.thread.summaryWatermarkMessageId) {
-      const watermarkIndex = effectiveMessages.findIndex(
-        (m) => m.id === input.thread.summaryWatermarkMessageId
-      )
-      if (watermarkIndex >= 0) {
-        effectiveMessages = effectiveMessages.slice(watermarkIndex + 1)
-      }
-    }
-
-    if (effectiveMessages.length === 0) {
-      return { thread: input.thread }
-    }
-
-    // Respect the thread's model override so Telegram threads pinned to a
-    // specific provider/model use that model for summary generation too.
-    const rollingSummaryConfig = this.deps.readConfig()
-    const settings = toEffectiveProviderSettings(rollingSummaryConfig, input.thread.modelOverride)
-    const runtime = this.deps.createModelRuntime()
-    const userDocument = this.deps.readUserDocument ? await this.deps.readUserDocument() : null
-
-    // When re-compacting, prepend the existing rolling summary as context so the
-    // model can produce a unified summary covering the full conversation, not just
-    // the messages since the last watermark.
-    const summaryHistory: MessageRecord[] = []
-    if (input.thread.rollingSummary) {
-      summaryHistory.push({
-        id: '__prior-summary__',
-        threadId: input.thread.id,
-        role: 'assistant',
-        content: input.thread.rollingSummary,
-        visibleReply: input.thread.rollingSummary,
-        status: 'completed',
-        createdAt: effectiveMessages[0]?.createdAt ?? new Date().toISOString()
-      })
-    }
-
-    let summarySourceMessages: ContextLayerHistoryMessage[] = [
-      ...summaryHistory,
-      ...effectiveMessages
-    ]
-    if (
-      !isModelImageCapable(rollingSummaryConfig, settings.providerName, settings.model) &&
-      this.deps.imageToTextService
-    ) {
-      summarySourceMessages = await preprocessImagesForNonVisionModel(
-        summarySourceMessages,
-        this.deps.imageToTextService
-      )
-    }
-
-    let buffer = ''
-    for await (const delta of runtime.streamReply({
-      messages: buildRollingSummaryMessages({
-        history: summarySourceMessages,
-        userDocumentContent: userDocument?.content
-      }),
-      settings,
-      signal: new AbortController().signal,
-      purpose: 'rolling-summary'
-    })) {
-      if (delta) {
-        buffer += delta
-      }
-    }
-
-    const rollingSummary = buffer.trim()
-    const watermarkMessageId = input.thread.headMessageId
-
-    const updatedThread: ThreadRecord = {
-      ...input.thread,
-      rollingSummary,
-      summaryWatermarkMessageId: watermarkMessageId,
-      updatedAt: this.deps.timestamp()
-    }
-
-    this.deps.storage.updateThread(updatedThread)
-    this.deps.emit<ThreadUpdatedEvent>({
-      type: 'thread.updated',
-      threadId: updatedThread.id,
-      thread: updatedThread
-    })
-
-    return { thread: updatedThread }
   }
 
   async requestRecap(input: { threadId: string }): Promise<string | null> {
@@ -1708,6 +1639,7 @@ export class YachiyoServerRunDomain {
   private startAssistantOnlyRun(input: {
     runId: string
     thread: ThreadRecord
+    sourceThreadId: string
     sourceMessages: MessageRecord[]
   }): void {
     this.activeRuns.set(input.runId, {
@@ -2352,6 +2284,7 @@ export class YachiyoServerRunDomain {
   private async streamCompactThreadHandoff(input: {
     runId: string
     thread: ThreadRecord
+    sourceThreadId: string
     sourceMessages: MessageRecord[]
   }): Promise<void> {
     const config = this.deps.readConfig()
@@ -2370,49 +2303,164 @@ export class YachiyoServerRunDomain {
       messageId
     })
 
-    let textDeltaBatcher!: ReturnType<typeof createDeltaBatcher>
-    let reasoningDeltaBatcher!: ReturnType<typeof createDeltaBatcher>
+    const activeRun = this.activeRuns.get(input.runId)
+    if (!activeRun) {
+      return
+    }
+
+    const textDeltaBatcher = createDeltaBatcher({
+      intervalMs: DELTA_FLUSH_INTERVAL_MS,
+      onFlush: (batch) => {
+        bufferParts.push(batch)
+        this.deps.emit<MessageDeltaEvent>({
+          type: 'message.delta',
+          threadId: input.thread.id,
+          runId: input.runId,
+          messageId,
+          delta: batch
+        })
+      },
+      isAborted: () => activeRun.abortController.signal.aborted
+    })
+
+    const reasoningDeltaBatcher = createDeltaBatcher({
+      intervalMs: DELTA_FLUSH_INTERVAL_MS,
+      onFlush: (batch) => {
+        reasoningParts.push(batch)
+        reasoningLength += batch.length
+        this.deps.emit<MessageReasoningDeltaEvent>({
+          type: 'message.reasoning.delta',
+          threadId: input.thread.id,
+          runId: input.runId,
+          messageId,
+          delta: batch
+        })
+      },
+      isAborted: () => activeRun.abortController.signal.aborted
+    })
 
     try {
-      const userDocument = this.deps.readUserDocument ? await this.deps.readUserDocument() : null
-      const activeRun = this.activeRuns.get(input.runId)
-      if (!activeRun) {
-        return
+      const userDocument = this.deps.readUserDocument
+        ? await this.deps.readUserDocument()
+        : await readUserDocument()
+      const soulDocument = this.deps.readSoulDocument
+        ? await this.deps.readSoulDocument()
+        : await readSoulDocument()
+      const sourceThread = this.deps.requireThread(input.sourceThreadId)
+      const workspacePath = sourceThread.workspacePath
+        ? resolve(sourceThread.workspacePath)
+        : await this.deps.ensureThreadWorkspace(input.sourceThreadId)
+      const availableSkills = await this.deps.listSkills([workspacePath])
+      const activeSkills = resolveActiveSkills({
+        availableSkills,
+        config
+      })
+      const enabledSubagentProfiles = (config.subagentProfiles ?? []).filter((p) => p.enabled)
+      const savedWorkspacePaths = config.workspace?.savedPaths ?? []
+      const gitCtx =
+        enabledSubagentProfiles.length > 0
+          ? await detectGitContext(workspacePath)
+          : ({ hasGit: false } as const)
+      const gitValidatedWorkspaces =
+        enabledSubagentProfiles.length > 0 && savedWorkspacePaths.length > 0
+          ? (
+              await Promise.all(
+                savedWorkspacePaths.map(async (p) => {
+                  const hasGit = await access(join(resolve(p), '.git'), constants.F_OK)
+                    .then(() => true)
+                    .catch(() => false)
+                  return hasGit ? p : null
+                })
+              )
+            ).filter((p): p is string => p !== null)
+          : []
+      const subagentContextBlock = buildSubagentContextBlock(
+        gitCtx,
+        workspacePath,
+        enabledSubagentProfiles,
+        gitValidatedWorkspaces
+      )
+      const modelEnabledTools = resolveModelEnabledTools({
+        activeSkills,
+        enabledTools: resolveEnabledTools(undefined, config.enabledTools)
+      })
+      const handoffTools = disableHandoffToolExecution(
+        createAgentToolSet(
+          {
+            enabledTools: modelEnabledTools,
+            workspacePath,
+            sandboxed: false,
+            readRecordCache: new ReadRecordCache(),
+            imageToTextService: this.deps.imageToTextService,
+            isModelImageCapable: isModelImageCapable(config, settings.providerName, settings.model)
+          },
+          {
+            availableSkills,
+            fetchImpl: this.deps.webExternalFetchImpl ?? this.deps.fetchImpl,
+            loadBrowserSnapshot: this.deps.loadBrowserSnapshot,
+            searchService: this.deps.searchService,
+            memoryService: sourceThread.privacyMode ? undefined : this.deps.memoryService,
+            webSearchService: this.deps.webSearchService,
+            updateProfileDeps: {
+              userDocumentPath: resolveYachiyoUserPath()
+            },
+            ...(!sourceThread.privacyMode && this.deps.memoryService.isConfigured()
+              ? { rememberDeps: { memoryService: this.deps.memoryService } }
+              : {}),
+            ...(!sourceThread.privacyMode
+              ? {
+                  crossThreadSearch: (searchInput: {
+                    query: string
+                    limit?: number
+                    includePrivate?: boolean
+                  }) => this.deps.storage.searchThreadsAndMessagesFts(searchInput)
+                }
+              : {}),
+            askUserContext: {
+              waitForUserAnswer: async () => {
+                throw new Error('Tool execution is disabled during handoff creation.')
+              }
+            },
+            ...((gitCtx.hasGit || gitValidatedWorkspaces.length > 0) &&
+            enabledSubagentProfiles.length > 0
+              ? {
+                  subagentProfiles: enabledSubagentProfiles,
+                  availableWorkspaces: gitValidatedWorkspaces
+                }
+              : {})
+          }
+        )
+      )
+      const promptContext = {
+        personality: {
+          basePersona: `Today is ${formatDateLine(new Date())}.\n\n${SYSTEM_PROMPT}`
+        },
+        soul: { content: soulDocument?.rawContent ?? '' },
+        user: { content: userDocument?.content ?? '' },
+        skills: { activeSkills },
+        agent: {
+          instructions: [
+            buildAgentInstructions({
+              workspacePath,
+              workspaceLabel: config.workspace?.pathLabels?.[workspacePath],
+              enabledTools: modelEnabledTools,
+              activeSkills,
+              hasHiddenMemorySearch:
+                !sourceThread.privacyMode && this.deps.memoryService.hasHiddenSearchCapability(),
+              hasUpdateProfile: true,
+              hasRemember: !sourceThread.privacyMode && this.deps.memoryService.isConfigured(),
+              soulDocumentPath: soulDocument?.filePath,
+              userDocumentPath: userDocument?.filePath,
+              subagentContextBlock: subagentContextBlock || undefined,
+              isUserSpecifiedWorkspace: !!sourceThread.workspacePath?.trim(),
+              maxToolSteps: DEFAULT_MAX_TOOL_STEPS
+            }),
+            'Mermaid diagrams in ```mermaid code blocks are rendered as interactive diagrams in this conversation. Write Mermaid code directly — do not suggest the user open it in an external tool.'
+          ].join('\n\n')
+        },
+        anthropicCacheBreakpoints: settings.provider === 'anthropic'
       }
-
-      textDeltaBatcher = createDeltaBatcher({
-        intervalMs: DELTA_FLUSH_INTERVAL_MS,
-        onFlush: (batch) => {
-          bufferParts.push(batch)
-          this.deps.emit<MessageDeltaEvent>({
-            type: 'message.delta',
-            threadId: input.thread.id,
-            runId: input.runId,
-            messageId,
-            delta: batch
-          })
-        },
-        isAborted: () => activeRun.abortController.signal.aborted
-      })
-
-      reasoningDeltaBatcher = createDeltaBatcher({
-        intervalMs: DELTA_FLUSH_INTERVAL_MS,
-        onFlush: (batch) => {
-          reasoningParts.push(batch)
-          reasoningLength += batch.length
-          this.deps.emit<MessageReasoningDeltaEvent>({
-            type: 'message.reasoning.delta',
-            threadId: input.thread.id,
-            runId: input.runId,
-            messageId,
-            delta: batch
-          })
-        },
-        isAborted: () => activeRun.abortController.signal.aborted
-      })
-
-      let handoffSourceMessages: Array<Pick<MessageRecord, 'content' | 'images' | 'role'>> =
-        input.sourceMessages
+      let handoffSourceMessages: ContextLayerHistoryMessage[] = input.sourceMessages
       if (
         !isModelImageCapable(config, settings.providerName, settings.model) &&
         this.deps.imageToTextService
@@ -2427,11 +2475,14 @@ export class YachiyoServerRunDomain {
       for await (const delta of runtime.streamReply({
         messages: buildCompactThreadHandoffMessages({
           history: handoffSourceMessages,
+          promptContext,
           userDocumentContent: userDocument?.content
         }),
         settings,
         signal: activeRun.abortController.signal,
         purpose: 'thread-handoff',
+        promptCacheKey: input.sourceThreadId,
+        ...(handoffTools ? { tools: handoffTools, toolChoice: 'none' as const } : {}),
         onReasoningDelta: (reasoningDelta) => {
           reasoningDeltaBatcher.push(reasoningDelta)
         },

@@ -3,6 +3,7 @@ import type {
   GenerateTextOnToolCallStartCallback,
   ModelMessage as AiSdkModelMessage,
   StopCondition,
+  ToolChoice,
   ToolSet
 } from 'ai'
 
@@ -53,6 +54,7 @@ export interface ModelStreamRequest {
   providerOptionsMode?: ModelProviderOptionsMode
   maxToolSteps?: number
   tools?: ToolSet
+  toolChoice?: ToolChoice<ToolSet>
   onToolCallPreparing?: (event: { toolCallId: string; toolName: string }) => void
   onToolCallStart?: GenerateTextOnToolCallStartCallback<ToolSet>
   onToolCallFinish?: GenerateTextOnToolCallFinishCallback<ToolSet>

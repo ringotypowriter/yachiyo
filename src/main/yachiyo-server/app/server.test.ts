@@ -7010,15 +7010,39 @@ test('YachiyoServer compacts a thread into a new assistant-first thread and allo
       )
 
       const handoffRequest = requests.at(-1)
+      const sourceRequest = requests.find((request) => request.purpose === 'chat')
+      assert.ok(sourceRequest)
       assert.ok(handoffRequest)
-      assert.equal(handoffRequest.tools, undefined)
+      assert.deepEqual(
+        Object.keys(handoffRequest.tools ?? {}).sort(),
+        Object.keys(sourceRequest.tools ?? {}).sort()
+      )
+      assert.equal(handoffRequest.toolChoice, 'none')
+      assert.equal(handoffRequest.promptCacheKey, sourceThread.id)
+      const handoffPrefix = JSON.stringify(
+        handoffRequest.messages.slice(0, sourceRequest.messages.length).map((message) => ({
+          role: message.role,
+          content: message.content
+        }))
+      )
+      const sourcePrefix = JSON.stringify(
+        sourceRequest.messages.map((message) => ({ role: message.role, content: message.content }))
+      )
+      const firstPrefixDiff = [...handoffPrefix].findIndex(
+        (char, index) => char !== sourcePrefix[index]
+      )
+      assert.equal(
+        handoffPrefix,
+        sourcePrefix,
+        `prefix differs at ${firstPrefixDiff}: actual=${handoffPrefix.slice(firstPrefixDiff - 80, firstPrefixDiff + 160)} expected=${sourcePrefix.slice(firstPrefixDiff - 80, firstPrefixDiff + 160)}`
+      )
       assert.equal(handoffRequest.messages.at(-1)?.role, 'user')
       assert.match(String(handoffRequest.messages.at(-1)?.content), /visible handoff/i)
       assert.equal(
         handoffRequest.messages.some(
           (message) =>
             message.role === 'user' &&
-            message.content === 'We decided to ship the desktop update on Friday.'
+            String(message.content).includes('We decided to ship the desktop update on Friday.')
         ),
         true
       )
@@ -7127,6 +7151,72 @@ test('YachiyoServer.compactThreadToAnotherThread inherits the source thread mode
   )
 })
 
+test('YachiyoServer.compactThreadToAnotherThread preserves Anthropic cache breakpoints', async () => {
+  const requests: ModelStreamRequest[] = []
+  const hasAnthropicCacheBreakpoint = (
+    message: ModelStreamRequest['messages'][number]
+  ): boolean => {
+    const providerOptions = message.providerOptions as
+      | { anthropic?: { cacheControl?: { type?: unknown } } }
+      | undefined
+    return providerOptions?.anthropic?.cacheControl?.type === 'ephemeral'
+  }
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'anthropic-work',
+        type: 'anthropic',
+        apiKey: 'sk-ant-test',
+        baseUrl: '',
+        modelList: {
+          enabled: ['claude-opus-4-6'],
+          disabled: []
+        }
+      })
+
+      const sourceThread = await server.createThread()
+      await server.setThreadModelOverride({
+        threadId: sourceThread.id,
+        modelOverride: { providerName: 'anthropic-work', model: 'claude-opus-4-6' }
+      })
+      const sourceAccepted = await server.sendChat({
+        threadId: sourceThread.id,
+        content: 'Preserve Anthropic prompt caching across handoff.'
+      })
+      await completeRun(sourceAccepted.runId)
+
+      const compacted = await server.compactThreadToAnotherThread({
+        threadId: sourceThread.id
+      })
+      await completeRun(compacted.runId)
+
+      const sourceRequest = requests.find((request) => request.purpose === 'chat')
+      const handoffRequest = requests.findLast((request) => request.purpose === 'thread-handoff')
+      assert.ok(sourceRequest)
+      assert.ok(handoffRequest)
+      assert.equal(sourceRequest.settings.provider, 'anthropic')
+      assert.equal(handoffRequest.settings.provider, 'anthropic')
+      assert.deepEqual(
+        sourceRequest.messages.filter(hasAnthropicCacheBreakpoint).map((m) => m.role),
+        ['system']
+      )
+      assert.deepEqual(
+        handoffRequest.messages.filter(hasAnthropicCacheBreakpoint).map((m) => m.role),
+        ['system']
+      )
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+          yield request.purpose === 'thread-handoff' ? 'Visible handoff' : 'Hello world'
+        }
+      })
+    }
+  )
+})
+
 test('YachiyoServer allows changing a fresh handoff thread workspace before the first user continuation', async () => {
   await withServer(
     async ({ server, completeRun }) => {
@@ -7218,78 +7308,71 @@ test('YachiyoServer blocks compact-to-another-thread while the source thread is 
   })
 })
 
-test('YachiyoServer rejects rolling compaction for local threads', async () => {
+test('YachiyoServer rejects handoff for external threads', async () => {
   await withServer(async ({ server }) => {
-    const thread = await server.createThread()
+    const thread = await server.createThread({
+      source: 'telegram',
+      channelUserId: 'tg-user-1',
+      title: 'Telegram:@alice'
+    })
 
     await assert.rejects(
       () =>
-        server.compactExternalThread({
+        server.compactThreadToAnotherThread({
           threadId: thread.id
         }),
-      /only supported for external channel threads/i
+      /Handoff is only supported for local threads/i
     )
   })
 })
 
-test('YachiyoServer rolls up external DM threads in place', async () => {
-  const requests: ModelStreamRequest[] = []
+test('YachiyoServer fails and clears handoff runs when setup fails before streaming', async () => {
+  let failingThreadId: string | null = null
 
   await withServer(
     async ({ server, completeRun }) => {
-      const thread = await server.createThread({
-        source: 'telegram',
-        channelUserId: 'tg-user-1',
-        title: 'Telegram:@alice'
-      })
+      const sourceThread = await server.createThread()
       const accepted = await server.sendChat({
-        threadId: thread.id,
-        content: 'Keep the DM going.'
+        threadId: sourceThread.id,
+        content: 'Prepare a handoff with a failing source workspace.'
       })
       await completeRun(accepted.runId)
 
-      const compacted = await server.compactExternalThread({
-        threadId: thread.id
+      failingThreadId = sourceThread.id
+      const compacted = await server.compactThreadToAnotherThread({
+        threadId: sourceThread.id
       })
 
-      assert.equal(compacted.thread.id, thread.id)
-      assert.equal(compacted.thread.rollingSummary, 'External summary')
-      assert.ok(compacted.thread.summaryWatermarkMessageId)
+      await assert.rejects(
+        Promise.race([
+          completeRun(compacted.runId),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Timed out waiting for handoff failure')), 1000)
+          })
+        ]),
+        /source workspace failed/
+      )
 
-      const persisted = server.listExternalThreads().find((entry) => entry.id === thread.id)
-      assert.equal(persisted?.rollingSummary, 'External summary')
-      assert.equal(persisted?.summaryWatermarkMessageId, compacted.thread.summaryWatermarkMessageId)
+      failingThreadId = null
+      const retry = await server.sendChat({
+        threadId: compacted.thread.id,
+        content: 'Continue after the failed handoff.'
+      })
+
+      assert.equal(retry.kind, 'run-started')
+      await completeRun(retry.runId)
     },
     {
-      createModelRuntime: () => ({
-        async *streamReply(request: ModelStreamRequest): AsyncIterable<string> {
-          requests.push(request)
-
-          const lastMessage = request.messages.at(-1)
-          const lastMessageText =
-            typeof lastMessage?.content === 'string' ? lastMessage.content : ''
-
-          if (lastMessageText.includes('Write a continuation summary')) {
-            yield 'External summary'
-            return
-          }
-
-          yield 'Visible reply'
+      ensureThreadWorkspace: async (threadId, workspacePathForThread) => {
+        if (threadId === failingThreadId) {
+          throw new Error('source workspace failed')
         }
-      })
-    }
-  )
 
-  assert.equal(
-    requests.some((request) =>
-      request.messages.some(
-        (message) =>
-          message.role === 'user' &&
-          typeof message.content === 'string' &&
-          message.content.includes('Write a continuation summary')
-      )
-    ),
-    true
+        const workspacePath = workspacePathForThread(threadId)
+        await mkdir(workspacePath, { recursive: true })
+        return workspacePath
+      }
+    }
   )
 })
 

@@ -657,6 +657,7 @@ export class YachiyoServer {
       title?: string
       createdFromEssentialId?: string
       createdFromScheduleId?: string
+      handoffFromThreadId?: string
       privacyMode?: boolean
     } = {}
   ): Promise<ThreadRecord> {
@@ -665,6 +666,10 @@ export class YachiyoServer {
 
   async compactThreadToAnotherThread(input: CompactThreadInput): Promise<CompactThreadAccepted> {
     const sourceThread = this.requireThread(input.threadId)
+
+    if (sourceThread.source && sourceThread.source !== 'local') {
+      throw new Error('Handoff is only supported for local threads.')
+    }
 
     if (this.runDomain.hasActiveThread(sourceThread.id)) {
       throw new Error('Cannot compact a thread with an active run.')
@@ -680,46 +685,19 @@ export class YachiyoServer {
       threadId: destinationThreadId,
       handoffFromThreadId: sourceThread.id,
       ...(sourceThread.workspacePath ? { workspacePath: sourceThread.workspacePath } : {}),
-      ...(sourceThread.source && sourceThread.source !== 'local'
-        ? { source: sourceThread.source }
-        : {}),
-      ...(sourceThread.channelUserId ? { channelUserId: sourceThread.channelUserId } : {}),
-      ...(sourceThread.source && sourceThread.source !== 'local'
-        ? { title: sourceThread.title }
-        : {}),
       ...(sourceThread.modelOverride ? { modelOverride: sourceThread.modelOverride } : {})
     })
 
     // Auto-categorize: group source and destination under a folder
-    if (!sourceThread.source || sourceThread.source === 'local') {
-      this.folderDomain.ensureFolderForDerivedThread({
-        sourceThread,
-        derivedThread: destinationThread
-      })
-    }
+    this.folderDomain.ensureFolderForDerivedThread({
+      sourceThread,
+      derivedThread: destinationThread
+    })
 
     return this.runDomain.compactThreadToAnotherThread({
       sourceThread,
       destinationThread
     })
-  }
-
-  /**
-   * Generate a rolling summary for an external channel thread in-place.
-   * The thread continues with the same ID; old messages are covered by the summary.
-   */
-  async compactExternalThread(input: { threadId: string }): Promise<{ thread: ThreadRecord }> {
-    const thread = this.requireThread(input.threadId)
-
-    if (!thread.source || thread.source === 'local') {
-      throw new Error('Rolling compaction is only supported for external channel threads.')
-    }
-
-    if (this.runDomain.hasActiveThread(thread.id)) {
-      throw new Error('Cannot compact a thread with an active run.')
-    }
-
-    return this.runDomain.compactExternalThread({ thread })
   }
 
   async updateThreadWorkspace(input: {
@@ -1171,7 +1149,7 @@ export class YachiyoServer {
 
   /**
    * Store the extracted visible reply on the latest assistant message in a thread.
-   * Used by channel services after reply extraction so rolling summary has clean input.
+   * Used by channel services after reply extraction so external replay uses clean output.
    */
   updateLatestAssistantVisibleReply(input: { threadId: string; visibleReply: string }): void {
     const messages = this.storage.listThreadMessages(input.threadId)

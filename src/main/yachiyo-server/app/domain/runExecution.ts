@@ -11,7 +11,7 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 
 const MEMORY_RECALL_TIMEOUT_MS = 15_000
-const DEFAULT_MAX_TOOL_STEPS = 100
+export const DEFAULT_MAX_TOOL_STEPS = 100
 const OWNER_DM_MAX_TOOL_STEPS = 30
 const EXTERNAL_CHANNEL_MAX_TOOL_STEPS = 10
 const AGENTS_MD_PRELOAD_THRESHOLD_BYTES = 10 * 1024
@@ -358,7 +358,7 @@ function throwIfAborted(signal: AbortSignal): void {
   throw error
 }
 
-function resolveModelEnabledTools(input: {
+export function resolveModelEnabledTools(input: {
   activeSkills: SkillSummary[]
   enabledTools: ToolCallName[]
 }): ToolCallName[] {
@@ -470,7 +470,7 @@ interface GitContext {
   agentsMdContent?: string
 }
 
-async function detectGitContext(workspacePath: string): Promise<GitContext> {
+export async function detectGitContext(workspacePath: string): Promise<GitContext> {
   try {
     await access(join(workspacePath, '.git'), constants.F_OK)
   } catch {
@@ -506,7 +506,7 @@ async function detectGitContext(workspacePath: string): Promise<GitContext> {
     return { hasGit: true }
   }
 }
-function buildSubagentContextBlock(
+export function buildSubagentContextBlock(
   gitCtx: GitContext,
   workspacePath: string,
   profiles: SubagentProfile[],
@@ -597,7 +597,7 @@ function buildSubagentContextBlock(
   return lines.join('\n')
 }
 
-function buildAgentInstructions(input: {
+export function buildAgentInstructions(input: {
   workspacePath: string
   workspaceLabel?: string
   enabledTools: ToolCallName[]
@@ -855,7 +855,7 @@ function loadRunHistory(
   threadId: string,
   requestMessageId: string,
   requestMessageContentOverride?: string,
-  /** If set, only messages after this watermark are included (external channel rolling summary). */
+  /** If set, only messages after this legacy external-summary watermark are included. */
   summaryWatermarkMessageId?: string
 ): Array<
   Pick<
@@ -870,8 +870,8 @@ function loadRunHistory(
     }
   })
 
-  // For external channels with a rolling summary watermark, trim history to only
-  // messages after the watermark. The rolling summary covers everything before it.
+  // For external channels with a legacy summary watermark, trim history to only
+  // messages after the watermark. The stored summary covers everything before it.
   if (summaryWatermarkMessageId) {
     const watermarkIndex = messagePath.findIndex((m) => m.id === summaryWatermarkMessageId)
     if (watermarkIndex >= 0) {

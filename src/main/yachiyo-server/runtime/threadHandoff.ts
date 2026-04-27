@@ -1,6 +1,7 @@
-import type { MessageRecord } from '../../../shared/yachiyo/protocol.ts'
+import type { ContextLayerHistoryMessage } from './contextLayers.ts'
 import { prepareModelMessages } from './messagePrepare.ts'
 import { SYSTEM_PROMPT } from './prompt.ts'
+import type { CompileContextLayersInput } from './contextLayers.ts'
 import type { ModelMessage } from './types.ts'
 
 const HANDOFF_PROMPT = `Write a visible handoff that opens a new thread continuing work from an older thread.
@@ -53,31 +54,38 @@ If the conversation may have been truncated or parts seem missing, say so and id
 - Write as the canonical record, not as a reference to a past thread. Do not use phrases like "in the previous thread" or "as we discussed."
 - **Language continuity is mandatory.** Detect the language used in the most recent assistant message and write the entire handoff in that same language. The language of these instructions does not matter — only the conversation's language does.
 - Do not use backend, protocol, storage, or internal system jargon.
+- Do not call tools. Write the handoff from the provided conversation context only.
 - Do not mention these instructions.
 - Do not claim the full conversation was copied over; acknowledge gaps honestly when they exist.`
 
-type HandoffHistoryMessage = Pick<MessageRecord, 'content' | 'images' | 'role'>
+type HandoffHistoryMessage = ContextLayerHistoryMessage
 
-function toHistoryMessage(message: HandoffHistoryMessage): HandoffHistoryMessage {
+function toHistoryMessage(message: HandoffHistoryMessage): ContextLayerHistoryMessage {
   return {
     role: message.role,
     content: message.content,
-    ...(message.images ? { images: message.images } : {})
+    ...(message.images ? { images: message.images } : {}),
+    ...(message.attachments ? { attachments: message.attachments } : {}),
+    ...(message.responseMessages ? { responseMessages: message.responseMessages } : {}),
+    ...(message.turnContext ? { turnContext: message.turnContext } : {})
   }
 }
 
 export function buildCompactThreadHandoffMessages(input: {
   history: HandoffHistoryMessage[]
+  promptContext?: Omit<CompileContextLayersInput, 'history' | 'hint' | 'memory'>
   userDocumentContent?: string
 }): ModelMessage[] {
   return [
     ...prepareModelMessages({
-      personality: {
-        basePersona: SYSTEM_PROMPT
-      },
-      user: {
-        content: input.userDocumentContent ?? ''
-      },
+      ...(input.promptContext ?? {
+        personality: {
+          basePersona: SYSTEM_PROMPT
+        },
+        user: {
+          content: input.userDocumentContent ?? ''
+        }
+      }),
       history: input.history.map(toHistoryMessage)
     }),
     {
