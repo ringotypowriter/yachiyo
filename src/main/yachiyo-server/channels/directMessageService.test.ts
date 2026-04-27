@@ -15,6 +15,7 @@ import type {
 } from '../../../shared/yachiyo/protocol.ts'
 import { telegramPolicy } from './channelPolicy.ts'
 import {
+  collectDirectMessageRunOutput,
   createDirectMessageService,
   resolveDirectMessageThread,
   type DirectMessageServer
@@ -100,6 +101,61 @@ describe('resolveDirectMessageThread', () => {
     assert.deepEqual(createCalls, [
       { handoffFromThreadId: existing.id, workspacePath: '/work/yachiyo' }
     ])
+  })
+})
+
+describe('collectDirectMessageRunOutput', () => {
+  it('collects normal output only from the bound run id', async () => {
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    const server = {
+      subscribe(listener: (event: YachiyoServerEvent) => void): () => void {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      }
+    }
+
+    const collection = collectDirectMessageRunOutput(server, 'thread-1')
+    const emit = (event: YachiyoServerEvent): void => {
+      for (const listener of listeners) listener(event)
+    }
+
+    emit({
+      type: 'message.delta',
+      eventId: 'other-delta',
+      timestamp: '2026-03-31T00:00:00.000Z',
+      threadId: 'thread-1',
+      runId: 'run-other',
+      messageId: 'msg-other',
+      delta: 'Wrong'
+    })
+    emit({
+      type: 'run.completed',
+      eventId: 'other-completed',
+      timestamp: '2026-03-31T00:00:01.000Z',
+      threadId: 'thread-1',
+      runId: 'run-other'
+    })
+    emit({
+      type: 'message.delta',
+      eventId: 'target-delta',
+      timestamp: '2026-03-31T00:00:02.000Z',
+      threadId: 'thread-1',
+      runId: 'run-target',
+      messageId: 'msg-target',
+      delta: 'Right'
+    })
+    emit({
+      type: 'run.completed',
+      eventId: 'target-completed',
+      timestamp: '2026-03-31T00:00:03.000Z',
+      threadId: 'thread-1',
+      runId: 'run-target'
+    })
+
+    collection.bindRun('run-target')
+
+    assert.equal(await collection.promise, 'Right')
+    assert.equal(listeners.size, 0)
   })
 })
 
@@ -221,6 +277,504 @@ describe('createDirectMessageService', () => {
     assert.deepEqual(sentMessages, ['Shared reply'])
     assert.deepEqual(visibleReplies, ['Shared reply'])
     assert.deepEqual(tokenUpdates, [{ id: channelUser.id, usedKTokens: 2 }])
+  })
+
+  it('stores live reply tool messages and final output as the outbound transcript', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-live-reply')
+    const sentMessages: string[] = []
+    const visibleReplies: string[] = []
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input): Promise<ChatAcceptedWithUserMessage> {
+        const replyTool = input.extraTools?.reply as {
+          execute(input: { message: string }): Promise<string>
+        }
+        await replyTool.execute({ message: 'Working on it' })
+        queueMicrotask(() => {
+          const messageDelta: MessageDeltaEvent = {
+            type: 'message.delta',
+            eventId: 'evt-live-final',
+            timestamp: '2026-03-31T00:00:01.000Z',
+            threadId: thread.id,
+            runId: 'run-live-reply',
+            messageId: 'msg-assistant-live',
+            delta: 'Final answer'
+          }
+          const runCompleted: RunCompletedEvent = {
+            type: 'run.completed',
+            eventId: 'evt-live-completed',
+            timestamp: '2026-03-31T00:00:02.000Z',
+            threadId: thread.id,
+            runId: 'run-live-reply'
+          }
+          for (const listener of listeners) {
+            listener(messageDelta)
+            listener(runCompleted)
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-live-reply',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply(input) {
+        visibleReplies.push(input.visibleReply)
+      },
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'telegram',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async (_chatId, text) => {
+        sentMessages.push(text)
+      },
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'hello')
+
+    await delay(20)
+
+    assert.deepEqual(sentMessages, ['Working on it', 'Final answer'])
+    assert.deepEqual(visibleReplies, ['Working on it\nFinal answer'])
+  })
+
+  it('flushes normal output before tool calls so IM history preserves sequence', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-sequence')
+    const sentMessages: string[] = []
+    const visibleReplies: string[] = []
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(): Promise<ChatAcceptedWithUserMessage> {
+        setTimeout(() => {
+          for (const listener of listeners) {
+            listener({
+              type: 'message.delta',
+              eventId: 'evt-sequence-text-1',
+              timestamp: '2026-03-31T00:00:01.000Z',
+              threadId: thread.id,
+              runId: 'run-sequence',
+              messageId: 'msg-assistant-sequence',
+              delta: 'I will check first. '
+            })
+            listener({
+              type: 'tool.updated',
+              eventId: 'evt-sequence-tool',
+              timestamp: '2026-03-31T00:00:02.000Z',
+              threadId: thread.id,
+              runId: 'run-sequence',
+              toolCall: {
+                id: 'tool-sequence',
+                runId: 'run-sequence',
+                threadId: thread.id,
+                toolName: 'read',
+                status: 'running',
+                inputSummary: 'Read a file',
+                startedAt: '2026-03-31T00:00:02.000Z'
+              }
+            })
+            listener({
+              type: 'message.delta',
+              eventId: 'evt-sequence-text-2',
+              timestamp: '2026-03-31T00:00:03.000Z',
+              threadId: thread.id,
+              runId: 'run-sequence',
+              messageId: 'msg-assistant-sequence',
+              delta: 'Then I found the answer.'
+            })
+            listener({
+              type: 'run.completed',
+              eventId: 'evt-sequence-completed',
+              timestamp: '2026-03-31T00:00:04.000Z',
+              threadId: thread.id,
+              runId: 'run-sequence'
+            })
+          }
+        }, 0)
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-sequence',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply(input) {
+        visibleReplies.push(input.visibleReply)
+      },
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'telegram',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async (_chatId, text) => {
+        sentMessages.push(text)
+      },
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'please check')
+
+    await delay(20)
+
+    assert.deepEqual(sentMessages, ['I will check first.', 'Then I found the answer.'])
+    assert.deepEqual(visibleReplies, ['I will check first.\nThen I found the answer.'])
+  })
+
+  it('preserves repeated normal output segments around separate tool calls', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-repeated-segments')
+    const sentMessages: string[] = []
+    const visibleReplies: string[] = []
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(): Promise<ChatAcceptedWithUserMessage> {
+        setTimeout(() => {
+          for (const listener of listeners) {
+            listener({
+              type: 'message.delta',
+              eventId: 'evt-repeat-text-1',
+              timestamp: '2026-03-31T00:00:01.000Z',
+              threadId: thread.id,
+              runId: 'run-repeated-segments',
+              messageId: 'msg-assistant-repeat',
+              delta: 'Same step. '
+            })
+            listener({
+              type: 'tool.updated',
+              eventId: 'evt-repeat-tool-1',
+              timestamp: '2026-03-31T00:00:02.000Z',
+              threadId: thread.id,
+              runId: 'run-repeated-segments',
+              toolCall: {
+                id: 'tool-repeat-1',
+                runId: 'run-repeated-segments',
+                threadId: thread.id,
+                toolName: 'read',
+                status: 'running',
+                inputSummary: 'Read first file',
+                startedAt: '2026-03-31T00:00:02.000Z'
+              }
+            })
+            listener({
+              type: 'message.delta',
+              eventId: 'evt-repeat-text-2',
+              timestamp: '2026-03-31T00:00:03.000Z',
+              threadId: thread.id,
+              runId: 'run-repeated-segments',
+              messageId: 'msg-assistant-repeat',
+              delta: 'Same step. '
+            })
+            listener({
+              type: 'tool.updated',
+              eventId: 'evt-repeat-tool-2',
+              timestamp: '2026-03-31T00:00:04.000Z',
+              threadId: thread.id,
+              runId: 'run-repeated-segments',
+              toolCall: {
+                id: 'tool-repeat-2',
+                runId: 'run-repeated-segments',
+                threadId: thread.id,
+                toolName: 'read',
+                status: 'running',
+                inputSummary: 'Read second file',
+                startedAt: '2026-03-31T00:00:04.000Z'
+              }
+            })
+            listener({
+              type: 'run.completed',
+              eventId: 'evt-repeat-completed',
+              timestamp: '2026-03-31T00:00:05.000Z',
+              threadId: thread.id,
+              runId: 'run-repeated-segments'
+            })
+          }
+        }, 0)
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-repeated-segments',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply(input) {
+        visibleReplies.push(input.visibleReply)
+      },
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'telegram',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async (_chatId, text) => {
+        sentMessages.push(text)
+      },
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'repeat the same status')
+
+    await delay(20)
+
+    assert.deepEqual(sentMessages, ['Same step.', 'Same step.'])
+    assert.deepEqual(visibleReplies, ['Same step.\nSame step.'])
+  })
+
+  it('serializes reply tool messages after queued normal output segments', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-serialized-reply')
+    const sentMessages: string[] = []
+    const visibleReplies: string[] = []
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input): Promise<ChatAcceptedWithUserMessage> {
+        const replyTool = input.extraTools?.reply as {
+          execute(input: { message: string }): Promise<string>
+        }
+        setTimeout(() => {
+          void (async () => {
+            for (const listener of listeners) {
+              listener({
+                type: 'message.delta',
+                eventId: 'evt-serialize-text',
+                timestamp: '2026-03-31T00:00:01.000Z',
+                threadId: thread.id,
+                runId: 'run-serialized-reply',
+                messageId: 'msg-assistant-serialized',
+                delta: 'Normal first.'
+              })
+              listener({
+                type: 'tool.updated',
+                eventId: 'evt-serialize-tool',
+                timestamp: '2026-03-31T00:00:02.000Z',
+                threadId: thread.id,
+                runId: 'run-serialized-reply',
+                toolCall: {
+                  id: 'tool-serialized',
+                  runId: 'run-serialized-reply',
+                  threadId: thread.id,
+                  toolName: 'read',
+                  status: 'running',
+                  inputSummary: 'Read a file',
+                  startedAt: '2026-03-31T00:00:02.000Z'
+                }
+              })
+            }
+            await replyTool.execute({ message: 'Live second.' })
+            for (const listener of listeners) {
+              listener({
+                type: 'run.completed',
+                eventId: 'evt-serialize-completed',
+                timestamp: '2026-03-31T00:00:03.000Z',
+                threadId: thread.id,
+                runId: 'run-serialized-reply'
+              })
+            }
+          })()
+        }, 0)
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-serialized-reply',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply(input) {
+        visibleReplies.push(input.visibleReply)
+      },
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'telegram',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async (_chatId, text) => {
+        if (text === 'Normal first.') {
+          await delay(30)
+        }
+        sentMessages.push(text)
+      },
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'serialize please')
+
+    await delay(80)
+
+    assert.deepEqual(sentMessages, ['Normal first.', 'Live second.'])
+    assert.deepEqual(visibleReplies, ['Normal first.\nLive second.'])
+  })
+
+  it('dedupes reply tool messages already sent as normal output', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-dedupe-reply-after-text')
+    const sentMessages: string[] = []
+    const visibleReplies: string[] = []
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input): Promise<ChatAcceptedWithUserMessage> {
+        const replyTool = input.extraTools?.reply as {
+          execute(input: { message: string }): Promise<string>
+        }
+        setTimeout(() => {
+          void (async () => {
+            for (const listener of listeners) {
+              listener({
+                type: 'message.delta',
+                eventId: 'evt-dedupe-reply-text',
+                timestamp: '2026-03-31T00:00:01.000Z',
+                threadId: thread.id,
+                runId: 'run-dedupe-reply-after-text',
+                messageId: 'msg-assistant-dedupe-reply',
+                delta: 'Same outbound.'
+              })
+              listener({
+                type: 'tool.updated',
+                eventId: 'evt-dedupe-reply-tool',
+                timestamp: '2026-03-31T00:00:02.000Z',
+                threadId: thread.id,
+                runId: 'run-dedupe-reply-after-text',
+                toolCall: {
+                  id: 'tool-dedupe-reply',
+                  runId: 'run-dedupe-reply-after-text',
+                  threadId: thread.id,
+                  toolName: 'read',
+                  status: 'running',
+                  inputSummary: 'Read a file',
+                  startedAt: '2026-03-31T00:00:02.000Z'
+                }
+              })
+            }
+            await replyTool.execute({ message: 'Same outbound.' })
+            for (const listener of listeners) {
+              listener({
+                type: 'run.completed',
+                eventId: 'evt-dedupe-reply-completed',
+                timestamp: '2026-03-31T00:00:03.000Z',
+                threadId: thread.id,
+                runId: 'run-dedupe-reply-after-text'
+              })
+            }
+          })()
+        }, 0)
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-dedupe-reply-after-text',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply(input) {
+        visibleReplies.push(input.visibleReply)
+      },
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'telegram',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async (_chatId, text) => {
+        sentMessages.push(text)
+      },
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'avoid duplicate')
+
+    await delay(30)
+
+    assert.deepEqual(sentMessages, ['Same outbound.'])
+    assert.deepEqual(visibleReplies, ['Same outbound.'])
   })
 
   it('adds fresh handoff thread tokens to prior DM usage', async () => {

@@ -209,13 +209,133 @@ function collectResolvedImages(
  * Returns `null` when the run is cancelled or the provided signal is aborted,
  * so callers can skip side-effects (e.g. updating the visible reply).
  */
+export interface DirectMessageRunOutputCollection {
+  promise: Promise<string | null>
+  bindRun(runId: string): void
+  cancel(): void
+}
+
+interface DirectMessageRunOutputCollectionOptions {
+  onTextSegment?(text: string): void | Promise<void>
+}
+
+type DirectMessageRunTerminal =
+  | { type: 'completed' }
+  | { type: 'cancelled' }
+  | { type: 'failed'; error: string }
+
+type DirectMessageRunBufferedEvent =
+  | { type: 'text'; text: string }
+  | { type: 'toolBoundary'; toolCallId: string }
+  | { type: 'terminal'; terminal: DirectMessageRunTerminal }
+
 export function collectDirectMessageRunOutput(
   server: Pick<DirectMessageServer, 'subscribe'>,
   threadId: string,
-  signal?: AbortSignal
-): Promise<string | null> {
-  return new Promise((resolve, reject) => {
-    let buffer = ''
+  signal?: AbortSignal,
+  options: DirectMessageRunOutputCollectionOptions = {}
+): DirectMessageRunOutputCollection {
+  let bindRun: (runId: string) => void = () => {}
+  let cancel: () => void = () => {}
+
+  const promise = new Promise<string | null>((resolve, reject) => {
+    let boundRunId: string | null = null
+    let fullText = ''
+    let pendingText = ''
+    let settled = false
+    let deliveryChain = Promise.resolve()
+    const bufferedEventsByRun = new Map<string, DirectMessageRunBufferedEvent[]>()
+    const flushedToolCallIds = new Set<string>()
+
+    const cleanup = (): void => {
+      unsubscribe()
+      if (signal) {
+        signal.removeEventListener('abort', onAbort)
+      }
+    }
+
+    const settle = (value: string | null): void => {
+      if (settled) return
+      settled = true
+      cleanup()
+      void deliveryChain.then(
+        () => resolve(value),
+        (error: unknown) => reject(error instanceof Error ? error : new Error(String(error)))
+      )
+    }
+
+    const fail = (error: Error): void => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(error)
+    }
+
+    const flushPendingText = (): void => {
+      const text = pendingText.trim()
+      pendingText = ''
+      if (!text || !options.onTextSegment) {
+        return
+      }
+
+      let delivery: void | Promise<void>
+      try {
+        delivery = options.onTextSegment(text)
+      } catch (error) {
+        fail(error instanceof Error ? error : new Error(String(error)))
+        return
+      }
+      deliveryChain = deliveryChain.then(() => delivery)
+      void deliveryChain.catch((error: unknown) => {
+        fail(error instanceof Error ? error : new Error(String(error)))
+      })
+    }
+
+    const applyTerminal = (terminal: DirectMessageRunTerminal): void => {
+      if (terminal.type === 'completed') {
+        flushPendingText()
+        settle(fullText)
+        return
+      }
+      if (terminal.type === 'cancelled') {
+        settle(null)
+        return
+      }
+      fail(new Error(terminal.error))
+    }
+
+    const applyRunEvent = (event: DirectMessageRunBufferedEvent): void => {
+      if (event.type === 'text') {
+        fullText += event.text
+        pendingText += event.text
+        return
+      }
+      if (event.type === 'toolBoundary') {
+        if (flushedToolCallIds.has(event.toolCallId)) return
+        flushedToolCallIds.add(event.toolCallId)
+        flushPendingText()
+        return
+      }
+      applyTerminal(event.terminal)
+    }
+
+    const handleRunEvent = (runId: string, event: DirectMessageRunBufferedEvent): void => {
+      if (settled) return
+      if (boundRunId) {
+        if (runId === boundRunId) {
+          applyRunEvent(event)
+        }
+        return
+      }
+
+      const bufferedEvents = bufferedEventsByRun.get(runId) ?? []
+      bufferedEvents.push(event)
+      bufferedEventsByRun.set(runId, bufferedEvents)
+    }
+
+    const onAbort = (): void => {
+      settle(null)
+    }
 
     const unsubscribe = server.subscribe((event: YachiyoServerEvent) => {
       if (!('threadId' in event) || event.threadId !== threadId) {
@@ -223,42 +343,94 @@ export function collectDirectMessageRunOutput(
       }
 
       if (event.type === 'message.delta') {
-        buffer += (event as YachiyoServerEvent & { delta?: string }).delta ?? ''
+        const delta = (event as YachiyoServerEvent & { delta?: string }).delta ?? ''
+        if (!delta) return
+        handleRunEvent(event.runId, { type: 'text', text: delta })
+        return
+      }
+
+      if (event.type === 'tool.updated') {
+        const toolCall = event.toolCall
+        const runId = event.runId ?? toolCall.runId
+        if (!runId || !toolCall.id) return
+        handleRunEvent(runId, { type: 'toolBoundary', toolCallId: toolCall.id })
         return
       }
 
       if (event.type === 'run.completed') {
         if (event.recap) return
-        unsubscribe()
-        resolve(buffer)
+        handleRunEvent(event.runId, { type: 'terminal', terminal: { type: 'completed' } })
         return
       }
 
       if (event.type === 'run.cancelled') {
         if (event.recap) return
-        unsubscribe()
-        resolve(null)
+        handleRunEvent(event.runId, { type: 'terminal', terminal: { type: 'cancelled' } })
         return
       }
 
       if (event.type === 'run.failed') {
-        unsubscribe()
-        reject(new Error((event as YachiyoServerEvent & { error?: string }).error ?? 'Run failed'))
+        handleRunEvent(event.runId, {
+          type: 'terminal',
+          terminal: {
+            type: 'failed',
+            error: (event as YachiyoServerEvent & { error?: string }).error ?? 'Run failed'
+          }
+        })
       }
     })
 
-    if (signal) {
-      const onAbort = (): void => {
-        unsubscribe()
-        resolve(null)
+    bindRun = (runId: string): void => {
+      if (settled) return
+      if (boundRunId && boundRunId !== runId) {
+        throw new Error(`Direct message output is already bound to run ${boundRunId}.`)
       }
-      if (signal.aborted) {
-        onAbort()
-        return
+      boundRunId = runId
+      const bufferedEvents = bufferedEventsByRun.get(runId) ?? []
+      bufferedEventsByRun.clear()
+      for (const event of bufferedEvents) {
+        applyRunEvent(event)
       }
-      signal.addEventListener('abort', onAbort, { once: true })
     }
+
+    cancel = (): void => {
+      settle(null)
+    }
+
+    if (signal?.aborted) {
+      onAbort()
+      return
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
   })
+
+  return { promise, bindRun, cancel }
+}
+
+async function appendOutboundTextMessage(input: {
+  text: string
+  outboundTranscript: string[]
+  dedupeAgainst?: readonly string[]
+  logLabel: string
+  sendMessage(text: string): Promise<void>
+}): Promise<string | null> {
+  const text = input.text.trim()
+  if (!text || input.dedupeAgainst?.includes(text)) {
+    return null
+  }
+
+  console.log(
+    `[${input.logLabel}] sending ${
+      input.outboundTranscript.length === 0 ? 'outbound text' : 'outbound text segment'
+    }: ${text.slice(0, 100)}`
+  )
+  await input.sendMessage(text)
+  input.outboundTranscript.push(text)
+  return text
+}
+
+function formatOutboundTranscript(outboundTranscript: string[]): string {
+  return outboundTranscript.join('\n')
 }
 
 export function createDirectMessageService<TTarget>(
@@ -278,6 +450,7 @@ export function createDirectMessageService<TTarget>(
     const stopHandlingIndicator = options.startHandlingIndicator?.(target) ?? (() => {})
     const stopController = new AbortController()
     userStopControllers.set(channelUser.id, stopController)
+    let outputCollection: DirectMessageRunOutputCollection | null = null
 
     try {
       console.log(
@@ -292,19 +465,50 @@ export function createDirectMessageService<TTarget>(
         return
       }
 
-      const replies: string[] = []
+      const liveReplies: string[] = []
+      const outboundTranscript: string[] = []
+      let outboundQueue = Promise.resolve()
+      const queueOutboundTextMessage = (input: {
+        message: string
+        dedupeAgainst?: readonly string[]
+        recordLiveReply?: boolean
+      }): Promise<void> => {
+        outboundQueue = outboundQueue.then(async () => {
+          const sent = await appendOutboundTextMessage({
+            text: input.message,
+            outboundTranscript,
+            dedupeAgainst: input.dedupeAgainst,
+            logLabel: options.logLabel,
+            sendMessage: (message) => options.sendMessage(target, message)
+          })
+          if (sent && input.recordLiveReply) {
+            liveReplies.push(sent)
+          }
+        })
+        return outboundQueue
+      }
       const replyTool = createChannelReplyTool({
         onReply: async (message: string): Promise<void> => {
           console.log(`[${options.logLabel}] reply tool called: ${message.slice(0, 100)}`)
-          replies.push(message)
-          await options.sendMessage(target, message)
+          await queueOutboundTextMessage({
+            message,
+            dedupeAgainst: outboundTranscript,
+            recordLiveReply: true
+          })
         }
       })
 
-      const runDonePromise = collectDirectMessageRunOutput(
+      outputCollection = collectDirectMessageRunOutput(
         options.server,
         thread.id,
-        stopController.signal
+        stopController.signal,
+        {
+          onTextSegment: (message) =>
+            queueOutboundTextMessage({
+              message,
+              dedupeAgainst: liveReplies
+            })
+        }
       )
 
       const userLabelHint = channelUser.label
@@ -321,12 +525,16 @@ export function createDirectMessageService<TTarget>(
       console.log(`[${options.logLabel}] sendChat accepted:`, accepted)
 
       if (!isRunAccepted(accepted)) {
+        outputCollection.cancel()
         console.warn(`[${options.logLabel}] sendChat returned non-run accepted:`, accepted)
         await options.sendMessage(target, options.nonRunReply)
         return
       }
 
+      outputCollection.bindRun(accepted.runId)
+
       if (stopController.signal.aborted) {
+        outputCollection.cancel()
         console.log(`[${options.logLabel}] aborting run after sendChat for ${channelUser.username}`)
         options.server.cancelRunForThread(thread.id)
         return
@@ -350,7 +558,7 @@ export function createDirectMessageService<TTarget>(
 
       let rawOutput: string | null
       try {
-        rawOutput = await runDonePromise
+        rawOutput = await outputCollection.promise
       } finally {
         progressReporter.stop()
       }
@@ -363,19 +571,9 @@ export function createDirectMessageService<TTarget>(
         return
       }
 
-      const fallback = rawOutput.trim()
-
-      if (fallback && !replies.includes(fallback)) {
-        console.log(
-          `[${options.logLabel}] sending ${replies.length === 0 ? 'fallback' : 'deduped final'}: ${fallback.slice(0, 100)}`
-        )
-        await options.sendMessage(target, fallback)
-        replies.push(fallback)
-      }
-
-      const visibleReply = replies.join('\n')
+      const visibleReply = formatOutboundTranscript(outboundTranscript)
       console.log(
-        `[${options.logLabel}] run complete, ${replies.length} reply(s): ${visibleReply.slice(0, 200)}`
+        `[${options.logLabel}] run complete, ${liveReplies.length} live reply(s), ${outboundTranscript.length} outbound message(s): ${visibleReply.slice(0, 200)}`
       )
 
       options.server.updateLatestAssistantVisibleReply({
@@ -395,6 +593,7 @@ export function createDirectMessageService<TTarget>(
         )
       }
     } catch (error) {
+      outputCollection?.cancel()
       console.error(`[${options.logLabel}] failed to handle allowed message`, error)
       await options.sendMessage(target, options.errorReply).catch(() => {})
     } finally {

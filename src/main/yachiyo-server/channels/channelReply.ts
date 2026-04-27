@@ -1,11 +1,10 @@
 /**
  * Shared utilities for channel-based reply formatting.
  *
- * DM channels use a `reply` tool that the model calls to send messages to the
- * user. The model's raw text output is private (never forwarded); only content
- * sent through the tool reaches the channel. This replaces the earlier
- * `<reply></reply>` tag approach — tool-based replies are more reliable across
- * models and allow the model to send progress updates mid-execution.
+ * DM channels expose a `reply` tool for optional live messages to the external
+ * chat. The model's final text output is also sent to the channel at the end of
+ * the run, while `reply` gives long-running work a way to send immediate
+ * progress updates.
  */
 
 import { tool, type Tool } from 'ai'
@@ -21,17 +20,17 @@ export interface ChannelReplyToolContext {
 }
 
 /**
- * Create a `reply` tool that the model must use to send messages to the user.
+ * Create a `reply` tool that the model can use to send live messages to the user.
  *
  * The model can call it multiple times — e.g. once for a progress update and
- * once for the final answer. Each invocation triggers `onReply` immediately.
+ * once for a follow-up note. Each invocation triggers `onReply` immediately.
  */
 export function createChannelReplyTool(ctx: ChannelReplyToolContext): Tool<{ message: string }> {
   return tool({
     description:
-      'Send a progress update to the user while you are working (e.g. "Looking into it…", "Found some results, organizing now"). ' +
-      'Use this ONLY for intermediate status updates during tool work — your final answer should be in your regular text output, not through this tool. ' +
-      'Plain text only, no markdown.',
+      'Optionally send a live outbound message to the user in the external IM chat while you are working. ' +
+      'Use it for progress updates, quick notices, or channel-specific follow-up messages. ' +
+      'Your regular final response is also sent to the user at the end. Current payload is plain text only.',
     inputSchema: z.object({
       message: z.string().describe('The message to send to the user. Plain text only.')
     }),
@@ -52,11 +51,11 @@ export function createChannelReplyTool(ctx: ChannelReplyToolContext): Tool<{ mes
 
 export const CHANNEL_REPLY_HINT = `\
 <channel_reply_instruction>
-Your text output is your final response — it will be sent directly to the user. Write it as plain text, no markdown.
+The user is chatting from external instant-messaging software. Your normal text output is your final response, and it will be sent back to that external chat at the end.
 
-You also have a \`reply\` tool for sending progress updates WHILE you work (e.g. "Looking into it…", "Found some results, let me organize them"). Use it only for intermediate status — not for your final answer.
+You also have an optional \`reply\` tool for live outbound messages while you work. Use it when an immediate progress update, quick notice, or channel-specific follow-up would help. You do not need to call it for every reply.
 
-This is a chat, not an essay. Keep it short and lively — like texting a friend who you're genuinely happy to hear from. Your personality should shine through in HOW you say things, not in how MUCH you say.
+This is an IM chat, not an essay. Keep it short and lively — like texting a friend who you're genuinely happy to hear from. Your personality should shine through in HOW you say things, not in how MUCH you say.
 
 Keep most replies to 1-2 sentences. You can go up to 3 if the topic genuinely needs it, but never more.
 Skip restating what the user just told you — they know what they said.
