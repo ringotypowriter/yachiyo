@@ -572,6 +572,8 @@ export function withThreadCapabilities<T extends object>(
 export interface MessageTurnContext {
   reminder?: string
   memoryEntries?: string[]
+  enabledTools?: ToolCallName[]
+  enabledSkillNames?: string[]
 }
 
 export interface MessageRecord {

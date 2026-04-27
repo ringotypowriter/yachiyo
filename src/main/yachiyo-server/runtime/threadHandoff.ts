@@ -4,7 +4,7 @@ import { SYSTEM_PROMPT } from './prompt.ts'
 import type { CompileContextLayersInput } from './contextLayers.ts'
 import type { ModelMessage } from './types.ts'
 
-const HANDOFF_PROMPT = `Write a visible handoff that opens a new thread continuing work from an older thread.
+export const HANDOFF_PROMPT = `Write a visible handoff that opens a new thread continuing work from an older thread.
 
 This is the canonical record of everything established so far. The user will work from it directly — they should not need to re-read the old thread. That means completeness matters more than brevity. A handoff that omits a key decision forces the user to go back and dig through history.
 
@@ -58,6 +58,13 @@ If the conversation may have been truncated or parts seem missing, say so and id
 - Do not mention these instructions.
 - Do not claim the full conversation was copied over; acknowledge gaps honestly when they exist.`
 
+export const EMPTY_THREAD_HANDOFF_SUFFIX =
+  'The earlier thread did not establish much context yet. Say that clearly and keep the handoff very short.'
+
+export function buildThreadHandoffPrompt(hasHistory: boolean): string {
+  return hasHistory ? HANDOFF_PROMPT : `${HANDOFF_PROMPT}\n\n${EMPTY_THREAD_HANDOFF_SUFFIX}`
+}
+
 type HandoffHistoryMessage = ContextLayerHistoryMessage
 
 function toHistoryMessage(message: HandoffHistoryMessage): ContextLayerHistoryMessage {
@@ -90,10 +97,7 @@ export function buildCompactThreadHandoffMessages(input: {
     }),
     {
       role: 'user',
-      content:
-        input.history.length > 0
-          ? HANDOFF_PROMPT
-          : `${HANDOFF_PROMPT}\n\nThe earlier thread did not establish much context yet. Say that clearly and keep the handoff very short.`
+      content: buildThreadHandoffPrompt(input.history.length > 0)
     }
   ]
 }

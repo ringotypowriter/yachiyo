@@ -7,6 +7,7 @@ import test from 'node:test'
 import { YachiyoServer } from './YachiyoServer.ts'
 import { RETRY_MAX_ATTEMPTS } from '../runtime/modelRuntime.ts'
 import { RetryableRunError } from '../runtime/runtimeErrors.ts'
+import { prepareAiSdkMessages } from '../runtime/messagePrepare.ts'
 import type { ModelStreamRequest } from '../runtime/types.ts'
 import type { SoulDocument } from '../runtime/soul.ts'
 import { readUserDocument, writeUserDocument } from '../runtime/user.ts'
@@ -7186,11 +7187,27 @@ test('YachiyoServer compacts a thread into a new assistant-first thread and allo
   const requests: ModelStreamRequest[] = []
 
   await withServer(
-    async ({ server, completeRun }) => {
+    async ({ server, completeRun, workspacePathForThread }) => {
       const sourceThread = await server.createThread()
+      const skillDir = join(
+        workspacePathForThread(sourceThread.id),
+        '.yachiyo',
+        'skills',
+        'repo-guide'
+      )
+      await mkdir(skillDir, { recursive: true })
+      await writeFile(
+        join(skillDir, 'SKILL.md'),
+        ['---', 'name: repo-guide', 'description: Workspace guide', '---', '', '# Repo Guide'].join(
+          '\n'
+        ),
+        'utf8'
+      )
       const sourceAccepted = await server.sendChat({
         threadId: sourceThread.id,
-        content: 'We decided to ship the desktop update on Friday.'
+        content: 'We decided to ship the desktop update on Friday.',
+        enabledTools: ['read'],
+        enabledSkillNames: []
       })
       await completeRun(sourceAccepted.runId)
 
@@ -7231,7 +7248,7 @@ test('YachiyoServer compacts a thread into a new assistant-first thread and allo
         Object.keys(handoffRequest.tools ?? {}).sort(),
         Object.keys(sourceRequest.tools ?? {}).sort()
       )
-      assert.equal(handoffRequest.toolChoice, 'none')
+      assert.equal(handoffRequest.toolChoice, sourceRequest.toolChoice)
       assert.equal(handoffRequest.promptCacheKey, sourceThread.id)
       const handoffPrefix = JSON.stringify(
         handoffRequest.messages.slice(0, sourceRequest.messages.length).map((message) => ({
@@ -7306,6 +7323,453 @@ test('YachiyoServer compacts a thread into a new assistant-first thread and allo
 
           yield 'Hello'
           yield ' world'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer.compactThreadToAnotherThread asks for a short handoff when the source thread is empty', async () => {
+  const requests: ModelStreamRequest[] = []
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      const sourceThread = await server.createThread()
+
+      const compacted = await server.compactThreadToAnotherThread({
+        threadId: sourceThread.id
+      })
+      await completeRun(compacted.runId)
+
+      const handoffRequest = requests.findLast((request) => request.purpose === 'thread-handoff')
+      assert.ok(handoffRequest)
+
+      const lastMessage = handoffRequest.messages.at(-1)
+      assert.equal(lastMessage?.role, 'user')
+      assert.match(
+        String(lastMessage?.content),
+        /The earlier thread did not establish much context yet/
+      )
+      assert.match(String(lastMessage?.content), /keep the handoff very short/)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+          yield request.purpose === 'thread-handoff' ? 'Minimal handoff' : 'Hello world'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer.compactThreadToAnotherThread preserves default skill selections from the source turn', async () => {
+  const requests: ModelStreamRequest[] = []
+
+  await withServer(
+    async ({ server, completeRun, workspacePathForThread }) => {
+      const sourceThread = await server.createThread()
+      const skillDir = join(
+        workspacePathForThread(sourceThread.id),
+        '.yachiyo',
+        'skills',
+        'repo-guide'
+      )
+      await mkdir(skillDir, { recursive: true })
+      await writeFile(
+        join(skillDir, 'SKILL.md'),
+        ['---', 'name: repo-guide', 'description: Workspace guide', '---', '', '# Repo Guide'].join(
+          '\n'
+        ),
+        'utf8'
+      )
+
+      const config = await server.getConfig()
+      await server.saveConfig({
+        ...config,
+        skills: {
+          ...(config.skills ?? {}),
+          enabled: ['repo-guide'],
+          disabled: []
+        }
+      })
+
+      const accepted = await server.sendChat({
+        threadId: sourceThread.id,
+        content: 'Use the configured skill while planning the release.',
+        enabledTools: ['read']
+      })
+      assertAcceptedHasUserMessage(accepted)
+      await completeRun(accepted.runId)
+
+      const afterSource = await server.bootstrap()
+      const sourceUser = (afterSource.messagesByThread[sourceThread.id] ?? []).find(
+        (message) => message.id === accepted.userMessage.id
+      )
+      assert.equal(sourceUser?.turnContext?.enabledSkillNames?.includes('repo-guide'), true)
+
+      await server.saveConfig({
+        ...(await server.getConfig()),
+        skills: {
+          enabled: [],
+          disabled: ['repo-guide']
+        }
+      })
+
+      const compacted = await server.compactThreadToAnotherThread({
+        threadId: sourceThread.id
+      })
+      await completeRun(compacted.runId)
+
+      const sourceRequest = requests.find((request) => request.purpose === 'chat')
+      const handoffRequest = requests.findLast((request) => request.purpose === 'thread-handoff')
+      assert.ok(sourceRequest)
+      assert.ok(handoffRequest)
+      assert.equal(
+        sourceRequest.messages.some(
+          (message) =>
+            message.role === 'system' &&
+            typeof message.content === 'string' &&
+            message.content.includes('repo-guide: Workspace guide')
+        ),
+        true
+      )
+      assert.equal(
+        handoffRequest.messages.some(
+          (message) =>
+            message.role === 'system' &&
+            typeof message.content === 'string' &&
+            message.content.includes('repo-guide: Workspace guide')
+        ),
+        true
+      )
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+          yield request.purpose === 'thread-handoff' ? 'Visible handoff' : 'Hello world'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer.compactThreadToAnotherThread sends full source tool-result history', async () => {
+  const requests: ModelStreamRequest[] = []
+  const toolOutputs = [
+    'FIRST_FULL_TOOL_OUTPUT_SHOULD_SURVIVE',
+    'SECOND_FULL_TOOL_OUTPUT_SHOULD_SURVIVE'
+  ]
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      const config = await server.getConfig()
+      await server.saveConfig({
+        ...config,
+        chat: {
+          ...(config.chat ?? {}),
+          stripCompact: true,
+          stripCompactThresholdTokens: 1
+        }
+      })
+
+      const sourceThread = await server.createThread()
+      const first = await server.sendChat({
+        threadId: sourceThread.id,
+        content: 'Run the first diagnostic.'
+      })
+      await completeRun(first.runId)
+
+      const second = await server.sendChat({
+        threadId: sourceThread.id,
+        content: 'Run the second diagnostic.'
+      })
+      await completeRun(second.runId)
+
+      const compacted = await server.compactThreadToAnotherThread({
+        threadId: sourceThread.id
+      })
+      await completeRun(compacted.runId)
+
+      const handoffRequest = requests.findLast((request) => request.purpose === 'thread-handoff')
+      assert.ok(handoffRequest)
+      const handoffMessages = JSON.stringify(
+        handoffRequest.messages.map((message) => ({
+          role: message.role,
+          content: message.content
+        }))
+      )
+      assert.match(handoffMessages, /FIRST_FULL_TOOL_OUTPUT_SHOULD_SURVIVE/)
+      assert.match(handoffMessages, /SECOND_FULL_TOOL_OUTPUT_SHOULD_SURVIVE/)
+      assert.doesNotMatch(handoffMessages, /\[Stripped:/)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          if (request.purpose === 'thread-handoff') {
+            yield 'Visible handoff'
+            return
+          }
+
+          const output = toolOutputs.shift()
+          assert.ok(output)
+          const toolCallId = `tool-${output}`
+
+          yield 'Before diagnostic'
+          request.onToolCallStart?.({
+            abortSignal: request.signal,
+            experimental_context: undefined,
+            functionId: undefined,
+            messages: request.messages,
+            metadata: undefined,
+            model: undefined,
+            stepNumber: 0,
+            toolCall: {
+              input: { command: 'diagnostic' },
+              toolCallId,
+              toolName: 'bash'
+            }
+          } as never)
+          request.onToolCallFinish?.({
+            abortSignal: request.signal,
+            durationMs: 1,
+            experimental_context: undefined,
+            functionId: undefined,
+            messages: request.messages,
+            metadata: undefined,
+            model: undefined,
+            stepNumber: 0,
+            success: true,
+            output: {
+              content: [{ type: 'text', text: output }],
+              details: {
+                command: 'diagnostic',
+                cwd: '/tmp/workspace',
+                exitCode: 0,
+                stderr: '',
+                stdout: output
+              },
+              metadata: {
+                cwd: '/tmp/workspace',
+                exitCode: 0
+              }
+            },
+            toolCall: {
+              input: { command: 'diagnostic' },
+              toolCallId,
+              toolName: 'bash'
+            }
+          } as never)
+          yield ' After diagnostic'
+          request.onFinish?.({
+            promptTokens: 1,
+            completionTokens: 1,
+            totalPromptTokens: 1,
+            totalCompletionTokens: 1,
+            finishReason: 'stop',
+            responseMessages: [
+              {
+                role: 'assistant',
+                content: [
+                  { type: 'text', text: 'Before diagnostic' },
+                  {
+                    type: 'tool-call',
+                    toolCallId,
+                    toolName: 'bash',
+                    input: { command: 'diagnostic' }
+                  }
+                ]
+              },
+              {
+                role: 'tool',
+                content: [
+                  {
+                    type: 'tool-result',
+                    toolCallId,
+                    toolName: 'bash',
+                    output: { type: 'text', value: output }
+                  }
+                ]
+              },
+              {
+                role: 'assistant',
+                content: [{ type: 'text', text: ' After diagnostic' }]
+              }
+            ]
+          })
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer.compactThreadToAnotherThread keeps the runtime-prepared source prefix stable after tool history', async () => {
+  const requests: ModelStreamRequest[] = []
+  const toolOutputs = ['FIRST_PREFIX_TOOL_OUTPUT', 'SECOND_PREFIX_TOOL_OUTPUT']
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      await server.upsertProvider({
+        name: 'openai-work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.deepseek.com/v1',
+        modelList: {
+          enabled: ['deepseek-v4-pro'],
+          disabled: []
+        }
+      })
+
+      const sourceThread = await server.createThread()
+      await server.setThreadModelOverride({
+        threadId: sourceThread.id,
+        modelOverride: { providerName: 'openai-work', model: 'deepseek-v4-pro' }
+      })
+
+      const first = await server.sendChat({
+        threadId: sourceThread.id,
+        content: 'Run the first prefix diagnostic.',
+        enabledTools: ['bash'],
+        enabledSkillNames: []
+      })
+      await completeRun(first.runId)
+
+      const second = await server.sendChat({
+        threadId: sourceThread.id,
+        content: 'Run the second prefix diagnostic.',
+        enabledTools: ['bash'],
+        enabledSkillNames: []
+      })
+      await completeRun(second.runId)
+
+      const compacted = await server.compactThreadToAnotherThread({
+        threadId: sourceThread.id
+      })
+      await completeRun(compacted.runId)
+
+      const chatRequests = requests.filter((request) => request.purpose === 'chat')
+      const secondSourceRequest = chatRequests.find((request) =>
+        request.messages.some(
+          (message) =>
+            message.role === 'user' &&
+            String(message.content).includes('Run the second prefix diagnostic.')
+        )
+      )
+      const handoffRequest = requests.findLast((request) => request.purpose === 'thread-handoff')
+      assert.ok(secondSourceRequest)
+      assert.ok(handoffRequest)
+
+      const sourcePrepared = prepareAiSdkMessages(secondSourceRequest.messages)
+      const handoffPreparedPrefix = prepareAiSdkMessages(handoffRequest.messages).slice(
+        0,
+        sourcePrepared.length
+      )
+      assert.deepEqual(handoffPreparedPrefix, sourcePrepared)
+      assert.deepEqual(
+        Object.keys(handoffRequest.tools ?? {}).sort(),
+        Object.keys(secondSourceRequest.tools ?? {}).sort()
+      )
+      assert.equal(handoffRequest.toolChoice, secondSourceRequest.toolChoice)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          if (request.purpose === 'thread-handoff') {
+            yield 'Visible handoff'
+            return
+          }
+
+          const output = toolOutputs.shift()
+          assert.ok(output)
+          const toolCallId = `tool-${output}`
+
+          yield 'Before diagnostic'
+          request.onToolCallStart?.({
+            abortSignal: request.signal,
+            experimental_context: undefined,
+            functionId: undefined,
+            messages: request.messages,
+            metadata: undefined,
+            model: undefined,
+            stepNumber: 0,
+            toolCall: {
+              input: { command: 'diagnostic' },
+              toolCallId,
+              toolName: 'bash'
+            }
+          } as never)
+          request.onToolCallFinish?.({
+            abortSignal: request.signal,
+            durationMs: 1,
+            experimental_context: undefined,
+            functionId: undefined,
+            messages: request.messages,
+            metadata: undefined,
+            model: undefined,
+            stepNumber: 0,
+            success: true,
+            output: {
+              content: [{ type: 'text', text: output }],
+              details: {
+                command: 'diagnostic',
+                cwd: '/tmp/workspace',
+                exitCode: 0,
+                stderr: '',
+                stdout: output
+              },
+              metadata: {
+                cwd: '/tmp/workspace',
+                exitCode: 0
+              }
+            },
+            toolCall: {
+              input: { command: 'diagnostic' },
+              toolCallId,
+              toolName: 'bash'
+            }
+          } as never)
+          yield ' After diagnostic'
+          request.onFinish?.({
+            promptTokens: 1,
+            completionTokens: 1,
+            totalPromptTokens: 1,
+            totalCompletionTokens: 1,
+            finishReason: 'stop',
+            responseMessages: [
+              {
+                role: 'assistant',
+                content: [
+                  { type: 'text', text: 'Before diagnostic' },
+                  {
+                    type: 'tool-call',
+                    toolCallId,
+                    toolName: 'bash',
+                    input: { command: 'diagnostic' }
+                  }
+                ]
+              },
+              {
+                role: 'tool',
+                content: [
+                  {
+                    type: 'tool-result',
+                    toolCallId,
+                    toolName: 'bash',
+                    output: { type: 'text', value: output }
+                  }
+                ]
+              },
+              {
+                role: 'assistant',
+                content: [{ type: 'text', text: ' After diagnostic' }]
+              }
+            ]
+          })
         }
       })
     }
@@ -7417,7 +7881,7 @@ test('YachiyoServer.compactThreadToAnotherThread preserves Anthropic cache break
       )
       assert.deepEqual(
         handoffRequest.messages.filter(hasAnthropicCacheBreakpoint).map((m) => m.role),
-        ['system']
+        ['system', 'assistant']
       )
     },
     {

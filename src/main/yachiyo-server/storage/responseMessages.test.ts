@@ -145,6 +145,13 @@ test('serializeTurnContext returns null for empty context', () => {
   assert.equal(serializeTurnContext({ memoryEntries: [] }), null)
 })
 
+test('serializeTurnContext preserves tool and skill selections', () => {
+  const ctx = { enabledTools: ['read' as const], enabledSkillNames: [] }
+  const serialized = serializeTurnContext(ctx)
+  assert.equal(typeof serialized, 'string')
+  assert.deepEqual(JSON.parse(serialized!), ctx)
+})
+
 test('serializeTurnContext serializes reminder and memoryEntries', () => {
   const ctx = { reminder: 'tools changed', memoryEntries: ['mem1', 'mem2'] }
   const serialized = serializeTurnContext(ctx)
@@ -177,4 +184,10 @@ test('parseTurnContext handles memoryEntries-only context', () => {
   const ctx = { memoryEntries: ['a', 'b'] }
   const parsed = parseTurnContext(serializeTurnContext(ctx))
   assert.deepEqual(parsed, { memoryEntries: ['a', 'b'] })
+})
+
+test('parseTurnContext handles tool-only context', () => {
+  const ctx = { enabledTools: ['read' as const], enabledSkillNames: [] }
+  const parsed = parseTurnContext(serializeTurnContext(ctx))
+  assert.deepEqual(parsed, ctx)
 })

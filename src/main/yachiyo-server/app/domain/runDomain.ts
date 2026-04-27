@@ -1,6 +1,4 @@
-import { access } from 'node:fs/promises'
-import { constants } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import type { ToolSet } from 'ai'
 
 import type {
@@ -66,12 +64,8 @@ import { toEffectiveProviderSettings } from '../../settings/settingsStore.ts'
 import { isModelImageCapable } from '../../../../shared/yachiyo/providerConfig.ts'
 import type { ModelUsage } from '../../runtime/types.ts'
 import {
-  buildAgentInstructions,
-  buildSubagentContextBlock,
-  DEFAULT_MAX_TOOL_STEPS,
-  detectGitContext,
   executeServerRun,
-  resolveModelEnabledTools,
+  prepareServerRunContext,
   type ExecuteRunInput,
   type ExecuteRunResult
 } from './runExecution.ts'
@@ -86,16 +80,9 @@ import {
   parseGeneratedTitleAndIcon
 } from './threadTitle.ts'
 import { resolveRetryRequest } from './threadDomain.ts'
-import { buildCompactThreadHandoffMessages } from '../../runtime/threadHandoff.ts'
-import {
-  preprocessImagesForNonVisionModel,
-  type ContextLayerHistoryMessage
-} from '../../runtime/contextLayers.ts'
-import { SYSTEM_PROMPT } from '../../runtime/prompt.ts'
-import { formatDateLine } from '../../runtime/queryReminder.ts'
-import { resolveActiveSkills } from '../../services/skills/skillResolver.ts'
-import { readSoulDocument, type SoulDocument } from '../../runtime/soul.ts'
-import { readUserDocument, type UserDocument } from '../../runtime/user.ts'
+import { buildThreadHandoffPrompt } from '../../runtime/threadHandoff.ts'
+import type { SoulDocument } from '../../runtime/soul.ts'
+import type { UserDocument } from '../../runtime/user.ts'
 import { resolveYachiyoUserPath } from '../../config/paths.ts'
 import { sleep } from '../../channels/connectionRetry.ts'
 import {
@@ -264,6 +251,16 @@ function disableHandoffToolExecution(tools: ToolSet | undefined): ToolSet | unde
   }
 
   return disabledTools
+}
+
+function findLatestUserTurnContext(messages: MessageRecord[]): MessageRecord['turnContext'] {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (message.role === 'user' && message.turnContext) {
+      return message.turnContext
+    }
+  }
+  return undefined
 }
 
 type UsageFields = Pick<
@@ -2346,74 +2343,99 @@ export class YachiyoServerRunDomain {
     })
 
     try {
-      const userDocument = this.deps.readUserDocument
-        ? await this.deps.readUserDocument()
-        : await readUserDocument()
-      const soulDocument = this.deps.readSoulDocument
-        ? await this.deps.readSoulDocument()
-        : await readSoulDocument()
       const sourceThread = this.deps.requireThread(input.sourceThreadId)
-      const workspacePath = sourceThread.workspacePath
-        ? resolve(sourceThread.workspacePath)
-        : await this.deps.ensureThreadWorkspace(input.sourceThreadId)
-      const availableSkills = await this.deps.listSkills([workspacePath])
-      const activeSkills = resolveActiveSkills({
-        availableSkills,
-        config
-      })
-      const enabledSubagentProfiles = (config.subagentProfiles ?? []).filter((p) => p.enabled)
-      const savedWorkspacePaths = config.workspace?.savedPaths ?? []
-      const gitCtx =
-        enabledSubagentProfiles.length > 0
-          ? await detectGitContext(workspacePath)
-          : ({ hasGit: false } as const)
-      const gitValidatedWorkspaces =
-        enabledSubagentProfiles.length > 0 && savedWorkspacePaths.length > 0
-          ? (
-              await Promise.all(
-                savedWorkspacePaths.map(async (p) => {
-                  const hasGit = await access(join(resolve(p), '.git'), constants.F_OK)
-                    .then(() => true)
-                    .catch(() => false)
-                  return hasGit ? p : null
-                })
-              )
-            ).filter((p): p is string => p !== null)
-          : []
-      const subagentContextBlock = buildSubagentContextBlock(
-        gitCtx,
-        workspacePath,
-        enabledSubagentProfiles,
-        gitValidatedWorkspaces
+      const sourceTurnContext = findLatestUserTurnContext(input.sourceMessages)
+      const handoffRequestId = this.deps.createId()
+      const handoffRequestMessage: MessageRecord = {
+        id: handoffRequestId,
+        threadId: sourceThread.id,
+        role: 'user',
+        content: buildThreadHandoffPrompt(input.sourceMessages.length > 0),
+        status: 'completed',
+        createdAt: this.deps.timestamp()
+      }
+      const sourceEnabledTools =
+        sourceTurnContext?.enabledTools ?? resolveEnabledTools(undefined, config.enabledTools)
+      const preparedContext = await prepareServerRunContext(
+        {
+          storage: this.deps.storage,
+          createId: this.deps.createId,
+          timestamp: this.deps.timestamp,
+          emit: this.deps.emit,
+          createModelRuntime: this.deps.createModelRuntime,
+          ensureThreadWorkspace: this.deps.ensureThreadWorkspace,
+          fetchImpl: this.deps.fetchImpl,
+          webExternalFetchImpl: this.deps.webExternalFetchImpl,
+          loadBrowserSnapshot: this.deps.loadBrowserSnapshot,
+          memoryService: this.deps.memoryService,
+          searchService: this.deps.searchService,
+          webSearchService: this.deps.webSearchService,
+          readSoulDocument: this.deps.readSoulDocument,
+          readUserDocument: this.deps.readUserDocument,
+          readThread: this.deps.requireThread,
+          readConfig: this.deps.readConfig,
+          readSettings: () => settings,
+          loadThreadMessages: this.deps.loadThreadMessages,
+          loadThreadToolCalls: this.deps.loadThreadToolCalls,
+          listSkills: this.deps.listSkills,
+          onEnabledToolsUsed: () => undefined,
+          jotdownStore: this.deps.jotdownStore,
+          imageToTextService: this.deps.imageToTextService,
+          isModelImageCapable: isModelImageCapable(config, settings.providerName, settings.model)
+        },
+        {
+          runId: input.runId,
+          thread: sourceThread,
+          requestMessageId: handoffRequestId,
+          requestMessage: handoffRequestMessage,
+          historyMessages: [...input.sourceMessages, handoffRequestMessage],
+          enabledTools: sourceEnabledTools,
+          ...(sourceTurnContext?.enabledSkillNames !== undefined
+            ? { enabledSkillNames: sourceTurnContext.enabledSkillNames }
+            : {}),
+          abortController: activeRun.abortController,
+          persistTurnContext: false,
+          emitContextEvents: false,
+          includeMemoryRecall: false,
+          applyStripCompact: false
+        }
       )
-      const modelEnabledTools = resolveModelEnabledTools({
-        activeSkills,
-        enabledTools: resolveEnabledTools(undefined, config.enabledTools)
-      })
       const handoffTools = disableHandoffToolExecution(
         createAgentToolSet(
           {
-            enabledTools: modelEnabledTools,
-            workspacePath,
-            sandboxed: false,
+            enabledTools: preparedContext.modelEnabledTools,
+            workspacePath: preparedContext.workspacePath,
+            sandboxed: preparedContext.isExternalChannel && !preparedContext.isOwnerDm,
             readRecordCache: new ReadRecordCache(),
             imageToTextService: this.deps.imageToTextService,
             isModelImageCapable: isModelImageCapable(config, settings.providerName, settings.model)
           },
           {
-            availableSkills,
+            availableSkills: preparedContext.availableSkills,
             fetchImpl: this.deps.webExternalFetchImpl ?? this.deps.fetchImpl,
             loadBrowserSnapshot: this.deps.loadBrowserSnapshot,
             searchService: this.deps.searchService,
             memoryService: sourceThread.privacyMode ? undefined : this.deps.memoryService,
             webSearchService: this.deps.webSearchService,
             updateProfileDeps: {
-              userDocumentPath: resolveYachiyoUserPath()
+              userDocumentPath: preparedContext.isGuest
+                ? resolveYachiyoUserPath(preparedContext.workspacePath)
+                : resolveYachiyoUserPath(),
+              ...(preparedContext.isExternalChannel
+                ? {
+                    userDocumentMode: preparedContext.isGuest
+                      ? ('guest' as const)
+                      : ('owner' as const)
+                  }
+                : {})
             },
-            ...(!sourceThread.privacyMode && this.deps.memoryService.isConfigured()
+            ...(!sourceThread.privacyMode &&
+            (!preparedContext.isExternalChannel || preparedContext.isOwnerDm) &&
+            this.deps.memoryService.isConfigured()
               ? { rememberDeps: { memoryService: this.deps.memoryService } }
               : {}),
-            ...(!sourceThread.privacyMode
+            ...(!sourceThread.privacyMode &&
+            (!preparedContext.isExternalChannel || preparedContext.isOwnerDm)
               ? {
                   crossThreadSearch: (searchInput: {
                     query: string
@@ -2422,73 +2444,40 @@ export class YachiyoServerRunDomain {
                   }) => this.deps.storage.searchThreadsAndMessagesFts(searchInput)
                 }
               : {}),
-            askUserContext: {
-              waitForUserAnswer: async () => {
-                throw new Error('Tool execution is disabled during handoff creation.')
-              }
-            },
-            ...((gitCtx.hasGit || gitValidatedWorkspaces.length > 0) &&
-            enabledSubagentProfiles.length > 0
+            ...(!preparedContext.isExternalChannel
               ? {
-                  subagentProfiles: enabledSubagentProfiles,
-                  availableWorkspaces: gitValidatedWorkspaces
+                  askUserContext: {
+                    waitForUserAnswer: async () => {
+                      throw new Error('Tool execution is disabled during handoff creation.')
+                    }
+                  }
+                }
+              : {}),
+            ...((preparedContext.gitCtx.hasGit ||
+              preparedContext.gitValidatedWorkspaces.length > 0) &&
+            preparedContext.enabledSubagentProfiles.length > 0
+              ? {
+                  subagentProfiles: preparedContext.enabledSubagentProfiles,
+                  availableWorkspaces: preparedContext.gitValidatedWorkspaces
                 }
               : {})
           }
         )
       )
-      const promptContext = {
-        personality: {
-          basePersona: `Today is ${formatDateLine(new Date())}.\n\n${SYSTEM_PROMPT}`
-        },
-        soul: { content: soulDocument?.rawContent ?? '' },
-        user: { content: userDocument?.content ?? '' },
-        skills: { activeSkills },
-        agent: {
-          instructions: [
-            buildAgentInstructions({
-              workspacePath,
-              workspaceLabel: config.workspace?.pathLabels?.[workspacePath],
-              enabledTools: modelEnabledTools,
-              activeSkills,
-              hasHiddenMemorySearch:
-                !sourceThread.privacyMode && this.deps.memoryService.hasHiddenSearchCapability(),
-              hasUpdateProfile: true,
-              hasRemember: !sourceThread.privacyMode && this.deps.memoryService.isConfigured(),
-              soulDocumentPath: soulDocument?.filePath,
-              userDocumentPath: userDocument?.filePath,
-              subagentContextBlock: subagentContextBlock || undefined,
-              isUserSpecifiedWorkspace: !!sourceThread.workspacePath?.trim(),
-              maxToolSteps: DEFAULT_MAX_TOOL_STEPS
-            }),
-            'Mermaid diagrams in ```mermaid code blocks are rendered as interactive diagrams in this conversation. Write Mermaid code directly — do not suggest the user open it in an external tool.'
-          ].join('\n\n')
-        },
-        anthropicCacheBreakpoints: settings.provider === 'anthropic'
-      }
-      let handoffSourceMessages: ContextLayerHistoryMessage[] = input.sourceMessages
-      if (
-        !isModelImageCapable(config, settings.providerName, settings.model) &&
-        this.deps.imageToTextService
-      ) {
-        handoffSourceMessages = await preprocessImagesForNonVisionModel(
-          input.sourceMessages,
-          this.deps.imageToTextService
-        )
-      }
 
       let handoffUsage: ModelUsage | undefined
       for await (const delta of runtime.streamReply({
-        messages: buildCompactThreadHandoffMessages({
-          history: handoffSourceMessages,
-          promptContext,
-          userDocumentContent: userDocument?.content
-        }),
+        messages: preparedContext.messages,
         settings,
         signal: activeRun.abortController.signal,
         purpose: 'thread-handoff',
         promptCacheKey: input.sourceThreadId,
-        ...(handoffTools ? { tools: handoffTools, toolChoice: 'none' as const } : {}),
+        ...(handoffTools
+          ? {
+              tools: handoffTools,
+              onToolCallError: () => 'abort' as const
+            }
+          : {}),
         onReasoningDelta: (reasoningDelta) => {
           reasoningDeltaBatcher.push(reasoningDelta)
         },

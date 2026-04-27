@@ -893,12 +893,23 @@ export function serializeTurnContext(turnContext?: MessageTurnContext): string |
 
   const hasReminder = turnContext.reminder?.trim()
   const hasMemory = turnContext.memoryEntries && turnContext.memoryEntries.length > 0
+  const hasEnabledTools = turnContext.enabledTools !== undefined
+  const hasEnabledSkillNames = turnContext.enabledSkillNames !== undefined
 
-  if (!hasReminder && !hasMemory) {
+  if (!hasReminder && !hasMemory && !hasEnabledTools && !hasEnabledSkillNames) {
     return null
   }
 
-  return JSON.stringify(turnContext)
+  return JSON.stringify({
+    ...(hasReminder ? { reminder: turnContext.reminder } : {}),
+    ...(hasMemory ? { memoryEntries: turnContext.memoryEntries } : {}),
+    ...(hasEnabledTools
+      ? { enabledTools: normalizeEnabledTools(turnContext.enabledTools, []) }
+      : {}),
+    ...(hasEnabledSkillNames
+      ? { enabledSkillNames: normalizeSkillNames(turnContext.enabledSkillNames, []) }
+      : {})
+  })
 }
 
 export function parseTurnContext(value: string | null): MessageTurnContext | undefined {
@@ -907,15 +918,33 @@ export function parseTurnContext(value: string | null): MessageTurnContext | und
   }
 
   try {
-    const parsed = JSON.parse(value) as MessageTurnContext
-    const hasReminder = typeof parsed.reminder === 'string' && parsed.reminder.trim().length > 0
-    const hasMemory = Array.isArray(parsed.memoryEntries) && parsed.memoryEntries.length > 0
-    if (!hasReminder && !hasMemory) {
+    const parsed = JSON.parse(value) as Record<string, unknown>
+    const reminder =
+      typeof parsed.reminder === 'string' && parsed.reminder.trim().length > 0
+        ? parsed.reminder
+        : undefined
+    const memoryEntries = Array.isArray(parsed.memoryEntries)
+      ? parsed.memoryEntries.filter((item): item is string => typeof item === 'string')
+      : []
+    const enabledTools: ToolCallName[] | undefined = Array.isArray(parsed.enabledTools)
+      ? normalizeEnabledTools(parsed.enabledTools, [])
+      : undefined
+    const enabledSkillNames: string[] | undefined = Array.isArray(parsed.enabledSkillNames)
+      ? normalizeSkillNames(parsed.enabledSkillNames, [])
+      : undefined
+    if (
+      reminder === undefined &&
+      memoryEntries.length === 0 &&
+      enabledTools === undefined &&
+      enabledSkillNames === undefined
+    ) {
       return undefined
     }
     return {
-      ...(hasReminder ? { reminder: parsed.reminder } : {}),
-      ...(hasMemory ? { memoryEntries: parsed.memoryEntries } : {})
+      ...(reminder !== undefined ? { reminder } : {}),
+      ...(memoryEntries.length > 0 ? { memoryEntries } : {}),
+      ...(enabledTools !== undefined ? { enabledTools } : {}),
+      ...(enabledSkillNames !== undefined ? { enabledSkillNames } : {})
     }
   } catch {
     return undefined

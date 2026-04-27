@@ -58,7 +58,10 @@ import { applyStripCompact } from '../../runtime/contextStripCompact.ts'
 import { prepareModelMessages } from '../../runtime/messagePrepare.ts'
 import { preprocessImagesForNonVisionModel } from '../../runtime/contextLayers.ts'
 import type { ImageToTextService } from '../../services/imageToText/imageToTextService.ts'
-import { repairReplayHistoryMessages } from '../../runtime/replayHistoryRepair.ts'
+import {
+  repairReplayHistoryMessages,
+  type ReplayHistoryMessage
+} from '../../runtime/replayHistoryRepair.ts'
 import {
   buildExternalAgentInstructions,
   compileExternalContextLayers
@@ -86,7 +89,7 @@ import { readUserDocument, type UserDocument } from '../../runtime/user.ts'
 import { resolveYachiyoUserPath } from '../../config/paths.ts'
 import { homedir, platform, release } from 'node:os'
 import { readChannelsConfig } from '../../runtime/channelsConfig.ts'
-import type { ModelRuntime, ModelUsage } from '../../runtime/types.ts'
+import type { ModelMessage, ModelRuntime, ModelUsage } from '../../runtime/types.ts'
 import { RETRY_MAX_ATTEMPTS } from '../../runtime/modelRuntime.ts'
 import { isRetryableRunError, RetryableRunError } from '../../runtime/runtimeErrors.ts'
 import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
@@ -739,7 +742,8 @@ async function ensureResolvedWorkspacePath(
   } catch (cause) {
     // Fatal by type — any error that is not a RetryableRunError is treated
     // as non-retryable by runExecution's catch block. No ad-hoc tagging.
-    throw new Error('Workspace initialization failed', { cause })
+    const detail = cause instanceof Error && cause.message ? `: ${cause.message}` : ''
+    throw new Error(`Workspace initialization failed${detail}`, { cause })
   }
 }
 
@@ -848,37 +852,30 @@ function balanceResponseMessages(messages: unknown[]): unknown[] {
   return modified ? result : messages
 }
 
-function loadRunHistory(
-  loadThreadMessages: RunExecutionDeps['loadThreadMessages'],
-  storage: Pick<YachiyoStorage, 'persistResponseMessagesRepairInBackground'>,
-  threadId: string,
+type RunHistoryMessage = Pick<
+  MessageRecord,
+  'content' | 'images' | 'attachments' | 'role' | 'responseMessages' | 'turnContext'
+>
+
+function toRunHistoryMessages(
+  messagePath: ReplayHistoryMessage[],
   requestMessageId: string,
   requestMessageContentOverride?: string,
   /** If set, only messages after this legacy external-summary watermark are included. */
   summaryWatermarkMessageId?: string
-): Array<
-  Pick<
-    MessageRecord,
-    'content' | 'images' | 'attachments' | 'role' | 'responseMessages' | 'turnContext'
-  >
-> {
-  let messagePath = repairReplayHistoryMessages({
-    messages: collectMessagePath(loadThreadMessages(threadId), requestMessageId),
-    persistRepairedResponseMessages: (repair) => {
-      storage.persistResponseMessagesRepairInBackground?.(repair)
-    }
-  })
+): RunHistoryMessage[] {
+  let effectivePath = messagePath
 
   // For external channels with a legacy summary watermark, trim history to only
   // messages after the watermark. The stored summary covers everything before it.
   if (summaryWatermarkMessageId) {
-    const watermarkIndex = messagePath.findIndex((m) => m.id === summaryWatermarkMessageId)
+    const watermarkIndex = effectivePath.findIndex((m) => m.id === summaryWatermarkMessageId)
     if (watermarkIndex >= 0) {
-      messagePath = messagePath.slice(watermarkIndex + 1)
+      effectivePath = effectivePath.slice(watermarkIndex + 1)
     }
   }
 
-  return messagePath.map(
+  return effectivePath.map(
     ({ content, id, images, attachments, role, responseMessages, turnContext }) => {
       // The current request message must NOT carry historical turnContext —
       // the live `hint`/`memory` parameters will append the fresh per-turn
@@ -896,6 +893,428 @@ function loadRunHistory(
       }
     }
   )
+}
+
+function loadRunHistory(
+  loadThreadMessages: RunExecutionDeps['loadThreadMessages'],
+  storage: Pick<YachiyoStorage, 'persistResponseMessagesRepairInBackground'>,
+  threadId: string,
+  requestMessageId: string,
+  requestMessageContentOverride?: string,
+  summaryWatermarkMessageId?: string
+): RunHistoryMessage[] {
+  const messagePath = repairReplayHistoryMessages({
+    messages: collectMessagePath(loadThreadMessages(threadId), requestMessageId),
+    persistRepairedResponseMessages: (repair) => {
+      storage.persistResponseMessagesRepairInBackground?.(repair)
+    }
+  })
+
+  return toRunHistoryMessages(
+    messagePath,
+    requestMessageId,
+    requestMessageContentOverride,
+    summaryWatermarkMessageId
+  )
+}
+
+export interface PreparedServerRunContext {
+  workspacePath: string
+  config: SettingsConfig
+  messages: ModelMessage[]
+  modelEnabledTools: ToolCallName[]
+  maxToolSteps: number
+  availableSkills: SkillCatalogEntry[]
+  activeSkills: SkillSummary[]
+  soulDocument: SoulDocument | null
+  userDocument: UserDocument | null
+  isExternalChannel: boolean
+  isGuest: boolean
+  isOwnerDm: boolean
+  hiddenQueryReminder?: string
+  memoryEntries: string[]
+  recallDecision?: RecallDecisionSnapshot
+  fileMentionCount: number
+  inlinedFileCount: number
+  enabledSubagentProfiles: SubagentProfile[]
+  gitCtx: GitContext
+  gitValidatedWorkspaces: string[]
+}
+
+export interface PrepareServerRunContextInput {
+  runId: string
+  thread: ThreadRecord
+  requestMessageId: string
+  enabledTools: ToolCallName[]
+  enabledSkillNames?: string[]
+  channelHint?: string
+  abortController: AbortController
+  recoveryCheckpoint?: RunRecoveryCheckpoint
+  isSteerLeg?: boolean
+  priorUsage?: ExecuteRunInput['priorUsage']
+  maxToolStepsOverride?: number
+  requestMessage?: MessageRecord
+  historyMessages?: MessageRecord[]
+  persistTurnContext?: boolean
+  emitContextEvents?: boolean
+  includeMemoryRecall?: boolean
+  applyStripCompact?: boolean
+}
+
+export async function prepareServerRunContext(
+  deps: RunExecutionDeps,
+  input: PrepareServerRunContextInput
+): Promise<PreparedServerRunContext> {
+  const settings = deps.readSettings()
+  const workspacePath = await ensureResolvedWorkspacePath(input.thread, deps.ensureThreadWorkspace)
+  const availableSkills = await deps.listSkills([workspacePath])
+  const activeSkills = resolveActiveSkills({
+    availableSkills,
+    config: deps.readConfig(),
+    ...(input.enabledSkillNames !== undefined ? { enabledSkillNames: input.enabledSkillNames } : {})
+  })
+  const soulDocument = deps.readSoulDocument
+    ? await deps.readSoulDocument()
+    : await readSoulDocument()
+  const isExternalChannel = input.thread.source != null && input.thread.source !== 'local'
+  const channelUser =
+    isExternalChannel && input.thread.channelUserId
+      ? deps.storage.getChannelUser(input.thread.channelUserId)
+      : undefined
+  const isGuest = isExternalChannel && (channelUser?.role ?? 'guest') !== 'owner'
+  const isOwnerDm = isExternalChannel && !isGuest && !input.thread.channelGroupId
+  if (isExternalChannel) {
+    console.log(
+      `[yachiyo] external channel run: user=${channelUser?.username ?? 'unknown'}, role=${channelUser?.role ?? 'guest'}, isGuest=${isGuest}, isOwnerDm=${isOwnerDm}`
+    )
+  }
+  const maxToolSteps =
+    input.maxToolStepsOverride ??
+    (isExternalChannel && !isOwnerDm ? EXTERNAL_CHANNEL_MAX_TOOL_STEPS : DEFAULT_MAX_TOOL_STEPS)
+  const modelEnabledTools = resolveModelEnabledTools({
+    activeSkills,
+    enabledTools: isOwnerDm
+      ? resolveEnabledTools(undefined, deps.readConfig().enabledTools)
+      : input.enabledTools
+  })
+  const guestUserPath = resolveYachiyoUserPath(workspacePath)
+  const userDocument = isGuest
+    ? await readUserDocument({ filePath: guestUserPath, guest: true })
+    : deps.readUserDocument
+      ? await deps.readUserDocument()
+      : await readUserDocument()
+  const isLocalOrOwnerDm = !isExternalChannel || isOwnerDm
+  const requestMessage =
+    input.requestMessage ??
+    deps
+      .loadThreadMessages(input.thread.id)
+      .find((message) => message.id === input.requestMessageId && message.role === 'user')
+  const now = new Date()
+  // Freeze the hint-layer timestamp to the request message's creation time so
+  // retries and multi-step continuations produce byte-identical reminder text,
+  // keeping the cached prefix stable within a turn.
+  const hintTime = requestMessage?.createdAt ? new Date(requestMessage.createdAt) : now
+  const isSteerLeg = input.isSteerLeg === true || input.priorUsage != null
+  const hiddenQueryReminder = formatQueryReminder(
+    [
+      buildDisabledToolsReminderSection({ enabledTools: modelEnabledTools }),
+      buildCurrentTimeSection(hintTime, { includeDate: !isLocalOrOwnerDm }),
+      isSteerLeg ? buildSteerReminderSection() : null
+    ].flatMap((section) => (section ? [section] : []))
+  )
+  const sessionHint = input.thread.lastDelegatedSession
+    ? `Hint: The most recent delegated coding task (Agent: ${input.thread.lastDelegatedSession.agentName}) used session_id ${input.thread.lastDelegatedSession.sessionId} in workspace ${input.thread.lastDelegatedSession.workspacePath}. If the user asks to resume or continue that task, you must provide this exact session_id and set workspace to ${input.thread.lastDelegatedSession.workspacePath} in the delegateCodingTask tool.`
+    : undefined
+  const effectiveReminder =
+    [hiddenQueryReminder, sessionHint].filter(Boolean).join('\n\n') || undefined
+  const fileMentionResolution = await resolveFileMentionsForUserQuery({
+    content: requestMessage?.content ?? '',
+    workspacePath,
+    searchService: deps.searchService
+  })
+
+  let hasInlinedJotdown = false
+  const jotdownMentions = fileMentionResolution.mentions.filter(
+    (m) => m.query.toLowerCase() === 'jotdown'
+  )
+  if (jotdownMentions.length > 0 && deps.jotdownStore) {
+    const latest = await deps.jotdownStore.getLatest()
+    if (latest) {
+      hasInlinedJotdown = true
+      for (const mention of jotdownMentions) {
+        mention.kind = 'resolved'
+        mention.resolvedPath = 'JotDown'
+        mention.resolvedKind = 'file'
+        mention.candidatePaths = ['JotDown']
+      }
+      const home = homedir()
+      const jotdownPath = deps.jotdownStore.baseDir.startsWith(home)
+        ? join('~', relative(home, deps.jotdownStore.baseDir), `${latest.id}.md`)
+        : 'JotDown'
+      fileMentionResolution.augmentedUserQuery = [
+        buildHiddenReferenceBlock({
+          mentions: fileMentionResolution.mentions,
+          inlinedReference: {
+            tagName: 'referenced_jotdown',
+            path: jotdownPath,
+            content: latest.content.trimEnd()
+          }
+        }),
+        '',
+        requestMessage?.content ?? ''
+      ].join('\n')
+    }
+  }
+
+  let memoryEntries: string[] = []
+  let recallDecision: RecallDecisionSnapshot | undefined
+  if (
+    input.includeMemoryRecall !== false &&
+    deps.buildMemoryLayerEntries &&
+    !isGuest &&
+    !isSteerLeg
+  ) {
+    try {
+      const result = await deps.buildMemoryLayerEntries({
+        requestMessageId: input.requestMessageId,
+        signal: AbortSignal.any([
+          input.abortController.signal,
+          AbortSignal.timeout(MEMORY_RECALL_TIMEOUT_MS)
+        ]),
+        thread: input.thread,
+        userQuery: requestMessage?.content ?? ''
+      })
+      memoryEntries = result.entries
+      recallDecision = result.recallDecision
+    } catch (error) {
+      if (input.abortController.signal.aborted) {
+        throw error
+      }
+      console.warn('[yachiyo][memory] failed to build memory layer; continuing run', {
+        error: error instanceof Error ? error.message : String(error),
+        runId: input.runId,
+        threadId: input.thread.id
+      })
+    }
+  }
+  if (input.emitContextEvents !== false) {
+    deps.emit<RunMemoryRecalledEvent>({
+      type: 'run.memory.recalled',
+      threadId: input.thread.id,
+      runId: input.runId,
+      requestMessageId: input.requestMessageId,
+      recalledMemoryEntries: memoryEntries,
+      ...(recallDecision ? { recallDecision } : {})
+    })
+  }
+
+  const config = deps.readConfig()
+  const enabledSubagentProfiles = (config.subagentProfiles ?? []).filter((p) => p.enabled)
+  const savedWorkspacePaths = config.workspace?.savedPaths ?? []
+  const gitCtx =
+    enabledSubagentProfiles.length > 0
+      ? await detectGitContext(workspacePath)
+      : ({ hasGit: false } as GitContext)
+  const gitValidatedWorkspaces =
+    enabledSubagentProfiles.length > 0 && savedWorkspacePaths.length > 0
+      ? (
+          await Promise.all(
+            savedWorkspacePaths.map(async (p) => {
+              const hasGit = await access(join(resolve(p), '.git'), constants.F_OK)
+                .then(() => true)
+                .catch(() => false)
+              return hasGit ? p : null
+            })
+          )
+        ).filter((p): p is string => p !== null)
+      : []
+  const subagentContextBlock = buildSubagentContextBlock(
+    gitCtx,
+    workspacePath,
+    enabledSubagentProfiles,
+    gitValidatedWorkspaces
+  )
+
+  if (input.persistTurnContext !== false && requestMessage) {
+    const turnContext: MessageTurnContext = {
+      ...(hiddenQueryReminder ? { reminder: hiddenQueryReminder } : {}),
+      ...(memoryEntries.length > 0 ? { memoryEntries } : {}),
+      enabledTools: [...input.enabledTools],
+      enabledSkillNames: activeSkills.map((skill) => skill.name)
+    }
+    deps.storage.updateMessage({ ...requestMessage, turnContext })
+  }
+
+  const rawContent = requestMessage?.content ?? ''
+  const skillExpandedContent = await expandSkillMention(rawContent, deps.listSkills, [
+    workspacePath
+  ])
+  const augmentedUserQuery = fileMentionResolution.augmentedUserQuery
+  const hasSkillExpansion = skillExpandedContent !== rawContent
+  const modelUserQuery = hasSkillExpansion
+    ? augmentedUserQuery.slice(0, augmentedUserQuery.length - rawContent.length) +
+      skillExpandedContent
+    : augmentedUserQuery
+
+  const history =
+    input.historyMessages !== undefined
+      ? toRunHistoryMessages(input.historyMessages, input.requestMessageId, modelUserQuery)
+      : loadRunHistory(
+          deps.loadThreadMessages,
+          deps.storage,
+          input.thread.id,
+          input.requestMessageId,
+          modelUserQuery,
+          input.thread.summaryWatermarkMessageId
+        )
+  const recoveredToolCalls = input.recoveryCheckpoint
+    ? deps.loadThreadToolCalls(input.thread.id).filter((toolCall) => toolCall.runId === input.runId)
+    : []
+  const recoveryHistory = input.recoveryCheckpoint
+    ? buildRecoveryHistory({
+        checkpoint: input.recoveryCheckpoint,
+        toolCalls: recoveredToolCalls
+      })
+    : []
+  let contextHistory = [...history, ...recoveryHistory]
+
+  if (deps.isModelImageCapable === false && deps.imageToTextService) {
+    contextHistory = await preprocessImagesForNonVisionModel(
+      contextHistory,
+      deps.imageToTextService
+    )
+  }
+
+  const messages =
+    isExternalChannel && !isOwnerDm
+      ? compileExternalContextLayers({
+          personality: { basePersona: EXTERNAL_SYSTEM_PROMPT },
+          soul: { content: soulDocument?.rawContent ?? '' },
+          user: { content: userDocument?.content ?? '' },
+          executionContract: buildExternalAgentInstructions({
+            enabledTools: modelEnabledTools,
+            guest: isGuest,
+            guestInstruction: isGuest ? readChannelsConfig().guestInstruction : undefined,
+            maxToolSteps: maxToolSteps || DEFAULT_MAX_TOOL_STEPS
+          }),
+          channelInstruction: input.channelHint ?? '',
+          rollingSummary: input.thread.rollingSummary,
+          history: contextHistory,
+          hint: { reminder: effectiveReminder },
+          memory: { entries: memoryEntries }
+        })
+      : prepareModelMessages({
+          personality: {
+            basePersona: isLocalOrOwnerDm
+              ? `Today is ${formatDateLine(now)}.\n\n${SYSTEM_PROMPT}`
+              : SYSTEM_PROMPT
+          },
+          soul: { content: soulDocument?.rawContent ?? '' },
+          user: { content: userDocument?.content ?? '' },
+          skills: { activeSkills },
+          agent: {
+            instructions: [
+              buildAgentInstructions({
+                workspacePath,
+                workspaceLabel: config.workspace?.pathLabels?.[workspacePath],
+                enabledTools: modelEnabledTools,
+                activeSkills,
+                hasHiddenMemorySearch:
+                  !input.thread.privacyMode && deps.memoryService.hasHiddenSearchCapability(),
+                hasUpdateProfile: true,
+                hasRemember:
+                  !input.thread.privacyMode &&
+                  (!isExternalChannel || isOwnerDm) &&
+                  deps.memoryService.isConfigured(),
+                soulDocumentPath: soulDocument?.filePath,
+                userDocumentPath: userDocument?.filePath,
+                subagentContextBlock: subagentContextBlock || undefined,
+                isUserSpecifiedWorkspace: !!input.thread.workspacePath?.trim(),
+                maxToolSteps: maxToolSteps || DEFAULT_MAX_TOOL_STEPS
+              }),
+              ...(isOwnerDm && input.channelHint?.trim() ? [input.channelHint.trim()] : []),
+              ...(!isExternalChannel
+                ? [
+                    'Mermaid diagrams in ```mermaid code blocks are rendered as interactive diagrams in this conversation. Write Mermaid code directly — do not suggest the user open it in an external tool.'
+                  ]
+                : [])
+            ].join('\n\n')
+          },
+          hint: {
+            reminder: effectiveReminder
+          },
+          memory: { entries: memoryEntries },
+          anthropicCacheBreakpoints: settings.provider === 'anthropic',
+          history: input.thread.rollingSummary?.trim()
+            ? [
+                {
+                  role: 'user' as const,
+                  content: `<conversation_summary>\n${input.thread.rollingSummary.trim()}\n</conversation_summary>`
+                },
+                ...contextHistory
+              ]
+            : contextHistory
+        })
+  const stripCompactEnabled = config.chat?.stripCompact !== false
+  const previousActualPromptTokens = getPreviousRunActualPromptTokens(
+    deps.storage,
+    deps.loadThreadMessages,
+    input.thread.id,
+    input.runId,
+    input.requestMessageId
+  )
+  const finalMessages =
+    input.applyStripCompact !== false && stripCompactEnabled
+      ? applyStripCompact(
+          messages,
+          modelEnabledTools.length,
+          previousActualPromptTokens,
+          config.chat?.stripCompactThresholdTokens
+        )
+      : messages
+
+  if (input.emitContextEvents !== false) {
+    deps.emit<RunContextCompiledEvent>({
+      type: 'run.context.compiled',
+      threadId: input.thread.id,
+      runId: input.runId,
+      contextSources: buildContextSources({
+        evolvedTraitCount: (soulDocument?.evolvedTraits ?? []).filter((t) => t.trim()).length,
+        hasUserContent: (userDocument?.content ?? '').trim().length > 0,
+        enabledTools: modelEnabledTools,
+        activeSkills,
+        fileMentionCount: fileMentionResolution.mentions.length,
+        inlinedFileCount: (fileMentionResolution.inlinedPath ? 1 : 0) + (hasInlinedJotdown ? 1 : 0),
+        workspacePath,
+        hasToolReminder: hiddenQueryReminder !== undefined,
+        memoryEntries,
+        recallDecision
+      })
+    })
+  }
+
+  return {
+    workspacePath,
+    config,
+    messages: finalMessages,
+    modelEnabledTools,
+    maxToolSteps,
+    availableSkills,
+    activeSkills,
+    soulDocument,
+    userDocument,
+    isExternalChannel,
+    isGuest,
+    isOwnerDm,
+    hiddenQueryReminder,
+    memoryEntries,
+    ...(recallDecision ? { recallDecision } : {}),
+    fileMentionCount: fileMentionResolution.mentions.length,
+    inlinedFileCount: (fileMentionResolution.inlinedPath ? 1 : 0) + (hasInlinedJotdown ? 1 : 0),
+    enabledSubagentProfiles,
+    gitCtx,
+    gitValidatedWorkspaces
+  }
 }
 
 function finishPendingToolCalls(
@@ -1336,352 +1755,41 @@ export async function executeServerRun(
   let tools: ToolSet | undefined
 
   try {
-    const workspacePath = await ensureResolvedWorkspacePath(
-      input.thread,
-      deps.ensureThreadWorkspace
-    )
+    const preparedContext = await prepareServerRunContext(deps, {
+      runId: input.runId,
+      thread: input.thread,
+      requestMessageId: input.requestMessageId,
+      enabledTools: input.enabledTools,
+      ...(input.enabledSkillNames !== undefined
+        ? { enabledSkillNames: input.enabledSkillNames }
+        : {}),
+      ...(input.channelHint ? { channelHint: input.channelHint } : {}),
+      abortController: input.abortController,
+      ...(input.recoveryCheckpoint ? { recoveryCheckpoint: input.recoveryCheckpoint } : {}),
+      ...(input.isSteerLeg !== undefined ? { isSteerLeg: input.isSteerLeg } : {}),
+      ...(input.priorUsage ? { priorUsage: input.priorUsage } : {}),
+      ...(input.maxToolStepsOverride !== undefined
+        ? { maxToolStepsOverride: input.maxToolStepsOverride }
+        : {})
+    })
+    const {
+      workspacePath,
+      messages: finalMessages,
+      modelEnabledTools,
+      maxToolSteps,
+      availableSkills,
+      isExternalChannel,
+      isGuest,
+      isOwnerDm,
+      enabledSubagentProfiles,
+      gitCtx,
+      gitValidatedWorkspaces
+    } = preparedContext
     if (!snapshotTracker) {
       snapshotTracker = new SnapshotTracker(workspacePath, input.runId, input.thread.id)
       snapshotTracker.startBaselineScan()
     }
     const runtime = deps.createModelRuntime()
-    const availableSkills = await deps.listSkills([workspacePath])
-    const activeSkills = resolveActiveSkills({
-      availableSkills,
-      config: deps.readConfig(),
-      ...(input.enabledSkillNames !== undefined
-        ? { enabledSkillNames: input.enabledSkillNames }
-        : {})
-    })
-    const soulDocument = deps.readSoulDocument
-      ? await deps.readSoulDocument()
-      : await readSoulDocument()
-    const isExternalChannel = input.thread.source != null && input.thread.source !== 'local'
-    const channelUser =
-      isExternalChannel && input.thread.channelUserId
-        ? deps.storage.getChannelUser(input.thread.channelUserId)
-        : undefined
-    const isGuest = isExternalChannel && (channelUser?.role ?? 'guest') !== 'owner'
-    // Owner DM: an external DM (no channelGroupId) where the user is the owner.
-    // These get the full local agent toolset — no sandboxing, no stripped instructions.
-    const isOwnerDm = isExternalChannel && !isGuest && !input.thread.channelGroupId
-    if (isExternalChannel) {
-      console.log(
-        `[yachiyo] external channel run: user=${channelUser?.username ?? 'unknown'}, role=${channelUser?.role ?? 'guest'}, isGuest=${isGuest}, isOwnerDm=${isOwnerDm}`
-      )
-    }
-    const maxToolSteps =
-      input.maxToolStepsOverride ??
-      (isExternalChannel && !isOwnerDm ? EXTERNAL_CHANNEL_MAX_TOOL_STEPS : DEFAULT_MAX_TOOL_STEPS)
-    // Owner DMs use the owner's configured full tool set; all other runs use whatever
-    // the caller passed in (which for channel services is policy.allowedTools).
-    const modelEnabledTools = resolveModelEnabledTools({
-      activeSkills,
-      enabledTools: isOwnerDm
-        ? resolveEnabledTools(undefined, deps.readConfig().enabledTools)
-        : input.enabledTools
-    })
-    const guestUserPath = resolveYachiyoUserPath(workspacePath)
-    const userDocument = isGuest
-      ? await readUserDocument({ filePath: guestUserPath, guest: true })
-      : deps.readUserDocument
-        ? await deps.readUserDocument()
-        : await readUserDocument()
-    const isLocalOrOwnerDm = !isExternalChannel || isOwnerDm
-    const requestMessage = deps
-      .loadThreadMessages(input.thread.id)
-      .find((message) => message.id === input.requestMessageId && message.role === 'user')
-    const now = new Date()
-    // Freeze the hint-layer timestamp to the request message's creation time so
-    // retries and multi-step continuations produce byte-identical reminder text,
-    // keeping the cached prefix stable within a turn.
-    const hintTime = requestMessage?.createdAt ? new Date(requestMessage.createdAt) : now
-    const isSteerLeg = input.isSteerLeg === true || input.priorUsage != null
-    const hiddenQueryReminder = formatQueryReminder(
-      [
-        buildDisabledToolsReminderSection({ enabledTools: modelEnabledTools }),
-        buildCurrentTimeSection(hintTime, { includeDate: !isLocalOrOwnerDm }),
-        isSteerLeg ? buildSteerReminderSection() : null
-      ].flatMap((section) => (section ? [section] : []))
-    )
-    const sessionHint = input.thread.lastDelegatedSession
-      ? `Hint: The most recent delegated coding task (Agent: ${input.thread.lastDelegatedSession.agentName}) used session_id ${input.thread.lastDelegatedSession.sessionId} in workspace ${input.thread.lastDelegatedSession.workspacePath}. If the user asks to resume or continue that task, you must provide this exact session_id and set workspace to ${input.thread.lastDelegatedSession.workspacePath} in the delegateCodingTask tool.`
-      : undefined
-    const effectiveReminder =
-      [hiddenQueryReminder, sessionHint].filter(Boolean).join('\n\n') || undefined
-    const fileMentionResolution = await resolveFileMentionsForUserQuery({
-      content: requestMessage?.content ?? '',
-      workspacePath,
-      searchService: deps.searchService
-    })
-
-    // Resolve @JotDown mentions to the latest jot down content
-    let hasInlinedJotdown = false
-    const jotdownMentions = fileMentionResolution.mentions.filter(
-      (m) => m.query.toLowerCase() === 'jotdown'
-    )
-    if (jotdownMentions.length > 0 && deps.jotdownStore) {
-      const latest = await deps.jotdownStore.getLatest()
-      if (latest) {
-        hasInlinedJotdown = true
-        for (const mention of jotdownMentions) {
-          mention.kind = 'resolved'
-          mention.resolvedPath = 'JotDown'
-          mention.resolvedKind = 'file'
-          mention.candidatePaths = ['JotDown']
-        }
-        // Rebuild the hidden reference block so @JotDown appears resolved
-        // instead of contradictory unresolved metadata.
-        // Use a ~-relative path for privacy (no absolute host path leak),
-        // falling back to the logical name if YACHIYO_HOME is outside home.
-        const home = homedir()
-        const jotdownPath = deps.jotdownStore.baseDir.startsWith(home)
-          ? join('~', relative(home, deps.jotdownStore.baseDir), `${latest.id}.md`)
-          : 'JotDown'
-        fileMentionResolution.augmentedUserQuery = [
-          buildHiddenReferenceBlock({
-            mentions: fileMentionResolution.mentions,
-            inlinedReference: {
-              tagName: 'referenced_jotdown',
-              path: jotdownPath,
-              content: latest.content.trimEnd()
-            }
-          }),
-          '',
-          requestMessage?.content ?? ''
-        ].join('\n')
-      }
-    }
-
-    let memoryEntries: string[] = []
-    let recallDecision: RecallDecisionSnapshot | undefined
-    // Steer legs continue the same turn — the opening leg already recalled for
-    // this request, so re-running recall here would double-inject memory and
-    // inflate the cached prefix without any new signal.
-    if (deps.buildMemoryLayerEntries && !isGuest && !isSteerLeg) {
-      try {
-        const result = await deps.buildMemoryLayerEntries({
-          requestMessageId: input.requestMessageId,
-          signal: AbortSignal.any([
-            input.abortController.signal,
-            AbortSignal.timeout(MEMORY_RECALL_TIMEOUT_MS)
-          ]),
-          thread: input.thread,
-          userQuery: requestMessage?.content ?? ''
-        })
-        memoryEntries = result.entries
-        recallDecision = result.recallDecision
-      } catch (error) {
-        // If the user aborted the run, propagate so the outer run loop tears
-        // down. Only the recall-internal timeout should be swallowed as a
-        // soft failure that lets the run continue without memory context.
-        if (input.abortController.signal.aborted) {
-          throw error
-        }
-        console.warn('[yachiyo][memory] failed to build memory layer; continuing run', {
-          error: error instanceof Error ? error.message : String(error),
-          runId: input.runId,
-          threadId: input.thread.id
-        })
-      }
-    }
-    deps.emit<RunMemoryRecalledEvent>({
-      type: 'run.memory.recalled',
-      threadId: input.thread.id,
-      runId: input.runId,
-      requestMessageId: input.requestMessageId,
-      recalledMemoryEntries: memoryEntries,
-      ...(recallDecision ? { recallDecision } : {})
-    })
-    const config = deps.readConfig()
-    const enabledSubagentProfiles = (config.subagentProfiles ?? []).filter((p) => p.enabled)
-    const savedWorkspacePaths = config.workspace?.savedPaths ?? []
-    const gitCtx =
-      enabledSubagentProfiles.length > 0
-        ? await detectGitContext(workspacePath)
-        : ({ hasGit: false } as GitContext)
-    // Only advertise saved workspaces that are actually Git repositories
-    const gitValidatedWorkspaces =
-      enabledSubagentProfiles.length > 0 && savedWorkspacePaths.length > 0
-        ? (
-            await Promise.all(
-              savedWorkspacePaths.map(async (p) => {
-                const hasGit = await access(join(resolve(p), '.git'), constants.F_OK)
-                  .then(() => true)
-                  .catch(() => false)
-                return hasGit ? p : null
-              })
-            )
-          ).filter((p): p is string => p !== null)
-        : []
-    const subagentContextBlock = buildSubagentContextBlock(
-      gitCtx,
-      workspacePath,
-      enabledSubagentProfiles,
-      gitValidatedWorkspaces
-    )
-
-    // Persist per-turn injected context on the request message for lossless replay.
-    if (requestMessage && (hiddenQueryReminder || memoryEntries.length > 0)) {
-      const turnContext: MessageTurnContext = {
-        ...(hiddenQueryReminder ? { reminder: hiddenQueryReminder } : {}),
-        ...(memoryEntries.length > 0 ? { memoryEntries } : {})
-      }
-      deps.storage.updateMessage({ ...requestMessage, turnContext })
-    }
-
-    const rawContent = requestMessage?.content ?? ''
-    const skillExpandedContent = await expandSkillMention(rawContent, deps.listSkills, [
-      workspacePath
-    ])
-    // File mention augmentation prepends a hidden reference block to the original content.
-    // Skill expansion replaces @skills:name with the skill doc in the user content portion.
-    // When both are active, swap the original content tail in the augmented query with the
-    // skill-expanded version so both augmentations compose correctly.
-    const augmentedUserQuery = fileMentionResolution.augmentedUserQuery
-
-    const hasSkillExpansion = skillExpandedContent !== rawContent
-    const modelUserQuery = hasSkillExpansion
-      ? augmentedUserQuery.slice(0, augmentedUserQuery.length - rawContent.length) +
-        skillExpandedContent
-      : augmentedUserQuery
-    const history = loadRunHistory(
-      deps.loadThreadMessages,
-      deps.storage,
-      input.thread.id,
-      input.requestMessageId,
-      modelUserQuery,
-      input.thread.summaryWatermarkMessageId
-    )
-    const recoveredToolCalls = recoveryCheckpoint
-      ? deps
-          .loadThreadToolCalls(input.thread.id)
-          .filter((toolCall) => toolCall.runId === input.runId)
-      : []
-    const recoveryHistory = recoveryCheckpoint
-      ? buildRecoveryHistory({
-          checkpoint: recoveryCheckpoint,
-          toolCalls: recoveredToolCalls
-        })
-      : []
-    let contextHistory = [...history, ...recoveryHistory]
-
-    if (deps.isModelImageCapable === false && deps.imageToTextService) {
-      contextHistory = await preprocessImagesForNonVisionModel(
-        contextHistory,
-        deps.imageToTextService
-      )
-    }
-
-    const messages =
-      isExternalChannel && !isOwnerDm
-        ? compileExternalContextLayers({
-            personality: { basePersona: EXTERNAL_SYSTEM_PROMPT },
-            soul: { content: soulDocument?.rawContent ?? '' },
-            user: { content: userDocument?.content ?? '' },
-            executionContract: buildExternalAgentInstructions({
-              enabledTools: modelEnabledTools,
-              guest: isGuest,
-              guestInstruction: isGuest ? readChannelsConfig().guestInstruction : undefined,
-              maxToolSteps: maxToolSteps || DEFAULT_MAX_TOOL_STEPS
-            }),
-            channelInstruction: input.channelHint ?? '',
-            rollingSummary: input.thread.rollingSummary,
-            history: contextHistory,
-            hint: { reminder: effectiveReminder },
-            memory: { entries: memoryEntries }
-          })
-        : prepareModelMessages({
-            personality: {
-              basePersona: isLocalOrOwnerDm
-                ? `Today is ${formatDateLine(now)}.\n\n${SYSTEM_PROMPT}`
-                : SYSTEM_PROMPT
-            },
-            soul: { content: soulDocument?.rawContent ?? '' },
-            user: { content: userDocument?.content ?? '' },
-            skills: { activeSkills },
-            agent: {
-              instructions: [
-                buildAgentInstructions({
-                  workspacePath,
-                  workspaceLabel: config.workspace?.pathLabels?.[workspacePath],
-                  enabledTools: modelEnabledTools,
-                  activeSkills,
-                  hasHiddenMemorySearch:
-                    !input.thread.privacyMode && deps.memoryService.hasHiddenSearchCapability(),
-                  hasUpdateProfile: true,
-                  hasRemember:
-                    !input.thread.privacyMode &&
-                    (!isExternalChannel || isOwnerDm) &&
-                    deps.memoryService.isConfigured(),
-                  soulDocumentPath: soulDocument?.filePath,
-                  userDocumentPath: userDocument?.filePath,
-                  subagentContextBlock: subagentContextBlock || undefined,
-                  isUserSpecifiedWorkspace: !!input.thread.workspacePath?.trim(),
-                  maxToolSteps: maxToolSteps || DEFAULT_MAX_TOOL_STEPS
-                }),
-                // For owner DMs the channel transport contract (reply tags, plain-text,
-                // length limits) must stay in the system prefix so it applies every turn.
-                ...(isOwnerDm && input.channelHint?.trim() ? [input.channelHint.trim()] : []),
-                // Local threads render mermaid natively — tell the model so it doesn't
-                // suggest external viewers.
-                ...(!isExternalChannel
-                  ? [
-                      'Mermaid diagrams in ```mermaid code blocks are rendered as interactive diagrams in this conversation. Write Mermaid code directly — do not suggest the user open it in an external tool.'
-                    ]
-                  : [])
-              ].join('\n\n')
-            },
-            hint: {
-              reminder: effectiveReminder
-            },
-            memory: { entries: memoryEntries },
-            anthropicCacheBreakpoints: settings.provider === 'anthropic',
-            // For owner DM threads with a rolling summary, prepend the summary as a synthetic
-            // user message so local context compilation sees the earlier context.
-            history: input.thread.rollingSummary?.trim()
-              ? [
-                  {
-                    role: 'user' as const,
-                    content: `<conversation_summary>\n${input.thread.rollingSummary.trim()}\n</conversation_summary>`
-                  },
-                  ...contextHistory
-                ]
-              : contextHistory
-          })
-    const stripCompactEnabled = config.chat?.stripCompact !== false
-    const previousActualPromptTokens = getPreviousRunActualPromptTokens(
-      deps.storage,
-      deps.loadThreadMessages,
-      input.thread.id,
-      input.runId,
-      input.requestMessageId
-    )
-    const finalMessages = stripCompactEnabled
-      ? applyStripCompact(
-          messages,
-          modelEnabledTools.length,
-          previousActualPromptTokens,
-          config.chat?.stripCompactThresholdTokens
-        )
-      : messages
-    deps.emit<RunContextCompiledEvent>({
-      type: 'run.context.compiled',
-      threadId: input.thread.id,
-      runId: input.runId,
-      contextSources: buildContextSources({
-        evolvedTraitCount: (soulDocument?.evolvedTraits ?? []).filter((t) => t.trim()).length,
-        hasUserContent: (userDocument?.content ?? '').trim().length > 0,
-        enabledTools: modelEnabledTools,
-        activeSkills,
-        fileMentionCount: fileMentionResolution.mentions.length,
-        inlinedFileCount: (fileMentionResolution.inlinedPath ? 1 : 0) + (hasInlinedJotdown ? 1 : 0),
-        workspacePath,
-        hasToolReminder: hiddenQueryReminder !== undefined,
-        memoryEntries,
-        recallDecision
-      })
-    })
     tools = createAgentToolSet(
       {
         enabledTools: modelEnabledTools,
