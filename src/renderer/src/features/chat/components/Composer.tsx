@@ -763,6 +763,7 @@ export function Composer({
   // from the model selector. Show it in the toolbar and allow send until a thread exists.
   const effectiveAcpBinding =
     activeAcpBinding ?? (activeThreadId === null ? pendingAcpBinding : null)
+  const isExternalThread = activeThread?.source !== undefined && activeThread.source !== 'local'
   const isModelSelectorLocked =
     isBackendSwitchPending || runPhase === 'preparing' || runPhase === 'streaming'
   const needsApiKey = settings.provider !== 'vertex'
@@ -852,6 +853,7 @@ export function Composer({
 
   const userPrompts = useMemo(() => config?.prompts ?? [], [config?.prompts])
   const canRunThreadOperations = activeThreadId !== null
+  const canHandoffActiveThread = canRunThreadOperations && !isExternalThread
 
   const commitWorkspaceSelection = useCallback(
     async (selection: PendingWorkspaceChangeConfirmation): Promise<void> => {
@@ -890,7 +892,7 @@ export function Composer({
   )
   const allSlashCommands = useMemo<SlashCommand[]>(
     () => [
-      ...(canRunThreadOperations && runStatus !== 'running'
+      ...(canHandoffActiveThread && runStatus !== 'running'
         ? [
             {
               key: 'handoff',
@@ -927,7 +929,7 @@ export function Composer({
           ]
         : [])
     ],
-    [canRunThreadOperations, runStatus, userPrompts, availableSkills]
+    [canHandoffActiveThread, canRunThreadOperations, runStatus, userPrompts, availableSkills]
   )
   const matchingSlashCommands = useMemo<SlashCommand[]>(() => {
     if (skillQuery !== null) {
@@ -1734,7 +1736,7 @@ export function Composer({
           return
         }
 
-        if (command.key === 'handoff' && runStatus === 'running') {
+        if (command.key === 'handoff' && (!canHandoffActiveThread || runStatus === 'running')) {
           return
         }
 
@@ -1768,6 +1770,7 @@ export function Composer({
     },
     [
       canRunThreadOperations,
+      canHandoffActiveThread,
       runStatus,
       composerValue,
       onSelectThreadOperation,
@@ -2939,7 +2942,8 @@ export function Composer({
                     <span>{estimatedDraftTokens.toLocaleString()}</span>
                   </div>
                 ) : null}
-                {displayPromptTokens + estimatedDraftTokens > stripCompactThresholdTokens ? (
+                {canHandoffActiveThread &&
+                displayPromptTokens + estimatedDraftTokens > stripCompactThresholdTokens ? (
                   <div
                     style={{
                       marginTop: 4,

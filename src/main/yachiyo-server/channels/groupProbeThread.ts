@@ -24,20 +24,15 @@ export interface ResolveGroupProbeThreadOptions {
       modelOverride: ThreadModelOverride | null
     }): Promise<ThreadRecord>
     getThreadTotalTokens(threadId: string): number
-    compactExternalThread(input: { threadId: string }): Promise<{ thread: ThreadRecord }>
   }
   group: ChannelGroupRecord
   groupThreadReuseWindowMs: number
-  contextTokenLimit: number
   modelOverride?: ThreadModelOverride
 }
 
 export interface ResolveGroupProbeThreadResult {
   thread: ThreadRecord
-  compacted: boolean
 }
-
-const GROUP_PROBE_COMPACTION_HEADROOM_TOKENS = 4_000
 
 function toWantedModelOverride(
   modelOverride: ThreadModelOverride | undefined
@@ -48,19 +43,10 @@ function toWantedModelOverride(
   return modelOverride
 }
 
-function shouldCompactGroupProbeThread(totalTokens: number, contextTokenLimit: number): boolean {
-  const headroom = Math.min(
-    GROUP_PROBE_COMPACTION_HEADROOM_TOKENS,
-    Math.max(1_000, Math.floor(contextTokenLimit * 0.1))
-  )
-  return totalTokens >= contextTokenLimit - headroom
-}
-
 export async function resolveGroupProbeThread(
   input: ResolveGroupProbeThreadOptions
 ): Promise<ResolveGroupProbeThreadResult> {
-  const { logLabel, server, group, groupThreadReuseWindowMs, contextTokenLimit, modelOverride } =
-    input
+  const { logLabel, server, group, groupThreadReuseWindowMs, modelOverride } = input
   const wantedOverride = toWantedModelOverride(modelOverride)
   const existing = server.findActiveGroupThread(group.id, groupThreadReuseWindowMs)
 
@@ -85,17 +71,7 @@ export async function resolveGroupProbeThread(
     const totalTokens = server.getThreadTotalTokens(thread.id)
     console.log(`[${logLabel}] existing group thread ${thread.id} — ${totalTokens} tokens`)
 
-    if (!shouldCompactGroupProbeThread(totalTokens, contextTokenLimit)) {
-      return { thread, compacted: false }
-    }
-
-    console.log(
-      `[${logLabel}] group thread ${thread.id} reached compaction headroom before ${contextTokenLimit} tokens, generating rolling summary`
-    )
-    const { thread: compactedThread } = await server.compactExternalThread({
-      threadId: thread.id
-    })
-    return { thread: compactedThread, compacted: true }
+    return { thread }
   }
 
   let thread = await server.createThread({
@@ -112,7 +88,7 @@ export async function resolveGroupProbeThread(
     })
   }
 
-  return { thread, compacted: false }
+  return { thread }
 }
 
 function trimHistoryToWatermark(

@@ -83,11 +83,13 @@ export function resolveThreadContextOperations(input: {
     })
   }
 
-  operations.push({
-    disabled: input.isSaving || input.isRunning,
-    key: 'compact-to-another-thread',
-    label: 'Handoff'
-  })
+  if (!input.isExternal) {
+    operations.push({
+      disabled: input.isSaving || input.isRunning,
+      key: 'compact-to-another-thread',
+      label: 'Handoff'
+    })
+  }
 
   if (!input.isExternal) {
     if (input.isInFolder) {

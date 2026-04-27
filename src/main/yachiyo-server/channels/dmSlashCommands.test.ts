@@ -41,9 +41,6 @@ function makeOptions<TTarget>(
     server: {
       findActiveChannelThread: () => undefined,
       getThreadTotalTokens: () => 0,
-      compactExternalThread: async () => {
-        throw new Error('compactExternalThread should not be called')
-      },
       cancelRunForChannelUser: () => false
     },
     threadReuseWindowMs: 3_600_000,
@@ -69,9 +66,6 @@ describe('handleDmSlashCommand', () => {
         server: {
           findActiveChannelThread: () => undefined,
           getThreadTotalTokens: () => 0,
-          compactExternalThread: async () => {
-            throw new Error('should not compact')
-          },
           cancelRunForChannelUser: (userId) => {
             callOrder.push('cancel')
             cancelledUserId = userId
@@ -149,9 +143,6 @@ describe('handleDmSlashCommand', () => {
             assert.equal(threadId, thread.id)
             return 18_000
           },
-          compactExternalThread: async () => {
-            throw new Error('should not compact')
-          },
           cancelRunForChannelUser: () => false
         },
         sendMessage: async (_target, text) => {
@@ -180,9 +171,6 @@ describe('handleDmSlashCommand', () => {
         server: {
           findActiveChannelThread: () => thread,
           getThreadTotalTokens: () => 5_000,
-          compactExternalThread: async () => {
-            throw new Error('should not compact')
-          },
           cancelRunForChannelUser: () => false
         },
         sendMessage: async (_target, text) => {
@@ -205,9 +193,6 @@ describe('handleDmSlashCommand', () => {
         server: {
           findActiveChannelThread: () => undefined,
           getThreadTotalTokens: () => 0,
-          compactExternalThread: async () => {
-            throw new Error('should not compact')
-          },
           cancelRunForChannelUser: () => false
         },
         sendMessage: async (_target, text) => {
@@ -227,98 +212,6 @@ describe('handleDmSlashCommand', () => {
     })
   })
 
-  describe('/compact', () => {
-    it('compacts the active thread and sends a confirmation', async () => {
-      const thread = createThread('thread-1')
-      const compacted = createThread('thread-1', { rollingSummary: 'summary' })
-      const channelUser = createChannelUser()
-      const sent: string[] = []
-      let compactCalled = false
-
-      const options = makeOptions<string>({
-        server: {
-          findActiveChannelThread: () => thread,
-          getThreadTotalTokens: () => 0,
-          compactExternalThread: async (input) => {
-            assert.equal(input.threadId, thread.id)
-            compactCalled = true
-            return { thread: compacted }
-          },
-          cancelRunForChannelUser: () => false
-        },
-        sendMessage: async (_target, text) => {
-          sent.push(text)
-        }
-      })
-
-      const handled = await handleDmSlashCommand(options, 'chat-1', channelUser, '/compact', '')
-
-      assert.equal(handled, true)
-      assert.equal(compactCalled, true)
-      assert.equal(sent.length, 1)
-      assert.ok(sent[0].length > 0, 'confirmation message should not be empty')
-    })
-
-    it('reports no conversation to compact when no active thread', async () => {
-      const channelUser = createChannelUser()
-      const sent: string[] = []
-
-      const options = makeOptions<string>({
-        server: {
-          findActiveChannelThread: () => undefined,
-          getThreadTotalTokens: () => 0,
-          compactExternalThread: async () => {
-            throw new Error('should not compact')
-          },
-          cancelRunForChannelUser: () => false
-        },
-        sendMessage: async (_target, text) => {
-          sent.push(text)
-        }
-      })
-
-      const handled = await handleDmSlashCommand(options, 'chat-1', channelUser, '/compact', '')
-
-      assert.equal(handled, true)
-      assert.equal(sent.length, 1)
-      assert.ok(sent[0].length > 0, 'reply should not be empty')
-    })
-
-    it('includes a discard notice when batchDiscarded is true', async () => {
-      const thread = createThread('thread-1')
-      const compacted = createThread('thread-1', { rollingSummary: 'summary' })
-      const channelUser = createChannelUser()
-      const sent: string[] = []
-
-      const options = makeOptions<string>({
-        server: {
-          findActiveChannelThread: () => thread,
-          getThreadTotalTokens: () => 0,
-          compactExternalThread: async () => ({ thread: compacted }),
-          cancelRunForChannelUser: () => false
-        },
-        sendMessage: async (_target, text) => {
-          sent.push(text)
-        }
-      })
-
-      const handled = await handleDmSlashCommand(options, 'chat-1', channelUser, '/compact', '', {
-        batchDiscarded: true
-      })
-
-      assert.equal(handled, true)
-      assert.equal(sent.length, 1)
-      assert.ok(
-        sent[0].includes('Your unsent message was discarded.'),
-        `reply should include discard notice, got: ${sent[0]}`
-      )
-      assert.ok(
-        sent[0].includes('Context compacted.'),
-        `reply should include confirmation, got: ${sent[0]}`
-      )
-    })
-  })
-
   describe('/stop', () => {
     it('cancels the active run for the channel user', async () => {
       const channelUser = createChannelUser()
@@ -329,9 +222,6 @@ describe('handleDmSlashCommand', () => {
         server: {
           findActiveChannelThread: () => undefined,
           getThreadTotalTokens: () => 0,
-          compactExternalThread: async () => {
-            throw new Error('should not compact')
-          },
           cancelRunForChannelUser: (userId) => {
             cancelledUserId = userId
             return true
@@ -378,9 +268,6 @@ describe('handleDmSlashCommand', () => {
         server: {
           findActiveChannelThread: () => undefined,
           getThreadTotalTokens: () => 0,
-          compactExternalThread: async () => {
-            throw new Error('should not compact')
-          },
           cancelRunForChannelUser: () => true
         },
         sendMessage: async (_target, text) => {
@@ -438,7 +325,7 @@ describe('handleDmSlashCommand', () => {
 
       assert.equal(handled, true)
       assert.equal(sent.length, 1)
-      for (const cmd of ['/new', '/status', '/compact', '/stop', '/help']) {
+      for (const cmd of ['/new', '/status', '/stop', '/help']) {
         assert.ok(sent[0].includes(cmd), `reply should mention ${cmd}, got: ${sent[0]}`)
       }
     })

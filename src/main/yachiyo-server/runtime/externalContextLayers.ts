@@ -4,10 +4,10 @@
  * Separate from `compileContextLayers` (local desktop) because external channels
  * have a fundamentally different prefix structure: no skills, no local-agent
  * instructions, channel instruction in the stable system prefix, and optional
- * rolling summary between the system prefix and history.
+ * legacy rolling summary between the system prefix and history.
  *
  * History replay is identical to local (full responseMessages) for prompt cache
- * stability. The divergence is in the system prefix and compaction strategy.
+ * stability. The divergence is in the system prefix and legacy summary placement.
  */
 
 import type { ToolCallName } from '../../../shared/yachiyo/protocol.ts'
@@ -139,7 +139,7 @@ export interface ExternalContextLayersInput {
   executionContract: string
   /** Channel-specific reply formatting instruction. */
   channelInstruction: string
-  /** Rolling conversation summary from previous compaction. */
+  /** Legacy rolling conversation summary from older external auto-rolling. */
   rollingSummary?: string
   /** Full conversation history (same as local — includes responseMessages for cache stability). */
   history: ContextLayerHistoryMessage[]
@@ -157,8 +157,8 @@ export interface ExternalContextLayersInput {
  * 1. [System] personality + soul + user + execution contract + channel instruction
  *    → Stable across the entire thread lifetime. Cacheable.
  *
- * 2. [User] rolling summary (if present)
- *    → Stable between compaction events. Cacheable.
+ * 2. [User] legacy rolling summary (if present)
+ *    → Stable until the stored thread summary changes. Cacheable.
  *
  * 3. [History] full message history with responseMessages
  *    → Append-only. Previous turns remain cached.

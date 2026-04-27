@@ -37,7 +37,7 @@ export interface ChannelPolicy {
   /** Read-only tools safe to expose to this channel's users. */
   allowedTools: ToolCallName[]
 
-  /** Token budget before triggering DM compaction to rolling summary. */
+  /** DM context budget shown in status output. */
   contextTokenLimit: number
 
   /** Token budget for the group probe sliding window. */

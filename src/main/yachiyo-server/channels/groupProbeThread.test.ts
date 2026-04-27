@@ -46,56 +46,17 @@ test('resolveGroupProbeThread creates and reuses hidden group threads', async ()
       setThreadModelOverride: async () => {
         throw new Error('setThreadModelOverride should not be called')
       },
-      getThreadTotalTokens: () => 0,
-      compactExternalThread: async () => {
-        throw new Error('compactExternalThread should not be called')
-      }
+      getThreadTotalTokens: () => 0
     },
     group: makeGroup(),
-    groupThreadReuseWindowMs: 7 * 24 * 60 * 60 * 1_000,
-    contextTokenLimit: 64_000
+    groupThreadReuseWindowMs: 7 * 24 * 60 * 60 * 1_000
   })
 
-  assert.equal(result.compacted, false)
   assert.equal(result.thread.id, 'thread-new')
   assert.equal(created.length, 1)
   assert.equal(created[0]?.channelGroupId, 'group-1')
   assert.equal(created[0]?.source, 'telegram')
   assert.equal(created[0]?.workspacePath, '/tmp/group-workspace')
-})
-
-test('resolveGroupProbeThread compacts before the next probe can cross the token limit', async () => {
-  const existingThread = makeThread('thread-existing')
-  const compactedThread = makeThread('thread-existing', {
-    rollingSummary: 'rolling summary',
-    summaryWatermarkMessageId: 'msg-watermark'
-  })
-  const compactCalls: string[] = []
-
-  const result = await resolveGroupProbeThread({
-    logLabel: 'group-probe',
-    server: {
-      findActiveGroupThread: () => existingThread,
-      createThread: async () => {
-        throw new Error('createThread should not be called')
-      },
-      setThreadModelOverride: async () => {
-        throw new Error('setThreadModelOverride should not be called')
-      },
-      getThreadTotalTokens: () => 62_500,
-      compactExternalThread: async ({ threadId }) => {
-        compactCalls.push(threadId)
-        return { thread: compactedThread }
-      }
-    },
-    group: makeGroup(),
-    groupThreadReuseWindowMs: 7 * 24 * 60 * 60 * 1_000,
-    contextTokenLimit: 64_000
-  })
-
-  assert.equal(result.compacted, true)
-  assert.equal(result.thread.rollingSummary, 'rolling summary')
-  assert.deepEqual(compactCalls, ['thread-existing'])
 })
 
 test('persistSuccessfulGroupProbeTurn stores hidden request/assistant messages and completed run', () => {

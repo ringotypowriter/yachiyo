@@ -111,17 +111,18 @@ test('archived thread operations include select mode when requested', () => {
   )
 })
 
-test('external thread operations do not include regenerate-title or archive', () => {
+test('external thread operations do not include local-only actions', () => {
   const operations = resolveThreadContextOperations({
     isArchived: false,
     isExternal: true
   })
 
   assert.ok(!operations.some((op) => op.key === 'regenerate-title'))
+  assert.ok(!operations.some((op) => op.key === 'compact-to-another-thread'))
   assert.ok(!operations.some((op) => op.key === 'archive'))
   assert.deepEqual(
     operations.map((op) => op.key),
-    ['star', 'rename', 'compact-to-another-thread', 'delete']
+    ['star', 'rename', 'delete']
   )
 })
 
@@ -134,6 +135,6 @@ test('external thread operations include select mode when requested', () => {
 
   assert.deepEqual(
     operations.map((op) => op.key),
-    ['star', 'enter-select-mode', 'rename', 'compact-to-another-thread', 'delete']
+    ['star', 'enter-select-mode', 'rename', 'delete']
   )
 })

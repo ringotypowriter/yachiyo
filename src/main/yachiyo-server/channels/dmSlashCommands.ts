@@ -4,10 +4,7 @@ import type { DirectMessageServer } from './directMessageService.ts'
 export interface DmSlashCommandOptions<TTarget> {
   server: Pick<
     DirectMessageServer,
-    | 'findActiveChannelThread'
-    | 'compactExternalThread'
-    | 'getThreadTotalTokens'
-    | 'cancelRunForChannelUser'
+    'findActiveChannelThread' | 'getThreadTotalTokens' | 'cancelRunForChannelUser'
   >
   threadReuseWindowMs: number
   contextTokenLimit: number
@@ -73,24 +70,6 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
       const tokens = options.server.getThreadTotalTokens(thread.id)
       const tokenStr = formatTokens(tokens, options.contextTokenLimit)
       await options.sendMessage(target, `Model: ${modelLabel(thread)} · Tokens: ${tokenStr}`)
-    }
-  },
-
-  '/compact': {
-    description: 'Compact the conversation context',
-    discardPendingBatch: true,
-    handler: async (options, target, channelUser, _args, { batchDiscarded }) => {
-      const thread = options.server.findActiveChannelThread(
-        channelUser.id,
-        options.threadReuseWindowMs
-      )
-      const notice = batchDiscarded ? 'Your unsent message was discarded.\n' : ''
-      if (!thread) {
-        await options.sendMessage(target, `${notice}No active conversation to compact.`)
-        return
-      }
-      await options.server.compactExternalThread({ threadId: thread.id })
-      await options.sendMessage(target, `${notice}Context compacted.`)
     }
   },
 

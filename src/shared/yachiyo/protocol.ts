@@ -511,7 +511,7 @@ export interface ThreadRecord {
   source?: 'local' | ChannelPlatform
   channelUserId?: string
   channelGroupId?: string
-  /** Compact, external-safe summary of the conversation state. Updated at compaction time. */
+  /** Legacy external-safe summary from older external auto-rolling. Preserved for replay. */
   rollingSummary?: string
   /** Messages up to this ID are covered by rollingSummary. Transcript window starts after. */
   summaryWatermarkMessageId?: string
@@ -958,7 +958,7 @@ export interface ChannelsConfig {
    */
   groupCheckIntervalMs?: number
   /**
-   * Token budget (in K) before a DM thread triggers rolling compaction.
+   * Legacy-named DM context budget (in K), currently shown in channel status output.
    * Default: 64 (= 64 000 tokens).
    */
   dmCompactTokenThresholdK?: number
