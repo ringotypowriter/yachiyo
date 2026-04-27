@@ -28,7 +28,11 @@ import type {
 import type { YachiyoServer } from '../app/YachiyoServer.ts'
 import { resolveYachiyoTempWorkspaceRoot } from '../config/paths.ts'
 import { qqPolicy, type ChannelPolicy } from './channelPolicy.ts'
-import { createDirectMessageService, resolveDirectMessageThread } from './directMessageService.ts'
+import {
+  createDirectMessageService,
+  resolveDirectMessageThread,
+  type DirectMessageThreadResolution
+} from './directMessageService.ts'
 import { handleDmSlashCommand, shouldDiscardPendingBatchForDmCommand } from './dmSlashCommands.ts'
 import {
   detectMediaTypeFromBytes,
@@ -152,7 +156,9 @@ export function createQQService({
     await client.sendPrivateMessage(userId, text)
   }
 
-  async function resolveThread(channelUser: ChannelUserRecord): Promise<{ thread: ThreadRecord }> {
+  async function resolveThread(
+    channelUser: ChannelUserRecord
+  ): Promise<DirectMessageThreadResolution> {
     return resolveDirectMessageThread({
       logLabel: 'qq',
       server,

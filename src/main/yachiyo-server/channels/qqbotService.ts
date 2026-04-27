@@ -19,7 +19,11 @@ import type {
 } from '../../../shared/yachiyo/protocol.ts'
 import type { YachiyoServer } from '../app/YachiyoServer.ts'
 import { qqbotPolicy, type ChannelPolicy } from './channelPolicy.ts'
-import { createDirectMessageService, resolveDirectMessageThread } from './directMessageService.ts'
+import {
+  createDirectMessageService,
+  resolveDirectMessageThread,
+  type DirectMessageThreadResolution
+} from './directMessageService.ts'
 import { handleDmSlashCommand, shouldDiscardPendingBatchForDmCommand } from './dmSlashCommands.ts'
 import { createQQBotClient, type QQBotClient } from './qqbotClient.ts'
 import { routeQQBotMessage, type QQBotChannelStorage } from './qqbot.ts'
@@ -105,7 +109,9 @@ export function createQQBotService({
     await client.sendC2CMessage(openId, text, replyMsgId)
   }
 
-  async function resolveThread(channelUser: ChannelUserRecord): Promise<{ thread: ThreadRecord }> {
+  async function resolveThread(
+    channelUser: ChannelUserRecord
+  ): Promise<DirectMessageThreadResolution> {
     return resolveDirectMessageThread({
       logLabel: 'qqbot',
       server,

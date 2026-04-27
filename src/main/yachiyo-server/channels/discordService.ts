@@ -31,7 +31,11 @@ import type {
 import type { YachiyoServer } from '../app/YachiyoServer.ts'
 import { discordPolicy, type ChannelPolicy } from './channelPolicy.ts'
 import { fetchImageAsDataUrl } from './channelImageDownload.ts'
-import { createDirectMessageService, resolveDirectMessageThread } from './directMessageService.ts'
+import {
+  createDirectMessageService,
+  resolveDirectMessageThread,
+  type DirectMessageThreadResolution
+} from './directMessageService.ts'
 import { handleDmSlashCommand, shouldDiscardPendingBatchForDmCommand } from './dmSlashCommands.ts'
 import {
   buildGroupProbeBehaviorPrompt,
@@ -196,7 +200,9 @@ export function createDiscordService({
     return join(resolveYachiyoTempWorkspaceRoot(), `dc-${username}`)
   }
 
-  async function resolveThread(channelUser: ChannelUserRecord): Promise<{ thread: ThreadRecord }> {
+  async function resolveThread(
+    channelUser: ChannelUserRecord
+  ): Promise<DirectMessageThreadResolution> {
     return resolveDirectMessageThread({
       logLabel: 'discord',
       server,

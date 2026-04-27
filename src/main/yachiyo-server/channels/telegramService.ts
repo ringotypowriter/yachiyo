@@ -31,7 +31,11 @@ import type {
 import type { YachiyoServer } from '../app/YachiyoServer'
 import { telegramPolicy, type ChannelPolicy } from './channelPolicy'
 import { fetchImageAsDataUrl } from './channelImageDownload'
-import { createDirectMessageService, resolveDirectMessageThread } from './directMessageService.ts'
+import {
+  createDirectMessageService,
+  resolveDirectMessageThread,
+  type DirectMessageThreadResolution
+} from './directMessageService.ts'
 import { handleDmSlashCommand, shouldDiscardPendingBatchForDmCommand } from './dmSlashCommands.ts'
 import {
   buildGroupProbeBehaviorPrompt,
@@ -157,7 +161,9 @@ export function createTelegramService({
     return join(resolveYachiyoTempWorkspaceRoot(), `tg-${username}`)
   }
 
-  async function resolveThread(channelUser: ChannelUserRecord): Promise<{ thread: ThreadRecord }> {
+  async function resolveThread(
+    channelUser: ChannelUserRecord
+  ): Promise<DirectMessageThreadResolution> {
     return resolveDirectMessageThread({
       logLabel: 'telegram',
       server,

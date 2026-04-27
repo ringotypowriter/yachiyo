@@ -85,7 +85,7 @@ describe('resolveDirectMessageThread', () => {
           throw new Error('setThreadModelOverride should not be called')
         }
       },
-      channelUser: createChannelUser(),
+      channelUser: { ...createChannelUser(), usedKTokens: 128 },
       policy: telegramPolicy,
       createThread: async (input) => {
         createCalls.push(input)
@@ -94,6 +94,7 @@ describe('resolveDirectMessageThread', () => {
     })
 
     assert.equal(result.thread, fresh)
+    assert.equal(result.usageBaselineKTokens, 128)
     assert.deepEqual(createCalls, [{ handoffFromThreadId: existing.id }])
   })
 })
@@ -197,7 +198,7 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 0,
-      resolveThread: async () => ({ thread }),
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
       sendMessage: async (_chatId: string, text: string) => {
         sentMessages.push(text)
       },
@@ -216,6 +217,87 @@ describe('createDirectMessageService', () => {
     assert.deepEqual(sentMessages, ['Shared reply'])
     assert.deepEqual(visibleReplies, ['Shared reply'])
     assert.deepEqual(tokenUpdates, [{ id: channelUser.id, usedKTokens: 2 }])
+  })
+
+  it('adds fresh handoff thread tokens to prior DM usage', async () => {
+    const channelUser = { ...createChannelUser(), usedKTokens: 64, usageLimitKTokens: 300 }
+    const thread = createThread('thread-fresh', { handoffFromThreadId: 'thread-old' })
+    const resolution = { thread, usageBaselineKTokens: 64 }
+    const tokenUpdates: Array<{ id: string; usedKTokens: number }> = []
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(): Promise<ChatAcceptedWithUserMessage> {
+        queueMicrotask(() => {
+          const messageDelta: MessageDeltaEvent = {
+            type: 'message.delta',
+            eventId: 'evt-usage-1',
+            timestamp: '2026-03-31T00:00:01.000Z',
+            threadId: thread.id,
+            runId: 'run-usage-1',
+            messageId: 'msg-assistant-usage-1',
+            delta: 'Fresh reply'
+          }
+          const runCompleted: RunCompletedEvent = {
+            type: 'run.completed',
+            eventId: 'evt-usage-2',
+            timestamp: '2026-03-31T00:00:02.000Z',
+            threadId: thread.id,
+            runId: 'run-usage-1'
+          }
+          for (const listener of listeners) {
+            listener(messageDelta)
+            listener(runCompleted)
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-usage-1',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens(threadId) {
+        assert.equal(threadId, thread.id)
+        return 2800
+      },
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      updateChannelUser(input) {
+        if (input.usedKTokens === undefined) {
+          throw new Error('usedKTokens is required for this test')
+        }
+        tokenUpdates.push({ id: input.id, usedKTokens: input.usedKTokens })
+        return { ...channelUser, usedKTokens: input.usedKTokens }
+      },
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'telegram',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => resolution,
+      sendMessage: async () => {},
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'continue')
+
+    await delay(20)
+
+    assert.deepEqual(tokenUpdates, [{ id: channelUser.id, usedKTokens: 67 }])
   })
 
   it('intercepts slash commands and skips the batch when handler returns true', async () => {
@@ -250,7 +332,7 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 0,
-      resolveThread: async () => ({ thread: createThread('t1') }),
+      resolveThread: async () => ({ thread: createThread('t1'), usageBaselineKTokens: 0 }),
       sendMessage: async () => {},
       nonRunReply: 'non-run',
       errorReply: 'error',
@@ -318,7 +400,7 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 0,
-      resolveThread: async () => ({ thread }),
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
       sendMessage: async () => {},
       nonRunReply: 'non-run',
       errorReply: 'error',
@@ -383,7 +465,7 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 0,
-      resolveThread: async () => ({ thread }),
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
       sendMessage: async () => {},
       nonRunReply: 'non-run',
       errorReply: 'error',
@@ -456,7 +538,7 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 50,
-      resolveThread: async () => ({ thread }),
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
       sendMessage: async () => {},
       nonRunReply: 'non-run',
       errorReply: 'error',
@@ -527,7 +609,7 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 50,
-      resolveThread: async () => ({ thread }),
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
       sendMessage: async () => {},
       nonRunReply: 'non-run',
       errorReply: 'error',
@@ -578,7 +660,7 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 0,
-      resolveThread: async () => ({ thread: createThread('t1') }),
+      resolveThread: async () => ({ thread: createThread('t1'), usageBaselineKTokens: 0 }),
       sendMessage: async (_target, text) => {
         sentMessages.push(text)
       },
@@ -646,7 +728,7 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 0,
-      resolveThread: async () => ({ thread }),
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
       sendMessage: async () => {},
       nonRunReply: 'non-run',
       errorReply: 'error'
@@ -699,7 +781,7 @@ describe('createDirectMessageService', () => {
       replyDelayMs: () => 0,
       resolveThread: () =>
         new Promise((resolve) => {
-          resolveThreadGate = () => resolve({ thread })
+          resolveThreadGate = () => resolve({ thread, usageBaselineKTokens: 0 })
         }),
       sendMessage: async () => {},
       nonRunReply: 'non-run',
@@ -774,7 +856,7 @@ describe('createDirectMessageService', () => {
       server,
       policy: telegramPolicy,
       replyDelayMs: () => 0,
-      resolveThread: async () => ({ thread }),
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
       sendMessage: async () => {},
       nonRunReply: 'non-run',
       errorReply: 'error',

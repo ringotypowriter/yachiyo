@@ -34,6 +34,13 @@ function isRunAccepted(
   return 'runId' in accepted
 }
 
+function toKTokens(totalTokens: number): number {
+  if (totalTokens <= 0) {
+    return 0
+  }
+  return Math.ceil(totalTokens / 1000)
+}
+
 export interface DirectMessageServer {
   subscribe(listener: (event: YachiyoServerEvent) => void): () => void
   sendChat(input: SendChatInput): Promise<ChatAccepted>
@@ -52,6 +59,7 @@ export interface DirectMessageServer {
 
 export interface DirectMessageThreadResolution {
   thread: ThreadRecord
+  usageBaselineKTokens: number
 }
 
 export interface DirectMessageCreateThreadInput {
@@ -109,6 +117,7 @@ export async function resolveDirectMessageThread(
     }
 
     const totalTokens = server.getThreadTotalTokens(thread.id)
+    const currentThreadKTokens = toKTokens(totalTokens)
     console.log(`[${logLabel}] existing thread ${thread.id} — ${totalTokens} tokens`)
     if (policy.contextTokenLimit > 0 && totalTokens >= policy.contextTokenLimit) {
       console.log(
@@ -117,14 +126,21 @@ export async function resolveDirectMessageThread(
       return {
         thread: await createResolvedThread({
           handoffFromThreadId: thread.id
-        })
+        }),
+        usageBaselineKTokens: Math.max(channelUser.usedKTokens, currentThreadKTokens)
       }
     }
 
-    return { thread }
+    return {
+      thread,
+      usageBaselineKTokens: Math.max(0, channelUser.usedKTokens - currentThreadKTokens)
+    }
   }
 
-  return { thread: await createResolvedThread() }
+  return {
+    thread: await createResolvedThread(),
+    usageBaselineKTokens: channelUser.usedKTokens
+  }
 }
 
 export interface DirectMessageServiceOptions<TTarget> {
@@ -266,7 +282,7 @@ export function createDirectMessageService<TTarget>(
         `[${options.logLabel}] handling allowed message for user ${channelUser.username} (${images.length} image(s))`
       )
 
-      const { thread } = await options.resolveThread(channelUser)
+      const { thread, usageBaselineKTokens } = await options.resolveThread(channelUser)
       console.log(`[${options.logLabel}] using thread ${thread.id}`)
 
       if (stopController.signal.aborted) {
@@ -367,7 +383,10 @@ export function createDirectMessageService<TTarget>(
 
       const totalTokens = options.server.getThreadTotalTokens(thread.id)
       if (totalTokens > 0) {
-        const kTokens = Math.ceil(totalTokens / 1000)
+        const kTokens = Math.max(
+          channelUser.usedKTokens,
+          usageBaselineKTokens + toKTokens(totalTokens)
+        )
         options.server.updateChannelUser({ id: channelUser.id, usedKTokens: kTokens })
         console.log(
           `[${options.logLabel}] updated usedKTokens for ${channelUser.username}: ${kTokens}k`
