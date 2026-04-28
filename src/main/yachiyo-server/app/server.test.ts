@@ -8835,7 +8835,7 @@ test('YachiyoServer.editMessage throws when the thread has an active run', async
   )
 })
 
-test('YachiyoServer.createBranch inherits icon and title from parent thread', async () => {
+test('YachiyoServer.createBranch inherits icon and model while renaming the title', async () => {
   await withServer(
     async ({ server, completeRun }) => {
       await server.upsertProvider({
@@ -8852,6 +8852,10 @@ test('YachiyoServer.createBranch inherits icon and title from parent thread', as
       const thread = await server.createThread()
       await server.setThreadIcon({ threadId: thread.id, icon: '🌊' })
       await server.renameThread({ threadId: thread.id, title: 'Ocean Thoughts' })
+      await server.setThreadModelOverride({
+        threadId: thread.id,
+        modelOverride: { providerName: 'work', model: 'gpt-5' }
+      })
 
       const accepted = await server.sendChat({ threadId: thread.id, content: 'Hello' })
       await completeRun(accepted.runId)
@@ -8865,7 +8869,12 @@ test('YachiyoServer.createBranch inherits icon and title from parent thread', as
       })
 
       assert.equal(branch.thread.icon, '🌊', 'branch should inherit parent icon')
-      assert.equal(branch.thread.title, 'Ocean Thoughts', 'branch should inherit parent title')
+      assert.equal(branch.thread.title, 'Branch of Ocean Thoughts')
+      assert.deepEqual(
+        branch.thread.modelOverride,
+        { providerName: 'work', model: 'gpt-5' },
+        'branch should inherit parent model override'
+      )
     },
     {
       createModelRuntime: () => ({

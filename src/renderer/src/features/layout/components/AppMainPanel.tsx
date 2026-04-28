@@ -21,6 +21,7 @@ import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/t
 import { isExternalThread } from '@renderer/features/threads/lib/threadVisibility'
 import { isOpenFindBarShortcut } from '@renderer/features/layout/lib/findBarShortcut'
 import { computeRecapDecision } from '@renderer/features/layout/lib/recapIdle'
+import { selectContextPromptTokens } from '@renderer/lib/contextPromptTokens'
 import { MessageSquare, Trash2 } from 'lucide-react'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { Tooltip } from '@renderer/components/Tooltip'
@@ -100,6 +101,14 @@ export function AppMainPanel({
     null
   const config = useAppStore((s) => s.config)
   const latestRunsByThread = useAppStore((s) => s.latestRunsByThread)
+  const contextPromptTokens = useAppStore((s) =>
+    activeThreadId
+      ? selectContextPromptTokens({
+          latestRun: s.latestRunsByThread[activeThreadId],
+          runs: s.runsByThread[activeThreadId] ?? []
+        })
+      : null
+  )
   const activeArchivedThread =
     archivedThreads.find((thread) => thread.id === activeArchivedThreadId) ?? null
   const runStatusesByThread = useAppStore((s) => s.runStatusesByThread)
@@ -247,7 +256,6 @@ export function AppMainPanel({
   useEffect(() => {
     if (!activeThreadId || !activeThread) return
 
-    const state = useAppStore.getState()
     const decision = computeRecapDecision({
       recapEnabled: config?.chat?.recapEnabled !== false,
       isExternalThread: isExternalThread(activeThread),
@@ -255,8 +263,10 @@ export function AppMainPanel({
       hasActiveRun,
       isEditingMessage,
       messageCount,
-      lastPromptTokens: state.latestRunsByThread[activeThreadId]?.promptTokens ?? 0,
-      hasExistingRecap: !!(state.recapByThread[activeThreadId] || activeThread.recapText),
+      lastPromptTokens: contextPromptTokens ?? 0,
+      hasExistingRecap: !!(
+        useAppStore.getState().recapByThread[activeThreadId] || activeThread.recapText
+      ),
       updatedAtMs: new Date(activeThread.updatedAt).getTime()
     })
 
@@ -292,7 +302,7 @@ export function AppMainPanel({
 
     const timerId = setTimeout(fireRecap, decision.delayMs)
     return () => clearTimeout(timerId)
-  }, [activeThreadId, messageCount, hasActiveRun, isEditingMessage]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeThreadId, messageCount, hasActiveRun, isEditingMessage, contextPromptTokens]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!pendingFindQuery) return

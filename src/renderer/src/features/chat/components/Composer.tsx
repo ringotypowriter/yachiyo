@@ -27,7 +27,7 @@ import {
   type ComposerFileDraft,
   type ComposerImageDraft
 } from '@renderer/app/store/useAppStore'
-import type { FileMentionCandidate, Message } from '@renderer/app/types'
+import type { FileMentionCandidate, Message, RunRecord } from '@renderer/app/types'
 import { getComposerActionState } from '@renderer/features/chat/lib/composerActionState'
 import { shouldRevertPendingComposerMessagesOnArrowUp } from '@renderer/features/chat/lib/composerArrowUpRevert'
 import { resolveComposerEnterAction } from '@renderer/features/chat/lib/composerEnterBehavior'
@@ -62,8 +62,9 @@ import { ToolSelectorPopup } from './ToolSelectorPopup'
 import { RunArrowIndicator } from './RunArrowIndicator'
 import { WorkspaceSelectorPopup } from './WorkspaceSelectorPopup'
 import { SmoothCaretOverlay } from './SmoothCaretOverlay'
+import { selectContextPromptTokens } from '@renderer/lib/contextPromptTokens'
 import { formatTokenCount } from '@renderer/lib/formatTokenCount'
-import { estimateDraftPromptTokens, estimatePromptTokens } from '@renderer/lib/estimatePromptTokens'
+import { estimateDraftPromptTokens } from '@renderer/lib/estimatePromptTokens'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { Tooltip } from '@renderer/components/Tooltip'
 import {
@@ -73,6 +74,7 @@ import {
 
 const NEW_THREAD_DRAFT_KEY = '__new__'
 const EMPTY_MESSAGES: Message[] = []
+const EMPTY_RUNS: RunRecord[] = []
 const MAX_COMPOSER_IMAGES = 4
 const MAX_COMPOSER_FILES = 10
 /** Text stack cap; inner wrapper uses hard clip so grid min-content cannot paint into the toolbar. */
@@ -602,6 +604,9 @@ export function Composer({
   const latestRun = useAppStore((s) =>
     s.activeThreadId ? (s.latestRunsByThread[s.activeThreadId] ?? null) : null
   )
+  const activeThreadRuns = useAppStore((s) =>
+    s.activeThreadId ? (s.runsByThread[s.activeThreadId] ?? EMPTY_RUNS) : EMPTY_RUNS
+  )
   const enabledTools = useAppStore((s) => s.enabledTools)
   const editingMessage = useAppStore((s) => (s.activeThreadId ? s.editingMessage : null))
   const cancelEditMessage = useAppStore((s) => s.cancelEditMessage)
@@ -742,13 +747,12 @@ export function Composer({
   const hasCustomSkillOverride =
     composerDraft.enabledSkillNames !== null && composerDraft.enabledSkillNames !== undefined
   const enabledSkillCount = effectiveEnabledSkillNames.length
-  const estimatedThreadTokens = useMemo(
-    () => estimatePromptTokens(activeThreadMessages),
-    [activeThreadMessages]
-  )
-  const hasMessages = activeThreadMessages.length > 0
-  const displayPromptTokens = latestRun?.promptTokens ?? estimatedThreadTokens
-  const isEstimated = latestRun?.promptTokens == null && hasMessages
+  const displayPromptTokens = selectContextPromptTokens({
+    latestRun,
+    runs: activeThreadRuns
+  })
+  const hasRunStatsText = displayPromptTokens != null || estimatedDraftTokens > 0
+  const showRunStats = hasActiveRun || hasRunStatsText
   const stripCompactThresholdTokens =
     config?.chat?.stripCompactThresholdTokens ?? DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD
   const externalThreads = useAppStore((s) => s.externalThreads)
@@ -2890,101 +2894,111 @@ export function Composer({
           ) : null}
         </div>
 
-        {hasMessages || latestRun?.promptTokens != null ? (
-          <Tooltip
-            content={
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 3,
-                  width: 240,
-                  whiteSpace: 'normal'
-                }}
-              >
-                <div style={{ fontWeight: 600, marginBottom: 2 }}>
-                  {isEstimated ? 'Estimated prompt tokens' : 'Last run token usage'}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                  <span style={{ color: theme.text.secondary }}>Prompt</span>
-                  <span>{displayPromptTokens.toLocaleString()}</span>
-                </div>
-                {latestRun?.completionTokens != null ? (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                    <span style={{ color: theme.text.secondary }}>Completion</span>
-                    <span>{latestRun.completionTokens.toLocaleString()}</span>
-                  </div>
-                ) : null}
-                {latestRun?.totalPromptTokens != null &&
-                latestRun.totalPromptTokens !== displayPromptTokens ? (
-                  <>
+        {showRunStats ? (
+          hasRunStatsText ? (
+            <Tooltip
+              content={
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 3,
+                    width: 240,
+                    whiteSpace: 'normal'
+                  }}
+                >
+                  {displayPromptTokens != null ? (
+                    <>
+                      <div style={{ fontWeight: 600, marginBottom: 2 }}>Last run token usage</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                        <span style={{ color: theme.text.secondary }}>Prompt</span>
+                        <span>{displayPromptTokens.toLocaleString()}</span>
+                      </div>
+                    </>
+                  ) : null}
+                  {latestRun?.completionTokens != null ? (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                      <span style={{ color: theme.text.secondary }}>Completion</span>
+                      <span>{latestRun.completionTokens.toLocaleString()}</span>
+                    </div>
+                  ) : null}
+                  {latestRun?.totalPromptTokens != null &&
+                  latestRun.totalPromptTokens !== displayPromptTokens ? (
+                    <>
+                      <div
+                        style={{
+                          height: 1,
+                          background: theme.border.default,
+                          margin: '2px 0'
+                        }}
+                      />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                        <span style={{ color: theme.text.secondary }}>Total prompt</span>
+                        <span>{latestRun.totalPromptTokens.toLocaleString()}</span>
+                      </div>
+                      {latestRun.totalCompletionTokens != null ? (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                          <span style={{ color: theme.text.secondary }}>Total completion</span>
+                          <span>{latestRun.totalCompletionTokens.toLocaleString()}</span>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {estimatedDraftTokens > 0 ? (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                      <span style={{ color: theme.text.secondary }}>Draft estimate</span>
+                      <span>{estimatedDraftTokens.toLocaleString()}</span>
+                    </div>
+                  ) : null}
+                  {canHandoffActiveThread &&
+                  (displayPromptTokens ?? 0) + estimatedDraftTokens >
+                    stripCompactThresholdTokens ? (
                     <div
                       style={{
-                        height: 1,
-                        background: theme.border.default,
-                        margin: '2px 0'
+                        marginTop: 4,
+                        paddingTop: 6,
+                        borderTop: `1px solid ${theme.border.default}`,
+                        color: '#f59e0b',
+                        fontSize: 11,
+                        lineHeight: 1.4
                       }}
-                    />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                      <span style={{ color: theme.text.secondary }}>Total prompt</span>
-                      <span>{latestRun.totalPromptTokens.toLocaleString()}</span>
+                    >
+                      Context is over {formatTokenCount(stripCompactThresholdTokens)}. Consider
+                      using <span style={{ fontFamily: 'monospace' }}>/handoff</span> to compact and
+                      continue in a new thread.
                     </div>
-                    {latestRun.totalCompletionTokens != null ? (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                        <span style={{ color: theme.text.secondary }}>Total completion</span>
-                        <span>{latestRun.totalCompletionTokens.toLocaleString()}</span>
-                      </div>
-                    ) : null}
-                  </>
+                  ) : null}
+                </div>
+              }
+            >
+              <span
+                className="text-xs px-1.5 flex items-center gap-1"
+                style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
+              >
+                {(displayPromptTokens ?? 0) + estimatedDraftTokens > stripCompactThresholdTokens ? (
+                  <TriangleAlert
+                    size={11}
+                    style={{ color: '#f59e0b', flexShrink: 0, opacity: 1, display: 'block' }}
+                  />
                 ) : null}
+                {displayPromptTokens != null ? formatTokenCount(displayPromptTokens) : null}
                 {estimatedDraftTokens > 0 ? (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                    <span style={{ color: theme.text.secondary }}>Draft estimate</span>
-                    <span>{estimatedDraftTokens.toLocaleString()}</span>
-                  </div>
+                  <span style={{ opacity: 0.6 }}>
+                    {displayPromptTokens != null ? '+' : ''}
+                    {formatTokenCount(estimatedDraftTokens)}
+                  </span>
                 ) : null}
-                {canHandoffActiveThread &&
-                displayPromptTokens + estimatedDraftTokens > stripCompactThresholdTokens ? (
-                  <div
-                    style={{
-                      marginTop: 4,
-                      paddingTop: 6,
-                      borderTop: `1px solid ${theme.border.default}`,
-                      color: '#f59e0b',
-                      fontSize: 11,
-                      lineHeight: 1.4
-                    }}
-                  >
-                    Context is over {formatTokenCount(stripCompactThresholdTokens)}. Consider using{' '}
-                    <span style={{ fontFamily: 'monospace' }}>/handoff</span> to compact and
-                    continue in a new thread.
-                  </div>
-                ) : null}
-              </div>
-            }
-          >
+                <RunArrowIndicator />
+              </span>
+            </Tooltip>
+          ) : (
             <span
-              className="text-xs px-1.5 flex items-center gap-1"
+              className="text-xs flex items-center"
               style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
             >
-              {displayPromptTokens + estimatedDraftTokens > stripCompactThresholdTokens ? (
-                <TriangleAlert
-                  size={11}
-                  style={{ color: '#f59e0b', flexShrink: 0, opacity: 1, display: 'block' }}
-                />
-              ) : null}
-              {displayPromptTokens > 0 || isEstimated
-                ? formatTokenCount(displayPromptTokens)
-                : null}
-              {estimatedDraftTokens > 0 ? (
-                <span style={{ opacity: 0.6 }}>
-                  {displayPromptTokens > 0 ? '+' : ''}
-                  {formatTokenCount(estimatedDraftTokens)}
-                </span>
-              ) : null}
               <RunArrowIndicator />
             </span>
-          </Tooltip>
+          )
         ) : null}
 
         <div className="ml-auto flex items-center gap-2">

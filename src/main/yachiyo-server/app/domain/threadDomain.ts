@@ -130,12 +130,12 @@ export function resolveRetryRequest(
 }
 
 function deriveBranchTitle(thread: ThreadRecord, branchPoint: MessageRecord): string {
-  if (thread.title !== DEFAULT_THREAD_TITLE) {
-    return thread.title
-  }
+  const baseTitle =
+    thread.title !== DEFAULT_THREAD_TITLE
+      ? thread.title
+      : summarizeMessageInput(branchPoint).slice(0, 60) || DEFAULT_THREAD_TITLE
 
-  const titleSource = summarizeMessageInput(branchPoint)
-  return titleSource ? titleSource.slice(0, 60) : DEFAULT_THREAD_TITLE
+  return `Branch of ${baseTitle}`
 }
 
 function channelSourceIcon(source?: ThreadRecord['source']): string | undefined {
@@ -617,6 +617,7 @@ export class YachiyoServerThreadDomain {
       branchFromMessageId: branchPoint.id,
       ...(thread.icon ? { icon: thread.icon } : {}),
       ...(thread.workspacePath ? { workspacePath: thread.workspacePath } : {}),
+      ...(thread.modelOverride ? { modelOverride: thread.modelOverride } : {}),
       ...(preview ? { preview: preview.slice(0, 240) } : {}),
       ...(previewSource ? { headMessageId: previewSource.id } : {})
     })

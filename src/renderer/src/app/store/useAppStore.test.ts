@@ -224,8 +224,8 @@ test('initialize hydrates the active thread run history after bootstrap', async 
       }
     ])
     assert.equal(state.latestRunsByThread['thread-2']?.status, 'cancelled')
-    assert.equal(state.latestRunsByThread['thread-2']?.promptTokens, undefined)
-    assert.equal(state.latestRunsByThread['thread-2']?.completionTokens, undefined)
+    assert.equal(state.latestRunsByThread['thread-2']?.promptTokens, 30_000)
+    assert.equal(state.latestRunsByThread['thread-2']?.completionTokens, 120)
   } finally {
     restoreWindow()
   }
@@ -283,7 +283,7 @@ test('applyServerEvent keeps a stopped placeholder when a run is cancelled befor
   ])
 })
 
-test('applyServerEvent drops cancelled run token counts so stopped runs do not shrink context', () => {
+test('applyServerEvent keeps cancelled run token counts for run history', () => {
   resetStore()
   useAppStore.setState({ activeThreadId: 'thread-1' })
 
@@ -315,8 +315,8 @@ test('applyServerEvent drops cancelled run token counts so stopped runs do not s
   const latestRun = useAppStore.getState().latestRunsByThread['thread-1']
 
   assert.equal(latestRun?.status, 'cancelled')
-  assert.equal(latestRun?.promptTokens, undefined)
-  assert.equal(latestRun?.completionTokens, undefined)
+  assert.equal(latestRun?.promptTokens, 30_000)
+  assert.equal(latestRun?.completionTokens, 120)
 })
 
 test('applyServerEvent clears pending reasoning when a run starts retrying', () => {
@@ -2176,6 +2176,82 @@ test('createBranch switches to a blank draft in the destination thread', async (
     assert.equal(state.activeThreadId, 'thread-2')
     assert.equal(state.composerDrafts['thread-1']?.text, 'Keep me here')
     assert.equal(state.composerDrafts['thread-2'], undefined)
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('createBranch clears usage data for the destination thread', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    createBranch: async (input) => ({
+      thread: {
+        id: 'thread-2',
+        title: 'Branched',
+        updatedAt: TIMESTAMP,
+        branchFromThreadId: input.threadId,
+        branchFromMessageId: input.messageId
+      },
+      messages: [],
+      toolCalls: []
+    })
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      latestRunsByThread: {
+        'thread-1': {
+          id: 'run-source',
+          threadId: 'thread-1',
+          status: 'completed',
+          createdAt: TIMESTAMP,
+          completedAt: TIMESTAMP,
+          promptTokens: 30_000,
+          completionTokens: 120
+        },
+        'thread-2': {
+          id: 'run-stale',
+          threadId: 'thread-2',
+          status: 'completed',
+          createdAt: TIMESTAMP,
+          completedAt: TIMESTAMP,
+          promptTokens: 42_000,
+          completionTokens: 240
+        }
+      },
+      runsByThread: {
+        'thread-2': [
+          {
+            id: 'run-stale',
+            threadId: 'thread-2',
+            status: 'completed',
+            createdAt: TIMESTAMP,
+            completedAt: TIMESTAMP,
+            promptTokens: 42_000,
+            completionTokens: 240
+          }
+        ]
+      },
+      messages: {
+        'thread-1': []
+      },
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Original',
+          updatedAt: TIMESTAMP
+        }
+      ]
+    })
+
+    await useAppStore.getState().createBranch('message-1')
+
+    const state = useAppStore.getState()
+    assert.equal(state.latestRunsByThread['thread-1']?.promptTokens, 30_000)
+    assert.equal(state.latestRunsByThread['thread-2'], undefined)
+    assert.deepEqual(state.runsByThread['thread-2'], [])
   } finally {
     restoreWindow()
   }
