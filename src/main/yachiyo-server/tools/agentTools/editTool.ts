@@ -242,11 +242,11 @@ export async function runEditTool(
     const original = await readFile(resolvedPath, { encoding: 'utf8', signal: abortSignal })
 
     // --- Read-before-edit guard ---
-    // Coverage requirements are derived from the ORIGINAL content: that's what the model
-    // actually saw when planning the batch. If an edit's oldText does not appear in the
-    // original at all (e.g., it targets content synthesized by an earlier edit), skip its
-    // coverage requirement here; the per-edit apply step will catch it cleanly.
-    if (context.readRecordCache) {
+    // Pure deletions (newText === '') are exempt: the model already specifies the exact
+    // text to match, and a wrong match fails at apply time. The guard only matters when
+    // the model is producing new content it might get wrong.
+    const allDeletions = edits.every((e) => e.newText === '')
+    if (context.readRecordCache && !allDeletions) {
       const currentMtimeMs = await stat(resolvedPath).then(
         (s) => s.mtimeMs,
         () => undefined
@@ -258,8 +258,13 @@ export async function runEditTool(
           'You must read the file with the read tool before editing it. Read the file first, then retry.'
         )
       }
+      // Coverage requirements are derived from the ORIGINAL content: that's what the model
+      // actually saw when planning the batch. If an edit's oldText does not appear in the
+      // original at all (e.g., it targets content synthesized by an earlier edit), skip its
+      // coverage requirement here; the per-edit apply step will catch it cleanly.
       const uncoveredLines = new Set<number>()
       for (const edit of edits) {
+        if (edit.newText === '') continue
         const positions = findAllMatchPositions(original, edit.oldText)
         if (positions.length === 0) continue
         const requireAll = edit.replace_all || batched
@@ -356,7 +361,19 @@ export async function runEditTool(
         () => undefined
       )
       if (newMtimeMs !== undefined) {
-        context.readRecordCache.refreshMtime(resolvedPath, newMtimeMs)
+        const originalLineCount = (original.length === 0 ? [] : original.split(/\r?\n/)).length
+        const newLineCount = (content.length === 0 ? [] : content.split(/\r?\n/)).length
+        const delta = newLineCount - originalLineCount
+        if (delta !== 0 && firstChangedLineOverall !== undefined) {
+          context.readRecordCache.shiftRangesAfterLine(
+            resolvedPath,
+            firstChangedLineOverall,
+            delta,
+            newMtimeMs
+          )
+        } else {
+          context.readRecordCache.refreshMtime(resolvedPath, newMtimeMs)
+        }
       }
     }
 
@@ -429,7 +446,9 @@ async function runRangedEdit(
     }
 
     // --- Read-before-edit guard (range-aware) ---
-    if (context.readRecordCache) {
+    // Pure deletions (empty newText) are exempt — same rationale as inline mode.
+    const isDeletion = input.newText === ''
+    if (context.readRecordCache && !isDeletion) {
       const currentMtimeMs = await stat(resolvedPath).then(
         (s) => s.mtimeMs,
         () => undefined
@@ -498,7 +517,14 @@ async function runRangedEdit(
         () => undefined
       )
       if (newMtimeMs !== undefined) {
-        context.readRecordCache.refreshMtime(resolvedPath, newMtimeMs)
+        const oldSpan = end - start + 1
+        const newSpan = newLines.length
+        const delta = newSpan - oldSpan
+        if (delta !== 0) {
+          context.readRecordCache.shiftRangesAfterLine(resolvedPath, start, delta, newMtimeMs)
+        } else {
+          context.readRecordCache.refreshMtime(resolvedPath, newMtimeMs)
+        }
       }
     }
 

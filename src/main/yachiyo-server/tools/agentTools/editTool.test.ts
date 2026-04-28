@@ -152,6 +152,124 @@ describe('editTool', () => {
     assert.strictEqual(content, 'a\nb\nc\nd\ntarget text')
   })
 
+  it('allows deletion (empty newText) without any prior read', async () => {
+    const workspace = await makeWorkspace()
+    const filePath = join(workspace, 'file.txt')
+    await writeFile(filePath, 'hello world\nkeep this', 'utf8')
+
+    const cache = new ReadRecordCache()
+    const result = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: 'hello world\n', newText: '' },
+      { workspacePath: workspace, readRecordCache: cache }
+    )
+
+    assert.strictEqual(result.error, undefined)
+    assert.strictEqual(result.details.replacements, 1)
+    const content = await readFile(filePath, 'utf8')
+    assert.strictEqual(content, 'keep this')
+  })
+
+  it('allows deletion even when the target region was not read', async () => {
+    const workspace = await makeWorkspace()
+    const filePath = join(workspace, 'file.txt')
+    await writeFile(filePath, 'a\nb\nc\nd\ntarget text', 'utf8')
+
+    const cache = new ReadRecordCache()
+    cache.recordRead(join(workspace, 'file.txt'), 1, 3) // only read lines 1-3
+
+    const result = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: 'target text', newText: '' },
+      { workspacePath: workspace, readRecordCache: cache }
+    )
+
+    assert.strictEqual(result.error, undefined)
+    assert.strictEqual(result.details.replacements, 1)
+    const content = await readFile(filePath, 'utf8')
+    assert.strictEqual(content, 'a\nb\nc\nd\n')
+  })
+
+  it('shifts cached ranges after an edit that adds lines', async () => {
+    const workspace = await makeWorkspace()
+    const filePath = join(workspace, 'file.txt')
+    await writeFile(filePath, 'a\nb\nc\nd\ne', 'utf8')
+
+    const cache = new ReadRecordCache()
+    cache.recordRead(filePath, 1, 5) // read all 5 lines
+
+    // Edit line 2: replace 'b' with 'b1\nb2\nb3' (adds 2 lines, delta=+2)
+    const r1 = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: 'b', newText: 'b1\nb2\nb3' },
+      { workspacePath: workspace, readRecordCache: cache }
+    )
+    assert.strictEqual(r1.error, undefined)
+
+    // Now 'e' is on line 7 (was line 5, shifted by +2). The guard should allow editing it.
+    const r2 = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: 'e', newText: 'E' },
+      { workspacePath: workspace, readRecordCache: cache }
+    )
+    assert.strictEqual(r2.error, undefined, 'guard must not block after line-adding edit')
+    const content = await readFile(filePath, 'utf8')
+    assert.strictEqual(content, 'a\nb1\nb2\nb3\nc\nd\nE')
+  })
+
+  it('shifts cached ranges after an edit that removes lines', async () => {
+    const workspace = await makeWorkspace()
+    const filePath = join(workspace, 'file.txt')
+    await writeFile(filePath, 'a\nb\nc\nd\ne\nf\ng', 'utf8')
+
+    const cache = new ReadRecordCache()
+    cache.recordRead(filePath, 1, 7) // all 7 lines
+
+    // Remove lines 2-4 by replacing 'b\nc\nd' with 'X' (delta=-2)
+    const r1 = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: 'b\nc\nd', newText: 'X' },
+      { workspacePath: workspace, readRecordCache: cache }
+    )
+    assert.strictEqual(r1.error, undefined)
+
+    // 'g' was on line 7, now on line 5. Guard should allow it.
+    const r2 = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: 'g', newText: 'G' },
+      { workspacePath: workspace, readRecordCache: cache }
+    )
+    assert.strictEqual(r2.error, undefined, 'guard must not block after line-removing edit')
+    const content = await readFile(filePath, 'utf8')
+    assert.strictEqual(content, 'a\nX\ne\nf\nG')
+  })
+
+  it('does not extend coverage beyond original read after line-adding edit', async () => {
+    const workspace = await makeWorkspace()
+    const filePath = join(workspace, 'file.txt')
+    // 10 lines: model only reads 1-5
+    await writeFile(filePath, '1\n2\n3\n4\n5\n6\n7\n8\n9\n10', 'utf8')
+
+    const cache = new ReadRecordCache()
+    cache.recordRead(filePath, 1, 5) // only lines 1-5
+
+    // Edit line 2: 'b' → 'x\ny' (adds 1 line, delta=+1)
+    const r1 = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: '2', newText: '2a\n2b' },
+      { workspacePath: workspace, readRecordCache: cache }
+    )
+    assert.strictEqual(r1.error, undefined)
+
+    // Original line 5 ('5') is now at line 6. Should be allowed (was within original read).
+    const r2 = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: '5', newText: 'FIVE' },
+      { workspacePath: workspace, readRecordCache: cache }
+    )
+    assert.strictEqual(r2.error, undefined)
+
+    // Original line 7 ('7') is now at line 8. Was NEVER read. Should be blocked.
+    const r3 = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: '7', newText: 'SEVEN' },
+      { workspacePath: workspace, readRecordCache: cache }
+    )
+    assert.ok(r3.error, 'lines beyond original read range must still be blocked after shift')
+    assert.match(r3.error!, /did not cover/)
+  })
+
   it('allows edit after multiple reads that together cover the target line', async () => {
     const workspace = await makeWorkspace()
     const filePath = join(workspace, 'file.txt')
@@ -560,6 +678,21 @@ describe('editTool', () => {
       assert.strictEqual(content, 'a\nb\nc\nd\ne\n')
     })
 
+    it('allows ranged deletion (empty newText) without any prior read', async () => {
+      const workspace = await makeWorkspace()
+      const filePath = join(workspace, 'file.txt')
+      await writeFile(filePath, 'a\nb\nc\nd\ne\n', 'utf8')
+
+      const cache = new ReadRecordCache()
+      const result = await runEditTool(
+        { mode: 'range', path: 'file.txt', replaceLines: { start: 2, end: 3 }, newText: '' },
+        { workspacePath: workspace, readRecordCache: cache }
+      )
+      assert.strictEqual(result.error, undefined)
+      const content = await readFile(filePath, 'utf8')
+      assert.strictEqual(content, 'a\n\nd\ne\n')
+    })
+
     it('rejects when no read has been recorded at all', async () => {
       const workspace = await makeWorkspace()
       const filePath = join(workspace, 'file.txt')
@@ -810,6 +943,54 @@ describe('editTool', () => {
       assert.strictEqual(result.details.replacements, 0)
       const content = await readFile(filePath, 'utf8')
       assert.strictEqual(content, 'foo\na\nb\nc\nfoo\n', 'file must not be edited')
+    })
+
+    it('allows batch of pure deletions without any prior read', async () => {
+      const workspace = await makeWorkspace()
+      const filePath = join(workspace, 'file.txt')
+      await writeFile(filePath, 'alpha\nbeta\ngamma\n', 'utf8')
+
+      const cache = new ReadRecordCache()
+      const result = await runEditTool(
+        {
+          mode: 'batch',
+          path: 'file.txt',
+          edits: [
+            { oldText: 'alpha\n', newText: '', replace_all: false },
+            { oldText: 'gamma\n', newText: '', replace_all: false }
+          ]
+        },
+        { workspacePath: workspace, readRecordCache: cache }
+      )
+
+      assert.strictEqual(result.error, undefined)
+      assert.strictEqual(result.details.replacements, 2)
+      const content = await readFile(filePath, 'utf8')
+      assert.strictEqual(content, 'beta\n')
+    })
+
+    it('enforces guard for non-deletion edits in a mixed batch', async () => {
+      const workspace = await makeWorkspace()
+      const filePath = join(workspace, 'file.txt')
+      await writeFile(filePath, 'alpha\nbeta\ngamma\n', 'utf8')
+
+      const cache = new ReadRecordCache()
+      // No read recorded — should fail because one edit is a non-deletion
+      const result = await runEditTool(
+        {
+          mode: 'batch',
+          path: 'file.txt',
+          edits: [
+            { oldText: 'alpha\n', newText: '', replace_all: false },
+            { oldText: 'gamma', newText: 'GAMMA', replace_all: false }
+          ]
+        },
+        { workspacePath: workspace, readRecordCache: cache }
+      )
+
+      assert.ok(result.error)
+      assert.match(result.error, /read the file/)
+      assert.strictEqual(result.details.replacements, 0)
     })
 
     it('read-coverage guard accumulates line requirements across all edits', async () => {

@@ -115,6 +115,47 @@ export class ReadRecordCache {
     }
   }
 
+  /**
+   * Shift cached line ranges after a successful edit that changed line count.
+   *
+   * - Ranges ending before `lineThreshold`: untouched.
+   * - Ranges starting at or after `lineThreshold`: both endpoints shift by `delta`.
+   * - Ranges straddling `lineThreshold`: endLine shifts by `delta`, floored at
+   *   `lineThreshold - 1` (the pre-edit portion is still valid).
+   */
+  shiftRangesAfterLine(
+    path: string,
+    lineThreshold: number,
+    delta: number,
+    newMtimeMs: number
+  ): void {
+    const entry = this.entries.get(path)
+    if (!entry) return
+
+    entry.mtimeMs = newMtimeMs
+    if (delta === 0) return
+
+    const adjusted: ReadRange[] = []
+    for (const range of entry.ranges) {
+      if (range.endLine < lineThreshold) {
+        adjusted.push(range)
+      } else if (range.startLine >= lineThreshold) {
+        adjusted.push({
+          ...range,
+          startLine: Math.max(1, range.startLine + delta),
+          endLine: range.endLine + delta
+        })
+      } else {
+        adjusted.push({
+          ...range,
+          endLine: Math.max(lineThreshold - 1, range.endLine + delta)
+        })
+      }
+    }
+
+    entry.ranges = adjusted.filter((r) => r.endLine >= r.startLine)
+  }
+
   hasRecentRead(path: string, currentMtimeMs?: number): boolean {
     const ranges = this.getFreshRanges(path, currentMtimeMs)
     return ranges !== undefined && ranges.length > 0
