@@ -217,6 +217,7 @@ interface AppState {
   subagentStateById: Record<string, ActiveSubagentState>
   initialized: boolean
   isBootstrapping: boolean
+  justDoneRunIdsByThread: Record<string, string>
   lastError: string | null
   latestRunsByThread: Record<string, RunRecord>
   runsByThread: Record<string, RunRecord[]>
@@ -1250,6 +1251,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   subagentStateById: {},
   initialized: false,
   isBootstrapping: false,
+  justDoneRunIdsByThread: {},
   lastError: null,
   latestRunsByThread: {},
   runsByThread: {},
@@ -1780,6 +1782,11 @@ export const useAppStore = create<AppState>((set, get) => ({
               : state.activeArchivedThreadId,
           activeThreadId: event.thread.id,
           archivedThreads,
+          justDoneRunIdsByThread: setThreadStringValue(
+            state.justDoneRunIdsByThread,
+            event.threadId,
+            null
+          ),
           threadListMode: 'active' as const,
           threads
         }
@@ -1802,6 +1809,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete messages[event.threadId]
         const harnessEvents = { ...state.harnessEvents }
         delete harnessEvents[event.threadId]
+        const justDoneRunIdsByThread = { ...state.justDoneRunIdsByThread }
+        delete justDoneRunIdsByThread[event.threadId]
         const latestRunsByThread = { ...state.latestRunsByThread }
         delete latestRunsByThread[event.threadId]
         const runsByThread = { ...state.runsByThread }
@@ -1848,6 +1857,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           archivedThreads,
           composerDrafts: removeComposerDraft(state.composerDrafts, event.threadId),
           harnessEvents,
+          justDoneRunIdsByThread,
           latestRunsByThread,
           runsByThread,
           messages,
@@ -2020,6 +2030,11 @@ export const useAppStore = create<AppState>((set, get) => ({
             [event.threadId]: event.runId
           },
           lastError: null,
+          justDoneRunIdsByThread: setThreadStringValue(
+            state.justDoneRunIdsByThread,
+            event.threadId,
+            null
+          ),
           latestRunsByThread: upsertLatestRun(state.latestRunsByThread, {
             id: event.runId,
             threadId: event.threadId,
@@ -2396,6 +2411,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           pendingSteerMessages: isCurrentActiveRun
             ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
             : state.pendingSteerMessages,
+          justDoneRunIdsByThread:
+            isCurrentActiveRun && event.threadId !== state.activeThreadId && !event.recap
+              ? setThreadStringValue(state.justDoneRunIdsByThread, event.threadId, event.runId)
+              : state.justDoneRunIdsByThread,
           receivingModelOutputByThread: isCurrentActiveRun
             ? { ...state.receivingModelOutputByThread, [event.threadId]: false }
             : state.receivingModelOutputByThread,
@@ -3474,6 +3493,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         pendingAcpBinding: null,
         pendingWorkspacePath: null,
         editingMessage: state.editingMessage?.threadId === id ? state.editingMessage : null,
+        justDoneRunIdsByThread: setThreadStringValue(state.justDoneRunIdsByThread, id, null),
         threadListMode: 'active' as const,
         scrollToMessageId: scrollToMessageId ?? null
       }
@@ -3526,7 +3546,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
 
   setActiveArchivedThread: (id) => {
-    set({ activeArchivedThreadId: id, threadListMode: 'archived' })
+    set((state) => ({
+      activeArchivedThreadId: id,
+      justDoneRunIdsByThread: setThreadStringValue(state.justDoneRunIdsByThread, id, null),
+      threadListMode: 'archived'
+    }))
     // Mark as read when the user opens an archived thread.
     void window.api.yachiyo.markThreadAsRead({ threadId: id }).then((updated) => {
       set((state) => ({

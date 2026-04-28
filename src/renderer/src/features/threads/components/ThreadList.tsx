@@ -91,6 +91,7 @@ function useTitleAnimation(title: string, skip: boolean): string {
 function ThreadListItem({
   isActive,
   hasActiveRun,
+  hasJustDoneRun,
   isSaving,
   isSelectMode,
   isSelected,
@@ -107,6 +108,7 @@ function ThreadListItem({
 }: {
   isActive: boolean
   hasActiveRun: boolean
+  hasJustDoneRun: boolean
   isSaving: boolean
   isSelectMode: boolean
   isSelected: boolean
@@ -344,12 +346,21 @@ function ThreadListItem({
           ) : hasActiveRun ? (
             <span
               aria-label="Run active"
+              className="yachiyo-sidebar-active-run-dot absolute right-3 top-1/2 -translate-y-1/2 rounded-full"
+              style={{
+                width: '7px',
+                height: '7px',
+                background: theme.text.accentStrong
+              }}
+            />
+          ) : hasJustDoneRun ? (
+            <span
+              aria-label="Just Done"
               className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full"
               style={{
                 width: '7px',
                 height: '7px',
-                background: theme.text.accentStrong,
-                opacity: isHighlighted ? 1 : 0.8
+                background: theme.text.accent
               }}
             />
           ) : isUnreadArchived ? (
@@ -379,8 +390,9 @@ function ThreadListItem({
             className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 no-drag"
             style={{
               color: isStarred ? '#f59e0b' : theme.text.muted,
-              opacity: !hasActiveRun && !isSaving && (isHovered || isStarred) ? 1 : 0,
-              pointerEvents: hasActiveRun || isSaving ? 'none' : 'auto',
+              opacity:
+                !hasActiveRun && !hasJustDoneRun && !isSaving && (isHovered || isStarred) ? 1 : 0,
+              pointerEvents: hasActiveRun || hasJustDoneRun || isSaving ? 'none' : 'auto',
               transition: 'opacity 0.15s'
             }}
           >
@@ -885,6 +897,7 @@ function ThreadListContent({
     threads: Thread[]
   } | null>(null)
   const runStatusesByThread = useAppStore((s) => s.runStatusesByThread)
+  const justDoneRunIdsByThread = useAppStore((s) => s.justDoneRunIdsByThread)
   const showPreview = useAppStore((s) => s.config?.general?.sidebarPreview) !== false
 
   function exitSelectMode(): void {
@@ -1127,6 +1140,7 @@ function ThreadListContent({
         thread={thread}
         isActive={thread.id === activeId}
         hasActiveRun={runStatusesByThread[thread.id] === 'running'}
+        hasJustDoneRun={threadListMode === 'active' && Boolean(justDoneRunIdsByThread[thread.id])}
         isSaving={savingThreadIds.has(thread.id)}
         isSelectMode={selectMode}
         isSelected={selectedIds.has(thread.id)}

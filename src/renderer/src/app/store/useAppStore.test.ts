@@ -37,6 +37,7 @@ function resetStore(): void {
     subagentStateById: {},
     initialized: false,
     isBootstrapping: false,
+    justDoneRunIdsByThread: {},
     lastError: null,
     latestRunsByThread: {},
     externalThreads: [],
@@ -488,6 +489,115 @@ test('applyServerEvent preserves compiled context sources after the run complete
   assert.equal(state.latestRunsByThread['thread-1']?.status, 'completed')
   assert.equal(state.latestRunsByThread['thread-1']?.completedAt, '2026-03-15T00:00:05.000Z')
   assert.deepEqual(state.latestRunsByThread['thread-1']?.contextSources, contextSources)
+})
+
+test('applyServerEvent marks completed runs in inactive threads as just done', () => {
+  resetStore()
+  useAppStore.setState({
+    activeThreadId: 'thread-active',
+    config: {
+      enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+      general: {
+        notifyRunCompleted: false
+      },
+      providers: []
+    },
+    threads: [
+      {
+        id: 'thread-active',
+        title: 'Active thread',
+        updatedAt: TIMESTAMP
+      },
+      {
+        id: 'thread-idle',
+        title: 'Idle thread',
+        updatedAt: TIMESTAMP
+      }
+    ]
+  })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'run.created',
+    eventId: 'event-run-created',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-idle',
+    runId: 'run-1'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'run.completed',
+    eventId: 'event-run-completed',
+    timestamp: '2026-03-15T00:00:05.000Z',
+    threadId: 'thread-idle',
+    runId: 'run-1'
+  })
+
+  assert.deepEqual(useAppStore.getState().justDoneRunIdsByThread, {
+    'thread-idle': 'run-1'
+  })
+})
+
+test('applyServerEvent does not mark the currently open thread as just done', () => {
+  resetStore()
+  useAppStore.setState({
+    activeThreadId: 'thread-active',
+    config: {
+      enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+      general: {
+        notifyRunCompleted: false
+      },
+      providers: []
+    },
+    threads: [
+      {
+        id: 'thread-active',
+        title: 'Active thread',
+        updatedAt: TIMESTAMP
+      }
+    ]
+  })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'run.created',
+    eventId: 'event-run-created',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-active',
+    runId: 'run-1'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'run.completed',
+    eventId: 'event-run-completed',
+    timestamp: '2026-03-15T00:00:05.000Z',
+    threadId: 'thread-active',
+    runId: 'run-1'
+  })
+
+  assert.deepEqual(useAppStore.getState().justDoneRunIdsByThread, {})
+})
+
+test('setActiveThread clears the just done run marker after the user opens the thread', () => {
+  resetStore()
+  const restoreWindow = withWindowApiMock({
+    loadThreadData: async () => ({
+      messages: [],
+      toolCalls: [],
+      runs: []
+    })
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-active',
+      justDoneRunIdsByThread: {
+        'thread-idle': 'run-1'
+      }
+    })
+
+    useAppStore.getState().setActiveThread('thread-idle')
+
+    assert.deepEqual(useAppStore.getState().justDoneRunIdsByThread, {})
+  } finally {
+    restoreWindow()
+  }
 })
 
 test('applyServerEvent ignores stale completion events after the next run starts', () => {

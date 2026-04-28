@@ -26,6 +26,7 @@ function resetStore(): void {
     subagentStateById: {},
     initialized: false,
     isBootstrapping: false,
+    justDoneRunIdsByThread: {},
     lastError: null,
     latestRunsByThread: {},
     externalThreads: [],

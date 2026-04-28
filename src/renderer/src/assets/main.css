@@ -726,6 +726,29 @@ body > div:not(#root) {
   animation: yachiyo-thread-enter 180ms ease-out;
 }
 
+@keyframes yachiyo-sidebar-active-run-breathe {
+  0%,
+  100% {
+    opacity: 0.58;
+    filter: saturate(1) brightness(0.98);
+  }
+  50% {
+    opacity: 1;
+    filter: saturate(1.22) brightness(1.08);
+  }
+}
+
+.yachiyo-sidebar-active-run-dot {
+  animation: yachiyo-sidebar-active-run-breathe 1.8s ease-in-out infinite;
+  will-change: opacity, filter;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .yachiyo-sidebar-active-run-dot {
+    animation: none;
+  }
+}
+
 /* Preparing bubble mount — scale + fade so the dots don't hard-pop */
 @keyframes yachiyo-preparing-enter {
   from {
