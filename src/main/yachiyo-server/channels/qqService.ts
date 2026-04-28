@@ -11,75 +11,32 @@
  * with a `send_group_message` tool. Raw text = private monologue, tool call = speech.
  */
 
-import { tool, type ToolSet } from 'ai'
-import { z } from 'zod'
-import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 
 import type {
   ChannelGroupRecord,
-  ChannelUserRecord,
   GroupChannelConfig,
   GroupMessageEntry,
   MessageImageRecord,
-  ThreadRecord,
   ThreadModelOverride
 } from '../../../shared/yachiyo/protocol.ts'
 import type { YachiyoServer } from '../app/YachiyoServer.ts'
-import { resolveYachiyoTempWorkspaceRoot } from '../config/paths.ts'
 import { qqPolicy, type ChannelPolicy } from './channelPolicy.ts'
-import {
-  createDirectMessageService,
-  resolveDirectMessageThread,
-  type DirectMessageThreadResolution
-} from './directMessageService.ts'
-import {
-  createDmSlashCommandPendingChoiceStore,
-  handleDmSlashCommand,
-  resolvePendingDmSlashCommandChoice,
-  shouldDiscardPendingBatchForDmCommand
-} from './dmSlashCommands.ts'
+import { createChannelDirectMessageRuntime } from './channelDirectMessageRuntime.ts'
 import {
   detectMediaTypeFromBytes,
   ensureVisionSafe,
   fetchImageAsDataUrl
 } from './channelImageDownload.ts'
 import {
-  buildGroupProbeBehaviorPrompt,
-  buildGroupProbeContextPrompt,
-  formatGroupProbeTurnDelta,
-  isBareSymbolMessage
-} from './groupContextBuilder.ts'
-import {
-  loadGroupProbeHistory,
-  persistSuccessfulGroupProbeTurn,
-  resolveGroupProbeThread
-} from './groupProbeThread.ts'
-import { hasForbiddenGroupReplyPrefix, hasVisibleGroupReplyContent } from './groupReplyGuard.ts'
-import { describeGroupImages } from './groupImageDescriptions.ts'
-import {
-  createGroupMonitorRegistry,
-  type GroupMonitorPersistence,
-  type GroupMonitorRegistry
-} from './groupMonitorRegistry.ts'
-import { createGroupTurnSendGuard } from './groupTurnSendGuard.ts'
+  createChannelGroupDiscussionService,
+  type ChannelGroupDiscussionService
+} from './channelGroupDiscussionService.ts'
+import { routeChannelGroupMessage } from './channelGroupRouting.ts'
 import { parseCQImages, type CQImageRef } from './qqImageParsing.ts'
 import { resolveCQCodes, extractReplyId } from './qqCQCodes.ts'
 import { createOneBotClient, type OneBotClient } from './onebotClient.ts'
 import { routeQQMessage, type QQChannelStorage } from './qq.ts'
-import { EXTERNAL_GROUP_PROMPT } from '../runtime/prompt.ts'
-import { readChannelsConfig } from '../runtime/channelsConfig.ts'
-import { readUserDocument } from '../runtime/user.ts'
-import { YACHIYO_USER_FILE_NAME } from '../config/paths.ts'
-import { createSpeechThrottle } from './groupSpeechThrottle.ts'
-import { createTool as createReadTool } from '../tools/agentTools/readTool.ts'
-import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool.ts'
-import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool.ts'
-import { createTool as createUpdateProfileTool } from '../tools/agentTools/updateProfileTool.ts'
-import {
-  compileGroupProbeContextLayers,
-  requiresAssistantReasoningForGroupProbeReplay
-} from '../runtime/groupProbeContextLayers.ts'
 
 export interface QQServiceOptions {
   /** NapCatQQ forward WebSocket URL. */
@@ -161,36 +118,12 @@ export function createQQService({
     await client.sendPrivateMessage(userId, text)
   }
 
-  async function resolveThread(
-    channelUser: ChannelUserRecord
-  ): Promise<DirectMessageThreadResolution> {
-    return resolveDirectMessageThread({
-      logLabel: 'qq',
-      server,
-      channelUser,
-      policy,
-      modelOverride,
-      createThread: async (input): Promise<ThreadRecord> =>
-        server.createThread({
-          source: 'qq',
-          channelUserId: channelUser.id,
-          ...(channelUser.role === 'owner'
-            ? input?.workspacePath
-              ? { workspacePath: input.workspacePath }
-              : {}
-            : { workspacePath: channelUser.workspacePath, title: `QQ:${channelUser.username}` }),
-          ...(input?.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {})
-        })
-    })
-  }
-
-  const slashCommandPendingChoices = createDmSlashCommandPendingChoiceStore()
-
-  const directMessages = createDirectMessageService<number>({
+  const directMessages = createChannelDirectMessageRuntime<number>({
+    platform: 'qq',
     logLabel: 'qq',
     server,
     policy,
-    resolveThread,
+    modelOverride,
     sendMessage: sendPrivateMessage,
     startBatchIndicator: (qqUserId) => {
       sendTyping(qqUserId)
@@ -201,33 +134,7 @@ export function createQQService({
     },
     nonRunReply: '抱歉，出了点问题。',
     errorReply: '出了点问题，请稍后再试。',
-    shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
-    resolvePlainTextCommand: (channelUser, text) =>
-      resolvePendingDmSlashCommandChoice(slashCommandPendingChoices, channelUser, text),
-    handleSlashCommand: (qqUserId, channelUser, command, args, context) =>
-      handleDmSlashCommand(
-        {
-          server,
-          threadReuseWindowMs: policy.threadReuseWindowMs,
-          contextTokenLimit: policy.contextTokenLimit,
-          pendingChoices: slashCommandPendingChoices,
-          createFreshThread: (user) =>
-            server.createThread({
-              source: 'qq',
-              channelUserId: user.id,
-              ...(user.role === 'owner'
-                ? {}
-                : { workspacePath: user.workspacePath, title: `QQ:${user.username}` })
-            }),
-          sendMessage: sendPrivateMessage,
-          requestStop: (userId) => directMessages.requestStop(userId)
-        },
-        qqUserId,
-        channelUser,
-        command,
-        args,
-        context
-      )
+    formatGuestThreadTitle: (channelUser) => `QQ:${channelUser.username}`
   })
 
   /**
@@ -318,6 +225,12 @@ export function createQQService({
       case 'blocked':
         return
 
+      case 'pending':
+        void client
+          .sendPrivateMessage(msg.userId, result.reply)
+          .catch((e) => console.error('[qq] failed to send pending reply', e))
+        return
+
       case 'limit-exceeded':
         void client
           .sendPrivateMessage(msg.userId, result.reply)
@@ -332,8 +245,6 @@ export function createQQService({
   // ------------------------------------------------------------------
   // Group discussion mode (probe+tool pattern)
   // ------------------------------------------------------------------
-
-  let groupRegistry: GroupMonitorRegistry | null = null
 
   /** Resolve [CQ:at,qq=ID] codes into @Name using known users + bot identity. */
   function resolveCQAtMentions(text: string): string {
@@ -353,262 +264,36 @@ export function createQQService({
     })
   }
 
-  /** Build a map from QQ externalUserId → role for identity marking. */
-  function buildKnownUsersMap(): Map<string, string> {
-    const map = new Map<string, string>()
-    for (const u of server.listChannelUsers()) {
-      if (u.platform === 'qq') {
-        map.set(u.externalUserId, u.role)
-      }
-    }
-    return map
-  }
-
-  const speechThrottle = createSpeechThrottle(groupVerbosity ?? 0)
-
-  // Group monitoring is enabled by default; only skip if explicitly disabled.
-  if (groupConfig?.enabled !== false) {
-    const bufferPersistence: GroupMonitorPersistence = {
-      save(groupId, phase, buffer) {
-        server.getStorage().saveGroupMonitorBuffer({
-          groupId,
-          phase,
-          buffer,
-          savedAt: new Date().toISOString()
+  const groupDiscussion: ChannelGroupDiscussionService | null =
+    groupConfig?.enabled !== false
+      ? createChannelGroupDiscussionService({
+          platform: 'qq',
+          logLabel: 'qq-group',
+          server,
+          policy,
+          groupConfig,
+          groupVerbosity,
+          groupCheckIntervalMs,
+          rejectMultilineMessages: true,
+          sendMessage: async (group, message) => {
+            await client.sendGroupMessage(Number(group.externalGroupId), message)
+          }
         })
-      },
-      load(groupId) {
-        const data = server.getStorage().loadGroupMonitorBuffer(groupId)
-        if (!data) return undefined
-        return { phase: data.phase as 'dormant' | 'active' | 'engaged', buffer: data.buffer }
-      },
-      delete(groupId) {
-        server.getStorage().deleteGroupMonitorBuffer(groupId)
-      }
-    }
-
-    groupRegistry = createGroupMonitorRegistry(
-      policy.groupDefaults,
-      groupConfig,
-      {
-        async onTurn(group, recentMessages, freshCount) {
-          return handleGroupTurn(group, recentMessages, freshCount)
-        },
-
-        onStateChange(group, newPhase) {
-          console.log(`[qq-group] "${group.name}" phase → ${newPhase}`)
-        }
-      },
-      groupCheckIntervalMs,
-      bufferPersistence
-    )
-
-    // Start monitors for all already-approved groups.
-    for (const group of server.listChannelGroups()) {
-      if (group.platform === 'qq' && group.status === 'approved') {
-        groupRegistry.startMonitor(group)
-      }
-    }
-  }
-
-  /**
-   * Single-pass probe+tool handler for group discussion.
-   *
-   * Returns true if the model called `send_group_message` (i.e. spoke),
-   * false if it stayed silent.
-   */
-  async function handleGroupTurn(
-    group: ChannelGroupRecord,
-    recentMessages: GroupMessageEntry[],
-    freshCount: number
-  ): Promise<boolean> {
-    const auxService = server.getAuxiliaryGenerationService()
-    let didSpeak = false
-    const turnSendGuard = createGroupTurnSendGuard()
-
-    // Build the send_group_message tool — closure captures the send logic.
-    const sendGroupMessageTool = tool({
-      description:
-        'Send a message to the group chat. Only call this when you genuinely want to speak. Your raw text output is private and never shown to anyone.',
-      inputSchema: z.object({
-        message: z
-          .string()
-          .describe(
-            'The message to send to the group. Plain text only. Never start with a colon or }.'
-          )
-      }),
-      execute: async ({ message }) => {
-        turnSendGuard.beforeAttempt()
-
-        if (message.includes('\n')) {
-          console.log(`[qq-group] rejected multi-line message for "${group.name}"`)
-          return 'Rejected: message must be a single line. Do not include line breaks.'
-        }
-
-        if (!hasVisibleGroupReplyContent(message)) {
-          console.log(`[qq-group] rejected empty message for "${group.name}"`)
-          return 'Rejected: message must contain visible text.'
-        }
-
-        if (hasForbiddenGroupReplyPrefix(message)) {
-          console.log(
-            `[qq-group] rejected forbidden-prefix message for "${group.name}": ${message}`
-          )
-          throw new Error('Rejected: message must not start with a colon or }.')
-        }
-
-        if (isBareSymbolMessage(message)) {
-          console.log(`[qq-group] rejected bare-symbol message for "${group.name}": ${message}`)
-          return 'Rejected: message contains only punctuation. Write actual words or stay silent.'
-        }
-
-        if (speechThrottle.shouldDrop(group.id)) {
-          const rate = speechThrottle.getDropRate(group.id)
-          console.log(
-            `[qq-group] throttled message for "${group.name}" (drop rate ${Math.round(rate * 100)}%): ${message.slice(0, 80)}`
-          )
-          return turnSendGuard.recordBlockedAttempt()
-        }
-
-        try {
-          await client.sendGroupMessage(Number(group.externalGroupId), message)
-          turnSendGuard.recordSent()
-          speechThrottle.recordSend(group.id)
-          console.log(`[qq-group] sent reply to group "${group.name}": ${message.slice(0, 100)}`)
-
-          // Feed the bot's own reply back into the monitor so it sees it.
-          groupRegistry!.routeMessage(group.id, {
-            senderName: 'Yachiyo',
-            senderExternalUserId: '__self__',
-            isMention: false,
-            text: message,
-            timestamp: Date.now() / 1_000
-          })
-
-          didSpeak = true
-          return 'Message sent.'
-        } catch (err) {
-          console.error(`[qq-group] failed to send message to "${group.name}"`, err)
-          return 'Failed to send message.'
-        }
-      }
-    })
-
-    // Read per-group USER.md (people directory, context notes).
-    const userDocPath = join(group.workspacePath, YACHIYO_USER_FILE_NAME)
-    const groupUserDoc = await readUserDocument({
-      filePath: userDocPath,
-      mode: 'group'
-    })
-
-    // Build agentic tools: read, web_read, web_search, updateProfile.
-    const toolContext = { workspacePath: group.workspacePath, sandboxed: true }
-    const probeTools: ToolSet = {
-      send_group_message: sendGroupMessageTool,
-      read: createReadTool(toolContext),
-      web_read: createWebReadTool(toolContext),
-      web_search: createWebSearchTool(toolContext, {
-        webSearchService: server.getWebSearchService()
-      }),
-      updateProfile: createUpdateProfileTool({
-        userDocumentPath: userDocPath,
-        userDocumentMode: 'group'
-      })
-    }
-
-    // Resolve model settings: group-specific override -> default primary model.
-    const settingsOverride = server.resolveProviderSettings(groupConfig?.model)
-
-    const knownUsers = buildKnownUsersMap()
-    const currentTurnContent = formatGroupProbeTurnDelta(
-      recentMessages,
-      'Yachiyo',
-      knownUsers,
-      undefined,
-      freshCount
-    )
-    const stableSystemPrompt = buildGroupProbeBehaviorPrompt()
-    const dynamicSystemPrompt = buildGroupProbeContextPrompt({
-      botName: 'Yachiyo',
-      groupName: group.name,
-      groupLabel: group.label || undefined,
-      personaSummary: EXTERNAL_GROUP_PROMPT,
-      ownerInstruction: readChannelsConfig().guestInstruction,
-      groupUserDocument: groupUserDoc?.content
-    })
-    const { thread: probeThread } = await resolveGroupProbeThread({
-      logLabel: 'qq-group',
-      server,
-      group,
-      groupThreadReuseWindowMs: policy.groupDefaults.groupThreadReuseWindowMs,
-      modelOverride: groupConfig?.model
-    })
-    const messages = compileGroupProbeContextLayers({
-      stableSystemPrompt,
-      dynamicSystemPrompt,
-      rollingSummary: probeThread.rollingSummary,
-      history: loadGroupProbeHistory(server.getStorage(), probeThread),
-      currentTurnContent,
-      requireAssistantReasoningForReplay:
-        requiresAssistantReasoningForGroupProbeReplay(settingsOverride)
-    })
-
-    console.log(
-      `[qq-group] group="${group.name}" probing ${freshCount}/${recentMessages.length} fresh message(s) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${currentTurnContent}`
-    )
-
-    const result = await auxService.generateText({
-      messages,
-      tools: probeTools,
-      onToolCallError: (event) =>
-        event.toolCall.toolName === 'send_group_message' ? 'abort' : 'continue',
-      settingsOverride,
-      purpose: 'qq-group-probe'
-    })
-
-    if (result.status === 'success') {
-      persistSuccessfulGroupProbeTurn({
-        storage: server.getStorage(),
-        generateId: () => server.generateId(),
-        thread: probeThread,
-        requestContent: currentTurnContent,
-        result
-      })
-      console.log(
-        `[qq-group] group="${group.name}" monologue: ${result.text.slice(0, 200)}${result.text.length > 200 ? '…' : ''}`
-      )
-      console.log(`[qq-group] group="${group.name}" didSpeak=${didSpeak}`)
-    } else {
-      console.warn(
-        `[qq-group] auxiliary generation ${result.status}:`,
-        result.status === 'failed' ? result.error : result.reason
-      )
-    }
-
-    return didSpeak
-  }
+      : null
 
   // Always listen for group messages — register pending groups even when
   // group monitoring is disabled, so they show up in settings for approval.
   client.onGroupMessage((msg) => {
     const groupId = String(msg.groupId)
-    const existing = server.findChannelGroup('qq', groupId)
-
-    if (!existing) {
-      server.createChannelGroup({
-        id: `qq-group-${groupId}`,
+    const routedGroup = routeChannelGroupMessage(
+      {
         platform: 'qq',
         externalGroupId: groupId,
-        name: `QQ群${groupId}`,
-        label: '',
-        status: 'pending',
-        workspacePath: join(resolveYachiyoTempWorkspaceRoot(), `qq-group-${groupId}`)
-      })
-      console.log(`[qq-group] new group ${groupId} registered as pending`)
-      return
-    }
-
-    if (existing.status !== 'approved' || !groupRegistry) return
+        name: `QQ群${groupId}`
+      },
+      server
+    )
+    if (routedGroup.kind !== 'approved' || !groupDiscussion) return
 
     // Skip the bot's own messages echoed back by the server — already
     // fed into the monitor as __self__ from the tool closure.
@@ -660,10 +345,10 @@ export function createQQService({
         const text = quote ? `${quote}\n${resolvedText}` : resolvedText
 
         if (images.length > 0) {
-          await describeGroupImages({ server, text, images, logLabel: 'qq-group' })
+          await groupDiscussion.describeImages({ text, images })
         }
 
-        groupRegistry!.routeMessage(existing.id, {
+        groupDiscussion.routeMessage(routedGroup.group.id, {
           senderName: msg.nickname,
           senderExternalUserId: String(msg.userId),
           isMention,
@@ -683,7 +368,7 @@ export function createQQService({
         text: resolvedText,
         timestamp: msg.time
       }
-      groupRegistry.routeMessage(existing.id, entry)
+      groupDiscussion.routeMessage(routedGroup.group.id, entry)
 
       if (replyMsgId) {
         void replyQuotePromise.then((quote) => {
@@ -695,11 +380,9 @@ export function createQQService({
         void Promise.all(imagePromises).then(async (results) => {
           const images = results.filter((img): img is MessageImageRecord => img !== null)
           if (images.length > 0) {
-            await describeGroupImages({
-              server,
+            await groupDiscussion.describeImages({
               text: entry.text,
-              images,
-              logLabel: 'qq-group'
+              images
             })
             entry.images = images
           }
@@ -729,22 +412,13 @@ export function createQQService({
       client.connect()
     },
     async stop() {
-      groupRegistry?.stopAll()
+      groupDiscussion?.stop()
       directMessages.stop()
       await client.close()
     },
 
     onGroupStatusChange(group) {
-      if (group.platform !== 'qq' || !groupRegistry) return
-
-      groupRegistry.updateGroup(group)
-      if (group.status === 'approved') {
-        groupRegistry.startMonitor(group)
-        console.log(`[qq-group] monitor started for "${group.name}" after approval`)
-      } else {
-        groupRegistry.stopMonitor(group.id)
-        console.log(`[qq-group] monitor stopped for "${group.name}" (status=${group.status})`)
-      }
+      groupDiscussion?.onGroupStatusChange(group)
     },
 
     sendPrivateMessage,
@@ -754,7 +428,7 @@ export function createQQService({
     },
 
     clearGroupMessages(groupId: string) {
-      groupRegistry?.clearGroupMessages(groupId)
+      groupDiscussion?.clearGroupMessages(groupId)
     }
   }
 }

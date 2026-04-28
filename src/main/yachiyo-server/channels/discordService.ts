@@ -14,69 +14,25 @@
  * (probe+tool pattern) — same architecture as Telegram and QQ groups.
  */
 
-import { tool, type ToolSet } from 'ai'
-import { z } from 'zod'
 import { Client, Events, GatewayIntentBits, Partials, type Message } from 'discord.js'
-import { join } from 'node:path'
 
 import type {
   ChannelGroupRecord,
-  ChannelUserRecord,
   GroupChannelConfig,
-  GroupMessageEntry,
   MessageImageRecord,
-  ThreadRecord,
   ThreadModelOverride
 } from '../../../shared/yachiyo/protocol.ts'
 import type { YachiyoServer } from '../app/YachiyoServer.ts'
 import { discordPolicy, type ChannelPolicy } from './channelPolicy.ts'
 import { fetchImageAsDataUrl } from './channelImageDownload.ts'
+import { createChannelDirectMessageRuntime } from './channelDirectMessageRuntime.ts'
 import {
-  createDirectMessageService,
-  resolveDirectMessageThread,
-  type DirectMessageThreadResolution
-} from './directMessageService.ts'
-import {
-  createDmSlashCommandPendingChoiceStore,
-  handleDmSlashCommand,
-  resolvePendingDmSlashCommandChoice,
-  shouldDiscardPendingBatchForDmCommand
-} from './dmSlashCommands.ts'
-import {
-  buildGroupProbeBehaviorPrompt,
-  buildGroupProbeContextPrompt,
-  formatGroupProbeTurnDelta,
-  isBareSymbolMessage
-} from './groupContextBuilder.ts'
-import {
-  loadGroupProbeHistory,
-  persistSuccessfulGroupProbeTurn,
-  resolveGroupProbeThread
-} from './groupProbeThread.ts'
-import { hasForbiddenGroupReplyPrefix, hasVisibleGroupReplyContent } from './groupReplyGuard.ts'
-import { describeGroupImages } from './groupImageDescriptions.ts'
-import {
-  createGroupMonitorRegistry,
-  type GroupMonitorPersistence,
-  type GroupMonitorRegistry
-} from './groupMonitorRegistry.ts'
-import { createGroupTurnSendGuard } from './groupTurnSendGuard.ts'
+  createChannelGroupDiscussionService,
+  type ChannelGroupDiscussionService
+} from './channelGroupDiscussionService.ts'
+import { routeChannelGroupMessage } from './channelGroupRouting.ts'
 import { connectWithRetry } from './connectionRetry.ts'
 import { routeDiscordMessage, type DiscordChannelStorage } from './discord.ts'
-import { EXTERNAL_GROUP_PROMPT } from '../runtime/prompt.ts'
-import { readChannelsConfig } from '../runtime/channelsConfig.ts'
-import { readUserDocument } from '../runtime/user.ts'
-import { createSpeechThrottle } from './groupSpeechThrottle.ts'
-import { createTool as createReadTool } from '../tools/agentTools/readTool.ts'
-import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool.ts'
-import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool.ts'
-import { createTool as createUpdateProfileTool } from '../tools/agentTools/updateProfileTool.ts'
-import {
-  compileGroupProbeContextLayers,
-  requiresAssistantReasoningForGroupProbeReplay
-} from '../runtime/groupProbeContextLayers.ts'
-
-import { resolveYachiyoTempWorkspaceRoot, YACHIYO_USER_FILE_NAME } from '../config/paths.ts'
 
 /** Discord typing indicator lasts ~10 s; resend every 8 s. */
 const TYPING_INTERVAL_MS = 8_000
@@ -201,78 +157,18 @@ export function createDiscordService({
     }
   }
 
-  function resolveUserWorkspace(username: string): string {
-    return join(resolveYachiyoTempWorkspaceRoot(), `dc-${username}`)
-  }
-
-  async function resolveThread(
-    channelUser: ChannelUserRecord
-  ): Promise<DirectMessageThreadResolution> {
-    return resolveDirectMessageThread({
-      logLabel: 'discord',
-      server,
-      channelUser,
-      policy,
-      modelOverride,
-      createThread: async (input): Promise<ThreadRecord> =>
-        server.createThread({
-          source: 'discord',
-          channelUserId: channelUser.id,
-          ...(channelUser.role === 'owner'
-            ? input?.workspacePath
-              ? { workspacePath: input.workspacePath }
-              : {}
-            : {
-                workspacePath: resolveUserWorkspace(channelUser.username),
-                title: `Discord:@${channelUser.username}`
-              }),
-          ...(input?.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {})
-        })
-    })
-  }
-
-  const slashCommandPendingChoices = createDmSlashCommandPendingChoiceStore()
-
-  const directMessages = createDirectMessageService<string>({
+  const directMessages = createChannelDirectMessageRuntime<string>({
+    platform: 'discord',
     logLabel: 'discord',
     server,
     policy,
-    resolveThread,
+    modelOverride,
     sendMessage,
     startBatchIndicator: startTypingLoop,
     startHandlingIndicator: startTypingLoop,
     nonRunReply: 'Sorry, something went wrong on my end.',
     errorReply: 'Something went wrong. Please try again in a moment.',
-    shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
-    resolvePlainTextCommand: (channelUser, text) =>
-      resolvePendingDmSlashCommandChoice(slashCommandPendingChoices, channelUser, text),
-    handleSlashCommand: (channelId, channelUser, command, args, context) =>
-      handleDmSlashCommand(
-        {
-          server,
-          threadReuseWindowMs: policy.threadReuseWindowMs,
-          contextTokenLimit: policy.contextTokenLimit,
-          pendingChoices: slashCommandPendingChoices,
-          createFreshThread: (user) =>
-            server.createThread({
-              source: 'discord',
-              channelUserId: user.id,
-              ...(user.role === 'owner'
-                ? {}
-                : {
-                    workspacePath: resolveUserWorkspace(user.username),
-                    title: `Discord:@${user.username}`
-                  })
-            }),
-          sendMessage,
-          requestStop: (userId) => directMessages.requestStop(userId)
-        },
-        channelId,
-        channelUser,
-        command,
-        args,
-        context
-      )
+    formatGuestThreadTitle: (channelUser) => `Discord:@${channelUser.username}`
   })
 
   /** Image extensions to accept when Discord omits contentType. */
@@ -346,7 +242,7 @@ export function createDiscordService({
 
   /** Handle an incoming guild (server) text channel message — route into group monitor. */
   function handleGuildMessage(msg: Message): void {
-    if (!groupRegistry) return
+    if (!groupDiscussion) return
 
     const channelId = msg.channel.id
     const channelName =
@@ -357,25 +253,15 @@ export function createDiscordService({
     const fromUsername = msg.author.username
     const text = msg.content ?? ''
 
-    const existing = server.findChannelGroup('discord', channelId)
-
-    if (!existing) {
-      server.createChannelGroup({
-        id: `dc-group-${channelId}`,
+    const routedGroup = routeChannelGroupMessage(
+      {
         platform: 'discord',
         externalGroupId: channelId,
-        name: groupDisplayName,
-        label: '',
-        status: 'pending',
-        workspacePath: join(resolveYachiyoTempWorkspaceRoot(), `dc-group-${channelId}`)
-      })
-      console.log(
-        `[discord-group] new channel ${channelId} (${groupDisplayName}) registered as pending`
-      )
-      return
-    }
-
-    if (existing.status !== 'approved') return
+        name: groupDisplayName
+      },
+      server
+    )
+    if (routedGroup.kind !== 'approved') return
 
     // Skip the bot's own messages — already fed into the monitor as __self__.
     if (botUserId && fromId === botUserId) return
@@ -389,7 +275,7 @@ export function createDiscordService({
 
     // When there are no images, route immediately.
     if (!hasImages) {
-      groupRegistry.routeMessage(existing.id, {
+      groupDiscussion.routeMessage(routedGroup.group.id, {
         senderName: fromUsername,
         senderExternalUserId: fromId,
         isMention,
@@ -403,13 +289,11 @@ export function createDiscordService({
     const imagePromises = startImageDownloads(msg)
     void Promise.all(imagePromises).then(async (results) => {
       const images = results.filter((img): img is MessageImageRecord => img !== null)
-      await describeGroupImages({
-        server,
+      await groupDiscussion.describeImages({
         text,
-        images,
-        logLabel: 'discord-group'
+        images
       })
-      groupRegistry!.routeMessage(existing.id, {
+      groupDiscussion.routeMessage(routedGroup.group.id, {
         senderName: fromUsername,
         senderExternalUserId: fromId,
         isMention,
@@ -420,240 +304,18 @@ export function createDiscordService({
     })
   }
 
-  // ------------------------------------------------------------------
-  // Group discussion mode (probe+tool pattern)
-  // ------------------------------------------------------------------
-
-  let groupRegistry: GroupMonitorRegistry | null = null
-
-  /** Build a map from Discord externalUserId → role for identity marking. */
-  function buildKnownUsersMap(): Map<string, string> {
-    const map = new Map<string, string>()
-    for (const u of server.listChannelUsers()) {
-      if (u.platform === 'discord') {
-        map.set(u.externalUserId, u.role)
-      }
-    }
-    return map
-  }
-
-  const speechThrottle = createSpeechThrottle(groupVerbosity ?? 0)
-
-  if (groupConfig?.enabled) {
-    const bufferPersistence: GroupMonitorPersistence = {
-      save(groupId, phase, buffer) {
-        server.getStorage().saveGroupMonitorBuffer({
-          groupId,
-          phase,
-          buffer,
-          savedAt: new Date().toISOString()
-        })
-      },
-      load(groupId) {
-        const data = server.getStorage().loadGroupMonitorBuffer(groupId)
-        if (!data) return undefined
-        return { phase: data.phase as 'dormant' | 'active' | 'engaged', buffer: data.buffer }
-      },
-      delete(groupId) {
-        server.getStorage().deleteGroupMonitorBuffer(groupId)
-      }
-    }
-
-    groupRegistry = createGroupMonitorRegistry(
-      policy.groupDefaults,
-      groupConfig,
-      {
-        async onTurn(group, recentMessages, freshCount) {
-          return handleGroupTurn(group, recentMessages, freshCount)
-        },
-
-        onStateChange(group, newPhase) {
-          console.log(`[discord-group] "${group.name}" phase → ${newPhase}`)
-        }
-      },
-      groupCheckIntervalMs,
-      bufferPersistence
-    )
-
-    // Start monitors for already-approved Discord groups.
-    for (const group of server.listChannelGroups()) {
-      if (group.platform === 'discord' && group.status === 'approved') {
-        groupRegistry.startMonitor(group)
-      }
-    }
-  }
-
-  /**
-   * Single-pass probe+tool handler for group discussion.
-   *
-   * Returns true if the model called `send_group_message` (i.e. spoke),
-   * false if it stayed silent.
-   */
-  async function handleGroupTurn(
-    group: ChannelGroupRecord,
-    recentMessages: GroupMessageEntry[],
-    freshCount: number
-  ): Promise<boolean> {
-    const auxService = server.getAuxiliaryGenerationService()
-    let didSpeak = false
-    const turnSendGuard = createGroupTurnSendGuard()
-
-    const sendGroupMessageTool = tool({
-      description:
-        'Send a message to the group chat. Only call this when you genuinely want to speak. Your raw text output is private and never shown to anyone.',
-      inputSchema: z.object({
-        message: z
-          .string()
-          .describe(
-            'The message to send to the group. Plain text only. Never start with a colon or }.'
-          )
-      }),
-      execute: async ({ message }) => {
-        turnSendGuard.beforeAttempt()
-
-        if (!hasVisibleGroupReplyContent(message)) {
-          console.log(`[discord-group] rejected empty message for "${group.name}"`)
-          return 'Rejected: message must contain visible text.'
-        }
-
-        if (hasForbiddenGroupReplyPrefix(message)) {
-          console.log(
-            `[discord-group] rejected forbidden-prefix message for "${group.name}": ${message}`
-          )
-          throw new Error('Rejected: message must not start with a colon or }.')
-        }
-
-        if (isBareSymbolMessage(message)) {
-          console.log(
-            `[discord-group] rejected bare-symbol message for "${group.name}": ${message}`
-          )
-          return 'Rejected: message contains only punctuation. Write actual words or stay silent.'
-        }
-
-        if (speechThrottle.shouldDrop(group.id)) {
-          const rate = speechThrottle.getDropRate(group.id)
-          console.log(
-            `[discord-group] throttled message for "${group.name}" (drop rate ${Math.round(rate * 100)}%): ${message.slice(0, 80)}`
-          )
-          return turnSendGuard.recordBlockedAttempt()
-        }
-
-        try {
-          await sendMessage(group.externalGroupId, message)
-          turnSendGuard.recordSent()
-          speechThrottle.recordSend(group.id)
-          console.log(`[discord-group] sent reply to "${group.name}": ${message.slice(0, 100)}`)
-
-          // Feed the bot's own reply back into the monitor so it sees it.
-          groupRegistry!.routeMessage(group.id, {
-            senderName: 'Yachiyo',
-            senderExternalUserId: '__self__',
-            isMention: false,
-            text: message,
-            timestamp: Date.now() / 1_000
-          })
-
-          didSpeak = true
-          return 'Message sent.'
-        } catch (err) {
-          console.error(`[discord-group] failed to send message to "${group.name}"`, err)
-          return 'Failed to send message.'
-        }
-      }
-    })
-
-    // Read per-group USER.md (people directory, context notes).
-    const userDocPath = join(group.workspacePath, YACHIYO_USER_FILE_NAME)
-    const groupUserDoc = await readUserDocument({
-      filePath: userDocPath,
-      mode: 'group'
-    })
-
-    // Build agentic tools: read, web_read, web_search, updateProfile.
-    const toolContext = { workspacePath: group.workspacePath, sandboxed: true }
-    const probeTools: ToolSet = {
-      send_group_message: sendGroupMessageTool,
-      read: createReadTool(toolContext),
-      web_read: createWebReadTool(toolContext),
-      web_search: createWebSearchTool(toolContext, {
-        webSearchService: server.getWebSearchService()
-      }),
-      updateProfile: createUpdateProfileTool({
-        userDocumentPath: userDocPath,
-        userDocumentMode: 'group'
+  const groupDiscussion: ChannelGroupDiscussionService | null = groupConfig?.enabled
+    ? createChannelGroupDiscussionService({
+        platform: 'discord',
+        logLabel: 'discord-group',
+        server,
+        policy,
+        groupConfig,
+        groupVerbosity,
+        groupCheckIntervalMs,
+        sendMessage: (group, message) => sendMessage(group.externalGroupId, message)
       })
-    }
-
-    const settingsOverride = server.resolveProviderSettings(groupConfig?.model)
-
-    const knownUsers = buildKnownUsersMap()
-    const currentTurnContent = formatGroupProbeTurnDelta(
-      recentMessages,
-      'Yachiyo',
-      knownUsers,
-      undefined,
-      freshCount
-    )
-    const stableSystemPrompt = buildGroupProbeBehaviorPrompt()
-    const dynamicSystemPrompt = buildGroupProbeContextPrompt({
-      botName: 'Yachiyo',
-      groupName: group.name,
-      groupLabel: group.label || undefined,
-      personaSummary: EXTERNAL_GROUP_PROMPT,
-      ownerInstruction: readChannelsConfig().guestInstruction,
-      groupUserDocument: groupUserDoc?.content
-    })
-    const { thread: probeThread } = await resolveGroupProbeThread({
-      logLabel: 'discord-group',
-      server,
-      group,
-      groupThreadReuseWindowMs: policy.groupDefaults.groupThreadReuseWindowMs,
-      modelOverride: groupConfig?.model
-    })
-    const messages = compileGroupProbeContextLayers({
-      stableSystemPrompt,
-      dynamicSystemPrompt,
-      rollingSummary: probeThread.rollingSummary,
-      history: loadGroupProbeHistory(server.getStorage(), probeThread),
-      currentTurnContent,
-      requireAssistantReasoningForReplay:
-        requiresAssistantReasoningForGroupProbeReplay(settingsOverride)
-    })
-
-    console.log(
-      `[discord-group] group="${group.name}" probing ${freshCount}/${recentMessages.length} fresh message(s) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${currentTurnContent}`
-    )
-
-    const result = await auxService.generateText({
-      messages,
-      tools: probeTools,
-      onToolCallError: (event) =>
-        event.toolCall.toolName === 'send_group_message' ? 'abort' : 'continue',
-      settingsOverride,
-      purpose: 'discord-group-probe'
-    })
-
-    if (result.status === 'success') {
-      persistSuccessfulGroupProbeTurn({
-        storage: server.getStorage(),
-        generateId: () => server.generateId(),
-        thread: probeThread,
-        requestContent: currentTurnContent,
-        result
-      })
-      console.log(
-        `[discord-group] group="${group.name}" monologue: ${result.text.slice(0, 200)}${result.text.length > 200 ? '…' : ''}`
-      )
-      console.log(`[discord-group] group="${group.name}" didSpeak=${didSpeak}`)
-    } else {
-      console.warn(
-        `[discord-group] auxiliary generation ${result.status}:`,
-        result.status === 'failed' ? result.error : result.reason
-      )
-    }
-
-    return didSpeak
-  }
+    : null
 
   return {
     connect() {
@@ -669,27 +331,18 @@ export function createDiscordService({
       })
     },
     async stop() {
-      groupRegistry?.stopAll()
+      groupDiscussion?.stop()
       directMessages.stop()
       await client.destroy()
     },
 
     onGroupStatusChange(group) {
-      if (group.platform !== 'discord' || !groupRegistry) return
-
-      groupRegistry.updateGroup(group)
-      if (group.status === 'approved') {
-        groupRegistry.startMonitor(group)
-        console.log(`[discord-group] monitor started for "${group.name}" after approval`)
-      } else {
-        groupRegistry.stopMonitor(group.id)
-        console.log(`[discord-group] monitor stopped for "${group.name}" (status=${group.status})`)
-      }
+      groupDiscussion?.onGroupStatusChange(group)
     },
 
     sendMessage,
     clearGroupMessages(groupId: string) {
-      groupRegistry?.clearGroupMessages(groupId)
+      groupDiscussion?.clearGroupMessages(groupId)
     }
   }
 }

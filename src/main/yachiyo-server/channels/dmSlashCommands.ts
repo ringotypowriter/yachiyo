@@ -7,7 +7,7 @@ import type {
 } from '../../../shared/yachiyo/protocol.ts'
 import type { DirectMessageServer } from './directMessageService.ts'
 
-type DmSlashCommandServer = Pick<
+export type DmSlashCommandServer = Pick<
   DirectMessageServer,
   'findActiveChannelThread' | 'getThreadTotalTokens' | 'cancelRunForChannelUser'
 > & {

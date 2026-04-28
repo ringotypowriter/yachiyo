@@ -14,71 +14,27 @@
  * the group monitor registry (probe+tool pattern).
  */
 
-import { tool, type ToolSet } from 'ai'
-import { z } from 'zod'
 import { Telegraf } from 'telegraf'
 import type { Message } from 'telegraf/types'
 
 import type {
   ChannelGroupRecord,
-  ChannelUserRecord,
   GroupChannelConfig,
-  GroupMessageEntry,
   MessageImageRecord,
-  ThreadRecord,
   ThreadModelOverride
 } from '../../../shared/yachiyo/protocol'
 import type { YachiyoServer } from '../app/YachiyoServer'
 import { telegramPolicy, type ChannelPolicy } from './channelPolicy'
 import { fetchImageAsDataUrl } from './channelImageDownload'
+import { createChannelDirectMessageRuntime } from './channelDirectMessageRuntime.ts'
 import {
-  createDirectMessageService,
-  resolveDirectMessageThread,
-  type DirectMessageThreadResolution
-} from './directMessageService.ts'
-import {
-  createDmSlashCommandPendingChoiceStore,
-  handleDmSlashCommand,
-  resolvePendingDmSlashCommandChoice,
-  shouldDiscardPendingBatchForDmCommand
-} from './dmSlashCommands.ts'
-import {
-  buildGroupProbeBehaviorPrompt,
-  buildGroupProbeContextPrompt,
-  formatGroupProbeTurnDelta,
-  isBareSymbolMessage
-} from './groupContextBuilder'
-import {
-  loadGroupProbeHistory,
-  persistSuccessfulGroupProbeTurn,
-  resolveGroupProbeThread
-} from './groupProbeThread.ts'
-import { hasForbiddenGroupReplyPrefix, hasVisibleGroupReplyContent } from './groupReplyGuard'
-import { describeGroupImages } from './groupImageDescriptions'
-import {
-  createGroupMonitorRegistry,
-  type GroupMonitorPersistence,
-  type GroupMonitorRegistry
-} from './groupMonitorRegistry'
-import { createGroupTurnSendGuard } from './groupTurnSendGuard'
+  createChannelGroupDiscussionService,
+  type ChannelGroupDiscussionService
+} from './channelGroupDiscussionService.ts'
+import { routeChannelGroupMessage } from './channelGroupRouting.ts'
 import { connectWithRetry } from './connectionRetry.ts'
 import { routeTelegramMessage, type TelegramChannelStorage } from './telegram'
-import { EXTERNAL_GROUP_PROMPT } from '../runtime/prompt'
-import { readChannelsConfig } from '../runtime/channelsConfig'
-import { readUserDocument } from '../runtime/user'
-import { createSpeechThrottle } from './groupSpeechThrottle'
-import { createTool as createReadTool } from '../tools/agentTools/readTool'
-import { createTool as createWebReadTool } from '../tools/agentTools/webReadTool'
-import { createTool as createWebSearchTool } from '../tools/agentTools/webSearchTool'
-import { createTool as createUpdateProfileTool } from '../tools/agentTools/updateProfileTool'
-import {
-  compileGroupProbeContextLayers,
-  requiresAssistantReasoningForGroupProbeReplay
-} from '../runtime/groupProbeContextLayers.ts'
 import { splitTelegramMessage } from './telegramMessageSplit.ts'
-
-import { resolveYachiyoTempWorkspaceRoot, YACHIYO_USER_FILE_NAME } from '../config/paths'
-import { join } from 'node:path'
 
 /** Telegram typing indicator expires after ~5 s; resend every 4 s. */
 const TYPING_INTERVAL_MS = 4_000
@@ -165,78 +121,18 @@ export function createTelegramService({
     }
   }
 
-  function resolveUserWorkspace(username: string): string {
-    return join(resolveYachiyoTempWorkspaceRoot(), `tg-${username}`)
-  }
-
-  async function resolveThread(
-    channelUser: ChannelUserRecord
-  ): Promise<DirectMessageThreadResolution> {
-    return resolveDirectMessageThread({
-      logLabel: 'telegram',
-      server,
-      channelUser,
-      policy,
-      modelOverride,
-      createThread: async (input): Promise<ThreadRecord> =>
-        server.createThread({
-          source: 'telegram',
-          channelUserId: channelUser.id,
-          ...(channelUser.role === 'owner'
-            ? input?.workspacePath
-              ? { workspacePath: input.workspacePath }
-              : {}
-            : {
-                workspacePath: resolveUserWorkspace(channelUser.username),
-                title: `Telegram:@${channelUser.username}`
-              }),
-          ...(input?.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {})
-        })
-    })
-  }
-
-  const slashCommandPendingChoices = createDmSlashCommandPendingChoiceStore()
-
-  const directMessages = createDirectMessageService<string>({
+  const directMessages = createChannelDirectMessageRuntime<string>({
+    platform: 'telegram',
     logLabel: 'telegram',
     server,
     policy,
-    resolveThread,
+    modelOverride,
     sendMessage,
     startBatchIndicator: startTypingLoop,
     startHandlingIndicator: startTypingLoop,
     nonRunReply: 'Sorry, something went wrong on my end.',
     errorReply: 'Something went wrong. Please try again in a moment.',
-    shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
-    resolvePlainTextCommand: (channelUser, text) =>
-      resolvePendingDmSlashCommandChoice(slashCommandPendingChoices, channelUser, text),
-    handleSlashCommand: (chatId, channelUser, command, args, context) =>
-      handleDmSlashCommand(
-        {
-          server,
-          threadReuseWindowMs: policy.threadReuseWindowMs,
-          contextTokenLimit: policy.contextTokenLimit,
-          pendingChoices: slashCommandPendingChoices,
-          createFreshThread: (user) =>
-            server.createThread({
-              source: 'telegram',
-              channelUserId: user.id,
-              ...(user.role === 'owner'
-                ? {}
-                : {
-                    workspacePath: resolveUserWorkspace(user.username),
-                    title: `Telegram:@${user.username}`
-                  })
-            }),
-          sendMessage,
-          requestStop: (userId) => directMessages.requestStop(userId)
-        },
-        chatId,
-        channelUser,
-        command,
-        args,
-        context
-      )
+    formatGuestThreadTitle: (channelUser) => `Telegram:@${channelUser.username}`
   })
 
   /** Download a single Telegram file by file_id via getFileLink. */
@@ -350,7 +246,7 @@ export function createTelegramService({
 
   /** Handle an incoming group/supergroup message — route into group monitor. */
   function handleGroupMessage(msg: Message): void {
-    if (!groupRegistry) return
+    if (!groupDiscussion) return
 
     const chatId = String(msg.chat.id)
     const chatTitle = 'title' in msg.chat ? (msg.chat.title ?? '') : ''
@@ -378,23 +274,15 @@ export function createTelegramService({
         !msg.sticker.is_video)
     if (!text && !hasMedia) return
 
-    const existing = server.findChannelGroup('telegram', chatId)
-
-    if (!existing) {
-      server.createChannelGroup({
-        id: `tg-group-${chatId}`,
+    const routedGroup = routeChannelGroupMessage(
+      {
         platform: 'telegram',
         externalGroupId: chatId,
-        name: chatTitle || `Telegram Group ${chatId}`,
-        label: '',
-        status: 'pending',
-        workspacePath: join(resolveYachiyoTempWorkspaceRoot(), `tg-group-${chatId}`)
-      })
-      console.log(`[telegram-group] new group ${chatId} registered as pending`)
-      return
-    }
-
-    if (existing.status !== 'approved') return
+        name: chatTitle || `Telegram Group ${chatId}`
+      },
+      server
+    )
+    if (routedGroup.kind !== 'approved') return
 
     // Skip the bot's own messages echoed back by Telegram —
     // already fed into the monitor as __self__ from the tool closure.
@@ -411,7 +299,7 @@ export function createTelegramService({
 
     // When there are no images to download, route immediately.
     if (!hasMedia) {
-      groupRegistry.routeMessage(existing.id, {
+      groupDiscussion.routeMessage(routedGroup.group.id, {
         senderName: fromUsername,
         senderExternalUserId: fromId,
         isMention,
@@ -425,13 +313,11 @@ export function createTelegramService({
     const imagePromises = startImageDownloads(msg)
     void Promise.all(imagePromises).then(async (results) => {
       const images = results.filter((img): img is MessageImageRecord => img !== null)
-      await describeGroupImages({
-        server,
+      await groupDiscussion.describeImages({
         text,
-        images,
-        logLabel: 'telegram-group'
+        images
       })
-      groupRegistry!.routeMessage(existing.id, {
+      groupDiscussion.routeMessage(routedGroup.group.id, {
         senderName: fromUsername,
         senderExternalUserId: fromId,
         isMention,
@@ -442,246 +328,19 @@ export function createTelegramService({
     })
   }
 
-  // ------------------------------------------------------------------
-  // Group discussion mode (probe+tool pattern)
-  // ------------------------------------------------------------------
-
-  let groupRegistry: GroupMonitorRegistry | null = null
-
-  /** Build a map from Telegram externalUserId → role for identity marking. */
-  function buildKnownUsersMap(): Map<string, string> {
-    const map = new Map<string, string>()
-    for (const u of server.listChannelUsers()) {
-      if (u.platform === 'telegram') {
-        map.set(u.externalUserId, u.role)
-      }
-    }
-    return map
-  }
-
-  const speechThrottle = createSpeechThrottle(groupVerbosity ?? 0)
-
-  if (groupConfig?.enabled) {
-    const bufferPersistence: GroupMonitorPersistence = {
-      save(groupId, phase, buffer) {
-        server.getStorage().saveGroupMonitorBuffer({
-          groupId,
-          phase,
-          buffer,
-          savedAt: new Date().toISOString()
-        })
-      },
-      load(groupId) {
-        const data = server.getStorage().loadGroupMonitorBuffer(groupId)
-        if (!data) return undefined
-        return { phase: data.phase as 'dormant' | 'active' | 'engaged', buffer: data.buffer }
-      },
-      delete(groupId) {
-        server.getStorage().deleteGroupMonitorBuffer(groupId)
-      }
-    }
-
-    groupRegistry = createGroupMonitorRegistry(
-      policy.groupDefaults,
-      groupConfig,
-      {
-        async onTurn(group, recentMessages, freshCount) {
-          return handleGroupTurn(group, recentMessages, freshCount)
-        },
-
-        onStateChange(group, newPhase) {
-          console.log(`[telegram-group] "${group.name}" phase → ${newPhase}`)
-        }
-      },
-      groupCheckIntervalMs,
-      bufferPersistence
-    )
-
-    // Start monitors for already-approved Telegram groups.
-    for (const group of server.listChannelGroups()) {
-      if (group.platform === 'telegram' && group.status === 'approved') {
-        groupRegistry.startMonitor(group)
-      }
-    }
-  }
-
-  /**
-   * Single-pass probe+tool handler for group discussion.
-   *
-   * Returns true if the model called `send_group_message` (i.e. spoke),
-   * false if it stayed silent.
-   */
-  async function handleGroupTurn(
-    group: ChannelGroupRecord,
-    recentMessages: GroupMessageEntry[],
-    freshCount: number
-  ): Promise<boolean> {
-    const auxService = server.getAuxiliaryGenerationService()
-    let didSpeak = false
-    const turnSendGuard = createGroupTurnSendGuard()
-
-    const sendGroupMessageTool = tool({
-      description:
-        'Send a message to the group chat. Only call this when you genuinely want to speak. Your raw text output is private and never shown to anyone.',
-      inputSchema: z.object({
-        message: z
-          .string()
-          .describe(
-            'The message to send to the group. Plain text only. Never start with a colon or }.'
-          )
-      }),
-      execute: async ({ message }) => {
-        turnSendGuard.beforeAttempt()
-
-        if (message.includes('\n')) {
-          console.log(`[telegram-group] rejected multi-line message for "${group.name}"`)
-          return 'Rejected: message must be a single line. Do not include line breaks.'
-        }
-
-        if (!hasVisibleGroupReplyContent(message)) {
-          console.log(`[telegram-group] rejected empty message for "${group.name}"`)
-          return 'Rejected: message must contain visible text.'
-        }
-
-        if (hasForbiddenGroupReplyPrefix(message)) {
-          console.log(
-            `[telegram-group] rejected forbidden-prefix message for "${group.name}": ${message}`
-          )
-          throw new Error('Rejected: message must not start with a colon or }.')
-        }
-
-        if (isBareSymbolMessage(message)) {
-          console.log(
-            `[telegram-group] rejected bare-symbol message for "${group.name}": ${message}`
-          )
-          return 'Rejected: message contains only punctuation. Write actual words or stay silent.'
-        }
-
-        if (speechThrottle.shouldDrop(group.id)) {
-          const rate = speechThrottle.getDropRate(group.id)
-          console.log(
-            `[telegram-group] throttled message for "${group.name}" (drop rate ${Math.round(rate * 100)}%): ${message.slice(0, 80)}`
-          )
-          return turnSendGuard.recordBlockedAttempt()
-        }
-
-        try {
-          await sendMessage(group.externalGroupId, message)
-          turnSendGuard.recordSent()
-          speechThrottle.recordSend(group.id)
-          console.log(`[telegram-group] sent reply to "${group.name}": ${message.slice(0, 100)}`)
-
-          // Feed the bot's own reply back into the monitor so it sees it.
-          groupRegistry!.routeMessage(group.id, {
-            senderName: 'Yachiyo',
-            senderExternalUserId: '__self__',
-            isMention: false,
-            text: message,
-            timestamp: Date.now() / 1_000
-          })
-
-          didSpeak = true
-          return 'Message sent.'
-        } catch (err) {
-          console.error(`[telegram-group] failed to send message to "${group.name}"`, err)
-          return 'Failed to send message.'
-        }
-      }
-    })
-
-    // Read per-group USER.md (people directory, context notes).
-    const userDocPath = join(group.workspacePath, YACHIYO_USER_FILE_NAME)
-    const groupUserDoc = await readUserDocument({
-      filePath: userDocPath,
-      mode: 'group'
-    })
-
-    // Build agentic tools: read, web_read, web_search, updateProfile.
-    const toolContext = { workspacePath: group.workspacePath, sandboxed: true }
-    const probeTools: ToolSet = {
-      send_group_message: sendGroupMessageTool,
-      read: createReadTool(toolContext),
-      web_read: createWebReadTool(toolContext),
-      web_search: createWebSearchTool(toolContext, {
-        webSearchService: server.getWebSearchService()
-      }),
-      updateProfile: createUpdateProfileTool({
-        userDocumentPath: userDocPath,
-        userDocumentMode: 'group'
+  const groupDiscussion: ChannelGroupDiscussionService | null = groupConfig?.enabled
+    ? createChannelGroupDiscussionService({
+        platform: 'telegram',
+        logLabel: 'telegram-group',
+        server,
+        policy,
+        groupConfig,
+        groupVerbosity,
+        groupCheckIntervalMs,
+        rejectMultilineMessages: true,
+        sendMessage: (group, message) => sendMessage(group.externalGroupId, message)
       })
-    }
-
-    // Resolve model settings: group-specific override -> default primary model.
-    const settingsOverride = server.resolveProviderSettings(groupConfig?.model)
-
-    const knownUsers = buildKnownUsersMap()
-    const currentTurnContent = formatGroupProbeTurnDelta(
-      recentMessages,
-      'Yachiyo',
-      knownUsers,
-      undefined,
-      freshCount
-    )
-    const stableSystemPrompt = buildGroupProbeBehaviorPrompt()
-    const dynamicSystemPrompt = buildGroupProbeContextPrompt({
-      botName: 'Yachiyo',
-      groupName: group.name,
-      groupLabel: group.label || undefined,
-      personaSummary: EXTERNAL_GROUP_PROMPT,
-      ownerInstruction: readChannelsConfig().guestInstruction,
-      groupUserDocument: groupUserDoc?.content
-    })
-    const { thread: probeThread } = await resolveGroupProbeThread({
-      logLabel: 'telegram-group',
-      server,
-      group,
-      groupThreadReuseWindowMs: policy.groupDefaults.groupThreadReuseWindowMs,
-      modelOverride: groupConfig?.model
-    })
-    const messages = compileGroupProbeContextLayers({
-      stableSystemPrompt,
-      dynamicSystemPrompt,
-      rollingSummary: probeThread.rollingSummary,
-      history: loadGroupProbeHistory(server.getStorage(), probeThread),
-      currentTurnContent,
-      requireAssistantReasoningForReplay:
-        requiresAssistantReasoningForGroupProbeReplay(settingsOverride)
-    })
-
-    console.log(
-      `[telegram-group] group="${group.name}" probing ${freshCount}/${recentMessages.length} fresh message(s) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${currentTurnContent}`
-    )
-
-    const result = await auxService.generateText({
-      messages,
-      tools: probeTools,
-      onToolCallError: (event) =>
-        event.toolCall.toolName === 'send_group_message' ? 'abort' : 'continue',
-      settingsOverride,
-      purpose: 'telegram-group-probe'
-    })
-
-    if (result.status === 'success') {
-      persistSuccessfulGroupProbeTurn({
-        storage: server.getStorage(),
-        generateId: () => server.generateId(),
-        thread: probeThread,
-        requestContent: currentTurnContent,
-        result
-      })
-      console.log(
-        `[telegram-group] group="${group.name}" monologue: ${result.text.slice(0, 200)}${result.text.length > 200 ? '…' : ''}`
-      )
-      console.log(`[telegram-group] group="${group.name}" didSpeak=${didSpeak}`)
-    } else {
-      console.warn(
-        `[telegram-group] auxiliary generation ${result.status}:`,
-        result.status === 'failed' ? result.error : result.reason
-      )
-    }
-
-    return didSpeak
-  }
+    : null
 
   return {
     startPolling() {
@@ -693,25 +352,16 @@ export function createTelegramService({
       })
     },
     async stop() {
-      groupRegistry?.stopAll()
+      groupDiscussion?.stop()
       directMessages.stop()
       bot.stop()
     },
     onGroupStatusChange(group) {
-      if (group.platform !== 'telegram' || !groupRegistry) return
-
-      groupRegistry.updateGroup(group)
-      if (group.status === 'approved') {
-        groupRegistry.startMonitor(group)
-        console.log(`[telegram-group] monitor started for "${group.name}" after approval`)
-      } else {
-        groupRegistry.stopMonitor(group.id)
-        console.log(`[telegram-group] monitor stopped for "${group.name}" (status=${group.status})`)
-      }
+      groupDiscussion?.onGroupStatusChange(group)
     },
     sendMessage,
     clearGroupMessages(groupId: string) {
-      groupRegistry?.clearGroupMessages(groupId)
+      groupDiscussion?.clearGroupMessages(groupId)
     }
   }
 }

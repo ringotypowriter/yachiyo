@@ -12,24 +12,10 @@
  *   4. Extract reply content and send back via QQBot REST API.
  */
 
-import type {
-  ChannelUserRecord,
-  ThreadModelOverride,
-  ThreadRecord
-} from '../../../shared/yachiyo/protocol.ts'
+import type { ThreadModelOverride } from '../../../shared/yachiyo/protocol.ts'
 import type { YachiyoServer } from '../app/YachiyoServer.ts'
 import { qqbotPolicy, type ChannelPolicy } from './channelPolicy.ts'
-import {
-  createDirectMessageService,
-  resolveDirectMessageThread,
-  type DirectMessageThreadResolution
-} from './directMessageService.ts'
-import {
-  createDmSlashCommandPendingChoiceStore,
-  handleDmSlashCommand,
-  resolvePendingDmSlashCommandChoice,
-  shouldDiscardPendingBatchForDmCommand
-} from './dmSlashCommands.ts'
+import { createChannelDirectMessageRuntime } from './channelDirectMessageRuntime.ts'
 import { createQQBotClient, type QQBotClient } from './qqbotClient.ts'
 import { routeQQBotMessage, type QQBotChannelStorage } from './qqbot.ts'
 
@@ -114,36 +100,12 @@ export function createQQBotService({
     await client.sendC2CMessage(openId, text, replyMsgId)
   }
 
-  async function resolveThread(
-    channelUser: ChannelUserRecord
-  ): Promise<DirectMessageThreadResolution> {
-    return resolveDirectMessageThread({
-      logLabel: 'qqbot',
-      server,
-      channelUser,
-      policy,
-      modelOverride,
-      createThread: async (input): Promise<ThreadRecord> =>
-        server.createThread({
-          source: 'qqbot',
-          channelUserId: channelUser.id,
-          ...(channelUser.role === 'owner'
-            ? input?.workspacePath
-              ? { workspacePath: input.workspacePath }
-              : {}
-            : { workspacePath: channelUser.workspacePath, title: `QQBot:${channelUser.username}` }),
-          ...(input?.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {})
-        })
-    })
-  }
-
-  const slashCommandPendingChoices = createDmSlashCommandPendingChoiceStore()
-
-  const directMessages = createDirectMessageService<QQBotTarget>({
+  const directMessages = createChannelDirectMessageRuntime<QQBotTarget>({
+    platform: 'qqbot',
     logLabel: 'qqbot',
     server,
     policy,
-    resolveThread,
+    modelOverride,
     sendMessage: sendMessageWithTarget,
     startBatchIndicator: (target) => {
       console.log(`[qqbot] sending typing indicator (batch) for ${target.openId.slice(0, 8)}...`)
@@ -168,33 +130,7 @@ export function createQQBotService({
     },
     nonRunReply: '抱歉，出了点问题。',
     errorReply: '出了点问题，请稍后再试。',
-    shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
-    resolvePlainTextCommand: (channelUser, text) =>
-      resolvePendingDmSlashCommandChoice(slashCommandPendingChoices, channelUser, text),
-    handleSlashCommand: (target, channelUser, command, args, context) =>
-      handleDmSlashCommand(
-        {
-          server,
-          threadReuseWindowMs: policy.threadReuseWindowMs,
-          contextTokenLimit: policy.contextTokenLimit,
-          pendingChoices: slashCommandPendingChoices,
-          createFreshThread: (user) =>
-            server.createThread({
-              source: 'qqbot',
-              channelUserId: user.id,
-              ...(user.role === 'owner'
-                ? {}
-                : { workspacePath: user.workspacePath, title: `QQBot:${user.username}` })
-            }),
-          sendMessage: sendMessageWithTarget,
-          requestStop: (userId) => directMessages.requestStop(userId)
-        },
-        target,
-        channelUser,
-        command,
-        args,
-        context
-      )
+    formatGuestThreadTitle: (channelUser) => `QQBot:${channelUser.username}`
   })
 
   client.onC2CMessage((msg) => {
@@ -217,6 +153,12 @@ export function createQQBotService({
 
     switch (result.kind) {
       case 'blocked':
+        return
+
+      case 'pending':
+        void client
+          .sendC2CMessage(openId, result.reply, msg.messageId)
+          .catch((e) => console.error('[qqbot] failed to send pending reply', e))
         return
 
       case 'limit-exceeded':
