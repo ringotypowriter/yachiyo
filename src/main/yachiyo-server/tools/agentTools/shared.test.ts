@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
 import {
+  bashToolInputSchema,
   readToolInputSchema,
   writeToolInputSchema,
   editToolInputSchema,
@@ -119,6 +120,29 @@ describe('shadow fallbacks', () => {
       if (parsed.success) {
         assert.strictEqual(parsed.data.path, 'src')
       }
+    })
+  })
+
+  describe('bashToolInputSchema', () => {
+    it('accepts timeout values up to 300 seconds', () => {
+      const parsed = bashToolInputSchema.safeParse({
+        command: 'sleep 300',
+        timeout: 300
+      })
+
+      assert.strictEqual(parsed.success, true)
+      if (parsed.success) {
+        assert.strictEqual(parsed.data.timeout, 300)
+      }
+    })
+
+    it('rejects timeout values above 300 seconds', () => {
+      const parsed = bashToolInputSchema.safeParse({
+        command: 'sleep 301',
+        timeout: 301
+      })
+
+      assert.strictEqual(parsed.success, false)
     })
   })
 })

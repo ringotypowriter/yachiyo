@@ -564,6 +564,38 @@ test('runBashTool maps timeout failures into structured metadata', async () => {
   })
 })
 
+test('runBashTool refuses chained sleep commands that outlive the timeout', async () => {
+  await withWorkspace(async (workspacePath) => {
+    let spawned = false
+
+    const result = await runBashTool(
+      {
+        command: 'sleep 90 && echo done',
+        timeout: 60,
+        background: false
+      },
+      { workspacePath },
+      {
+        runCommand: async () => {
+          spawned = true
+          return {
+            exitCode: 0,
+            stdout: '',
+            stderr: ''
+          }
+        }
+      }
+    )
+
+    assert.equal(spawned, false)
+    assert.equal(result.details.blocked, true)
+    assert.equal(result.metadata.blocked, true)
+    assert.match(result.error ?? '', /sleep 90/i)
+    assert.match(result.error ?? '', /timeout is 60 seconds/i)
+    assert.match(result.error ?? '', /following command/i)
+  })
+})
+
 test('runBashTool lifts a timed-out command into a background task when adoption hook is provided', async () => {
   await withWorkspace(async (workspacePath) => {
     const adopted: Array<{ taskId: string; command: string; initialOutput: string }> = []

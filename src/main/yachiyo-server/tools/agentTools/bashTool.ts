@@ -11,6 +11,7 @@ import type { BashToolCallDetails } from '../../../../shared/yachiyo/protocol.ts
 
 import { killProcessTree } from '../../app/domain/killProcessTree.ts'
 import { validateBashCommand } from './bashSecurity.ts'
+import { getChainedSleepTimeoutBlockMessage } from './bashTimeoutGuard.ts'
 import { withInjectedEnv } from './injectedEnv.ts'
 import { extractBashReadRanges } from './bashReadExtractor.ts'
 import {
@@ -32,7 +33,8 @@ import {
 export function createTool(context: AgentToolContext): Tool<BashToolInput, BashToolOutput> {
   return tool({
     description:
-      `Run a shell command with cwd set to ${context.workspacePath}. Use timeout in seconds.\n` +
+      `Run a shell command with cwd set to ${context.workspacePath}. Use timeout in seconds; set it longer than the whole command, including sleeps and waits, or use background mode for intentionally long work.\n` +
+      'Do not chain follow-up work after a sleep that is longer than or equal to the timeout; the follow-up command cannot run before the timeout fires.\n' +
       'Do NOT use bash for searching code or finding files — use the `grep` tool (content search) or `glob` tool (file discovery) instead. They are faster, produce structured output, and respect workspace boundaries.',
     inputSchema: bashToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
@@ -462,6 +464,24 @@ export async function* streamBashTool(
         stderr: '',
         blocked: true,
         error: securityCheck.message
+      })
+    )
+    queue.close()
+    yield* queue.iterate()
+    return
+  }
+
+  const sleepTimeoutBlockMessage = getChainedSleepTimeoutBlockMessage(command, timeoutSeconds)
+  if (sleepTimeoutBlockMessage) {
+    queue.push(
+      createBashResult({
+        command,
+        combinedOutput: '',
+        cwd: context.workspacePath,
+        stdout: '',
+        stderr: '',
+        blocked: true,
+        error: sleepTimeoutBlockMessage
       })
     )
     queue.close()
