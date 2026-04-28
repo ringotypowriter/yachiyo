@@ -625,25 +625,55 @@ function upsertLatestRun(
   }
 }
 
+const RUN_TOKEN_FIELD_NAMES = [
+  'promptTokens',
+  'completionTokens',
+  'totalPromptTokens',
+  'totalCompletionTokens',
+  'cacheReadTokens',
+  'cacheWriteTokens'
+] as const
+
+function stripRunTokens(run: RunRecord): RunRecord {
+  return Object.fromEntries(
+    Object.entries(run).filter(
+      ([key]) => !RUN_TOKEN_FIELD_NAMES.includes(key as (typeof RUN_TOKEN_FIELD_NAMES)[number])
+    )
+  ) as RunRecord
+}
+
 function stripLatestRunTokens(
   latestRunsByThread: Record<string, RunRecord>,
   threadId: string
 ): Record<string, RunRecord> {
   const existing = latestRunsByThread[threadId]
   if (!existing) return latestRunsByThread
-  const stripped = Object.fromEntries(
-    Object.entries(existing).filter(
-      ([key]) =>
-        key !== 'promptTokens' &&
-        key !== 'completionTokens' &&
-        key !== 'totalPromptTokens' &&
-        key !== 'totalCompletionTokens'
-    )
-  ) as RunRecord
+  const stripped = stripRunTokens(existing)
   return {
     ...latestRunsByThread,
     [threadId]: stripped
   }
+}
+
+function stripCancelledLatestRunTokens(
+  latestRunsByThread: Record<string, RunRecord>
+): Record<string, RunRecord> {
+  let changed = false
+  const entries = Object.entries(latestRunsByThread).map(([threadId, run]) => {
+    if (run.status !== 'cancelled') {
+      return [threadId, run] as const
+    }
+
+    const hasTokenFields = RUN_TOKEN_FIELD_NAMES.some((key) => run[key] !== undefined)
+    if (!hasTokenFields) {
+      return [threadId, run] as const
+    }
+
+    changed = true
+    return [threadId, stripRunTokens(run)] as const
+  })
+
+  return changed ? Object.fromEntries(entries) : latestRunsByThread
 }
 
 function upsertRunRecord(runs: RunRecord[], run: RunRecord): RunRecord[] {
@@ -2529,19 +2559,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             recalledMemoryEntries: existingLatestRun?.recalledMemoryEntries,
             recallDecision: existingLatestRun?.recallDecision,
             contextSources: existingLatestRun?.contextSources,
-            completedAt: event.timestamp,
-            ...(existingLatestRun?.promptTokens !== undefined
-              ? { promptTokens: existingLatestRun.promptTokens }
-              : {}),
-            ...(existingLatestRun?.completionTokens !== undefined
-              ? { completionTokens: existingLatestRun.completionTokens }
-              : {}),
-            ...(existingLatestRun?.totalPromptTokens !== undefined
-              ? { totalPromptTokens: existingLatestRun.totalPromptTokens }
-              : {}),
-            ...(existingLatestRun?.totalCompletionTokens !== undefined
-              ? { totalCompletionTokens: existingLatestRun.totalCompletionTokens }
-              : {})
+            completedAt: event.timestamp
           }),
           runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
             ...run,
@@ -2830,6 +2848,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       try {
         const payload = await window.api.yachiyo.bootstrap()
+        const latestRunsByThread = stripCancelledLatestRunTokens(payload.latestRunsByThread)
         const recoveredSaveToasts = payload.recoveredInterruptedSaveThreadIds.map((threadId) => {
           const thread = [...payload.threads, ...payload.archivedThreads].find(
             (item) => item.id === threadId
@@ -2859,13 +2878,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           initialized: true,
           isBootstrapping: false,
           lastError: null,
-          latestRunsByThread: payload.latestRunsByThread,
+          latestRunsByThread,
           runsByThread: bootstrapRunsByThread(payload.latestRunsByThread),
           runPhasesByThread: Object.fromEntries(
-            Object.keys(payload.latestRunsByThread).map((threadId) => [threadId, 'idle'] as const)
+            Object.keys(latestRunsByThread).map((threadId) => [threadId, 'idle'] as const)
           ),
           runStatusesByThread: Object.fromEntries(
-            Object.entries(payload.latestRunsByThread).map(([threadId, run]) => [
+            Object.entries(latestRunsByThread).map(([threadId, run]) => [
               threadId,
               run.status === 'running' ? 'running' : 'idle'
             ])

@@ -107,6 +107,11 @@ test('initialize hydrates the active thread run history after bootstrap', async 
           id: 'thread-1',
           title: 'Thread 1',
           updatedAt: TIMESTAMP
+        },
+        {
+          id: 'thread-2',
+          title: 'Thread 2',
+          updatedAt: '2026-03-15T00:01:00.000Z'
         }
       ],
       archivedThreads: [],
@@ -132,7 +137,8 @@ test('initialize hydrates the active thread run history after bootstrap', async 
         ]
       },
       toolCallsByThread: {
-        'thread-1': []
+        'thread-1': [],
+        'thread-2': []
       },
       latestRunsByThread: {
         'thread-1': {
@@ -142,6 +148,15 @@ test('initialize hydrates the active thread run history after bootstrap', async 
           createdAt: '2026-03-15T00:05:00.000Z',
           completedAt: '2026-03-15T00:05:10.000Z',
           requestMessageId: 'user-latest'
+        },
+        'thread-2': {
+          id: 'run-cancelled',
+          threadId: 'thread-2',
+          status: 'cancelled',
+          createdAt: '2026-03-15T00:01:00.000Z',
+          completedAt: '2026-03-15T00:01:10.000Z',
+          promptTokens: 30_000,
+          completionTokens: 120
         }
       },
       recoveredInterruptedSaveThreadIds: [],
@@ -208,6 +223,9 @@ test('initialize hydrates the active thread run history after bootstrap', async 
         requestMessageId: 'user-latest'
       }
     ])
+    assert.equal(state.latestRunsByThread['thread-2']?.status, 'cancelled')
+    assert.equal(state.latestRunsByThread['thread-2']?.promptTokens, undefined)
+    assert.equal(state.latestRunsByThread['thread-2']?.completionTokens, undefined)
   } finally {
     restoreWindow()
   }
@@ -263,6 +281,42 @@ test('applyServerEvent keeps a stopped placeholder when a run is cancelled befor
       createdAt: TIMESTAMP
     }
   ])
+})
+
+test('applyServerEvent drops cancelled run token counts so stopped runs do not shrink context', () => {
+  resetStore()
+  useAppStore.setState({ activeThreadId: 'thread-1' })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'run.created',
+    eventId: 'event-run-created',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    requestMessageId: 'user-1'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'run.usage.updated',
+    eventId: 'event-run-usage-updated',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    promptTokens: 30_000,
+    completionTokens: 120
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'run.cancelled',
+    eventId: 'event-run-cancelled',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1'
+  })
+
+  const latestRun = useAppStore.getState().latestRunsByThread['thread-1']
+
+  assert.equal(latestRun?.status, 'cancelled')
+  assert.equal(latestRun?.promptTokens, undefined)
+  assert.equal(latestRun?.completionTokens, undefined)
 })
 
 test('applyServerEvent clears pending reasoning when a run starts retrying', () => {
