@@ -84,16 +84,19 @@ export async function resolveDirectMessageThread(
 ): Promise<DirectMessageThreadResolution> {
   const { logLabel, server, channelUser, policy, modelOverride, createThread } = options
   const existing = server.findActiveChannelThread(channelUser.id, policy.threadReuseWindowMs)
-  const wantedOverride = toWantedModelOverride(modelOverride)
+  const usesChannelModel = channelUser.role === 'guest'
+  const wantedOverride = usesChannelModel ? toWantedModelOverride(modelOverride) : null
 
   const createResolvedThread = async (
-    input?: DirectMessageCreateThreadInput
+    input?: DirectMessageCreateThreadInput,
+    inheritedModelOverride?: ThreadModelOverride
   ): Promise<ThreadRecord> => {
     let thread = await createThread(input)
-    if (wantedOverride) {
+    const overrideToApply = usesChannelModel ? wantedOverride : inheritedModelOverride
+    if (overrideToApply) {
       thread = await server.setThreadModelOverride({
         threadId: thread.id,
-        modelOverride: wantedOverride
+        modelOverride: overrideToApply
       })
     }
     return thread
@@ -101,20 +104,22 @@ export async function resolveDirectMessageThread(
 
   if (existing) {
     let thread = existing
-    const currentOverride = existing.modelOverride
-    const overrideChanged =
-      (currentOverride?.providerName ?? '') !== (wantedOverride?.providerName ?? '') ||
-      (currentOverride?.model ?? '') !== (wantedOverride?.model ?? '')
+    if (usesChannelModel) {
+      const currentOverride = existing.modelOverride
+      const overrideChanged =
+        (currentOverride?.providerName ?? '') !== (wantedOverride?.providerName ?? '') ||
+        (currentOverride?.model ?? '') !== (wantedOverride?.model ?? '')
 
-    if (overrideChanged) {
-      thread = await server.setThreadModelOverride({
-        threadId: existing.id,
-        modelOverride: wantedOverride
-      })
-      console.log(
-        `[${logLabel}] reconciled model override on thread ${existing.id}:`,
-        wantedOverride ?? 'cleared'
-      )
+      if (overrideChanged) {
+        thread = await server.setThreadModelOverride({
+          threadId: existing.id,
+          modelOverride: wantedOverride
+        })
+        console.log(
+          `[${logLabel}] reconciled model override on thread ${existing.id}:`,
+          wantedOverride ?? 'cleared'
+        )
+      }
     }
 
     const totalTokens = server.getThreadTotalTokens(thread.id)
@@ -125,10 +130,13 @@ export async function resolveDirectMessageThread(
         `[${logLabel}] thread ${thread.id} reached ${totalTokens}/${policy.contextTokenLimit} tokens; creating handoff thread`
       )
       return {
-        thread: await createResolvedThread({
-          handoffFromThreadId: thread.id,
-          ...(thread.workspacePath ? { workspacePath: thread.workspacePath } : {})
-        }),
+        thread: await createResolvedThread(
+          {
+            handoffFromThreadId: thread.id,
+            ...(thread.workspacePath ? { workspacePath: thread.workspacePath } : {})
+          },
+          thread.modelOverride
+        ),
         usageBaselineKTokens: Math.max(channelUser.usedKTokens, currentThreadKTokens)
       }
     }

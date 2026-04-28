@@ -58,6 +58,174 @@ function createUserMessage(threadId: string): MessageRecord {
 }
 
 describe('resolveDirectMessageThread', () => {
+  it('does not apply the channel model to a fresh owner DM thread', async () => {
+    const fresh = createThread('thread-owner-fresh', {
+      source: 'telegram',
+      channelUserId: 'tg-user-1'
+    })
+    const createCalls: Array<{ handoffFromThreadId?: string; workspacePath?: string } | undefined> =
+      []
+
+    const result = await resolveDirectMessageThread({
+      logLabel: 'telegram',
+      server: {
+        findActiveChannelThread() {
+          return undefined
+        },
+        getThreadTotalTokens() {
+          assert.fail('getThreadTotalTokens should not be called for a fresh thread')
+        },
+        async setThreadModelOverride() {
+          throw new Error('setThreadModelOverride should not be called for owner DMs')
+        }
+      },
+      channelUser: { ...createChannelUser(), role: 'owner' },
+      policy: telegramPolicy,
+      modelOverride: { providerName: 'channel', model: 'guest-model' },
+      createThread: async (input) => {
+        createCalls.push(input)
+        return fresh
+      }
+    })
+
+    assert.equal(result.thread, fresh)
+    assert.equal(result.usageBaselineKTokens, 0)
+    assert.deepEqual(createCalls, [undefined])
+  })
+
+  it('preserves an existing owner DM thread model override when a channel model is configured', async () => {
+    const threadOverride: ThreadModelOverride = { providerName: 'work', model: 'gpt-5' }
+    const existing = createThread('thread-owner-existing', {
+      source: 'telegram',
+      channelUserId: 'tg-user-1',
+      modelOverride: threadOverride
+    })
+
+    const result = await resolveDirectMessageThread({
+      logLabel: 'telegram',
+      server: {
+        findActiveChannelThread(channelUserId, maxAgeMs) {
+          assert.equal(channelUserId, 'tg-user-1')
+          assert.equal(maxAgeMs, telegramPolicy.threadReuseWindowMs)
+          return existing
+        },
+        getThreadTotalTokens(threadId) {
+          assert.equal(threadId, existing.id)
+          return 12_000
+        },
+        async setThreadModelOverride() {
+          throw new Error('setThreadModelOverride should not be called for owner DMs')
+        }
+      },
+      channelUser: { ...createChannelUser(), role: 'owner' },
+      policy: telegramPolicy,
+      modelOverride: { providerName: 'channel', model: 'guest-model' },
+      createThread: async () => {
+        throw new Error('createThread should not be called when an active thread exists')
+      }
+    })
+
+    assert.equal(result.thread, existing)
+    assert.deepEqual(result.thread.modelOverride, threadOverride)
+    assert.equal(result.usageBaselineKTokens, 0)
+  })
+
+  it('carries an owner DM thread model override into a token-limit handoff thread', async () => {
+    const threadOverride: ThreadModelOverride = { providerName: 'work', model: 'gpt-5' }
+    const existing = createThread('thread-owner-existing', {
+      source: 'telegram',
+      channelUserId: 'tg-user-1',
+      modelOverride: threadOverride,
+      workspacePath: '/work/yachiyo'
+    })
+    const fresh = createThread('thread-owner-fresh', {
+      source: 'telegram',
+      channelUserId: 'tg-user-1',
+      handoffFromThreadId: existing.id,
+      workspacePath: existing.workspacePath
+    })
+    const updated = createThread(fresh.id, {
+      ...fresh,
+      modelOverride: threadOverride
+    })
+    const createCalls: Array<{ handoffFromThreadId?: string; workspacePath?: string } | undefined> =
+      []
+    const overrideCalls: Array<{ threadId: string; modelOverride: ThreadModelOverride | null }> = []
+
+    const result = await resolveDirectMessageThread({
+      logLabel: 'telegram',
+      server: {
+        findActiveChannelThread() {
+          return existing
+        },
+        getThreadTotalTokens(threadId) {
+          assert.equal(threadId, existing.id)
+          return telegramPolicy.contextTokenLimit
+        },
+        async setThreadModelOverride(input) {
+          overrideCalls.push(input)
+          assert.equal(input.threadId, fresh.id)
+          return updated
+        }
+      },
+      channelUser: { ...createChannelUser(), role: 'owner', usedKTokens: 4 },
+      policy: telegramPolicy,
+      modelOverride: { providerName: 'channel', model: 'guest-model' },
+      createThread: async (input) => {
+        createCalls.push(input)
+        return fresh
+      }
+    })
+
+    assert.equal(result.thread, updated)
+    assert.deepEqual(result.thread.modelOverride, threadOverride)
+    assert.deepEqual(createCalls, [
+      { handoffFromThreadId: existing.id, workspacePath: '/work/yachiyo' }
+    ])
+    assert.deepEqual(overrideCalls, [{ threadId: fresh.id, modelOverride: threadOverride }])
+    assert.equal(result.usageBaselineKTokens, 64)
+  })
+
+  it('applies the channel model to an existing guest DM thread', async () => {
+    const channelOverride: ThreadModelOverride = { providerName: 'channel', model: 'guest-model' }
+    const existing = createThread('thread-guest-existing', {
+      source: 'telegram',
+      channelUserId: 'tg-user-1',
+      modelOverride: { providerName: 'old', model: 'old-model' }
+    })
+    const updated = createThread(existing.id, {
+      ...existing,
+      modelOverride: channelOverride
+    })
+    const overrideCalls: Array<{ threadId: string; modelOverride: ThreadModelOverride | null }> = []
+
+    const result = await resolveDirectMessageThread({
+      logLabel: 'telegram',
+      server: {
+        findActiveChannelThread() {
+          return existing
+        },
+        getThreadTotalTokens(threadId) {
+          assert.equal(threadId, existing.id)
+          return 3_000
+        },
+        async setThreadModelOverride(input) {
+          overrideCalls.push(input)
+          return updated
+        }
+      },
+      channelUser: createChannelUser(),
+      policy: telegramPolicy,
+      modelOverride: channelOverride,
+      createThread: async () => {
+        throw new Error('createThread should not be called when an active thread exists')
+      }
+    })
+
+    assert.equal(result.thread, updated)
+    assert.deepEqual(overrideCalls, [{ threadId: existing.id, modelOverride: channelOverride }])
+  })
+
   it('creates a fresh handoff thread when the active DM reaches the token threshold', async () => {
     const existing = createThread('thread-existing', {
       source: 'telegram',
