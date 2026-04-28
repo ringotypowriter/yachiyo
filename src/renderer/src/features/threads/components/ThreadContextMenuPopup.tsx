@@ -4,6 +4,7 @@ import {
   FolderMinus,
   ListChecks,
   MessageSquare,
+  Paintbrush,
   PenLine,
   SendHorizonal,
   Sparkles,
@@ -12,7 +13,11 @@ import {
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { ThreadContextOperation } from '@renderer/features/threads/lib/threadContextOperations'
+import {
+  resolveThreadColorOperationTag,
+  type ThreadContextOperation
+} from '@renderer/features/threads/lib/threadContextOperations'
+import { THREAD_COLOR_VALUES } from '@renderer/features/threads/lib/threadColorPalette'
 import { theme } from '@renderer/theme/theme'
 
 export interface ThreadContextMenuPopupProps {
@@ -66,6 +71,17 @@ function resolveOperationIcon(operationKey: ThreadContextOperation['key']): Reac
     return <Star size={14} strokeWidth={0} fill="currentColor" />
   }
 
+  const colorTag = resolveThreadColorOperationTag(operationKey)
+  if (colorTag !== undefined) {
+    return (
+      <Paintbrush
+        size={14}
+        strokeWidth={1.9}
+        style={{ color: colorTag ? THREAD_COLOR_VALUES[colorTag] : theme.text.secondary }}
+      />
+    )
+  }
+
   return <Trash2 size={14} strokeWidth={1.7} />
 }
 
@@ -80,6 +96,7 @@ export function ThreadContextMenuPopup({
 
   useEffect(() => {
     const handlePointerDown = (): void => onClose()
+    const handleContextMenu = (): void => onClose()
     const handleEscape = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         onClose()
@@ -87,10 +104,12 @@ export function ThreadContextMenuPopup({
     }
 
     document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('contextmenu', handleContextMenu, true)
     document.addEventListener('keydown', handleEscape)
 
     return () => {
       document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('contextmenu', handleContextMenu, true)
       document.removeEventListener('keydown', handleEscape)
     }
   }, [onClose])
@@ -130,35 +149,48 @@ export function ThreadContextMenuPopup({
       }}
     >
       {operations.map((operation) => (
-        <button
-          key={operation.key}
-          disabled={operation.disabled}
-          onClick={() => {
-            onSelect(operation.key)
-            onClose()
-          }}
-          className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors disabled:opacity-35"
-          style={{
-            color: operation.tone === 'danger' ? theme.text.dangerStrong : theme.text.primary
-          }}
-          onMouseEnter={(event) => {
-            ;(event.currentTarget as HTMLButtonElement).style.background =
-              theme.background.hoverStrong
-          }}
-          onMouseLeave={(event) => {
-            ;(event.currentTarget as HTMLButtonElement).style.background = 'transparent'
-          }}
-        >
-          <span className="flex items-center gap-2.5">
-            <span
-              className="flex items-center justify-center shrink-0"
-              style={{ width: 16, height: 16 }}
-            >
-              {resolveOperationIcon(operation.key)}
+        <div key={operation.key}>
+          {operation.separatorBefore ? (
+            <div
+              style={{
+                height: 1,
+                margin: '4px 8px',
+                background: theme.border.default
+              }}
+            />
+          ) : null}
+          <button
+            disabled={operation.disabled}
+            onClick={() => {
+              onSelect(operation.key)
+              onClose()
+            }}
+            className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors disabled:opacity-35"
+            style={{
+              color: operation.tone === 'danger' ? theme.text.dangerStrong : theme.text.primary,
+              background: operation.active ? theme.background.hoverStrong : 'transparent'
+            }}
+            onMouseEnter={(event) => {
+              ;(event.currentTarget as HTMLButtonElement).style.background =
+                theme.background.hoverStrong
+            }}
+            onMouseLeave={(event) => {
+              ;(event.currentTarget as HTMLButtonElement).style.background = operation.active
+                ? theme.background.hoverStrong
+                : 'transparent'
+            }}
+          >
+            <span className="flex items-center gap-2.5">
+              <span
+                className="flex items-center justify-center shrink-0"
+                style={{ width: 16, height: 16 }}
+              >
+                {resolveOperationIcon(operation.key)}
+              </span>
+              <span>{operation.label}</span>
             </span>
-            <span>{operation.label}</span>
-          </span>
-        </button>
+          </button>
+        </div>
       ))}
     </div>,
     document.body

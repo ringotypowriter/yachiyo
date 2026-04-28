@@ -6,6 +6,7 @@ import type {
   SaveThreadInput,
   SaveThreadResult,
   ThreadArchivedEvent,
+  ThreadColorTag,
   ThreadCreatedEvent,
   ThreadDeletedEvent,
   ThreadModelOverride,
@@ -291,6 +292,35 @@ export class YachiyoServerThreadDomain {
       title: updatedThread.title,
       updatedAt: updatedThread.updatedAt
     })
+
+    this.deps.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: updatedThread.id,
+      thread: updatedThread
+    })
+
+    return updatedThread
+  }
+
+  setThreadColor(input: { threadId: string; colorTag: ThreadColorTag | null }): ThreadRecord {
+    const thread = this.deps.requireThread(input.threadId)
+    const updatedAt = this.deps.timestamp()
+
+    this.deps.storage.setThreadColor({
+      threadId: thread.id,
+      colorTag: input.colorTag,
+      updatedAt
+    })
+
+    const updatedThread: ThreadRecord = {
+      ...thread,
+      updatedAt,
+      ...(input.colorTag ? { colorTag: input.colorTag } : {})
+    }
+
+    if (!input.colorTag) {
+      delete updatedThread.colorTag
+    }
 
     this.deps.emit<ThreadUpdatedEvent>({
       type: 'thread.updated',

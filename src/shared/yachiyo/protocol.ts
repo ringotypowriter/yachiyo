@@ -491,6 +491,7 @@ export interface ThreadCapabilities {
 export interface ThreadRecord {
   archivedAt?: string
   starredAt?: string
+  colorTag?: ThreadColorTag
   icon?: string
   id: string
   title: string
@@ -1045,7 +1046,9 @@ export interface ProviderSettings {
   serviceAccountPrivateKey?: string
 }
 
-export type FolderColorTag = 'coral' | 'azure' | 'emerald' | 'amethyst' | 'slate'
+export type ColorTag = 'coral' | 'azure' | 'emerald' | 'amethyst' | 'slate'
+export type FolderColorTag = ColorTag
+export type ThreadColorTag = ColorTag
 
 export interface FolderRecord {
   id: string

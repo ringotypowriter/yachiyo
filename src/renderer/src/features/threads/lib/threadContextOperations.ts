@@ -1,3 +1,6 @@
+import type { ThreadColorTag } from '../../../../../shared/yachiyo/protocol.ts'
+import { THREAD_COLOR_LABELS, THREAD_COLOR_TAGS } from './threadColorPalette.ts'
+
 export type ThreadContextOperationKey =
   | 'enter-select-mode'
   | 'rename'
@@ -10,16 +13,36 @@ export type ThreadContextOperationKey =
   | 'delete'
   | 'star'
   | 'unstar'
+  | 'set-color-default'
+  | `set-color-${ThreadColorTag}`
 
 export interface ThreadContextOperation {
+  active?: boolean
   disabled?: boolean
   key: ThreadContextOperationKey
   label: string
+  separatorBefore?: boolean
   tone?: 'danger' | 'default'
+}
+
+export function resolveThreadColorOperationTag(
+  operationKey: ThreadContextOperationKey
+): ThreadColorTag | null | undefined {
+  if (operationKey === 'set-color-default') {
+    return null
+  }
+
+  if (!operationKey.startsWith('set-color-')) {
+    return undefined
+  }
+
+  const colorTag = operationKey.slice('set-color-'.length) as ThreadColorTag
+  return THREAD_COLOR_TAGS.includes(colorTag) ? colorTag : undefined
 }
 
 export function resolveThreadContextOperations(input: {
   canHandoff?: boolean
+  colorTag?: ThreadColorTag | null
   includeSelectMode?: boolean
   isArchived: boolean
   isExternal?: boolean
@@ -117,10 +140,31 @@ export function resolveThreadContextOperations(input: {
     })
   }
 
+  if (!input.isInFolder) {
+    operations.push(
+      {
+        active: input.colorTag == null,
+        disabled: input.isSaving,
+        key: 'set-color-default',
+        label: 'Mark it Default',
+        separatorBefore: true
+      },
+      ...THREAD_COLOR_TAGS.map(
+        (colorTag): ThreadContextOperation => ({
+          active: input.colorTag === colorTag,
+          disabled: input.isSaving,
+          key: `set-color-${colorTag}`,
+          label: THREAD_COLOR_LABELS[colorTag]
+        })
+      )
+    )
+  }
+
   operations.push({
     disabled: input.isSaving,
     key: 'delete',
     label: 'Delete',
+    separatorBefore: !input.isInFolder,
     tone: 'danger'
   })
 

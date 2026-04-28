@@ -16,6 +16,7 @@ function createThreadDomainHarness(
   } | null
 ): {
   domain: YachiyoServerThreadDomain
+  events: Array<{ type: string; threadId?: string; thread?: { colorTag?: string } }>
   evictedThreadIds: string[]
   deletedWorkspaceThreadIds: string[]
   storage: ReturnType<typeof createInMemoryYachiyoStorage>
@@ -35,11 +36,14 @@ function createThreadDomainHarness(
 
   const evictedThreadIds: string[] = []
   const deletedWorkspaceThreadIds: string[] = []
+  const events: Array<{ type: string; threadId?: string; thread?: { colorTag?: string } }> = []
   const domain = new YachiyoServerThreadDomain({
     storage,
     createId: () => 'id-1',
     timestamp: () => '2026-01-01T00:00:01.000Z',
-    emit: () => {},
+    emit: (event) => {
+      events.push(event)
+    },
     ensureThreadWorkspace: async () => '/tmp/thread-1',
     cloneThreadWorkspace: async () => '/tmp/thread-1',
     deleteThreadWorkspace: async (threadId) => {
@@ -59,8 +63,33 @@ function createThreadDomainHarness(
     }
   })
 
-  return { domain, evictedThreadIds, deletedWorkspaceThreadIds, storage }
+  return { domain, events, evictedThreadIds, deletedWorkspaceThreadIds, storage }
 }
+
+test('YachiyoServerThreadDomain sets and clears a thread title color', () => {
+  const { domain, events, storage } = createThreadDomainHarness(null)
+
+  const coloredThread = domain.setThreadColor({ threadId: 'thread-1', colorTag: 'azure' })
+
+  assert.equal(coloredThread.colorTag, 'azure')
+  assert.equal(coloredThread.updatedAt, '2026-01-01T00:00:01.000Z')
+  assert.equal(storage.getThread('thread-1')?.colorTag, 'azure')
+  assert.deepEqual(events.at(-1), {
+    type: 'thread.updated',
+    threadId: 'thread-1',
+    thread: coloredThread
+  })
+
+  const defaultThread = domain.setThreadColor({ threadId: 'thread-1', colorTag: null })
+
+  assert.equal(defaultThread.colorTag, undefined)
+  assert.equal(storage.getThread('thread-1')?.colorTag, undefined)
+  assert.deepEqual(events.at(-1), {
+    type: 'thread.updated',
+    threadId: 'thread-1',
+    thread: defaultThread
+  })
+})
 
 test('YachiyoServerThreadDomain archives ACP threads only after evicting idle sessions', async () => {
   const { domain, evictedThreadIds, storage } = createThreadDomainHarness({

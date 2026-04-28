@@ -14,6 +14,7 @@ import type {
   SettingsConfig,
   SkillCatalogEntry,
   Thread,
+  ThreadColorTag,
   ThreadModelOverride,
   ToolCallName,
   ToolCall,
@@ -239,6 +240,7 @@ interface AppState {
   pendingWorkspacePath: string | null
   regenerateThreadTitle: (threadId: string) => Promise<void>
   renameThread: (threadId: string, title: string) => Promise<void>
+  setThreadColor: (threadId: string, colorTag: ThreadColorTag | null) => Promise<void>
   setThreadIcon: (threadId: string, icon: string | null) => Promise<void>
   starThread: (threadId: string, starred: boolean) => Promise<void>
   createFolderForThreads: (threadIds: string[]) => Promise<void>
@@ -2946,6 +2948,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   renameThread: async (threadId, title) => {
     await window.api.yachiyo.renameThread({ threadId, title })
+  },
+
+  setThreadColor: async (threadId, colorTag) => {
+    await window.api.yachiyo.setThreadColor({ threadId, colorTag })
   },
 
   setThreadIcon: async (threadId, icon) => {

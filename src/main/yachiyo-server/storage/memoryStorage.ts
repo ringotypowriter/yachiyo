@@ -128,6 +128,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     storedThread.channelGroupId = nextThread.channelGroupId ?? null
     storedThread.handoffFromThreadId = nextThread.handoffFromThreadId ?? null
     storedThread.folderId = nextThread.folderId ?? null
+    storedThread.colorTag = nextThread.colorTag ?? null
     storedThread.headMessageId = nextThread.headMessageId ?? null
     storedThread.icon = nextThread.icon ?? null
     storedThread.memoryRecallState = serializeThreadMemoryRecallState(nextThread.memoryRecall)
@@ -294,6 +295,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         branchFromMessageId: thread.branchFromMessageId ?? null,
         handoffFromThreadId: thread.handoffFromThreadId ?? null,
         folderId: thread.folderId ?? null,
+        colorTag: thread.colorTag ?? null,
         queuedFollowUpEnabledTools: thread.queuedFollowUpEnabledTools
           ? JSON.stringify(thread.queuedFollowUpEnabledTools)
           : null,
@@ -330,6 +332,16 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
 
       thread.title = title
+      thread.updatedAt = updatedAt
+    },
+
+    setThreadColor({ threadId, colorTag, updatedAt }) {
+      const thread = readThread(threadId)
+      if (!thread) {
+        return
+      }
+
+      thread.colorTag = colorTag
       thread.updatedAt = updatedAt
     },
 

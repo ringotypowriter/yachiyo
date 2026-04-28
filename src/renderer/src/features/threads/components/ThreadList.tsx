@@ -12,12 +12,13 @@ import {
   type DragEndEvent
 } from '@dnd-kit/core'
 import { useAppStore } from '@renderer/app/store/useAppStore'
-import type { FolderRecord, Thread } from '@renderer/app/types'
+import type { FolderRecord, Thread, ThreadColorTag } from '@renderer/app/types'
 import { ThreadContextMenuPopup } from '@renderer/features/threads/components/ThreadContextMenuPopup'
 import { imeSafeEnter } from '@renderer/lib/imeUtils'
 import { stripMarkdown } from '../../../../../shared/yachiyo/messageContent'
 import {
   resolveThreadContextOperations,
+  resolveThreadColorOperationTag,
   type ThreadContextOperationKey
 } from '@renderer/features/threads/lib/threadContextOperations'
 import {
@@ -28,6 +29,7 @@ import { ThreadFolderItem } from './ThreadFolderItem'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { theme } from '@renderer/theme/theme'
 import { isMemoryConfigured } from '../../../../../shared/yachiyo/protocol.ts'
+import { resolveThreadTitleColor } from '@renderer/features/threads/lib/threadColorPalette'
 
 function extractFirstEmoji(text: string): string | null {
   const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
@@ -96,10 +98,12 @@ function ThreadListItem({
   isSelectMode,
   isSelected,
   isStarred,
+  isInFolder,
   onRename,
   onSelectOperation,
   onSelectThread,
   onSetIcon,
+  onSetThreadColor,
   onStar,
   onToggleSelect,
   showPreview,
@@ -113,10 +117,12 @@ function ThreadListItem({
   isSelectMode: boolean
   isSelected: boolean
   isStarred: boolean
+  isInFolder: boolean
   onRename: (thread: Thread, nextTitle: string) => void
   onSelectOperation: (thread: Thread, operationKey: ThreadContextOperationKey) => void
   onSelectThread: (threadId: string) => void
   onSetIcon: (thread: Thread, icon: string | null) => void
+  onSetThreadColor: (thread: Thread, colorTag: ThreadColorTag | null) => void
   onStar: (thread: Thread) => void
   onToggleSelect: (threadId: string) => void
   showPreview: boolean
@@ -132,6 +138,7 @@ function ThreadListItem({
   const isExternal = isExternalThread(thread)
   const operations = resolveThreadContextOperations({
     canHandoff: canCompactThreadToAnotherThread(thread),
+    colorTag: thread.colorTag ?? null,
     includeSelectMode: true,
     isArchived: threadListMode === 'archived',
     isExternal,
@@ -198,13 +205,17 @@ function ThreadListItem({
       setRenamingTitle(true)
       return
     }
+    const colorTag = resolveThreadColorOperationTag(operationKey)
+    if (colorTag !== undefined) {
+      onSetThreadColor(thread, colorTag)
+      return
+    }
     onSelectOperation(thread, operationKey)
   }
 
   function openContextMenu(event: React.MouseEvent): void {
     event.preventDefault()
     if (isSelectMode) return
-    onSelectThread(thread.id)
     setMenuPosition({
       left: event.clientX,
       top: event.clientY
@@ -291,11 +302,15 @@ function ThreadListItem({
               <span
                 className={`flex items-center gap-1.5 text-sm ${showPreview ? 'font-medium' : 'font-normal'}`}
                 style={{
-                  color: isHighlighted
-                    ? theme.text.primary
-                    : showPreview
-                      ? theme.text.secondary
-                      : theme.text.primary
+                  color: resolveThreadTitleColor({
+                    colorTag: thread.colorTag,
+                    fallback: isHighlighted
+                      ? theme.text.primary
+                      : showPreview
+                        ? theme.text.secondary
+                        : theme.text.primary,
+                    isInFolder
+                  })
                 }}
               >
                 {renamingTitle ? (
@@ -649,7 +664,7 @@ function FolderAwareThreadList({
   createFolderForThreads: (threadIds: string[]) => Promise<void>
   archiveFolder: (folder: FolderRecord, threads: Thread[]) => void
   restoreFolder: (folder: FolderRecord, threads: Thread[]) => void
-  renderThreadItem: (thread: Thread) => React.JSX.Element
+  renderThreadItem: (thread: Thread, options?: { isInFolder?: boolean }) => React.JSX.Element
 }): React.JSX.Element {
   const items = useMemo(() => buildSidebarItems(threads, folders), [threads, folders])
   const [draggedThread, setDraggedThread] = useState<Thread | null>(null)
@@ -770,11 +785,15 @@ function FolderAwareThreadList({
               )
             }
             if (mode === 'archived') {
-              return <div key={child.thread.id}>{renderThreadItem(child.thread)}</div>
+              return (
+                <div key={child.thread.id}>
+                  {renderThreadItem(child.thread, { isInFolder: true })}
+                </div>
+              )
             }
             return (
               <DraggableThread key={child.thread.id} thread={child.thread}>
-                {renderThreadItem(child.thread)}
+                {renderThreadItem(child.thread, { isInFolder: true })}
               </DraggableThread>
             )
           })}
@@ -844,6 +863,7 @@ function ThreadListContent({
   savingThreadIds,
   setActiveArchivedThread,
   setActiveThread,
+  setThreadColor,
   setThreadIcon,
   starThread,
   threadListMode,
@@ -871,6 +891,7 @@ function ThreadListContent({
   savingThreadIds: Set<string>
   setActiveArchivedThread: (threadId: string) => void
   setActiveThread: (threadId: string) => void
+  setThreadColor: (threadId: string, colorTag: ThreadColorTag | null) => Promise<void>
   setThreadIcon: (threadId: string, icon: string | null) => Promise<void>
   starThread: (threadId: string, starred: boolean) => Promise<void>
   threadListMode: 'active' | 'archived'
@@ -1068,6 +1089,17 @@ function ThreadListContent({
     }
   }
 
+  async function handleSetThreadColor(
+    thread: Thread,
+    colorTag: ThreadColorTag | null
+  ): Promise<void> {
+    try {
+      await setThreadColor(thread.id, colorTag)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to update the thread color.')
+    }
+  }
+
   async function handleStar(thread: Thread): Promise<void> {
     try {
       await starThread(thread.id, !thread.starredAt)
@@ -1133,7 +1165,10 @@ function ThreadListContent({
     }
   }
 
-  function renderThreadItem(thread: Thread): React.JSX.Element {
+  function renderThreadItem(
+    thread: Thread,
+    options: { isInFolder?: boolean } = {}
+  ): React.JSX.Element {
     return (
       <ThreadListItem
         key={thread.id}
@@ -1145,6 +1180,7 @@ function ThreadListContent({
         isSelectMode={selectMode}
         isSelected={selectedIds.has(thread.id)}
         isStarred={!!thread.starredAt}
+        isInFolder={options.isInFolder === true}
         showPreview={showPreview}
         threadListMode={threadListMode}
         onRename={(targetThread, nextTitle) => void handleRename(targetThread, nextTitle)}
@@ -1159,6 +1195,9 @@ function ThreadListContent({
           setActiveThread(threadId)
         }}
         onSetIcon={(targetThread, icon) => void handleSetIcon(targetThread, icon)}
+        onSetThreadColor={(targetThread, colorTag) =>
+          void handleSetThreadColor(targetThread, colorTag)
+        }
         onStar={(targetThread) => void handleStar(targetThread)}
         onToggleSelect={toggleSelection}
       />
@@ -1369,6 +1408,7 @@ export function ThreadList(): React.JSX.Element {
   const latestRunsByThread = useAppStore((s) => s.latestRunsByThread)
   const regenerateThreadTitle = useAppStore((s) => s.regenerateThreadTitle)
   const renameThread = useAppStore((s) => s.renameThread)
+  const setThreadColor = useAppStore((s) => s.setThreadColor)
   const setThreadIcon = useAppStore((s) => s.setThreadIcon)
   const starThread = useAppStore((s) => s.starThread)
   const folders = useAppStore((s) => s.folders)
@@ -1426,6 +1466,7 @@ export function ThreadList(): React.JSX.Element {
       savingThreadIds={savingThreadIds}
       setActiveArchivedThread={setActiveArchivedThread}
       setActiveThread={setActiveThread}
+      setThreadColor={setThreadColor}
       setThreadIcon={setThreadIcon}
       starThread={starThread}
       threadListMode={threadListMode}

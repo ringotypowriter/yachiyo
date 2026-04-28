@@ -16,6 +16,7 @@ import type {
   RunRecord,
   ScheduleResultStatus,
   ScheduleRunStatus,
+  ThreadColorTag,
   ToolCallRecord
 } from '../../../../shared/yachiyo/protocol'
 
@@ -64,6 +65,7 @@ export const threadsTable = sqliteTable(
     branchFromMessageId: text('branch_from_message_id'),
     handoffFromThreadId: text('handoff_from_thread_id'),
     folderId: text('folder_id').references(() => threadFoldersTable.id, { onDelete: 'set null' }),
+    colorTag: text('color_tag').$type<ThreadColorTag>(),
     headMessageId: text('head_message_id'),
     queuedFollowUpMessageId: text('queued_follow_up_message_id'),
     queuedFollowUpEnabledTools: text('queued_follow_up_enabled_tools'),

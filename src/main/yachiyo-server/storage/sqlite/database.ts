@@ -371,6 +371,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           branchFromThreadId: threadsTable.branchFromThreadId,
           handoffFromThreadId: threadsTable.handoffFromThreadId,
           folderId: threadsTable.folderId,
+          colorTag: threadsTable.colorTag,
           headMessageId: threadsTable.headMessageId,
           icon: threadsTable.icon,
           id: threadsTable.id,
@@ -614,6 +615,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           branchFromThreadId: threadsTable.branchFromThreadId,
           handoffFromThreadId: threadsTable.handoffFromThreadId,
           folderId: threadsTable.folderId,
+          colorTag: threadsTable.colorTag,
           headMessageId: threadsTable.headMessageId,
           icon: threadsTable.icon,
           id: threadsTable.id,
@@ -655,6 +657,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           branchFromThreadId: threadsTable.branchFromThreadId,
           handoffFromThreadId: threadsTable.handoffFromThreadId,
           folderId: threadsTable.folderId,
+          colorTag: threadsTable.colorTag,
           headMessageId: threadsTable.headMessageId,
           icon: threadsTable.icon,
           id: threadsTable.id,
@@ -718,6 +721,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             branchFromThreadId: thread.branchFromThreadId ?? null,
             handoffFromThreadId: thread.handoffFromThreadId ?? null,
             folderId: thread.folderId ?? null,
+            colorTag: thread.colorTag ?? null,
             createdAt,
             headMessageId: thread.headMessageId ?? null,
             icon: thread.icon ?? null,
@@ -921,6 +925,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .set({
           branchFromMessageId: thread.branchFromMessageId ?? null,
           branchFromThreadId: thread.branchFromThreadId ?? null,
+          colorTag: thread.colorTag ?? null,
           headMessageId: thread.headMessageId ?? null,
           icon: thread.icon ?? null,
           starredAt: thread.starredAt ?? null,
@@ -951,6 +956,13 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
     setThreadIcon({ threadId, icon, updatedAt }) {
       db.update(threadsTable).set({ icon, updatedAt }).where(eq(threadsTable.id, threadId)).run()
+    },
+
+    setThreadColor({ threadId, colorTag, updatedAt }) {
+      db.update(threadsTable)
+        .set({ colorTag, updatedAt })
+        .where(and(eq(threadsTable.id, threadId), isNull(threadsTable.archivedAt)))
+        .run()
     },
 
     starThread({ threadId, starredAt }) {

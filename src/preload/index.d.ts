@@ -29,6 +29,7 @@ import type {
   TestMemoryConnectionResult,
   TestSubagentProfileInput,
   TestSubagentProfileResult,
+  ThreadColorTag,
   ThreadModelOverride,
   ThreadRuntimeBinding,
   ThreadSearchResult,
@@ -113,6 +114,10 @@ declare global {
           folderId: string | null
         }) => Promise<ThreadRecord>
         renameThread: (input: { threadId: string; title: string }) => Promise<ThreadRecord>
+        setThreadColor: (input: {
+          threadId: string
+          colorTag: ThreadColorTag | null
+        }) => Promise<ThreadRecord>
         setThreadIcon: (input: { threadId: string; icon: string | null }) => Promise<ThreadRecord>
         showEmojiPanel: () => Promise<void>
         restoreThread: (input: { threadId: string }) => Promise<ThreadRecord>

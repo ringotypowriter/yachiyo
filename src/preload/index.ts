@@ -20,6 +20,7 @@ import type {
   SendChatInput,
   TestMemoryConnectionInput,
   TestSubagentProfileInput,
+  ThreadColorTag,
   ThreadModelOverride,
   ThreadRecord,
   ThreadRuntimeBinding,
@@ -133,6 +134,8 @@ const api = {
     }): Promise<ThreadRecord> => ipcRenderer.invoke('yachiyo:move-thread-to-folder', input),
     renameThread: (input: { threadId: string; title: string }) =>
       ipcRenderer.invoke('yachiyo:rename-thread', input),
+    setThreadColor: (input: { threadId: string; colorTag: ThreadColorTag | null }) =>
+      ipcRenderer.invoke('yachiyo:set-thread-color', input),
     setThreadIcon: (input: { threadId: string; icon: string | null }) =>
       ipcRenderer.invoke('yachiyo:set-thread-icon', input),
     showEmojiPanel: () => ipcRenderer.invoke('yachiyo:show-emoji-panel'),

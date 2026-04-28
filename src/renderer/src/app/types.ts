@@ -27,6 +27,7 @@ export type {
   SkillCatalogEntry,
   SettingsConfig,
   ThreadModelOverride,
+  ThreadColorTag,
   ThreadRecord as Thread,
   ToolCallName,
   ToolCallRecord as ToolCall,

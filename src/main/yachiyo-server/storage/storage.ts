@@ -20,6 +20,7 @@ import type {
   ScheduleRunRecord,
   ScheduleRunStatus,
   ThreadModelOverride,
+  ThreadColorTag,
   ThreadRuntimeBinding,
   ThreadRecord,
   ThreadSearchResult,
@@ -48,6 +49,7 @@ export interface StoredThreadRow {
   branchFromMessageId: string | null
   handoffFromThreadId: string | null
   folderId: string | null
+  colorTag: ThreadColorTag | null
   queuedFollowUpMessageId: string | null
   queuedFollowUpEnabledTools: string | null
   queuedFollowUpEnabledSkillNames: string | null
@@ -263,6 +265,11 @@ export interface YachiyoStorage {
   getThreadCreatedAt(threadId: string): string | undefined
   createThread(input: CreateThreadInput): void
   renameThread(input: { threadId: string; title: string; updatedAt: string }): void
+  setThreadColor(input: {
+    threadId: string
+    colorTag: ThreadColorTag | null
+    updatedAt: string
+  }): void
   setThreadIcon(input: { threadId: string; icon: string | null; updatedAt: string }): void
   starThread(input: { threadId: string; starredAt: string | null }): void
   archiveThread(input: {
@@ -402,6 +409,7 @@ export function toThreadRecord(
     | 'branchFromThreadId'
     | 'handoffFromThreadId'
     | 'folderId'
+    | 'colorTag'
     | 'archivedAt'
     | 'starredAt'
     | 'headMessageId'
@@ -446,6 +454,7 @@ export function toThreadRecord(
       ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
       ...(row.handoffFromThreadId === null ? {} : { handoffFromThreadId: row.handoffFromThreadId }),
       ...(row.folderId === null ? {} : { folderId: row.folderId }),
+      ...(row.colorTag === null ? {} : { colorTag: row.colorTag }),
       ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
       ...(row.icon === null ? {} : { icon: row.icon }),
       ...(memoryRecall ? { memoryRecall } : {}),
@@ -488,6 +497,7 @@ export function toThreadRecord(
     ...(row.branchFromThreadId === null ? {} : { branchFromThreadId: row.branchFromThreadId }),
     ...(row.handoffFromThreadId === null ? {} : { handoffFromThreadId: row.handoffFromThreadId }),
     ...(row.folderId === null ? {} : { folderId: row.folderId }),
+    ...(row.colorTag === null ? {} : { colorTag: row.colorTag }),
     ...(row.headMessageId === null ? {} : { headMessageId: row.headMessageId }),
     ...(row.icon === null ? {} : { icon: row.icon }),
     ...(memoryRecall ? { memoryRecall } : {}),

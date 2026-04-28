@@ -34,6 +34,7 @@ import type {
   MemoryTermDocument,
   TestMemoryConnectionInput,
   TestSubagentProfileInput,
+  ThreadColorTag,
   ThreadModelOverride,
   ToolPreferencesInput,
   TranslateInput,
@@ -127,6 +128,7 @@ const IPC_CHANNELS = {
   deleteFolder: 'yachiyo:delete-folder',
   moveThreadToFolder: 'yachiyo:move-thread-to-folder',
   renameThread: 'yachiyo:rename-thread',
+  setThreadColor: 'yachiyo:set-thread-color',
   setThreadIcon: 'yachiyo:set-thread-icon',
   showEmojiPanel: 'yachiyo:show-emoji-panel',
   removeProvider: 'yachiyo:remove-provider',
@@ -821,6 +823,10 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handle(IPC_CHANNELS.renameThread, (input: { threadId: string; title: string }) =>
     server!.renameThread(input)
+  )
+  handle(
+    IPC_CHANNELS.setThreadColor,
+    (input: { threadId: string; colorTag: ThreadColorTag | null }) => server!.setThreadColor(input)
   )
   handle(IPC_CHANNELS.setThreadIcon, (input: { threadId: string; icon: string | null }) =>
     server!.setThreadIcon(input)

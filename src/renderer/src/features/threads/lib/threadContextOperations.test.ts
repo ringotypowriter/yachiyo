@@ -3,6 +3,15 @@ import test from 'node:test'
 
 import { resolveThreadContextOperations } from './threadContextOperations.ts'
 
+const THREAD_COLOR_OPERATION_KEYS = [
+  'set-color-default',
+  'set-color-coral',
+  'set-color-azure',
+  'set-color-emerald',
+  'set-color-amethyst',
+  'set-color-slate'
+]
+
 test('thread context operations omit select mode by default', () => {
   assert.deepEqual(
     resolveThreadContextOperations({
@@ -15,6 +24,7 @@ test('thread context operations omit select mode by default', () => {
       'compact-to-another-thread',
       'create-folder',
       'archive',
+      ...THREAD_COLOR_OPERATION_KEYS,
       'delete'
     ]
   )
@@ -34,9 +44,37 @@ test('thread context operations include select mode when requested', () => {
       'compact-to-another-thread',
       'create-folder',
       'archive',
+      ...THREAD_COLOR_OPERATION_KEYS,
       'delete'
     ]
   )
+})
+
+test('thread context operations include title color choices for active threads', () => {
+  const operations = resolveThreadContextOperations({
+    colorTag: 'azure',
+    isArchived: false
+  })
+
+  assert.deepEqual(
+    operations
+      .filter((operation) => operation.key.startsWith('set-color-'))
+      .map((operation) => ({
+        active: operation.active === true,
+        key: operation.key
+      })),
+    THREAD_COLOR_OPERATION_KEYS.map((key) => ({ active: key === 'set-color-azure', key }))
+  )
+})
+
+test('thread context operations omit title color choices for folder children', () => {
+  const operations = resolveThreadContextOperations({
+    colorTag: 'azure',
+    isArchived: false,
+    isInFolder: true
+  })
+
+  assert.ok(!operations.some((operation) => operation.key.startsWith('set-color-')))
 })
 
 test('thread context operations use the short handoff label for compacting into another thread', () => {
@@ -97,7 +135,15 @@ test('thread context operations can hide handoff for normal-visible channel thre
   assert.ok(!operations.some((op) => op.key === 'compact-to-another-thread'))
   assert.deepEqual(
     operations.map((op) => op.key),
-    ['star', 'rename', 'regenerate-title', 'create-folder', 'archive', 'delete']
+    [
+      'star',
+      'rename',
+      'regenerate-title',
+      'create-folder',
+      'archive',
+      ...THREAD_COLOR_OPERATION_KEYS,
+      'delete'
+    ]
   )
 })
 
@@ -136,7 +182,7 @@ test('external thread operations do not include local-only actions', () => {
   assert.ok(!operations.some((op) => op.key === 'archive'))
   assert.deepEqual(
     operations.map((op) => op.key),
-    ['star', 'rename', 'delete']
+    ['star', 'rename', ...THREAD_COLOR_OPERATION_KEYS, 'delete']
   )
 })
 
@@ -149,6 +195,6 @@ test('external thread operations include select mode when requested', () => {
 
   assert.deepEqual(
     operations.map((op) => op.key),
-    ['star', 'enter-select-mode', 'rename', 'delete']
+    ['star', 'enter-select-mode', 'rename', ...THREAD_COLOR_OPERATION_KEYS, 'delete']
   )
 })

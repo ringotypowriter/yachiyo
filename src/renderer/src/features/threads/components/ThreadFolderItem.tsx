@@ -13,25 +13,15 @@ import {
 import type { FolderColorTag, FolderRecord } from '@renderer/app/types'
 import { imeSafeEnter } from '@renderer/lib/imeUtils'
 import { theme } from '@renderer/theme/theme'
-
-const FOLDER_COLORS: Record<FolderColorTag, string> = {
-  coral: '#E25D5D',
-  azure: '#4A90D9',
-  emerald: '#3CB371',
-  amethyst: '#9B72CF',
-  slate: '#708090'
-}
-
-const COLOR_LABELS: Record<FolderColorTag, string> = {
-  coral: 'Mark it Coral',
-  azure: 'Mark it Azure',
-  emerald: 'Mark it Emerald',
-  amethyst: 'Mark it Amethyst',
-  slate: 'Mark it Slate'
-}
+import {
+  THREAD_COLOR_LABELS,
+  THREAD_COLOR_TAGS,
+  THREAD_COLOR_VALUES,
+  resolveThreadColor
+} from '@renderer/features/threads/lib/threadColorPalette'
 
 function folderIconColor(colorTag: FolderColorTag | null | undefined): string {
-  return colorTag && FOLDER_COLORS[colorTag] ? FOLDER_COLORS[colorTag] : theme.text.secondary
+  return resolveThreadColor(colorTag, theme.text.secondary)
 }
 
 interface ThreadFolderItemProps {
@@ -218,13 +208,16 @@ function FolderContextMenu({
 
   useEffect(() => {
     const handlePointerDown = (): void => onClose()
+    const handleContextMenu = (): void => onClose()
     const handleEscape = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') onClose()
     }
     document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('contextmenu', handleContextMenu, true)
     document.addEventListener('keydown', handleEscape)
     return () => {
       document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('contextmenu', handleContextMenu, true)
       document.removeEventListener('keydown', handleEscape)
     }
   }, [onClose])
@@ -240,8 +233,6 @@ function FolderContextMenu({
       setResolvedTop(y)
     }
   }, [y])
-
-  const colorTags: FolderColorTag[] = ['coral', 'azure', 'emerald', 'amethyst', 'slate']
 
   return createPortal(
     <div
@@ -300,14 +291,16 @@ function FolderContextMenu({
       >
         Mark it Default
       </MenuItem>
-      {colorTags.map((tag) => (
+      {THREAD_COLOR_TAGS.map((tag) => (
         <MenuItem
           key={tag}
-          icon={<Paintbrush size={14} strokeWidth={1.7} style={{ color: FOLDER_COLORS[tag] }} />}
+          icon={
+            <Paintbrush size={14} strokeWidth={1.7} style={{ color: THREAD_COLOR_VALUES[tag] }} />
+          }
           onClick={() => onSetColor(tag)}
           active={currentColor === tag}
         >
-          {COLOR_LABELS[tag]}
+          {THREAD_COLOR_LABELS[tag]}
         </MenuItem>
       ))}
     </div>,

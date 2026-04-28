@@ -38,6 +38,7 @@ import type {
   TestMemoryConnectionResult,
   TestSubagentProfileInput,
   TestSubagentProfileResult,
+  ThreadColorTag,
   ThreadModelOverride,
   ThreadRecord,
   ThreadRuntimeBinding,
@@ -973,6 +974,13 @@ export class YachiyoServer {
 
   async renameThread(input: { threadId: string; title: string }): Promise<ThreadRecord> {
     return this.threadDomain.renameThread(input)
+  }
+
+  async setThreadColor(input: {
+    threadId: string
+    colorTag: ThreadColorTag | null
+  }): Promise<ThreadRecord> {
+    return this.threadDomain.setThreadColor(input)
   }
 
   async setThreadIcon(input: { threadId: string; icon: string | null }): Promise<ThreadRecord> {
