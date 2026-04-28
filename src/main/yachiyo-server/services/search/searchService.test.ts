@@ -61,12 +61,12 @@ test('rg backend passes include and context flags', async () => {
     pattern: 'needle',
     path: '.',
     include: '*.ts',
-    context: 3
+    context: 30
   })
 
   const argsStr = calls[0]?.args.join(' ') ?? ''
   assert.ok(argsStr.includes('--glob *.ts'), `Expected --glob in rg args but got: ${argsStr}`)
-  assert.ok(argsStr.includes('--context 3'), `Expected --context in rg args but got: ${argsStr}`)
+  assert.ok(argsStr.includes('--context 30'), `Expected --context in rg args but got: ${argsStr}`)
 })
 
 test('rg backend passes --hidden flag', async () => {

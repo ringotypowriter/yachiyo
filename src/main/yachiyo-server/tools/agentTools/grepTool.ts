@@ -26,7 +26,7 @@ export const GREP_TOOL_DESCRIPTION =
   '• `pattern`: Rust regex syntax when ripgrep is available, otherwise POSIX ERE (e.g. "function\\s+\\w+", "import.*from"). No lookaheads or backreferences. Use `literal: true` for exact fixed-string matching.\n' +
   '• `caseSensitive`: defaults to true.\n' +
   '• `include`: glob to filter files (e.g. "*.ts", "*.{ts,tsx}"). Highly recommended for large repos.\n' +
-  '• `context`: number of lines before/after each match (0-5).\n' +
+  '• `context`: number of lines before/after each match (0-30).\n' +
   '• `filesOnly`: when true, returns only the list of matching file paths (no line content).\n' +
   '• `limit`: max matches returned (default 50, max 200).'
 

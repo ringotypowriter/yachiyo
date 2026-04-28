@@ -6,7 +6,8 @@ import {
   writeToolInputSchema,
   editToolInputSchema,
   grepToolInputSchema,
-  globToolInputSchema
+  globToolInputSchema,
+  webSearchToolInputSchema
 } from './shared.ts'
 
 describe('shadow fallbacks', () => {
@@ -108,6 +109,27 @@ describe('shadow fallbacks', () => {
         assert.strictEqual(parsed.data.path, undefined)
       }
     })
+
+    it('accepts grep context up to 30 lines', () => {
+      const parsed = grepToolInputSchema.safeParse({
+        pattern: 'foo',
+        context: 30
+      })
+
+      assert.strictEqual(parsed.success, true)
+      if (parsed.success) {
+        assert.strictEqual(parsed.data.context, 30)
+      }
+    })
+
+    it('rejects grep context above 30 lines', () => {
+      const parsed = grepToolInputSchema.safeParse({
+        pattern: 'foo',
+        context: 31
+      })
+
+      assert.strictEqual(parsed.success, false)
+    })
   })
 
   describe('globToolInputSchema', () => {
@@ -120,6 +142,29 @@ describe('shadow fallbacks', () => {
       if (parsed.success) {
         assert.strictEqual(parsed.data.path, 'src')
       }
+    })
+  })
+
+  describe('webSearchToolInputSchema', () => {
+    it('accepts web search limits up to 30 results', () => {
+      const parsed = webSearchToolInputSchema.safeParse({
+        query: 'yachiyo',
+        limit: 30
+      })
+
+      assert.strictEqual(parsed.success, true)
+      if (parsed.success) {
+        assert.strictEqual(parsed.data.limit, 30)
+      }
+    })
+
+    it('rejects web search limits above 30 results', () => {
+      const parsed = webSearchToolInputSchema.safeParse({
+        query: 'yachiyo',
+        limit: 31
+      })
+
+      assert.strictEqual(parsed.success, false)
     })
   })
 

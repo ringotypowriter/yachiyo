@@ -65,9 +65,10 @@ export const MAX_BASH_MODEL_OUTPUT_CHARS = 20_000
 export const MAX_BASH_DETAILS_OUTPUT_CHARS = 8_000
 export const DEFAULT_SEARCH_LIMIT = 50
 export const MAX_SEARCH_LIMIT = 200
+export const MAX_GREP_CONTEXT_LINES = 30
 export const DEFAULT_WEB_READ_FORMAT = DEFAULT_WEB_READ_CONTENT_FORMAT
-export const DEFAULT_WEB_SEARCH_LIMIT = 5
-export const MAX_WEB_SEARCH_LIMIT = 10
+export const DEFAULT_WEB_SEARCH_LIMIT = 10
+export const MAX_WEB_SEARCH_LIMIT = 30
 
 function applyShadowFallbacks(value: unknown, mappings: Record<string, string>): unknown {
   if (typeof value !== 'object' || value === null) return value
@@ -428,7 +429,7 @@ export const grepToolInputSchema = withShadowFallbacks(
     literal: z.boolean().default(false),
     caseSensitive: z.boolean().default(true),
     include: z.string().min(1).optional(),
-    context: z.number().int().min(0).max(5).default(0),
+    context: z.number().int().min(0).max(MAX_GREP_CONTEXT_LINES).default(0),
     filesOnly: z.boolean().default(false)
   }),
   { filePath: 'path' }

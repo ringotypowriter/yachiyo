@@ -102,6 +102,7 @@ class SearchBackendError extends Error {
 
 const DEFAULT_RESULT_LIMIT = 50
 const MAX_RESULT_LIMIT = 200
+const MAX_GREP_CONTEXT_LINES = 30
 const MAX_SEARCH_STDERR_CHARS = 32_000
 const MAX_SEARCH_STDOUT_CHARS = 1_000_000
 
@@ -200,7 +201,7 @@ function normalizeGrepRequest(input: GrepSearchRequest): Required<
     literal: input.literal ?? false,
     caseSensitive: input.caseSensitive ?? true,
     include: input.include?.trim() || '',
-    context: Math.max(0, Math.min(5, Math.trunc(input.context ?? 0))),
+    context: Math.max(0, Math.min(MAX_GREP_CONTEXT_LINES, Math.trunc(input.context ?? 0))),
     signal: input.signal
   }
 }

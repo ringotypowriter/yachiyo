@@ -66,7 +66,8 @@ function createFailureDetails(input: {
 
 export const WEB_SEARCH_TOOL_DESCRIPTION =
   'Run a general web search and return normalized organic search results. Use it for broad discovery, current web lookups, or finding candidate sources. This is not a browser automation tool. ' +
-  'When searching for time-sensitive information, you may use {currentYear} in the query; it will be replaced with the actual current year automatically.'
+  'When searching for time-sensitive information, you may use {currentYear} in the query; it will be replaced with the actual current year automatically. ' +
+  '`limit` controls result count (default 5, max 30).'
 
 export function createTool(
   _context: AgentToolContext,
