@@ -572,6 +572,7 @@ export function withThreadCapabilities<T extends object>(
 export interface MessageTurnContext {
   reminder?: string
   memoryEntries?: string[]
+  activityText?: string
   enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
 }
@@ -663,6 +664,14 @@ export interface ChatConfig {
 
 export type UpdateChannel = 'stable' | 'beta'
 
+export type ActivityTrackingMode = 'off' | 'simple' | 'full'
+
+export interface ActivityTrackingConfig {
+  mode: ActivityTrackingMode
+  /** Whether the user has explicitly denied accessibility for full mode. */
+  accessibilityDenied?: boolean
+}
+
 export interface GeneralConfig {
   sidebarVisibility?: SidebarVisibility
   sidebarPreview?: boolean
@@ -675,6 +684,7 @@ export interface GeneralConfig {
   notifyCodingTaskFinished?: boolean
   translatorShortcut?: string
   jotdownShortcut?: string
+  activityTracking?: ActivityTrackingConfig
 }
 
 export interface UserDocument {
@@ -785,6 +795,7 @@ export type RunContextSourceKind =
   | 'handoff'
   | 'hint'
   | 'toolReminder'
+  | 'activity'
 
 export interface RunContextSourceSummary {
   kind: RunContextSourceKind

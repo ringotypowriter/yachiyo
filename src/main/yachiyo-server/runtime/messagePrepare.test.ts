@@ -173,7 +173,9 @@ test('message prepare replays historical turn context inline on older user messa
         content: 'Check the news',
         turnContext: {
           reminder: turn1Reminder,
-          memoryEntries: ['User cares about Apex coverage']
+          memoryEntries: ['User cares about Apex coverage'],
+          activityText:
+            '<activity_summary>\n{"appName":"Browser","duration":"2s"}\n</activity_summary>'
         }
       },
       { role: 'assistant', content: 'Done. Three new headlines.' },
@@ -192,7 +194,8 @@ test('message prepare replays historical turn context inline on older user messa
       content: [
         'Check the news',
         turn1Reminder,
-        "<memory>\nBackground context from past conversations. Focus on the user's query first;\noverlapping terms do not make an entry relevant — judge by actual applicability.\n- User cares about Apex coverage\n</memory>"
+        "<memory>\nBackground context from past conversations. Focus on the user's query first;\noverlapping terms do not make an entry relevant — judge by actual applicability.\n- User cares about Apex coverage\n</memory>",
+        '<activity_summary>\n{"appName":"Browser","duration":"2s"}\n</activity_summary>'
       ].join('\n\n')
     },
     { role: 'assistant', content: 'Done. Three new headlines.' },

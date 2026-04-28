@@ -147,6 +147,8 @@ export interface ExternalContextLayersInput {
   hint?: HintLayerInput
   /** Recalled memory entries. */
   memory?: MemoryLayerInput
+  /** Activity summary text (from the tracker), injected as turn context. */
+  activityText?: string
 }
 
 /**
@@ -203,7 +205,11 @@ export function compileExternalContextLayers(input: ExternalContextLayersInput):
   const historyMessages = input.history.flatMap(toModelHistoryMessages)
 
   // --- Per-turn context (hint + memory, merged into last user message) ---
-  const turnContextParts = turnContextPartsFromHintAndMemory(input.hint, input.memory)
+  const turnContextParts = turnContextPartsFromHintAndMemory(
+    input.hint,
+    input.memory,
+    input.activityText
+  )
 
   return removeEmptyMessages([
     ...systemPrefix,

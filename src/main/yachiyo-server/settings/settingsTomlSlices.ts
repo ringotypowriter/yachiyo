@@ -53,6 +53,16 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
             : {}),
           ...(config.general?.jotdownShortcut != null
             ? { jotdownShortcut: config.general.jotdownShortcut }
+            : {}),
+          ...(config.general?.activityTracking
+            ? {
+                activityTracking: {
+                  mode: config.general.activityTracking.mode,
+                  ...(config.general.activityTracking.accessibilityDenied === true
+                    ? { accessibilityDenied: true }
+                    : {})
+                }
+              }
             : {})
         }
       }

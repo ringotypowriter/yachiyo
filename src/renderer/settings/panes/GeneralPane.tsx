@@ -70,6 +70,18 @@ export function GeneralPane({
   const hasPendingSoulChanges =
     soulDraftTraits !== null &&
     hasPendingSoulDocumentChanges(soulDocument?.evolvedTraits ?? [], soulDraftTraits)
+  const isMac = window.api.process.platform === 'darwin'
+  const activityTracking = draft.general?.activityTracking
+  const activityTrackingMode = activityTracking?.mode ?? 'simple'
+  const activityTrackingWarning =
+    activityTracking?.accessibilityDenied === true
+      ? activityTrackingMode === 'full'
+        ? 'Full mode is not active yet. Save to ask macOS for Accessibility access.'
+        : 'Full mode was not enabled. Grant Accessibility access in System Settings, then choose Full again.'
+      : null
+  const openAccessibilitySettings = (): void => {
+    window.open('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility')
+  }
 
   useEffect(() => {
     if (
@@ -468,6 +480,65 @@ export function GeneralPane({
           >
             Reset to defaults
           </button>
+        </SettingRow>
+      </SettingSection>
+
+      <SettingSection>
+        <SettingLabel
+          action={
+            isMac ? (
+              <button
+                className="text-[11px] font-medium hover:underline cursor-pointer"
+                style={{ color: theme.text.secondary }}
+                onClick={openAccessibilitySettings}
+              >
+                Accessibility Settings…
+              </button>
+            ) : undefined
+          }
+        >
+          Activity tracking
+        </SettingLabel>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Mode
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              {activityTrackingMode === 'full'
+                ? 'Records which app and window title you use between LLM runs. Requires Accessibility.'
+                : activityTrackingMode === 'simple'
+                  ? 'Records which app you use between LLM runs. No extra permissions needed.'
+                  : 'No activity tracking.'}
+            </div>
+            {activityTrackingWarning ? (
+              <div className="text-xs leading-4 mt-0.5" style={{ color: '#c25151' }}>
+                {activityTrackingWarning}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="shrink-0">
+            <SimpleSelect
+              value={activityTrackingMode}
+              options={[
+                { value: 'off' as const, label: 'Off' },
+                { value: 'simple' as const, label: 'Simple' },
+                { value: 'full' as const, label: 'Full' }
+              ]}
+              onChange={(mode) => {
+                onChange({
+                  ...draft,
+                  general: {
+                    ...draft.general,
+                    activityTracking: { mode }
+                  }
+                })
+              }}
+              width={130}
+            />
+          </div>
         </SettingRow>
       </SettingSection>
 

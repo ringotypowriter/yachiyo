@@ -67,6 +67,7 @@ import {
   compileExternalContextLayers
 } from '../../runtime/externalContextLayers.ts'
 import { EXTERNAL_SYSTEM_PROMPT, SYSTEM_PROMPT } from '../../runtime/prompt.ts'
+import { getActivityTracker, type ActivitySummary } from '../../activity/ActivityTracker.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { RecallDecisionSnapshot } from '../../../../shared/yachiyo/protocol.ts'
 import { resolveActiveSkills } from '../../services/skills/skillResolver.ts'
@@ -254,6 +255,9 @@ export interface RunExecutionDeps {
   onSubagentFinished?: (event: DelegateCodingTaskFinishedEvent) => void
   imageToTextService?: ImageToTextService
   isModelImageCapable?: boolean
+  activityTracker?: {
+    finalizeAndConsume(): ActivitySummary | null
+  }
 }
 
 function appendMessageDeltaToTextBlocks(input: {
@@ -382,6 +386,7 @@ export function buildContextSources(input: {
   hasToolReminder: boolean
   memoryEntries: string[]
   recallDecision: RecallDecisionSnapshot | undefined
+  activitySummary?: { uniqueApps: number }
 }): RunContextSourceSummary[] {
   const sources: RunContextSourceSummary[] = []
 
@@ -459,6 +464,14 @@ export function buildContextSources(input: {
 
   if (input.hasToolReminder) {
     sources.push({ kind: 'toolReminder', present: true })
+  }
+
+  if (input.activitySummary) {
+    sources.push({
+      kind: 'activity',
+      present: true,
+      summary: `${input.activitySummary.uniqueApps} app${input.activitySummary.uniqueApps === 1 ? '' : 's'}`
+    })
   }
 
   return sources
@@ -1135,10 +1148,18 @@ export async function prepareServerRunContext(
     gitValidatedWorkspaces
   )
 
+  // Fetch activity summary — only for local / owner-DM runs, never for guests
+  const activitySummary =
+    !isExternalChannel || isOwnerDm
+      ? (deps.activityTracker ?? getActivityTracker('simple')).finalizeAndConsume()
+      : null
+  const activityText = activitySummary?.text
+
   if (input.persistTurnContext !== false && requestMessage) {
     const turnContext: MessageTurnContext = {
       ...(hiddenQueryReminder ? { reminder: hiddenQueryReminder } : {}),
       ...(memoryEntries.length > 0 ? { memoryEntries } : {}),
+      ...(activityText ? { activityText } : {}),
       enabledTools: [...input.enabledTools],
       enabledSkillNames: activeSkills.map((skill) => skill.name)
     }
@@ -1244,6 +1265,7 @@ export async function prepareServerRunContext(
             reminder: effectiveReminder
           },
           memory: { entries: memoryEntries },
+          activityText,
           anthropicCacheBreakpoints: settings.provider === 'anthropic',
           history: input.thread.rollingSummary?.trim()
             ? [
@@ -1288,7 +1310,14 @@ export async function prepareServerRunContext(
         workspacePath,
         hasToolReminder: hiddenQueryReminder !== undefined,
         memoryEntries,
-        recallDecision
+        recallDecision,
+        ...(activitySummary
+          ? {
+              activitySummary: {
+                uniqueApps: activitySummary.uniqueApps
+              }
+            }
+          : {})
       })
     })
   }

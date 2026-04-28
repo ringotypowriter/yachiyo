@@ -7,6 +7,7 @@ import {
   normalizeActiveRunEnterBehavior,
   normalizeMemoryProviderId,
   normalizeSidebarVisibility,
+  type ActivityTrackingConfig,
   type BrowserBackedWebSearchSessionConfig,
   type ChatConfig,
   type ExaWebSearchConfig,
@@ -68,6 +69,31 @@ export function normalizeGeneralConfig(value: unknown): GeneralConfig {
   if (uiFontSize !== undefined) result.uiFontSize = uiFontSize
   if (chatFontSize !== undefined) result.chatFontSize = chatFontSize
 
+  const activityTracking = normalizeActivityTrackingConfig(
+    input['activityTracking'],
+    DEFAULT_SETTINGS_CONFIG.general?.activityTracking
+  )
+  if (activityTracking) {
+    result.activityTracking = activityTracking
+  }
+
+  return result
+}
+
+function normalizeActivityTrackingConfig(
+  value: unknown,
+  fallback?: ActivityTrackingConfig
+): ActivityTrackingConfig | undefined {
+  const input = asRecord(value)
+  const rawMode = input['mode']
+  if (rawMode !== 'off' && rawMode !== 'simple' && rawMode !== 'full') {
+    // Input missing or invalid — apply the default if available
+    return fallback ? { ...fallback } : undefined
+  }
+  const result: ActivityTrackingConfig = { mode: rawMode }
+  if (input['accessibilityDenied'] === true) {
+    result.accessibilityDenied = true
+  }
   return result
 }
 

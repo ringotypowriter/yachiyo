@@ -48,7 +48,8 @@ test('settings store persists multi-provider config as TOML', async () => {
         notifyCodingTaskStarted: true,
         notifyCodingTaskFinished: true,
         translatorShortcut: 'CommandOrControl+Shift+T',
-        jotdownShortcut: 'CommandOrControl+Shift+J'
+        jotdownShortcut: 'CommandOrControl+Shift+J',
+        activityTracking: { mode: 'simple' }
       },
       chat: {
         activeRunEnterBehavior: 'enter-queues-follow-up',
@@ -864,7 +865,8 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
     sidebarPreview: true,
     notifyCodingTaskFinished: true,
     translatorShortcut: 'CommandOrControl+Shift+T',
-    jotdownShortcut: 'CommandOrControl+Shift+J'
+    jotdownShortcut: 'CommandOrControl+Shift+J',
+    activityTracking: { mode: 'simple' }
   })
 
   assert.deepEqual(
@@ -882,7 +884,8 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
       notifyCodingTaskStarted: true,
       notifyCodingTaskFinished: true,
       translatorShortcut: 'CommandOrControl+Shift+T',
-      jotdownShortcut: 'CommandOrControl+Shift+J'
+      jotdownShortcut: 'CommandOrControl+Shift+J',
+      activityTracking: { mode: 'simple' }
     }
   )
 })
@@ -914,6 +917,33 @@ test('general shortcut fields round-trip through TOML serialization', async () =
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test('general activity tracking round-trips through parse → normalize → stringify → parse', () => {
+  const toml = `[general]
+activityTracking = { mode = "full", accessibilityDenied = true }
+`
+
+  const config = parseSettingsToml(toml)
+  assert.deepEqual(config.general?.activityTracking, {
+    mode: 'full',
+    accessibilityDenied: true
+  })
+
+  const serialized = stringifySettingsToml(config)
+  const reloaded = parseSettingsToml(serialized)
+  assert.deepEqual(reloaded.general?.activityTracking, {
+    mode: 'full',
+    accessibilityDenied: true
+  })
+})
+
+test('general activity tracking defaults to simple when missing from legacy TOML', () => {
+  const config = parseSettingsToml(`[general]
+notifyRunCompleted = true
+`)
+
+  assert.deepEqual(config.general?.activityTracking, { mode: 'simple' })
 })
 
 const PROVIDER_WORK = {
@@ -1285,7 +1315,8 @@ test('normalization preserves every GeneralConfig key', () => {
     notifyCodingTaskStarted: false,
     notifyCodingTaskFinished: false,
     translatorShortcut: 'Alt+T',
-    jotdownShortcut: 'Alt+J'
+    jotdownShortcut: 'Alt+J',
+    activityTracking: { mode: 'full', accessibilityDenied: true }
   }
   const result = normalizeSettingsConfig({ providers: [], general: sentinel })
   assertKeysPreserved(result.general, sentinel, 'GeneralConfig')

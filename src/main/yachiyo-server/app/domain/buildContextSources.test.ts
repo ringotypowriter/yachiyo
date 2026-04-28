@@ -205,7 +205,19 @@ test('buildContextSources includes toolReminder when hasToolReminder is true', (
   assert.equal(reminder.present, true)
 })
 
-test('buildContextSources source order is persona, soul, user, skills, fileMentions, agent, memory, toolReminder', () => {
+test('buildContextSources includes activity when a summary was consumed', () => {
+  const sources = buildContextSources({
+    ...BASE_INPUT,
+    activitySummary: { uniqueApps: 2 }
+  })
+
+  const activity = sources.find((s) => s.kind === 'activity')
+  assert.ok(activity)
+  assert.equal(activity.present, true)
+  assert.equal(activity.summary, '2 apps')
+})
+
+test('buildContextSources source order is persona, soul, user, skills, fileMentions, agent, memory, toolReminder, activity', () => {
   const sources = buildContextSources({
     ...BASE_INPUT,
     evolvedTraitCount: 1,
@@ -224,7 +236,8 @@ test('buildContextSources source order is persona, soul, user, skills, fileMenti
       idleMs: 0,
       noveltyScore: 0.9,
       novelTerms: []
-    }
+    },
+    activitySummary: { uniqueApps: 1 }
   })
 
   const kinds = sources.map((s) => s.kind)
@@ -236,6 +249,7 @@ test('buildContextSources source order is persona, soul, user, skills, fileMenti
     'fileMentions',
     'agent',
     'memory',
-    'toolReminder'
+    'toolReminder',
+    'activity'
   ])
 })

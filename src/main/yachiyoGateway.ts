@@ -1,7 +1,19 @@
-import { app, BrowserWindow, ipcMain, net, Notification, powerMonitor, session } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  net,
+  Notification,
+  powerMonitor,
+  session,
+  systemPreferences
+} from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { spawn } from 'child_process'
 import { join } from 'node:path'
+import { getActivityTracker } from './yachiyo-server/activity/ActivityTracker.ts'
+import { resolveActivityTrackingPermissionForSave } from './yachiyo-server/activity/activityTrackingPermission.ts'
+import { probeFullActivityAccess } from './yachiyo-server/activity/osascript.ts'
 
 import type {
   AnswerToolQuestionInput,
@@ -703,6 +715,17 @@ async function restartServerForDemoModeChange(): Promise<void> {
   }
 }
 
+async function resolveActivityTrackingPermission(
+  config: SettingsConfig,
+  currentConfig: SettingsConfig
+): Promise<SettingsConfig> {
+  return resolveActivityTrackingPermissionForSave(config, currentConfig, {
+    platform: process.platform,
+    requestAccessibilityTrust: () => systemPreferences.isTrustedAccessibilityClient(true),
+    probeFullActivityAccess
+  })
+}
+
 export function registerYachiyoGateway(): YachiyoServer {
   if (server) {
     return server
@@ -893,7 +916,8 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.saveConfig, async (input: SettingsConfig) => {
     const currentConfig = await server!.getConfig()
     const demoModeBeforeSave = is.dev && currentConfig.general?.demoMode === true
-    const saved = await server!.saveConfig(input)
+    const configToSave = await resolveActivityTrackingPermission(input, currentConfig)
+    const saved = await server!.saveConfig(configToSave)
     const demoModeAfterSave = is.dev && saved.general?.demoMode === true
 
     if (demoModeBeforeSave !== demoModeAfterSave) {
@@ -901,6 +925,15 @@ export function registerYachiyoGateway(): YachiyoServer {
         void restartServerForDemoModeChange()
       }, 0)
     }
+
+    // Sync activity tracking mode
+    const trackingMode = saved.general?.activityTracking?.mode ?? 'simple'
+    getActivityTracker(trackingMode).setMode(
+      trackingMode,
+      trackingMode === 'full'
+        ? { fullModeAvailable: saved.general?.activityTracking?.accessibilityDenied !== true }
+        : undefined
+    )
 
     return saved
   })

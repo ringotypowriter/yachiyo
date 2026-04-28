@@ -65,6 +65,8 @@ export interface CompileContextLayersInput {
   agent?: AgentLayerInput
   hint?: HintLayerInput
   memory?: MemoryLayerInput
+  /** Activity summary text (from the tracker), injected as turn context. */
+  activityText?: string
   /** When true, mark the last system message with an Anthropic cache breakpoint. */
   anthropicCacheBreakpoints?: boolean
 }
@@ -106,14 +108,19 @@ export function injectTurnContext(
   return [...messages, { role: 'user', content: turnContextParts.join('\n\n') }]
 }
 
-/** Turn hint + memory inputs into a flat string array for append. */
+/** Turn hint + memory + activity inputs into a flat string array for append. */
 export function turnContextPartsFromHintAndMemory(
   hint?: HintLayerInput,
-  memory?: MemoryLayerInput
+  memory?: MemoryLayerInput,
+  activityText?: string
 ): string[] {
-  return [compileHintLayer(hint), compileMemoryLayer(memory)].flatMap((m) =>
+  const parts = [compileHintLayer(hint), compileMemoryLayer(memory)].flatMap((m) =>
     m ? [m.content as string] : []
   )
+  if (activityText?.trim()) {
+    parts.push(activityText.trim())
+  }
+  return parts
 }
 
 function buildAttachedFilesBlock(
@@ -267,6 +274,9 @@ function buildHistoricalTurnContextParts(turnContext: MessageTurnContext | undef
   const memoryMessage = compileMemoryLayer({ entries: turnContext.memoryEntries })
   if (memoryMessage && typeof memoryMessage.content === 'string') {
     parts.push(memoryMessage.content)
+  }
+  if (turnContext.activityText?.trim()) {
+    parts.push(turnContext.activityText.trim())
   }
   return parts
 }
@@ -609,7 +619,11 @@ export function compileContextLayers(input: CompileContextLayersInput): ModelMes
   // user's query remains the final user turn. This avoids injected context
   // becoming the "latest user message" that the model responds to, while
   // keeping the message array prefix stable for prompt caching.
-  const turnContextParts = turnContextPartsFromHintAndMemory(input.hint, input.memory)
+  const turnContextParts = turnContextPartsFromHintAndMemory(
+    input.hint,
+    input.memory,
+    input.activityText
+  )
 
   const messages = [...systemPrefix, ...injectTurnContext(historyMessages, turnContextParts)]
   const result = removeEmptyMessages(messages)

@@ -283,6 +283,16 @@ app.whenReady().then(async () => {
   })
   const server = registerYachiyoGateway()
 
+  // Initialize activity tracker (macOS only — relies on osascript)
+  if (process.platform === 'darwin') {
+    void server.getConfig().then((cfg) => {
+      const mode = cfg.general?.activityTracking?.mode ?? 'simple'
+      void import('./activityTrackerHost.ts').then(({ installActivityTrackerHost }) => {
+        installActivityTrackerHost(mode)
+      })
+    })
+  }
+
   function updateFloatWindowShortcuts(config: SettingsConfig): void {
     globalShortcut.unregisterAll()
     const translatorShortcut = config.general?.translatorShortcut?.trim()
