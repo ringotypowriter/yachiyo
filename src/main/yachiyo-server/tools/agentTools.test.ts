@@ -49,7 +49,7 @@ function processExists(pid: number): boolean {
   }
 }
 
-test('runReadTool uses offset/limit continuation semantics and returns truncation hints', async () => {
+test('runReadTool uses 1-based offset/limit continuation semantics and returns truncation hints', async () => {
   await withWorkspace(async (workspacePath) => {
     await writeFile(join(workspacePath, 'notes.txt'), 'one\ntwo\nthree\nfour\nfive', 'utf8')
 
@@ -64,15 +64,15 @@ test('runReadTool uses offset/limit continuation semantics and returns truncatio
 
     assert.equal(result.error, undefined)
     assert.equal(result.details.path, join(workspacePath, 'notes.txt'))
-    assert.equal(result.details.startLine, 2)
-    assert.equal(result.details.endLine, 3)
+    assert.equal(result.details.startLine, 1)
+    assert.equal(result.details.endLine, 2)
     assert.equal(result.details.totalLines, 5)
     assert.equal(result.details.truncated, true)
     assert.equal(result.details.nextOffset, 3)
-    assert.equal(result.details.remainingLines, 2)
+    assert.equal(result.details.remainingLines, 3)
     assert.equal(
       flattenToolContent(result.content),
-      'two\nthree\n\n[truncated: continue with offset 3]'
+      'one\ntwo\n\n[truncated: continue with offset 3]'
     )
   })
 })

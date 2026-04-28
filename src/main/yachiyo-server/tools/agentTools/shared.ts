@@ -92,7 +92,7 @@ export function withShadowFallbacks<T extends z.ZodTypeAny>(
 export const readToolInputSchema = withShadowFallbacks(
   z.object({
     path: z.string().min(1),
-    offset: z.number().int().min(0).default(0),
+    offset: z.number().int().min(0).default(1),
     limit: z.number().int().min(1).max(MAX_READ_LIMIT).default(DEFAULT_READ_LIMIT),
     focus: z
       .string()
@@ -112,11 +112,81 @@ export const writeToolInputSchema = withShadowFallbacks(
   { filePath: 'path' }
 )
 
-export const editSpecSchema = z.object({
-  oldText: z.string().min(1),
-  newText: z.string(),
-  replace_all: z.boolean().default(false)
-})
+function getMeaningfulLineArrayText(value: unknown): string | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined
+  const text = value.join('\n')
+  return text.length > 0 ? text : undefined
+}
+
+function getProvidedLineArrayText(value: unknown): string | undefined {
+  return Array.isArray(value) && value.length > 0 ? value.join('\n') : undefined
+}
+
+export const editSpecSchema = z
+  .object({
+    oldText: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('Exact search text. For multiline snippets, prefer oldLines.'),
+    oldLines: z
+      .array(z.string())
+      .optional()
+      .describe('Exact search text as lines joined with LF; avoids \\n escaping mistakes.'),
+    newText: z
+      .string()
+      .optional()
+      .describe('Replacement text. For multiline snippets, prefer newLines.'),
+    newLines: z
+      .array(z.string())
+      .optional()
+      .describe('Replacement text as lines joined with LF; [] is ignored, [""] clears.'),
+    replace_all: z.boolean().default(false)
+  })
+  .superRefine((data, ctx) => {
+    const oldText = hasMeaningfulOldText(data.oldText) ? data.oldText : undefined
+    const oldLinesText = getMeaningfulLineArrayText(data.oldLines)
+    const newText = hasProvidedNewText(data.newText) ? data.newText : undefined
+    const newLinesText = getProvidedLineArrayText(data.newLines)
+    const hasSearchSource = oldText !== undefined || oldLinesText !== undefined
+    const hasReplacementSource = newText !== undefined || newLinesText !== undefined
+    const hasSearchConflict =
+      oldText !== undefined && oldLinesText !== undefined && oldText !== oldLinesText
+    const hasReplacementConflict =
+      newText !== undefined &&
+      newLinesText !== undefined &&
+      newText !== '' &&
+      newText !== newLinesText
+
+    if (!hasSearchSource) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['oldText'],
+        message: 'oldText or oldLines is required and must produce non-empty search text.'
+      })
+    }
+    if (hasSearchConflict) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['oldLines'],
+        message: 'oldText and oldLines must match when both are provided.'
+      })
+    }
+    if (!hasReplacementSource) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['newText'],
+        message: 'newText or newLines is required.'
+      })
+    }
+    if (hasReplacementConflict) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['newLines'],
+        message: 'newText and newLines must match when both are provided.'
+      })
+    }
+  })
 
 export const replaceLinesSchema = z.object({
   start: z.number().int().min(1),
@@ -160,33 +230,73 @@ export const editToolInputSchema = withShadowFallbacks(
     .object({
       mode: z.enum(['inline', 'range', 'batch']),
       path: z.string().min(1),
-      oldText: z.string().optional(),
-      newText: z.string().optional(),
+      oldText: z
+        .string()
+        .optional()
+        .describe('Exact search text. For multiline snippets, prefer oldLines.'),
+      oldLines: z
+        .array(z.string())
+        .optional()
+        .describe('Exact search text as lines joined with LF; avoids \\n escaping mistakes.'),
+      newText: z
+        .string()
+        .optional()
+        .describe('Replacement text. For multiline snippets, prefer newLines.'),
+      newLines: z
+        .array(z.string())
+        .optional()
+        .describe('Replacement text as lines joined with LF; [] is ignored, [""] clears.'),
       replace_all: z.boolean().optional(),
       replaceLines: editReplaceLinesInputSchema,
       edits: z.array(editSpecSchema).max(50).optional()
     })
     .strict()
     .superRefine((data, ctx) => {
-      const hasOldText = hasMeaningfulOldText(data.oldText)
-      const hasNewText = hasProvidedNewText(data.newText)
+      const oldText = hasMeaningfulOldText(data.oldText) ? data.oldText : undefined
+      const oldLinesText = getMeaningfulLineArrayText(data.oldLines)
+      const newText = hasProvidedNewText(data.newText) ? data.newText : undefined
+      const newLinesText = getProvidedLineArrayText(data.newLines)
+      const hasOldText = oldText !== undefined
+      const hasOldLines = oldLinesText !== undefined
+      const hasNewText = newText !== undefined
+      const hasNewLines = newLinesText !== undefined
       const hasReplaceLines = hasMeaningfulReplaceLines(data.replaceLines)
       const hasEdits = hasMeaningfulEdits(data.edits)
       const hasConflictingReplaceAll = hasMeaningfulReplaceAll(data.replace_all)
+      const hasSearchSource = hasOldText || hasOldLines
+      const hasReplacementSource = hasNewText || hasNewLines
+      const hasSearchConflict = hasOldText && hasOldLines && oldText !== oldLinesText
+      const hasReplacementConflict =
+        hasNewText && hasNewLines && newText !== '' && newText !== newLinesText
 
       if (data.mode === 'inline') {
-        if (!hasOldText) {
+        if (!hasSearchSource) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['oldText'],
-            message: 'oldText is required and must be non-empty when mode is "inline".'
+            message:
+              'oldText or oldLines is required and must produce non-empty search text when mode is "inline".'
           })
         }
-        if (!hasNewText) {
+        if (hasSearchConflict) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['oldLines'],
+            message: 'oldText and oldLines must match when both are provided.'
+          })
+        }
+        if (!hasReplacementSource) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['newText'],
-            message: 'newText is required when mode is "inline".'
+            message: 'newText or newLines is required when mode is "inline".'
+          })
+        }
+        if (hasReplacementConflict) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['newLines'],
+            message: 'newText and newLines must match when both are provided.'
           })
         }
         if (hasReplaceLines) {
@@ -214,11 +324,18 @@ export const editToolInputSchema = withShadowFallbacks(
             message: 'replaceLines is required when mode is "range".'
           })
         }
-        if (!hasNewText) {
+        if (!hasReplacementSource) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['newText'],
-            message: 'newText is required when mode is "range".'
+            message: 'newText or newLines is required when mode is "range".'
+          })
+        }
+        if (hasReplacementConflict) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['newLines'],
+            message: 'newText and newLines must match when both are provided.'
           })
         }
         if (hasOldText) {
@@ -226,6 +343,13 @@ export const editToolInputSchema = withShadowFallbacks(
             code: z.ZodIssueCode.custom,
             path: ['oldText'],
             message: 'oldText must be omitted or empty unless mode is "inline".'
+          })
+        }
+        if (hasOldLines) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['oldLines'],
+            message: 'oldLines must be omitted or empty unless mode is "inline".'
           })
         }
         if (hasEdits) {

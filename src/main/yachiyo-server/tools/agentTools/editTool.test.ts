@@ -188,6 +188,122 @@ describe('editTool', () => {
     assert.strictEqual(content, 'a\nb\nc\nd\n')
   })
 
+  it('recovers from an over-escaped multiline inline search when the literal search misses', async () => {
+    const workspace = await makeWorkspace()
+    const filePath = join(workspace, 'file.txt')
+    await writeFile(filePath, 'alpha\nbeta\ngamma\n', 'utf8')
+
+    const result = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: 'alpha\\nbeta', newText: 'ALPHA\nBETA' },
+      { workspacePath: workspace }
+    )
+
+    assert.strictEqual(result.error, undefined)
+    assert.strictEqual(result.details.replacements, 1)
+    const content = await readFile(filePath, 'utf8')
+    assert.strictEqual(content, 'ALPHA\nBETA\ngamma\n')
+  })
+
+  it('does not unwrap a literal backslash-n replacement during search recovery', async () => {
+    const workspace = await makeWorkspace()
+    const filePath = join(workspace, 'file.txt')
+    await writeFile(filePath, 'alpha\nbeta\ngamma\n', 'utf8')
+
+    const result = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: 'alpha\\nbeta', newText: 'ALPHA\\nBETA' },
+      { workspacePath: workspace }
+    )
+
+    assert.strictEqual(result.error, undefined)
+    assert.strictEqual(result.details.replacements, 1)
+    const content = await readFile(filePath, 'utf8')
+    assert.strictEqual(content, 'ALPHA\\nBETA\ngamma\n')
+  })
+
+  it('prefers a literal backslash-n inline match when the file contains one', async () => {
+    const workspace = await makeWorkspace()
+    const filePath = join(workspace, 'file.txt')
+    await writeFile(filePath, 'literal alpha\\nbeta\nactual alpha\nbeta\n', 'utf8')
+
+    const result = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: 'alpha\\nbeta', newText: 'escaped' },
+      { workspacePath: workspace }
+    )
+
+    assert.strictEqual(result.error, undefined)
+    const content = await readFile(filePath, 'utf8')
+    assert.strictEqual(content, 'literal escaped\nactual alpha\nbeta\n')
+  })
+
+  it('uses oldLines and newLines for multiline inline edits', async () => {
+    const workspace = await makeWorkspace()
+    const filePath = join(workspace, 'file.txt')
+    await writeFile(filePath, 'alpha\nbeta\ngamma\n', 'utf8')
+
+    const result = await runEditTool(
+      {
+        mode: 'inline',
+        path: 'file.txt',
+        oldLines: ['alpha', 'beta'],
+        newLines: ['ALPHA', 'BETA']
+      },
+      { workspacePath: workspace }
+    )
+
+    assert.strictEqual(result.error, undefined)
+    assert.strictEqual(result.details.replacements, 1)
+    const content = await readFile(filePath, 'utf8')
+    assert.strictEqual(content, 'ALPHA\nBETA\ngamma\n')
+  })
+
+  it('ignores an empty oldLines placeholder when oldText is provided', async () => {
+    const workspace = await makeWorkspace()
+    const filePath = join(workspace, 'file.txt')
+    await writeFile(filePath, 'alpha\nbeta\n', 'utf8')
+
+    const result = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: 'alpha', oldLines: [], newText: 'ALPHA' },
+      { workspacePath: workspace }
+    )
+
+    assert.strictEqual(result.error, undefined)
+    assert.strictEqual(result.details.replacements, 1)
+    const content = await readFile(filePath, 'utf8')
+    assert.strictEqual(content, 'ALPHA\nbeta\n')
+  })
+
+  it('ignores an empty newLines placeholder when newText is provided', async () => {
+    const workspace = await makeWorkspace()
+    const filePath = join(workspace, 'file.txt')
+    await writeFile(filePath, 'alpha\nbeta\n', 'utf8')
+
+    const result = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: 'alpha', newText: 'ALPHA', newLines: [] },
+      { workspacePath: workspace }
+    )
+
+    assert.strictEqual(result.error, undefined)
+    assert.strictEqual(result.details.replacements, 1)
+    const content = await readFile(filePath, 'utf8')
+    assert.strictEqual(content, 'ALPHA\nbeta\n')
+  })
+
+  it('treats a single empty newLines entry as an empty inline replacement', async () => {
+    const workspace = await makeWorkspace()
+    const filePath = join(workspace, 'file.txt')
+    await writeFile(filePath, 'alpha\nbeta\n', 'utf8')
+
+    const result = await runEditTool(
+      { mode: 'inline', path: 'file.txt', oldText: 'alpha\n', newLines: [''] },
+      { workspacePath: workspace }
+    )
+
+    assert.strictEqual(result.error, undefined)
+    assert.strictEqual(result.details.replacements, 1)
+    const content = await readFile(filePath, 'utf8')
+    assert.strictEqual(content, 'beta\n')
+  })
+
   it('shifts cached ranges after an edit that adds lines', async () => {
     const workspace = await makeWorkspace()
     const filePath = join(workspace, 'file.txt')
@@ -605,6 +721,29 @@ describe('editTool', () => {
       assert.strictEqual(content, 'a\nX\nY\nZ\nc\n')
     })
 
+    it('uses newLines for multiline range replacements', async () => {
+      const workspace = await makeWorkspace()
+      const filePath = join(workspace, 'file.txt')
+      await writeFile(filePath, 'alpha\nbeta\ngamma\ndelta\n', 'utf8')
+
+      const cache = new ReadRecordCache()
+      cache.recordRead(filePath, 1, 5)
+
+      const result = await runEditTool(
+        {
+          mode: 'range',
+          path: 'file.txt',
+          replaceLines: { start: 2, end: 3 },
+          newLines: ['BETA', 'GAMMA']
+        },
+        { workspacePath: workspace, readRecordCache: cache }
+      )
+
+      assert.strictEqual(result.error, undefined)
+      const content = await readFile(filePath, 'utf8')
+      assert.strictEqual(content, 'alpha\nBETA\nGAMMA\ndelta\n')
+    })
+
     it('is indent-agnostic on the find side (the whole point)', async () => {
       // Inline edit with a wrong-whitespace oldText would fail; ranged edit does not care.
       const workspace = await makeWorkspace()
@@ -821,6 +960,88 @@ describe('editTool', () => {
       assert.strictEqual(content, 'A\nbeta\nG\n')
     })
 
+    it('uses line arrays inside batched edits', async () => {
+      const workspace = await makeWorkspace()
+      const filePath = join(workspace, 'file.txt')
+      await writeFile(filePath, 'alpha\nbeta\ngamma\n', 'utf8')
+
+      const result = await runEditTool(
+        {
+          mode: 'batch',
+          path: 'file.txt',
+          edits: [
+            { oldLines: ['alpha', 'beta'], newLines: ['A', 'B'], replace_all: false },
+            { oldText: 'gamma', newText: 'G', replace_all: false }
+          ]
+        },
+        { workspacePath: workspace }
+      )
+
+      assert.strictEqual(result.error, undefined)
+      assert.strictEqual(result.details.replacements, 2)
+      const content = await readFile(filePath, 'utf8')
+      assert.strictEqual(content, 'A\nB\nG\n')
+    })
+
+    it('accepts equivalent string and line-array fields inside batched edits', async () => {
+      const workspace = await makeWorkspace()
+      const filePath = join(workspace, 'file.txt')
+      await writeFile(filePath, 'line 1: alpha\nline 2: beta\nline 3: gamma\n', 'utf8')
+
+      const result = await runEditTool(
+        {
+          mode: 'batch',
+          path: 'file.txt',
+          edits: [
+            {
+              oldText: 'line 2: beta',
+              oldLines: ['line 2: beta'],
+              newText: 'line 2: beta edited',
+              newLines: ['line 2: beta edited'],
+              replace_all: false
+            }
+          ]
+        },
+        { workspacePath: workspace }
+      )
+
+      assert.strictEqual(result.error, undefined)
+      assert.strictEqual(result.details.replacements, 1)
+      const content = await readFile(filePath, 'utf8')
+      assert.strictEqual(content, 'line 1: alpha\nline 2: beta edited\nline 3: gamma\n')
+    })
+
+    it('uses batched newLines when newText is an empty placeholder', async () => {
+      const workspace = await makeWorkspace()
+      const filePath = join(workspace, 'file.txt')
+      await writeFile(filePath, 'line 1: alpha\nline 2: beta\nline 3: gamma\n', 'utf8')
+
+      const result = await runEditTool(
+        {
+          mode: 'batch',
+          path: 'file.txt',
+          edits: [
+            {
+              oldText: 'line 2: beta',
+              oldLines: ['line 2: beta'],
+              newText: '',
+              newLines: ['line 2: beta edited', 'line 2.5: inserted'],
+              replace_all: false
+            }
+          ]
+        },
+        { workspacePath: workspace }
+      )
+
+      assert.strictEqual(result.error, undefined)
+      assert.strictEqual(result.details.replacements, 1)
+      const content = await readFile(filePath, 'utf8')
+      assert.strictEqual(
+        content,
+        'line 1: alpha\nline 2: beta edited\nline 2.5: inserted\nline 3: gamma\n'
+      )
+    })
+
     it('aborts the batch and writes nothing when one edit fails', async () => {
       const workspace = await makeWorkspace()
       const filePath = join(workspace, 'file.txt')
@@ -884,6 +1105,32 @@ describe('editTool', () => {
       assert.strictEqual(result.details.replacements, 2)
       const content = await readFile(filePath, 'utf8')
       assert.strictEqual(content, 'baz\n')
+    })
+
+    it('preserves synthesized literal backslash-n matches during coverage checks', async () => {
+      const workspace = await makeWorkspace()
+      const filePath = join(workspace, 'file.txt')
+      await writeFile(filePath, 'seed\nsafe\noutside\nalpha\nbeta\n', 'utf8')
+
+      const cache = new ReadRecordCache()
+      cache.recordRead(filePath, 1, 1)
+
+      const result = await runEditTool(
+        {
+          mode: 'batch',
+          path: 'file.txt',
+          edits: [
+            { oldText: 'seed', newText: 'alpha\\nbeta', replace_all: false },
+            { oldText: 'alpha\\nbeta', newText: 'literal replaced', replace_all: false }
+          ]
+        },
+        { workspacePath: workspace, readRecordCache: cache }
+      )
+
+      assert.strictEqual(result.error, undefined)
+      assert.strictEqual(result.details.replacements, 2)
+      const content = await readFile(filePath, 'utf8')
+      assert.strictEqual(content, 'literal replaced\nsafe\noutside\nalpha\nbeta\n')
     })
 
     it('rejects the batch when edits collectively no-op (safety net)', async () => {
@@ -1061,6 +1308,105 @@ describe('editTool', () => {
       assert.strictEqual(parsed.success, true)
     })
 
+    it('accepts line arrays for multiline inline mode', () => {
+      const parsed = editToolInputSchema.safeParse({
+        mode: 'inline',
+        path: 'file.txt',
+        oldLines: ['hello', 'world'],
+        newLines: ['hi', 'there']
+      })
+      assert.strictEqual(parsed.success, true)
+    })
+
+    it('accepts an empty newLines placeholder when newText is provided', () => {
+      const parsed = editToolInputSchema.safeParse({
+        mode: 'inline',
+        path: 'file.txt',
+        oldText: 'hello',
+        newText: 'hi',
+        newLines: []
+      })
+      assert.strictEqual(parsed.success, true)
+    })
+
+    it('rejects an empty newLines placeholder without replacement text', () => {
+      const parsed = editToolInputSchema.safeParse({
+        mode: 'inline',
+        path: 'file.txt',
+        oldText: 'hello',
+        newLines: []
+      })
+      assert.strictEqual(parsed.success, false)
+    })
+
+    it('accepts a single empty newLines entry as an empty replacement', () => {
+      const parsed = editToolInputSchema.safeParse({
+        mode: 'inline',
+        path: 'file.txt',
+        oldText: 'hello',
+        newLines: ['']
+      })
+      assert.strictEqual(parsed.success, true)
+    })
+
+    it('accepts equivalent string and line-array fields in inline mode', () => {
+      const parsed = editToolInputSchema.safeParse({
+        mode: 'inline',
+        path: 'file.txt',
+        oldText: 'hello\nworld',
+        oldLines: ['hello', 'world'],
+        newText: 'hi\nthere',
+        newLines: ['hi', 'there']
+      })
+      assert.strictEqual(parsed.success, true)
+    })
+
+    it('accepts empty newText as a placeholder when newLines is provided', () => {
+      const parsed = editToolInputSchema.safeParse({
+        mode: 'inline',
+        path: 'file.txt',
+        oldText: 'hello',
+        newText: '',
+        newLines: ['hi']
+      })
+      assert.strictEqual(parsed.success, true)
+    })
+
+    it('accepts newLines for range mode', () => {
+      const parsed = editToolInputSchema.safeParse({
+        mode: 'range',
+        path: 'file.txt',
+        replaceLines: { start: 1, end: 2 },
+        newLines: ['hi', 'there']
+      })
+      assert.strictEqual(parsed.success, true)
+    })
+
+    it('accepts line arrays inside batch edits', () => {
+      const parsed = editToolInputSchema.safeParse({
+        mode: 'batch',
+        path: 'file.txt',
+        edits: [{ oldLines: ['x', 'y'], newLines: ['z'] }]
+      })
+      assert.strictEqual(parsed.success, true)
+    })
+
+    it('accepts equivalent string and line-array fields inside batch edits', () => {
+      const parsed = editToolInputSchema.safeParse({
+        mode: 'batch',
+        path: 'file.txt',
+        edits: [
+          {
+            oldText: 'x\ny',
+            oldLines: ['x', 'y'],
+            newText: 'z',
+            newLines: ['z']
+          }
+        ]
+      })
+      assert.strictEqual(parsed.success, true)
+    })
+
     it('accepts empty placeholders from other modes for range mode', () => {
       const parsed = editToolInputSchema.safeParse({
         mode: 'range',
@@ -1072,6 +1418,28 @@ describe('editTool', () => {
         edits: []
       })
       assert.strictEqual(parsed.success, true)
+    })
+
+    it('rejects inline mode with conflicting string and line-array search text', () => {
+      const parsed = editToolInputSchema.safeParse({
+        mode: 'inline',
+        path: 'file.txt',
+        oldText: 'hello',
+        oldLines: ['goodbye'],
+        newText: 'hi'
+      })
+      assert.strictEqual(parsed.success, false)
+    })
+
+    it('rejects inline mode with conflicting string and line-array replacement text', () => {
+      const parsed = editToolInputSchema.safeParse({
+        mode: 'inline',
+        path: 'file.txt',
+        oldText: 'hello',
+        newText: 'hi',
+        newLines: ['bye']
+      })
+      assert.strictEqual(parsed.success, false)
     })
 
     it('accepts empty placeholders from other modes for batch mode', () => {

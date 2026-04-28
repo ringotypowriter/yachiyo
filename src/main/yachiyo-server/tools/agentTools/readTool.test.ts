@@ -10,7 +10,7 @@ import type { ReadToolInput } from './shared.ts'
 import { DEFAULT_READ_LIMIT } from './shared.ts'
 
 function readInput(partial: { path: string; offset?: number; limit?: number }): ReadToolInput {
-  return { offset: 0, limit: DEFAULT_READ_LIMIT, ...partial }
+  return { offset: 1, limit: DEFAULT_READ_LIMIT, ...partial }
 }
 
 async function withWorkspace(fn: (workspacePath: string) => Promise<void>): Promise<void> {

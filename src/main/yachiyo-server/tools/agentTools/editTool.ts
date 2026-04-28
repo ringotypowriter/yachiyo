@@ -10,7 +10,6 @@ import {
   countOccurrences,
   expandTilde,
   type AgentToolContext,
-  type EditSpec,
   type EditToolInput,
   type EditToolOutput,
   editToolInputSchema,
@@ -19,6 +18,12 @@ import {
   textContent,
   toToolModelOutput
 } from './shared.ts'
+
+interface NormalizedEditSpec {
+  oldText: string
+  newText: string
+  replace_all: boolean
+}
 
 /** Return the byte offset of every occurrence of `needle` in `haystack`. */
 function findAllMatchPositions(haystack: string, needle: string): number[] {
@@ -32,36 +37,118 @@ function findAllMatchPositions(haystack: string, needle: string): number[] {
   }
 }
 
+function hasEscapedLineBreak(value: string): boolean {
+  return value.includes('\\n') || value.includes('\\r')
+}
+
+function decodeEscapedLineBreaks(value: string): string {
+  return value
+    .replace(/\\r\\n/gu, '\r\n')
+    .replace(/\\n/gu, '\n')
+    .replace(/\\r/gu, '\r')
+}
+
+function resolveEscapedLineBreakEdit(
+  content: string,
+  edit: NormalizedEditSpec
+): NormalizedEditSpec {
+  if (!hasEscapedLineBreak(edit.oldText) || content.includes(edit.oldText)) {
+    return edit
+  }
+
+  const decodedOldText = decodeEscapedLineBreaks(edit.oldText)
+  if (decodedOldText === edit.oldText || decodedOldText.length === 0) {
+    return edit
+  }
+  if (!content.includes(decodedOldText)) {
+    return edit
+  }
+
+  return {
+    ...edit,
+    oldText: decodedOldText
+  }
+}
+
 export function createTool(context: AgentToolContext): Tool<EditToolInput, EditToolOutput> {
   return tool({
-    description: `Edit an existing text file. You must choose one explicit mode. (1) Inline replacement: \`{ mode: 'inline', oldText, newText, replace_all? }\` — best for short surgical edits where the match is stable. (2) Line-range replacement: \`{ mode: 'range', replaceLines: { start, end }, newText }\` — addresses lines by position (1-indexed, inclusive) using the same coordinates the read tool returned. Prefer this for multi-line block rewrites where reproducing exact whitespace via oldText is error-prone. (3) Batched inline edits: \`{ mode: 'batch', edits: [{ oldText, newText, replace_all? }, ...] }\` — applies multiple inline edits to the same file atomically. Relative paths resolve from ${context.workspacePath}; files outside the workspace require an absolute path. Every shape requires you to have read the target region first.`,
+    description: `Edit an existing text file. You must choose one explicit mode. (1) Inline replacement: \`{ mode: 'inline', oldText, newText, replace_all? }\` — best for short surgical edits where the match is stable. (2) Line-range replacement: \`{ mode: 'range', replaceLines: { start, end }, newText }\` — addresses lines by position (1-indexed, inclusive) using the same coordinates the read tool returned. Prefer this for multi-line block rewrites where reproducing exact whitespace via oldText is error-prone. (3) Batched inline edits: \`{ mode: 'batch', edits: [{ oldText, newText, replace_all? }, ...] }\` — applies multiple inline edits to the same file atomically. For multiline text, prefer \`oldLines\` and \`newLines\` arrays; they are joined with LF and avoid confusion between real newlines and literal \\n. Relative paths resolve from ${context.workspacePath}; files outside the workspace require an absolute path. Every shape requires you to have read the target region first.`,
     inputSchema: editToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) => runEditTool(input, context, options)
   })
 }
 
-function normalizeEdits(input: EditToolInput): EditSpec[] {
+function hasLineArray(value: unknown): value is string[] {
+  return Array.isArray(value)
+}
+
+function lineArrayToText(value: string[]): string {
+  return value.join('\n')
+}
+
+function getSearchText(input: { oldText?: string; oldLines?: string[] }): string | undefined {
+  const oldText = input.oldText && input.oldText.length > 0 ? input.oldText : undefined
+  const oldLinesText = hasLineArray(input.oldLines) ? lineArrayToText(input.oldLines) : undefined
+  const meaningfulOldLines = oldLinesText && oldLinesText.length > 0 ? oldLinesText : undefined
+
+  if (oldText !== undefined && meaningfulOldLines !== undefined) {
+    if (oldText !== meaningfulOldLines) {
+      throw new Error('oldText and oldLines must match when both are provided.')
+    }
+    return oldText
+  }
+  if (oldText !== undefined) return oldText
+  if (meaningfulOldLines !== undefined) return meaningfulOldLines
+  return undefined
+}
+
+function getReplacementText(input: { newText?: string; newLines?: string[] }): string | undefined {
+  const newLines =
+    hasLineArray(input.newLines) && input.newLines.length > 0 ? input.newLines : undefined
+  const newLinesText = newLines !== undefined ? lineArrayToText(newLines) : undefined
+
+  if (input.newText !== undefined && newLinesText !== undefined) {
+    if (input.newText === newLinesText) return input.newText
+    if (input.newText === '') return newLinesText
+    throw new Error('newText and newLines must match when both are provided.')
+  }
+  if (input.newText !== undefined) return input.newText
+  if (newLinesText !== undefined) return newLinesText
+  return undefined
+}
+
+function normalizeEditSpec(
+  input: { oldText?: string; oldLines?: string[]; newText?: string; newLines?: string[] },
+  replaceAll: boolean,
+  label: string
+): NormalizedEditSpec {
+  const oldText = getSearchText(input)
+  if (!oldText) {
+    throw new Error(`${label}requires a non-empty oldText or oldLines.`)
+  }
+  const newText = getReplacementText(input)
+  if (newText === undefined) {
+    throw new Error(`${label}requires newText or newLines.`)
+  }
+  return { oldText, newText, replace_all: replaceAll }
+}
+
+function normalizeEdits(input: EditToolInput): NormalizedEditSpec[] {
   if (input.mode === 'batch') {
     if (!input.edits || input.edits.length === 0) {
       throw new Error('Batch edit requires a non-empty edits array.')
     }
-    return input.edits
+    return input.edits.map((edit, index) =>
+      normalizeEditSpec(edit, edit.replace_all ?? false, `Edit ${index + 1} `)
+    )
   }
   if (input.mode !== 'inline') {
     throw new Error(
       `normalizeEdits only supports inline or batch inputs, received mode "${input.mode}".`
     )
   }
-  if (!input.oldText) {
-    throw new Error('Inline edit requires a non-empty oldText.')
-  }
-  if (input.newText === undefined) {
-    throw new Error('Inline edit requires newText.')
-  }
-  return [
-    { oldText: input.oldText, newText: input.newText, replace_all: input.replace_all ?? false }
-  ]
+  return [normalizeEditSpec(input, input.replace_all ?? false, 'Inline edit ')]
 }
 
 function isInputEffectivelyAbsolute(rawPath: string): boolean {
@@ -263,21 +350,30 @@ export async function runEditTool(
       // original at all (e.g., it targets content synthesized by an earlier edit), skip its
       // coverage requirement here; the per-edit apply step will catch it cleanly.
       const uncoveredLines = new Set<number>()
-      for (const edit of edits) {
-        if (edit.newText === '') continue
+      let coverageContent = original
+      for (const rawEdit of edits) {
+        const edit = resolveEscapedLineBreakEdit(coverageContent, rawEdit)
+        const occurrences = countOccurrences(coverageContent, edit.oldText)
+        if (occurrences === 0) break
+
         const positions = findAllMatchPositions(original, edit.oldText)
-        if (positions.length === 0) continue
-        const requireAll = edit.replace_all || batched
-        const targets = requireAll ? positions : positions.slice(0, 1)
-        const span = countNewlines(edit.oldText)
-        for (const pos of targets) {
-          const startLine = countNewlines(original.slice(0, pos)) + 1
-          for (let line = startLine; line <= startLine + span; line++) {
-            if (!context.readRecordCache.coversLine(resolvedPath, line, currentMtimeMs)) {
-              uncoveredLines.add(line)
+        if (edit.newText !== '' && positions.length > 0) {
+          const requireAll = edit.replace_all || batched
+          const targets = requireAll ? positions : positions.slice(0, 1)
+          const span = countNewlines(edit.oldText)
+          for (const pos of targets) {
+            const startLine = countNewlines(original.slice(0, pos)) + 1
+            for (let line = startLine; line <= startLine + span; line++) {
+              if (!context.readRecordCache.coversLine(resolvedPath, line, currentMtimeMs)) {
+                uncoveredLines.add(line)
+              }
             }
           }
         }
+        if (occurrences > 1 && !edit.replace_all) break
+        coverageContent = edit.replace_all
+          ? coverageContent.replaceAll(edit.oldText, edit.newText)
+          : coverageContent.replace(edit.oldText, edit.newText)
       }
       if (uncoveredLines.size > 0) {
         const unique = [...uncoveredLines].sort((a, b) => a - b)
@@ -303,7 +399,7 @@ export async function runEditTool(
     let firstChangedLineOverall: number | undefined
 
     for (let i = 0; i < edits.length; i++) {
-      const edit = edits[i]
+      const edit = resolveEscapedLineBreakEdit(content, edits[i])
       const occurrences = countOccurrences(content, edit.oldText)
 
       if (occurrences === 0) {
@@ -413,8 +509,9 @@ async function runRangedEdit(
   ) {
     throw new Error('Range edit requires replaceLines with numeric start and end.')
   }
-  if (input.newText === undefined) {
-    throw new Error('Range edit requires newText.')
+  const replacementText = getReplacementText(input)
+  if (replacementText === undefined) {
+    throw new Error('Range edit requires newText or newLines.')
   }
   const { start, end } = input.replaceLines
   if (end < start) {
@@ -447,7 +544,7 @@ async function runRangedEdit(
 
     // --- Read-before-edit guard (range-aware) ---
     // Pure deletions (empty newText) are exempt — same rationale as inline mode.
-    const isDeletion = input.newText === ''
+    const isDeletion = replacementText === ''
     if (context.readRecordCache && !isDeletion) {
       const currentMtimeMs = await stat(resolvedPath).then(
         (s) => s.mtimeMs,
@@ -493,7 +590,7 @@ async function runRangedEdit(
     // Note: ''.split(/\r?\n/) === ['']. An empty newText therefore replaces the range with
     // a single empty line — NOT zero lines — which preserves the file's trailing newline
     // when the phantom last line (the empty element produced by a trailing \n) is targeted.
-    const newLines = input.newText.split(/\r?\n/)
+    const newLines = replacementText.split(/\r?\n/)
     const nextLines = [
       ...originalLines.slice(0, start - 1),
       ...newLines,

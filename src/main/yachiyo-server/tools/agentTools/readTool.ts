@@ -95,7 +95,7 @@ function isUnreadableBinary(filePath: string): boolean {
 
 export function createTool(context: AgentToolContext): Tool<ReadToolInput, ReadToolOutput> {
   return tool({
-    description: `Read a file from the current thread workspace or an absolute path. Supports text files (with offset/limit pagination), PDF files (text extraction), and common image formats (png, jpg, webp, gif, bmp, tiff, avif, heic, ico). Binary formats like video and audio are not supported. Relative paths resolve from ${context.workspacePath}. Use offset as a 0-based line continuation cursor for text files.`,
+    description: `Read a file from the current thread workspace or an absolute path. Supports text files (with offset/limit pagination), PDF files (text extraction), and common image formats (png, jpg, webp, gif, bmp, tiff, avif, heic, ico). Binary formats like video and audio are not supported. Relative paths resolve from ${context.workspacePath}. Offset is a 1-based line number — use it to start reading at a specific line.`,
     inputSchema: readToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) => runReadTool(input, context, options)
@@ -114,13 +114,15 @@ function buildReadExcerpt(
   /** True when only a partial first line was returned (byte-truncated). */
   byteTruncatedFirstLine: boolean
 } {
-  const offset = input.offset ?? 0
+  // offset is 1-based (line number). Clamp 0→1 for backward compatibility.
+  const offset = Math.max(input.offset ?? 1, 1)
   const limit = input.limit ?? DEFAULT_READ_LIMIT
+  const idx = offset - 1
 
-  if (offset >= lines.length) {
+  if (idx >= lines.length) {
     return {
       excerpt: '',
-      endLine: offset,
+      endLine: offset - 1,
       truncated: false,
       byteTruncatedFirstLine: false
     }
@@ -132,7 +134,7 @@ function buildReadExcerpt(
   let truncatedByBytes = false
   let returnedPartialFirstLine = false
 
-  for (const line of lines.slice(offset, offset + limit)) {
+  for (const line of lines.slice(idx, idx + limit)) {
     const addition = selectedLines.length === 0 ? line : `\n${line}`
     const additionBytes = Buffer.byteLength(addition, 'utf8')
 
@@ -152,7 +154,7 @@ function buildReadExcerpt(
   }
 
   const nextOffset = offset + consumedLines
-  const remainingLines = Math.max(lines.length - nextOffset, 0)
+  const remainingLines = Math.max(lines.length - nextOffset + 1, 0)
   const truncated = truncatedByBytes || remainingLines > 0
 
   return {
@@ -160,9 +162,9 @@ function buildReadExcerpt(
     endLine:
       consumedLines === 0
         ? returnedPartialFirstLine
-          ? offset + 1
-          : offset
-        : offset + consumedLines,
+          ? offset
+          : offset - 1
+        : offset + consumedLines - 1,
     ...(truncated ? { nextOffset } : {}),
     ...(truncated ? { remainingLines } : {}),
     truncated,
@@ -251,7 +253,7 @@ async function runPdfReadTool(
 
   const details: ReadToolCallDetails = {
     path: resolvedPath,
-    startLine: (input.offset ?? 0) + 1,
+    startLine: Math.max(input.offset ?? 1, 1),
     endLine: excerpt.endLine,
     totalLines: lines.length,
     totalBytes: fileStat.size,
@@ -385,7 +387,7 @@ export async function runReadTool(
     const excerpt = buildReadExcerpt(lines, input)
     const details: ReadToolCallDetails = {
       path: resolvedPath,
-      startLine: (input.offset ?? 0) + 1,
+      startLine: Math.max(input.offset ?? 1, 1),
       endLine: excerpt.endLine,
       totalLines: lines.length,
       totalBytes: Buffer.byteLength(rawContent, 'utf8'),
