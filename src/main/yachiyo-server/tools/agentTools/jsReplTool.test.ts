@@ -287,6 +287,31 @@ describe('jsReplTool', () => {
     }
   })
 
+  it('resolves require() packages from the per-call cwd', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-cwd-require-'))
+    try {
+      mkdirSync(join(tempDir, 'model-cwd', 'node_modules', 'model-only-package'), {
+        recursive: true
+      })
+      writeFileSync(join(tempDir, 'model-cwd', 'package.json'), '{"name":"model-cwd"}')
+      writeFileSync(
+        join(tempDir, 'model-cwd', 'node_modules', 'model-only-package', 'index.js'),
+        'module.exports = { value: "loaded-from-model-cwd" }'
+      )
+
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
+      const result = await execute(tool, {
+        code: 'require("model-only-package").value',
+        cwd: 'model-cwd'
+      })
+
+      assert.equal(result.details.result, 'loaded-from-model-cwd')
+      assert.equal(result.error, undefined)
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   it('process.env mutations do not leak across calls', async () => {
     const tool = createTrackedTool(makeContext())
     await execute(tool, { code: 'process.env.JS_REPL_TEST_VAR = "leaked"' })

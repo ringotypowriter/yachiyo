@@ -330,7 +330,7 @@ export function createTool(
       'Only JavaScript is supported — never write Python code or treat this as a Python interpreter. ' +
       'Context is reset by default so each call starts with a clean slate. ' +
       'Pass `reset: false` to preserve variables and imports from the previous call when you need multi-step state. ' +
-      'Has access to `require()` for Node built-ins and project dependencies. ' +
+      "Has access to `require()` for Node built-ins and the active cwd's project dependencies. " +
       'Relative paths in fs operations resolve against the workspace.\n' +
       'Optional `cwd` overrides the working directory for this call only; it must be a relative path inside the workspace — ' +
       'absolute paths, `~`, and any `..` segments are rejected.\n' +

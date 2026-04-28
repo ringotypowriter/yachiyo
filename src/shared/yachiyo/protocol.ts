@@ -153,7 +153,7 @@ const userManagedToolNames = CORE_TOOL_NAMES.filter(
 )
 
 export const USER_MANAGED_TOOL_NAMES = [...userManagedToolNames] as ToolCallName[]
-const defaultDisabledToolNameSet = new Set<ToolCallName>(['jsRepl'])
+const defaultDisabledToolNameSet = new Set<ToolCallName>()
 export const DEFAULT_ENABLED_TOOL_NAMES = USER_MANAGED_TOOL_NAMES.filter(
   (name) => !defaultDisabledToolNameSet.has(name)
 ) as ToolCallName[]
