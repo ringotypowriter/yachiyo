@@ -68,6 +68,7 @@ import {
 } from '../../runtime/externalContextLayers.ts'
 import { EXTERNAL_SYSTEM_PROMPT, SYSTEM_PROMPT } from '../../runtime/prompt.ts'
 import { getActivityTracker, type ActivitySummary } from '../../activity/ActivityTracker.ts'
+import { formatActivityDuration } from '../../activity/ActivitySummarizer.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { RecallDecisionSnapshot } from '../../../../shared/yachiyo/protocol.ts'
 import { resolveActiveSkills } from '../../services/skills/skillResolver.ts'
@@ -386,7 +387,7 @@ export function buildContextSources(input: {
   hasToolReminder: boolean
   memoryEntries: string[]
   recallDecision: RecallDecisionSnapshot | undefined
-  activitySummary?: { uniqueApps: number }
+  activitySummary?: { uniqueApps: number; afkDurationMs?: number }
 }): RunContextSourceSummary[] {
   const sources: RunContextSourceSummary[] = []
 
@@ -467,10 +468,21 @@ export function buildContextSources(input: {
   }
 
   if (input.activitySummary) {
+    const activitySummaryParts = [
+      `${input.activitySummary.uniqueApps} app${input.activitySummary.uniqueApps === 1 ? '' : 's'}`
+    ]
+    if (
+      input.activitySummary.afkDurationMs !== undefined &&
+      input.activitySummary.afkDurationMs > 0
+    ) {
+      activitySummaryParts.push(
+        `AFK ${formatActivityDuration(input.activitySummary.afkDurationMs)}`
+      )
+    }
     sources.push({
       kind: 'activity',
       present: true,
-      summary: `${input.activitySummary.uniqueApps} app${input.activitySummary.uniqueApps === 1 ? '' : 's'}`
+      summary: activitySummaryParts.join(' · ')
     })
   }
 
@@ -1314,7 +1326,10 @@ export async function prepareServerRunContext(
         ...(activitySummary
           ? {
               activitySummary: {
-                uniqueApps: activitySummary.uniqueApps
+                uniqueApps: activitySummary.uniqueApps,
+                ...(activitySummary.afkDurationMs !== undefined
+                  ? { afkDurationMs: activitySummary.afkDurationMs }
+                  : {})
               }
             }
           : {})

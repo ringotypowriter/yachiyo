@@ -217,6 +217,17 @@ test('buildContextSources includes activity when a summary was consumed', () => 
   assert.equal(activity.summary, '2 apps')
 })
 
+test('buildContextSources includes AFK duration in the activity summary label', () => {
+  const sources = buildContextSources({
+    ...BASE_INPUT,
+    activitySummary: { uniqueApps: 2, afkDurationMs: 56 * 60_000 }
+  })
+
+  const activity = sources.find((s) => s.kind === 'activity')
+  assert.ok(activity)
+  assert.equal(activity.summary, '2 apps · AFK 56min')
+})
+
 test('buildContextSources source order is persona, soul, user, skills, fileMentions, agent, memory, toolReminder, activity', () => {
   const sources = buildContextSources({
     ...BASE_INPUT,

@@ -16,6 +16,8 @@ export interface ActivitySummary {
   totalDurationMs: number
   /** Number of unique apps visited. */
   uniqueApps: number
+  /** Time where user input was idle long enough to treat foreground activity as AFK. */
+  afkDurationMs?: number
 }
 
 /** Max distinct entries in the summary text. Remaining entries are collapsed. */
@@ -45,7 +47,7 @@ function aggregateSpans(spans: Span[]): Span[] {
 }
 
 /** Format milliseconds as a human-readable duration. */
-function formatDuration(ms: number): string {
+export function formatActivityDuration(ms: number): string {
   const secs = Math.round(ms / 1000)
   if (secs < 60) return `${secs}s`
   const mins = Math.floor(secs / 60)
@@ -62,20 +64,22 @@ function formatDuration(ms: number): string {
 export function summarizeSpans(
   spans: Span[],
   trackingStartMs: number,
-  trackingEndMs: number
+  trackingEndMs: number,
+  options?: { afkDurationMs?: number }
 ): ActivitySummary | null {
   if (spans.length === 0) return null
 
   const aggregated = aggregateSpans(spans)
   const totalDurationMs = trackingEndMs - trackingStartMs
   const uniqueApps = new Set(spans.map((s) => s.bundleId)).size
+  const afkDurationMs = options?.afkDurationMs
 
   const entries = aggregated.slice(0, MAX_OUTPUT_ENTRIES)
   const truncated = aggregated.length - MAX_OUTPUT_ENTRIES
 
   const lines: string[] = []
   lines.push(
-    `Between Yachiyo's last work and now (${formatDuration(totalDurationMs)} total), tracked foreground activity data:`
+    `Between Yachiyo's last work and now (${formatActivityDuration(totalDurationMs)} total), tracked foreground activity data:`
   )
   lines.push('<activity_summary>')
 
@@ -85,7 +89,16 @@ export function summarizeSpans(
         appName: entry.appName,
         bundleId: entry.bundleId,
         ...(entry.windowTitle ? { windowTitle: entry.windowTitle } : {}),
-        duration: formatDuration(entry.durationMs)
+        duration: formatActivityDuration(entry.durationMs)
+      })
+    )
+  }
+
+  if (afkDurationMs !== undefined && afkDurationMs > 0) {
+    lines.push(
+      JSON.stringify({
+        status: 'afk',
+        duration: formatActivityDuration(afkDurationMs)
       })
     )
   }
@@ -102,6 +115,7 @@ export function summarizeSpans(
     text: lines.join('\n'),
     startedAt: new Date(trackingStartMs).toISOString(),
     totalDurationMs,
-    uniqueApps
+    uniqueApps,
+    ...(afkDurationMs !== undefined && afkDurationMs > 0 ? { afkDurationMs } : {})
   }
 }

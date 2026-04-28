@@ -6,8 +6,10 @@ import { ActivityTracker, type ActivityTrackerDeps } from './ActivityTracker.ts'
 function createTrackerDeps(): ActivityTrackerDeps & {
   intervals: Array<{ callback: () => void; ms: number; active: boolean }>
   setNow: (value: number) => void
+  setIdleTimeMs: (value: number) => void
 } {
   let now = 1_000
+  let idleTimeMs = 0
   const intervals: Array<{ callback: () => void; ms: number; active: boolean }> = []
 
   return {
@@ -15,7 +17,11 @@ function createTrackerDeps(): ActivityTrackerDeps & {
     setNow(value: number): void {
       now = value
     },
+    setIdleTimeMs(value: number): void {
+      idleTimeMs = value
+    },
     now: () => now,
+    getIdleTimeMs: () => idleTimeMs,
     sampleActivity: async () => ({
       appName: 'Zed',
       bundleId: 'dev.zed.Zed'
@@ -152,6 +158,83 @@ test('ActivityTracker allows only one in-flight sample at a time', async () => {
     deps.intervals[0].callback()
 
     assert.equal(sampleCalls, 2)
+  } finally {
+    tracker.finalizeAndConsume()
+  }
+})
+
+test('ActivityTracker stops attributing the focused app once the user is AFK', async () => {
+  const deps = createTrackerDeps()
+  const tracker = new ActivityTracker('simple', deps)
+
+  try {
+    deps.setNow(0)
+    tracker.handleWindowBlur()
+    deps.intervals[0].callback()
+    await flushAsyncWork()
+
+    deps.setNow(10 * 60_000)
+    deps.setIdleTimeMs(6 * 60_000)
+    deps.intervals[0].callback()
+    await flushAsyncWork()
+
+    deps.setNow(60 * 60_000)
+    const summary = tracker.finalizeAndConsume()
+
+    assert.equal(summary?.afkDurationMs, 56 * 60_000)
+    assert.match(summary?.text ?? '', /"appName":"Zed".*"duration":"4min"/)
+    assert.match(summary?.text ?? '', /"status":"afk".*"duration":"56min"/)
+  } finally {
+    tracker.finalizeAndConsume()
+  }
+})
+
+test('ActivityTracker returns no activity summary for an AFK-only session', async () => {
+  const deps = createTrackerDeps()
+  const tracker = new ActivityTracker('simple', deps)
+
+  try {
+    deps.setNow(0)
+    tracker.handleWindowBlur()
+
+    deps.setNow(10 * 60_000)
+    deps.setIdleTimeMs(6 * 60_000)
+    deps.intervals[0].callback()
+    await flushAsyncWork()
+
+    deps.setNow(60 * 60_000)
+    assert.equal(tracker.finalizeAndConsume(), null)
+  } finally {
+    tracker.finalizeAndConsume()
+  }
+})
+
+test('ActivityTracker closes AFK time at the last activity timestamp after the user returns', async () => {
+  const deps = createTrackerDeps()
+  const tracker = new ActivityTracker('simple', deps)
+
+  try {
+    deps.setNow(0)
+    tracker.handleWindowBlur()
+    deps.intervals[0].callback()
+    await flushAsyncWork()
+
+    deps.setNow(10 * 60_000)
+    deps.setIdleTimeMs(6 * 60_000)
+    deps.intervals[0].callback()
+    await flushAsyncWork()
+
+    deps.setNow(20 * 60_000)
+    deps.setIdleTimeMs(60_000)
+    deps.intervals[0].callback()
+    await flushAsyncWork()
+
+    deps.setNow(21 * 60_000)
+    deps.setIdleTimeMs(0)
+    const summary = tracker.finalizeAndConsume()
+
+    assert.equal(summary?.afkDurationMs, 15 * 60_000)
+    assert.match(summary?.text ?? '', /"status":"afk".*"duration":"15min"/)
   } finally {
     tracker.finalizeAndConsume()
   }

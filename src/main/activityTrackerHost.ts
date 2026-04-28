@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, powerMonitor } from 'electron'
 import {
   getActivityTracker,
   type ActivityTrackingMode
@@ -13,6 +13,7 @@ import {
  */
 export function installActivityTrackerHost(initialMode: ActivityTrackingMode): void {
   const tracker = getActivityTracker(initialMode)
+  tracker.setIdleTimeProvider(() => powerMonitor.getSystemIdleTime() * 1000)
 
   const handleBlur = (): void => {
     // Blur fires before focus moves to the other app — wait a tick
