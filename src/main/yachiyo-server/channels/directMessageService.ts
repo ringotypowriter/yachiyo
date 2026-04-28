@@ -181,6 +181,13 @@ export interface DirectMessageServiceOptions<TTarget> {
    * before executing the given slash command.
    */
   shouldDiscardPendingBatch?(command: string, channelUser: ChannelUserRecord, args: string): boolean
+  /**
+   * Resolves plain text into a command when a prior slash command is waiting for follow-up input.
+   */
+  resolvePlainTextCommand?(
+    channelUser: ChannelUserRecord,
+    text: string
+  ): { command: string; args: string } | null
 }
 
 export interface DirectMessageService<TTarget> {
@@ -679,6 +686,57 @@ export function createDirectMessageService<TTarget>(
     )
   }
 
+  function discardPendingBatchForCommand(
+    channelUser: ChannelUserRecord,
+    command: string,
+    args: string
+  ): boolean {
+    if (!options.shouldDiscardPendingBatch?.(command, channelUser, args)) {
+      return false
+    }
+
+    const pending = pendingBatches.get(channelUser.id)
+    if (!pending) {
+      return false
+    }
+
+    clearTimeout(pending.timer)
+    pending.stopBatchIndicator()
+    pendingBatches.delete(channelUser.id)
+    console.log(
+      `[${options.logLabel}] discarded pending batch for ${channelUser.username} on command`
+    )
+    return true
+  }
+
+  function handleCommandMessage(
+    target: TTarget,
+    channelUser: ChannelUserRecord,
+    command: string,
+    args: string,
+    text: string,
+    imageDownloads: Promise<MessageImageRecord | null>[]
+  ): void {
+    if (!options.handleSlashCommand) {
+      enqueueToBatch(target, channelUser, text, imageDownloads)
+      return
+    }
+
+    const batchDiscarded = discardPendingBatchForCommand(channelUser, command, args)
+
+    void options
+      .handleSlashCommand(target, channelUser, command, args, { batchDiscarded })
+      .then((handled) => {
+        if (!handled) {
+          enqueueToBatch(target, channelUser, text, imageDownloads)
+        }
+      })
+      .catch((err) => {
+        console.error(`[${options.logLabel}] command handler failed`, err)
+        void options.sendMessage(target, options.errorReply).catch(() => {})
+      })
+  }
+
   return {
     enqueueMessage(
       target: TTarget,
@@ -697,31 +755,23 @@ export function createDirectMessageService<TTarget>(
         const command = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx)
         const args = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim()
 
-        let batchDiscarded = false
-        if (options.shouldDiscardPendingBatch?.(command, channelUser, args)) {
-          const pending = pendingBatches.get(channelUser.id)
-          if (pending) {
-            clearTimeout(pending.timer)
-            pending.stopBatchIndicator()
-            pendingBatches.delete(channelUser.id)
-            batchDiscarded = true
-            console.log(
-              `[${options.logLabel}] discarded pending batch for ${channelUser.username} on slash command`
-            )
-          }
-        }
+        handleCommandMessage(target, channelUser, command, args, text, imageDownloads)
+        return
+      }
 
-        void options
-          .handleSlashCommand(target, channelUser, command, args, { batchDiscarded })
-          .then((handled) => {
-            if (!handled) {
-              enqueueToBatch(target, channelUser, text, imageDownloads)
-            }
-          })
-          .catch((err) => {
-            console.error(`[${options.logLabel}] slash command handler failed`, err)
-            void options.sendMessage(target, options.errorReply).catch(() => {})
-          })
+      const resolvedPlainCommand =
+        options.handleSlashCommand && imageDownloads.length === 0 && !trimmed.includes('\n')
+          ? options.resolvePlainTextCommand?.(channelUser, trimmed)
+          : null
+      if (resolvedPlainCommand) {
+        handleCommandMessage(
+          target,
+          channelUser,
+          resolvedPlainCommand.command,
+          resolvedPlainCommand.args,
+          text,
+          imageDownloads
+        )
         return
       }
 

@@ -24,7 +24,12 @@ import {
   resolveDirectMessageThread,
   type DirectMessageThreadResolution
 } from './directMessageService.ts'
-import { handleDmSlashCommand, shouldDiscardPendingBatchForDmCommand } from './dmSlashCommands.ts'
+import {
+  createDmSlashCommandPendingChoiceStore,
+  handleDmSlashCommand,
+  resolvePendingDmSlashCommandChoice,
+  shouldDiscardPendingBatchForDmCommand
+} from './dmSlashCommands.ts'
 import { createQQBotClient, type QQBotClient } from './qqbotClient.ts'
 import { routeQQBotMessage, type QQBotChannelStorage } from './qqbot.ts'
 
@@ -132,6 +137,8 @@ export function createQQBotService({
     })
   }
 
+  const slashCommandPendingChoices = createDmSlashCommandPendingChoiceStore()
+
   const directMessages = createDirectMessageService<QQBotTarget>({
     logLabel: 'qqbot',
     server,
@@ -162,12 +169,15 @@ export function createQQBotService({
     nonRunReply: '抱歉，出了点问题。',
     errorReply: '出了点问题，请稍后再试。',
     shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
+    resolvePlainTextCommand: (channelUser, text) =>
+      resolvePendingDmSlashCommandChoice(slashCommandPendingChoices, channelUser, text),
     handleSlashCommand: (target, channelUser, command, args, context) =>
       handleDmSlashCommand(
         {
           server,
           threadReuseWindowMs: policy.threadReuseWindowMs,
           contextTokenLimit: policy.contextTokenLimit,
+          pendingChoices: slashCommandPendingChoices,
           createFreshThread: (user) =>
             server.createThread({
               source: 'qqbot',

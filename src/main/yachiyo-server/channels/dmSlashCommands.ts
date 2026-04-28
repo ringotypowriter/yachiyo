@@ -30,6 +30,7 @@ export interface DmSlashCommandOptions<TTarget> {
   server: DmSlashCommandServer
   threadReuseWindowMs: number
   contextTokenLimit: number
+  pendingChoices?: DmSlashCommandPendingChoiceStore
   createFreshThread(channelUser: ChannelUserRecord): Promise<ThreadRecord>
   sendMessage(target: TTarget, text: string): Promise<void>
   /**
@@ -61,11 +62,131 @@ interface WorkspaceChoice {
   label: string
 }
 
+export type DmSlashCommandPendingChoice = '/workspace' | '/takeover'
+
+export interface DmSlashCommandPendingChoiceStore {
+  get(channelUserId: string): DmSlashCommandPendingChoice | null
+  set(
+    channelUserId: string,
+    command: DmSlashCommandPendingChoice,
+    onExpire?: () => void | Promise<void>
+  ): void
+  delete(channelUserId: string): void
+}
+
+export interface DmSlashCommandResolvedChoice {
+  command: DmSlashCommandPendingChoice
+  args: string
+}
+
+export interface DmSlashCommandPendingChoiceStoreOptions {
+  ttlMs?: number
+  onExpireError?(error: unknown): void
+}
+
+interface DmSlashCommandPendingChoiceEntry {
+  command: DmSlashCommandPendingChoice
+  timeout: ReturnType<typeof setTimeout>
+  onExpire?: () => void | Promise<void>
+}
+
+const PENDING_CHOICE_TTL_MS = 5 * 60 * 1000
+const NUMBER_ONLY_MESSAGE = /^\d+$/
 const TAKEOVER_PREVIEW_MAX_LENGTH = 72
 const SECTION_DIVIDER = '---'
 
+export function createDmSlashCommandPendingChoiceStore(
+  options: DmSlashCommandPendingChoiceStoreOptions = {}
+): DmSlashCommandPendingChoiceStore {
+  const ttlMs = options.ttlMs ?? PENDING_CHOICE_TTL_MS
+  const onExpireError =
+    options.onExpireError ??
+    ((error: unknown): void => {
+      console.error('[dmSlashCommands] pending choice expiry handler failed', error)
+    })
+  const choices = new Map<string, DmSlashCommandPendingChoiceEntry>()
+
+  const deleteChoice = (channelUserId: string): void => {
+    const choice = choices.get(channelUserId)
+    if (!choice) {
+      return
+    }
+
+    clearTimeout(choice.timeout)
+    choices.delete(channelUserId)
+  }
+
+  return {
+    get(channelUserId) {
+      return choices.get(channelUserId)?.command ?? null
+    },
+    set(channelUserId, command, onExpire) {
+      deleteChoice(channelUserId)
+      const timeout = setTimeout(() => {
+        const choice = choices.get(channelUserId)
+        if (!choice || choice.timeout !== timeout) {
+          return
+        }
+
+        choices.delete(channelUserId)
+        if (choice.onExpire) {
+          void Promise.resolve(choice.onExpire()).catch(onExpireError)
+        }
+      }, ttlMs)
+      choices.set(channelUserId, { command, timeout, onExpire })
+    },
+    delete(channelUserId) {
+      deleteChoice(channelUserId)
+    }
+  }
+}
+
+export function resolvePendingDmSlashCommandChoice(
+  pendingChoices: DmSlashCommandPendingChoiceStore,
+  channelUser: Pick<ChannelUserRecord, 'id' | 'role'>,
+  text: string
+): DmSlashCommandResolvedChoice | null {
+  const args = text.trim()
+  if (channelUser.role !== 'owner' || !NUMBER_ONLY_MESSAGE.test(args)) {
+    return null
+  }
+
+  const command = pendingChoices.get(channelUser.id)
+  return command ? { command, args } : null
+}
+
+function rememberPendingChoice<TTarget>(
+  options: DmSlashCommandOptions<TTarget>,
+  target: TTarget,
+  channelUser: ChannelUserRecord,
+  command: DmSlashCommandPendingChoice
+): void {
+  options.pendingChoices?.set(channelUser.id, command, () =>
+    options.sendMessage(target, formatPendingChoiceExpired(command))
+  )
+}
+
+function clearPendingChoice<TTarget>(
+  options: DmSlashCommandOptions<TTarget>,
+  channelUser: ChannelUserRecord
+): void {
+  options.pendingChoices?.delete(channelUser.id)
+}
+
 function formatDiscardNotice(discarded: boolean): string {
   return discarded ? 'Your unsent message was discarded.\n\n' : ''
+}
+
+function formatPendingChoiceExpired(command: DmSlashCommandPendingChoice): string {
+  return command === '/workspace'
+    ? 'Workspace selection expired. Send /workspace to choose again.'
+    : 'Takeover selection expired. Send /takeover to choose again.'
+}
+
+function formatPendingChoiceCancelled(command: DmSlashCommandPendingChoice): string {
+  return command === '/workspace'
+    ? 'Workspace selection cancelled.'
+    : 'Takeover selection cancelled.'
 }
 
 function formatThreadTitle(thread: Pick<ThreadRecord, 'title' | 'icon'>): string {
@@ -149,7 +270,7 @@ function formatWorkspaceChoices(choices: WorkspaceChoice[], currentWorkspacePath
     }
   })
   lines.push('')
-  lines.push('Send /workspace 1, /workspace 2, etc. to switch.')
+  lines.push('Reply with a number to switch workspace, or 0 to cancel.')
   return lines.join('\n')
 }
 
@@ -170,7 +291,7 @@ function formatTakeoverThreadChoices(threads: ThreadRecord[]): string {
     }
   })
   lines.push('')
-  lines.push('Send /takeover 1, /takeover 2, etc. to switch.')
+  lines.push('Reply with a number to take over a thread, or 0 to cancel.')
   return lines.join('\n')
 }
 
@@ -215,6 +336,11 @@ async function handleWorkspaceCommand<TTarget>(
   context: { batchDiscarded: boolean }
 ): Promise<void> {
   const notice = formatDiscardNotice(context.batchDiscarded)
+  if (args.trim() === '0') {
+    await options.sendMessage(target, `${notice}${formatPendingChoiceCancelled('/workspace')}`)
+    return
+  }
+
   const currentThread = options.server.findActiveChannelThread(
     channelUser.id,
     options.threadReuseWindowMs
@@ -239,6 +365,7 @@ async function handleWorkspaceCommand<TTarget>(
       target,
       `${notice}${formatWorkspaceChoices(choices, currentThread?.workspacePath)}`
     )
+    rememberPendingChoice(options, target, channelUser, '/workspace')
     return
   }
 
@@ -251,6 +378,7 @@ async function handleWorkspaceCommand<TTarget>(
         currentThread?.workspacePath
       )}`
     )
+    rememberPendingChoice(options, target, channelUser, '/workspace')
     return
   }
 
@@ -284,6 +412,11 @@ async function handleTakeoverCommand<TTarget>(
   context: { batchDiscarded: boolean }
 ): Promise<void> {
   const notice = formatDiscardNotice(context.batchDiscarded)
+  if (args.trim() === '0') {
+    await options.sendMessage(target, `${notice}${formatPendingChoiceCancelled('/takeover')}`)
+    return
+  }
+
   const threads = options.server.listOwnerDmTakeoverThreads({
     channelUserId: channelUser.id,
     limit: 10
@@ -296,6 +429,7 @@ async function handleTakeoverCommand<TTarget>(
 
   if (!args.trim()) {
     await options.sendMessage(target, `${notice}${formatTakeoverThreadChoices(threads)}`)
+    rememberPendingChoice(options, target, channelUser, '/takeover')
     return
   }
 
@@ -305,6 +439,7 @@ async function handleTakeoverCommand<TTarget>(
       target,
       `${notice}Choose a thread number from the list.\n\n${formatTakeoverThreadChoices(threads)}`
     )
+    rememberPendingChoice(options, target, channelUser, '/takeover')
     return
   }
 
@@ -458,6 +593,7 @@ export async function handleDmSlashCommand<TTarget>(
   if (args) {
     console.log(`[dmSlashCommands] ${command} called with args: ${args}`)
   }
+  clearPendingChoice(options, channelUser)
 
   const def = COMMANDS[command] as CommandDef<TTarget> | undefined
   if (!def) {

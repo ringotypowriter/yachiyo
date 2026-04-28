@@ -1355,6 +1355,77 @@ describe('createDirectMessageService', () => {
     assert.deepEqual(sentContents, [])
   })
 
+  it('routes a number-only pending command reply before batching it as chat text', async () => {
+    const channelUser = { ...createChannelUser(), role: 'owner' as const }
+    const thread = createThread('thread-workspace-followup')
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    const sentContents: string[] = []
+    const handledCommands: Array<{ command: string; args: string; batchDiscarded: boolean }> = []
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input) {
+        sentContents.push(input.content)
+        queueMicrotask(() => {
+          for (const l of listeners) {
+            l({
+              type: 'run.completed',
+              eventId: 'e1',
+              timestamp: '2026-03-31T00:00:00.000Z',
+              threadId: thread.id,
+              runId: 'r1'
+            })
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'r1',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'test',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 50,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async () => {},
+      nonRunReply: 'non-run',
+      errorReply: 'error',
+      shouldDiscardPendingBatch: (command) => command === '/workspace',
+      resolvePlainTextCommand: (_channelUser, text) =>
+        text.trim() === '2' ? { command: '/workspace', args: '2' } : null,
+      handleSlashCommand: async (_target, _channelUser, command, args, context) => {
+        handledCommands.push({ command, args, batchDiscarded: context.batchDiscarded })
+        return true
+      }
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'hello')
+    directMessages.enqueueMessage('chat-1', channelUser, '2')
+
+    await delay(100)
+
+    assert.deepEqual(handledCommands, [{ command: '/workspace', args: '2', batchDiscarded: true }])
+    assert.deepEqual(sentContents, [])
+  })
+
   it('does not discard a pending batch for no-side-effect slash commands like /help', async () => {
     const channelUser = createChannelUser()
     const thread = createThread('thread-keep')

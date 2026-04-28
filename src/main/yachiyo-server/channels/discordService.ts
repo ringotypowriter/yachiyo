@@ -36,7 +36,12 @@ import {
   resolveDirectMessageThread,
   type DirectMessageThreadResolution
 } from './directMessageService.ts'
-import { handleDmSlashCommand, shouldDiscardPendingBatchForDmCommand } from './dmSlashCommands.ts'
+import {
+  createDmSlashCommandPendingChoiceStore,
+  handleDmSlashCommand,
+  resolvePendingDmSlashCommandChoice,
+  shouldDiscardPendingBatchForDmCommand
+} from './dmSlashCommands.ts'
 import {
   buildGroupProbeBehaviorPrompt,
   buildGroupProbeContextPrompt,
@@ -226,6 +231,8 @@ export function createDiscordService({
     })
   }
 
+  const slashCommandPendingChoices = createDmSlashCommandPendingChoiceStore()
+
   const directMessages = createDirectMessageService<string>({
     logLabel: 'discord',
     server,
@@ -237,12 +244,15 @@ export function createDiscordService({
     nonRunReply: 'Sorry, something went wrong on my end.',
     errorReply: 'Something went wrong. Please try again in a moment.',
     shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
+    resolvePlainTextCommand: (channelUser, text) =>
+      resolvePendingDmSlashCommandChoice(slashCommandPendingChoices, channelUser, text),
     handleSlashCommand: (channelId, channelUser, command, args, context) =>
       handleDmSlashCommand(
         {
           server,
           threadReuseWindowMs: policy.threadReuseWindowMs,
           contextTokenLimit: policy.contextTokenLimit,
+          pendingChoices: slashCommandPendingChoices,
           createFreshThread: (user) =>
             server.createThread({
               source: 'discord',

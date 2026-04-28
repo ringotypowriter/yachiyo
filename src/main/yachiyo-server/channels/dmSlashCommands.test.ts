@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { setTimeout as delay } from 'node:timers/promises'
 
 import type {
   ChannelUserRecord,
@@ -8,7 +9,9 @@ import type {
   ThreadRecord
 } from '../../../shared/yachiyo/protocol.ts'
 import {
+  createDmSlashCommandPendingChoiceStore,
   handleDmSlashCommand,
+  resolvePendingDmSlashCommandChoice,
   shouldDiscardPendingBatchForDmCommand,
   type DmSlashCommandOptions
 } from './dmSlashCommands.ts'
@@ -505,9 +508,117 @@ describe('handleDmSlashCommand', () => {
           '',
           '2. Graduate Paper',
           '',
-          'Send /takeover 1, /takeover 2, etc. to switch.'
+          'Reply with a number to take over a thread, or 0 to cancel.'
         ].join('\n')
       )
+    })
+
+    it('treats a later number-only owner message as the pending takeover index', async () => {
+      const pendingChoices = createDmSlashCommandPendingChoiceStore({ ttlMs: 5 })
+      const channelUser = createChannelUser({ role: 'owner' })
+      const targetThread = createThread('thread-2', { title: 'Research Plan' })
+      const sent: string[] = []
+      const takenOverThreadIds: string[] = []
+
+      const options = makeOptions<string>({
+        pendingChoices,
+        server: {
+          listOwnerDmTakeoverThreads: () => [
+            createThread('thread-1', { title: 'Launch Notes' }),
+            targetThread
+          ],
+          takeOverThreadForChannelUser: async (input) => {
+            takenOverThreadIds.push(input.threadId)
+            return targetThread
+          },
+          buildThreadTakeoverContext: (input) => {
+            assert.equal(input.threadId, targetThread.id)
+            return 'Took over:\nResearch Plan'
+          }
+        },
+        sendMessage: async (_target, text) => {
+          sent.push(text)
+        }
+      })
+
+      await handleDmSlashCommand(options, 'chat-1', channelUser, '/takeover', '')
+
+      const followup = resolvePendingDmSlashCommandChoice(pendingChoices, channelUser, '2')
+      assert.deepEqual(followup, { command: '/takeover', args: '2' })
+
+      const handled = await handleDmSlashCommand(
+        options,
+        'chat-1',
+        channelUser,
+        followup.command,
+        followup.args
+      )
+
+      assert.equal(handled, true)
+      assert.deepEqual(takenOverThreadIds, [targetThread.id])
+      assert.equal(sent.length, 2)
+      assert.equal(sent[1], 'Took over:\nResearch Plan')
+      assert.equal(resolvePendingDmSlashCommandChoice(pendingChoices, channelUser, '2'), null)
+    })
+
+    it('notifies the owner when a takeover picker expires', async () => {
+      const pendingChoices = createDmSlashCommandPendingChoiceStore({ ttlMs: 5 })
+      const channelUser = createChannelUser({ role: 'owner' })
+      const sent: string[] = []
+
+      await handleDmSlashCommand(
+        makeOptions<string>({
+          pendingChoices,
+          server: {
+            listOwnerDmTakeoverThreads: () => [createThread('thread-1')]
+          },
+          sendMessage: async (_target, text) => {
+            sent.push(text)
+          }
+        }),
+        'chat-1',
+        channelUser,
+        '/takeover',
+        ''
+      )
+
+      await delay(20)
+
+      assert.equal(sent.length, 2)
+      assert.equal(sent[1], 'Takeover selection expired. Send /takeover to choose again.')
+      assert.equal(resolvePendingDmSlashCommandChoice(pendingChoices, channelUser, '1'), null)
+    })
+
+    it('cancels a pending takeover picker with 0', async () => {
+      const pendingChoices = createDmSlashCommandPendingChoiceStore()
+      const channelUser = createChannelUser({ role: 'owner' })
+      const sent: string[] = []
+      let takeoverCalled = false
+
+      const options = makeOptions<string>({
+        pendingChoices,
+        server: {
+          listOwnerDmTakeoverThreads: () => [createThread('thread-1')],
+          takeOverThreadForChannelUser: async () => {
+            takeoverCalled = true
+            return createThread('thread-1')
+          }
+        },
+        sendMessage: async (_target, text) => {
+          sent.push(text)
+        }
+      })
+
+      await handleDmSlashCommand(options, 'chat-1', channelUser, '/takeover', '')
+
+      const followup = resolvePendingDmSlashCommandChoice(pendingChoices, channelUser, '0')
+      assert.deepEqual(followup, { command: '/takeover', args: '0' })
+
+      await handleDmSlashCommand(options, 'chat-1', channelUser, followup.command, followup.args)
+
+      assert.equal(takeoverCalled, false)
+      assert.equal(sent[1], 'Takeover selection cancelled.')
+      assert.equal(resolvePendingDmSlashCommandChoice(pendingChoices, channelUser, '1'), null)
     })
 
     it('takes over the selected thread and sends the takeover context', async () => {
@@ -692,9 +803,115 @@ describe('handleDmSlashCommand', () => {
           'Path:',
           '/work/research-notes',
           '',
-          'Send /workspace 1, /workspace 2, etc. to switch.'
+          'Reply with a number to switch workspace, or 0 to cancel.'
         ].join('\n')
       )
+    })
+
+    it('treats a later number-only owner message as the pending workspace index', async () => {
+      const pendingChoices = createDmSlashCommandPendingChoiceStore()
+      const channelUser = createChannelUser({ role: 'owner' })
+      const activeThread = createThread('thread-active')
+      const sent: string[] = []
+      const workspaceUpdates: Array<{ threadId: string; workspacePath?: string | null }> = []
+
+      const options = makeOptions<string>({
+        pendingChoices,
+        server: {
+          findActiveChannelThread: () => activeThread,
+          updateThreadWorkspace: async (input) => {
+            workspaceUpdates.push(input)
+            return createThread(input.threadId, {
+              workspacePath: input.workspacePath ?? undefined
+            })
+          }
+        },
+        sendMessage: async (_target, text) => {
+          sent.push(text)
+        }
+      })
+
+      await handleDmSlashCommand(options, 'chat-1', channelUser, '/workspace', '')
+
+      const followup = resolvePendingDmSlashCommandChoice(pendingChoices, channelUser, '2')
+      assert.deepEqual(followup, { command: '/workspace', args: '2' })
+
+      const handled = await handleDmSlashCommand(
+        options,
+        'chat-1',
+        channelUser,
+        followup.command,
+        followup.args
+      )
+
+      assert.equal(handled, true)
+      assert.deepEqual(workspaceUpdates, [
+        { threadId: activeThread.id, workspacePath: '/work/research-notes' }
+      ])
+      assert.equal(sent.length, 2)
+      assert.match(sent[1], /Workspace switched:\n\nResearch Notes/)
+      assert.equal(resolvePendingDmSlashCommandChoice(pendingChoices, channelUser, '2'), null)
+
+      await delay(20)
+      assert.equal(sent.length, 2)
+    })
+
+    it('notifies the owner when a workspace picker expires', async () => {
+      const pendingChoices = createDmSlashCommandPendingChoiceStore({ ttlMs: 5 })
+      const channelUser = createChannelUser({ role: 'owner' })
+      const sent: string[] = []
+
+      await handleDmSlashCommand(
+        makeOptions<string>({
+          pendingChoices,
+          sendMessage: async (_target, text) => {
+            sent.push(text)
+          }
+        }),
+        'chat-1',
+        channelUser,
+        '/workspace',
+        ''
+      )
+
+      await delay(20)
+
+      assert.equal(sent.length, 2)
+      assert.equal(sent[1], 'Workspace selection expired. Send /workspace to choose again.')
+      assert.equal(resolvePendingDmSlashCommandChoice(pendingChoices, channelUser, '1'), null)
+    })
+
+    it('cancels a pending workspace picker with 0', async () => {
+      const pendingChoices = createDmSlashCommandPendingChoiceStore()
+      const channelUser = createChannelUser({ role: 'owner' })
+      const activeThread = createThread('thread-active')
+      const sent: string[] = []
+      const workspaceUpdates: Array<{ threadId: string; workspacePath?: string | null }> = []
+
+      const options = makeOptions<string>({
+        pendingChoices,
+        server: {
+          findActiveChannelThread: () => activeThread,
+          updateThreadWorkspace: async (input) => {
+            workspaceUpdates.push(input)
+            return createThread(input.threadId)
+          }
+        },
+        sendMessage: async (_target, text) => {
+          sent.push(text)
+        }
+      })
+
+      await handleDmSlashCommand(options, 'chat-1', channelUser, '/workspace', '')
+
+      const followup = resolvePendingDmSlashCommandChoice(pendingChoices, channelUser, '0')
+      assert.deepEqual(followup, { command: '/workspace', args: '0' })
+
+      await handleDmSlashCommand(options, 'chat-1', channelUser, followup.command, followup.args)
+
+      assert.deepEqual(workspaceUpdates, [])
+      assert.equal(sent[1], 'Workspace selection cancelled.')
+      assert.equal(resolvePendingDmSlashCommandChoice(pendingChoices, channelUser, '1'), null)
     })
 
     it('switches the active owner thread to the selected workspace index', async () => {

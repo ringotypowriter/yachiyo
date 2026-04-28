@@ -71,6 +71,7 @@ import {
 } from '../config/paths.ts'
 import { FolderDomain } from './domain/folderDomain.ts'
 import { ScheduleDomain } from './domain/scheduleDomain.ts'
+import { DEFAULT_THREAD_TITLE } from './domain/shared.ts'
 import { createTtlReaper, type TtlReaper } from './domain/ttlReaper.ts'
 import { acpProcessPool } from '../runtime/acp/acpProcessPool.ts'
 import { createAuxiliaryGenerationService } from '../runtime/auxiliaryGeneration.ts'
@@ -208,6 +209,12 @@ function visibleTakeoverMessages(thread: ThreadRecord, messages: MessageRecord[]
     }
     return visibleTakeoverMessageText(message).length > 0
   })
+}
+
+function isBlankNewChatThread(thread: ThreadRecord, messages: MessageRecord[]): boolean {
+  return (
+    thread.title === DEFAULT_THREAD_TITLE && visibleTakeoverMessages(thread, messages).length === 0
+  )
 }
 
 function messagesAfterWatermark(
@@ -1217,8 +1224,14 @@ export class YachiyoServer {
   }
 
   listOwnerDmTakeoverThreads(input: { channelUserId: string; limit: number }): ThreadRecord[] {
-    const { threads } = this.storage.bootstrap()
-    return threads.filter(isOwnerDmTakeoverCandidate).slice(0, Math.max(0, input.limit))
+    const { threads, messagesByThread } = this.storage.bootstrap()
+    return threads
+      .filter(
+        (thread) =>
+          isOwnerDmTakeoverCandidate(thread) &&
+          !isBlankNewChatThread(thread, messagesByThread[thread.id] ?? [])
+      )
+      .slice(0, Math.max(0, input.limit))
   }
 
   async takeOverThreadForChannelUser(input: {

@@ -33,7 +33,12 @@ import {
   resolveDirectMessageThread,
   type DirectMessageThreadResolution
 } from './directMessageService.ts'
-import { handleDmSlashCommand, shouldDiscardPendingBatchForDmCommand } from './dmSlashCommands.ts'
+import {
+  createDmSlashCommandPendingChoiceStore,
+  handleDmSlashCommand,
+  resolvePendingDmSlashCommandChoice,
+  shouldDiscardPendingBatchForDmCommand
+} from './dmSlashCommands.ts'
 import {
   detectMediaTypeFromBytes,
   ensureVisionSafe,
@@ -179,6 +184,8 @@ export function createQQService({
     })
   }
 
+  const slashCommandPendingChoices = createDmSlashCommandPendingChoiceStore()
+
   const directMessages = createDirectMessageService<number>({
     logLabel: 'qq',
     server,
@@ -195,12 +202,15 @@ export function createQQService({
     nonRunReply: '抱歉，出了点问题。',
     errorReply: '出了点问题，请稍后再试。',
     shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
+    resolvePlainTextCommand: (channelUser, text) =>
+      resolvePendingDmSlashCommandChoice(slashCommandPendingChoices, channelUser, text),
     handleSlashCommand: (qqUserId, channelUser, command, args, context) =>
       handleDmSlashCommand(
         {
           server,
           threadReuseWindowMs: policy.threadReuseWindowMs,
           contextTokenLimit: policy.contextTokenLimit,
+          pendingChoices: slashCommandPendingChoices,
           createFreshThread: (user) =>
             server.createThread({
               source: 'qq',

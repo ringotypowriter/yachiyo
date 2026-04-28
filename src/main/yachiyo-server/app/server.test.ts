@@ -7251,10 +7251,15 @@ test('YachiyoServer lists only owner-visible threads for owner DM takeover', asy
 
     let localThread = await server.createThread({ title: 'Local work' })
     localThread = await server.setThreadIcon({ threadId: localThread.id, icon: '🛠️' })
+    const localNewChatThread = await server.createThread()
     const ownerDmThread = await server.createThread({
       source: 'telegram',
       channelUserId: owner.id,
       title: 'Owner DM'
+    })
+    const ownerNewChatThread = await server.createThread({
+      source: 'telegram',
+      channelUserId: owner.id
     })
     const guestDmThread = await server.createThread({
       source: 'telegram',
@@ -7275,6 +7280,8 @@ test('YachiyoServer lists only owner-visible threads for owner DM takeover', asy
 
     assert.ok(candidateIds.includes(localThread.id))
     assert.ok(candidateIds.includes(ownerDmThread.id))
+    assert.equal(candidateIds.includes(localNewChatThread.id), false)
+    assert.equal(candidateIds.includes(ownerNewChatThread.id), false)
     assert.equal(candidateIds.includes(guestDmThread.id), false)
     assert.equal(candidateIds.includes(groupThread.id), false)
   })
