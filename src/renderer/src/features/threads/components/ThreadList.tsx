@@ -1,5 +1,5 @@
 import type React from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Archive, Check, FolderPlus, RotateCcw, Sparkles, Star, Trash2, X } from 'lucide-react'
 import { useVirtualizer as useTanStackVirtualizer } from '@tanstack/react-virtual'
 import {
@@ -544,7 +544,7 @@ function FolderAwareThreadList({
   threads,
   folders,
   collapsedFolderIds,
-  scrollRef,
+  scrollElement,
   showPreview,
   mode,
   toggleFolderCollapsed,
@@ -560,7 +560,7 @@ function FolderAwareThreadList({
   threads: Thread[]
   folders: FolderRecord[]
   collapsedFolderIds: Set<string>
-  scrollRef: React.RefObject<HTMLDivElement | null>
+  scrollElement: HTMLDivElement | null
   showPreview: boolean
   mode: 'active' | 'archived'
   toggleFolderCollapsed: (folderId: string) => void
@@ -580,7 +580,7 @@ function FolderAwareThreadList({
   )
   const [draggedThread, setDraggedThread] = useState<Thread | null>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
-  const getScrollElement = useCallback(() => scrollRef.current, [scrollRef])
+  const getScrollElement = useCallback(() => scrollElement, [scrollElement])
   const estimateSize = useCallback(
     (index: number) => estimateSidebarRowSize(rows[index]!, showPreview),
     [rows, showPreview]
@@ -593,6 +593,13 @@ function FolderAwareThreadList({
     overscan: 10,
     getItemKey
   })
+
+  useLayoutEffect(() => {
+    if (!scrollElement) return
+
+    virtualizer.scrollToOffset(0)
+    virtualizer.measure()
+  }, [mode, rows.length, scrollElement, threads.length, virtualizer])
 
   function handleDragEnd(event: DragEndEvent): void {
     setDraggedThread(null)
@@ -933,7 +940,10 @@ function ThreadListContent({
   const runStatusesByThread = useAppStore((s) => s.runStatusesByThread)
   const justDoneRunIdsByThread = useAppStore((s) => s.justDoneRunIdsByThread)
   const showPreview = useAppStore((s) => s.config?.general?.sidebarPreview) !== false
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null)
+  const setScrollNode = useCallback((node: HTMLDivElement | null) => {
+    setScrollElement((current) => (current === node ? current : node))
+  }, [])
 
   function exitSelectMode(): void {
     setSelectMode(false)
@@ -1333,7 +1343,7 @@ function ThreadListContent({
       </div>
       <div
         key={threadListMode}
-        ref={scrollRef}
+        ref={setScrollNode}
         className="flex-1 overflow-y-auto px-2 py-1 yachiyo-thread-enter"
       >
         {visibleThreads.length === 0 ? <ThreadListEmpty threadListMode={threadListMode} /> : null}
@@ -1341,7 +1351,7 @@ function ThreadListContent({
           threads={visibleThreads}
           folders={folders}
           collapsedFolderIds={collapsedFolderIds}
-          scrollRef={scrollRef}
+          scrollElement={scrollElement}
           showPreview={showPreview}
           mode={threadListMode}
           toggleFolderCollapsed={toggleFolderCollapsed}

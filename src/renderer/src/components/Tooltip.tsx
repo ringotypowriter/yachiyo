@@ -82,6 +82,7 @@ function TooltipPopup({
 export interface TooltipProps {
   content: React.ReactNode
   children: React.ReactNode
+  className?: string
   placement?: 'top' | 'bottom'
   delay?: number
   dark?: boolean
@@ -90,6 +91,7 @@ export interface TooltipProps {
 export function Tooltip({
   content,
   children,
+  className,
   placement = 'top',
   delay = 350,
   dark
@@ -133,7 +135,7 @@ export function Tooltip({
 
   return (
     <>
-      <span onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+      <span className={className} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
         {children}
       </span>
       {popup !== null

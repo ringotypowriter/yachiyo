@@ -20,6 +20,7 @@ import {
   THREAD_COLOR_TAGS,
   THREAD_COLOR_VALUES
 } from '@renderer/features/threads/lib/threadColorPalette'
+import { Tooltip } from '@renderer/components/Tooltip'
 import {
   TEMPORARY_WORKSPACE_FILTER,
   resolveWorkspaceDisplayName,
@@ -150,66 +151,78 @@ export function SidebarFilterBar(): React.JSX.Element {
   const hasMulti = hasActiveMultiFilter(sidebarFilter)
   const isActive = hasMulti || sidebarFilter.base === 'archived'
   const label = resolveFilterLabel(sidebarFilter)
+  const tooltipLabel = `Filter chats: ${label}`
   const showUnreadDot = unreadArchivedCount > 0 && sidebarFilter.base !== 'archived' && !hasMulti
 
   return (
-    <div className="shrink-0 min-w-0 flex items-center">
-      <button
-        ref={triggerRef}
-        aria-label="Filter chats"
-        onClick={() => {
-          if (anchorRect) {
-            setAnchorRect(null)
-          } else {
-            setAnchorRect(triggerRef.current!.getBoundingClientRect())
-          }
-        }}
-        className="relative flex min-w-0 items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors"
-        style={{
-          color: isActive ? theme.text.accentStrong : theme.text.secondary,
-          background: anchorRect
-            ? theme.background.hoverStrong
-            : isActive
-              ? theme.background.accentSoft
-              : 'transparent',
-          fontSize: '12px',
-          fontWeight: 500,
-          lineHeight: 1,
-          maxWidth: 128
-        }}
-        onMouseEnter={(e) => {
-          if (!anchorRect)
-            (e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong
-        }}
-        onMouseLeave={(e) => {
-          if (!anchorRect) {
-            ;(e.currentTarget as HTMLElement).style.background = isActive
-              ? theme.background.accentSoft
-              : 'transparent'
-          }
-        }}
+    <div className="flex w-full min-w-0 items-center justify-center">
+      <Tooltip
+        content={
+          <span style={{ display: 'block', maxWidth: 240, whiteSpace: 'normal' }}>
+            {tooltipLabel}
+          </span>
+        }
+        placement="bottom"
+        className="inline-flex max-w-full min-w-0"
       >
-        <ListFilter size={13} strokeWidth={1.8} />
-        <span className="truncate">{label}</span>
-        <ChevronDown
-          size={10}
-          strokeWidth={2}
-          style={{
-            transform: anchorRect ? 'rotate(180deg)' : 'rotate(0deg)',
-            transition: 'transform 0.15s ease'
+        <button
+          ref={triggerRef}
+          aria-label="Filter chats"
+          onClick={() => {
+            if (anchorRect) {
+              setAnchorRect(null)
+            } else {
+              setAnchorRect(triggerRef.current!.getBoundingClientRect())
+            }
           }}
-        />
-        {showUnreadDot && (
-          <span
-            className="absolute -top-0.5 -right-0.5 rounded-full"
+          className="relative inline-flex max-w-full min-w-0 items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors"
+          style={{
+            color: isActive ? theme.text.accentStrong : theme.text.secondary,
+            background: anchorRect
+              ? theme.background.hoverStrong
+              : isActive
+                ? theme.background.accentSoft
+                : 'transparent',
+            fontSize: '12px',
+            fontWeight: 500,
+            lineHeight: 1,
+            maxWidth: '100%'
+          }}
+          onMouseEnter={(e) => {
+            if (!anchorRect)
+              (e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong
+          }}
+          onMouseLeave={(e) => {
+            if (!anchorRect) {
+              ;(e.currentTarget as HTMLElement).style.background = isActive
+                ? theme.background.accentSoft
+                : 'transparent'
+            }
+          }}
+        >
+          <ListFilter className="shrink-0" size={13} strokeWidth={1.8} />
+          <span className="min-w-0 truncate">{label}</span>
+          <ChevronDown
+            className="shrink-0"
+            size={10}
+            strokeWidth={2}
             style={{
-              width: 6,
-              height: 6,
-              background: theme.text.accent
+              transform: anchorRect ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.15s ease'
             }}
           />
-        )}
-      </button>
+          {showUnreadDot && (
+            <span
+              className="absolute -top-0.5 -right-0.5 rounded-full"
+              style={{
+                width: 6,
+                height: 6,
+                background: theme.text.accent
+              }}
+            />
+          )}
+        </button>
+      </Tooltip>
       {anchorRect && (
         <SidebarFilterDropdown anchorRect={anchorRect} onClose={() => setAnchorRect(null)} />
       )}
@@ -234,6 +247,9 @@ function SidebarFilterDropdown({
   const toggleJustDone = useAppStore((s) => s.toggleSidebarFilterJustDone)
   const toggleFolderOnly = useAppStore((s) => s.toggleSidebarFilterFolderOnly)
   const clearFilter = useAppStore((s) => s.clearSidebarFilter)
+  const unreadArchivedCount = useAppStore(
+    (s) => s.archivedThreads.filter((t) => t.archivedAt && !t.readAt).length
+  )
   const workspaces = useWorkspaceFilterOptions()
   const counts = useSidebarFilterCounts(workspaces)
   const hasMulti = hasActiveMultiFilter(sidebarFilter)
@@ -262,7 +278,7 @@ function SidebarFilterDropdown({
 
   const menuWidth = 292
   const minMenuHeight = 320
-  const maxMenuHeight = 520
+  const maxMenuHeight = 640
   const availableBelow = window.innerHeight - anchorRect.bottom - 12
   const availableAbove = anchorRect.top - 12
   const openAbove = availableBelow < minMenuHeight && availableAbove > availableBelow
@@ -329,6 +345,7 @@ function SidebarFilterDropdown({
             checked={sidebarFilter.base === 'archived'}
             onClick={() => setSidebarFilterBase('archived')}
             count={counts.archived}
+            unreadCount={unreadArchivedCount}
             icon={<Archive size={15} strokeWidth={1.8} />}
           />
         </div>
@@ -420,12 +437,14 @@ function RadioRow({
   checked,
   onClick,
   count,
+  unreadCount,
   icon
 }: {
   label: string
   checked: boolean
   onClick: () => void
   count: number
+  unreadCount?: number
   icon: React.ReactNode
 }): React.JSX.Element {
   return (
@@ -466,6 +485,7 @@ function RadioRow({
         {icon}
       </span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
+      {unreadCount != null && unreadCount > 0 && <UnreadBadge count={unreadCount} />}
       <CountBadge count={count} active={checked} />
     </button>
   )
@@ -548,6 +568,24 @@ function CountBadge({ count, active }: { count: number; active: boolean }): Reac
       }}
     >
       {count}
+    </span>
+  )
+}
+
+function UnreadBadge({ count }: { count: number }): React.JSX.Element {
+  return (
+    <span
+      className="shrink-0 rounded-full px-1.5 tabular-nums"
+      style={{
+        height: 18,
+        lineHeight: '18px',
+        fontSize: '10.5px',
+        fontWeight: 650,
+        color: theme.text.accent,
+        background: alpha('accent', 0.12)
+      }}
+    >
+      {count} unread
     </span>
   )
 }

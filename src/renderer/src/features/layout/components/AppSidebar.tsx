@@ -18,6 +18,8 @@ import { TRAFFIC_LIGHTS_SAFE_ZONE } from '@renderer/lib/sidebarLayout'
 import { theme, alpha } from '@renderer/theme/theme'
 import { Tooltip } from '@renderer/components/Tooltip'
 
+const SIDEBAR_FILTER_BUTTON_RIGHT_OFFSET_PX = 3
+
 export interface AppSidebarProps {
   isDragging: boolean
   isOpen: boolean
@@ -93,42 +95,46 @@ export function AppSidebar({
           paddingRight: '12px'
         }}
       >
-        <div className="flex items-center gap-1 no-drag ml-auto">
-          <SidebarFilterBar />
-          <Tooltip content={toggleTitle} placement="bottom">
-            <button
-              disabled={isToggleDisabled}
-              onClick={onToggle}
-              className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity disabled:opacity-30"
-              style={{ color: theme.icon.default }}
-              aria-label={toggleTitle}
-            >
-              <PanelLeft size={16} strokeWidth={1.5} />
-            </button>
-          </Tooltip>
-          <Tooltip content="Search chats" placement="bottom">
-            <button
-              onClick={onOpenSearch}
-              className="p-1.5 rounded-md transition-opacity"
-              style={{
-                color: theme.icon.default,
-                opacity: isSearchOpen ? 0.9 : 0.5
-              }}
-              aria-label="Search chats"
-            >
-              <Search size={15} strokeWidth={1.5} />
-            </button>
-          </Tooltip>
-          <Tooltip content="New chat" placement="bottom">
-            <button
-              onClick={createNewThread}
-              className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
-              style={{ color: theme.icon.default }}
-              aria-label="New chat"
-            >
-              <SquarePen size={15} strokeWidth={1.5} />
-            </button>
-          </Tooltip>
+        <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 no-drag">
+          <div className="min-w-0" style={{ paddingLeft: SIDEBAR_FILTER_BUTTON_RIGHT_OFFSET_PX }}>
+            <SidebarFilterBar />
+          </div>
+          <div className="flex min-w-0 items-center justify-end gap-1">
+            <Tooltip content={toggleTitle} placement="bottom">
+              <button
+                disabled={isToggleDisabled}
+                onClick={onToggle}
+                className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity disabled:opacity-30"
+                style={{ color: theme.icon.default }}
+                aria-label={toggleTitle}
+              >
+                <PanelLeft size={16} strokeWidth={1.5} />
+              </button>
+            </Tooltip>
+            <Tooltip content="Search chats" placement="bottom">
+              <button
+                onClick={onOpenSearch}
+                className="p-1.5 rounded-md transition-opacity"
+                style={{
+                  color: theme.icon.default,
+                  opacity: isSearchOpen ? 0.9 : 0.5
+                }}
+                aria-label="Search chats"
+              >
+                <Search size={15} strokeWidth={1.5} />
+              </button>
+            </Tooltip>
+            <Tooltip content="New chat" placement="bottom">
+              <button
+                onClick={createNewThread}
+                className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
+                style={{ color: theme.icon.default }}
+                aria-label="New chat"
+              >
+                <SquarePen size={15} strokeWidth={1.5} />
+              </button>
+            </Tooltip>
+          </div>
         </div>
       </div>
 
