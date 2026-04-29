@@ -155,6 +155,10 @@ function isPathToolCall(toolCall: ToolCall): boolean {
   )
 }
 
+function contributesToGroupSummary(toolCall: ToolCall): boolean {
+  return toolCall.status !== 'failed'
+}
+
 function resolveCompatibleToolCallGroup(input: {
   currentGroup: ToolCallSemanticGroup
   currentFilePaths: Set<string>
@@ -270,20 +274,24 @@ export function getToolCallGroupDisplayGroup(
     return group
   }
 
-  return toolCalls.some(isPathToolCall) ? group : 'inspect-workspace'
+  return toolCalls.filter(contributesToGroupSummary).some(isPathToolCall)
+    ? group
+    : 'inspect-workspace'
 }
 
 export function getToolCallGroupCount(group: ToolCallSemanticGroup, toolCalls: ToolCall[]): number {
-  if (getToolCallGroupDisplayGroup(group, toolCalls) === 'inspect-workspace') {
-    return toolCalls.length
+  const summaryToolCalls = toolCalls.filter(contributesToGroupSummary)
+
+  if (getToolCallGroupDisplayGroup(group, summaryToolCalls) === 'inspect-workspace') {
+    return summaryToolCalls.length
   }
 
   if (!shouldCountUniqueFilePaths(group)) {
-    return toolCalls.length
+    return summaryToolCalls.length
   }
 
   const countedFiles = new Set<string>()
-  for (const toolCall of toolCalls) {
+  for (const toolCall of summaryToolCalls) {
     if (!isPathToolCall(toolCall)) {
       continue
     }
@@ -307,7 +315,7 @@ export function getToolCallGroupFilePaths(
   }
 
   const countedFiles = new Set<string>()
-  for (const toolCall of toolCalls) {
+  for (const toolCall of toolCalls.filter(contributesToGroupSummary)) {
     const filePath = getToolCallFilePath(toolCall)
     if (filePath) {
       countedFiles.add(filePath)

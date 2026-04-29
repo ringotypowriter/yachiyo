@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import type { ToolCall } from '@renderer/app/types'
 import {
   buildConversationGroupTimelineItems,
   getToolCallGroupCount,
@@ -1370,6 +1371,80 @@ test('getToolCallGroupCount counts unique files for reading groups', () => {
     ]),
     1
   )
+})
+
+test('tool call group summaries ignore failed file targets', () => {
+  const toolCalls: ToolCall[] = [
+    {
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'read' as const,
+      status: 'completed' as const,
+      inputSummary: '/workspace/uncertainty-agent/src/contract.ts',
+      startedAt: '2026-03-22T00:00:01.000Z',
+      details: {
+        path: '/workspace/uncertainty-agent/src/contract.ts',
+        startLine: 1,
+        endLine: 80,
+        totalLines: 100,
+        totalBytes: 2000,
+        truncated: false
+      }
+    },
+    {
+      id: 'tool-2',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'read' as const,
+      status: 'failed' as const,
+      inputSummary: '/workspace/prompts.ts',
+      outputSummary: 'No such file or directory',
+      startedAt: '2026-03-22T00:00:02.000Z',
+      finishedAt: '2026-03-22T00:00:02.100Z'
+    },
+    {
+      id: 'tool-3',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'read' as const,
+      status: 'completed' as const,
+      inputSummary: '/workspace/uncertainty-agent/src/agents/prompts.ts',
+      startedAt: '2026-03-22T00:00:03.000Z',
+      details: {
+        path: '/workspace/uncertainty-agent/src/agents/prompts.ts',
+        startLine: 1,
+        endLine: 80,
+        totalLines: 100,
+        totalBytes: 2000,
+        truncated: false
+      }
+    },
+    {
+      id: 'tool-4',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'read' as const,
+      status: 'completed' as const,
+      inputSummary: '/workspace/uncertainty-agent/src/stages.ts',
+      startedAt: '2026-03-22T00:00:04.000Z',
+      details: {
+        path: '/workspace/uncertainty-agent/src/stages.ts',
+        startLine: 1,
+        endLine: 80,
+        totalLines: 100,
+        totalBytes: 2000,
+        truncated: false
+      }
+    }
+  ]
+
+  assert.equal(getToolCallGroupCount('read-files', toolCalls), 3)
+  assert.deepEqual(getToolCallGroupFilePaths('read-files', toolCalls), [
+    '/workspace/uncertainty-agent/src/contract.ts',
+    '/workspace/uncertainty-agent/src/agents/prompts.ts',
+    '/workspace/uncertainty-agent/src/stages.ts'
+  ])
 })
 
 test('getToolCallGroupCount counts unique files for writing groups', () => {
