@@ -593,6 +593,9 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
   const pendingThreadSwitchScrollRef = useRef<string | null>(threadId)
   const programmaticScrollUntilRef = useRef(0)
   const timelineRowsRef = useRef(timelineRows)
+  const lastScrollTopRef = useRef(0)
+  const lastTouchYRef = useRef<number | null>(null)
+  const streamingScrollRafRef = useRef<number | null>(null)
 
   useIsomorphicLayoutEffect(() => {
     timelineRowsRef.current = timelineRows
@@ -724,15 +727,54 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     }
   }, [recapText])
 
+  const unpinFromBottom = useCallback((): void => {
+    stickToBottomRef.current = false
+    programmaticScrollUntilRef.current = 0
+    if (streamingScrollRafRef.current !== null) {
+      cancelAnimationFrame(streamingScrollRafRef.current)
+      streamingScrollRafRef.current = null
+    }
+  }, [])
+
   // Deps include threadId and timeline.length so the listener reattaches
   // when the scroll container first appears (empty thread → first message)
   useEffect(() => {
     const container = scrollContainerRef.current
     if (!container) return
+    lastScrollTopRef.current = container.scrollTop
+
+    const handleWheel = (event: WheelEvent): void => {
+      if (event.deltaY < 0) {
+        unpinFromBottom()
+      }
+    }
+
+    const handleTouchStart = (event: TouchEvent): void => {
+      lastTouchYRef.current = event.touches[0]?.clientY ?? null
+    }
+
+    const handleTouchMove = (event: TouchEvent): void => {
+      const nextY = event.touches[0]?.clientY
+      const prevY = lastTouchYRef.current
+      if (nextY != null && prevY != null && nextY - prevY > 2) {
+        unpinFromBottom()
+      }
+      lastTouchYRef.current = nextY ?? null
+    }
 
     const handleScroll = (): void => {
+      const currentScrollTop = container.scrollTop
+      const previousScrollTop = lastScrollTopRef.current
+      lastScrollTopRef.current = currentScrollTop
+
       // Ignore scroll events caused by programmatic scroll + measurement corrections
-      if (Date.now() < programmaticScrollUntilRef.current) return
+      if (Date.now() < programmaticScrollUntilRef.current) {
+        if (currentScrollTop < previousScrollTop - 8) {
+          unpinFromBottom()
+        }
+        return
+      }
+
       const distanceFromBottom =
         container.scrollHeight - container.scrollTop - container.clientHeight
       // Hysteresis: avoid rapid flipping from virtualizer measurement lag.
@@ -743,9 +785,17 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       }
     }
 
+    container.addEventListener('wheel', handleWheel, { passive: true })
+    container.addEventListener('touchstart', handleTouchStart, { passive: true })
+    container.addEventListener('touchmove', handleTouchMove, { passive: true })
     container.addEventListener('scroll', handleScroll, { passive: true })
-    return () => container.removeEventListener('scroll', handleScroll)
-  }, [threadId, timelineRows.length])
+    return () => {
+      container.removeEventListener('wheel', handleWheel)
+      container.removeEventListener('touchstart', handleTouchStart)
+      container.removeEventListener('touchmove', handleTouchMove)
+      container.removeEventListener('scroll', handleScroll)
+    }
+  }, [threadId, timelineRows.length, unpinFromBottom])
 
   const scrollToBottom = useCallback((): void => {
     if (timelineRowsRef.current.length === 0) return
@@ -796,7 +846,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
   }, [activeRequestMessageId, scrollToBottom, reScrollToBottomAfterMeasure])
 
   // Keep pinned to bottom during streaming — throttled with RAF to avoid per-token thrash
-  const streamingScrollRafRef = useRef<number | null>(null)
   useEffect(() => {
     if (!stickToBottomRef.current || timelineRows.length === 0) return
 
