@@ -10,7 +10,7 @@ This is the canonical record of everything established so far. The user will wor
 
 ## Core principle
 
-Capture every decision, constraint, and fact that would affect future work. When in doubt, include it. Paraphrasing that loses specifics is worse than being slightly verbose.
+Capture every decision, constraint, and fact that would affect future work. When in doubt, include it only if it is still current. Completeness means an accurate working state, not a transcript copy. Drop stale or outdated information that was corrected, superseded, invalidated, or abandoned; do not carry it forward just because it appeared earlier. A stale handoff can mislead the next conversation, which is worse than omitting a dead detail. If a stale point is important context, mention it only as stale and state the replacement.
 
 ## What to capture
 
