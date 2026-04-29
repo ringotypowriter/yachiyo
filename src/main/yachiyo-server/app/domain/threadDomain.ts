@@ -304,17 +304,14 @@ export class YachiyoServerThreadDomain {
 
   setThreadColor(input: { threadId: string; colorTag: ThreadColorTag | null }): ThreadRecord {
     const thread = this.deps.requireThread(input.threadId)
-    const updatedAt = this.deps.timestamp()
 
     this.deps.storage.setThreadColor({
       threadId: thread.id,
-      colorTag: input.colorTag,
-      updatedAt
+      colorTag: input.colorTag
     })
 
     const updatedThread: ThreadRecord = {
       ...thread,
-      updatedAt,
       ...(input.colorTag ? { colorTag: input.colorTag } : {})
     }
 

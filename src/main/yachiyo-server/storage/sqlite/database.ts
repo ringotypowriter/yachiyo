@@ -958,9 +958,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       db.update(threadsTable).set({ icon, updatedAt }).where(eq(threadsTable.id, threadId)).run()
     },
 
-    setThreadColor({ threadId, colorTag, updatedAt }) {
+    setThreadColor({ threadId, colorTag }) {
       db.update(threadsTable)
-        .set({ colorTag, updatedAt })
+        .set({ colorTag })
         .where(and(eq(threadsTable.id, threadId), isNull(threadsTable.archivedAt)))
         .run()
     },

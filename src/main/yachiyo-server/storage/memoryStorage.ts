@@ -335,14 +335,13 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       thread.updatedAt = updatedAt
     },
 
-    setThreadColor({ threadId, colorTag, updatedAt }) {
+    setThreadColor({ threadId, colorTag }) {
       const thread = readThread(threadId)
       if (!thread) {
         return
       }
 
       thread.colorTag = colorTag
-      thread.updatedAt = updatedAt
     },
 
     setThreadIcon({ threadId, icon, updatedAt }) {

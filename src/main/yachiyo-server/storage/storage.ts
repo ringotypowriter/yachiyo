@@ -265,11 +265,7 @@ export interface YachiyoStorage {
   getThreadCreatedAt(threadId: string): string | undefined
   createThread(input: CreateThreadInput): void
   renameThread(input: { threadId: string; title: string; updatedAt: string }): void
-  setThreadColor(input: {
-    threadId: string
-    colorTag: ThreadColorTag | null
-    updatedAt: string
-  }): void
+  setThreadColor(input: { threadId: string; colorTag: ThreadColorTag | null }): void
   setThreadIcon(input: { threadId: string; icon: string | null; updatedAt: string }): void
   starThread(input: { threadId: string; starredAt: string | null }): void
   archiveThread(input: {

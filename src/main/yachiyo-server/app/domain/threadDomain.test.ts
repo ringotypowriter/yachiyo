@@ -72,8 +72,9 @@ test('YachiyoServerThreadDomain sets and clears a thread title color', () => {
   const coloredThread = domain.setThreadColor({ threadId: 'thread-1', colorTag: 'azure' })
 
   assert.equal(coloredThread.colorTag, 'azure')
-  assert.equal(coloredThread.updatedAt, '2026-01-01T00:00:01.000Z')
+  assert.equal(coloredThread.updatedAt, '2026-01-01T00:00:00.000Z')
   assert.equal(storage.getThread('thread-1')?.colorTag, 'azure')
+  assert.equal(storage.getThread('thread-1')?.updatedAt, '2026-01-01T00:00:00.000Z')
   assert.deepEqual(events.at(-1), {
     type: 'thread.updated',
     threadId: 'thread-1',
@@ -83,7 +84,9 @@ test('YachiyoServerThreadDomain sets and clears a thread title color', () => {
   const defaultThread = domain.setThreadColor({ threadId: 'thread-1', colorTag: null })
 
   assert.equal(defaultThread.colorTag, undefined)
+  assert.equal(defaultThread.updatedAt, '2026-01-01T00:00:00.000Z')
   assert.equal(storage.getThread('thread-1')?.colorTag, undefined)
+  assert.equal(storage.getThread('thread-1')?.updatedAt, '2026-01-01T00:00:00.000Z')
   assert.deepEqual(events.at(-1), {
     type: 'thread.updated',
     threadId: 'thread-1',
