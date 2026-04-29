@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import type { SettingsConfig, UserPrompt } from '../../../shared/yachiyo/protocol.ts'
@@ -23,6 +23,13 @@ export function PromptsPane({ draft, onChange }: PromptsProps): React.ReactNode 
     (draft.prompts ?? []).map((p) => ({ keycode: p.keycode, text: p.text }))
   )
   const [keycodeErrors, setKeycodeErrors] = useState<Record<number, string>>({})
+  const latestDraftRef = useRef(draft)
+  const latestOnChangeRef = useRef(onChange)
+
+  useEffect(() => {
+    latestDraftRef.current = draft
+    latestOnChangeRef.current = onChange
+  })
 
   useEffect(() => {
     const valid = rows.filter(
@@ -37,8 +44,8 @@ export function PromptsPane({ draft, onChange }: PromptsProps): React.ReactNode 
       }
     }
     const normalized = normalizeUserPrompts(deduped)
-    onChange({ ...draft, prompts: normalized })
-  }, [rows, keycodeErrors]) // eslint-disable-line react-hooks/exhaustive-deps
+    latestOnChangeRef.current({ ...latestDraftRef.current, prompts: normalized })
+  }, [rows, keycodeErrors])
 
   function validateKeycode(value: string, index: number): void {
     const errors = { ...keycodeErrors }

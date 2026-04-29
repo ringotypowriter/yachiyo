@@ -1,5 +1,5 @@
 import type React from 'react'
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { prepareWithSegments, layoutWithLines, clearCache } from '@chenglou/pretext'
 import {
   syncPretextContext,
@@ -222,30 +222,30 @@ export function SmoothCaretOverlay({
     })
   }, [color, trailColor])
 
-  const stopBlink = (): void => {
+  const stopBlink = useCallback((): void => {
     if (blinkTimerRef.current !== null) {
       clearTimeout(blinkTimerRef.current)
       blinkTimerRef.current = null
     }
     caretRef.current?.classList.remove('echooo-caret--blink')
-  }
+  }, [])
 
-  const startBlinkAfterDelay = (): void => {
+  const startBlinkAfterDelay = useCallback((): void => {
     stopBlink()
     blinkTimerRef.current = setTimeout(() => {
       blinkTimerRef.current = null
       caretRef.current?.classList.add('echooo-caret--blink')
     }, 530)
-  }
+  }, [stopBlink])
 
-  const stopAnimation = (): void => {
+  const stopAnimation = useCallback((): void => {
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current)
       rafRef.current = null
     }
-  }
+  }, [])
 
-  const applyCaretStyle = (): void => {
+  const applyCaretStyle = useCallback((): void => {
     const caret = caretRef.current
     if (!caret) return
     const { x, y, height, visible } = currentRef.current
@@ -255,9 +255,9 @@ export function SmoothCaretOverlay({
     if (!caret.classList.contains('echooo-caret--blink')) {
       caret.style.opacity = visible ? '1' : '0'
     }
-  }
+  }, [])
 
-  const hideOverlay = (): void => {
+  const hideOverlay = useCallback((): void => {
     targetRef.current.visible = false
     currentRef.current.visible = false
     applyCaretStyle()
@@ -272,114 +272,116 @@ export function SmoothCaretOverlay({
       node.style.opacity = '0'
     })
     textareaRef.current?.classList.remove('echooo-hide-native-caret')
-  }
+  }, [applyCaretStyle, stopAnimation, stopBlink, textareaRef])
 
-  const spawnTrail = (
-    from: { x: number; y: number },
-    to: { x: number; y: number },
-    height: number,
-    opts?: {
-      hasRightText?: boolean
-      intent?: CaretIntent
-      maxLength?: number
-    }
-  ): void => {
-    if (reduceMotion) return
-    const trailWeight = strengthScale[trailStrength]
-    if (!overlayRef.current || trailWeight <= 0) return
-    const pool = trailPoolRef.current
-    if (!pool.length) return
+  const spawnTrail = useCallback(
+    (
+      from: { x: number; y: number },
+      to: { x: number; y: number },
+      height: number,
+      opts?: {
+        hasRightText?: boolean
+        intent?: CaretIntent
+        maxLength?: number
+      }
+    ): void => {
+      if (reduceMotion) return
+      const trailWeight = strengthScale[trailStrength]
+      if (!overlayRef.current || trailWeight <= 0) return
+      const pool = trailPoolRef.current
+      if (!pool.length) return
 
-    let dx = to.x - from.x
-    let dy = to.y - from.y
-    let distance = Math.hypot(dx, dy)
-    if (distance < 1) return
+      let dx = to.x - from.x
+      let dy = to.y - from.y
+      let distance = Math.hypot(dx, dy)
+      if (distance < 1) return
 
-    const intent = opts?.intent ?? 'other'
-    const movingRight = dx >= 0.5
-    const maxLength = opts?.maxLength ?? (movingRight ? 80 : 22)
-    if (distance > maxLength) {
-      const scale = maxLength / distance
-      dx *= scale
-      dy *= scale
-      distance = maxLength
-    }
+      const intent = opts?.intent ?? 'other'
+      const movingRight = dx >= 0.5
+      const maxLength = opts?.maxLength ?? (movingRight ? 80 : 22)
+      if (distance > maxLength) {
+        const scale = maxLength / distance
+        dx *= scale
+        dy *= scale
+        distance = maxLength
+      }
 
-    // Dot counts: typing is light, delete is heavier, nav in between
-    let dotCount: number
-    if (intent === 'typing') {
-      dotCount = 2 + Math.round(trailWeight * 0.8) // high→4
-    } else if (intent === 'delete') {
-      dotCount = Math.max(4, Math.min(7, Math.round(trailWeight * 2.5 + 2))) // high→7
-    } else if (intent === 'nav-right') {
-      dotCount = opts?.hasRightText ? Math.max(3, Math.min(5, Math.round(trailWeight + 2))) : 3
-    } else if (intent === 'nav-left') {
-      dotCount = Math.max(3, Math.min(6, Math.round(trailWeight * 1.5 + 2))) // high→5
-    } else {
-      dotCount = Math.max(2, Math.min(4, Math.round(trailWeight + 1)))
-    }
+      // Dot counts: typing is light, delete is heavier, nav in between
+      let dotCount: number
+      if (intent === 'typing') {
+        dotCount = 2 + Math.round(trailWeight * 0.8) // high→4
+      } else if (intent === 'delete') {
+        dotCount = Math.max(4, Math.min(7, Math.round(trailWeight * 2.5 + 2))) // high→7
+      } else if (intent === 'nav-right') {
+        dotCount = opts?.hasRightText ? Math.max(3, Math.min(5, Math.round(trailWeight + 2))) : 3
+      } else if (intent === 'nav-left') {
+        dotCount = Math.max(3, Math.min(6, Math.round(trailWeight * 1.5 + 2))) // high→5
+      } else {
+        dotCount = Math.max(2, Math.min(4, Math.round(trailWeight + 1)))
+      }
 
-    // Drift direction: opposite to caret movement so particles trail behind
-    const driftSign = dx >= 0 ? -1 : 1
+      // Drift direction: opposite to caret movement so particles trail behind
+      const driftSign = dx >= 0 ? -1 : 1
 
-    const now = performance.now()
-    const angle = Math.atan2(dy, dx)
-    const nx = -Math.sin(angle)
-    const ny = Math.cos(angle)
+      const now = performance.now()
+      const angle = Math.atan2(dy, dx)
+      const nx = -Math.sin(angle)
+      const ny = Math.cos(angle)
 
-    for (let i = 0; i < dotCount; i += 1) {
-      const node = pool[trailIndexRef.current % pool.length]
-      trailIndexRef.current += 1
+      for (let i = 0; i < dotCount; i += 1) {
+        const node = pool[trailIndexRef.current % pool.length]
+        trailIndexRef.current += 1
 
-      const t = dotCount === 1 ? 0.5 : i / (dotCount - 1)
-      // Perpendicular jitter — wider for delete/nav-left, tighter for typing
-      const jitterSpread = intent === 'typing' ? 2.5 : intent === 'delete' ? 4.5 : 3.5
-      const jitterNormal = (Math.random() - 0.5) * jitterSpread * (1 - t * 0.4)
+        const t = dotCount === 1 ? 0.5 : i / (dotCount - 1)
+        // Perpendicular jitter — wider for delete/nav-left, tighter for typing
+        const jitterSpread = intent === 'typing' ? 2.5 : intent === 'delete' ? 4.5 : 3.5
+        const jitterNormal = (Math.random() - 0.5) * jitterSpread * (1 - t * 0.4)
 
-      const px = from.x + dx * t + nx * jitterNormal
-      const py = from.y + dy * t + ny * jitterNormal
-      const centerY = py + height * 0.5
+        const px = from.x + dx * t + nx * jitterNormal
+        const py = from.y + dy * t + ny * jitterNormal
+        const centerY = py + height * 0.5
 
-      const baseSize = intent === 'typing' ? 2.0 : intent === 'delete' ? 3.2 : 2.6
-      const size = baseSize + (intent === 'typing' ? 0.5 : 0.9) * (1 - t) + 0.4 * trailWeight
+        const baseSize = intent === 'typing' ? 2.0 : intent === 'delete' ? 3.2 : 2.6
+        const size = baseSize + (intent === 'typing' ? 0.5 : 0.9) * (1 - t) + 0.4 * trailWeight
 
-      const baseOpacity = intent === 'typing' ? 0.18 : intent === 'delete' ? 0.32 : 0.24
-      const opacity = Math.min(
-        intent === 'typing' ? 0.38 : intent === 'delete' ? 0.6 : 0.5,
-        baseOpacity + (intent === 'typing' ? 0.1 : 0.18) * (1 - t) + 0.1 * trailWeight
-      )
+        const baseOpacity = intent === 'typing' ? 0.18 : intent === 'delete' ? 0.32 : 0.24
+        const opacity = Math.min(
+          intent === 'typing' ? 0.38 : intent === 'delete' ? 0.6 : 0.5,
+          baseOpacity + (intent === 'typing' ? 0.1 : 0.18) * (1 - t) + 0.1 * trailWeight
+        )
 
-      const lifetime =
-        intent === 'typing'
-          ? 220 + 100 * (1 - t)
-          : intent === 'delete'
-            ? 320 + 140 * (1 - t)
-            : 260 + 120 * (1 - t)
+        const lifetime =
+          intent === 'typing'
+            ? 220 + 100 * (1 - t)
+            : intent === 'delete'
+              ? 320 + 140 * (1 - t)
+              : 260 + 120 * (1 - t)
 
-      // Each particle drifts in the opposite-to-movement direction as it fades
-      const driftX = driftSign * (5 + Math.random() * 7)
-      const driftY = (Math.random() - 0.5) * 5
+        // Each particle drifts in the opposite-to-movement direction as it fades
+        const driftX = driftSign * (5 + Math.random() * 7)
+        const driftY = (Math.random() - 0.5) * 5
 
-      node.style.width = `${size}px`
-      node.style.height = `${size}px`
-      node.style.left = '0'
-      node.style.top = '0'
-      node.style.transform = `translate3d(${px}px, ${centerY - size * 0.5}px, 0) scale(1)`
-      node.style.opacity = `${opacity}`
-      node.dataset.spawn = `${now}`
-      node.style.transition = 'none'
-      // Force reflow to commit spawn position before transition starts
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-      node.offsetHeight
-      node.style.transition = `opacity ${lifetime}ms ease, transform ${lifetime}ms ease`
-      requestAnimationFrame(() => {
-        node.style.opacity = '0'
-        node.style.transform = `translate3d(${px + driftX}px, ${centerY - size * 0.5 + driftY}px, 0) scale(0.5)`
-      })
-    }
-  }
+        node.style.width = `${size}px`
+        node.style.height = `${size}px`
+        node.style.left = '0'
+        node.style.top = '0'
+        node.style.transform = `translate3d(${px}px, ${centerY - size * 0.5}px, 0) scale(1)`
+        node.style.opacity = `${opacity}`
+        node.dataset.spawn = `${now}`
+        node.style.transition = 'none'
+        // Force reflow to commit spawn position before transition starts
+        void node.offsetHeight
+        node.style.transition = `opacity ${lifetime}ms ease, transform ${lifetime}ms ease`
+        requestAnimationFrame(() => {
+          node.style.opacity = '0'
+          node.style.transform = `translate3d(${px + driftX}px, ${centerY - size * 0.5 + driftY}px, 0) scale(0.5)`
+        })
+      }
+    },
+    [reduceMotion, trailStrength]
+  )
 
-  const animateCaret = (): void => {
+  const animateCaret = useCallback((): void => {
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
     stopBlink()
 
@@ -420,9 +422,9 @@ export function SmoothCaretOverlay({
     }
 
     rafRef.current = requestAnimationFrame(step)
-  }
+  }, [applyCaretStyle, reduceMotion, startBlinkAfterDelay, stopBlink])
 
-  const measureCaret = (): void => {
+  const measureCaret = useCallback((): void => {
     const textarea = textareaRef.current
     if (!textarea || !enabled) {
       hideOverlay()
@@ -542,15 +544,25 @@ export function SmoothCaretOverlay({
     }
 
     animateCaret()
-  }
+  }, [
+    animateCaret,
+    enabled,
+    hideOverlay,
+    highlightRef,
+    hostRef,
+    isFocused,
+    reduceMotion,
+    spawnTrail,
+    textareaRef
+  ])
 
-  const scheduleMeasure = (): void => {
+  const scheduleMeasure = useCallback((): void => {
     if (scheduledRef.current !== null) return
     scheduledRef.current = requestAnimationFrame(() => {
       scheduledRef.current = null
       measureCaret()
     })
-  }
+  }, [measureCaret])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -647,8 +659,7 @@ export function SmoothCaretOverlay({
       textarea.classList.remove('echooo-hide-native-caret')
       stopAnimation()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, trailStrength, isFocused])
+  }, [enabled, hideOverlay, hostRef, scheduleMeasure, stopAnimation, textareaRef])
 
   useEffect(() => {
     if (!enabled || !isFocused) {
@@ -656,8 +667,7 @@ export function SmoothCaretOverlay({
     } else {
       scheduleMeasure()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, isFocused])
+  }, [enabled, hideOverlay, isFocused, scheduleMeasure])
 
   // Remeasure when the textarea value changes programmatically (e.g. cleared on send).
   // Native input events already trigger scheduleMeasure, so this covers the gap where
@@ -666,8 +676,7 @@ export function SmoothCaretOverlay({
     if (enabled && isFocused) {
       scheduleMeasure()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text])
+  }, [enabled, isFocused, scheduleMeasure, text])
 
   return (
     <div ref={overlayRef} className="echooo-caret-overlay" aria-hidden="true">

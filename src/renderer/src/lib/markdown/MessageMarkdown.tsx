@@ -2,7 +2,7 @@ import type React from 'react'
 import { useMemo } from 'react'
 import type { Components, LinkSafetyConfig, UrlTransform } from 'streamdown'
 import { defaultRehypePlugins, Streamdown } from 'streamdown'
-import type { PluggableList } from 'unified'
+import type { PluggableList, Plugin } from 'unified'
 import { MarkdownErrorBoundary } from './MarkdownErrorBoundary'
 import { LinkSafetyModal } from './LinkSafetyModal'
 import { LinkableCode } from './LinkableCode'
@@ -22,11 +22,13 @@ import { getMessageMarkdownAnimation } from './messageMarkdownAnimation'
  * href attributes so magnet links render as clickable links instead of
  * "[blocked]".
  */
+type SanitizerSchema = Record<string, unknown> & { protocols?: Record<string, string[]> }
+type SanitizerPlugin = Plugin<[SanitizerSchema]>
+
 const rehypePlugins: PluggableList = (() => {
   const [sanitizeFn, sanitizeSchema] = defaultRehypePlugins.sanitize as [
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    any,
-    { protocols?: Record<string, string[]> }
+    SanitizerPlugin,
+    SanitizerSchema
   ]
   const extendedSchema = {
     ...sanitizeSchema,

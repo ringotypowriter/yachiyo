@@ -47,10 +47,6 @@ interface ValidationContext {
 
 const SHELL_OPERATORS = new Set([';', '|', '&', '<', '>'])
 
-/** Non-printable control characters (excludes tab, LF, CR handled elsewhere). */
-// eslint-disable-next-line no-control-regex
-const CONTROL_CHAR_RE = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/
-
 /** Unicode whitespace that JS \s matches but bash IFS doesn't. */
 
 const UNICODE_WS_RE = /[\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]/
@@ -156,9 +152,22 @@ function buildContext(command: string): ValidationContext {
 // These detect patterns where our regex-based analysis would parse the command
 // differently from how bash actually executes it, creating security holes.
 
+function hasBlockedControlCharacter(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i)
+    if (code <= 0x08 || code === 0x0b || code === 0x0c || (code >= 0x0e && code <= 0x1f)) {
+      return true
+    }
+    if (code === 0x7f) {
+      return true
+    }
+  }
+  return false
+}
+
 /** Block non-printable control chars that bash silently drops but our regex sees. */
 function validateControlCharacters(ctx: ValidationContext): SecurityResult {
-  if (CONTROL_CHAR_RE.test(ctx.originalCommand)) {
+  if (hasBlockedControlCharacter(ctx.originalCommand)) {
     return refused(
       'Command contains non-printable control characters that could bypass security checks.'
     )

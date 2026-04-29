@@ -302,7 +302,15 @@ export function AppMainPanel({
 
     const timerId = setTimeout(fireRecap, decision.delayMs)
     return () => clearTimeout(timerId)
-  }, [activeThreadId, messageCount, hasActiveRun, isEditingMessage, contextPromptTokens]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    activeThreadId,
+    activeThread,
+    config?.chat?.recapEnabled,
+    messageCount,
+    hasActiveRun,
+    isEditingMessage,
+    contextPromptTokens
+  ])
 
   useEffect(() => {
     if (!pendingFindQuery) return

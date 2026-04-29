@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
 import { createTool } from './jsReplTool.ts'
-import type { AgentToolContext } from './shared.ts'
+import type { AgentToolContext, JsReplToolInput, JsReplToolOutput } from './shared.ts'
 import type { JsReplToolCallDetails } from '../../../../shared/yachiyo/protocol.ts'
 
 function makeContext(overrides?: Partial<AgentToolContext>): AgentToolContext {
@@ -15,20 +15,27 @@ function makeContext(overrides?: Partial<AgentToolContext>): AgentToolContext {
   }
 }
 
-const createdTools: Array<{ dispose(): Promise<void> }> = []
+interface TrackedJsReplTool {
+  execute(input: JsReplToolCallInput): Promise<JsReplToolOutput>
+  dispose(): Promise<void>
+}
 
-function createTrackedTool(context: AgentToolContext): { dispose(): Promise<void> } {
-  const tool = createTool(context) as unknown as { dispose(): Promise<void> }
+type JsReplToolCallInput = Omit<JsReplToolInput, 'reset' | 'timeout'> &
+  Partial<Pick<JsReplToolInput, 'reset' | 'timeout'>>
+
+const createdTools: TrackedJsReplTool[] = []
+
+function createTrackedTool(context: AgentToolContext): TrackedJsReplTool {
+  const tool = createTool(context) as unknown as TrackedJsReplTool
   createdTools.push(tool)
   return tool
 }
 
 async function execute(
   toolInstance: ReturnType<typeof createTrackedTool>,
-  input: { code: string; reset?: boolean; timeout?: number; cwd?: string }
+  input: JsReplToolCallInput
 ): Promise<{ details: JsReplToolCallDetails; error?: string }> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result = await (toolInstance as any).execute(input)
+  const result = await toolInstance.execute(input)
   return result as { details: JsReplToolCallDetails; error?: string }
 }
 

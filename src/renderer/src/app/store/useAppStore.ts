@@ -65,6 +65,12 @@ function saveCollapsedFolderIds(ids: Set<string>): void {
   }
 }
 
+function removeReasoning(message: Message): Message {
+  const nextMessage = { ...message }
+  delete nextMessage.reasoning
+  return nextMessage
+}
+
 interface PendingAssistantMessage {
   messageId: string
   threadId: string
@@ -2317,9 +2323,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                 return message
               }
 
-              // eslint-disable-next-line @typescript-eslint/no-unused-vars
-              const { reasoning: _reasoning, ...nextMessage } = message
-              return nextMessage
+              return removeReasoning(message)
             })
           : undefined
 

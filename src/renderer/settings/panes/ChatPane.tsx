@@ -43,7 +43,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
         return
       }
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [draft, onChange])
 
   const defaultModelSelectorRef = useRef<HTMLDivElement>(null)
   const defaultModelPopupRef = useRef<HTMLDivElement>(null)

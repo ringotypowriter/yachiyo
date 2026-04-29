@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useVirtualizer as useTanStackVirtualizer } from '@tanstack/react-virtual'
 import { useShallow } from 'zustand/react/shallow'
 import { Waypoints } from 'lucide-react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
@@ -52,6 +52,9 @@ const EMPTY_SUBAGENT_PROGRESS_ENTRIES: Array<{
   agentName: string
   chunk: string
 }> = []
+
+const useIsomorphicLayoutEffect = typeof document !== 'undefined' ? useLayoutEffect : useEffect
+const useMessageTimelineVirtualizer = useTanStackVirtualizer
 
 function confirmDelete(message: Message): boolean {
   if (message.role === 'user') {
@@ -241,17 +244,21 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
 
   const stickToBottomRef = useRef(true)
   const prevThreadIdRef = useRef(threadId)
+  const pendingThreadSwitchScrollRef = useRef<string | null>(threadId)
   const programmaticScrollUntilRef = useRef(0)
+  const timelineRowsRef = useRef(timelineRows)
 
-  // Reset stick-to-bottom on thread switch, with suppression for measurement corrections
-  if (prevThreadIdRef.current !== threadId) {
+  useIsomorphicLayoutEffect(() => {
+    timelineRowsRef.current = timelineRows
+  }, [timelineRows])
+
+  useIsomorphicLayoutEffect(() => {
+    if (prevThreadIdRef.current === threadId) return
     stickToBottomRef.current = true
+    pendingThreadSwitchScrollRef.current = threadId
     programmaticScrollUntilRef.current = Date.now() + 500
     prevThreadIdRef.current = threadId
-  }
-
-  const timelineRef = useRef(timelineRows)
-  timelineRef.current = timelineRows
+  }, [threadId])
 
   // Size cache keyed by timeline-item key. Survives unmount/remount so a row
   // scrolled offscreen and back doesn't snap back to a coarse estimate and
@@ -262,53 +269,55 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
   // Conservative estimate: over-approximate on uncertainty. Overestimating
   // creates a transient scroll gap that self-corrects on measure; underestimating
   // causes rows to overlap until measure, and scrollToIndex lands too high.
-  const estimateSize = useCallback((index: number) => {
-    const item = timelineRef.current[index]
-    if (!item) return 200
-    const cached = measuredSizeCache.current.get(item.key)
-    if (cached != null && cached > 0) return cached
-    switch (item.kind) {
-      case 'harness':
-        return 56
-      case 'tool':
-        return 72
-      case 'pending-steer':
-        return 120
-      case 'assistant-root': {
-        const msg = item.data
-        const lines = Math.max(1, Math.ceil(msg.content.length / 80))
-        let height = lines * 22 + 64
-        if (msg.reasoning) height += 56
-        return height
+  const estimateSize = useCallback(
+    (index: number) => {
+      const item = timelineRows[index]
+      if (!item) return 200
+      const cached = measuredSizeCache.current.get(item.key)
+      if (cached != null && cached > 0) return cached
+      switch (item.kind) {
+        case 'harness':
+          return 56
+        case 'tool':
+          return 72
+        case 'pending-steer':
+          return 120
+        case 'assistant-root': {
+          const msg = item.data
+          const lines = Math.max(1, Math.ceil(msg.content.length / 80))
+          let height = lines * 22 + 64
+          if (msg.reasoning) height += 56
+          return height
+        }
+        case 'group-user':
+          return Math.max(70, Math.ceil(item.group.userMessage.content.length / 60) * 22 + 48)
+        case 'group-branch-navigation':
+          return 36
+        case 'group-thinking':
+          return item.assistantMessage.status === 'streaming' ? 120 : 56
+        case 'group-memory-recall':
+          return 44
+        case 'group-tool-call':
+        case 'group-tool-call-group':
+          return 48
+        case 'group-assistant-text-block':
+          return Math.max(48, Math.ceil(item.textBlock.content.length / 80) * 22 + 16)
+        case 'group-generating':
+        case 'group-preparing':
+          return 40
+        case 'group-footer':
+          return 84
+        case 'group-subagent':
+          return 96
+        default:
+          return 240
       }
-      case 'group-user':
-        return Math.max(70, Math.ceil(item.group.userMessage.content.length / 60) * 22 + 48)
-      case 'group-branch-navigation':
-        return 36
-      case 'group-thinking':
-        return item.assistantMessage.status === 'streaming' ? 120 : 56
-      case 'group-memory-recall':
-        return 44
-      case 'group-tool-call':
-      case 'group-tool-call-group':
-        return 48
-      case 'group-assistant-text-block':
-        return Math.max(48, Math.ceil(item.textBlock.content.length / 80) * 22 + 16)
-      case 'group-generating':
-      case 'group-preparing':
-        return 40
-      case 'group-footer':
-        return 84
-      case 'group-subagent':
-        return 96
-      default:
-        return 240
-    }
-  }, [])
-  const getItemKey = useCallback((index: number) => timelineRef.current[index].key, [])
+    },
+    [timelineRows]
+  )
+  const getItemKey = useCallback((index: number) => timelineRows[index]!.key, [timelineRows])
 
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const virtualizer = useVirtualizer({
+  const virtualizer = useMessageTimelineVirtualizer({
     count: timelineRows.length,
     getScrollElement,
     estimateSize,
@@ -317,7 +326,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     paddingStart: 16,
     paddingEnd: 16
   })
-
   // Sync measuredSizeCache from virtualizer's own measurements on every render.
   // getVirtualItems().size reflects the current ResizeObserver-driven size, so
   // post-mount growth (streaming text, tool group expansion, footer appearing)
@@ -332,7 +340,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
 
   const findTimelineIndex = useCallback(
     (messageId: string): number =>
-      timelineRef.current.findIndex(
+      timelineRowsRef.current.findIndex(
         (item) =>
           item.key === messageId ||
           ('assistantMessageId' in item && item.assistantMessageId === messageId) ||
@@ -393,9 +401,9 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
   }, [threadId, timelineRows.length])
 
   const scrollToBottom = useCallback((): void => {
-    if (timelineRef.current.length === 0) return
+    if (timelineRowsRef.current.length === 0) return
     programmaticScrollUntilRef.current = Date.now() + 300
-    virtualizer.scrollToIndex(timelineRef.current.length - 1, { align: 'end' })
+    virtualizer.scrollToIndex(timelineRowsRef.current.length - 1, { align: 'end' })
   }, [virtualizer])
 
   // Re-pin after the virtualizer measures newly-mounted rows. The first
@@ -409,18 +417,22 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (!stickToBottomRef.current) return
-        if (timelineRef.current.length === 0) return
+        if (timelineRowsRef.current.length === 0) return
         programmaticScrollUntilRef.current = Date.now() + 300
-        virtualizer.scrollToIndex(timelineRef.current.length - 1, { align: 'end' })
+        virtualizer.scrollToIndex(timelineRowsRef.current.length - 1, { align: 'end' })
       })
     })
   }, [virtualizer])
 
-  // Scroll to bottom on thread switch — suppression already set above
-  useEffect(() => {
-    if (timelineRows.length === 0) return
-    virtualizer.scrollToIndex(timelineRows.length - 1, { align: 'end' })
-  }, [threadId]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Scroll to bottom on thread switch.
+  useIsomorphicLayoutEffect(() => {
+    if (pendingThreadSwitchScrollRef.current !== threadId) return
+    if (timelineRowsRef.current.length === 0) return
+    pendingThreadSwitchScrollRef.current = null
+    stickToBottomRef.current = true
+    scrollToBottom()
+    reScrollToBottomAfterMeasure()
+  }, [threadId, timelineRows.length, scrollToBottom, reScrollToBottomAfterMeasure])
 
   // Re-pin to bottom when the user sends a new message (activeRequestMessageId changes).
   // Without this, a user who scrolled up won't auto-scroll to their own new message.
@@ -489,7 +501,13 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
         }
       })
     })
-  }, [scrollToMessageId, timelineRows, clearScrollToMessageId, findTimelineIndex]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    scrollToMessageId,
+    timelineRows.length,
+    clearScrollToMessageId,
+    findTimelineIndex,
+    virtualizer
+  ])
 
   const handleEdit = useCallback(
     (messageId: string): void => {
@@ -925,10 +943,11 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
         >
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const item = timelineRows[virtualRow.index]
+            if (!item) return null
 
             return (
               <div
-                key={virtualRow.key}
+                key={item.key}
                 data-index={virtualRow.index}
                 ref={virtualizer.measureElement}
                 style={{
