@@ -15,6 +15,7 @@ import {
   partitionToolCallsForGroups
 } from '../lib/messageThreadPresentation'
 import { buildMessageTimelineRows, type MessageTimelineRow } from '../lib/messageTimelineRows.ts'
+import { getInitialBottomScrollDecision } from '../lib/messageTimelineScroll.ts'
 import { UserMessageBubble } from './UserMessageBubble'
 import { AssistantMessageBubble } from './AssistantMessageBubble'
 import { GeneratingRow } from './GeneratingRow'
@@ -596,6 +597,14 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
   const lastScrollTopRef = useRef(0)
   const lastTouchYRef = useRef<number | null>(null)
   const streamingScrollRafRef = useRef<number | null>(null)
+  const initialBottomScrollRafRef = useRef<number | null>(null)
+
+  const cancelInitialBottomScroll = useCallback((): void => {
+    if (initialBottomScrollRafRef.current !== null) {
+      cancelAnimationFrame(initialBottomScrollRafRef.current)
+      initialBottomScrollRafRef.current = null
+    }
+  }, [])
 
   useIsomorphicLayoutEffect(() => {
     timelineRowsRef.current = timelineRows
@@ -606,8 +615,9 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     stickToBottomRef.current = true
     pendingThreadSwitchScrollRef.current = threadId
     programmaticScrollUntilRef.current = Date.now() + 500
+    cancelInitialBottomScroll()
     prevThreadIdRef.current = threadId
-  }, [threadId])
+  }, [threadId, cancelInitialBottomScroll])
 
   // Size cache keyed by timeline-item key. Survives unmount/remount so a row
   // scrolled offscreen and back doesn't snap back to a coarse estimate and
@@ -706,7 +716,9 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
 
       // User is deliberately navigating — unpin from bottom
       stickToBottomRef.current = false
+      pendingThreadSwitchScrollRef.current = null
       programmaticScrollUntilRef.current = Date.now() + 300
+      cancelInitialBottomScroll()
       virtualizer.scrollToIndex(targetIndex, { align: 'center' })
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
@@ -717,7 +729,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
         })
       })
     },
-    [findTimelineIndex, virtualizer]
+    [cancelInitialBottomScroll, findTimelineIndex, virtualizer]
   )
 
   // Track user scroll to detect manual scroll-away
@@ -729,12 +741,14 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
 
   const unpinFromBottom = useCallback((): void => {
     stickToBottomRef.current = false
+    pendingThreadSwitchScrollRef.current = null
     programmaticScrollUntilRef.current = 0
+    cancelInitialBottomScroll()
     if (streamingScrollRafRef.current !== null) {
       cancelAnimationFrame(streamingScrollRafRef.current)
       streamingScrollRafRef.current = null
     }
-  }, [])
+  }, [cancelInitialBottomScroll])
 
   // Deps include threadId and timeline.length so the listener reattaches
   // when the scroll container first appears (empty thread → first message)
@@ -821,15 +835,53 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     })
   }, [virtualizer])
 
+  const scheduleInitialScrollToBottom = useCallback((): void => {
+    cancelInitialBottomScroll()
+
+    const runAttempt = (attempt: number): void => {
+      initialBottomScrollRafRef.current = null
+      if (pendingThreadSwitchScrollRef.current !== threadId) return
+      if (timelineRowsRef.current.length === 0) return
+
+      stickToBottomRef.current = true
+      scrollToBottom()
+
+      initialBottomScrollRafRef.current = requestAnimationFrame(() => {
+        initialBottomScrollRafRef.current = null
+        if (pendingThreadSwitchScrollRef.current !== threadId) return
+
+        const container = scrollContainerRef.current
+        const decision = getInitialBottomScrollDecision({
+          attempt,
+          metrics: container
+            ? {
+                scrollHeight: container.scrollHeight,
+                clientHeight: container.clientHeight,
+                scrollTop: container.scrollTop
+              }
+            : null
+        })
+
+        if (decision === 'done') {
+          pendingThreadSwitchScrollRef.current = null
+          return
+        }
+
+        initialBottomScrollRafRef.current = requestAnimationFrame(() => {
+          runAttempt(attempt + 1)
+        })
+      })
+    }
+
+    runAttempt(0)
+  }, [cancelInitialBottomScroll, scrollToBottom, threadId])
+
   // Scroll to bottom on thread switch.
   useIsomorphicLayoutEffect(() => {
     if (pendingThreadSwitchScrollRef.current !== threadId) return
     if (timelineRowsRef.current.length === 0) return
-    pendingThreadSwitchScrollRef.current = null
-    stickToBottomRef.current = true
-    scrollToBottom()
-    reScrollToBottomAfterMeasure()
-  }, [threadId, timelineRows.length, scrollToBottom, reScrollToBottomAfterMeasure])
+    scheduleInitialScrollToBottom()
+  }, [threadId, timelineRows.length, scheduleInitialScrollToBottom])
 
   // Re-pin to bottom when the user sends a new message (activeRequestMessageId changes).
   // Without this, a user who scrolled up won't auto-scroll to their own new message.
@@ -871,11 +923,12 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
   ])
   useEffect(() => {
     return () => {
+      cancelInitialBottomScroll()
       if (streamingScrollRafRef.current !== null) {
         cancelAnimationFrame(streamingScrollRafRef.current)
       }
     }
-  }, [])
+  }, [cancelInitialBottomScroll])
 
   // Scroll-to-message: bring the group into view via virtualizer, then refine to exact element
   useEffect(() => {
@@ -886,6 +939,9 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     const targetIndex = findTimelineIndex(targetMessageId)
     if (targetIndex < 0) return
 
+    pendingThreadSwitchScrollRef.current = null
+    stickToBottomRef.current = false
+    cancelInitialBottomScroll()
     virtualizer.scrollToIndex(targetIndex, { align: 'center' })
 
     // After virtualizer renders the target row, refine to the exact sub-element
@@ -901,6 +957,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     scrollToMessageId,
     timelineRows.length,
     clearScrollToMessageId,
+    cancelInitialBottomScroll,
     findTimelineIndex,
     virtualizer
   ])
