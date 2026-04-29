@@ -4,7 +4,6 @@ import {
   FolderMinus,
   ListChecks,
   MessageSquare,
-  Paintbrush,
   PenLine,
   SendHorizonal,
   Sparkles,
@@ -17,8 +16,9 @@ import {
   resolveThreadColorOperationTag,
   type ThreadContextOperation
 } from '@renderer/features/threads/lib/threadContextOperations'
-import { THREAD_COLOR_VALUES } from '@renderer/features/threads/lib/threadColorPalette'
+import { THREAD_COLOR_FILTER_LABELS } from '@renderer/features/threads/lib/threadColorPalette'
 import { theme } from '@renderer/theme/theme'
+import { ColorDotPicker } from './ColorDotPicker'
 
 export interface ThreadContextMenuPopupProps {
   onClose: () => void
@@ -71,17 +71,6 @@ function resolveOperationIcon(operationKey: ThreadContextOperation['key']): Reac
     return <Star size={14} strokeWidth={0} fill="currentColor" />
   }
 
-  const colorTag = resolveThreadColorOperationTag(operationKey)
-  if (colorTag !== undefined) {
-    return (
-      <Paintbrush
-        size={14}
-        strokeWidth={1.9}
-        style={{ color: colorTag ? THREAD_COLOR_VALUES[colorTag] : theme.text.secondary }}
-      />
-    )
-  }
-
   return <Trash2 size={14} strokeWidth={1.7} />
 }
 
@@ -93,6 +82,10 @@ export function ThreadContextMenuPopup({
 }: ThreadContextMenuPopupProps): React.JSX.Element {
   const menuRef = useRef<HTMLDivElement>(null)
   const [resolvedTop, setResolvedTop] = useState(position.top)
+  const colorOperations = operations.filter(
+    (operation) => resolveThreadColorOperationTag(operation.key) !== undefined
+  )
+  const menuWidth = 220
 
   useEffect(() => {
     const handlePointerDown = (): void => onClose()
@@ -136,8 +129,8 @@ export function ThreadContextMenuPopup({
       style={{
         position: 'fixed',
         top: resolvedTop,
-        left: Math.max(12, Math.min(position.left, window.innerWidth - 196)),
-        width: 184,
+        left: Math.max(12, Math.min(position.left, window.innerWidth - menuWidth - 12)),
+        width: menuWidth,
         padding: 6,
         background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
@@ -148,51 +141,133 @@ export function ThreadContextMenuPopup({
         zIndex: 100
       }}
     >
-      {operations.map((operation) => (
-        <div key={operation.key}>
-          {operation.separatorBefore ? (
-            <div
-              style={{
-                height: 1,
-                margin: '4px 8px',
-                background: theme.border.default
-              }}
-            />
-          ) : null}
-          <button
-            disabled={operation.disabled}
-            onClick={() => {
-              onSelect(operation.key)
-              onClose()
-            }}
-            className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors disabled:opacity-35"
-            style={{
-              color: operation.tone === 'danger' ? theme.text.dangerStrong : theme.text.primary,
-              background: operation.active ? theme.background.hoverStrong : 'transparent'
-            }}
-            onMouseEnter={(event) => {
-              ;(event.currentTarget as HTMLButtonElement).style.background =
-                theme.background.hoverStrong
-            }}
-            onMouseLeave={(event) => {
-              ;(event.currentTarget as HTMLButtonElement).style.background = operation.active
-                ? theme.background.hoverStrong
-                : 'transparent'
-            }}
-          >
-            <span className="flex items-center gap-2.5">
-              <span
-                className="flex items-center justify-center shrink-0"
-                style={{ width: 16, height: 16 }}
-              >
-                {resolveOperationIcon(operation.key)}
-              </span>
-              <span>{operation.label}</span>
-            </span>
-          </button>
-        </div>
-      ))}
+      {renderThreadMenuItems({ colorOperations, onClose, onSelect, operations })}
     </div>,
     document.body
+  )
+}
+
+function renderThreadMenuItems({
+  colorOperations,
+  onClose,
+  onSelect,
+  operations
+}: {
+  colorOperations: ThreadContextOperation[]
+  onClose: () => void
+  onSelect: (operationKey: ThreadContextOperation['key']) => void
+  operations: ThreadContextOperation[]
+}): Array<React.JSX.Element | null> {
+  let renderedColorPicker = false
+
+  return operations.map((operation) => {
+    const colorTag = resolveThreadColorOperationTag(operation.key)
+    if (colorTag !== undefined) {
+      if (renderedColorPicker) return null
+      renderedColorPicker = true
+
+      return (
+        <div key="__thread-color-picker__">
+          {operation.separatorBefore ? <MenuDivider /> : null}
+          <ColorDotPicker
+            options={colorOperations.map((colorOperation) => {
+              const operationColorTag = resolveThreadColorOperationTag(colorOperation.key)
+              if (operationColorTag === undefined) {
+                throw new Error(`Expected color operation: ${colorOperation.key}`)
+              }
+              return {
+                active: colorOperation.active === true,
+                colorTag: operationColorTag,
+                disabled: colorOperation.disabled,
+                label:
+                  operationColorTag === null
+                    ? 'Default'
+                    : THREAD_COLOR_FILTER_LABELS[operationColorTag],
+                onSelect: () => {
+                  onSelect(colorOperation.key)
+                  onClose()
+                }
+              }
+            })}
+          />
+        </div>
+      )
+    }
+
+    return (
+      <div key={operation.key}>
+        {operation.separatorBefore ? <MenuDivider /> : null}
+        <MenuItemButton
+          active={operation.active}
+          disabled={operation.disabled}
+          icon={resolveOperationIcon(operation.key)}
+          tone={operation.tone}
+          onClick={() => {
+            onSelect(operation.key)
+            onClose()
+          }}
+        >
+          {operation.label}
+        </MenuItemButton>
+      </div>
+    )
+  })
+}
+
+function MenuDivider(): React.JSX.Element {
+  return (
+    <div
+      style={{
+        height: 1,
+        margin: '4px 8px',
+        background: theme.border.default
+      }}
+    />
+  )
+}
+
+function MenuItemButton({
+  active,
+  children,
+  disabled,
+  icon,
+  onClick,
+  tone
+}: {
+  active?: boolean
+  children: React.ReactNode
+  disabled?: boolean
+  icon: React.ReactNode
+  onClick: () => void
+  tone?: ThreadContextOperation['tone']
+}): React.JSX.Element {
+  return (
+    <button
+      disabled={disabled}
+      onClick={onClick}
+      className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors disabled:opacity-35"
+      style={{
+        color: tone === 'danger' ? theme.text.dangerStrong : theme.text.primary,
+        background: active ? theme.background.hoverStrong : 'transparent'
+      }}
+      onMouseEnter={(event) => {
+        ;(event.currentTarget as HTMLButtonElement).style.background = theme.background.hoverStrong
+      }}
+      onMouseLeave={(event) => {
+        ;(event.currentTarget as HTMLButtonElement).style.background = active
+          ? theme.background.hoverStrong
+          : 'transparent'
+      }}
+    >
+      <span className="flex items-center gap-2.5">
+        <span
+          className="flex items-center justify-center shrink-0"
+          style={{ width: 16, height: 16 }}
+        >
+          {icon}
+        </span>
+        <span>{children}</span>
+      </span>
+    </button>
   )
 }

@@ -1,24 +1,16 @@
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import {
-  FolderOpen,
-  FolderClosed,
-  PenLine,
-  Trash2,
-  Paintbrush,
-  Archive,
-  RotateCcw
-} from 'lucide-react'
+import { FolderOpen, FolderClosed, PenLine, Trash2, Archive, RotateCcw } from 'lucide-react'
 import type { FolderColorTag, FolderRecord } from '@renderer/app/types'
 import { imeSafeEnter } from '@renderer/lib/imeUtils'
 import { theme } from '@renderer/theme/theme'
 import {
-  THREAD_COLOR_LABELS,
+  THREAD_COLOR_FILTER_LABELS,
   THREAD_COLOR_TAGS,
-  THREAD_COLOR_VALUES,
   resolveThreadColor
 } from '@renderer/features/threads/lib/threadColorPalette'
+import { ColorDotPicker } from './ColorDotPicker'
 
 function folderIconColor(colorTag: FolderColorTag | null | undefined): string {
   return resolveThreadColor(colorTag, theme.text.secondary)
@@ -207,6 +199,7 @@ function FolderContextMenu({
 }): React.JSX.Element {
   const menuRef = useRef<HTMLDivElement>(null)
   const [resolvedTop, setResolvedTop] = useState(y)
+  const menuWidth = 220
 
   useEffect(() => {
     const handlePointerDown = (): void => onClose()
@@ -245,9 +238,9 @@ function FolderContextMenu({
       data-no-drag
       style={{
         position: 'fixed',
-        left: Math.max(12, Math.min(x, window.innerWidth - 196)),
+        left: Math.max(12, Math.min(x, window.innerWidth - menuWidth - 12)),
         top: resolvedTop,
-        width: 184,
+        width: menuWidth,
         padding: 6,
         background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
@@ -286,25 +279,22 @@ function FolderContextMenu({
         }}
       />
 
-      <MenuItem
-        icon={<FolderClosed size={14} strokeWidth={1.7} style={{ color: theme.text.secondary }} />}
-        onClick={() => onSetColor(null)}
-        active={currentColor === null}
-      >
-        Mark it Default
-      </MenuItem>
-      {THREAD_COLOR_TAGS.map((tag) => (
-        <MenuItem
-          key={tag}
-          icon={
-            <Paintbrush size={14} strokeWidth={1.7} style={{ color: THREAD_COLOR_VALUES[tag] }} />
-          }
-          onClick={() => onSetColor(tag)}
-          active={currentColor === tag}
-        >
-          {THREAD_COLOR_LABELS[tag]}
-        </MenuItem>
-      ))}
+      <ColorDotPicker
+        options={[
+          {
+            active: currentColor === null,
+            colorTag: null,
+            label: 'Default',
+            onSelect: () => onSetColor(null)
+          },
+          ...THREAD_COLOR_TAGS.map((tag) => ({
+            active: currentColor === tag,
+            colorTag: tag,
+            label: THREAD_COLOR_FILTER_LABELS[tag],
+            onSelect: () => onSetColor(tag)
+          }))
+        ]}
+      />
     </div>,
     document.body
   )
