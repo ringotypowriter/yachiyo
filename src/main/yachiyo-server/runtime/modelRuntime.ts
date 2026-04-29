@@ -1,5 +1,6 @@
 import { stepCountIs } from 'ai'
 
+import { applyStripCompact } from './contextStripCompact.ts'
 import { prepareAiSdkMessages } from './messagePrepare.ts'
 import type { ModelMessage, ModelRuntime } from './types.ts'
 import {
@@ -18,16 +19,77 @@ import {
 import { getGeminiMaxOutputTokens } from './providers/google.ts'
 import { createProviderOptions, extractThinkingBudget } from './providers/providerOptions.ts'
 import type { RuntimeProviderOptions } from './providers/shared.ts'
-import { isTransientTransportError, toRunBoundaryError } from './runtimeErrors.ts'
+import {
+  isContextWindowExceededError,
+  isTransientTransportError,
+  toRunBoundaryError
+} from './runtimeErrors.ts'
 /** Disable AI SDK's built-in retry — we handle retries ourselves. */
 const SDK_MAX_RETRIES = 0
 
 export const RETRY_MAX_ATTEMPTS = 10
+const CONTEXT_STRIP_COMPACT_MAX_RETRIES = 5
+const FORCED_STRIP_COMPACT_TOKEN_THRESHOLD = 1
 const RETRY_BASE_DELAY_MS = 1_000
 const RETRY_MAX_DELAY_MS = 30_000
 
 function readTextDelta(part: { delta?: string; text?: string; textDelta?: string }): string | null {
   return part.delta ?? part.textDelta ?? part.text ?? null
+}
+
+function readStreamErrorMessage(value: unknown): string | null {
+  if (value == null) {
+    return null
+  }
+
+  if (value instanceof Error) {
+    const trimmed = value.message.trim()
+    return trimmed.length > 0 ? trimmed : null
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed.length > 0 ? trimmed : null
+  }
+
+  if (typeof value !== 'object') {
+    return String(value)
+  }
+
+  const record = value as Record<string, unknown>
+  const message = readStreamErrorMessage(record.message)
+  if (message) {
+    return message
+  }
+
+  const nestedError = readStreamErrorMessage(record.error)
+  if (nestedError) {
+    return nestedError
+  }
+
+  const code = readStreamErrorMessage(record.code)
+  if (code) {
+    return code
+  }
+
+  try {
+    const serialized = JSON.stringify(value)
+    return serialized && serialized !== '{}' ? serialized : null
+  } catch {
+    return String(value)
+  }
+}
+
+function toStreamError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error
+  }
+
+  return new Error(readStreamErrorMessage(error) ?? 'Unknown stream error', { cause: error })
+}
+
+function measurePromptPayload(messages: ModelMessage[]): number {
+  return JSON.stringify(messages).length
 }
 
 /**
@@ -204,7 +266,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
     async *streamReply(request) {
       assertConfigured(request.settings)
 
-      const preparedMessages = patchReasoningSignatures(
+      let preparedMessages = patchReasoningSignatures(
         prepareAiSdkMessages(request.messages) as unknown[]
       ) as ModelMessage[]
 
@@ -264,6 +326,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
 
       let retryDelay = RETRY_BASE_DELAY_MS
       let totalYieldedChars = 0
+      let contextStripCompactRetries = 0
 
       let stepReasoningChunks: string[][] = [[]]
       const interceptReasoningDelta = request.onReasoningDelta
@@ -361,9 +424,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               }
 
               if (part.type === 'error') {
-                throw part.error instanceof Error
-                  ? part.error
-                  : new Error(String(part.error ?? 'Unknown stream error'))
+                throw toStreamError(part.error)
               }
 
               if (
@@ -652,6 +713,35 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
           console.error(
             `${llmTag} error provider=${provider} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} committed=${streamCommitted}: ${errorLogMessage}`
           )
+
+          if (
+            !streamCommitted &&
+            isContextWindowExceededError(error) &&
+            contextStripCompactRetries < CONTEXT_STRIP_COMPACT_MAX_RETRIES &&
+            attempt < RETRY_MAX_ATTEMPTS
+          ) {
+            const compactedMessages = applyStripCompact(
+              preparedMessages,
+              request.tools ? Object.keys(request.tools).length : 0,
+              undefined,
+              FORCED_STRIP_COMPACT_TOKEN_THRESHOLD
+            )
+            if (measurePromptPayload(compactedMessages) < measurePromptPayload(preparedMessages)) {
+              contextStripCompactRetries++
+              preparedMessages = compactedMessages
+              console.warn(
+                `${llmTag} retrying with strip compact after context-window error ` +
+                  `attempt=${contextStripCompactRetries}/${CONTEXT_STRIP_COMPACT_MAX_RETRIES}: ${errorLogMessage}`
+              )
+              request.onRetry?.(
+                contextStripCompactRetries,
+                CONTEXT_STRIP_COMPACT_MAX_RETRIES,
+                0,
+                error
+              )
+              continue
+            }
+          }
 
           if (shouldLogGatewayDiagnostics(request.settings)) {
             logGatewayDiagnostics('streamReply-error', {

@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   RetryableRunError,
+  isContextWindowExceededError,
   isRetryableRunError,
   isTransientTransportError,
   toRunBoundaryError
@@ -94,6 +95,36 @@ test('isTransientTransportError defaults to false for unknown errors', () => {
   // Null/undefined.
   assert.equal(isTransientTransportError(null), false)
   assert.equal(isTransientTransportError(undefined), false)
+})
+
+test('isContextWindowExceededError recognizes provider context-window errors', () => {
+  assert.equal(
+    isContextWindowExceededError({
+      type: 'invalid_request_error',
+      code: 'context_length_exceeded',
+      message:
+        'Your input exceeds the context window of this model. Please adjust your input and try again.'
+    }),
+    true
+  )
+
+  assert.equal(
+    isContextWindowExceededError(new Error('Your input exceeds the context window of this model.')),
+    true
+  )
+})
+
+test('isContextWindowExceededError checks nested error causes', () => {
+  const rawProviderError = {
+    code: 'context_length_exceeded',
+    message: 'too many tokens'
+  }
+  const wrapped = new Error('Your input exceeds the context window of this model.', {
+    cause: rawProviderError
+  })
+
+  assert.equal(isContextWindowExceededError(wrapped), true)
+  assert.equal(isContextWindowExceededError(new Error('Unauthorized')), false)
 })
 
 test('isTransientTransportError rejects storage/ORM-shaped errors', () => {

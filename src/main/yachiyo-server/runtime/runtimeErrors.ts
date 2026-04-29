@@ -40,6 +40,46 @@ export function isRetryableRunError(error: unknown): error is RetryableRunError 
   return error instanceof RetryableRunError
 }
 
+function readErrorString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function isContextWindowExceededRecord(value: unknown, seen = new WeakSet<object>()): boolean {
+  if (!value || typeof value !== 'object') return false
+  if (seen.has(value)) return false
+  seen.add(value)
+
+  const record = value as Record<string, unknown>
+  const code = readErrorString(record.code).trim().toLowerCase()
+  if (code === 'context_length_exceeded') return true
+
+  const message = readErrorString(record.message)
+  if (
+    /context (?:window|length).*exceed/i.test(message) ||
+    /exceeds? the context window/i.test(message) ||
+    /maximum context length/i.test(message)
+  ) {
+    return true
+  }
+
+  return (
+    isContextWindowExceededRecord(record.error, seen) ||
+    isContextWindowExceededRecord(record.cause, seen)
+  )
+}
+
+export function isContextWindowExceededError(error: unknown): boolean {
+  if (typeof error === 'string') {
+    return (
+      /context (?:window|length).*exceed/i.test(error) ||
+      /exceeds? the context window/i.test(error) ||
+      /maximum context length/i.test(error)
+    )
+  }
+
+  return isContextWindowExceededRecord(error)
+}
+
 /**
  * Positive-signal classifier for raw errors caught at the model-runtime
  * boundary. Returns `true` only when the error carries a recognized

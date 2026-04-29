@@ -869,6 +869,212 @@ test('createAiSdkModelRuntime forwards reasoning deltas from fullStream reasonin
   assert.deepEqual(chunks, ['answer'])
 })
 
+test('createAiSdkModelRuntime surfaces nested fullStream error messages', async () => {
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => ({ modelId: 'gpt-5', provider: 'openai.responses' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: (() => ({
+      fullStream: (async function* () {
+        yield {
+          type: 'error',
+          error: {
+            type: 'invalid_request_error',
+            code: 'context_length_exceeded',
+            message:
+              'Your input exceeds the context window of this model. Please adjust your input and try again.'
+          }
+        }
+      })()
+    })) as never
+  })
+
+  await assert.rejects(
+    async () => {
+      for await (const chunk of runtime.streamReply({
+        messages: [{ role: 'user', content: 'Summarize this image.' }],
+        settings: {
+          providerName: 'work',
+          provider: 'openai-responses',
+          model: 'gpt-5',
+          apiKey: 'sk-test',
+          baseUrl: ''
+        },
+        signal: new AbortController().signal
+      })) {
+        void chunk
+      }
+    },
+    {
+      message:
+        'Your input exceeds the context window of this model. Please adjust your input and try again.'
+    }
+  )
+})
+
+test('createAiSdkModelRuntime retries context-window errors with stripped context', async () => {
+  const calls: unknown[] = []
+  const largeOutput = {
+    type: 'content',
+    value: [{ type: 'text', text: 'x'.repeat(500_000) }]
+  }
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => ({ modelId: 'gpt-5', provider: 'openai.responses' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: ((input: { messages: unknown[] }) => {
+      calls.push(input.messages)
+      if (calls.length === 1) {
+        return {
+          fullStream: (async function* () {
+            yield {
+              type: 'error',
+              error: {
+                type: 'invalid_request_error',
+                code: 'context_length_exceeded',
+                message:
+                  'Your input exceeds the context window of this model. Please adjust your input and try again.'
+              }
+            }
+          })()
+        }
+      }
+
+      return {
+        fullStream: (async function* () {
+          yield { type: 'text-delta', id: 'text-1', text: 'ok' }
+        })()
+      }
+    }) as never
+  })
+
+  const chunks: string[] = []
+  for await (const chunk of runtime.streamReply({
+    messages: [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: 'q1' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'a1' },
+          { type: 'tool-call', toolCallId: 'tc1', toolName: 'read', input: { path: 'old.txt' } }
+        ]
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'tc1',
+            toolName: 'read',
+            result: 'ok',
+            output: largeOutput
+          }
+        ]
+      },
+      { role: 'user', content: 'q2' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'a2' },
+          { type: 'tool-call', toolCallId: 'tc2', toolName: 'read', input: { path: 'new.txt' } }
+        ]
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'tc2',
+            toolName: 'read',
+            result: 'ok',
+            output: largeOutput
+          }
+        ]
+      },
+      { role: 'user', content: 'q3' }
+    ] as never,
+    settings: {
+      providerName: 'work',
+      provider: 'openai-responses',
+      model: 'gpt-5',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok'])
+  assert.equal(calls.length, 2)
+
+  const retriedMessages = calls[1] as Array<{ role: string; content: unknown }>
+  const oldToolMessage = retriedMessages[3] as { content: Array<{ output: { value: string } }> }
+  assert.match(oldToolMessage.content[0].output.value, /\[Stripped: read/)
+
+  const latestToolMessage = retriedMessages[6] as {
+    content: Array<{ output: { value: Array<{ text: string }> } }>
+  }
+  assert.equal(latestToolMessage.content[0].output.value[0].text, 'x'.repeat(500_000))
+})
+
+test('createAiSdkModelRuntime does not retry context-window errors when compaction does not shrink the prompt', async () => {
+  let callCount = 0
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => ({ modelId: 'gpt-5', provider: 'openai.responses' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: (() => {
+      callCount++
+      return {
+        fullStream: (async function* () {
+          yield {
+            type: 'error',
+            error: {
+              code: 'context_length_exceeded',
+              message: 'Your input exceeds the context window of this model.'
+            }
+          }
+        })()
+      }
+    }) as never
+  })
+
+  await assert.rejects(
+    async () => {
+      for await (const chunk of runtime.streamReply({
+        messages: [{ role: 'user', content: 'x'.repeat(500_000) }],
+        settings: {
+          providerName: 'work',
+          provider: 'openai-responses',
+          model: 'gpt-5',
+          apiKey: 'sk-test',
+          baseUrl: ''
+        },
+        signal: new AbortController().signal
+      })) {
+        void chunk
+      }
+    },
+    { message: 'Your input exceeds the context window of this model.' }
+  )
+
+  assert.equal(callCount, 1)
+})
+
 test('createAiSdkModelRuntime reports cache reads from totalUsage instead of final-step usage', async () => {
   let finishedUsage:
     | {
