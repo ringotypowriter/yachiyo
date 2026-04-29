@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useVirtualizer as useTanStackVirtualizer } from '@tanstack/react-virtual'
 import { useShallow } from 'zustand/react/shallow'
 import { Waypoints } from 'lucide-react'
@@ -42,6 +42,41 @@ interface MessageTimelineProps {
   recapText?: string
 }
 
+interface TimelineItemRenderContext {
+  threadCapabilities: ReturnType<typeof getThreadCapabilities> | null
+  threadHasActiveRun: boolean
+  threadIsSaving: boolean
+  activeRequestMessageId: string | null
+  subagentActive: boolean
+  activeSubagents: Array<{
+    delegationId: string
+    agentName: string
+    progress: string
+  }>
+  subagentProgressEntries: Array<{
+    delegationId: string
+    agentName: string
+    chunk: string
+  }>
+  retryInfo?: { attempt: number; maxAttempts: number; error: string }
+  runs: RunRecord[]
+  toolCalls: ToolCall[]
+  threadId: string | null
+  workspacePath?: string
+  cancelRunForThread: (threadId: string) => Promise<void>
+  revertPendingSteer: () => Promise<void>
+  onEdit: (messageId: string) => void
+  onCreateBranch: (messageId: string) => Promise<void>
+  onRetry: (messageId: string) => Promise<void>
+  onDelete: (messageId: string) => Promise<void>
+  onSelectReplyBranch: (messageId: string) => Promise<void>
+}
+
+interface TimelineItemContentProps {
+  item: MessageTimelineRow
+  context: TimelineItemRenderContext
+}
+
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_HARNESSES: HarnessRecord[] = []
 const EMPTY_RUNS: RunRecord[] = []
@@ -67,6 +102,317 @@ function confirmDelete(message: Message): boolean {
     'Delete this response branch and everything that continues from it in the current thread? Sibling responses will stay.'
   )
 }
+
+function renderTimelineItem(
+  item: MessageTimelineRow,
+  context: TimelineItemRenderContext
+): React.JSX.Element | null {
+  const {
+    threadCapabilities,
+    threadHasActiveRun,
+    threadIsSaving,
+    activeRequestMessageId,
+    subagentActive,
+    activeSubagents,
+    subagentProgressEntries,
+    retryInfo,
+    runs,
+    toolCalls,
+    threadId,
+    workspacePath,
+    cancelRunForThread,
+    revertPendingSteer,
+    onEdit,
+    onCreateBranch,
+    onRetry,
+    onDelete,
+    onSelectReplyBranch
+  } = context
+
+  if (item.kind === 'harness') {
+    return <RunEventRow harness={item.data} />
+  }
+
+  if (item.kind === 'pending-steer') {
+    if (!threadCapabilities) return null
+    return (
+      <div data-message-id={item.key}>
+        <UserMessageBubble
+          label="Pending steer"
+          pending
+          message={item.data}
+          threadHasActiveRun
+          threadCapabilities={threadCapabilities}
+          onRetry={() => undefined}
+          onCreateBranch={() => undefined}
+          onDelete={() => undefined}
+          onRevert={() => void revertPendingSteer()}
+        />
+      </div>
+    )
+  }
+
+  if (item.kind === 'tool') {
+    return <ToolCallRow toolCall={item.data} workspacePath={workspacePath} />
+  }
+
+  if (item.kind === 'assistant-root') {
+    if (item.data.status === 'streaming' && !item.data.content.trim()) {
+      return (
+        <div data-message-id={item.key}>
+          {item.data.reasoning ? (
+            <ThinkingBlock
+              reasoning={item.data.reasoning}
+              isActive={true}
+              startedAt={item.data.createdAt}
+            />
+          ) : null}
+          <div className="message-response-cluster">
+            <div className="message-response-cluster__preparing">
+              <PreparingBubble />
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div data-message-id={item.key}>
+        {item.data.reasoning ? (
+          <ThinkingBlock
+            reasoning={item.data.reasoning}
+            isActive={item.data.status === 'streaming'}
+            startedAt={item.data.createdAt}
+          />
+        ) : null}
+        <AssistantMessageBubble message={item.data} />
+      </div>
+    )
+  }
+
+  if (!threadCapabilities) return null
+
+  const group = item.group
+  const responseCount = group.assistantBranches.length
+  const activeBranch =
+    group.activeBranchIndex >= 0 ? group.assistantBranches[group.activeBranchIndex] : null
+  const previousBranch =
+    group.activeBranchIndex > 0 ? group.assistantBranches[group.activeBranchIndex - 1] : null
+  const nextBranch =
+    group.activeBranchIndex >= 0 && group.activeBranchIndex < responseCount - 1
+      ? group.assistantBranches[group.activeBranchIndex + 1]
+      : null
+  const retryTargetMessageId = resolveRetryTargetMessageId({
+    userMessageId: group.userMessage.id,
+    ...(activeBranch ? { activeAssistantMessage: activeBranch.message } : {})
+  })
+  const canBranchMessages = canCreateBranch({
+    threadCapabilities,
+    threadHasActiveRun,
+    threadIsSaving
+  })
+  const canEditMessages = canEditUserMessage({
+    threadCapabilities,
+    threadHasActiveRun,
+    threadIsSaving
+  })
+  const canDeleteMessages = canDeleteMessage({
+    threadCapabilities,
+    threadHasActiveRun,
+    threadIsSaving
+  })
+  const canSwitchReplyBranches = canSelectReplyBranch({
+    threadCapabilities,
+    threadHasActiveRun,
+    threadIsSaving
+  })
+  const isActiveGroup = item.requestMessageId === activeRequestMessageId
+  const groupRetryInfo = isActiveGroup ? retryInfo : undefined
+  const cancelSubagent =
+    isActiveGroup && activeSubagents.length === 1 && threadId
+      ? () => void cancelRunForThread(threadId)
+      : undefined
+
+  if (item.kind === 'group-user') {
+    return (
+      <div data-message-id={group.userMessage.id}>
+        <UserMessageBubble
+          message={group.userMessage}
+          threadHasActiveRun={threadHasActiveRun}
+          threadCapabilities={threadCapabilities}
+          threadIsSaving={threadIsSaving}
+          onEdit={canEditMessages ? () => onEdit(group.userMessage.id) : undefined}
+          onRetry={threadCapabilities.canRetry ? () => onRetry(retryTargetMessageId) : undefined}
+          onCreateBranch={
+            canBranchMessages ? () => onCreateBranch(group.userMessage.id) : undefined
+          }
+          onDelete={canDeleteMessages ? () => onDelete(group.userMessage.id) : undefined}
+        />
+      </div>
+    )
+  }
+
+  if (item.kind === 'group-branch-navigation') {
+    return (
+      <div className="px-6 py-0.5">
+        <ReplyBranchNavigation
+          replyCount={responseCount}
+          canSelectPreviousReply={canSwitchReplyBranches && Boolean(previousBranch)}
+          canSelectNextReply={canSwitchReplyBranches && Boolean(nextBranch)}
+          onSelectPreviousReply={
+            canSwitchReplyBranches && previousBranch
+              ? () => void onSelectReplyBranch(previousBranch.message.id)
+              : undefined
+          }
+          onSelectNextReply={
+            canSwitchReplyBranches && nextBranch
+              ? () => void onSelectReplyBranch(nextBranch.message.id)
+              : undefined
+          }
+        />
+      </div>
+    )
+  }
+
+  if (item.kind === 'group-thinking') {
+    return (
+      <div {...(item.scrollMessageId ? { 'data-message-id': item.scrollMessageId } : {})}>
+        <ThinkingBlock
+          reasoning={item.assistantMessage.reasoning ?? ''}
+          isActive={item.assistantMessage.status === 'streaming'}
+          startedAt={item.assistantMessage.createdAt}
+        />
+      </div>
+    )
+  }
+
+  if (item.kind === 'group-memory-recall') {
+    return <RunMemoryRecallRow entries={item.entries} recallDecision={item.recallDecision} />
+  }
+
+  if (item.kind === 'group-tool-call') {
+    return <ToolCallRow toolCall={item.toolCall} workspacePath={workspacePath} />
+  }
+
+  if (item.kind === 'group-tool-call-group') {
+    return (
+      <ToolCallGroupRow
+        group={item.toolGroup}
+        toolCalls={item.toolCalls}
+        workspacePath={workspacePath}
+      />
+    )
+  }
+
+  if (item.kind === 'group-assistant-text-block') {
+    return (
+      <div className="message-response-cluster" data-message-id={item.assistantMessage.id}>
+        <AssistantMessageBubble
+          message={item.assistantMessage}
+          contentOverride={item.textBlock.content}
+          showFooter={false}
+          suppressGeneratingLabel={
+            item.hasRunningToolCall || item.assistantMessage.status === 'streaming'
+          }
+          pauseStreaming={isActiveGroup && subagentActive}
+          showCaret={item.isLastTextBlock ? undefined : false}
+          compactBottomSpacing={item.compactBottomSpacing}
+        />
+      </div>
+    )
+  }
+
+  if (item.kind === 'group-generating') {
+    return <GeneratingRow retryInfo={groupRetryInfo} />
+  }
+
+  if (item.kind === 'group-preparing') {
+    if (groupRetryInfo) {
+      return <GeneratingRow retryInfo={groupRetryInfo} />
+    }
+
+    return (
+      <div className="message-response-cluster">
+        <div className="message-response-cluster__preparing">
+          <PreparingBubble />
+        </div>
+      </div>
+    )
+  }
+
+  if (item.kind === 'group-footer') {
+    return (
+      <div className="message-bubble-group px-6 py-1 flex flex-col gap-0.5">
+        {item.assistantMessage.status === 'stopped' ? (
+          <div className="message-footer message-footer--always-visible">Stopped</div>
+        ) : item.assistantMessage.status === 'failed' ? (
+          <div
+            className="message-footer message-footer--always-visible"
+            style={{ color: theme.text.danger }}
+          >
+            {item.failedRunError ? `Failed: ${item.failedRunError}` : 'Failed to generate'}
+          </div>
+        ) : null}
+        {item.savedMemoryCount > 0 ? (
+          <div
+            className="message-footer message-footer--always-visible inline-flex items-center gap-1"
+            style={{ color: theme.text.accent }}
+          >
+            {item.savedMemoryCount === 1
+              ? 'Memory saved'
+              : `${item.savedMemoryCount} memories saved`}
+          </div>
+        ) : null}
+        <RunStatsFooter
+          runs={runs}
+          toolCalls={toolCalls}
+          requestMessageId={item.requestMessageId}
+        />
+        <MessageActionBar
+          align="start"
+          content={item.assistantMessage.content}
+          canRetry={canRetryAssistantMessage({
+            messageStatus: item.assistantMessage.status,
+            threadCapabilities,
+            threadHasActiveRun,
+            threadIsSaving
+          })}
+          onRetry={
+            threadCapabilities.canRetry ? () => onRetry(item.assistantMessage.id) : undefined
+          }
+          onCreateBranch={
+            canBranchMessages ? () => onCreateBranch(item.assistantMessage.id) : undefined
+          }
+          onDelete={canDeleteMessages ? () => onDelete(item.assistantMessage.id) : undefined}
+        />
+      </div>
+    )
+  }
+
+  if (item.kind === 'group-subagent') {
+    return (
+      <SubagentRunningIndicator
+        agents={activeSubagents}
+        progressEntries={subagentProgressEntries}
+        onCancel={cancelSubagent}
+      />
+    )
+  }
+
+  return null
+}
+
+function TimelineItemContentBase({
+  item,
+  context
+}: TimelineItemContentProps): React.JSX.Element | null {
+  return renderTimelineItem(item, context)
+}
+
+const TimelineItemContent = memo(
+  TimelineItemContentBase,
+  (prev, next) => prev.item === next.item && prev.context === next.context
+)
 
 export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): React.JSX.Element {
   const {
@@ -332,8 +678,9 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
   // flows into the cache and survives unmount/remount.
   useEffect(() => {
     for (const v of virtualizer.getVirtualItems()) {
-      if (v.size > 0) {
-        measuredSizeCache.current.set(String(v.key), v.size)
+      const key = String(v.key)
+      if (v.size > 0 && measuredSizeCache.current.get(key) !== v.size) {
+        measuredSizeCache.current.set(key, v.size)
       }
     }
   })
@@ -569,286 +916,28 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
   const isAcpThread = thread?.runtimeBinding?.kind === 'acp'
   const workspacePath = thread?.workspacePath
 
-  const renderTimelineItem = useCallback(
-    (item: MessageTimelineRow): React.JSX.Element | null => {
-      if (item.kind === 'harness') {
-        return <RunEventRow harness={item.data} />
-      }
-
-      if (item.kind === 'pending-steer') {
-        if (!threadCapabilities) return null
-        return (
-          <div data-message-id={item.key}>
-            <UserMessageBubble
-              label="Pending steer"
-              pending
-              message={item.data}
-              threadHasActiveRun
-              threadCapabilities={threadCapabilities}
-              onRetry={() => undefined}
-              onCreateBranch={() => undefined}
-              onDelete={() => undefined}
-              onRevert={() => void revertPendingSteer()}
-            />
-          </div>
-        )
-      }
-
-      if (item.kind === 'tool') {
-        return <ToolCallRow toolCall={item.data} workspacePath={workspacePath} />
-      }
-
-      if (item.kind === 'assistant-root') {
-        if (item.data.status === 'streaming' && !item.data.content.trim()) {
-          return (
-            <div data-message-id={item.key}>
-              {item.data.reasoning ? (
-                <ThinkingBlock
-                  reasoning={item.data.reasoning}
-                  isActive={true}
-                  startedAt={item.data.createdAt}
-                />
-              ) : null}
-              <div className="message-response-cluster">
-                <div className="message-response-cluster__preparing">
-                  <PreparingBubble />
-                </div>
-              </div>
-            </div>
-          )
-        }
-
-        return (
-          <div data-message-id={item.key}>
-            {item.data.reasoning ? (
-              <ThinkingBlock
-                reasoning={item.data.reasoning}
-                isActive={item.data.status === 'streaming'}
-                startedAt={item.data.createdAt}
-              />
-            ) : null}
-            <AssistantMessageBubble message={item.data} />
-          </div>
-        )
-      }
-
-      if (!threadCapabilities) return null
-
-      const group = item.group
-      const responseCount = group.assistantBranches.length
-      const activeBranch =
-        group.activeBranchIndex >= 0 ? group.assistantBranches[group.activeBranchIndex] : null
-      const previousBranch =
-        group.activeBranchIndex > 0 ? group.assistantBranches[group.activeBranchIndex - 1] : null
-      const nextBranch =
-        group.activeBranchIndex >= 0 && group.activeBranchIndex < responseCount - 1
-          ? group.assistantBranches[group.activeBranchIndex + 1]
-          : null
-      const retryTargetMessageId = resolveRetryTargetMessageId({
-        userMessageId: group.userMessage.id,
-        ...(activeBranch ? { activeAssistantMessage: activeBranch.message } : {})
-      })
-      const canBranchMessages = canCreateBranch({
-        threadCapabilities,
-        threadHasActiveRun,
-        threadIsSaving
-      })
-      const canEditMessages = canEditUserMessage({
-        threadCapabilities,
-        threadHasActiveRun,
-        threadIsSaving
-      })
-      const canDeleteMessages = canDeleteMessage({
-        threadCapabilities,
-        threadHasActiveRun,
-        threadIsSaving
-      })
-      const canSwitchReplyBranches = canSelectReplyBranch({
-        threadCapabilities,
-        threadHasActiveRun,
-        threadIsSaving
-      })
-      const isActiveGroup = item.requestMessageId === activeRequestMessageId
-      const groupRetryInfo = isActiveGroup ? retryInfo : undefined
-      const cancelSubagent =
-        isActiveGroup && activeSubagents.length === 1
-          ? () => void cancelRunForThread(threadId!)
-          : undefined
-
-      if (item.kind === 'group-user') {
-        return (
-          <div data-message-id={group.userMessage.id}>
-            <UserMessageBubble
-              message={group.userMessage}
-              threadHasActiveRun={threadHasActiveRun}
-              threadCapabilities={threadCapabilities}
-              threadIsSaving={threadIsSaving}
-              onEdit={canEditMessages ? () => handleEdit(group.userMessage.id) : undefined}
-              onRetry={
-                threadCapabilities.canRetry ? () => handleRetry(retryTargetMessageId) : undefined
-              }
-              onCreateBranch={
-                canBranchMessages ? () => handleCreateBranch(group.userMessage.id) : undefined
-              }
-              onDelete={canDeleteMessages ? () => handleDelete(group.userMessage.id) : undefined}
-            />
-          </div>
-        )
-      }
-
-      if (item.kind === 'group-branch-navigation') {
-        return (
-          <div className="px-6 py-0.5">
-            <ReplyBranchNavigation
-              replyCount={responseCount}
-              canSelectPreviousReply={canSwitchReplyBranches && Boolean(previousBranch)}
-              canSelectNextReply={canSwitchReplyBranches && Boolean(nextBranch)}
-              onSelectPreviousReply={
-                canSwitchReplyBranches && previousBranch
-                  ? () => void handleSelectReplyBranch(previousBranch.message.id)
-                  : undefined
-              }
-              onSelectNextReply={
-                canSwitchReplyBranches && nextBranch
-                  ? () => void handleSelectReplyBranch(nextBranch.message.id)
-                  : undefined
-              }
-            />
-          </div>
-        )
-      }
-
-      if (item.kind === 'group-thinking') {
-        return (
-          <div {...(item.scrollMessageId ? { 'data-message-id': item.scrollMessageId } : {})}>
-            <ThinkingBlock
-              reasoning={item.assistantMessage.reasoning ?? ''}
-              isActive={item.assistantMessage.status === 'streaming'}
-              startedAt={item.assistantMessage.createdAt}
-            />
-          </div>
-        )
-      }
-
-      if (item.kind === 'group-memory-recall') {
-        return <RunMemoryRecallRow entries={item.entries} recallDecision={item.recallDecision} />
-      }
-
-      if (item.kind === 'group-tool-call') {
-        return <ToolCallRow toolCall={item.toolCall} workspacePath={workspacePath} />
-      }
-
-      if (item.kind === 'group-tool-call-group') {
-        return (
-          <ToolCallGroupRow
-            group={item.toolGroup}
-            toolCalls={item.toolCalls}
-            workspacePath={workspacePath}
-          />
-        )
-      }
-
-      if (item.kind === 'group-assistant-text-block') {
-        return (
-          <div className="message-response-cluster" data-message-id={item.assistantMessage.id}>
-            <AssistantMessageBubble
-              message={item.assistantMessage}
-              contentOverride={item.textBlock.content}
-              showFooter={false}
-              suppressGeneratingLabel={
-                item.hasRunningToolCall || item.assistantMessage.status === 'streaming'
-              }
-              pauseStreaming={isActiveGroup && subagentActive}
-              showCaret={item.isLastTextBlock ? undefined : false}
-              compactBottomSpacing={item.compactBottomSpacing}
-            />
-          </div>
-        )
-      }
-
-      if (item.kind === 'group-generating') {
-        return <GeneratingRow retryInfo={groupRetryInfo} />
-      }
-
-      if (item.kind === 'group-preparing') {
-        if (groupRetryInfo) {
-          return <GeneratingRow retryInfo={groupRetryInfo} />
-        }
-
-        return (
-          <div className="message-response-cluster">
-            <div className="message-response-cluster__preparing">
-              <PreparingBubble />
-            </div>
-          </div>
-        )
-      }
-
-      if (item.kind === 'group-footer') {
-        return (
-          <div className="message-bubble-group px-6 py-1 flex flex-col gap-0.5">
-            {item.assistantMessage.status === 'stopped' ? (
-              <div className="message-footer message-footer--always-visible">Stopped</div>
-            ) : item.assistantMessage.status === 'failed' ? (
-              <div
-                className="message-footer message-footer--always-visible"
-                style={{ color: theme.text.danger }}
-              >
-                {item.failedRunError ? `Failed: ${item.failedRunError}` : 'Failed to generate'}
-              </div>
-            ) : null}
-            {item.savedMemoryCount > 0 ? (
-              <div
-                className="message-footer message-footer--always-visible inline-flex items-center gap-1"
-                style={{ color: theme.text.accent }}
-              >
-                {item.savedMemoryCount === 1
-                  ? 'Memory saved'
-                  : `${item.savedMemoryCount} memories saved`}
-              </div>
-            ) : null}
-            <RunStatsFooter
-              runs={runs}
-              toolCalls={toolCalls}
-              requestMessageId={item.requestMessageId}
-            />
-            <MessageActionBar
-              align="start"
-              content={item.assistantMessage.content}
-              canRetry={canRetryAssistantMessage({
-                messageStatus: item.assistantMessage.status,
-                threadCapabilities,
-                threadHasActiveRun,
-                threadIsSaving
-              })}
-              onRetry={
-                threadCapabilities.canRetry
-                  ? () => handleRetry(item.assistantMessage.id)
-                  : undefined
-              }
-              onCreateBranch={
-                canBranchMessages ? () => handleCreateBranch(item.assistantMessage.id) : undefined
-              }
-              onDelete={
-                canDeleteMessages ? () => handleDelete(item.assistantMessage.id) : undefined
-              }
-            />
-          </div>
-        )
-      }
-
-      if (item.kind === 'group-subagent') {
-        return (
-          <SubagentRunningIndicator
-            agents={activeSubagents}
-            progressEntries={subagentProgressEntries}
-            onCancel={cancelSubagent}
-          />
-        )
-      }
-
-      return null
-    },
+  const timelineItemContext = useMemo<TimelineItemRenderContext>(
+    () => ({
+      threadCapabilities,
+      threadHasActiveRun,
+      threadIsSaving,
+      activeRequestMessageId,
+      subagentActive,
+      activeSubagents,
+      subagentProgressEntries,
+      retryInfo,
+      runs,
+      toolCalls,
+      threadId,
+      workspacePath,
+      cancelRunForThread,
+      revertPendingSteer,
+      onEdit: handleEdit,
+      onCreateBranch: handleCreateBranch,
+      onRetry: handleRetry,
+      onDelete: handleDelete,
+      onSelectReplyBranch: handleSelectReplyBranch
+    }),
     [
       threadCapabilities,
       threadHasActiveRun,
@@ -861,14 +950,14 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       runs,
       toolCalls,
       threadId,
+      workspacePath,
+      cancelRunForThread,
+      revertPendingSteer,
       handleEdit,
       handleCreateBranch,
       handleRetry,
       handleDelete,
-      handleSelectReplyBranch,
-      cancelRunForThread,
-      revertPendingSteer,
-      workspacePath
+      handleSelectReplyBranch
     ]
   )
 
@@ -960,7 +1049,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
                   animation: 'yachiyo-row-enter 150ms ease-out'
                 }}
               >
-                {renderTimelineItem(item)}
+                <TimelineItemContent item={item} context={timelineItemContext} />
               </div>
             )
           })}
