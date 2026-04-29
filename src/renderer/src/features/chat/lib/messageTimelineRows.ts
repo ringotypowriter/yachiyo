@@ -54,6 +54,7 @@ export type MessageTimelineRow =
       textBlock: MessageTextBlockRecord
       hasRunningToolCall: boolean
       isLastTextBlock: boolean
+      isStreaming: boolean
       compactBottomSpacing: boolean
     } & GroupTimelineRowBase)
   | ({
@@ -318,6 +319,12 @@ export function buildConversationGroupRows(
           const status = visibleToolCalls.find((entry) => entry.id === id)?.status
           return status === 'preparing' || status === 'running'
         })
+      const isStreaming =
+        input.isActiveGroup &&
+        activeBranch.message.status === 'streaming' &&
+        isLastTextBlock &&
+        !hasRunningToolCall &&
+        !input.subagentActive
       rows.push({
         kind: 'group-assistant-text-block',
         key: `assistant-text:${activeBranch.message.id}:${textBlock.id}`,
@@ -330,6 +337,7 @@ export function buildConversationGroupRows(
         textBlock,
         hasRunningToolCall,
         isLastTextBlock,
+        isStreaming,
         compactBottomSpacing:
           nextToolCall?.status === 'preparing' ||
           nextToolCall?.status === 'running' ||

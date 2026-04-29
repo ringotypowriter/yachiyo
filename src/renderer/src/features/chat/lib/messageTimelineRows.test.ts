@@ -191,6 +191,43 @@ test('buildConversationGroupRows displays channel visible replies instead of raw
   )
 })
 
+test('buildConversationGroupRows only marks the active appended text block as streaming', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-1',
+      content: '',
+      status: 'streaming',
+      textBlocks: [
+        {
+          id: 'text-1',
+          content: 'Finished block',
+          createdAt: TIMESTAMP
+        },
+        {
+          id: 'text-2',
+          content: 'Still appending',
+          createdAt: '2026-04-18T00:00:02.000Z'
+        }
+      ]
+    })
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [],
+    runs: [],
+    activeRunId: 'run-1',
+    isActiveGroup: true,
+    subagentActive: false
+  })
+  const textRows = rows.filter((row) => row.kind === 'group-assistant-text-block')
+
+  assert.deepEqual(
+    textRows.map((row) => row.isStreaming),
+    [false, true]
+  )
+})
+
 test('buildMessageTimelineRows keeps each conversation flattened into separate virtual rows', () => {
   const rows = buildMessageTimelineRows({
     messageGroups: [

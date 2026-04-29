@@ -48,7 +48,6 @@ interface TimelineItemRenderContext {
   threadHasActiveRun: boolean
   threadIsSaving: boolean
   activeRequestMessageId: string | null
-  subagentActive: boolean
   activeSubagents: Array<{
     delegationId: string
     agentName: string
@@ -113,7 +112,6 @@ function renderTimelineItem(
     threadHasActiveRun,
     threadIsSaving,
     activeRequestMessageId,
-    subagentActive,
     activeSubagents,
     subagentProgressEntries,
     retryInfo,
@@ -315,8 +313,8 @@ function renderTimelineItem(
           suppressGeneratingLabel={
             item.hasRunningToolCall || item.assistantMessage.status === 'streaming'
           }
-          pauseStreaming={isActiveGroup && subagentActive}
-          showCaret={item.isLastTextBlock ? undefined : false}
+          pauseStreaming={!item.isStreaming}
+          showCaret={item.isStreaming}
           compactBottomSpacing={item.compactBottomSpacing}
         />
       </div>
@@ -1028,7 +1026,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       threadHasActiveRun,
       threadIsSaving,
       activeRequestMessageId,
-      subagentActive,
       activeSubagents,
       subagentProgressEntries,
       retryInfo,
@@ -1049,7 +1046,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       threadHasActiveRun,
       threadIsSaving,
       activeRequestMessageId,
-      subagentActive,
       activeSubagents,
       subagentProgressEntries,
       retryInfo,
