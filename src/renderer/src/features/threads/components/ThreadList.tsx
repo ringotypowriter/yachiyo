@@ -1,6 +1,7 @@
 import type React from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Archive, Check, FolderPlus, RotateCcw, Sparkles, Star, Trash2, X } from 'lucide-react'
+import { useVirtualizer as useTanStackVirtualizer } from '@tanstack/react-virtual'
 import {
   DndContext,
   DragOverlay,
@@ -30,7 +31,17 @@ import { ThreadFolderItem } from './ThreadFolderItem'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { theme } from '@renderer/theme/theme'
 import { isMemoryConfigured } from '../../../../../shared/yachiyo/protocol.ts'
-import { resolveThreadTitleColor } from '@renderer/features/threads/lib/threadColorPalette'
+import {
+  resolveThreadColor,
+  resolveThreadTitleColor
+} from '@renderer/features/threads/lib/threadColorPalette'
+import {
+  buildSidebarItems,
+  buildSidebarRows,
+  estimateSidebarRowSize,
+  resolveSidebarFolderDropId,
+  type SidebarRow
+} from '@renderer/features/threads/lib/threadSidebarRows'
 
 function extractFirstEmoji(text: string): string | null {
   const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
@@ -41,6 +52,7 @@ function extractFirstEmoji(text: string): string | null {
 const TITLE_DELETE_INTERVAL_MS = 18
 const TITLE_TYPE_INTERVAL_MS = 32
 const EMPTY_WORKSPACE_PATHS: string[] = []
+const useSidebarVirtualizer = useTanStackVirtualizer
 
 function useTitleAnimation(title: string, skip: boolean): string {
   const [displayed, setDisplayed] = useState(title)
@@ -433,119 +445,6 @@ function ThreadListItem({
   )
 }
 
-type FolderChild =
-  | { kind: 'thread'; thread: Thread }
-  | { kind: 'folder-date-header'; label: string }
-
-type SidebarItem =
-  | { kind: 'starred-header' }
-  | { kind: 'thread'; thread: Thread }
-  | { kind: 'folder'; folder: FolderRecord; threads: Thread[]; children: FolderChild[] }
-  | { kind: 'date-header'; label: string }
-
-function buildSidebarItems(threads: Thread[], folders: FolderRecord[]): SidebarItem[] {
-  const folderMap = new Map<string, FolderRecord>()
-  for (const f of folders) folderMap.set(f.id, f)
-
-  // Partition threads
-  const starredNoFolder: Thread[] = []
-  const folderThreads = new Map<string, Thread[]>()
-  const looseThreads: Thread[] = []
-
-  for (const t of threads) {
-    if (t.folderId && folderMap.has(t.folderId)) {
-      const list = folderThreads.get(t.folderId) ?? []
-      list.push(t)
-      folderThreads.set(t.folderId, list)
-    } else if (t.starredAt) {
-      starredNoFolder.push(t)
-    } else {
-      looseThreads.push(t)
-    }
-  }
-
-  // Sort folder threads: starred first, then by updatedAt desc
-  for (const [fid, fThreads] of folderThreads) {
-    fThreads.sort((a, b) => {
-      if (a.starredAt && !b.starredAt) return -1
-      if (!a.starredAt && b.starredAt) return 1
-      return b.updatedAt.localeCompare(a.updatedAt)
-    })
-    folderThreads.set(fid, fThreads)
-  }
-
-  // Build folder items sorted by newest thread's updatedAt
-  const folderItems: Array<{
-    folder: FolderRecord
-    threads: Thread[]
-    effectiveUpdatedAt: string
-  }> = []
-  for (const [fid, fThreads] of folderThreads) {
-    const folder = folderMap.get(fid)!
-    const maxUpdated = fThreads.reduce((max, t) => (t.updatedAt > max ? t.updatedAt : max), '')
-    folderItems.push({ folder, threads: fThreads, effectiveUpdatedAt: maxUpdated })
-  }
-  folderItems.sort((a, b) => b.effectiveUpdatedAt.localeCompare(a.effectiveUpdatedAt))
-
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const result: SidebarItem[] = []
-
-  // 1. Starred section (threads not in any folder)
-  if (starredNoFolder.length > 0) {
-    result.push({ kind: 'starred-header' })
-    for (const t of starredNoFolder) {
-      result.push({ kind: 'thread', thread: t })
-    }
-  }
-
-  // 2. Folders section (own top-level tier, sorted by newest thread)
-  for (const fi of folderItems) {
-    const children: FolderChild[] = []
-    let folderLastLabel = ''
-    for (const t of fi.threads) {
-      const date = new Date(t.updatedAt)
-      const day = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-      const diffDays = Math.floor((today.getTime() - day.getTime()) / (1000 * 60 * 60 * 24))
-      const label =
-        diffDays === 0
-          ? 'Today'
-          : diffDays === 1
-            ? 'Yesterday'
-            : day.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-      if (label !== folderLastLabel) {
-        children.push({ kind: 'folder-date-header', label })
-        folderLastLabel = label
-      }
-      children.push({ kind: 'thread', thread: t })
-    }
-    result.push({ kind: 'folder', folder: fi.folder, threads: fi.threads, children })
-  }
-
-  // 3. Loose threads, date-grouped
-  let lastLabel = ''
-
-  for (const t of looseThreads) {
-    const date = new Date(t.updatedAt)
-    const day = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-    const diffDays = Math.floor((today.getTime() - day.getTime()) / (1000 * 60 * 60 * 24))
-    const label =
-      diffDays === 0
-        ? 'Today'
-        : diffDays === 1
-          ? 'Yesterday'
-          : day.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-
-    if (label !== lastLabel) {
-      result.push({ kind: 'date-header', label })
-      lastLabel = label
-    }
-    result.push({ kind: 'thread', thread: t })
-  }
-
-  return result
-}
-
 function DraggableThread({
   thread,
   children
@@ -587,13 +486,15 @@ function DraggableThread({
 
 function DroppableFolder({
   folderId,
+  dropId,
   children
 }: {
   folderId: string
+  dropId?: string
   children: React.ReactNode
 }): React.JSX.Element {
   const { setNodeRef, isOver } = useDroppable({
-    id: `folder-${folderId}`,
+    id: dropId ?? `folder-${folderId}`,
     data: { type: 'folder', folderId }
   })
 
@@ -643,6 +544,8 @@ function FolderAwareThreadList({
   threads,
   folders,
   collapsedFolderIds,
+  scrollRef,
+  showPreview,
   mode,
   toggleFolderCollapsed,
   renameFolder,
@@ -657,6 +560,8 @@ function FolderAwareThreadList({
   threads: Thread[]
   folders: FolderRecord[]
   collapsedFolderIds: Set<string>
+  scrollRef: React.RefObject<HTMLDivElement | null>
+  showPreview: boolean
   mode: 'active' | 'archived'
   toggleFolderCollapsed: (folderId: string) => void
   renameFolder: (folderId: string, title: string) => Promise<void>
@@ -669,8 +574,25 @@ function FolderAwareThreadList({
   renderThreadItem: (thread: Thread, options?: { isInFolder?: boolean }) => React.JSX.Element
 }): React.JSX.Element {
   const items = useMemo(() => buildSidebarItems(threads, folders), [threads, folders])
+  const rows = useMemo(
+    () => buildSidebarRows(items, collapsedFolderIds),
+    [items, collapsedFolderIds]
+  )
   const [draggedThread, setDraggedThread] = useState<Thread | null>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+  const getScrollElement = useCallback(() => scrollRef.current, [scrollRef])
+  const estimateSize = useCallback(
+    (index: number) => estimateSidebarRowSize(rows[index]!, showPreview),
+    [rows, showPreview]
+  )
+  const getItemKey = useCallback((index: number) => rows[index]!.key, [rows])
+  const virtualizer = useSidebarVirtualizer({
+    count: rows.length,
+    getScrollElement,
+    estimateSize,
+    overscan: 10,
+    getItemKey
+  })
 
   function handleDragEnd(event: DragEndEvent): void {
     setDraggedThread(null)
@@ -706,11 +628,58 @@ function FolderAwareThreadList({
     }
   }
 
-  const renderedItems = items.map((item) => {
-    if (item.kind === 'starred-header') {
+  function renderFolderChildRow(
+    row: Extract<SidebarRow, { kind: 'folder-date-header' | 'folder-thread' }>
+  ): React.JSX.Element {
+    const lineColor = row.folder.colorTag
+      ? resolveThreadColor(row.folder.colorTag, theme.text.secondary)
+      : theme.border.default
+
+    const childRow = (
+      <div className="relative" style={{ marginLeft: 15, paddingLeft: 12 }}>
+        <div
+          className="absolute left-0 top-0 bottom-0"
+          style={{
+            width: 1,
+            background: lineColor,
+            opacity: row.folder.colorTag ? 0.4 : 1
+          }}
+        />
+        {row.kind === 'folder-date-header' ? (
+          <div
+            className="px-2 pt-1.5 pb-0.5"
+            style={{
+              fontSize: '0.6rem',
+              fontWeight: 500,
+              color: theme.text.muted,
+              letterSpacing: '0.03em'
+            }}
+          >
+            {row.label}
+          </div>
+        ) : mode === 'archived' ? (
+          <div>{renderThreadItem(row.thread, { isInFolder: true })}</div>
+        ) : (
+          <DraggableThread thread={row.thread}>
+            {renderThreadItem(row.thread, { isInFolder: true })}
+          </DraggableThread>
+        )}
+      </div>
+    )
+
+    if (mode === 'archived') return childRow
+
+    return (
+      <DroppableFolder folderId={row.folder.id} dropId={resolveSidebarFolderDropId(row)}>
+        {childRow}
+      </DroppableFolder>
+    )
+  }
+
+  function renderSidebarRow(row: SidebarRow): React.JSX.Element {
+    if (row.kind === 'starred-header') {
       return (
         <div
-          key="__starred__"
           className="px-3 pt-2 pb-1"
           style={{
             fontSize: '0.7rem',
@@ -725,10 +694,9 @@ function FolderAwareThreadList({
       )
     }
 
-    if (item.kind === 'date-header') {
+    if (row.kind === 'date-header') {
       return (
         <div
-          key={`__date__${item.label}`}
           className="px-3 pt-2 pb-1"
           style={{
             fontSize: '0.7rem',
@@ -736,86 +704,88 @@ function FolderAwareThreadList({
             color: theme.text.muted
           }}
         >
-          {item.label}
+          {row.label}
         </div>
       )
     }
 
-    if (item.kind === 'thread') {
-      const threadNode = renderThreadItem(item.thread)
+    if (row.kind === 'thread') {
+      const threadNode = renderThreadItem(row.thread)
       if (mode === 'archived') {
-        return <div key={item.thread.id}>{threadNode}</div>
+        return <div>{threadNode}</div>
       }
       return (
-        <DroppableThread key={item.thread.id} threadId={item.thread.id}>
-          <DraggableThread thread={item.thread}>{threadNode}</DraggableThread>
+        <DroppableThread threadId={row.thread.id}>
+          <DraggableThread thread={row.thread}>{threadNode}</DraggableThread>
         </DroppableThread>
       )
     }
 
-    if (item.kind === 'folder') {
-      const isCollapsed = collapsedFolderIds.has(item.folder.id)
-      const folderThreads = item.threads
+    if (row.kind === 'folder') {
+      const isCollapsed = collapsedFolderIds.has(row.folder.id)
+      const folderThreads = row.threads
       const folderNode = (
         <ThreadFolderItem
-          folder={item.folder}
+          folder={row.folder}
           isCollapsed={isCollapsed}
           threadCount={folderThreads.length}
           mode={mode}
-          onToggle={() => toggleFolderCollapsed(item.folder.id)}
-          onRename={(title) => void renameFolder(item.folder.id, title)}
-          onSetColor={(colorTag) => void setFolderColor(item.folder.id, colorTag)}
-          onDelete={() => void deleteFolder(item.folder.id)}
-          onArchiveAll={() => archiveFolder(item.folder, folderThreads)}
-          onRestoreAll={() => restoreFolder(item.folder, folderThreads)}
-        >
-          {item.children.map((child) => {
-            if (child.kind === 'folder-date-header') {
-              return (
-                <div
-                  key={`__fdate__${child.label}`}
-                  className="px-2 pt-1.5 pb-0.5"
-                  style={{
-                    fontSize: '0.6rem',
-                    fontWeight: 500,
-                    color: theme.text.muted,
-                    letterSpacing: '0.03em'
-                  }}
-                >
-                  {child.label}
-                </div>
-              )
-            }
-            if (mode === 'archived') {
-              return (
-                <div key={child.thread.id}>
-                  {renderThreadItem(child.thread, { isInFolder: true })}
-                </div>
-              )
-            }
-            return (
-              <DraggableThread key={child.thread.id} thread={child.thread}>
-                {renderThreadItem(child.thread, { isInFolder: true })}
-              </DraggableThread>
-            )
-          })}
-        </ThreadFolderItem>
+          onToggle={() => toggleFolderCollapsed(row.folder.id)}
+          onRename={(title) => void renameFolder(row.folder.id, title)}
+          onSetColor={(colorTag) => void setFolderColor(row.folder.id, colorTag)}
+          onDelete={() => void deleteFolder(row.folder.id)}
+          onArchiveAll={() => archiveFolder(row.folder, folderThreads)}
+          onRestoreAll={() => restoreFolder(row.folder, folderThreads)}
+        />
       )
       if (mode === 'archived') {
-        return <div key={`folder-${item.folder.id}`}>{folderNode}</div>
+        return <div>{folderNode}</div>
       }
       return (
-        <DroppableFolder key={`folder-${item.folder.id}`} folderId={item.folder.id}>
+        <DroppableFolder folderId={row.folder.id} dropId={resolveSidebarFolderDropId(row)}>
           {folderNode}
         </DroppableFolder>
       )
     }
 
-    return null
-  })
+    return renderFolderChildRow(row)
+  }
+
+  const virtualizedRows = (
+    <div
+      style={{
+        height: virtualizer.getTotalSize(),
+        width: '100%',
+        position: 'relative'
+      }}
+    >
+      {virtualizer.getVirtualItems().map((virtualRow) => {
+        const row = rows[virtualRow.index]
+        if (!row) return null
+
+        return (
+          <div
+            key={row.key}
+            data-index={virtualRow.index}
+            ref={virtualizer.measureElement}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              transform: `translateY(${virtualRow.start}px)`,
+              contain: 'content'
+            }}
+          >
+            {renderSidebarRow(row)}
+          </div>
+        )
+      })}
+    </div>
+  )
 
   if (mode === 'archived') {
-    return <>{renderedItems}</>
+    return virtualizedRows
   }
 
   return (
@@ -827,7 +797,7 @@ function FolderAwareThreadList({
       }}
       onDragEnd={handleDragEnd}
     >
-      {renderedItems}
+      {virtualizedRows}
       <DragOverlay>
         {draggedThread ? (
           <div
@@ -963,6 +933,7 @@ function ThreadListContent({
   const runStatusesByThread = useAppStore((s) => s.runStatusesByThread)
   const justDoneRunIdsByThread = useAppStore((s) => s.justDoneRunIdsByThread)
   const showPreview = useAppStore((s) => s.config?.general?.sidebarPreview) !== false
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   function exitSelectMode(): void {
     setSelectMode(false)
@@ -1360,12 +1331,18 @@ function ThreadListContent({
           </div>
         </div>
       </div>
-      <div key={threadListMode} className="flex-1 overflow-y-auto px-2 py-1 yachiyo-thread-enter">
+      <div
+        key={threadListMode}
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto px-2 py-1 yachiyo-thread-enter"
+      >
         {visibleThreads.length === 0 ? <ThreadListEmpty threadListMode={threadListMode} /> : null}
         <FolderAwareThreadList
           threads={visibleThreads}
           folders={folders}
           collapsedFolderIds={collapsedFolderIds}
+          scrollRef={scrollRef}
+          showPreview={showPreview}
           mode={threadListMode}
           toggleFolderCollapsed={toggleFolderCollapsed}
           renameFolder={renameFolder}

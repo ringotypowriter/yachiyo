@@ -35,7 +35,7 @@ interface ThreadFolderItemProps {
   onSetColor: (colorTag: FolderColorTag | null) => void
   onArchiveAll: () => void
   onRestoreAll: () => void
-  children: React.ReactNode
+  children?: React.ReactNode
 }
 
 export function ThreadFolderItem({
@@ -122,30 +122,32 @@ export function ThreadFolderItem({
         </span>
       </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateRows: isCollapsed ? '0fr' : '1fr',
-          opacity: isCollapsed ? 0 : 1,
-          transition: 'grid-template-rows 0.2s ease, opacity 0.15s ease'
-        }}
-      >
-        <div className="overflow-hidden">
-          <div className="relative ml-3.75 pl-3">
-            <div
-              className="absolute left-0 top-0 bottom-0"
-              style={{
-                width: 1,
-                background: folder.colorTag
-                  ? folderIconColor(folder.colorTag)
-                  : theme.border.default,
-                opacity: folder.colorTag ? 0.4 : 1
-              }}
-            />
-            {children}
+      {children ? (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateRows: isCollapsed ? '0fr' : '1fr',
+            opacity: isCollapsed ? 0 : 1,
+            transition: 'grid-template-rows 0.2s ease, opacity 0.15s ease'
+          }}
+        >
+          <div className="overflow-hidden">
+            <div className="relative ml-3.75 pl-3">
+              <div
+                className="absolute left-0 top-0 bottom-0"
+                style={{
+                  width: 1,
+                  background: folder.colorTag
+                    ? folderIconColor(folder.colorTag)
+                    : theme.border.default,
+                  opacity: folder.colorTag ? 0.4 : 1
+                }}
+              />
+              {children}
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
       {contextMenu && (
         <FolderContextMenu
