@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import { DEFAULT_ENABLED_TOOL_NAMES } from '../../../../shared/yachiyo/protocol.ts'
 import {
+  DEFAULT_SIDEBAR_FILTER,
   DEFAULT_SETTINGS,
   getEffectiveModel,
   getThreadEffectiveModel,
@@ -52,6 +53,11 @@ function resetStore(): void {
     runStatus: 'idle',
     runStatusesByThread: {},
     settings: DEFAULT_SETTINGS,
+    sidebarFilter: {
+      ...DEFAULT_SIDEBAR_FILTER,
+      colorTags: new Set(DEFAULT_SIDEBAR_FILTER.colorTags),
+      workspacePaths: new Set(DEFAULT_SIDEBAR_FILTER.workspacePaths)
+    },
     threadListMode: 'active',
     threads: [],
     toolCalls: {}
@@ -932,6 +938,52 @@ test('applyServerEvent moves archived threads between active and archived collec
     ['thread-2']
   )
   assert.equal(state.activeThreadId, 'thread-2')
+})
+
+test('setActiveArchivedThread forces archived view while multi filters are active', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    markThreadAsRead: async ({ threadId }) => ({
+      id: threadId,
+      title: 'Archived thread',
+      updatedAt: TIMESTAMP,
+      archivedAt: TIMESTAMP,
+      readAt: TIMESTAMP
+    })
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      activeArchivedThreadId: null,
+      archivedThreads: [
+        {
+          id: 'archived-1',
+          title: 'Archived thread',
+          updatedAt: TIMESTAMP,
+          archivedAt: TIMESTAMP
+        }
+      ],
+      sidebarFilter: {
+        ...DEFAULT_SIDEBAR_FILTER,
+        base: 'all',
+        colorTags: new Set(['coral'])
+      },
+      threadListMode: 'active'
+    })
+
+    useAppStore.getState().setActiveArchivedThread('archived-1')
+
+    const state = useAppStore.getState()
+    assert.equal(state.activeArchivedThreadId, 'archived-1')
+    assert.equal(state.sidebarFilter.base, 'archived')
+    assert.deepEqual([...state.sidebarFilter.colorTags], ['coral'])
+    assert.equal(state.threadListMode, 'archived')
+    await Promise.resolve()
+  } finally {
+    restoreWindow()
+  }
 })
 
 test('applyServerEvent removes deleted external threads from the cached sidebar list', () => {

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Archive,
   ArrowDownCircle,
   MoreHorizontal,
   PanelLeft,
@@ -13,6 +12,7 @@ import { useAppStore } from '@renderer/app/store/useAppStore'
 import { EssentialsBar } from '@renderer/features/essentials/components/EssentialsBar'
 import { SidebarUtilityMenu } from '@renderer/features/layout/components/SidebarUtilityMenu'
 import { SidebarSearch } from '@renderer/features/search/SidebarSearch'
+import { SidebarFilterBar } from '@renderer/features/threads/components/SidebarFilterBar'
 import { ThreadList } from '@renderer/features/threads/components/ThreadList'
 import { TRAFFIC_LIGHTS_SAFE_ZONE } from '@renderer/lib/sidebarLayout'
 import { theme, alpha } from '@renderer/theme/theme'
@@ -60,13 +60,8 @@ export function AppSidebar({
   const connectionStatus = useAppStore((s) => s.connectionStatus)
   const createNewThread = useAppStore((s) => s.createNewThread)
   const setActiveThread = useAppStore((s) => s.setActiveThread)
-  const setThreadListMode = useAppStore((s) => s.setThreadListMode)
   const showExternalThreads = useAppStore((s) => s.showExternalThreads)
   const toggleShowExternalThreads = useAppStore((s) => s.toggleShowExternalThreads)
-  const threadListMode = useAppStore((s) => s.threadListMode)
-  const unreadArchivedCount = useAppStore(
-    (s) => s.archivedThreads.filter((t) => t.archivedAt && !t.readAt).length
-  )
 
   const [utilityMenuAnchor, setUtilityMenuAnchor] = useState<DOMRect | null>(null)
 
@@ -99,6 +94,7 @@ export function AppSidebar({
         }}
       >
         <div className="flex items-center gap-1 no-drag ml-auto">
+          <SidebarFilterBar />
           <Tooltip content={toggleTitle} placement="bottom">
             <button
               disabled={isToggleDisabled}
@@ -185,40 +181,6 @@ export function AppSidebar({
                 aria-label="Settings"
               >
                 <Settings size={16} strokeWidth={1.5} />
-              </button>
-            </Tooltip>
-            <Tooltip
-              content={threadListMode === 'archived' ? 'Show active chats' : 'Show archived chats'}
-            >
-              <button
-                onClick={() =>
-                  setThreadListMode(threadListMode === 'archived' ? 'active' : 'archived')
-                }
-                className="relative p-1.5 rounded-md transition-opacity"
-                style={{
-                  color:
-                    threadListMode === 'archived' ? theme.text.accentStrong : theme.icon.default,
-                  opacity: threadListMode === 'archived' ? 0.9 : 0.4
-                }}
-                aria-label={
-                  threadListMode === 'archived' ? 'Show active chats' : 'Show archived chats'
-                }
-              >
-                <Archive size={16} strokeWidth={1.5} />
-                {unreadArchivedCount > 0 && threadListMode !== 'archived' && (
-                  <span
-                    className="absolute -top-0.5 -right-0.5 flex items-center justify-center rounded-full text-[9px] font-bold leading-none"
-                    style={{
-                      minWidth: 14,
-                      height: 14,
-                      padding: '0 3px',
-                      background: theme.text.accent,
-                      color: theme.text.inverse
-                    }}
-                  >
-                    {unreadArchivedCount > 99 ? '99+' : unreadArchivedCount}
-                  </span>
-                )}
               </button>
             </Tooltip>
           </div>

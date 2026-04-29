@@ -24,6 +24,14 @@ export const THREAD_COLOR_LABELS: Record<ThreadColorTag, string> = {
   slate: 'Mark it Slate'
 }
 
+export const THREAD_COLOR_FILTER_LABELS: Record<ThreadColorTag, string> = {
+  coral: 'Coral',
+  azure: 'Azure',
+  emerald: 'Emerald',
+  amethyst: 'Amethyst',
+  slate: 'Slate'
+}
+
 export function resolveThreadColor(
   colorTag: ThreadColorTag | null | undefined,
   fallback: string

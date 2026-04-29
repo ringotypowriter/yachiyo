@@ -42,6 +42,84 @@ import {
 import { useBackgroundTasksStore } from '../../features/chat/state/useBackgroundTasksStore.ts'
 
 const COLLAPSED_FOLDER_IDS_KEY = 'yachiyo.collapsedFolderIds'
+const SIDEBAR_FILTER_KEY = 'yachiyo.sidebarFilter'
+
+export interface SidebarFilter {
+  base: 'all' | 'archived'
+  colorTags: Set<ThreadColorTag>
+  workspacePaths: Set<string>
+  running: boolean
+  justDone: boolean
+  folderOnly: boolean
+}
+
+export const DEFAULT_SIDEBAR_FILTER: SidebarFilter = {
+  base: 'all',
+  colorTags: new Set(),
+  workspacePaths: new Set(),
+  running: false,
+  justDone: false,
+  folderOnly: false
+}
+
+export function hasActiveMultiFilter(filter: SidebarFilter): boolean {
+  return (
+    filter.colorTags.size > 0 ||
+    filter.workspacePaths.size > 0 ||
+    filter.running ||
+    filter.justDone ||
+    filter.folderOnly
+  )
+}
+
+function deriveThreadListMode(filter: SidebarFilter): 'active' | 'archived' {
+  if (hasActiveMultiFilter(filter)) return 'active'
+  return filter.base === 'archived' ? 'archived' : 'active'
+}
+
+function withFilterBase(
+  sidebarFilter: SidebarFilter,
+  base: 'all' | 'archived'
+): { threadListMode: 'active' | 'archived'; sidebarFilter: SidebarFilter } {
+  const next = { ...sidebarFilter, base }
+  return { threadListMode: base === 'archived' ? 'archived' : 'active', sidebarFilter: next }
+}
+
+function loadSidebarFilter(): SidebarFilter {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_FILTER_KEY)
+    if (!raw) return DEFAULT_SIDEBAR_FILTER
+    const parsed = JSON.parse(raw)
+    return {
+      base: parsed.base === 'archived' ? 'archived' : 'all',
+      colorTags: new Set(Array.isArray(parsed.colorTags) ? parsed.colorTags : []),
+      workspacePaths: new Set(Array.isArray(parsed.workspacePaths) ? parsed.workspacePaths : []),
+      running: Boolean(parsed.running),
+      justDone: Boolean(parsed.justDone),
+      folderOnly: Boolean(parsed.folderOnly)
+    }
+  } catch {
+    return DEFAULT_SIDEBAR_FILTER
+  }
+}
+
+function saveSidebarFilter(filter: SidebarFilter): void {
+  try {
+    localStorage.setItem(
+      SIDEBAR_FILTER_KEY,
+      JSON.stringify({
+        base: filter.base,
+        colorTags: [...filter.colorTags],
+        workspacePaths: [...filter.workspacePaths],
+        running: filter.running,
+        justDone: filter.justDone,
+        folderOnly: filter.folderOnly
+      })
+    )
+  } catch {
+    // ignore storage errors
+  }
+}
 
 function loadCollapsedFolderIds(): Set<string> {
   try {
@@ -273,6 +351,14 @@ interface AppState {
   externalThreads: Thread[]
   showExternalThreads: boolean
   threadListMode: 'active' | 'archived'
+  sidebarFilter: SidebarFilter
+  setSidebarFilterBase: (base: 'all' | 'archived') => void
+  toggleSidebarFilterColor: (colorTag: ThreadColorTag) => void
+  toggleSidebarFilterWorkspace: (workspacePath: string) => void
+  toggleSidebarFilterRunning: () => void
+  toggleSidebarFilterJustDone: () => void
+  toggleSidebarFilterFolderOnly: () => void
+  clearSidebarFilter: () => void
   toolCalls: Record<string, ToolCall[]>
   /** Snapshot review info per run, set by snapshot.ready events. */
   snapshotReviewByRun: Record<
@@ -1158,7 +1244,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             accepted.thread.id,
             'running'
           ),
-          threadListMode: 'active' as const,
+          ...withFilterBase(state.sidebarFilter, 'all'),
           messages: {
             ...state.messages,
             [accepted.thread.id]: state.messages[accepted.thread.id] ?? []
@@ -1204,7 +1290,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         const nextState = {
           ...state,
           activeThreadId: snapshot.thread.id,
-          threadListMode: 'active' as const,
+          ...withFilterBase(state.sidebarFilter, 'all'),
           harnessEvents: {
             ...state.harnessEvents,
             [snapshot.thread.id]: []
@@ -1571,7 +1657,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   threads: [],
   externalThreads: [],
   showExternalThreads: false,
-  threadListMode: 'active',
+  threadListMode: deriveThreadListMode(loadSidebarFilter()),
+  sidebarFilter: loadSidebarFilter(),
   toolCalls: {},
   snapshotReviewByRun: {},
   clearSnapshotReview: (runId) =>
@@ -1795,7 +1882,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             event.threadId,
             null
           ),
-          threadListMode: 'active' as const,
+          ...withFilterBase(state.sidebarFilter, 'all'),
           threads
         }
 
@@ -2791,7 +2878,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           pendingModelOverride: null,
           pendingAcpBinding: null,
           pendingWorkspacePath: null,
-          threadListMode: 'active' as const
+          ...withFilterBase(state.sidebarFilter, 'all')
         }
 
         return {
@@ -2816,7 +2903,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         pendingAcpBinding: null,
         composerDrafts: removeComposerDraft(state.composerDrafts, null),
         pendingWorkspacePath: null,
-        threadListMode: 'active' as const,
+        ...withFilterBase(state.sidebarFilter, 'all'),
         messages: {
           ...state.messages,
           [thread.id]: state.messages[thread.id] ?? []
@@ -2847,7 +2934,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       pendingWorkspacePath: normalizeWorkspacePath(essential.workspacePath ?? null),
       pendingModelOverride: essential.modelOverride ?? null,
       composerDrafts: removeComposerDraft(state.composerDrafts, null),
-      threadListMode: 'active' as const
+      ...withFilterBase(state.sidebarFilter, 'all')
     }))
     void refreshAvailableSkills(set, get)
   },
@@ -3048,7 +3135,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             accepted.thread.id,
             'running'
           ),
-          threadListMode: 'active' as const,
+          ...withFilterBase(state.sidebarFilter, 'all'),
           threads: upsertThread(state.threads, accepted.thread)
         }
 
@@ -3252,7 +3339,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           pendingModelOverride: null,
           pendingAcpBinding: null,
           pendingWorkspacePath: null,
-          threadListMode: 'active' as const,
+          ...withFilterBase(state.sidebarFilter, 'all'),
           composerDrafts: moveComposerDraft(
             state.composerDrafts,
             getComposerDraftKey(null),
@@ -3427,7 +3514,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               acceptedKind === 'active-run-follow-up' || acceptedKind === 'active-run-steer-pending'
                 ? state.runStatusesByThread
                 : setThreadRunStatusValue(state.runStatusesByThread, accepted.thread.id, 'running'),
-            threadListMode: 'active' as const,
+            ...withFilterBase(state.sidebarFilter, 'all'),
             threads: upsertThread(state.threads, accepted.thread)
           }
 
@@ -3504,7 +3591,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         pendingWorkspacePath: null,
         editingMessage: state.editingMessage?.threadId === id ? state.editingMessage : null,
         justDoneRunIdsByThread: setThreadStringValue(state.justDoneRunIdsByThread, id, null),
-        threadListMode: 'active' as const,
+        ...withFilterBase(state.sidebarFilter, 'all'),
         scrollToMessageId: scrollToMessageId ?? null
       }
 
@@ -3559,7 +3646,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       activeArchivedThreadId: id,
       justDoneRunIdsByThread: setThreadStringValue(state.justDoneRunIdsByThread, id, null),
-      threadListMode: 'archived'
+      ...withFilterBase(state.sidebarFilter, 'archived')
     }))
     // Mark as read when the user opens an archived thread.
     void window.api.yachiyo.markThreadAsRead({ threadId: id }).then((updated) => {
@@ -3579,8 +3666,73 @@ export const useAppStore = create<AppState>((set, get) => ({
         mode === 'active'
           ? (state.activeThreadId ?? state.threads[0]?.id ?? null)
           : state.activeThreadId,
-      threadListMode: mode
+      ...withFilterBase(state.sidebarFilter, mode === 'archived' ? 'archived' : 'all')
     })),
+
+  setSidebarFilterBase: (base) => {
+    set((state) => {
+      const next = { ...state.sidebarFilter, base }
+      saveSidebarFilter(next)
+      return {
+        ...withFilterBase(next, base),
+        activeArchivedThreadId:
+          base === 'archived'
+            ? (state.activeArchivedThreadId ?? state.archivedThreads[0]?.id ?? null)
+            : state.activeArchivedThreadId,
+        activeThreadId:
+          base === 'all'
+            ? (state.activeThreadId ?? state.threads[0]?.id ?? null)
+            : state.activeThreadId
+      }
+    })
+  },
+
+  toggleSidebarFilterColor: (colorTag) =>
+    set((state) => {
+      const next = { ...state.sidebarFilter, colorTags: new Set(state.sidebarFilter.colorTags) }
+      if (next.colorTags.has(colorTag)) next.colorTags.delete(colorTag)
+      else next.colorTags.add(colorTag)
+      saveSidebarFilter(next)
+      return { sidebarFilter: next, threadListMode: deriveThreadListMode(next) }
+    }),
+
+  toggleSidebarFilterWorkspace: (workspacePath) =>
+    set((state) => {
+      const next = {
+        ...state.sidebarFilter,
+        workspacePaths: new Set(state.sidebarFilter.workspacePaths)
+      }
+      if (next.workspacePaths.has(workspacePath)) next.workspacePaths.delete(workspacePath)
+      else next.workspacePaths.add(workspacePath)
+      saveSidebarFilter(next)
+      return { sidebarFilter: next, threadListMode: deriveThreadListMode(next) }
+    }),
+
+  toggleSidebarFilterRunning: () =>
+    set((state) => {
+      const next = { ...state.sidebarFilter, running: !state.sidebarFilter.running }
+      saveSidebarFilter(next)
+      return { sidebarFilter: next, threadListMode: deriveThreadListMode(next) }
+    }),
+
+  toggleSidebarFilterJustDone: () =>
+    set((state) => {
+      const next = { ...state.sidebarFilter, justDone: !state.sidebarFilter.justDone }
+      saveSidebarFilter(next)
+      return { sidebarFilter: next, threadListMode: deriveThreadListMode(next) }
+    }),
+
+  toggleSidebarFilterFolderOnly: () =>
+    set((state) => {
+      const next = { ...state.sidebarFilter, folderOnly: !state.sidebarFilter.folderOnly }
+      saveSidebarFilter(next)
+      return { sidebarFilter: next, threadListMode: deriveThreadListMode(next) }
+    }),
+
+  clearSidebarFilter: () => {
+    saveSidebarFilter(DEFAULT_SIDEBAR_FILTER)
+    set({ sidebarFilter: DEFAULT_SIDEBAR_FILTER, threadListMode: 'active' })
+  },
 
   toggleShowExternalThreads: () => {
     const { showExternalThreads } = get()

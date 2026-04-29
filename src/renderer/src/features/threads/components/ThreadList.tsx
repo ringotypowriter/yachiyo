@@ -11,7 +11,7 @@ import {
   useDroppable,
   type DragEndEvent
 } from '@dnd-kit/core'
-import { useAppStore } from '@renderer/app/store/useAppStore'
+import { useAppStore, hasActiveMultiFilter } from '@renderer/app/store/useAppStore'
 import type { FolderRecord, Thread, ThreadColorTag } from '@renderer/app/types'
 import { ThreadContextMenuPopup } from '@renderer/features/threads/components/ThreadContextMenuPopup'
 import { imeSafeEnter } from '@renderer/lib/imeUtils'
@@ -25,6 +25,7 @@ import {
   canCompactThreadToAnotherThread,
   isExternalThread
 } from '@renderer/features/threads/lib/threadVisibility'
+import { resolveVisibleSidebarThreads } from '@renderer/features/threads/lib/threadListFilters'
 import { ThreadFolderItem } from './ThreadFolderItem'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { theme } from '@renderer/theme/theme'
@@ -39,6 +40,7 @@ function extractFirstEmoji(text: string): string | null {
 
 const TITLE_DELETE_INTERVAL_MS = 18
 const TITLE_TYPE_INTERVAL_MS = 32
+const EMPTY_WORKSPACE_PATHS: string[] = []
 
 function useTitleAnimation(title: string, skip: boolean): string {
   const [displayed, setDisplayed] = useState(title)
@@ -140,7 +142,7 @@ function ThreadListItem({
     canHandoff: canCompactThreadToAnotherThread(thread),
     colorTag: thread.colorTag ?? null,
     includeSelectMode: true,
-    isArchived: threadListMode === 'archived',
+    isArchived: Boolean(thread.archivedAt),
     isExternal,
     isInFolder: !!thread.folderId,
     isRunning: hasActiveRun,
@@ -848,6 +850,47 @@ function FolderAwareThreadList({
   )
 }
 
+function ThreadListEmpty({
+  threadListMode
+}: {
+  threadListMode: 'active' | 'archived'
+}): React.JSX.Element {
+  const sidebarFilter = useAppStore((s) => s.sidebarFilter)
+  const clearFilter = useAppStore((s) => s.clearSidebarFilter)
+  const hasFilter = hasActiveMultiFilter(sidebarFilter) || sidebarFilter.base === 'archived'
+
+  if (hasFilter) {
+    return (
+      <div className="px-4 py-6 text-sm leading-6" style={{ color: theme.text.muted }}>
+        No threads match the current filter.
+        <br />
+        <button
+          onClick={clearFilter}
+          className="mt-1"
+          style={{
+            color: theme.text.accent,
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: 0,
+            fontSize: 'inherit'
+          }}
+        >
+          Clear filters
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="px-4 py-6 text-sm leading-6" style={{ color: theme.text.muted }}>
+      {threadListMode === 'archived'
+        ? 'No archived threads yet.'
+        : 'No chats yet. Start one from the compose box or the new chat button.'}
+    </div>
+  )
+}
+
 function ThreadListContent({
   activeId,
   archiveThread,
@@ -1318,13 +1361,7 @@ function ThreadListContent({
         </div>
       </div>
       <div key={threadListMode} className="flex-1 overflow-y-auto px-2 py-1 yachiyo-thread-enter">
-        {visibleThreads.length === 0 ? (
-          <div className="px-4 py-6 text-sm leading-6" style={{ color: theme.text.muted }}>
-            {threadListMode === 'archived'
-              ? 'No archived threads yet.'
-              : 'No chats yet. Start one from the compose box or the new chat button.'}
-          </div>
-        ) : null}
+        {visibleThreads.length === 0 ? <ThreadListEmpty threadListMode={threadListMode} /> : null}
         <FolderAwareThreadList
           threads={visibleThreads}
           folders={folders}
@@ -1429,23 +1466,38 @@ export function ThreadList(): React.JSX.Element {
   const externalThreads = useAppStore((s) => s.externalThreads)
   const showExternalThreads = useAppStore((s) => s.showExternalThreads)
   const runStatusesByThread = useAppStore((s) => s.runStatusesByThread)
+  const justDoneRunIdsByThread = useAppStore((s) => s.justDoneRunIdsByThread)
+  const sidebarFilter = useAppStore((s) => s.sidebarFilter)
   const config = useAppStore((s) => s.config)
-  const baseThreads = threadListMode === 'archived' ? archivedThreads : threads
-  const allThreads =
-    showExternalThreads && threadListMode === 'active'
-      ? [...baseThreads, ...externalThreads].sort((left, right) =>
-          right.updatedAt.localeCompare(left.updatedAt)
-        )
-      : baseThreads
-  // Hide empty "New Chat" threads — they only appear in the sidebar once the user sends a message
-  // or when they already have an active run (e.g. kicked off from elsewhere).
-  // Also hide schedule-spawned threads while they're still running: they auto-archive on
-  // completion (see scheduleService), so surfacing them mid-run is just sidebar noise.
-  const visibleThreads = allThreads.filter((t) => {
-    const isRunning = runStatusesByThread[t.id] === 'running'
-    if (isRunning && t.createdFromScheduleId) return false
-    return t.title !== 'New Chat' || t.preview || t.headMessageId || isRunning
-  })
+  const savedWorkspacePaths = config?.workspace?.savedPaths ?? EMPTY_WORKSPACE_PATHS
+
+  const visibleThreads = useMemo(
+    () =>
+      resolveVisibleSidebarThreads({
+        threads,
+        folders,
+        archivedThreads,
+        externalThreads,
+        showExternalThreads,
+        savedWorkspacePaths,
+        sidebarFilter,
+        threadListMode,
+        runStatusesByThread,
+        justDoneRunIdsByThread
+      }),
+    [
+      threads,
+      folders,
+      archivedThreads,
+      externalThreads,
+      showExternalThreads,
+      savedWorkspacePaths,
+      sidebarFilter,
+      threadListMode,
+      runStatusesByThread,
+      justDoneRunIdsByThread
+    ]
+  )
   const activeId = threadListMode === 'archived' ? activeArchivedThreadId : activeThreadId
   const memoryEnabled = isMemoryConfigured(config)
 
