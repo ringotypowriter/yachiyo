@@ -72,66 +72,25 @@ function resolveEscapedLineBreakEdit(
 
 export function createTool(context: AgentToolContext): Tool<EditToolInput, EditToolOutput> {
   return tool({
-    description: `Edit an existing text file. You must choose one explicit mode. (1) Inline replacement: \`{ mode: 'inline', oldText, newText, replace_all? }\` — best for short surgical edits where the match is stable. (2) Line-range replacement: \`{ mode: 'range', replaceLines: { start, end }, newText }\` — addresses lines by position (1-indexed, inclusive) using the same coordinates the read tool returned. Prefer this for multi-line block rewrites where reproducing exact whitespace via oldText is error-prone. (3) Batched inline edits: \`{ mode: 'batch', edits: [{ oldText, newText, replace_all? }, ...] }\` — applies multiple inline edits to the same file atomically. For multiline text, prefer \`oldLines\` and \`newLines\` arrays; they are joined with LF and avoid confusion between real newlines and literal \\n. Relative paths resolve from ${context.workspacePath}; files outside the workspace require an absolute path. Every shape requires you to have read the target region first.`,
+    description: `Edit an existing text file. You must choose one explicit mode. (1) Inline replacement: \`{ mode: 'inline', oldText, newText, replace_all? }\` — best for short surgical edits where the match is stable. (2) Line-range replacement: \`{ mode: 'range', replaceLines: { start, end }, newText }\` — addresses lines by position (1-indexed, inclusive) using the same coordinates the read tool returned. Prefer this for multi-line block rewrites where reproducing exact whitespace via oldText is error-prone. (3) Batched inline edits: \`{ mode: 'batch', edits: [{ oldText, newText, replace_all? }, ...] }\` — applies multiple inline edits to the same file atomically. Use LF inside oldText/newText for multiline snippets. Relative paths resolve from ${context.workspacePath}; files outside the workspace require an absolute path. Every shape requires you to have read the target region first.`,
     inputSchema: editToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) => runEditTool(input, context, options)
   })
 }
 
-function hasLineArray(value: unknown): value is string[] {
-  return Array.isArray(value)
-}
-
-function lineArrayToText(value: string[]): string {
-  return value.join('\n')
-}
-
-function getSearchText(input: { oldText?: string; oldLines?: string[] }): string | undefined {
-  const oldText = input.oldText && input.oldText.length > 0 ? input.oldText : undefined
-  const oldLinesText = hasLineArray(input.oldLines) ? lineArrayToText(input.oldLines) : undefined
-  const meaningfulOldLines = oldLinesText && oldLinesText.length > 0 ? oldLinesText : undefined
-
-  if (oldText !== undefined && meaningfulOldLines !== undefined) {
-    if (oldText !== meaningfulOldLines) {
-      throw new Error('oldText and oldLines must match when both are provided.')
-    }
-    return oldText
-  }
-  if (oldText !== undefined) return oldText
-  if (meaningfulOldLines !== undefined) return meaningfulOldLines
-  return undefined
-}
-
-function getReplacementText(input: { newText?: string; newLines?: string[] }): string | undefined {
-  const newLines =
-    hasLineArray(input.newLines) && input.newLines.length > 0 ? input.newLines : undefined
-  const newLinesText = newLines !== undefined ? lineArrayToText(newLines) : undefined
-
-  if (input.newText !== undefined && newLinesText !== undefined) {
-    if (input.newText === newLinesText) return input.newText
-    if (input.newText === '') return newLinesText
-    throw new Error('newText and newLines must match when both are provided.')
-  }
-  if (input.newText !== undefined) return input.newText
-  if (newLinesText !== undefined) return newLinesText
-  return undefined
-}
-
 function normalizeEditSpec(
-  input: { oldText?: string; oldLines?: string[]; newText?: string; newLines?: string[] },
+  input: { oldText?: string; newText?: string },
   replaceAll: boolean,
   label: string
 ): NormalizedEditSpec {
-  const oldText = getSearchText(input)
-  if (!oldText) {
-    throw new Error(`${label}requires a non-empty oldText or oldLines.`)
+  if (!input.oldText) {
+    throw new Error(`${label}requires a non-empty oldText.`)
   }
-  const newText = getReplacementText(input)
-  if (newText === undefined) {
-    throw new Error(`${label}requires newText or newLines.`)
+  if (input.newText === undefined) {
+    throw new Error(`${label}requires newText.`)
   }
-  return { oldText, newText, replace_all: replaceAll }
+  return { oldText: input.oldText, newText: input.newText, replace_all: replaceAll }
 }
 
 function normalizeEdits(input: EditToolInput): NormalizedEditSpec[] {
@@ -509,9 +468,9 @@ async function runRangedEdit(
   ) {
     throw new Error('Range edit requires replaceLines with numeric start and end.')
   }
-  const replacementText = getReplacementText(input)
+  const replacementText = input.newText
   if (replacementText === undefined) {
-    throw new Error('Range edit requires newText or newLines.')
+    throw new Error('Range edit requires newText.')
   }
   const { start, end } = input.replaceLines
   if (end < start) {

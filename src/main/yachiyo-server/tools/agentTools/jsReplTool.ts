@@ -339,7 +339,7 @@ export function createTool(
       'Each tool returns an object `{ content: string, error?: string }`, not a raw string.\n' +
       'Available tools: ' +
       "tools.read({ path }), tools.write({ path, content }), tools.edit({ mode: 'inline', path, oldText, newText }), " +
-      "tools.edit({ mode: 'range', path, replaceLines: { start, end }, newLines }), " +
+      "tools.edit({ mode: 'range', path, replaceLines: { start, end }, newText }), " +
       'tools.bash({ command }), tools.grep({ pattern }), tools.glob({ pattern }).\n' +
       'Prefer jsRepl over individual tool calls for: ' +
       'batch file operations, looping over search results, programmatic code generation, ' +
