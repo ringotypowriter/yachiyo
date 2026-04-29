@@ -29,9 +29,11 @@ import {
 } from '@renderer/app/store/useAppStore'
 import type { FileMentionCandidate, Message, RunRecord } from '@renderer/app/types'
 import { getComposerActionState } from '@renderer/features/chat/lib/composerActionState'
+import { canRemoveQueuedFollowUp } from '@renderer/features/chat/lib/messageActionState'
 import { shouldRevertPendingComposerMessagesOnArrowUp } from '@renderer/features/chat/lib/composerArrowUpRevert'
 import { resolveComposerEnterAction } from '@renderer/features/chat/lib/composerEnterBehavior'
 import type { ChatInputBufferPayload } from '@renderer/features/chat/lib/chatInputBuffer'
+import { getQueuedFollowUpMessage } from '@renderer/features/chat/lib/messageThreadPresentation'
 import { useChatInputBuffer } from '@renderer/features/chat/hooks/useChatInputBuffer'
 import {
   computePretextLines,
@@ -45,6 +47,7 @@ import { theme } from '@renderer/theme/theme'
 import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
+  getThreadCapabilities,
   normalizeSkillNames,
   type MessageImageRecord,
   type SendChatAttachment
@@ -568,6 +571,109 @@ function StagedInputBufferBubble({
   )
 }
 
+function QueuedFollowUpBufferBubble({
+  message,
+  onEdit,
+  onRemove
+}: {
+  message: Message
+  onEdit: () => void
+  onRemove?: () => void
+}): React.JSX.Element {
+  const contentRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (contentRef.current) {
+      contentRef.current.scrollTop = contentRef.current.scrollHeight
+    }
+  }, [message.content])
+
+  const attachmentSummary: string[] = []
+  const imageCount = message.images?.length ?? 0
+  const fileCount = message.attachments?.length ?? 0
+  if (imageCount > 0) {
+    attachmentSummary.push(`${imageCount} image${imageCount === 1 ? '' : 's'}`)
+  }
+  if (fileCount > 0) {
+    attachmentSummary.push(`${fileCount} file${fileCount === 1 ? '' : 's'}`)
+  }
+
+  return (
+    <div
+      className="group flex items-start gap-3 px-4 py-2.5"
+      style={{
+        background: theme.background.accentSoft,
+        borderBottom: `1px solid ${theme.border.accent}`
+      }}
+    >
+      <div
+        className="relative flex items-center justify-center shrink-0 rounded-full"
+        style={{
+          width: STAGED_RING_SIZE_PX,
+          height: STAGED_RING_SIZE_PX,
+          border: `1px solid ${theme.border.accent}`,
+          color: theme.text.accent
+        }}
+        aria-label="Queued follow-up"
+      >
+        <Timer size={14} strokeWidth={1.8} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div
+          className="text-[11px] font-medium uppercase tracking-wide mb-0.5"
+          style={{ color: theme.text.accent }}
+        >
+          Queued follow-up
+        </div>
+        {message.content.length > 0 ? (
+          <div
+            ref={contentRef}
+            className="text-sm whitespace-pre-wrap wrap-break-word"
+            style={{
+              color: theme.text.primary,
+              maxHeight: 80,
+              overflowY: 'auto'
+            }}
+          >
+            {message.content}
+          </div>
+        ) : (
+          <div className="text-sm italic" style={{ color: theme.text.muted }}>
+            (attachments only)
+          </div>
+        )}
+        {attachmentSummary.length > 0 ? (
+          <div className="text-xs mt-1" style={{ color: theme.text.secondary }}>
+            {attachmentSummary.join(' · ')}
+          </div>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="text-xs px-2 py-1 rounded transition-colors"
+          style={{ color: theme.text.accent }}
+          aria-label="Edit queued follow-up"
+        >
+          Edit
+        </button>
+        {onRemove ? (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="text-xs px-2 py-1 rounded transition-colors"
+            style={{ color: theme.text.muted }}
+            aria-label="Remove queued follow-up"
+          >
+            Remove
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 export function Composer({
   onSelectThreadOperation
 }: {
@@ -615,13 +721,9 @@ export function Composer({
   const pendingSteerEntry = useAppStore((s) =>
     s.activeThreadId ? (s.pendingSteerMessages[s.activeThreadId] ?? null) : null
   )
-  const queuedFollowUpMessageId = useAppStore((s) => {
-    if (!s.activeThreadId) return null
-    const thread = s.threads.find((t) => t.id === s.activeThreadId)
-    return thread?.queuedFollowUpMessageId ?? null
-  })
   const revertPendingSteer = useAppStore((s) => s.revertPendingSteer)
   const revertQueuedFollowUp = useAppStore((s) => s.revertQueuedFollowUp)
+  const deleteMessage = useAppStore((s) => s.deleteMessage)
   const sendMessage = useAppStore((s) => s.sendMessage)
   const selectModel = useAppStore((s) => s.selectModel)
   const pushToast = useAppStore((s) => s.pushToast)
@@ -760,6 +862,14 @@ export function Composer({
     threads.find((thread) => thread.id === activeThreadId) ??
     externalThreads.find((thread) => thread.id === activeThreadId) ??
     null
+  const queuedFollowUpMessage = activeThread
+    ? getQueuedFollowUpMessage({ thread: activeThread, messages: activeThreadMessages })
+    : null
+  const queuedFollowUpMessageId =
+    queuedFollowUpMessage?.id ?? activeThread?.queuedFollowUpMessageId ?? null
+  const queuedFollowUpCanRemove = activeThread
+    ? canRemoveQueuedFollowUp({ threadCapabilities: getThreadCapabilities(activeThread) })
+    : false
   const activeThreadMessageCount = activeThreadMessages.length
   const currentWorkspacePath = activeThread?.workspacePath ?? pendingWorkspacePath
   const activeAcpBinding =
@@ -1203,6 +1313,30 @@ export function Composer({
   )
 
   const inputBuffer = useChatInputBuffer({ onFlush: handleBufferedFlush })
+
+  const handleEditQueuedFollowUp = useCallback(() => {
+    if (!queuedFollowUpMessageId) return
+
+    void (async () => {
+      try {
+        await revertQueuedFollowUp(queuedFollowUpMessageId)
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : 'Failed to edit queued follow-up.')
+      }
+    })()
+  }, [queuedFollowUpMessageId, revertQueuedFollowUp])
+
+  const handleRemoveQueuedFollowUp = useCallback(() => {
+    if (!queuedFollowUpMessageId || !window.confirm('Remove this queued follow-up?')) return
+
+    void (async () => {
+      try {
+        await deleteMessage(queuedFollowUpMessageId)
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : 'Failed to remove queued follow-up.')
+      }
+    })()
+  }, [deleteMessage, queuedFollowUpMessageId])
 
   const dispatchSend = useCallback(
     (mode: 'normal' | 'steer' | 'follow-up') => {
@@ -2236,6 +2370,13 @@ export function Composer({
             Cancel
           </button>
         </div>
+      ) : null}
+      {queuedFollowUpMessage ? (
+        <QueuedFollowUpBufferBubble
+          message={queuedFollowUpMessage}
+          onEdit={handleEditQueuedFollowUp}
+          onRemove={queuedFollowUpCanRemove ? handleRemoveQueuedFollowUp : undefined}
+        />
       ) : null}
       {inputBuffer.staged ? (
         <StagedInputBufferBubble

@@ -26,6 +26,30 @@ export function getRootAssistantMessages(messages: Message[]): Message[] {
   )
 }
 
+export function getQueuedFollowUpMessage(input: {
+  thread: Thread
+  messages: Message[]
+}): Message | null {
+  const queuedMessageId = input.thread.queuedFollowUpMessageId
+  if (!queuedMessageId) return null
+
+  return input.messages.find((message) => message.id === queuedMessageId) ?? null
+}
+
+export function getTimelineMessages(input: { thread: Thread; messages: Message[] }): Message[] {
+  const queuedMessageId = input.thread.queuedFollowUpMessageId
+  if (!queuedMessageId) return input.messages
+
+  let removedQueuedMessage = false
+  const messages = input.messages.filter((message) => {
+    if (message.id !== queuedMessageId) return true
+    removedQueuedMessage = true
+    return false
+  })
+
+  return removedQueuedMessage ? messages : input.messages
+}
+
 function collectResponseMessageToolOrder(responseMessages?: unknown[]): Map<string, number> {
   if (!responseMessages?.length) {
     return new Map()

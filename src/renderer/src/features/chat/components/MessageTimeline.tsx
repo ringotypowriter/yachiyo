@@ -11,6 +11,7 @@ import { TimelineScrollbar } from './TimelineScrollbar'
 import {
   buildMessageGroups,
   getRootAssistantMessages,
+  getTimelineMessages,
   partitionToolCallsForGroups
 } from '../lib/messageThreadPresentation'
 import { buildMessageTimelineRows, type MessageTimelineRow } from '../lib/messageTimelineRows.ts'
@@ -85,7 +86,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     createBranch,
     deleteMessage,
     revertPendingSteer,
-    revertQueuedFollowUp,
     retryMessage,
     selectReplyBranch,
     runPhase,
@@ -128,7 +128,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       createBranch: state.createBranch,
       deleteMessage: state.deleteMessage,
       revertPendingSteer: state.revertPendingSteer,
-      revertQueuedFollowUp: state.revertQueuedFollowUp,
       retryMessage: state.retryMessage,
       selectReplyBranch: state.selectReplyBranch,
       runPhase: threadId ? (state.runPhasesByThread[threadId] ?? 'idle') : 'idle',
@@ -153,17 +152,22 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     [activeSubagentIds, subagentStateById]
   )
 
+  const timelineMessages = useMemo(
+    () => (thread ? getTimelineMessages({ thread, messages }) : messages),
+    [thread, messages]
+  )
+
   const messageGroups = useMemo(
     () =>
       thread
         ? buildMessageGroups({
             thread,
-            messages,
+            messages: timelineMessages,
             runPhase,
             activeRequestMessageId
           })
         : [],
-    [thread, messages, runPhase, activeRequestMessageId]
+    [thread, timelineMessages, runPhase, activeRequestMessageId]
   )
   const pendingSteerMessage = useMemo(
     () =>
@@ -181,29 +185,19 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
         : null,
     [threadId, pendingSteerEntry, activeRequestMessageId]
   )
-  const queuedFollowUpMessage = useMemo(
-    () =>
-      thread?.queuedFollowUpMessageId &&
-      messages.some((message) => message.id === thread.queuedFollowUpMessageId)
-        ? (messages.find((message) => message.id === thread.queuedFollowUpMessageId) ?? null)
-        : null,
-    [thread?.queuedFollowUpMessageId, messages]
-  )
   const { inlineToolCalls, orphanToolCalls } = useMemo(
     () => partitionToolCallsForGroups({ groups: messageGroups, toolCalls }),
     [messageGroups, toolCalls]
   )
-  const rootAssistantMessages = useMemo(() => getRootAssistantMessages(messages), [messages])
+  const rootAssistantMessages = useMemo(
+    () => getRootAssistantMessages(timelineMessages),
+    [timelineMessages]
+  )
   const threadCapabilities = useMemo(
     () => (thread ? getThreadCapabilities(thread) : null),
     [thread]
   )
   const threadHasActiveRun = activeRunId !== null
-  const threadActionContext = threadCapabilities
-    ? { threadCapabilities, threadHasActiveRun, threadIsSaving }
-    : null
-  const canBranchHere = threadActionContext ? canCreateBranch(threadActionContext) : false
-  const canDeleteHere = threadActionContext ? canDeleteMessage(threadActionContext) : false
   const timelineRows = useMemo(
     () =>
       buildMessageTimelineRows({
@@ -212,7 +206,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
         harnessEvents,
         orphanToolCalls,
         pendingSteerMessage,
-        queuedFollowUpMessage,
         inlineToolCalls,
         runs,
         activeRunId,
@@ -225,7 +218,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       harnessEvents,
       orphanToolCalls,
       pendingSteerMessage,
-      queuedFollowUpMessage,
       inlineToolCalls,
       runs,
       activeRunId,
@@ -242,10 +234,9 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
           return branch ? [group.userMessage, branch.message] : [group.userMessage]
         }),
         ...rootAssistantMessages,
-        ...(pendingSteerMessage ? [pendingSteerMessage] : []),
-        ...(queuedFollowUpMessage ? [queuedFollowUpMessage] : [])
+        ...(pendingSteerMessage ? [pendingSteerMessage] : [])
       ].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
-    [messageGroups, rootAssistantMessages, pendingSteerMessage, queuedFollowUpMessage]
+    [messageGroups, rootAssistantMessages, pendingSteerMessage]
   )
 
   const stickToBottomRef = useRef(true)
@@ -282,7 +273,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       case 'tool':
         return 72
       case 'pending-steer':
-      case 'queued-follow-up':
         return 120
       case 'assistant-root': {
         const msg = item.data
@@ -565,25 +555,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     (item: MessageTimelineRow): React.JSX.Element | null => {
       if (item.kind === 'harness') {
         return <RunEventRow harness={item.data} />
-      }
-
-      if (item.kind === 'queued-follow-up') {
-        if (!threadCapabilities || item.data.hidden) return null
-        return (
-          <div data-message-id={item.key}>
-            <UserMessageBubble
-              label="Queued follow-up"
-              message={item.data}
-              threadHasActiveRun={threadHasActiveRun}
-              threadCapabilities={threadCapabilities}
-              threadIsSaving={threadIsSaving}
-              onRetry={threadCapabilities.canRetry ? () => handleRetry(item.data.id) : undefined}
-              onCreateBranch={canBranchHere ? () => handleCreateBranch(item.data.id) : undefined}
-              onDelete={canDeleteHere ? () => handleDelete(item.data.id) : undefined}
-              onRevert={() => revertQueuedFollowUp(item.data.id)}
-            />
-          </div>
-        )
       }
 
       if (item.kind === 'pending-steer') {
@@ -871,8 +842,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       retryInfo,
       runs,
       toolCalls,
-      canBranchHere,
-      canDeleteHere,
       threadId,
       handleEdit,
       handleCreateBranch,
@@ -881,7 +850,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       handleSelectReplyBranch,
       cancelRunForThread,
       revertPendingSteer,
-      revertQueuedFollowUp,
       workspacePath
     ]
   )

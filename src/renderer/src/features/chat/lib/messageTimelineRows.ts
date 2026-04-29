@@ -90,13 +90,6 @@ export type MessageTimelineRow =
       scrollMessageId: string
     }
   | {
-      kind: 'queued-follow-up'
-      key: string
-      time: string
-      data: Message
-      scrollMessageId: string
-    }
-  | {
       kind: 'harness'
       key: string
       time: string
@@ -124,7 +117,6 @@ interface BuildMessageTimelineRowsInput {
   harnessEvents: HarnessRecord[]
   orphanToolCalls: ToolCall[]
   pendingSteerMessage: Message | null
-  queuedFollowUpMessage: Message | null
   inlineToolCalls: ToolCall[]
   runs: RunRecord[]
   activeRunId: string | null
@@ -443,22 +435,6 @@ export function buildMessageTimelineRows(
                 time: input.pendingSteerMessage.createdAt,
                 data: input.pendingSteerMessage,
                 scrollMessageId: input.pendingSteerMessage.id
-              }
-            ]
-          }
-        ]
-      : []),
-    ...(input.queuedFollowUpMessage
-      ? [
-          {
-            time: input.queuedFollowUpMessage.createdAt,
-            rows: [
-              {
-                kind: 'queued-follow-up' as const,
-                key: input.queuedFollowUpMessage.id,
-                time: input.queuedFollowUpMessage.createdAt,
-                data: input.queuedFollowUpMessage,
-                scrollMessageId: input.queuedFollowUpMessage.id
               }
             ]
           }

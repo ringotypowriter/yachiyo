@@ -60,6 +60,12 @@ export function canDeleteMessage(input: {
   return input.threadCapabilities.canDelete && !input.threadHasActiveRun && !input.threadIsSaving
 }
 
+export function canRemoveQueuedFollowUp(input: {
+  threadCapabilities: NonNullable<Thread['capabilities']>
+}): boolean {
+  return input.threadCapabilities.canDelete
+}
+
 export function resolveRetryTargetMessageId(input: {
   userMessageId: string
   activeAssistantMessage?: Pick<Message, 'id' | 'status'>

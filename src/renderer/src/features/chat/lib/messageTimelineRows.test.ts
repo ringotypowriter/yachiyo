@@ -216,7 +216,6 @@ test('buildMessageTimelineRows keeps each conversation flattened into separate v
     harnessEvents: [],
     orphanToolCalls: [],
     pendingSteerMessage: null,
-    queuedFollowUpMessage: null,
     inlineToolCalls: [],
     runs: [],
     activeRunId: null,

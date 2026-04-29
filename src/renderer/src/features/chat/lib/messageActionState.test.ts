@@ -5,6 +5,7 @@ import {
   canCreateBranch,
   canDeleteMessage,
   canEditUserMessage,
+  canRemoveQueuedFollowUp,
   canRetryAssistantMessage,
   canSelectReplyBranch,
   canRetryUserMessage,
@@ -145,6 +146,22 @@ test('ACP thread capabilities disable retry, branch, edit, and delete actions ce
     canDeleteMessage({
       threadCapabilities: acpThreadCapabilities,
       threadHasActiveRun: false
+    }),
+    false
+  )
+})
+
+test('canRemoveQueuedFollowUp follows delete capability without blocking active runs', () => {
+  assert.equal(
+    canRemoveQueuedFollowUp({
+      threadCapabilities: interactiveThreadCapabilities
+    }),
+    true
+  )
+
+  assert.equal(
+    canRemoveQueuedFollowUp({
+      threadCapabilities: acpThreadCapabilities
     }),
     false
   )
