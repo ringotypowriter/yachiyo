@@ -16,6 +16,7 @@ const EXTERNAL_CHANNEL_MAX_TOOL_STEPS = 10
 const AGENTS_MD_PRELOAD_THRESHOLD_BYTES = 10 * 1024
 
 import type {
+  BashToolCallDetails,
   HarnessFinishedEvent,
   HarnessStartedEvent,
   MessageCompletedEvent,
@@ -1390,6 +1391,53 @@ function finishPendingToolCalls(
   }
 }
 
+function isBashToolCallDetails(details: ToolCallRecord['details']): details is BashToolCallDetails {
+  return (
+    details != null &&
+    typeof details === 'object' &&
+    'command' in details &&
+    typeof details.command === 'string' &&
+    'cwd' in details &&
+    typeof details.cwd === 'string' &&
+    'stdout' in details &&
+    typeof details.stdout === 'string' &&
+    'stderr' in details &&
+    typeof details.stderr === 'string'
+  )
+}
+
+function getTerminalBashExitCode(details: ToolCallRecord['details']): number | undefined {
+  if (details == null || typeof details !== 'object' || !('exitCode' in details)) {
+    return undefined
+  }
+  return typeof details.exitCode === 'number' ? details.exitCode : undefined
+}
+
+function getTerminalBashCancelledByUser(details: ToolCallRecord['details']): true | undefined {
+  if (details == null || typeof details !== 'object' || !('cancelledByUser' in details)) {
+    return undefined
+  }
+  return details.cancelledByUser === true ? true : undefined
+}
+
+function mergeBackgroundBashDetails(input: {
+  launchDetails: ToolCallRecord['details']
+  terminalDetails: ToolCallRecord['details']
+}): ToolCallRecord['details'] {
+  if (!isBashToolCallDetails(input.launchDetails)) {
+    return input.terminalDetails ?? input.launchDetails
+  }
+
+  const terminalExitCode = getTerminalBashExitCode(input.terminalDetails)
+  const terminalCancelledByUser = getTerminalBashCancelledByUser(input.terminalDetails)
+  const merged: BashToolCallDetails & { cancelledByUser?: true } = {
+    ...input.launchDetails,
+    ...(terminalExitCode !== undefined ? { exitCode: terminalExitCode } : {}),
+    ...(terminalCancelledByUser ? { cancelledByUser: true } : {})
+  }
+  return merged
+}
+
 function bindCompletedToolCallsToAssistant(
   deps: Pick<RunExecutionDeps, 'emit' | 'loadThreadToolCalls'>,
   toolCalls: Map<string, ToolCallRecord>,
@@ -2347,7 +2395,24 @@ export async function executeServerRun(
           const normalized = event.success
             ? normalizeToolResult(event.toolCall.toolName, event.output)
             : undefined
+          const terminalBackgroundToolCall =
+            normalized?.status === 'background'
+              ? deps
+                  .loadThreadToolCalls(input.thread.id)
+                  .find(
+                    (toolCall) =>
+                      toolCall.id === event.toolCall.toolCallId &&
+                      (toolCall.status === 'completed' || toolCall.status === 'failed')
+                  )
+              : undefined
+          const mergedBackgroundDetails = terminalBackgroundToolCall
+            ? mergeBackgroundBashDetails({
+                launchDetails: normalized?.details,
+                terminalDetails: terminalBackgroundToolCall.details
+              })
+            : normalized?.details
           const errorMessage =
+            terminalBackgroundToolCall?.error ??
             normalized?.error ??
             (event.success || event.error === undefined
               ? undefined
@@ -2357,12 +2422,17 @@ export async function executeServerRun(
           const toolCall: ToolCallRecord = startedToolCall
             ? {
                 ...startedToolCall,
-                status: normalized?.status ?? 'failed',
-                outputSummary: normalized?.outputSummary ?? errorMessage,
-                ...(normalized?.cwd ? { cwd: normalized.cwd } : {}),
-                ...(normalized?.details ? { details: normalized.details } : {}),
+                status: terminalBackgroundToolCall?.status ?? normalized?.status ?? 'failed',
+                outputSummary:
+                  terminalBackgroundToolCall?.outputSummary ??
+                  normalized?.outputSummary ??
+                  errorMessage,
+                ...((terminalBackgroundToolCall?.cwd ?? normalized?.cwd)
+                  ? { cwd: terminalBackgroundToolCall?.cwd ?? normalized?.cwd }
+                  : {}),
+                ...(mergedBackgroundDetails ? { details: mergedBackgroundDetails } : {}),
                 ...(errorMessage ? { error: errorMessage } : {}),
-                finishedAt
+                finishedAt: terminalBackgroundToolCall?.finishedAt ?? finishedAt
               }
             : {
                 id: event.toolCall.toolCallId,
@@ -2370,16 +2440,21 @@ export async function executeServerRun(
                 threadId: input.thread.id,
                 requestMessageId: input.requestMessageId,
                 toolName: event.toolCall.toolName,
-                status: normalized?.status ?? 'failed',
+                status: terminalBackgroundToolCall?.status ?? normalized?.status ?? 'failed',
                 inputSummary: summarizeToolInput(event.toolCall.toolName, event.toolCall.input),
-                outputSummary: normalized?.outputSummary ?? errorMessage,
-                ...(normalized?.cwd ? { cwd: normalized.cwd } : {}),
-                ...(normalized?.details ? { details: normalized.details } : {}),
+                outputSummary:
+                  terminalBackgroundToolCall?.outputSummary ??
+                  normalized?.outputSummary ??
+                  errorMessage,
+                ...((terminalBackgroundToolCall?.cwd ?? normalized?.cwd)
+                  ? { cwd: terminalBackgroundToolCall?.cwd ?? normalized?.cwd }
+                  : {}),
+                ...(mergedBackgroundDetails ? { details: mergedBackgroundDetails } : {}),
                 ...(errorMessage ? { error: errorMessage } : {}),
                 startedAt: finishedAt,
                 stepIndex: ++stepCount,
                 stepBudget: maxToolSteps,
-                finishedAt
+                finishedAt: terminalBackgroundToolCall?.finishedAt ?? finishedAt
               }
 
           toolCalls.set(toolCall.id, toolCall)

@@ -5,14 +5,20 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { DEFAULT_SETTINGS_CONFIG } from '../../settings/settingsStore.ts'
-import { mergeRunUsage, prepareServerRunContext, type RunExecutionDeps } from './runExecution.ts'
+import {
+  executeServerRun,
+  mergeRunUsage,
+  prepareServerRunContext,
+  type RunExecutionDeps
+} from './runExecution.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { ModelUsage } from '../../runtime/types.ts'
 import type {
   MessageRecord,
   ProviderSettings,
   SettingsConfig,
-  ThreadRecord
+  ThreadRecord,
+  ToolCallRecord
 } from '../../../../shared/yachiyo/protocol.ts'
 
 function makeUsage(promptTokens: number, completionTokens: number): ModelUsage {
@@ -232,6 +238,142 @@ test('prepareServerRunContext persists consumed activity for replay', async () =
 
     assert.equal(updatedMessages.length, 1)
     assert.equal(updatedMessages[0].turnContext?.activityText, 'ACTIVITY BLOCK')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('executeServerRun keeps an explicit background bash completed when completion wins the race', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-bg-race-'))
+  const thread: ThreadRecord = {
+    id: 'thread-bg-race',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-bg-race',
+    threadId: thread.id,
+    role: 'user',
+    content: 'run it in background',
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const events: unknown[] = []
+  const toolCalls = new Map<string, ToolCallRecord>()
+  const baseDeps = createRunContextDeps({
+    events,
+    messages: [requestMessage],
+    workspacePath: root
+  })
+  const logPath = join(root, '.yachiyo', 'tool-output', 'tc-bg.log')
+  const backgroundOutput = {
+    content: [{ type: 'text', text: JSON.stringify({ taskId: 'tc-bg', logPath }) }],
+    details: {
+      command: 'true',
+      cwd: root,
+      stdout: '',
+      stderr: '',
+      background: true,
+      taskId: 'tc-bg',
+      logPath
+    },
+    metadata: { cwd: root }
+  }
+  const storage: RunExecutionDeps['storage'] = {
+    ...baseDeps.storage,
+    updateMessage: () => {},
+    getChannelUser: () => undefined,
+    persistResponseMessagesRepairInBackground: () => {},
+    listThreadRuns: () => [],
+    upsertRunRecoveryCheckpoint: () => {},
+    deleteRunRecoveryCheckpoint: () => {},
+    createToolCall: (toolCall: ToolCallRecord) => {
+      toolCalls.set(toolCall.id, toolCall)
+    },
+    updateToolCall: (toolCall: ToolCallRecord) => {
+      toolCalls.set(toolCall.id, toolCall)
+    },
+    listThreadToolCalls: () => [...toolCalls.values()],
+    completeRun: () => {},
+    cancelRun: () => {},
+    failRun: () => {},
+    saveThreadMessage: () => {},
+    updateRunSnapshot: () => {}
+  }
+  const deps: RunExecutionDeps = {
+    ...baseDeps,
+    storage,
+    loadThreadToolCalls: () => [...toolCalls.values()],
+    createModelRuntime: () => ({
+      streamReply: async function* (request) {
+        const toolCall = {
+          type: 'tool-call',
+          dynamic: true,
+          toolCallId: 'tc-bg',
+          toolName: 'bash',
+          input: { command: 'true', timeout: 1, background: true }
+        }
+
+        request.onToolCallStart?.({
+          abortSignal: request.signal,
+          messages: request.messages,
+          toolCall
+        } as never)
+
+        const started = toolCalls.get('tc-bg')
+        assert.equal(started?.status, 'running')
+        storage.updateToolCall({
+          ...started!,
+          status: 'completed',
+          outputSummary: 'exit 0',
+          details: { ...backgroundOutput.details, exitCode: 0 },
+          finishedAt: '2026-04-28T00:00:01.000Z'
+        } as ToolCallRecord)
+
+        request.onToolCallFinish?.({
+          abortSignal: request.signal,
+          durationMs: 0,
+          experimental_context: undefined,
+          functionId: undefined,
+          metadata: undefined,
+          model: undefined,
+          messages: request.messages,
+          output: backgroundOutput,
+          stepNumber: undefined,
+          success: true,
+          toolCall
+        } as never)
+
+        yield 'Done.'
+        request.onFinish?.({
+          promptTokens: 1,
+          completionTokens: 1,
+          totalPromptTokens: 1,
+          totalCompletionTokens: 1
+        })
+      }
+    })
+  }
+
+  try {
+    const result = await executeServerRun(deps, {
+      enabledTools: ['bash'],
+      inactivityTimeoutMs: 30_000,
+      runId: 'run-bg-race',
+      thread,
+      requestMessageId: requestMessage.id,
+      abortController: new AbortController(),
+      updateHeadOnComplete: true,
+      previousEnabledTools: null
+    })
+
+    assert.equal(result.kind, 'completed')
+    const finalToolCall = toolCalls.get('tc-bg')
+    assert.equal(finalToolCall?.status, 'completed')
+    assert.equal(finalToolCall?.outputSummary, 'exit 0')
+    assert.equal((finalToolCall?.details as { exitCode?: number } | undefined)?.exitCode, 0)
+    assert.equal(finalToolCall?.finishedAt, '2026-04-28T00:00:01.000Z')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
