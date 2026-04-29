@@ -1,8 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, ChevronDown, ListFilter, X } from 'lucide-react'
-import { useAppStore } from '@renderer/app/store/useAppStore'
+import {
+  Archive,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  FolderClosed,
+  HardDrive,
+  Inbox,
+  ListFilter,
+  LoaderCircle,
+  RotateCcw
+} from 'lucide-react'
+import { DEFAULT_SIDEBAR_FILTER, useAppStore } from '@renderer/app/store/useAppStore'
 import { hasActiveMultiFilter, type SidebarFilter } from '@renderer/app/store/useAppStore'
+import type { ThreadColorTag } from '@renderer/app/types'
 import {
   THREAD_COLOR_FILTER_LABELS,
   THREAD_COLOR_TAGS,
@@ -11,8 +23,10 @@ import {
 import {
   TEMPORARY_WORKSPACE_FILTER,
   resolveWorkspaceDisplayName,
-  resolveWorkspaceFilterOptions
+  resolveWorkspaceFilterOptions,
+  type WorkspaceFilterOption
 } from '@renderer/features/threads/lib/threadWorkspaceFilterOptions'
+import { resolveVisibleSidebarThreads } from '@renderer/features/threads/lib/threadListFilters'
 import { theme, alpha } from '@renderer/theme/theme'
 
 const EMPTY_WORKSPACE_PATHS: string[] = []
@@ -37,7 +51,16 @@ function resolveFilterLabel(filter: SidebarFilter): string {
   return `${parts.length} filters`
 }
 
-function useWorkspaceFilterOptions(): Array<{ path: string; displayName: string }> {
+function createSidebarFilter(overrides: Partial<SidebarFilter> = {}): SidebarFilter {
+  return {
+    ...DEFAULT_SIDEBAR_FILTER,
+    ...overrides,
+    colorTags: overrides.colorTags ?? new Set(),
+    workspacePaths: overrides.workspacePaths ?? new Set()
+  }
+}
+
+function useWorkspaceFilterOptions(): WorkspaceFilterOption[] {
   const threads = useAppStore((s) => s.threads)
   const archivedThreads = useAppStore((s) => s.archivedThreads)
   const savedPaths = useAppStore((s) => s.config?.workspace?.savedPaths ?? EMPTY_WORKSPACE_PATHS)
@@ -46,6 +69,74 @@ function useWorkspaceFilterOptions(): Array<{ path: string; displayName: string 
     () => resolveWorkspaceFilterOptions({ savedPaths, threads, archivedThreads }),
     [savedPaths, threads, archivedThreads]
   )
+}
+
+function useSidebarFilterCounts(workspaces: WorkspaceFilterOption[]): {
+  all: number
+  archived: number
+  colorTags: Map<ThreadColorTag, number>
+  workspacePaths: Map<string, number>
+  running: number
+  justDone: number
+  folderOnly: number
+} {
+  const threads = useAppStore((s) => s.threads)
+  const folders = useAppStore((s) => s.folders)
+  const archivedThreads = useAppStore((s) => s.archivedThreads)
+  const externalThreads = useAppStore((s) => s.externalThreads)
+  const showExternalThreads = useAppStore((s) => s.showExternalThreads)
+  const runStatusesByThread = useAppStore((s) => s.runStatusesByThread)
+  const justDoneRunIdsByThread = useAppStore((s) => s.justDoneRunIdsByThread)
+  const savedWorkspacePaths = useAppStore(
+    (s) => s.config?.workspace?.savedPaths ?? EMPTY_WORKSPACE_PATHS
+  )
+
+  return useMemo(() => {
+    const baseInput = {
+      threads,
+      folders,
+      archivedThreads,
+      externalThreads,
+      showExternalThreads,
+      savedWorkspacePaths,
+      runStatusesByThread,
+      justDoneRunIdsByThread
+    }
+    const countActive = (filter: SidebarFilter): number =>
+      resolveVisibleSidebarThreads({
+        ...baseInput,
+        sidebarFilter: filter,
+        threadListMode: 'active'
+      }).length
+    const colorTags = new Map<ThreadColorTag, number>()
+    for (const tag of THREAD_COLOR_TAGS) {
+      colorTags.set(tag, countActive(createSidebarFilter({ colorTags: new Set([tag]) })))
+    }
+
+    return {
+      all: countActive(createSidebarFilter()),
+      archived: resolveVisibleSidebarThreads({
+        ...baseInput,
+        sidebarFilter: createSidebarFilter({ base: 'archived' }),
+        threadListMode: 'archived'
+      }).length,
+      colorTags,
+      workspacePaths: new Map(workspaces.map((workspace) => [workspace.path, workspace.count])),
+      running: countActive(createSidebarFilter({ running: true })),
+      justDone: countActive(createSidebarFilter({ justDone: true })),
+      folderOnly: countActive(createSidebarFilter({ folderOnly: true }))
+    }
+  }, [
+    threads,
+    folders,
+    archivedThreads,
+    externalThreads,
+    showExternalThreads,
+    savedWorkspacePaths,
+    runStatusesByThread,
+    justDoneRunIdsByThread,
+    workspaces
+  ])
 }
 
 export function SidebarFilterBar(): React.JSX.Element {
@@ -144,6 +235,7 @@ function SidebarFilterDropdown({
   const toggleFolderOnly = useAppStore((s) => s.toggleSidebarFilterFolderOnly)
   const clearFilter = useAppStore((s) => s.clearSidebarFilter)
   const workspaces = useWorkspaceFilterOptions()
+  const counts = useSidebarFilterCounts(workspaces)
   const hasMulti = hasActiveMultiFilter(sidebarFilter)
   const hasAnyFilter = hasMulti || sidebarFilter.base === 'archived'
 
@@ -168,8 +260,19 @@ function SidebarFilterDropdown({
     }
   }, [onClose])
 
-  const menuWidth = 220
-  const menuHeight = Math.min(360, Math.max(220, window.innerHeight - anchorRect.bottom - 24))
+  const menuWidth = 292
+  const minMenuHeight = 320
+  const maxMenuHeight = 520
+  const availableBelow = window.innerHeight - anchorRect.bottom - 12
+  const availableAbove = anchorRect.top - 12
+  const openAbove = availableBelow < minMenuHeight && availableAbove > availableBelow
+  const menuHeight = Math.min(
+    maxMenuHeight,
+    Math.max(minMenuHeight, openAbove ? availableAbove : availableBelow)
+  )
+  const top = openAbove
+    ? Math.max(12, anchorRect.top - menuHeight - 6)
+    : Math.min(anchorRect.bottom + 6, window.innerHeight - menuHeight - 12)
   const left = Math.max(
     12,
     Math.min(
@@ -185,90 +288,59 @@ function SidebarFilterDropdown({
       className="no-drag"
       style={{
         position: 'fixed',
-        top: anchorRect.bottom + 6,
+        top,
         left,
         width: menuWidth,
-        padding: 6,
         background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
         WebkitBackdropFilter: 'blur(24px)',
         border: `1px solid ${theme.border.strong}`,
         borderRadius: 14,
         boxShadow: theme.shadow.menu,
-        zIndex: 100,
+        zIndex: 120,
         height: menuHeight,
-        overflowY: 'auto',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
         overscrollBehavior: 'contain',
         opacity: visible ? 1 : 0,
         transform: visible ? 'translateY(0)' : 'translateY(-4px)',
         transition: 'opacity 0.15s ease, transform 0.15s ease'
       }}
     >
-      {/* Base filter (radio) */}
-      <div style={{ opacity: hasMulti ? 0.35 : 1, pointerEvents: hasMulti ? 'none' : 'auto' }}>
-        <RadioRow
-          label="All"
-          checked={sidebarFilter.base === 'all'}
-          onClick={() => setSidebarFilterBase('all')}
-        />
-        <RadioRow
-          label="Archived"
-          checked={sidebarFilter.base === 'archived'}
-          onClick={() => setSidebarFilterBase('archived')}
-        />
-      </div>
+      <div
+        style={{
+          flexShrink: 0,
+          padding: 8,
+          borderBottom: `1px solid ${theme.border.panel}`,
+          background: alpha('surface', 0.78)
+        }}
+      >
+        <div style={{ opacity: hasMulti ? 0.35 : 1, pointerEvents: hasMulti ? 'none' : 'auto' }}>
+          <RadioRow
+            label="All"
+            checked={sidebarFilter.base === 'all'}
+            onClick={() => setSidebarFilterBase('all')}
+            count={counts.all}
+            icon={<Inbox size={15} strokeWidth={1.8} />}
+          />
+          <RadioRow
+            label="Archived"
+            checked={sidebarFilter.base === 'archived'}
+            onClick={() => setSidebarFilterBase('archived')}
+            count={counts.archived}
+            icon={<Archive size={15} strokeWidth={1.8} />}
+          />
+        </div>
 
-      <Divider />
-
-      {/* Color tags */}
-      <SectionLabel>Color</SectionLabel>
-      {THREAD_COLOR_TAGS.map((tag) => (
-        <CheckboxRow
-          key={tag}
-          label={THREAD_COLOR_FILTER_LABELS[tag]}
-          checked={sidebarFilter.colorTags.has(tag)}
-          onClick={() => toggleColor(tag)}
-          swatch={THREAD_COLOR_VALUES[tag]}
-        />
-      ))}
-
-      {/* Workspace paths */}
-      {workspaces.length > 0 && (
-        <>
-          <SectionLabel>Workspace</SectionLabel>
-          {workspaces.map((ws) => (
-            <CheckboxRow
-              key={ws.path}
-              label={ws.displayName}
-              checked={sidebarFilter.workspacePaths.has(ws.path)}
-              onClick={() => toggleWorkspace(ws.path)}
-              title={ws.path === TEMPORARY_WORKSPACE_FILTER ? undefined : ws.path}
-            />
-          ))}
-        </>
-      )}
-
-      {/* Status filters */}
-      <SectionLabel>Status</SectionLabel>
-      <CheckboxRow label="Running" checked={sidebarFilter.running} onClick={toggleRunning} />
-      <CheckboxRow label="Just Done" checked={sidebarFilter.justDone} onClick={toggleJustDone} />
-      <CheckboxRow
-        label="Folder-Only"
-        checked={sidebarFilter.folderOnly}
-        onClick={toggleFolderOnly}
-      />
-
-      {/* Clear */}
-      {hasAnyFilter && (
-        <>
-          <Divider />
+        {hasAnyFilter && (
           <button
             onClick={() => {
               clearFilter()
               onClose()
             }}
-            className="w-full flex items-center gap-2 rounded-lg px-3 py-1.5 text-left transition-colors"
-            style={{ color: theme.text.accent, fontSize: '12px', fontWeight: 500 }}
+            className="mt-1 w-full flex min-h-9 items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors"
+            style={{ color: theme.text.accent, fontSize: '13px', fontWeight: 600 }}
             onMouseEnter={(e) => {
               ;(e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong
             }}
@@ -276,11 +348,68 @@ function SidebarFilterDropdown({
               ;(e.currentTarget as HTMLElement).style.background = 'transparent'
             }}
           >
-            <X size={12} strokeWidth={2} />
-            Clear filters
+            <RotateCcw size={14} strokeWidth={1.8} />
+            <span className="flex-1">Reset filters</span>
           </button>
-        </>
-      )}
+        )}
+      </div>
+
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 8 }}>
+        <SectionLabel>Status</SectionLabel>
+        <CheckboxRow
+          label="Running"
+          checked={sidebarFilter.running}
+          onClick={toggleRunning}
+          count={counts.running}
+          icon={<LoaderCircle size={15} strokeWidth={1.8} />}
+        />
+        <CheckboxRow
+          label="Just Done"
+          checked={sidebarFilter.justDone}
+          onClick={toggleJustDone}
+          count={counts.justDone}
+          icon={<CheckCircle2 size={15} strokeWidth={1.8} />}
+        />
+        <CheckboxRow
+          label="Folder-Only"
+          checked={sidebarFilter.folderOnly}
+          onClick={toggleFolderOnly}
+          count={counts.folderOnly}
+          icon={<FolderClosed size={15} strokeWidth={1.8} />}
+        />
+
+        <Divider />
+
+        <SectionLabel>Color</SectionLabel>
+        {THREAD_COLOR_TAGS.map((tag) => (
+          <CheckboxRow
+            key={tag}
+            label={THREAD_COLOR_FILTER_LABELS[tag]}
+            checked={sidebarFilter.colorTags.has(tag)}
+            onClick={() => toggleColor(tag)}
+            count={counts.colorTags.get(tag)!}
+            swatch={THREAD_COLOR_VALUES[tag]}
+          />
+        ))}
+
+        {workspaces.length > 0 && (
+          <>
+            <Divider />
+            <SectionLabel>Workspace</SectionLabel>
+            {workspaces.map((ws) => (
+              <CheckboxRow
+                key={ws.path}
+                label={ws.displayName}
+                checked={sidebarFilter.workspacePaths.has(ws.path)}
+                onClick={() => toggleWorkspace(ws.path)}
+                count={counts.workspacePaths.get(ws.path)!}
+                icon={<HardDrive size={15} strokeWidth={1.8} />}
+                title={ws.path === TEMPORARY_WORKSPACE_FILTER ? undefined : ws.path}
+              />
+            ))}
+          </>
+        )}
+      </div>
     </div>,
     document.body
   )
@@ -289,16 +418,20 @@ function SidebarFilterDropdown({
 function RadioRow({
   label,
   checked,
-  onClick
+  onClick,
+  count,
+  icon
 }: {
   label: string
   checked: boolean
   onClick: () => void
+  count: number
+  icon: React.ReactNode
 }): React.JSX.Element {
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-[13px] transition-colors"
+      className="w-full flex min-h-9 items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] transition-colors"
       style={{ color: checked ? theme.text.accentStrong : theme.text.primary }}
       onMouseEnter={(e) => {
         ;(e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong
@@ -326,7 +459,14 @@ function RadioRow({
           />
         )}
       </span>
-      {label}
+      <span
+        className="shrink-0"
+        style={{ color: checked ? theme.text.accentStrong : theme.text.muted }}
+      >
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <CountBadge count={count} active={checked} />
     </button>
   )
 }
@@ -335,12 +475,16 @@ function CheckboxRow({
   label,
   checked,
   onClick,
+  count,
+  icon,
   swatch,
   title
 }: {
   label: string
   checked: boolean
   onClick: () => void
+  count: number
+  icon?: React.ReactNode
   swatch?: string
   title?: string
 }): React.JSX.Element {
@@ -348,7 +492,7 @@ function CheckboxRow({
     <button
       onClick={onClick}
       title={title}
-      className="w-full flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-[13px] transition-colors"
+      className="w-full flex min-h-9 items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] transition-colors"
       style={{ color: checked ? theme.text.accentStrong : theme.text.primary }}
       onMouseEnter={(e) => {
         ;(e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong
@@ -368,21 +512,50 @@ function CheckboxRow({
       >
         {checked && <Check size={10} strokeWidth={3} style={{ color: '#fff' }} />}
       </span>
+      <span
+        className="flex items-center justify-center shrink-0"
+        style={{
+          width: 16,
+          height: 16,
+          color: checked ? theme.text.accentStrong : theme.text.muted
+        }}
+      >
+        {swatch ? (
+          <span className="rounded-full" style={{ width: 10, height: 10, background: swatch }} />
+        ) : (
+          icon
+        )}
+      </span>
       <span className="flex-1 truncate">{label}</span>
-      {swatch && (
-        <span
-          className="shrink-0 rounded-full"
-          style={{ width: 8, height: 8, background: swatch }}
-        />
-      )}
+      <CountBadge count={count} active={checked} />
     </button>
+  )
+}
+
+function CountBadge({ count, active }: { count: number; active: boolean }): React.JSX.Element {
+  return (
+    <span
+      className="shrink-0 rounded-full px-1.5 tabular-nums"
+      style={{
+        minWidth: 22,
+        height: 18,
+        lineHeight: '18px',
+        textAlign: 'center',
+        fontSize: '11px',
+        fontWeight: 600,
+        color: active ? theme.text.accentStrong : theme.text.muted,
+        background: active ? theme.background.accentSoft : theme.background.hover
+      }}
+    >
+      {count}
+    </span>
   )
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
     <div
-      className="px-3 pt-2 pb-0.5"
+      className="px-3 pt-2.5 pb-1"
       style={{
         fontSize: '0.65rem',
         fontWeight: 600,
@@ -397,5 +570,5 @@ function SectionLabel({ children }: { children: React.ReactNode }): React.JSX.El
 }
 
 function Divider(): React.JSX.Element {
-  return <div className="mx-2 my-1" style={{ height: 1, background: theme.border.panel }} />
+  return <div className="mx-2 my-2" style={{ height: 1, background: theme.border.panel }} />
 }

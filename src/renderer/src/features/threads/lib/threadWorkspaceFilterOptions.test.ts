@@ -18,12 +18,13 @@ function thread(id: string, overrides: Partial<Thread> = {}): Thread {
   }
 }
 
-test('workspace filter options only include saved workspaces matched by local threads', () => {
+test('workspace filter options rank saved workspaces by matching local thread count', () => {
   const options = resolveWorkspaceFilterOptions({
     savedPaths: ['/work/user-b', '/work/user-a', '/work/no-thread'],
     threads: [
       thread('thread-z', { workspacePath: '/work/zeta' }),
       thread('thread-a', { workspacePath: '/work/user-a' }),
+      thread('thread-a-2', { workspacePath: '/work/user-a' }),
       thread('thread-b', { workspacePath: '/work/user-b' }),
       thread('thread-m', { workspacePath: '/work/mid' })
     ],
@@ -31,8 +32,12 @@ test('workspace filter options only include saved workspaces matched by local th
   })
 
   assert.deepEqual(
-    options.map((option) => option.path),
-    ['/work/user-b', '/work/user-a', TEMPORARY_WORKSPACE_FILTER]
+    options.map((option) => [option.path, option.count]),
+    [
+      ['/work/user-a', 2],
+      ['/work/user-b', 1],
+      [TEMPORARY_WORKSPACE_FILTER, 2]
+    ]
   )
   assert.equal(
     options.find((option) => option.path === TEMPORARY_WORKSPACE_FILTER)?.displayName,
@@ -65,7 +70,10 @@ test('workspace filter options exclude schedule and external thread workspaces',
   })
 
   assert.deepEqual(
-    options.map((option) => option.path),
-    ['/work/user-schedule-123', '/work/local']
+    options.map((option) => [option.path, option.count]),
+    [
+      ['/work/user-schedule-123', 1],
+      ['/work/local', 1]
+    ]
   )
 })
