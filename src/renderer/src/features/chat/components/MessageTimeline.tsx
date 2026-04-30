@@ -15,6 +15,7 @@ import {
   partitionToolCallsForGroups
 } from '../lib/messageThreadPresentation'
 import { buildMessageTimelineRows, type MessageTimelineRow } from '../lib/messageTimelineRows.ts'
+import { buildTimelineVirtualRowStyle } from '../lib/messageTimelineRowStyle.ts'
 import { getInitialBottomScrollDecision } from '../lib/messageTimelineScroll.ts'
 import { UserMessageBubble } from './UserMessageBubble'
 import { AssistantMessageBubble } from './AssistantMessageBubble'
@@ -1141,15 +1142,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
                 key={item.key}
                 data-index={virtualRow.index}
                 ref={virtualizer.measureElement}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  transform: `translateY(${virtualRow.start}px)`,
-                  contain: 'content',
-                  animation: 'yachiyo-row-enter 150ms ease-out'
-                }}
+                style={buildTimelineVirtualRowStyle(virtualRow.start)}
               >
                 <TimelineItemContent item={item} context={timelineItemContext} />
               </div>

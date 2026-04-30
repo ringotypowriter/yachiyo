@@ -702,16 +702,6 @@ body > div:not(#root) {
   margin-left: 1px;
 }
 
-/* Timeline row mount — subtle opacity fade so new rows don't pop */
-@keyframes yachiyo-row-enter {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
 /* Thread switch — fade the entire scroll container on remount */
 @keyframes yachiyo-thread-enter {
   from {
