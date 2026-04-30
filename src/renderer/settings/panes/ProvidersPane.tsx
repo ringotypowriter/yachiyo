@@ -1,4 +1,15 @@
-import { Copy, Eraser, Factory, Loader2, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
+import {
+  Copy,
+  Eraser,
+  Factory,
+  File,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Search,
+  Trash2,
+  X
+} from 'lucide-react'
 import { ProviderIconAvatar } from '../../src/lib/providerIcons'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { theme, alpha } from '@renderer/theme/theme'
@@ -301,13 +312,23 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
           <button
             type="button"
             onClick={() => void handleFetch()}
-            disabled={fetching || (provider.type !== 'vertex' && !provider.apiKey.trim())}
+            disabled={
+              fetching ||
+              (provider.type !== 'vertex' &&
+                provider.type !== 'openai-codex' &&
+                !provider.apiKey.trim()) ||
+              (provider.type === 'openai-codex' && !provider.codexSessionPath?.trim())
+            }
             className="flex items-center gap-1 text-xs font-medium transition-opacity opacity-60 hover:opacity-100 disabled:opacity-20"
             style={{ color: theme.text.accent }}
             title={
-              provider.type !== 'vertex' && !provider.apiKey.trim()
+              provider.type !== 'vertex' &&
+              provider.type !== 'openai-codex' &&
+              !provider.apiKey.trim()
                 ? 'Add an API key first'
-                : 'Fetch available models'
+                : provider.type === 'openai-codex' && !provider.codexSessionPath?.trim()
+                  ? 'Set a Codex session path first'
+                  : 'Fetch available models'
             }
           >
             {fetching ? (
@@ -656,6 +677,7 @@ export function ProvidersPane({
                   options={[
                     { value: 'openai', label: 'OpenAI (Chat)' },
                     { value: 'openai-responses', label: 'OpenAI (Responses)' },
+                    { value: 'openai-codex', label: 'OpenAI (Codex OAuth)' },
                     { value: 'anthropic', label: 'Anthropic' },
                     { value: 'gemini', label: 'Google AI / Gemini' },
                     { value: 'vertex', label: 'Google Vertex AI' },
@@ -732,6 +754,46 @@ export function ProvidersPane({
                         style={inputStyle()}
                         placeholder="-----BEGIN PRIVATE KEY-----&#10;(optional — uses ADC if empty)"
                       />
+                    </Field>
+                  </div>
+                </>
+              ) : selectedProvider.type === 'openai-codex' ? (
+                <>
+                  <div className="col-span-2">
+                    <Field label="Codex Session Path">
+                      <div className="flex gap-2">
+                        <input
+                          value={selectedProvider.codexSessionPath ?? ''}
+                          onChange={(e) =>
+                            handleProviderChange((provider) => ({
+                              ...provider,
+                              codexSessionPath: e.target.value
+                            }))
+                          }
+                          className="flex-1 rounded-xl px-3 py-2.5 text-sm outline-none"
+                          style={inputStyle()}
+                          placeholder="~/.codex/auth.json"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void (async () => {
+                              const pickedPath = await window.api.yachiyo.pickCodexSessionFile()
+                              if (!pickedPath) return
+                              handleProviderChange((provider) => ({
+                                ...provider,
+                                codexSessionPath: pickedPath
+                              }))
+                            })()
+                          }}
+                          className="flex items-center gap-1.5 shrink-0 rounded-xl px-3 py-2.5 text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
+                          style={{ background: alpha('ink', 0.04), color: theme.text.accent }}
+                          title="Select auth.json"
+                        >
+                          <File size={14} strokeWidth={2} />
+                          Select file
+                        </button>
+                      </div>
                     </Field>
                   </div>
                 </>

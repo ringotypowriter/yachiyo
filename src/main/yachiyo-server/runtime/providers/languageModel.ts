@@ -22,8 +22,14 @@ export function assertConfigured(settings: ProviderSettings): void {
     return
   }
 
-  if (!settings.apiKey.trim()) {
+  if (!settings.apiKey.trim() && settings.provider !== 'openai-codex') {
     throw new Error('No API key configured. Open Settings and add a provider key first.')
+  }
+
+  if (settings.provider === 'openai-codex' && !settings.codexSessionPath?.trim()) {
+    throw new Error(
+      'No Codex session path configured. Open Settings and set the path to your Codex auth.json.'
+    )
   }
 }
 
@@ -38,7 +44,11 @@ export function createLanguageModel(
   mode: 'default' | 'auxiliary' = 'default',
   options: CreateLanguageModelOptions = {}
 ): LanguageModel {
-  if (settings.provider === 'openai' || settings.provider === 'openai-responses') {
+  if (
+    settings.provider === 'openai' ||
+    settings.provider === 'openai-responses' ||
+    settings.provider === 'openai-codex'
+  ) {
     return createOpenAiLanguageModel(
       settings,
       dependencies,

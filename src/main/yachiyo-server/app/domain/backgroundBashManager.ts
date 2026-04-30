@@ -88,6 +88,7 @@ interface ActiveBackgroundTask {
 
 interface RecentlyCompletedTask {
   snapshot: BackgroundBashSnapshot
+  result: BackgroundBashTaskResult
   evictTimer: NodeJS.Timeout
 }
 
@@ -296,7 +297,7 @@ export class BackgroundBashManager {
       }
       this.tasks.delete(input.taskId)
       abortController.signal.removeEventListener('abort', onAbort)
-      this.rememberCompletion(task, exitCode, cancelledByUser)
+      this.rememberCompletion(task, result)
       this.onCompleted?.(result)
       return result
     }
@@ -351,19 +352,16 @@ export class BackgroundBashManager {
     }
   }
 
-  private rememberCompletion(
-    task: ActiveBackgroundTask,
-    exitCode: number,
-    cancelledByUser: boolean
-  ): void {
+  private rememberCompletion(task: ActiveBackgroundTask, result: BackgroundBashTaskResult): void {
+    const cancelledByUser = result.cancelledByUser === true
     const snapshot: BackgroundBashSnapshot = {
       taskId: task.taskId,
       threadId: task.threadId,
       command: task.command,
       logPath: task.logPath,
       startedAt: task.startedAt,
-      status: exitCode === 0 ? 'completed' : 'failed',
-      exitCode,
+      status: result.exitCode === 0 ? 'completed' : 'failed',
+      exitCode: result.exitCode,
       finishedAt: new Date().toISOString(),
       ...(cancelledByUser ? { cancelledByUser: true } : {})
     }
@@ -378,7 +376,7 @@ export class BackgroundBashManager {
     if (typeof evictTimer.unref === 'function') {
       evictTimer.unref()
     }
-    this.recentlyCompleted.set(task.taskId, { snapshot, evictTimer })
+    this.recentlyCompleted.set(task.taskId, { snapshot, result, evictTimer })
   }
 
   cancelTask(taskId: string): boolean {
@@ -415,6 +413,11 @@ export class BackgroundBashManager {
       command: completed.command,
       logPath: completed.logPath
     }
+  }
+
+  getCompletedTask(taskId: string): BackgroundBashTaskResult | undefined {
+    const completed = this.recentlyCompleted.get(taskId)?.result
+    return completed ? { ...completed } : undefined
   }
 
   get activeCount(): number {

@@ -32,6 +32,9 @@ export function sanitizeProviderConfig(provider: ProviderConfig): ProviderConfig
     thinkingEnabled: provider.thinkingEnabled !== false,
     apiKey: provider.apiKey.trim(),
     baseUrl: provider.baseUrl.trim(),
+    ...(provider.codexSessionPath !== undefined
+      ? { codexSessionPath: provider.codexSessionPath.trim() }
+      : {}),
     modelList: {
       enabled: [...new Set(provider.modelList.enabled.filter(Boolean))],
       disabled: [...new Set(provider.modelList.disabled.filter(Boolean))],

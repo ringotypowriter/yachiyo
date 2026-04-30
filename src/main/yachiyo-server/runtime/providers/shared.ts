@@ -31,6 +31,7 @@ export type OpenAiResponsesRuntimeProviderOptions = {
     store: false
     promptCacheKey?: string
     textVerbosity?: 'low' | 'medium' | 'high'
+    instructions?: string
   }
 }
 

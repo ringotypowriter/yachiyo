@@ -1,7 +1,18 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 
 import { createAiSdkModelRuntime, fetchModels, injectStepReasoning } from './modelRuntime.ts'
+
+function encodeBase64Url(input: unknown): string {
+  return Buffer.from(JSON.stringify(input)).toString('base64url')
+}
+
+function createJwt(exp: number): string {
+  return `${encodeBase64Url({ alg: 'none' })}.${encodeBase64Url({ exp })}.signature`
+}
 
 test('createAiSdkModelRuntime uses chat() for openai (Chat Completions) provider', async () => {
   let openAiOptions: { apiKey?: string; baseURL?: string } | undefined
@@ -184,6 +195,133 @@ test('createAiSdkModelRuntime uses responses() with reasoning for openai-respons
       store: false
     }
   })
+})
+
+test('createAiSdkModelRuntime resolves Codex OAuth auth and sends system text as instructions', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-runtime-codex-'))
+  const authPath = join(root, 'auth.json')
+  const accessToken = createJwt(Math.floor(Date.now() / 1000) + 3600)
+  let openAiOptions:
+    | {
+        apiKey?: string
+        baseURL?: string
+        headers?: Record<string, string>
+      }
+    | undefined
+  let selectedModel: { provider: string; modelId: string } | null = null
+  let call:
+    | {
+        messages: unknown
+        providerOptions?: {
+          openai?: {
+            instructions?: string
+            reasoningEffort?: string
+            reasoningSummary?: string
+            store?: boolean
+            textVerbosity?: string
+          }
+        }
+      }
+    | undefined
+
+  try {
+    await writeFile(
+      authPath,
+      JSON.stringify(
+        {
+          tokens: {
+            access_token: accessToken,
+            refresh_token: 'refresh-token',
+            account_id: 'acct_123'
+          }
+        },
+        null,
+        2
+      ),
+      'utf8'
+    )
+
+    const runtime = createAiSdkModelRuntime({
+      createOpenAIProvider: (options) => {
+        openAiOptions = options as typeof openAiOptions
+        return {
+          chat: () => {
+            throw new Error('Codex OAuth must use responses().')
+          },
+          responses: (modelId: string) => {
+            selectedModel = { modelId, provider: 'openai.responses' }
+            return { modelId, provider: 'openai.responses' } as never
+          }
+        } as never
+      },
+      createAnthropicProvider: () => {
+        throw new Error('Anthropic should not be used in this test.')
+      },
+      streamTextImpl: ((input: {
+        messages: unknown
+        providerOptions?: {
+          openai?: {
+            instructions?: string
+            reasoningEffort?: string
+            reasoningSummary?: string
+            store?: boolean
+            textVerbosity?: string
+          }
+        }
+      }) => {
+        call = {
+          messages: input.messages,
+          providerOptions: input.providerOptions
+        }
+        return {
+          textStream: (async function* () {
+            yield 'Codex'
+          })()
+        }
+      }) as never
+    })
+
+    const chunks: string[] = []
+    for await (const chunk of runtime.streamReply({
+      messages: [
+        { role: 'system', content: 'Use Codex session auth.' },
+        { role: 'user', content: 'Say hello' }
+      ],
+      settings: {
+        providerName: 'codex',
+        provider: 'openai-codex',
+        model: 'gpt-5.1-codex-max',
+        apiKey: '',
+        baseUrl: '',
+        codexSessionPath: authPath
+      },
+      signal: new AbortController().signal
+    })) {
+      chunks.push(chunk)
+    }
+
+    assert.deepEqual(chunks, ['Codex'])
+    assert.equal(openAiOptions?.apiKey, accessToken)
+    assert.equal(openAiOptions?.baseURL, 'https://chatgpt.com/backend-api/codex')
+    assert.equal(openAiOptions?.headers?.['ChatGPT-Account-ID'], 'acct_123')
+    assert.equal(openAiOptions?.headers?.originator, 'codex_cli_rs')
+    assert.deepEqual(selectedModel, {
+      provider: 'openai.responses',
+      modelId: 'gpt-5.1-codex-max'
+    })
+    assert.deepEqual(call?.messages, [{ role: 'user', content: 'Say hello' }])
+    assert.deepEqual(call?.providerOptions, {
+      openai: {
+        reasoningEffort: 'medium',
+        reasoningSummary: 'auto',
+        textVerbosity: 'low',
+        store: false,
+        instructions: 'Use Codex session auth.'
+      }
+    })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test('createAiSdkModelRuntime preserves legacy openai reasoning models', async () => {

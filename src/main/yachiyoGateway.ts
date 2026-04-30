@@ -135,6 +135,7 @@ const IPC_CHANNELS = {
   listWebSearchBrowserImportSources: 'yachiyo:list-web-search-browser-import-sources',
   listSkills: 'yachiyo:list-skills',
   openThreadWorkspace: 'yachiyo:open-thread-workspace',
+  pickCodexSessionFile: 'yachiyo:pick-codex-session-file',
   pickWorkspaceDirectory: 'yachiyo:pick-workspace-directory',
   restoreThread: 'yachiyo:restore-thread',
   retryMessage: 'yachiyo:retry-message',
@@ -868,6 +869,18 @@ export function registerYachiyoGateway(): YachiyoServer {
     (input: { threadId: string; workspacePath?: string | null }) =>
       server!.updateThreadWorkspace(input)
   )
+  handle(IPC_CHANNELS.pickCodexSessionFile, async () => {
+    const { dialog } = await import('electron')
+    const { homedir } = await import('node:os')
+    const result = await dialog.showOpenDialog({
+      defaultPath: `${homedir()}/.codex/auth.json`,
+      properties: ['openFile'],
+      buttonLabel: 'Select session file',
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    })
+
+    return result.canceled ? null : (result.filePaths[0] ?? null)
+  })
   handle(IPC_CHANNELS.pickWorkspaceDirectory, async () => {
     const { dialog } = await import('electron')
     const result = await dialog.showOpenDialog({

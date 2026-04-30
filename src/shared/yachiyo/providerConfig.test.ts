@@ -29,6 +29,24 @@ test('sanitizeProviderConfig preserves spaces while editing a provider name', ()
   assert.equal(sanitized.baseUrl, 'https://api.openai.com/v1')
 })
 
+test('sanitizeProviderConfig trims Codex session paths', () => {
+  const sanitized = sanitizeProviderConfig({
+    id: 'provider-codex',
+    name: 'Codex',
+    type: 'openai-codex',
+    apiKey: '',
+    baseUrl: ' https://chatgpt.com/backend-api/codex ',
+    codexSessionPath: ' ~/.codex/auth.json ',
+    modelList: {
+      enabled: ['gpt-5.1-codex-max'],
+      disabled: []
+    }
+  })
+
+  assert.equal(sanitized.baseUrl, 'https://chatgpt.com/backend-api/codex')
+  assert.equal(sanitized.codexSessionPath, '~/.codex/auth.json')
+})
+
 test('syncToolModelWithProvider keeps a valid tool-model selection', () => {
   const synced = syncToolModelWithProvider(
     {

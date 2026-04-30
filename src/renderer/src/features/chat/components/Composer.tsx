@@ -880,9 +880,12 @@ export function Composer({
     activeAcpBinding ?? (activeThreadId === null ? pendingAcpBinding : null)
   const isModelSelectorLocked =
     isBackendSwitchPending || runPhase === 'preparing' || runPhase === 'streaming'
-  const needsApiKey = settings.provider !== 'vertex'
+  const needsApiKey = settings.provider !== 'vertex' && settings.provider !== 'openai-codex'
+  const needsCodexSession =
+    settings.provider === 'openai-codex' && !settings.codexSessionPath?.trim()
   const isConfigured =
     ((!needsApiKey || settings.apiKey.trim().length > 0) &&
+      !needsCodexSession &&
       effectiveModel.model.trim().length > 0) ||
     effectiveAcpBinding !== null
   const isFreshHandoffWorkspace =

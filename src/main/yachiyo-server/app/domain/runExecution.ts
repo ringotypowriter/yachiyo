@@ -111,6 +111,7 @@ import type {
   BackgroundBashAdoptionHandle,
   BackgroundBashTaskHandle
 } from '../../tools/agentTools/shared.ts'
+import type { BackgroundBashTaskResult } from './backgroundBashManager.ts'
 import { createFilteredMemoryService } from '../../services/memory/memoryService.ts'
 import {
   createDeltaBatcher,
@@ -251,6 +252,7 @@ export interface RunExecutionDeps {
   onBackgroundBashAdopted?: (
     task: BackgroundBashAdoptionHandle & { threadId: string }
   ) => Promise<void>
+  getCompletedBackgroundBashTask?: (taskId: string) => BackgroundBashTaskResult | undefined
   onSubagentProgress?: (event: DelegateCodingTaskProgressEvent) => void
   onSubagentStarted?: (event: DelegateCodingTaskStartedEvent) => void
   jotdownStore?: JotdownStore
@@ -1406,26 +1408,33 @@ function isBashToolCallDetails(details: ToolCallRecord['details']): details is B
   )
 }
 
-function getTerminalBashExitCode(details: ToolCallRecord['details']): number | undefined {
+function getTerminalBashExitCode(details: unknown): number | undefined {
   if (details == null || typeof details !== 'object' || !('exitCode' in details)) {
     return undefined
   }
   return typeof details.exitCode === 'number' ? details.exitCode : undefined
 }
 
-function getTerminalBashCancelledByUser(details: ToolCallRecord['details']): true | undefined {
+function getTerminalBashCancelledByUser(details: unknown): true | undefined {
   if (details == null || typeof details !== 'object' || !('cancelledByUser' in details)) {
     return undefined
   }
   return details.cancelledByUser === true ? true : undefined
 }
 
+function getBackgroundBashTaskId(details: ToolCallRecord['details']): string | undefined {
+  if (details == null || typeof details !== 'object' || !('taskId' in details)) {
+    return undefined
+  }
+  return typeof details.taskId === 'string' && details.taskId.trim() ? details.taskId : undefined
+}
+
 function mergeBackgroundBashDetails(input: {
   launchDetails: ToolCallRecord['details']
-  terminalDetails: ToolCallRecord['details']
+  terminalDetails: unknown
 }): ToolCallRecord['details'] {
   if (!isBashToolCallDetails(input.launchDetails)) {
-    return input.terminalDetails ?? input.launchDetails
+    return input.launchDetails
   }
 
   const terminalExitCode = getTerminalBashExitCode(input.terminalDetails)
@@ -1436,6 +1445,44 @@ function mergeBackgroundBashDetails(input: {
     ...(terminalCancelledByUser ? { cancelledByUser: true } : {})
   }
   return merged
+}
+
+function getCompletedBackgroundBashStatus(
+  task: BackgroundBashTaskResult
+): Extract<ToolCallRecord['status'], 'completed' | 'failed'> {
+  return task.cancelledByUser === true || task.exitCode !== 0 ? 'failed' : 'completed'
+}
+
+function getCompletedBackgroundBashOutputSummary(task: BackgroundBashTaskResult): string {
+  return task.cancelledByUser === true ? 'cancelled by user' : `exit ${task.exitCode}`
+}
+
+function getCompletedBackgroundBashError(task: BackgroundBashTaskResult): string | undefined {
+  if (task.cancelledByUser === true) {
+    return 'Background task was cancelled by the user.'
+  }
+  return task.exitCode !== 0 ? `Command exited with code ${task.exitCode}.` : undefined
+}
+
+function resolveCompletedBackgroundBashTask(
+  deps: Pick<RunExecutionDeps, 'getCompletedBackgroundBashTask'>,
+  input: {
+    details: ToolCallRecord['details']
+    threadId: string
+    toolCallId: string
+  }
+): BackgroundBashTaskResult | undefined {
+  const taskId = getBackgroundBashTaskId(input.details)
+  if (!taskId) return undefined
+
+  const task = deps.getCompletedBackgroundBashTask?.(taskId)
+  if (!task || task.threadId !== input.threadId) {
+    return undefined
+  }
+  if (task.toolCallId && task.toolCallId !== input.toolCallId) {
+    return undefined
+  }
+  return task
 }
 
 function bindCompletedToolCallsToAssistant(
@@ -2405,14 +2452,46 @@ export async function executeServerRun(
                       (toolCall.status === 'completed' || toolCall.status === 'failed')
                   )
               : undefined
+          const completedBackgroundTask =
+            normalized?.status === 'background' && !terminalBackgroundToolCall
+              ? resolveCompletedBackgroundBashTask(deps, {
+                  details: normalized.details,
+                  threadId: input.thread.id,
+                  toolCallId: event.toolCall.toolCallId
+                })
+              : undefined
+          const completedBackgroundTaskDetails = completedBackgroundTask
+            ? ({
+                exitCode: completedBackgroundTask.exitCode,
+                ...(completedBackgroundTask.cancelledByUser ? { cancelledByUser: true } : {})
+              } as const)
+            : undefined
           const mergedBackgroundDetails = terminalBackgroundToolCall
             ? mergeBackgroundBashDetails({
                 launchDetails: normalized?.details,
                 terminalDetails: terminalBackgroundToolCall.details
               })
-            : normalized?.details
+            : completedBackgroundTaskDetails
+              ? mergeBackgroundBashDetails({
+                  launchDetails: normalized?.details,
+                  terminalDetails: completedBackgroundTaskDetails
+                })
+              : normalized?.details
+          const terminalBackgroundStatus =
+            terminalBackgroundToolCall?.status ??
+            (completedBackgroundTask
+              ? getCompletedBackgroundBashStatus(completedBackgroundTask)
+              : undefined)
+          const terminalBackgroundOutputSummary =
+            terminalBackgroundToolCall?.outputSummary ??
+            (completedBackgroundTask
+              ? getCompletedBackgroundBashOutputSummary(completedBackgroundTask)
+              : undefined)
           const errorMessage =
             terminalBackgroundToolCall?.error ??
+            (completedBackgroundTask
+              ? getCompletedBackgroundBashError(completedBackgroundTask)
+              : undefined) ??
             normalized?.error ??
             (event.success || event.error === undefined
               ? undefined
@@ -2422,11 +2501,9 @@ export async function executeServerRun(
           const toolCall: ToolCallRecord = startedToolCall
             ? {
                 ...startedToolCall,
-                status: terminalBackgroundToolCall?.status ?? normalized?.status ?? 'failed',
+                status: terminalBackgroundStatus ?? normalized?.status ?? 'failed',
                 outputSummary:
-                  terminalBackgroundToolCall?.outputSummary ??
-                  normalized?.outputSummary ??
-                  errorMessage,
+                  terminalBackgroundOutputSummary ?? normalized?.outputSummary ?? errorMessage,
                 ...((terminalBackgroundToolCall?.cwd ?? normalized?.cwd)
                   ? { cwd: terminalBackgroundToolCall?.cwd ?? normalized?.cwd }
                   : {}),
@@ -2440,12 +2517,10 @@ export async function executeServerRun(
                 threadId: input.thread.id,
                 requestMessageId: input.requestMessageId,
                 toolName: event.toolCall.toolName,
-                status: terminalBackgroundToolCall?.status ?? normalized?.status ?? 'failed',
+                status: terminalBackgroundStatus ?? normalized?.status ?? 'failed',
                 inputSummary: summarizeToolInput(event.toolCall.toolName, event.toolCall.input),
                 outputSummary:
-                  terminalBackgroundToolCall?.outputSummary ??
-                  normalized?.outputSummary ??
-                  errorMessage,
+                  terminalBackgroundOutputSummary ?? normalized?.outputSummary ?? errorMessage,
                 ...((terminalBackgroundToolCall?.cwd ?? normalized?.cwd)
                   ? { cwd: terminalBackgroundToolCall?.cwd ?? normalized?.cwd }
                   : {}),

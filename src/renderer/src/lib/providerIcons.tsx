@@ -39,6 +39,7 @@ const iconMap: Record<string, IconFC> = {
   moonshot: Moonshot,
   ollama: Ollama,
   openai: OpenAI,
+  'openai-codex': OpenAI,
   openrouter: OpenRouter,
   vercel: Vercel,
   vertexai: VertexAI.Color,

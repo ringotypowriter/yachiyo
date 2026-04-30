@@ -241,6 +241,7 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
           thinkingEnabled: provider.thinkingEnabled !== false,
           apiKey: provider.apiKey,
           baseUrl: provider.baseUrl,
+          ...(provider.codexSessionPath ? { codexSessionPath: provider.codexSessionPath } : {}),
           project: provider.project ?? '',
           location: provider.location ?? '',
           serviceAccountEmail: provider.serviceAccountEmail ?? '',

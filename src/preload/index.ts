@@ -119,6 +119,7 @@ const api = {
     editMessage: (input: EditMessageInput) => ipcRenderer.invoke('yachiyo:edit-message', input),
     openThreadWorkspace: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:open-thread-workspace', input),
+    pickCodexSessionFile: () => ipcRenderer.invoke('yachiyo:pick-codex-session-file'),
     pickWorkspaceDirectory: () => ipcRenderer.invoke('yachiyo:pick-workspace-directory'),
     createFolderForThreads: (input: { threadIds: string[] }): Promise<FolderRecord> =>
       ipcRenderer.invoke('yachiyo:create-folder-for-threads', input),

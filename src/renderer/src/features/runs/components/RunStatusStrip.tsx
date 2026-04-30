@@ -18,8 +18,10 @@ function useStripContent(): { key: string; color: string; text: string } | null 
     }
   }
 
-  const needsApiKey = settings.provider !== 'vertex'
-  if ((needsApiKey && !settings.apiKey.trim()) || !settings.model.trim()) {
+  const needsApiKey = settings.provider !== 'vertex' && settings.provider !== 'openai-codex'
+  const needsCodexSession =
+    settings.provider === 'openai-codex' && !settings.codexSessionPath?.trim()
+  if ((needsApiKey && !settings.apiKey.trim()) || needsCodexSession || !settings.model.trim()) {
     return {
       key: 'setup',
       color: '#8a6d3b',

@@ -306,6 +306,37 @@ test('normalizeSettingsConfig keeps vercel-gateway providers', () => {
   assert.equal(normalized.providers[0]?.type, 'vercel-gateway')
 })
 
+test('Codex session path round-trips through parse → normalize → stringify → parse', () => {
+  const toml = `[[providers]]
+id = "provider-codex"
+name = "Codex"
+type = "openai-codex"
+thinkingEnabled = true
+apiKey = ""
+baseUrl = "https://chatgpt.com/backend-api/codex"
+codexSessionPath = "~/.codex/auth.json"
+
+[providers.modelList]
+enabled = ["gpt-5.1-codex-max"]
+disabled = []
+`
+
+  const config = parseSettingsToml(toml)
+  const provider = config.providers[0]
+  assert.equal(provider?.type, 'openai-codex')
+  assert.equal(provider?.codexSessionPath, '~/.codex/auth.json')
+
+  const serialized = stringifySettingsToml(config)
+  assert.match(serialized, /codexSessionPath = "~\/\.codex\/auth\.json"/)
+
+  const reloaded = parseSettingsToml(serialized)
+  const snapshot = toProviderSettings(reloaded)
+  assert.equal(reloaded.providers[0]?.codexSessionPath, '~/.codex/auth.json')
+  assert.equal(snapshot.provider, 'openai-codex')
+  assert.equal(snapshot.model, 'gpt-5.1-codex-max')
+  assert.equal(snapshot.codexSessionPath, '~/.codex/auth.json')
+})
+
 test('normalizeSettingsConfig defaults provider thinking to enabled', () => {
   const normalized = normalizeSettingsConfig({
     providers: [

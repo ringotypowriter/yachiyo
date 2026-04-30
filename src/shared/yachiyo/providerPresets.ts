@@ -97,6 +97,13 @@ export const providerPresets: readonly ProviderPreset[] = [
     iconKey: 'openai'
   },
   {
+    key: 'openai-codex',
+    name: 'OpenAI (Codex OAuth)',
+    type: 'openai-codex',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+    iconKey: 'openai'
+  },
+  {
     key: 'openrouter',
     name: 'OpenRouter',
     type: 'openai',

@@ -264,18 +264,31 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
 
   return {
     async *streamReply(request) {
-      assertConfigured(request.settings)
+      let settings = request.settings
+
+      // Resolve Codex OAuth token if using openai-codex provider
+      if (settings.provider === 'openai-codex' && settings.codexSessionPath?.trim()) {
+        const { readCodexSessionAuth } = await import('./providers/codexSessionAuth.ts')
+        const { accessToken, accountId } = await readCodexSessionAuth(settings.codexSessionPath)
+        settings = {
+          ...settings,
+          apiKey: accessToken,
+          ...(accountId ? { codexAccountId: accountId } : {})
+        }
+      }
+
+      assertConfigured(settings)
 
       let preparedMessages = patchReasoningSignatures(
         prepareAiSdkMessages(request.messages) as unknown[]
       ) as ModelMessage[]
 
       const baseProviderOptions = createProviderOptions(
-        request.settings,
+        settings,
         request.providerOptionsMode ?? 'default'
       )
       // Merge prompt cache key into OpenAI provider options when present.
-      const providerOptions: RuntimeProviderOptions =
+      let providerOptions: RuntimeProviderOptions =
         request.promptCacheKey && 'openai' in baseProviderOptions
           ? (() => {
               const openai = (baseProviderOptions as { openai: Record<string, unknown> }).openai
@@ -285,6 +298,14 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               } as typeof baseProviderOptions
             })()
           : baseProviderOptions
+
+      // Codex backend requires `instructions` field for system prompt
+      if (settings.provider === 'openai-codex') {
+        const { prepareCodexMessages } = await import('./providers/codexOpenai.ts')
+        const prepared = prepareCodexMessages(preparedMessages, providerOptions)
+        preparedMessages = prepared.messages
+        providerOptions = prepared.options
+      }
 
       const purpose = request.purpose ?? 'unspecified'
       const provider = request.settings.provider
@@ -352,7 +373,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             maxRetries: SDK_MAX_RETRIES,
             messages: preparedMessages,
             model: createLanguageModel(
-              request.settings,
+              settings,
               resolvedDependencies,
               request.providerOptionsMode,
               {
@@ -371,8 +392,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                   maxOutputTokens:
                     request.settings.provider === 'gemini' || request.settings.provider === 'vertex'
                       ? getGeminiMaxOutputTokens(request.settings.model)
-                      : request.max_token +
-                        extractThinkingBudget(providerOptions, request.settings) * 2
+                      : request.max_token + extractThinkingBudget(providerOptions, settings) * 2
                 }
               : {}),
             ...(request.tools
@@ -713,6 +733,33 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
           console.error(
             `${llmTag} error provider=${provider} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} committed=${streamCommitted}: ${errorLogMessage}`
           )
+
+          // Codex OAuth: force-refresh token on 401 and retry immediately.
+          if (
+            !streamCommitted &&
+            settings.provider === 'openai-codex' &&
+            settings.codexSessionPath?.trim() &&
+            (error as { statusCode?: number }).statusCode === 401 &&
+            attempt < RETRY_MAX_ATTEMPTS
+          ) {
+            try {
+              const { readCodexSessionAuth } = await import('./providers/codexSessionAuth.ts')
+              const { accessToken, accountId } = await readCodexSessionAuth(
+                settings.codexSessionPath,
+                true
+              )
+              settings = {
+                ...settings,
+                apiKey: accessToken,
+                ...(accountId ? { codexAccountId: accountId } : {})
+              }
+              console.warn(`${llmTag} refreshed Codex token after 401, retrying`)
+              continue
+            } catch (refreshError) {
+              const refreshMsg = formatErrorForLog(refreshError)
+              console.error(`${llmTag} Codex token refresh after 401 failed: ${refreshMsg}`)
+            }
+          }
 
           if (
             !streamCommitted &&

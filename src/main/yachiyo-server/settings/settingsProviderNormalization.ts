@@ -19,6 +19,7 @@ import {
 function normalizeProviderType(value: unknown, fallback: ProviderKind): ProviderKind {
   return value === 'openai' ||
     value === 'openai-responses' ||
+    value === 'openai-codex' ||
     value === 'anthropic' ||
     value === 'gemini' ||
     value === 'vertex' ||
@@ -59,6 +60,8 @@ function normalizeProviderConfig(value: unknown, fallback?: ProviderConfig): Pro
   const imageIncapable = normalizeStringList(rawImageIncapable)
 
   const presetKey = normalizeString(input['presetKey'], fallback?.presetKey ?? '')
+  const codexSessionPath =
+    normalizeString(input['codexSessionPath'], fallback?.codexSessionPath ?? '') || undefined
 
   return sanitizeProviderConfig({
     id: ensureProviderId(normalizeString(input['id'], fallback?.id ?? '')),
@@ -73,6 +76,7 @@ function normalizeProviderConfig(value: unknown, fallback?: ProviderConfig): Pro
     ),
     apiKey: normalizeString(input['apiKey'], fallback?.apiKey ?? ''),
     baseUrl: normalizeString(input['baseUrl'], fallback?.baseUrl ?? ''),
+    ...(codexSessionPath !== undefined ? { codexSessionPath } : {}),
     project: normalizeString(input['project'], fallback?.project ?? ''),
     location: normalizeString(input['location'], fallback?.location ?? ''),
     serviceAccountEmail: normalizeString(
@@ -162,6 +166,7 @@ export function toResolvedProviderSettings(
     thinkingEnabled: provider.thinkingEnabled !== false,
     apiKey: provider.apiKey,
     baseUrl: provider.baseUrl,
+    codexSessionPath: provider.codexSessionPath,
     project: provider.project,
     location: provider.location,
     serviceAccountEmail: provider.serviceAccountEmail,

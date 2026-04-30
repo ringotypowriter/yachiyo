@@ -8,12 +8,26 @@ import {
 } from './deepseekMaxEffort.ts'
 import { createCacheFetch } from './openaiCompatibleCache.ts'
 import { createThinkingFetch, type ThinkingFetchOptions } from './openaiCompatibleThinking.ts'
+import { readCodexSessionAuth } from './codexSessionAuth.ts'
 import {
   cleanBaseUrl,
   DEFAULT_OPENAI_BASE_URL,
   DEFAULT_OPENAI_REASONING_EFFORT,
   type RuntimeProviderOptions
 } from './shared.ts'
+
+const CODEX_BACKEND_BASE_URL = 'https://chatgpt.com/backend-api/codex'
+
+function buildCodexHeaders(accountId?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    'User-Agent': 'codex_cli_rs/0.0.0 (Hermes Agent)',
+    originator: 'codex_cli_rs'
+  }
+  if (accountId) {
+    headers['ChatGPT-Account-ID'] = accountId
+  }
+  return headers
+}
 
 export function supportsOpenAIReasoningEffort(modelId: string): boolean {
   const normalized = modelId.trim().toLowerCase()
@@ -29,6 +43,7 @@ export function supportsOpenAIReasoningEffort(modelId: string): boolean {
 export function shouldUseOpenAIResponsesApi(settings: ProviderSettings): boolean {
   return (
     settings.provider === 'openai-responses' ||
+    settings.provider === 'openai-codex' ||
     (settings.provider === 'openai' && supportsOpenAIReasoningEffort(settings.model))
   )
 }
@@ -76,9 +91,13 @@ export function createOpenAiLanguageModel(
       : undefined
   const composedFetch = maxEffortFetch ?? thinkingFetch ?? cacheFetch
 
+  const isCodexOauth = settings.provider === 'openai-codex'
   const provider = dependencies.createOpenAIProvider({
     apiKey: settings.apiKey,
-    baseURL: cleanBaseUrl(settings.baseUrl, DEFAULT_OPENAI_BASE_URL),
+    baseURL: isCodexOauth
+      ? CODEX_BACKEND_BASE_URL
+      : cleanBaseUrl(settings.baseUrl, DEFAULT_OPENAI_BASE_URL),
+    ...(isCodexOauth ? { headers: buildCodexHeaders(settings.codexAccountId) } : {}),
     ...(composedFetch ? { fetch: composedFetch } : {})
   })
 
@@ -114,15 +133,43 @@ export async function fetchOpenAiCompatibleModels(
   provider: ProviderConfig,
   fetchImpl: typeof globalThis.fetch
 ): Promise<string[]> {
-  const baseUrl = cleanBaseUrl(provider.baseUrl, DEFAULT_OPENAI_BASE_URL)
-  const url = `${baseUrl}/models`
+  const isCodexOauth = provider.type === 'openai-codex'
+  const baseUrl = isCodexOauth
+    ? CODEX_BACKEND_BASE_URL
+    : cleanBaseUrl(provider.baseUrl, DEFAULT_OPENAI_BASE_URL)
+  const url = isCodexOauth ? `${baseUrl}/models?client_version=0.125.0` : `${baseUrl}/models`
   console.log('[fetchModels] fetching openai-compatible:', url)
+
+  let apiKey = provider.apiKey
+  let accountId: string | undefined
+  if (isCodexOauth && provider.codexSessionPath?.trim()) {
+    const result = await readCodexSessionAuth(provider.codexSessionPath)
+    apiKey = result.accessToken
+    accountId = result.accountId
+  }
+
+  const headers: Record<string, string> = { Authorization: `Bearer ${apiKey}` }
+  if (isCodexOauth && accountId) {
+    headers['ChatGPT-Account-ID'] = accountId
+  }
+
   const response = await fetchImpl(url, {
-    headers: { Authorization: `Bearer ${provider.apiKey}` }
+    headers
   })
   if (!response.ok) {
     throw new Error(`${response.status} ${response.statusText}`)
   }
+
+  if (isCodexOauth) {
+    const body = (await response.json()) as {
+      models?: Array<{ slug: string; visibility?: string; supported_in_api?: boolean }>
+    }
+    return (body.models ?? [])
+      .filter((m) => m.visibility === 'list' && m.supported_in_api !== false)
+      .map((m) => m.slug)
+      .sort()
+  }
+
   const body = (await response.json()) as { data?: Array<{ id: string }> }
   return (body.data ?? []).map((model) => model.id).sort()
 }

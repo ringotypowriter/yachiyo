@@ -63,7 +63,10 @@ function resolveUnavailableReason(
     return 'not-configured'
   }
 
-  if (!settings.apiKey.trim()) {
+  if (
+    !settings.apiKey.trim() &&
+    !(settings.provider === 'openai-codex' && settings.codexSessionPath?.trim())
+  ) {
     return 'missing-api-key'
   }
 
@@ -91,6 +94,14 @@ export function createAuxiliaryGenerationService(
         }
       }
       if (!settings) {
+        return {
+          status: 'unavailable',
+          reason: 'not-configured'
+        }
+      }
+
+      // Codex OAuth backend is chat-only; it does not support auxiliary/tool calls.
+      if (settings.provider === 'openai-codex') {
         return {
           status: 'unavailable',
           reason: 'not-configured'

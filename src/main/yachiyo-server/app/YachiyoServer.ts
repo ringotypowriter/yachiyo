@@ -1613,11 +1613,17 @@ export class YachiyoServer {
     if (!settings || !settings.providerName.trim()) {
       return { status: 'unavailable', reason: 'not-configured' }
     }
-    if (!settings.apiKey.trim()) {
+    if (
+      !settings.apiKey.trim() &&
+      !(settings.provider === 'openai-codex' && settings.codexSessionPath?.trim())
+    ) {
       return { status: 'unavailable', reason: 'missing-api-key' }
     }
     if (!settings.model.trim()) {
       return { status: 'unavailable', reason: 'missing-model' }
+    }
+    if (settings.provider === 'openai-codex') {
+      return { status: 'unavailable', reason: 'not-configured' }
     }
 
     const runtime = this.createModelRuntimeFn()

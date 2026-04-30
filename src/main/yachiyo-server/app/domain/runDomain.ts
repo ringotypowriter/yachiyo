@@ -1923,6 +1923,8 @@ export class YachiyoServerRunDomain {
                 throw error
               }
             },
+            getCompletedBackgroundBashTask: (taskId) =>
+              this.backgroundBashManager.getCompletedTask(taskId),
             onTerminalState: () => {
               this.activeRuns.delete(input.runId)
               this.activeRunByThread.delete(input.thread.id)

@@ -83,6 +83,7 @@ export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected'
 export type ProviderKind =
   | 'openai'
   | 'openai-responses'
+  | 'openai-codex'
   | 'anthropic'
   | 'gemini'
   | 'vertex'
@@ -641,9 +642,11 @@ export interface ProviderConfig {
   name: string
   type: ProviderKind
   thinkingEnabled?: boolean
-  // Used by openai, openai-responses, anthropic, gemini, vercel-gateway
+  // Used by openai, openai-responses, openai-codex, anthropic, gemini, vercel-gateway
   apiKey: string
   baseUrl: string
+  // Path to Codex CLI auth.json for openai-codex OAuth login
+  codexSessionPath?: string
   // Used by vertex only
   project?: string
   location?: string
@@ -1036,9 +1039,13 @@ export interface ProviderSettings {
   provider: ProviderKind
   model: string
   thinkingEnabled?: boolean
-  // Used by openai, openai-responses, anthropic, gemini, vercel-gateway
+  // Used by openai, openai-responses, openai-codex, anthropic, gemini, vercel-gateway
   apiKey: string
   baseUrl: string
+  // Path to Codex CLI auth.json for openai-codex OAuth login
+  codexSessionPath?: string
+  // Populated at runtime from the Codex session file; not persisted in config.
+  codexAccountId?: string
   // Used by vertex only
   project?: string
   location?: string

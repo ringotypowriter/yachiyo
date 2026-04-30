@@ -69,7 +69,11 @@ export function createProviderOptions(
   settings: ProviderSettings,
   mode: ModelProviderOptionsMode = 'default'
 ): RuntimeProviderOptions {
-  if (settings.provider === 'openai' || settings.provider === 'openai-responses') {
+  if (
+    settings.provider === 'openai' ||
+    settings.provider === 'openai-responses' ||
+    settings.provider === 'openai-codex'
+  ) {
     return createOpenAiProviderOptions(settings, mode)
   }
 
