@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.1.0
+
+### Minor Changes
+
+- [`4058a77`](https://github.com/ringotypowriter/yachiyo/commit/4058a77aa8db42f744d7920468cd80e4f1e38759) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Thread Filter & Codex OAuth
+
 ## 1.0.35
 
 ### Patch Changes
