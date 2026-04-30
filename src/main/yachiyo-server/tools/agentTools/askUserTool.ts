@@ -5,17 +5,28 @@ import { z } from 'zod'
 import type { AskUserToolCallDetails } from '../../../../shared/yachiyo/protocol.ts'
 import { textContent, toToolModelOutput, type AgentToolResult } from './shared.ts'
 
+export const ASK_USER_MAX_QUESTION_CHARS = 280
+export const ASK_USER_MAX_CHOICE_CHARS = 120
+export const ASK_USER_MAX_CHOICES = 4
+export const ASK_USER_MAX_QUESTIONS_PER_RUN = 3
+
 export const askUserToolInputSchema = z.object({
   question: z
     .string()
+    .trim()
     .min(1)
-    .max(2000)
-    .describe('The question to ask the user. Be specific and concise.'),
+    .max(ASK_USER_MAX_QUESTION_CHARS)
+    .describe(
+      'One short, direct question for the user. Do not include analysis, a plan, a proposal, lists, or background.'
+    ),
   choices: z
-    .array(z.string().min(1).max(200))
-    .max(6)
+    .array(z.string().trim().min(1).max(ASK_USER_MAX_CHOICE_CHARS))
+    .min(2)
+    .max(ASK_USER_MAX_CHOICES)
     .optional()
-    .describe('Optional predefined answer choices for the user to pick from.')
+    .describe(
+      'Optional 2-4 short answer choices for the user to pick from. Prefer concrete, finished choices instead of placeholder labels.'
+    )
 })
 
 export type AskUserToolInput = z.infer<typeof askUserToolInputSchema>
@@ -30,26 +41,25 @@ export interface AskUserToolContext {
   waitForUserAnswer: (toolCallId: string, question: string, choices?: string[]) => Promise<string>
 }
 
-const MAX_ASK_USER_PER_RUN = 10
-
 export function createAskUserTool(
   ctx: AskUserToolContext,
   state: { askCount: number } = { askCount: 0 }
 ): Tool<AskUserToolInput, AskUserToolOutput> {
   return tool({
     description:
-      'Ask the user a question and wait for their answer. ' +
-      'Use when you need to gather preferences or requirements, clarify ambiguous instructions, ' +
-      'decide between implementation options, or offer directional choices before proceeding. ' +
-      'When you want to present 2–4 options for the user to pick from, provide them as `choices` ' +
-      'so the user can answer quickly and work can continue without interruption. ' +
+      'Ask exactly one short question and wait for the user answer. ' +
+      'Use only when user input is required to continue. ' +
+      `You can ask at most ${ASK_USER_MAX_QUESTIONS_PER_RUN} questions per run. ` +
+      `The question must be under ${ASK_USER_MAX_QUESTION_CHARS} characters and must not contain analysis, implementation plans, proposals, lists, or background. ` +
+      'When quick-pick answers help, provide 2-4 short `choices` so the user can answer quickly. ' +
+      'Choices should be concrete, finished answers; avoid placeholder labels, ellipses, or unfinished text. ' +
       'Do not use for rhetorical questions or when you can reasonably infer the answer.',
     inputSchema: askUserToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: async (input, { toolCallId }): Promise<AskUserToolOutput> => {
       state.askCount++
 
-      if (state.askCount > MAX_ASK_USER_PER_RUN) {
+      if (state.askCount > ASK_USER_MAX_QUESTIONS_PER_RUN) {
         const details: AskUserToolCallDetails = {
           kind: 'askUser',
           question: input.question,
