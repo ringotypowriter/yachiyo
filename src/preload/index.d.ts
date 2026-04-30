@@ -220,6 +220,11 @@ declare global {
         listBackgroundTasks: (input: {
           threadId: string
         }) => Promise<import('../shared/yachiyo/protocol').BackgroundTaskSnapshot[]>
+        getBackgroundTaskLog: (input: {
+          threadId: string
+          taskId: string
+          maxBytes?: number
+        }) => Promise<import('../shared/yachiyo/protocol').BackgroundTaskLogSnapshot>
         cancelBackgroundTask: (input: { taskId: string }) => Promise<boolean>
         listExternalThreads: () => Promise<ThreadRecord[]>
         listChannelUsers: () => Promise<ChannelUserRecord[]>

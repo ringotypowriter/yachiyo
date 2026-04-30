@@ -215,6 +215,14 @@ describe('BackgroundBashManager', () => {
       assert.equal(info.threadId, 'thread-5')
       assert.equal(info.command, 'sleep 60')
 
+      const logTarget = manager.getLogTarget('thread-5', 'info-task')
+      assert.deepEqual(logTarget, {
+        taskId: 'info-task',
+        threadId: 'thread-5',
+        command: 'sleep 60',
+        logPath: join(tempDir, 'tool-output', 'info.log')
+      })
+      assert.equal(manager.getLogTarget('other-thread', 'info-task'), undefined)
       assert.equal(manager.getTask('nonexistent'), undefined)
 
       manager.cancelTask('info-task')

@@ -58,6 +58,13 @@ export interface BackgroundBashSnapshot {
   cancelledByUser?: boolean
 }
 
+export interface BackgroundBashLogTarget {
+  taskId: string
+  threadId: string
+  command: string
+  logPath: string
+}
+
 interface ActiveBackgroundTask {
   taskId: string
   command: string
@@ -386,6 +393,28 @@ export class BackgroundBashManager {
     const task = this.tasks.get(taskId)
     if (!task) return undefined
     return { taskId: task.taskId, threadId: task.threadId, command: task.command }
+  }
+
+  getLogTarget(threadId: string, taskId: string): BackgroundBashLogTarget | undefined {
+    const task = this.tasks.get(taskId)
+    if (task) {
+      if (task.threadId !== threadId) return undefined
+      return {
+        taskId: task.taskId,
+        threadId: task.threadId,
+        command: task.command,
+        logPath: task.logPath
+      }
+    }
+
+    const completed = this.recentlyCompleted.get(taskId)?.snapshot
+    if (!completed || completed.threadId !== threadId) return undefined
+    return {
+      taskId: completed.taskId,
+      threadId: completed.threadId,
+      command: completed.command,
+      logPath: completed.logPath
+    }
   }
 
   get activeCount(): number {

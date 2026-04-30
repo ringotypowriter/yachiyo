@@ -127,6 +127,7 @@ import { testSubagentProfile as runTestSubagentProfile } from '../tools/agentToo
 import { assertSupportedImages, YachiyoServerConfigDomain } from './domain/configDomain.ts'
 import { YachiyoServerRunDomain } from './domain/runDomain.ts'
 import { YachiyoServerThreadDomain } from './domain/threadDomain.ts'
+import { readBackgroundTaskLogTail } from './domain/backgroundTaskLog.ts'
 import {
   createRemoteImageDomain,
   type DownloadRemoteImageInput,
@@ -138,6 +139,15 @@ import {
 } from '../../../shared/yachiyo/messageContent.ts'
 
 const TAKEOVER_MESSAGE_LIMIT = 6
+
+function isFileNotFoundError(error: unknown): boolean {
+  return (
+    error != null &&
+    typeof error === 'object' &&
+    'code' in error &&
+    (error as NodeJS.ErrnoException).code === 'ENOENT'
+  )
+}
 const TAKEOVER_TOOL_LIMIT = 6
 const TAKEOVER_MESSAGE_TEXT_LIMIT = 500
 const TAKEOVER_RECAP_TEXT_LIMIT = 1_800
@@ -1188,28 +1198,93 @@ export class YachiyoServer {
     threadId: string
   }): Promise<import('../../../shared/yachiyo/protocol').BackgroundTaskSnapshot[]> {
     const snapshots = this.runDomain.listBackgroundTasks(input.threadId)
-    const { readFile } = await import('node:fs/promises')
     const TAIL_LINES = 200
-    const TAIL_MAX_BYTES = 256 * 1024
     return Promise.all(
       snapshots.map(async (snap) => {
         try {
-          const buf = await readFile(snap.logPath, 'utf8')
-          // Cap the bytes we slice from to keep huge logs cheap.
-          const sliced = buf.length > TAIL_MAX_BYTES ? buf.slice(buf.length - TAIL_MAX_BYTES) : buf
-          const lines = sliced.split('\n')
+          const tail = await readBackgroundTaskLogTail(snap.logPath)
+          const lines = tail.content.split('\n')
           // Drop a leading partial line if we sliced mid-line.
-          if (buf.length > TAIL_MAX_BYTES && lines.length > 1) lines.shift()
+          if (tail.truncated && lines.length > 1) lines.shift()
           // Drop the trailing empty string from a final newline.
           if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
           const recentLogTail = lines.slice(-TAIL_LINES)
           return { ...snap, recentLogTail }
-        } catch {
-          // Log file may not exist yet (task just started, nothing written).
-          return snap
+        } catch (error) {
+          if (isFileNotFoundError(error)) {
+            // Log file may not exist yet (task just started, nothing written).
+            return snap
+          }
+          throw error
         }
       })
     )
+  }
+
+  async getBackgroundTaskLog(input: {
+    threadId: string
+    taskId: string
+    maxBytes?: number
+  }): Promise<import('../../../shared/yachiyo/protocol').BackgroundTaskLogSnapshot> {
+    const target =
+      this.runDomain.getBackgroundTaskLogTarget(input) ??
+      this.getBackgroundTaskLogTargetFromToolCall(input)
+    if (!target) {
+      throw new Error(`Background task ${input.taskId} is not available.`)
+    }
+
+    try {
+      const tail = await readBackgroundTaskLogTail(target.logPath, input.maxBytes)
+      return {
+        taskId: target.taskId,
+        threadId: target.threadId,
+        command: target.command,
+        logPath: target.logPath,
+        content: tail.content,
+        truncated: tail.truncated,
+        totalBytes: tail.totalBytes,
+        startByte: tail.startByte
+      }
+    } catch (error) {
+      if (!isFileNotFoundError(error)) {
+        throw error
+      }
+    }
+
+    return {
+      taskId: target.taskId,
+      threadId: target.threadId,
+      command: target.command,
+      logPath: target.logPath,
+      content: '',
+      truncated: false,
+      totalBytes: 0,
+      startByte: 0
+    }
+  }
+
+  private getBackgroundTaskLogTargetFromToolCall(input: {
+    threadId: string
+    taskId: string
+  }): { taskId: string; threadId: string; command: string; logPath: string } | undefined {
+    const toolCall = this.storage
+      .listThreadToolCalls(input.threadId)
+      .find((tc) => tc.id === input.taskId)
+    if (!toolCall || toolCall.details == null || typeof toolCall.details !== 'object') {
+      return undefined
+    }
+
+    const details = toolCall.details as unknown as Record<string, unknown>
+    if (typeof details.command !== 'string' || typeof details.logPath !== 'string') {
+      return undefined
+    }
+
+    return {
+      taskId: input.taskId,
+      threadId: input.threadId,
+      command: details.command,
+      logPath: details.logPath
+    }
   }
 
   loadThreadData(threadId: string): {

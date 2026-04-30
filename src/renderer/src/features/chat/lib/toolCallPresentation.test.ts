@@ -119,6 +119,33 @@ test('buildToolCallDetailsPresentation exposes bash metadata, tails, and explici
   ])
 })
 
+test('buildToolCallDetailsPresentation keeps foreground output visible after bash moves to background', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'bash',
+    status: 'background',
+    details: {
+      command: 'echo before-timeout && sleep 60',
+      cwd: '/tmp/thread-1',
+      stdout: 'before-timeout\nstill useful',
+      stderr: '',
+      background: true,
+      taskId: 'tool-bash-1',
+      logPath: '/tmp/thread-1/.yachiyo/tool-output/tool-bash-1.log',
+      liftedAfterTimeout: true
+    }
+  })
+
+  assert.deepEqual(presentation.fields, [
+    { label: 'task id', value: 'tool-bash-1' },
+    { label: 'log file', value: '/tmp/thread-1/.yachiyo/tool-output/tool-bash-1.log' }
+  ])
+  assert.deepEqual(presentation.codeBlocks, [
+    { label: 'command', value: 'echo before-timeout && sleep 60' },
+    { label: 'stdout', value: 'before-timeout\nstill useful' }
+  ])
+})
+
 test('buildToolCallDetailsPresentation exposes grep metadata and normalized matches', () => {
   const presentation = buildToolCallDetailsPresentation({
     ...BASE_TOOL_CALL,

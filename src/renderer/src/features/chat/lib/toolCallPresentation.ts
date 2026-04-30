@@ -178,6 +178,22 @@ function pushOutputHead(
   )
 }
 
+function pushBashOutputBlocks(
+  toolCall: ToolCall,
+  details: BashToolCallDetails,
+  codeBlocks: ToolCallDetailCodeBlock[]
+): void {
+  const stderrTone = toolCall.status === 'failed' || details.blocked ? 'danger' : undefined
+  pushOutputTail(
+    codeBlocks,
+    'stderr',
+    details.stderr,
+    stderrTone,
+    stderrTone ? undefined : 'inspection'
+  )
+  pushCodeBlock(codeBlocks, 'stdout', details.stdout)
+}
+
 export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDetailsPresentation {
   const fields: ToolCallDetailField[] = []
   const codeBlocks: ToolCallDetailCodeBlock[] = []
@@ -261,6 +277,7 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
           details.exitCode !== 0 ? 'danger' : undefined
         )
       }
+      pushBashOutputBlocks(toolCall, details, codeBlocks)
       return { fields, codeBlocks }
     }
 
@@ -279,17 +296,7 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     }
 
     pushField(fields, 'output file', details.outputFilePath)
-    // stderr shown inline only when it carries error signal; otherwise defer to inspection panel
-    const stderrTone = toolCall.status === 'failed' || details.blocked ? 'danger' : undefined
-    pushOutputTail(
-      codeBlocks,
-      'stderr',
-      details.stderr,
-      stderrTone,
-      stderrTone ? undefined : 'inspection'
-    )
-    // stdout shown inline so the user can see what the command produced
-    pushCodeBlock(codeBlocks, 'stdout', details.stdout)
+    pushBashOutputBlocks(toolCall, details, codeBlocks)
   }
 
   if (toolCall.toolName === 'jsRepl') {

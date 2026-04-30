@@ -163,6 +163,7 @@ const IPC_CHANNELS = {
   openWorkspaceWithApp: 'yachiyo:open-workspace-with-app',
   loadThreadData: 'yachiyo:load-thread-data',
   listBackgroundTasks: 'yachiyo:list-background-tasks',
+  getBackgroundTaskLog: 'yachiyo:get-background-task-log',
   cancelBackgroundTask: 'yachiyo:cancel-background-task',
   listExternalThreads: 'yachiyo:list-external-threads',
   listChannelUsers: 'yachiyo:list-channel-users',
@@ -1000,6 +1001,11 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handle(IPC_CHANNELS.listBackgroundTasks, (input: { threadId: string }) =>
     server!.listBackgroundTasks(input)
+  )
+  handle(
+    IPC_CHANNELS.getBackgroundTaskLog,
+    (input: { threadId: string; taskId: string; maxBytes?: number }) =>
+      server!.getBackgroundTaskLog(input)
   )
   handle(IPC_CHANNELS.cancelBackgroundTask, (input: { taskId: string }) =>
     server!.cancelBackgroundTask(input)

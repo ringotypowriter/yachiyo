@@ -1432,6 +1432,20 @@ export interface BackgroundTaskSnapshot {
   recentLogTail?: string[]
 }
 
+export const BACKGROUND_TASK_LOG_DEFAULT_MAX_BYTES = 256 * 1024
+export const BACKGROUND_TASK_LOG_HARD_MAX_BYTES = 1024 * 1024
+
+export interface BackgroundTaskLogSnapshot {
+  taskId: string
+  threadId: string
+  command: string
+  logPath: string
+  content: string
+  truncated: boolean
+  totalBytes: number
+  startByte: number
+}
+
 export interface BackgroundTaskStartedEvent extends ThreadEvent {
   type: 'background-task.started'
   taskId: string

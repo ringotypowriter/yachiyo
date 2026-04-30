@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp, Square, Terminal, X } from 'lucide-react'
 
 import { theme } from '@renderer/theme/theme'
 import { useBackgroundTasksStore, type BackgroundTaskState } from '../state/useBackgroundTasksStore'
+import { BACKGROUND_TASK_LOG_DEFAULT_MAX_BYTES } from '../../../../../shared/yachiyo/protocol.ts'
 
 interface BackgroundTasksChipProps {
   threadId: string | null
@@ -174,8 +175,8 @@ function BackgroundTasksPanel({
       ref={ref}
       className="mb-2 rounded-xl overflow-hidden flex flex-col"
       style={{
-        width: 480,
-        maxHeight: 420,
+        width: 'min(760px, calc(100vw - 32px))',
+        maxHeight: 'min(78vh, 680px)',
         background: theme.background.surfaceFrosted,
         border: `1px solid ${theme.border.default}`,
         boxShadow: theme.shadow.card,
@@ -279,7 +280,7 @@ function BackgroundTaskRow({
           />
           <code
             className="flex-1 min-w-0 text-xs truncate font-mono"
-            style={{ color: theme.text.primary, maxWidth: 240 }}
+            style={{ color: theme.text.primary, maxWidth: 420 }}
             title={task.command}
           >
             {task.command}
@@ -310,33 +311,164 @@ function BackgroundTaskRow({
           </button>
         )}
       </div>
-      {expanded && (
-        <div className="yachiyo-detail-reveal">
-          <BackgroundTaskCommandView command={task.command} />
-          <BackgroundTaskLogView lines={task.logTail} />
-        </div>
-      )}
+      {expanded && <BackgroundTaskExpandedView task={task} />}
+    </div>
+  )
+}
+
+type FullLogState =
+  | { status: 'loading'; content: string; truncated: false; totalBytes: 0; startByte: 0 }
+  | {
+      status: 'ready'
+      content: string
+      truncated: boolean
+      totalBytes: number
+      startByte: number
+    }
+  | {
+      status: 'failed'
+      content: string
+      truncated: false
+      totalBytes: 0
+      startByte: 0
+      message: string
+    }
+
+function linesToText(lines: string[]): string {
+  return lines.join('\n')
+}
+
+function formatByteCount(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB']
+  let value = bytes / 1024
+  for (const unit of units) {
+    if (value < 1024) return `${value.toFixed(value < 10 ? 1 : 0)} ${unit}`
+    value /= 1024
+  }
+  return `${value.toFixed(0)} TB`
+}
+
+function BackgroundTaskExpandedView({ task }: { task: BackgroundTaskState }): React.JSX.Element {
+  const [logState, setLogState] = useState<FullLogState>(() => ({
+    status: 'loading',
+    content: linesToText(task.logTail),
+    truncated: false,
+    totalBytes: 0,
+    startByte: 0
+  }))
+
+  useEffect(() => {
+    let cancelled = false
+    let inFlight = false
+
+    const loadLogSnapshot = (): void => {
+      if (inFlight) return
+      inFlight = true
+      void window.api.yachiyo
+        .getBackgroundTaskLog({
+          threadId: task.threadId,
+          taskId: task.taskId,
+          maxBytes: BACKGROUND_TASK_LOG_DEFAULT_MAX_BYTES
+        })
+        .then((snapshot) => {
+          if (cancelled) return
+          setLogState((current) => {
+            if (
+              current.status === 'ready' &&
+              current.content === snapshot.content &&
+              current.truncated === snapshot.truncated &&
+              current.totalBytes === snapshot.totalBytes &&
+              current.startByte === snapshot.startByte
+            ) {
+              return current
+            }
+            return {
+              status: 'ready',
+              content: snapshot.content,
+              truncated: snapshot.truncated,
+              totalBytes: snapshot.totalBytes,
+              startByte: snapshot.startByte
+            }
+          })
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return
+          const message = error instanceof Error ? error.message : 'Could not load full log.'
+          setLogState({
+            status: 'failed',
+            content: '',
+            truncated: false,
+            totalBytes: 0,
+            startByte: 0,
+            message
+          })
+        })
+        .finally(() => {
+          inFlight = false
+        })
+    }
+
+    loadLogSnapshot()
+
+    const intervalId = task.status === 'running' ? setInterval(loadLogSnapshot, 1000) : undefined
+    return () => {
+      cancelled = true
+      if (intervalId) clearInterval(intervalId)
+    }
+  }, [task.threadId, task.taskId, task.status])
+
+  const fallbackTail = linesToText(task.logTail)
+  const logContent = logState.content || fallbackTail
+  const logStatus =
+    logState.status === 'failed'
+      ? logState.message
+      : logState.status === 'loading'
+        ? 'Loading full log...'
+        : logState.truncated
+          ? `Showing last ${formatByteCount(logState.totalBytes - logState.startByte)} of ${formatByteCount(logState.totalBytes)}`
+          : undefined
+
+  return (
+    <div className="yachiyo-detail-reveal flex flex-col gap-2 px-3 pb-3">
+      <BackgroundTaskCommandView command={task.command} />
+      <BackgroundTaskLogView content={logContent} statusText={logStatus} />
     </div>
   )
 }
 
 function BackgroundTaskCommandView({ command }: { command: string }): React.JSX.Element {
   return (
-    <div
-      className="text-[11px] font-mono px-3 py-2 whitespace-pre-wrap break-all"
-      style={{
-        background: theme.background.codeBlock,
-        color: theme.text.primary,
-        borderTop: `1px solid ${theme.border.subtle}`,
-        userSelect: 'text'
-      }}
-    >
-      {command}
-    </div>
+    <section>
+      <div className="mb-1 text-[10px] font-medium" style={{ color: theme.text.placeholder }}>
+        Full command
+      </div>
+      <pre
+        className="message-selectable overflow-auto rounded-md px-3 py-2 text-[11px] font-mono"
+        style={{
+          maxHeight: 140,
+          background: theme.background.codeBlock,
+          border: `1px solid ${theme.border.subtle}`,
+          color: theme.text.primary,
+          lineHeight: 1.5,
+          margin: 0,
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word'
+        }}
+      >
+        {command}
+      </pre>
+    </section>
   )
 }
 
-function BackgroundTaskLogView({ lines }: { lines: string[] }): React.JSX.Element {
+function BackgroundTaskLogView({
+  content,
+  statusText
+}: {
+  content: string
+  statusText?: string
+}): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickyRef = useRef(true)
 
@@ -353,25 +485,30 @@ function BackgroundTaskLogView({ lines }: { lines: string[] }): React.JSX.Elemen
     const el = scrollRef.current
     if (!el) return
     el.scrollTop = el.scrollHeight
-  }, [lines])
+  }, [content])
 
   return (
-    <div
-      ref={scrollRef}
-      onScroll={handleScroll}
-      className="text-[11px] font-mono px-3 py-2 overflow-y-auto whitespace-pre-wrap"
-      style={{
-        maxHeight: 220,
-        background: theme.background.codeBlock,
-        color: theme.text.secondary,
-        borderTop: `1px solid ${theme.border.subtle}`
-      }}
-    >
-      {lines.length === 0 ? (
-        <span style={{ color: theme.text.muted }}>(no output yet)</span>
-      ) : (
-        lines.map((line, i) => <div key={i}>{line || '\u00a0'}</div>)
-      )}
-    </div>
+    <section>
+      <div className="mb-1 flex items-center justify-between gap-2 text-[10px] font-medium">
+        <span style={{ color: theme.text.placeholder }}>Log output</span>
+        {statusText ? <span style={{ color: theme.text.muted }}>{statusText}</span> : null}
+      </div>
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="message-selectable overflow-auto rounded-md px-3 py-2 text-[11px] font-mono"
+        style={{
+          maxHeight: 'min(420px, 50vh)',
+          background: theme.background.codeBlock,
+          border: `1px solid ${theme.border.subtle}`,
+          color: theme.text.secondary,
+          lineHeight: 1.5,
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word'
+        }}
+      >
+        {content ? content : <span style={{ color: theme.text.muted }}>(no output yet)</span>}
+      </div>
+    </section>
   )
 }

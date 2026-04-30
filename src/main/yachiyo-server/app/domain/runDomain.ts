@@ -370,6 +370,13 @@ export class YachiyoServerRunDomain {
     return this.backgroundBashManager.listSnapshots(threadId)
   }
 
+  getBackgroundTaskLogTarget(input: {
+    threadId: string
+    taskId: string
+  }): ReturnType<BackgroundBashManager['getLogTarget']> {
+    return this.backgroundBashManager.getLogTarget(input.threadId, input.taskId)
+  }
+
   cancelBackgroundTask(taskId: string): boolean {
     return this.backgroundBashManager.cancelTask(taskId)
   }
