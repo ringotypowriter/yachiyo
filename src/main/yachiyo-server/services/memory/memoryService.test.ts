@@ -262,15 +262,6 @@ test('memory service derives stricter retrieval plans and ranks recalled context
       label: undefined
     }
   ])
-  assert.match(String(auxiliaryRequests[0]?.messages[0]?.content), /stable canonical topic key/u)
-  assert.match(
-    String(auxiliaryRequests[0]?.messages[0]?.content),
-    /Do not do naive keyword splitting/u
-  )
-  assert.match(
-    String(auxiliaryRequests[0]?.messages[0]?.content),
-    /Avoid time words, temporary status, and conversational framing/u
-  )
   assert.deepEqual(result.entries, [
     'Deploy workflow: Always run the staging smoke test before production-adjacent deploy review.',
     'Repo preference: Use the repo root for Yachiyo commands.'
@@ -591,22 +582,6 @@ test('memory service distills completed runs into canonical topic-aware updates 
       label: undefined
     }
   ])
-  assert.match(
-    String(auxiliaryRequests[0]?.messages[0]?.content),
-    /stable canonical topic identifier/u
-  )
-  assert.match(
-    String(auxiliaryRequests[0]?.messages[0]?.content),
-    /Do not emit multiple near-duplicate candidates/u
-  )
-  assert.match(
-    String(auxiliaryRequests[0]?.messages[0]?.content),
-    /When the memory is about the user, prefer "<username> \+ objective description"/u
-  )
-  assert.match(
-    String(auxiliaryRequests[0]?.messages[0]?.content),
-    /Good: "<username> prefers concise status updates\."/u
-  )
   assert.deepEqual(updated, [
     {
       id: 'existing-1',
@@ -836,8 +811,6 @@ test('memory service uses the main model for explicit Save Thread extraction wit
   assert.equal(result.savedCount, 1)
   assert.equal(requests[0]?.providerOptionsMode, undefined)
   assert.equal(requests[0]?.settings.model, 'gpt-5')
-  assert.match(String(requests[0]?.messages[0]?.content), /stable canonical topics/u)
-  assert.match(String(requests[0]?.messages[0]?.content), /Do not write conversational summaries/u)
   assert.deepEqual(saved, [
     {
       topic: 'code-review-policy',

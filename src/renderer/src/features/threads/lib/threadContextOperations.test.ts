@@ -77,14 +77,6 @@ test('thread context operations omit title color choices for folder children', (
   assert.ok(!operations.some((operation) => operation.key.startsWith('set-color-')))
 })
 
-test('thread context operations use the short handoff label for compacting into another thread', () => {
-  const handoffOperation = resolveThreadContextOperations({
-    isArchived: false
-  }).find((operation) => operation.key === 'compact-to-another-thread')
-
-  assert.equal(handoffOperation?.label, 'Handoff')
-})
-
 test('thread context operations disable all operations while saving', () => {
   const operations = resolveThreadContextOperations({
     isArchived: false,

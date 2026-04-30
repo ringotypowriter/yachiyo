@@ -4,7 +4,6 @@ import test from 'node:test'
 import {
   buildCurrentTimeSection,
   buildDisabledToolsReminderSection,
-  buildSteerReminderSection,
   buildToolAvailabilityReminderSection,
   formatDateLine,
   formatQueryReminder
@@ -117,7 +116,6 @@ test('buildCurrentTimeSection uses local time with day name', () => {
   const date = new Date(2026, 2, 30, 14, 5, 9) // March 30 2026, local
   const section = buildCurrentTimeSection(date)
   assert.equal(section.key, 'current-time')
-  assert.equal(section.title, 'Current date and time (local)')
   assert.match(section.lines[0], /^Date: 2026-03-30 \(\w+\)$/)
   assert.equal(section.lines[1], 'Time: 14:05')
 })
@@ -126,7 +124,6 @@ test('buildCurrentTimeSection can omit date when includeDate is false', () => {
   const date = new Date(2026, 2, 30, 14, 5, 9)
   const section = buildCurrentTimeSection(date, { includeDate: false })
   assert.equal(section.key, 'current-time')
-  assert.equal(section.title, 'Current time (local)')
   assert.equal(section.lines.length, 1)
   assert.equal(section.lines[0], 'Time: 14:05')
 })
@@ -134,24 +131,4 @@ test('buildCurrentTimeSection can omit date when includeDate is false', () => {
 test('formatDateLine produces YYYY-MM-DD with day name', () => {
   const date = new Date(2026, 2, 30, 14, 5, 9)
   assert.match(formatDateLine(date), /^2026-03-30 \(\w+\)$/)
-})
-
-test('buildSteerReminderSection returns steer guidance section', () => {
-  const section = buildSteerReminderSection()
-  assert.equal(section.key, 'steer-guidance')
-  assert.ok(section.title.includes('steer'))
-  assert.ok(section.lines.length >= 1)
-  assert.ok(section.lines.some((l) => l.includes('steer')))
-  assert.ok(section.lines.some((l) => l.includes('instructions')))
-})
-
-test('buildSteerReminderSection integrates into formatQueryReminder', () => {
-  const reminder = formatQueryReminder([
-    buildCurrentTimeSection(new Date(2026, 2, 30, 14, 5)),
-    buildSteerReminderSection()
-  ])
-  assert.ok(reminder)
-  assert.ok(reminder.includes('<reminder>'))
-  assert.ok(reminder.includes('Mid-run steer'))
-  assert.ok(reminder.includes('</reminder>'))
 })

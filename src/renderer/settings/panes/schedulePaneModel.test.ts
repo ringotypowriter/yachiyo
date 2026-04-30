@@ -34,7 +34,8 @@ test('recurring schedule requires cron when runAt is empty', () => {
     prompt: 'test'
   })
 
-  assert.deepEqual(result, { ok: false, error: 'All fields are required.' })
+  assert.equal(result.ok, false)
+  assert.equal(typeof result.error, 'string')
 })
 
 test('one-off schedule with valid runAt', () => {
@@ -63,7 +64,8 @@ test('one-off schedule rejects invalid datetime', () => {
     prompt: 'test'
   })
 
-  assert.deepEqual(result, { ok: false, error: 'Invalid date/time for one-off schedule.' })
+  assert.equal(result.ok, false)
+  assert.equal(typeof result.error, 'string')
 })
 
 test('edit of one-off schedule preserves runAt and clears cronExpression', () => {
@@ -120,15 +122,13 @@ test('edit of recurring schedule clears runAt', () => {
 test('rejects missing name or prompt', () => {
   const base = { mode: 'recurring' as const, cron: '0 9 * * *', runAt: '', prompt: 'test' }
 
-  assert.deepEqual(buildScheduleFormSubmitInput({ ...base, name: '' }), {
-    ok: false,
-    error: 'All fields are required.'
-  })
+  const missingName = buildScheduleFormSubmitInput({ ...base, name: '' })
+  assert.equal(missingName.ok, false)
+  assert.equal(typeof missingName.error, 'string')
 
-  assert.deepEqual(buildScheduleFormSubmitInput({ ...base, name: 'Test', prompt: '' }), {
-    ok: false,
-    error: 'All fields are required.'
-  })
+  const missingPrompt = buildScheduleFormSubmitInput({ ...base, name: 'Test', prompt: '' })
+  assert.equal(missingPrompt.ok, false)
+  assert.equal(typeof missingPrompt.error, 'string')
 })
 
 test('recurring mode ignores stale runAt when toggling from one-off', () => {

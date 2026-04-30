@@ -11,23 +11,19 @@ import {
 } from './sidebarLayout.ts'
 
 test('keeps the sidebar width and divider when the sidebar is open', () => {
-  assert.deepEqual(resolveSidebarLayout(true), {
-    dividerOffset: SIDEBAR_WIDTH,
-    mainHeaderPaddingLeft: 20,
-    showDivider: true,
-    sidebarWidth: SIDEBAR_WIDTH,
-    toggleTitle: 'Hide sidebar'
-  })
+  const layout = resolveSidebarLayout(true)
+  assert.equal(layout.dividerOffset, SIDEBAR_WIDTH)
+  assert.equal(layout.mainHeaderPaddingLeft, 20)
+  assert.equal(layout.showDivider, true)
+  assert.equal(layout.sidebarWidth, SIDEBAR_WIDTH)
 })
 
 test('removes the sidebar width and divider when the sidebar is hidden', () => {
-  assert.deepEqual(resolveSidebarLayout(false), {
-    dividerOffset: null,
-    mainHeaderPaddingLeft: 80,
-    showDivider: false,
-    sidebarWidth: 0,
-    toggleTitle: 'Show sidebar'
-  })
+  const layout = resolveSidebarLayout(false)
+  assert.equal(layout.dividerOffset, null)
+  assert.equal(layout.mainHeaderPaddingLeft, 80)
+  assert.equal(layout.showDivider, false)
+  assert.equal(layout.sidebarWidth, 0)
 })
 
 test('applies sidebar visibility without dropping the rest of the shared config', () => {

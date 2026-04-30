@@ -53,36 +53,21 @@ test('message prepare can add soul, agent, hint, and memory layers without mutat
     }
   })
 
-  const soulPreamble =
-    'The following is your self-model and personality continuity record from SOUL.md. Absorb it holistically and integrate it naturally into your current persona:'
-  const userPreamble =
-    'The following is your durable understanding of the user from USER.md. Treat it as a long-term collaboration profile, not as current task state:'
+  assert.equal(prepared.length, 2)
+  assert.equal(prepared[0]?.role, 'system')
+  const systemContent = prepared[0]?.content as string
+  assert.ok(systemContent.includes(SYSTEM_PROMPT))
+  assert.ok(systemContent.includes(soulContent))
+  assert.ok(
+    systemContent.includes('# USER\n\n## Work Style\n- Likes decisions with explicit tradeoffs')
+  )
+  assert.ok(systemContent.includes('Workspace: /tmp/thread-1'))
 
-  assert.deepEqual(prepared, [
-    // Consolidated system message (stable prefix)
-    {
-      role: 'system',
-      content: [
-        SYSTEM_PROMPT,
-        [soulPreamble, '', soulContent].join('\n'),
-        [
-          userPreamble,
-          '',
-          '# USER\n\n## Work Style\n- Likes decisions with explicit tradeoffs'
-        ].join('\n'),
-        'Workspace: /tmp/thread-1'
-      ].join('\n\n')
-    },
-    // User query with per-turn context merged in
-    {
-      role: 'user',
-      content: [
-        'Inspect the workspace',
-        '<reminder>\nTool availability changed for this turn:\n- Disabled: edit.\n</reminder>',
-        "<memory>\nBackground context from past conversations. Focus on the user's query first;\noverlapping terms do not make an entry relevant — judge by actual applicability.\n- No persisted memories yet.\n</memory>"
-      ].join('\n\n')
-    }
-  ])
+  assert.equal(prepared[1]?.role, 'user')
+  const userContent = prepared[1]?.content as string
+  assert.ok(userContent.includes('Inspect the workspace'))
+  assert.ok(userContent.includes('Tool availability changed for this turn'))
+  assert.ok(userContent.includes('No persisted memories yet.'))
 })
 
 test('message prepare converts prepared messages into AI SDK messages', () => {

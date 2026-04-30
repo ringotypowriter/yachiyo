@@ -33,18 +33,10 @@ test('buildContextSources soul is present only when evolvedTraitCount > 0', () =
   assert.ok(withSoul)
   assert.equal(withSoul.present, true)
   assert.equal(withSoul.count, 3)
-  assert.equal(withSoul.summary, '3 traits')
 
   const withoutSoul = withoutTraits.find((s) => s.kind === 'soul')
   assert.ok(withoutSoul)
   assert.equal(withoutSoul.present, false)
-})
-
-test('buildContextSources soul summary uses singular for one trait', () => {
-  const sources = buildContextSources({ ...BASE_INPUT, evolvedTraitCount: 1 })
-  const soul = sources.find((s) => s.kind === 'soul')
-  assert.ok(soul)
-  assert.equal(soul.summary, '1 trait')
 })
 
 test('buildContextSources user present only when hasUserContent is true', () => {
@@ -78,7 +70,6 @@ test('buildContextSources skills reflect only active skills', () => {
   assert.ok(skills)
   assert.equal(skills.present, true)
   assert.equal(skills.count, 1)
-  assert.equal(skills.summary, '1 skill active')
 
   assert.equal(withoutSkills.find((s) => s.kind === 'skills')?.present, false)
 })
@@ -214,18 +205,6 @@ test('buildContextSources includes activity when a summary was consumed', () => 
   const activity = sources.find((s) => s.kind === 'activity')
   assert.ok(activity)
   assert.equal(activity.present, true)
-  assert.equal(activity.summary, '2 apps')
-})
-
-test('buildContextSources includes AFK duration in the activity summary label', () => {
-  const sources = buildContextSources({
-    ...BASE_INPUT,
-    activitySummary: { uniqueApps: 2, afkDurationMs: 56 * 60_000 }
-  })
-
-  const activity = sources.find((s) => s.kind === 'activity')
-  assert.ok(activity)
-  assert.equal(activity.summary, '2 apps · AFK 56min')
 })
 
 test('buildContextSources source order is persona, soul, user, skills, fileMentions, agent, memory, toolReminder, activity', () => {

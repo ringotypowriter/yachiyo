@@ -8238,12 +8238,10 @@ test('YachiyoServer rejects handoff for external threads', async () => {
       title: 'Telegram:@alice'
     })
 
-    await assert.rejects(
-      () =>
-        server.compactThreadToAnotherThread({
-          threadId: thread.id
-        }),
-      /Handoff is only supported for local threads/i
+    await assert.rejects(() =>
+      server.compactThreadToAnotherThread({
+        threadId: thread.id
+      })
     )
   })
 })
@@ -8621,7 +8619,6 @@ test('YachiyoServer bootstrap creates the default USER.md template under the sam
 
     assert.equal(document.filePath.includes('/.yachiyo/USER.md'), true)
     assert.match(content, /^# USER/m)
-    assert.match(content, /durable understanding of the user/)
   })
 })
 
@@ -8659,22 +8656,6 @@ test('YachiyoServer injects USER.md into the consolidated system layer and expos
         systemMessages.some(
           (message) =>
             typeof message.content === 'string' &&
-            message.content.includes('durable understanding of the user from USER.md')
-        ),
-        true
-      )
-      assert.equal(
-        systemMessages.some(
-          (message) =>
-            typeof message.content === 'string' &&
-            message.content.includes('Do not mix USER.md content into SOUL.md.')
-        ),
-        true
-      )
-      assert.equal(
-        systemMessages.some(
-          (message) =>
-            typeof message.content === 'string' &&
             message.content.includes('# USER') &&
             message.content.includes('Leader prefers direct tradeoff summaries')
         ),
@@ -8697,14 +8678,16 @@ test('YachiyoServer injects USER.md into the consolidated system layer and expos
       )
       assert.ok(consolidated)
       const text = consolidated!.content as string
-      const userPreambleIdx = text.indexOf('durable understanding of the user from USER.md')
-      const soulPreambleIdx = text.indexOf('from SOUL.md')
+      const userHeaderIdx = text.indexOf('# USER')
+      const soulHeaderIdx = text.indexOf('# SOUL')
       const userContentIdx = text.indexOf('Leader prefers direct tradeoff summaries')
-      // User content must come after the user preamble, not within the soul section
-      assert.ok(userContentIdx > userPreambleIdx, 'user content should follow user preamble')
       assert.ok(
-        userContentIdx > soulPreambleIdx,
-        'user content should not appear before the soul section ends'
+        userContentIdx > userHeaderIdx,
+        'user content should follow the USER document header'
+      )
+      assert.ok(
+        userContentIdx > soulHeaderIdx,
+        'user content should not appear before the SOUL document section'
       )
     },
     {

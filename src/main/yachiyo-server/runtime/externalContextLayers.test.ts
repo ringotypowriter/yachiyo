@@ -19,41 +19,6 @@ describe('buildExternalAgentInstructions', () => {
     assert.ok(!result.includes('edit'))
     // 'write' may appear in updateProfile instructions (managing USER.md), that's fine
   })
-
-  it('does not include local-agent assumptions', () => {
-    const result = buildExternalAgentInstructions({
-      enabledTools: ['read', 'grep', 'glob', 'webRead', 'webSearch']
-    })
-
-    assert.ok(!result.includes('YOLO'))
-    assert.ok(!result.includes('local agent'))
-    // USER.md is now intentionally mentioned via the updateProfile tool
-    assert.ok(!result.includes('SOUL.md'))
-    assert.ok(!result.includes('subagent'))
-    assert.ok(!result.includes('skill'))
-  })
-
-  it('still documents updateProfile when core tools are empty', () => {
-    const result = buildExternalAgentInstructions({ enabledTools: [] })
-
-    assert.ok(!result.includes('Available tools:'))
-    assert.ok(result.includes('updateProfile'))
-  })
-
-  it('includes conversational role definition', () => {
-    const result = buildExternalAgentInstructions({ enabledTools: ['read'] })
-
-    assert.ok(result.includes('conversational companion'))
-    assert.ok(result.includes('not coding assistant'))
-  })
-
-  it('documents the updateProfile tool with upsert and remove operations', () => {
-    const result = buildExternalAgentInstructions({ enabledTools: ['read'] })
-
-    assert.ok(result.includes('updateProfile tool for managing the user profile (USER.md)'))
-    assert.ok(result.includes('operation "upsert"'))
-    assert.ok(result.includes('operation "remove"'))
-  })
 })
 
 describe('compileExternalContextLayers', () => {

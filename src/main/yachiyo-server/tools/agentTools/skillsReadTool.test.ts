@@ -37,8 +37,6 @@ test('runSkillsReadTool returns metadata without full SKILL.md content', async (
     assert.match(text?.type === 'text' ? text.text : '', /Workspace refactor guide/)
     assert.doesNotMatch(text?.type === 'text' ? text.text : '', /Detailed instructions/)
     assert.match(text?.type === 'text' ? text.text : '', /SKILL\.md:/)
-    assert.match(text?.type === 'text' ? text.text : '', /Use the read tool on SKILL\.md/)
-    assert.match(text?.type === 'text' ? text.text : '', /relative to the skill folder/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

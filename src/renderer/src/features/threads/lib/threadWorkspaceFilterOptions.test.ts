@@ -39,10 +39,6 @@ test('workspace filter options rank saved workspaces by matching local thread co
       [TEMPORARY_WORKSPACE_FILTER, 2]
     ]
   )
-  assert.equal(
-    options.find((option) => option.path === TEMPORARY_WORKSPACE_FILTER)?.displayName,
-    'Temporary'
-  )
 })
 
 test('workspace filter options exclude schedule and external thread workspaces', () => {

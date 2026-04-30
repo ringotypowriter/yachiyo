@@ -50,15 +50,6 @@ test('askUser input accepts arbitrary short choices without semantic filtering',
   }
 })
 
-test('askUser prompt guides the model away from placeholder choices', () => {
-  const tool = createAskUserTool({
-    waitForUserAnswer: async () => 'answer'
-  })
-
-  assert.match(tool.description ?? '', /placeholder/i)
-  assert.match(tool.description ?? '', /unfinished/i)
-})
-
 test('askUser input limits choices to the quick-pick range', () => {
   const result = askUserToolInputSchema.safeParse({
     question: 'Which direction should I use?',

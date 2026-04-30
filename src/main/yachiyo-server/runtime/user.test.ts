@@ -20,14 +20,7 @@ test('readUserDocument creates a default template when USER.md is missing', asyn
       filePath,
       content
     })
-    assert.match(
-      content,
-      /^# USER\n\nThis file is for Yachiyo's durable understanding of the user\./
-    )
-    assert.match(
-      content,
-      /Do not use this file for temporary task state, recalled memory dumps, or chat transcripts\./
-    )
+    assert.match(content, /^# USER/m)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

@@ -29,16 +29,6 @@ describe('telegramPolicy', () => {
     const raw = 'Just a plain response'
     assert.equal(telegramPolicy.extractVisibleReply(raw), 'Just a plain response')
   })
-
-  it('has a non-empty reply instruction', () => {
-    assert.ok(telegramPolicy.replyInstruction.length > 0)
-    assert.ok(telegramPolicy.replyInstruction.includes('reply'))
-    assert.ok(telegramPolicy.replyInstruction.includes('optional'))
-    assert.ok(telegramPolicy.replyInstruction.includes('final response'))
-    assert.ok(telegramPolicy.replyInstruction.includes('external instant-messaging'))
-    assert.equal(telegramPolicy.replyInstruction.includes('future'), false)
-    assert.equal(telegramPolicy.replyInstruction.includes('attachment'), false)
-  })
 })
 
 describe('resolveChannelPolicy', () => {

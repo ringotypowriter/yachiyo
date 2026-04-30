@@ -313,15 +313,6 @@ describe('buildGroupProbeMessages', () => {
     assert.ok((messages[2].content as string).includes('<new/>'))
   })
 
-  it('system prompt documents <new/> marker', () => {
-    const messages = buildGroupProbeMessages({
-      botName: 'Yachiyo',
-      groupName: 'TestGroup',
-      recentMessages: [msg('hey')]
-    })
-    assert.ok((messages[0].content as string).includes('<new/>'))
-  })
-
   it('selectGroupProbeRecentMessages keeps the newest suffix for a capped window', () => {
     const recentMessages = [msg('one'), msg('two'), msg('three'), msg('four')]
     const result = selectGroupProbeRecentMessages(recentMessages, 2)

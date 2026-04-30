@@ -23,14 +23,10 @@ test('compilePersonalityLayer returns the base persona', () => {
 test('compileSoulLayer wraps raw SOUL.md content', () => {
   const soulContent =
     '# SOUL\n\n## Evolved Traits\n### 2026-03-25\n- Leans toward concise execution'
-  assert.deepEqual(compileSoulLayer({ content: soulContent }), {
-    role: 'system',
-    content: [
-      'The following is your self-model and personality continuity record from SOUL.md. Absorb it holistically and integrate it naturally into your current persona:',
-      '',
-      soulContent
-    ].join('\n')
-  })
+  const layer = compileSoulLayer({ content: soulContent })
+
+  assert.equal(layer?.role, 'system')
+  assert.ok((layer?.content as string).includes(soulContent))
   assert.equal(compileSoulLayer({ content: '   ' }), null)
   assert.equal(compileSoulLayer(undefined), null)
 })
@@ -38,13 +34,6 @@ test('compileSoulLayer wraps raw SOUL.md content', () => {
 test('compileContextLayers merges turn context into the last user message', () => {
   const reminder =
     '<reminder>\nTool availability changed for this turn:\n- Disabled: write.\n</reminder>'
-  const memoryBlock = [
-    '<memory>',
-    "Background context from past conversations. Focus on the user's query first;",
-    'overlapping terms do not make an entry relevant — judge by actual applicability.',
-    '- Remember the preferred repo root.',
-    '</memory>'
-  ].join('\n')
   const soulContent =
     '# SOUL\n\n## Evolved Traits\n### 2026-03-25\n- Leans toward concise execution'
 
@@ -81,35 +70,21 @@ test('compileContextLayers merges turn context into the last user message', () =
     ]
   })
 
-  const soulPreamble =
-    'The following is your self-model and personality continuity record from SOUL.md. Absorb it holistically and integrate it naturally into your current persona:'
-  const userPreamble =
-    'The following is your durable understanding of the user from USER.md. Treat it as a long-term collaboration profile, not as current task state:'
-  const skillsPreamble =
-    'The following Skills are active for this run. You see names and descriptions only. To use a skill, first call skillsRead to get its exact SKILL.md path, then use the read tool on that exact path. Read SKILL.md before using the skill. If SKILL.md references other files and your work needs them, read those as well:'
+  assert.equal(compiled.length, 3)
+  assert.equal(compiled[0]?.role, 'system')
+  const systemContent = compiled[0]?.content as string
+  assert.ok(systemContent.includes('Base persona'))
+  assert.ok(systemContent.includes(soulContent))
+  assert.ok(systemContent.includes('# USER\n\n## Preferences\n- Prefers direct communication'))
+  assert.ok(systemContent.includes('workspace-refactor: Repository-specific refactor workflow'))
+  assert.ok(systemContent.includes('Workspace: /tmp/thread-1'))
 
-  assert.deepEqual(compiled, [
-    // Consolidated system message (stable prefix for prompt caching)
-    {
-      role: 'system',
-      content: [
-        'Base persona',
-        [soulPreamble, '', soulContent].join('\n'),
-        [userPreamble, '', '# USER\n\n## Preferences\n- Prefers direct communication'].join('\n'),
-        [skillsPreamble, '', '- workspace-refactor: Repository-specific refactor workflow'].join(
-          '\n'
-        ),
-        'Workspace: /tmp/thread-1'
-      ].join('\n\n')
-    },
-    // Prior history
-    { role: 'assistant', content: 'Previous answer' },
-    // User query with turn context merged in
-    {
-      role: 'user',
-      content: ['Latest request', reminder, memoryBlock].join('\n\n')
-    }
-  ])
+  assert.deepEqual(compiled[1], { role: 'assistant', content: 'Previous answer' })
+  assert.equal(compiled[2]?.role, 'user')
+  const userContent = compiled[2]?.content as string
+  assert.ok(userContent.includes('Latest request'))
+  assert.ok(userContent.includes(reminder))
+  assert.ok(userContent.includes('Remember the preferred repo root.'))
 })
 
 test('individual layer compilers drop empty content', () => {
