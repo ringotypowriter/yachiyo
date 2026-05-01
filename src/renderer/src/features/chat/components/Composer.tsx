@@ -31,7 +31,10 @@ import type { FileMentionCandidate, Message, RunRecord } from '@renderer/app/typ
 import { getComposerActionState } from '@renderer/features/chat/lib/composerActionState'
 import { canRemoveQueuedFollowUp } from '@renderer/features/chat/lib/messageActionState'
 import { shouldRevertPendingComposerMessagesOnArrowUp } from '@renderer/features/chat/lib/composerArrowUpRevert'
-import { resolveComposerEnterAction } from '@renderer/features/chat/lib/composerEnterBehavior'
+import {
+  resolveComposerEnterAction,
+  shouldSelectCompletionCandidate
+} from '@renderer/features/chat/lib/composerEnterBehavior'
 import type { ChatInputBufferPayload } from '@renderer/features/chat/lib/chatInputBuffer'
 import { getQueuedFollowUpMessage } from '@renderer/features/chat/lib/messageThreadPresentation'
 import { useChatInputBuffer } from '@renderer/features/chat/hooks/useChatInputBuffer'
@@ -2034,7 +2037,15 @@ export function Composer({
           handleSlashCommandSelect(selected)
           return
         }
-        if (event.key === 'Enter' && !event.shiftKey && !event.altKey) {
+        if (
+          shouldSelectCompletionCandidate({
+            key: event.key,
+            altKey: event.altKey,
+            shiftKey: event.shiftKey,
+            isComposing: isComposing || event.nativeEvent.isComposing,
+            keyCode: event.nativeEvent.keyCode
+          })
+        ) {
           event.preventDefault()
           const selected = matchingSlashCommands[slashSelectedIndex]
           if (selected) handleSlashCommandSelect(selected)

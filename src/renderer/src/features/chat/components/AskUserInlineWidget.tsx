@@ -2,6 +2,7 @@ import type React from 'react'
 import { useRef, useState } from 'react'
 import { MessageCircleQuestion, ArrowUp } from 'lucide-react'
 import type { ToolCall, AskUserToolCallDetails } from '@renderer/app/types'
+import { shouldSubmitAskUserAnswer } from '@renderer/features/chat/lib/askUserEnterBehavior'
 import { theme } from '@renderer/theme/theme'
 
 interface AskUserInlineWidgetProps {
@@ -36,10 +37,19 @@ export function AskUserInlineWidget({ toolCall }: AskUserInlineWidgetProps): Rea
   }
 
   const handleKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      submitAnswer(input)
+    if (
+      !shouldSubmitAskUserAnswer({
+        key: e.key,
+        shiftKey: e.shiftKey,
+        isComposing: e.nativeEvent.isComposing,
+        keyCode: e.nativeEvent.keyCode
+      })
+    ) {
+      return
     }
+
+    e.preventDefault()
+    submitAnswer(input)
   }
 
   // Completed state: compact Q→A row

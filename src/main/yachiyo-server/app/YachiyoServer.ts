@@ -1194,9 +1194,11 @@ export class YachiyoServer {
     return this.runDomain.cancelBackgroundTask(input.taskId)
   }
 
-  async listBackgroundTasks(input: {
-    threadId: string
-  }): Promise<import('../../../shared/yachiyo/protocol').BackgroundTaskSnapshot[]> {
+  async listBackgroundTasks(
+    input: {
+      threadId?: string
+    } = {}
+  ): Promise<import('../../../shared/yachiyo/protocol').BackgroundTaskSnapshot[]> {
     const snapshots = this.runDomain.listBackgroundTasks(input.threadId)
     const TAIL_LINES = 200
     return Promise.all(

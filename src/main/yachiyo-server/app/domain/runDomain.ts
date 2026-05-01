@@ -366,7 +366,7 @@ export class YachiyoServerRunDomain {
     })
   }
 
-  listBackgroundTasks(threadId: string): BackgroundTaskSnapshot[] {
+  listBackgroundTasks(threadId?: string): BackgroundTaskSnapshot[] {
     return this.backgroundBashManager.listSnapshots(threadId)
   }
 

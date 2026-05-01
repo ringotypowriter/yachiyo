@@ -3,7 +3,10 @@ import test from 'node:test'
 
 import { DEFAULT_SIDEBAR_FILTER } from '../../../app/store/useAppStore.ts'
 import type { FolderRecord, Thread } from '../../../app/types.ts'
-import { resolveVisibleSidebarThreads } from './threadListFilters.ts'
+import {
+  resolveBackgroundTaskHydrationThreadIds,
+  resolveVisibleSidebarThreads
+} from './threadListFilters.ts'
 import { TEMPORARY_WORKSPACE_FILTER } from './threadWorkspaceFilterOptions.ts'
 
 const TIMESTAMP = '2026-03-15T00:00:00.000Z'
@@ -153,4 +156,41 @@ test('color filters include threads inside matching colored folders', () => {
     visibleThreads.map((t) => t.id),
     ['in-coral-folder', 'loose-coral']
   )
+})
+
+test('running filter includes threads with running background bash tasks', () => {
+  const visibleThreads = resolveVisibleSidebarThreads({
+    threads: [thread('foreground-run'), thread('background-task'), thread('idle')],
+    folders: [],
+    archivedThreads: [],
+    externalThreads: [],
+    showExternalThreads: false,
+    sidebarFilter: {
+      ...DEFAULT_SIDEBAR_FILTER,
+      running: true
+    },
+    threadListMode: 'active',
+    runStatusesByThread: {
+      'foreground-run': 'running',
+      'background-task': 'completed',
+      idle: 'completed'
+    },
+    backgroundTaskRunningThreadIds: new Set(['background-task']),
+    justDoneRunIdsByThread: {}
+  })
+
+  assert.deepEqual(
+    visibleThreads.map((t) => t.id),
+    ['foreground-run', 'background-task']
+  )
+})
+
+test('background task hydration covers every known sidebar thread before filters run', () => {
+  const threadIds = resolveBackgroundTaskHydrationThreadIds({
+    threads: [thread('active'), thread('duplicate')],
+    archivedThreads: [thread('archived'), thread('duplicate')],
+    externalThreads: [thread('external')]
+  })
+
+  assert.deepEqual(threadIds, ['active', 'duplicate', 'archived', 'external'])
 })

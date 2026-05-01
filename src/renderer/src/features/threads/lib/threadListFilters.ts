@@ -13,7 +13,23 @@ export interface ResolveVisibleSidebarThreadsInput {
   sidebarFilter: SidebarFilter
   threadListMode: 'active' | 'archived'
   runStatusesByThread: Record<string, RunStatus>
+  backgroundTaskRunningThreadIds?: ReadonlySet<string>
   justDoneRunIdsByThread: Record<string, string>
+}
+
+export function resolveBackgroundTaskHydrationThreadIds({
+  threads,
+  archivedThreads,
+  externalThreads
+}: Pick<
+  ResolveVisibleSidebarThreadsInput,
+  'threads' | 'archivedThreads' | 'externalThreads'
+>): string[] {
+  const threadIds = new Set<string>()
+  for (const thread of threads) threadIds.add(thread.id)
+  for (const thread of archivedThreads) threadIds.add(thread.id)
+  for (const thread of externalThreads) threadIds.add(thread.id)
+  return [...threadIds]
 }
 
 export function resolveVisibleSidebarThreads({
@@ -26,6 +42,7 @@ export function resolveVisibleSidebarThreads({
   sidebarFilter,
   threadListMode,
   runStatusesByThread,
+  backgroundTaskRunningThreadIds,
   justDoneRunIdsByThread
 }: ResolveVisibleSidebarThreadsInput): Thread[] {
   let filtered = resolveThreadPool({
@@ -65,7 +82,9 @@ export function resolveVisibleSidebarThreads({
     })
   }
   if (sidebarFilter.running) {
-    filtered = filtered.filter((thread) => runStatusesByThread[thread.id] === 'running')
+    filtered = filtered.filter((thread) =>
+      isThreadRunning(thread.id, runStatusesByThread, backgroundTaskRunningThreadIds)
+    )
   }
   if (sidebarFilter.justDone) {
     filtered = filtered.filter((thread) => Boolean(justDoneRunIdsByThread[thread.id]))
@@ -75,10 +94,25 @@ export function resolveVisibleSidebarThreads({
   }
 
   return filtered.filter((thread) => {
-    const isRunning = runStatusesByThread[thread.id] === 'running'
+    const isRunning = isThreadRunning(
+      thread.id,
+      runStatusesByThread,
+      backgroundTaskRunningThreadIds
+    )
     if (isRunning && thread.createdFromScheduleId) return false
     return thread.title !== 'New Chat' || thread.preview || thread.headMessageId || isRunning
   })
+}
+
+function isThreadRunning(
+  threadId: string,
+  runStatusesByThread: Record<string, RunStatus>,
+  backgroundTaskRunningThreadIds: ReadonlySet<string> | undefined
+): boolean {
+  return (
+    runStatusesByThread[threadId] === 'running' ||
+    backgroundTaskRunningThreadIds?.has(threadId) === true
+  )
 }
 
 function resolveThreadPool({

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useShallow } from 'zustand/react/shallow'
 import {
   Archive,
   Check,
@@ -29,6 +30,10 @@ import {
 } from '@renderer/features/threads/lib/threadWorkspaceFilterOptions'
 import { resolveVisibleSidebarThreads } from '@renderer/features/threads/lib/threadListFilters'
 import { theme, alpha } from '@renderer/theme/theme'
+import {
+  selectRunningBackgroundTaskThreadIds,
+  useBackgroundTasksStore
+} from '@renderer/features/chat/state/useBackgroundTasksStore'
 
 const EMPTY_WORKSPACE_PATHS: string[] = []
 
@@ -87,6 +92,9 @@ function useSidebarFilterCounts(workspaces: WorkspaceFilterOption[]): {
   const externalThreads = useAppStore((s) => s.externalThreads)
   const showExternalThreads = useAppStore((s) => s.showExternalThreads)
   const runStatusesByThread = useAppStore((s) => s.runStatusesByThread)
+  const backgroundTaskRunningThreadIds = useBackgroundTasksStore(
+    useShallow(selectRunningBackgroundTaskThreadIds)
+  )
   const justDoneRunIdsByThread = useAppStore((s) => s.justDoneRunIdsByThread)
   const savedWorkspacePaths = useAppStore(
     (s) => s.config?.workspace?.savedPaths ?? EMPTY_WORKSPACE_PATHS
@@ -101,6 +109,7 @@ function useSidebarFilterCounts(workspaces: WorkspaceFilterOption[]): {
       showExternalThreads,
       savedWorkspacePaths,
       runStatusesByThread,
+      backgroundTaskRunningThreadIds,
       justDoneRunIdsByThread
     }
     const countActive = (filter: SidebarFilter): number =>
@@ -135,6 +144,7 @@ function useSidebarFilterCounts(workspaces: WorkspaceFilterOption[]): {
     showExternalThreads,
     savedWorkspacePaths,
     runStatusesByThread,
+    backgroundTaskRunningThreadIds,
     justDoneRunIdsByThread,
     workspaces
   ])

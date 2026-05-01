@@ -224,8 +224,8 @@ declare global {
           runs: import('../shared/yachiyo/protocol').RunRecord[]
           scheduleRun?: import('../shared/yachiyo/protocol').ScheduleRunRecord
         }>
-        listBackgroundTasks: (input: {
-          threadId: string
+        listBackgroundTasks: (input?: {
+          threadId?: string
         }) => Promise<import('../shared/yachiyo/protocol').BackgroundTaskSnapshot[]>
         getBackgroundTaskLog: (input: {
           threadId: string

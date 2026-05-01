@@ -327,6 +327,13 @@ describe('BackgroundBashManager', () => {
       assert.equal(byId.get('snap-running')?.status, 'running')
       assert.equal(byId.get('snap-done')?.status, 'completed')
       assert.equal(byId.get('snap-done')?.exitCode, 0)
+      assert.deepEqual(
+        manager
+          .listSnapshots()
+          .map((s) => s.taskId)
+          .sort(),
+        ['snap-done', 'snap-running']
+      )
 
       // Tasks for other threads must not leak.
       assert.equal(manager.listSnapshots('other-thread').length, 0)

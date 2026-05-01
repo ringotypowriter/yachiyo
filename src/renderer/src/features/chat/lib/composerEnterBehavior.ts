@@ -41,3 +41,15 @@ export function resolveComposerEnterAction(input: {
 
   return event.altKey ? 'steer' : 'follow-up'
 }
+
+export function shouldSelectCompletionCandidate(event: ComposerEnterEvent): boolean {
+  if (event.key !== 'Enter' || event.shiftKey || event.altKey) {
+    return false
+  }
+
+  if (event.isComposing) {
+    return false
+  }
+
+  return event.keyCode !== IME_PROCESSING_KEY_CODE
+}

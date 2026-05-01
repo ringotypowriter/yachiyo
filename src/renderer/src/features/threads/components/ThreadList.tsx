@@ -2,6 +2,7 @@ import type React from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Archive, Check, FolderPlus, RotateCcw, Sparkles, Star, Trash2, X } from 'lucide-react'
 import { useVirtualizer as useTanStackVirtualizer } from '@tanstack/react-virtual'
+import { useShallow } from 'zustand/react/shallow'
 import {
   DndContext,
   DragOverlay,
@@ -26,7 +27,10 @@ import {
   canCompactThreadToAnotherThread,
   isExternalThread
 } from '@renderer/features/threads/lib/threadVisibility'
-import { resolveVisibleSidebarThreads } from '@renderer/features/threads/lib/threadListFilters'
+import {
+  resolveBackgroundTaskHydrationThreadIds,
+  resolveVisibleSidebarThreads
+} from '@renderer/features/threads/lib/threadListFilters'
 import { ThreadFolderItem } from './ThreadFolderItem'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { theme } from '@renderer/theme/theme'
@@ -42,6 +46,10 @@ import {
   resolveSidebarFolderDropId,
   type SidebarRow
 } from '@renderer/features/threads/lib/threadSidebarRows'
+import {
+  selectRunningBackgroundTaskThreadIds,
+  useBackgroundTasksStore
+} from '@renderer/features/chat/state/useBackgroundTasksStore'
 
 function extractFirstEmoji(text: string): string | null {
   const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
@@ -51,6 +59,7 @@ function extractFirstEmoji(text: string): string | null {
 
 const TITLE_DELETE_INTERVAL_MS = 18
 const TITLE_TYPE_INTERVAL_MS = 32
+const BACKGROUND_TASK_SIDEBAR_HYDRATE_INTERVAL_MS = 15_000
 const EMPTY_WORKSPACE_PATHS: string[] = []
 const useSidebarVirtualizer = useTanStackVirtualizer
 
@@ -881,6 +890,7 @@ function ThreadListContent({
   restoreThread,
   saveThread,
   savingThreadIds,
+  backgroundTaskRunningThreadIds,
   setActiveArchivedThread,
   setActiveThread,
   setThreadColor,
@@ -909,6 +919,7 @@ function ThreadListContent({
   restoreThread: (threadId: string) => Promise<void>
   saveThread: (threadId: string, options: { archiveAfterSave: boolean }) => Promise<void>
   savingThreadIds: Set<string>
+  backgroundTaskRunningThreadIds: ReadonlySet<string>
   setActiveArchivedThread: (threadId: string) => void
   setActiveThread: (threadId: string) => void
   setThreadColor: (threadId: string, colorTag: ThreadColorTag | null) => Promise<void>
@@ -944,6 +955,8 @@ function ThreadListContent({
   const setScrollNode = useCallback((node: HTMLDivElement | null) => {
     setScrollElement((current) => (current === node ? current : node))
   }, [])
+  const isThreadRunning = (threadId: string): boolean =>
+    runStatusesByThread[threadId] === 'running' || backgroundTaskRunningThreadIds.has(threadId)
 
   function exitSelectMode(): void {
     setSelectMode(false)
@@ -1198,7 +1211,7 @@ function ThreadListContent({
         key={thread.id}
         thread={thread}
         isActive={thread.id === activeId}
-        hasActiveRun={runStatusesByThread[thread.id] === 'running'}
+        hasActiveRun={isThreadRunning(thread.id)}
         hasJustDoneRun={threadListMode === 'active' && Boolean(justDoneRunIdsByThread[thread.id])}
         isSaving={savingThreadIds.has(thread.id)}
         isSelectMode={selectMode}
@@ -1453,10 +1466,52 @@ export function ThreadList(): React.JSX.Element {
   const externalThreads = useAppStore((s) => s.externalThreads)
   const showExternalThreads = useAppStore((s) => s.showExternalThreads)
   const runStatusesByThread = useAppStore((s) => s.runStatusesByThread)
+  const backgroundTaskRunningThreadIds = useBackgroundTasksStore(
+    useShallow(selectRunningBackgroundTaskThreadIds)
+  )
   const justDoneRunIdsByThread = useAppStore((s) => s.justDoneRunIdsByThread)
   const sidebarFilter = useAppStore((s) => s.sidebarFilter)
   const config = useAppStore((s) => s.config)
   const savedWorkspacePaths = config?.workspace?.savedPaths ?? EMPTY_WORKSPACE_PATHS
+  const backgroundTaskHydrationThreadIds = useMemo(
+    () =>
+      resolveBackgroundTaskHydrationThreadIds({
+        threads,
+        archivedThreads,
+        externalThreads
+      }),
+    [threads, archivedThreads, externalThreads]
+  )
+
+  useEffect(() => {
+    if (backgroundTaskHydrationThreadIds.length === 0) return
+
+    let cancelled = false
+    const hydrate = (): void => {
+      void window.api.yachiyo
+        .listBackgroundTasks()
+        .then((snapshots) => {
+          if (cancelled) return
+          useBackgroundTasksStore
+            .getState()
+            .hydrateThreads(backgroundTaskHydrationThreadIds, snapshots)
+        })
+        .catch((error: unknown) => {
+          console.warn('[yachiyo] failed to hydrate sidebar background tasks', error)
+        })
+    }
+
+    hydrate()
+    const intervalId =
+      backgroundTaskRunningThreadIds.size > 0
+        ? setInterval(hydrate, BACKGROUND_TASK_SIDEBAR_HYDRATE_INTERVAL_MS)
+        : undefined
+
+    return () => {
+      cancelled = true
+      if (intervalId) clearInterval(intervalId)
+    }
+  }, [backgroundTaskHydrationThreadIds, backgroundTaskRunningThreadIds])
 
   const visibleThreads = useMemo(
     () =>
@@ -1470,6 +1525,7 @@ export function ThreadList(): React.JSX.Element {
         sidebarFilter,
         threadListMode,
         runStatusesByThread,
+        backgroundTaskRunningThreadIds,
         justDoneRunIdsByThread
       }),
     [
@@ -1482,6 +1538,7 @@ export function ThreadList(): React.JSX.Element {
       sidebarFilter,
       threadListMode,
       runStatusesByThread,
+      backgroundTaskRunningThreadIds,
       justDoneRunIdsByThread
     ]
   )
@@ -1503,6 +1560,7 @@ export function ThreadList(): React.JSX.Element {
       restoreThread={restoreThread}
       saveThread={saveThread}
       savingThreadIds={savingThreadIds}
+      backgroundTaskRunningThreadIds={backgroundTaskRunningThreadIds}
       setActiveArchivedThread={setActiveArchivedThread}
       setActiveThread={setActiveThread}
       setThreadColor={setThreadColor}

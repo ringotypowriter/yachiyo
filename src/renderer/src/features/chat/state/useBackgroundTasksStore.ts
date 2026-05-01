@@ -28,6 +28,7 @@ interface BackgroundTasksState {
   tasksByThread: Record<string, Record<string, BackgroundTaskState>>
 
   hydrate: (threadId: string, snapshots: BackgroundTaskSnapshot[]) => void
+  hydrateThreads: (threadIds: readonly string[], snapshots: BackgroundTaskSnapshot[]) => void
   onStarted: (event: BackgroundTaskStartedEvent) => void
   onLogAppend: (event: BackgroundTaskLogAppendEvent) => void
   onCompleted: (event: BackgroundTaskCompletedEvent) => void
@@ -43,37 +44,70 @@ function appendLogLines(existing: string[], lines: string[]): string[] {
   return next.slice(next.length - MAX_LOG_LINES)
 }
 
+function hydrateThreadTasks(
+  existing: Record<string, BackgroundTaskState>,
+  snapshots: BackgroundTaskSnapshot[]
+): Record<string, BackgroundTaskState> {
+  const next: Record<string, BackgroundTaskState> = {}
+  for (const snap of snapshots) {
+    const prior = existing[snap.taskId]
+    // Prefer the live tail we already have (it's the freshest); fall back to
+    // the server-supplied historical tail read from logPath; otherwise empty.
+    const logTail = prior && prior.logTail.length > 0 ? prior.logTail : (snap.recentLogTail ?? [])
+    next[snap.taskId] = {
+      taskId: snap.taskId,
+      threadId: snap.threadId,
+      command: snap.command,
+      startedAt: snap.startedAt,
+      status: snap.status,
+      ...(snap.exitCode != null ? { exitCode: snap.exitCode } : {}),
+      ...(snap.finishedAt ? { finishedAt: snap.finishedAt } : {}),
+      ...(snap.cancelledByUser ? { cancelledByUser: true } : {}),
+      logTail
+    }
+  }
+  for (const [taskId, prior] of Object.entries(existing)) {
+    if (next[taskId]) continue
+    if (prior.status === 'running') continue
+    next[taskId] = prior
+  }
+  return next
+}
+
 export const useBackgroundTasksStore = create<BackgroundTasksState>((set) => ({
   tasksByThread: {},
 
   hydrate: (threadId, snapshots) =>
     set((state) => {
       const existing = state.tasksByThread[threadId] ?? {}
-      const next: Record<string, BackgroundTaskState> = {}
-      for (const snap of snapshots) {
-        const prior = existing[snap.taskId]
-        // Prefer the live tail we already have (it's the freshest); fall back to
-        // the server-supplied historical tail read from logPath; otherwise empty.
-        const logTail =
-          prior && prior.logTail.length > 0 ? prior.logTail : (snap.recentLogTail ?? [])
-        next[snap.taskId] = {
-          taskId: snap.taskId,
-          threadId: snap.threadId,
-          command: snap.command,
-          startedAt: snap.startedAt,
-          status: snap.status,
-          ...(snap.exitCode != null ? { exitCode: snap.exitCode } : {}),
-          ...(snap.finishedAt ? { finishedAt: snap.finishedAt } : {}),
-          ...(snap.cancelledByUser ? { cancelledByUser: true } : {}),
-          logTail
+      const next = hydrateThreadTasks(existing, snapshots)
+      return { tasksByThread: { ...state.tasksByThread, [threadId]: next } }
+    }),
+
+  hydrateThreads: (threadIds, snapshots) =>
+    set((state) => {
+      const snapshotsByThread = new Map<string, BackgroundTaskSnapshot[]>()
+      const targetThreadIds = new Set(threadIds)
+
+      for (const snapshot of snapshots) {
+        targetThreadIds.add(snapshot.threadId)
+        const existing = snapshotsByThread.get(snapshot.threadId)
+        if (existing) {
+          existing.push(snapshot)
+        } else {
+          snapshotsByThread.set(snapshot.threadId, [snapshot])
         }
       }
-      for (const [taskId, prior] of Object.entries(existing)) {
-        if (next[taskId]) continue
-        if (prior.status === 'running') continue
-        next[taskId] = prior
+
+      const nextTasksByThread = { ...state.tasksByThread }
+      for (const threadId of targetThreadIds) {
+        nextTasksByThread[threadId] = hydrateThreadTasks(
+          state.tasksByThread[threadId] ?? {},
+          snapshotsByThread.get(threadId) ?? []
+        )
       }
-      return { tasksByThread: { ...state.tasksByThread, [threadId]: next } }
+
+      return { tasksByThread: nextTasksByThread }
     }),
 
   onStarted: (event) =>
@@ -203,4 +237,17 @@ export function selectThreadRunningCount(threadId: string | null | undefined) {
     }
     return count
   }
+}
+
+export function selectRunningBackgroundTaskThreadIds(state: BackgroundTasksState): Set<string> {
+  const threadIds = new Set<string>()
+  for (const [threadId, taskMap] of Object.entries(state.tasksByThread)) {
+    for (const task of Object.values(taskMap)) {
+      if (task.status === 'running') {
+        threadIds.add(threadId)
+        break
+      }
+    }
+  }
+  return threadIds
 }

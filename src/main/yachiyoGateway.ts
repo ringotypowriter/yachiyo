@@ -1016,7 +1016,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.loadThreadData, (input: { threadId: string }) =>
     server!.loadThreadData(input.threadId)
   )
-  handle(IPC_CHANNELS.listBackgroundTasks, (input: { threadId: string }) =>
+  handle(IPC_CHANNELS.listBackgroundTasks, (input?: { threadId?: string }) =>
     server!.listBackgroundTasks(input)
   )
   handle(

@@ -281,8 +281,8 @@ const api = {
       toolCalls: import('../shared/yachiyo/protocol').ToolCallRecord[]
       scheduleRun?: import('../shared/yachiyo/protocol').ScheduleRunRecord
     }> => ipcRenderer.invoke('yachiyo:load-thread-data', input),
-    listBackgroundTasks: (input: {
-      threadId: string
+    listBackgroundTasks: (input?: {
+      threadId?: string
     }): Promise<import('../shared/yachiyo/protocol').BackgroundTaskSnapshot[]> =>
       ipcRenderer.invoke('yachiyo:list-background-tasks', input),
     getBackgroundTaskLog: (input: {

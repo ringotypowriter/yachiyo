@@ -425,13 +425,13 @@ export class BackgroundBashManager {
   }
 
   /**
-   * Snapshot of all known tasks (running + recently-completed) for a thread.
-   * Used to hydrate the renderer when a thread is opened.
+   * Snapshot of known tasks (running + recently-completed), either globally or
+   * scoped to a thread. Used to hydrate renderer task state.
    */
-  listSnapshots(threadId: string): BackgroundBashSnapshot[] {
+  listSnapshots(threadId?: string): BackgroundBashSnapshot[] {
     const out: BackgroundBashSnapshot[] = []
     for (const task of this.tasks.values()) {
-      if (task.threadId !== threadId) continue
+      if (threadId != null && task.threadId !== threadId) continue
       out.push({
         taskId: task.taskId,
         threadId: task.threadId,
@@ -442,7 +442,7 @@ export class BackgroundBashManager {
       })
     }
     for (const entry of this.recentlyCompleted.values()) {
-      if (entry.snapshot.threadId !== threadId) continue
+      if (threadId != null && entry.snapshot.threadId !== threadId) continue
       out.push(entry.snapshot)
     }
     return out
