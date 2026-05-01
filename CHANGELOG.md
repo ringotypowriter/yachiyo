@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.1.1
+
+### Patch Changes
+
+- [`1f7746d`](https://github.com/ringotypowriter/yachiyo/commit/1f7746d082e5bafd52fa76a40027ab42cd341d5f) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - File Reference & File Mention Pagination
+
 ## 1.1.0
 
 ### Minor Changes
