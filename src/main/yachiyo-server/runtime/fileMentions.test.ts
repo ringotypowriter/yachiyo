@@ -144,6 +144,18 @@ test('searchWorkspaceFileMentionCandidates supports fuzzy basename matches', asy
   })
 })
 
+test('searchWorkspaceFileMentionCandidates supports fuzzy token matches with spaces', async () => {
+  await withWorkspace(async ({ searchService, workspacePath }) => {
+    const results = await searchWorkspaceFileMentionCandidates({
+      query: 'composer tsx',
+      workspacePath,
+      searchService
+    })
+
+    assert.equal(results[0], 'src/components/Composer.tsx')
+  })
+})
+
 test('searchWorkspaceFileMentionCandidates supports fuzzy path-segment matches', async () => {
   await withWorkspace(async ({ searchService, workspacePath }) => {
     const results = await searchWorkspaceFileMentionCandidates({

@@ -1,5 +1,5 @@
 import type React from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Folder, Hash, NotebookPen, Sparkles, Zap } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
@@ -93,6 +93,7 @@ export function SlashCommandPopup({
   selectedIndex,
   onSelect,
   onClose,
+  onReachEnd,
   emptyState,
   leftOffset = 0,
   anchorRect,
@@ -102,12 +103,14 @@ export function SlashCommandPopup({
   selectedIndex: number
   onSelect: (command: SlashCommand) => void
   onClose: () => void
+  onReachEnd?: () => void
   emptyState?: string
   leftOffset?: number
   anchorRect?: DOMRect | null
   portal?: boolean
 }): React.ReactNode {
   const [visible, setVisible] = useState(false)
+  const selectedOptionRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true))
@@ -123,8 +126,23 @@ export function SlashCommandPopup({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
 
+  useEffect(() => {
+    selectedOptionRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [selectedIndex])
+
+  const handleCommandListScroll = (event: React.UIEvent<HTMLDivElement>): void => {
+    if (!onReachEnd) return
+
+    const target = event.currentTarget
+    const distanceFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight
+    if (distanceFromBottom <= 48) {
+      onReachEnd()
+    }
+  }
+
   const popupWidth = 280
   const margin = 8
+  const popupMaxHeight = Math.max(180, Math.min(420, window.innerHeight - 96))
   const popupLeft = anchorRect
     ? Math.max(margin, Math.min(anchorRect.left, window.innerWidth - popupWidth - margin))
     : leftOffset
@@ -177,72 +195,84 @@ export function SlashCommandPopup({
           {emptyState ?? 'No results'}
         </div>
       ) : null}
-      {commands.map((command, index) => {
-        const isSelected = index === selectedIndex
-        const Icon = TYPE_ICONS[command.type]
-        return (
-          <button
-            key={command.key}
-            type="button"
-            role="option"
-            aria-selected={isSelected}
-            onClick={() => onSelect(command)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              padding: '9px 14px',
-              background: isSelected ? theme.background.hoverStrong : 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              textAlign: 'left',
-              width: '100%',
-              transition: 'background 0.1s ease'
-            }}
-          >
-            <div
-              style={{
-                width: 16,
-                minWidth: 16,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0
-              }}
-            >
-              <Icon size={13} strokeWidth={1.7} color={theme.icon.muted} />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
-              <div
+      {commands.length > 0 ? (
+        <div
+          onScroll={handleCommandListScroll}
+          style={{
+            maxHeight: popupMaxHeight - 35,
+            overflowY: 'auto',
+            overscrollBehavior: 'contain'
+          }}
+        >
+          {commands.map((command, index) => {
+            const isSelected = index === selectedIndex
+            const Icon = TYPE_ICONS[command.type]
+            return (
+              <button
+                key={command.key}
+                ref={isSelected ? selectedOptionRef : undefined}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => onSelect(command)}
                 style={{
                   display: 'flex',
-                  alignItems: command.type === 'file' ? 'flex-start' : 'baseline',
-                  gap: 1,
-                  minWidth: 0
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '9px 14px',
+                  background: isSelected ? theme.background.hoverStrong : 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  width: '100%',
+                  transition: 'background 0.1s ease'
                 }}
               >
-                <CommandKey command={command} />
-              </div>
-              {command.type === 'file' ? null : (
                 <div
                   style={{
-                    marginTop: 1,
-                    fontSize: 11,
-                    color: theme.text.muted,
-                    lineHeight: 1.4,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    maxWidth: '100%'
+                    width: 16,
+                    minWidth: 16,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
                   }}
                 >
-                  {command.description}
+                  <Icon size={13} strokeWidth={1.7} color={theme.icon.muted} />
                 </div>
-              )}
-            </div>
-          </button>
-        )
-      })}
+                <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: command.type === 'file' ? 'flex-start' : 'baseline',
+                      gap: 1,
+                      minWidth: 0
+                    }}
+                  >
+                    <CommandKey command={command} />
+                  </div>
+                  {command.type === 'file' ? null : (
+                    <div
+                      style={{
+                        marginTop: 1,
+                        fontSize: 11,
+                        color: theme.text.muted,
+                        lineHeight: 1.4,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        maxWidth: '100%'
+                      }}
+                    >
+                      {command.description}
+                    </div>
+                  )}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
       {commands.length > 0 ? (
         <div
           style={{

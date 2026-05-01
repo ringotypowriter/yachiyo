@@ -62,6 +62,10 @@ import type { AcpAgentEntry } from '../lib/modelSelectorState'
 import { SlashCommandPopup } from './SlashCommandPopup'
 import type { SlashCommand } from './SlashCommandPopup'
 import { scoreCandidates } from '../lib/completionMatch'
+import {
+  buildFileMentionCompletionCommands,
+  paginateFileMentionMatches
+} from '../lib/fileMentionCompletion'
 import { longestCommonPrefix } from '../lib/longestCommonPrefix'
 import { SkillsSelectorPopup } from './SkillsSelectorPopup'
 import { ToolSelectorPopup } from './ToolSelectorPopup'
@@ -83,6 +87,8 @@ const EMPTY_MESSAGES: Message[] = []
 const EMPTY_RUNS: RunRecord[] = []
 const MAX_COMPOSER_IMAGES = 4
 const MAX_COMPOSER_FILES = 10
+const FILE_MENTION_PAGE_SIZE = 24
+const FILE_MENTION_MAX_RESULTS = 120
 /** Text stack cap; inner wrapper uses hard clip so grid min-content cannot paint into the toolbar. */
 const COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX = 160
 
@@ -791,11 +797,22 @@ export function Composer({
   const [fileMentionMatchesState, setFileMentionMatchesState] = useState<{
     status: 'idle' | 'ready' | 'error'
     key: string | null
+    limit: number
     matches: FileMentionCandidate[]
+    hasMore: boolean
   }>({
     status: 'idle',
     key: null,
+    limit: 0,
+    hasMore: false,
     matches: []
+  })
+  const [fileMentionResultLimitState, setFileMentionResultLimitState] = useState<{
+    key: string | null
+    limit: number
+  }>({
+    key: null,
+    limit: FILE_MENTION_PAGE_SIZE
   })
 
   const composerValue = composerDraft.text
@@ -942,6 +959,10 @@ export function Composer({
     activeThreadId !== null ? `thread:${activeThreadId}` : `workspace:${currentWorkspacePath ?? ''}`
   const fileMentionRequestKey =
     fileMentionQueryKey === null ? null : `${fileMentionSearchScopeKey}\n${fileMentionQueryKey}`
+  const fileMentionResultLimit =
+    fileMentionRequestKey !== null && fileMentionResultLimitState.key === fileMentionRequestKey
+      ? fileMentionResultLimitState.limit
+      : FILE_MENTION_PAGE_SIZE
   // Only show chip when skill tag is confirmed (has trailing space/content) and popup is not active
   const skillTagMatch = skillQuery === null ? SKILL_TAG_PATTERN.exec(composerValue) : null
   const activeSkillTag = skillTagMatch ? skillTagMatch[1] : null
@@ -961,7 +982,9 @@ export function Composer({
     [fileMentionMatchesState, fileMentionRequestKey]
   )
   const isFileMentionSearchPending =
-    fileMentionRequestKey !== null && fileMentionMatchesState.key !== fileMentionRequestKey
+    fileMentionRequestKey !== null &&
+    (fileMentionMatchesState.key !== fileMentionRequestKey ||
+      fileMentionMatchesState.limit < fileMentionResultLimit)
   const confirmedFileTagsKey = confirmedFileTags.join('\n')
   const validatedFileTags = useMemo(
     () =>
@@ -1064,21 +1087,9 @@ export function Composer({
       )
     }
     if (fileMentionQuery !== null) {
-      // Rank backend results by basename-first match on the raw query.
-      return scoreCandidates(fileMentionMatches, fileMentionQuery, (match) => {
-        const base = match.path.slice(match.path.lastIndexOf('/') + 1)
-        return [base, match.path]
-      }).map(({ item: match }) => ({
-        key: `file:${match.includeIgnored ? '!' : ''}${match.path}`,
-        label: `${match.includeIgnored ? '!' : ''}${match.path}`,
-        description:
-          match.kind === 'jotdown'
-            ? 'Latest jot down'
-            : match.includeIgnored
-              ? 'Ignored workspace path'
-              : 'Workspace path',
-        type: match.kind === 'jotdown' ? ('jotdown' as const) : ('file' as const)
-      }))
+      return buildFileMentionCompletionCommands({
+        matches: fileMentionMatches
+      })
     }
     if (slashQuery !== null) {
       return scoreCandidates(allSlashCommands, slashQuery, (cmd) => [cmd.key, cmd.label]).map(
@@ -1160,6 +1171,9 @@ export function Composer({
     }
 
     let cancelled = false
+    const requestedLimit = fileMentionResultLimit
+    const requestLimit =
+      requestedLimit < FILE_MENTION_MAX_RESULTS ? requestedLimit + 1 : requestedLimit
     const timeoutId = window.setTimeout(() => {
       void window.api.yachiyo
         .searchWorkspaceFiles({
@@ -1168,14 +1182,21 @@ export function Composer({
           ...(activeThreadId ? { threadId: activeThreadId } : {}),
           ...(!activeThreadId && currentWorkspacePath
             ? { workspacePath: currentWorkspacePath }
-            : {})
+            : {}),
+          limit: requestLimit
         })
         .then((matches) => {
           if (!cancelled) {
+            const page = paginateFileMentionMatches({
+              matches,
+              visibleLimit: requestedLimit
+            })
             setFileMentionMatchesState({
               status: 'ready',
               key: fileMentionRequestKey,
-              matches
+              limit: requestedLimit,
+              matches: page.matches,
+              hasMore: page.hasMore
             })
           }
         })
@@ -1184,6 +1205,8 @@ export function Composer({
             setFileMentionMatchesState({
               status: 'error',
               key: fileMentionRequestKey,
+              limit: requestedLimit,
+              hasMore: false,
               matches: []
             })
           }
@@ -1198,9 +1221,34 @@ export function Composer({
     activeThreadId,
     currentWorkspacePath,
     fileMentionIncludeIgnored,
+    fileMentionResultLimit,
     fileMentionQuery,
     fileMentionRequestKey
   ])
+
+  const loadMoreFileMentionMatches = useCallback((): void => {
+    if (
+      fileMentionRequestKey === null ||
+      isFileMentionSearchPending ||
+      !fileMentionMatchesState.hasMore
+    ) {
+      return
+    }
+
+    setFileMentionResultLimitState((previous) => {
+      const currentLimit =
+        previous.key === fileMentionRequestKey ? previous.limit : FILE_MENTION_PAGE_SIZE
+      const nextLimit = Math.min(FILE_MENTION_MAX_RESULTS, currentLimit + FILE_MENTION_PAGE_SIZE)
+      if (nextLimit === currentLimit) {
+        return previous
+      }
+
+      return {
+        key: fileMentionRequestKey,
+        limit: nextLimit
+      }
+    })
+  }, [fileMentionMatchesState.hasMore, fileMentionRequestKey, isFileMentionSearchPending])
 
   useEffect(() => {
     if (confirmedFileTags.length === 0) {
@@ -2433,6 +2481,13 @@ export function Composer({
             selectedIndex={slashSelectedIndex}
             onSelect={handleSlashCommandSelect}
             onClose={dismissSlashPopup}
+            onReachEnd={
+              fileMentionQuery !== null &&
+              fileMentionMatchesState.hasMore &&
+              !isFileMentionSearchPending
+                ? loadMoreFileMentionMatches
+                : undefined
+            }
             leftOffset={0}
             anchorRect={fileMentionQuery !== null ? fileMentionAnchorRect : null}
             portal={fileMentionQuery !== null}
