@@ -2,6 +2,7 @@ import React, { memo, useMemo } from 'react'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
 import { buildAssetUrl } from '@renderer/lib/markdown/imageUrl'
 import type { MarkdownImageContextValue } from '@renderer/lib/markdown/MarkdownImage'
+import type { InlineCodeFileLinkSnapshot } from '@renderer/lib/markdown/inlineCodeFileLinkSnapshot'
 import type { Message } from '@renderer/app/types'
 import { buildMessagePresentation } from '../lib/messagePresentation'
 import type { MessageFooter } from '../lib/messagePresentation'
@@ -51,6 +52,7 @@ interface AssistantMessageBubbleProps {
   compactBottomSpacing?: boolean
   /** Show the streaming caret. When omitted, defaults to isStreaming state. */
   showCaret?: boolean
+  inlineCodeFileLinks?: InlineCodeFileLinkSnapshot
 }
 
 export const AssistantMessageBubble = memo(function AssistantMessageBubble({
@@ -60,7 +62,8 @@ export const AssistantMessageBubble = memo(function AssistantMessageBubble({
   suppressGeneratingLabel = false,
   pauseStreaming = false,
   compactBottomSpacing = false,
-  showCaret
+  showCaret,
+  inlineCodeFileLinks
 }: AssistantMessageBubbleProps): React.JSX.Element {
   const { showContent, showBubble, footer } = buildMessagePresentation(message)
   const isStreaming = message.status === 'streaming' && !pauseStreaming
@@ -110,6 +113,7 @@ export const AssistantMessageBubble = memo(function AssistantMessageBubble({
               content={content}
               isStreaming={isStreaming}
               imageContext={imageContext}
+              inlineCodeFileLinks={inlineCodeFileLinks}
             />
           )}
         </div>

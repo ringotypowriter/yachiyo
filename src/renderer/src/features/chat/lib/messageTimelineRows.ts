@@ -161,6 +161,33 @@ function resolveAssistantTextBlocks(message: Message): MessageTextBlockRecord[] 
   return []
 }
 
+export function collectInlineCodeMarkdownDocumentsFromRows(
+  rows: readonly MessageTimelineRow[]
+): string[] {
+  const documents: string[] = []
+
+  for (const row of rows) {
+    if (row.kind === 'group-assistant-text-block') {
+      if (row.assistantMessage.status !== 'streaming' && row.textBlock.content.length > 0) {
+        documents.push(row.textBlock.content)
+      }
+      continue
+    }
+
+    if (row.kind === 'assistant-root') {
+      if (row.data.status === 'streaming') {
+        continue
+      }
+      const content = row.data.visibleReply ?? row.data.content
+      if (content.length > 0) {
+        documents.push(content)
+      }
+    }
+  }
+
+  return documents
+}
+
 export function buildConversationGroupRows(
   input: BuildConversationGroupRowsInput
 ): MessageTimelineRow[] {

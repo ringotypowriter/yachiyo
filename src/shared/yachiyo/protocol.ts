@@ -875,6 +875,16 @@ export interface SearchWorkspaceFilesInput {
   limit?: number
 }
 
+export interface ResolveFileReferencesInput {
+  workspacePath?: string | null
+  references: string[]
+}
+
+export interface ResolvedFileReference {
+  reference: string
+  path: string
+}
+
 export interface UserPrompt {
   keycode: string
   text: string

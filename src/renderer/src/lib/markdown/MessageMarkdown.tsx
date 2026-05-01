@@ -16,6 +16,7 @@ import {
   type MarkdownImageContextValue
 } from './MarkdownImage'
 import { getMessageMarkdownAnimation } from './messageMarkdownAnimation'
+import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
 
 /**
  * Extend Streamdown's default rehype-sanitize schema to allow `magnet:` in
@@ -50,12 +51,14 @@ interface MessageMarkdownProps {
    * not allowed (e.g. user bubbles, which have their own attachment rail).
    */
   imageContext?: MarkdownImageContextValue
+  inlineCodeFileLinks?: InlineCodeFileLinkSnapshot
 }
 
 export function MessageMarkdown({
   content,
   isStreaming = false,
-  imageContext
+  imageContext,
+  inlineCodeFileLinks
 }: MessageMarkdownProps): React.JSX.Element {
   const linkSafety = useMemo<LinkSafetyConfig>(
     () => ({
@@ -66,14 +69,20 @@ export function MessageMarkdown({
   )
 
   const imagesEnabled = Boolean(imageContext)
+  const inlineCodeFileLinksKey = useMemo(() => {
+    if (!inlineCodeFileLinks || inlineCodeFileLinks.size === 0) return ''
+    return JSON.stringify([...inlineCodeFileLinks.entries()])
+  }, [inlineCodeFileLinks])
 
   const components = useMemo<Components>(() => {
-    const base: Components = { inlineCode: LinkableCode }
+    const base: Components = {
+      inlineCode: (props) => <LinkableCode {...props} fileLinks={inlineCodeFileLinks} />
+    }
     if (imagesEnabled) {
       base.img = MarkdownImage
     }
     return base
-  }, [imagesEnabled])
+  }, [imagesEnabled, inlineCodeFileLinks])
 
   const urlTransform = useMemo<UrlTransform | undefined>(() => {
     if (!imagesEnabled) return undefined
@@ -94,6 +103,7 @@ export function MessageMarkdown({
       <MarkdownImageProvider value={imageContext ?? null}>
         <div className="streamdown-content message-selectable">
           <Streamdown
+            key={inlineCodeFileLinksKey}
             isAnimating={isStreaming}
             animated={animated}
             caret={isStreaming ? 'circle' : undefined}

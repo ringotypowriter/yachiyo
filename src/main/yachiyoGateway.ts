@@ -28,6 +28,7 @@ import type {
   ProviderConfig,
   ProviderSettings,
   RetryInput,
+  ResolveFileReferencesInput,
   SaveThreadInput,
   SettingsConfig,
   SendChatInput,
@@ -94,6 +95,7 @@ import {
 } from './yachiyo-server/services/fileSnapshot/diffGenerator.ts'
 import { hashWorkspacePath } from './yachiyo-server/services/fileSnapshot/casStore.ts'
 import { listSnapshotRuns } from './yachiyo-server/services/fileSnapshot/snapshotIndex.ts'
+import { resolveExistingFileReferences } from './yachiyo-server/runtime/inlineCodeFileReferences.ts'
 
 const IPC_CHANNELS = {
   showNotification: 'yachiyo:show-notification',
@@ -196,6 +198,8 @@ const IPC_CHANNELS = {
   pruneEmptyTemporaryWorkspaces: 'yachiyo:prune-empty-temporary-workspaces',
   revealFile: 'yachiyo:reveal-file',
   copyImageToClipboard: 'yachiyo:copy-image-to-clipboard',
+  resolveFileReferences: 'yachiyo:resolve-file-references',
+  openFile: 'yachiyo:open-file',
   openFileInEditor: 'yachiyo:open-file-in-editor',
   getUsageStats: 'yachiyo:get-usage-stats',
   getPerfStats: 'yachiyo:get-perf-stats',
@@ -1208,6 +1212,18 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.revealFile, async (input: { path: string }) => {
     const { shell } = await import('electron')
     shell.showItemInFolder(input.path)
+  })
+
+  handle(IPC_CHANNELS.resolveFileReferences, (input: ResolveFileReferencesInput) =>
+    resolveExistingFileReferences(input)
+  )
+
+  handle(IPC_CHANNELS.openFile, async (input: { path: string }) => {
+    const { shell } = await import('electron')
+    const error = await shell.openPath(input.path)
+    if (error) {
+      throw new Error(error)
+    }
   })
 
   handle(IPC_CHANNELS.copyImageToClipboard, async (input: { src: string }) => {

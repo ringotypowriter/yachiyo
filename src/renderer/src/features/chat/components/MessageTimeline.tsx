@@ -6,6 +6,10 @@ import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { HarnessRecord } from '@renderer/app/store/useAppStore'
 import type { Message, RunRecord, ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
+import {
+  useInlineCodeFileLinkSnapshot,
+  type InlineCodeFileLinkSnapshot
+} from '@renderer/lib/markdown/inlineCodeFileLinkSnapshot'
 import { getThreadCapabilities } from '../../../../../shared/yachiyo/protocol.ts'
 import { TimelineScrollbar } from './TimelineScrollbar'
 import {
@@ -14,7 +18,11 @@ import {
   getTimelineMessages,
   partitionToolCallsForGroups
 } from '../lib/messageThreadPresentation'
-import { buildMessageTimelineRows, type MessageTimelineRow } from '../lib/messageTimelineRows.ts'
+import {
+  buildMessageTimelineRows,
+  collectInlineCodeMarkdownDocumentsFromRows,
+  type MessageTimelineRow
+} from '../lib/messageTimelineRows.ts'
 import { buildTimelineVirtualRowStyle } from '../lib/messageTimelineRowStyle.ts'
 import { getInitialBottomScrollDecision } from '../lib/messageTimelineScroll.ts'
 import { UserMessageBubble } from './UserMessageBubble'
@@ -64,6 +72,7 @@ interface TimelineItemRenderContext {
   toolCalls: ToolCall[]
   threadId: string | null
   workspacePath?: string
+  inlineCodeFileLinks: InlineCodeFileLinkSnapshot
   cancelRunForThread: (threadId: string) => Promise<void>
   revertPendingSteer: () => Promise<void>
   onEdit: (messageId: string) => void
@@ -120,6 +129,7 @@ function renderTimelineItem(
     toolCalls,
     threadId,
     workspacePath,
+    inlineCodeFileLinks,
     cancelRunForThread,
     revertPendingSteer,
     onEdit,
@@ -185,7 +195,7 @@ function renderTimelineItem(
             startedAt={item.data.createdAt}
           />
         ) : null}
-        <AssistantMessageBubble message={item.data} />
+        <AssistantMessageBubble message={item.data} inlineCodeFileLinks={inlineCodeFileLinks} />
       </div>
     )
   }
@@ -311,6 +321,7 @@ function renderTimelineItem(
           message={item.assistantMessage}
           contentOverride={item.textBlock.content}
           showFooter={false}
+          inlineCodeFileLinks={inlineCodeFileLinks}
           suppressGeneratingLabel={
             item.hasRunningToolCall || item.assistantMessage.status === 'streaming'
           }
@@ -547,6 +558,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     [thread]
   )
   const threadHasActiveRun = activeRunId !== null
+  const workspacePath = thread?.workspacePath
   const timelineRows = useMemo(
     () =>
       buildMessageTimelineRows({
@@ -575,7 +587,11 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     ]
   )
 
-  const visibleMessages = useMemo<Message[]>(
+  const inlineCodeMarkdownDocuments = useMemo(
+    () => collectInlineCodeMarkdownDocumentsFromRows(timelineRows),
+    [timelineRows]
+  )
+  const scrollbarMessages = useMemo<Message[]>(
     () =>
       [
         ...messageGroups.flatMap((group) => {
@@ -587,6 +603,11 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       ].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     [messageGroups, rootAssistantMessages, pendingSteerMessage]
   )
+  const inlineCodeFileLinks = useInlineCodeFileLinkSnapshot({
+    enabled: inlineCodeMarkdownDocuments.length > 0,
+    markdownDocuments: inlineCodeMarkdownDocuments,
+    workspacePath
+  })
 
   const stickToBottomRef = useRef(true)
   const prevThreadIdRef = useRef(threadId)
@@ -1019,7 +1040,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
   )
 
   const isAcpThread = thread?.runtimeBinding?.kind === 'acp'
-  const workspacePath = thread?.workspacePath
 
   const timelineItemContext = useMemo<TimelineItemRenderContext>(
     () => ({
@@ -1034,6 +1054,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       toolCalls,
       threadId,
       workspacePath,
+      inlineCodeFileLinks,
       cancelRunForThread,
       revertPendingSteer,
       onEdit: handleEdit,
@@ -1054,6 +1075,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       toolCalls,
       threadId,
       workspacePath,
+      inlineCodeFileLinks,
       cancelRunForThread,
       revertPendingSteer,
       handleEdit,
@@ -1116,7 +1138,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     <div className="flex-1 relative min-h-0 min-w-0">
       {!isAcpThread && (
         <TimelineScrollbar
-          messages={visibleMessages}
+          messages={scrollbarMessages}
           scrollContainerRef={scrollContainerRef}
           onScrollToMessage={handleScrollToMessage}
         />
