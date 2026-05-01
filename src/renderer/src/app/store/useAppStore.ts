@@ -894,6 +894,15 @@ function isThreadReusableNewChat(
   return normalizeWorkspacePath(thread.workspacePath) === input.pendingWorkspacePath
 }
 
+function isBlankNewChat(input: Pick<AppState, 'messages'>, thread: Thread): boolean {
+  return (
+    thread.title === DEFAULT_THREAD_TITLE &&
+    (input.messages[thread.id] ?? []).length === 0 &&
+    !thread.preview &&
+    !thread.headMessageId
+  )
+}
+
 function upsertComposerDraft(
   drafts: Record<string, ComposerDraft>,
   draftKey: string,
@@ -2877,6 +2886,11 @@ export const useAppStore = create<AppState>((set, get) => ({
           activeEssentialId: null,
           pendingModelOverride: null,
           pendingAcpBinding: null,
+          composerDrafts: moveComposerDraft(
+            state.composerDrafts,
+            getComposerDraftKey(null),
+            getComposerDraftKey(reusableThread.id)
+          ),
           pendingWorkspacePath: null,
           ...withFilterBase(state.sidebarFilter, 'all')
         }
@@ -2901,7 +2915,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeEssentialId: null,
         pendingModelOverride: null,
         pendingAcpBinding: null,
-        composerDrafts: removeComposerDraft(state.composerDrafts, null),
+        composerDrafts: moveComposerDraft(
+          state.composerDrafts,
+          getComposerDraftKey(null),
+          getComposerDraftKey(thread.id)
+        ),
         pendingWorkspacePath: null,
         ...withFilterBase(state.sidebarFilter, 'all'),
         messages: {
@@ -2928,14 +2946,28 @@ export const useAppStore = create<AppState>((set, get) => ({
     const essential = config?.essentials?.find((e) => e.id === essentialId)
     if (!essential) return
 
-    set((state) => ({
-      activeThreadId: null,
-      activeEssentialId: essentialId,
-      pendingWorkspacePath: normalizeWorkspacePath(essential.workspacePath ?? null),
-      pendingModelOverride: essential.modelOverride ?? null,
-      composerDrafts: removeComposerDraft(state.composerDrafts, null),
-      ...withFilterBase(state.sidebarFilter, 'all')
-    }))
+    set((state) => {
+      const activeThread = state.activeThreadId
+        ? state.threads.find((thread) => thread.id === state.activeThreadId)
+        : null
+      const composerDrafts =
+        activeThread && isBlankNewChat({ messages: state.messages }, activeThread)
+          ? moveComposerDraft(
+              state.composerDrafts,
+              getComposerDraftKey(activeThread.id),
+              getComposerDraftKey(null)
+            )
+          : state.composerDrafts
+
+      return {
+        activeThreadId: null,
+        activeEssentialId: essentialId,
+        pendingWorkspacePath: normalizeWorkspacePath(essential.workspacePath ?? null),
+        pendingModelOverride: essential.modelOverride ?? null,
+        composerDrafts,
+        ...withFilterBase(state.sidebarFilter, 'all')
+      }
+    })
     void refreshAvailableSkills(set, get)
   },
 

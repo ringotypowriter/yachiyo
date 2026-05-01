@@ -21,6 +21,7 @@ const READY_SETTINGS = {
 function resetStore(): void {
   useAppStore.setState({
     activeArchivedThreadId: null,
+    activeEssentialId: null,
     activeRunId: null,
     activeRunIdsByThread: {},
     activeRequestMessageId: null,
@@ -46,6 +47,8 @@ function resetStore(): void {
     runsByThread: {},
     messages: {},
     pendingAssistantMessages: {},
+    pendingAcpBinding: null,
+    pendingModelOverride: null,
     pendingSteerMessages: {},
     pendingWorkspacePath: null,
     runPhase: 'idle',
@@ -2672,6 +2675,138 @@ test('createNewThread preserves the drafted workspace selection', async () => {
   }
 })
 
+test('createNewThreadFromEssential preserves the staged new-chat draft', () => {
+  resetStore()
+
+  useAppStore.setState({
+    activeEssentialId: 'essential-a',
+    composerDrafts: {
+      __new__: {
+        text: 'Keep this while I switch',
+        images: [],
+        files: [],
+        enabledSkillNames: null
+      }
+    },
+    config: {
+      providers: [],
+      essentials: [
+        {
+          id: 'essential-a',
+          icon: 'A',
+          iconType: 'emoji',
+          label: 'Alpha',
+          order: 0
+        },
+        {
+          id: 'essential-b',
+          icon: 'B',
+          iconType: 'emoji',
+          label: 'Beta',
+          workspacePath: '/tmp/beta',
+          modelOverride: { providerName: 'work', model: 'gpt-5' },
+          order: 1
+        }
+      ]
+    }
+  })
+
+  useAppStore.getState().createNewThreadFromEssential('essential-b')
+
+  const state = useAppStore.getState()
+  assert.equal(state.activeThreadId, null)
+  assert.equal(state.activeEssentialId, 'essential-b')
+  assert.equal(state.pendingWorkspacePath, '/tmp/beta')
+  assert.deepEqual(state.pendingModelOverride, { providerName: 'work', model: 'gpt-5' })
+  assert.equal(state.composerDrafts.__new__?.text, 'Keep this while I switch')
+})
+
+test('createNewThreadFromEssential moves an active blank new-chat draft into the staged draft', () => {
+  resetStore()
+
+  useAppStore.setState({
+    activeThreadId: 'thread-1',
+    composerDrafts: {
+      'thread-1': {
+        text: 'Bring this into the essential',
+        images: [],
+        files: [],
+        enabledSkillNames: null
+      }
+    },
+    config: {
+      providers: [],
+      essentials: [
+        {
+          id: 'essential-a',
+          icon: 'A',
+          iconType: 'emoji',
+          label: 'Alpha',
+          order: 0
+        }
+      ]
+    },
+    messages: {
+      'thread-1': []
+    },
+    threads: [
+      {
+        id: 'thread-1',
+        title: 'New Chat',
+        updatedAt: TIMESTAMP
+      }
+    ]
+  })
+
+  useAppStore.getState().createNewThreadFromEssential('essential-a')
+
+  const state = useAppStore.getState()
+  assert.equal(state.activeThreadId, null)
+  assert.equal(state.activeEssentialId, 'essential-a')
+  assert.equal(state.composerDrafts['thread-1'], undefined)
+  assert.equal(state.composerDrafts.__new__?.text, 'Bring this into the essential')
+})
+
+test('createNewThread moves the staged essential draft into the new normal chat', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    createThread: async () => ({
+      id: 'thread-1',
+      title: 'New Chat',
+      updatedAt: TIMESTAMP
+    })
+  })
+
+  try {
+    useAppStore.setState({
+      activeEssentialId: 'essential-a',
+      composerDrafts: {
+        __new__: {
+          text: 'Use this in a normal chat',
+          images: [],
+          files: [],
+          enabledSkillNames: null
+        }
+      },
+      pendingModelOverride: { providerName: 'essential-provider', model: 'essential-model' },
+      pendingWorkspacePath: '/tmp/essential-workspace'
+    })
+
+    await useAppStore.getState().createNewThread()
+
+    const state = useAppStore.getState()
+    assert.equal(state.activeThreadId, 'thread-1')
+    assert.equal(state.activeEssentialId, null)
+    assert.equal(state.pendingModelOverride, null)
+    assert.equal(state.pendingWorkspacePath, null)
+    assert.equal(state.composerDrafts.__new__, undefined)
+    assert.equal(state.composerDrafts['thread-1']?.text, 'Use this in a normal chat')
+  } finally {
+    restoreWindow()
+  }
+})
+
 test('createNewThread reuses an existing blank New Chat instead of creating another thread', async () => {
   resetStore()
 
@@ -2725,6 +2860,55 @@ test('createNewThread reuses an existing blank New Chat instead of creating anot
     assert.equal(createThreadCallCount, 0)
     assert.equal(state.activeThreadId, 'thread-1')
     assert.equal(state.threads.length, 2)
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('createNewThread moves the staged new-chat draft into a reusable blank chat', async () => {
+  resetStore()
+
+  let createThreadCallCount = 0
+  const restoreWindow = withWindowApiMock({
+    createThread: async () => {
+      createThreadCallCount += 1
+      return {
+        id: 'thread-2',
+        title: 'New Chat',
+        updatedAt: TIMESTAMP
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      composerDrafts: {
+        __new__: {
+          text: 'Carry this into the reusable chat',
+          images: [],
+          files: [],
+          enabledSkillNames: null
+        }
+      },
+      messages: {
+        'thread-1': []
+      },
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'New Chat',
+          updatedAt: TIMESTAMP
+        }
+      ]
+    })
+
+    await useAppStore.getState().createNewThread()
+
+    const state = useAppStore.getState()
+    assert.equal(createThreadCallCount, 0)
+    assert.equal(state.activeThreadId, 'thread-1')
+    assert.equal(state.composerDrafts.__new__, undefined)
+    assert.equal(state.composerDrafts['thread-1']?.text, 'Carry this into the reusable chat')
   } finally {
     restoreWindow()
   }
