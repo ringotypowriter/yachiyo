@@ -372,7 +372,7 @@ export function summarizeToolOutput(
     return details.truncated ? `${summary} (truncated)` : summary
   }
 
-  if (toolName === 'remember' || toolName === 'searchMemory') {
+  if (toolName === 'remember' || toolName === 'searchMemory' || toolName === 'updateProfile') {
     const typed = output as { content?: Array<{ type: string; text?: string }>; error?: string }
     if (typed.error) return typed.error
     const text = typed.content
@@ -391,7 +391,11 @@ export function summarizeToolOutput(
   }
 
   const details = (output as BashToolOutput).details
-  return typeof details.exitCode === 'number' ? `exit ${details.exitCode}` : 'command completed'
+  if (details && typeof details.exitCode === 'number') {
+    return `exit ${details.exitCode}`
+  }
+
+  return extractTextContent(output) ?? 'tool completed'
 }
 
 export function normalizeToolResult(

@@ -363,6 +363,27 @@ return JSON.stringify({
     }
   })
 
+  it('resolves fs/promises paths against the per-call cwd', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-fsp-cwd-'))
+    try {
+      mkdirSync(join(tempDir, 'output', 'source'), { recursive: true })
+      writeFileSync(join(tempDir, 'output', 'source', 'context.json'), '{"ok":true}')
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
+      const result = await execute(tool, {
+        code: `
+const fsp = require("node:fs/promises")
+await fsp.cp("output/source", "output/copied", { recursive: true })
+return await fsp.readFile("output/copied/context.json", "utf8")`,
+        cwd: '.'
+      })
+      assert.equal(result.error, undefined)
+      assert.equal(result.details.result, '{"ok":true}')
+      assert.ok(existsSync(join(tempDir, 'output', 'copied', 'context.json')))
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   it('treats cwd "." as the workspace directory', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-cwd-dot-'))
     try {

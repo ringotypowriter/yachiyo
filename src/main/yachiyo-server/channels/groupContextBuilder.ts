@@ -232,6 +232,7 @@ Available tools:
 - \`web_read\`: Fetch a web page.
 - \`web_search\`: Search the web.
 - \`updateProfile\`: Update group notes (USER.md) — structured tables with sections "People", "Group Vibe", "Topic Hints".
+  - For a simple one-row note, call it with section, operation "upsert", key, and value.
   - Row limits: Group Vibe caps at 8, Topic Hints at 6. Oldest rows auto-evict. Stale rows expire (3 days for Topic Hints, 7 for Group Vibe).
 
 Most turns need zero tools. Only use \`updateProfile\` for genuinely durable info:

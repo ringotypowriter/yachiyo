@@ -1166,3 +1166,14 @@ test('normalizeToolResult returns completed for non-background bash output', () 
   assert.equal(normalized.status, 'completed')
   assert.notEqual(normalized.outputSummary, undefined)
 })
+
+test('normalizeToolResult summarizes successful updateProfile output without bash details', () => {
+  const output = {
+    content: [{ type: 'text' as const, text: 'Upserted 1 row in "Profile".' }]
+  }
+
+  const normalized = normalizeToolResult('updateProfile', output)
+  assert.equal(normalized.status, 'completed')
+  assert.equal(normalized.outputSummary, 'Upserted 1 row in "Profile".')
+  assert.equal(normalized.error, undefined)
+})

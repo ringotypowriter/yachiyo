@@ -94,8 +94,9 @@ export function buildExternalAgentInstructions(input: {
   tools.push(
     '',
     'You have an updateProfile tool for managing the user profile (USER.md). Each section is a structured table.',
-    '- operation "upsert": Add or update rows by key column. Provide entries as objects with column names as keys.',
-    '- operation "remove": Delete rows by key column value.'
+    '- For a simple one-row update, provide section, operation "upsert", key, and value.',
+    '- operation "upsert": Add or update rows by key column. Provide entries as objects with column names as keys; casing is flexible.',
+    '- operation "remove": Delete rows by key column value. Provide key for one row or keys for multiple rows.'
   )
 
   if (input.guest) {

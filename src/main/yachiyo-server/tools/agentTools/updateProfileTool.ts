@@ -14,6 +14,8 @@ import {
   removeRows,
   removeRowsByIndex,
   renderTable,
+  type SectionSchema,
+  type TableRow,
   upsertRows,
   upsertRowsByIndex
 } from '../../runtime/profileTable.ts'
@@ -24,7 +26,17 @@ const updateProfileToolInputSchema = z.object({
   entries: z
     .array(z.record(z.string(), z.string()))
     .optional()
-    .describe('Rows to add or update. Keys are column names from the section schema.'),
+    .describe(
+      'Rows to add or update. Keys are case-insensitive column names from the section schema.'
+    ),
+  key: z
+    .string()
+    .optional()
+    .describe('Single-row shortcut key. Maps to the section key column, e.g. Profile "Key".'),
+  value: z
+    .string()
+    .optional()
+    .describe('Single-row shortcut value. Maps to the section main value/note column.'),
   keys: z
     .array(z.string())
     .optional()
@@ -51,6 +63,67 @@ export interface UpdateProfileDeps {
   userDocumentMode?: UserDocumentMode
 }
 
+function getShortcutValueColumn(schema: SectionSchema): string | undefined {
+  return schema.columns.filter((column) => column !== schema.keyColumn).at(-1)
+}
+
+function canonicalizeEntryColumns(entry: TableRow, schema: SectionSchema): TableRow {
+  const canonicalColumns = new Map(schema.columns.map((column) => [column.toLowerCase(), column]))
+  const result: TableRow = {}
+
+  for (const [column, value] of Object.entries(entry)) {
+    result[canonicalColumns.get(column.toLowerCase()) ?? column] = value
+  }
+
+  return result
+}
+
+function buildShortcutEntry(input: UpdateProfileToolInput, schema: SectionSchema): TableRow | null {
+  if (input.key === undefined && input.value === undefined) {
+    return null
+  }
+
+  const valueColumn = getShortcutValueColumn(schema)
+  if (!valueColumn) {
+    return null
+  }
+
+  const entry: TableRow = {}
+  if (input.key !== undefined) {
+    entry[schema.keyColumn] = input.key.trim()
+  }
+  if (input.value !== undefined) {
+    entry[valueColumn] = input.value
+  }
+  return entry
+}
+
+function resolveUpsertEntries(
+  input: UpdateProfileToolInput,
+  schema: SectionSchema
+): TableRow[] | undefined {
+  const shortcutEntry = buildShortcutEntry(input, schema)
+  const entries = input.entries
+
+  if (!entries || entries.length === 0) {
+    return shortcutEntry ? [shortcutEntry] : entries
+  }
+
+  if (!shortcutEntry || entries.length !== 1) {
+    return entries.map((entry) => canonicalizeEntryColumns(entry, schema))
+  }
+
+  return [{ ...shortcutEntry, ...canonicalizeEntryColumns(entries[0], schema) }]
+}
+
+function resolveRemoveKeys(input: UpdateProfileToolInput): string[] | undefined {
+  if (input.keys && input.keys.length > 0) {
+    return input.keys
+  }
+
+  return input.key === undefined ? input.keys : [input.key.trim()]
+}
+
 function buildDescription(mode?: UserDocumentMode): string {
   const sectionBlock = buildSectionDescriptionBlock(mode)
   return [
@@ -61,8 +134,10 @@ function buildDescription(mode?: UserDocumentMode): string {
     '',
     'A "Since" timestamp column is managed automatically — do not include it in entries.',
     '',
-    'operation "upsert": Add or update rows. Matches existing rows by the key column (case-insensitive). Provide entries as objects with column names as keys.',
-    'operation "remove": Delete rows by key column value. Provide keys array.',
+    'Simplest one-row update: provide "section", operation "upsert", "key", and "value". The tool maps key/value to the section columns.',
+    '',
+    'operation "upsert": Add or update rows. Matches existing rows by the key column (case-insensitive). Provide entries as objects with column names as keys; column name casing is flexible.',
+    'operation "remove": Delete rows by key column value. Provide "key" for one row or "keys" for multiple rows.',
     '',
     'Index-based targeting: provide "indices" (0-based row positions) to target specific rows instead of matching by key.',
     'For "upsert" with indices: entries[i] merges into row at indices[i]; key column is optional.',
@@ -113,9 +188,12 @@ export function createTool(
 
         // Validate operation inputs
         const useIndices = input.indices && input.indices.length > 0
+        const entries =
+          input.operation === 'upsert' ? resolveUpsertEntries(input, schema) : input.entries
+        const keys = input.operation === 'remove' ? resolveRemoveKeys(input) : input.keys
 
         if (input.operation === 'upsert') {
-          if (!input.entries || input.entries.length === 0) {
+          if (!entries || entries.length === 0) {
             return {
               content: [{ type: 'text', text: 'No entries provided for upsert.' }],
               error: 'No entries provided.'
@@ -124,7 +202,7 @@ export function createTool(
 
           if (useIndices) {
             // Index mode: entries and indices must have the same length
-            if (input.indices!.length !== input.entries.length) {
+            if (input.indices!.length !== entries.length) {
               return {
                 content: [
                   {
@@ -137,7 +215,7 @@ export function createTool(
             }
           } else {
             // Key mode: validate that key column is present in every entry
-            for (const entry of input.entries) {
+            for (const entry of entries) {
               const keyValue = entry[schema.keyColumn]
               if (!keyValue || keyValue.trim().length === 0) {
                 return {
@@ -155,7 +233,7 @@ export function createTool(
         }
 
         if (input.operation === 'remove') {
-          if (!useIndices && (!input.keys || input.keys.length === 0)) {
+          if (!useIndices && (!keys || keys.length === 0)) {
             return {
               content: [{ type: 'text', text: 'No keys or indices provided for remove.' }],
               error: 'No keys or indices provided.'
@@ -222,13 +300,7 @@ export function createTool(
 
         if (input.operation === 'upsert') {
           if (useIndices) {
-            const res = upsertRowsByIndex(
-              migratedRows,
-              input.entries!,
-              input.indices!,
-              schema,
-              timestamp
-            )
+            const res = upsertRowsByIndex(migratedRows, entries!, input.indices!, schema, timestamp)
             if (res.error) {
               return {
                 content: [{ type: 'text', text: res.error }],
@@ -237,9 +309,9 @@ export function createTool(
             }
             resultRows = res.rows
           } else {
-            resultRows = upsertRows(migratedRows, input.entries!, schema, timestamp)
+            resultRows = upsertRows(migratedRows, entries!, schema, timestamp)
           }
-          const count = input.entries!.length
+          const count = entries!.length
           summary = `Upserted ${count} row${count === 1 ? '' : 's'} in "${canonicalName}".`
         } else {
           if (useIndices) {
@@ -253,7 +325,7 @@ export function createTool(
             resultRows = res.rows
             summary = `Removed ${res.removed} row${res.removed === 1 ? '' : 's'} from "${canonicalName}".`
           } else {
-            resultRows = removeRows(migratedRows, input.keys!, schema)
+            resultRows = removeRows(migratedRows, keys!, schema)
             const removed = migratedRows.length - resultRows.length
             summary = `Removed ${removed} row${removed === 1 ? '' : 's'} from "${canonicalName}".`
           }

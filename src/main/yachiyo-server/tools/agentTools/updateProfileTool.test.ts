@@ -15,6 +15,8 @@ function createExecute(deps: UpdateProfileDeps) {
       operation: 'upsert' | 'remove'
       entries?: Record<string, string>[]
       keys?: string[]
+      key?: string
+      value?: string
       indices?: number[]
     },
     options: object = {}
@@ -54,6 +56,55 @@ test('updateProfile upserts rows with timestamp into owner Profile section', asy
     assert.match(content, /\| Role \| Engineer \|/)
     // Timestamp column present
     assert.match(content, /\| Key \| Value \| Since \|/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('updateProfile upserts a single key/value profile row without table column names', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
+  const userDocumentPath = join(root, 'USER.md')
+
+  try {
+    const execute = createExecute({ userDocumentPath })
+
+    const result = await execute({
+      section: 'Profile',
+      operation: 'upsert',
+      key: 'Package manager',
+      value: 'Prefers bun in TypeScript and JavaScript projects.'
+    })
+
+    assert.equal(result.error, undefined)
+    assert.match(result.content[0]?.text ?? '', /Upserted 1 row/)
+
+    const content = await readFile(userDocumentPath, 'utf8')
+    assert.match(
+      content,
+      /\| Package manager \| Prefers bun in TypeScript and JavaScript projects\. \|/
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('updateProfile accepts lowercase entry column names', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-profile-'))
+  const userDocumentPath = join(root, 'USER.md')
+
+  try {
+    const execute = createExecute({ userDocumentPath })
+
+    const result = await execute({
+      section: 'Profile',
+      operation: 'upsert',
+      entries: [{ key: 'Package manager', value: 'Prefers bun.' }]
+    })
+
+    assert.equal(result.error, undefined)
+
+    const content = await readFile(userDocumentPath, 'utf8')
+    assert.match(content, /\| Package manager \| Prefers bun\. \|/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
