@@ -17,6 +17,7 @@ function resetStore(): void {
     activeThreadId: null,
     archivedThreads: [],
     composerDrafts: {},
+    globalProcessingTasks: [],
     config: null,
     connectionStatus: 'connected',
     enabledTools: DEFAULT_ENABLED_TOOL_NAMES,

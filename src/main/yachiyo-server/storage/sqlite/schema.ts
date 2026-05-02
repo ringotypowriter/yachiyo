@@ -91,7 +91,10 @@ export const threadsTable = sqliteTable(
     updatedAt: text('updated_at').notNull(),
     createdAt: text('created_at').notNull()
   },
-  (table) => [index('threads_channel_group_id_idx').on(table.channelGroupId)]
+  (table) => [
+    index('threads_channel_group_id_idx').on(table.channelGroupId),
+    index('threads_folder_id_idx').on(table.folderId)
+  ]
 )
 
 export const messagesTable = sqliteTable(
@@ -121,7 +124,10 @@ export const messagesTable = sqliteTable(
     modelId: text('model_id'),
     providerName: text('provider_name')
   },
-  (table) => [index('messages_thread_id_idx').on(table.threadId)]
+  (table) => [
+    index('messages_thread_id_idx').on(table.threadId),
+    index('messages_parent_message_id_idx').on(table.parentMessageId)
+  ]
 )
 
 export const runsTable = sqliteTable(
@@ -152,36 +158,47 @@ export const runsTable = sqliteTable(
     snapshotFileCount: integer('snapshot_file_count'),
     workspacePath: text('workspace_path')
   },
-  (table) => [index('runs_thread_id_idx').on(table.threadId)]
+  (table) => [
+    index('runs_thread_id_idx').on(table.threadId),
+    index('runs_request_message_id_idx').on(table.requestMessageId),
+    index('runs_assistant_message_id_idx').on(table.assistantMessageId)
+  ]
 )
 
-export const runRecoveryCheckpointsTable = sqliteTable('run_recovery_checkpoints', {
-  runId: text('run_id')
-    .primaryKey()
-    .references(() => runsTable.id, { onDelete: 'cascade' }),
-  threadId: text('thread_id')
-    .notNull()
-    .references(() => threadsTable.id, { onDelete: 'cascade' }),
-  requestMessageId: text('request_message_id')
-    .notNull()
-    .references(() => messagesTable.id, {
-      onDelete: 'cascade'
-    }),
-  assistantMessageId: text('assistant_message_id').notNull(),
-  content: text('content').notNull(),
-  textBlocks: text('text_blocks'),
-  reasoning: text('reasoning'),
-  responseMessages: text('response_messages'),
-  enabledTools: text('enabled_tools').notNull(),
-  enabledSkillNames: text('enabled_skill_names'),
-  reasoningEffort: text('reasoning_effort'),
-  channelHint: text('channel_hint'),
-  updateHeadOnComplete: text('update_head_on_complete').notNull(),
-  createdAt: text('created_at').notNull(),
-  updatedAt: text('updated_at').notNull(),
-  recoveryAttempts: integer('recovery_attempts').notNull().default(0),
-  lastError: text('last_error')
-})
+export const runRecoveryCheckpointsTable = sqliteTable(
+  'run_recovery_checkpoints',
+  {
+    runId: text('run_id')
+      .primaryKey()
+      .references(() => runsTable.id, { onDelete: 'cascade' }),
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => threadsTable.id, { onDelete: 'cascade' }),
+    requestMessageId: text('request_message_id')
+      .notNull()
+      .references(() => messagesTable.id, {
+        onDelete: 'cascade'
+      }),
+    assistantMessageId: text('assistant_message_id').notNull(),
+    content: text('content').notNull(),
+    textBlocks: text('text_blocks'),
+    reasoning: text('reasoning'),
+    responseMessages: text('response_messages'),
+    enabledTools: text('enabled_tools').notNull(),
+    enabledSkillNames: text('enabled_skill_names'),
+    reasoningEffort: text('reasoning_effort'),
+    channelHint: text('channel_hint'),
+    updateHeadOnComplete: text('update_head_on_complete').notNull(),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    recoveryAttempts: integer('recovery_attempts').notNull().default(0),
+    lastError: text('last_error')
+  },
+  (table) => [
+    index('run_recovery_checkpoints_thread_id_idx').on(table.threadId),
+    index('run_recovery_checkpoints_request_message_id_idx').on(table.requestMessageId)
+  ]
+)
 
 export const toolCallsTable = sqliteTable(
   'tool_calls',
@@ -209,7 +226,12 @@ export const toolCallsTable = sqliteTable(
     stepIndex: integer('step_index'),
     stepBudget: integer('step_budget')
   },
-  (table) => [index('tool_calls_thread_id_idx').on(table.threadId)]
+  (table) => [
+    index('tool_calls_thread_id_idx').on(table.threadId),
+    index('tool_calls_run_id_idx').on(table.runId),
+    index('tool_calls_request_message_id_idx').on(table.requestMessageId),
+    index('tool_calls_assistant_message_id_idx').on(table.assistantMessageId)
+  ]
 )
 
 export const imageAltTextsTable = sqliteTable('image_alt_texts', {
@@ -232,21 +254,25 @@ export const schedulesTable = sqliteTable('schedules', {
   updatedAt: text('updated_at').notNull()
 })
 
-export const scheduleRunsTable = sqliteTable('schedule_runs', {
-  id: text('id').primaryKey(),
-  scheduleId: text('schedule_id')
-    .notNull()
-    .references(() => schedulesTable.id, { onDelete: 'cascade' }),
-  threadId: text('thread_id').references(() => threadsTable.id, { onDelete: 'set null' }),
-  status: text('status').$type<ScheduleRunStatus>().notNull(),
-  resultStatus: text('result_status').$type<ScheduleResultStatus>(),
-  resultSummary: text('result_summary'),
-  error: text('error'),
-  promptTokens: integer('prompt_tokens'),
-  completionTokens: integer('completion_tokens'),
-  startedAt: text('started_at').notNull(),
-  completedAt: text('completed_at')
-})
+export const scheduleRunsTable = sqliteTable(
+  'schedule_runs',
+  {
+    id: text('id').primaryKey(),
+    scheduleId: text('schedule_id')
+      .notNull()
+      .references(() => schedulesTable.id, { onDelete: 'cascade' }),
+    threadId: text('thread_id').references(() => threadsTable.id, { onDelete: 'set null' }),
+    status: text('status').$type<ScheduleRunStatus>().notNull(),
+    resultStatus: text('result_status').$type<ScheduleResultStatus>(),
+    resultSummary: text('result_summary'),
+    error: text('error'),
+    promptTokens: integer('prompt_tokens'),
+    completionTokens: integer('completion_tokens'),
+    startedAt: text('started_at').notNull(),
+    completedAt: text('completed_at')
+  },
+  (table) => [index('schedule_runs_thread_id_idx').on(table.threadId)]
+)
 
 export const groupMonitorBuffersTable = sqliteTable('group_monitor_buffers', {
   groupId: text('group_id')

@@ -348,6 +348,7 @@ export interface YachiyoStorage {
   // Thread folders
   listFolders(): FolderRecord[]
   getFolder(folderId: string): FolderRecord | undefined
+  listThreadsInFolder(folderId: string, options?: { includeArchived?: boolean }): ThreadRecord[]
   createFolder(folder: FolderRecord): void
   renameFolder(input: { folderId: string; title: string; updatedAt: string }): void
   setFolderColor(input: {

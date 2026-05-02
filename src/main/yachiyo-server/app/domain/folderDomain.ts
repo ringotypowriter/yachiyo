@@ -150,9 +150,7 @@ export class FolderDomain {
     const folder = this.deps.storage.getFolder(folderId)
     if (!folder) return
 
-    // Collect member threads before deletion so we can emit updates
-    const { threads } = this.deps.storage.bootstrap()
-    const memberThreads = threads.filter((t) => t.folderId === folderId)
+    const memberThreads = this.deps.storage.listThreadsInFolder(folderId)
 
     this.deps.storage.deleteFolder(folderId)
 
@@ -221,11 +219,7 @@ export class FolderDomain {
     const folder = this.deps.storage.getFolder(folderId)
     if (!folder) return
 
-    const { threads, archivedThreads } = this.deps.storage.bootstrap()
-    const memberCount =
-      threads.filter((t) => t.folderId === folderId).length +
-      archivedThreads.filter((t) => t.folderId === folderId).length
-    if (memberCount === 0) {
+    if (this.deps.storage.listThreadsInFolder(folderId, { includeArchived: true }).length === 0) {
       this.deleteFolder(folderId)
     }
   }

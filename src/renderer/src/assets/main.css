@@ -290,6 +290,10 @@ body > div:not(#root) {
   animation: yachiyo-composer-spin 1.1s linear infinite;
 }
 
+.global-processing-modal__spinner {
+  animation: yachiyo-composer-spin 1s linear infinite;
+}
+
 .composer-image-card__meta {
   display: flex;
   flex-direction: column;

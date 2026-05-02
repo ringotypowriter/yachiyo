@@ -861,7 +861,23 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     },
 
     deleteThread({ threadId }) {
-      db.delete(threadsTable).where(eq(threadsTable.id, threadId)).run()
+      db.transaction((tx) => {
+        tx.delete(runRecoveryCheckpointsTable)
+          .where(eq(runRecoveryCheckpointsTable.threadId, threadId))
+          .run()
+        tx.delete(toolCallsTable).where(eq(toolCallsTable.threadId, threadId)).run()
+        tx.delete(runsTable).where(eq(runsTable.threadId, threadId)).run()
+        tx.update(scheduleRunsTable)
+          .set({ threadId: null })
+          .where(eq(scheduleRunsTable.threadId, threadId))
+          .run()
+        tx.update(messagesTable)
+          .set({ parentMessageId: null })
+          .where(eq(messagesTable.threadId, threadId))
+          .run()
+        tx.delete(messagesTable).where(eq(messagesTable.threadId, threadId)).run()
+        tx.delete(threadsTable).where(eq(threadsTable.id, threadId)).run()
+      })
     },
 
     resetThreadHistory({ threadId, updatedAt }) {
@@ -1908,6 +1924,21 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
     getFolder(folderId) {
       return db.select().from(threadFoldersTable).where(eq(threadFoldersTable.id, folderId)).get()
+    },
+
+    listThreadsInFolder(folderId, options) {
+      return db
+        .select()
+        .from(threadsTable)
+        .where(
+          options?.includeArchived === true
+            ? eq(threadsTable.folderId, folderId)
+            : and(eq(threadsTable.folderId, folderId), isNull(threadsTable.archivedAt))
+        )
+        .orderBy(desc(threadsTable.updatedAt))
+        .all()
+        .filter(isBootstrapThread)
+        .map(toThreadRecordWithChannelUserRole)
     },
 
     createFolder(folder) {

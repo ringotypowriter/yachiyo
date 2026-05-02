@@ -1082,6 +1082,18 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       return folders.get(folderId)
     },
 
+    listThreadsInFolder(folderId, options) {
+      return [...threads.values()]
+        .filter(
+          (thread) =>
+            isBootstrapThread(thread) &&
+            thread.folderId === folderId &&
+            (options?.includeArchived === true || thread.archivedAt === null)
+        )
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        .map(toThreadRecordWithChannelUserRole)
+    },
+
     createFolder(folder) {
       folders.set(folder.id, { ...folder })
     },

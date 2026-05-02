@@ -257,8 +257,15 @@ export interface AppToast {
   eventKey: string
 }
 
+export interface GlobalProcessingTask {
+  id: string
+  label: string
+}
+
 const NOTIFICATION_DEDUPE_WINDOW_MS = 10_000
+const DEFAULT_GLOBAL_PROCESSING_LABEL = 'Please wait...'
 const recentNotificationKeys = new Map<string, number>()
+let globalProcessingTaskSequence = 0
 
 function shouldShowNotification(key: string): boolean {
   const now = Date.now()
@@ -277,12 +284,47 @@ function shouldShowNotification(key: string): boolean {
   return true
 }
 
+function createGlobalProcessingTask(label: string): GlobalProcessingTask {
+  globalProcessingTaskSequence += 1
+  return {
+    id: `global-processing:${globalProcessingTaskSequence}`,
+    label
+  }
+}
+
+function waitForGlobalProcessingPaint(): Promise<void> {
+  if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+    return new Promise((resolve) => setTimeout(resolve, 0))
+  }
+
+  return new Promise((resolve) => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      timeoutId = null
+      resolve()
+    }, 80)
+
+    const resolveOnce = (): void => {
+      if (timeoutId === null) return
+      clearTimeout(timeoutId)
+      timeoutId = null
+      resolve()
+    }
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(resolveOnce)
+    })
+  })
+}
+
 interface AppState {
   activeToasts: AppToast[]
   queuedToasts: AppToast[]
   pushToast: (toast: Omit<AppToast, 'id'>) => void
   dismissToast: (id: string) => void
   flushQueuedToasts: () => void
+  globalProcessingTasks: GlobalProcessingTask[]
+  beginGlobalProcessing: (label?: string) => string
+  endGlobalProcessing: (taskId: string) => void
 
   activeArchivedThreadId: string | null
   activeRunId: string | null
@@ -1263,6 +1305,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   scrollToMessageId: null,
   archivedThreads: [],
   folders: [],
+  globalProcessingTasks: [],
+  beginGlobalProcessing: (label = DEFAULT_GLOBAL_PROCESSING_LABEL) => {
+    const task = createGlobalProcessingTask(label)
+    set((state) => ({ globalProcessingTasks: [...state.globalProcessingTasks, task] }))
+    return task.id
+  },
+  endGlobalProcessing: (taskId) =>
+    set((state) => ({
+      globalProcessingTasks: state.globalProcessingTasks.filter((task) => task.id !== taskId)
+    })),
   collapsedFolderIds: loadCollapsedFolderIds(),
   availableSkills: [],
   archiveThread: async (threadId) => {
@@ -1394,13 +1446,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   config: null,
   connectionStatus: 'connecting',
   deleteThread: async (threadId) => {
+    const processingTaskId = get().beginGlobalProcessing('Deleting thread...')
     try {
+      await waitForGlobalProcessingPaint()
       await window.api.yachiyo.deleteThread({ threadId })
       set({ lastError: null })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to delete this thread.'
       set({ lastError: message })
       throw error
+    } finally {
+      get().endGlobalProcessing(processingTaskId)
     }
   },
   enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
@@ -3164,7 +3220,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteFolder: async (folderId) => {
-    await window.api.yachiyo.deleteFolder({ folderId })
+    const processingTaskId = get().beginGlobalProcessing('Discarding folder...')
+    try {
+      await waitForGlobalProcessingPaint()
+      await window.api.yachiyo.deleteFolder({ folderId })
+    } finally {
+      get().endGlobalProcessing(processingTaskId)
+    }
   },
 
   moveThreadToFolder: async (threadId, folderId) => {

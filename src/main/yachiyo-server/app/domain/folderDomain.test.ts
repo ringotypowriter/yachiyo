@@ -106,6 +106,36 @@ describe('FolderDomain', () => {
     assert.equal(storage.getThread('t2')!.folderId, undefined)
   })
 
+  test('deleteFolder does not bootstrap full thread history to find folder members', () => {
+    const { deps, storage, events } = createTestDeps()
+    const t1 = createThread(storage, { id: 't1' })
+    const t2 = createThread(storage, { id: 't2' })
+    const setupDomain = new FolderDomain(deps)
+    const folder = setupDomain.createFolderForThreads({ threads: [t1, t2] })
+    events.length = 0
+
+    const storageWithoutBootstrap = {
+      ...storage,
+      bootstrap: () => {
+        throw new Error('deleteFolder should not load full bootstrap state')
+      },
+      listThreadsInFolder: (folderId: string) =>
+        [storage.getThread('t1'), storage.getThread('t2')].filter(
+          (thread): thread is ThreadRecord => thread?.folderId === folderId
+        )
+    }
+    const domain = new FolderDomain({ ...deps, storage: storageWithoutBootstrap })
+
+    domain.deleteFolder(folder.id)
+
+    assert.equal(storage.getFolder(folder.id), undefined)
+    assert.deepEqual(
+      events.filter((event) => event.type === 'thread.updated').map((event) => event.threadId),
+      ['t1', 't2']
+    )
+    assert.ok(events.some((event) => event.type === 'folder.deleted'))
+  })
+
   test('moveThreadToFolder moves thread to a different folder', () => {
     const { deps, storage } = createTestDeps()
     const domain = new FolderDomain(deps)

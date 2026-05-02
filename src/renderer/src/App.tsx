@@ -8,6 +8,7 @@ import { useSidebarVisibilityState } from '@renderer/features/layout/hooks/useSi
 import { isCreateNewThreadShortcut } from '@renderer/features/layout/lib/newThreadShortcut'
 import { isOpenSidebarSearchShortcut } from '@renderer/features/layout/lib/findBarShortcut'
 import { ToastPresenter } from '@renderer/features/notifications/components/ToastPresenter'
+import { GlobalProcessingModal } from '@renderer/components/GlobalProcessingModal'
 
 function ConnectionOverlay({
   status,
@@ -230,6 +231,7 @@ function App(): React.JSX.Element {
         />
       </div>
       <ToastPresenter />
+      <GlobalProcessingModal />
 
       {overlayMounted && (
         <ConnectionOverlay

@@ -30,6 +30,7 @@ function resetStore(): void {
     activeThreadId: null,
     archivedThreads: [],
     composerDrafts: {},
+    globalProcessingTasks: [],
     reasoningEffortByThread: {},
     config: null,
     connectionStatus: 'connected',
@@ -70,6 +71,14 @@ function resetStore(): void {
 
 type YachiyoApiMock = Partial<Window['api']['yachiyo']>
 
+type MockedAnimationFrameWindow = Window & {
+  __flushNextAnimationFrame: () => void
+}
+
+function getMockedAnimationFrameWindow(): MockedAnimationFrameWindow {
+  return globalThis.window as unknown as MockedAnimationFrameWindow
+}
+
 function withWindowApiMock(mock: YachiyoApiMock): () => void {
   const globalScope = globalThis as typeof globalThis & {
     window?: {
@@ -106,6 +115,92 @@ function withWindowApiMock(mock: YachiyoApiMock): () => void {
     })
   }
 }
+
+function installAnimationFrameMock(): void {
+  const callbacks: FrameRequestCallback[] = []
+  const win = getMockedAnimationFrameWindow()
+  win.requestAnimationFrame = (callback: FrameRequestCallback): number => {
+    callbacks.push(callback)
+    return callbacks.length
+  }
+  win.__flushNextAnimationFrame = (): void => {
+    const callback = callbacks.shift()
+    assert.ok(callback, 'expected a queued animation frame')
+    callback(0)
+  }
+}
+
+test('deleteThread shows global processing before invoking the database action', async () => {
+  resetStore()
+
+  let deleteCalled = false
+  const deleteController: { resolve: (() => void) | null } = { resolve: null }
+  const restoreWindow = withWindowApiMock({
+    deleteThread: async ({ threadId }) => {
+      deleteCalled = true
+      assert.equal(threadId, 'thread-1')
+      await new Promise<void>((resolve) => {
+        deleteController.resolve = resolve
+      })
+    }
+  })
+  installAnimationFrameMock()
+
+  try {
+    const deletePromise = useAppStore.getState().deleteThread('thread-1')
+
+    let processingTasks = useAppStore.getState().globalProcessingTasks
+    assert.equal(processingTasks.length, 1)
+    assert.equal(processingTasks[0]?.label, 'Deleting thread...')
+    assert.equal(deleteCalled, false)
+
+    getMockedAnimationFrameWindow().__flushNextAnimationFrame()
+    await Promise.resolve()
+    assert.equal(deleteCalled, false)
+
+    getMockedAnimationFrameWindow().__flushNextAnimationFrame()
+    await Promise.resolve()
+    assert.equal(deleteCalled, true)
+    processingTasks = useAppStore.getState().globalProcessingTasks
+    assert.equal(processingTasks.length, 1)
+    assert.equal(processingTasks[0]?.label, 'Deleting thread...')
+
+    const completeDelete = deleteController.resolve
+    assert.ok(completeDelete, 'delete promise should be pending until resolved')
+    completeDelete()
+    await deletePromise
+    assert.deepEqual(useAppStore.getState().globalProcessingTasks, [])
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('deleteFolder clears global processing when discard fails', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    deleteFolder: async ({ folderId }) => {
+      assert.equal(folderId, 'folder-1')
+      throw new Error('discard failed')
+    }
+  })
+  installAnimationFrameMock()
+
+  try {
+    const deletePromise = useAppStore.getState().deleteFolder('folder-1')
+
+    const processingTasks = useAppStore.getState().globalProcessingTasks
+    assert.equal(processingTasks.length, 1)
+    assert.equal(processingTasks[0]?.label, 'Discarding folder...')
+
+    getMockedAnimationFrameWindow().__flushNextAnimationFrame()
+    getMockedAnimationFrameWindow().__flushNextAnimationFrame()
+    await assert.rejects(deletePromise, /discard failed/)
+    assert.deepEqual(useAppStore.getState().globalProcessingTasks, [])
+  } finally {
+    restoreWindow()
+  }
+})
 
 test('initialize hydrates the active thread run history after bootstrap', async () => {
   resetStore()
