@@ -2537,16 +2537,24 @@ test('createBranch clears usage data for the destination thread', async () => {
 test('compactThreadToAnotherThread switches into the destination thread and starts a run', async () => {
   resetStore()
 
+  const calls: Array<{ reasoningEffort?: string; threadId: string }> = []
   const restoreWindow = withWindowApiMock({
-    compactThreadToAnotherThread: async (input) => ({
-      runId: 'run-compact-1',
-      sourceThreadId: input.threadId,
-      thread: {
-        id: 'thread-2',
-        title: 'New Chat',
-        updatedAt: TIMESTAMP
+    compactThreadToAnotherThread: async (input) => {
+      calls.push({
+        reasoningEffort: input.reasoningEffort,
+        threadId: input.threadId
+      })
+
+      return {
+        runId: 'run-compact-1',
+        sourceThreadId: input.threadId,
+        thread: {
+          id: 'thread-2',
+          title: 'New Chat',
+          updatedAt: TIMESTAMP
+        }
       }
-    })
+    }
   })
 
   try {
@@ -2558,6 +2566,9 @@ test('compactThreadToAnotherThread switches into the destination thread and star
           images: [],
           files: []
         }
+      },
+      reasoningEffortByThread: {
+        'thread-1': 'high'
       },
       messages: {
         'thread-1': []
@@ -2574,6 +2585,7 @@ test('compactThreadToAnotherThread switches into the destination thread and star
     await useAppStore.getState().compactThreadToAnotherThread()
 
     const state = useAppStore.getState()
+    assert.deepEqual(calls, [{ reasoningEffort: 'high', threadId: 'thread-1' }])
     assert.equal(state.activeThreadId, 'thread-2')
     assert.equal(state.activeRunId, 'run-compact-1')
     assert.equal(state.activeRunThreadId, 'thread-2')
@@ -2582,6 +2594,8 @@ test('compactThreadToAnotherThread switches into the destination thread and star
     assert.equal(state.runStatus, 'running')
     assert.equal(state.composerDrafts['thread-1']?.text, 'Keep me here too')
     assert.equal(state.composerDrafts['thread-2'], undefined)
+    assert.equal(state.reasoningEffortByThread['thread-1'], 'high')
+    assert.equal(state.reasoningEffortByThread['thread-2'], 'high')
   } finally {
     restoreWindow()
   }

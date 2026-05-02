@@ -927,7 +927,8 @@ export class YachiyoServer {
 
     return this.runDomain.compactThreadToAnotherThread({
       sourceThread,
-      destinationThread
+      destinationThread,
+      reasoningEffort: input.reasoningEffort
     })
   }
 

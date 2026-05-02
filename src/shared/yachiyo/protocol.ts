@@ -1289,6 +1289,7 @@ export interface EditMessageInput {
 
 export interface CompactThreadInput {
   threadId: string
+  reasoningEffort?: ComposerReasoningSelection
 }
 
 export interface SaveThreadInput {

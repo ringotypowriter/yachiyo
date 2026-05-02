@@ -1328,19 +1328,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   compactThreadToAnotherThread: async () => {
-    const threadId = get().activeThreadId
+    const currentState = get()
+    const threadId = currentState.activeThreadId
     if (!threadId) {
       return
     }
-    const thread = findThread(get(), threadId)
+    const thread = findThread(currentState, threadId)
     if (!thread || !canCompactThreadToAnotherThread(thread)) {
       const message = 'Handoff is only supported for local threads.'
       set({ lastError: message })
       throw new Error(message)
     }
 
+    const reasoningEffort = getComposerReasoningEffort(currentState, threadId)
+
     try {
-      const accepted = await window.api.yachiyo.compactThreadToAnotherThread({ threadId })
+      const accepted = await window.api.yachiyo.compactThreadToAnotherThread({
+        threadId,
+        reasoningEffort
+      })
       set((state) => {
         const nextState = {
           ...state,
@@ -1360,6 +1366,10 @@ export const useAppStore = create<AppState>((set, get) => ({
             accepted.thread.id,
             'running'
           ),
+          reasoningEffortByThread: {
+            ...state.reasoningEffortByThread,
+            [accepted.thread.id]: reasoningEffort
+          },
           ...withFilterBase(state.sidebarFilter, 'all'),
           messages: {
             ...state.messages,

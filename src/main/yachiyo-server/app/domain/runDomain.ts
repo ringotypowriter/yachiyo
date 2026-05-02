@@ -936,6 +936,7 @@ export class YachiyoServerRunDomain {
   async compactThreadToAnotherThread(input: {
     sourceThread: ThreadRecord
     destinationThread: ThreadRecord
+    reasoningEffort?: ComposerReasoningSelection
   }): Promise<CompactThreadAccepted> {
     if (this.hasNonRecapActiveRun(input.sourceThread.id)) {
       throw new Error('Cannot compact a thread with an active run.')
@@ -963,7 +964,8 @@ export class YachiyoServerRunDomain {
       runId,
       thread: input.destinationThread,
       sourceThreadId: input.sourceThread.id,
-      sourceMessages: effectiveMessages
+      sourceMessages: effectiveMessages,
+      reasoningEffort: input.reasoningEffort
     })
 
     return {
@@ -1697,9 +1699,11 @@ export class YachiyoServerRunDomain {
     thread: ThreadRecord
     sourceThreadId: string
     sourceMessages: MessageRecord[]
+    reasoningEffort?: ComposerReasoningSelection
   }): void {
     this.activeRuns.set(input.runId, {
       threadId: input.thread.id,
+      ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
       abortController: new AbortController(),
       executionPhase: 'generating',
       updateHeadOnComplete: true
@@ -2356,6 +2360,7 @@ export class YachiyoServerRunDomain {
     thread: ThreadRecord
     sourceThreadId: string
     sourceMessages: MessageRecord[]
+    reasoningEffort?: ComposerReasoningSelection
   }): Promise<void> {
     const config = this.deps.readConfig()
     const settings = toEffectiveProviderSettings(config, input.thread.modelOverride)
@@ -2539,6 +2544,7 @@ export class YachiyoServerRunDomain {
         signal: activeRun.abortController.signal,
         purpose: 'thread-handoff',
         promptCacheKey: input.sourceThreadId,
+        ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
         ...(handoffTools
           ? {
               tools: handoffTools,

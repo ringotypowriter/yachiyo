@@ -8073,6 +8073,39 @@ test('YachiyoServer.compactThreadToAnotherThread inherits the source thread mode
   )
 })
 
+test('YachiyoServer.compactThreadToAnotherThread uses the requested reasoning effort', async () => {
+  const requests: ModelStreamRequest[] = []
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      const sourceThread = await server.createThread()
+      const sourceAccepted = await server.sendChat({
+        threadId: sourceThread.id,
+        content: 'Preserve the selected reasoning effort across handoff.'
+      })
+      await completeRun(sourceAccepted.runId)
+
+      const compacted = await server.compactThreadToAnotherThread({
+        threadId: sourceThread.id,
+        reasoningEffort: 'high'
+      })
+      await completeRun(compacted.runId)
+
+      const handoffRequest = requests.findLast((request) => request.purpose === 'thread-handoff')
+      assert.ok(handoffRequest)
+      assert.equal(handoffRequest.reasoningEffort, 'high')
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+          yield 'ok'
+        }
+      })
+    }
+  )
+})
+
 test('YachiyoServer.compactThreadToAnotherThread preserves Anthropic cache breakpoints', async () => {
   const requests: ModelStreamRequest[] = []
   const hasAnthropicCacheBreakpoint = (
