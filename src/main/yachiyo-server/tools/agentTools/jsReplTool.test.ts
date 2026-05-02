@@ -25,8 +25,11 @@ type JsReplToolCallInput = Omit<JsReplToolInput, 'reset' | 'timeout'> &
 
 const createdTools: TrackedJsReplTool[] = []
 
-function createTrackedTool(context: AgentToolContext): TrackedJsReplTool {
-  const tool = createTool(context) as unknown as TrackedJsReplTool
+function createTrackedTool(
+  context: AgentToolContext,
+  dependencies?: Parameters<typeof createTool>[1]
+): TrackedJsReplTool {
+  const tool = createTool(context, dependencies) as unknown as TrackedJsReplTool
   createdTools.push(tool)
   return tool
 }
@@ -136,6 +139,100 @@ describe('jsReplTool', () => {
       code: 'Buffer.from("hello").toString("hex")'
     })
     assert.equal(result.details.result, '68656c6c6f')
+  })
+
+  it('provides fetch in the context', async () => {
+    const tool = createTrackedTool(makeContext())
+    const result = await execute(tool, {
+      code: 'const r = await fetch("data:text/plain,hello-from-fetch"); return await r.text()'
+    })
+    assert.equal(result.details.result, 'hello-from-fetch')
+    assert.equal(result.error, undefined)
+  })
+
+  it('routes fetch through the configured fetch implementation', async () => {
+    let captured:
+      | {
+          url: string
+          method: string | undefined
+          header: string | null
+          body: string
+        }
+      | undefined
+
+    const tool = createTrackedTool(makeContext(), {
+      fetchImpl: async (input, init) => {
+        captured = {
+          url: input instanceof URL ? input.toString() : String(input),
+          method: init?.method,
+          header: new Headers(init?.headers).get('x-from-repl'),
+          body: await new Response(init?.body).text()
+        }
+        return new Response('proxied fetch', {
+          status: 203,
+          headers: { 'x-fetch-path': 'configured' }
+        })
+      }
+    } as Parameters<typeof createTool>[1])
+
+    const result = await execute(tool, {
+      code: `
+const r = await fetch("data:text/plain,worker-fetch", {
+  method: "POST",
+  headers: { "x-from-repl": "yes" },
+  body: "payload"
+})
+return JSON.stringify({
+  status: r.status,
+  text: await r.text(),
+  header: r.headers.get("x-fetch-path"),
+  url: r.url
+})`
+    })
+
+    assert.deepEqual(JSON.parse(result.details.result!), {
+      status: 203,
+      text: 'proxied fetch',
+      header: 'configured',
+      url: 'data:text/plain,worker-fetch'
+    })
+    assert.deepEqual(captured, {
+      url: 'data:text/plain,worker-fetch',
+      method: 'POST',
+      header: 'yes',
+      body: 'payload'
+    })
+  })
+
+  it('does not wait for the response body before resolving fetch', async () => {
+    const neverEndingBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('partial body'))
+      }
+    })
+    const tool = createTrackedTool(makeContext(), {
+      fetchImpl: async () =>
+        new Response(neverEndingBody, {
+          status: 200,
+          headers: { 'x-streaming': 'yes' }
+        })
+    } as Parameters<typeof createTool>[1])
+
+    const result = await execute(tool, {
+      code: `
+const r = await fetch("https://example.com/stream")
+return JSON.stringify({
+  status: r.status,
+  header: r.headers.get("x-streaming")
+})`,
+      timeout: 1
+    })
+
+    assert.equal(result.error, undefined)
+    assert.deepEqual(JSON.parse(result.details.result!), {
+      status: 200,
+      header: 'yes'
+    })
   })
 
   it('times out on infinite loops', async () => {

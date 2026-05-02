@@ -134,6 +134,48 @@ test('createAgentToolSet adds searchMemory only when memory is configured', () =
   assert.equal('searchMemory' in (withoutMemory ?? {}), false)
 })
 
+test('createAgentToolSet passes configured fetch into jsRepl', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const tools = createAgentToolSet(
+      {
+        enabledTools: ['jsRepl'],
+        workspacePath
+      },
+      {
+        fetchImpl: async () =>
+          new Response('configured fetch', {
+            headers: { 'x-fetch-path': 'configured' }
+          })
+      }
+    )
+
+    assert.ok(tools?.jsRepl)
+    const jsRepl = tools.jsRepl as unknown as {
+      execute(input: { code: string }): Promise<{ details: { result?: string }; error?: string }>
+      dispose(): Promise<void>
+    }
+
+    try {
+      const result = await jsRepl.execute({
+        code: `
+const r = await fetch("data:text/plain,worker-fetch")
+return JSON.stringify({
+  text: await r.text(),
+  header: r.headers.get("x-fetch-path")
+})`
+      })
+
+      assert.equal(result.error, undefined)
+      assert.deepEqual(JSON.parse(result.details.result!), {
+        text: 'configured fetch',
+        header: 'configured'
+      })
+    } finally {
+      await jsRepl.dispose()
+    }
+  })
+})
+
 test('searchMemory forwards the abort signal to memory service lookups', async () => {
   const abortController = new AbortController()
   let receivedSignal: AbortSignal | undefined

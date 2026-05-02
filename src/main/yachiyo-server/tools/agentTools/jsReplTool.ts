@@ -1,4 +1,4 @@
-import { Worker } from 'node:worker_threads'
+import { Worker, type Transferable } from 'node:worker_threads'
 import { statSync } from 'node:fs'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
 
@@ -29,6 +29,7 @@ import { runWebSearchTool } from './webSearchTool.ts'
 import { JS_REPL_WORKER_SCRIPT } from './jsReplWorkerScript.ts'
 
 export interface JsReplToolDependencies {
+  fetchImpl?: typeof globalThis.fetch
   searchService?: SearchService
   webSearchService?: WebSearchService
 }
@@ -42,6 +43,37 @@ const MAX_DETAILS_OUTPUT_CHARS = 8_000
 const WORKER_RESPONSE_BUFFER_MS = 5_000
 
 type ToolBinding = (input: unknown) => Promise<{ content: string; error?: string }>
+
+interface WorkerFetchRequest {
+  url: string
+  init: {
+    method?: string
+    headers?: [string, string][]
+    bodyBase64?: string
+    redirect?: RequestRedirect
+    referrer?: string
+    referrerPolicy?: ReferrerPolicy
+    credentials?: RequestCredentials
+    cache?: RequestCache
+    mode?: RequestMode
+    integrity?: string
+    keepalive?: boolean
+  }
+}
+
+interface WorkerFetchResult {
+  status: number
+  statusText: string
+  headers: [string, string][]
+  body?: ReadableStream<Uint8Array>
+  url: string
+  redirected: boolean
+  type: ResponseType
+}
+
+interface WorkerFetchFailure {
+  error: string
+}
 
 function simplifyToolResult(output: AgentToolOutput): { content: string; error?: string } {
   return {
@@ -62,6 +94,27 @@ function rewriteRelativePath(input: unknown, cwd: string): unknown {
 
 function singleQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`
+}
+
+async function runConfiguredFetch(
+  fetchImpl: typeof globalThis.fetch,
+  request: WorkerFetchRequest
+): Promise<WorkerFetchResult> {
+  const { bodyBase64, headers, ...init } = request.init
+  const response = await fetchImpl(request.url, {
+    ...init,
+    ...(headers ? { headers } : {}),
+    ...(bodyBase64 !== undefined ? { body: Buffer.from(bodyBase64, 'base64') } : {})
+  })
+  return {
+    status: response.status,
+    statusText: response.statusText,
+    headers: Array.from(response.headers.entries()),
+    ...(response.body ? { body: response.body } : {}),
+    url: response.url.length > 0 ? response.url : request.url,
+    redirected: response.redirected,
+    type: response.type
+  }
 }
 
 function buildToolBindings(
@@ -139,7 +192,9 @@ interface WorkerMessage {
   id?: number
   toolName?: string
   input?: unknown
+  request?: WorkerFetchRequest
   result?: { content: string; error?: string }
+  fetchResult?: WorkerFetchResult | WorkerFetchFailure
 }
 
 export async function terminateAllJsReplWorkers(): Promise<void> {
@@ -150,6 +205,7 @@ class JsReplWorkerHandle {
   private worker: Worker | undefined
   private executeChain: Promise<unknown> = Promise.resolve()
   private readonly toolBindings: Record<string, ToolBinding>
+  private readonly fetchImpl: typeof globalThis.fetch
   private readonly workspacePath: string
   private readonly cwdRef: { value: string }
   private initialized = false
@@ -158,6 +214,7 @@ class JsReplWorkerHandle {
     this.workspacePath = context.workspacePath
     this.cwdRef = { value: context.workspacePath }
     this.toolBindings = buildToolBindings(context, dependencies, this.cwdRef)
+    this.fetchImpl = dependencies.fetchImpl ?? globalThis.fetch
   }
 
   private async ensureWorker(): Promise<void> {
@@ -206,6 +263,29 @@ class JsReplWorkerHandle {
           } catch {
             // Worker may have been terminated; ignore.
           }
+        }
+      }
+
+      if (message.type === 'fetchCall' && message.id !== undefined) {
+        let fetchResult: WorkerFetchResult | WorkerFetchFailure
+        try {
+          if (!message.request) {
+            throw new Error('Fetch request is missing.')
+          }
+          fetchResult = await runConfiguredFetch(this.fetchImpl, message.request)
+        } catch (error) {
+          fetchResult = {
+            error: error instanceof Error ? error.message : String(error)
+          }
+        }
+        try {
+          const transferList: readonly Transferable[] =
+            'body' in fetchResult && fetchResult.body
+              ? [fetchResult.body as unknown as Transferable]
+              : []
+          worker.postMessage({ type: 'fetchResult', id: message.id, fetchResult }, transferList)
+        } catch {
+          // Worker may have been terminated; ignore.
         }
       }
     })
@@ -331,6 +411,7 @@ export function createTool(
       'Context is reset by default so each call starts with a clean slate. ' +
       'Pass `reset: false` to preserve variables and imports from the previous call when you need multi-step state. ' +
       "Has access to `require()` for Node built-ins and the active cwd's project dependencies. " +
+      'Has `fetch()` predefined for HTTP and data URL requests. ' +
       'Relative paths in fs operations resolve against the workspace.\n' +
       'Optional `cwd` overrides the working directory for this call only; it must be a relative path inside the workspace — ' +
       'absolute paths, `~`, and any `..` segments are rejected.\n' +

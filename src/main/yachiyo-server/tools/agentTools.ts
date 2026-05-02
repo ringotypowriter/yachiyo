@@ -485,6 +485,7 @@ export function createAgentToolSet(
     tools.bash = wrapDisabledTool(createBashTool(context), 'bash', enabledTools)
     tools.jsRepl = wrapDisabledTool(
       createJsReplTool(context, {
+        ...(dependencies.fetchImpl ? { fetchImpl: dependencies.fetchImpl } : {}),
         ...(dependencies.searchService ? { searchService: dependencies.searchService } : {}),
         ...(dependencies.webSearchService
           ? { webSearchService: dependencies.webSearchService }
