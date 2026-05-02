@@ -817,6 +817,76 @@ test('YachiyoServer injects recalled memory into the compiled context before the
   )
 })
 
+test('YachiyoServer skips automatic memory recall when disabled', async () => {
+  let recallCalls = 0
+
+  await withServer(
+    async ({ completeRun, modelRequests, server, waitForEvent }) => {
+      const config = await server.getConfig()
+      await server.saveConfig({
+        ...config,
+        memory: {
+          ...config.memory,
+          autoRecall: false
+        }
+      })
+
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'How do we handle deploys?'
+      })
+      assertAcceptedHasUserMessage(accepted)
+      const recalledEvent = (await waitForEvent('run.memory.recalled')) as {
+        recalledMemoryEntries: string[]
+      }
+      await completeRun(accepted.runId)
+
+      const mainRequest = modelRequests.find(
+        (request) => request.providerOptionsMode !== 'auxiliary'
+      )
+      assert.ok(mainRequest)
+      assert.equal(recallCalls, 0)
+      assert.deepEqual(recalledEvent.recalledMemoryEntries, [])
+      assert.equal(
+        mainRequest.messages.some(
+          (message) => typeof message.content === 'string' && message.content.includes('<memory>')
+        ),
+        false
+      )
+    },
+    {
+      memoryService: {
+        hasHiddenSearchCapability: () => true,
+        isConfigured: () => true,
+        searchMemories: async () => [],
+        testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+        recallForContext: async ({ thread }) => {
+          recallCalls++
+          return {
+            decision: {
+              shouldRecall: true,
+              score: 1,
+              reasons: ['thread-cold-start'],
+              messagesSinceLastRecall: 1,
+              charsSinceLastRecall: 24,
+              idleMs: 0,
+              noveltyScore: 0.8,
+              novelTerms: ['deploy']
+            },
+            entries: ['Deploy workflow: Always run the staging smoke test first.'],
+            thread
+          }
+        },
+        createMemory: async () => ({ savedCount: 0 }),
+        validateAndCreateMemory: async () => ({ savedCount: 0 }),
+        distillCompletedRun: async () => ({ savedCount: 0 }),
+        saveThread: async () => ({ savedCount: 0 })
+      }
+    }
+  )
+})
+
 test('YachiyoServer keeps the compile pipeline working when recall is gated off', async () => {
   await withServer(
     async ({ completeRun, modelRequests, server, waitForEvent }) => {

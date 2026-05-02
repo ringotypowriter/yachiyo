@@ -1097,10 +1097,12 @@ export async function prepareServerRunContext(
     }
   }
 
+  const config = deps.readConfig()
   let memoryEntries: string[] = []
   let recallDecision: RecallDecisionSnapshot | undefined
   if (
     input.includeMemoryRecall !== false &&
+    config.memory?.autoRecall !== false &&
     deps.buildMemoryLayerEntries &&
     !isGuest &&
     !isSteerLeg
@@ -1139,7 +1141,6 @@ export async function prepareServerRunContext(
     })
   }
 
-  const config = deps.readConfig()
   const enabledSubagentProfiles = (config.subagentProfiles ?? []).filter((p) => p.enabled)
   const savedWorkspacePaths = config.workspace?.savedPaths ?? []
   const gitCtx =

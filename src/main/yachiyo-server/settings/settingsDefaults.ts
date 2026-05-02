@@ -49,7 +49,8 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   memory: {
     enabled: true,
     provider: DEFAULT_MEMORY_PROVIDER,
-    baseUrl: DEFAULT_MEMORY_BASE_URL
+    baseUrl: DEFAULT_MEMORY_BASE_URL,
+    autoRecall: true
   },
   prompts: [],
   subagentProfiles: [

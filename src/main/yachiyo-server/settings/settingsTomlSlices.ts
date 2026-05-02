@@ -196,7 +196,8 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
         memory: {
           enabled: config.memory?.enabled === true,
           provider: config.memory?.provider ?? DEFAULT_MEMORY_PROVIDER,
-          baseUrl: config.memory?.baseUrl ?? DEFAULT_MEMORY_BASE_URL
+          baseUrl: config.memory?.baseUrl ?? DEFAULT_MEMORY_BASE_URL,
+          autoRecall: config.memory?.autoRecall !== false
         }
       }
     }

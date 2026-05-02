@@ -2,7 +2,13 @@ import { Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { MemoryTermDocument, SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
 import { theme } from '@renderer/theme/theme'
-import { SettingRow, SettingSection, SettingSwitch, SimpleSelect } from '../components/primitives'
+import {
+  SettingLabel,
+  SettingRow,
+  SettingSection,
+  SettingSwitch,
+  SimpleSelect
+} from '../components/primitives'
 import { inputStyle } from '../components/styles'
 import { loadMemoryTermDocument } from './memoryTermDocumentModel'
 
@@ -22,7 +28,8 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
   const memory = draft.memory ?? {
     enabled: true,
     provider: 'builtin-memory',
-    baseUrl: 'http://127.0.0.1:14242'
+    baseUrl: 'http://127.0.0.1:14242',
+    autoRecall: true
   }
   const provider = memory.provider ?? 'builtin-memory'
   const showsBuiltinTerms = provider === 'builtin-memory'
@@ -258,6 +265,64 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
             </button>
           </SettingRow>
         ) : null}
+      </SettingSection>
+
+      <SettingSection>
+        <SettingLabel>Memory</SettingLabel>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Auto-distill memory after runs
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              When off, memory is updated only when you use the remember tool.
+            </div>
+          </div>
+
+          <div className="shrink-0">
+            <SettingSwitch
+              checked={draft.chat?.autoMemoryDistillation !== false}
+              onChange={() =>
+                onChange({
+                  ...draft,
+                  chat: {
+                    ...draft.chat,
+                    autoMemoryDistillation: draft.chat?.autoMemoryDistillation === false
+                  }
+                })
+              }
+              ariaLabel="Toggle auto memory distillation"
+            />
+          </div>
+        </SettingRow>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Auto Recall
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              When off, new runs start without pulling in saved memories.
+            </div>
+          </div>
+
+          <div className="shrink-0">
+            <SettingSwitch
+              checked={memory.autoRecall !== false}
+              onChange={() =>
+                onChange({
+                  ...draft,
+                  memory: {
+                    ...memory,
+                    autoRecall: memory.autoRecall === false
+                  }
+                })
+              }
+              ariaLabel="Toggle automatic memory recall"
+            />
+          </div>
+        </SettingRow>
       </SettingSection>
 
       {showsBuiltinTerms ? (

@@ -74,7 +74,8 @@ test('settings store persists multi-provider config as TOML', async () => {
       memory: {
         enabled: true,
         provider: 'nowledge-mem',
-        baseUrl: 'http://127.0.0.1:14242'
+        baseUrl: 'http://127.0.0.1:14242',
+        autoRecall: false
       },
       webSearch: {
         defaultProvider: 'google-browser',
@@ -155,6 +156,7 @@ test('settings store persists multi-provider config as TOML', async () => {
     assert.match(toml, /enabled = true/)
     assert.match(toml, /provider = "nowledge-mem"/)
     assert.match(toml, /baseUrl = "http:\/\/127\.0\.0\.1:14242"/)
+    assert.match(toml, /autoRecall = false/)
     assert.match(toml, /defaultProvider = "google-browser"/)
     assert.match(toml, /\[webSearch\.browserSession\]/)
     assert.match(toml, /sourceProfileName = "Default"/)
@@ -625,7 +627,8 @@ test('normalizeSettingsConfig fills memory defaults and preserves a valid config
   assert.deepEqual(defaults.memory, {
     enabled: true,
     provider: 'builtin-memory',
-    baseUrl: DEFAULT_MEMORY_BASE_URL
+    baseUrl: DEFAULT_MEMORY_BASE_URL,
+    autoRecall: true
   })
 
   const configured = normalizeSettingsConfig({
@@ -633,14 +636,16 @@ test('normalizeSettingsConfig fills memory defaults and preserves a valid config
     memory: {
       enabled: true,
       provider: 'nowledge-mem',
-      baseUrl: 'http://mem.local:14242'
+      baseUrl: 'http://mem.local:14242',
+      autoRecall: false
     }
   })
 
   assert.deepEqual(configured.memory, {
     enabled: true,
     provider: 'nowledge-mem',
-    baseUrl: 'http://mem.local:14242'
+    baseUrl: 'http://mem.local:14242',
+    autoRecall: false
   })
 })
 
@@ -1437,7 +1442,8 @@ test('normalization preserves every MemoryConfig key', () => {
   const sentinel: Required<MemoryConfig> = {
     enabled: true,
     provider: 'builtin-memory',
-    baseUrl: 'http://localhost:9999'
+    baseUrl: 'http://localhost:9999',
+    autoRecall: false
   }
   const result = normalizeSettingsConfig({ providers: [], memory: sentinel })
   assertKeysPreserved(result.memory, sentinel, 'MemoryConfig')

@@ -194,7 +194,8 @@ export function normalizeMemoryConfig(
       input['provider'],
       fallback.provider ?? DEFAULT_MEMORY_PROVIDER
     ),
-    baseUrl: normalizeString(input['baseUrl'], fallback.baseUrl ?? DEFAULT_MEMORY_BASE_URL)
+    baseUrl: normalizeString(input['baseUrl'], fallback.baseUrl ?? DEFAULT_MEMORY_BASE_URL),
+    autoRecall: normalizeOptionalBool(input['autoRecall'], fallback.autoRecall ?? true)
   }
 }
 

@@ -775,6 +775,7 @@ export interface MemoryConfig {
   enabled?: boolean
   provider?: MemoryProviderId
   baseUrl?: string
+  autoRecall?: boolean
 }
 
 export interface ThreadMemoryRecallEntry {
