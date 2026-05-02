@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import type { ToolSet } from 'ai'
+import type { StopCondition, ToolSet } from 'ai'
 
 import type {
   BackgroundTaskCompletedEvent,
@@ -241,6 +241,10 @@ function resolveEffectiveThreadMessages(
   return collectMessagePath(messages, headMessageId)
 }
 
+const HANDOFF_TOOL_EXECUTION_DISABLED_MESSAGE =
+  'Tool execution is disabled during handoff creation. Continue writing the handoff from the existing conversation context without tools.'
+const HANDOFF_MAX_REFUSED_TOOL_STEPS = 2
+
 function disableHandoffToolExecution(tools: ToolSet | undefined): ToolSet | undefined {
   if (!tools) {
     return undefined
@@ -250,7 +254,7 @@ function disableHandoffToolExecution(tools: ToolSet | undefined): ToolSet | unde
   for (const [name, tool] of Object.entries(tools)) {
     disabledTools[name] = Object.assign(Object.create(Object.getPrototypeOf(tool)), tool, {
       execute: async () => {
-        throw new Error('Tool execution is disabled during handoff creation.')
+        throw new Error(HANDOFF_TOOL_EXECUTION_DISABLED_MESSAGE)
       }
     })
   }
@@ -2538,6 +2542,19 @@ export class YachiyoServerRunDomain {
       )
 
       let handoffUsage: ModelUsage | undefined
+      let refusedHandoffToolExecution = false
+      let handoffToolRefusalCount = 0
+      let observedHandoffToolRefusalCount = 0
+      let handoffToolRefusalSteps = 0
+      const stopAfterRepeatedHandoffToolRefusal: StopCondition<ToolSet> = () => {
+        if (handoffToolRefusalCount === observedHandoffToolRefusalCount) {
+          return false
+        }
+
+        observedHandoffToolRefusalCount = handoffToolRefusalCount
+        handoffToolRefusalSteps += 1
+        return handoffToolRefusalSteps >= HANDOFF_MAX_REFUSED_TOOL_STEPS
+      }
       for await (const delta of runtime.streamReply({
         messages: preparedContext.messages,
         settings,
@@ -2548,7 +2565,12 @@ export class YachiyoServerRunDomain {
         ...(handoffTools
           ? {
               tools: handoffTools,
-              onToolCallError: () => 'abort' as const
+              stopWhen: stopAfterRepeatedHandoffToolRefusal,
+              onToolCallError: () => {
+                refusedHandoffToolExecution = true
+                handoffToolRefusalCount += 1
+                return 'continue' as const
+              }
             }
           : {}),
         onReasoningDelta: (reasoningDelta) => {
@@ -2569,22 +2591,23 @@ export class YachiyoServerRunDomain {
       reasoningDeltaBatcher.flush()
 
       const timestamp = this.deps.timestamp()
-      const handoffResponseMessages = handoffUsage?.responseMessages
-        ? (handoffUsage.responseMessages as Array<{ role?: string; content?: unknown[] }>)
-            .map((msg) => {
-              if (msg.role !== 'assistant' || !Array.isArray(msg.content)) return msg
-              return {
-                ...msg,
-                content: msg.content.filter(
-                  (part) => (part as { type?: string }).type !== 'reasoning'
-                )
-              }
-            })
-            .filter(
-              (msg) =>
-                msg.role !== 'assistant' || !Array.isArray(msg.content) || msg.content.length > 0
-            )
-        : undefined
+      const handoffResponseMessages =
+        !refusedHandoffToolExecution && handoffUsage?.responseMessages
+          ? (handoffUsage.responseMessages as Array<{ role?: string; content?: unknown[] }>)
+              .map((msg) => {
+                if (msg.role !== 'assistant' || !Array.isArray(msg.content)) return msg
+                return {
+                  ...msg,
+                  content: msg.content.filter(
+                    (part) => (part as { type?: string }).type !== 'reasoning'
+                  )
+                }
+              })
+              .filter(
+                (msg) =>
+                  msg.role !== 'assistant' || !Array.isArray(msg.content) || msg.content.length > 0
+              )
+          : undefined
 
       const assistantMessage: MessageRecord = {
         id: messageId,

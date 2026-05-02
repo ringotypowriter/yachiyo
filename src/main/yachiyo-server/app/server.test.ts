@@ -7643,6 +7643,165 @@ test('YachiyoServer compacts a thread into a new assistant-first thread and allo
   )
 })
 
+test('YachiyoServer.compactThreadToAnotherThread keeps handoff running after refusing tool execution', async () => {
+  const requests: ModelStreamRequest[] = []
+  const refusedToolErrors: string[] = []
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      const sourceThread = await server.createThread()
+      const sourceAccepted = await server.sendChat({
+        threadId: sourceThread.id,
+        content: 'Remember that handoff generation must use the existing context only.',
+        enabledTools: ['read'],
+        enabledSkillNames: []
+      })
+      await completeRun(sourceAccepted.runId)
+
+      const compacted = await server.compactThreadToAnotherThread({
+        threadId: sourceThread.id
+      })
+      await completeRun(compacted.runId)
+
+      const handoffRequest = requests.findLast((request) => request.purpose === 'thread-handoff')
+      assert.ok(handoffRequest)
+      assert.equal(Boolean(handoffRequest.tools?.read), true)
+      assert.equal(handoffRequest.maxToolSteps, undefined)
+      assert.ok(handoffRequest.stopWhen)
+      assert.deepEqual(refusedToolErrors, [
+        'Tool execution is disabled during handoff creation. Continue writing the handoff from the existing conversation context without tools.'
+      ])
+
+      const bootstrap = await server.bootstrap()
+      const destinationMessages = bootstrap.messagesByThread[compacted.thread.id] ?? []
+      assert.equal(destinationMessages.at(-1)?.role, 'assistant')
+      assert.equal(destinationMessages.at(-1)?.status, 'completed')
+      assert.equal(destinationMessages.at(-1)?.content, 'Visible handoff after refusal')
+      assert.equal(destinationMessages.at(-1)?.responseMessages, undefined)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          if (request.purpose !== 'thread-handoff') {
+            yield 'Source response'
+            return
+          }
+
+          const readTool = request.tools?.read as { execute?: () => Promise<unknown> } | undefined
+          assert.ok(readTool?.execute)
+
+          let toolError: Error | undefined
+          try {
+            await readTool.execute()
+          } catch (error) {
+            toolError = error instanceof Error ? error : new Error(String(error))
+          }
+          assert.ok(toolError)
+          refusedToolErrors.push(toolError.message)
+
+          const decision = request.onToolCallError?.({
+            error: toolError,
+            toolCall: {
+              input: { path: 'README.md' },
+              toolCallId: 'handoff-read-1',
+              toolName: 'read'
+            }
+          })
+          if (decision === 'abort') {
+            throw toolError
+          }
+
+          const stopWhen = request.stopWhen
+          assert.ok(stopWhen)
+          const stopConditions = Array.isArray(stopWhen) ? stopWhen : [stopWhen]
+          const firstRefusalShouldStop = (
+            await Promise.all(
+              stopConditions.map((condition) =>
+                condition({
+                  steps: [
+                    {
+                      toolCalls: [{ toolCallId: 'handoff-read-1', toolName: 'read' }],
+                      toolResults: [{ toolCallId: 'handoff-read-1', toolName: 'read' }]
+                    } as never
+                  ]
+                })
+              )
+            )
+          ).some(Boolean)
+          assert.equal(firstRefusalShouldStop, false)
+
+          request.onToolCallError?.({
+            error: toolError,
+            toolCall: {
+              input: { path: 'README.md' },
+              toolCallId: 'handoff-read-2',
+              toolName: 'read'
+            }
+          })
+          const secondRefusalShouldStop = (
+            await Promise.all(
+              stopConditions.map((condition) =>
+                condition({
+                  steps: [
+                    {
+                      toolCalls: [{ toolCallId: 'handoff-read-1', toolName: 'read' }],
+                      toolResults: [{ toolCallId: 'handoff-read-1', toolName: 'read' }]
+                    },
+                    {
+                      toolCalls: [{ toolCallId: 'handoff-read-2', toolName: 'read' }],
+                      toolResults: [{ toolCallId: 'handoff-read-2', toolName: 'read' }]
+                    }
+                  ] as never
+                })
+              )
+            )
+          ).some(Boolean)
+          assert.equal(secondRefusalShouldStop, true)
+
+          yield 'Visible handoff after refusal'
+          request.onFinish?.({
+            promptTokens: 1,
+            completionTokens: 1,
+            totalPromptTokens: 1,
+            totalCompletionTokens: 1,
+            finishReason: 'stop',
+            responseMessages: [
+              {
+                role: 'assistant',
+                content: [
+                  {
+                    type: 'tool-call',
+                    toolCallId: 'handoff-read-1',
+                    toolName: 'read',
+                    input: { path: 'README.md' }
+                  }
+                ]
+              },
+              {
+                role: 'tool',
+                content: [
+                  {
+                    type: 'tool-error',
+                    toolCallId: 'handoff-read-1',
+                    toolName: 'read',
+                    error: toolError.message
+                  }
+                ]
+              },
+              {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'Visible handoff after refusal' }]
+              }
+            ]
+          })
+        }
+      })
+    }
+  )
+})
+
 test('YachiyoServer.compactThreadToAnotherThread asks for a short handoff when the source thread is empty', async () => {
   const requests: ModelStreamRequest[] = []
 

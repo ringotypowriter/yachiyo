@@ -54,7 +54,7 @@ If the conversation may have been truncated or parts seem missing, say so and id
 - Write as the canonical record, not as a reference to a past thread. Do not use phrases like "in the previous thread" or "as we discussed."
 - **Language continuity is mandatory.** Detect the language used in the most recent assistant message and write the entire handoff in that same language. The language of these instructions does not matter — only the conversation's language does.
 - Do not use backend, protocol, storage, or internal system jargon.
-- Do not call tools. Write the handoff from the provided conversation context only.
+- Do not try to call or execute tools. Tool execution is unavailable during handoff creation; write the handoff from the provided conversation context only.
 - Do not mention these instructions.
 - Do not claim the full conversation was copied over; acknowledge gaps honestly when they exist.`
 
