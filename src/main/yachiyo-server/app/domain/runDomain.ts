@@ -7,6 +7,7 @@ import type {
   BackgroundTaskSnapshot,
   BackgroundTaskStartedEvent,
   ChatAccepted,
+  ComposerReasoningSelection,
   CompactThreadAccepted,
   HarnessFinishedEvent,
   MessageCompletedEvent,
@@ -101,6 +102,7 @@ interface RunState {
   threadId: string
   requestMessageId?: string
   enabledSkillNames?: string[]
+  reasoningEffort?: ComposerReasoningSelection
   channelHint?: string
   recoveryCheckpoint?: RunRecoveryCheckpoint
   recoveringHarnessId?: string
@@ -112,8 +114,10 @@ interface RunState {
     attachments: MessageFileAttachment[]
     messageId: string
     timestamp: string
+    reasoningEffort?: ComposerReasoningSelection
     hidden?: boolean
     previousEnabledSkillNames?: string[]
+    previousReasoningEffort?: ComposerReasoningSelection
   }
   executionPhase: 'generating' | 'tool-running' | 'waiting-for-user'
   updateHeadOnComplete: boolean
@@ -129,6 +133,7 @@ interface PreparedQueuedFollowUpStart {
   createdAt: string
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
+  reasoningEffort?: ComposerReasoningSelection
   requestMessageId: string
   runId: string
   thread: ThreadRecord
@@ -325,6 +330,7 @@ export class YachiyoServerRunDomain {
     {
       enabledTools: ToolCallName[]
       enabledSkillNames?: string[]
+      reasoningEffort?: ComposerReasoningSelection
       channelHint?: string
       extraTools?: import('ai').ToolSet
     }
@@ -601,6 +607,7 @@ export class YachiyoServerRunDomain {
       | {
           enabledTools: ToolCallName[]
           enabledSkillNames?: string[]
+          reasoningEffort?: ComposerReasoningSelection
           channelHint?: string
           extraTools?: import('ai').ToolSet
         }
@@ -630,6 +637,7 @@ export class YachiyoServerRunDomain {
       content,
       ...(ctx?.enabledTools ? { enabledTools: ctx.enabledTools } : {}),
       ...(ctx?.enabledSkillNames ? { enabledSkillNames: ctx.enabledSkillNames } : {}),
+      ...(ctx?.reasoningEffort !== undefined ? { reasoningEffort: ctx.reasoningEffort } : {}),
       ...(ctx?.channelHint ? { channelHint: ctx.channelHint } : {}),
       ...(ctx?.extraTools ? { extraTools: ctx.extraTools } : {})
     }
@@ -744,6 +752,7 @@ export class YachiyoServerRunDomain {
       extraTools: input.extraTools,
       images,
       mode,
+      reasoningEffort: input.reasoningEffort,
       threadId: thread.id
     })
 
@@ -793,6 +802,7 @@ export class YachiyoServerRunDomain {
           enabledSkillNames,
           channelHint: input.channelHint,
           extraTools: input.extraTools as import('ai').ToolSet | undefined,
+          reasoningEffort: input.reasoningEffort,
           images: enrichedImages,
           attachments: fileAttachments,
           messageId,
@@ -815,6 +825,7 @@ export class YachiyoServerRunDomain {
             content,
             enabledTools,
             enabledSkillNames,
+            reasoningEffort: input.reasoningEffort,
             images: enrichedImages,
             attachments: fileAttachments,
             messageId,
@@ -825,6 +836,7 @@ export class YachiyoServerRunDomain {
           activeRunId,
           content,
           enabledSkillNames,
+          reasoningEffort: input.reasoningEffort,
           images: enrichedImages,
           attachments: fileAttachments,
           messageId,
@@ -840,6 +852,7 @@ export class YachiyoServerRunDomain {
           content,
           enabledTools,
           enabledSkillNames,
+          reasoningEffort: input.reasoningEffort,
           images: enrichedImages,
           attachments: fileAttachments,
           messageId,
@@ -910,6 +923,7 @@ export class YachiyoServerRunDomain {
     this.startActiveRun({
       enabledTools,
       enabledSkillNames,
+      reasoningEffort: input.reasoningEffort,
       runId: accepted.runId,
       thread: accepted.thread,
       requestMessageId: requestMessage.id,
@@ -1074,6 +1088,11 @@ export class YachiyoServerRunDomain {
     // Restore the skill override the steer replaced so the live run
     // continues with its original configuration.
     activeRun.enabledSkillNames = activeRun.pendingSteerInput.previousEnabledSkillNames
+    if (activeRun.pendingSteerInput.previousReasoningEffort !== undefined) {
+      activeRun.reasoningEffort = activeRun.pendingSteerInput.previousReasoningEffort
+    } else {
+      delete activeRun.reasoningEffort
+    }
     activeRun.pendingSteerInput = undefined
     activeRun.pendingSteerMessageId = undefined
   }
@@ -1100,6 +1119,7 @@ export class YachiyoServerRunDomain {
     content: string
     enabledTools: ToolCallName[]
     enabledSkillNames?: string[]
+    reasoningEffort?: ComposerReasoningSelection
     channelHint?: string
     extraTools?: import('ai').ToolSet
     images: MessageRecord['images']
@@ -1195,6 +1215,7 @@ export class YachiyoServerRunDomain {
       enabledSkillNames: input.enabledSkillNames,
       channelHint: input.channelHint,
       extraTools: input.extraTools,
+      reasoningEffort: input.reasoningEffort,
       runId: accepted.runId,
       thread: accepted.thread,
       requestMessageId: userMessage.id,
@@ -1208,6 +1229,7 @@ export class YachiyoServerRunDomain {
     activeRunId: string
     content: string
     enabledSkillNames?: string[]
+    reasoningEffort?: ComposerReasoningSelection
     images: MessageRecord['images']
     attachments: MessageFileAttachment[]
     messageId: string
@@ -1223,7 +1245,11 @@ export class YachiyoServerRunDomain {
     // (step boundary via stopWhen, or after the assistant message completes).
     // Never abort the current generation for a steer.
     const previousEnabledSkillNames = activeRun.enabledSkillNames
+    const previousReasoningEffort = activeRun.reasoningEffort
     activeRun.enabledSkillNames = input.enabledSkillNames ? [...input.enabledSkillNames] : undefined
+    if (input.reasoningEffort !== undefined) {
+      activeRun.reasoningEffort = input.reasoningEffort
+    }
 
     if (activeRun.pendingSteerInput) {
       activeRun.pendingSteerInput = {
@@ -1235,6 +1261,8 @@ export class YachiyoServerRunDomain {
         messageId: activeRun.pendingSteerInput.messageId,
         timestamp: activeRun.pendingSteerInput.timestamp,
         previousEnabledSkillNames: activeRun.pendingSteerInput.previousEnabledSkillNames,
+        previousReasoningEffort: activeRun.pendingSteerInput.previousReasoningEffort,
+        reasoningEffort: input.reasoningEffort ?? activeRun.pendingSteerInput.reasoningEffort,
         hidden: activeRun.pendingSteerInput.hidden
       }
     } else {
@@ -1244,7 +1272,9 @@ export class YachiyoServerRunDomain {
         attachments: input.attachments,
         messageId: input.messageId,
         timestamp: this.deps.timestamp(),
+        ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
         previousEnabledSkillNames,
+        ...(previousReasoningEffort !== undefined ? { previousReasoningEffort } : {}),
         hidden: input.hidden
       }
     }
@@ -1260,6 +1290,7 @@ export class YachiyoServerRunDomain {
     content: string
     enabledTools: ToolCallName[]
     enabledSkillNames?: string[]
+    reasoningEffort?: ComposerReasoningSelection
     images: MessageRecord['images']
     attachments: MessageFileAttachment[]
     messageId: string
@@ -1301,6 +1332,11 @@ export class YachiyoServerRunDomain {
       queuedFollowUpEnabledTools: [...input.enabledTools],
       queuedFollowUpMessageId: userMessage.id,
       updatedAt: timestamp
+    }
+    if (input.reasoningEffort !== undefined) {
+      updatedThread.queuedFollowUpReasoningEffort = input.reasoningEffort
+    } else {
+      delete updatedThread.queuedFollowUpReasoningEffort
     }
     if (input.enabledSkillNames !== undefined) {
       updatedThread.queuedFollowUpEnabledSkillNames = [...input.enabledSkillNames]
@@ -1419,6 +1455,7 @@ export class YachiyoServerRunDomain {
     extraTools?: SendChatInput['extraTools']
     images: MessageRecord['images']
     mode: SendChatMode
+    reasoningEffort?: ComposerReasoningSelection
     threadId: string
   }): string | null {
     if (input.extraTools) {
@@ -1442,6 +1479,7 @@ export class YachiyoServerRunDomain {
         mediaType: image.mediaType
       })),
       mode: input.mode,
+      reasoningEffort: input.reasoningEffort ?? null,
       threadId: input.threadId
     })
   }
@@ -1457,6 +1495,7 @@ export class YachiyoServerRunDomain {
       headMessageId: thread.headMessageId ?? null,
       pendingSteerMessageId: activeRun?.pendingSteerMessageId ?? null,
       queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
+      queuedFollowUpReasoningEffort: thread.queuedFollowUpReasoningEffort ?? null,
       requestMessageId: activeRun?.requestMessageId ?? null
     })
   }
@@ -1531,6 +1570,7 @@ export class YachiyoServerRunDomain {
   private startActiveRun(input: {
     enabledTools: ToolCallName[]
     enabledSkillNames?: string[]
+    reasoningEffort?: ComposerReasoningSelection
     channelHint?: string
     extraTools?: import('ai').ToolSet
     recoveryCheckpoint?: RunRecoveryCheckpoint
@@ -1544,6 +1584,7 @@ export class YachiyoServerRunDomain {
       threadId: input.thread.id,
       requestMessageId: input.requestMessageId,
       ...(input.enabledSkillNames ? { enabledSkillNames: [...input.enabledSkillNames] } : {}),
+      ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
       ...(input.channelHint ? { channelHint: input.channelHint } : {}),
       ...(input.recoveryCheckpoint ? { recoveryCheckpoint: input.recoveryCheckpoint } : {}),
       abortController: new AbortController(),
@@ -1556,6 +1597,7 @@ export class YachiyoServerRunDomain {
     const runTask = this.runLoop({
       enabledTools: input.enabledTools,
       enabledSkillNames: input.enabledSkillNames,
+      reasoningEffort: input.reasoningEffort,
       channelHint: input.channelHint,
       extraTools: input.extraTools,
       recoveryCheckpoint: input.recoveryCheckpoint,
@@ -1624,6 +1666,9 @@ export class YachiyoServerRunDomain {
       ...(checkpoint.enabledSkillNames
         ? { enabledSkillNames: [...checkpoint.enabledSkillNames] }
         : {}),
+      ...(checkpoint.reasoningEffort !== undefined
+        ? { reasoningEffort: checkpoint.reasoningEffort }
+        : {}),
       ...(checkpoint.channelHint ? { channelHint: checkpoint.channelHint } : {}),
       recoveryCheckpoint: checkpoint,
       abortController: new AbortController(),
@@ -1635,6 +1680,7 @@ export class YachiyoServerRunDomain {
     const runTask = this.runLoop({
       enabledTools: checkpoint.enabledTools,
       enabledSkillNames: checkpoint.enabledSkillNames,
+      reasoningEffort: checkpoint.reasoningEffort,
       channelHint: checkpoint.channelHint,
       recoveryCheckpoint: checkpoint,
       runId: checkpoint.runId,
@@ -1668,6 +1714,7 @@ export class YachiyoServerRunDomain {
   private async runLoop(input: {
     enabledTools: ToolCallName[]
     enabledSkillNames?: string[]
+    reasoningEffort?: ComposerReasoningSelection
     channelHint?: string
     extraTools?: import('ai').ToolSet
     recoveryCheckpoint?: RunRecoveryCheckpoint
@@ -1869,6 +1916,9 @@ export class YachiyoServerRunDomain {
               this.backgroundTaskRunContext.set(task.taskId, {
                 enabledTools: input.enabledTools,
                 ...(input.enabledSkillNames ? { enabledSkillNames: input.enabledSkillNames } : {}),
+                ...(input.reasoningEffort !== undefined
+                  ? { reasoningEffort: input.reasoningEffort }
+                  : {}),
                 ...(input.channelHint ? { channelHint: input.channelHint } : {}),
                 ...(input.extraTools ? { extraTools: input.extraTools } : {})
               })
@@ -1896,6 +1946,9 @@ export class YachiyoServerRunDomain {
               this.backgroundTaskRunContext.set(task.taskId, {
                 enabledTools: input.enabledTools,
                 ...(input.enabledSkillNames ? { enabledSkillNames: input.enabledSkillNames } : {}),
+                ...(input.reasoningEffort !== undefined
+                  ? { reasoningEffort: input.reasoningEffort }
+                  : {}),
                 ...(input.channelHint ? { channelHint: input.channelHint } : {}),
                 ...(input.extraTools ? { extraTools: input.extraTools } : {})
               })
@@ -1935,6 +1988,7 @@ export class YachiyoServerRunDomain {
             abortController,
             enabledTools: input.enabledTools,
             enabledSkillNames: activeRun.enabledSkillNames ?? input.enabledSkillNames,
+            reasoningEffort: activeRun.reasoningEffort ?? input.reasoningEffort,
             inactivityTimeoutMs: this.deps.runInactivityTimeoutMs,
             channelHint: activeRun.channelHint ?? input.channelHint,
             extraTools: input.extraTools,
@@ -2172,6 +2226,10 @@ export class YachiyoServerRunDomain {
             const queuedThread: ThreadRecord = {
               ...updatedThread,
               queuedFollowUpMessageId: userMessage.id
+            }
+            if (activeRun.pendingSteerInput.reasoningEffort !== undefined) {
+              queuedThread.queuedFollowUpReasoningEffort =
+                activeRun.pendingSteerInput.reasoningEffort
             }
             this.deps.storage.updateThread(queuedThread)
             this.emitThreadStateReplaced(input.thread.id)
@@ -2909,13 +2967,18 @@ export class YachiyoServerRunDomain {
     }
     const queuedMessageId = thread.queuedFollowUpMessageId
     if (!queuedMessageId) {
-      if (thread.queuedFollowUpEnabledTools || thread.queuedFollowUpEnabledSkillNames) {
+      if (
+        thread.queuedFollowUpEnabledTools ||
+        thread.queuedFollowUpEnabledSkillNames ||
+        thread.queuedFollowUpReasoningEffort
+      ) {
         const clearedThread: ThreadRecord = {
           ...thread,
           updatedAt: this.deps.timestamp()
         }
         delete clearedThread.queuedFollowUpEnabledTools
         delete clearedThread.queuedFollowUpEnabledSkillNames
+        delete clearedThread.queuedFollowUpReasoningEffort
         this.deps.storage.updateThread(clearedThread)
       }
       return null
@@ -2932,6 +2995,7 @@ export class YachiyoServerRunDomain {
       }
       delete clearedThread.queuedFollowUpEnabledTools
       delete clearedThread.queuedFollowUpEnabledSkillNames
+      delete clearedThread.queuedFollowUpReasoningEffort
       delete clearedThread.queuedFollowUpMessageId
 
       this.deps.storage.updateThread(clearedThread)
@@ -2968,9 +3032,11 @@ export class YachiyoServerRunDomain {
     }
     delete updatedThread.queuedFollowUpEnabledTools
     delete updatedThread.queuedFollowUpEnabledSkillNames
+    delete updatedThread.queuedFollowUpReasoningEffort
     delete updatedThread.queuedFollowUpMessageId
 
     this.deps.storage.updateThread(updatedThread)
+    const reasoningEffort = thread.queuedFollowUpReasoningEffort
 
     const enabledTools = thread.queuedFollowUpEnabledTools
       ? [...thread.queuedFollowUpEnabledTools]
@@ -2985,6 +3051,7 @@ export class YachiyoServerRunDomain {
       createdAt: timestamp,
       enabledTools,
       enabledSkillNames,
+      ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
       requestMessageId: queuedMessage.id,
       runId,
       thread: updatedThread
@@ -3022,6 +3089,7 @@ export class YachiyoServerRunDomain {
     this.startActiveRun({
       enabledTools: prepared.enabledTools,
       enabledSkillNames: prepared.enabledSkillNames,
+      reasoningEffort: prepared.reasoningEffort,
       runId: prepared.runId,
       thread: prepared.thread,
       requestMessageId: prepared.requestMessageId,

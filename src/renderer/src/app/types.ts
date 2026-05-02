@@ -2,6 +2,7 @@ export type {
   ActiveRunEnterBehavior,
   AskUserToolCallDetails,
   BashToolCallDetails,
+  ComposerReasoningSelection,
   ConnectionStatus,
   EditToolCallDetails,
   FileMentionCandidate,

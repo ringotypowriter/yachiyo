@@ -504,6 +504,7 @@ export interface ThreadRecord {
   queuedFollowUpMessageId?: string
   queuedFollowUpEnabledTools?: ToolCallName[]
   queuedFollowUpEnabledSkillNames?: string[]
+  queuedFollowUpReasoningEffort?: ComposerReasoningSelection
   branchFromThreadId?: string
   branchFromMessageId?: string
   handoffFromThreadId?: string
@@ -635,6 +636,23 @@ export interface ProviderModelList {
   imageIncapable?: string[]
 }
 
+export const REASONING_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+export type ReasoningEffortLevel = (typeof REASONING_EFFORT_LEVELS)[number]
+export type ComposerReasoningSelection = 'off' | ReasoningEffortLevel
+
+export interface ProviderReasoningModelConfig {
+  model: string
+  enabled?: boolean
+  enabledEfforts?: ReasoningEffortLevel[]
+  defaultEffort?: ComposerReasoningSelection
+  allowOff?: boolean
+}
+
+export interface ProviderReasoningConfig {
+  defaultEffort?: ComposerReasoningSelection
+  models?: ProviderReasoningModelConfig[]
+}
+
 export interface ProviderConfig {
   id?: string
   /** Stable key linking this provider to a built-in preset (e.g. "openai", "google-vertex"). */
@@ -642,6 +660,7 @@ export interface ProviderConfig {
   name: string
   type: ProviderKind
   thinkingEnabled?: boolean
+  reasoning?: ProviderReasoningConfig
   // Used by openai, openai-responses, openai-codex, anthropic, gemini, vercel-gateway
   apiKey: string
   baseUrl: string
@@ -1049,6 +1068,8 @@ export interface ProviderSettings {
   provider: ProviderKind
   model: string
   thinkingEnabled?: boolean
+  reasoning?: ProviderReasoningConfig
+  reasoningEffort?: ComposerReasoningSelection
   // Used by openai, openai-responses, openai-codex, anthropic, gemini, vercel-gateway
   apiKey: string
   baseUrl: string
@@ -1224,6 +1245,7 @@ export interface SendChatInput {
   attachments?: SendChatAttachment[]
   enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
+  reasoningEffort?: ComposerReasoningSelection
   mode?: SendChatMode
   /**
    * Optional per-turn hint injected into the hint layer before the model sees
@@ -1251,6 +1273,7 @@ export interface RetryInput {
   messageId: string
   enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
+  reasoningEffort?: ComposerReasoningSelection
 }
 
 export interface EditMessageInput {
@@ -1261,6 +1284,7 @@ export interface EditMessageInput {
   attachments?: SendChatAttachment[]
   enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
+  reasoningEffort?: ComposerReasoningSelection
 }
 
 export interface CompactThreadInput {

@@ -1,4 +1,4 @@
-import type { ProviderSettings } from '../../../../shared/yachiyo/protocol'
+import type { ProviderSettings, ReasoningEffortLevel } from '../../../../shared/yachiyo/protocol'
 
 type SupportedProvider = Extract<ProviderSettings['provider'], 'openai' | 'anthropic'>
 
@@ -17,13 +17,14 @@ function getRequestPath(input: Parameters<typeof globalThis.fetch>[0]): string {
   }
 }
 
-function addMaxEffort(
+function addReasoningEffort(
   provider: SupportedProvider,
   path: string,
+  effort: Extract<ReasoningEffortLevel, 'high' | 'max'>,
   body: Record<string, unknown>
 ): Record<string, unknown> {
   if (provider === 'openai' && path.endsWith('/chat/completions')) {
-    return { ...body, reasoning_effort: 'max' }
+    return { ...body, reasoning_effort: effort }
   }
 
   if (provider === 'anthropic' && path.endsWith('/messages')) {
@@ -35,7 +36,7 @@ function addMaxEffort(
       ...body,
       output_config: {
         ...outputConfig,
-        effort: 'max'
+        effort
       }
     }
   }
@@ -44,10 +45,19 @@ function addMaxEffort(
 }
 
 export function createDeepSeekV4ProMaxEffortFetch(
-  settings: Pick<ProviderSettings, 'model' | 'thinkingEnabled'> & { provider: SupportedProvider },
+  settings: Pick<ProviderSettings, 'model' | 'thinkingEnabled' | 'reasoningEffort'> & {
+    provider: SupportedProvider
+  },
   baseFetch: typeof globalThis.fetch = globalThis.fetch
 ): typeof globalThis.fetch {
-  if (settings.thinkingEnabled === false || !isDeepSeekV4ProMaxEffortModel(settings.model)) {
+  const effort = settings.reasoningEffort === 'high' ? 'high' : 'max'
+  if (
+    settings.thinkingEnabled === false ||
+    !isDeepSeekV4ProMaxEffortModel(settings.model) ||
+    (settings.reasoningEffort !== undefined &&
+      settings.reasoningEffort !== 'high' &&
+      settings.reasoningEffort !== 'max')
+  ) {
     return baseFetch
   }
 
@@ -55,7 +65,10 @@ export function createDeepSeekV4ProMaxEffortFetch(
     if (init?.body && typeof init.body === 'string') {
       const body = JSON.parse(init.body) as Record<string, unknown>
       const path = getRequestPath(input)
-      init = { ...init, body: JSON.stringify(addMaxEffort(settings.provider, path, body)) }
+      init = {
+        ...init,
+        body: JSON.stringify(addReasoningEffort(settings.provider, path, effort, body))
+      }
     }
 
     return baseFetch(input, init)

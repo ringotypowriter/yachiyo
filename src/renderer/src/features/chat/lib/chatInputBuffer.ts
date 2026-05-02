@@ -1,4 +1,5 @@
 import type {
+  ComposerReasoningSelection,
   MessageImageRecord,
   SendChatAttachment
 } from '../../../../../shared/yachiyo/protocol.ts'
@@ -19,6 +20,7 @@ export interface ChatInputBufferPayload {
   images: MessageImageRecord[]
   attachments: SendChatAttachment[]
   enabledSkillNames: string[] | null | undefined
+  reasoningEffort?: ComposerReasoningSelection
 }
 
 export interface ChatInputBufferState {
@@ -63,7 +65,8 @@ export function stageChatInputBuffer(
     enabledSkillNames:
       payload.enabledSkillNames !== undefined
         ? payload.enabledSkillNames
-        : state.staged.enabledSkillNames
+        : state.staged.enabledSkillNames,
+    reasoningEffort: payload.reasoningEffort ?? state.staged.reasoningEffort
   }
 
   return {

@@ -23,6 +23,7 @@ import {
   serializeRuntimeBinding,
   serializeLastDelegatedSession,
   serializeThreadMemoryRecallState,
+  serializeReasoningSelection,
   serializeToolCallDetails,
   toRunRecoveryCheckpoint,
   toStoredRunRecoveryCheckpointRow,
@@ -141,6 +142,9 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       ? JSON.stringify(nextThread.queuedFollowUpEnabledSkillNames)
       : null
     storedThread.queuedFollowUpMessageId = nextThread.queuedFollowUpMessageId ?? null
+    storedThread.queuedFollowUpReasoningEffort = serializeReasoningSelection(
+      nextThread.queuedFollowUpReasoningEffort
+    )
     storedThread.modelOverride = serializeModelOverride(nextThread.modelOverride)
     storedThread.rollingSummary = nextThread.rollingSummary ?? null
     storedThread.summaryWatermarkMessageId = nextThread.summaryWatermarkMessageId ?? null
@@ -303,6 +307,9 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
           ? JSON.stringify(thread.queuedFollowUpEnabledSkillNames)
           : null,
         queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
+        queuedFollowUpReasoningEffort: serializeReasoningSelection(
+          thread.queuedFollowUpReasoningEffort
+        ),
         archivedAt: null,
         savingStartedAt: null,
         starredAt: null,
@@ -470,6 +477,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       thread.queuedFollowUpEnabledTools = null
       thread.queuedFollowUpEnabledSkillNames = null
       thread.queuedFollowUpMessageId = null
+      thread.queuedFollowUpReasoningEffort = null
       thread.rollingSummary = null
       thread.summaryWatermarkMessageId = null
       thread.recapText = null
@@ -511,6 +519,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         thread.queuedFollowUpEnabledTools = null
         thread.queuedFollowUpEnabledSkillNames = null
         thread.queuedFollowUpMessageId = null
+        thread.queuedFollowUpReasoningEffort = null
         thread.rollingSummary = null
         thread.summaryWatermarkMessageId = null
         thread.recapText = null
@@ -581,6 +590,9 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         ? JSON.stringify(updatedThread.queuedFollowUpEnabledTools)
         : null
       storedThread.queuedFollowUpMessageId = updatedThread.queuedFollowUpMessageId ?? null
+      storedThread.queuedFollowUpReasoningEffort = serializeReasoningSelection(
+        updatedThread.queuedFollowUpReasoningEffort
+      )
       storedThread.recapText = updatedThread.recapText ?? null
       if (userMessage) {
         messages.push(userMessage)
@@ -870,6 +882,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         storedThread.queuedFollowUpEnabledTools = null
         storedThread.queuedFollowUpEnabledSkillNames = null
         storedThread.queuedFollowUpMessageId = null
+        storedThread.queuedFollowUpReasoningEffort = null
       }
 
       applyThreadSnapshot(storedThread, thread)

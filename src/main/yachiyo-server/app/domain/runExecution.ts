@@ -17,6 +17,7 @@ const AGENTS_MD_PRELOAD_THRESHOLD_BYTES = 10 * 1024
 
 import type {
   BashToolCallDetails,
+  ComposerReasoningSelection,
   HarnessFinishedEvent,
   HarnessStartedEvent,
   MessageCompletedEvent,
@@ -136,6 +137,7 @@ import {
 export interface ExecuteRunInput {
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
+  reasoningEffort?: ComposerReasoningSelection
   channelHint?: string
   extraTools?: import('ai').ToolSet
   inactivityTimeoutMs: number
@@ -975,6 +977,7 @@ export interface PrepareServerRunContextInput {
   requestMessageId: string
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
+  reasoningEffort?: ComposerReasoningSelection
   channelHint?: string
   abortController: AbortController
   recoveryCheckpoint?: RunRecoveryCheckpoint
@@ -1775,6 +1778,7 @@ export async function executeServerRun(
         : {}),
       enabledTools: [...input.enabledTools],
       ...(input.enabledSkillNames ? { enabledSkillNames: [...input.enabledSkillNames] } : {}),
+      ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
       ...(input.channelHint ? { channelHint: input.channelHint } : {}),
       updateHeadOnComplete: input.updateHeadOnComplete,
       createdAt: recoveryCreatedAt,
@@ -1902,6 +1906,7 @@ export async function executeServerRun(
       ...(input.enabledSkillNames !== undefined
         ? { enabledSkillNames: input.enabledSkillNames }
         : {}),
+      ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
       ...(input.channelHint ? { channelHint: input.channelHint } : {}),
       abortController: input.abortController,
       ...(input.recoveryCheckpoint ? { recoveryCheckpoint: input.recoveryCheckpoint } : {}),
@@ -2137,6 +2142,7 @@ export async function executeServerRun(
       purpose: 'chat',
       promptCacheKey: input.thread.id,
       maxToolSteps,
+      ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
       ...(tools ? { tools } : {}),
       ...(stopWhen ? { stopWhen } : {}),
       onStepUsage: (stepUsage) => {

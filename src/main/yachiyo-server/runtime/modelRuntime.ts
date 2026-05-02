@@ -10,6 +10,7 @@ import {
 } from './providers/dependencies.ts'
 import { fetchModels as fetchModelsImpl } from './providers/fetchModels.ts'
 import { assertConfigured, createLanguageModel } from './providers/languageModel.ts'
+import { resolveReasoningSelection } from '../../../shared/yachiyo/reasoningEffort.ts'
 import {
   formatErrorForLog,
   logGatewayDiagnostics,
@@ -278,6 +279,16 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
       }
 
       assertConfigured(settings)
+      const reasoningEffort = resolveReasoningSelection({
+        provider: settings,
+        model: settings.model,
+        requested: request.reasoningEffort
+      })
+      settings = {
+        ...settings,
+        reasoningEffort,
+        thinkingEnabled: reasoningEffort !== 'off'
+      }
 
       let preparedMessages = patchReasoningSignatures(
         prepareAiSdkMessages(request.messages) as unknown[]
@@ -285,7 +296,8 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
 
       const baseProviderOptions = createProviderOptions(
         settings,
-        request.providerOptionsMode ?? 'default'
+        request.providerOptionsMode ?? 'default',
+        reasoningEffort
       )
       // Merge prompt cache key into OpenAI provider options when present.
       let providerOptions: RuntimeProviderOptions =

@@ -7,7 +7,7 @@ import type {
   ToolSet
 } from 'ai'
 
-import type { ProviderSettings } from '../../../shared/yachiyo/protocol'
+import type { ComposerReasoningSelection, ProviderSettings } from '../../../shared/yachiyo/protocol'
 
 export type ModelMessage = AiSdkModelMessage
 
@@ -52,6 +52,7 @@ export interface ModelStreamRequest {
   purpose?: string
   max_token?: number
   providerOptionsMode?: ModelProviderOptionsMode
+  reasoningEffort?: ComposerReasoningSelection
   maxToolSteps?: number
   tools?: ToolSet
   toolChoice?: ToolChoice<ToolSet>

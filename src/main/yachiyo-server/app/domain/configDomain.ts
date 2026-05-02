@@ -188,6 +188,7 @@ export class YachiyoServerConfigDomain {
       ...(input.apiKey !== undefined ? { apiKey: input.apiKey.trim() } : {}),
       ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl.trim() } : {}),
       ...(input.thinkingEnabled !== undefined ? { thinkingEnabled: input.thinkingEnabled } : {}),
+      ...(input.reasoning !== undefined ? { reasoning: input.reasoning } : {}),
       ...(input.project !== undefined ? { project: input.project } : {}),
       ...(input.location !== undefined ? { location: input.location } : {}),
       ...(input.serviceAccountEmail !== undefined

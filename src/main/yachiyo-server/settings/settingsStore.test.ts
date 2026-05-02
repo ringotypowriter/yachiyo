@@ -357,6 +357,51 @@ test('normalizeSettingsConfig defaults provider thinking to enabled', () => {
   assert.equal(normalized.providers[0]?.thinkingEnabled, true)
 })
 
+test('provider reasoning config round-trips through parse → normalize → stringify → parse', () => {
+  const toml = `[[providers]]
+id = "provider-work"
+name = "work"
+type = "openai"
+thinkingEnabled = true
+apiKey = "sk-openai"
+baseUrl = "https://api.openai.com/v1"
+
+[providers.modelList]
+enabled = ["gpt-5"]
+disabled = []
+
+[providers.reasoning]
+defaultEffort = "medium"
+
+[[providers.reasoning.models]]
+model = "gpt-5"
+enabledEfforts = ["low", "medium", "high"]
+defaultEffort = "high"
+allowOff = true
+`
+
+  const config = parseSettingsToml(toml)
+  assert.deepEqual(config.providers[0]?.reasoning, {
+    defaultEffort: 'medium',
+    models: [
+      {
+        model: 'gpt-5',
+        enabledEfforts: ['low', 'medium', 'high'],
+        defaultEffort: 'high',
+        allowOff: true
+      }
+    ]
+  })
+
+  const serialized = stringifySettingsToml(config)
+  assert.match(serialized, /\[providers\.reasoning\]/)
+  assert.match(serialized, /\[\[providers\.reasoning\.models\]\]/)
+  assert.match(serialized, /enabledEfforts = \[\s*"low",\s*"medium",\s*"high"\s*\]/)
+
+  const reloaded = parseSettingsToml(serialized)
+  assert.deepEqual(reloaded.providers[0]?.reasoning, config.providers[0]?.reasoning)
+})
+
 test('toProviderSettings carries provider thinking preference into the runtime snapshot', () => {
   const snapshot = toProviderSettings({
     enabledTools: DEFAULT_ENABLED_TOOL_NAMES,

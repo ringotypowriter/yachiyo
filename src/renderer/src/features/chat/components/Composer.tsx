@@ -23,6 +23,7 @@ import {
   DEFAULT_SETTINGS,
   EMPTY_COMPOSER_DRAFT,
   getEffectiveModel,
+  getComposerReasoningEffort,
   useAppStore,
   type ComposerFileDraft,
   type ComposerImageDraft
@@ -55,6 +56,7 @@ import {
   type MessageImageRecord,
   type SendChatAttachment
 } from '../../../../../shared/yachiyo/protocol.ts'
+import { getReasoningSelectorState } from '../../../../../shared/yachiyo/reasoningEffort.ts'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import { canCompactThreadToAnotherThread } from '@renderer/features/threads/lib/threadVisibility'
 import { ModelSelectorPopup } from './ModelSelectorPopup'
@@ -67,8 +69,10 @@ import {
   paginateFileMentionMatches
 } from '../lib/fileMentionCompletion'
 import { longestCommonPrefix } from '../lib/longestCommonPrefix'
+import { formatReasoningSelection } from '../lib/reasoningSelectionLabel'
 import { SkillsSelectorPopup } from './SkillsSelectorPopup'
 import { ToolSelectorPopup } from './ToolSelectorPopup'
+import { ReasoningSelectorPopup } from './ReasoningSelectorPopup'
 import { RunArrowIndicator } from './RunArrowIndicator'
 import { WorkspaceSelectorPopup } from './WorkspaceSelectorPopup'
 import { SmoothCaretOverlay } from './SmoothCaretOverlay'
@@ -696,6 +700,7 @@ export function Composer({
   const availableSkills = useAppStore((s) => s.availableSkills)
   const settings = useAppStore((s) => s.settings ?? DEFAULT_SETTINGS)
   const effectiveModel = useAppStore(useShallow(getEffectiveModel))
+  const composerReasoningEffort = useAppStore(useShallow(getComposerReasoningEffort))
   const activeRunId = useAppStore((s) =>
     s.activeThreadId ? (s.activeRunIdsByThread[s.activeThreadId] ?? null) : null
   )
@@ -737,6 +742,7 @@ export function Composer({
   const selectModel = useAppStore((s) => s.selectModel)
   const pushToast = useAppStore((s) => s.pushToast)
   const setComposerEnabledSkillNames = useAppStore((s) => s.setComposerEnabledSkillNames)
+  const setComposerReasoningEffort = useAppStore((s) => s.setComposerReasoningEffort)
   const mergeBufferedPayloadIntoDraft = useAppStore((s) => s.mergeBufferedPayloadIntoDraft)
   const setComposerValue = useAppStore((s) => s.setComposerValue)
   const setThreadWorkspace = useAppStore((s) => s.setThreadWorkspace)
@@ -757,6 +763,7 @@ export function Composer({
   const composerInputRef = useRef<HTMLDivElement>(null)
   const popupContainerRef = useRef<HTMLDivElement>(null)
   const modelSelectorRef = useRef<HTMLDivElement>(null)
+  const reasoningSelectorRef = useRef<HTMLDivElement>(null)
   const skillsSelectorRef = useRef<HTMLDivElement>(null)
   const toolSelectorRef = useRef<HTMLDivElement>(null)
   const workspaceSelectorRef = useRef<HTMLDivElement>(null)
@@ -768,6 +775,7 @@ export function Composer({
   const composerRootRef = useRef<HTMLDivElement>(null)
 
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false)
+  const [reasoningSelectorOpen, setReasoningSelectorOpen] = useState(false)
   const [skillsSelectorOpen, setSkillsSelectorOpen] = useState(false)
   const [toolSelectorOpen, setToolSelectorOpen] = useState(false)
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false)
@@ -1112,6 +1120,7 @@ export function Composer({
 
   anyPopupOpenRef.current =
     modelSelectorOpen ||
+    reasoningSelectorOpen ||
     skillsSelectorOpen ||
     toolSelectorOpen ||
     workspaceSelectorOpen ||
@@ -1360,6 +1369,7 @@ export function Composer({
         images: payload.images,
         attachments: payload.attachments,
         enabledSkillNames: payload.enabledSkillNames ?? null,
+        reasoningEffort: payload.reasoningEffort,
         threadId: payload.sourceThreadId
       })
     },
@@ -1420,7 +1430,8 @@ export function Composer({
           content: trimmed,
           images: readyImages,
           attachments: readyAttachments,
-          enabledSkillNames: composerDraft.enabledSkillNames
+          enabledSkillNames: composerDraft.enabledSkillNames,
+          reasoningEffort: composerReasoningEffort
         })
         setComposerValue('')
         for (const img of draftImages) removeComposerImage(img.id)
@@ -1447,6 +1458,7 @@ export function Composer({
     },
     [
       activeThreadId,
+      composerReasoningEffort,
       composerDraft.enabledSkillNames,
       composerValue,
       draftFiles,
@@ -1790,13 +1802,21 @@ export function Composer({
   }, [])
 
   useEffect(() => {
-    if (!modelSelectorOpen && !skillsSelectorOpen && !toolSelectorOpen && !workspaceSelectorOpen) {
+    if (
+      !modelSelectorOpen &&
+      !reasoningSelectorOpen &&
+      !skillsSelectorOpen &&
+      !toolSelectorOpen &&
+      !workspaceSelectorOpen
+    ) {
       return
     }
     const handler = (event: MouseEvent): void => {
       const target = event.target as Node
       const clickedInsideModelSelector =
         modelSelectorRef.current && modelSelectorRef.current.contains(target)
+      const clickedInsideReasoningSelector =
+        reasoningSelectorRef.current && reasoningSelectorRef.current.contains(target)
       const clickedInsideSkillsSelector =
         skillsSelectorRef.current && skillsSelectorRef.current.contains(target)
       const clickedInsideToolSelector =
@@ -1806,6 +1826,10 @@ export function Composer({
 
       if (!clickedInsideModelSelector) {
         setModelSelectorOpen(false)
+      }
+
+      if (!clickedInsideReasoningSelector) {
+        setReasoningSelectorOpen(false)
       }
 
       if (!clickedInsideSkillsSelector) {
@@ -1822,7 +1846,13 @@ export function Composer({
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [modelSelectorOpen, skillsSelectorOpen, toolSelectorOpen, workspaceSelectorOpen])
+  }, [
+    modelSelectorOpen,
+    reasoningSelectorOpen,
+    skillsSelectorOpen,
+    toolSelectorOpen,
+    workspaceSelectorOpen
+  ])
 
   const queueImageFiles = useCallback(
     async (files: File[]) => {
@@ -2108,9 +2138,16 @@ export function Composer({
 
       if (event.key === 'Escape') {
         if (isComposing || event.nativeEvent.isComposing) return
-        if (modelSelectorOpen || skillsSelectorOpen || toolSelectorOpen || workspaceSelectorOpen) {
+        if (
+          modelSelectorOpen ||
+          reasoningSelectorOpen ||
+          skillsSelectorOpen ||
+          toolSelectorOpen ||
+          workspaceSelectorOpen
+        ) {
           event.preventDefault()
           setModelSelectorOpen(false)
+          setReasoningSelectorOpen(false)
           setSkillsSelectorOpen(false)
           setToolSelectorOpen(false)
           setWorkspaceSelectorOpen(false)
@@ -2251,6 +2288,7 @@ export function Composer({
       dismissSlashPopup,
       dispatchSend,
       modelSelectorOpen,
+      reasoningSelectorOpen,
       showSlashCommandPopup,
       slashSelectedIndex,
       skillQuery,
@@ -2369,11 +2407,30 @@ export function Composer({
   const providerLabel =
     effectiveModel.providerName || (settings.provider === 'openai' ? 'OpenAI' : 'Anthropic')
   const modelLabel = effectiveModel.model || 'Configure provider'
+  const reasoningProvider = config?.providers.find(
+    (provider) => provider.name === effectiveModel.providerName
+  )
+  const reasoningSelectorState = reasoningProvider
+    ? getReasoningSelectorState({
+        provider: reasoningProvider,
+        model: effectiveModel.model,
+        selected: composerReasoningEffort
+      })
+    : {
+        options: [composerReasoningEffort],
+        selected: composerReasoningEffort
+      }
   const hasModels =
     config !== null && config.providers.some((provider) => provider.modelList.enabled.length > 0)
   const hasAcpAgents =
     config !== null && (config.subagentProfiles ?? []).some((p) => p.enabled && p.showInChatPicker)
   const canOpenModelPicker = hasModels || hasAcpAgents
+
+  useEffect(() => {
+    if (reasoningSelectorState.selected !== composerReasoningEffort) {
+      setComposerReasoningEffort(reasoningSelectorState.selected)
+    }
+  }, [composerReasoningEffort, reasoningSelectorState.selected, setComposerReasoningEffort])
 
   return (
     <div
@@ -2754,6 +2811,7 @@ export function Composer({
               type="button"
               onClick={() => {
                 setModelSelectorOpen(false)
+                setReasoningSelectorOpen(false)
                 setSkillsSelectorOpen(false)
                 setWorkspaceSelectorOpen(false)
                 setToolSelectorOpen((open) => !open)
@@ -2795,6 +2853,7 @@ export function Composer({
               type="button"
               onClick={() => {
                 setModelSelectorOpen(false)
+                setReasoningSelectorOpen(false)
                 setToolSelectorOpen(false)
                 setWorkspaceSelectorOpen(false)
                 setSkillsSelectorOpen((open) => !open)
@@ -2880,6 +2939,7 @@ export function Composer({
               }
 
               setModelSelectorOpen(false)
+              setReasoningSelectorOpen(false)
               setSkillsSelectorOpen(false)
               setToolSelectorOpen(false)
               setWorkspaceSelectorOpen((open) => !open)
@@ -3016,6 +3076,7 @@ export function Composer({
               setSkillsSelectorOpen(false)
               setToolSelectorOpen(false)
               setWorkspaceSelectorOpen(false)
+              setReasoningSelectorOpen(false)
               setModelSelectorOpen((open) => !open)
             }}
             className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity ml-0.5"
@@ -3103,6 +3164,56 @@ export function Composer({
             />
           ) : null}
         </div>
+
+        {!effectiveAcpBinding ? (
+          <div ref={reasoningSelectorRef} style={{ position: 'relative' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setModelSelectorOpen(false)
+                setSkillsSelectorOpen(false)
+                setToolSelectorOpen(false)
+                setWorkspaceSelectorOpen(false)
+                setReasoningSelectorOpen((open) => !open)
+              }}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity"
+              style={{
+                color: theme.text.primary,
+                opacity: reasoningSelectorOpen ? 1 : 0.6
+              }}
+              aria-label="Reasoning effort"
+              aria-expanded={reasoningSelectorOpen}
+              aria-haspopup="menu"
+            >
+              <Brain
+                size={12}
+                strokeWidth={1.5}
+                color={
+                  reasoningSelectorState.selected === 'off' ? theme.icon.muted : theme.icon.accent
+                }
+              />
+              {formatReasoningSelection(reasoningSelectorState.selected)}
+              <ChevronDown
+                size={10}
+                strokeWidth={1.5}
+                color={theme.icon.muted}
+                style={{
+                  transform: reasoningSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.15s ease'
+                }}
+              />
+            </button>
+
+            {reasoningSelectorOpen ? (
+              <ReasoningSelectorPopup
+                options={reasoningSelectorState.options}
+                selected={reasoningSelectorState.selected}
+                onSelect={setComposerReasoningEffort}
+                onClose={() => setReasoningSelectorOpen(false)}
+              />
+            ) : null}
+          </div>
+        ) : null}
 
         {showRunStats ? (
           hasRunStatsText ? (

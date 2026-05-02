@@ -2,6 +2,7 @@ import { create } from 'zustand'
 
 import type {
   ConnectionStatus,
+  ComposerReasoningSelection,
   FolderRecord,
   Message,
   MessageImageRecord,
@@ -33,6 +34,10 @@ import {
 } from '../../../../shared/yachiyo/protocol.ts'
 import { sortToolCallsChronologically } from '../../../../shared/yachiyo/toolCallOrder.ts'
 import { isModelImageCapable } from '../../../../shared/yachiyo/providerConfig.ts'
+import {
+  getReasoningSelectorState,
+  isComposerReasoningSelection
+} from '../../../../shared/yachiyo/reasoningEffort.ts'
 import { collectDescendantIds, collectMessagePath } from '../../../../shared/yachiyo/threadTree.ts'
 import {
   canCompactThreadToAnotherThread,
@@ -202,6 +207,7 @@ export interface SendMessageOverride {
   images: MessageImageRecord[]
   attachments: SendChatAttachment[]
   enabledSkillNames?: string[] | null
+  reasoningEffort?: ComposerReasoningSelection
   // Required: explicit target thread. Overrides activeThreadId resolution
   // and skips new-thread creation. Callers that need new-thread semantics
   // must route through the normal draft-based send path instead.
@@ -291,6 +297,7 @@ interface AppState {
   cancelRunForThread: (threadId: string) => Promise<void>
   compactThreadToAnotherThread: () => Promise<void>
   composerDrafts: Record<string, ComposerDraft>
+  reasoningEffortByThread: Record<string, ComposerReasoningSelection>
   createBranch: (messageId: string) => Promise<void>
   config: SettingsConfig | null
   connectionStatus: ConnectionStatus
@@ -394,6 +401,7 @@ interface AppState {
   setActiveArchivedThread: (id: string) => void
   setComposerValue: (value: string) => void
   setComposerEnabledSkillNames: (enabledSkillNames: string[] | null) => void
+  setComposerReasoningEffort: (reasoningEffort: ComposerReasoningSelection) => void
   setPendingWorkspacePath: (workspacePath: string | null) => void
   setPendingAcpBinding: (binding: ThreadRuntimeBinding | null) => void
   setThreadWorkspace: (workspacePath: string | null, threadId?: string | null) => Promise<void>
@@ -790,6 +798,38 @@ function getComposerDraft(
   return state.composerDrafts[getComposerDraftKey(state.activeThreadId)] ?? EMPTY_COMPOSER_DRAFT
 }
 
+export function getComposerReasoningEffort(
+  state: Pick<
+    AppState,
+    | 'activeThreadId'
+    | 'config'
+    | 'pendingModelOverride'
+    | 'reasoningEffortByThread'
+    | 'settings'
+    | 'threads'
+  >,
+  threadId: string | null = state.activeThreadId
+): ComposerReasoningSelection {
+  const key = getComposerDraftKey(threadId)
+  const selected = state.reasoningEffortByThread[key]
+  const effectiveModel = threadId
+    ? getThreadEffectiveModel(state, threadId)
+    : getEffectiveModel(state)
+  const provider = state.config?.providers.find(
+    (entry) => entry.name === effectiveModel.providerName
+  )
+
+  if (!provider) {
+    return selected ?? 'medium'
+  }
+
+  return getReasoningSelectorState({
+    provider,
+    model: effectiveModel.model,
+    selected
+  }).selected
+}
+
 function getThreadActiveRunId(
   state: Pick<AppState, 'activeRunIdsByThread'>,
   threadId: string | null
@@ -945,6 +985,21 @@ function moveComposerDraft(
   const next = { ...drafts }
   delete next[fromDraftKey]
   next[toDraftKey] = current
+  return next
+}
+
+function moveReasoningEffort(
+  values: Record<string, ComposerReasoningSelection>,
+  fromDraftKey: string,
+  toDraftKey: string
+): Record<string, ComposerReasoningSelection> {
+  if (fromDraftKey === toDraftKey || !(fromDraftKey in values)) {
+    return values
+  }
+
+  const next = { ...values }
+  next[toDraftKey] = values[fromDraftKey]!
+  delete next[fromDraftKey]
   return next
 }
 
@@ -1335,6 +1390,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   composerDrafts: {},
+  reasoningEffortByThread: {},
   config: null,
   connectionStatus: 'connecting',
   deleteThread: async (threadId) => {
@@ -2891,6 +2947,11 @@ export const useAppStore = create<AppState>((set, get) => ({
             getComposerDraftKey(null),
             getComposerDraftKey(reusableThread.id)
           ),
+          reasoningEffortByThread: moveReasoningEffort(
+            state.reasoningEffortByThread,
+            getComposerDraftKey(null),
+            getComposerDraftKey(reusableThread.id)
+          ),
           pendingWorkspacePath: null,
           ...withFilterBase(state.sidebarFilter, 'all')
         }
@@ -2917,6 +2978,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         pendingAcpBinding: null,
         composerDrafts: moveComposerDraft(
           state.composerDrafts,
+          getComposerDraftKey(null),
+          getComposerDraftKey(thread.id)
+        ),
+        reasoningEffortByThread: moveReasoningEffort(
+          state.reasoningEffortByThread,
           getComposerDraftKey(null),
           getComposerDraftKey(thread.id)
         ),
@@ -3135,13 +3201,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       config: currentState.config,
       draft: getComposerDraft(currentState)
     })
+    const reasoningEffort = getComposerReasoningEffort(currentState, threadId)
 
     try {
       const accepted = await window.api.yachiyo.retryMessage({
         threadId,
         messageId,
         enabledTools,
-        enabledSkillNames
+        enabledSkillNames,
+        reasoningEffort
       })
       set((state) => {
         const nextState = {
@@ -3332,6 +3400,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       // activeThreadId for override sends, so the payload cannot be
       // delivered into a thread the user switched to mid-flush.
       let threadId: string | null = override ? override.threadId : currentState.activeThreadId
+      const reasoningEffort =
+        override?.reasoningEffort ?? getComposerReasoningEffort(currentState, threadId)
       const workspacePath = normalizeWorkspacePath(
         threadId
           ? currentState.threads.find((thread) => thread.id === threadId)?.workspacePath
@@ -3374,6 +3444,11 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...withFilterBase(state.sidebarFilter, 'all'),
           composerDrafts: moveComposerDraft(
             state.composerDrafts,
+            getComposerDraftKey(null),
+            getComposerDraftKey(thread.id)
+          ),
+          reasoningEffortByThread: moveReasoningEffort(
+            state.reasoningEffortByThread,
             getComposerDraftKey(null),
             getComposerDraftKey(thread.id)
           ),
@@ -3428,6 +3503,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               content: trimmed,
               enabledTools,
               enabledSkillNames: draft.enabledSkillNames !== null ? enabledSkillNames : undefined,
+              reasoningEffort,
               ...(images.length > 0 ? { images } : {}),
               ...(attachments.length > 0 ? { attachments } : {})
             })
@@ -3436,6 +3512,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               enabledTools,
               enabledSkillNames:
                 mode === 'follow-up' || hasExplicitSkillNames ? enabledSkillNames : undefined,
+              reasoningEffort,
               ...(images.length > 0 ? { images } : {}),
               ...(attachments.length > 0 ? { attachments } : {}),
               ...(mode !== 'normal' ? { mode } : {}),
@@ -3671,6 +3748,21 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...draft,
           enabledSkillNames: enabledSkillNames ? normalizeSkillNames(enabledSkillNames) : null
         }))
+      }
+    }),
+
+  setComposerReasoningEffort: (reasoningEffort) =>
+    set((state) => {
+      if (!isComposerReasoningSelection(reasoningEffort)) {
+        return {}
+      }
+
+      const draftKey = getComposerDraftKey(state.activeThreadId)
+      return {
+        reasoningEffortByThread: {
+          ...state.reasoningEffortByThread,
+          [draftKey]: reasoningEffort
+        }
       }
     }),
 

@@ -123,7 +123,7 @@ export function ToolSelectorPopup({
             letterSpacing: '-0.1px'
           }}
         >
-          Tools for future sends
+          Tools
         </div>
         <div
           style={{

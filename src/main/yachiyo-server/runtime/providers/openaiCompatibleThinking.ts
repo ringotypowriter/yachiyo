@@ -9,7 +9,11 @@
  * provider-agnostic.
  */
 
-import type { ProviderSettings } from '../../../../shared/yachiyo/protocol'
+import type { ProviderSettings, ReasoningEffortLevel } from '../../../../shared/yachiyo/protocol'
+import {
+  KIMI_THINKING_BUDGET_BY_EFFORT,
+  OPENAI_COMPAT_THINKING_BUDGET_BY_EFFORT
+} from './shared.ts'
 
 // ---------------------------------------------------------------------------
 // Host → body-param mapping
@@ -19,7 +23,10 @@ interface ThinkingBodyParams {
   [key: string]: unknown
 }
 
-type ThinkingParamResolver = (model: string) => ThinkingBodyParams | undefined
+type ThinkingParamResolver = (
+  model: string,
+  effort: ReasoningEffortLevel
+) => ThinkingBodyParams | undefined
 
 /**
  * DeepSeek: nested `thinking` object with type `enabled`.
@@ -40,10 +47,16 @@ function deepseekParams(model: string): ThinkingBodyParams | undefined {
  * - GLM (Zhipu): supported — same params as Qwen
  * - MiniMax: thinking is always-on, no params needed (return undefined)
  */
-function dashScopeParams(model: string): ThinkingBodyParams | undefined {
+function dashScopeParams(
+  model: string,
+  effort: ReasoningEffortLevel
+): ThinkingBodyParams | undefined {
   const m = model.toLowerCase()
   if (m.includes('qwq') || m.includes('qwen3') || m.includes('glm')) {
-    return { enable_thinking: true, thinking_budget: 4096 }
+    return {
+      enable_thinking: true,
+      thinking_budget: OPENAI_COMPAT_THINKING_BUDGET_BY_EFFORT[effort]
+    }
   }
   // MiniMax on DashScope: thinking is always-on, no injection needed
   return undefined
@@ -52,10 +65,13 @@ function dashScopeParams(model: string): ThinkingBodyParams | undefined {
 /**
  * Zhipu GLM (own endpoint): same `enable_thinking` + `thinking_budget` as DashScope.
  */
-function zhipuParams(model: string): ThinkingBodyParams | undefined {
+function zhipuParams(model: string, effort: ReasoningEffortLevel): ThinkingBodyParams | undefined {
   const m = model.toLowerCase()
   if (m.includes('glm')) {
-    return { enable_thinking: true, thinking_budget: 4096 }
+    return {
+      enable_thinking: true,
+      thinking_budget: OPENAI_COMPAT_THINKING_BUDGET_BY_EFFORT[effort]
+    }
   }
   return undefined
 }
@@ -73,10 +89,10 @@ function minimaxParams(model: string): ThinkingBodyParams | undefined {
  * Kimi / Moonshot: nested `thinking` object with type + budget_tokens.
  * Only kimi-k2 series supports the thinking field.
  */
-function kimiParams(model: string): ThinkingBodyParams | undefined {
+function kimiParams(model: string, effort: ReasoningEffortLevel): ThinkingBodyParams | undefined {
   const m = model.toLowerCase()
   if (m.includes('kimi-k2') || m.includes('k2')) {
-    return { thinking: { type: 'enabled', budget_tokens: 8192 } }
+    return { thinking: { type: 'enabled', budget_tokens: KIMI_THINKING_BUDGET_BY_EFFORT[effort] } }
   }
   return undefined
 }
@@ -96,22 +112,31 @@ function kimiDisableParams(model: string): ThinkingBodyParams | undefined {
 /**
  * OpenRouter: standardised `reasoning` object.
  */
-function openRouterParams(model: string): ThinkingBodyParams | undefined {
+function openRouterParams(
+  model: string,
+  effort: ReasoningEffortLevel
+): ThinkingBodyParams | undefined {
   void model
-  return { reasoning: { effort: 'medium' } }
+  return { reasoning: { effort } }
 }
 
 /**
  * OpenCode Go: multi-provider endpoint that hosts models from various vendors.
  * Dispatches thinking params by model family.
  */
-function opencodeParams(model: string): ThinkingBodyParams | undefined {
+function opencodeParams(
+  model: string,
+  effort: ReasoningEffortLevel
+): ThinkingBodyParams | undefined {
   const m = model.toLowerCase()
   if (m.includes('glm')) {
-    return { enable_thinking: true, thinking_budget: 4096 }
+    return {
+      enable_thinking: true,
+      thinking_budget: OPENAI_COMPAT_THINKING_BUDGET_BY_EFFORT[effort]
+    }
   }
   if (m.includes('kimi-k2') || m.includes('k2')) {
-    return { thinking: { type: 'enabled', budget_tokens: 8192 } }
+    return { thinking: { type: 'enabled', budget_tokens: KIMI_THINKING_BUDGET_BY_EFFORT[effort] } }
   }
   if (m.includes('deepseek')) {
     return { thinking: { type: 'enabled' } }
@@ -123,7 +148,10 @@ function opencodeParams(model: string): ThinkingBodyParams | undefined {
  * SiliconFlow: pass-through — mirrors upstream model conventions.
  * DeepSeek-family → `thinking: {type: 'enabled'}`, Qwen-family → `enable_thinking`.
  */
-function siliconFlowParams(model: string): ThinkingBodyParams | undefined {
+function siliconFlowParams(
+  model: string,
+  effort: ReasoningEffortLevel
+): ThinkingBodyParams | undefined {
   const m = model.toLowerCase()
   if (
     m.includes('deepseek') &&
@@ -132,7 +160,10 @@ function siliconFlowParams(model: string): ThinkingBodyParams | undefined {
     return { thinking: { type: 'enabled' } }
   }
   if (m.includes('qwq') || m.includes('qwen3')) {
-    return { enable_thinking: true, thinking_budget: 4096 }
+    return {
+      enable_thinking: true,
+      thinking_budget: OPENAI_COMPAT_THINKING_BUDGET_BY_EFFORT[effort]
+    }
   }
   return undefined
 }
@@ -320,7 +351,12 @@ export function createThinkingFetch(
   options: ThinkingFetchOptions = {}
 ): typeof globalThis.fetch | undefined {
   const tag = '[yachiyo][openai-compat-thinking]'
-  const thinkingOff = settings.thinkingEnabled === false || mode !== 'default'
+  const thinkingOff =
+    settings.thinkingEnabled === false || settings.reasoningEffort === 'off' || mode !== 'default'
+  const effort =
+    settings.reasoningEffort && settings.reasoningEffort !== 'off'
+      ? settings.reasoningEffort
+      : 'medium'
 
   const entry = matchEntry(settings.baseUrl)
   if (!entry) {
@@ -331,7 +367,7 @@ export function createThinkingFetch(
   // When thinking is explicitly disabled, some providers need an override
   // param to turn off default-on thinking (e.g. Kimi k2).
   if (thinkingOff) {
-    const disableParams = entry.resolveDisable?.(settings.model)
+    const disableParams = entry.resolveDisable?.(settings.model, effort)
     if (!disableParams) {
       console.info(
         `${tag} skip: thinking off, no disable override needed for model=${settings.model}`
@@ -356,7 +392,7 @@ export function createThinkingFetch(
     }
   }
 
-  const extraParams = entry.resolve(settings.model)
+  const extraParams = entry.resolve(settings.model, effort)
   // Models without reasoning params AND no reasoning callback don't need
   // the wrapper — they won't emit reasoning_content to track.
   if (!extraParams && !options.onReasoningDelta) {

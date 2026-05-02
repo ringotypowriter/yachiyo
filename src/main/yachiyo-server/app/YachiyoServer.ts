@@ -1138,7 +1138,8 @@ export class YachiyoServer {
       images: input.images,
       attachments: input.attachments,
       enabledTools: input.enabledTools,
-      enabledSkillNames: input.enabledSkillNames
+      enabledSkillNames: input.enabledSkillNames,
+      reasoningEffort: input.reasoningEffort
     })
     if ('userMessage' in accepted) {
       return { ...accepted, replacedMessageId: input.messageId }

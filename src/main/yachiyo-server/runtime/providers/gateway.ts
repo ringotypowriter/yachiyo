@@ -133,6 +133,14 @@ function safeJsonStringify(value: unknown): string {
   }
 }
 
+function toGatewayThinkingLevel(
+  effort: ProviderSettings['reasoningEffort']
+): 'low' | 'medium' | 'high' {
+  if (effort === 'low') return 'low'
+  if (effort === 'high' || effort === 'xhigh' || effort === 'max') return 'high'
+  return DEFAULT_VERCEL_GATEWAY_THINKING_LEVEL
+}
+
 export function logGatewayDiagnostics(label: string, payload: unknown): void {
   console.log(`[gateway-diagnostic] ${label}\n${safeJsonStringify(payload)}`)
 }
@@ -236,7 +244,9 @@ export function createGatewayProviderOptions(
     }
   }
 
-  return supportsVercelGatewayThinkingLevel(settings.model) && settings.thinkingEnabled !== false
+  return supportsVercelGatewayThinkingLevel(settings.model) &&
+    settings.thinkingEnabled !== false &&
+    settings.reasoningEffort !== 'off'
     ? {
         gateway: {
           order: ['vertex']
@@ -244,7 +254,7 @@ export function createGatewayProviderOptions(
         vertex: {
           thinkingConfig: {
             includeThoughts: true,
-            thinkingLevel: DEFAULT_VERCEL_GATEWAY_THINKING_LEVEL
+            thinkingLevel: toGatewayThinkingLevel(settings.reasoningEffort)
           }
         }
       }

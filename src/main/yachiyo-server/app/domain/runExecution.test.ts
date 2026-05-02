@@ -11,6 +11,8 @@ import {
   prepareServerRunContext,
   type RunExecutionDeps
 } from './runExecution.ts'
+import { RetryableRunError } from '../../runtime/runtimeErrors.ts'
+import type { RunRecoveryCheckpoint } from '../../storage/storage.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { ModelUsage } from '../../runtime/types.ts'
 import type {
@@ -514,6 +516,79 @@ test('executeServerRun resolves a background bash handle from a completed task s
     assert.equal(finalToolCall?.status, 'completed')
     assert.equal(finalToolCall?.outputSummary, 'exit 0')
     assert.equal((finalToolCall?.details as { exitCode?: number } | undefined)?.exitCode, 0)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('executeServerRun persists reasoning effort in recovery checkpoints', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-reasoning-checkpoint-'))
+  const thread: ThreadRecord = {
+    id: 'thread-reasoning-checkpoint',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-reasoning-checkpoint',
+    threadId: thread.id,
+    role: 'user',
+    content: 'continue with high reasoning',
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const events: unknown[] = []
+  const checkpoints: RunRecoveryCheckpoint[] = []
+  const baseDeps = createRunContextDeps({
+    events,
+    messages: [requestMessage],
+    workspacePath: root
+  })
+  const storage: RunExecutionDeps['storage'] = {
+    ...baseDeps.storage,
+    updateMessage: () => {},
+    getChannelUser: () => undefined,
+    persistResponseMessagesRepairInBackground: () => {},
+    listThreadRuns: () => [],
+    upsertRunRecoveryCheckpoint: (checkpoint) => {
+      checkpoints.push(checkpoint)
+    },
+    deleteRunRecoveryCheckpoint: () => {},
+    createToolCall: () => {},
+    updateToolCall: () => {},
+    listThreadToolCalls: () => [],
+    completeRun: () => {},
+    cancelRun: () => {},
+    failRun: () => {},
+    saveThreadMessage: () => {},
+    updateRunSnapshot: () => {}
+  }
+  const deps: RunExecutionDeps = {
+    ...baseDeps,
+    storage,
+    createModelRuntime: () => ({
+      streamReply: async function* () {
+        yield 'partial'
+        throw new RetryableRunError('temporary transport failure')
+      }
+    })
+  }
+
+  try {
+    const result = await executeServerRun(deps, {
+      enabledTools: ['read'],
+      inactivityTimeoutMs: 30_000,
+      reasoningEffort: 'high',
+      runId: 'run-reasoning-checkpoint',
+      thread,
+      requestMessageId: requestMessage.id,
+      abortController: new AbortController(),
+      updateHeadOnComplete: true,
+      previousEnabledTools: null
+    })
+
+    assert.equal(result.kind, 'recovering')
+    assert.equal(checkpoints.at(-1)?.reasoningEffort, 'high')
   } finally {
     await rm(root, { recursive: true, force: true })
   }

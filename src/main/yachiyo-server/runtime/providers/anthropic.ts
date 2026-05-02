@@ -7,6 +7,7 @@ import {
   isDeepSeekV4ProMaxEffortModel
 } from './deepseekMaxEffort.ts'
 import {
+  ANTHROPIC_THINKING_BUDGET_BY_EFFORT,
   cleanBaseUrl,
   DEFAULT_ANTHROPIC_BASE_URL,
   DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS,
@@ -23,7 +24,8 @@ export function createAnthropicLanguageModel(
           {
             provider: 'anthropic',
             model: settings.model,
-            thinkingEnabled: settings.thinkingEnabled
+            thinkingEnabled: settings.thinkingEnabled,
+            reasoningEffort: settings.reasoningEffort
           },
           dependencies.fetchImpl
         )
@@ -44,11 +46,15 @@ export function createAnthropicProviderOptions(
   return {
     anthropic: {
       thinking: {
-        ...(mode === 'auxiliary' || settings.thinkingEnabled === false
+        ...(mode === 'auxiliary' ||
+        settings.thinkingEnabled === false ||
+        settings.reasoningEffort === 'off'
           ? { type: 'disabled' as const }
           : {
               type: 'enabled' as const,
-              budgetTokens: DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS
+              budgetTokens: settings.reasoningEffort
+                ? ANTHROPIC_THINKING_BUDGET_BY_EFFORT[settings.reasoningEffort]
+                : DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS
             })
       }
     }

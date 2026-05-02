@@ -2,6 +2,7 @@ import type {
   ChannelGroupRecord,
   ChannelGroupStatus,
   ChannelPlatform,
+  ComposerReasoningSelection,
   FolderColorTag,
   FolderRecord,
   ChannelUserRecord,
@@ -36,6 +37,7 @@ import {
   normalizeSkillNames,
   withThreadCapabilities
 } from '../../../shared/yachiyo/protocol.ts'
+import { isComposerReasoningSelection } from '../../../shared/yachiyo/reasoningEffort.ts'
 import { normalizeMessageImages } from '../../../shared/yachiyo/messageContent.ts'
 
 export interface StoredThreadRow {
@@ -53,6 +55,7 @@ export interface StoredThreadRow {
   queuedFollowUpMessageId: string | null
   queuedFollowUpEnabledTools: string | null
   queuedFollowUpEnabledSkillNames: string | null
+  queuedFollowUpReasoningEffort: string | null
   archivedAt: string | null
   savingStartedAt: string | null
   starredAt: string | null
@@ -223,6 +226,7 @@ export interface RunRecoveryCheckpoint {
   responseMessages?: unknown[]
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
+  reasoningEffort?: ComposerReasoningSelection
   channelHint?: string
   updateHeadOnComplete: boolean
   createdAt: string
@@ -242,6 +246,7 @@ export interface StoredRunRecoveryCheckpointRow {
   responseMessages: string | null
   enabledTools: string
   enabledSkillNames: string | null
+  reasoningEffort: string | null
   channelHint: string | null
   updateHeadOnComplete: string
   createdAt: string
@@ -418,6 +423,7 @@ export function toThreadRecord(
     | 'queuedFollowUpEnabledTools'
     | 'queuedFollowUpEnabledSkillNames'
     | 'queuedFollowUpMessageId'
+    | 'queuedFollowUpReasoningEffort'
     | 'source'
     | 'channelUserId'
     | 'channelGroupId'
@@ -436,6 +442,7 @@ export function toThreadRecord(
 ): ThreadRecord {
   const queuedFollowUpEnabledTools = parseEnabledTools(row.queuedFollowUpEnabledTools)
   const queuedFollowUpEnabledSkillNames = parseSkillNames(row.queuedFollowUpEnabledSkillNames)
+  const queuedFollowUpReasoningEffort = parseReasoningSelection(row.queuedFollowUpReasoningEffort)
   const memoryRecall = parseThreadMemoryRecallState(row.memoryRecallState)
   const modelOverride = parseModelOverride(row.modelOverride)
   const runtimeBinding = parseRuntimeBinding(row.runtimeBinding)
@@ -458,6 +465,7 @@ export function toThreadRecord(
       ...(row.privacyMode === '1' ? { privacyMode: true } : {}),
       ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
       ...(queuedFollowUpEnabledSkillNames ? { queuedFollowUpEnabledSkillNames } : {}),
+      ...(queuedFollowUpReasoningEffort ? { queuedFollowUpReasoningEffort } : {}),
       ...(row.queuedFollowUpMessageId === null
         ? {}
         : { queuedFollowUpMessageId: row.queuedFollowUpMessageId }),
@@ -501,6 +509,7 @@ export function toThreadRecord(
     ...(row.privacyMode === '1' ? { privacyMode: true } : {}),
     ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
     ...(queuedFollowUpEnabledSkillNames ? { queuedFollowUpEnabledSkillNames } : {}),
+    ...(queuedFollowUpReasoningEffort ? { queuedFollowUpReasoningEffort } : {}),
     ...(row.queuedFollowUpMessageId === null
       ? {}
       : { queuedFollowUpMessageId: row.queuedFollowUpMessageId }),
@@ -659,6 +668,10 @@ export function serializeSkillNames(skillNames?: readonly string[]): string | nu
   return skillNames ? JSON.stringify(normalizeSkillNames(skillNames)) : null
 }
 
+export function serializeReasoningSelection(selection?: ComposerReasoningSelection): string | null {
+  return selection ?? null
+}
+
 export function serializeThreadMemoryRecallState(state?: ThreadMemoryRecallState): string | null {
   if (!state) {
     return null
@@ -741,6 +754,10 @@ function parseSkillNames(value: string | null): string[] | undefined {
   } catch {
     return undefined
   }
+}
+
+function parseReasoningSelection(value: string | null): ComposerReasoningSelection | undefined {
+  return isComposerReasoningSelection(value) ? value : undefined
 }
 
 function parseThreadMemoryRecallState(value: string | null): ThreadMemoryRecallState | undefined {
@@ -826,6 +843,7 @@ export function toRunRecoveryCheckpoint(
   const responseMessages = parseResponseMessages(row.responseMessages)
   const enabledTools = parseEnabledTools(row.enabledTools) ?? []
   const enabledSkillNames = parseSkillNames(row.enabledSkillNames)
+  const reasoningEffort = parseReasoningSelection(row.reasoningEffort)
 
   return {
     runId: row.runId,
@@ -838,6 +856,7 @@ export function toRunRecoveryCheckpoint(
     ...(responseMessages ? { responseMessages } : {}),
     enabledTools,
     ...(enabledSkillNames ? { enabledSkillNames } : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
     ...(row.channelHint ? { channelHint: row.channelHint } : {}),
     updateHeadOnComplete: row.updateHeadOnComplete === '1',
     createdAt: row.createdAt,
@@ -863,6 +882,7 @@ export function toStoredRunRecoveryCheckpointRow(
     enabledSkillNames: checkpoint.enabledSkillNames
       ? JSON.stringify(checkpoint.enabledSkillNames)
       : null,
+    reasoningEffort: serializeReasoningSelection(checkpoint.reasoningEffort),
     channelHint: checkpoint.channelHint ?? null,
     updateHeadOnComplete: checkpoint.updateHeadOnComplete ? '1' : '0',
     createdAt: checkpoint.createdAt,

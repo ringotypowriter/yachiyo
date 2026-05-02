@@ -30,6 +30,7 @@ function resetStore(): void {
     activeThreadId: null,
     archivedThreads: [],
     composerDrafts: {},
+    reasoningEffortByThread: {},
     config: null,
     connectionStatus: 'connected',
     enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
@@ -1696,12 +1697,18 @@ test('setActiveThread derives run state from the selected thread only', () => {
 test('sendMessage restores per-thread drafts and clears only the sent thread on success', async () => {
   resetStore()
 
-  const calls: Array<{ content: string; enabledTools?: string[]; threadId: string }> = []
+  const calls: Array<{
+    content: string
+    enabledTools?: string[]
+    reasoningEffort?: string
+    threadId: string
+  }> = []
   const restoreWindow = withWindowApiMock({
     sendChat: async (input) => {
       calls.push({
         content: input.content,
         enabledTools: input.enabledTools,
+        reasoningEffort: input.reasoningEffort,
         threadId: input.threadId
       })
 
@@ -1745,6 +1752,9 @@ test('sendMessage restores per-thread drafts and clears only the sent thread on 
         'thread-2': []
       },
       enabledTools: ['read', 'bash'],
+      reasoningEffortByThread: {
+        'thread-1': 'high'
+      },
       settings: READY_SETTINGS,
       threads: [
         {
@@ -1767,6 +1777,7 @@ test('sendMessage restores per-thread drafts and clears only the sent thread on 
       {
         content: 'Alpha',
         enabledTools: ['read', 'bash'],
+        reasoningEffort: 'high',
         threadId: 'thread-1'
       }
     ])
@@ -2208,6 +2219,7 @@ test('retryMessage marks the accepted run as active immediately', async () => {
     enabledSkillNames?: string[]
     enabledTools?: string[]
     messageId: string
+    reasoningEffort?: string
     threadId: string
   }> = []
   const restoreWindow = withWindowApiMock({
@@ -2216,6 +2228,7 @@ test('retryMessage marks the accepted run as active immediately', async () => {
         enabledSkillNames: input.enabledSkillNames,
         enabledTools: input.enabledTools,
         messageId: input.messageId,
+        reasoningEffort: input.reasoningEffort,
         threadId: input.threadId
       })
 
@@ -2257,6 +2270,9 @@ test('retryMessage marks the accepted run as active immediately', async () => {
         ]
       },
       enabledTools: ['read', 'edit'],
+      reasoningEffortByThread: {
+        'thread-1': 'high'
+      },
       config: {
         ...DEFAULT_SETTINGS,
         providers: [],
@@ -2282,6 +2298,7 @@ test('retryMessage marks the accepted run as active immediately', async () => {
         enabledSkillNames: ['workspace-refactor'],
         enabledTools: ['read', 'edit'],
         messageId: 'assistant-1',
+        reasoningEffort: 'high',
         threadId: 'thread-1'
       }
     ])
@@ -2909,6 +2926,95 @@ test('createNewThread moves the staged new-chat draft into a reusable blank chat
     assert.equal(state.activeThreadId, 'thread-1')
     assert.equal(state.composerDrafts.__new__, undefined)
     assert.equal(state.composerDrafts['thread-1']?.text, 'Carry this into the reusable chat')
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('createNewThread moves the staged new-chat reasoning effort into a reusable blank chat', async () => {
+  resetStore()
+
+  let createThreadCallCount = 0
+  const restoreWindow = withWindowApiMock({
+    createThread: async () => {
+      createThreadCallCount += 1
+      return {
+        id: 'thread-2',
+        title: 'New Chat',
+        updatedAt: TIMESTAMP
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      composerDrafts: {
+        __new__: {
+          text: 'Carry this into the reusable chat',
+          images: [],
+          files: [],
+          enabledSkillNames: null
+        }
+      },
+      reasoningEffortByThread: {
+        __new__: 'high'
+      },
+      messages: {
+        'thread-1': []
+      },
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'New Chat',
+          updatedAt: TIMESTAMP
+        }
+      ]
+    })
+
+    await useAppStore.getState().createNewThread()
+
+    const state = useAppStore.getState()
+    assert.equal(createThreadCallCount, 0)
+    assert.equal(state.activeThreadId, 'thread-1')
+    assert.equal(state.reasoningEffortByThread.__new__, undefined)
+    assert.equal(state.reasoningEffortByThread['thread-1'], 'high')
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('createNewThread moves the staged new-chat reasoning effort into a new chat', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    createThread: async () => ({
+      id: 'thread-2',
+      title: 'New Chat',
+      updatedAt: TIMESTAMP
+    })
+  })
+
+  try {
+    useAppStore.setState({
+      composerDrafts: {
+        __new__: {
+          text: 'Carry this into the new chat',
+          images: [],
+          files: [],
+          enabledSkillNames: null
+        }
+      },
+      reasoningEffortByThread: {
+        __new__: 'high'
+      }
+    })
+
+    await useAppStore.getState().createNewThread()
+
+    const state = useAppStore.getState()
+    assert.equal(state.activeThreadId, 'thread-2')
+    assert.equal(state.reasoningEffortByThread.__new__, undefined)
+    assert.equal(state.reasoningEffortByThread['thread-2'], 'high')
   } finally {
     restoreWindow()
   }

@@ -32,6 +32,7 @@ import {
   serializeMessageAttachments,
   serializeMessageImages,
   serializeMessageTextBlocks,
+  serializeReasoningSelection,
   serializeThreadMemoryRecallState,
   serializeRuntimeBinding,
   serializeLastDelegatedSession,
@@ -382,6 +383,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
           queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
+          queuedFollowUpReasoningEffort: threadsTable.queuedFollowUpReasoningEffort,
           source: threadsTable.source,
           channelUserId: threadsTable.channelUserId,
           channelGroupId: threadsTable.channelGroupId,
@@ -626,6 +628,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
           queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
+          queuedFollowUpReasoningEffort: threadsTable.queuedFollowUpReasoningEffort,
           source: threadsTable.source,
           channelUserId: threadsTable.channelUserId,
           channelGroupId: threadsTable.channelGroupId,
@@ -668,6 +671,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
           queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
+          queuedFollowUpReasoningEffort: threadsTable.queuedFollowUpReasoningEffort,
           source: threadsTable.source,
           channelUserId: threadsTable.channelUserId,
           channelGroupId: threadsTable.channelGroupId,
@@ -735,6 +739,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
               thread.queuedFollowUpEnabledSkillNames
             ),
             queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
+            queuedFollowUpReasoningEffort: serializeReasoningSelection(
+              thread.queuedFollowUpReasoningEffort
+            ),
             source: thread.source ?? 'local',
             channelUserId: thread.channelUserId ?? null,
             channelGroupId: thread.channelGroupId ?? null,
@@ -869,6 +876,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             queuedFollowUpEnabledTools: null,
             queuedFollowUpEnabledSkillNames: null,
             queuedFollowUpMessageId: null,
+            queuedFollowUpReasoningEffort: null,
             rollingSummary: null,
             summaryWatermarkMessageId: null,
             recapText: null,
@@ -895,6 +903,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             queuedFollowUpEnabledTools: null,
             queuedFollowUpEnabledSkillNames: null,
             queuedFollowUpMessageId: null,
+            queuedFollowUpReasoningEffort: null,
             rollingSummary: null,
             summaryWatermarkMessageId: null,
             recapText: null,
@@ -938,6 +947,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             thread.queuedFollowUpEnabledSkillNames
           ),
           queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
+          queuedFollowUpReasoningEffort: serializeReasoningSelection(
+            thread.queuedFollowUpReasoningEffort
+          ),
           source: thread.source ?? null,
           channelUserId: thread.channelUserId ?? null,
           channelGroupId: thread.channelGroupId ?? null,
@@ -1019,6 +1031,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
               updatedThread.queuedFollowUpEnabledSkillNames
             ),
             queuedFollowUpMessageId: updatedThread.queuedFollowUpMessageId ?? null,
+            queuedFollowUpReasoningEffort: serializeReasoningSelection(
+              updatedThread.queuedFollowUpReasoningEffort
+            ),
             recapText: updatedThread.recapText ?? null,
             title: updatedThread.title,
             updatedAt: updatedThread.updatedAt,
@@ -1072,6 +1087,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
               updatedThread.queuedFollowUpEnabledSkillNames
             ),
             queuedFollowUpMessageId: updatedThread.queuedFollowUpMessageId ?? null,
+            queuedFollowUpReasoningEffort: serializeReasoningSelection(
+              updatedThread.queuedFollowUpReasoningEffort
+            ),
             recapText: updatedThread.recapText ?? null,
             title: updatedThread.title,
             updatedAt: updatedThread.updatedAt,
@@ -1145,6 +1163,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
               updatedThread.queuedFollowUpEnabledSkillNames
             ),
             queuedFollowUpMessageId: updatedThread.queuedFollowUpMessageId ?? null,
+            queuedFollowUpReasoningEffort: serializeReasoningSelection(
+              updatedThread.queuedFollowUpReasoningEffort
+            ),
             runtimeBinding: serializeRuntimeBinding(updatedThread.runtimeBinding),
             lastDelegatedSession: serializeLastDelegatedSession(updatedThread.lastDelegatedSession),
             recapText: updatedThread.recapText ?? null,
@@ -1492,6 +1513,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
               thread.queuedFollowUpEnabledSkillNames
             ),
             queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
+            queuedFollowUpReasoningEffort: serializeReasoningSelection(
+              thread.queuedFollowUpReasoningEffort
+            ),
             title: thread.title,
             updatedAt: thread.updatedAt
           })

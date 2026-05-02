@@ -1,3 +1,5 @@
+import type { ReasoningEffortLevel } from '../../../../shared/yachiyo/protocol.ts'
+
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1'
 export const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
@@ -6,6 +8,38 @@ export const DEFAULT_OPENAI_REASONING_EFFORT = 'medium'
 export const DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS = 8000
 export const DEFAULT_GEMINI_THINKING_BUDGET = 1024
 export const DEFAULT_VERCEL_GATEWAY_THINKING_LEVEL = 'medium'
+
+export const ANTHROPIC_THINKING_BUDGET_BY_EFFORT: Record<ReasoningEffortLevel, number> = {
+  low: 4000,
+  medium: DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS,
+  high: 16000,
+  xhigh: 32000,
+  max: 64000
+}
+
+export const GEMINI_THINKING_BUDGET_BY_EFFORT: Record<ReasoningEffortLevel, number> = {
+  low: 512,
+  medium: DEFAULT_GEMINI_THINKING_BUDGET,
+  high: 4096,
+  xhigh: 8192,
+  max: 24576
+}
+
+export const OPENAI_COMPAT_THINKING_BUDGET_BY_EFFORT: Record<ReasoningEffortLevel, number> = {
+  low: 1024,
+  medium: 4096,
+  high: 8192,
+  xhigh: 16384,
+  max: 32768
+}
+
+export const KIMI_THINKING_BUDGET_BY_EFFORT: Record<ReasoningEffortLevel, number> = {
+  low: 4096,
+  medium: 8192,
+  high: 16384,
+  xhigh: 32768,
+  max: 65536
+}
 
 /**
  * Hosts whose APIs count thinking tokens inside `maxOutputTokens`.
@@ -72,7 +106,7 @@ export type VercelGatewayThinkingRuntimeProviderOptions = VercelGatewayRuntimePr
   vertex: {
     thinkingConfig: {
       includeThoughts: boolean
-      thinkingLevel: 'medium'
+      thinkingLevel: 'low' | 'medium' | 'high'
     }
   }
 }

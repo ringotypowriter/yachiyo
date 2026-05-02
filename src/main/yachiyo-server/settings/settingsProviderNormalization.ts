@@ -8,6 +8,7 @@ import {
   type ToolModelConfig
 } from '../../../shared/yachiyo/protocol.ts'
 import { ensureProviderId, sanitizeProviderConfig } from '../../../shared/yachiyo/providerConfig.ts'
+import { normalizeProviderReasoningConfig } from '../../../shared/yachiyo/reasoningEffort.ts'
 import { DEFAULT_SETTINGS_CONFIG } from './settingsDefaults.ts'
 import {
   asRecord,
@@ -74,6 +75,9 @@ function normalizeProviderConfig(value: unknown, fallback?: ProviderConfig): Pro
       input['thinkingEnabled'],
       fallback?.thinkingEnabled !== false
     ),
+    ...(input['reasoning'] !== undefined || fallback?.reasoning !== undefined
+      ? { reasoning: normalizeProviderReasoningConfig(input['reasoning'] ?? fallback?.reasoning) }
+      : {}),
     apiKey: normalizeString(input['apiKey'], fallback?.apiKey ?? ''),
     baseUrl: normalizeString(input['baseUrl'], fallback?.baseUrl ?? ''),
     ...(codexSessionPath !== undefined ? { codexSessionPath } : {}),
@@ -164,6 +168,7 @@ export function toResolvedProviderSettings(
     provider: provider.type,
     model,
     thinkingEnabled: provider.thinkingEnabled !== false,
+    ...(provider.reasoning !== undefined ? { reasoning: provider.reasoning } : {}),
     apiKey: provider.apiKey,
     baseUrl: provider.baseUrl,
     codexSessionPath: provider.codexSessionPath,

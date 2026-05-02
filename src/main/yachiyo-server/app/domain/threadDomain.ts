@@ -721,7 +721,8 @@ export class YachiyoServerThreadDomain {
         ? {
             queuedFollowUpEnabledTools: thread.queuedFollowUpEnabledTools,
             queuedFollowUpEnabledSkillNames: thread.queuedFollowUpEnabledSkillNames,
-            queuedFollowUpMessageId: thread.queuedFollowUpMessageId
+            queuedFollowUpMessageId: thread.queuedFollowUpMessageId,
+            queuedFollowUpReasoningEffort: thread.queuedFollowUpReasoningEffort
           }
         : {}),
       ...(nextHeadMessageId ? { headMessageId: nextHeadMessageId } : {}),
@@ -740,6 +741,7 @@ export class YachiyoServerThreadDomain {
       delete updatedThread.queuedFollowUpEnabledTools
       delete updatedThread.queuedFollowUpEnabledSkillNames
       delete updatedThread.queuedFollowUpMessageId
+      delete updatedThread.queuedFollowUpReasoningEffort
     }
 
     this.deps.storage.deleteMessages({

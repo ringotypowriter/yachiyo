@@ -1,6 +1,7 @@
 import type { LanguageModel } from 'ai'
 
 import type { ProviderConfig, ProviderSettings } from '../../../../shared/yachiyo/protocol'
+import { isOpenAIXHighReasoningEffortModel } from '../../../../shared/yachiyo/reasoningEffort.ts'
 import type { ResolvedAiSdkRuntimeDependencies } from './dependencies.ts'
 import {
   createDeepSeekV4ProMaxEffortFetch,
@@ -48,6 +49,26 @@ export function shouldUseOpenAIResponsesApi(settings: ProviderSettings): boolean
   )
 }
 
+function toOpenAIReasoningEffort(
+  model: string,
+  effort: ProviderSettings['reasoningEffort']
+): 'low' | 'medium' | 'high' | 'xhigh' | undefined {
+  if (effort === undefined) {
+    return DEFAULT_OPENAI_REASONING_EFFORT
+  }
+  if (effort === 'off') {
+    return undefined
+  }
+  if (effort === 'low' || effort === 'medium' || effort === 'high') {
+    return effort
+  }
+  if (effort === 'xhigh' && isOpenAIXHighReasoningEffortModel(model)) {
+    return effort
+  }
+
+  throw new Error(`OpenAI reasoning effort "${effort}" is not supported.`)
+}
+
 export interface OpenAiLanguageModelOptions {
   onReasoningDelta?: (delta: string) => void
   historicalReasoningContents?: string[]
@@ -84,7 +105,8 @@ export function createOpenAiLanguageModel(
           {
             provider: 'openai',
             model: settings.model,
-            thinkingEnabled: settings.thinkingEnabled
+            thinkingEnabled: settings.thinkingEnabled,
+            reasoningEffort: settings.reasoningEffort
           },
           thinkingFetch ?? cacheFetch ?? innerFetch
         )
@@ -114,9 +136,12 @@ export function createOpenAiProviderOptions(
 ): RuntimeProviderOptions {
   const enableReasoningPreview =
     settings.thinkingEnabled !== false &&
+    settings.reasoningEffort !== 'off' &&
     mode === 'default' &&
     supportsOpenAIReasoningEffort(settings.model)
-  const reasoningEffort = enableReasoningPreview ? DEFAULT_OPENAI_REASONING_EFFORT : undefined
+  const reasoningEffort = enableReasoningPreview
+    ? toOpenAIReasoningEffort(settings.model, settings.reasoningEffort)
+    : undefined
   const isGpt5 = settings.model.trim().toLowerCase().startsWith('gpt-5')
 
   return {

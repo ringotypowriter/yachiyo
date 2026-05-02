@@ -6,6 +6,7 @@ import {
   cleanBaseUrl,
   DEFAULT_GEMINI_BASE_URL,
   DEFAULT_GEMINI_THINKING_BUDGET,
+  GEMINI_THINKING_BUDGET_BY_EFFORT,
   type RuntimeProviderOptions
 } from './shared.ts'
 
@@ -56,11 +57,15 @@ export function createGoogleProviderOptions(
       }
     }
   }
-  return settings.thinkingEnabled !== false && supportsGeminiThinking(settings.model)
+  return settings.thinkingEnabled !== false &&
+    settings.reasoningEffort !== 'off' &&
+    supportsGeminiThinking(settings.model)
     ? {
         google: {
           thinkingConfig: {
-            thinkingBudget: DEFAULT_GEMINI_THINKING_BUDGET,
+            thinkingBudget: settings.reasoningEffort
+              ? GEMINI_THINKING_BUDGET_BY_EFFORT[settings.reasoningEffort]
+              : DEFAULT_GEMINI_THINKING_BUDGET,
             includeThoughts: true
           }
         }

@@ -1,4 +1,7 @@
-import type { ProviderSettings } from '../../../../shared/yachiyo/protocol'
+import type {
+  ComposerReasoningSelection,
+  ProviderSettings
+} from '../../../../shared/yachiyo/protocol'
 import type { ModelProviderOptionsMode } from '../types.ts'
 import { createAnthropicProviderOptions } from './anthropic.ts'
 import { createGatewayProviderOptions } from './gateway.ts'
@@ -67,27 +70,31 @@ export function extractThinkingBudget(
 
 export function createProviderOptions(
   settings: ProviderSettings,
-  mode: ModelProviderOptionsMode = 'default'
+  mode: ModelProviderOptionsMode = 'default',
+  reasoningEffort?: ComposerReasoningSelection
 ): RuntimeProviderOptions {
+  const effectiveSettings =
+    reasoningEffort === undefined ? settings : { ...settings, reasoningEffort }
+
   if (
-    settings.provider === 'openai' ||
-    settings.provider === 'openai-responses' ||
-    settings.provider === 'openai-codex'
+    effectiveSettings.provider === 'openai' ||
+    effectiveSettings.provider === 'openai-responses' ||
+    effectiveSettings.provider === 'openai-codex'
   ) {
-    return createOpenAiProviderOptions(settings, mode)
+    return createOpenAiProviderOptions(effectiveSettings, mode)
   }
 
-  if (settings.provider === 'gemini') {
-    return createGoogleProviderOptions(settings, mode)
+  if (effectiveSettings.provider === 'gemini') {
+    return createGoogleProviderOptions(effectiveSettings, mode)
   }
 
-  if (settings.provider === 'vertex') {
-    return createVertexProviderOptions(settings, mode)
+  if (effectiveSettings.provider === 'vertex') {
+    return createVertexProviderOptions(effectiveSettings, mode)
   }
 
-  if (settings.provider === 'vercel-gateway') {
-    return createGatewayProviderOptions(settings, mode)
+  if (effectiveSettings.provider === 'vercel-gateway') {
+    return createGatewayProviderOptions(effectiveSettings, mode)
   }
 
-  return createAnthropicProviderOptions(settings, mode)
+  return createAnthropicProviderOptions(effectiveSettings, mode)
 }

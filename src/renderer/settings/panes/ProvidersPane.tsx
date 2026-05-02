@@ -1,8 +1,11 @@
 import {
+  Brain,
   Copy,
   Eraser,
   Factory,
   File,
+  Image as ImageIcon,
+  ImageOff,
   Loader2,
   Plus,
   RefreshCw,
@@ -11,12 +14,18 @@ import {
   X
 } from 'lucide-react'
 import { ProviderIconAvatar } from '../../src/lib/providerIcons'
-import { useDeferredValue, useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { theme, alpha } from '@renderer/theme/theme'
-import type {
-  ProviderConfig,
-  ProviderKind,
-  SettingsConfig
+import {
+  REASONING_EFFORT_LEVELS,
+  type ComposerReasoningSelection,
+  type ProviderConfig,
+  type ProviderKind,
+  type ProviderReasoningConfig,
+  type ProviderReasoningModelConfig,
+  type ReasoningEffortLevel,
+  type SettingsConfig
 } from '../../../shared/yachiyo/protocol.ts'
 import {
   computeImageIncapableForNewModels,
@@ -32,6 +41,11 @@ import {
   toolModelTargetsProvider
 } from '../../../shared/yachiyo/providerConfig.ts'
 import { matchProviderPreset } from '../../../shared/yachiyo/providerPresets.ts'
+import {
+  getReasoningSelectorState,
+  isReasoningEffortSelectable,
+  normalizeProviderReasoningConfig
+} from '../../../shared/yachiyo/reasoningEffort.ts'
 import { imeSafeEnter } from '@renderer/lib/imeUtils'
 import { Field, PlaceholderPane, SettingSwitch, SimpleSelect } from '../components/primitives'
 import { inputStyle } from '../components/styles'
@@ -41,9 +55,20 @@ interface ModelToggleProps {
   enabled: boolean
   model: string
   imageCapable: boolean
+  onOpenReasoning: () => void
   onRemove: () => void
   onToggle: () => void
   onToggleImageCapable: () => void
+}
+
+interface ReasoningModalProps {
+  defaultEffort: ComposerReasoningSelection
+  model: string
+  onClose: () => void
+  onSetDefault: (selection: ComposerReasoningSelection) => void
+  onToggleOption: (selection: ComposerReasoningSelection) => void
+  options: ComposerReasoningSelection[]
+  provider: ProviderConfig
 }
 
 interface ModelListSectionProps {
@@ -109,37 +134,295 @@ function withSelectedProvider(
   }
 }
 
+const REASONING_CHOICES: readonly {
+  label: string
+  value: ComposerReasoningSelection
+}[] = [
+  { value: 'off', label: 'Off' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'xhigh', label: 'XHigh' },
+  { value: 'max', label: 'Max' }
+]
+
+function isReasoningLevel(
+  selection: ComposerReasoningSelection
+): selection is ReasoningEffortLevel {
+  return selection !== 'off'
+}
+
+function sortReasoningEfforts(efforts: ReasoningEffortLevel[]): ReasoningEffortLevel[] {
+  return REASONING_EFFORT_LEVELS.filter((level) => efforts.includes(level))
+}
+
+function withoutReasoningModel(
+  reasoning: ProviderReasoningConfig | undefined,
+  model: string
+): ProviderReasoningConfig | undefined {
+  const models = reasoning?.models?.filter((entry) => entry.model !== model) ?? []
+  return normalizeProviderReasoningConfig({
+    ...(reasoning ?? {}),
+    models
+  })
+}
+
+function withProviderReasoning(
+  provider: ProviderConfig,
+  reasoning: ProviderReasoningConfig | undefined
+): ProviderConfig {
+  const next = { ...provider }
+  if (reasoning) {
+    next.reasoning = reasoning
+  } else {
+    delete next.reasoning
+  }
+  return next
+}
+
+function upsertReasoningModel(
+  provider: ProviderConfig,
+  model: string,
+  update: (state: {
+    defaultEffort: ComposerReasoningSelection
+    efforts: ReasoningEffortLevel[]
+    allowOff: boolean
+  }) => ProviderReasoningModelConfig
+): ProviderConfig {
+  const state = getReasoningSelectorState({
+    provider: { ...provider, thinkingEnabled: true },
+    model
+  })
+  const current = {
+    allowOff: state.options.includes('off'),
+    defaultEffort: state.selected,
+    efforts: state.options.filter(isReasoningLevel)
+  }
+  const models = [
+    ...(provider.reasoning?.models?.filter((entry) => entry.model !== model) ?? []),
+    update(current)
+  ]
+  return withProviderReasoning(
+    provider,
+    normalizeProviderReasoningConfig({
+      ...(provider.reasoning ?? {}),
+      models
+    })
+  )
+}
+
+function buildReasoningModelConfig(input: {
+  allowOff: boolean
+  defaultEffort: ComposerReasoningSelection
+  efforts: ReasoningEffortLevel[]
+  model: string
+}): ProviderReasoningModelConfig {
+  const efforts = sortReasoningEfforts(input.efforts)
+  if (efforts.length === 0) {
+    return {
+      model: input.model,
+      enabled: false,
+      enabledEfforts: [],
+      defaultEffort: 'off',
+      allowOff: true
+    }
+  }
+
+  const options: ComposerReasoningSelection[] = [
+    ...(input.allowOff ? (['off'] as const) : []),
+    ...efforts
+  ]
+  const defaultEffort = options.includes(input.defaultEffort) ? input.defaultEffort : efforts[0]
+
+  return {
+    model: input.model,
+    enabledEfforts: efforts,
+    defaultEffort,
+    allowOff: input.allowOff
+  }
+}
+
+function formatReasoningOptionList(options: ComposerReasoningSelection[]): string {
+  const labels = options.map(
+    (option) => REASONING_CHOICES.find((choice) => choice.value === option)?.label ?? option
+  )
+  return labels.join(', ')
+}
+
+function ReasoningSettingsModal({
+  model,
+  options,
+  defaultEffort,
+  onToggleOption,
+  onSetDefault,
+  onClose,
+  provider
+}: ReasoningModalProps): React.ReactNode {
+  const choices = REASONING_CHOICES.filter(
+    (choice) =>
+      choice.value === 'off' ||
+      isReasoningEffortSelectable({
+        provider,
+        model,
+        effort: choice.value
+      })
+  )
+  const defaultOptions = options.map((value) => ({
+    value,
+    label: REASONING_CHOICES.find((choice) => choice.value === value)?.label ?? value
+  }))
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  return createPortal(
+    <div
+      role="presentation"
+      onMouseDown={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9998,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'rgba(10, 18, 25, 0.22)',
+        backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(10px)',
+        padding: 24
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Reasoning settings for ${model}`}
+        onMouseDown={(event) => event.stopPropagation()}
+        style={{
+          width: 'min(520px, 100%)',
+          borderRadius: 16,
+          border: `1px solid ${theme.border.strong}`,
+          background: theme.background.surface,
+          boxShadow: theme.shadow.overlay,
+          overflow: 'hidden'
+        }}
+      >
+        <div
+          className="flex items-start justify-between gap-4 px-5 py-4"
+          style={{ borderBottom: `1px solid ${theme.border.subtle}` }}
+        >
+          <div className="min-w-0">
+            <div className="text-sm font-semibold truncate" style={{ color: theme.text.primary }}>
+              {model}
+            </div>
+            <div className="mt-1 text-xs" style={{ color: theme.text.muted }}>
+              Reasoning levels shown in the composer
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 rounded-lg p-1 transition-opacity opacity-50 hover:opacity-100"
+            aria-label="Close reasoning settings"
+          >
+            <X size={15} strokeWidth={1.8} color={theme.icon.muted} />
+          </button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          <div>
+            <div className="mb-2 text-xs font-medium" style={{ color: theme.text.primary }}>
+              Available levels
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {choices.map((choice) => {
+                const active = options.includes(choice.value)
+                return (
+                  <button
+                    key={choice.value}
+                    type="button"
+                    onClick={() => onToggleOption(choice.value)}
+                    className="rounded-lg px-3 py-2 text-sm font-medium transition-colors"
+                    style={{
+                      color: active ? theme.text.accent : theme.text.secondary,
+                      background: active ? theme.background.accentSoft : alpha('ink', 0.04),
+                      border: `1px solid ${active ? theme.border.accent : theme.border.subtle}`
+                    }}
+                  >
+                    {choice.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-xs font-medium" style={{ color: theme.text.primary }}>
+                Default
+              </div>
+              <div className="mt-1 text-xs truncate" style={{ color: theme.text.muted }}>
+                {formatReasoningOptionList(options)}
+              </div>
+            </div>
+            <SimpleSelect<ComposerReasoningSelection>
+              value={defaultEffort}
+              options={defaultOptions}
+              width={140}
+              onChange={onSetDefault}
+            />
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
 function ModelToggle({
   model,
   enabled,
   imageCapable,
   onToggle,
   onRemove,
+  onOpenReasoning,
   onToggleImageCapable
 }: ModelToggleProps): React.ReactNode {
   const [hovered, setHovered] = useState(false)
+  const ImageCapabilityIcon = imageCapable ? ImageIcon : ImageOff
+  const imageCapabilityLabel = imageCapable ? 'Image Capable' : 'Image Incapable'
 
   return (
     <div
-      className="group flex items-center justify-between px-3 py-2 rounded-lg transition-colors overflow-hidden"
+      className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 rounded-lg transition-colors overflow-hidden"
       style={{
         background: hovered ? theme.background.hover : 'transparent'
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div className="flex items-center gap-1.5 min-w-0 mr-3">
-        <span className="text-sm truncate" style={{ color: theme.text.primary }}>
+      <div className="min-w-0">
+        <span className="block text-sm truncate" style={{ color: theme.text.primary }}>
           {model}
         </span>
+      </div>
+
+      <div className="flex items-center justify-end gap-2 shrink-0">
         <button
           type="button"
           onClick={onToggleImageCapable}
-          className={`shrink-0 rounded px-1 py-px text-[10px] font-medium leading-tight transition-opacity ${imageCapable ? 'opacity-0 group-hover:opacity-100' : 'opacity-80'}`}
+          className="flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium transition-colors"
           style={{
-            color: imageCapable ? theme.icon.accent : theme.text.muted,
-            background: imageCapable ? `${theme.icon.accent}18` : `${theme.text.muted}12`,
-            textDecoration: imageCapable ? 'none' : 'line-through'
+            width: 144,
+            color: imageCapable ? theme.text.secondary : theme.text.muted,
+            background: alpha('ink', 0.04)
           }}
           title={
             imageCapable
@@ -147,10 +430,24 @@ function ModelToggle({
               : 'Text-only — click to mark as image capable'
           }
         >
-          Image Capable
+          <ImageCapabilityIcon size={12} strokeWidth={1.7} color={theme.icon.muted} />
+          {imageCapabilityLabel}
         </button>
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
+        <button
+          type="button"
+          onClick={onOpenReasoning}
+          className="flex items-center justify-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium transition-colors"
+          style={{
+            width: 112,
+            color: theme.text.secondary,
+            background: alpha('ink', 0.04)
+          }}
+          aria-label={`Reasoning settings for ${model}`}
+          title="Reasoning"
+        >
+          <Brain size={12} strokeWidth={1.7} color={theme.icon.muted} />
+          Reasoning
+        </button>
         <button
           type="button"
           onClick={onRemove}
@@ -174,6 +471,7 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [manualInput, setManualInput] = useState('')
   const [query, setQuery] = useState('')
+  const [reasoningModalModel, setReasoningModalModel] = useState<string | null>(null)
   const deferredQuery = useDeferredValue(query)
 
   const allModels = [...provider.modelList.enabled, ...provider.modelList.disabled]
@@ -235,14 +533,23 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
   }
 
   const handleRemoveModel = (model: string): void => {
-    onProviderChange((p) => ({
-      ...p,
-      modelList: {
-        enabled: p.modelList.enabled.filter((m) => m !== model),
-        disabled: p.modelList.disabled.filter((m) => m !== model),
-        imageIncapable: p.modelList.imageIncapable?.filter((m) => m !== model)
-      }
-    }))
+    if (reasoningModalModel === model) {
+      setReasoningModalModel(null)
+    }
+
+    onProviderChange((p) =>
+      withProviderReasoning(
+        {
+          ...p,
+          modelList: {
+            enabled: p.modelList.enabled.filter((m) => m !== model),
+            disabled: p.modelList.disabled.filter((m) => m !== model),
+            imageIncapable: p.modelList.imageIncapable?.filter((m) => m !== model)
+          }
+        },
+        withoutReasoningModel(p.reasoning, model)
+      )
+    )
   }
 
   const handleToggleImageCapable = (model: string): void => {
@@ -262,11 +569,75 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
   }
 
   const handleClearAll = (): void => {
+    setReasoningModalModel(null)
     onProviderChange((p) => ({
       ...p,
-      modelList: { enabled: [], disabled: [] }
+      modelList: { enabled: [], disabled: [] },
+      reasoning: undefined
     }))
   }
+
+  const handleToggleReasoningOption = (
+    model: string,
+    selection: ComposerReasoningSelection
+  ): void => {
+    onProviderChange((p) =>
+      upsertReasoningModel(p, model, (state) => {
+        const allowOff = selection === 'off' ? !state.allowOff : state.allowOff
+        const efforts = isReasoningLevel(selection)
+          ? state.efforts.includes(selection)
+            ? state.efforts.filter((effort) => effort !== selection)
+            : [...state.efforts, selection]
+          : state.efforts
+
+        return buildReasoningModelConfig({
+          allowOff,
+          defaultEffort: state.defaultEffort,
+          efforts,
+          model
+        })
+      })
+    )
+  }
+
+  const handleSetDefaultReasoning = (
+    model: string,
+    selection: ComposerReasoningSelection
+  ): void => {
+    onProviderChange((p) =>
+      upsertReasoningModel(p, model, (state) =>
+        buildReasoningModelConfig({
+          allowOff: state.allowOff,
+          defaultEffort: selection,
+          efforts: state.efforts,
+          model
+        })
+      )
+    )
+  }
+
+  const renderModelToggle = (model: string, enabled: boolean): React.ReactNode => {
+    return (
+      <ModelToggle
+        key={model}
+        model={model}
+        enabled={enabled}
+        imageCapable={!(provider.modelList.imageIncapable ?? []).includes(model)}
+        onToggle={() => handleToggle(model)}
+        onRemove={() => handleRemoveModel(model)}
+        onOpenReasoning={() => setReasoningModalModel(model)}
+        onToggleImageCapable={() => handleToggleImageCapable(model)}
+      />
+    )
+  }
+
+  const reasoningModalState =
+    reasoningModalModel && allModels.includes(reasoningModalModel)
+      ? getReasoningSelectorState({
+          provider: { ...provider, thinkingEnabled: true },
+          model: reasoningModalModel
+        })
+      : null
 
   const handleAddManual = (): void => {
     const model = manualInput.trim()
@@ -387,28 +758,8 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
               </div>
             ) : (
               <div className="space-y-0.5 py-1">
-                {filteredModelList.enabled.map((model) => (
-                  <ModelToggle
-                    key={model}
-                    model={model}
-                    enabled
-                    imageCapable={!(provider.modelList.imageIncapable ?? []).includes(model)}
-                    onToggle={() => handleToggle(model)}
-                    onRemove={() => handleRemoveModel(model)}
-                    onToggleImageCapable={() => handleToggleImageCapable(model)}
-                  />
-                ))}
-                {filteredModelList.disabled.map((model) => (
-                  <ModelToggle
-                    key={model}
-                    model={model}
-                    enabled={false}
-                    imageCapable={!(provider.modelList.imageIncapable ?? []).includes(model)}
-                    onToggle={() => handleToggle(model)}
-                    onRemove={() => handleRemoveModel(model)}
-                    onToggleImageCapable={() => handleToggleImageCapable(model)}
-                  />
-                ))}
+                {filteredModelList.enabled.map((model) => renderModelToggle(model, true))}
+                {filteredModelList.disabled.map((model) => renderModelToggle(model, false))}
               </div>
             )}
           </>
@@ -442,6 +793,20 @@ function ModelListSection({ provider, onProviderChange }: ModelListSectionProps)
         <div className="text-xs" style={{ color: theme.text.muted }}>
           {provider.modelList.enabled.length} enabled, {provider.modelList.disabled.length} disabled
         </div>
+      ) : null}
+
+      {reasoningModalModel && reasoningModalState ? (
+        <ReasoningSettingsModal
+          model={reasoningModalModel}
+          options={reasoningModalState.options}
+          defaultEffort={reasoningModalState.selected}
+          provider={provider}
+          onToggleOption={(selection) =>
+            handleToggleReasoningOption(reasoningModalModel, selection)
+          }
+          onSetDefault={(selection) => handleSetDefaultReasoning(reasoningModalModel, selection)}
+          onClose={() => setReasoningModalModel(null)}
+        />
       ) : null}
     </div>
   )

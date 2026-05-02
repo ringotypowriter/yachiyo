@@ -6,6 +6,7 @@ import {
   type ToolModelConfig
 } from './protocol.ts'
 import type { ProviderPreset } from './providerPresets.ts'
+import { normalizeProviderReasoningConfig } from './reasoningEffort.ts'
 
 export interface ProviderReference {
   id?: string
@@ -30,6 +31,9 @@ export function sanitizeProviderConfig(provider: ProviderConfig): ProviderConfig
     id: ensureProviderId(provider.id),
     name: provider.name,
     thinkingEnabled: provider.thinkingEnabled !== false,
+    ...(provider.reasoning !== undefined
+      ? { reasoning: normalizeProviderReasoningConfig(provider.reasoning) }
+      : {}),
     apiKey: provider.apiKey.trim(),
     baseUrl: provider.baseUrl.trim(),
     ...(provider.codexSessionPath !== undefined

@@ -82,7 +82,7 @@ export function SkillsSelectorPopup({
             letterSpacing: '-0.1px'
           }}
         >
-          Skills for this run
+          Skills
         </div>
         <div
           style={{

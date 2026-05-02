@@ -5,7 +5,11 @@ import { GoogleAuth } from 'google-auth-library'
 
 import type { ProviderConfig, ProviderSettings } from '../../../../shared/yachiyo/protocol'
 import type { FetchModelsDependencies, ResolvedAiSdkRuntimeDependencies } from './dependencies.ts'
-import { DEFAULT_GEMINI_THINKING_BUDGET, type RuntimeProviderOptions } from './shared.ts'
+import {
+  DEFAULT_GEMINI_THINKING_BUDGET,
+  GEMINI_THINKING_BUDGET_BY_EFFORT,
+  type RuntimeProviderOptions
+} from './shared.ts'
 import { supportsGeminiThinking } from './google.ts'
 
 export function createVertexLanguageModel(
@@ -51,11 +55,15 @@ export function createVertexProviderOptions(
       }
     }
   }
-  return settings.thinkingEnabled !== false && supportsGeminiThinking(settings.model)
+  return settings.thinkingEnabled !== false &&
+    settings.reasoningEffort !== 'off' &&
+    supportsGeminiThinking(settings.model)
     ? {
         vertex: {
           thinkingConfig: {
-            thinkingBudget: DEFAULT_GEMINI_THINKING_BUDGET,
+            thinkingBudget: settings.reasoningEffort
+              ? GEMINI_THINKING_BUDGET_BY_EFFORT[settings.reasoningEffort]
+              : DEFAULT_GEMINI_THINKING_BUDGET,
             includeThoughts: true
           }
         }
