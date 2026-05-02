@@ -1,6 +1,7 @@
 import { useContext, useState, useCallback } from 'react'
 import { StreamdownContext } from 'streamdown'
 import { LinkSafetyModal } from './LinkSafetyModal'
+import { getLinkableCodeFileAction } from './linkableCodeFileAction'
 import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
 import { toInlineCodeFileReferenceCandidate } from '../../../../shared/yachiyo/inlineCodeFileReferences.ts'
 
@@ -30,15 +31,6 @@ export function LinkableCode({
   const fileReference = toInlineCodeFileReferenceCandidate(text)
   const filePath = fileReference ? fileLinks?.get(fileReference) : undefined
 
-  if (fileReference) {
-    console.log('[inline-code-file-links] code span candidate', {
-      text,
-      fileReference,
-      linked: Boolean(filePath),
-      filePath
-    })
-  }
-
   const handleUrlClick = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault()
@@ -52,17 +44,22 @@ export function LinkableCode({
   )
 
   const handleFileClick = useCallback(
-    async (e: React.MouseEvent) => {
+    async (e: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>) => {
       e.preventDefault()
-      if (!filePath) return
+      if (!fileReference || !filePath) return
 
       try {
-        await window.api.yachiyo.openFile({ path: filePath })
+        const action = getLinkableCodeFileAction({ reference: fileReference, altKey: e.altKey })
+        if (action === 'reveal') {
+          await window.api.yachiyo.revealFile({ path: filePath })
+        } else {
+          await window.api.yachiyo.openFile({ path: filePath })
+        }
       } catch (error) {
         window.alert(error instanceof Error ? error.message : 'Failed to open file.')
       }
     },
-    [filePath]
+    [filePath, fileReference]
   )
 
   const handleConfirm = useCallback(() => {
@@ -77,7 +74,7 @@ export function LinkableCode({
         tabIndex={0}
         onClick={handleFileClick}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') handleFileClick(e as unknown as React.MouseEvent)
+          if (e.key === 'Enter') handleFileClick(e)
         }}
         style={LINK_STYLE}
       >

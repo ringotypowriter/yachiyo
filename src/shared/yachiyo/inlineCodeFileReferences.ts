@@ -169,6 +169,10 @@ export function isAllowedInlineCodeFileReference(value: string): boolean {
     return false
   }
 
+  if (isExplicitFolderInlineCodeReference(pathPart)) {
+    return true
+  }
+
   const lowerPathPart = pathPart.toLowerCase()
   return INLINE_CODE_FILE_REFERENCE_ALLOWED_SUFFIXES.some((suffix) =>
     lowerPathPart.endsWith(suffix)
@@ -347,6 +351,37 @@ function countRepeatedCharacter(line: string, start: number, marker: string): nu
 
 function hasLineBreak(value: string): boolean {
   return value.includes('\n') || value.includes('\r')
+}
+
+function isExplicitFolderInlineCodeReference(value: string): boolean {
+  if (!endsWithPathSeparator(value)) {
+    return false
+  }
+
+  const withoutTrailingSeparators = stripTrailingPathSeparators(value)
+  if (!withoutTrailingSeparators || /^[a-zA-Z]:$/.test(withoutTrailingSeparators)) {
+    return false
+  }
+
+  const lastSegment = readLastPathSegment(withoutTrailingSeparators)
+  return lastSegment !== '.' && lastSegment !== '..'
+}
+
+function stripTrailingPathSeparators(value: string): string {
+  let end = value.length
+  while (end > 0 && isPathSeparator(value[end - 1]!)) {
+    end -= 1
+  }
+  return value.slice(0, end)
+}
+
+function readLastPathSegment(value: string): string {
+  const lastSlashIndex = Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\'))
+  return lastSlashIndex < 0 ? value : value.slice(lastSlashIndex + 1)
+}
+
+function endsWithPathSeparator(value: string): boolean {
+  return value.length > 0 && isPathSeparator(value[value.length - 1]!)
 }
 
 function hasWindowsAbsolutePathPrefix(value: string): boolean {

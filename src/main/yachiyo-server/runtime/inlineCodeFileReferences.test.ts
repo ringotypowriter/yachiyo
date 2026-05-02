@@ -12,9 +12,9 @@ test('resolveExistingFileReferences resolves exact relative and absolute files',
   const outsidePath = join(root, 'outside.md')
 
   try {
-    await mkdir(join(workspacePath, 'graphrag'), { recursive: true })
+    await mkdir(join(workspacePath, 'docs'), { recursive: true })
     await mkdir(join(workspacePath, 'src', 'components'), { recursive: true })
-    await writeFile(join(workspacePath, 'graphrag', 'TECH-KG-REDESIGN.md'), '# Plan\n', 'utf8')
+    await writeFile(join(workspacePath, 'docs', 'architecture.md'), '# Plan\n', 'utf8')
     await writeFile(join(workspacePath, 'README.md'), '# Readme\n', 'utf8')
     await writeFile(join(workspacePath, 'src', 'App.tsx'), 'export function App() {}\n', 'utf8')
     await writeFile(outsidePath, '# Outside\n', 'utf8')
@@ -22,7 +22,7 @@ test('resolveExistingFileReferences resolves exact relative and absolute files',
     const resolved = await resolveExistingFileReferences({
       workspacePath,
       references: [
-        'graphrag/TECH-KG-REDESIGN.md',
+        'docs/architecture.md',
         'README.md:12',
         join(workspacePath, 'src', 'App.tsx'),
         outsidePath,
@@ -34,8 +34,8 @@ test('resolveExistingFileReferences resolves exact relative and absolute files',
 
     assert.deepEqual(resolved, [
       {
-        reference: 'graphrag/TECH-KG-REDESIGN.md',
-        path: join(workspacePath, 'graphrag', 'TECH-KG-REDESIGN.md')
+        reference: 'docs/architecture.md',
+        path: join(workspacePath, 'docs', 'architecture.md')
       },
       {
         reference: 'README.md:12',
@@ -77,12 +77,55 @@ test('resolveExistingFileReferences resolves absolute files without a workspace'
   }
 })
 
+test('resolveExistingFileReferences resolves explicit folder references', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-inline-file-links-'))
+  const workspacePath = join(root, 'workspace')
+  const resultsPath = join(workspacePath, 'results')
+  const archivePath = join(workspacePath, 'archive', 'previous-results')
+  const outsidePath = join(root, 'outside')
+
+  try {
+    await mkdir(resultsPath, { recursive: true })
+    await mkdir(archivePath, { recursive: true })
+    await mkdir(outsidePath, { recursive: true })
+
+    const resolved = await resolveExistingFileReferences({
+      workspacePath,
+      references: [
+        'results/',
+        'archive/previous-results/',
+        outsidePath + '/',
+        'missing-folder/',
+        '../outside/'
+      ]
+    })
+
+    assert.deepEqual(resolved, [
+      {
+        reference: 'results/',
+        path: resultsPath
+      },
+      {
+        reference: 'archive/previous-results/',
+        path: archivePath
+      },
+      {
+        reference: outsidePath + '/',
+        path: outsidePath
+      }
+    ])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('resolveExistingFileReferences skips existing files with disallowed extensions', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-inline-file-links-'))
   const workspacePath = join(root, 'workspace')
 
   try {
     await mkdir(workspacePath, { recursive: true })
+    await mkdir(join(workspacePath, 'folder.md'), { recursive: true })
     await writeFile(join(workspacePath, 'notes.md'), '# Notes\n', 'utf8')
     await writeFile(join(workspacePath, 'budget.xlsx'), 'not a real workbook\n', 'utf8')
     await writeFile(join(workspacePath, 'archive.zip'), 'not a real zip\n', 'utf8')
@@ -90,7 +133,7 @@ test('resolveExistingFileReferences skips existing files with disallowed extensi
 
     const resolved = await resolveExistingFileReferences({
       workspacePath,
-      references: ['notes.md', 'budget.xlsx', 'archive.zip', 'payload.bin']
+      references: ['notes.md', 'budget.xlsx', 'folder.md', 'archive.zip', 'payload.bin']
     })
 
     assert.deepEqual(resolved, [

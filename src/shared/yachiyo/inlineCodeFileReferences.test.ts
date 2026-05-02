@@ -5,7 +5,7 @@ import { extractInlineCodeFileReferences } from './inlineCodeFileReferences.ts'
 
 test('extractInlineCodeFileReferences collects path-like inline code only', () => {
   const content = [
-    '方案写好了，放在 `graphrag/TECH-KG-REDESIGN.md`。',
+    '方案写好了，放在 `docs/architecture.md`。',
     'Also see `README.md:12` and `/workspace/project/src/App.tsx`.',
     'Skip `https://example.com`, `npm test`, and `gpt-5.1-codex`.',
     '```ts',
@@ -14,7 +14,7 @@ test('extractInlineCodeFileReferences collects path-like inline code only', () =
   ].join('\n')
 
   assert.deepEqual(extractInlineCodeFileReferences(content), [
-    'graphrag/TECH-KG-REDESIGN.md',
+    'docs/architecture.md',
     'README.md:12',
     '/workspace/project/src/App.tsx'
   ])
@@ -28,6 +28,21 @@ test('extractInlineCodeFileReferences preserves order while deduplicating refere
     'docs/my notes/design doc.md',
     './package.json',
     'src/main.tsx:8:2'
+  ])
+})
+
+test('extractInlineCodeFileReferences collects explicit folder references', () => {
+  const content = [
+    'Prompt: `input.txt`',
+    'Output: `results/`',
+    'Archive: `archive/previous-results/`',
+    'Skip `packages/coding-agent`, `/`, `./`, and `../`.'
+  ].join('\n')
+
+  assert.deepEqual(extractInlineCodeFileReferences(content), [
+    'input.txt',
+    'results/',
+    'archive/previous-results/'
   ])
 })
 

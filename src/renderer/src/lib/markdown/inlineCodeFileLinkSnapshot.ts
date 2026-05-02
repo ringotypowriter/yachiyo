@@ -43,25 +43,12 @@ export function useInlineCodeFileLinkSnapshot(input: {
   }>({ cacheKey: '', snapshot: EMPTY_FILE_LINK_SNAPSHOT })
 
   useEffect(() => {
-    console.log('[inline-code-file-links] snapshot input', {
-      enabled,
-      hasWorkspacePath: Boolean(workspacePath),
-      documentCount: markdownDocuments.length,
-      references
-    })
-
     if (!hasResolvableReference || references.length === 0 || !cacheKey) {
-      console.log('[inline-code-file-links] skipped resolve', {
-        reason: references.length === 0 ? 'no-references' : 'no-resolvable-references'
-      })
       return
     }
 
     const api = window.api?.yachiyo
     if (!api?.resolveFileReferences) {
-      console.log('[inline-code-file-links] skipped resolve', {
-        reason: 'missing-resolve-file-references-api'
-      })
       return
     }
 
@@ -71,17 +58,11 @@ export function useInlineCodeFileLinkSnapshot(input: {
     void Promise.resolve(snapshotPromise)
       .then((nextSnapshot) => {
         if (!cancelled) {
-          console.log('[inline-code-file-links] snapshot resolved', {
-            referenceCount: references.length,
-            linkedCount: nextSnapshot.size,
-            linkedReferences: [...nextSnapshot.keys()]
-          })
           setResolvedSnapshot({ cacheKey, snapshot: nextSnapshot })
         }
       })
-      .catch((error) => {
+      .catch(() => {
         snapshotCache.delete(cacheKey)
-        console.error('[inline-code-file-links] failed to resolve references', error)
         if (!cancelled) {
           setResolvedSnapshot({ cacheKey, snapshot: EMPTY_FILE_LINK_SNAPSHOT })
         }
@@ -130,11 +111,9 @@ function resolveCachedSnapshot(
 ): InlineCodeFileLinkSnapshot | Promise<InlineCodeFileLinkSnapshot> {
   const cached = snapshotCache.get(cacheKey)
   if (cached) {
-    console.log('[inline-code-file-links] cache hit', { cacheKey })
     return cached
   }
 
-  console.log('[inline-code-file-links] resolving via ipc', { workspacePath, references })
   const snapshotPromise = window.api.yachiyo
     .resolveFileReferences({
       workspacePath,

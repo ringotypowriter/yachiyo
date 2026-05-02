@@ -17,12 +17,6 @@ export async function resolveExistingFileReferences(
   const resolved: ResolvedFileReference[] = []
   const seenReferences = new Set<string>()
 
-  console.log('[inline-code-file-links] server resolve start', {
-    workspacePath,
-    referenceCount: input.references.length,
-    references: input.references
-  })
-
   for (const reference of input.references) {
     const trimmedReference = reference.trim()
     if (!trimmedReference || seenReferences.has(trimmedReference)) {
@@ -32,23 +26,9 @@ export async function resolveExistingFileReferences(
 
     const filePath = await resolveExistingFileReference(workspacePath, trimmedReference)
     if (filePath) {
-      console.log('[inline-code-file-links] server resolved reference', {
-        reference: trimmedReference,
-        path: filePath
-      })
       resolved.push({ reference: trimmedReference, path: filePath })
-    } else {
-      console.log('[inline-code-file-links] server missed reference', {
-        reference: trimmedReference,
-        candidates: toCandidatePaths(workspacePath, trimmedReference)
-      })
     }
   }
-
-  console.log('[inline-code-file-links] server resolve done', {
-    resolvedCount: resolved.length,
-    resolved
-  })
 
   return resolved
 }
@@ -58,8 +38,9 @@ async function resolveExistingFileReference(
   reference: string
 ): Promise<string | null> {
   const candidates = toCandidatePaths(workspacePath, reference)
+  const allowDirectory = isExplicitFolderReference(reference)
   for (const candidate of candidates) {
-    if (await isExistingFile(candidate)) {
+    if (await isExistingFileReferenceTarget(candidate, allowDirectory)) {
       return candidate
     }
   }
@@ -108,10 +89,18 @@ function isPathInside(basePath: string, targetPath: string): boolean {
   return pathFromBase === '' || (!pathFromBase.startsWith('..') && !isAbsolute(pathFromBase))
 }
 
-async function isExistingFile(path: string): Promise<boolean> {
+function isExplicitFolderReference(reference: string): boolean {
+  const pathPart = stripInlineCodeFileLocationSuffix(reference.trim())
+  return pathPart.endsWith('/') || pathPart.endsWith('\\')
+}
+
+async function isExistingFileReferenceTarget(
+  path: string,
+  allowDirectory: boolean
+): Promise<boolean> {
   try {
     const stats = await stat(path)
-    return stats.isFile()
+    return stats.isFile() || (allowDirectory && stats.isDirectory())
   } catch (error) {
     if (isExpectedStatMiss(error)) {
       return false
