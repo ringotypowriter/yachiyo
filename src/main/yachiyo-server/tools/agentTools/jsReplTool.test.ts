@@ -363,6 +363,39 @@ return JSON.stringify({
     }
   })
 
+  it('treats cwd "." as the workspace directory', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-cwd-dot-'))
+    try {
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
+      const result = await execute(tool, {
+        code: 'process.cwd()',
+        cwd: '.'
+      })
+      assert.equal(result.error, undefined)
+      assert.equal(result.details.result, tempDir)
+      assert.equal(result.details.cwd, '.')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('does not validate cwd "." as a child directory lookup', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-cwd-dot-missing-'))
+    const workspacePath = join(tempDir, 'thread-workspace')
+    try {
+      const tool = createTrackedTool(makeContext({ workspacePath }))
+      const result = await execute(tool, {
+        code: 'process.cwd()',
+        cwd: '.'
+      })
+      assert.equal(result.error, undefined)
+      assert.equal(result.details.result, workspacePath)
+      assert.equal(result.details.cwd, '.')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   it('cwd override defaults back to workspace on the next call with no cwd', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-cwd-reset-'))
     try {

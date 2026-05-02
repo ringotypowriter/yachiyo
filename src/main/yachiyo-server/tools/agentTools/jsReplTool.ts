@@ -413,7 +413,7 @@ export function createTool(
       "Has access to `require()` for Node built-ins and the active cwd's project dependencies. " +
       'Has `fetch()` predefined for HTTP and data URL requests. ' +
       'Relative paths in fs operations resolve against the workspace.\n' +
-      'Optional `cwd` overrides the working directory for this call only; it must be a relative path inside the workspace — ' +
+      'Omit `cwd` or pass `cwd: "."` to use the thread workspace. Optional `cwd` overrides the working directory for this call only; it must be a relative path inside the workspace — ' +
       'absolute paths, `~`, and any `..` segments are rejected.\n' +
       'A `tools` object provides async access to built-in tools. ' +
       'Use `await` when calling tools — code is automatically wrapped in an async context. ' +
@@ -521,6 +521,7 @@ function resolveCallCwd(
   requested: string | undefined
 ): { resolved: string } | { error: string } {
   if (!requested) return { resolved: workspacePath }
+  if (requested === '.') return { resolved: workspacePath }
   const resolved = resolvePathWithinWorkspace(workspacePath, requested)
   if (!resolved) {
     return {
