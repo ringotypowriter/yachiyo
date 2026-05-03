@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.1.2
+
+### Patch Changes
+
+- [`a451547`](https://github.com/ringotypowriter/yachiyo/commit/a4515472cc31de23eb018c6d247248328bbfabfa) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Tool Improve & Reasoning Level
+
 ## 1.1.1
 
 ### Patch Changes
