@@ -63,6 +63,37 @@ export function bindCompletedToolCallsToAssistant(
   }
 }
 
+export function bindRunToolCallsToAssistant(
+  deps: {
+    emit: EmitServerEvent
+    updateToolCall: (toolCall: ToolCallRecord) => void
+  },
+  toolCalls: Map<string, ToolCallRecord>,
+  input: { threadId: string; runId: string; assistantMessageId: string }
+): void {
+  for (const [toolCallId, toolCall] of toolCalls.entries()) {
+    if (
+      toolCall.runId !== input.runId ||
+      toolCall.assistantMessageId === input.assistantMessageId
+    ) {
+      continue
+    }
+
+    const bound: ToolCallRecord = {
+      ...toolCall,
+      assistantMessageId: input.assistantMessageId
+    }
+    toolCalls.set(toolCallId, bound)
+    deps.updateToolCall(bound)
+    deps.emit<ToolCallUpdatedEvent>({
+      type: 'tool.updated',
+      threadId: input.threadId,
+      runId: input.runId,
+      toolCall: bound
+    })
+  }
+}
+
 export function restorePersistedRunToolCalls(
   loadThreadToolCalls: (threadId: string) => ToolCallRecord[],
   threadId: string,

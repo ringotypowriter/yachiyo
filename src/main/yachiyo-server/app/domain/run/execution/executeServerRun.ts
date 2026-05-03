@@ -66,6 +66,7 @@ import {
 } from '../tools/backgroundBashToolResult.ts'
 import {
   bindCompletedToolCallsToAssistant,
+  bindRunToolCallsToAssistant,
   finishPendingToolCalls,
   restorePersistedRunToolCalls
 } from '../tools/toolCallLifecycle.ts'
@@ -169,6 +170,17 @@ export async function executeServerRun(
   const toolCalls = recoveryCheckpoint
     ? restorePersistedRunToolCalls(deps.loadThreadToolCalls, input.thread.id, input.runId)
     : new Map<string, ToolCallRecord>()
+  const bindCurrentRunToolCallsToAssistant = (assistantMessageId: string): void => {
+    bindRunToolCallsToAssistant(
+      { emit: deps.emit, updateToolCall: instrumentedUpdateToolCall },
+      toolCalls,
+      {
+        threadId: input.thread.id,
+        runId: input.runId,
+        assistantMessageId
+      }
+    )
+  }
   const subagentStartedAtByDelegationId = new Map<string, string>()
   const runningToolCallIds = new Set<string>()
   let stepCount = Math.max(0, ...[...toolCalls.values()].map((toolCall) => toolCall.stepIndex ?? 0))
@@ -1166,19 +1178,7 @@ export async function executeServerRun(
       })
       // Bind all tool calls from this run to the completed assistant message so
       // they are not reassigned to a later assistant message when the run continues.
-      for (const [toolCallId, toolCall] of toolCalls.entries()) {
-        if (toolCall.runId === input.runId && toolCall.assistantMessageId !== messageId) {
-          const bound: ToolCallRecord = { ...toolCall, assistantMessageId: messageId }
-          toolCalls.set(toolCallId, bound)
-          instrumentedUpdateToolCall(bound)
-          deps.emit<ToolCallUpdatedEvent>({
-            type: 'tool.updated',
-            threadId: input.thread.id,
-            runId: input.runId,
-            toolCall: bound
-          })
-        }
-      }
+      bindCurrentRunToolCallsToAssistant(messageId)
       deps.storage.deleteRunRecoveryCheckpoint(input.runId)
       // Hand the snapshot tracker back to the caller so it persists across
       // steer legs. The same tracker accumulates file changes for the entire
@@ -1357,19 +1357,7 @@ export async function executeServerRun(
           })
           // Bind all tool calls from this run to the stopped assistant message so
           // they are not reassigned to a later assistant message when the run completes.
-          for (const [toolCallId, toolCall] of toolCalls.entries()) {
-            if (toolCall.runId === input.runId && toolCall.assistantMessageId !== messageId) {
-              const bound: ToolCallRecord = { ...toolCall, assistantMessageId: messageId }
-              toolCalls.set(toolCallId, bound)
-              instrumentedUpdateToolCall(bound)
-              deps.emit<ToolCallUpdatedEvent>({
-                type: 'tool.updated',
-                threadId: input.thread.id,
-                runId: input.runId,
-                toolCall: bound
-              })
-            }
-          }
+          bindCurrentRunToolCallsToAssistant(messageId)
 
           const steerMessageId = restartReason.nextRequestMessageId
           const threadMessages = deps.loadThreadMessages(input.thread.id)
@@ -1478,19 +1466,7 @@ export async function executeServerRun(
             thread: updatedThread
           })
 
-          for (const [toolCallId, toolCall] of toolCalls.entries()) {
-            if (toolCall.runId === input.runId && toolCall.assistantMessageId !== messageId) {
-              const bound: ToolCallRecord = { ...toolCall, assistantMessageId: messageId }
-              toolCalls.set(toolCallId, bound)
-              instrumentedUpdateToolCall(bound)
-              deps.emit<ToolCallUpdatedEvent>({
-                type: 'tool.updated',
-                threadId: input.thread.id,
-                runId: input.runId,
-                toolCall: bound
-              })
-            }
-          }
+          bindCurrentRunToolCallsToAssistant(messageId)
         }
 
         const cancelUsage = mergeRunUsage(input.priorUsage, lastUsage)
@@ -1586,19 +1562,7 @@ export async function executeServerRun(
         // Bind all tool calls from this run to the stopped assistant message.
         // Unlike the normal completion path where completeRun sets
         // assistantMessageId in storage first, here we must do it explicitly.
-        for (const [toolCallId, toolCall] of toolCalls.entries()) {
-          if (toolCall.runId === input.runId && toolCall.assistantMessageId !== messageId) {
-            const bound: ToolCallRecord = { ...toolCall, assistantMessageId: messageId }
-            toolCalls.set(toolCallId, bound)
-            instrumentedUpdateToolCall(bound)
-            deps.emit<ToolCallUpdatedEvent>({
-              type: 'tool.updated',
-              threadId: input.thread.id,
-              runId: input.runId,
-              toolCall: bound
-            })
-          }
-        }
+        bindCurrentRunToolCallsToAssistant(messageId)
       }
 
       const cancelUsage = mergeRunUsage(input.priorUsage, lastUsage)
@@ -1709,19 +1673,7 @@ export async function executeServerRun(
       })
       // Bind all tool calls from this run to the terminal assistant message so
       // they are not left unbound when the run fails.
-      for (const [toolCallId, toolCall] of toolCalls.entries()) {
-        if (toolCall.runId === input.runId && toolCall.assistantMessageId !== messageId) {
-          const bound: ToolCallRecord = { ...toolCall, assistantMessageId: messageId }
-          toolCalls.set(toolCallId, bound)
-          instrumentedUpdateToolCall(bound)
-          deps.emit<ToolCallUpdatedEvent>({
-            type: 'tool.updated',
-            threadId: input.thread.id,
-            runId: input.runId,
-            toolCall: bound
-          })
-        }
-      }
+      bindCurrentRunToolCallsToAssistant(messageId)
       deps.emit<MessageCompletedEvent>({
         type: 'message.completed',
         threadId: input.thread.id,
