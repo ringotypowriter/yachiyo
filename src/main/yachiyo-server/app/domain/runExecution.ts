@@ -11,7 +11,7 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 
 const MEMORY_RECALL_TIMEOUT_MS = 15_000
-export const DEFAULT_MAX_TOOL_STEPS = 100
+export const DEFAULT_MAX_TOOL_STEPS = 999
 const EXTERNAL_CHANNEL_MAX_TOOL_STEPS = 10
 const AGENTS_MD_PRELOAD_THRESHOLD_BYTES = 10 * 1024
 
@@ -641,7 +641,6 @@ export function buildAgentInstructions(input: {
   userDocumentPath?: string
   subagentContextBlock?: string
   isUserSpecifiedWorkspace?: boolean
-  maxToolSteps?: number
 }): string {
   const workspaceLine = input.workspaceLabel
     ? `The current thread workspace is ${input.workspacePath} (${input.workspaceLabel}).`
@@ -740,12 +739,6 @@ export function buildAgentInstructions(input: {
   if (input.hasHiddenMemorySearch) {
     instructions.push(
       'Long-term memory search is available internally. Use it for durable preferences, decisions, workflows, constraints, bugs, and project facts instead of guessing.'
-    )
-  }
-
-  if (input.maxToolSteps != null) {
-    instructions.push(
-      `You have a turn budget of ${input.maxToolSteps} generation rounds for this conversation turn. Each round may include multiple parallel tool calls. Plan tool usage efficiently — prefer targeted reads over broad exploration.`
     )
   }
 
@@ -1234,8 +1227,7 @@ export async function prepareServerRunContext(
           executionContract: buildExternalAgentInstructions({
             enabledTools: modelEnabledTools,
             guest: isGuest,
-            guestInstruction: isGuest ? readChannelsConfig().guestInstruction : undefined,
-            maxToolSteps: maxToolSteps || DEFAULT_MAX_TOOL_STEPS
+            guestInstruction: isGuest ? readChannelsConfig().guestInstruction : undefined
           }),
           channelInstruction: input.channelHint ?? '',
           rollingSummary: input.thread.rollingSummary,
@@ -1269,8 +1261,7 @@ export async function prepareServerRunContext(
                 soulDocumentPath: soulDocument?.filePath,
                 userDocumentPath: userDocument?.filePath,
                 subagentContextBlock: subagentContextBlock || undefined,
-                isUserSpecifiedWorkspace: !!input.thread.workspacePath?.trim(),
-                maxToolSteps: maxToolSteps || DEFAULT_MAX_TOOL_STEPS
+                isUserSpecifiedWorkspace: !!input.thread.workspacePath?.trim()
               }),
               ...(isOwnerDm && input.channelHint?.trim() ? [input.channelHint.trim()] : []),
               ...(!isExternalChannel

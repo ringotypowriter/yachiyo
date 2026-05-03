@@ -36,6 +36,7 @@ const CONTEXT_STRIP_COMPACT_MAX_RETRIES = 5
 const FORCED_STRIP_COMPACT_TOKEN_THRESHOLD = 1
 const RETRY_BASE_DELAY_MS = 1_000
 const RETRY_MAX_DELAY_MS = 30_000
+const DEFAULT_MAX_TOOL_STEPS = 999
 
 function readTextDelta(part: { delta?: string; text?: string; textDelta?: string }): string | null {
   return part.delta ?? part.textDelta ?? part.text ?? null
@@ -696,7 +697,8 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               ? {
                   tools: request.tools,
                   ...(request.toolChoice ? { toolChoice: request.toolChoice } : {}),
-                  stopWhen: request.stopWhen ?? stepCountIs(request.maxToolSteps ?? 100)
+                  stopWhen:
+                    request.stopWhen ?? stepCountIs(request.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS)
                 }
               : {}),
             ...(request.onToolCallStart

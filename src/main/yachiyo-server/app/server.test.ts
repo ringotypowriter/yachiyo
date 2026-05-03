@@ -7289,7 +7289,7 @@ test('YachiyoServer gives owner DM threads the same turn budget as local threads
       )
     )
 
-    assert.equal(localRequest?.maxToolSteps, 100)
+    assert.equal(localRequest?.maxToolSteps, 999)
     assert.equal(ownerRequest?.maxToolSteps, localRequest?.maxToolSteps)
   })
 })
