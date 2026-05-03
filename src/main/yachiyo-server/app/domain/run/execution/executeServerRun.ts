@@ -7,7 +7,6 @@ import type {
   MessageDeltaEvent,
   MessageReasoningDeltaEvent,
   MessageStartedEvent,
-  MessageTextBlockRecord,
   RunRetryingEvent,
   RunUsageUpdatedEvent,
   ToolCallRecord,
@@ -19,17 +18,7 @@ import type { ModelUsage } from '../../../../runtime/types.ts'
 import { RetryableRunError } from '../../../../runtime/runtimeErrors.ts'
 import { normalizeToolResult, summarizeToolInput } from '../../../../tools/agentTools.ts'
 import { createDeltaBatcher } from '../../shared.ts'
-import {
-  appendRecoveryReasoningDelta,
-  appendRecoveryTextDelta,
-  appendRecoveryToolCall,
-  appendRecoveryToolResult,
-  buildRecoveryResponseMessages,
-  cloneRecoveryResponseMessages,
-  type RecoveryResponseMessage
-} from '../../runRecovery.ts'
 import { prepareServerRunContext } from '../context/prepareServerRunContext.ts'
-import { appendMessageDeltaToTextBlocks } from './textBlocks.ts'
 import {
   getCompletedBackgroundBashError,
   getCompletedBackgroundBashOutputSummary,
@@ -41,11 +30,11 @@ import {
   bindRunToolCallsToAssistant,
   restorePersistedRunToolCalls
 } from '../tools/toolCallLifecycle.ts'
-import { consumeDuplicatePrefix } from './streamDedup.ts'
 import { createRecoveryCheckpointManager } from './recoveryCheckpointManager.ts'
 import { handleAbortedRun } from './runAbortHandling.ts'
 import { handleCompletedRun } from './runCompletionHandling.ts'
 import { extractRetryErrorMessage, handleRunFailure } from './runFailureHandling.ts'
+import { createRunOutputState } from './runOutputState.ts'
 import { createRunToolSet } from './runToolSetFactory.ts'
 import { createRunToolLifecycleState } from './runToolLifecycleState.ts'
 import type { ExecuteRunInput, ExecuteRunResult, RunExecutionDeps } from './runExecutionTypes.ts'
@@ -97,17 +86,6 @@ export async function executeServerRun(
     )
   }
   const subagentStartedAtByDelegationId = new Map<string, string>()
-
-  const bufferParts: string[] = recoveryCheckpoint?.content ? [recoveryCheckpoint.content] : []
-  let bufferLength = bufferParts.reduce((sum, part) => sum + part.length, 0)
-  const reasoningParts: string[] = recoveryCheckpoint?.reasoning
-    ? [recoveryCheckpoint.reasoning]
-    : []
-  let reasoningLength = reasoningParts.reduce((sum, part) => sum + part.length, 0)
-  let textBlocks: MessageTextBlockRecord[] = recoveryCheckpoint?.textBlocks
-    ? [...recoveryCheckpoint.textBlocks]
-    : []
-  let shouldStartNewTextBlock = textBlocks.length === 0
   let executionPhase: 'generating' | 'tool-running' | 'waiting-for-user' = 'generating'
   const markProgress = (): void => {
     // No-op retained for call sites; the inactivity watchdog that consumed
@@ -140,28 +118,15 @@ export async function executeServerRun(
   }
   input.abortController.signal.addEventListener('abort', rejectPendingUserAnswers, { once: true })
 
-  let duplicateTextPrefix = recoveryCheckpoint?.content ?? ''
-  let pendingDuplicateText = ''
-  let recoveryResponseMessages: RecoveryResponseMessage[] =
-    (buildRecoveryResponseMessages({
-      checkpoint: recoveryCheckpoint ?? { content: bufferParts.join('') },
-      toolCalls: toolLifecycle.getAllToolCalls()
-    }) as RecoveryResponseMessage[] | undefined) ?? []
-  const getCurrentOutputSnapshot = (): {
-    content: string
-    bufferLength: number
-    reasoning?: string
-    reasoningLength: number
-    textBlocks: MessageTextBlockRecord[]
-    recoveryResponseMessages: RecoveryResponseMessage[]
-  } => ({
-    content: bufferParts.join(''),
-    bufferLength,
-    ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
-    reasoningLength,
-    textBlocks,
-    recoveryResponseMessages
+  const outputState = createRunOutputState({
+    deps: {
+      createId: deps.createId,
+      timestamp: deps.timestamp
+    },
+    recoveryCheckpoint,
+    toolCalls: toolLifecycle.getAllToolCalls()
   })
+  const getCurrentOutputSnapshot = outputState.getSnapshot
 
   const recoveryCheckpointManager = createRecoveryCheckpointManager({
     deps,
@@ -187,18 +152,7 @@ export async function executeServerRun(
   const textDeltaBatcher = createDeltaBatcher({
     intervalMs: DELTA_FLUSH_INTERVAL_MS,
     onFlush: (batch) => {
-      bufferParts.push(batch)
-      bufferLength += batch.length
-      appendRecoveryTextDelta(recoveryResponseMessages, batch)
-      const nextTextBlockState = appendMessageDeltaToTextBlocks({
-        textBlocks,
-        delta: batch,
-        timestamp: deps.timestamp(),
-        createId: deps.createId,
-        shouldStartNewBlock: shouldStartNewTextBlock
-      })
-      textBlocks = nextTextBlockState.textBlocks
-      shouldStartNewTextBlock = nextTextBlockState.shouldStartNewBlock
+      outputState.appendTextDelta(batch)
       persistRecoveryCheckpointThrottled()
       perfCollector.recordDeltaEvent()
       perfCollector.addTextChars(batch.length)
@@ -216,9 +170,7 @@ export async function executeServerRun(
   const reasoningDeltaBatcher = createDeltaBatcher({
     intervalMs: DELTA_FLUSH_INTERVAL_MS,
     onFlush: (batch) => {
-      reasoningParts.push(batch)
-      reasoningLength += batch.length
-      appendRecoveryReasoningDelta(recoveryResponseMessages, batch)
+      outputState.appendReasoningDelta(batch)
       persistRecoveryCheckpointThrottled()
       perfCollector.recordReasoningDeltaEvent()
       deps.emit<MessageReasoningDeltaEvent>({
@@ -345,20 +297,7 @@ export async function executeServerRun(
         markProgress()
         textDeltaBatcher.flush()
         reasoningDeltaBatcher.flush()
-        const normalizedResponseMessages = buildRecoveryResponseMessages({
-          checkpoint: {
-            content: bufferParts.join(''),
-            reasoning: reasoningParts.join(''),
-            ...(recoveryResponseMessages.length > 0
-              ? { responseMessages: recoveryResponseMessages }
-              : {})
-          },
-          toolCalls: toolLifecycle.getAllToolCalls()
-        }) as RecoveryResponseMessage[] | undefined
-        recoveryResponseMessages =
-          normalizedResponseMessages ??
-          cloneRecoveryResponseMessages(recoveryCheckpoint?.responseMessages) ??
-          []
+        outputState.rebuildRecoveryMessages(toolLifecycle.getAllToolCalls())
         persistRecoveryCheckpoint()
         deps.emit<RunRetryingEvent>({
           type: 'run.retrying',
@@ -382,7 +321,7 @@ export async function executeServerRun(
         markProgress()
         textDeltaBatcher.flush()
         reasoningDeltaBatcher.flush()
-        shouldStartNewTextBlock = true
+        outputState.markNextTextBlock()
 
         const toolCall: ToolCallRecord = {
           id: event.toolCallId,
@@ -415,7 +354,7 @@ export async function executeServerRun(
         textDeltaBatcher.flush()
         reasoningDeltaBatcher.flush()
         toolLifecycle.markRunningToolCall(event.toolCall.toolCallId)
-        shouldStartNewTextBlock = true
+        outputState.markNextTextBlock()
         setExecutionPhase('tool-running')
         const stepIndex = toolLifecycle.advanceStep()
 
@@ -461,7 +400,7 @@ export async function executeServerRun(
           // Always create a new row under the canonical ID.
           instrumentedCreateToolCall(toolCall)
         }
-        appendRecoveryToolCall(recoveryResponseMessages, {
+        outputState.appendToolCall({
           toolCallId: toolCall.id,
           toolName: toolCall.toolName,
           toolInput: event.toolCall.input
@@ -562,7 +501,7 @@ export async function executeServerRun(
           instrumentedUpdateToolCall(toolCall)
         } else {
           instrumentedCreateToolCall(toolCall)
-          appendRecoveryToolCall(recoveryResponseMessages, {
+          outputState.appendToolCall({
             toolCallId: toolCall.id,
             toolName: event.toolCall.toolName,
             toolInput: event.toolCall.input
@@ -692,13 +631,13 @@ export async function executeServerRun(
             instrumentedUpdateToolCall(toolCall)
           } else {
             instrumentedCreateToolCall(toolCall)
-            appendRecoveryToolCall(recoveryResponseMessages, {
+            outputState.appendToolCall({
               toolCallId: toolCall.id,
               toolName: event.toolCall.toolName,
               toolInput: event.toolCall.input
             })
           }
-          appendRecoveryToolResult(recoveryResponseMessages, {
+          outputState.appendToolResult({
             toolCallId: toolCall.id,
             toolName: event.toolCall.toolName,
             output: event.output,
@@ -745,26 +684,21 @@ export async function executeServerRun(
       const delta = nextChunk.value
 
       if (!delta) continue
-      const deduped = consumeDuplicatePrefix({
-        prefix: duplicateTextPrefix,
-        pending: pendingDuplicateText,
-        delta
-      })
-      duplicateTextPrefix = deduped.prefix
-      pendingDuplicateText = deduped.pending
-      if (!deduped.delta) {
+      const dedupedDelta = outputState.consumeTextDelta(delta)
+      if (!dedupedDelta) {
         continue
       }
 
-      textDeltaBatcher.push(deduped.delta)
+      textDeltaBatcher.push(dedupedDelta)
     }
 
     textDeltaBatcher.flush()
     reasoningDeltaBatcher.flush()
 
+    const outputSnapshot = outputState.getSnapshot()
     console.log(
       `[yachiyo][run] stream finished: runId=${input.runId}, finishReason=${lastUsage?.finishReason ?? 'unknown'}, ` +
-        `steps=${toolLifecycle.getStepCount()}, bufferLen=${bufferLength}, rawOutput=${JSON.stringify(bufferParts.join('').slice(0, 300))}`
+        `steps=${toolLifecycle.getStepCount()}, bufferLen=${outputSnapshot.bufferLength}, rawOutput=${JSON.stringify(outputSnapshot.content.slice(0, 300))}`
     )
 
     throwIfAborted(input.abortController.signal)
@@ -780,7 +714,7 @@ export async function executeServerRun(
     // produced no user-visible content (e.g. Gemini finishReason=length with
     // 0 output tokens after a network hiccup). Treat as a retryable error so
     // the recovery / fail path can handle it instead of silently "completing".
-    if (bufferLength === 0 && !toolLifecycle.hasToolCalls()) {
+    if (!outputState.hasTextContent() && !toolLifecycle.hasToolCalls()) {
       const reason = lastUsage?.finishReason ?? 'unknown'
       throw new RetryableRunError(`Model returned empty response (finishReason=${reason})`)
     }
