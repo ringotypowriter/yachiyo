@@ -742,6 +742,7 @@ export class YachiyoServerRunDomain {
         : normalizeSkillNames(input.enabledSkillNames)
 
     const thread = this.deps.requireThread(input.threadId)
+    const reasoningEffort = input.reasoningEffort ?? thread.reasoningEffort
     const content = rawContent
     const rawMode = input.mode ?? 'normal'
     // ACP threads do not support steer; any steer is treated as follow-up instead.
@@ -756,7 +757,7 @@ export class YachiyoServerRunDomain {
       extraTools: input.extraTools,
       images,
       mode,
-      reasoningEffort: input.reasoningEffort,
+      reasoningEffort,
       threadId: thread.id
     })
 
@@ -806,7 +807,7 @@ export class YachiyoServerRunDomain {
           enabledSkillNames,
           channelHint: input.channelHint,
           extraTools: input.extraTools as import('ai').ToolSet | undefined,
-          reasoningEffort: input.reasoningEffort,
+          reasoningEffort,
           images: enrichedImages,
           attachments: fileAttachments,
           messageId,
@@ -829,7 +830,7 @@ export class YachiyoServerRunDomain {
             content,
             enabledTools,
             enabledSkillNames,
-            reasoningEffort: input.reasoningEffort,
+            reasoningEffort,
             images: enrichedImages,
             attachments: fileAttachments,
             messageId,
@@ -840,7 +841,7 @@ export class YachiyoServerRunDomain {
           activeRunId,
           content,
           enabledSkillNames,
-          reasoningEffort: input.reasoningEffort,
+          reasoningEffort,
           images: enrichedImages,
           attachments: fileAttachments,
           messageId,
@@ -856,7 +857,7 @@ export class YachiyoServerRunDomain {
           content,
           enabledTools,
           enabledSkillNames,
-          reasoningEffort: input.reasoningEffort,
+          reasoningEffort,
           images: enrichedImages,
           attachments: fileAttachments,
           messageId,

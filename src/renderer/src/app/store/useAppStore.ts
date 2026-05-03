@@ -517,6 +517,32 @@ function upsertThread(threads: Thread[], thread: Thread): Thread[] {
   return sortThreads([thread, ...threads.filter((item) => item.id !== thread.id)])
 }
 
+function collectThreadReasoningEfforts(
+  threads: Thread[]
+): Record<string, ComposerReasoningSelection> {
+  return Object.fromEntries(
+    threads
+      .filter((thread) => thread.reasoningEffort !== undefined)
+      .map((thread) => [thread.id, thread.reasoningEffort!] as const)
+  )
+}
+
+function setReasoningEffortValue(
+  values: Record<string, ComposerReasoningSelection>,
+  threadId: string,
+  reasoningEffort: ComposerReasoningSelection | undefined
+): Record<string, ComposerReasoningSelection> {
+  if (reasoningEffort === undefined) {
+    if (!(threadId in values)) return values
+    const next = { ...values }
+    delete next[threadId]
+    return next
+  }
+
+  if (values[threadId] === reasoningEffort) return values
+  return { ...values, [threadId]: reasoningEffort }
+}
+
 function removeThread(threads: Thread[], threadId: string): Thread[] {
   return threads.filter((thread) => thread.id !== threadId)
 }
@@ -853,7 +879,10 @@ export function getComposerReasoningEffort(
   threadId: string | null = state.activeThreadId
 ): ComposerReasoningSelection {
   const key = getComposerDraftKey(threadId)
-  const selected = state.reasoningEffortByThread[key]
+  const persisted = threadId
+    ? state.threads.find((thread) => thread.id === threadId)?.reasoningEffort
+    : undefined
+  const selected = state.reasoningEffortByThread[key] ?? persisted
   const effectiveModel = threadId
     ? getThreadEffectiveModel(state, threadId)
     : getEffectiveModel(state)
@@ -2140,6 +2169,11 @@ export const useAppStore = create<AppState>((set, get) => ({
           pendingSteerMessages: shouldClearPendingSteer
             ? removePendingSteerMessage(state.pendingSteerMessages, event.threadId)
             : state.pendingSteerMessages,
+          reasoningEffortByThread: setReasoningEffortValue(
+            state.reasoningEffortByThread,
+            event.threadId,
+            event.thread.reasoningEffort
+          ),
           threads: upsertThread(state.threads, event.thread)
         }
 
@@ -2989,6 +3023,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   createNewThread: async () => {
     const pendingWorkspacePath = normalizeWorkspacePath(get().pendingWorkspacePath)
+    const stagedReasoningEffort = get().reasoningEffortByThread[getComposerDraftKey(null)]
     const reusableThread = get().threads.find((thread) =>
       isThreadReusableNewChat(
         {
@@ -3027,12 +3062,35 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...deriveActiveThreadRunState(nextState)
         }
       })
+      if (
+        stagedReasoningEffort &&
+        typeof window !== 'undefined' &&
+        window.api?.yachiyo?.setThreadReasoningEffort
+      ) {
+        void window.api.yachiyo
+          .setThreadReasoningEffort({
+            threadId: reusableThread.id,
+            reasoningEffort: stagedReasoningEffort
+          })
+          .then((updatedThread) => {
+            set((state) => ({ threads: upsertThread(state.threads, updatedThread) }))
+          })
+          .catch((error) => {
+            const message =
+              error instanceof Error ? error.message : 'Unable to save thread reasoning effort.'
+            set({ lastError: message })
+          })
+      }
       await refreshAvailableSkills(set, get)
       return
     }
 
+    const createThreadInput = {
+      ...(pendingWorkspacePath ? { workspacePath: pendingWorkspacePath } : {}),
+      ...(stagedReasoningEffort ? { reasoningEffort: stagedReasoningEffort } : {})
+    }
     const thread = await window.api.yachiyo.createThread(
-      pendingWorkspacePath ? { workspacePath: pendingWorkspacePath } : undefined
+      Object.keys(createThreadInput).length > 0 ? createThreadInput : undefined
     )
     set((state) => {
       const nextState = {
@@ -3163,6 +3221,10 @@ export const useAppStore = create<AppState>((set, get) => ({
             ])
           ),
           messages: payload.messagesByThread,
+          reasoningEffortByThread: {
+            ...state.reasoningEffortByThread,
+            ...collectThreadReasoningEfforts([...payload.threads, ...payload.archivedThreads])
+          },
           settings: payload.settings ?? state.settings ?? DEFAULT_SETTINGS,
           threads: sortThreads(payload.threads),
           folders: payload.folders ?? [],
@@ -3491,15 +3553,19 @@ export const useAppStore = create<AppState>((set, get) => ({
           : undefined
         const pendingModel = currentState.pendingModelOverride
         const pendingAcp = currentState.pendingAcpBinding
+        const pendingReasoningEffort =
+          currentState.reasoningEffortByThread[getComposerDraftKey(null)]
         const thread = await window.api.yachiyo.createThread({
           ...(workspacePath ? { workspacePath } : {}),
           ...(essentialId ? { createdFromEssentialId: essentialId } : {}),
-          ...(essential?.privacyMode ? { privacyMode: true } : {})
+          ...(essential?.privacyMode ? { privacyMode: true } : {}),
+          ...(pendingReasoningEffort ? { reasoningEffort: pendingReasoningEffort } : {})
         })
 
         // Commit local state first so the thread is visible even if setup calls fail.
         if (pendingModel) thread.modelOverride = pendingModel
         if (pendingAcp) thread.runtimeBinding = pendingAcp
+        if (pendingReasoningEffort) thread.reasoningEffort = pendingReasoningEffort
         if (essential?.privacyMode) {
           thread.privacyMode = true
         }
@@ -3823,12 +3889,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }),
 
-  setComposerReasoningEffort: (reasoningEffort) =>
-    set((state) => {
-      if (!isComposerReasoningSelection(reasoningEffort)) {
-        return {}
-      }
+  setComposerReasoningEffort: (reasoningEffort) => {
+    if (!isComposerReasoningSelection(reasoningEffort)) {
+      return
+    }
 
+    const threadId = get().activeThreadId
+    set((state) => {
       const draftKey = getComposerDraftKey(state.activeThreadId)
       return {
         reasoningEffortByThread: {
@@ -3836,7 +3903,32 @@ export const useAppStore = create<AppState>((set, get) => ({
           [draftKey]: reasoningEffort
         }
       }
-    }),
+    })
+
+    if (
+      threadId &&
+      typeof window !== 'undefined' &&
+      window.api?.yachiyo?.setThreadReasoningEffort
+    ) {
+      void window.api.yachiyo
+        .setThreadReasoningEffort({ threadId, reasoningEffort })
+        .then((updatedThread) => {
+          set((state) => ({
+            reasoningEffortByThread: setReasoningEffortValue(
+              state.reasoningEffortByThread,
+              updatedThread.id,
+              updatedThread.reasoningEffort
+            ),
+            threads: upsertThread(state.threads, updatedThread)
+          }))
+        })
+        .catch((error) => {
+          const message =
+            error instanceof Error ? error.message : 'Unable to save thread reasoning effort.'
+          set({ lastError: message })
+        })
+    }
+  },
 
   setActiveArchivedThread: (id) => {
     set((state) => ({

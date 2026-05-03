@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 import type {
+  ComposerReasoningSelection,
   MessageRecord,
   SaveThreadInput,
   SaveThreadResult,
@@ -172,6 +173,7 @@ export class YachiyoServerThreadDomain {
       handoffFromThreadId?: string
       privacyMode?: boolean
       modelOverride?: ThreadModelOverride
+      reasoningEffort?: ComposerReasoningSelection
     } = {}
   ): Promise<ThreadRecord> {
     const timestamp = this.deps.timestamp()
@@ -198,7 +200,8 @@ export class YachiyoServerThreadDomain {
         ? { createdFromScheduleId: input.createdFromScheduleId }
         : {}),
       ...(input.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {}),
-      ...(input.modelOverride ? { modelOverride: input.modelOverride } : {})
+      ...(input.modelOverride ? { modelOverride: input.modelOverride } : {}),
+      ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {})
     })
 
     if (workspacePath) {
@@ -645,6 +648,7 @@ export class YachiyoServerThreadDomain {
       ...(thread.icon ? { icon: thread.icon } : {}),
       ...(thread.workspacePath ? { workspacePath: thread.workspacePath } : {}),
       ...(thread.modelOverride ? { modelOverride: thread.modelOverride } : {}),
+      ...(thread.reasoningEffort ? { reasoningEffort: thread.reasoningEffort } : {}),
       ...(preview ? { preview: preview.slice(0, 240) } : {}),
       ...(previewSource ? { headMessageId: previewSource.id } : {})
     })
@@ -827,6 +831,29 @@ export class YachiyoServerThreadDomain {
     }
     if (!input.modelOverride) {
       delete updatedThread.modelOverride
+    }
+
+    this.deps.storage.updateThread(updatedThread)
+    this.deps.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: updatedThread.id,
+      thread: updatedThread
+    })
+
+    return updatedThread
+  }
+
+  setThreadReasoningEffort(input: {
+    threadId: string
+    reasoningEffort: ComposerReasoningSelection | null
+  }): ThreadRecord {
+    const thread = this.deps.requireThread(input.threadId)
+    const updatedThread: ThreadRecord = {
+      ...thread,
+      ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {})
+    }
+    if (!input.reasoningEffort) {
+      delete updatedThread.reasoningEffort
     }
 
     this.deps.storage.updateThread(updatedThread)

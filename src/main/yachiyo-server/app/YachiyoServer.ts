@@ -12,6 +12,7 @@ import type {
   ChatAccepted,
   CompactThreadAccepted,
   CompactThreadInput,
+  ComposerReasoningSelection,
   CreateScheduleInput,
   EditMessageInput,
   FileMentionCandidate,
@@ -881,6 +882,7 @@ export class YachiyoServer {
       createdFromScheduleId?: string
       handoffFromThreadId?: string
       privacyMode?: boolean
+      reasoningEffort?: ComposerReasoningSelection
     } = {}
   ): Promise<ThreadRecord> {
     if (input.handoffFromThreadId && !input.workspacePath?.trim()) {
@@ -916,7 +918,8 @@ export class YachiyoServer {
       threadId: destinationThreadId,
       handoffFromThreadId: sourceThread.id,
       ...(sourceThread.workspacePath ? { workspacePath: sourceThread.workspacePath } : {}),
-      ...(sourceThread.modelOverride ? { modelOverride: sourceThread.modelOverride } : {})
+      ...(sourceThread.modelOverride ? { modelOverride: sourceThread.modelOverride } : {}),
+      ...(sourceThread.reasoningEffort ? { reasoningEffort: sourceThread.reasoningEffort } : {})
     })
 
     // Auto-categorize: group source and destination under a folder
@@ -928,7 +931,7 @@ export class YachiyoServer {
     return this.runDomain.compactThreadToAnotherThread({
       sourceThread,
       destinationThread,
-      reasoningEffort: input.reasoningEffort
+      reasoningEffort: input.reasoningEffort ?? destinationThread.reasoningEffort
     })
   }
 
@@ -1015,6 +1018,13 @@ export class YachiyoServer {
     modelOverride: ThreadModelOverride | null
   }): Promise<ThreadRecord> {
     return this.threadDomain.setThreadModelOverride(input)
+  }
+
+  async setThreadReasoningEffort(input: {
+    threadId: string
+    reasoningEffort: ComposerReasoningSelection | null
+  }): Promise<ThreadRecord> {
+    return this.threadDomain.setThreadReasoningEffort(input)
   }
 
   async setThreadRuntimeBinding(input: {

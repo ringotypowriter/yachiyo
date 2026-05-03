@@ -6,6 +6,7 @@ import type {
   ChannelUserRecord,
   CompactThreadInput,
   CompactThreadAccepted,
+  ComposerReasoningSelection,
   EditMessageInput,
   FolderRecord,
   GetMemoryTermDocumentInput,
@@ -113,6 +114,7 @@ const api = {
       workspacePath?: string
       createdFromEssentialId?: string
       privacyMode?: boolean
+      reasoningEffort?: ComposerReasoningSelection
     }) => ipcRenderer.invoke('yachiyo:create-thread', input),
     deleteThread: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:delete-thread', input),
@@ -246,6 +248,10 @@ const api = {
       threadId: string
       modelOverride: ThreadModelOverride | null
     }): Promise<ThreadRecord> => ipcRenderer.invoke('yachiyo:set-thread-model-override', input),
+    setThreadReasoningEffort: (input: {
+      threadId: string
+      reasoningEffort: ComposerReasoningSelection | null
+    }): Promise<ThreadRecord> => ipcRenderer.invoke('yachiyo:set-thread-reasoning-effort', input),
     setThreadRuntimeBinding: (input: {
       threadId: string
       runtimeBinding: ThreadRuntimeBinding | null

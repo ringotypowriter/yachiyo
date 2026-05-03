@@ -19,6 +19,7 @@ import type {
   AnswerToolQuestionInput,
   ChannelsConfig,
   CompactThreadInput,
+  ComposerReasoningSelection,
   CreateScheduleInput,
   EditMessageInput,
   GetMemoryTermDocumentInput,
@@ -156,6 +157,7 @@ const IPC_CHANNELS = {
   upsertProvider: 'yachiyo:upsert-provider',
   setThreadPrivacyMode: 'yachiyo:set-thread-privacy-mode',
   setThreadModelOverride: 'yachiyo:set-thread-model-override',
+  setThreadReasoningEffort: 'yachiyo:set-thread-reasoning-effort',
   setThreadRuntimeBinding: 'yachiyo:set-thread-runtime-binding',
   regenerateThreadTitle: 'yachiyo:regenerate-thread-title',
   starThread: 'yachiyo:star-thread',
@@ -805,8 +807,12 @@ export function registerYachiyoGateway(): YachiyoServer {
   handle(IPC_CHANNELS.bootstrap, () => server!.bootstrap())
   handle(
     IPC_CHANNELS.createThread,
-    (input?: { workspacePath?: string; createdFromEssentialId?: string; privacyMode?: boolean }) =>
-      server!.createThread(input)
+    (input?: {
+      workspacePath?: string
+      createdFromEssentialId?: string
+      privacyMode?: boolean
+      reasoningEffort?: ComposerReasoningSelection
+    }) => server!.createThread(input)
   )
   handle(IPC_CHANNELS.createBranch, (input: { threadId: string; messageId: string }) =>
     server!.createBranch(input)
@@ -999,6 +1005,11 @@ export function registerYachiyoGateway(): YachiyoServer {
     IPC_CHANNELS.setThreadModelOverride,
     (input: { threadId: string; modelOverride: ThreadModelOverride | null }) =>
       server!.setThreadModelOverride(input)
+  )
+  handle(
+    IPC_CHANNELS.setThreadReasoningEffort,
+    (input: { threadId: string; reasoningEffort: ComposerReasoningSelection | null }) =>
+      server!.setThreadReasoningEffort(input)
   )
   handle(
     IPC_CHANNELS.setThreadRuntimeBinding,

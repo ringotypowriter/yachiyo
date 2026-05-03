@@ -384,6 +384,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           queuedFollowUpReasoningEffort: threadsTable.queuedFollowUpReasoningEffort,
+          reasoningEffort: threadsTable.reasoningEffort,
           source: threadsTable.source,
           channelUserId: threadsTable.channelUserId,
           channelGroupId: threadsTable.channelGroupId,
@@ -629,6 +630,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           queuedFollowUpReasoningEffort: threadsTable.queuedFollowUpReasoningEffort,
+          reasoningEffort: threadsTable.reasoningEffort,
           source: threadsTable.source,
           channelUserId: threadsTable.channelUserId,
           channelGroupId: threadsTable.channelGroupId,
@@ -672,6 +674,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           queuedFollowUpReasoningEffort: threadsTable.queuedFollowUpReasoningEffort,
+          reasoningEffort: threadsTable.reasoningEffort,
           source: threadsTable.source,
           channelUserId: threadsTable.channelUserId,
           channelGroupId: threadsTable.channelGroupId,
@@ -742,6 +745,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             queuedFollowUpReasoningEffort: serializeReasoningSelection(
               thread.queuedFollowUpReasoningEffort
             ),
+            reasoningEffort: serializeReasoningSelection(thread.reasoningEffort),
             source: thread.source ?? 'local',
             channelUserId: thread.channelUserId ?? null,
             channelGroupId: thread.channelGroupId ?? null,
@@ -966,6 +970,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpReasoningEffort: serializeReasoningSelection(
             thread.queuedFollowUpReasoningEffort
           ),
+          reasoningEffort: serializeReasoningSelection(thread.reasoningEffort),
           source: thread.source ?? null,
           channelUserId: thread.channelUserId ?? null,
           channelGroupId: thread.channelGroupId ?? null,

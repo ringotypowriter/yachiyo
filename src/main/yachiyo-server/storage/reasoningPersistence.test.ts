@@ -27,6 +27,7 @@ test('thread conversion preserves queued follow-up reasoning effort', () => {
     queuedFollowUpEnabledSkillNames: '["workspace-refactor"]',
     queuedFollowUpMessageId: 'user-follow-up',
     queuedFollowUpReasoningEffort: 'high',
+    reasoningEffort: null,
     source: 'local',
     channelUserId: null,
     channelGroupId: null,
@@ -44,6 +45,46 @@ test('thread conversion preserves queued follow-up reasoning effort', () => {
   })
 
   assert.equal(thread.queuedFollowUpReasoningEffort, 'high')
+})
+
+test('thread conversion preserves composer reasoning effort', () => {
+  const thread = toThreadRecord({
+    archivedAt: null,
+    starredAt: null,
+    branchFromMessageId: null,
+    branchFromThreadId: null,
+    handoffFromThreadId: null,
+    folderId: null,
+    colorTag: null,
+    headMessageId: null,
+    icon: null,
+    id: 'thread-1',
+    memoryRecallState: null,
+    modelOverride: null,
+    preview: null,
+    privacyMode: null,
+    queuedFollowUpEnabledTools: null,
+    queuedFollowUpEnabledSkillNames: null,
+    queuedFollowUpMessageId: null,
+    queuedFollowUpReasoningEffort: null,
+    reasoningEffort: 'high',
+    source: 'local',
+    channelUserId: null,
+    channelGroupId: null,
+    rollingSummary: null,
+    summaryWatermarkMessageId: null,
+    readAt: null,
+    createdFromEssentialId: null,
+    createdFromScheduleId: null,
+    runtimeBinding: null,
+    lastDelegatedSession: null,
+    recapText: null,
+    title: 'Thread',
+    updatedAt: '2026-05-02T00:00:00.000Z',
+    workspacePath: null
+  })
+
+  assert.equal(thread.reasoningEffort, 'high')
 })
 
 test('run recovery checkpoint conversion preserves reasoning effort', () => {

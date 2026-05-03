@@ -94,6 +94,36 @@ test('YachiyoServerThreadDomain sets and clears a thread title color', () => {
   })
 })
 
+test('YachiyoServerThreadDomain sets and clears thread reasoning effort', () => {
+  const { domain, events, storage } = createThreadDomainHarness(null)
+
+  const reasoningThread = domain.setThreadReasoningEffort({
+    threadId: 'thread-1',
+    reasoningEffort: 'high'
+  })
+
+  assert.equal(reasoningThread.reasoningEffort, 'high')
+  assert.equal(storage.getThread('thread-1')?.reasoningEffort, 'high')
+  assert.deepEqual(events.at(-1), {
+    type: 'thread.updated',
+    threadId: 'thread-1',
+    thread: reasoningThread
+  })
+
+  const defaultThread = domain.setThreadReasoningEffort({
+    threadId: 'thread-1',
+    reasoningEffort: null
+  })
+
+  assert.equal(defaultThread.reasoningEffort, undefined)
+  assert.equal(storage.getThread('thread-1')?.reasoningEffort, undefined)
+  assert.deepEqual(events.at(-1), {
+    type: 'thread.updated',
+    threadId: 'thread-1',
+    thread: defaultThread
+  })
+})
+
 test('YachiyoServerThreadDomain archives ACP threads only after evicting idle sessions', async () => {
   const { domain, evictedThreadIds, storage } = createThreadDomainHarness({
     kind: 'acp',

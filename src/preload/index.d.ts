@@ -7,6 +7,7 @@ import type {
   ChatAccepted,
   CompactThreadAccepted,
   CompactThreadInput,
+  ComposerReasoningSelection,
   CreateScheduleInput,
   EditMessageInput,
   FolderRecord,
@@ -98,6 +99,7 @@ declare global {
           workspacePath?: string
           createdFromEssentialId?: string
           privacyMode?: boolean
+          reasoningEffort?: ComposerReasoningSelection
         }) => Promise<ThreadRecord>
         deleteThread: (input: { threadId: string }) => Promise<void>
         deleteMessage: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>
@@ -193,6 +195,10 @@ declare global {
         setThreadModelOverride: (input: {
           threadId: string
           modelOverride: ThreadModelOverride | null
+        }) => Promise<ThreadRecord>
+        setThreadReasoningEffort: (input: {
+          threadId: string
+          reasoningEffort: ComposerReasoningSelection | null
         }) => Promise<ThreadRecord>
         setThreadRuntimeBinding: (input: {
           threadId: string

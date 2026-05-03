@@ -56,6 +56,7 @@ export interface StoredThreadRow {
   queuedFollowUpEnabledTools: string | null
   queuedFollowUpEnabledSkillNames: string | null
   queuedFollowUpReasoningEffort: string | null
+  reasoningEffort: string | null
   archivedAt: string | null
   savingStartedAt: string | null
   starredAt: string | null
@@ -425,6 +426,7 @@ export function toThreadRecord(
     | 'queuedFollowUpEnabledSkillNames'
     | 'queuedFollowUpMessageId'
     | 'queuedFollowUpReasoningEffort'
+    | 'reasoningEffort'
     | 'source'
     | 'channelUserId'
     | 'channelGroupId'
@@ -444,6 +446,7 @@ export function toThreadRecord(
   const queuedFollowUpEnabledTools = parseEnabledTools(row.queuedFollowUpEnabledTools)
   const queuedFollowUpEnabledSkillNames = parseSkillNames(row.queuedFollowUpEnabledSkillNames)
   const queuedFollowUpReasoningEffort = parseReasoningSelection(row.queuedFollowUpReasoningEffort)
+  const reasoningEffort = parseReasoningSelection(row.reasoningEffort)
   const memoryRecall = parseThreadMemoryRecallState(row.memoryRecallState)
   const modelOverride = parseModelOverride(row.modelOverride)
   const runtimeBinding = parseRuntimeBinding(row.runtimeBinding)
@@ -467,6 +470,7 @@ export function toThreadRecord(
       ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
       ...(queuedFollowUpEnabledSkillNames ? { queuedFollowUpEnabledSkillNames } : {}),
       ...(queuedFollowUpReasoningEffort ? { queuedFollowUpReasoningEffort } : {}),
+      ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(row.queuedFollowUpMessageId === null
         ? {}
         : { queuedFollowUpMessageId: row.queuedFollowUpMessageId }),
@@ -511,6 +515,7 @@ export function toThreadRecord(
     ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
     ...(queuedFollowUpEnabledSkillNames ? { queuedFollowUpEnabledSkillNames } : {}),
     ...(queuedFollowUpReasoningEffort ? { queuedFollowUpReasoningEffort } : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
     ...(row.queuedFollowUpMessageId === null
       ? {}
       : { queuedFollowUpMessageId: row.queuedFollowUpMessageId }),

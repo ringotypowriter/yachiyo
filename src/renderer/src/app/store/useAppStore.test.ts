@@ -5,6 +5,7 @@ import { DEFAULT_ENABLED_TOOL_NAMES } from '../../../../shared/yachiyo/protocol.
 import {
   DEFAULT_SIDEBAR_FILTER,
   DEFAULT_SETTINGS,
+  getComposerReasoningEffort,
   getEffectiveModel,
   getThreadEffectiveModel,
   useAppStore
@@ -212,6 +213,7 @@ test('initialize hydrates the active thread run history after bootstrap', async 
         {
           id: 'thread-1',
           title: 'Thread 1',
+          reasoningEffort: 'high',
           updatedAt: TIMESTAMP
         },
         {
@@ -309,6 +311,8 @@ test('initialize hydrates the active thread run history after bootstrap', async 
     const state = useAppStore.getState()
     assert.equal(loadThreadDataCalls, 1)
     assert.equal(state.activeThreadId, 'thread-1')
+    assert.equal(state.reasoningEffortByThread['thread-1'], 'high')
+    assert.equal(getComposerReasoningEffort(state, 'thread-1'), 'high')
     assert.deepEqual(state.runsByThread['thread-1'], [
       {
         id: 'run-older',
@@ -3044,12 +3048,22 @@ test('createNewThread moves the staged new-chat reasoning effort into a reusable
   resetStore()
 
   let createThreadCallCount = 0
+  const reasoningCalls: Array<{ threadId: string; reasoningEffort: string | null }> = []
   const restoreWindow = withWindowApiMock({
     createThread: async () => {
       createThreadCallCount += 1
       return {
         id: 'thread-2',
         title: 'New Chat',
+        updatedAt: TIMESTAMP
+      }
+    },
+    setThreadReasoningEffort: async (input) => {
+      reasoningCalls.push(input)
+      return {
+        id: input.threadId,
+        title: 'New Chat',
+        reasoningEffort: input.reasoningEffort ?? undefined,
         updatedAt: TIMESTAMP
       }
     }
@@ -3081,9 +3095,11 @@ test('createNewThread moves the staged new-chat reasoning effort into a reusable
     })
 
     await useAppStore.getState().createNewThread()
+    await new Promise((resolve) => setTimeout(resolve, 0))
 
     const state = useAppStore.getState()
     assert.equal(createThreadCallCount, 0)
+    assert.deepEqual(reasoningCalls, [{ threadId: 'thread-1', reasoningEffort: 'high' }])
     assert.equal(state.activeThreadId, 'thread-1')
     assert.equal(state.reasoningEffortByThread.__new__, undefined)
     assert.equal(state.reasoningEffortByThread['thread-1'], 'high')
@@ -3095,12 +3111,17 @@ test('createNewThread moves the staged new-chat reasoning effort into a reusable
 test('createNewThread moves the staged new-chat reasoning effort into a new chat', async () => {
   resetStore()
 
+  const createThreadInputs: Array<{ reasoningEffort?: string }> = []
   const restoreWindow = withWindowApiMock({
-    createThread: async () => ({
-      id: 'thread-2',
-      title: 'New Chat',
-      updatedAt: TIMESTAMP
-    })
+    createThread: async (input) => {
+      createThreadInputs.push(input ?? {})
+      return {
+        id: 'thread-2',
+        title: 'New Chat',
+        reasoningEffort: input?.reasoningEffort,
+        updatedAt: TIMESTAMP
+      }
+    }
   })
 
   try {
@@ -3121,6 +3142,7 @@ test('createNewThread moves the staged new-chat reasoning effort into a new chat
     await useAppStore.getState().createNewThread()
 
     const state = useAppStore.getState()
+    assert.deepEqual(createThreadInputs, [{ reasoningEffort: 'high' }])
     assert.equal(state.activeThreadId, 'thread-2')
     assert.equal(state.reasoningEffortByThread.__new__, undefined)
     assert.equal(state.reasoningEffortByThread['thread-2'], 'high')
@@ -3335,6 +3357,57 @@ test('selectModel sets thread override when active thread exists', async () => {
     ])
     const thread = useAppStore.getState().threads.find((t) => t.id === 'thread-1')
     assert.deepEqual(thread?.modelOverride, { providerName: 'work', model: 'gpt-5' })
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('getComposerReasoningEffort uses the persisted thread reasoning effort', () => {
+  resetStore()
+
+  useAppStore.setState({
+    activeThreadId: 'thread-1',
+    threads: [
+      {
+        id: 'thread-1',
+        title: 'Thread',
+        reasoningEffort: 'high',
+        updatedAt: TIMESTAMP
+      }
+    ]
+  })
+
+  assert.equal(getComposerReasoningEffort(useAppStore.getState(), 'thread-1'), 'high')
+})
+
+test('setComposerReasoningEffort persists the active thread reasoning effort', async () => {
+  resetStore()
+
+  const calls: Array<{ threadId: string; reasoningEffort: string | null }> = []
+  const restoreWindow = withWindowApiMock({
+    setThreadReasoningEffort: async (input) => {
+      calls.push(input)
+      return {
+        id: input.threadId,
+        title: 'Thread',
+        reasoningEffort: input.reasoningEffort ?? undefined,
+        updatedAt: TIMESTAMP
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', title: 'Thread', updatedAt: TIMESTAMP }]
+    })
+
+    useAppStore.getState().setComposerReasoningEffort('high')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    assert.deepEqual(calls, [{ threadId: 'thread-1', reasoningEffort: 'high' }])
+    const thread = useAppStore.getState().threads.find((t) => t.id === 'thread-1')
+    assert.equal(thread?.reasoningEffort, 'high')
   } finally {
     restoreWindow()
   }

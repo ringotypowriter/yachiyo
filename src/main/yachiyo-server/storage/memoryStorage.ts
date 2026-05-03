@@ -145,6 +145,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     storedThread.queuedFollowUpReasoningEffort = serializeReasoningSelection(
       nextThread.queuedFollowUpReasoningEffort
     )
+    storedThread.reasoningEffort = serializeReasoningSelection(nextThread.reasoningEffort)
     storedThread.modelOverride = serializeModelOverride(nextThread.modelOverride)
     storedThread.rollingSummary = nextThread.rollingSummary ?? null
     storedThread.summaryWatermarkMessageId = nextThread.summaryWatermarkMessageId ?? null
@@ -310,6 +311,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         queuedFollowUpReasoningEffort: serializeReasoningSelection(
           thread.queuedFollowUpReasoningEffort
         ),
+        reasoningEffort: serializeReasoningSelection(thread.reasoningEffort),
         archivedAt: null,
         savingStartedAt: null,
         starredAt: null,

@@ -1,0 +1,1 @@
+ALTER TABLE `threads` ADD `reasoning_effort` text;

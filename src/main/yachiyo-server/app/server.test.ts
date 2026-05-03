@@ -8335,6 +8335,43 @@ test('YachiyoServer.compactThreadToAnotherThread uses the requested reasoning ef
   )
 })
 
+test('YachiyoServer.compactThreadToAnotherThread uses the saved thread reasoning effort', async () => {
+  const requests: ModelStreamRequest[] = []
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      const sourceThread = await server.createThread()
+      await server.setThreadReasoningEffort({
+        threadId: sourceThread.id,
+        reasoningEffort: 'high'
+      })
+      const sourceAccepted = await server.sendChat({
+        threadId: sourceThread.id,
+        content: 'Preserve the saved reasoning effort across handoff.'
+      })
+      await completeRun(sourceAccepted.runId)
+
+      const compacted = await server.compactThreadToAnotherThread({
+        threadId: sourceThread.id
+      })
+      await completeRun(compacted.runId)
+
+      assert.equal(compacted.thread.reasoningEffort, 'high')
+      const handoffRequest = requests.findLast((request) => request.purpose === 'thread-handoff')
+      assert.ok(handoffRequest)
+      assert.equal(handoffRequest.reasoningEffort, 'high')
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+          yield 'ok'
+        }
+      })
+    }
+  )
+})
+
 test('YachiyoServer.compactThreadToAnotherThread preserves Anthropic cache breakpoints', async () => {
   const requests: ModelStreamRequest[] = []
   const hasAnthropicCacheBreakpoint = (

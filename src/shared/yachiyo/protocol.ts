@@ -505,6 +505,7 @@ export interface ThreadRecord {
   queuedFollowUpEnabledTools?: ToolCallName[]
   queuedFollowUpEnabledSkillNames?: string[]
   queuedFollowUpReasoningEffort?: ComposerReasoningSelection
+  reasoningEffort?: ComposerReasoningSelection
   branchFromThreadId?: string
   branchFromMessageId?: string
   handoffFromThreadId?: string
