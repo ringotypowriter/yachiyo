@@ -737,9 +737,59 @@ body > div:not(#root) {
   will-change: opacity, filter;
 }
 
+@keyframes yachiyo-sidebar-run-preview-shimmer {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -140% 0;
+  }
+}
+
+.yachiyo-sidebar-run-preview-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.yachiyo-sidebar-run-preview-shimmer::after {
+  content: attr(data-shimmer-text);
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    transparent 34%,
+    rgb(var(--yachiyo-rgb-accent) / 0.18) 43%,
+    rgb(var(--yachiyo-rgb-accent)) 50%,
+    rgb(var(--yachiyo-rgb-accent) / 0.18) 57%,
+    transparent 66%,
+    transparent 100%
+  );
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: yachiyo-sidebar-run-preview-shimmer 4.6s linear infinite;
+  will-change: background-position;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .yachiyo-sidebar-active-run-dot {
     animation: none;
+  }
+
+  .yachiyo-sidebar-run-preview-shimmer {
+    overflow: visible;
+  }
+
+  .yachiyo-sidebar-run-preview-shimmer::after {
+    display: none;
   }
 }
 

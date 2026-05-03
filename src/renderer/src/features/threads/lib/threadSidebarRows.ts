@@ -1,4 +1,5 @@
-import type { FolderRecord, Thread } from '../../../app/types.ts'
+import type { FolderRecord, Thread, ToolCall } from '../../../app/types.ts'
+import { stripMarkdown } from '../../../../../shared/yachiyo/messageContent.ts'
 
 export type FolderChild =
   | { kind: 'thread'; thread: Thread }
@@ -22,6 +23,123 @@ export type SidebarFolderDropRow = Extract<
   SidebarRow,
   { kind: 'folder' | 'folder-date-header' | 'folder-thread' }
 >
+
+export type ThreadSidebarPreviewState = 'normal' | 'thinking' | 'working'
+
+export interface ThreadSidebarPreview {
+  state: ThreadSidebarPreviewState
+  text: string
+}
+
+const THINKING_SIDEBAR_PREVIEWS: readonly [string, ...string[]] = [
+  'Thinking...',
+  'Brewing...',
+  'Cerebrating...',
+  'Cogitating...',
+  'Considering...',
+  'Contemplating...',
+  'Deciphering...',
+  'Deliberating...',
+  'Elucidating...',
+  'Envisioning...',
+  'Ideating...',
+  'Imagining...',
+  'Incubating...',
+  'Inferring...',
+  'Mulling...',
+  'Musing...',
+  'Noodling...',
+  'Perusing...',
+  'Philosophising...',
+  'Pondering...',
+  'Puzzling...',
+  'Ruminating...'
+]
+
+const WORKING_SIDEBAR_PREVIEWS: readonly [string, ...string[]] = [
+  'Accomplishing...',
+  'Actualizing...',
+  'Baking...',
+  'Beaming...',
+  'Billowing...',
+  'Boogieing...',
+  'Booping...',
+  'Caramelizing...',
+  'Cascading...',
+  'Channeling...',
+  'Choreographing...',
+  'Churning...',
+  'Coalescing...',
+  'Combobulating...',
+  'Composing...',
+  'Concocting...',
+  'Cooking...',
+  'Crafting...',
+  'Creating...',
+  'Crystallizing...',
+  'Cultivating...',
+  'Doodling...',
+  'Drizzling...',
+  'Ebbing...',
+  'Embellishing...',
+  'Enchanting...',
+  'Fermenting...',
+  'Flowing...',
+  'Fluttering...',
+  'Forming...',
+  'Frosting...',
+  'Garnishing...',
+  'Germinating...',
+  'Grooving...',
+  'Gusting...',
+  'Harmonizing...',
+  'Hatching...',
+  'Improvising...',
+  'Infusing...',
+  'Kneading...',
+  'Leavening...',
+  'Levitating...',
+  'Manifesting...',
+  'Marinating...',
+  'Metamorphosing...',
+  'Misting...',
+  'Orbiting...',
+  'Orchestrating...',
+  'Percolating...',
+  'Polishing...',
+  'Prestidigitating...',
+  'Proofing...',
+  'Propagating...',
+  'Recombobulating...',
+  'Seasoning...',
+  'Shaping...',
+  'Shimmying...',
+  'Simmering...',
+  'Sketching...',
+  'Smooshing...',
+  'Spinning...',
+  'Sprouting...',
+  'Stewing...',
+  'Swirling...',
+  'Tempering...',
+  'Tinkering...',
+  'Transfiguring...',
+  'Transmuting...',
+  'Twisting...',
+  'Undulating...',
+  'Unfurling...',
+  'Unravelling...',
+  'Vibing...',
+  'Wandering...',
+  'Warping...',
+  'Whirlpooling...',
+  'Whirring...',
+  'Whisking...',
+  'Working...',
+  'Wrangling...',
+  'Zesting...',
+  'Zigzagging...'
+]
 
 export function buildSidebarItems(
   threads: Thread[],
@@ -180,6 +298,50 @@ export function resolveSidebarFolderDropId(row: SidebarFolderDropRow): string {
   return `folder-${row.folder.id}-row-${row.key}`
 }
 
+export function resolveThreadSidebarPreview({
+  activeRunId,
+  hasBackgroundWork,
+  isRunActive,
+  thread,
+  toolCalls
+}: {
+  activeRunId: string | null
+  hasBackgroundWork: boolean
+  isRunActive: boolean
+  thread: Pick<Thread, 'id' | 'preview'>
+  toolCalls: ToolCall[]
+}): ThreadSidebarPreview {
+  if (hasBackgroundWork) {
+    return {
+      state: 'working',
+      text: pickSidebarPlaceholder(`background:${thread.id}`, WORKING_SIDEBAR_PREVIEWS)
+    }
+  }
+
+  if (isRunActive) {
+    const hasCurrentRunToolCall =
+      activeRunId !== null && toolCalls.some((toolCall) => toolCall.runId === activeRunId)
+    const state = hasCurrentRunToolCall ? 'working' : 'thinking'
+    const placeholderSeed = activeRunId
+      ? `run:${activeRunId}:${state}`
+      : `thread:${thread.id}:${state}`
+
+    return {
+      state,
+      text: pickSidebarPlaceholder(
+        placeholderSeed,
+        hasCurrentRunToolCall ? WORKING_SIDEBAR_PREVIEWS : THINKING_SIDEBAR_PREVIEWS
+      )
+    }
+  }
+
+  const preview = thread.preview?.trim()
+  return {
+    state: 'normal',
+    text: preview ? stripMarkdown(preview) : 'No messages yet'
+  }
+}
+
 function formatSidebarDateLabel(updatedAt: string, today: Date): string {
   const date = new Date(updatedAt)
   const day = new Date(date.getFullYear(), date.getMonth(), date.getDate())
@@ -188,4 +350,12 @@ function formatSidebarDateLabel(updatedAt: string, today: Date): string {
   if (diffDays === 0) return 'Today'
   if (diffDays === 1) return 'Yesterday'
   return day.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function pickSidebarPlaceholder(threadId: string, labels: readonly [string, ...string[]]): string {
+  let hash = 0
+  for (let index = 0; index < threadId.length; index += 1) {
+    hash = (hash * 31 + threadId.charCodeAt(index)) >>> 0
+  }
+  return labels[hash % labels.length]
 }

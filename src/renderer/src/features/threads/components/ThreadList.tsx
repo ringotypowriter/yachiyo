@@ -14,10 +14,9 @@ import {
   type DragEndEvent
 } from '@dnd-kit/core'
 import { useAppStore, hasActiveMultiFilter } from '@renderer/app/store/useAppStore'
-import type { FolderRecord, Thread, ThreadColorTag } from '@renderer/app/types'
+import type { FolderRecord, RunRecord, Thread, ThreadColorTag, ToolCall } from '@renderer/app/types'
 import { ThreadContextMenuPopup } from '@renderer/features/threads/components/ThreadContextMenuPopup'
 import { imeSafeEnter } from '@renderer/lib/imeUtils'
-import { stripMarkdown } from '../../../../../shared/yachiyo/messageContent'
 import {
   resolveThreadContextOperations,
   resolveThreadColorOperationTag,
@@ -44,6 +43,7 @@ import {
   buildSidebarRows,
   estimateSidebarRowSize,
   resolveSidebarFolderDropId,
+  resolveThreadSidebarPreview,
   type SidebarRow
 } from '@renderer/features/threads/lib/threadSidebarRows'
 import {
@@ -61,6 +61,7 @@ const TITLE_DELETE_INTERVAL_MS = 18
 const TITLE_TYPE_INTERVAL_MS = 32
 const BACKGROUND_TASK_SIDEBAR_HYDRATE_INTERVAL_MS = 15_000
 const EMPTY_WORKSPACE_PATHS: string[] = []
+const EMPTY_THREAD_TOOL_CALLS: ToolCall[] = []
 const useSidebarVirtualizer = useTanStackVirtualizer
 
 function useTitleAnimation(title: string, skip: boolean): string {
@@ -114,9 +115,12 @@ function useTitleAnimation(title: string, skip: boolean): string {
 }
 
 function ThreadListItem({
+  activeRunId,
   isActive,
   hasActiveRun,
+  hasBackgroundWork,
   hasJustDoneRun,
+  isRunActive,
   isSaving,
   isSelectMode,
   isSelected,
@@ -131,11 +135,15 @@ function ThreadListItem({
   onToggleSelect,
   showPreview,
   thread,
+  toolCalls,
   threadListMode
 }: {
+  activeRunId: string | null
   isActive: boolean
   hasActiveRun: boolean
+  hasBackgroundWork: boolean
   hasJustDoneRun: boolean
+  isRunActive: boolean
   isSaving: boolean
   isSelectMode: boolean
   isSelected: boolean
@@ -150,9 +158,16 @@ function ThreadListItem({
   onToggleSelect: (threadId: string) => void
   showPreview: boolean
   thread: Thread
+  toolCalls: ToolCall[]
   threadListMode: 'active' | 'archived'
 }): React.JSX.Element {
-  const preview = thread.preview?.trim() ? stripMarkdown(thread.preview.trim()) : 'No messages yet'
+  const preview = resolveThreadSidebarPreview({
+    activeRunId,
+    hasBackgroundWork,
+    isRunActive,
+    thread,
+    toolCalls
+  })
   const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null)
   const [renamingTitle, setRenamingTitle] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
@@ -176,6 +191,10 @@ function ThreadListItem({
   const isHighlighted = isSelectMode ? isSelected : isActive
   const isUnreadArchived =
     threadListMode === 'archived' && Boolean(thread.archivedAt) && !thread.readAt
+  const previewClassName =
+    preview.state === 'normal'
+      ? 'mt-0.5 block truncate'
+      : 'mt-0.5 block truncate yachiyo-sidebar-run-preview-shimmer'
 
   function handleIconClick(e: React.MouseEvent): void {
     e.stopPropagation()
@@ -359,13 +378,14 @@ function ThreadListItem({
               </span>
               {showPreview && (
                 <span
-                  className="mt-0.5 block truncate"
+                  className={previewClassName}
+                  data-shimmer-text={preview.text}
                   style={{
                     fontSize: '0.68rem',
                     color: isHighlighted ? theme.text.secondary : theme.text.muted
                   }}
                 >
-                  {preview}
+                  {preview.text}
                 </span>
               )}
             </div>
@@ -898,6 +918,7 @@ function ThreadListContent({
   starThread,
   threadListMode,
   visibleThreads,
+  toolCallsByThread,
   folders,
   collapsedFolderIds,
   toggleFolderCollapsed,
@@ -912,7 +933,7 @@ function ThreadListContent({
   cancelRunForThread: (threadId: string) => Promise<void>
   compactThreadToAnotherThread: () => Promise<void>
   deleteThread: (threadId: string) => Promise<void>
-  latestRunsByThread: Record<string, { status: string }>
+  latestRunsByThread: Record<string, RunRecord>
   memoryEnabled: boolean
   regenerateThreadTitle: (threadId: string) => Promise<void>
   renameThread: (threadId: string, title: string) => Promise<void>
@@ -927,6 +948,7 @@ function ThreadListContent({
   starThread: (threadId: string, starred: boolean) => Promise<void>
   threadListMode: 'active' | 'archived'
   visibleThreads: Thread[]
+  toolCallsByThread: Record<string, ToolCall[]>
   folders: FolderRecord[]
   collapsedFolderIds: Set<string>
   toggleFolderCollapsed: (folderId: string) => void
@@ -955,8 +977,6 @@ function ThreadListContent({
   const setScrollNode = useCallback((node: HTMLDivElement | null) => {
     setScrollElement((current) => (current === node ? current : node))
   }, [])
-  const isThreadRunning = (threadId: string): boolean =>
-    runStatusesByThread[threadId] === 'running' || backgroundTaskRunningThreadIds.has(threadId)
 
   function exitSelectMode(): void {
     setSelectMode(false)
@@ -1206,19 +1226,26 @@ function ThreadListContent({
     thread: Thread,
     options: { isInFolder?: boolean } = {}
   ): React.JSX.Element {
+    const isRunActive = runStatusesByThread[thread.id] === 'running'
+    const hasBackgroundWork = backgroundTaskRunningThreadIds.has(thread.id)
+
     return (
       <ThreadListItem
         key={thread.id}
         thread={thread}
+        activeRunId={isRunActive ? (latestRunsByThread[thread.id]?.id ?? null) : null}
         isActive={thread.id === activeId}
-        hasActiveRun={isThreadRunning(thread.id)}
+        hasActiveRun={isRunActive || hasBackgroundWork}
+        hasBackgroundWork={hasBackgroundWork}
         hasJustDoneRun={threadListMode === 'active' && Boolean(justDoneRunIdsByThread[thread.id])}
+        isRunActive={isRunActive}
         isSaving={savingThreadIds.has(thread.id)}
         isSelectMode={selectMode}
         isSelected={selectedIds.has(thread.id)}
         isStarred={!!thread.starredAt}
         isInFolder={options.isInFolder === true}
         showPreview={showPreview}
+        toolCalls={toolCallsByThread[thread.id] ?? EMPTY_THREAD_TOOL_CALLS}
         threadListMode={threadListMode}
         onRename={(targetThread, nextTitle) => void handleRename(targetThread, nextTitle)}
         onSelectOperation={(targetThread, operationKey) =>
@@ -1463,6 +1490,7 @@ export function ThreadList(): React.JSX.Element {
   const setActiveThread = useAppStore((s) => s.setActiveThread)
   const threadListMode = useAppStore((s) => s.threadListMode)
   const threads = useAppStore((s) => s.threads)
+  const toolCallsByThread = useAppStore((s) => s.toolCalls)
   const externalThreads = useAppStore((s) => s.externalThreads)
   const showExternalThreads = useAppStore((s) => s.showExternalThreads)
   const runStatusesByThread = useAppStore((s) => s.runStatusesByThread)
@@ -1553,7 +1581,7 @@ export function ThreadList(): React.JSX.Element {
       cancelRunForThread={cancelRunForThread}
       compactThreadToAnotherThread={compactThreadToAnotherThread}
       deleteThread={deleteThread}
-      latestRunsByThread={latestRunsByThread as Record<string, { status: string }>}
+      latestRunsByThread={latestRunsByThread}
       memoryEnabled={memoryEnabled}
       regenerateThreadTitle={regenerateThreadTitle}
       renameThread={renameThread}
@@ -1568,6 +1596,7 @@ export function ThreadList(): React.JSX.Element {
       starThread={starThread}
       threadListMode={threadListMode}
       visibleThreads={visibleThreads}
+      toolCallsByThread={toolCallsByThread}
       folders={folders}
       collapsedFolderIds={collapsedFolderIds}
       toggleFolderCollapsed={toggleFolderCollapsed}

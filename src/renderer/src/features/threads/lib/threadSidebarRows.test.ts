@@ -5,6 +5,7 @@ import type { FolderRecord, Thread } from '../../../app/types.ts'
 import {
   buildSidebarItems,
   buildSidebarRows,
+  resolveThreadSidebarPreview,
   resolveSidebarFolderDropId
 } from './threadSidebarRows.ts'
 
@@ -131,4 +132,110 @@ test('expanded folder rows expose unique parent-folder drop targets', () => {
     'folder-folder-a-row-folder-thread:folder-a:folder-yesterday'
   ])
   assert.equal(new Set(dropIds).size, dropIds.length)
+})
+
+test('running thread preview shows a thinking placeholder before current-run tool calls', () => {
+  const preview = resolveThreadSidebarPreview({
+    activeRunId: 'run-1',
+    hasBackgroundWork: false,
+    isRunActive: true,
+    thread: thread('thread-1', { preview: 'Half-written user request' }),
+    toolCalls: []
+  })
+
+  assert.equal(preview.state, 'thinking')
+  assert.notEqual(preview.text, 'Half-written user request')
+})
+
+test('running thread preview shows a working placeholder after a current-run tool call', () => {
+  const preview = resolveThreadSidebarPreview({
+    activeRunId: 'run-1',
+    hasBackgroundWork: false,
+    isRunActive: true,
+    thread: thread('thread-1', { preview: 'Half-written user request' }),
+    toolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'running',
+        inputSummary: 'run tests',
+        startedAt: '2026-04-29T10:01:00.000Z'
+      }
+    ]
+  })
+
+  assert.equal(preview.state, 'working')
+  assert.notEqual(preview.text, 'Half-written user request')
+})
+
+test('running thread preview ignores tool calls from previous runs', () => {
+  const preview = resolveThreadSidebarPreview({
+    activeRunId: 'run-2',
+    hasBackgroundWork: false,
+    isRunActive: true,
+    thread: thread('thread-1', { preview: 'Current user request' }),
+    toolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'completed',
+        inputSummary: 'old work',
+        startedAt: '2026-04-29T09:00:00.000Z',
+        finishedAt: '2026-04-29T09:01:00.000Z'
+      }
+    ]
+  })
+
+  assert.equal(preview.state, 'thinking')
+})
+
+test('idle thread preview keeps the saved message preview', () => {
+  const preview = resolveThreadSidebarPreview({
+    activeRunId: null,
+    hasBackgroundWork: false,
+    isRunActive: false,
+    thread: thread('thread-1', { preview: '**Saved** preview' }),
+    toolCalls: []
+  })
+
+  assert.deepEqual(preview, {
+    state: 'normal',
+    text: 'Saved preview'
+  })
+})
+
+test('running thread placeholders stay one word', () => {
+  for (const threadId of ['thread-a', 'thread-b', 'thread-c', 'thread-d']) {
+    const thinking = resolveThreadSidebarPreview({
+      activeRunId: 'run-1',
+      hasBackgroundWork: false,
+      isRunActive: true,
+      thread: thread(threadId),
+      toolCalls: []
+    })
+    assert.match(thinking.text, /^[A-Za-z]+\.\.\.$/)
+
+    const working = resolveThreadSidebarPreview({
+      activeRunId: 'run-1',
+      hasBackgroundWork: false,
+      isRunActive: true,
+      thread: thread(threadId),
+      toolCalls: [
+        {
+          id: `tool-${threadId}`,
+          runId: 'run-1',
+          threadId,
+          toolName: 'bash',
+          status: 'running',
+          inputSummary: 'run tests',
+          startedAt: '2026-04-29T10:01:00.000Z'
+        }
+      ]
+    })
+    assert.match(working.text, /^[A-Za-z]+\.\.\.$/)
+  }
 })
