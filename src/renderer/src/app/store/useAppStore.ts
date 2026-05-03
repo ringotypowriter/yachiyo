@@ -45,6 +45,7 @@ import {
   isVisibleExternalThread
 } from '../../features/threads/lib/threadVisibility.ts'
 import { useBackgroundTasksStore } from '../../features/chat/state/useBackgroundTasksStore.ts'
+import { createServerEventBatcher } from './serverEventBatcher.ts'
 
 const COLLAPSED_FOLDER_IDS_KEY = 'yachiyo.collapsedFolderIds'
 const SIDEBAR_FILTER_KEY = 'yachiyo.sidebarFilter'
@@ -3120,9 +3121,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       })
 
       if (!unsubscribeFromServer) {
-        unsubscribeFromServer = window.api.yachiyo.subscribe((event) => {
-          useAppStore.getState().applyServerEvent(event)
+        const serverEventBatcher = createServerEventBatcher({
+          applyEvent: (event) => useAppStore.getState().applyServerEvent(event)
         })
+        const unsubscribe = window.api.yachiyo.subscribe((event) => {
+          serverEventBatcher.push(event)
+        })
+        unsubscribeFromServer = () => {
+          serverEventBatcher.dispose()
+          unsubscribe()
+        }
       }
 
       try {

@@ -1,6 +1,6 @@
 import type React from 'react'
-import { useMemo } from 'react'
-import type { Components, LinkSafetyConfig, UrlTransform } from 'streamdown'
+import { memo, useMemo } from 'react'
+import type { Components, LinkSafetyConfig, PluginConfig, UrlTransform } from 'streamdown'
 import { defaultRehypePlugins, Streamdown } from 'streamdown'
 import type { PluggableList, Plugin } from 'unified'
 import { MarkdownErrorBoundary } from './MarkdownErrorBoundary'
@@ -17,6 +17,7 @@ import {
 } from './MarkdownImage'
 import { getMessageMarkdownAnimation } from './messageMarkdownAnimation'
 import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
+import { splitStreamingMarkdownSegments } from './streamingMarkdownSegments'
 
 /**
  * Extend Streamdown's default rehype-sanitize schema to allow `magnet:` in
@@ -53,6 +54,43 @@ interface MessageMarkdownProps {
   imageContext?: MarkdownImageContextValue
   inlineCodeFileLinks?: InlineCodeFileLinkSnapshot
 }
+
+interface MarkdownStreamdownProps {
+  content: string
+  isStreaming: boolean
+  linkSafety: LinkSafetyConfig
+  components: Components
+  plugins: PluginConfig
+  urlTransform?: UrlTransform
+}
+
+const MarkdownStreamdown = memo(function MarkdownStreamdown({
+  content,
+  isStreaming,
+  linkSafety,
+  components,
+  plugins,
+  urlTransform
+}: MarkdownStreamdownProps): React.JSX.Element {
+  const animated = useMemo(() => getMessageMarkdownAnimation(isStreaming), [isStreaming])
+
+  return (
+    <Streamdown
+      isAnimating={isStreaming}
+      animated={animated}
+      caret={isStreaming ? 'circle' : undefined}
+      mode={isStreaming ? 'streaming' : 'static'}
+      controls={true}
+      plugins={plugins}
+      rehypePlugins={rehypePlugins}
+      linkSafety={linkSafety}
+      components={components}
+      urlTransform={urlTransform}
+    >
+      {content}
+    </Streamdown>
+  )
+})
 
 export function MessageMarkdown({
   content,
@@ -95,28 +133,60 @@ export function MessageMarkdown({
     }
   }, [imagesEnabled])
 
-  const animated = useMemo(() => getMessageMarkdownAnimation(isStreaming), [isStreaming])
-  const plugins = useMemo(() => ({ math: mathPlugin, mermaid, code }), [])
+  const plugins = useMemo<PluginConfig>(() => ({ math: mathPlugin, mermaid, code }), [])
+  const streamingSegments = useMemo(
+    () => (isStreaming ? splitStreamingMarkdownSegments(content) : null),
+    [content, isStreaming]
+  )
+  const shouldRenderSegments =
+    streamingSegments !== null && streamingSegments.stableSegments.length > 0
 
   return (
     <MarkdownErrorBoundary fallback={content}>
       <MarkdownImageProvider value={imageContext ?? null}>
         <div className="streamdown-content message-selectable">
-          <Streamdown
-            key={inlineCodeFileLinksKey}
-            isAnimating={isStreaming}
-            animated={animated}
-            caret={isStreaming ? 'circle' : undefined}
-            mode={isStreaming ? 'streaming' : 'static'}
-            controls={true}
-            plugins={plugins}
-            rehypePlugins={rehypePlugins}
-            linkSafety={linkSafety}
-            components={components}
-            urlTransform={urlTransform}
-          >
-            {content}
-          </Streamdown>
+          {shouldRenderSegments ? (
+            <div className="streamdown-content__segments">
+              {streamingSegments.stableSegments.map((segment, index) => (
+                <div
+                  className="streamdown-content__segment"
+                  key={`${inlineCodeFileLinksKey}:stable:${index}`}
+                >
+                  <MarkdownStreamdown
+                    content={segment}
+                    isStreaming={false}
+                    linkSafety={linkSafety}
+                    components={components}
+                    plugins={plugins}
+                    urlTransform={urlTransform}
+                  />
+                </div>
+              ))}
+              <div
+                className="streamdown-content__segment"
+                key={`${inlineCodeFileLinksKey}:active:${streamingSegments.stableSegments.length}`}
+              >
+                <MarkdownStreamdown
+                  content={streamingSegments.activeSegment}
+                  isStreaming={true}
+                  linkSafety={linkSafety}
+                  components={components}
+                  plugins={plugins}
+                  urlTransform={urlTransform}
+                />
+              </div>
+            </div>
+          ) : (
+            <MarkdownStreamdown
+              key={inlineCodeFileLinksKey}
+              content={content}
+              isStreaming={isStreaming}
+              linkSafety={linkSafety}
+              components={components}
+              plugins={plugins}
+              urlTransform={urlTransform}
+            />
+          )}
         </div>
       </MarkdownImageProvider>
     </MarkdownErrorBoundary>

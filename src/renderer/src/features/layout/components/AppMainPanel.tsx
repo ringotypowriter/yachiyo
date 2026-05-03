@@ -85,15 +85,24 @@ export function AppMainPanel({
   const cancelRunForThread = useAppStore((s) => s.cancelRunForThread)
   const deleteThread = useAppStore((s) => s.deleteThread)
   const compactThreadToAnotherThread = useAppStore((s) => s.compactThreadToAnotherThread)
+  const [archiveTarget, setArchiveTarget] = useState<Thread | null>(null)
+  const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null)
+  const [isInspectionPanelOpen, setIsInspectionPanelOpen] = useState(false)
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState('')
+  const [findCurrentIndex, setFindCurrentIndex] = useState(0)
+  const shouldReadFindDocuments = findOpen && findQuery.trim().length >= 2
   const messages = useAppStore((s) =>
-    activeThreadId ? (s.messages[activeThreadId] ?? EMPTY) : EMPTY
+    shouldReadFindDocuments && activeThreadId ? (s.messages[activeThreadId] ?? EMPTY) : EMPTY
   )
   const renameThread = useAppStore((s) => s.renameThread)
   const restoreThread = useAppStore((s) => s.restoreThread)
   const threadListMode = useAppStore((s) => s.threadListMode)
   const threads = useAppStore((s) => s.threads)
   const isBootstrapping = useAppStore((s) => s.isBootstrapping)
-  const messageCount = messages.length
+  const messageCount = useAppStore((s) =>
+    activeThreadId ? (s.messages[activeThreadId]?.length ?? 0) : 0
+  )
   const externalThreads = useAppStore((s) => s.externalThreads)
   const activeThread =
     threads.find((t) => t.id === activeThreadId) ??
@@ -117,21 +126,17 @@ export function AppMainPanel({
   const setThreadPrivacyMode = useAppStore((s) => s.setThreadPrivacyMode)
   const starThread = useAppStore((s) => s.starThread)
   const toolCalls = useAppStore((s) =>
-    activeThreadId ? (s.toolCalls[activeThreadId] ?? EMPTY_TOOL_CALLS) : EMPTY_TOOL_CALLS
+    shouldReadFindDocuments && activeThreadId
+      ? (s.toolCalls[activeThreadId] ?? EMPTY_TOOL_CALLS)
+      : EMPTY_TOOL_CALLS
   )
-  const [archiveTarget, setArchiveTarget] = useState<Thread | null>(null)
-  const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null)
-  const [isInspectionPanelOpen, setIsInspectionPanelOpen] = useState(false)
-  const [findOpen, setFindOpen] = useState(false)
-  const [findQuery, setFindQuery] = useState('')
-  const [findCurrentIndex, setFindCurrentIndex] = useState(0)
 
   const findMatches = useMemo(
     () =>
-      findOpen && findQuery.trim().length >= 2
+      shouldReadFindDocuments
         ? buildFindMatches(messages, toolCalls, findQuery)
         : EMPTY_FIND_MATCHES,
-    [findOpen, findQuery, messages, toolCalls]
+    [shouldReadFindDocuments, findQuery, messages, toolCalls]
   )
 
   useEffect(() => {

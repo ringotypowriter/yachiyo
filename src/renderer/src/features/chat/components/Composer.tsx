@@ -37,7 +37,6 @@ import {
   shouldSelectCompletionCandidate
 } from '@renderer/features/chat/lib/composerEnterBehavior'
 import type { ChatInputBufferPayload } from '@renderer/features/chat/lib/chatInputBuffer'
-import { getQueuedFollowUpMessage } from '@renderer/features/chat/lib/messageThreadPresentation'
 import { useChatInputBuffer } from '@renderer/features/chat/hooks/useChatInputBuffer'
 import {
   computePretextLines,
@@ -711,8 +710,27 @@ export function Composer({
     s.activeThreadId ? s.savingThreadIds.has(s.activeThreadId) : false
   )
   const config = useAppStore((s) => s.config)
-  const activeThreadMessages = useAppStore((s) =>
-    s.activeThreadId ? (s.messages[s.activeThreadId] ?? EMPTY_MESSAGES) : EMPTY_MESSAGES
+  const activeThreadMessageState = useAppStore(
+    useShallow((s) => {
+      const messages = s.activeThreadId
+        ? (s.messages[s.activeThreadId] ?? EMPTY_MESSAGES)
+        : EMPTY_MESSAGES
+      return {
+        activeThreadMessageCount: messages.length,
+        isFreshHandoffWorkspace:
+          s.activeThreadId !== null &&
+          isFreshHandoffWorkspaceThread({
+            messages,
+            threadCreatedAt: null
+          }),
+        isWorkspaceLocked:
+          s.activeThreadId !== null &&
+          !canChangeThreadWorkspace({
+            messages,
+            threadCreatedAt: null
+          })
+      }
+    })
   )
   const pendingWorkspacePath = useAppStore((s) => s.pendingWorkspacePath)
   const pendingAcpBinding = useAppStore((s) => s.pendingAcpBinding)
@@ -890,15 +908,22 @@ export function Composer({
     threads.find((thread) => thread.id === activeThreadId) ??
     externalThreads.find((thread) => thread.id === activeThreadId) ??
     null
-  const queuedFollowUpMessage = activeThread
-    ? getQueuedFollowUpMessage({ thread: activeThread, messages: activeThreadMessages })
-    : null
+  const queuedFollowUpMessageIdFromThread = activeThread?.queuedFollowUpMessageId ?? null
+  const queuedFollowUpMessage = useAppStore((s) => {
+    if (!activeThreadId || !queuedFollowUpMessageIdFromThread) return null
+    return (
+      (s.messages[activeThreadId] ?? EMPTY_MESSAGES).find(
+        (message) => message.id === queuedFollowUpMessageIdFromThread
+      ) ?? null
+    )
+  })
   const queuedFollowUpMessageId =
     queuedFollowUpMessage?.id ?? activeThread?.queuedFollowUpMessageId ?? null
   const queuedFollowUpCanRemove = activeThread
     ? canRemoveQueuedFollowUp({ threadCapabilities: getThreadCapabilities(activeThread) })
     : false
-  const activeThreadMessageCount = activeThreadMessages.length
+  const { activeThreadMessageCount, isFreshHandoffWorkspace, isWorkspaceLocked } =
+    activeThreadMessageState
   const currentWorkspacePath = activeThread?.workspacePath ?? pendingWorkspacePath
   const activeAcpBinding =
     activeThread?.runtimeBinding?.kind === 'acp' ? activeThread.runtimeBinding : null
@@ -916,18 +941,6 @@ export function Composer({
       !needsCodexSession &&
       effectiveModel.model.trim().length > 0) ||
     effectiveAcpBinding !== null
-  const isFreshHandoffWorkspace =
-    activeThreadId !== null &&
-    isFreshHandoffWorkspaceThread({
-      messages: activeThreadMessages,
-      threadCreatedAt: null
-    })
-  const isWorkspaceLocked =
-    activeThreadId !== null &&
-    !canChangeThreadWorkspace({
-      messages: activeThreadMessages,
-      threadCreatedAt: null
-    })
   const savedWorkspacePaths = useMemo(
     () => config?.workspace?.savedPaths ?? [],
     [config?.workspace]

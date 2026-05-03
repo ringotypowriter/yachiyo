@@ -99,6 +99,17 @@ body > div:not(#root) {
   min-width: 0;
 }
 
+.streamdown-content__segments {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75em;
+  min-width: 0;
+}
+
+.streamdown-content__segment {
+  min-width: 0;
+}
+
 .streamdown-content p {
   margin: 0 0 0.75em;
 }
