@@ -19,6 +19,7 @@ import {
 } from './providers/gateway.ts'
 import { getGeminiMaxOutputTokens } from './providers/google.ts'
 import { createProviderOptions, extractThinkingBudget } from './providers/providerOptions.ts'
+import { supportsOpenAIReasoningEffort } from './providers/openai.ts'
 import type { RuntimeProviderOptions } from './providers/shared.ts'
 import {
   isContextWindowExceededError,
@@ -107,8 +108,34 @@ function measurePromptPayload(messages: ModelMessage[]): number {
  * If the signature only lives in providerMetadata (as the AI SDK stores it
  * after an Anthropic response), we copy it into providerOptions because the
  * Anthropic adapter reads from providerOptions when building the prompt.
+ *
+ * For non-Anthropic providers we strip any previously-injected synthetic
+ * `yachiyo-passthrough` signatures so they don't confuse the target adapter.
  */
-function patchReasoningSignatures(messages: unknown[]): unknown[] {
+export function patchReasoningSignatures(
+  messages: unknown[],
+  providerKind?: string,
+  model?: string
+): unknown[] {
+  if (providerKind === 'anthropic') {
+    return patchAnthropicReasoningSignatures(messages)
+  }
+
+  const usesResponsesApi =
+    providerKind === 'openai-responses' ||
+    providerKind === 'openai-codex' ||
+    (providerKind === 'openai' && model != null && supportsOpenAIReasoningEffort(model))
+
+  if (usesResponsesApi) {
+    return sanitizeForOpenaiResponses(messages)
+  }
+
+  // For all other providers (openai chat-completions, google, etc.), strip
+  // synthetic signatures and let the SDK converter handle reasoning as it sees fit.
+  return stripSyntheticAnthropicSignatures(messages)
+}
+
+function patchAnthropicReasoningSignatures(messages: unknown[]): unknown[] {
   let patched = false
   const result = messages.map((msg) => {
     const m = msg as { role?: string; content?: unknown[] }
@@ -118,9 +145,8 @@ function patchReasoningSignatures(messages: unknown[]): unknown[] {
     const content = m.content.map((part) => {
       const p = part as {
         type?: string
-        text?: string
-        providerMetadata?: Record<string, unknown>
         providerOptions?: Record<string, unknown>
+        providerMetadata?: Record<string, unknown>
       }
       if (p.type !== 'reasoning') return part
 
@@ -143,20 +169,21 @@ function patchReasoningSignatures(messages: unknown[]): unknown[] {
         }
       }
 
-      // Skip injection for any non-Anthropic provider metadata.
-      const nonAnthropicEntries = [
-        ...Object.entries(p.providerOptions ?? {}).filter(([key]) => key !== 'anthropic'),
-        ...Object.entries(p.providerMetadata ?? {}).filter(([key]) => key !== 'anthropic')
-      ]
-      const hasNonAnthropicMeta = nonAnthropicEntries.some(
+      // Provider-native reasoning from other adapters cannot be replayed as
+      // Anthropic thinking, so leave it unpatched and let the adapter skip it.
+      const hasOtherProviderMetadata = [
+        ...Object.entries(p.providerOptions ?? {}).filter(([provider]) => provider !== 'anthropic'),
+        ...Object.entries(p.providerMetadata ?? {}).filter(([provider]) => provider !== 'anthropic')
+      ].some(
         ([, value]) => value != null && typeof value === 'object' && Object.keys(value).length > 0
       )
-      if (hasNonAnthropicMeta) return part
 
-      // Bare reasoning block — inject synthetic signature for Anthropic compatibility.
-      // The adapter reads `providerOptions`, not `providerMetadata`.
+      if (hasOtherProviderMetadata) return part
+
+      // Bare reasoning block — inject synthetic signature into both fields
+      // for Anthropic compatibility.
       contentPatched = true
-      const syntheticAnthropicMeta = {
+      const syntheticMeta = {
         ...(anthropicOptions as Record<string, unknown> | undefined),
         ...(anthropicMetadata as Record<string, unknown> | undefined),
         signature: 'yachiyo-passthrough'
@@ -165,13 +192,132 @@ function patchReasoningSignatures(messages: unknown[]): unknown[] {
         ...p,
         providerOptions: {
           ...p.providerOptions,
-          anthropic: syntheticAnthropicMeta
+          anthropic: syntheticMeta
         },
         providerMetadata: {
           ...p.providerMetadata,
-          anthropic: syntheticAnthropicMeta
+          anthropic: syntheticMeta
         }
       }
+    })
+
+    if (!contentPatched) return msg
+    patched = true
+    return { ...m, content }
+  })
+
+  return patched ? result : messages
+}
+
+function sanitizeForOpenaiResponses(messages: unknown[]): unknown[] {
+  let patched = false
+  const result = messages.map((msg) => {
+    const m = msg as { role?: string; content?: unknown[] }
+    if (m.role !== 'assistant' || !Array.isArray(m.content)) return msg
+
+    let contentPatched = false
+    const content: unknown[] = []
+    for (const part of m.content) {
+      const p = part as {
+        type?: string
+        providerOptions?: Record<string, unknown>
+        providerMetadata?: Record<string, unknown>
+      }
+      if (p.type !== 'reasoning') {
+        content.push(part)
+        continue
+      }
+
+      const openaiOptions = p.providerOptions?.openai as Record<string, unknown> | undefined
+      const openaiMetadata = p.providerMetadata?.openai as Record<string, unknown> | undefined
+
+      // The AI SDK stores OpenAI Responses reasoning metadata in providerMetadata,
+      // but the OpenAI converter reads from providerOptions. Check both.
+      const hasOpenAiRoundTripData =
+        openaiOptions?.itemId != null ||
+        openaiOptions?.reasoningEncryptedContent != null ||
+        openaiMetadata?.itemId != null ||
+        openaiMetadata?.reasoningEncryptedContent != null
+
+      // Keep only OpenAI-native reasoning that can be round-tripped.
+      // Drop everything else to avoid "Non-OpenAI reasoning" warnings.
+      if (hasOpenAiRoundTripData) {
+        if (openaiMetadata != null) {
+          contentPatched = true
+          content.push({
+            ...p,
+            providerOptions: {
+              ...p.providerOptions,
+              openai: { ...openaiMetadata, ...openaiOptions }
+            }
+          })
+          continue
+        }
+
+        content.push(part)
+        continue
+      }
+
+      contentPatched = true
+    }
+
+    if (!contentPatched) return msg
+    patched = true
+    return { ...m, content }
+  })
+
+  return patched ? result : messages
+}
+
+function stripSyntheticAnthropicSignatures(messages: unknown[]): unknown[] {
+  let patched = false
+  const result = messages.map((msg) => {
+    const m = msg as { role?: string; content?: unknown[] }
+    if (m.role !== 'assistant' || !Array.isArray(m.content)) return msg
+
+    let contentPatched = false
+    const content = m.content.map((part) => {
+      const p = part as {
+        type?: string
+        providerOptions?: Record<string, unknown>
+        providerMetadata?: Record<string, unknown>
+      }
+      if (p.type !== 'reasoning') return part
+
+      const anthropicOptions = p.providerOptions?.anthropic as Record<string, unknown> | undefined
+      const anthropicMetadata = p.providerMetadata?.anthropic as Record<string, unknown> | undefined
+
+      const isSyntheticOptions = anthropicOptions?.signature === 'yachiyo-passthrough'
+      const isSyntheticMetadata = anthropicMetadata?.signature === 'yachiyo-passthrough'
+
+      if (!isSyntheticOptions && !isSyntheticMetadata) return part
+
+      contentPatched = true
+      const newPart: Record<string, unknown> = { ...p }
+
+      if (isSyntheticOptions) {
+        const remaining = Object.fromEntries(
+          Object.entries(p.providerOptions!).filter(([k]) => k !== 'anthropic')
+        )
+        if (Object.keys(remaining).length > 0) {
+          newPart.providerOptions = remaining
+        } else {
+          delete newPart.providerOptions
+        }
+      }
+
+      if (isSyntheticMetadata) {
+        const remaining = Object.fromEntries(
+          Object.entries(p.providerMetadata!).filter(([k]) => k !== 'anthropic')
+        )
+        if (Object.keys(remaining).length > 0) {
+          newPart.providerMetadata = remaining
+        } else {
+          delete newPart.providerMetadata
+        }
+      }
+
+      return newPart
     })
 
     if (!contentPatched) return msg
@@ -290,8 +436,12 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
         thinkingEnabled: reasoningEffort !== 'off'
       }
 
+      const provider = settings.provider
+
       let preparedMessages = patchReasoningSignatures(
-        prepareAiSdkMessages(request.messages) as unknown[]
+        prepareAiSdkMessages(request.messages) as unknown[],
+        provider,
+        settings.model
       ) as ModelMessage[]
 
       const baseProviderOptions = createProviderOptions(
@@ -320,7 +470,6 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
       }
 
       const purpose = request.purpose ?? 'unspecified'
-      const provider = request.settings.provider
       const model = request.settings.model
       const llmTag = `[yachiyo][llm][${purpose}]`
       const startedAt = Date.now()
@@ -696,7 +845,9 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                 const enrichedResponseMessages =
                   Array.isArray(responseMessages) && responseMessages.length > 0
                     ? patchReasoningSignatures(
-                        injectStepReasoning(responseMessages, perStepReasoning) as unknown[]
+                        injectStepReasoning(responseMessages, perStepReasoning) as unknown[],
+                        provider,
+                        model
                       )
                     : undefined
                 request.onFinish({

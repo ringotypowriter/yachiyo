@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { createAiSdkModelRuntime, fetchModels, injectStepReasoning } from './modelRuntime.ts'
+import {
+  createAiSdkModelRuntime,
+  fetchModels,
+  injectStepReasoning,
+  patchReasoningSignatures
+} from './modelRuntime.ts'
 
 function encodeBase64Url(input: unknown): string {
   return Buffer.from(JSON.stringify(input)).toString('base64url')
@@ -3024,4 +3029,210 @@ test('streamReply does not double-inject reasoning_content when it already exist
   }>
   assert.ok(responseMessages)
   assert.equal(responseMessages[0].reasoning_content, 'Already captured')
+})
+
+// ---------------------------------------------------------------------------
+// patchReasoningSignatures
+// ---------------------------------------------------------------------------
+
+test('patchReasoningSignatures strips synthetic anthropic signatures for openai provider', () => {
+  const messages = [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'reasoning',
+          text: 'Thinking...',
+          providerOptions: { anthropic: { signature: 'yachiyo-passthrough' } }
+        }
+      ]
+    }
+  ]
+
+  const result = patchReasoningSignatures(messages, 'openai')
+
+  assert.deepEqual(result, [
+    {
+      role: 'assistant',
+      content: [{ type: 'reasoning', text: 'Thinking...' }]
+    }
+  ])
+})
+
+test('patchReasoningSignatures drops non-openai reasoning parts for openai-responses provider', () => {
+  const messages = [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'reasoning',
+          text: 'Thinking...',
+          providerMetadata: { anthropic: { signature: 'yachiyo-passthrough' } }
+        }
+      ]
+    }
+  ]
+
+  const result = patchReasoningSignatures(messages, 'openai-responses')
+
+  assert.deepEqual(result, [
+    {
+      role: 'assistant',
+      content: []
+    }
+  ])
+})
+
+test('patchReasoningSignatures preserves real anthropic signatures for non-anthropic providers', () => {
+  const messages = [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'reasoning',
+          text: 'Thinking...',
+          providerOptions: { anthropic: { signature: 'real-signature' } }
+        }
+      ]
+    }
+  ]
+
+  const result = patchReasoningSignatures(messages, 'openai')
+
+  assert.deepEqual(result, messages)
+})
+
+test('patchReasoningSignatures injects synthetic signature for anthropic provider', () => {
+  const messages = [
+    {
+      role: 'assistant',
+      content: [{ type: 'reasoning', text: 'Thinking...' }]
+    }
+  ]
+
+  const result = patchReasoningSignatures(messages, 'anthropic')
+
+  assert.deepEqual(result, [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'reasoning',
+          text: 'Thinking...',
+          providerOptions: { anthropic: { signature: 'yachiyo-passthrough' } },
+          providerMetadata: { anthropic: { signature: 'yachiyo-passthrough' } }
+        }
+      ]
+    }
+  ])
+})
+
+test('patchReasoningSignatures does not synthesize anthropic signature for OpenAI reasoning metadata', () => {
+  const messages = [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'reasoning',
+          text: 'OpenAI reasoning',
+          providerOptions: {
+            openai: { itemId: 'rs_123', reasoningEncryptedContent: 'enc' }
+          }
+        }
+      ]
+    }
+  ]
+
+  const result = patchReasoningSignatures(messages, 'anthropic')
+
+  assert.deepEqual(result, messages)
+})
+
+test('patchReasoningSignatures preserves openai metadata for non-anthropic providers', () => {
+  const messages = [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'reasoning',
+          text: 'Thinking...',
+          providerOptions: {
+            openai: { itemId: 'rs_123', reasoningEncryptedContent: 'enc' }
+          }
+        }
+      ]
+    }
+  ]
+
+  const result = patchReasoningSignatures(messages, 'openai-responses')
+
+  assert.deepEqual(result, messages)
+})
+
+test('patchReasoningSignatures copies OpenAI metadata to providerOptions for openai-responses provider', () => {
+  const messages = [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'reasoning',
+          text: 'OpenAI reasoning',
+          providerMetadata: {
+            openai: { itemId: 'rs_123', reasoningEncryptedContent: 'enc' }
+          }
+        }
+      ]
+    }
+  ]
+
+  const result = patchReasoningSignatures(messages, 'openai-responses')
+
+  assert.deepEqual(result, [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'reasoning',
+          text: 'OpenAI reasoning',
+          providerOptions: {
+            openai: { itemId: 'rs_123', reasoningEncryptedContent: 'enc' }
+          },
+          providerMetadata: {
+            openai: { itemId: 'rs_123', reasoningEncryptedContent: 'enc' }
+          }
+        }
+      ]
+    }
+  ])
+})
+
+test('patchReasoningSignatures copies anthropic metadata to providerOptions for anthropic provider', () => {
+  const messages = [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'reasoning',
+          text: 'Thinking...',
+          providerMetadata: { anthropic: { signature: 'real-sig' } }
+        }
+      ]
+    }
+  ]
+
+  const result = patchReasoningSignatures(messages, 'anthropic')
+
+  assert.deepEqual(result, [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'reasoning',
+          text: 'Thinking...',
+          providerOptions: { anthropic: { signature: 'real-sig' } },
+          providerMetadata: { anthropic: { signature: 'real-sig' } }
+        }
+      ]
+    }
+  ])
 })
