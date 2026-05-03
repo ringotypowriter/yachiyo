@@ -148,7 +148,7 @@ export function createOpenAiProviderOptions(
   return {
     openai: {
       ...(reasoningEffort ? { reasoningEffort } : {}),
-      ...(enableReasoningPreview ? { reasoningSummary: 'auto' as const } : {}),
+      ...(enableReasoningPreview ? { reasoningSummary: 'detailed' as const } : {}),
       ...(isGpt5 ? { textVerbosity: 'low' as const } : {}),
       ...(mode === 'default' && useResponsesApi
         ? { include: ['reasoning.encrypted_content' as const] }

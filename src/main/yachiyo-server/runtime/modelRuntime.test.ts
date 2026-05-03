@@ -195,7 +195,7 @@ test('createAiSdkModelRuntime uses responses() with reasoning for openai-respons
   assert.deepEqual(streamCall.providerOptions, {
     openai: {
       reasoningEffort: 'medium',
-      reasoningSummary: 'auto',
+      reasoningSummary: 'detailed',
       textVerbosity: 'low',
       include: ['reasoning.encrypted_content'],
       store: false
@@ -319,7 +319,7 @@ test('createAiSdkModelRuntime resolves Codex OAuth auth and sends system text as
     assert.deepEqual(call?.providerOptions, {
       openai: {
         reasoningEffort: 'medium',
-        reasoningSummary: 'auto',
+        reasoningSummary: 'detailed',
         textVerbosity: 'low',
         include: ['reasoning.encrypted_content'],
         store: false,
@@ -394,7 +394,7 @@ test('createAiSdkModelRuntime preserves legacy openai reasoning models', async (
   assert.deepEqual(providerOptions, {
     openai: {
       reasoningEffort: 'medium',
-      reasoningSummary: 'auto',
+      reasoningSummary: 'detailed',
       textVerbosity: 'low',
       include: ['reasoning.encrypted_content'],
       store: false

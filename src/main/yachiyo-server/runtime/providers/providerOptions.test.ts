@@ -22,7 +22,7 @@ test('createProviderOptions uses the requested OpenAI reasoning effort', () => {
   assert.deepEqual(options, {
     openai: {
       reasoningEffort: 'high',
-      reasoningSummary: 'auto',
+      reasoningSummary: 'detailed',
       textVerbosity: 'low',
       include: ['reasoning.encrypted_content'],
       store: false
@@ -63,7 +63,7 @@ test('createProviderOptions allows xhigh for newer OpenAI GPT models', () => {
     assert.deepEqual(options, {
       openai: {
         reasoningEffort: 'xhigh',
-        reasoningSummary: 'auto',
+        reasoningSummary: 'detailed',
         textVerbosity: 'low',
         include: ['reasoning.encrypted_content'],
         store: false
