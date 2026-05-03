@@ -24,6 +24,7 @@ test('createProviderOptions uses the requested OpenAI reasoning effort', () => {
       reasoningEffort: 'high',
       reasoningSummary: 'auto',
       textVerbosity: 'low',
+      include: ['reasoning.encrypted_content'],
       store: false
     }
   })
@@ -35,6 +36,7 @@ test('createProviderOptions omits provider thinking params when reasoning is off
   assert.deepEqual(options, {
     openai: {
       textVerbosity: 'low',
+      include: ['reasoning.encrypted_content'],
       store: false
     }
   })
@@ -63,6 +65,7 @@ test('createProviderOptions allows xhigh for newer OpenAI GPT models', () => {
         reasoningEffort: 'xhigh',
         reasoningSummary: 'auto',
         textVerbosity: 'low',
+        include: ['reasoning.encrypted_content'],
         store: false
       }
     })

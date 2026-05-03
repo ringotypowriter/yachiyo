@@ -66,6 +66,7 @@ export type OpenAiResponsesRuntimeProviderOptions = {
     promptCacheKey?: string
     textVerbosity?: 'low' | 'medium' | 'high'
     instructions?: string
+    include?: Array<'reasoning.encrypted_content'>
   }
 }
 

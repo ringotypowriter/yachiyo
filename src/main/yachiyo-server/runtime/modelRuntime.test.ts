@@ -192,6 +192,7 @@ test('createAiSdkModelRuntime uses responses() with reasoning for openai-respons
       reasoningEffort: 'medium',
       reasoningSummary: 'auto',
       textVerbosity: 'low',
+      include: ['reasoning.encrypted_content'],
       store: false
     }
   })
@@ -315,6 +316,7 @@ test('createAiSdkModelRuntime resolves Codex OAuth auth and sends system text as
         reasoningEffort: 'medium',
         reasoningSummary: 'auto',
         textVerbosity: 'low',
+        include: ['reasoning.encrypted_content'],
         store: false,
         instructions: 'Use Codex session auth.'
       }
@@ -389,6 +391,7 @@ test('createAiSdkModelRuntime preserves legacy openai reasoning models', async (
       reasoningEffort: 'medium',
       reasoningSummary: 'auto',
       textVerbosity: 'low',
+      include: ['reasoning.encrypted_content'],
       store: false
     }
   })
@@ -896,7 +899,8 @@ test('createAiSdkModelRuntime omits OpenAI reasoningEffort for non-reasoning mod
   assert.deepEqual(chunks, ['ok'])
   assert.deepEqual(providerOptions, {
     openai: {
-      store: false
+      store: false,
+      include: ['reasoning.encrypted_content']
     }
   })
 })
@@ -957,7 +961,8 @@ test('createAiSdkModelRuntime disables OpenAI reasoning when provider thinking i
   assert.deepEqual(providerOptions, {
     openai: {
       textVerbosity: 'low',
-      store: false
+      store: false,
+      include: ['reasoning.encrypted_content']
     }
   })
 })

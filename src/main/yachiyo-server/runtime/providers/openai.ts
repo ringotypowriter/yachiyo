@@ -143,12 +143,16 @@ export function createOpenAiProviderOptions(
     ? toOpenAIReasoningEffort(settings.model, settings.reasoningEffort)
     : undefined
   const isGpt5 = settings.model.trim().toLowerCase().startsWith('gpt-5')
+  const useResponsesApi = shouldUseOpenAIResponsesApi(settings)
 
   return {
     openai: {
       ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(enableReasoningPreview ? { reasoningSummary: 'auto' as const } : {}),
       ...(isGpt5 ? { textVerbosity: 'low' as const } : {}),
+      ...(mode === 'default' && useResponsesApi
+        ? { include: ['reasoning.encrypted_content' as const] }
+        : {}),
       store: false
     }
   }
