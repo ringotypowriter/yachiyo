@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { stepCountIs } from 'ai'
 
 import { applyStripCompact } from './contextStripCompact.ts'
@@ -37,6 +39,131 @@ const RETRY_MAX_DELAY_MS = 30_000
 
 function readTextDelta(part: { delta?: string; text?: string; textDelta?: string }): string | null {
   return part.delta ?? part.textDelta ?? part.text ?? null
+}
+
+type AiSdkStreamUsage = {
+  inputTokens?: number
+  outputTokens?: number
+  inputTokenDetails?: {
+    cacheReadTokens?: number
+    cacheWriteTokens?: number
+  }
+}
+
+interface PendingStepFinish {
+  finishReason?: string
+  stepNumber: number
+  usage?: AiSdkStreamUsage
+}
+
+interface StepRequestPrefixState {
+  initialBody?: string
+  previousBody?: string
+}
+
+function formatTokenCount(value: number | undefined): string {
+  return value == null ? '-' : String(value)
+}
+
+function formatDiagnosticValue(value: string | number | undefined): string {
+  return value == null ? '-' : String(value)
+}
+
+function hashText(value: string): string {
+  return createHash('sha256').update(value).digest('hex').slice(0, 12)
+}
+
+function readRequestBodyText(request: { body?: unknown } | undefined): string | undefined {
+  const body = request?.body
+  if (typeof body === 'string') {
+    return body
+  }
+  if (body instanceof Uint8Array) {
+    return new TextDecoder().decode(body)
+  }
+  if (body && typeof body === 'object') {
+    try {
+      return JSON.stringify(body)
+    } catch {
+      return undefined
+    }
+  }
+  return undefined
+}
+
+function countCommonPrefixChars(left: string, right: string): number {
+  const limit = Math.min(left.length, right.length)
+  let index = 0
+  while (index < limit && left.charCodeAt(index) === right.charCodeAt(index)) {
+    index++
+  }
+  return index
+}
+
+function readRequestBodyStats(body: string): {
+  inputItems?: number
+  inputHash?: string
+  instructionsHash?: string
+  promptCacheKey?: string
+} {
+  try {
+    const parsed = JSON.parse(body) as {
+      input?: unknown
+      instructions?: unknown
+      prompt_cache_key?: unknown
+    }
+    const input = parsed.input
+    const inputJson = input === undefined ? undefined : JSON.stringify(input)
+    return {
+      ...(Array.isArray(input) ? { inputItems: input.length } : {}),
+      ...(inputJson ? { inputHash: hashText(inputJson) } : {}),
+      ...(typeof parsed.instructions === 'string'
+        ? { instructionsHash: hashText(parsed.instructions) }
+        : {}),
+      ...(typeof parsed.prompt_cache_key === 'string'
+        ? { promptCacheKey: parsed.prompt_cache_key }
+        : {})
+    }
+  } catch {
+    return {}
+  }
+}
+
+function logStepRequestPrefix(
+  llmTag: string,
+  input: { body: string; state: StepRequestPrefixState; stepNumber: number }
+): void {
+  const stats = readRequestBodyStats(input.body)
+  const commonPrefixInitialChars =
+    input.state.initialBody === undefined
+      ? undefined
+      : countCommonPrefixChars(input.state.initialBody, input.body)
+  const commonPrefixPreviousChars =
+    input.state.previousBody === undefined
+      ? undefined
+      : countCommonPrefixChars(input.state.previousBody, input.body)
+
+  console.info(
+    `${llmTag} request step ${input.stepNumber} bodyChars=${input.body.length} bodyHash=${hashText(input.body)} commonPrefixInitialChars=${formatDiagnosticValue(commonPrefixInitialChars)} commonPrefixPreviousChars=${formatDiagnosticValue(commonPrefixPreviousChars)} inputItems=${formatDiagnosticValue(stats.inputItems)} inputHash=${formatDiagnosticValue(stats.inputHash)} instructionsHash=${formatDiagnosticValue(stats.instructionsHash)} promptCacheKey=${formatDiagnosticValue(stats.promptCacheKey)}`
+  )
+
+  input.state.initialBody ??= input.body
+  input.state.previousBody = input.body
+}
+
+function logStepFinish(llmTag: string, step: PendingStepFinish, continued: boolean): void {
+  console.info(
+    `${llmTag} step ${step.stepNumber} finishReason=${step.finishReason ?? 'unknown'} continued=${continued} promptTokens=${formatTokenCount(step.usage?.inputTokens)} completionTokens=${formatTokenCount(step.usage?.outputTokens)} cacheRead=${formatTokenCount(step.usage?.inputTokenDetails?.cacheReadTokens)} cacheWrite=${formatTokenCount(step.usage?.inputTokenDetails?.cacheWriteTokens)}`
+  )
+}
+
+function logStreamFinish(
+  llmTag: string,
+  input: { finishReason?: string; steps: number; totalUsage?: AiSdkStreamUsage }
+): void {
+  console.info(
+    `${llmTag} finish finishReason=${input.finishReason ?? 'unknown'} steps=${input.steps} totalPromptTokens=${formatTokenCount(input.totalUsage?.inputTokens)} totalCompletionTokens=${formatTokenCount(input.totalUsage?.outputTokens)} cacheRead=${formatTokenCount(input.totalUsage?.inputTokenDetails?.cacheReadTokens)} cacheWrite=${formatTokenCount(input.totalUsage?.inputTokenDetails?.cacheWriteTokens)}`
+  )
 }
 
 function readStreamErrorMessage(value: unknown): string | null {
@@ -527,6 +654,15 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
         // Once user-visible assistant text or tool activity has started, the
         // attempt is committed and must not be retried.
         let streamCommitted = false
+        let nextStepNumber = 0
+        let pendingStepFinish: PendingStepFinish | undefined
+        const requestPrefixState: StepRequestPrefixState = {}
+
+        const flushPendingStepFinish = (continued: boolean): void => {
+          if (!pendingStepFinish) return
+          logStepFinish(llmTag, pendingStepFinish, continued)
+          pendingStepFinish = undefined
+        }
 
         try {
           const result = resolvedDependencies.streamTextImpl({
@@ -580,18 +716,37 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               output?: unknown
               error?: unknown
               preliminary?: boolean
+              request?: { body?: unknown }
               stepNumber?: number
               text?: string
               toolCallId?: string
               toolName?: string
               type: string
-              usage?: { inputTokens?: number; outputTokens?: number }
-              totalUsage?: { inputTokens?: number; outputTokens?: number }
+              usage?: AiSdkStreamUsage
+              totalUsage?: AiSdkStreamUsage
             }>) {
-              if (part.type === 'finish-step' || part.type === 'finish') {
-                console.log(
-                  `[yachiyo][stream] ${part.type}: finishReason=${part.finishReason ?? 'unknown'}, step=${part.stepNumber ?? '?'}, isContinued=${part.isContinued ?? false}`
-                )
+              if (pendingStepFinish && part.type !== 'finish') {
+                flushPendingStepFinish(true)
+              }
+
+              if (part.type === 'start-step') {
+                const requestBody = readRequestBodyText(part.request)
+                if (request.promptCacheKey && requestBody !== undefined) {
+                  logStepRequestPrefix(llmTag, {
+                    body: requestBody,
+                    state: requestPrefixState,
+                    stepNumber: nextStepNumber
+                  })
+                }
+              }
+
+              if (part.type === 'finish-step') {
+                pendingStepFinish = {
+                  finishReason: part.finishReason,
+                  stepNumber: nextStepNumber,
+                  usage: part.usage
+                }
+                nextStepNumber++
                 if (request.onStepUsage && part.usage) {
                   const prompt = part.usage.inputTokens ?? 0
                   const completion = part.usage.outputTokens ?? 0
@@ -599,9 +754,16 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                     request.onStepUsage({ promptTokens: prompt, completionTokens: completion })
                   }
                 }
-                if (part.type === 'finish-step') {
-                  stepReasoningChunks.push([])
-                }
+                stepReasoningChunks.push([])
+              }
+
+              if (part.type === 'finish') {
+                flushPendingStepFinish(false)
+                logStreamFinish(llmTag, {
+                  finishReason: part.finishReason,
+                  steps: nextStepNumber,
+                  totalUsage: part.totalUsage
+                })
               }
 
               if (part.type === 'error') {
@@ -795,23 +957,16 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                 }
               }
             }
+            flushPendingStepFinish(false)
 
             if (request.onFinish && 'usage' in result && 'totalUsage' in result) {
-              type AiSdkUsage = {
-                inputTokens?: number
-                outputTokens?: number
-                inputTokenDetails?: {
-                  cacheReadTokens?: number
-                  cacheWriteTokens?: number
-                }
-              }
               const responsePromise =
                 'response' in result
                   ? (result.response as PromiseLike<{ messages?: unknown[] }>)
                   : undefined
               const [usage, total, response] = await Promise.all([
-                result.usage as PromiseLike<AiSdkUsage>,
-                result.totalUsage as PromiseLike<AiSdkUsage>,
+                result.usage as PromiseLike<AiSdkStreamUsage>,
+                result.totalUsage as PromiseLike<AiSdkStreamUsage>,
                 responsePromise
               ])
               // Resolve finishReason separately so it can't block the critical path.
@@ -829,7 +984,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                 total.inputTokenDetails?.cacheWriteTokens ??
                 usage.inputTokenDetails?.cacheWriteTokens
               console.info(
-                `${llmTag} usage provider=${provider} model=${model} promptTokens=${usage.inputTokens ?? '?'} completionTokens=${usage.outputTokens ?? '?'} totalPrompt=${total.inputTokens ?? '?'} totalCompletion=${total.outputTokens ?? '?'} cacheRead=${cacheRead ?? '-'} cacheWrite=${cacheWrite ?? '-'} finishReason=${finishReason ?? 'unknown'}`
+                `${llmTag} usage provider=${provider} model=${model} finalPromptTokens=${usage.inputTokens ?? '?'} finalCompletionTokens=${usage.outputTokens ?? '?'} totalPromptTokens=${total.inputTokens ?? '?'} totalCompletionTokens=${total.outputTokens ?? '?'} cacheRead=${cacheRead ?? '-'} cacheWrite=${cacheWrite ?? '-'} finishReason=${finishReason ?? 'unknown'}`
               )
               if (cacheRead === 0 || cacheRead == null) {
                 console.debug(

@@ -19,6 +19,23 @@ function createJwt(exp: number): string {
   return `${encodeBase64Url({ alg: 'none' })}.${encodeBase64Url({ exp })}.signature`
 }
 
+async function withCapturedConsoleInfo<T>(
+  fn: () => Promise<T>
+): Promise<{ result: T; logs: string[] }> {
+  const originalInfo = console.info
+  const logs: string[] = []
+  console.info = (...args: unknown[]) => {
+    logs.push(args.map((arg) => String(arg)).join(' '))
+  }
+
+  try {
+    const result = await fn()
+    return { result, logs }
+  } finally {
+    console.info = originalInfo
+  }
+}
+
 test('createAiSdkModelRuntime uses chat() for openai (Chat Completions) provider', async () => {
   let openAiOptions: { apiKey?: string; baseURL?: string } | undefined
   let selectedModel: { provider: string; modelId: string } | null = null
@@ -1292,6 +1309,228 @@ test('createAiSdkModelRuntime reports cache reads from totalUsage instead of fin
     cacheReadTokens: 600,
     finishReason: 'stop'
   })
+})
+
+test('createAiSdkModelRuntime logs derived step continuation and cache details per step', async () => {
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => ({ modelId: 'gpt-5', provider: 'openai.responses' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: (() => ({
+      fullStream: (async function* () {
+        yield { type: 'start-step' }
+        yield {
+          type: 'finish-step',
+          finishReason: 'tool-calls',
+          usage: {
+            inputTokens: 100,
+            outputTokens: 10,
+            inputTokenDetails: {
+              cacheReadTokens: 64,
+              cacheWriteTokens: 8
+            }
+          }
+        }
+        yield { type: 'start-step' }
+        yield { type: 'text-delta', delta: 'done' }
+        yield {
+          type: 'finish-step',
+          finishReason: 'stop',
+          usage: {
+            inputTokens: 120,
+            outputTokens: 20,
+            inputTokenDetails: {
+              cacheReadTokens: 80
+            }
+          }
+        }
+        yield {
+          type: 'finish',
+          finishReason: 'stop',
+          totalUsage: {
+            inputTokens: 220,
+            outputTokens: 30,
+            inputTokenDetails: {
+              cacheReadTokens: 144,
+              cacheWriteTokens: 8
+            }
+          }
+        }
+      })(),
+      usage: Promise.resolve({
+        inputTokens: 120,
+        outputTokens: 20,
+        inputTokenDetails: {
+          cacheReadTokens: 80
+        }
+      }),
+      totalUsage: Promise.resolve({
+        inputTokens: 220,
+        outputTokens: 30,
+        inputTokenDetails: {
+          cacheReadTokens: 144,
+          cacheWriteTokens: 8
+        }
+      }),
+      finishReason: Promise.resolve('stop')
+    })) as never
+  })
+
+  const { result: chunks, logs } = await withCapturedConsoleInfo(async () => {
+    const chunks: string[] = []
+    for await (const chunk of runtime.streamReply({
+      messages: [{ role: 'user', content: 'Use tools.' }],
+      settings: {
+        providerName: 'work',
+        provider: 'openai-responses',
+        model: 'gpt-5',
+        apiKey: 'sk-test',
+        baseUrl: ''
+      },
+      signal: new AbortController().signal,
+      tools: { bash: { description: 'run command' } } as never
+    })) {
+      chunks.push(chunk)
+    }
+    return chunks
+  })
+
+  assert.deepEqual(chunks, ['done'])
+  assert.ok(
+    logs.some((line) =>
+      line.includes(
+        '[yachiyo][llm][unspecified] step 0 finishReason=tool-calls continued=true promptTokens=100 completionTokens=10 cacheRead=64 cacheWrite=8'
+      )
+    ),
+    logs.join('\n')
+  )
+  assert.ok(
+    logs.some((line) =>
+      line.includes(
+        '[yachiyo][llm][unspecified] step 1 finishReason=stop continued=false promptTokens=120 completionTokens=20 cacheRead=80 cacheWrite=-'
+      )
+    ),
+    logs.join('\n')
+  )
+  assert.ok(
+    logs.some((line) =>
+      line.includes(
+        '[yachiyo][llm][unspecified] finish finishReason=stop steps=2 totalPromptTokens=220 totalCompletionTokens=30 cacheRead=144 cacheWrite=8'
+      )
+    ),
+    logs.join('\n')
+  )
+})
+
+test('createAiSdkModelRuntime logs request prefix diagnostics per step', async () => {
+  const firstBody = JSON.stringify({
+    model: 'gpt-5.5',
+    input: [{ role: 'user', content: 'stable prefix' }],
+    prompt_cache_key: 'thread-1'
+  })
+  const secondBody = JSON.stringify({
+    model: 'gpt-5.5',
+    input: [
+      { role: 'user', content: 'stable prefix' },
+      { role: 'assistant', content: [{ type: 'tool-call', toolCallId: 'tool-1' }] },
+      { role: 'tool', content: [{ type: 'tool-result', toolCallId: 'tool-1' }] }
+    ],
+    prompt_cache_key: 'thread-1'
+  })
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => ({ modelId: 'gpt-5.5', provider: 'openai.responses' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: (() => ({
+      fullStream: (async function* () {
+        yield { type: 'start-step', request: { body: firstBody } }
+        yield {
+          type: 'finish-step',
+          finishReason: 'tool-calls',
+          usage: { inputTokens: 100, outputTokens: 10 }
+        }
+        yield { type: 'start-step', request: { body: secondBody } }
+        yield {
+          type: 'finish-step',
+          finishReason: 'stop',
+          usage: {
+            inputTokens: 140,
+            outputTokens: 20,
+            inputTokenDetails: { cacheReadTokens: 80 }
+          }
+        }
+        yield {
+          type: 'finish',
+          finishReason: 'stop',
+          totalUsage: {
+            inputTokens: 240,
+            outputTokens: 30,
+            inputTokenDetails: { cacheReadTokens: 80 }
+          }
+        }
+      })(),
+      usage: Promise.resolve({
+        inputTokens: 140,
+        outputTokens: 20,
+        inputTokenDetails: { cacheReadTokens: 80 }
+      }),
+      totalUsage: Promise.resolve({
+        inputTokens: 240,
+        outputTokens: 30,
+        inputTokenDetails: { cacheReadTokens: 80 }
+      }),
+      finishReason: Promise.resolve('stop')
+    })) as never
+  })
+
+  const { logs } = await withCapturedConsoleInfo(async () => {
+    for await (const chunk of runtime.streamReply({
+      messages: [{ role: 'user', content: 'Use tools.' }],
+      settings: {
+        providerName: 'openai',
+        provider: 'openai-responses',
+        model: 'gpt-5.5',
+        apiKey: 'sk-test',
+        baseUrl: ''
+      },
+      signal: new AbortController().signal,
+      promptCacheKey: 'thread-1',
+      tools: { bash: { description: 'run command' } } as never
+    })) {
+      assert.equal(chunk, '')
+    }
+  })
+
+  assert.ok(
+    logs.some(
+      (line) =>
+        line.includes('[yachiyo][llm][unspecified] request step 0 bodyChars=') &&
+        line.includes('inputItems=1') &&
+        line.includes('promptCacheKey=thread-1') &&
+        line.includes('commonPrefixInitialChars=-') &&
+        line.includes('commonPrefixPreviousChars=-')
+    ),
+    logs.join('\n')
+  )
+  assert.ok(
+    logs.some(
+      (line) =>
+        line.includes('[yachiyo][llm][unspecified] request step 1 bodyChars=') &&
+        line.includes('inputItems=3') &&
+        line.includes('promptCacheKey=thread-1') &&
+        /commonPrefixInitialChars=\d+/u.test(line) &&
+        /commonPrefixPreviousChars=\d+/u.test(line)
+    ),
+    logs.join('\n')
+  )
 })
 
 test('createAiSdkModelRuntime disables Anthropic thinking for auxiliary generation', async () => {
