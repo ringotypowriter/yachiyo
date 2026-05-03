@@ -15,13 +15,11 @@ import type {
   RunCreatedEvent,
   SendChatInput,
   ThreadRecord,
-  ThreadStateReplacedEvent,
   ThreadUpdatedEvent,
   ToolCallUpdatedEvent,
   ToolCallRecord,
   ToolCallName
 } from '../../../../../shared/yachiyo/protocol.ts'
-import { summarizeMessageInput } from '../../../../../shared/yachiyo/messageContent.ts'
 import {
   getThreadCapabilities,
   normalizeSkillNames
@@ -31,7 +29,6 @@ import {
   type MemoryDistillationScheduler
 } from '../../../services/memory/memoryDistillationScheduler.ts'
 import type { RunRecoveryCheckpoint } from '../../../storage/storage.ts'
-import { wouldCreateParentCycle } from '../../../../../shared/yachiyo/threadTree.ts'
 import { BackgroundBashManager } from '../backgroundBashManager.ts'
 import { resolveEnabledTools } from '../configDomain.ts'
 import { executeServerRun } from './execution/executeServerRun.ts'
@@ -47,16 +44,11 @@ import {
   SHUTDOWN_RUN_ERROR,
   isAbortError
 } from '../shared.ts'
-import {
-  type BackgroundTaskRunContext,
-  type PreparedQueuedFollowUpStart,
-  type RunDomainDeps,
-  type RunState
-} from './runTypes.ts'
+import { type BackgroundTaskRunContext, type RunDomainDeps, type RunState } from './runTypes.ts'
 import { createEphemeralStorageProxy, type EphemeralStorage } from './chat/ephemeralStorage.ts'
 import { type DebouncedSendChatEntry } from './chat/sendChatDebounce.ts'
 import { persistSteerMessage, sendChatFlow, type SendChatFlowContext } from './chat/sendChatFlow.ts'
-import { resolveEffectiveThreadMessages, withParentMessageId } from './chat/threadMessages.ts'
+import { resolveEffectiveThreadMessages } from './chat/threadMessages.ts'
 import {
   startActiveRun,
   startAssistantOnlyRun,
@@ -79,6 +71,15 @@ import {
   recoverOrphanedBackgroundToolCalls,
   type BackgroundTaskLifecycleContext
 } from './background/backgroundTaskLifecycle.ts'
+import {
+  emitThreadStateReplaced,
+  prepareRecoveredQueuedFollowUps,
+  prepareRecoveredRuns,
+  scheduleRecoveredQueuedFollowUps,
+  scheduleRecoveredRuns,
+  startQueuedFollowUpIfPresent,
+  type FollowUpQueueContext
+} from './queue/followUpQueue.ts'
 import { ThreadTitleGenerationRunner } from './title/threadTitleGeneration.ts'
 
 export class YachiyoServerRunDomain {
@@ -247,6 +248,20 @@ export class YachiyoServerRunDomain {
     }
   }
 
+  private createFollowUpQueueContext(): FollowUpQueueContext {
+    return {
+      deps: this.deps,
+      activeRunByThread: this.activeRunByThread,
+      isClosing: () => this.isClosing,
+      startActiveRun: (input) => {
+        startActiveRun(this.createActiveRunStartContext(), input)
+      },
+      startRecoveredRun: (checkpoint) => {
+        startRecoveredRun(this.createActiveRunStartContext(), checkpoint)
+      }
+    }
+  }
+
   private bindTerminalToolCallsToAssistant(input: {
     threadId: string
     runId: string
@@ -305,48 +320,19 @@ export class YachiyoServerRunDomain {
   }
 
   prepareRecoveredQueuedFollowUps(): string[] {
-    return this.deps.storage
-      .bootstrap()
-      .threads.filter((thread) => thread.queuedFollowUpMessageId)
-      .map((thread) => thread.id)
+    return prepareRecoveredQueuedFollowUps(this.createFollowUpQueueContext())
   }
 
   prepareRecoveredRuns(): RunRecoveryCheckpoint[] {
-    return this.deps.storage.listRunRecoveryCheckpoints().filter((checkpoint) => {
-      if (this.activeRunByThread.has(checkpoint.threadId)) {
-        return false
-      }
-      const run = this.deps.storage.getRun(checkpoint.runId)
-      if (!run || run.status !== 'running') {
-        this.deps.storage.deleteRunRecoveryCheckpoint(checkpoint.runId)
-        return false
-      }
-      return true
-    })
+    return prepareRecoveredRuns(this.createFollowUpQueueContext())
   }
 
   scheduleRecoveredQueuedFollowUps(threadIds: string[]): void {
-    if (threadIds.length === 0) {
-      return
-    }
-
-    setTimeout(() => {
-      for (const threadId of threadIds) {
-        this.startQueuedFollowUpIfPresent(threadId)
-      }
-    }, 0)
+    scheduleRecoveredQueuedFollowUps(this.createFollowUpQueueContext(), threadIds)
   }
 
   scheduleRecoveredRuns(checkpoints: RunRecoveryCheckpoint[]): void {
-    if (checkpoints.length === 0) {
-      return
-    }
-
-    setTimeout(() => {
-      for (const checkpoint of checkpoints) {
-        startRecoveredRun(this.createActiveRunStartContext(), checkpoint)
-      }
-    }, 0)
+    scheduleRecoveredRuns(this.createFollowUpQueueContext(), checkpoints)
   }
 
   async sendChat(input: SendChatInput): Promise<ChatAccepted> {
@@ -801,7 +787,7 @@ export class YachiyoServerRunDomain {
             hidden: activeRun.pendingSteerInput.hidden
           })
 
-          this.emitThreadStateReplaced(input.thread.id)
+          emitThreadStateReplaced(this.createFollowUpQueueContext(), input.thread.id)
           activeRun.pendingSteerInput = undefined
           activeRun.pendingSteerMessageId = undefined
           activeRun.executionPhase = 'generating'
@@ -863,7 +849,7 @@ export class YachiyoServerRunDomain {
                 activeRun.pendingSteerInput.reasoningEffort
             }
             this.deps.storage.updateThread(queuedThread)
-            this.emitThreadStateReplaced(input.thread.id)
+            emitThreadStateReplaced(this.createFollowUpQueueContext(), input.thread.id)
             activeRun.pendingSteerInput = undefined
           }
           result = { kind: 'cancelled', usage: result.usage }
@@ -913,7 +899,7 @@ export class YachiyoServerRunDomain {
         this.deps.storage.updateRunRequestMessageId(input.runId, nextRequestMessageId)
         currentThread = this.deps.requireThread(input.thread.id)
         isSteerLeg = true
-        this.emitThreadStateReplaced(currentThread.id)
+        emitThreadStateReplaced(this.createFollowUpQueueContext(), currentThread.id)
       }
     } catch (error) {
       const recapRun = this.activeRuns.get(input.runId)
@@ -977,7 +963,7 @@ export class YachiyoServerRunDomain {
         result.kind !== 'restarted' &&
         result.kind !== 'steer-pending'
       ) {
-        this.startQueuedFollowUpIfPresent(input.thread.id)
+        startQueuedFollowUpIfPresent(this.createFollowUpQueueContext(), input.thread.id)
       }
     }
   }
@@ -985,171 +971,5 @@ export class YachiyoServerRunDomain {
   /** Cancel pending memory distillation for a thread (e.g. on delete/archive). */
   cancelMemoryDistillation(threadId: string): void {
     this.memoryScheduler.cancelThread(threadId)
-  }
-
-  private startQueuedFollowUpIfPresent(threadId: string): void {
-    const prepared = this.prepareQueuedFollowUpStart(threadId)
-    if (!prepared) {
-      return
-    }
-
-    this.activatePreparedQueuedFollowUp(prepared, {
-      emitThreadStateReplaced: true
-    })
-  }
-
-  private prepareQueuedFollowUpStart(threadId: string): PreparedQueuedFollowUpStart | null {
-    if (this.activeRunByThread.has(threadId)) {
-      return null
-    }
-
-    const thread = this.deps.storage.getThread(threadId)
-    if (!thread) {
-      return null
-    }
-    const queuedMessageId = thread.queuedFollowUpMessageId
-    if (!queuedMessageId) {
-      if (
-        thread.queuedFollowUpEnabledTools ||
-        thread.queuedFollowUpEnabledSkillNames ||
-        thread.queuedFollowUpReasoningEffort
-      ) {
-        const clearedThread: ThreadRecord = {
-          ...thread,
-          updatedAt: this.deps.timestamp()
-        }
-        delete clearedThread.queuedFollowUpEnabledTools
-        delete clearedThread.queuedFollowUpEnabledSkillNames
-        delete clearedThread.queuedFollowUpReasoningEffort
-        this.deps.storage.updateThread(clearedThread)
-      }
-      return null
-    }
-
-    const threadMessages = this.deps.loadThreadMessages(threadId)
-    const queuedMessage = threadMessages.find(
-      (message) => message.id === queuedMessageId && message.role === 'user'
-    )
-    if (!queuedMessage) {
-      const clearedThread: ThreadRecord = {
-        ...thread,
-        updatedAt: this.deps.timestamp()
-      }
-      delete clearedThread.queuedFollowUpEnabledTools
-      delete clearedThread.queuedFollowUpEnabledSkillNames
-      delete clearedThread.queuedFollowUpReasoningEffort
-      delete clearedThread.queuedFollowUpMessageId
-
-      this.deps.storage.updateThread(clearedThread)
-      return null
-    }
-
-    const wouldCycleQueuedFollowUpParent = wouldCreateParentCycle(
-      threadMessages,
-      queuedMessage.id,
-      thread.headMessageId
-    )
-    if (wouldCycleQueuedFollowUpParent) {
-      console.warn('[yachiyo][thread-tree] skipped cyclic queued follow-up reparent', {
-        messageId: queuedMessage.id,
-        threadHeadMessageId: thread.headMessageId,
-        threadId
-      })
-    }
-    const nextQueuedParentMessageId = wouldCycleQueuedFollowUpParent
-      ? queuedMessage.parentMessageId
-      : thread.headMessageId
-    const reparentedQueuedMessage = withParentMessageId(queuedMessage, nextQueuedParentMessageId)
-    if (reparentedQueuedMessage.parentMessageId !== queuedMessage.parentMessageId) {
-      this.deps.storage.updateMessage(reparentedQueuedMessage)
-    }
-
-    const timestamp = this.deps.timestamp()
-    const messageSummary = summarizeMessageInput(reparentedQueuedMessage)
-    const updatedThread: ThreadRecord = {
-      ...thread,
-      headMessageId: queuedMessage.id,
-      ...(messageSummary ? { preview: messageSummary.slice(0, 240) } : {}),
-      updatedAt: timestamp
-    }
-    delete updatedThread.queuedFollowUpEnabledTools
-    delete updatedThread.queuedFollowUpEnabledSkillNames
-    delete updatedThread.queuedFollowUpReasoningEffort
-    delete updatedThread.queuedFollowUpMessageId
-
-    this.deps.storage.updateThread(updatedThread)
-    const reasoningEffort = thread.queuedFollowUpReasoningEffort
-
-    const enabledTools = thread.queuedFollowUpEnabledTools
-      ? [...thread.queuedFollowUpEnabledTools]
-      : resolveEnabledTools(undefined, this.deps.readConfig().enabledTools)
-    const enabledSkillNames =
-      thread.queuedFollowUpEnabledSkillNames === undefined
-        ? undefined
-        : normalizeSkillNames(thread.queuedFollowUpEnabledSkillNames)
-    const runId = this.deps.createId()
-
-    return {
-      createdAt: timestamp,
-      enabledTools,
-      enabledSkillNames,
-      ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
-      requestMessageId: queuedMessage.id,
-      runId,
-      thread: updatedThread
-    }
-  }
-
-  private activatePreparedQueuedFollowUp(
-    prepared: PreparedQueuedFollowUpStart,
-    options: { emitThreadStateReplaced?: boolean } = {}
-  ): void {
-    if (this.isClosing || this.activeRunByThread.has(prepared.thread.id)) {
-      return
-    }
-
-    const currentThread = this.deps.requireThread(prepared.thread.id)
-    this.deps.storage.startRun({
-      runId: prepared.runId,
-      requestMessageId: prepared.requestMessageId,
-      thread: currentThread,
-      updatedThread: prepared.thread,
-      createdAt: prepared.createdAt
-    })
-
-    if (options.emitThreadStateReplaced) {
-      this.emitThreadStateReplaced(prepared.thread.id)
-    }
-
-    this.deps.emit<RunCreatedEvent>({
-      type: 'run.created',
-      threadId: prepared.thread.id,
-      runId: prepared.runId,
-      requestMessageId: prepared.requestMessageId
-    })
-
-    startActiveRun(this.createActiveRunStartContext(), {
-      enabledTools: prepared.enabledTools,
-      enabledSkillNames: prepared.enabledSkillNames,
-      reasoningEffort: prepared.reasoningEffort,
-      runId: prepared.runId,
-      thread: prepared.thread,
-      requestMessageId: prepared.requestMessageId,
-      updateHeadOnComplete: true
-    })
-  }
-
-  private emitThreadStateReplaced(threadId: string): void {
-    const thread = this.deps.requireThread(threadId)
-    const messages = this.deps.loadThreadMessages(threadId)
-    const toolCalls = this.deps.loadThreadToolCalls(threadId)
-
-    this.deps.emit<ThreadStateReplacedEvent>({
-      type: 'thread.state.replaced',
-      threadId,
-      thread,
-      messages,
-      toolCalls
-    })
   }
 }

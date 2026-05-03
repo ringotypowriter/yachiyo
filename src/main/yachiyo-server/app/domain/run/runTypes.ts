@@ -52,16 +52,6 @@ export interface RunState {
   recapUserMessage?: MessageRecord
 }
 
-export interface PreparedQueuedFollowUpStart {
-  createdAt: string
-  enabledTools: ToolCallName[]
-  enabledSkillNames?: string[]
-  reasoningEffort?: ComposerReasoningSelection
-  requestMessageId: string
-  runId: string
-  thread: ThreadRecord
-}
-
 export interface RunDomainDeps {
   storage: YachiyoStorage
   createId: CreateId
