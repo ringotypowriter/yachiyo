@@ -1,5 +1,4 @@
 import { resolve } from 'node:path'
-import type { StopCondition, ToolSet } from 'ai'
 
 import type {
   BackgroundTaskCompletedEvent,
@@ -16,18 +15,14 @@ import type {
   MessageFileAttachment,
   MessageRecord,
   MessageStartedEvent,
-  ProviderSettings,
   RunCancelledEvent,
   RunCompletedEvent,
   RetryAccepted,
   RetryInput,
   RunFailedEvent,
   RunCreatedEvent,
-  RunUsageUpdatedEvent,
   SendChatInput,
   SendChatMode,
-  SkillCatalogEntry,
-  SettingsConfig,
   SubagentProgressEvent,
   ThreadRecord,
   ThreadStateReplacedEvent,
@@ -35,293 +30,74 @@ import type {
   ToolCallUpdatedEvent,
   ToolCallRecord,
   ToolCallName
-} from '../../../../shared/yachiyo/protocol.ts'
-import { saveFileAttachmentsToWorkspace, saveImageFilesToWorkspace } from './attachmentDomain.ts'
+} from '../../../../../shared/yachiyo/protocol.ts'
+import { saveFileAttachmentsToWorkspace, saveImageFilesToWorkspace } from '../attachmentDomain.ts'
 import {
   hasMessagePayload,
   normalizeMessageImages,
   summarizeMessageInput
-} from '../../../../shared/yachiyo/messageContent.ts'
-import { getThreadCapabilities, normalizeSkillNames } from '../../../../shared/yachiyo/protocol.ts'
-import type { AuxiliaryGenerationService } from '../../runtime/auxiliaryGeneration.ts'
-import type { MemoryService } from '../../services/memory/memoryService.ts'
+} from '../../../../../shared/yachiyo/messageContent.ts'
+import {
+  getThreadCapabilities,
+  normalizeSkillNames
+} from '../../../../../shared/yachiyo/protocol.ts'
 import {
   createMemoryDistillationScheduler,
   type MemoryDistillationScheduler
-} from '../../services/memory/memoryDistillationScheduler.ts'
-import type { SearchService } from '../../services/search/searchService.ts'
-import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
-import type { BrowserWebPageSnapshotLoader } from '../../services/webRead/browserWebPageSnapshot.ts'
-import type { JotdownStore } from '../../services/jotdownStore.ts'
-import type { ModelRuntime } from '../../runtime/types.ts'
-import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../storage/storage.ts'
+} from '../../../services/memory/memoryDistillationScheduler.ts'
+import type { RunRecoveryCheckpoint } from '../../../storage/storage.ts'
 import {
   collectMessagePath,
   wouldCreateParentCycle
-} from '../../../../shared/yachiyo/threadTree.ts'
-import { BackgroundBashManager, type BackgroundBashTaskResult } from './backgroundBashManager.ts'
-import { assertSupportedImages, resolveEnabledTools } from './configDomain.ts'
-import { toEffectiveProviderSettings } from '../../settings/settingsStore.ts'
-import { isModelImageCapable } from '../../../../shared/yachiyo/providerConfig.ts'
-import type { ModelUsage } from '../../runtime/types.ts'
-import {
-  executeServerRun,
-  prepareServerRunContext,
-  type ExecuteRunInput,
-  type ExecuteRunResult
-} from './runExecution.ts'
-import { createAgentToolSet, ReadRecordCache } from '../../tools/agentTools.ts'
-import { SnapshotTracker } from '../../services/fileSnapshot/snapshotTracker.ts'
-import { runAcpChatThread } from '../../runtime/acp/acpChatRuntime.ts'
-import {
-  buildThreadTitleGenerationMessages,
-  buildTitleQuery,
-  deriveThreadTitleFallback,
-  THREAD_TITLE_MAX_TOKEN,
-  parseGeneratedTitleAndIcon
-} from './threadTitle.ts'
-import { resolveRetryRequest } from './threadDomain.ts'
-import { buildThreadHandoffPrompt } from '../../runtime/threadHandoff.ts'
-import type { SoulDocument } from '../../runtime/soul.ts'
-import type { UserDocument } from '../../runtime/user.ts'
-import { resolveYachiyoUserPath } from '../../config/paths.ts'
-import { sleep } from '../../channels/connectionRetry.ts'
+} from '../../../../../shared/yachiyo/threadTree.ts'
+import { BackgroundBashManager, type BackgroundBashTaskResult } from '../backgroundBashManager.ts'
+import { assertSupportedImages, resolveEnabledTools } from '../configDomain.ts'
+import { toEffectiveProviderSettings } from '../../../settings/settingsStore.ts'
+import { isModelImageCapable } from '../../../../../shared/yachiyo/providerConfig.ts'
+import { executeServerRun } from './execution/executeServerRun.ts'
+import type { ExecuteRunInput, ExecuteRunResult } from './execution/runExecutionTypes.ts'
+import { ReadRecordCache } from '../../../tools/agentTools.ts'
+import { SnapshotTracker } from '../../../services/fileSnapshot/snapshotTracker.ts'
+import { runAcpChatThread } from '../../../runtime/acp/acpChatRuntime.ts'
+import { buildTitleQuery, deriveThreadTitleFallback } from '../threadTitle.ts'
+import { resolveRetryRequest } from '../threadDomain.ts'
+import { sleep } from '../../../channels/connectionRetry.ts'
 import {
   DEFAULT_HARNESS_NAME,
   DEFAULT_THREAD_TITLE,
   INTERRUPTED_RUN_ERROR,
   SHUTDOWN_RUN_ERROR,
-  isAbortError,
-  createDeltaBatcher,
-  type CreateId,
-  type EmitServerEvent,
-  type Timestamp
-} from './shared.ts'
-
-interface RunState {
-  threadId: string
-  requestMessageId?: string
-  enabledSkillNames?: string[]
-  reasoningEffort?: ComposerReasoningSelection
-  channelHint?: string
-  recoveryCheckpoint?: RunRecoveryCheckpoint
-  recoveringHarnessId?: string
-  abortController: AbortController
-  pendingSteerMessageId?: string
-  pendingSteerInput?: {
-    content: string
-    images: MessageRecord['images']
-    attachments: MessageFileAttachment[]
-    messageId: string
-    timestamp: string
-    reasoningEffort?: ComposerReasoningSelection
-    hidden?: boolean
-    previousEnabledSkillNames?: string[]
-    previousReasoningEffort?: ComposerReasoningSelection
-  }
-  executionPhase: 'generating' | 'tool-running' | 'waiting-for-user'
-  updateHeadOnComplete: boolean
-  /** Resolves a pending askUser tool call with the user's answer. Set by execution. */
-  answerToolQuestion?: (toolCallId: string, answer: string) => void
-  /** When true, this run is an ephemeral recap — no messages persisted, result returned via recapResolve. */
-  recap?: boolean
-  recapResolve?: (text: string | null) => void
-  recapUserMessage?: MessageRecord
-}
-
-interface PreparedQueuedFollowUpStart {
-  createdAt: string
-  enabledTools: ToolCallName[]
-  enabledSkillNames?: string[]
-  reasoningEffort?: ComposerReasoningSelection
-  requestMessageId: string
-  runId: string
-  thread: ThreadRecord
-}
-
-interface RunDomainDeps {
-  storage: YachiyoStorage
-  createId: CreateId
-  timestamp: Timestamp
-  emit: EmitServerEvent
-  runInactivityTimeoutMs: number
-  auxiliaryGeneration: AuxiliaryGenerationService
-  createModelRuntime: () => ModelRuntime
-  ensureThreadWorkspace: (threadId: string) => Promise<string>
-  fetchImpl?: typeof globalThis.fetch
-  webExternalFetchImpl?: typeof globalThis.fetch
-  loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
-  memoryService: MemoryService
-  searchService?: SearchService
-  webSearchService?: WebSearchService
-  readSoulDocument?: () => Promise<SoulDocument | null>
-  readUserDocument?: () => Promise<UserDocument | null>
-  readConfig: () => SettingsConfig
-  readSettings: () => ProviderSettings
-  listSkills: (workspacePaths?: string[]) => Promise<SkillCatalogEntry[]>
-  requireThread: (threadId: string) => ThreadRecord
-  loadThreadMessages: (threadId: string) => MessageRecord[]
-  loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
-  jotdownStore?: JotdownStore
-  imageToTextService?: import('../../services/imageToText/imageToTextService.ts').ImageToTextService
-}
-
-interface DebouncedSendChatEntry {
-  expiresAt: number
-  promise: Promise<ChatAccepted>
-  stateSignature?: string
-}
-
-const SEND_CHAT_DEBOUNCE_WINDOW_MS = 1_500
-
-type EphemeralStorage = YachiyoStorage & { lastAssistantContent: string | null }
-
-function createEphemeralStorageProxy(real: YachiyoStorage): EphemeralStorage {
-  const state = { lastAssistantContent: null as string | null }
-  return new Proxy(real, {
-    get(target, prop, receiver) {
-      if (prop === 'lastAssistantContent') return state.lastAssistantContent
-      if (
-        prop === 'startRun' ||
-        prop === 'cancelRun' ||
-        prop === 'failRun' ||
-        prop === 'saveThreadMessage' ||
-        prop === 'updateThread' ||
-        prop === 'updateMessage' ||
-        prop === 'persistResponseMessagesRepairInBackground' ||
-        prop === 'createToolCall' ||
-        prop === 'updateToolCall' ||
-        prop === 'upsertRunRecoveryCheckpoint' ||
-        prop === 'deleteRunRecoveryCheckpoint' ||
-        prop === 'updateRunSnapshot'
-      ) {
-        return () => {}
-      }
-      if (prop === 'flushBackgroundTasks') {
-        return async () => {}
-      }
-      if (prop === 'completeRun') {
-        return (input: { assistantMessage?: MessageRecord }) => {
-          state.lastAssistantContent = input.assistantMessage?.content ?? null
-        }
-      }
-      return Reflect.get(target, prop, receiver)
-    }
-  }) as EphemeralStorage
-}
-
-function withParentMessageId(message: MessageRecord, parentMessageId?: string): MessageRecord {
-  const rest = { ...message }
-  delete rest.parentMessageId
-
-  return {
-    ...rest,
-    ...(parentMessageId ? { parentMessageId } : {})
-  }
-}
-
-function resolveEffectiveThreadMessages(
-  thread: ThreadRecord,
-  messages: MessageRecord[]
-): MessageRecord[] {
-  if (messages.length === 0) {
-    return []
-  }
-
-  const headMessageId =
-    thread.headMessageId && messages.some((message) => message.id === thread.headMessageId)
-      ? thread.headMessageId
-      : [...messages].sort((left, right) => left.createdAt.localeCompare(right.createdAt)).at(-1)
-          ?.id
-
-  if (!headMessageId) {
-    return [...messages].sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-  }
-
-  return collectMessagePath(messages, headMessageId)
-}
-
-const HANDOFF_TOOL_EXECUTION_DISABLED_MESSAGE =
-  'Tool execution is disabled during handoff creation. Continue writing the handoff from the existing conversation context without tools.'
-const HANDOFF_MAX_REFUSED_TOOL_STEPS = 2
-
-function disableHandoffToolExecution(tools: ToolSet | undefined): ToolSet | undefined {
-  if (!tools) {
-    return undefined
-  }
-
-  const disabledTools: ToolSet = {}
-  for (const [name, tool] of Object.entries(tools)) {
-    disabledTools[name] = Object.assign(Object.create(Object.getPrototypeOf(tool)), tool, {
-      execute: async () => {
-        throw new Error(HANDOFF_TOOL_EXECUTION_DISABLED_MESSAGE)
-      }
-    })
-  }
-
-  return disabledTools
-}
-
-function findLatestUserTurnContext(messages: MessageRecord[]): MessageRecord['turnContext'] {
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index]
-    if (message.role === 'user' && message.turnContext) {
-      return message.turnContext
-    }
-  }
-  return undefined
-}
-
-type UsageFields = Pick<
-  ModelUsage,
-  | 'promptTokens'
-  | 'completionTokens'
-  | 'totalPromptTokens'
-  | 'totalCompletionTokens'
-  | 'cacheReadTokens'
-  | 'cacheWriteTokens'
->
-
-/** Extract the six token-count fields for passing to cancelRun/failRun. */
-function usageFieldsFrom(usage: UsageFields | undefined): Partial<UsageFields> {
-  if (!usage) return {}
-  return {
-    promptTokens: usage.promptTokens,
-    completionTokens: usage.completionTokens,
-    totalPromptTokens: usage.totalPromptTokens,
-    totalCompletionTokens: usage.totalCompletionTokens,
-    cacheReadTokens: usage.cacheReadTokens,
-    cacheWriteTokens: usage.cacheWriteTokens
-  }
-}
-
-/** Merge accumulated prior-leg totals with the current leg's ModelUsage for terminal persistence. */
-function mergeUsageForTerminal(
-  prior: UsageFields | undefined,
-  current: ModelUsage | undefined
-): UsageFields | undefined {
-  if (!prior && !current) return undefined
-  if (!prior) return current
-  if (!current) return prior
-  return {
-    promptTokens: current.promptTokens,
-    completionTokens: (prior.completionTokens ?? 0) + current.completionTokens,
-    totalPromptTokens: (prior.totalPromptTokens ?? 0) + current.totalPromptTokens,
-    totalCompletionTokens: (prior.totalCompletionTokens ?? 0) + current.totalCompletionTokens,
-    cacheReadTokens: (prior.cacheReadTokens ?? 0) + (current.cacheReadTokens ?? 0),
-    cacheWriteTokens: (prior.cacheWriteTokens ?? 0) + (current.cacheWriteTokens ?? 0)
-  }
-}
+  isAbortError
+} from '../shared.ts'
+import {
+  type BackgroundTaskRunContext,
+  type PreparedQueuedFollowUpStart,
+  type RunDomainDeps,
+  type RunState
+} from './runTypes.ts'
+import { createEphemeralStorageProxy, type EphemeralStorage } from './chat/ephemeralStorage.ts'
+import {
+  createDebouncedSendChatKey,
+  SEND_CHAT_DEBOUNCE_WINDOW_MS,
+  type DebouncedSendChatEntry
+} from './chat/sendChatDebounce.ts'
+import { resolveEffectiveThreadMessages, withParentMessageId } from './chat/threadMessages.ts'
+import { streamCompactThreadHandoff } from './handoff/threadHandoffRun.ts'
+import { mergeUsageForTerminal, usageFieldsFrom } from './loop/runUsage.ts'
+import {
+  buildBackgroundCompletionMessage,
+  isBackgroundAutoDeliveryEligible
+} from './background/backgroundTaskDelivery.ts'
+import { ThreadTitleGenerationRunner } from './title/threadTitleGeneration.ts'
 
 export class YachiyoServerRunDomain {
   private readonly deps: RunDomainDeps
   private readonly activeRuns = new Map<string, RunState>()
   private readonly activeRunByThread = new Map<string, string>()
   private readonly activeRunTasks = new Map<string, Promise<void>>()
-  private readonly backgroundTitleTasks = new Set<Promise<void>>()
-  private readonly backgroundTitleTaskControllers = new Set<AbortController>()
   private readonly debouncedSendChats = new Map<string, DebouncedSendChatEntry>()
   private readonly backgroundBashManager = new BackgroundBashManager()
+  private readonly threadTitleRunner: ThreadTitleGenerationRunner
   /**
    * Per-task snapshot of the launching run's channel/tooling context, captured at
    * `onBackgroundBashStarted`. We use it to call `sendChat` with the same `enabledTools`,
@@ -329,16 +105,7 @@ export class YachiyoServerRunDomain {
    * when the background task finishes, so the auto-delivered "background task completed"
    * user message can drive a model run that matches the original transport contract.
    */
-  private readonly backgroundTaskRunContext = new Map<
-    string,
-    {
-      enabledTools: ToolCallName[]
-      enabledSkillNames?: string[]
-      reasoningEffort?: ComposerReasoningSelection
-      channelHint?: string
-      extraTools?: import('ai').ToolSet
-    }
-  >()
+  private readonly backgroundTaskRunContext = new Map<string, BackgroundTaskRunContext>()
   private readonly memoryScheduler: MemoryDistillationScheduler
   private readonly readRecordCaches = new Map<string, ReadRecordCache>()
   private lastRunEnabledTools: ToolCallName[] | null
@@ -347,6 +114,7 @@ export class YachiyoServerRunDomain {
   constructor(deps: RunDomainDeps) {
     this.deps = deps
     this.lastRunEnabledTools = null
+    this.threadTitleRunner = new ThreadTitleGenerationRunner(deps)
     this.memoryScheduler = createMemoryDistillationScheduler({
       memoryService: deps.memoryService,
       readConfig: deps.readConfig,
@@ -408,26 +176,20 @@ export class YachiyoServerRunDomain {
     for (const state of this.activeRuns.values()) {
       state.abortController.abort()
     }
-    for (const controller of this.backgroundTitleTaskControllers.values()) {
-      controller.abort()
-    }
+    this.threadTitleRunner.abort()
 
     await this.backgroundBashManager.close()
 
     if (this.activeRunTasks.size > 0) {
       await Promise.allSettled(this.activeRunTasks.values())
     }
-    if (this.backgroundTitleTasks.size > 0) {
-      await Promise.allSettled(this.backgroundTitleTasks)
-    }
+    await this.threadTitleRunner.close()
     await this.memoryScheduler.close()
 
     this.recoverInterruptedRuns(SHUTDOWN_RUN_ERROR)
     this.activeRuns.clear()
     this.activeRunByThread.clear()
     this.activeRunTasks.clear()
-    this.backgroundTitleTaskControllers.clear()
-    this.backgroundTitleTasks.clear()
     this.debouncedSendChats.clear()
     this.backgroundTaskRunContext.clear()
     this.readRecordCaches.clear()
@@ -607,15 +369,7 @@ export class YachiyoServerRunDomain {
 
   private async autoDeliverBackgroundCompletion(
     result: BackgroundBashTaskResult,
-    ctx:
-      | {
-          enabledTools: ToolCallName[]
-          enabledSkillNames?: string[]
-          reasoningEffort?: ComposerReasoningSelection
-          channelHint?: string
-          extraTools?: import('ai').ToolSet
-        }
-      | undefined
+    ctx: BackgroundTaskRunContext | undefined
   ): Promise<void> {
     let thread: ThreadRecord
     try {
@@ -625,17 +379,15 @@ export class YachiyoServerRunDomain {
       return
     }
 
-    if (!this.isAutoDeliveryEligible(thread)) {
+    if (
+      !isBackgroundAutoDeliveryEligible(thread, (channelUserId) =>
+        this.deps.storage.getChannelUser(channelUserId)
+      )
+    ) {
       return
     }
 
-    const content =
-      `[Background task completed]\n` +
-      `Task ID: ${result.taskId}\n` +
-      `Command: ${result.command}\n` +
-      `Exit code: ${result.exitCode}\n` +
-      `Log file: ${result.logPath}\n\n` +
-      `The background command has finished. You can read the log file for full output.`
+    const content = buildBackgroundCompletionMessage(result)
     const chatOptions = {
       threadId: thread.id,
       content,
@@ -663,25 +415,6 @@ export class YachiyoServerRunDomain {
         })
       }
     }
-  }
-
-  /**
-   * Local threads and owner DMs get auto-delivery; group/guest channels do not (they
-   * would speak unprompted in someone else's room).
-   */
-  private isAutoDeliveryEligible(thread: ThreadRecord): boolean {
-    const source = thread.source
-    if (source == null || source === 'local') return true
-    return this.isOwnerDmThread(thread)
-  }
-
-  private isOwnerDmThread(thread: ThreadRecord): boolean {
-    const source = thread.source
-    if (source == null || source === 'local') return false
-    if (thread.channelGroupId) return false
-    if (!thread.channelUserId) return false
-    const user = this.deps.storage.getChannelUser(thread.channelUserId)
-    return user?.role === 'owner'
   }
 
   prepareRecoveredQueuedFollowUps(): string[] {
@@ -748,7 +481,7 @@ export class YachiyoServerRunDomain {
     // ACP threads do not support steer; any steer is treated as follow-up instead.
     const mode: SendChatMode =
       rawMode === 'steer' && thread.runtimeBinding?.kind === 'acp' ? 'follow-up' : rawMode
-    const debounceKey = this.createDebouncedSendChatKey({
+    const debounceKey = createDebouncedSendChatKey({
       attachments: input.attachments,
       channelHint: input.channelHint,
       content,
@@ -1209,7 +942,7 @@ export class YachiyoServerRunDomain {
     })
 
     if (!input.hidden && fallbackTitle && fallbackTitle !== DEFAULT_THREAD_TITLE && input.content) {
-      this.scheduleThreadTitleGeneration({
+      this.threadTitleRunner.schedule({
         fallbackTitle,
         query: buildTitleQuery(input.content, input.images, input.attachments),
         runId: accepted.runId,
@@ -1453,44 +1186,6 @@ export class YachiyoServerRunDomain {
     return promise
   }
 
-  private createDebouncedSendChatKey(input: {
-    attachments?: SendChatInput['attachments']
-    channelHint?: string
-    content: string
-    enabledSkillNames?: string[]
-    enabledTools: ToolCallName[]
-    extraTools?: SendChatInput['extraTools']
-    images: MessageRecord['images']
-    mode: SendChatMode
-    reasoningEffort?: ComposerReasoningSelection
-    threadId: string
-  }): string | null {
-    if (input.extraTools) {
-      return null
-    }
-
-    return JSON.stringify({
-      attachments:
-        input.attachments?.map((attachment) => ({
-          dataUrl: attachment.dataUrl,
-          filename: attachment.filename,
-          mediaType: attachment.mediaType
-        })) ?? [],
-      channelHint: input.channelHint ?? null,
-      content: input.content,
-      enabledSkillNames: input.enabledSkillNames ?? [],
-      enabledTools: input.enabledTools,
-      images: (input.images ?? []).map((image) => ({
-        dataUrl: image.dataUrl,
-        filename: image.filename ?? null,
-        mediaType: image.mediaType
-      })),
-      mode: input.mode,
-      reasoningEffort: input.reasoningEffort ?? null,
-      threadId: input.threadId
-    })
-  }
-
   private createDebouncedSendChatStateSignature(threadId: string): string {
     const thread = this.deps.requireThread(threadId)
     const activeRunId = this.activeRunByThread.get(threadId) ?? null
@@ -1715,7 +1410,16 @@ export class YachiyoServerRunDomain {
     })
     this.activeRunByThread.set(input.thread.id, input.runId)
 
-    const runTask = this.streamCompactThreadHandoff(input)
+    const runTask = streamCompactThreadHandoff(
+      {
+        deps: this.deps,
+        activeRuns: this.activeRuns,
+        activeRunByThread: this.activeRunByThread,
+        activeRunTasks: this.activeRunTasks,
+        threadTitleRunner: this.threadTitleRunner
+      },
+      input
+    )
     this.activeRunTasks.set(input.runId, runTask)
     void runTask
   }
@@ -2360,619 +2064,9 @@ export class YachiyoServerRunDomain {
     }
   }
 
-  private async streamCompactThreadHandoff(input: {
-    runId: string
-    thread: ThreadRecord
-    sourceThreadId: string
-    sourceMessages: MessageRecord[]
-    reasoningEffort?: ComposerReasoningSelection
-  }): Promise<void> {
-    const config = this.deps.readConfig()
-    const settings = toEffectiveProviderSettings(config, input.thread.modelOverride)
-    const runtime = this.deps.createModelRuntime()
-    const messageId = this.deps.createId()
-    const bufferParts: string[] = []
-    const reasoningParts: string[] = []
-    let reasoningLength = 0
-    const DELTA_FLUSH_INTERVAL_MS = 20
-
-    this.deps.emit<MessageStartedEvent>({
-      type: 'message.started',
-      threadId: input.thread.id,
-      runId: input.runId,
-      messageId
-    })
-
-    const activeRun = this.activeRuns.get(input.runId)
-    if (!activeRun) {
-      return
-    }
-
-    const textDeltaBatcher = createDeltaBatcher({
-      intervalMs: DELTA_FLUSH_INTERVAL_MS,
-      onFlush: (batch) => {
-        bufferParts.push(batch)
-        this.deps.emit<MessageDeltaEvent>({
-          type: 'message.delta',
-          threadId: input.thread.id,
-          runId: input.runId,
-          messageId,
-          delta: batch
-        })
-      },
-      isAborted: () => activeRun.abortController.signal.aborted
-    })
-
-    const reasoningDeltaBatcher = createDeltaBatcher({
-      intervalMs: DELTA_FLUSH_INTERVAL_MS,
-      onFlush: (batch) => {
-        reasoningParts.push(batch)
-        reasoningLength += batch.length
-        this.deps.emit<MessageReasoningDeltaEvent>({
-          type: 'message.reasoning.delta',
-          threadId: input.thread.id,
-          runId: input.runId,
-          messageId,
-          delta: batch
-        })
-      },
-      isAborted: () => activeRun.abortController.signal.aborted
-    })
-
-    try {
-      const sourceThread = this.deps.requireThread(input.sourceThreadId)
-      const sourceTurnContext = findLatestUserTurnContext(input.sourceMessages)
-      const handoffRequestId = this.deps.createId()
-      const handoffRequestMessage: MessageRecord = {
-        id: handoffRequestId,
-        threadId: sourceThread.id,
-        role: 'user',
-        content: buildThreadHandoffPrompt(input.sourceMessages.length > 0),
-        status: 'completed',
-        createdAt: this.deps.timestamp()
-      }
-      const sourceEnabledTools =
-        sourceTurnContext?.enabledTools ?? resolveEnabledTools(undefined, config.enabledTools)
-      const preparedContext = await prepareServerRunContext(
-        {
-          storage: this.deps.storage,
-          createId: this.deps.createId,
-          timestamp: this.deps.timestamp,
-          emit: this.deps.emit,
-          createModelRuntime: this.deps.createModelRuntime,
-          ensureThreadWorkspace: this.deps.ensureThreadWorkspace,
-          fetchImpl: this.deps.fetchImpl,
-          webExternalFetchImpl: this.deps.webExternalFetchImpl,
-          loadBrowserSnapshot: this.deps.loadBrowserSnapshot,
-          memoryService: this.deps.memoryService,
-          searchService: this.deps.searchService,
-          webSearchService: this.deps.webSearchService,
-          readSoulDocument: this.deps.readSoulDocument,
-          readUserDocument: this.deps.readUserDocument,
-          readThread: this.deps.requireThread,
-          readConfig: this.deps.readConfig,
-          readSettings: () => settings,
-          loadThreadMessages: this.deps.loadThreadMessages,
-          loadThreadToolCalls: this.deps.loadThreadToolCalls,
-          listSkills: this.deps.listSkills,
-          onEnabledToolsUsed: () => undefined,
-          jotdownStore: this.deps.jotdownStore,
-          imageToTextService: this.deps.imageToTextService,
-          isModelImageCapable: isModelImageCapable(config, settings.providerName, settings.model)
-        },
-        {
-          runId: input.runId,
-          thread: sourceThread,
-          requestMessageId: handoffRequestId,
-          requestMessage: handoffRequestMessage,
-          historyMessages: [...input.sourceMessages, handoffRequestMessage],
-          enabledTools: sourceEnabledTools,
-          ...(sourceTurnContext?.enabledSkillNames !== undefined
-            ? { enabledSkillNames: sourceTurnContext.enabledSkillNames }
-            : {}),
-          abortController: activeRun.abortController,
-          persistTurnContext: false,
-          emitContextEvents: false,
-          includeMemoryRecall: false,
-          applyStripCompact: false
-        }
-      )
-      const handoffTools = disableHandoffToolExecution(
-        createAgentToolSet(
-          {
-            enabledTools: preparedContext.modelEnabledTools,
-            workspacePath: preparedContext.workspacePath,
-            sandboxed: preparedContext.isExternalChannel && !preparedContext.isOwnerDm,
-            readRecordCache: new ReadRecordCache(),
-            imageToTextService: this.deps.imageToTextService,
-            isModelImageCapable: isModelImageCapable(config, settings.providerName, settings.model)
-          },
-          {
-            availableSkills: preparedContext.availableSkills,
-            fetchImpl: this.deps.webExternalFetchImpl ?? this.deps.fetchImpl,
-            loadBrowserSnapshot: this.deps.loadBrowserSnapshot,
-            searchService: this.deps.searchService,
-            memoryService: sourceThread.privacyMode ? undefined : this.deps.memoryService,
-            webSearchService: this.deps.webSearchService,
-            updateProfileDeps: {
-              userDocumentPath: preparedContext.isGuest
-                ? resolveYachiyoUserPath(preparedContext.workspacePath)
-                : resolveYachiyoUserPath(),
-              ...(preparedContext.isExternalChannel
-                ? {
-                    userDocumentMode: preparedContext.isGuest
-                      ? ('guest' as const)
-                      : ('owner' as const)
-                  }
-                : {})
-            },
-            ...(!sourceThread.privacyMode &&
-            (!preparedContext.isExternalChannel || preparedContext.isOwnerDm) &&
-            this.deps.memoryService.isConfigured()
-              ? { rememberDeps: { memoryService: this.deps.memoryService } }
-              : {}),
-            ...(!sourceThread.privacyMode &&
-            (!preparedContext.isExternalChannel || preparedContext.isOwnerDm)
-              ? {
-                  crossThreadSearch: (searchInput: {
-                    query: string
-                    limit?: number
-                    includePrivate?: boolean
-                  }) => this.deps.storage.searchThreadsAndMessagesFts(searchInput)
-                }
-              : {}),
-            ...(!preparedContext.isExternalChannel
-              ? {
-                  askUserContext: {
-                    waitForUserAnswer: async () => {
-                      throw new Error('Tool execution is disabled during handoff creation.')
-                    }
-                  }
-                }
-              : {}),
-            ...((preparedContext.gitCtx.hasGit ||
-              preparedContext.gitValidatedWorkspaces.length > 0) &&
-            preparedContext.enabledSubagentProfiles.length > 0
-              ? {
-                  subagentProfiles: preparedContext.enabledSubagentProfiles,
-                  availableWorkspaces: preparedContext.gitValidatedWorkspaces
-                }
-              : {})
-          }
-        )
-      )
-
-      let handoffUsage: ModelUsage | undefined
-      let refusedHandoffToolExecution = false
-      let handoffToolRefusalCount = 0
-      let observedHandoffToolRefusalCount = 0
-      let handoffToolRefusalSteps = 0
-      const stopAfterRepeatedHandoffToolRefusal: StopCondition<ToolSet> = () => {
-        if (handoffToolRefusalCount === observedHandoffToolRefusalCount) {
-          return false
-        }
-
-        observedHandoffToolRefusalCount = handoffToolRefusalCount
-        handoffToolRefusalSteps += 1
-        return handoffToolRefusalSteps >= HANDOFF_MAX_REFUSED_TOOL_STEPS
-      }
-      for await (const delta of runtime.streamReply({
-        messages: preparedContext.messages,
-        settings,
-        signal: activeRun.abortController.signal,
-        purpose: 'thread-handoff',
-        promptCacheKey: input.sourceThreadId,
-        ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
-        ...(handoffTools
-          ? {
-              tools: handoffTools,
-              stopWhen: stopAfterRepeatedHandoffToolRefusal,
-              onToolCallError: () => {
-                refusedHandoffToolExecution = true
-                handoffToolRefusalCount += 1
-                return 'continue' as const
-              }
-            }
-          : {}),
-        onReasoningDelta: (reasoningDelta) => {
-          reasoningDeltaBatcher.push(reasoningDelta)
-        },
-        onFinish: (usage) => {
-          handoffUsage = usage
-        }
-      })) {
-        if (!delta) {
-          continue
-        }
-
-        textDeltaBatcher.push(delta)
-      }
-
-      textDeltaBatcher.flush()
-      reasoningDeltaBatcher.flush()
-
-      const timestamp = this.deps.timestamp()
-      const handoffResponseMessages =
-        !refusedHandoffToolExecution && handoffUsage?.responseMessages
-          ? (handoffUsage.responseMessages as Array<{ role?: string; content?: unknown[] }>)
-              .map((msg) => {
-                if (msg.role !== 'assistant' || !Array.isArray(msg.content)) return msg
-                return {
-                  ...msg,
-                  content: msg.content.filter(
-                    (part) => (part as { type?: string }).type !== 'reasoning'
-                  )
-                }
-              })
-              .filter(
-                (msg) =>
-                  msg.role !== 'assistant' || !Array.isArray(msg.content) || msg.content.length > 0
-              )
-          : undefined
-
-      const assistantMessage: MessageRecord = {
-        id: messageId,
-        threadId: input.thread.id,
-        role: 'assistant',
-        content: bufferParts.join(''),
-        ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
-        ...(handoffResponseMessages?.length ? { responseMessages: handoffResponseMessages } : {}),
-        status: 'completed',
-        createdAt: timestamp,
-        modelId: settings.model,
-        providerName: settings.providerName
-      }
-      const currentThread = this.deps.requireThread(input.thread.id)
-      const firstMeaningfulMessage =
-        currentThread.title === DEFAULT_THREAD_TITLE
-          ? input.sourceMessages.find(
-              (m) => (m.role === 'user' || m.role === 'assistant') && m.content.trim()
-            )
-          : undefined
-      const handoffFallbackTitle = firstMeaningfulMessage
-        ? deriveThreadTitleFallback({
-            content: firstMeaningfulMessage.content,
-            ...('images' in firstMeaningfulMessage && firstMeaningfulMessage.images
-              ? { images: firstMeaningfulMessage.images }
-              : {})
-          })
-        : null
-      const updatedThread: ThreadRecord = {
-        ...currentThread,
-        headMessageId: assistantMessage.id,
-        preview: assistantMessage.content.slice(0, 240),
-        ...(handoffFallbackTitle ? { title: handoffFallbackTitle } : {}),
-        updatedAt: timestamp
-      }
-
-      this.deps.storage.completeRun({
-        runId: input.runId,
-        updatedThread,
-        assistantMessage,
-        ...(handoffUsage
-          ? {
-              promptTokens: handoffUsage.completionTokens,
-              completionTokens: handoffUsage.completionTokens,
-              totalPromptTokens: handoffUsage.totalCompletionTokens,
-              totalCompletionTokens: handoffUsage.totalCompletionTokens,
-              ...(handoffUsage.cacheReadTokens != null
-                ? { cacheReadTokens: handoffUsage.cacheReadTokens }
-                : {}),
-              ...(handoffUsage.cacheWriteTokens != null
-                ? { cacheWriteTokens: handoffUsage.cacheWriteTokens }
-                : {})
-            }
-          : {})
-      })
-      this.activeRuns.delete(input.runId)
-      this.activeRunByThread.delete(input.thread.id)
-      this.activeRunTasks.delete(input.runId)
-
-      if (handoffUsage) {
-        this.deps.emit<RunUsageUpdatedEvent>({
-          type: 'run.usage.updated',
-          threadId: input.thread.id,
-          runId: input.runId,
-          promptTokens: handoffUsage.completionTokens,
-          completionTokens: handoffUsage.completionTokens
-        })
-      }
-
-      this.deps.emit<MessageCompletedEvent>({
-        type: 'message.completed',
-        threadId: input.thread.id,
-        runId: input.runId,
-        message: assistantMessage
-      })
-      this.deps.emit<ThreadUpdatedEvent>({
-        type: 'thread.updated',
-        threadId: input.thread.id,
-        thread: updatedThread
-      })
-      this.deps.emit<RunCompletedEvent>({
-        type: 'run.completed',
-        threadId: input.thread.id,
-        runId: input.runId,
-        ...(handoffUsage
-          ? {
-              promptTokens: handoffUsage.completionTokens,
-              completionTokens: handoffUsage.completionTokens,
-              totalPromptTokens: handoffUsage.totalCompletionTokens,
-              totalCompletionTokens: handoffUsage.totalCompletionTokens
-            }
-          : {})
-      })
-
-      if (handoffFallbackTitle && firstMeaningfulMessage?.content) {
-        this.scheduleThreadTitleGeneration({
-          fallbackTitle: handoffFallbackTitle,
-          query: buildTitleQuery(
-            firstMeaningfulMessage.content,
-            firstMeaningfulMessage.images,
-            firstMeaningfulMessage.attachments
-          ),
-          runId: input.runId,
-          threadId: input.thread.id
-        })
-      }
-    } catch (error) {
-      // Drain buffered deltas so cancelled/failed handoff messages include all
-      // already-received output, consistent with the main run path.
-      textDeltaBatcher.flush()
-      reasoningDeltaBatcher.flush()
-
-      const timestamp = this.deps.timestamp()
-      const message = error instanceof Error ? error.message : String(error)
-      const wasAborted = this.activeRuns.get(input.runId)?.abortController.signal.aborted ?? false
-
-      if (wasAborted) {
-        this.deps.storage.cancelRun({
-          runId: input.runId,
-          completedAt: timestamp
-        })
-      } else {
-        this.deps.storage.failRun({
-          runId: input.runId,
-          completedAt: timestamp,
-          error: message
-        })
-      }
-      this.activeRuns.delete(input.runId)
-      this.activeRunByThread.delete(input.thread.id)
-      this.activeRunTasks.delete(input.runId)
-
-      if (wasAborted) {
-        this.deps.emit<RunCancelledEvent>({
-          type: 'run.cancelled',
-          threadId: input.thread.id,
-          runId: input.runId
-        })
-      } else {
-        this.deps.emit<RunFailedEvent>({
-          type: 'run.failed',
-          threadId: input.thread.id,
-          runId: input.runId,
-          error: message
-        })
-      }
-    }
-  }
-
   /** Cancel pending memory distillation for a thread (e.g. on delete/archive). */
   cancelMemoryDistillation(threadId: string): void {
     this.memoryScheduler.cancelThread(threadId)
-  }
-
-  private scheduleThreadTitleGeneration(input: {
-    fallbackTitle: string
-    query: string
-    runId: string
-    threadId: string
-  }): void {
-    this.logThreadTitleDebug({
-      phase: 'queued',
-      runId: input.runId,
-      threadId: input.threadId,
-      message: 'Queued parallel title generation from the initial user message.'
-    })
-
-    const abortController = new AbortController()
-    this.backgroundTitleTaskControllers.add(abortController)
-    const task: Promise<void> | undefined = (async (): Promise<void> => {
-      try {
-        await this.refineThreadTitle({
-          fallbackTitle: input.fallbackTitle,
-          query: input.query,
-          runId: input.runId,
-          signal: abortController.signal,
-          threadId: input.threadId
-        })
-      } catch {
-        // Auxiliary title refinement must never break the primary thread flow.
-      } finally {
-        this.backgroundTitleTaskControllers.delete(abortController)
-        if (task) {
-          this.backgroundTitleTasks.delete(task)
-        }
-      }
-    })()
-
-    this.backgroundTitleTasks.add(task)
-    void task
-  }
-
-  private async refineThreadTitle(input: {
-    fallbackTitle: string
-    query: string
-    runId: string
-    signal: AbortSignal
-    threadId: string
-  }): Promise<void> {
-    const thread = this.deps.requireThread(input.threadId)
-    if (thread.source && thread.source !== 'local' && !this.isOwnerDmThread(thread)) {
-      this.logThreadTitleDebug({
-        phase: 'skipped',
-        runId: input.runId,
-        threadId: input.threadId,
-        message: 'Skipped title generation for channel thread.',
-        detail: `source=${thread.source}`
-      })
-      return
-    }
-    if (thread.title !== input.fallbackTitle) {
-      this.logThreadTitleDebug({
-        phase: 'skipped',
-        runId: input.runId,
-        threadId: input.threadId,
-        message: 'Skipped title generation because the thread title already changed.',
-        detail: 'title-mismatch-before-start'
-      })
-      return
-    }
-
-    if (!input.query.trim()) {
-      this.logThreadTitleDebug({
-        phase: 'skipped',
-        runId: input.runId,
-        threadId: input.threadId,
-        message: 'Skipped title generation because the initial user query was empty.',
-        detail: 'empty-query'
-      })
-      return
-    }
-
-    this.logThreadTitleDebug({
-      phase: 'started',
-      runId: input.runId,
-      threadId: input.threadId,
-      message: 'Started title generation in parallel with the main run.'
-    })
-
-    const result = await this.deps.auxiliaryGeneration.generateText({
-      messages: buildThreadTitleGenerationMessages(input.query),
-      max_token: THREAD_TITLE_MAX_TOKEN,
-      signal: input.signal,
-      purpose: 'thread-title'
-    })
-
-    if (result.status === 'unavailable') {
-      this.logThreadTitleDebug({
-        phase: 'skipped',
-        runId: input.runId,
-        threadId: input.threadId,
-        message: 'Skipped title generation because the tool model was unavailable.',
-        detail: result.reason
-      })
-      return
-    }
-
-    if (result.status === 'failed') {
-      this.logThreadTitleDebug({
-        phase: 'failed',
-        runId: input.runId,
-        threadId: input.threadId,
-        message: 'Title generation failed.',
-        detail: result.error
-      })
-      return
-    }
-
-    this.logThreadTitleDebug({
-      phase: 'raw-output',
-      runId: input.runId,
-      threadId: input.threadId,
-      message: 'Received raw title-model output.',
-      detail: formatThreadTitleDebugValue(result.text)
-    })
-
-    const { icon, title } = parseGeneratedTitleAndIcon(result.text)
-    this.logThreadTitleDebug({
-      phase: 'sanitized-output',
-      runId: input.runId,
-      threadId: input.threadId,
-      message: 'Computed sanitized title candidate.',
-      detail: formatThreadTitleDebugValue(title ? `${icon ?? ''} ${title}`.trim() : '')
-    })
-
-    if (!title) {
-      this.logThreadTitleDebug({
-        phase: 'skipped',
-        runId: input.runId,
-        threadId: input.threadId,
-        message: 'Skipped title update because the generated title was empty after sanitization.',
-        detail: 'empty-generated-title'
-      })
-      return
-    }
-
-    if (title === input.fallbackTitle) {
-      this.logThreadTitleDebug({
-        phase: 'skipped',
-        runId: input.runId,
-        threadId: input.threadId,
-        message: 'Skipped title update because the generated title matched the fallback title.',
-        detail: 'same-as-fallback'
-      })
-      return
-    }
-
-    const latestThread = this.deps.requireThread(input.threadId)
-    if (latestThread.title !== input.fallbackTitle) {
-      this.logThreadTitleDebug({
-        phase: 'skipped',
-        runId: input.runId,
-        threadId: input.threadId,
-        message:
-          'Skipped title update because the thread title changed while generation was running.',
-        detail: 'title-mismatch-after-generation'
-      })
-      return
-    }
-
-    const updatedThread: ThreadRecord = {
-      ...latestThread,
-      ...(icon !== null ? { icon } : {}),
-      title,
-      updatedAt: this.deps.timestamp()
-    }
-
-    this.deps.storage.updateThread(updatedThread)
-    this.deps.emit<ThreadUpdatedEvent>({
-      type: 'thread.updated',
-      threadId: updatedThread.id,
-      thread: updatedThread
-    })
-    this.logThreadTitleDebug({
-      phase: 'succeeded',
-      runId: input.runId,
-      threadId: input.threadId,
-      message: 'Updated the thread title and icon from the tool-model result.',
-      detail: icon ? `${icon} ${title}` : title
-    })
-  }
-
-  private logThreadTitleDebug(input: {
-    phase:
-      | 'queued'
-      | 'started'
-      | 'raw-output'
-      | 'sanitized-output'
-      | 'succeeded'
-      | 'skipped'
-      | 'failed'
-    runId: string
-    threadId: string
-    message: string
-    detail?: string
-  }): void {
-    console.log(
-      '[yachiyo][thread-title]',
-      `phase=${input.phase}`,
-      `threadId=${input.threadId}`,
-      `runId=${input.runId}`,
-      input.message,
-      ...(input.detail ? [`detail=${input.detail}`] : [])
-    )
   }
 
   private startQueuedFollowUpIfPresent(threadId: string): void {
@@ -3140,9 +2234,4 @@ export class YachiyoServerRunDomain {
       toolCalls
     })
   }
-}
-
-function formatThreadTitleDebugValue(value: string): string {
-  const serialized = JSON.stringify(value)
-  return serialized.length <= 240 ? serialized : `${serialized.slice(0, 237)}...`
 }

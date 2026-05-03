@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import type { ToolCallName } from '../../../../shared/yachiyo/protocol.ts'
-import { buildContextSources } from './runExecution.ts'
+import { buildContextSources } from './run/context/contextSources.ts'
 
 const BASE_INPUT = {
   evolvedTraitCount: 0,

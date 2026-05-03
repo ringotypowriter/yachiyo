@@ -126,7 +126,7 @@ import {
 } from '../threads/threadWorkspace.ts'
 import { testSubagentProfile as runTestSubagentProfile } from '../tools/agentTools/testSubagentProfile.ts'
 import { assertSupportedImages, YachiyoServerConfigDomain } from './domain/configDomain.ts'
-import { YachiyoServerRunDomain } from './domain/runDomain.ts'
+import { YachiyoServerRunDomain } from './domain/run/runDomain.ts'
 import { YachiyoServerThreadDomain } from './domain/threadDomain.ts'
 import { readBackgroundTaskLogTail } from './domain/backgroundTaskLog.ts'
 import {

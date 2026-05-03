@@ -5,12 +5,10 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { DEFAULT_SETTINGS_CONFIG } from '../../settings/settingsStore.ts'
-import {
-  executeServerRun,
-  mergeRunUsage,
-  prepareServerRunContext,
-  type RunExecutionDeps
-} from './runExecution.ts'
+import { prepareServerRunContext } from './run/context/prepareServerRunContext.ts'
+import { executeServerRun } from './run/execution/executeServerRun.ts'
+import { mergeRunUsage } from './run/execution/runUsage.ts'
+import type { RunExecutionDeps } from './run/execution/runExecutionTypes.ts'
 import { RetryableRunError } from '../../runtime/runtimeErrors.ts'
 import type { RunRecoveryCheckpoint } from '../../storage/storage.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'

@@ -5,7 +5,7 @@ import type {
   ComposerReasoningSelection,
   ThreadRecord
 } from '../../../../shared/yachiyo/protocol.ts'
-import { YachiyoServerRunDomain } from './runDomain.ts'
+import { YachiyoServerRunDomain } from './run/runDomain.ts'
 
 function createDomain(): YachiyoServerRunDomain {
   return new YachiyoServerRunDomain({

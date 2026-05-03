@@ -31,7 +31,7 @@ import {
   type EmitServerEvent,
   type Timestamp
 } from '../../app/domain/shared.ts'
-import type { ExecuteRunResult } from '../../app/domain/runExecution.ts'
+import type { ExecuteRunResult } from '../../app/domain/run/execution/runExecutionTypes.ts'
 import { launchAcpProcess } from './acpLauncher.ts'
 import { continueAcpSession, runAcpSession } from './acpSessionClient.ts'
 import type { AcpWarmSession } from './acpSessionClient.ts'
