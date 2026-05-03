@@ -20,6 +20,7 @@ import type {
   DelegateCodingTaskStartedEvent
 } from '../../../../tools/agentTools.ts'
 import type { PreparedServerRunContext } from '../context/prepareServerRunContext.ts'
+import type { RunToolLifecycleState } from './runToolLifecycleState.ts'
 import type { ExecuteRunInput, RunExecutionDeps } from './runExecutionTypes.ts'
 
 type ExecutionPhase = 'generating' | 'tool-running' | 'waiting-for-user'
@@ -33,7 +34,6 @@ export interface CreateRunToolSetInput {
   createToolCall: (toolCall: ToolCallRecord) => void
   deps: RunExecutionDeps
   executionInput: ExecuteRunInput
-  getStepCount: () => number
   markProgress: () => void
   maxToolSteps: number
   pendingUserAnswers: Map<string, PendingUserAnswer>
@@ -42,7 +42,7 @@ export interface CreateRunToolSetInput {
   setExecutionPhase: (phase: ExecutionPhase) => void
   snapshotTracker: SnapshotTracker
   subagentStartedAtByDelegationId: Map<string, string>
-  toolCalls: Map<string, ToolCallRecord>
+  toolLifecycle: RunToolLifecycleState
   updateToolCall: (toolCall: ToolCallRecord) => void
 }
 
@@ -164,7 +164,7 @@ function createAskUserContext(input: CreateRunToolSetInput): {
       return new Promise<string>((resolve, reject) => {
         input.pendingUserAnswers.set(toolCallId, { resolve, reject })
         input.setExecutionPhase('waiting-for-user')
-        const existingToolCall = input.toolCalls.get(toolCallId)
+        const existingToolCall = input.toolLifecycle.getToolCall(toolCallId)
         const waitingToolCall: ToolCallRecord = {
           ...(existingToolCall ?? {
             id: toolCallId,
@@ -173,7 +173,7 @@ function createAskUserContext(input: CreateRunToolSetInput): {
             requestMessageId: input.executionInput.requestMessageId,
             toolName: 'askUser',
             startedAt: input.deps.timestamp(),
-            stepIndex: input.getStepCount(),
+            stepIndex: input.toolLifecycle.getStepCount(),
             stepBudget: input.maxToolSteps
           }),
           status: 'waiting-for-user',
@@ -181,7 +181,7 @@ function createAskUserContext(input: CreateRunToolSetInput): {
           details: { kind: 'askUser' as const, question, choices }
         } as ToolCallRecord
 
-        input.toolCalls.set(toolCallId, waitingToolCall)
+        input.toolLifecycle.setToolCall(waitingToolCall)
         if (existingToolCall) {
           input.updateToolCall(waitingToolCall)
         } else {

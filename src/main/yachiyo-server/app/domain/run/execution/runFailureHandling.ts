@@ -4,8 +4,7 @@ import type {
   ProviderSettings,
   RunFailedEvent,
   RunRetryingEvent,
-  ThreadUpdatedEvent,
-  ToolCallRecord
+  ThreadUpdatedEvent
 } from '../../../../../../shared/yachiyo/protocol.ts'
 import { RETRY_MAX_ATTEMPTS } from '../../../../runtime/modelRuntime.ts'
 import { isRetryableRunError } from '../../../../runtime/runtimeErrors.ts'
@@ -20,6 +19,7 @@ import { finalizeRunSnapshot } from './runSnapshotFinalize.ts'
 import { mergeRunUsage } from './runUsage.ts'
 import type { PersistRecoveryCheckpointOptions } from './recoveryCheckpointManager.ts'
 import { persistTerminalAssistantMessage } from './terminalPersistence.ts'
+import type { RunToolLifecycleState } from './runToolLifecycleState.ts'
 import type { ExecuteRunInput, ExecuteRunResult, RunExecutionDeps } from './runExecutionTypes.ts'
 
 const FRIENDLY_ERROR_LABELS: Array<[test: RegExp | string, label: string]> = [
@@ -64,11 +64,10 @@ interface HandleRunFailureInput {
     options?: PersistRecoveryCheckpointOptions
   ) => RunRecoveryCheckpoint | undefined
   recoveryAttempts: number
-  runningToolCallIds: Set<string>
   setExecutionPhase: (phase: ExecutionPhase) => void
   settings: ProviderSettings
   snapshotTracker: SnapshotTracker | null
-  toolCalls: Map<string, ToolCallRecord>
+  toolLifecycle: RunToolLifecycleState
 }
 
 export async function handleRunFailure(input: HandleRunFailureInput): Promise<ExecuteRunResult> {
@@ -80,7 +79,7 @@ export async function handleRunFailure(input: HandleRunFailureInput): Promise<Ex
     nextRecoveryAttempt < RETRY_MAX_ATTEMPTS
   ) {
     input.flushDeltas()
-    input.runningToolCallIds.clear()
+    input.toolLifecycle.clearRunningToolCalls()
     input.setExecutionPhase('generating')
     finishInterruptedToolCalls(input, input.deps.timestamp(), {
       error: 'Tool execution was interrupted before completion.'
@@ -164,7 +163,7 @@ function persistFailedAssistantMessage(input: HandleRunFailureInput, timestamp: 
     snapshot.recoveryResponseMessages.length > 0
       ? balanceRecoveryResponseMessages(
           snapshot.recoveryResponseMessages,
-          Array.from(input.toolCalls.values())
+          input.toolLifecycle.getAllToolCalls()
         )
       : snapshot.recoveryResponseMessages
   const failedMessage = persistTerminalAssistantMessage(input.deps, {
@@ -200,7 +199,7 @@ function finishInterruptedToolCalls(
   timestamp: string,
   options: { error: string }
 ): void {
-  finishPendingToolCalls(input.deps, input.toolCalls, {
+  finishPendingToolCalls(input.deps, input.toolLifecycle.toolCalls, {
     error: options.error,
     finishedAt: timestamp,
     runId: input.executionInput.runId,

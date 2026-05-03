@@ -47,6 +47,7 @@ import { handleAbortedRun } from './runAbortHandling.ts'
 import { handleCompletedRun } from './runCompletionHandling.ts'
 import { extractRetryErrorMessage, handleRunFailure } from './runFailureHandling.ts'
 import { createRunToolSet } from './runToolSetFactory.ts'
+import { createRunToolLifecycleState } from './runToolLifecycleState.ts'
 import type { ExecuteRunInput, ExecuteRunResult, RunExecutionDeps } from './runExecutionTypes.ts'
 
 function throwIfAborted(signal: AbortSignal): void {
@@ -77,13 +78,17 @@ export async function executeServerRun(
   const settings = deps.readSettings()
   const recoveryCheckpoint = input.recoveryCheckpoint
   const messageId = recoveryCheckpoint?.assistantMessageId ?? deps.createId()
-  const toolCalls = recoveryCheckpoint
+  const restoredToolCalls = recoveryCheckpoint
     ? restorePersistedRunToolCalls(deps.loadThreadToolCalls, input.thread.id, input.runId)
     : new Map<string, ToolCallRecord>()
+  const toolLifecycle = createRunToolLifecycleState({
+    initialToolCalls: restoredToolCalls,
+    priorToolFailLoopSteers: input.priorToolFailLoopSteers
+  })
   const bindCurrentRunToolCallsToAssistant = (assistantMessageId: string): void => {
     bindRunToolCallsToAssistant(
       { emit: deps.emit, updateToolCall: instrumentedUpdateToolCall },
-      toolCalls,
+      toolLifecycle.toolCalls,
       {
         threadId: input.thread.id,
         runId: input.runId,
@@ -92,19 +97,6 @@ export async function executeServerRun(
     )
   }
   const subagentStartedAtByDelegationId = new Map<string, string>()
-  const runningToolCallIds = new Set<string>()
-  let stepCount = Math.max(0, ...[...toolCalls.values()].map((toolCall) => toolCall.stepIndex ?? 0))
-
-  // Tool-fail loop guard: if the model repeats the same invalid tool input
-  // multiple times, inject a system steer to break the cycle instead of
-  // burning the entire step budget.
-  const TOOL_FAIL_LOOP_WINDOW = 10
-  const TOOL_FAIL_LOOP_THRESHOLD = 3
-  const MAX_TOOL_FAIL_STEERS = 2
-  const recentToolErrorKeys: string[] = []
-  const seenFailedToolCallIds = new Set<string>()
-  let toolFailLoopSteersInjected = input.priorToolFailLoopSteers ?? 0
-  let lastLoopActionKey: string | undefined
 
   const bufferParts: string[] = recoveryCheckpoint?.content ? [recoveryCheckpoint.content] : []
   let bufferLength = bufferParts.reduce((sum, part) => sum + part.length, 0)
@@ -153,7 +145,7 @@ export async function executeServerRun(
   let recoveryResponseMessages: RecoveryResponseMessage[] =
     (buildRecoveryResponseMessages({
       checkpoint: recoveryCheckpoint ?? { content: bufferParts.join('') },
-      toolCalls: [...toolCalls.values()]
+      toolCalls: toolLifecycle.getAllToolCalls()
     }) as RecoveryResponseMessage[] | undefined) ?? []
   const getCurrentOutputSnapshot = (): {
     content: string
@@ -295,7 +287,6 @@ export async function executeServerRun(
       createToolCall: instrumentedCreateToolCall,
       deps,
       executionInput: input,
-      getStepCount: () => stepCount,
       markProgress,
       maxToolSteps,
       pendingUserAnswers,
@@ -304,7 +295,7 @@ export async function executeServerRun(
       setExecutionPhase,
       snapshotTracker,
       subagentStartedAtByDelegationId,
-      toolCalls,
+      toolLifecycle,
       updateToolCall: instrumentedUpdateToolCall
     })
     console.log(
@@ -362,7 +353,7 @@ export async function executeServerRun(
               ? { responseMessages: recoveryResponseMessages }
               : {})
           },
-          toolCalls: [...toolCalls.values()]
+          toolCalls: toolLifecycle.getAllToolCalls()
         }) as RecoveryResponseMessage[] | undefined
         recoveryResponseMessages =
           normalizedResponseMessages ??
@@ -402,11 +393,11 @@ export async function executeServerRun(
           status: 'preparing',
           inputSummary: '',
           startedAt: deps.timestamp(),
-          stepIndex: stepCount + 1,
+          stepIndex: toolLifecycle.nextPreparingStepIndex(),
           stepBudget: maxToolSteps
         }
 
-        toolCalls.set(toolCall.id, toolCall)
+        toolLifecycle.setToolCall(toolCall)
         instrumentedCreateToolCall(toolCall)
         deps.emit<ToolCallUpdatedEvent>({
           type: 'tool.updated',
@@ -423,10 +414,10 @@ export async function executeServerRun(
         markProgress()
         textDeltaBatcher.flush()
         reasoningDeltaBatcher.flush()
-        runningToolCallIds.add(event.toolCall.toolCallId)
+        toolLifecycle.markRunningToolCall(event.toolCall.toolCallId)
         shouldStartNewTextBlock = true
         setExecutionPhase('tool-running')
-        stepCount++
+        const stepIndex = toolLifecycle.advanceStep()
 
         // Upgrade from 'preparing' if the early record exists, otherwise create fresh.
         // The preparing record may have been stored under a different key if
@@ -434,21 +425,10 @@ export async function executeServerRun(
         // canonical `toolCallId`. When the direct lookup misses, fall back to
         // the most recent preparing record for the same tool name and clean up
         // the stale key so the map stays consistent.
-        let existing = toolCalls.get(event.toolCall.toolCallId)
-        let orphanedPreparingKey: string | undefined
-        if (!existing) {
-          for (const [key, record] of toolCalls) {
-            if (
-              record.status === 'preparing' &&
-              record.toolName === event.toolCall.toolName &&
-              key !== event.toolCall.toolCallId
-            ) {
-              existing = record
-              orphanedPreparingKey = key
-              break
-            }
-          }
-        }
+        const { existing, orphanedPreparingKey } = toolLifecycle.findPreparingToolCall({
+          toolCallId: event.toolCall.toolCallId,
+          toolName: event.toolCall.toolName
+        })
         const upgradingFromPreparing = existing?.status === 'preparing'
         const toolCall: ToolCallRecord = {
           ...(existing ?? {}),
@@ -460,7 +440,7 @@ export async function executeServerRun(
           status: 'running',
           inputSummary: summarizeToolInput(event.toolCall.toolName, event.toolCall.input),
           startedAt: existing?.startedAt ?? deps.timestamp(),
-          stepIndex: stepCount,
+          stepIndex,
           stepBudget: maxToolSteps
         }
 
@@ -468,10 +448,10 @@ export async function executeServerRun(
         // doesn't linger or get bound to the assistant message with a stale ID.
         // The storage record will be superseded by the create/update below.
         if (orphanedPreparingKey) {
-          toolCalls.delete(orphanedPreparingKey)
+          toolLifecycle.deleteToolCall(orphanedPreparingKey)
         }
 
-        toolCalls.set(toolCall.id, toolCall)
+        toolLifecycle.setToolCall(toolCall)
         if (upgradingFromPreparing && !orphanedPreparingKey) {
           // Normal upgrade: same key, record exists in storage.
           instrumentedUpdateToolCall(toolCall)
@@ -499,7 +479,7 @@ export async function executeServerRun(
           return
         }
 
-        const startedToolCall = toolCalls.get(event.toolCall.toolCallId)
+        const startedToolCall = toolLifecycle.getToolCall(event.toolCall.toolCallId)
         if (!startedToolCall) {
           return
         }
@@ -520,7 +500,7 @@ export async function executeServerRun(
           ...(normalized.details ? { details: normalized.details } : {})
         }
 
-        toolCalls.set(toolCall.id, toolCall)
+        toolLifecycle.setToolCall(toolCall)
         instrumentedUpdateToolCall(toolCall)
         persistRecoveryCheckpoint()
         deps.emit<ToolCallUpdatedEvent>({
@@ -531,34 +511,16 @@ export async function executeServerRun(
         })
       },
       onToolCallError: (event) => {
-        // Tool-fail loop guard: deduplicate by toolCallId and track recent errors.
-        if (!seenFailedToolCallIds.has(event.toolCall.toolCallId)) {
-          seenFailedToolCallIds.add(event.toolCall.toolCallId)
-          const errorMessage =
-            event.error instanceof Error ? event.error.message : String(event.error)
-          const inputJson = JSON.stringify(event.toolCall.input)
-          const key = `${event.toolCall.toolName}:${errorMessage}:${inputJson}`
-          recentToolErrorKeys.push(key)
-          if (recentToolErrorKeys.length > TOOL_FAIL_LOOP_WINDOW) {
-            recentToolErrorKeys.shift()
-          }
-          const count = recentToolErrorKeys.filter((k) => k === key).length
-          if (count >= TOOL_FAIL_LOOP_THRESHOLD && key !== lastLoopActionKey) {
-            lastLoopActionKey = key
-            if (toolFailLoopSteersInjected >= MAX_TOOL_FAIL_STEERS) {
-              throw new Error(
-                `Tool fail loop melt-out: the model repeatedly called '${event.toolCall.toolName}' ` +
-                  `with the same invalid input after ${MAX_TOOL_FAIL_STEERS} steering attempts. Stopping the run.`
-              )
-            }
-            toolFailLoopSteersInjected++
-            deps.injectPendingSteer?.({
-              content:
-                `You appear to be stuck in a loop sending the same invalid '${event.toolCall.toolName}' tool input ` +
-                `(${count} consecutive failures). Please stop and reconsider your approach. ` +
-                `Analyze the validation error, fix your input, or try a different tool.`
-            })
-          }
+        const errorMessage =
+          event.error instanceof Error ? event.error.message : String(event.error)
+        const steerContent = toolLifecycle.recordToolFailureLoop({
+          errorMessage,
+          toolCallId: event.toolCall.toolCallId,
+          toolInput: event.toolCall.input,
+          toolName: event.toolCall.toolName
+        })
+        if (steerContent) {
+          deps.injectPendingSteer?.({ content: steerContent })
         }
 
         if (!isTrackedToolName(event.toolCall.toolName)) {
@@ -569,12 +531,10 @@ export async function executeServerRun(
         textDeltaBatcher.flush()
         reasoningDeltaBatcher.flush()
         setExecutionPhase('tool-running')
-        stepCount++
+        const stepIndex = toolLifecycle.advanceStep()
 
         const finishedAt = deps.timestamp()
-        const errorMessage =
-          event.error instanceof Error ? event.error.message : String(event.error)
-        const existingToolCall = toolCalls.get(event.toolCall.toolCallId)
+        const existingToolCall = toolLifecycle.getToolCall(event.toolCall.toolCallId)
         const toolCall: ToolCallRecord = existingToolCall
           ? {
               ...existingToolCall,
@@ -592,12 +552,12 @@ export async function executeServerRun(
               inputSummary: summarizeToolInput(event.toolCall.toolName, event.toolCall.input),
               error: errorMessage,
               startedAt: finishedAt,
-              stepIndex: stepCount,
+              stepIndex,
               stepBudget: maxToolSteps,
               finishedAt
             }
 
-        toolCalls.set(toolCall.id, toolCall)
+        toolLifecycle.setToolCall(toolCall)
         if (existingToolCall) {
           instrumentedUpdateToolCall(toolCall)
         } else {
@@ -622,9 +582,7 @@ export async function executeServerRun(
         try {
           // Reset the tool-fail loop guard whenever a tool finishes successfully.
           if (event.success) {
-            recentToolErrorKeys.length = 0
-            seenFailedToolCallIds.clear()
-            lastLoopActionKey = undefined
+            toolLifecycle.resetToolFailureLoop()
           }
 
           if (!isTrackedToolName(event.toolCall.toolName)) {
@@ -634,7 +592,7 @@ export async function executeServerRun(
           markProgress()
           textDeltaBatcher.flush()
           reasoningDeltaBatcher.flush()
-          const startedToolCall = toolCalls.get(event.toolCall.toolCallId)
+          const startedToolCall = toolLifecycle.getToolCall(event.toolCall.toolCallId)
           const finishedAt = deps.timestamp()
           const normalized = event.success
             ? normalizeToolResult(event.toolCall.toolName, event.output)
@@ -724,12 +682,12 @@ export async function executeServerRun(
                 ...(mergedBackgroundDetails ? { details: mergedBackgroundDetails } : {}),
                 ...(errorMessage ? { error: errorMessage } : {}),
                 startedAt: finishedAt,
-                stepIndex: ++stepCount,
+                stepIndex: toolLifecycle.advanceStep(),
                 stepBudget: maxToolSteps,
                 finishedAt: terminalBackgroundToolCall?.finishedAt ?? finishedAt
               }
 
-          toolCalls.set(toolCall.id, toolCall)
+          toolLifecycle.setToolCall(toolCall)
           if (startedToolCall) {
             instrumentedUpdateToolCall(toolCall)
           } else {
@@ -754,8 +712,7 @@ export async function executeServerRun(
             toolCall
           })
 
-          runningToolCallIds.delete(event.toolCall.toolCallId)
-          if (runningToolCallIds.size === 0) {
+          if (toolLifecycle.finishRunningToolCall(event.toolCall.toolCallId)) {
             setExecutionPhase('generating')
           }
         } catch (error) {
@@ -807,7 +764,7 @@ export async function executeServerRun(
 
     console.log(
       `[yachiyo][run] stream finished: runId=${input.runId}, finishReason=${lastUsage?.finishReason ?? 'unknown'}, ` +
-        `steps=${stepCount}, bufferLen=${bufferLength}, rawOutput=${JSON.stringify(bufferParts.join('').slice(0, 300))}`
+        `steps=${toolLifecycle.getStepCount()}, bufferLen=${bufferLength}, rawOutput=${JSON.stringify(bufferParts.join('').slice(0, 300))}`
     )
 
     throwIfAborted(input.abortController.signal)
@@ -815,7 +772,7 @@ export async function executeServerRun(
     // The stream finished before all tool calls received their terminal
     // result (e.g. provider truncation or a network hiccup). Route through
     // the typed retry contract so the outer recovery path picks it up.
-    if (runningToolCallIds.size > 0) {
+    if (toolLifecycle.hasRunningToolCalls()) {
       throw new RetryableRunError('Model stream ended with incomplete tool calls')
     }
 
@@ -823,7 +780,7 @@ export async function executeServerRun(
     // produced no user-visible content (e.g. Gemini finishReason=length with
     // 0 output tokens after a network hiccup). Treat as a retryable error so
     // the recovery / fail path can handle it instead of silently "completing".
-    if (bufferLength === 0 && toolCalls.size === 0) {
+    if (bufferLength === 0 && !toolLifecycle.hasToolCalls()) {
       const reason = lastUsage?.finishReason ?? 'unknown'
       throw new RetryableRunError(`Model returned empty response (finishReason=${reason})`)
     }
@@ -848,8 +805,7 @@ export async function executeServerRun(
       recoveredFromCheckpoint: Boolean(recoveryCheckpoint),
       settings,
       snapshotTracker,
-      toolCalls,
-      toolFailLoopSteersInjected
+      toolLifecycle
     })
   } catch (error) {
     // Reject any pending askUser promises so the tool execution unblocks
@@ -872,7 +828,7 @@ export async function executeServerRun(
       perfCollector,
       settings,
       snapshotTracker,
-      toolCalls
+      toolLifecycle
     })
     if (abortedResult) {
       return abortedResult
@@ -893,11 +849,10 @@ export async function executeServerRun(
       perfCollector,
       persistRecoveryCheckpoint,
       recoveryAttempts: recoveryCheckpoint?.recoveryAttempts ?? 0,
-      runningToolCallIds,
       setExecutionPhase,
       settings,
       snapshotTracker,
-      toolCalls
+      toolLifecycle
     })
   } finally {
     const jsReplTool = tools?.jsRepl as { dispose?: () => Promise<void> } | undefined

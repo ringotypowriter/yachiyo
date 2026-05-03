@@ -4,8 +4,7 @@ import type {
   MessageTextBlockRecord,
   ProviderSettings,
   RunCancelledEvent,
-  ThreadUpdatedEvent,
-  ToolCallRecord
+  ThreadUpdatedEvent
 } from '../../../../../../shared/yachiyo/protocol.ts'
 import { wouldCreateParentCycle } from '../../../../../../shared/yachiyo/threadTree.ts'
 import type { ModelUsage } from '../../../../runtime/types.ts'
@@ -17,6 +16,7 @@ import { finishPendingToolCalls } from '../tools/toolCallLifecycle.ts'
 import { finalizeRunSnapshot } from './runSnapshotFinalize.ts'
 import { mergeRunUsage } from './runUsage.ts'
 import { persistThreadAssistantMessage } from './terminalPersistence.ts'
+import type { RunToolLifecycleState } from './runToolLifecycleState.ts'
 import type {
   CancelWithSteerReason,
   ExecuteRunInput,
@@ -45,7 +45,7 @@ interface HandleAbortedRunInput {
   perfCollector: RunPerfCollector
   settings: ProviderSettings
   snapshotTracker: SnapshotTracker | null
-  toolCalls: Map<string, ToolCallRecord>
+  toolLifecycle: RunToolLifecycleState
 }
 
 export function isRestartRunReason(value: unknown): value is RestartRunReason {
@@ -99,10 +99,12 @@ function handleRestartRunAbort(
   finishInterruptedToolCalls(input, timestamp, 'Run cancelled before the tool call finished.')
 
   const snapshot = input.getOutputSnapshot()
-  const balancedResponseMessages = balanceStoppedResponseMessages(input.toolCalls, snapshot)
+  const balancedResponseMessages = balanceStoppedResponseMessages(input.toolLifecycle, snapshot)
   if (
     input.executionInput.requestMessageId &&
-    (snapshot.bufferLength > 0 || snapshot.reasoningLength > 0 || input.toolCalls.size > 0)
+    (snapshot.bufferLength > 0 ||
+      snapshot.reasoningLength > 0 ||
+      input.toolLifecycle.hasToolCalls())
   ) {
     const { assistantMessage: partialAssistantMessage } = persistThreadAssistantMessage(
       input.deps,
@@ -152,7 +154,7 @@ async function handleCancelledRun(
   finishInterruptedToolCalls(input, timestamp, 'Run cancelled before the tool call finished.')
 
   const snapshot = input.getOutputSnapshot()
-  const cancelledResponseMessages = balanceStoppedResponseMessages(input.toolCalls, snapshot)
+  const cancelledResponseMessages = balanceStoppedResponseMessages(input.toolLifecycle, snapshot)
   if (input.executionInput.requestMessageId) {
     const { assistantMessage: stoppedMessage, updatedThread } = persistThreadAssistantMessage(
       input.deps,
@@ -227,13 +229,13 @@ async function handleCancelledRun(
 }
 
 function balanceStoppedResponseMessages(
-  toolCalls: Map<string, ToolCallRecord>,
+  toolLifecycle: RunToolLifecycleState,
   snapshot: RunAbortOutputSnapshot
 ): RecoveryResponseMessage[] {
   return snapshot.recoveryResponseMessages.length > 0
     ? balanceRecoveryResponseMessages(
         snapshot.recoveryResponseMessages,
-        Array.from(toolCalls.values())
+        toolLifecycle.getAllToolCalls()
       )
     : snapshot.recoveryResponseMessages
 }
@@ -243,7 +245,7 @@ function finishInterruptedToolCalls(
   timestamp: string,
   error: string
 ): void {
-  finishPendingToolCalls(input.deps, input.toolCalls, {
+  finishPendingToolCalls(input.deps, input.toolLifecycle.toolCalls, {
     error,
     finishedAt: timestamp,
     runId: input.executionInput.runId,

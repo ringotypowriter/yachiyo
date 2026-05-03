@@ -4,8 +4,7 @@ import type {
   ProviderSettings,
   RunCompletedEvent,
   ThreadRecord,
-  ThreadUpdatedEvent,
-  ToolCallRecord
+  ThreadUpdatedEvent
 } from '../../../../../../shared/yachiyo/protocol.ts'
 import type { ModelUsage } from '../../../../runtime/types.ts'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
@@ -16,6 +15,7 @@ import { bindCompletedToolCallsToAssistant } from '../tools/toolCallLifecycle.ts
 import { finalizeRunSnapshot } from './runSnapshotFinalize.ts'
 import { mergeRunUsage } from './runUsage.ts'
 import { buildAssistantMessage, persistThreadAssistantMessage } from './terminalPersistence.ts'
+import type { RunToolLifecycleState } from './runToolLifecycleState.ts'
 import type { ExecuteRunInput, ExecuteRunResult, RunExecutionDeps } from './runExecutionTypes.ts'
 
 interface RunCompletionOutputSnapshot {
@@ -37,8 +37,7 @@ interface HandleCompletedRunInput {
   recoveredFromCheckpoint: boolean
   settings: ProviderSettings
   snapshotTracker: SnapshotTracker | null
-  toolCalls: Map<string, ToolCallRecord>
-  toolFailLoopSteersInjected: number
+  toolLifecycle: RunToolLifecycleState
 }
 
 export async function handleCompletedRun(
@@ -90,7 +89,7 @@ function persistSteerPendingRun(
     assistantMessageId: input.messageId,
     usage: input.lastUsage,
     snapshotTracker: input.snapshotTracker ?? undefined,
-    toolFailLoopSteersInjected: input.toolFailLoopSteersInjected
+    toolFailLoopSteersInjected: input.toolLifecycle.getToolFailLoopSteersInjected()
   }
 }
 
@@ -149,7 +148,7 @@ async function persistCompletedRun(
     runId: input.executionInput.runId,
     message: assistantMessage
   })
-  bindCompletedToolCallsToAssistant(input.deps, input.toolCalls, {
+  bindCompletedToolCallsToAssistant(input.deps, input.toolLifecycle.toolCalls, {
     threadId: input.executionInput.thread.id,
     runId: input.executionInput.runId,
     assistantMessageId: assistantMessage.id
@@ -179,9 +178,9 @@ async function persistCompletedRun(
   })
   input.perfCollector.finish(input.executionInput.thread.id)
 
-  const usedRememberTool = Array.from(input.toolCalls.values()).some(
-    (tc) => tc.toolName === 'remember' && tc.status === 'completed' && !tc.error
-  )
+  const usedRememberTool = input.toolLifecycle
+    .getAllToolCalls()
+    .some((tc) => tc.toolName === 'remember' && tc.status === 'completed' && !tc.error)
   return {
     kind: 'completed',
     totalPromptTokens: finalUsage?.totalPromptTokens,
