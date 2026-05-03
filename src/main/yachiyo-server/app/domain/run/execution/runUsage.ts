@@ -2,16 +2,9 @@ import type { MessageRecord } from '../../../../../../shared/yachiyo/protocol.ts
 import { collectMessagePath } from '../../../../../../shared/yachiyo/threadTree.ts'
 import type { YachiyoStorage } from '../../../../storage/storage.ts'
 import type { ModelUsage } from '../../../../runtime/types.ts'
+import type { UsageFields } from '../runUsageFields.ts'
 
-export type PriorRunUsage = Pick<
-  ModelUsage,
-  | 'promptTokens'
-  | 'completionTokens'
-  | 'totalPromptTokens'
-  | 'totalCompletionTokens'
-  | 'cacheReadTokens'
-  | 'cacheWriteTokens'
->
+export type PriorRunUsage = UsageFields
 
 /** Merge prior steer-leg totals into the current leg's usage for final persistence. */
 export function mergeRunUsage(

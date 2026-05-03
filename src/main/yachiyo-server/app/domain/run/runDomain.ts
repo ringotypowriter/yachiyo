@@ -58,7 +58,8 @@ import {
   withdrawPendingSteer,
   type ActiveRunControlContext
 } from './active/activeRunControl.ts'
-import { mergeUsageForTerminal, usageFieldsFrom } from './loop/runUsage.ts'
+import { usageFieldsFrom } from './runUsageFields.ts'
+import { mergeUsageForTerminal } from './loop/runUsage.ts'
 import { buildRunExecutionDeps, type RunExecutionDepsContext } from './loop/runExecutionDeps.ts'
 import {
   handleBackgroundBashCompleted,

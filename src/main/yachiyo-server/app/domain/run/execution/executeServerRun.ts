@@ -2,7 +2,6 @@ import { stepCountIs, type StopCondition, type ToolSet } from 'ai'
 import { performance } from 'node:perf_hooks'
 
 import { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
-import { runGc } from '../../../../services/fileSnapshot/snapshotGc.ts'
 
 import type {
   MessageCompletedEvent,
@@ -21,7 +20,6 @@ import type {
   SubagentFinishedEvent,
   ThreadRecord,
   ThreadUpdatedEvent,
-  SnapshotReadyEvent,
   ToolCallRecord,
   ToolCallUpdatedEvent
 } from '../../../../../../shared/yachiyo/protocol.ts'
@@ -56,6 +54,7 @@ import {
 } from '../../runRecovery.ts'
 import { prepareServerRunContext } from '../context/prepareServerRunContext.ts'
 import { balanceResponseMessages } from '../context/runHistory.ts'
+import { usageFieldsFrom } from '../runUsageFields.ts'
 import { mergeRunUsage } from './runUsage.ts'
 import { appendMessageDeltaToTextBlocks } from './textBlocks.ts'
 import {
@@ -73,6 +72,7 @@ import {
 import { upsertRunRecoveryCheckpoint } from './recoveryCheckpoint.ts'
 import { consumeDuplicatePrefix } from './streamDedup.ts'
 import { persistTerminalAssistantMessage } from './terminalPersistence.ts'
+import { finalizeRunSnapshot } from './runSnapshotFinalize.ts'
 import type {
   CancelWithSteerReason,
   ExecuteRunInput,
@@ -1258,29 +1258,15 @@ export async function executeServerRun(
       threadId: input.thread.id,
       thread: updatedThread
     })
-    // Finalize file snapshot (Layer 3 scan + persist).
-    if (snapshotTracker) {
-      try {
-        await snapshotTracker.scanWorkspace()
-        const snapshot = await snapshotTracker.finalize()
-        deps.storage.updateRunSnapshot(input.runId, {
-          fileCount: snapshot.entries.length,
-          workspacePath: snapshotTracker.workspacePath
-        })
-        deps.emit<SnapshotReadyEvent>({
-          type: 'snapshot.ready',
-          threadId: input.thread.id,
-          runId: input.runId,
-          fileCount: snapshot.entries.length,
-          workspacePath: snapshotTracker.workspacePath
-        })
-        runGc(snapshotTracker.workspaceHash).catch(() => {})
-      } catch (err) {
-        console.error('[snapshot] Finalization failed:', err)
-      } finally {
-        snapshotTracker.dispose()
+    await finalizeRunSnapshot({
+      deps,
+      runId: input.runId,
+      snapshotTracker,
+      threadId: input.thread.id,
+      onError: (error) => {
+        console.error('[snapshot] Finalization failed:', error)
       }
-    }
+    })
 
     deps.onTerminalState?.()
     deps.emit<RunCompletedEvent>({
@@ -1511,36 +1497,15 @@ export async function executeServerRun(
         deps.storage.cancelRun({
           runId: input.runId,
           completedAt: timestamp,
-          promptTokens: cancelUsage?.promptTokens,
-          completionTokens: cancelUsage?.completionTokens,
-          totalPromptTokens: cancelUsage?.totalPromptTokens,
-          totalCompletionTokens: cancelUsage?.totalCompletionTokens,
-          cacheReadTokens: cancelUsage?.cacheReadTokens,
-          cacheWriteTokens: cancelUsage?.cacheWriteTokens
+          ...usageFieldsFrom(cancelUsage)
         })
 
-        if (snapshotTracker) {
-          try {
-            await snapshotTracker.scanWorkspace()
-            const snapshot = await snapshotTracker.finalize()
-            deps.storage.updateRunSnapshot(input.runId, {
-              fileCount: snapshot.entries.length,
-              workspacePath: snapshotTracker.workspacePath
-            })
-            deps.emit<SnapshotReadyEvent>({
-              type: 'snapshot.ready',
-              threadId: input.thread.id,
-              runId: input.runId,
-              fileCount: snapshot.entries.length,
-              workspacePath: snapshotTracker.workspacePath
-            })
-            runGc(snapshotTracker.workspaceHash).catch(() => {})
-          } catch {
-            // Best effort — don't fail the cancel path
-          } finally {
-            snapshotTracker.dispose()
-          }
-        }
+        await finalizeRunSnapshot({
+          deps,
+          runId: input.runId,
+          snapshotTracker,
+          threadId: input.thread.id
+        })
 
         deps.onTerminalState?.()
         deps.emit<RunCancelledEvent>({
@@ -1640,39 +1605,15 @@ export async function executeServerRun(
       deps.storage.cancelRun({
         runId: input.runId,
         completedAt: timestamp,
-        promptTokens: cancelUsage?.promptTokens,
-        completionTokens: cancelUsage?.completionTokens,
-        totalPromptTokens: cancelUsage?.totalPromptTokens,
-        totalCompletionTokens: cancelUsage?.totalCompletionTokens,
-        cacheReadTokens: cancelUsage?.cacheReadTokens,
-        cacheWriteTokens: cancelUsage?.cacheWriteTokens
+        ...usageFieldsFrom(cancelUsage)
       })
 
-      // Finalize snapshot for cancelled runs so partial changes are reviewable.
-      // Always scan — Layer 3 discovers files created during the run even when
-      // Layer 1/2 tracking hasn't populated yet (e.g. baseline scan still running).
-      if (snapshotTracker) {
-        try {
-          await snapshotTracker.scanWorkspace()
-          const snapshot = await snapshotTracker.finalize()
-          deps.storage.updateRunSnapshot(input.runId, {
-            fileCount: snapshot.entries.length,
-            workspacePath: snapshotTracker.workspacePath
-          })
-          deps.emit<SnapshotReadyEvent>({
-            type: 'snapshot.ready',
-            threadId: input.thread.id,
-            runId: input.runId,
-            fileCount: snapshot.entries.length,
-            workspacePath: snapshotTracker.workspacePath
-          })
-          runGc(snapshotTracker.workspaceHash).catch(() => {})
-        } catch {
-          // Best effort — don't fail the cancel path
-        } finally {
-          snapshotTracker.dispose()
-        }
-      }
+      await finalizeRunSnapshot({
+        deps,
+        runId: input.runId,
+        snapshotTracker,
+        threadId: input.thread.id
+      })
 
       deps.onTerminalState?.()
       deps.emit<RunCancelledEvent>({
@@ -1800,39 +1741,15 @@ export async function executeServerRun(
       runId: input.runId,
       completedAt: timestamp,
       error: message,
-      promptTokens: failUsage?.promptTokens,
-      completionTokens: failUsage?.completionTokens,
-      totalPromptTokens: failUsage?.totalPromptTokens,
-      totalCompletionTokens: failUsage?.totalCompletionTokens,
-      cacheReadTokens: failUsage?.cacheReadTokens,
-      cacheWriteTokens: failUsage?.cacheWriteTokens
+      ...usageFieldsFrom(failUsage)
     })
 
-    // Finalize file snapshot for failed runs so partial changes are reviewable.
-    // Always scan — Layer 3 discovers files created during the run even when
-    // Layer 1/2 tracking hasn't populated yet (e.g. baseline scan still running).
-    if (snapshotTracker) {
-      try {
-        await snapshotTracker.scanWorkspace()
-        const snapshot = await snapshotTracker.finalize()
-        deps.storage.updateRunSnapshot(input.runId, {
-          fileCount: snapshot.entries.length,
-          workspacePath: snapshotTracker.workspacePath
-        })
-        deps.emit<SnapshotReadyEvent>({
-          type: 'snapshot.ready',
-          threadId: input.thread.id,
-          runId: input.runId,
-          fileCount: snapshot.entries.length,
-          workspacePath: snapshotTracker.workspacePath
-        })
-        runGc(snapshotTracker.workspaceHash).catch(() => {})
-      } catch {
-        // Best effort — don't fail the failure path
-      } finally {
-        snapshotTracker.dispose()
-      }
-    }
+    await finalizeRunSnapshot({
+      deps,
+      runId: input.runId,
+      snapshotTracker,
+      threadId: input.thread.id
+    })
 
     deps.onTerminalState?.()
     deps.emit<RunFailedEvent>({
