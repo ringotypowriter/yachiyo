@@ -1,5 +1,4 @@
 import type {
-  BackgroundTaskCompletedEvent,
   BackgroundTaskLogAppendEvent,
   BackgroundTaskSnapshot,
   ChatAccepted,
@@ -15,7 +14,6 @@ import type {
   RunFailedEvent,
   RunCreatedEvent,
   SendChatInput,
-  SendChatMode,
   ThreadRecord,
   ThreadStateReplacedEvent,
   ThreadUpdatedEvent,
@@ -34,7 +32,7 @@ import {
 } from '../../../services/memory/memoryDistillationScheduler.ts'
 import type { RunRecoveryCheckpoint } from '../../../storage/storage.ts'
 import { wouldCreateParentCycle } from '../../../../../shared/yachiyo/threadTree.ts'
-import { BackgroundBashManager, type BackgroundBashTaskResult } from '../backgroundBashManager.ts'
+import { BackgroundBashManager } from '../backgroundBashManager.ts'
 import { resolveEnabledTools } from '../configDomain.ts'
 import { executeServerRun } from './execution/executeServerRun.ts'
 import type { ExecuteRunInput, ExecuteRunResult } from './execution/runExecutionTypes.ts'
@@ -66,12 +64,21 @@ import {
   type ActiveRunLoopInput,
   type ActiveRunStartContext
 } from './active/activeRunStart.ts'
+import {
+  answerToolQuestion,
+  cancelRun,
+  cancelRunForChannelUser,
+  cancelRunForThread,
+  withdrawPendingSteer,
+  type ActiveRunControlContext
+} from './active/activeRunControl.ts'
 import { mergeUsageForTerminal, usageFieldsFrom } from './loop/runUsage.ts'
 import { buildRunExecutionDeps, type RunExecutionDepsContext } from './loop/runExecutionDeps.ts'
 import {
-  buildBackgroundCompletionMessage,
-  isBackgroundAutoDeliveryEligible
-} from './background/backgroundTaskDelivery.ts'
+  handleBackgroundBashCompleted,
+  recoverOrphanedBackgroundToolCalls,
+  type BackgroundTaskLifecycleContext
+} from './background/backgroundTaskLifecycle.ts'
 import { ThreadTitleGenerationRunner } from './title/threadTitleGeneration.ts'
 
 export class YachiyoServerRunDomain {
@@ -108,7 +115,7 @@ export class YachiyoServerRunDomain {
     })
 
     this.backgroundBashManager.setCompletionHandler((result) => {
-      this.handleBackgroundBashCompleted(result)
+      handleBackgroundBashCompleted(this.createBackgroundTaskLifecycleContext(), result)
     })
     this.backgroundBashManager.setLogAppendHandler((append) => {
       if (this.isClosing) return
@@ -208,6 +215,14 @@ export class YachiyoServerRunDomain {
     }
   }
 
+  private createActiveRunControlContext(): ActiveRunControlContext {
+    return {
+      deps: this.deps,
+      activeRuns: this.activeRuns,
+      activeRunByThread: this.activeRunByThread
+    }
+  }
+
   private createRunExecutionDepsContext(): RunExecutionDepsContext {
     return {
       deps: this.deps,
@@ -220,6 +235,15 @@ export class YachiyoServerRunDomain {
       setLastRunEnabledTools: (enabledTools) => {
         this.lastRunEnabledTools = [...enabledTools]
       }
+    }
+  }
+
+  private createBackgroundTaskLifecycleContext(): BackgroundTaskLifecycleContext {
+    return {
+      deps: this.deps,
+      backgroundTaskRunContext: this.backgroundTaskRunContext,
+      isClosing: () => this.isClosing,
+      sendChat: (input) => this.sendChat(input)
     }
   }
 
@@ -277,168 +301,7 @@ export class YachiyoServerRunDomain {
       error,
       finishedAt: this.deps.timestamp()
     })
-    this.recoverOrphanedBackgroundToolCalls()
-  }
-
-  private recoverOrphanedBackgroundToolCalls(): void {
-    const timestamp = this.deps.timestamp()
-    const bootstrap = this.deps.storage.bootstrap()
-
-    // Walk every thread that could possibly own a background bash tool call: active local
-    // threads, archived threads, and external/channel threads. The default `bootstrap()`
-    // result excludes archived and (in sqlite) channel threads, so a background task
-    // launched in an archived conversation or an owner DM would otherwise be stuck in an
-    // active-looking state forever after a restart.
-    const seen = new Set<string>()
-    const allThreads: ThreadRecord[] = []
-    const collect = (thread: ThreadRecord): void => {
-      if (seen.has(thread.id)) return
-      seen.add(thread.id)
-      allThreads.push(thread)
-    }
-    for (const thread of bootstrap.threads) collect(thread)
-    for (const thread of bootstrap.archivedThreads) collect(thread)
-    for (const thread of this.deps.storage.listExternalThreads()) collect(thread)
-
-    for (const thread of allThreads) {
-      const toolCalls = this.deps.loadThreadToolCalls(thread.id)
-      for (const tc of toolCalls) {
-        if (tc.status === 'background') {
-          const updated: ToolCallRecord = {
-            ...tc,
-            status: 'failed',
-            error: 'Background task interrupted by app restart',
-            finishedAt: timestamp
-          }
-          this.deps.storage.updateToolCall(updated)
-        }
-      }
-    }
-  }
-
-  private handleBackgroundBashCompleted(result: BackgroundBashTaskResult): void {
-    if (this.isClosing) return
-
-    try {
-      const timestamp = this.deps.timestamp()
-
-      // 1. Update ToolCallRecord status/exitCode for the renderer. The model-facing
-      // `output` blob is left untouched: history must remain truthful that the launch
-      // call only ever returned the `{taskId, logPath}` handle.
-      const cancelled = result.cancelledByUser === true
-
-      if (result.toolCallId) {
-        const toolCalls = this.deps.loadThreadToolCalls(result.threadId)
-        const tc = toolCalls.find((t) => t.id === result.toolCallId)
-        if (tc) {
-          const baseDetails =
-            tc.details && typeof tc.details === 'object'
-              ? (tc.details as unknown as Record<string, unknown>)
-              : {}
-          const updated: ToolCallRecord = {
-            ...tc,
-            status: cancelled ? 'failed' : result.exitCode === 0 ? 'completed' : 'failed',
-            outputSummary: cancelled ? 'cancelled by user' : `exit ${result.exitCode}`,
-            details: {
-              ...baseDetails,
-              exitCode: result.exitCode,
-              ...(cancelled ? { cancelledByUser: true } : {})
-            } as unknown as ToolCallRecord['details'],
-            ...(cancelled
-              ? { error: 'Background task was cancelled by the user.' }
-              : result.exitCode !== 0
-                ? { error: `Command exited with code ${result.exitCode}.` }
-                : {}),
-            finishedAt: timestamp
-          }
-          this.deps.storage.updateToolCall(updated)
-          this.deps.emit<ToolCallUpdatedEvent>({
-            type: 'tool.updated',
-            threadId: result.threadId,
-            runId: tc.runId,
-            toolCall: updated
-          })
-        }
-      }
-
-      // 2. Emit background task completion event for the renderer/notifications.
-      this.deps.emit<BackgroundTaskCompletedEvent>({
-        type: 'background-task.completed',
-        threadId: result.threadId,
-        taskId: result.taskId,
-        command: result.command,
-        logPath: result.logPath,
-        exitCode: result.exitCode,
-        toolCallId: result.toolCallId,
-        ...(cancelled ? { cancelledByUser: true } : {})
-      })
-
-      // 3. Auto-deliver the completion notice as a regular user message via sendChat,
-      // for local threads and owner DMs. Skip when the user manually cancelled —
-      // they already know, and triggering a model run would be noise.
-      const ctx = this.backgroundTaskRunContext.get(result.taskId)
-      this.backgroundTaskRunContext.delete(result.taskId)
-      if (!cancelled) {
-        void this.autoDeliverBackgroundCompletion(result, ctx)
-      }
-    } catch (error) {
-      // Thread may have been deleted while background task was running
-      console.warn('[yachiyo][background-bash] completion handler failed', {
-        taskId: result.taskId,
-        threadId: result.threadId,
-        error: error instanceof Error ? error.message : String(error)
-      })
-    }
-  }
-
-  private async autoDeliverBackgroundCompletion(
-    result: BackgroundBashTaskResult,
-    ctx: BackgroundTaskRunContext | undefined
-  ): Promise<void> {
-    let thread: ThreadRecord
-    try {
-      thread = this.deps.requireThread(result.threadId)
-    } catch {
-      // Thread was deleted between launch and completion. Nothing to do.
-      return
-    }
-
-    if (
-      !isBackgroundAutoDeliveryEligible(thread, (channelUserId) =>
-        this.deps.storage.getChannelUser(channelUserId)
-      )
-    ) {
-      return
-    }
-
-    const content = buildBackgroundCompletionMessage(result)
-    const chatOptions = {
-      threadId: thread.id,
-      content,
-      ...(ctx?.enabledTools ? { enabledTools: ctx.enabledTools } : {}),
-      ...(ctx?.enabledSkillNames ? { enabledSkillNames: ctx.enabledSkillNames } : {}),
-      ...(ctx?.reasoningEffort !== undefined ? { reasoningEffort: ctx.reasoningEffort } : {}),
-      ...(ctx?.channelHint ? { channelHint: ctx.channelHint } : {}),
-      ...(ctx?.extraTools ? { extraTools: ctx.extraTools } : {})
-    }
-    try {
-      // Prefer steer so the completion notice is injected into the active run's
-      // context at the next turn boundary instead of spawning a separate run.
-      // Falls back to follow-up when no active run exists or the steer is rejected.
-      await this.sendChat({ ...chatOptions, mode: 'steer' as SendChatMode })
-    } catch {
-      // Steer rejected (no active run, or handoff not ready) — fall back to
-      // follow-up which queues gracefully or starts a fresh run.
-      try {
-        await this.sendChat({ ...chatOptions, mode: 'follow-up' })
-      } catch (error) {
-        console.warn('[yachiyo][background-bash] auto-delivery sendChat failed', {
-          threadId: thread.id,
-          taskId: result.taskId,
-          error: error instanceof Error ? error.message : String(error)
-        })
-      }
-    }
+    recoverOrphanedBackgroundToolCalls(this.createBackgroundTaskLifecycleContext())
   }
 
   prepareRecoveredQueuedFollowUps(): string[] {
@@ -653,94 +516,26 @@ export class YachiyoServerRunDomain {
   }
 
   cancelRun(input: { runId: string }): void {
-    const activeRun = this.activeRuns.get(input.runId)
-    if (activeRun) {
-      // If there's a pending steer, pass it through the abort reason so the
-      // catch block in executeServerRun can persist the stopped assistant
-      // message first, then the run loop parents the steer under it — keeping
-      // the ancestor chain intact for future LLM context assembly.
-      //
-      // Do NOT clear pendingSteerInput here — it must survive as a fallback
-      // for race conditions where executeServerRun returns 'steer-pending'
-      // (model finished before observing the abort). The steer-pending handler
-      // and the cancelled-with-steer handler each clear it after persisting.
-      if (activeRun.pendingSteerInput) {
-        const steerInput = {
-          content: activeRun.pendingSteerInput.content,
-          images: activeRun.pendingSteerInput.images,
-          attachments: activeRun.pendingSteerInput.attachments,
-          messageId: activeRun.pendingSteerInput.messageId,
-          timestamp: activeRun.pendingSteerInput.timestamp,
-          hidden: activeRun.pendingSteerInput.hidden
-        }
-        activeRun.abortController.abort({ type: 'cancel-with-steer', steerInput })
-        return
-      }
-
-      activeRun.abortController.abort()
-      return
-    }
-
-    const persistedRun = this.deps.storage.getRun(input.runId)
-    if (!persistedRun || persistedRun.status !== 'running') {
-      return
-    }
-
-    this.deps.storage.cancelRun({
-      runId: input.runId,
-      completedAt: this.deps.timestamp()
-    })
-    this.deps.emit<RunCancelledEvent>({
-      type: 'run.cancelled',
-      threadId: persistedRun.threadId,
-      runId: input.runId
-    })
+    cancelRun(this.createActiveRunControlContext(), input)
   }
 
   /** Cancel the active run for a thread, if any. Returns true if a run was cancelled. */
   cancelRunForThread(threadId: string): boolean {
-    const runId = this.activeRunByThread.get(threadId)
-    if (!runId) {
-      return false
-    }
-    this.cancelRun({ runId })
-    return true
+    return cancelRunForThread(this.createActiveRunControlContext(), threadId)
   }
 
   /** Discard the pending steer for a thread without cancelling the run. */
   withdrawPendingSteer(threadId: string): void {
-    const runId = this.activeRunByThread.get(threadId)
-    if (!runId) return
-    const activeRun = this.activeRuns.get(runId)
-    if (!activeRun?.pendingSteerInput) return
-    // Restore the skill override the steer replaced so the live run
-    // continues with its original configuration.
-    activeRun.enabledSkillNames = activeRun.pendingSteerInput.previousEnabledSkillNames
-    if (activeRun.pendingSteerInput.previousReasoningEffort !== undefined) {
-      activeRun.reasoningEffort = activeRun.pendingSteerInput.previousReasoningEffort
-    } else {
-      delete activeRun.reasoningEffort
-    }
-    activeRun.pendingSteerInput = undefined
-    activeRun.pendingSteerMessageId = undefined
+    withdrawPendingSteer(this.createActiveRunControlContext(), threadId)
   }
 
   /** Cancel any active run owned by the given channel user. Returns true if a run was cancelled. */
   cancelRunForChannelUser(channelUserId: string): boolean {
-    for (const [threadId] of this.activeRunByThread) {
-      const thread = this.deps.storage.getThread(threadId)
-      if (thread?.channelUserId === channelUserId) {
-        return this.cancelRunForThread(threadId)
-      }
-    }
-    return false
+    return cancelRunForChannelUser(this.createActiveRunControlContext(), channelUserId)
   }
 
   answerToolQuestion(input: { runId: string; toolCallId: string; answer: string }): void {
-    const activeRun = this.activeRuns.get(input.runId)
-    if (activeRun?.answerToolQuestion) {
-      activeRun.answerToolQuestion(input.toolCallId, input.answer)
-    }
+    answerToolQuestion(this.createActiveRunControlContext(), input)
   }
 
   private async runLoop(input: ActiveRunLoopInput): Promise<void> {
