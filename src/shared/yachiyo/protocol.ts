@@ -1543,20 +1543,6 @@ export interface ToolCallUpdatedEvent extends ThreadEvent {
   toolCall: ToolCallRecord
 }
 
-export interface HarnessStartedEvent extends RunEvent {
-  type: 'harness.started'
-  harnessId: string
-  name: string
-}
-
-export interface HarnessFinishedEvent extends RunEvent {
-  type: 'harness.finished'
-  harnessId: string
-  name: string
-  status: 'completed' | 'failed' | 'cancelled'
-  error?: string
-}
-
 export interface SettingsUpdatedEvent extends BaseEvent {
   type: 'settings.updated'
   config: SettingsConfig
@@ -1648,8 +1634,6 @@ export type YachiyoServerEvent =
   | MessageReasoningDeltaEvent
   | MessageCompletedEvent
   | ToolCallUpdatedEvent
-  | HarnessStartedEvent
-  | HarnessFinishedEvent
   | SettingsUpdatedEvent
   | SubagentStartedEvent
   | SubagentFinishedEvent

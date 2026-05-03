@@ -28,7 +28,6 @@ export interface RunState {
   reasoningEffort?: ComposerReasoningSelection
   channelHint?: string
   recoveryCheckpoint?: RunRecoveryCheckpoint
-  recoveringHarnessId?: string
   abortController: AbortController
   pendingSteerMessageId?: string
   pendingSteerInput?: {

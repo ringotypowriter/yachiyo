@@ -250,7 +250,6 @@ test('buildMessageTimelineRows keeps each conversation flattened into separate v
         createdAt: '2026-04-18T00:00:03.000Z'
       }
     ],
-    harnessEvents: [],
     orphanToolCalls: [],
     pendingSteerMessage: null,
     inlineToolCalls: [],

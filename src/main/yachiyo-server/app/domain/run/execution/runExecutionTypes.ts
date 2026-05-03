@@ -112,7 +112,7 @@ export type ExecuteRunResult =
       steerInput: CancelWithSteerReason['steerInput']
       usage?: ModelUsage
     }
-  | { kind: 'recovering'; checkpoint: RunRecoveryCheckpoint; harnessId: string }
+  | { kind: 'recovering'; checkpoint: RunRecoveryCheckpoint }
 
 export interface RunExecutionDeps {
   storage: YachiyoStorage

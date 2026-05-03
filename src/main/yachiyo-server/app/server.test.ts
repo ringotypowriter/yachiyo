@@ -6931,7 +6931,7 @@ test('YachiyoServer can retry directly from a user request that has no assistant
   )
 })
 
-test('YachiyoServer binds recovered tool calls and closes the harness when retry backoff is cancelled', async () => {
+test('YachiyoServer binds recovered tool calls when retry backoff is cancelled', async () => {
   let attempt = 0
 
   await withServer(
@@ -6960,11 +6960,6 @@ test('YachiyoServer binds recovered tool calls and closes the harness when retry
       assert.equal(retryingEvent.runId, accepted.runId)
 
       await server.cancelRun({ runId: accepted.runId })
-      const harnessFinished = (await waitForEvent('harness.finished')) as {
-        type: 'harness.finished'
-        status: string
-      }
-      assert.equal(harnessFinished.status, 'cancelled')
       await completeRun(accepted.runId)
 
       const bootstrap = await server.bootstrap()

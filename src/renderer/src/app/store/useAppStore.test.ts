@@ -36,7 +36,6 @@ function resetStore(): void {
     config: null,
     connectionStatus: 'connected',
     enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
-    harnessEvents: {},
     subagentActiveIdsByThread: {},
     subagentProgressTimelineByThread: {},
     subagentStateById: {},

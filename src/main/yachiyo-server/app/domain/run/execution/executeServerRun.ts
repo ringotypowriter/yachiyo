@@ -5,8 +5,6 @@ import { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTrack
 import { runGc } from '../../../../services/fileSnapshot/snapshotGc.ts'
 
 import type {
-  HarnessFinishedEvent,
-  HarnessStartedEvent,
   MessageCompletedEvent,
   MessageDeltaEvent,
   MessageReasoningDeltaEvent,
@@ -45,7 +43,7 @@ import {
   summarizeToolInput
 } from '../../../../tools/agentTools.ts'
 import { createFilteredMemoryService } from '../../../../services/memory/memoryService.ts'
-import { createDeltaBatcher, DEFAULT_HARNESS_NAME } from '../../shared.ts'
+import { createDeltaBatcher } from '../../shared.ts'
 import {
   appendRecoveryReasoningDelta,
   appendRecoveryTextDelta,
@@ -166,7 +164,6 @@ export async function executeServerRun(
     perfCollector.recordToolCallWrite(performance.now() - t0)
   }
   const settings = deps.readSettings()
-  const harnessId = deps.createId()
   const recoveryCheckpoint = input.recoveryCheckpoint
   const messageId = recoveryCheckpoint?.assistantMessageId ?? deps.createId()
   const toolCalls = recoveryCheckpoint
@@ -356,13 +353,6 @@ export async function executeServerRun(
     deps.onExecutionPhaseChange?.(phase)
   }
 
-  deps.emit<HarnessStartedEvent>({
-    type: 'harness.started',
-    threadId: input.thread.id,
-    runId: input.runId,
-    harnessId,
-    name: DEFAULT_HARNESS_NAME
-  })
   if (!recoveryCheckpoint) {
     deps.emit<MessageStartedEvent>({
       type: 'message.started',
@@ -1193,15 +1183,6 @@ export async function executeServerRun(
       // Hand the snapshot tracker back to the caller so it persists across
       // steer legs. The same tracker accumulates file changes for the entire
       // run and is finalized only when the run reaches a terminal state.
-      deps.emit<HarnessFinishedEvent>({
-        type: 'harness.finished',
-        threadId: input.thread.id,
-        runId: input.runId,
-        harnessId,
-        name: DEFAULT_HARNESS_NAME,
-        status: 'completed'
-      })
-
       return {
         kind: 'steer-pending',
         assistantMessageId: messageId,
@@ -1302,14 +1283,6 @@ export async function executeServerRun(
     }
 
     deps.onTerminalState?.()
-    deps.emit<HarnessFinishedEvent>({
-      type: 'harness.finished',
-      threadId: input.thread.id,
-      runId: input.runId,
-      harnessId,
-      name: DEFAULT_HARNESS_NAME,
-      status: 'completed'
-    })
     deps.emit<RunCompletedEvent>({
       type: 'run.completed',
       threadId: input.thread.id,
@@ -1449,14 +1422,6 @@ export async function executeServerRun(
 
         deps.storage.deleteRunRecoveryCheckpoint(input.runId)
         // Pass the tracker through so the next leg inherits accumulated changes.
-        deps.emit<HarnessFinishedEvent>({
-          type: 'harness.finished',
-          threadId: input.thread.id,
-          runId: input.runId,
-          harnessId,
-          name: DEFAULT_HARNESS_NAME,
-          status: 'cancelled'
-        })
         return {
           kind: 'restarted',
           nextRequestMessageId: restartReason.nextRequestMessageId,
@@ -1578,14 +1543,6 @@ export async function executeServerRun(
         }
 
         deps.onTerminalState?.()
-        deps.emit<HarnessFinishedEvent>({
-          type: 'harness.finished',
-          threadId: input.thread.id,
-          runId: input.runId,
-          harnessId,
-          name: DEFAULT_HARNESS_NAME,
-          status: 'cancelled'
-        })
         deps.emit<RunCancelledEvent>({
           type: 'run.cancelled',
           threadId: input.thread.id,
@@ -1718,14 +1675,6 @@ export async function executeServerRun(
       }
 
       deps.onTerminalState?.()
-      deps.emit<HarnessFinishedEvent>({
-        type: 'harness.finished',
-        threadId: input.thread.id,
-        runId: input.runId,
-        harnessId,
-        name: DEFAULT_HARNESS_NAME,
-        status: 'cancelled'
-      })
       deps.emit<RunCancelledEvent>({
         type: 'run.cancelled',
         threadId: input.thread.id,
@@ -1775,8 +1724,7 @@ export async function executeServerRun(
         })
         return {
           kind: 'recovering',
-          checkpoint,
-          harnessId
+          checkpoint
         }
       }
     }
@@ -1887,15 +1835,6 @@ export async function executeServerRun(
     }
 
     deps.onTerminalState?.()
-    deps.emit<HarnessFinishedEvent>({
-      type: 'harness.finished',
-      threadId: input.thread.id,
-      runId: input.runId,
-      harnessId,
-      name: DEFAULT_HARNESS_NAME,
-      status: 'failed',
-      error: message
-    })
     deps.emit<RunFailedEvent>({
       type: 'run.failed',
       threadId: input.thread.id,

@@ -4,7 +4,6 @@ import type {
   ChatAccepted,
   ComposerReasoningSelection,
   CompactThreadAccepted,
-  HarnessFinishedEvent,
   MessageCompletedEvent,
   MessageRecord,
   RunCancelledEvent,
@@ -38,12 +37,7 @@ import { SnapshotTracker } from '../../../services/fileSnapshot/snapshotTracker.
 import { runAcpChatThread } from '../../../runtime/acp/acpChatRuntime.ts'
 import { resolveRetryRequest } from '../threadDomain.ts'
 import { sleep } from '../../../channels/connectionRetry.ts'
-import {
-  DEFAULT_HARNESS_NAME,
-  INTERRUPTED_RUN_ERROR,
-  SHUTDOWN_RUN_ERROR,
-  isAbortError
-} from '../shared.ts'
+import { INTERRUPTED_RUN_ERROR, SHUTDOWN_RUN_ERROR, isAbortError } from '../shared.ts'
 import { type BackgroundTaskRunContext, type RunDomainDeps, type RunState } from './runTypes.ts'
 import { createEphemeralStorageProxy, type EphemeralStorage } from './chat/ephemeralStorage.ts'
 import { type DebouncedSendChatEntry } from './chat/sendChatDebounce.ts'
@@ -290,25 +284,6 @@ export class YachiyoServerRunDomain {
         toolCall: updatedToolCall
       })
     }
-  }
-
-  private emitCancelledHarnessFinished(input: {
-    threadId: string
-    runId: string
-    harnessId?: string
-  }): void {
-    if (!input.harnessId) {
-      return
-    }
-
-    this.deps.emit<HarnessFinishedEvent>({
-      type: 'harness.finished',
-      threadId: input.threadId,
-      runId: input.runId,
-      harnessId: input.harnessId,
-      name: DEFAULT_HARNESS_NAME,
-      status: 'cancelled'
-    })
   }
 
   recoverInterruptedRuns(error: string = INTERRUPTED_RUN_ERROR): void {
@@ -627,7 +602,6 @@ export class YachiyoServerRunDomain {
 
         if (result.kind === 'recovering') {
           activeRun.recoveryCheckpoint = result.checkpoint
-          activeRun.recoveringHarnessId = result.harnessId
           try {
             await sleep(
               Math.min(1_000 * 2 ** Math.max(0, result.checkpoint.recoveryAttempts - 1), 30_000),
@@ -691,11 +665,6 @@ export class YachiyoServerRunDomain {
               completedAt: timestamp,
               ...usageFieldsFrom(accumulatedUsage)
             })
-            this.emitCancelledHarnessFinished({
-              threadId: input.thread.id,
-              runId: input.runId,
-              harnessId: activeRun.recoveringHarnessId
-            })
             this.deps.emit<RunCancelledEvent>({
               type: 'run.cancelled',
               threadId: input.thread.id,
@@ -709,7 +678,6 @@ export class YachiyoServerRunDomain {
         }
 
         activeRun.recoveryCheckpoint = undefined
-        activeRun.recoveringHarnessId = undefined
 
         if (result.kind === 'completed') {
           if (isRecapRun) {

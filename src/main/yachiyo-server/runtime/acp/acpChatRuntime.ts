@@ -5,8 +5,6 @@ import { resolve } from 'node:path'
 import type { ContentBlock } from '@agentclientprotocol/sdk'
 
 import type {
-  HarnessFinishedEvent,
-  HarnessStartedEvent,
   MessageCompletedEvent,
   MessageDeltaEvent,
   MessageImageRecord,
@@ -26,7 +24,6 @@ import type {
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import {
   createDeltaBatcher,
-  DEFAULT_HARNESS_NAME,
   type CreateId,
   type EmitServerEvent,
   type Timestamp
@@ -70,7 +67,6 @@ export async function runAcpChatThread(
   deps: AcpChatRunDeps,
   input: AcpChatRunInput
 ): Promise<ExecuteRunResult> {
-  const harnessId = deps.createId()
   const messageId = deps.createId()
 
   const runtimeBinding = input.thread.runtimeBinding
@@ -103,13 +99,6 @@ export async function runAcpChatThread(
     workspacePath = await deps.ensureThreadWorkspace(input.thread.id)
   }
 
-  deps.emit<HarnessStartedEvent>({
-    type: 'harness.started',
-    threadId: input.thread.id,
-    runId: input.runId,
-    harnessId,
-    name: DEFAULT_HARNESS_NAME
-  })
   deps.emit<MessageStartedEvent>({
     type: 'message.started',
     threadId: input.thread.id,
@@ -268,7 +257,6 @@ export async function runAcpChatThread(
       pendingWarmSession = null
       return emitCancelledAndReturn(deps, input, {
         buffer: bufferParts.join(''),
-        harnessId,
         messageId,
         modelId: profile.name,
         activeToolCalls
@@ -330,14 +318,6 @@ export async function runAcpChatThread(
       threadId: input.thread.id,
       thread: updatedThread
     })
-    deps.emit<HarnessFinishedEvent>({
-      type: 'harness.finished',
-      threadId: input.thread.id,
-      runId: input.runId,
-      harnessId,
-      name: DEFAULT_HARNESS_NAME,
-      status: 'completed'
-    })
     deps.emit<RunCompletedEvent>({
       type: 'run.completed',
       threadId: input.thread.id,
@@ -359,7 +339,6 @@ export async function runAcpChatThread(
     if (input.abortController.signal.aborted) {
       return emitCancelledAndReturn(deps, input, {
         buffer: bufferParts.join(''),
-        harnessId,
         messageId,
         modelId: profile.name,
         activeToolCalls
@@ -429,14 +408,6 @@ export async function runAcpChatThread(
         thread: updatedThread
       })
     }
-    deps.emit<HarnessFinishedEvent>({
-      type: 'harness.finished',
-      threadId: input.thread.id,
-      runId: input.runId,
-      harnessId,
-      name: DEFAULT_HARNESS_NAME,
-      status: 'failed'
-    })
     deps.emit<RunFailedEvent>({
       type: 'run.failed',
       threadId: input.thread.id,
@@ -499,7 +470,6 @@ function emitCancelledAndReturn(
   input: AcpChatRunInput,
   options: {
     buffer: string
-    harnessId: string
     messageId: string
     modelId: string
     activeToolCalls?: Map<string, ToolCallRecord>
@@ -553,14 +523,6 @@ function emitCancelledAndReturn(
 
   deps.storage.cancelRun({ runId: input.runId, completedAt: timestamp })
   deps.onTerminalState?.()
-  deps.emit<HarnessFinishedEvent>({
-    type: 'harness.finished',
-    threadId: input.thread.id,
-    runId: input.runId,
-    harnessId: options.harnessId,
-    name: DEFAULT_HARNESS_NAME,
-    status: 'cancelled'
-  })
   deps.emit<RunCancelledEvent>({
     type: 'run.cancelled',
     threadId: input.thread.id,

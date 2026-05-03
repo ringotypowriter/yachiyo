@@ -3,7 +3,6 @@ import { useVirtualizer as useTanStackVirtualizer } from '@tanstack/react-virtua
 import { useShallow } from 'zustand/react/shallow'
 import { Waypoints } from 'lucide-react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
-import type { HarnessRecord } from '@renderer/app/store/useAppStore'
 import type { Message, RunRecord, ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import {
@@ -30,7 +29,6 @@ import { AssistantMessageBubble } from './AssistantMessageBubble'
 import { GeneratingRow } from './GeneratingRow'
 import { SubagentRunningIndicator } from './SubagentRunningIndicator'
 import { PreparingBubble } from './PreparingBubble'
-import { RunEventRow } from './RunEventRow'
 import { RunMemoryRecallRow } from './RunMemoryRecallRow'
 import { ReplyBranchNavigation } from './ReplyBranchNavigation'
 import { ToolCallRow } from './ToolCallRow'
@@ -88,7 +86,6 @@ interface TimelineItemContentProps {
 }
 
 const EMPTY_MESSAGES: Message[] = []
-const EMPTY_HARNESSES: HarnessRecord[] = []
 const EMPTY_RUNS: RunRecord[] = []
 const EMPTY_TOOL_CALLS: ToolCall[] = []
 const EMPTY_ACTIVE_SUBAGENT_IDS: string[] = []
@@ -138,10 +135,6 @@ function renderTimelineItem(
     onDelete,
     onSelectReplyBranch
   } = context
-
-  if (item.kind === 'harness') {
-    return <RunEventRow harness={item.data} />
-  }
 
   if (item.kind === 'pending-steer') {
     if (!threadCapabilities) return null
@@ -429,7 +422,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
   const {
     thread,
     messages,
-    harnessEvents,
     pendingSteerEntry,
     toolCalls,
     runs,
@@ -461,9 +453,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
           null)
         : null,
       messages: threadId ? (state.messages[threadId] ?? EMPTY_MESSAGES) : EMPTY_MESSAGES,
-      harnessEvents: threadId
-        ? (state.harnessEvents[threadId] ?? EMPTY_HARNESSES)
-        : EMPTY_HARNESSES,
       pendingSteerEntry: threadId ? (state.pendingSteerMessages[threadId] ?? null) : null,
       toolCalls: threadId ? (state.toolCalls[threadId] ?? EMPTY_TOOL_CALLS) : EMPTY_TOOL_CALLS,
       runs: threadId ? (state.runsByThread[threadId] ?? EMPTY_RUNS) : EMPTY_RUNS,
@@ -564,7 +553,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       buildMessageTimelineRows({
         messageGroups,
         rootAssistantMessages,
-        harnessEvents,
         orphanToolCalls,
         pendingSteerMessage,
         inlineToolCalls,
@@ -576,7 +564,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     [
       messageGroups,
       rootAssistantMessages,
-      harnessEvents,
       orphanToolCalls,
       pendingSteerMessage,
       inlineToolCalls,
@@ -655,8 +642,6 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       const cached = measuredSizeCache.current.get(item.key)
       if (cached != null && cached > 0) return cached
       switch (item.kind) {
-        case 'harness':
-          return 56
         case 'tool':
           return 72
         case 'pending-steer':
@@ -932,15 +917,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
         scrollToBottom()
       }
     })
-  }, [
-    activeRequestMessageId,
-    harnessEvents,
-    messages,
-    runPhase,
-    toolCalls,
-    timelineRows.length,
-    scrollToBottom
-  ])
+  }, [activeRequestMessageId, messages, runPhase, toolCalls, timelineRows.length, scrollToBottom])
   useEffect(() => {
     return () => {
       cancelInitialBottomScroll()

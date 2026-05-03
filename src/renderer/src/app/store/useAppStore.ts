@@ -177,17 +177,6 @@ interface PendingSteerMessage {
   files?: ComposerFileDraft[]
 }
 
-export interface HarnessRecord {
-  id: string
-  runId: string
-  threadId: string
-  name: string
-  status: 'running' | 'completed' | 'failed' | 'cancelled'
-  startedAt: string
-  finishedAt?: string
-  error?: string
-}
-
 interface ActiveSubagentState {
   delegationId: string
   threadId: string
@@ -345,7 +334,6 @@ interface AppState {
   connectionStatus: ConnectionStatus
   deleteThread: (threadId: string) => Promise<void>
   enabledTools: ToolCallName[]
-  harnessEvents: Record<string, HarnessRecord[]>
   subagentActiveIdsByThread: Record<string, string[]>
   subagentProgressTimelineByThread: Record<string, SubagentProgressEntry[]>
   subagentStateById: Record<string, ActiveSubagentState>
@@ -1446,10 +1434,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...state,
           activeThreadId: snapshot.thread.id,
           ...withFilterBase(state.sidebarFilter, 'all'),
-          harnessEvents: {
-            ...state.harnessEvents,
-            [snapshot.thread.id]: []
-          },
           lastError: null,
           messages: {
             ...state.messages,
@@ -1499,7 +1483,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
-  harnessEvents: {},
   subagentActiveIdsByThread: {},
   subagentProgressTimelineByThread: {},
   subagentStateById: {},
@@ -1592,10 +1575,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
 
         return {
-          // Preserve harness progress while a run is active.
-          harnessEvents: activeRunId
-            ? state.harnessEvents
-            : { ...state.harnessEvents, [threadId]: [] },
           lastError: null,
           messages: {
             ...state.messages,
@@ -2062,8 +2041,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         const externalThreads = removeThread(state.externalThreads, event.threadId)
         const messages = { ...state.messages }
         delete messages[event.threadId]
-        const harnessEvents = { ...state.harnessEvents }
-        delete harnessEvents[event.threadId]
         const justDoneRunIdsByThread = { ...state.justDoneRunIdsByThread }
         delete justDoneRunIdsByThread[event.threadId]
         const latestRunsByThread = { ...state.latestRunsByThread }
@@ -2111,7 +2088,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           activeThreadId,
           archivedThreads,
           composerDrafts: removeComposerDraft(state.composerDrafts, event.threadId),
-          harnessEvents,
           justDoneRunIdsByThread,
           latestRunsByThread,
           runsByThread,
@@ -2234,9 +2210,6 @@ export const useAppStore = create<AppState>((set, get) => ({
             nextActiveRequestMessageId
           ),
           archivedThreads: removeThread(state.archivedThreads, event.threadId),
-          harnessEvents: activeRunId
-            ? state.harnessEvents
-            : { ...state.harnessEvents, [event.threadId]: [] },
           messages: {
             ...state.messages,
             [event.threadId]: nextMessages
@@ -2884,32 +2857,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...nextState,
           ...deriveActiveThreadRunState(nextState)
         }
-      }
-
-      if (event.type === 'harness.started') {
-        const record: HarnessRecord = {
-          id: event.harnessId,
-          runId: event.runId,
-          threadId: event.threadId,
-          name: event.name,
-          status: 'running',
-          startedAt: event.timestamp
-        }
-        const existing = state.harnessEvents[event.threadId] ?? []
-        const next = [...existing.filter((h) => h.id !== record.id), record].sort((a, b) =>
-          a.startedAt.localeCompare(b.startedAt)
-        )
-        return { harnessEvents: { ...state.harnessEvents, [event.threadId]: next } }
-      }
-
-      if (event.type === 'harness.finished') {
-        const existing = state.harnessEvents[event.threadId] ?? []
-        const next = existing.map((h) =>
-          h.id === event.harnessId
-            ? { ...h, status: event.status, finishedAt: event.timestamp, error: event.error }
-            : h
-        )
-        return { harnessEvents: { ...state.harnessEvents, [event.threadId]: next } }
       }
 
       if (event.type === 'subagent.started') {
@@ -3694,13 +3641,11 @@ export const useAppStore = create<AppState>((set, get) => ({
                 )
 
           // Edit mode deletes the targeted message and all its descendants
-          // (plus their tool calls / harness events) before starting a fresh
-          // run. The authoritative cleanup arrives via thread.state.replaced,
-          // but if that event races with this acceptance handler, stale tool
-          // calls from the deleted subtree can linger. Compute the deleted
-          // descendant IDs and filter them out here.
+          // before starting a fresh run. The authoritative cleanup arrives
+          // via thread.state.replaced, but if that event races with this
+          // acceptance handler, stale tool calls from the deleted subtree can
+          // linger. Compute the deleted descendant IDs and filter them out here.
           let nextToolCalls = state.toolCalls
-          let nextHarnessEvents = state.harnessEvents
           if (isEditMode && acceptedReplacedMessageId) {
             const currentMessages = state.messages[accepted.thread.id] ?? []
             const deletedIds = collectDescendantIds(currentMessages, acceptedReplacedMessageId)
@@ -3708,11 +3653,6 @@ export const useAppStore = create<AppState>((set, get) => ({
               (tc) => !tc.requestMessageId || !deletedIds.has(tc.requestMessageId)
             )
             nextToolCalls = { ...state.toolCalls, [accepted.thread.id]: filteredToolCalls }
-            const survivingRunIds = new Set(filteredToolCalls.map((tc) => tc.runId).filter(Boolean))
-            const filteredHarnesses = (state.harnessEvents[accepted.thread.id] ?? []).filter((h) =>
-              survivingRunIds.has(h.runId)
-            )
-            nextHarnessEvents = { ...state.harnessEvents, [accepted.thread.id]: filteredHarnesses }
           }
 
           const nextState = {
@@ -3737,7 +3677,6 @@ export const useAppStore = create<AppState>((set, get) => ({
               [accepted.thread.id]: nextMessages
             },
             toolCalls: nextToolCalls,
-            harnessEvents: nextHarnessEvents,
             pendingSteerMessages:
               acceptedKind === 'active-run-steer-pending'
                 ? {

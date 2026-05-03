@@ -1,4 +1,3 @@
-import type { HarnessRecord } from '@renderer/app/store/useAppStore'
 import type { Message, MessageTextBlockRecord, RunRecord, ToolCall } from '@renderer/app/types'
 import {
   buildConversationGroupTimelineItems,
@@ -91,12 +90,6 @@ export type MessageTimelineRow =
       scrollMessageId: string
     }
   | {
-      kind: 'harness'
-      key: string
-      time: string
-      data: HarnessRecord
-    }
-  | {
       kind: 'tool'
       key: string
       time: string
@@ -115,7 +108,6 @@ interface BuildConversationGroupRowsInput {
 interface BuildMessageTimelineRowsInput {
   messageGroups: MessageGroup[]
   rootAssistantMessages: Message[]
-  harnessEvents: HarnessRecord[]
   orphanToolCalls: ToolCall[]
   pendingSteerMessage: Message | null
   inlineToolCalls: ToolCall[]
@@ -485,20 +477,7 @@ export function buildMessageTimelineRows(
           data: toolCall
         }
       ]
-    })),
-    ...input.harnessEvents
-      .filter((harness) => harness.name !== 'default.reply')
-      .map((harness) => ({
-        time: harness.startedAt,
-        rows: [
-          {
-            kind: 'harness' as const,
-            key: harness.id,
-            time: harness.startedAt,
-            data: harness
-          }
-        ]
-      }))
+    }))
   ]
 
   return blocks.sort(compareBlocks).flatMap((block) => block.rows)

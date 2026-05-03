@@ -1,7 +1,6 @@
 import type { YachiyoServerEvent } from '../../../../shared/yachiyo/protocol.ts'
 
 export const DEFAULT_THREAD_TITLE = 'New Chat'
-export const DEFAULT_HARNESS_NAME = 'default.reply'
 export const INTERRUPTED_RUN_ERROR = 'Run interrupted before completion.'
 export const SHUTDOWN_RUN_ERROR = 'Application shut down before the run completed.'
 
