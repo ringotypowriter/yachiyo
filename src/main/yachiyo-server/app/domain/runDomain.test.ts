@@ -5,6 +5,7 @@ import type {
   ComposerReasoningSelection,
   ThreadRecord
 } from '../../../../shared/yachiyo/protocol.ts'
+import { sendActiveRunSteer, type SendChatFlowContext } from './run/chat/sendChatFlow.ts'
 import { YachiyoServerRunDomain } from './run/runDomain.ts'
 
 function createDomain(): YachiyoServerRunDomain {
@@ -59,31 +60,33 @@ test('withdrawPendingSteer restores the reasoning effort replaced by the steer',
   const domainState = domain as unknown as {
     activeRuns: Map<string, typeof activeRun>
     activeRunByThread: Map<string, string>
-    sendActiveRunSteer: (input: {
-      activeRunId: string
-      attachments: []
-      content: string
-      enabledSkillNames?: string[]
-      images: []
-      messageId: string
-      reasoningEffort?: ComposerReasoningSelection
-      thread: ThreadRecord
-    }) => unknown
   }
 
   domainState.activeRuns.set('run-1', activeRun)
   domainState.activeRunByThread.set(thread.id, 'run-1')
 
-  domainState.sendActiveRunSteer({
-    activeRunId: 'run-1',
-    content: 'steer',
-    enabledSkillNames: ['steer-skill'],
-    reasoningEffort: 'high',
-    images: [],
-    attachments: [],
-    messageId: 'steer-1',
-    thread
-  })
+  sendActiveRunSteer(
+    {
+      deps: { timestamp: () => '2026-05-02T00:00:00.000Z' } as SendChatFlowContext['deps'],
+      activeRuns: domainState.activeRuns as SendChatFlowContext['activeRuns'],
+      activeRunByThread: domainState.activeRunByThread,
+      debouncedSendChats: new Map(),
+      threadTitleRunner: {
+        schedule: () => {}
+      } as unknown as SendChatFlowContext['threadTitleRunner'],
+      startActiveRun: () => {}
+    },
+    {
+      activeRunId: 'run-1',
+      content: 'steer',
+      enabledSkillNames: ['steer-skill'],
+      reasoningEffort: 'high',
+      images: [],
+      attachments: [],
+      messageId: 'steer-1',
+      thread
+    }
+  )
 
   assert.equal(activeRun.reasoningEffort, 'high')
 

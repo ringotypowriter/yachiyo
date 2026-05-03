@@ -1,20 +1,13 @@
-import { resolve } from 'node:path'
-
 import type {
   BackgroundTaskCompletedEvent,
   BackgroundTaskLogAppendEvent,
   BackgroundTaskSnapshot,
-  BackgroundTaskStartedEvent,
   ChatAccepted,
   ComposerReasoningSelection,
   CompactThreadAccepted,
   HarnessFinishedEvent,
   MessageCompletedEvent,
-  MessageDeltaEvent,
-  MessageReasoningDeltaEvent,
-  MessageFileAttachment,
   MessageRecord,
-  MessageStartedEvent,
   RunCancelledEvent,
   RunCompletedEvent,
   RetryAccepted,
@@ -23,7 +16,6 @@ import type {
   RunCreatedEvent,
   SendChatInput,
   SendChatMode,
-  SubagentProgressEvent,
   ThreadRecord,
   ThreadStateReplacedEvent,
   ThreadUpdatedEvent,
@@ -31,12 +23,7 @@ import type {
   ToolCallRecord,
   ToolCallName
 } from '../../../../../shared/yachiyo/protocol.ts'
-import { saveFileAttachmentsToWorkspace, saveImageFilesToWorkspace } from '../attachmentDomain.ts'
-import {
-  hasMessagePayload,
-  normalizeMessageImages,
-  summarizeMessageInput
-} from '../../../../../shared/yachiyo/messageContent.ts'
+import { summarizeMessageInput } from '../../../../../shared/yachiyo/messageContent.ts'
 import {
   getThreadCapabilities,
   normalizeSkillNames
@@ -46,25 +33,18 @@ import {
   type MemoryDistillationScheduler
 } from '../../../services/memory/memoryDistillationScheduler.ts'
 import type { RunRecoveryCheckpoint } from '../../../storage/storage.ts'
-import {
-  collectMessagePath,
-  wouldCreateParentCycle
-} from '../../../../../shared/yachiyo/threadTree.ts'
+import { wouldCreateParentCycle } from '../../../../../shared/yachiyo/threadTree.ts'
 import { BackgroundBashManager, type BackgroundBashTaskResult } from '../backgroundBashManager.ts'
-import { assertSupportedImages, resolveEnabledTools } from '../configDomain.ts'
-import { toEffectiveProviderSettings } from '../../../settings/settingsStore.ts'
-import { isModelImageCapable } from '../../../../../shared/yachiyo/providerConfig.ts'
+import { resolveEnabledTools } from '../configDomain.ts'
 import { executeServerRun } from './execution/executeServerRun.ts'
 import type { ExecuteRunInput, ExecuteRunResult } from './execution/runExecutionTypes.ts'
 import { ReadRecordCache } from '../../../tools/agentTools.ts'
 import { SnapshotTracker } from '../../../services/fileSnapshot/snapshotTracker.ts'
 import { runAcpChatThread } from '../../../runtime/acp/acpChatRuntime.ts'
-import { buildTitleQuery, deriveThreadTitleFallback } from '../threadTitle.ts'
 import { resolveRetryRequest } from '../threadDomain.ts'
 import { sleep } from '../../../channels/connectionRetry.ts'
 import {
   DEFAULT_HARNESS_NAME,
-  DEFAULT_THREAD_TITLE,
   INTERRUPTED_RUN_ERROR,
   SHUTDOWN_RUN_ERROR,
   isAbortError
@@ -76,14 +56,18 @@ import {
   type RunState
 } from './runTypes.ts'
 import { createEphemeralStorageProxy, type EphemeralStorage } from './chat/ephemeralStorage.ts'
-import {
-  createDebouncedSendChatKey,
-  SEND_CHAT_DEBOUNCE_WINDOW_MS,
-  type DebouncedSendChatEntry
-} from './chat/sendChatDebounce.ts'
+import { type DebouncedSendChatEntry } from './chat/sendChatDebounce.ts'
+import { persistSteerMessage, sendChatFlow, type SendChatFlowContext } from './chat/sendChatFlow.ts'
 import { resolveEffectiveThreadMessages, withParentMessageId } from './chat/threadMessages.ts'
-import { streamCompactThreadHandoff } from './handoff/threadHandoffRun.ts'
+import {
+  startActiveRun,
+  startAssistantOnlyRun,
+  startRecoveredRun,
+  type ActiveRunLoopInput,
+  type ActiveRunStartContext
+} from './active/activeRunStart.ts'
 import { mergeUsageForTerminal, usageFieldsFrom } from './loop/runUsage.ts'
+import { buildRunExecutionDeps, type RunExecutionDepsContext } from './loop/runExecutionDeps.ts'
 import {
   buildBackgroundCompletionMessage,
   isBackgroundAutoDeliveryEligible
@@ -197,6 +181,46 @@ export class YachiyoServerRunDomain {
 
   clearReadRecordCache(threadId: string): void {
     this.readRecordCaches.delete(threadId)
+  }
+
+  private createSendChatFlowContext(): SendChatFlowContext {
+    return {
+      deps: this.deps,
+      activeRuns: this.activeRuns,
+      activeRunByThread: this.activeRunByThread,
+      debouncedSendChats: this.debouncedSendChats,
+      threadTitleRunner: this.threadTitleRunner,
+      startActiveRun: (input) => {
+        startActiveRun(this.createActiveRunStartContext(), input)
+      }
+    }
+  }
+
+  private createActiveRunStartContext(): ActiveRunStartContext {
+    return {
+      deps: this.deps,
+      activeRuns: this.activeRuns,
+      activeRunByThread: this.activeRunByThread,
+      activeRunTasks: this.activeRunTasks,
+      isClosing: () => this.isClosing,
+      runLoop: (input) => this.runLoop(input),
+      threadTitleRunner: this.threadTitleRunner
+    }
+  }
+
+  private createRunExecutionDepsContext(): RunExecutionDepsContext {
+    return {
+      deps: this.deps,
+      activeRuns: this.activeRuns,
+      activeRunByThread: this.activeRunByThread,
+      activeRunTasks: this.activeRunTasks,
+      backgroundTaskRunContext: this.backgroundTaskRunContext,
+      backgroundBashManager: this.backgroundBashManager,
+      createSendChatFlowContext: () => this.createSendChatFlowContext(),
+      setLastRunEnabledTools: (enabledTools) => {
+        this.lastRunEnabledTools = [...enabledTools]
+      }
+    }
   }
 
   private bindTerminalToolCallsToAssistant(input: {
@@ -457,149 +481,13 @@ export class YachiyoServerRunDomain {
 
     setTimeout(() => {
       for (const checkpoint of checkpoints) {
-        this.startRecoveredRun(checkpoint)
+        startRecoveredRun(this.createActiveRunStartContext(), checkpoint)
       }
     }, 0)
   }
 
   async sendChat(input: SendChatInput): Promise<ChatAccepted> {
-    const rawContent = input.content.trim()
-    const images = normalizeMessageImages(input.images)
-    const enabledTools = resolveEnabledTools(
-      input.enabledTools,
-      this.deps.readConfig().enabledTools
-    )
-    const enabledSkillNames =
-      input.enabledSkillNames === undefined
-        ? undefined
-        : normalizeSkillNames(input.enabledSkillNames)
-
-    const thread = this.deps.requireThread(input.threadId)
-    const reasoningEffort = input.reasoningEffort ?? thread.reasoningEffort
-    const content = rawContent
-    const rawMode = input.mode ?? 'normal'
-    // ACP threads do not support steer; any steer is treated as follow-up instead.
-    const mode: SendChatMode =
-      rawMode === 'steer' && thread.runtimeBinding?.kind === 'acp' ? 'follow-up' : rawMode
-    const debounceKey = createDebouncedSendChatKey({
-      attachments: input.attachments,
-      channelHint: input.channelHint,
-      content,
-      enabledSkillNames,
-      enabledTools,
-      extraTools: input.extraTools,
-      images,
-      mode,
-      reasoningEffort,
-      threadId: thread.id
-    })
-
-    return this.runDebouncedSendChat(debounceKey, thread.id, async () => {
-      if (!hasMessagePayload({ content, images, attachments: input.attachments })) {
-        throw new Error('Cannot send an empty message.')
-      }
-      assertSupportedImages(images)
-
-      const messageId = this.deps.createId()
-      const hasFiles = images.length > 0 || (input.attachments?.length ?? 0) > 0
-
-      const workspacePath = hasFiles
-        ? thread.workspacePath?.trim()
-          ? resolve(thread.workspacePath)
-          : await this.deps.ensureThreadWorkspace(thread.id)
-        : null
-
-      const enrichedImages =
-        images.length > 0 && workspacePath
-          ? await saveImageFilesToWorkspace({ workspacePath, messageId, images })
-          : images
-
-      const fileAttachments =
-        (input.attachments?.length ?? 0) > 0 && workspacePath
-          ? await saveFileAttachmentsToWorkspace({
-              workspacePath,
-              messageId,
-              attachments: input.attachments!
-            })
-          : []
-
-      let activeRunId = this.activeRunByThread.get(thread.id)
-
-      if (activeRunId) {
-        const activeRun = this.activeRuns.get(activeRunId)
-        if (activeRun?.recap) {
-          activeRun.abortController.abort()
-          activeRunId = undefined
-        }
-      }
-
-      if (!activeRunId) {
-        return this.startFreshRun({
-          content,
-          enabledTools,
-          enabledSkillNames,
-          channelHint: input.channelHint,
-          extraTools: input.extraTools as import('ai').ToolSet | undefined,
-          reasoningEffort,
-          images: enrichedImages,
-          attachments: fileAttachments,
-          messageId,
-          thread
-        })
-      }
-
-      if (mode === 'steer') {
-        const activeRun = this.activeRuns.get(activeRunId)
-        if (!activeRun?.requestMessageId) {
-          throw new Error('Wait for the handoff to finish before sending a new message.')
-        }
-        // Race guard: stop was already clicked, but the tool's long-running
-        // interval hasn't observed the abort yet. Writing pendingSteerInput now
-        // would attach it to a run heading down the plain-cancelled path, where
-        // it gets wiped when activeRuns is cleared. Route the steer through the
-        // follow-up queue so startQueuedFollowUpIfPresent picks it up.
-        if (activeRun.abortController.signal.aborted) {
-          return this.queueFollowUp({
-            content,
-            enabledTools,
-            enabledSkillNames,
-            reasoningEffort,
-            images: enrichedImages,
-            attachments: fileAttachments,
-            messageId,
-            thread
-          })
-        }
-        return this.sendActiveRunSteer({
-          activeRunId,
-          content,
-          enabledSkillNames,
-          reasoningEffort,
-          images: enrichedImages,
-          attachments: fileAttachments,
-          messageId,
-          thread
-        })
-      }
-
-      if (mode === 'follow-up') {
-        if (!this.activeRuns.get(activeRunId)?.requestMessageId) {
-          throw new Error('Wait for the handoff to finish before sending a new message.')
-        }
-        return this.queueFollowUp({
-          content,
-          enabledTools,
-          enabledSkillNames,
-          reasoningEffort,
-          images: enrichedImages,
-          attachments: fileAttachments,
-          messageId,
-          thread
-        })
-      }
-
-      throw new Error('This thread already has an active run.')
-    })
+    return sendChatFlow(this.createSendChatFlowContext(), input)
   }
 
   async retryMessage(input: RetryInput): Promise<RetryAccepted> {
@@ -658,7 +546,7 @@ export class YachiyoServerRunDomain {
       requestMessageId: requestMessage.id
     })
 
-    this.startActiveRun({
+    startActiveRun(this.createActiveRunStartContext(), {
       enabledTools,
       enabledSkillNames,
       reasoningEffort: input.reasoningEffort,
@@ -698,7 +586,7 @@ export class YachiyoServerRunDomain {
       runId
     })
 
-    this.startAssistantOnlyRun({
+    startAssistantOnlyRun(this.createActiveRunStartContext(), {
       runId,
       thread: input.destinationThread,
       sourceThreadId: input.sourceThread.id,
@@ -742,7 +630,7 @@ export class YachiyoServerRunDomain {
       const enabledTools = resolveEnabledTools(undefined, this.deps.readConfig().enabledTools)
 
       return new Promise<string | null>((resolve) => {
-        this.startActiveRun({
+        startActiveRun(this.createActiveRunStartContext(), {
           enabledTools,
           runId,
           thread,
@@ -855,587 +743,7 @@ export class YachiyoServerRunDomain {
     }
   }
 
-  private startFreshRun(input: {
-    content: string
-    enabledTools: ToolCallName[]
-    enabledSkillNames?: string[]
-    reasoningEffort?: ComposerReasoningSelection
-    channelHint?: string
-    extraTools?: import('ai').ToolSet
-    images: MessageRecord['images']
-    attachments: MessageFileAttachment[]
-    messageId: string
-    thread: ThreadRecord
-    /** When true, the user message is hidden from the chat timeline (system-initiated). */
-    hidden?: boolean
-    /** Override the parent message for the new user message (defaults to thread.headMessageId). */
-    parentMessageId?: string
-  }): ChatAccepted {
-    const timestamp = this.deps.timestamp()
-    const messageSummary = input.hidden
-      ? null
-      : summarizeMessageInput({
-          content: input.content,
-          images: input.images
-        })
-    const fallbackTitle =
-      !input.hidden && input.thread.title === DEFAULT_THREAD_TITLE
-        ? deriveThreadTitleFallback({
-            content: input.content,
-            ...(input.images ? { images: input.images } : {})
-          }) || DEFAULT_THREAD_TITLE
-        : null
-    const userMessage = this.createUserMessage({
-      id: input.messageId,
-      content: input.content,
-      images: input.images,
-      attachments: input.attachments,
-      parentMessageId: input.parentMessageId ?? input.thread.headMessageId,
-      threadId: input.thread.id,
-      timestamp,
-      hidden: input.hidden
-    })
-    const threadWithoutRecap = { ...input.thread }
-    if (!input.hidden) delete threadWithoutRecap.recapText
-    const updatedThread: ThreadRecord = {
-      ...threadWithoutRecap,
-      headMessageId: userMessage.id,
-      ...(messageSummary ? { preview: messageSummary.slice(0, 240) } : {}),
-      title: fallbackTitle ?? input.thread.title,
-      updatedAt: timestamp
-    }
-    const accepted: ChatAccepted = {
-      kind: 'run-started',
-      runId: this.deps.createId(),
-      thread: updatedThread,
-      userMessage
-    }
-
-    this.deps.storage.startRun({
-      runId: accepted.runId,
-      requestMessageId: userMessage.id,
-      thread: input.thread,
-      updatedThread,
-      userMessage,
-      createdAt: timestamp
-    })
-
-    this.deps.emit<ThreadUpdatedEvent>({
-      type: 'thread.updated',
-      threadId: accepted.thread.id,
-      thread: accepted.thread
-    })
-    // Emit user message so the renderer can display it in real-time
-    // (especially important for external/channel threads where sendChat is
-    // called server-side and the renderer doesn't receive the IPC response).
-    this.deps.emit<MessageCompletedEvent>({
-      type: 'message.completed',
-      threadId: accepted.thread.id,
-      runId: accepted.runId,
-      message: userMessage
-    })
-    this.deps.emit<RunCreatedEvent>({
-      type: 'run.created',
-      threadId: accepted.thread.id,
-      runId: accepted.runId,
-      requestMessageId: userMessage.id
-    })
-
-    if (!input.hidden && fallbackTitle && fallbackTitle !== DEFAULT_THREAD_TITLE && input.content) {
-      this.threadTitleRunner.schedule({
-        fallbackTitle,
-        query: buildTitleQuery(input.content, input.images, input.attachments),
-        runId: accepted.runId,
-        threadId: accepted.thread.id
-      })
-    }
-
-    this.startActiveRun({
-      enabledTools: input.enabledTools,
-      enabledSkillNames: input.enabledSkillNames,
-      channelHint: input.channelHint,
-      extraTools: input.extraTools,
-      reasoningEffort: input.reasoningEffort,
-      runId: accepted.runId,
-      thread: accepted.thread,
-      requestMessageId: userMessage.id,
-      updateHeadOnComplete: true
-    })
-
-    return accepted
-  }
-
-  private sendActiveRunSteer(input: {
-    activeRunId: string
-    content: string
-    enabledSkillNames?: string[]
-    reasoningEffort?: ComposerReasoningSelection
-    images: MessageRecord['images']
-    attachments: MessageFileAttachment[]
-    messageId: string
-    thread: ThreadRecord
-    hidden?: boolean
-  }): ChatAccepted {
-    const activeRun = this.activeRuns.get(input.activeRunId)
-    if (!activeRun) {
-      throw new Error('This thread no longer has an active run.')
-    }
-
-    // Always queue the steer — it will be applied at the next turn boundary
-    // (step boundary via stopWhen, or after the assistant message completes).
-    // Never abort the current generation for a steer.
-    const previousEnabledSkillNames = activeRun.enabledSkillNames
-    const previousReasoningEffort = activeRun.reasoningEffort
-    activeRun.enabledSkillNames = input.enabledSkillNames ? [...input.enabledSkillNames] : undefined
-    if (input.reasoningEffort !== undefined) {
-      activeRun.reasoningEffort = input.reasoningEffort
-    }
-
-    if (activeRun.pendingSteerInput) {
-      activeRun.pendingSteerInput = {
-        content: [activeRun.pendingSteerInput.content, input.content]
-          .filter((part) => part.length > 0)
-          .join('\n'),
-        images: [...(activeRun.pendingSteerInput.images ?? []), ...(input.images ?? [])],
-        attachments: [...activeRun.pendingSteerInput.attachments, ...(input.attachments ?? [])],
-        messageId: activeRun.pendingSteerInput.messageId,
-        timestamp: activeRun.pendingSteerInput.timestamp,
-        previousEnabledSkillNames: activeRun.pendingSteerInput.previousEnabledSkillNames,
-        previousReasoningEffort: activeRun.pendingSteerInput.previousReasoningEffort,
-        reasoningEffort: input.reasoningEffort ?? activeRun.pendingSteerInput.reasoningEffort,
-        hidden: activeRun.pendingSteerInput.hidden
-      }
-    } else {
-      activeRun.pendingSteerInput = {
-        content: input.content,
-        images: input.images,
-        attachments: input.attachments,
-        messageId: input.messageId,
-        timestamp: this.deps.timestamp(),
-        ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
-        previousEnabledSkillNames,
-        ...(previousReasoningEffort !== undefined ? { previousReasoningEffort } : {}),
-        hidden: input.hidden
-      }
-    }
-
-    return {
-      kind: 'active-run-steer-pending',
-      runId: input.activeRunId,
-      thread: input.thread
-    }
-  }
-
-  private queueFollowUp(input: {
-    content: string
-    enabledTools: ToolCallName[]
-    enabledSkillNames?: string[]
-    reasoningEffort?: ComposerReasoningSelection
-    images: MessageRecord['images']
-    attachments: MessageFileAttachment[]
-    messageId: string
-    thread: ThreadRecord
-  }): ChatAccepted {
-    const activeRunId = this.activeRunByThread.get(input.thread.id)
-    const activeRun = activeRunId ? this.activeRuns.get(activeRunId) : null
-    if (!activeRunId || !activeRun) {
-      return this.startFreshRun(input)
-    }
-
-    const timestamp = this.deps.timestamp()
-    const previousQueuedMessageId = input.thread.queuedFollowUpMessageId
-    const previousQueuedMessage = previousQueuedMessageId
-      ? this.deps
-          .loadThreadMessages(input.thread.id)
-          .find((message) => message.id === previousQueuedMessageId)
-      : undefined
-    const mergedContent = previousQueuedMessage
-      ? [previousQueuedMessage.content, input.content].filter((part) => part.length > 0).join('\n')
-      : input.content
-    const mergedImages = previousQueuedMessage
-      ? [...(previousQueuedMessage.images ?? []), ...(input.images ?? [])]
-      : input.images
-    const mergedAttachments = previousQueuedMessage
-      ? [...(previousQueuedMessage.attachments ?? []), ...input.attachments]
-      : input.attachments
-    const userMessage = this.createUserMessage({
-      id: input.messageId,
-      content: mergedContent,
-      images: mergedImages,
-      attachments: mergedAttachments,
-      parentMessageId: activeRun.pendingSteerMessageId ?? activeRun.requestMessageId,
-      threadId: input.thread.id,
-      timestamp
-    })
-    const updatedThread: ThreadRecord = {
-      ...input.thread,
-      queuedFollowUpEnabledTools: [...input.enabledTools],
-      queuedFollowUpMessageId: userMessage.id,
-      updatedAt: timestamp
-    }
-    if (input.reasoningEffort !== undefined) {
-      updatedThread.queuedFollowUpReasoningEffort = input.reasoningEffort
-    } else {
-      delete updatedThread.queuedFollowUpReasoningEffort
-    }
-    if (input.enabledSkillNames !== undefined) {
-      updatedThread.queuedFollowUpEnabledSkillNames = [...input.enabledSkillNames]
-    } else {
-      delete updatedThread.queuedFollowUpEnabledSkillNames
-    }
-
-    this.deps.storage.saveThreadMessage({
-      thread: input.thread,
-      updatedThread,
-      message: userMessage,
-      ...(previousQueuedMessageId ? { replacedMessageId: previousQueuedMessageId } : {})
-    })
-    this.deps.emit<ThreadUpdatedEvent>({
-      type: 'thread.updated',
-      threadId: updatedThread.id,
-      thread: updatedThread
-    })
-    this.deps.emit<MessageCompletedEvent>({
-      type: 'message.completed',
-      threadId: updatedThread.id,
-      runId: activeRunId,
-      message: userMessage
-    })
-
-    return {
-      kind: 'active-run-follow-up',
-      runId: activeRunId,
-      thread: updatedThread,
-      userMessage,
-      ...(previousQueuedMessageId ? { replacedMessageId: previousQueuedMessageId } : {})
-    }
-  }
-
-  private createUserMessage(input: {
-    id: string
-    content: string
-    images: MessageRecord['images']
-    attachments: MessageFileAttachment[]
-    parentMessageId?: string
-    threadId: string
-    timestamp: string
-    hidden?: boolean
-  }): MessageRecord {
-    return {
-      id: input.id,
-      threadId: input.threadId,
-      ...(input.parentMessageId ? { parentMessageId: input.parentMessageId } : {}),
-      role: 'user',
-      content: input.content,
-      ...(input.images && input.images.length > 0 ? { images: input.images } : {}),
-      ...(input.attachments.length > 0 ? { attachments: input.attachments } : {}),
-      ...(input.hidden ? { hidden: true } : {}),
-      status: 'completed',
-      createdAt: input.timestamp
-    }
-  }
-
-  private runDebouncedSendChat(
-    debounceKey: string | null,
-    threadId: string,
-    execute: () => Promise<ChatAccepted>
-  ): Promise<ChatAccepted> {
-    if (!debounceKey) {
-      return execute()
-    }
-
-    const nowMs = this.getCurrentTimestampMs()
-    this.pruneExpiredDebouncedSendChats(nowMs)
-
-    const existing = this.debouncedSendChats.get(debounceKey)
-    if (existing && existing.expiresAt > nowMs) {
-      if (existing.stateSignature) {
-        const currentStateSignature = this.createDebouncedSendChatStateSignature(threadId)
-        if (existing.stateSignature !== currentStateSignature) {
-          this.debouncedSendChats.delete(debounceKey)
-        } else {
-          existing.expiresAt = nowMs + SEND_CHAT_DEBOUNCE_WINDOW_MS
-          return existing.promise
-        }
-      } else {
-        existing.expiresAt = nowMs + SEND_CHAT_DEBOUNCE_WINDOW_MS
-        return existing.promise
-      }
-    }
-
-    const promise = execute().catch((error) => {
-      const current = this.debouncedSendChats.get(debounceKey)
-      if (current?.promise === promise) {
-        this.debouncedSendChats.delete(debounceKey)
-      }
-      throw error
-    })
-
-    this.debouncedSendChats.set(debounceKey, {
-      expiresAt: nowMs + SEND_CHAT_DEBOUNCE_WINDOW_MS,
-      promise
-    })
-
-    void promise.then(() => {
-      const current = this.debouncedSendChats.get(debounceKey)
-      if (current?.promise === promise) {
-        current.stateSignature = this.createDebouncedSendChatStateSignature(threadId)
-      }
-    })
-
-    return promise
-  }
-
-  private createDebouncedSendChatStateSignature(threadId: string): string {
-    const thread = this.deps.requireThread(threadId)
-    const activeRunId = this.activeRunByThread.get(threadId) ?? null
-    const activeRun = activeRunId ? this.activeRuns.get(activeRunId) : null
-
-    return JSON.stringify({
-      activeRunId,
-      executionPhase: activeRun?.executionPhase ?? null,
-      headMessageId: thread.headMessageId ?? null,
-      pendingSteerMessageId: activeRun?.pendingSteerMessageId ?? null,
-      queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
-      queuedFollowUpReasoningEffort: thread.queuedFollowUpReasoningEffort ?? null,
-      requestMessageId: activeRun?.requestMessageId ?? null
-    })
-  }
-
-  private getCurrentTimestampMs(): number {
-    const timestampMs = Date.parse(this.deps.timestamp())
-    if (Number.isNaN(timestampMs)) {
-      throw new Error('Invalid server timestamp.')
-    }
-    return timestampMs
-  }
-
-  private pruneExpiredDebouncedSendChats(nowMs: number): void {
-    for (const [debounceKey, entry] of this.debouncedSendChats) {
-      if (entry.expiresAt <= nowMs) {
-        this.debouncedSendChats.delete(debounceKey)
-      }
-    }
-  }
-
-  private persistSteerMessage(input: {
-    content: string
-    images: MessageRecord['images']
-    attachments: MessageFileAttachment[]
-    messageId: string
-    runId: string
-    runState: RunState
-    thread: ThreadRecord
-    timestamp: string
-    hidden?: boolean
-  }): { updatedThread: ThreadRecord; userMessage: MessageRecord } {
-    const persistedAt = this.deps.timestamp()
-    const userMessage = this.createUserMessage({
-      id: input.messageId,
-      content: input.content,
-      images: input.images,
-      attachments: input.attachments,
-      parentMessageId: input.runState.pendingSteerMessageId ?? input.runState.requestMessageId,
-      threadId: input.thread.id,
-      timestamp: persistedAt,
-      hidden: input.hidden
-    })
-    const updatedThread: ThreadRecord = {
-      ...input.thread,
-      headMessageId: userMessage.id,
-      updatedAt: persistedAt
-    }
-
-    this.deps.storage.saveThreadMessage({
-      thread: input.thread,
-      updatedThread,
-      message: userMessage
-    })
-    this.deps.emit<ThreadUpdatedEvent>({
-      type: 'thread.updated',
-      threadId: updatedThread.id,
-      thread: updatedThread
-    })
-    this.deps.emit<MessageCompletedEvent>({
-      type: 'message.completed',
-      threadId: updatedThread.id,
-      runId: input.runId,
-      message: userMessage
-    })
-
-    return {
-      updatedThread,
-      userMessage
-    }
-  }
-
-  private startActiveRun(input: {
-    enabledTools: ToolCallName[]
-    enabledSkillNames?: string[]
-    reasoningEffort?: ComposerReasoningSelection
-    channelHint?: string
-    extraTools?: import('ai').ToolSet
-    recoveryCheckpoint?: RunRecoveryCheckpoint
-    runId: string
-    thread: ThreadRecord
-    requestMessageId: string
-    updateHeadOnComplete: boolean
-    recap?: boolean
-  }): void {
-    this.activeRuns.set(input.runId, {
-      threadId: input.thread.id,
-      requestMessageId: input.requestMessageId,
-      ...(input.enabledSkillNames ? { enabledSkillNames: [...input.enabledSkillNames] } : {}),
-      ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
-      ...(input.channelHint ? { channelHint: input.channelHint } : {}),
-      ...(input.recoveryCheckpoint ? { recoveryCheckpoint: input.recoveryCheckpoint } : {}),
-      abortController: new AbortController(),
-      executionPhase: 'generating',
-      updateHeadOnComplete: input.updateHeadOnComplete,
-      ...(input.recap ? { recap: true } : {})
-    })
-    this.activeRunByThread.set(input.thread.id, input.runId)
-
-    const runTask = this.runLoop({
-      enabledTools: input.enabledTools,
-      enabledSkillNames: input.enabledSkillNames,
-      reasoningEffort: input.reasoningEffort,
-      channelHint: input.channelHint,
-      extraTools: input.extraTools,
-      recoveryCheckpoint: input.recoveryCheckpoint,
-      runId: input.runId,
-      thread: input.thread,
-      requestMessageId: input.requestMessageId,
-      updateHeadOnComplete: input.updateHeadOnComplete
-    })
-    this.activeRunTasks.set(input.runId, runTask)
-    void runTask
-  }
-
-  private startRecoveredRun(checkpoint: RunRecoveryCheckpoint): void {
-    if (this.isClosing || this.activeRunByThread.has(checkpoint.threadId)) {
-      return
-    }
-
-    const thread = this.deps.requireThread(checkpoint.threadId)
-    const toolCalls = this.deps
-      .loadThreadToolCalls(thread.id)
-      .filter((toolCall) => toolCall.runId === checkpoint.runId)
-
-    this.deps.emit<RunCreatedEvent>({
-      type: 'run.created',
-      threadId: checkpoint.threadId,
-      runId: checkpoint.runId,
-      requestMessageId: checkpoint.requestMessageId
-    })
-    this.deps.emit<MessageStartedEvent>({
-      type: 'message.started',
-      threadId: checkpoint.threadId,
-      runId: checkpoint.runId,
-      messageId: checkpoint.assistantMessageId,
-      parentMessageId: checkpoint.requestMessageId
-    })
-    if (checkpoint.reasoning) {
-      this.deps.emit<MessageReasoningDeltaEvent>({
-        type: 'message.reasoning.delta',
-        threadId: checkpoint.threadId,
-        runId: checkpoint.runId,
-        messageId: checkpoint.assistantMessageId,
-        delta: checkpoint.reasoning
-      })
-    }
-    if (checkpoint.content) {
-      this.deps.emit<MessageDeltaEvent>({
-        type: 'message.delta',
-        threadId: checkpoint.threadId,
-        runId: checkpoint.runId,
-        messageId: checkpoint.assistantMessageId,
-        delta: checkpoint.content
-      })
-    }
-    for (const toolCall of toolCalls) {
-      this.deps.emit<ToolCallUpdatedEvent>({
-        type: 'tool.updated',
-        threadId: checkpoint.threadId,
-        runId: checkpoint.runId,
-        toolCall
-      })
-    }
-
-    this.activeRuns.set(checkpoint.runId, {
-      threadId: checkpoint.threadId,
-      requestMessageId: checkpoint.requestMessageId,
-      ...(checkpoint.enabledSkillNames
-        ? { enabledSkillNames: [...checkpoint.enabledSkillNames] }
-        : {}),
-      ...(checkpoint.reasoningEffort !== undefined
-        ? { reasoningEffort: checkpoint.reasoningEffort }
-        : {}),
-      ...(checkpoint.channelHint ? { channelHint: checkpoint.channelHint } : {}),
-      recoveryCheckpoint: checkpoint,
-      abortController: new AbortController(),
-      executionPhase: 'generating',
-      updateHeadOnComplete: checkpoint.updateHeadOnComplete
-    })
-    this.activeRunByThread.set(checkpoint.threadId, checkpoint.runId)
-
-    const runTask = this.runLoop({
-      enabledTools: checkpoint.enabledTools,
-      enabledSkillNames: checkpoint.enabledSkillNames,
-      reasoningEffort: checkpoint.reasoningEffort,
-      channelHint: checkpoint.channelHint,
-      recoveryCheckpoint: checkpoint,
-      runId: checkpoint.runId,
-      thread,
-      requestMessageId: checkpoint.requestMessageId,
-      updateHeadOnComplete: checkpoint.updateHeadOnComplete
-    })
-    this.activeRunTasks.set(checkpoint.runId, runTask)
-    void runTask
-  }
-
-  private startAssistantOnlyRun(input: {
-    runId: string
-    thread: ThreadRecord
-    sourceThreadId: string
-    sourceMessages: MessageRecord[]
-    reasoningEffort?: ComposerReasoningSelection
-  }): void {
-    this.activeRuns.set(input.runId, {
-      threadId: input.thread.id,
-      ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
-      abortController: new AbortController(),
-      executionPhase: 'generating',
-      updateHeadOnComplete: true
-    })
-    this.activeRunByThread.set(input.thread.id, input.runId)
-
-    const runTask = streamCompactThreadHandoff(
-      {
-        deps: this.deps,
-        activeRuns: this.activeRuns,
-        activeRunByThread: this.activeRunByThread,
-        activeRunTasks: this.activeRunTasks,
-        threadTitleRunner: this.threadTitleRunner
-      },
-      input
-    )
-    this.activeRunTasks.set(input.runId, runTask)
-    void runTask
-  }
-
-  private async runLoop(input: {
-    enabledTools: ToolCallName[]
-    enabledSkillNames?: string[]
-    reasoningEffort?: ComposerReasoningSelection
-    channelHint?: string
-    extraTools?: import('ai').ToolSet
-    recoveryCheckpoint?: RunRecoveryCheckpoint
-    runId: string
-    thread: ThreadRecord
-    requestMessageId: string
-    updateHeadOnComplete: boolean
-  }): Promise<void> {
+  private async runLoop(input: ActiveRunLoopInput): Promise<void> {
     let currentThread = input.thread
     let currentRequestMessageId = input.requestMessageId
     let previousEnabledTools = this.lastRunEnabledTools
@@ -1501,202 +809,14 @@ export class YachiyoServerRunDomain {
         const recapEmit: typeof this.deps.emit = isRecapRun ? () => {} : this.deps.emit
 
         result = await executeServerRun(
-          {
+          buildRunExecutionDeps(this.createRunExecutionDepsContext(), {
+            loopInput: input,
+            currentThread,
+            activeRun,
+            isRecapRun,
             storage: recapStorage,
-            createId: this.deps.createId,
-            timestamp: this.deps.timestamp,
-            emit: recapEmit,
-            createModelRuntime: this.deps.createModelRuntime,
-            ensureThreadWorkspace: this.deps.ensureThreadWorkspace,
-            buildMemoryLayerEntries: async (context) => {
-              if (context.thread.privacyMode || isRecapRun) {
-                return { entries: [], recallDecision: undefined }
-              }
-              const branchHistory = collectMessagePath(
-                this.deps.loadThreadMessages(context.thread.id),
-                context.requestMessageId
-              )
-              const result = await this.deps.memoryService.recallForContext({
-                history: branchHistory,
-                now: context.thread.updatedAt,
-                signal: context.signal,
-                thread: context.thread,
-                userQuery: context.userQuery
-              })
-              const persistedThread = this.deps.requireThread(context.thread.id)
-              this.deps.storage.updateThread({
-                ...persistedThread,
-                memoryRecall: result.thread.memoryRecall
-              })
-              return {
-                entries: result.entries,
-                recallDecision: result.decision
-              }
-            },
-            fetchImpl: this.deps.fetchImpl,
-            webExternalFetchImpl: this.deps.webExternalFetchImpl,
-            loadBrowserSnapshot: this.deps.loadBrowserSnapshot,
-            memoryService: this.deps.memoryService,
-            searchService: this.deps.searchService,
-            webSearchService: this.deps.webSearchService,
-            readSoulDocument: this.deps.readSoulDocument,
-            readUserDocument: this.deps.readUserDocument,
-            readThread: this.deps.requireThread,
-            readConfig: this.deps.readConfig,
-            readSettings: () =>
-              toEffectiveProviderSettings(
-                this.deps.readConfig(),
-                this.deps.requireThread(currentThread.id).modelOverride
-              ),
-            loadThreadMessages: isRecapRun
-              ? (threadId: string) => {
-                  const msgs = this.deps.loadThreadMessages(threadId)
-                  if (threadId === currentThread.id && activeRun?.recapUserMessage) {
-                    return [...msgs, activeRun.recapUserMessage]
-                  }
-                  return msgs
-                }
-              : this.deps.loadThreadMessages,
-            loadThreadToolCalls: this.deps.loadThreadToolCalls,
-            listSkills: this.deps.listSkills,
-            jotdownStore: this.deps.jotdownStore,
-            imageToTextService: this.deps.imageToTextService,
-            isModelImageCapable: (() => {
-              const cfg = this.deps.readConfig()
-              const effective =
-                this.deps.requireThread(currentThread.id).modelOverride ??
-                cfg.defaultModel ??
-                (() => {
-                  const primary =
-                    cfg.providers.find((p) => p.modelList.enabled.length > 0) ?? cfg.providers[0]
-                  return primary
-                    ? { providerName: primary.name, model: primary.modelList.enabled[0] ?? '' }
-                    : undefined
-                })()
-              if (!effective) return true
-              return isModelImageCapable(cfg, effective.providerName, effective.model)
-            })(),
-            onEnabledToolsUsed: (enabledTools) => {
-              this.lastRunEnabledTools = [...enabledTools]
-            },
-            onExecutionPhaseChange: (phase) => {
-              const currentRun = this.activeRuns.get(input.runId)
-              if (!currentRun) {
-                return
-              }
-
-              currentRun.executionPhase = phase
-            },
-            onAskUserHandlerReady: (handler) => {
-              const currentRun = this.activeRuns.get(input.runId)
-              if (currentRun) {
-                currentRun.answerToolQuestion = handler
-              }
-            },
-            hasPendingSteer: () => {
-              const currentRun = this.activeRuns.get(input.runId)
-              return currentRun?.pendingSteerInput != null
-            },
-            injectPendingSteer: (steerInput) => {
-              const activeRun = this.activeRuns.get(input.runId)
-              if (!activeRun) {
-                return
-              }
-              this.sendActiveRunSteer({
-                activeRunId: input.runId,
-                content: steerInput.content,
-                enabledSkillNames: activeRun.enabledSkillNames,
-                images: [],
-                attachments: [],
-                messageId: this.deps.createId(),
-                thread: currentThread
-              })
-            },
-            onSubagentProgress: (event) => {
-              this.deps.emit<SubagentProgressEvent>({
-                type: 'subagent.progress',
-                threadId: input.thread.id,
-                runId: input.runId,
-                delegationId: event.delegationId,
-                chunk: event.chunk
-              })
-            },
-            onBackgroundBashStarted: async (task) => {
-              // Snapshot the launching run's transport context so we can call sendChat
-              // with the same channelHint/extraTools/etc. when the task completes — this
-              // is what lets owner-DM auto-delivery actually reach the user via the
-              // original channel reply tool. Cleared in `handleBackgroundBashCompleted`.
-              this.backgroundTaskRunContext.set(task.taskId, {
-                enabledTools: input.enabledTools,
-                ...(input.enabledSkillNames ? { enabledSkillNames: input.enabledSkillNames } : {}),
-                ...(input.reasoningEffort !== undefined
-                  ? { reasoningEffort: input.reasoningEffort }
-                  : {}),
-                ...(input.channelHint ? { channelHint: input.channelHint } : {}),
-                ...(input.extraTools ? { extraTools: input.extraTools } : {})
-              })
-              try {
-                await this.backgroundBashManager.startTask({
-                  ...task,
-                  threadId: task.threadId
-                })
-                this.deps.emit<BackgroundTaskStartedEvent>({
-                  type: 'background-task.started',
-                  threadId: task.threadId,
-                  taskId: task.taskId,
-                  command: task.command,
-                  startedAt: this.deps.timestamp()
-                })
-              } catch (error) {
-                this.backgroundTaskRunContext.delete(task.taskId)
-                throw error
-              }
-            },
-            onBackgroundBashAdopted: async (task) => {
-              // Same snapshot/emit dance as the explicit-background path; the only
-              // difference is we hand the manager an already-running child instead
-              // of letting it spawn one.
-              this.backgroundTaskRunContext.set(task.taskId, {
-                enabledTools: input.enabledTools,
-                ...(input.enabledSkillNames ? { enabledSkillNames: input.enabledSkillNames } : {}),
-                ...(input.reasoningEffort !== undefined
-                  ? { reasoningEffort: input.reasoningEffort }
-                  : {}),
-                ...(input.channelHint ? { channelHint: input.channelHint } : {}),
-                ...(input.extraTools ? { extraTools: input.extraTools } : {})
-              })
-              try {
-                await this.backgroundBashManager.adoptTask({
-                  taskId: task.taskId,
-                  command: task.command,
-                  cwd: task.cwd,
-                  logPath: task.logPath,
-                  ...(task.toolCallId ? { toolCallId: task.toolCallId } : {}),
-                  threadId: task.threadId,
-                  child: task.child,
-                  initialOutput: task.initialOutput,
-                  ...(task.initialOutputAlreadyOnDisk ? { initialOutputAlreadyOnDisk: true } : {})
-                })
-                this.deps.emit<BackgroundTaskStartedEvent>({
-                  type: 'background-task.started',
-                  threadId: task.threadId,
-                  taskId: task.taskId,
-                  command: task.command,
-                  startedAt: this.deps.timestamp()
-                })
-              } catch (error) {
-                this.backgroundTaskRunContext.delete(task.taskId)
-                throw error
-              }
-            },
-            getCompletedBackgroundBashTask: (taskId) =>
-              this.backgroundBashManager.getCompletedTask(taskId),
-            onTerminalState: () => {
-              this.activeRuns.delete(input.runId)
-              this.activeRunByThread.delete(input.thread.id)
-              this.activeRunTasks.delete(input.runId)
-            }
-          },
+            emit: recapEmit
+          }),
           {
             abortController,
             enabledTools: input.enabledTools,
@@ -1874,7 +994,7 @@ export class YachiyoServerRunDomain {
           activeRun.requestMessageId = result.assistantMessageId
 
           const steerThread = this.deps.requireThread(input.thread.id)
-          const { userMessage } = this.persistSteerMessage({
+          const { userMessage } = persistSteerMessage(this.createSendChatFlowContext(), {
             content: activeRun.pendingSteerInput.content,
             images: activeRun.pendingSteerInput.images,
             attachments: activeRun.pendingSteerInput.attachments,
@@ -1925,17 +1045,20 @@ export class YachiyoServerRunDomain {
         if (result.kind === 'cancelled-with-steer') {
           if (activeRun.pendingSteerInput) {
             const steerThread = this.deps.requireThread(input.thread.id)
-            const { updatedThread, userMessage } = this.persistSteerMessage({
-              content: result.steerInput.content,
-              images: result.steerInput.images,
-              attachments: result.steerInput.attachments,
-              messageId: result.steerInput.messageId,
-              runId: input.runId,
-              runState: { ...activeRun, requestMessageId: result.stoppedMessageId },
-              thread: steerThread,
-              timestamp: result.steerInput.timestamp,
-              hidden: result.steerInput.hidden
-            })
+            const { updatedThread, userMessage } = persistSteerMessage(
+              this.createSendChatFlowContext(),
+              {
+                content: result.steerInput.content,
+                images: result.steerInput.images,
+                attachments: result.steerInput.attachments,
+                messageId: result.steerInput.messageId,
+                runId: input.runId,
+                runState: { ...activeRun, requestMessageId: result.stoppedMessageId },
+                thread: steerThread,
+                timestamp: result.steerInput.timestamp,
+                hidden: result.steerInput.hidden
+              }
+            )
             const queuedThread: ThreadRecord = {
               ...updatedThread,
               queuedFollowUpMessageId: userMessage.id
@@ -2210,7 +1333,7 @@ export class YachiyoServerRunDomain {
       requestMessageId: prepared.requestMessageId
     })
 
-    this.startActiveRun({
+    startActiveRun(this.createActiveRunStartContext(), {
       enabledTools: prepared.enabledTools,
       enabledSkillNames: prepared.enabledSkillNames,
       reasoningEffort: prepared.reasoningEffort,
