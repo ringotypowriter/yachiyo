@@ -4,58 +4,31 @@ import { performance } from 'node:perf_hooks'
 import { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 
 import type {
-  MessageCompletedEvent,
   MessageDeltaEvent,
   MessageReasoningDeltaEvent,
-  MessageRecord,
   MessageStartedEvent,
   MessageTextBlockRecord,
-  NotificationRequestEvent,
-  RunCancelledEvent,
-  RunCompletedEvent,
-  RunFailedEvent,
   RunRetryingEvent,
   RunUsageUpdatedEvent,
-  SubagentStartedEvent,
-  SubagentFinishedEvent,
-  ThreadRecord,
-  ThreadUpdatedEvent,
   ToolCallRecord,
   ToolCallUpdatedEvent
 } from '../../../../../../shared/yachiyo/protocol.ts'
 import { isTrackedToolName } from '../../../../../../shared/yachiyo/protocol.ts'
-import { wouldCreateParentCycle } from '../../../../../../shared/yachiyo/threadTree.ts'
 import { createRunPerfCollector } from '../../../../services/perfMonitor.ts'
-import { resolveYachiyoUserPath } from '../../../../config/paths.ts'
-import { readChannelsConfig } from '../../../../runtime/channelsConfig.ts'
 import type { ModelUsage } from '../../../../runtime/types.ts'
-import { RETRY_MAX_ATTEMPTS } from '../../../../runtime/modelRuntime.ts'
-import { isRetryableRunError, RetryableRunError } from '../../../../runtime/runtimeErrors.ts'
-import type { RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
-import {
-  createAgentToolSet,
-  type DelegateCodingTaskFinishedEvent,
-  type DelegateCodingTaskProgressEvent,
-  type DelegateCodingTaskStartedEvent,
-  normalizeToolResult,
-  summarizeToolInput
-} from '../../../../tools/agentTools.ts'
-import { createFilteredMemoryService } from '../../../../services/memory/memoryService.ts'
+import { RetryableRunError } from '../../../../runtime/runtimeErrors.ts'
+import { normalizeToolResult, summarizeToolInput } from '../../../../tools/agentTools.ts'
 import { createDeltaBatcher } from '../../shared.ts'
 import {
   appendRecoveryReasoningDelta,
   appendRecoveryTextDelta,
   appendRecoveryToolCall,
   appendRecoveryToolResult,
-  balanceRecoveryResponseMessages,
   buildRecoveryResponseMessages,
   cloneRecoveryResponseMessages,
   type RecoveryResponseMessage
 } from '../../runRecovery.ts'
 import { prepareServerRunContext } from '../context/prepareServerRunContext.ts'
-import { balanceResponseMessages } from '../context/runHistory.ts'
-import { usageFieldsFrom } from '../runUsageFields.ts'
-import { mergeRunUsage } from './runUsage.ts'
 import { appendMessageDeltaToTextBlocks } from './textBlocks.ts'
 import {
   getCompletedBackgroundBashError,
@@ -65,79 +38,16 @@ import {
   resolveCompletedBackgroundBashTask
 } from '../tools/backgroundBashToolResult.ts'
 import {
-  bindCompletedToolCallsToAssistant,
   bindRunToolCallsToAssistant,
-  finishPendingToolCalls,
   restorePersistedRunToolCalls
 } from '../tools/toolCallLifecycle.ts'
-import { upsertRunRecoveryCheckpoint } from './recoveryCheckpoint.ts'
 import { consumeDuplicatePrefix } from './streamDedup.ts'
-import { persistTerminalAssistantMessage } from './terminalPersistence.ts'
-import { finalizeRunSnapshot } from './runSnapshotFinalize.ts'
-import type {
-  CancelWithSteerReason,
-  ExecuteRunInput,
-  ExecuteRunResult,
-  RestartRunReason,
-  RunExecutionDeps
-} from './runExecutionTypes.ts'
-
-function isRestartRunReason(value: unknown): value is RestartRunReason {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    (value as { type?: unknown }).type === 'restart' &&
-    typeof (value as { nextRequestMessageId?: unknown }).nextRequestMessageId === 'string'
-  )
-}
-
-function isCancelWithSteerReason(value: unknown): value is CancelWithSteerReason {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    (value as { type?: unknown }).type === 'cancel-with-steer' &&
-    (value as { steerInput?: unknown }).steerInput != null
-  )
-}
-
-const FRIENDLY_ERROR_LABELS: Array<[test: RegExp | string, label: string]> = [
-  ['ERR_HTTP2_PROTOCOL_ERROR', 'Connection interrupted (HTTP/2 stream reset)'],
-  ['ECONNRESET', 'Connection reset by server'],
-  ['ETIMEDOUT', 'Connection timed out'],
-  ['ECONNREFUSED', 'Connection refused'],
-  ['ENOTFOUND', 'Could not resolve host'],
-  ['ENETDOWN', 'Network is down'],
-  ['ENETUNREACH', 'Network is unreachable'],
-  ['ENETRESET', 'Network connection reset'],
-  ['EHOSTUNREACH', 'Host is unreachable'],
-  ['ERR_CONNECTION_CLOSED', 'Connection closed unexpectedly'],
-  ['ERR_NETWORK_CHANGED', 'Network changed during request'],
-  ['ERR_INTERNET_DISCONNECTED', 'Internet connection lost'],
-  ['UND_ERR_SOCKET', 'Socket error'],
-  ['UND_ERR_CONNECT_TIMEOUT', 'Connection timed out'],
-  [/socket hang up/i, 'Connection dropped (socket hang up)'],
-  [/fetch failed/i, 'Network request failed']
-]
-
-function humanizeErrorMessage(raw: string): string {
-  for (const [test, label] of FRIENDLY_ERROR_LABELS) {
-    if (typeof test === 'string' ? raw.includes(test) : test.test(raw)) return label
-  }
-  if (/^HTTP (\d{3})$/.test(raw)) return `Server error (${raw})`
-  return raw
-}
-
-function extractRetryErrorMessage(error: unknown): string {
-  if (!(error instanceof Error)) return humanizeErrorMessage(String(error))
-  const code = (error as { code?: string }).code
-  if (code) {
-    const label = humanizeErrorMessage(code)
-    if (label !== code) return label
-  }
-  if (error.message) return humanizeErrorMessage(error.message)
-  const statusCode = (error as { statusCode?: number }).statusCode
-  return statusCode ? humanizeErrorMessage(`HTTP ${statusCode}`) : 'Provider error'
-}
+import { createRecoveryCheckpointManager } from './recoveryCheckpointManager.ts'
+import { handleAbortedRun } from './runAbortHandling.ts'
+import { handleCompletedRun } from './runCompletionHandling.ts'
+import { extractRetryErrorMessage, handleRunFailure } from './runFailureHandling.ts'
+import { createRunToolSet } from './runToolSetFactory.ts'
+import type { ExecuteRunInput, ExecuteRunResult, RunExecutionDeps } from './runExecutionTypes.ts'
 
 function throwIfAborted(signal: AbortSignal): void {
   if (!signal.aborted) {
@@ -240,71 +150,45 @@ export async function executeServerRun(
 
   let duplicateTextPrefix = recoveryCheckpoint?.content ?? ''
   let pendingDuplicateText = ''
-  const recoveryCreatedAt = recoveryCheckpoint?.createdAt ?? deps.timestamp()
   let recoveryResponseMessages: RecoveryResponseMessage[] =
     (buildRecoveryResponseMessages({
       checkpoint: recoveryCheckpoint ?? { content: bufferParts.join('') },
       toolCalls: [...toolCalls.values()]
     }) as RecoveryResponseMessage[] | undefined) ?? []
+  const getCurrentOutputSnapshot = (): {
+    content: string
+    bufferLength: number
+    reasoning?: string
+    reasoningLength: number
+    textBlocks: MessageTextBlockRecord[]
+    recoveryResponseMessages: RecoveryResponseMessage[]
+  } => ({
+    content: bufferParts.join(''),
+    bufferLength,
+    ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
+    reasoningLength,
+    textBlocks,
+    recoveryResponseMessages
+  })
 
-  const persistRecoveryCheckpoint = (
-    options: {
-      lastError?: string
-      recoveryAttempts?: number
-    } = {}
-  ): RunRecoveryCheckpoint | undefined => {
-    if (!input.requestMessageId) {
-      return undefined
-    }
-
-    const checkpoint: RunRecoveryCheckpoint = {
-      runId: input.runId,
-      threadId: input.thread.id,
-      requestMessageId: input.requestMessageId,
-      assistantMessageId: messageId,
-      content: bufferParts.join(''),
-      ...(textBlocks.length > 0 ? { textBlocks } : {}),
-      ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
-      ...(recoveryResponseMessages.length > 0
-        ? { responseMessages: recoveryResponseMessages }
-        : {}),
-      enabledTools: [...input.enabledTools],
-      ...(input.enabledSkillNames ? { enabledSkillNames: [...input.enabledSkillNames] } : {}),
-      ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
-      ...(input.channelHint ? { channelHint: input.channelHint } : {}),
-      updateHeadOnComplete: input.updateHeadOnComplete,
-      createdAt: recoveryCreatedAt,
-      updatedAt: deps.timestamp(),
-      recoveryAttempts: options.recoveryAttempts ?? recoveryCheckpoint?.recoveryAttempts ?? 0,
-      ...(options.lastError ? { lastError: options.lastError } : {})
-    }
-    const cpStart = performance.now()
-    upsertRunRecoveryCheckpoint(deps, checkpoint)
-    perfCollector.recordCheckpointWrite(performance.now() - cpStart)
-    lastCheckpointPersistAtMs = Date.now()
-    return checkpoint
-  }
-
-  // Coalesce per-delta checkpoint writes. better-sqlite3 is synchronous and
-  // JSON.stringify over the growing buffer is O(n), so persisting on every
-  // token stalls the main process run loop and triggers macOS ANR on long
-  // streams. Tool-boundary call sites still use the immediate variant above.
-  let lastCheckpointPersistAtMs = 0
-  const streamStartedAtMs = Date.now()
-  const RECOVERY_CHECKPOINT_BASE_INTERVAL_MS = 750
-  const persistRecoveryCheckpointThrottled = (): void => {
-    const elapsedMs = Date.now() - streamStartedAtMs
-    let minInterval = RECOVERY_CHECKPOINT_BASE_INTERVAL_MS
-    if (elapsedMs > 45000) {
-      minInterval = 3000
-    } else if (elapsedMs > 15000) {
-      minInterval = 1500
-    }
-    if (Date.now() - lastCheckpointPersistAtMs < minInterval) {
-      return
-    }
-    persistRecoveryCheckpoint()
-  }
+  const recoveryCheckpointManager = createRecoveryCheckpointManager({
+    deps,
+    executionInput: input,
+    getSnapshot: () => {
+      const snapshot = getCurrentOutputSnapshot()
+      return {
+        content: snapshot.content,
+        textBlocks: snapshot.textBlocks,
+        ...(snapshot.reasoning ? { reasoning: snapshot.reasoning } : {}),
+        responseMessages: snapshot.recoveryResponseMessages
+      }
+    },
+    messageId,
+    perfCollector,
+    recoveryCheckpoint
+  })
+  const persistRecoveryCheckpoint = recoveryCheckpointManager.persist
+  const persistRecoveryCheckpointThrottled = recoveryCheckpointManager.persistThrottled
 
   const DELTA_FLUSH_INTERVAL_MS = 20
 
@@ -401,206 +285,28 @@ export async function executeServerRun(
         ? { maxToolStepsOverride: input.maxToolStepsOverride }
         : {})
     })
-    const {
-      workspacePath,
-      messages: finalMessages,
-      modelEnabledTools,
-      maxToolSteps,
-      availableSkills,
-      isExternalChannel,
-      isGuest,
-      isOwnerDm,
-      enabledSubagentProfiles,
-      gitCtx,
-      gitValidatedWorkspaces
-    } = preparedContext
+    const { workspacePath, messages: finalMessages, maxToolSteps } = preparedContext
     if (!snapshotTracker) {
       snapshotTracker = new SnapshotTracker(workspacePath, input.runId, input.thread.id)
       snapshotTracker.startBaselineScan()
     }
     const runtime = deps.createModelRuntime()
-    tools = createAgentToolSet(
-      {
-        enabledTools: modelEnabledTools,
-        workspacePath,
-        sandboxed: isExternalChannel && !isOwnerDm,
-        snapshotTracker,
-        readRecordCache: input.readRecordCache,
-        imageToTextService: deps.imageToTextService,
-        isModelImageCapable: deps.isModelImageCapable,
-        ...(deps.onBackgroundBashStarted
-          ? {
-              onBackgroundBashStarted: async (task) => {
-                await deps.onBackgroundBashStarted?.({ ...task, threadId: input.thread.id })
-              }
-            }
-          : {}),
-        ...(deps.onBackgroundBashAdopted
-          ? {
-              onBackgroundBashAdopted: async (task) => {
-                await deps.onBackgroundBashAdopted?.({ ...task, threadId: input.thread.id })
-              }
-            }
-          : {})
-      },
-      {
-        availableSkills,
-        fetchImpl: deps.webExternalFetchImpl ?? deps.fetchImpl,
-        loadBrowserSnapshot: deps.loadBrowserSnapshot,
-        searchService: deps.searchService,
-        memoryService: input.thread.privacyMode
-          ? undefined
-          : isGuest
-            ? createFilteredMemoryService(
-                deps.memoryService,
-                readChannelsConfig().memoryFilterKeywords ?? []
-              )
-            : deps.memoryService,
-        webSearchService: deps.webSearchService,
-        updateProfileDeps: {
-          userDocumentPath: isGuest
-            ? resolveYachiyoUserPath(workspacePath)
-            : resolveYachiyoUserPath(),
-          ...(isExternalChannel
-            ? { userDocumentMode: isGuest ? ('guest' as const) : ('owner' as const) }
-            : {})
-        },
-        ...(!input.thread.privacyMode &&
-        (!isExternalChannel || isOwnerDm) &&
-        deps.memoryService.isConfigured()
-          ? { rememberDeps: { memoryService: deps.memoryService } }
-          : {}),
-        // Cross-thread FTS search: only for local + owner DM, never in privacy mode
-        ...(!input.thread.privacyMode && (!isExternalChannel || isOwnerDm)
-          ? {
-              crossThreadSearch: (searchInput: {
-                query: string
-                limit?: number
-                includePrivate?: boolean
-              }) => deps.storage.searchThreadsAndMessagesFts(searchInput)
-            }
-          : {}),
-        // askUser is only available for direct chat runs — not external channel runs
-        ...(!isExternalChannel
-          ? {
-              askUserContext: {
-                waitForUserAnswer: (
-                  toolCallId: string,
-                  question: string,
-                  choices?: string[]
-                ): Promise<string> => {
-                  return new Promise<string>((resolve, reject) => {
-                    pendingUserAnswers.set(toolCallId, { resolve, reject })
-                    setExecutionPhase('waiting-for-user')
-
-                    // Update the existing tool call record persisted by onToolCallStart
-                    const existingToolCall = toolCalls.get(toolCallId)
-                    const waitingToolCall: ToolCallRecord = {
-                      ...(existingToolCall ?? {
-                        id: toolCallId,
-                        runId: input.runId,
-                        threadId: input.thread.id,
-                        requestMessageId: input.requestMessageId,
-                        toolName: 'askUser',
-                        startedAt: deps.timestamp(),
-                        stepIndex: stepCount,
-                        stepBudget: maxToolSteps
-                      }),
-                      status: 'waiting-for-user',
-                      inputSummary: question.slice(0, 160),
-                      details: { kind: 'askUser' as const, question, choices }
-                    } as ToolCallRecord
-
-                    toolCalls.set(toolCallId, waitingToolCall)
-                    if (existingToolCall) {
-                      instrumentedUpdateToolCall(waitingToolCall)
-                    } else {
-                      instrumentedCreateToolCall(waitingToolCall)
-                    }
-                    persistRecoveryCheckpoint()
-
-                    deps.emit<ToolCallUpdatedEvent>({
-                      type: 'tool.updated',
-                      threadId: input.thread.id,
-                      runId: input.runId,
-                      toolCall: waitingToolCall
-                    })
-                    deps.emit<NotificationRequestEvent>({
-                      type: 'notification.requested',
-                      threadId: input.thread.id,
-                      runId: input.runId,
-                      title: 'Yachiyo needs your input',
-                      body: question.slice(0, 100)
-                    })
-                  })
-                }
-              }
-            }
-          : {}),
-        ...((gitCtx.hasGit || gitValidatedWorkspaces.length > 0) &&
-        enabledSubagentProfiles.length > 0
-          ? {
-              subagentProfiles: enabledSubagentProfiles,
-              availableWorkspaces: gitValidatedWorkspaces,
-              onSubagentProgress: (event: DelegateCodingTaskProgressEvent) => {
-                markProgress()
-                deps.onSubagentProgress?.(event)
-              },
-              onSubagentStarted: (event: DelegateCodingTaskStartedEvent) => {
-                markProgress()
-                subagentStartedAtByDelegationId.set(event.delegationId, deps.timestamp())
-                deps.emit<SubagentStartedEvent>({
-                  type: 'subagent.started',
-                  threadId: input.thread.id,
-                  runId: input.runId,
-                  delegationId: event.delegationId,
-                  agentName: event.agentName,
-                  workspacePath: event.workspacePath
-                })
-              },
-              onSubagentFinished: (event: DelegateCodingTaskFinishedEvent) => {
-                markProgress()
-                if (event.sessionId) {
-                  const delegationStartedAt =
-                    subagentStartedAtByDelegationId.get(event.delegationId) ?? deps.timestamp()
-                  const currentThread = deps.readThread(input.thread.id)
-                  const existingSession = currentThread.lastDelegatedSession
-                  if (
-                    !existingSession ||
-                    existingSession.timestamp.localeCompare(delegationStartedAt) <= 0
-                  ) {
-                    const updatedThread: ThreadRecord = {
-                      ...currentThread,
-                      lastDelegatedSession: {
-                        agentName: event.agentName,
-                        sessionId: event.sessionId,
-                        workspacePath: event.workspacePath,
-                        timestamp: delegationStartedAt
-                      }
-                    }
-                    deps.storage.updateThread(updatedThread)
-                    deps.emit<ThreadUpdatedEvent>({
-                      type: 'thread.updated',
-                      threadId: input.thread.id,
-                      thread: updatedThread
-                    })
-                  }
-                }
-                deps.emit<SubagentFinishedEvent>({
-                  type: 'subagent.finished',
-                  threadId: input.thread.id,
-                  runId: input.runId,
-                  delegationId: event.delegationId,
-                  agentName: event.agentName,
-                  status: event.status,
-                  ...(event.sessionId ? { sessionId: event.sessionId } : {})
-                })
-              }
-            }
-          : {}),
-        ...(input.extraTools ? { extraTools: input.extraTools } : {})
-      }
-    )
+    tools = createRunToolSet({
+      createToolCall: instrumentedCreateToolCall,
+      deps,
+      executionInput: input,
+      getStepCount: () => stepCount,
+      markProgress,
+      maxToolSteps,
+      pendingUserAnswers,
+      persistRecoveryCheckpoint,
+      preparedContext,
+      setExecutionPhase,
+      snapshotTracker,
+      subagentStartedAtByDelegationId,
+      toolCalls,
+      updateToolCall: instrumentedUpdateToolCall
+    })
     console.log(
       `[yachiyo][run] toolSet: ${tools ? Object.keys(tools).join(', ') : 'none'}, extraTools: ${input.extraTools ? Object.keys(input.extraTools).join(', ') : 'none'}`
     )
@@ -1130,162 +836,21 @@ export async function executeServerRun(
       throw new RetryableRunError('Model output truncated (finishReason=length)')
     }
 
-    // Safe steer: the stream ended cleanly (via stopWhen or natural completion)
-    // and a user steer is waiting at the turn boundary. Persist the assistant
-    // message as 'stopped' (the run will continue with the steer as new input)
-    // without completing the run itself.
-    if (hasPendingSteer?.()) {
-      const steerTimestamp = deps.timestamp()
-      // Prefer the SDK's authoritative response.messages over the incrementally
-      // built recoveryResponseMessages. The recovery messages can be incomplete
-      // when a steer interrupts mid-step (e.g. parallel tool results shift to
-      // later positions). The SDK's messages are finalized after the full stream
-      // completes and are always self-consistent.
-      const rawSteerResponseMessages =
-        lastUsage?.responseMessages ??
-        (recoveryResponseMessages.length > 0 ? recoveryResponseMessages : undefined)
-      // Balance response messages so every tool-call has a matching tool-result.
-      // Parallel tool calls interrupted by the steer may leave orphaned tool_use
-      // blocks that break the next model call.
-      const steerResponseMessages = rawSteerResponseMessages
-        ? balanceResponseMessages(rawSteerResponseMessages)
-        : rawSteerResponseMessages
-      const steerAssistantMessage: MessageRecord = {
-        id: messageId,
-        threadId: input.thread.id,
-        parentMessageId: input.requestMessageId,
-        role: 'assistant',
-        content: bufferParts.join(''),
-        ...(textBlocks.length > 0 ? { textBlocks } : {}),
-        ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
-        ...(steerResponseMessages ? { responseMessages: steerResponseMessages } : {}),
-        status: 'completed',
-        createdAt: steerTimestamp,
-        modelId: settings.model,
-        providerName: settings.providerName
-      }
-      const steerThread = deps.readThread(input.thread.id)
-      deps.storage.saveThreadMessage({
-        thread: steerThread,
-        updatedThread: steerThread,
-        message: steerAssistantMessage
-      })
-      deps.emit<MessageCompletedEvent>({
-        type: 'message.completed',
-        threadId: input.thread.id,
-        runId: input.runId,
-        message: steerAssistantMessage
-      })
-      // Bind all tool calls from this run to the completed assistant message so
-      // they are not reassigned to a later assistant message when the run continues.
-      bindCurrentRunToolCallsToAssistant(messageId)
-      deps.storage.deleteRunRecoveryCheckpoint(input.runId)
-      // Hand the snapshot tracker back to the caller so it persists across
-      // steer legs. The same tracker accumulates file changes for the entire
-      // run and is finalized only when the run reaches a terminal state.
-      return {
-        kind: 'steer-pending',
-        assistantMessageId: messageId,
-        usage: lastUsage,
-        snapshotTracker: snapshotTracker ?? undefined,
-        toolFailLoopSteersInjected
-      }
-    }
-
-    const timestamp = deps.timestamp()
-    const responseMessages = recoveryCheckpoint
-      ? recoveryResponseMessages.length > 0
-        ? recoveryResponseMessages
-        : undefined
-      : lastUsage?.responseMessages
-    const assistantMessage: MessageRecord = {
-      id: messageId,
-      threadId: input.thread.id,
-      parentMessageId: input.requestMessageId,
-      role: 'assistant',
-      content: bufferParts.join(''),
-      ...(textBlocks.length > 0 ? { textBlocks } : {}),
-      ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
-      ...(responseMessages ? { responseMessages } : {}),
-      status: 'completed',
-      createdAt: timestamp,
-      modelId: settings.model,
-      providerName: settings.providerName
-    }
-    const currentThread = deps.readThread(input.thread.id)
-
-    const updatedThread: ThreadRecord = {
-      ...currentThread,
-      updatedAt: timestamp,
-      ...(input.updateHeadOnComplete
-        ? { preview: assistantMessage.content.slice(0, 240) }
-        : currentThread.preview
-          ? { preview: currentThread.preview }
-          : {}),
-      ...(input.updateHeadOnComplete
-        ? { headMessageId: assistantMessage.id }
-        : currentThread.headMessageId
-          ? { headMessageId: currentThread.headMessageId }
-          : {})
-    }
-
-    // Merge prior steer-leg totals so the full run's total tokens are persisted.
-    const finalUsage = mergeRunUsage(input.priorUsage, lastUsage)
-
-    deps.storage.completeRun({
-      runId: input.runId,
-      updatedThread,
-      assistantMessage,
-      ...finalUsage,
-      modelId: settings.model,
-      providerName: settings.providerName
-    })
-    deps.onTerminalState?.()
-
-    deps.emit<MessageCompletedEvent>({
-      type: 'message.completed',
-      threadId: input.thread.id,
-      runId: input.runId,
-      message: assistantMessage
-    })
-    bindCompletedToolCallsToAssistant(deps, toolCalls, {
-      threadId: input.thread.id,
-      runId: input.runId,
-      assistantMessageId: assistantMessage.id
-    })
-    deps.emit<ThreadUpdatedEvent>({
-      type: 'thread.updated',
-      threadId: input.thread.id,
-      thread: updatedThread
-    })
-    await finalizeRunSnapshot({
+    return handleCompletedRun({
+      bindCurrentRunToolCallsToAssistant,
       deps,
-      runId: input.runId,
+      executionInput: input,
+      getOutputSnapshot: getCurrentOutputSnapshot,
+      hasPendingSteer,
+      lastUsage,
+      messageId,
+      perfCollector,
+      recoveredFromCheckpoint: Boolean(recoveryCheckpoint),
+      settings,
       snapshotTracker,
-      threadId: input.thread.id,
-      onError: (error) => {
-        console.error('[snapshot] Finalization failed:', error)
-      }
+      toolCalls,
+      toolFailLoopSteersInjected
     })
-
-    deps.onTerminalState?.()
-    deps.emit<RunCompletedEvent>({
-      type: 'run.completed',
-      threadId: input.thread.id,
-      runId: input.runId,
-      requestMessageId: input.requestMessageId,
-      ...finalUsage
-    })
-    perfCollector.finish(input.thread.id)
-
-    const usedRememberTool = Array.from(toolCalls.values()).some(
-      (tc) => tc.toolName === 'remember' && tc.status === 'completed' && !tc.error
-    )
-    return {
-      kind: 'completed',
-      totalPromptTokens: finalUsage?.totalPromptTokens,
-      usedRememberTool
-    }
   } catch (error) {
     // Reject any pending askUser promises so the tool execution unblocks
     for (const [id, pending] of pendingUserAnswers) {
@@ -1293,426 +858,47 @@ export async function executeServerRun(
       pendingUserAnswers.delete(id)
     }
 
-    if (input.abortController.signal.aborted) {
-      const restartReason = input.abortController.signal.reason
-      const timestamp = deps.timestamp()
-
-      if (isRestartRunReason(restartReason)) {
-        // Drain any buffered deltas before deciding whether to persist a partial
-        // assistant message. Otherwise buffered text/reasoning is dropped or the
-        // partial message is skipped entirely.
-        textDeltaBatcher.flush()
-        reasoningDeltaBatcher.flush()
-
-        // Mark any in-flight tool calls as failed before persisting, so the
-        // buffered tool-call parts can be paired with synthetic tool-results.
-        // Otherwise the next request replays an unbalanced tool_use and the
-        // provider rejects the whole turn.
-        finishPendingToolCalls(deps, toolCalls, {
-          error: 'Run cancelled before the tool call finished.',
-          finishedAt: timestamp,
-          runId: input.runId,
-          threadId: input.thread.id
-        })
-        const balancedResponseMessages =
-          recoveryResponseMessages.length > 0
-            ? balanceRecoveryResponseMessages(
-                recoveryResponseMessages,
-                Array.from(toolCalls.values())
-              )
-            : recoveryResponseMessages
-        if (
-          input.requestMessageId &&
-          (bufferLength > 0 || reasoningLength > 0 || toolCalls.size > 0)
-        ) {
-          const currentThread = deps.readThread(input.thread.id)
-          const partialAssistantMessage: MessageRecord = {
-            id: messageId,
-            threadId: input.thread.id,
-            parentMessageId: input.requestMessageId,
-            role: 'assistant',
-            content: bufferParts.join(''),
-            ...(textBlocks.length > 0 ? { textBlocks } : {}),
-            ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
-            ...(balancedResponseMessages.length > 0
-              ? {
-                  responseMessages: balancedResponseMessages
-                }
-              : {}),
-            status: 'stopped',
-            createdAt: timestamp,
-            modelId: settings.model,
-            providerName: settings.providerName
-          }
-          deps.storage.saveThreadMessage({
-            thread: currentThread,
-            updatedThread: currentThread,
-            message: partialAssistantMessage
-          })
-          deps.emit<MessageCompletedEvent>({
-            type: 'message.completed',
-            threadId: input.thread.id,
-            runId: input.runId,
-            message: partialAssistantMessage
-          })
-          // Bind all tool calls from this run to the stopped assistant message so
-          // they are not reassigned to a later assistant message when the run completes.
-          bindCurrentRunToolCallsToAssistant(messageId)
-
-          const steerMessageId = restartReason.nextRequestMessageId
-          const threadMessages = deps.loadThreadMessages(input.thread.id)
-          const steerMessage = threadMessages.find(
-            (message) => message.id === steerMessageId && message.role === 'user'
-          )
-          const wouldCycleSteerParent =
-            steerMessage && wouldCreateParentCycle(threadMessages, steerMessage.id, messageId)
-          if (wouldCycleSteerParent) {
-            console.warn('[yachiyo][thread-tree] skipped cyclic steer reparent', {
-              messageId: steerMessageId,
-              parentMessageId: messageId,
-              threadId: input.thread.id
-            })
-          }
-          const nextSteerParentMessageId =
-            steerMessage && !wouldCycleSteerParent ? messageId : undefined
-          if (
-            steerMessage &&
-            nextSteerParentMessageId &&
-            steerMessage.parentMessageId !== nextSteerParentMessageId
-          ) {
-            const reparentedSteerMessage: MessageRecord = {
-              ...steerMessage,
-              parentMessageId: nextSteerParentMessageId
-            }
-            deps.storage.updateMessage(reparentedSteerMessage)
-            deps.emit<MessageCompletedEvent>({
-              type: 'message.completed',
-              threadId: input.thread.id,
-              runId: input.runId,
-              message: reparentedSteerMessage
-            })
-          }
-        }
-
-        deps.storage.deleteRunRecoveryCheckpoint(input.runId)
-        // Pass the tracker through so the next leg inherits accumulated changes.
-        return {
-          kind: 'restarted',
-          nextRequestMessageId: restartReason.nextRequestMessageId,
-          usage: lastUsage,
-          snapshotTracker: snapshotTracker ?? undefined
-        }
-      }
-
-      // Cancel-with-steer: the user cancelled the run while a steer was
-      // pending. Persist the stopped assistant message first so the run loop
-      // can parent the steer message under it — keeping the ancestor chain
-      // intact for future LLM context assembly.
-      if (isCancelWithSteerReason(restartReason)) {
-        textDeltaBatcher.flush()
-        reasoningDeltaBatcher.flush()
-        finishPendingToolCalls(deps, toolCalls, {
-          error: 'Run cancelled before the tool call finished.',
-          finishedAt: timestamp,
-          runId: input.runId,
-          threadId: input.thread.id
-        })
-
-        if (input.requestMessageId) {
-          const cancelledResponseMessages =
-            recoveryResponseMessages.length > 0
-              ? balanceRecoveryResponseMessages(
-                  recoveryResponseMessages,
-                  Array.from(toolCalls.values())
-                )
-              : recoveryResponseMessages
-          const currentThread = deps.readThread(input.thread.id)
-          const stoppedMessage: MessageRecord = {
-            id: messageId,
-            threadId: input.thread.id,
-            parentMessageId: input.requestMessageId,
-            role: 'assistant',
-            content: bufferParts.join(''),
-            ...(textBlocks.length > 0 ? { textBlocks } : {}),
-            ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
-            ...(cancelledResponseMessages.length > 0
-              ? { responseMessages: cancelledResponseMessages }
-              : {}),
-            status: 'stopped',
-            createdAt: timestamp,
-            modelId: settings.model,
-            providerName: settings.providerName
-          }
-          const updatedThread: ThreadRecord = {
-            ...currentThread,
-            updatedAt: timestamp,
-            ...(bufferLength > 0 ? { preview: bufferParts.join('').slice(0, 240) } : {}),
-            ...(input.updateHeadOnComplete ? { headMessageId: messageId } : {})
-          }
-          deps.storage.saveThreadMessage({
-            thread: currentThread,
-            updatedThread,
-            message: stoppedMessage
-          })
-          deps.emit<MessageCompletedEvent>({
-            type: 'message.completed',
-            threadId: input.thread.id,
-            runId: input.runId,
-            message: stoppedMessage
-          })
-          deps.emit<ThreadUpdatedEvent>({
-            type: 'thread.updated',
-            threadId: input.thread.id,
-            thread: updatedThread
-          })
-
-          bindCurrentRunToolCallsToAssistant(messageId)
-        }
-
-        const cancelUsage = mergeRunUsage(input.priorUsage, lastUsage)
-        deps.storage.cancelRun({
-          runId: input.runId,
-          completedAt: timestamp,
-          ...usageFieldsFrom(cancelUsage)
-        })
-
-        await finalizeRunSnapshot({
-          deps,
-          runId: input.runId,
-          snapshotTracker,
-          threadId: input.thread.id
-        })
-
-        deps.onTerminalState?.()
-        deps.emit<RunCancelledEvent>({
-          type: 'run.cancelled',
-          threadId: input.thread.id,
-          runId: input.runId,
-          requestMessageId: input.requestMessageId
-        })
-        perfCollector.finish(input.thread.id)
-
-        return {
-          kind: 'cancelled-with-steer',
-          stoppedMessageId: messageId,
-          steerInput: restartReason.steerInput,
-          usage: cancelUsage
-        }
-      }
-
-      textDeltaBatcher.flush()
-      reasoningDeltaBatcher.flush()
-      finishPendingToolCalls(deps, toolCalls, {
-        error: 'Run cancelled before the tool call finished.',
-        finishedAt: timestamp,
-        runId: input.runId,
-        threadId: input.thread.id
-      })
-
-      if (input.requestMessageId) {
-        // Balance recovery response messages so every tool-call has a matching
-        // tool-result — this keeps the stopped message valid for model replay.
-        const cancelledResponseMessages =
-          recoveryResponseMessages.length > 0
-            ? balanceRecoveryResponseMessages(
-                recoveryResponseMessages,
-                Array.from(toolCalls.values())
-              )
-            : recoveryResponseMessages
-        const currentThread = deps.readThread(input.thread.id)
-        const stoppedMessage: MessageRecord = {
-          id: messageId,
-          threadId: input.thread.id,
-          parentMessageId: input.requestMessageId,
-          role: 'assistant',
-          content: bufferParts.join(''),
-          ...(textBlocks.length > 0 ? { textBlocks } : {}),
-          ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
-          ...(cancelledResponseMessages.length > 0
-            ? { responseMessages: cancelledResponseMessages }
-            : {}),
-          status: 'stopped',
-          createdAt: timestamp,
-          modelId: settings.model,
-          providerName: settings.providerName
-        }
-        const updatedThread: ThreadRecord = {
-          ...currentThread,
-          updatedAt: timestamp,
-          ...(bufferLength > 0 ? { preview: bufferParts.join('').slice(0, 240) } : {}),
-          ...(input.updateHeadOnComplete ? { headMessageId: messageId } : {})
-        }
-        deps.storage.saveThreadMessage({
-          thread: currentThread,
-          updatedThread,
-          message: stoppedMessage
-        })
-        deps.emit<MessageCompletedEvent>({
-          type: 'message.completed',
-          threadId: input.thread.id,
-          runId: input.runId,
-          message: stoppedMessage
-        })
-        deps.emit<ThreadUpdatedEvent>({
-          type: 'thread.updated',
-          threadId: input.thread.id,
-          thread: updatedThread
-        })
-
-        // Bind all tool calls from this run to the stopped assistant message.
-        // Unlike the normal completion path where completeRun sets
-        // assistantMessageId in storage first, here we must do it explicitly.
-        bindCurrentRunToolCallsToAssistant(messageId)
-      }
-
-      const cancelUsage = mergeRunUsage(input.priorUsage, lastUsage)
-      deps.storage.cancelRun({
-        runId: input.runId,
-        completedAt: timestamp,
-        ...usageFieldsFrom(cancelUsage)
-      })
-
-      await finalizeRunSnapshot({
-        deps,
-        runId: input.runId,
-        snapshotTracker,
-        threadId: input.thread.id
-      })
-
-      deps.onTerminalState?.()
-      deps.emit<RunCancelledEvent>({
-        type: 'run.cancelled',
-        threadId: input.thread.id,
-        runId: input.runId,
-        requestMessageId: input.requestMessageId
-      })
-      perfCollector.finish(input.thread.id)
-
-      return { kind: 'cancelled', usage: cancelUsage }
-    }
-
-    const message = extractRetryErrorMessage(error) || 'Unknown model runtime error'
-    const nextRecoveryAttempt = (recoveryCheckpoint?.recoveryAttempts ?? 0) + 1
-    // Only RetryableRunError enters the recovery path. Every other error
-    // class — storage/ORM failures, tool bugs, programming errors — is
-    // fatal by type and drops into the `failed` branch below. No shape
-    // matching, no ad-hoc properties.
-    if (
-      input.requestMessageId &&
-      isRetryableRunError(error) &&
-      nextRecoveryAttempt < RETRY_MAX_ATTEMPTS
-    ) {
-      textDeltaBatcher.flush()
-      reasoningDeltaBatcher.flush()
-      runningToolCallIds.clear()
-      setExecutionPhase('generating')
-      finishPendingToolCalls(deps, toolCalls, {
-        error: 'Tool execution was interrupted before completion.',
-        finishedAt: deps.timestamp(),
-        runId: input.runId,
-        threadId: input.thread.id
-      })
-
-      const checkpoint = persistRecoveryCheckpoint({
-        lastError: message,
-        recoveryAttempts: nextRecoveryAttempt
-      })
-      if (checkpoint) {
-        deps.emit<RunRetryingEvent>({
-          type: 'run.retrying',
-          threadId: input.thread.id,
-          runId: input.runId,
-          attempt: checkpoint.recoveryAttempts,
-          maxAttempts: RETRY_MAX_ATTEMPTS,
-          delayMs: Math.min(1_000 * 2 ** Math.max(0, checkpoint.recoveryAttempts - 1), 30_000),
-          error: message
-        })
-        return {
-          kind: 'recovering',
-          checkpoint
-        }
-      }
-    }
-
-    const timestamp = deps.timestamp()
-
-    // Flush any buffered deltas so the failed assistant message includes all
-    // already-received output, consistent with cancel/retry paths.
-    textDeltaBatcher.flush()
-    reasoningDeltaBatcher.flush()
-
-    finishPendingToolCalls(deps, toolCalls, {
-      error: message,
-      finishedAt: timestamp,
-      runId: input.runId,
-      threadId: input.thread.id
-    })
-
-    if (input.requestMessageId) {
-      // Balance recovery response messages so every tool-call has a matching
-      // tool-result — keeps the failed message valid for model replay.
-      const failedResponseMessages =
-        recoveryResponseMessages.length > 0
-          ? balanceRecoveryResponseMessages(
-              recoveryResponseMessages,
-              Array.from(toolCalls.values())
-            )
-          : recoveryResponseMessages
-      const failedMessage = persistTerminalAssistantMessage(deps, {
-        runId: input.runId,
-        threadId: input.thread.id,
-        messageId,
-        requestMessageId: input.requestMessageId,
-        timestamp,
-        settings,
-        status: 'failed',
-        content: bufferParts.join(''),
-        textBlocks,
-        ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
-        ...(failedResponseMessages.length > 0 ? { responseMessages: failedResponseMessages } : {})
-      })
-      // Bind all tool calls from this run to the terminal assistant message so
-      // they are not left unbound when the run fails.
-      bindCurrentRunToolCallsToAssistant(messageId)
-      deps.emit<MessageCompletedEvent>({
-        type: 'message.completed',
-        threadId: input.thread.id,
-        runId: input.runId,
-        message: failedMessage
-      })
-      const currentThread = deps.readThread(input.thread.id)
-      deps.emit<ThreadUpdatedEvent>({
-        type: 'thread.updated',
-        threadId: input.thread.id,
-        thread: { ...currentThread, updatedAt: timestamp }
-      })
-    }
-
-    const failUsage = mergeRunUsage(input.priorUsage, lastUsage)
-    deps.storage.failRun({
-      runId: input.runId,
-      completedAt: timestamp,
-      error: message,
-      ...usageFieldsFrom(failUsage)
-    })
-
-    await finalizeRunSnapshot({
+    const abortedResult = await handleAbortedRun({
+      bindCurrentRunToolCallsToAssistant,
       deps,
-      runId: input.runId,
+      executionInput: input,
+      flushDeltas: () => {
+        textDeltaBatcher.flush()
+        reasoningDeltaBatcher.flush()
+      },
+      getOutputSnapshot: getCurrentOutputSnapshot,
+      lastUsage,
+      messageId,
+      perfCollector,
+      settings,
       snapshotTracker,
-      threadId: input.thread.id
+      toolCalls
     })
+    if (abortedResult) {
+      return abortedResult
+    }
 
-    deps.onTerminalState?.()
-    deps.emit<RunFailedEvent>({
-      type: 'run.failed',
-      threadId: input.thread.id,
-      runId: input.runId,
-      requestMessageId: input.requestMessageId,
-      error: message
+    return handleRunFailure({
+      bindCurrentRunToolCallsToAssistant,
+      deps,
+      error,
+      executionInput: input,
+      flushDeltas: () => {
+        textDeltaBatcher.flush()
+        reasoningDeltaBatcher.flush()
+      },
+      getOutputSnapshot: getCurrentOutputSnapshot,
+      lastUsage,
+      messageId,
+      perfCollector,
+      persistRecoveryCheckpoint,
+      recoveryAttempts: recoveryCheckpoint?.recoveryAttempts ?? 0,
+      runningToolCallIds,
+      setExecutionPhase,
+      settings,
+      snapshotTracker,
+      toolCalls
     })
-    perfCollector.finish(input.thread.id)
-    return { kind: 'failed', usage: failUsage }
   } finally {
     const jsReplTool = tools?.jsRepl as { dispose?: () => Promise<void> } | undefined
     if (jsReplTool?.dispose) {
