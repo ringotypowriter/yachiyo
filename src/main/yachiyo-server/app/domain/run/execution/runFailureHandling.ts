@@ -142,7 +142,8 @@ async function failRun(input: HandleRunFailureInput, message: string): Promise<E
     deps: input.deps,
     runId: input.executionInput.runId,
     snapshotTracker: input.snapshotTracker,
-    threadId: input.executionInput.thread.id
+    threadId: input.executionInput.thread.id,
+    perfCollector: input.perfCollector
   })
 
   input.deps.onTerminalState?.()

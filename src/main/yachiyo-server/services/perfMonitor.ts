@@ -22,10 +22,20 @@ export interface PerfMonitor {
 }
 
 export interface RunPerfCollector {
+  /** Call after run context has been prepared */
+  recordContextPreparation(durationMs: number, metrics: RunContextPerfMetrics): void
+  /** Call after model stream consumption exits */
+  recordModelStream(durationMs: number): void
+  /** Call when the first text delta is emitted */
+  recordFirstTextDelta(durationMs: number): void
+  /** Call when the first reasoning delta is emitted */
+  recordFirstReasoningDelta(durationMs: number): void
   /** Call around each recovery checkpoint write */
   recordCheckpointWrite(durationMs: number): void
   /** Call around each tool call DB write (create or update) */
   recordToolCallWrite(durationMs: number): void
+  /** Call around snapshot finalization */
+  recordSnapshotFinalize(durationMs: number): void
   /** Call on each text delta emission */
   recordDeltaEvent(): void
   /** Call on each reasoning delta emission */
@@ -34,6 +44,15 @@ export interface RunPerfCollector {
   addTextChars(count: number): void
   /** Finalize and report the record to the global perfMonitor */
   finish(threadId: string): void
+}
+
+export interface RunContextPerfMetrics {
+  activeSkillCount: number
+  availableSkillCount: number
+  fileMentionCount: number
+  inlinedFileCount: number
+  memoryEntryCount: number
+  messageCount: number
 }
 
 // The histogram reports total delay from scheduling to firing, which includes
@@ -121,6 +140,10 @@ function nsToMs(ns: number): number {
   return Math.round((ns / 1_000_000) * 100) / 100
 }
 
+function roundMs(ms: number): number {
+  return Math.round(ms * 100) / 100
+}
+
 // ── Module singleton ──────────────────────────────────────────────────
 
 let instance: PerfMonitor | null = null
@@ -141,16 +164,56 @@ export function stopPerfMonitor(): void {
 
 export function createRunPerfCollector(runId: string): RunPerfCollector {
   const startedAt = Date.now()
+  let contextPrepareMs = 0
+  let contextMessageCount = 0
+  let activeSkillCount = 0
+  let availableSkillCount = 0
+  let memoryEntryCount = 0
+  let fileMentionCount = 0
+  let inlinedFileCount = 0
+  let modelStreamMs = 0
+  let firstTextDeltaMs: number | undefined
+  let firstReasoningDeltaMs: number | undefined
   let checkpointWriteCount = 0
   let checkpointWriteTotalMs = 0
   let checkpointWriteMaxMs = 0
   let toolCallWriteCount = 0
   let toolCallWriteTotalMs = 0
+  let toolCallWriteMaxMs = 0
+  let snapshotFinalizeCount = 0
+  let snapshotFinalizeTotalMs = 0
+  let snapshotFinalizeMaxMs = 0
   let deltaEventCount = 0
   let reasoningDeltaEventCount = 0
   let textCharsStreamed = 0
 
   return {
+    recordContextPreparation(durationMs: number, metrics: RunContextPerfMetrics): void {
+      contextPrepareMs = durationMs
+      contextMessageCount = metrics.messageCount
+      activeSkillCount = metrics.activeSkillCount
+      availableSkillCount = metrics.availableSkillCount
+      memoryEntryCount = metrics.memoryEntryCount
+      fileMentionCount = metrics.fileMentionCount
+      inlinedFileCount = metrics.inlinedFileCount
+    },
+
+    recordModelStream(durationMs: number): void {
+      modelStreamMs = durationMs
+    },
+
+    recordFirstTextDelta(durationMs: number): void {
+      if (firstTextDeltaMs === undefined) {
+        firstTextDeltaMs = durationMs
+      }
+    },
+
+    recordFirstReasoningDelta(durationMs: number): void {
+      if (firstReasoningDeltaMs === undefined) {
+        firstReasoningDeltaMs = durationMs
+      }
+    },
+
     recordCheckpointWrite(durationMs: number): void {
       checkpointWriteCount++
       checkpointWriteTotalMs += durationMs
@@ -160,6 +223,13 @@ export function createRunPerfCollector(runId: string): RunPerfCollector {
     recordToolCallWrite(durationMs: number): void {
       toolCallWriteCount++
       toolCallWriteTotalMs += durationMs
+      if (durationMs > toolCallWriteMaxMs) toolCallWriteMaxMs = durationMs
+    },
+
+    recordSnapshotFinalize(durationMs: number): void {
+      snapshotFinalizeCount++
+      snapshotFinalizeTotalMs += durationMs
+      if (durationMs > snapshotFinalizeMaxMs) snapshotFinalizeMaxMs = durationMs
     },
 
     recordDeltaEvent(): void {
@@ -179,11 +249,27 @@ export function createRunPerfCollector(runId: string): RunPerfCollector {
         runId,
         threadId,
         durationMs: Date.now() - startedAt,
+        contextPrepareMs: roundMs(contextPrepareMs),
+        contextMessageCount,
+        activeSkillCount,
+        availableSkillCount,
+        memoryEntryCount,
+        fileMentionCount,
+        inlinedFileCount,
+        modelStreamMs: roundMs(modelStreamMs),
+        ...(firstTextDeltaMs !== undefined ? { firstTextDeltaMs: roundMs(firstTextDeltaMs) } : {}),
+        ...(firstReasoningDeltaMs !== undefined
+          ? { firstReasoningDeltaMs: roundMs(firstReasoningDeltaMs) }
+          : {}),
         checkpointWriteCount,
-        checkpointWriteTotalMs: Math.round(checkpointWriteTotalMs * 100) / 100,
-        checkpointWriteMaxMs: Math.round(checkpointWriteMaxMs * 100) / 100,
+        checkpointWriteTotalMs: roundMs(checkpointWriteTotalMs),
+        checkpointWriteMaxMs: roundMs(checkpointWriteMaxMs),
         toolCallWriteCount,
-        toolCallWriteTotalMs: Math.round(toolCallWriteTotalMs * 100) / 100,
+        toolCallWriteTotalMs: roundMs(toolCallWriteTotalMs),
+        toolCallWriteMaxMs: roundMs(toolCallWriteMaxMs),
+        snapshotFinalizeCount,
+        snapshotFinalizeTotalMs: roundMs(snapshotFinalizeTotalMs),
+        snapshotFinalizeMaxMs: roundMs(snapshotFinalizeMaxMs),
         deltaEventCount,
         reasoningDeltaEventCount,
         textCharsStreamed,

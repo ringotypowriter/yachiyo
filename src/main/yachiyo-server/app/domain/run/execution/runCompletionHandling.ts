@@ -163,6 +163,7 @@ async function persistCompletedRun(
     runId: input.executionInput.runId,
     snapshotTracker: input.snapshotTracker,
     threadId: input.executionInput.thread.id,
+    perfCollector: input.perfCollector,
     onError: (error) => {
       console.error('[snapshot] Finalization failed:', error)
     }

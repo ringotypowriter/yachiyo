@@ -204,7 +204,8 @@ async function handleCancelledRun(
     deps: input.deps,
     runId: input.executionInput.runId,
     snapshotTracker: input.snapshotTracker,
-    threadId: input.executionInput.thread.id
+    threadId: input.executionInput.thread.id,
+    perfCollector: input.perfCollector
   })
 
   input.deps.onTerminalState?.()

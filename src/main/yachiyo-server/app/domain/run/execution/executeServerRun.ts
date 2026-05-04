@@ -155,6 +155,9 @@ export async function executeServerRun(
       outputState.appendTextDelta(batch)
       persistRecoveryCheckpointThrottled()
       perfCollector.recordDeltaEvent()
+      if (streamStartedAt !== undefined) {
+        perfCollector.recordFirstTextDelta(performance.now() - streamStartedAt)
+      }
       perfCollector.addTextChars(batch.length)
       deps.emit<MessageDeltaEvent>({
         type: 'message.delta',
@@ -173,6 +176,9 @@ export async function executeServerRun(
       outputState.appendReasoningDelta(batch)
       persistRecoveryCheckpointThrottled()
       perfCollector.recordReasoningDeltaEvent()
+      if (streamStartedAt !== undefined) {
+        perfCollector.recordFirstReasoningDelta(performance.now() - streamStartedAt)
+      }
       deps.emit<MessageReasoningDeltaEvent>({
         type: 'message.reasoning.delta',
         threadId: input.thread.id,
@@ -183,6 +189,11 @@ export async function executeServerRun(
     },
     isAborted: () => input.abortController.signal.aborted
   })
+
+  const flushDeltas = (): void => {
+    textDeltaBatcher.flush()
+    reasoningDeltaBatcher.flush()
+  }
 
   const setExecutionPhase = (phase: 'generating' | 'tool-running' | 'waiting-for-user'): void => {
     if (executionPhase === phase) {
@@ -209,8 +220,19 @@ export async function executeServerRun(
   let lastUsage: ModelUsage | undefined
   let cumulativeCompletionTokens = input.priorUsage?.totalCompletionTokens ?? 0
   let tools: ToolSet | undefined
+  let streamStartedAt: number | undefined
+  let streamDurationRecorded = false
+  const recordModelStreamDuration = (): void => {
+    if (streamStartedAt === undefined || streamDurationRecorded) {
+      return
+    }
+
+    streamDurationRecorded = true
+    perfCollector.recordModelStream(performance.now() - streamStartedAt)
+  }
 
   try {
+    const contextPrepareStartedAt = performance.now()
     const preparedContext = await prepareServerRunContext(deps, {
       runId: input.runId,
       thread: input.thread,
@@ -228,6 +250,14 @@ export async function executeServerRun(
       ...(input.maxToolStepsOverride !== undefined
         ? { maxToolStepsOverride: input.maxToolStepsOverride }
         : {})
+    })
+    perfCollector.recordContextPreparation(performance.now() - contextPrepareStartedAt, {
+      activeSkillCount: preparedContext.activeSkills.length,
+      availableSkillCount: preparedContext.availableSkills.length,
+      fileMentionCount: preparedContext.fileMentionCount,
+      inlinedFileCount: preparedContext.inlinedFileCount,
+      memoryEntryCount: preparedContext.memoryEntries.length,
+      messageCount: preparedContext.messages.length
     })
     const { workspacePath, messages: finalMessages, maxToolSteps } = preparedContext
     if (!snapshotTracker) {
@@ -269,6 +299,7 @@ export async function executeServerRun(
         ]
       : undefined
 
+    streamStartedAt = performance.now()
     const stream = runtime.streamReply({
       messages: finalMessages,
       settings,
@@ -692,8 +723,8 @@ export async function executeServerRun(
       textDeltaBatcher.push(dedupedDelta)
     }
 
-    textDeltaBatcher.flush()
-    reasoningDeltaBatcher.flush()
+    flushDeltas()
+    recordModelStreamDuration()
 
     const outputSnapshot = outputState.getSnapshot()
     console.log(
@@ -742,6 +773,8 @@ export async function executeServerRun(
       toolLifecycle
     })
   } catch (error) {
+    flushDeltas()
+    recordModelStreamDuration()
     // Reject any pending askUser promises so the tool execution unblocks
     for (const [id, pending] of pendingUserAnswers) {
       pending.reject(new Error('Run cancelled'))
@@ -752,10 +785,7 @@ export async function executeServerRun(
       bindCurrentRunToolCallsToAssistant,
       deps,
       executionInput: input,
-      flushDeltas: () => {
-        textDeltaBatcher.flush()
-        reasoningDeltaBatcher.flush()
-      },
+      flushDeltas,
       getOutputSnapshot: getCurrentOutputSnapshot,
       lastUsage,
       messageId,
@@ -773,10 +803,7 @@ export async function executeServerRun(
       deps,
       error,
       executionInput: input,
-      flushDeltas: () => {
-        textDeltaBatcher.flush()
-        reasoningDeltaBatcher.flush()
-      },
+      flushDeltas,
       getOutputSnapshot: getCurrentOutputSnapshot,
       lastUsage,
       messageId,

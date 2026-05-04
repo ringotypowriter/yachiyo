@@ -1767,6 +1767,26 @@ export interface RunPerfRecord {
   threadId: string
   /** Total run wall-clock duration in milliseconds */
   durationMs: number
+  /** Time spent preparing context before the model stream starts */
+  contextPrepareMs: number
+  /** Number of model messages sent to the runtime after context compaction */
+  contextMessageCount: number
+  /** Number of active skills included in context */
+  activeSkillCount: number
+  /** Number of available skills considered for the run */
+  availableSkillCount: number
+  /** Number of memory entries included in context */
+  memoryEntryCount: number
+  /** Number of file mentions resolved while preparing context */
+  fileMentionCount: number
+  /** Number of file/jotdown references inlined into context */
+  inlinedFileCount: number
+  /** Time spent consuming the model stream */
+  modelStreamMs: number
+  /** Time from stream start to the first emitted text delta */
+  firstTextDeltaMs?: number
+  /** Time from stream start to the first emitted reasoning delta */
+  firstReasoningDeltaMs?: number
   /** Number of recovery checkpoint writes */
   checkpointWriteCount: number
   /** Total time spent on checkpoint writes in milliseconds */
@@ -1777,6 +1797,14 @@ export interface RunPerfRecord {
   toolCallWriteCount: number
   /** Total time spent on tool call writes in milliseconds */
   toolCallWriteTotalMs: number
+  /** Maximum single tool call write duration in milliseconds */
+  toolCallWriteMaxMs: number
+  /** Number of snapshot finalization attempts */
+  snapshotFinalizeCount: number
+  /** Total time spent finalizing snapshots in milliseconds */
+  snapshotFinalizeTotalMs: number
+  /** Maximum single snapshot finalization duration in milliseconds */
+  snapshotFinalizeMaxMs: number
   /** Number of delta events emitted to the renderer */
   deltaEventCount: number
   /** Number of reasoning delta events emitted */

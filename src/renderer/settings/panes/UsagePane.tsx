@@ -649,13 +649,18 @@ function PerformanceContent(): React.ReactNode {
                   }}
                 >
                   <th className="text-left py-2 pr-3 font-medium">Duration</th>
+                  <th className="text-right py-2 pr-3 font-medium">Context</th>
+                  <th className="text-right py-2 pr-3 font-medium">Stream</th>
+                  <th className="text-right py-2 pr-3 font-medium">First Delta</th>
+                  <th className="text-right py-2 pr-3 font-medium">Ctx Size</th>
                   <th className="text-right py-2 pr-3 font-medium">Deltas</th>
                   <th className="text-right py-2 pr-3 font-medium">Chars</th>
                   <th className="text-right py-2 pr-3 font-medium">CP Writes</th>
                   <th className="text-right py-2 pr-3 font-medium">CP Total</th>
                   <th className="text-right py-2 pr-3 font-medium">CP Max</th>
                   <th className="text-right py-2 pr-3 font-medium">Tool Writes</th>
-                  <th className="text-right py-2 font-medium">Tool Total</th>
+                  <th className="text-right py-2 pr-3 font-medium">Tool Total</th>
+                  <th className="text-right py-2 font-medium">Snapshot</th>
                 </tr>
               </thead>
               <tbody>
@@ -684,6 +689,12 @@ function RunRow({ run }: { run: RunPerfRecord }): React.ReactNode {
   const cpAvg =
     run.checkpointWriteCount > 0 ? run.checkpointWriteTotalMs / run.checkpointWriteCount : 0
   const toolAvg = run.toolCallWriteCount > 0 ? run.toolCallWriteTotalMs / run.toolCallWriteCount : 0
+  const snapshotAvg =
+    run.snapshotFinalizeCount > 0 ? run.snapshotFinalizeTotalMs / run.snapshotFinalizeCount : 0
+  const deltaTimings = [run.firstTextDeltaMs, run.firstReasoningDeltaMs].filter(
+    (value): value is number => value !== undefined
+  )
+  const firstDeltaMs = deltaTimings.length > 0 ? Math.min(...deltaTimings) : undefined
 
   return (
     <tr
@@ -693,6 +704,18 @@ function RunRow({ run }: { run: RunPerfRecord }): React.ReactNode {
       }}
     >
       <td className="py-1.5 pr-3">{formatDuration(run.durationMs)}</td>
+      <td className="text-right py-1.5 pr-3">{formatMs(run.contextPrepareMs)}</td>
+      <td className="text-right py-1.5 pr-3">{formatMs(run.modelStreamMs)}</td>
+      <td className="text-right py-1.5 pr-3">
+        {firstDeltaMs !== undefined ? formatMs(firstDeltaMs) : '-'}
+      </td>
+      <td className="text-right py-1.5 pr-3">
+        {run.contextMessageCount}
+        <span style={{ color: theme.text.muted }}>
+          {' '}
+          / {run.activeSkillCount}s / {run.memoryEntryCount}m / {run.fileMentionCount}f
+        </span>
+      </td>
       <td className="text-right py-1.5 pr-3">
         {run.deltaEventCount}
         {run.reasoningDeltaEventCount > 0 && (
@@ -717,10 +740,22 @@ function RunRow({ run }: { run: RunPerfRecord }): React.ReactNode {
         </span>
       </td>
       <td className="text-right py-1.5 pr-3">{run.toolCallWriteCount}</td>
-      <td className="text-right py-1.5">
+      <td className="text-right py-1.5 pr-3">
         <span>{formatMs(run.toolCallWriteTotalMs)}</span>
         {run.toolCallWriteCount > 0 && (
-          <span style={{ color: theme.text.muted }}> ({formatMs(toolAvg)} avg)</span>
+          <span style={{ color: theme.text.muted }}>
+            {' '}
+            ({formatMs(toolAvg)} avg, {formatMs(run.toolCallWriteMaxMs)} max)
+          </span>
+        )}
+      </td>
+      <td className="text-right py-1.5">
+        <span>{formatMs(run.snapshotFinalizeTotalMs)}</span>
+        {run.snapshotFinalizeCount > 0 && (
+          <span style={{ color: theme.text.muted }}>
+            {' '}
+            ({formatMs(snapshotAvg)} avg, {formatMs(run.snapshotFinalizeMaxMs)} max)
+          </span>
         )}
       </td>
     </tr>
