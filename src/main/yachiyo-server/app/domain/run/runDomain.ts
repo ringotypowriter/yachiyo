@@ -41,7 +41,7 @@ import { INTERRUPTED_RUN_ERROR, SHUTDOWN_RUN_ERROR, isAbortError } from '../shar
 import { type BackgroundTaskRunContext, type RunDomainDeps, type RunState } from './runTypes.ts'
 import { createEphemeralStorageProxy, type EphemeralStorage } from './chat/ephemeralStorage.ts'
 import { type DebouncedSendChatEntry } from './chat/sendChatDebounce.ts'
-import { persistSteerMessage, sendChatFlow, type SendChatFlowContext } from './chat/sendChatFlow.ts'
+import { sendChatFlow, type SendChatFlowContext } from './chat/sendChatFlow.ts'
 import { resolveEffectiveThreadMessages } from './chat/threadMessages.ts'
 import {
   startActiveRun,
@@ -59,8 +59,13 @@ import {
   type ActiveRunControlContext
 } from './active/activeRunControl.ts'
 import { usageFieldsFrom } from './runUsageFields.ts'
-import { mergeUsageForTerminal } from './loop/runUsage.ts'
+import { accumulateRunLoopUsage } from './loop/runUsage.ts'
 import { buildRunExecutionDeps, type RunExecutionDepsContext } from './loop/runExecutionDeps.ts'
+import {
+  handleCancelledWithSteerResult,
+  handleSteerPendingResult,
+  type RunLoopSteerContext
+} from './loop/runLoopSteer.ts'
 import {
   handleBackgroundBashCompleted,
   recoverOrphanedBackgroundToolCalls,
@@ -231,6 +236,14 @@ export class YachiyoServerRunDomain {
       setLastRunEnabledTools: (enabledTools) => {
         this.lastRunEnabledTools = [...enabledTools]
       }
+    }
+  }
+
+  private createRunLoopSteerContext(): RunLoopSteerContext {
+    return {
+      deps: this.deps,
+      createSendChatFlowContext: () => this.createSendChatFlowContext(),
+      createFollowUpQueueContext: () => this.createFollowUpQueueContext()
     }
   }
 
@@ -708,120 +721,37 @@ export class YachiyoServerRunDomain {
           }
         }
 
-        // Safe steer: the stream ended cleanly at a turn boundary and a user
-        // steer is waiting. Persist the steer message and continue the loop
-        // so the next executeServerRun iteration starts from the steer.
         if (result.kind === 'steer-pending') {
-          carriedSnapshotTracker = result.snapshotTracker
-          if (!activeRun?.pendingSteerInput) {
-            // The steer was cancelled (e.g. user stopped the run) while the
-            // model was finishing. The cancel path in executeServerRun never ran
-            // (the abort arrived after throwIfAborted), so we must cancel the
-            // run in storage ourselves and let the finally block fire
-            // startQueuedFollowUpIfPresent.
-            carriedSnapshotTracker?.dispose()
+          const steerResult = handleSteerPendingResult(this.createRunLoopSteerContext(), {
+            accumulatedUsage,
+            activeRun,
+            carriedToolFailLoopSteers,
+            currentRequestMessageId,
+            loopInput: input,
+            result
+          })
+
+          accumulatedUsage = steerResult.accumulatedUsage
+          if (steerResult.kind === 'cancelled') {
             carriedSnapshotTracker = undefined
-            const steerPendingUsage = mergeUsageForTerminal(accumulatedUsage, result.usage)
-            this.deps.storage.cancelRun({
-              runId: input.runId,
-              completedAt: this.deps.timestamp(),
-              ...usageFieldsFrom(steerPendingUsage)
-            })
-            this.deps.emit<RunCancelledEvent>({
-              type: 'run.cancelled',
-              threadId: input.thread.id,
-              runId: input.runId,
-              requestMessageId: currentRequestMessageId
-            })
-            result = { kind: 'cancelled' }
+            result = steerResult.result
             break
           }
 
-          // Point requestMessageId to the completed assistant message so
-          // persistSteerMessage parents the steer as a child of the assistant
-          // response — not a sibling. This ensures the model sees all previous
-          // work (including tool calls and results) when processing the steer.
-          activeRun.requestMessageId = result.assistantMessageId
-
-          const steerThread = this.deps.requireThread(input.thread.id)
-          const { userMessage } = persistSteerMessage(this.createSendChatFlowContext(), {
-            content: activeRun.pendingSteerInput.content,
-            images: activeRun.pendingSteerInput.images,
-            attachments: activeRun.pendingSteerInput.attachments,
-            messageId: activeRun.pendingSteerInput.messageId,
-            runId: input.runId,
-            runState: activeRun,
-            thread: steerThread,
-            timestamp: activeRun.pendingSteerInput.timestamp,
-            hidden: activeRun.pendingSteerInput.hidden
-          })
-
-          emitThreadStateReplaced(this.createFollowUpQueueContext(), input.thread.id)
-          activeRun.pendingSteerInput = undefined
-          activeRun.pendingSteerMessageId = undefined
-          activeRun.executionPhase = 'generating'
-          activeRun.requestMessageId = userMessage.id
-          currentRequestMessageId = userMessage.id
-          this.deps.storage.updateRunRequestMessageId(input.runId, userMessage.id)
-          currentThread = this.deps.requireThread(input.thread.id)
-
-          // Accumulate totals from this steer leg so the final completion
-          // includes total token counts from all legs of the run.
-          if (result.usage) {
-            const u = result.usage
-            accumulatedUsage = {
-              promptTokens: u.promptTokens,
-              completionTokens: (accumulatedUsage?.completionTokens ?? 0) + u.completionTokens,
-              totalPromptTokens: (accumulatedUsage?.totalPromptTokens ?? 0) + u.totalPromptTokens,
-              totalCompletionTokens:
-                (accumulatedUsage?.totalCompletionTokens ?? 0) + u.totalCompletionTokens,
-              cacheReadTokens: (accumulatedUsage?.cacheReadTokens ?? 0) + (u.cacheReadTokens ?? 0),
-              cacheWriteTokens:
-                (accumulatedUsage?.cacheWriteTokens ?? 0) + (u.cacheWriteTokens ?? 0)
-            }
-          }
-          carriedToolFailLoopSteers = result.toolFailLoopSteersInjected ?? carriedToolFailLoopSteers
+          carriedSnapshotTracker = steerResult.carriedSnapshotTracker
+          carriedToolFailLoopSteers = steerResult.carriedToolFailLoopSteers
+          currentRequestMessageId = steerResult.currentRequestMessageId
+          currentThread = steerResult.currentThread
           isSteerLeg = true
           continue
         }
 
-        // Cancel-with-steer: the stopped assistant message has been persisted
-        // by executeServerRun. Now persist the steer message as its child and
-        // queue it as a follow-up so startQueuedFollowUpIfPresent fires a new run.
-        //
-        // Guard: if pendingSteerInput was already cleared by a prior
-        // steer-pending iteration (race: model finished before observing the
-        // abort), the steer is already persisted — skip to avoid double-persist.
         if (result.kind === 'cancelled-with-steer') {
-          if (activeRun.pendingSteerInput) {
-            const steerThread = this.deps.requireThread(input.thread.id)
-            const { updatedThread, userMessage } = persistSteerMessage(
-              this.createSendChatFlowContext(),
-              {
-                content: result.steerInput.content,
-                images: result.steerInput.images,
-                attachments: result.steerInput.attachments,
-                messageId: result.steerInput.messageId,
-                runId: input.runId,
-                runState: { ...activeRun, requestMessageId: result.stoppedMessageId },
-                thread: steerThread,
-                timestamp: result.steerInput.timestamp,
-                hidden: result.steerInput.hidden
-              }
-            )
-            const queuedThread: ThreadRecord = {
-              ...updatedThread,
-              queuedFollowUpMessageId: userMessage.id
-            }
-            if (activeRun.pendingSteerInput.reasoningEffort !== undefined) {
-              queuedThread.queuedFollowUpReasoningEffort =
-                activeRun.pendingSteerInput.reasoningEffort
-            }
-            this.deps.storage.updateThread(queuedThread)
-            emitThreadStateReplaced(this.createFollowUpQueueContext(), input.thread.id)
-            activeRun.pendingSteerInput = undefined
-          }
-          result = { kind: 'cancelled', usage: result.usage }
+          result = handleCancelledWithSteerResult(this.createRunLoopSteerContext(), {
+            activeRun,
+            loopInput: input,
+            result
+          })
           break
         }
 
@@ -843,20 +773,7 @@ export class YachiyoServerRunDomain {
         }
 
         carriedSnapshotTracker = result.snapshotTracker
-        // Accumulate totals from the restarted leg so they aren't lost if the
-        // subsequent leg is cancelled or fails.
-        if (result.usage) {
-          const u = result.usage
-          accumulatedUsage = {
-            promptTokens: u.promptTokens,
-            completionTokens: (accumulatedUsage?.completionTokens ?? 0) + u.completionTokens,
-            totalPromptTokens: (accumulatedUsage?.totalPromptTokens ?? 0) + u.totalPromptTokens,
-            totalCompletionTokens:
-              (accumulatedUsage?.totalCompletionTokens ?? 0) + u.totalCompletionTokens,
-            cacheReadTokens: (accumulatedUsage?.cacheReadTokens ?? 0) + (u.cacheReadTokens ?? 0),
-            cacheWriteTokens: (accumulatedUsage?.cacheWriteTokens ?? 0) + (u.cacheWriteTokens ?? 0)
-          }
-        }
+        accumulatedUsage = accumulateRunLoopUsage(accumulatedUsage, result.usage)
 
         const nextRequestMessageId = activeRun.pendingSteerMessageId ?? result.nextRequestMessageId
 

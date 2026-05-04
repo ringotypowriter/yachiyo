@@ -18,3 +18,19 @@ export function mergeUsageForTerminal(
     cacheWriteTokens: (prior.cacheWriteTokens ?? 0) + (current.cacheWriteTokens ?? 0)
   }
 }
+
+/** Accumulate a completed loop leg into the prior same-run usage totals. */
+export function accumulateRunLoopUsage(
+  prior: UsageFields | undefined,
+  current: ModelUsage | undefined
+): UsageFields | undefined {
+  if (!current) return prior
+  return {
+    promptTokens: current.promptTokens,
+    completionTokens: (prior?.completionTokens ?? 0) + current.completionTokens,
+    totalPromptTokens: (prior?.totalPromptTokens ?? 0) + current.totalPromptTokens,
+    totalCompletionTokens: (prior?.totalCompletionTokens ?? 0) + current.totalCompletionTokens,
+    cacheReadTokens: (prior?.cacheReadTokens ?? 0) + (current.cacheReadTokens ?? 0),
+    cacheWriteTokens: (prior?.cacheWriteTokens ?? 0) + (current.cacheWriteTokens ?? 0)
+  }
+}
