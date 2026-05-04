@@ -13,14 +13,16 @@ interface MarkdownFence {
   indent: number
 }
 
-interface DisplayMathDelimiter {
+interface DisplayMathFence {
+  length: number
   indent: number
 }
 
 const DEFAULT_MAX_ACTIVE_SEGMENT_CHARS = 1600
 const LINE_RE = /[^\n]*\n|[^\n]+/g
 const FENCE_RE = /^([ \t]{0,3})(`{3,}|~{3,})/
-const DISPLAY_MATH_DELIMITER_RE = /^([ \t]{0,3})\$\$[ \t]*$/
+const DISPLAY_MATH_OPENING_RE = /^([ \t]{0,3})(\${2,})(?:[ \t]*[^$\n]*)?$/
+const DISPLAY_MATH_CLOSING_RE = /^([ \t]{0,3})(\${2,})[ \t]*$/
 const HEADING_RE = /^[ \t]{0,3}#{1,6}(?:\s+|$)/
 const TOP_LEVEL_LIST_ITEM_RE = /^[ \t]{0,3}(?:[-+*]|\d{1,9}[.)])\s+/
 const TOP_LEVEL_UNORDERED_LIST_ITEM_RE = /^[ \t]{0,3}[-+*]\s+/
@@ -43,7 +45,7 @@ export function splitStreamingMarkdownSegments(
   let segmentStart = 0
   let offset = 0
   let fence: MarkdownFence | null = null
-  let inDisplayMath = false
+  let displayMath: DisplayMathFence | null = null
   let activeSegmentStartsWithList = false
 
   const cutSegment = (end: number): void => {
@@ -74,9 +76,9 @@ export function splitStreamingMarkdownSegments(
       continue
     }
 
-    if (inDisplayMath) {
-      if (readDisplayMathDelimiter(text)) {
-        inDisplayMath = false
+    if (displayMath) {
+      if (closesDisplayMathFence(text, displayMath)) {
+        displayMath = null
       }
       offset = lineEnd
       continue
@@ -92,12 +94,12 @@ export function splitStreamingMarkdownSegments(
       continue
     }
 
-    const displayMathDelimiter = readDisplayMathDelimiter(text)
-    if (displayMathDelimiter) {
-      if (displayMathDelimiter.indent === 0 && lineStart > segmentStart) {
+    const openingDisplayMath = readOpeningDisplayMathFence(text)
+    if (openingDisplayMath) {
+      if (openingDisplayMath.indent === 0 && lineStart > segmentStart) {
         cutSegment(lineStart)
       }
-      inDisplayMath = true
+      displayMath = openingDisplayMath
       offset = lineEnd
       continue
     }
@@ -147,14 +149,22 @@ function readOpeningFence(line: string): MarkdownFence | null {
   }
 }
 
-function readDisplayMathDelimiter(line: string): DisplayMathDelimiter | null {
-  const match = line.match(DISPLAY_MATH_DELIMITER_RE)
+function readOpeningDisplayMathFence(line: string): DisplayMathFence | null {
+  const match = line.match(DISPLAY_MATH_OPENING_RE)
   const indent = match?.[1]
-  if (indent === undefined) return null
+  const marker = match?.[2]
+  if (!marker || indent === undefined) return null
 
   return {
+    length: marker.length,
     indent: indent.length
   }
+}
+
+function closesDisplayMathFence(line: string, fence: DisplayMathFence): boolean {
+  const match = line.match(DISPLAY_MATH_CLOSING_RE)
+  const marker = match?.[2]
+  return Boolean(marker && marker.length >= fence.length)
 }
 
 function closesFence(line: string, fence: MarkdownFence): boolean {

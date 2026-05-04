@@ -48,6 +48,32 @@ test('keeps display math blocks with blank lines intact', () => {
   })
 })
 
+test('keeps display math blocks with metadata intact', () => {
+  assert.deepEqual(splitStreamingMarkdownSegments('$$asciimath\na=1\n\nb=2\n$$\n\nNext'), {
+    stableSegments: ['$$asciimath\na=1\n\nb=2\n$$\n\n'],
+    activeSegment: 'Next'
+  })
+})
+
+test('keeps display math blocks with longer fences intact', () => {
+  assert.deepEqual(splitStreamingMarkdownSegments('$$$\na=1\n\nb=2\n$$$\n\nNext'), {
+    stableSegments: ['$$$\na=1\n\nb=2\n$$$\n\n'],
+    activeSegment: 'Next'
+  })
+})
+
+test('keeps same-line math flow open when no closing fence line exists', () => {
+  assert.deepEqual(
+    splitStreamingMarkdownSegments(
+      'Intro.\n\n$$\\begin{aligned}\na=1\n\nb=2\n\\end{aligned}$$\n\nNext'
+    ),
+    {
+      stableSegments: ['Intro.\n\n'],
+      activeSegment: '$$\\begin{aligned}\na=1\n\nb=2\n\\end{aligned}$$\n\nNext'
+    }
+  )
+})
+
 test('keeps unfinished display math blocks in the active streaming tail', () => {
   assert.deepEqual(splitStreamingMarkdownSegments('Intro.\n\n$$\na=1\n\nb=2\n'), {
     stableSegments: ['Intro.\n\n'],
