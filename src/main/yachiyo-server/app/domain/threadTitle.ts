@@ -116,14 +116,18 @@ export function sanitizeGeneratedThreadTitle(value: string): string | null {
 function extractFirstEmoji(text: string): string | null {
   const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
   const first = [...segmenter.segment(text.trim())][0]?.segment ?? ''
-  return /\p{Extended_Pictographic}/u.test(first) ? first : null
+  return isEmojiGrapheme(first) ? first : null
+}
+
+function isEmojiGrapheme(grapheme: string): boolean {
+  return /\p{Extended_Pictographic}/u.test(grapheme) || /^[\u{1f1e6}-\u{1f1ff}]{2}$/u.test(grapheme)
 }
 
 function stripLeadingEmoji(text: string): string {
   const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
   const segments = [...segmenter.segment(text.trim())]
   let i = 0
-  while (i < segments.length && /\p{Extended_Pictographic}/u.test(segments[i].segment)) {
+  while (i < segments.length && isEmojiGrapheme(segments[i].segment)) {
     i++
   }
   return segments

@@ -4,6 +4,7 @@ import {
   buildThreadTitleGenerationMessages,
   buildTitleQuery,
   MAX_THREAD_TITLE_LENGTH,
+  parseGeneratedTitleAndIcon,
   sanitizeGeneratedThreadTitle
 } from './threadTitle.ts'
 
@@ -99,5 +100,12 @@ describe('thread title generation', () => {
       longTitle.slice(0, MAX_THREAD_TITLE_LENGTH).trim()
     )
     assert.equal(sanitizeGeneratedThreadTitle(longTitle)?.length, MAX_THREAD_TITLE_LENGTH)
+  })
+
+  it('parses regional flag emoji as the generated icon', () => {
+    assert.deepEqual(parseGeneratedTitleAndIcon('🇨🇦\nTravel Planning'), {
+      icon: '🇨🇦',
+      title: 'Travel Planning'
+    })
   })
 })
