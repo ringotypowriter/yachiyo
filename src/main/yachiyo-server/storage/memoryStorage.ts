@@ -8,21 +8,12 @@ import type {
   ScheduleRunRecord,
   ThreadRecord,
   ThreadSearchResult,
-  ToolCallRecord,
-  UsageStatsInput,
-  UsageStatsBucket,
-  UsageStatsByModel,
-  UsageStatsByWorkspace,
-  UsageStatsResponse
+  ToolCallRecord
 } from '../../../shared/yachiyo/protocol'
 import {
   groupLatestRunsByThread,
   groupToolCallsByThread,
   groupMessagesByThread,
-  serializeModelOverride,
-  serializeRuntimeBinding,
-  serializeLastDelegatedSession,
-  serializeThreadMemoryRecallState,
   serializeReasoningSelection,
   serializeToolCallDetails,
   toRunRecoveryCheckpoint,
@@ -40,6 +31,8 @@ import {
   type YachiyoStorage
 } from './storage.ts'
 import { sortToolCallsChronologically } from '../../../shared/yachiyo/toolCallOrder.ts'
+import { applyThreadSnapshot, createStoredThreadRow } from './memoryStorage/threadRows.ts'
+import { getInMemoryUsageStats } from './memoryStorage/usageStats.ts'
 
 export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const channelGroups = new Map<string, ChannelGroupRecord>()
@@ -118,47 +111,6 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const sortToolCalls = (items: ToolCallRecord[]): ToolCallRecord[] =>
     sortToolCallsChronologically(items)
   const toToolCallRecordWithRun = (row: StoredToolCallRow): ToolCallRecord => toToolCallRecord(row)
-  const applyThreadSnapshot = (
-    storedThread: StoredThreadRow,
-    nextThread: ReturnType<typeof toThreadRecord>
-  ): void => {
-    storedThread.branchFromThreadId = nextThread.branchFromThreadId ?? null
-    storedThread.branchFromMessageId = nextThread.branchFromMessageId ?? null
-    storedThread.source = nextThread.source ?? null
-    storedThread.channelUserId = nextThread.channelUserId ?? null
-    storedThread.channelGroupId = nextThread.channelGroupId ?? null
-    storedThread.handoffFromThreadId = nextThread.handoffFromThreadId ?? null
-    storedThread.folderId = nextThread.folderId ?? null
-    storedThread.colorTag = nextThread.colorTag ?? null
-    storedThread.headMessageId = nextThread.headMessageId ?? null
-    storedThread.icon = nextThread.icon ?? null
-    storedThread.memoryRecallState = serializeThreadMemoryRecallState(nextThread.memoryRecall)
-    storedThread.preview = nextThread.preview ?? null
-    storedThread.privacyMode = nextThread.privacyMode ? '1' : null
-    storedThread.queuedFollowUpEnabledTools = nextThread.queuedFollowUpEnabledTools
-      ? JSON.stringify(nextThread.queuedFollowUpEnabledTools)
-      : null
-    storedThread.queuedFollowUpEnabledSkillNames = nextThread.queuedFollowUpEnabledSkillNames
-      ? JSON.stringify(nextThread.queuedFollowUpEnabledSkillNames)
-      : null
-    storedThread.queuedFollowUpMessageId = nextThread.queuedFollowUpMessageId ?? null
-    storedThread.queuedFollowUpReasoningEffort = serializeReasoningSelection(
-      nextThread.queuedFollowUpReasoningEffort
-    )
-    storedThread.reasoningEffort = serializeReasoningSelection(nextThread.reasoningEffort)
-    storedThread.modelOverride = serializeModelOverride(nextThread.modelOverride)
-    storedThread.rollingSummary = nextThread.rollingSummary ?? null
-    storedThread.summaryWatermarkMessageId = nextThread.summaryWatermarkMessageId ?? null
-    storedThread.runtimeBinding = serializeRuntimeBinding(nextThread.runtimeBinding)
-    storedThread.lastDelegatedSession = serializeLastDelegatedSession(
-      nextThread.lastDelegatedSession
-    )
-    storedThread.recapText = nextThread.recapText ?? null
-    storedThread.starredAt = nextThread.starredAt ?? null
-    storedThread.title = nextThread.title
-    storedThread.updatedAt = nextThread.updatedAt
-    storedThread.workspacePath = nextThread.workspacePath ?? null
-  }
 
   return {
     close() {
@@ -288,49 +240,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     },
 
     createThread({ thread, createdAt, messages: initialMessages = [] }) {
-      threads.set(thread.id, {
-        id: thread.id,
-        icon: thread.icon ?? null,
-        title: thread.title,
-        memoryRecallState: serializeThreadMemoryRecallState(thread.memoryRecall),
-        modelOverride: serializeModelOverride(thread.modelOverride),
-        workspacePath: thread.workspacePath ?? null,
-        preview: thread.preview ?? null,
-        branchFromThreadId: thread.branchFromThreadId ?? null,
-        branchFromMessageId: thread.branchFromMessageId ?? null,
-        handoffFromThreadId: thread.handoffFromThreadId ?? null,
-        folderId: thread.folderId ?? null,
-        colorTag: thread.colorTag ?? null,
-        queuedFollowUpEnabledTools: thread.queuedFollowUpEnabledTools
-          ? JSON.stringify(thread.queuedFollowUpEnabledTools)
-          : null,
-        queuedFollowUpEnabledSkillNames: thread.queuedFollowUpEnabledSkillNames
-          ? JSON.stringify(thread.queuedFollowUpEnabledSkillNames)
-          : null,
-        queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
-        queuedFollowUpReasoningEffort: serializeReasoningSelection(
-          thread.queuedFollowUpReasoningEffort
-        ),
-        reasoningEffort: serializeReasoningSelection(thread.reasoningEffort),
-        archivedAt: null,
-        savingStartedAt: null,
-        starredAt: null,
-        privacyMode: thread.privacyMode ? '1' : null,
-        headMessageId: thread.headMessageId ?? null,
-        source: thread.source ?? null,
-        channelUserId: thread.channelUserId ?? null,
-        channelGroupId: thread.channelGroupId ?? null,
-        rollingSummary: thread.rollingSummary ?? null,
-        summaryWatermarkMessageId: thread.summaryWatermarkMessageId ?? null,
-        readAt: thread.readAt ?? null,
-        createdFromEssentialId: thread.createdFromEssentialId ?? null,
-        createdFromScheduleId: thread.createdFromScheduleId ?? null,
-        runtimeBinding: serializeRuntimeBinding(thread.runtimeBinding),
-        lastDelegatedSession: serializeLastDelegatedSession(thread.lastDelegatedSession),
-        recapText: thread.recapText ?? null,
-        updatedAt: thread.updatedAt,
-        createdAt
-      })
+      threads.set(thread.id, createStoredThreadRow(thread, createdAt))
       messages.push(...initialMessages)
     },
 
@@ -1215,141 +1125,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
     },
 
-    // Usage statistics
-    getUsageStats(input: UsageStatsInput): UsageStatsResponse {
-      const completedRuns = [...runs.values()].filter((r) => {
-        if (r.status !== 'completed' || !r.completedAt) return false
-        if (input.from && r.completedAt < input.from) return false
-        if (input.to && r.completedAt > input.to) return false
-        if (input.modelId && r.modelId !== input.modelId) return false
-        if (input.providerName && r.providerName !== input.providerName) return false
-        if (input.workspacePath) {
-          const thread = threads.get(r.threadId)
-          if (input.workspacePath === '__null__') {
-            if (thread?.workspacePath != null) return false
-          } else if (thread?.workspacePath !== input.workspacePath) {
-            return false
-          }
-        }
-        return true
-      })
-
-      const formatPeriod = (date: string): string => {
-        const d = date.slice(0, 10) // YYYY-MM-DD
-        switch (input.period) {
-          case 'year':
-            return d.slice(0, 4)
-          case 'month':
-            return d.slice(0, 7)
-          case 'week': {
-            const dt = new Date(d)
-            const jan1 = new Date(dt.getFullYear(), 0, 1)
-            const weekNum = Math.ceil(
-              ((dt.getTime() - jan1.getTime()) / 86400000 + jan1.getDay() + 1) / 7
-            )
-            return `${dt.getFullYear()}-W${String(weekNum).padStart(2, '0')}`
-          }
-          default:
-            return d
-        }
-      }
-
-      // Buckets
-      const bucketMap = new Map<string, UsageStatsBucket>()
-      for (const r of completedRuns) {
-        const key = formatPeriod(r.completedAt!)
-        const b = bucketMap.get(key) ?? {
-          periodStart: key,
-          totalPromptTokens: 0,
-          totalCompletionTokens: 0,
-          totalCacheReadTokens: 0,
-          totalCacheWriteTokens: 0,
-          cacheAwarePromptTokens: 0,
-          runCount: 0
-        }
-        b.totalPromptTokens += r.totalPromptTokens ?? 0
-        b.totalCompletionTokens += r.totalCompletionTokens ?? 0
-        b.totalCacheReadTokens += r.cacheReadTokens ?? 0
-        b.totalCacheWriteTokens += r.cacheWriteTokens ?? 0
-        if (r.cacheReadTokens != null) b.cacheAwarePromptTokens += r.totalPromptTokens ?? 0
-        b.runCount++
-        bucketMap.set(key, b)
-      }
-      const buckets = [...bucketMap.values()].sort((a, b) =>
-        a.periodStart.localeCompare(b.periodStart)
-      )
-
-      // By model
-      const modelMap = new Map<string, UsageStatsByModel>()
-      for (const r of completedRuns) {
-        if (!r.modelId) continue
-        const key = `${r.modelId}|${r.providerName ?? 'unknown'}`
-        const m = modelMap.get(key) ?? {
-          modelId: r.modelId,
-          providerName: r.providerName ?? 'unknown',
-          totalPromptTokens: 0,
-          totalCompletionTokens: 0,
-          totalCacheReadTokens: 0,
-          totalCacheWriteTokens: 0,
-          cacheAwarePromptTokens: 0,
-          runCount: 0
-        }
-        m.totalPromptTokens += r.totalPromptTokens ?? 0
-        m.totalCompletionTokens += r.totalCompletionTokens ?? 0
-        m.totalCacheReadTokens += r.cacheReadTokens ?? 0
-        m.totalCacheWriteTokens += r.cacheWriteTokens ?? 0
-        if (r.cacheReadTokens != null) m.cacheAwarePromptTokens += r.totalPromptTokens ?? 0
-        m.runCount++
-        modelMap.set(key, m)
-      }
-      const byModel = [...modelMap.values()].sort(
-        (a, b) => b.totalPromptTokens - a.totalPromptTokens
-      )
-
-      // By workspace
-      const wsMap = new Map<string, UsageStatsByWorkspace>()
-      for (const r of completedRuns) {
-        const thread = threads.get(r.threadId)
-        const ws = thread?.workspacePath ?? '__null__'
-        const w = wsMap.get(ws) ?? {
-          workspacePath: ws,
-          totalPromptTokens: 0,
-          totalCompletionTokens: 0,
-          totalCacheReadTokens: 0,
-          totalCacheWriteTokens: 0,
-          cacheAwarePromptTokens: 0,
-          runCount: 0
-        }
-        w.totalPromptTokens += r.totalPromptTokens ?? 0
-        w.totalCompletionTokens += r.totalCompletionTokens ?? 0
-        w.totalCacheReadTokens += r.cacheReadTokens ?? 0
-        w.totalCacheWriteTokens += r.cacheWriteTokens ?? 0
-        if (r.cacheReadTokens != null) w.cacheAwarePromptTokens += r.totalPromptTokens ?? 0
-        w.runCount++
-        wsMap.set(ws, w)
-      }
-      const byWorkspace = [...wsMap.values()].sort(
-        (a, b) => b.totalPromptTokens - a.totalPromptTokens
-      )
-
-      // Totals
-      const totals = {
-        promptTokens: 0,
-        completionTokens: 0,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        cacheAwarePromptTokens: 0,
-        runCount: completedRuns.length
-      }
-      for (const r of completedRuns) {
-        totals.promptTokens += r.totalPromptTokens ?? 0
-        totals.completionTokens += r.totalCompletionTokens ?? 0
-        totals.cacheReadTokens += r.cacheReadTokens ?? 0
-        totals.cacheWriteTokens += r.cacheWriteTokens ?? 0
-        if (r.cacheReadTokens != null) totals.cacheAwarePromptTokens += r.totalPromptTokens ?? 0
-      }
-
-      return { buckets, byModel, byWorkspace, totals }
+    getUsageStats(input) {
+      return getInMemoryUsageStats(input, runs.values(), threads)
     },
 
     // Group monitor buffer persistence

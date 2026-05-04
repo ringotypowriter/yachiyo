@@ -2,51 +2,17 @@ import type React from 'react'
 import { useRef, useCallback, useState, useEffect, useLayoutEffect, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
-  AlertCircle,
-  Brain,
-  ChevronDown,
-  CircleCheck,
-  Cpu,
-  FileText,
-  Folder,
-  Paperclip,
-  LoaderCircle,
-  SendHorizonal,
-  Sparkles,
-  Square,
-  Timer,
-  TriangleAlert,
-  Wrench,
-  X
-} from 'lucide-react'
-import {
   DEFAULT_SETTINGS,
   EMPTY_COMPOSER_DRAFT,
   getEffectiveModel,
   getComposerReasoningEffort,
-  useAppStore,
-  type ComposerFileDraft,
-  type ComposerImageDraft
+  useAppStore
 } from '@renderer/app/store/useAppStore'
-import type { FileMentionCandidate, Message, RunRecord } from '@renderer/app/types'
 import { getComposerActionState } from '@renderer/features/chat/lib/composerActionState'
 import { canRemoveQueuedFollowUp } from '@renderer/features/chat/lib/messageActionState'
-import { shouldRevertPendingComposerMessagesOnArrowUp } from '@renderer/features/chat/lib/composerArrowUpRevert'
-import {
-  resolveComposerEnterAction,
-  shouldSelectCompletionCandidate
-} from '@renderer/features/chat/lib/composerEnterBehavior'
 import type { ChatInputBufferPayload } from '@renderer/features/chat/lib/chatInputBuffer'
 import { useChatInputBuffer } from '@renderer/features/chat/hooks/useChatInputBuffer'
-import {
-  computePretextLines,
-  buildFontString,
-  getMeasureContext,
-  navigatePretextLine,
-  clearGoalX,
-  resolveLineHeightPx
-} from '@renderer/features/chat/lib/pretextSync'
-import { theme } from '@renderer/theme/theme'
+import { computePretextLines } from '@renderer/features/chat/lib/pretextSync'
 import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
@@ -57,634 +23,25 @@ import {
 } from '../../../../../shared/yachiyo/protocol.ts'
 import { getReasoningSelectorState } from '../../../../../shared/yachiyo/reasoningEffort.ts'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
-import { canCompactThreadToAnotherThread } from '@renderer/features/threads/lib/threadVisibility'
-import { ModelSelectorPopup } from './ModelSelectorPopup'
-import type { AcpAgentEntry } from '../lib/modelSelectorState'
-import { SlashCommandPopup } from './SlashCommandPopup'
-import type { SlashCommand } from './SlashCommandPopup'
-import { scoreCandidates } from '../lib/completionMatch'
-import {
-  buildFileMentionCompletionCommands,
-  paginateFileMentionMatches
-} from '../lib/fileMentionCompletion'
-import { longestCommonPrefix } from '../lib/longestCommonPrefix'
-import { formatReasoningSelection } from '../lib/reasoningSelectionLabel'
-import { SkillsSelectorPopup } from './SkillsSelectorPopup'
-import { ToolSelectorPopup } from './ToolSelectorPopup'
-import { ReasoningSelectorPopup } from './ReasoningSelectorPopup'
-import { RunArrowIndicator } from './RunArrowIndicator'
-import { WorkspaceSelectorPopup } from './WorkspaceSelectorPopup'
-import { SmoothCaretOverlay } from './SmoothCaretOverlay'
 import { selectContextPromptTokens } from '@renderer/lib/contextPromptTokens'
-import { formatTokenCount } from '@renderer/lib/formatTokenCount'
 import { estimateDraftPromptTokens } from '@renderer/lib/estimatePromptTokens'
-import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
-import { Tooltip } from '@renderer/components/Tooltip'
 import {
   canChangeThreadWorkspace,
   isFreshHandoffWorkspaceThread
 } from '../../../../../shared/yachiyo/threadWorkspaceRules.ts'
-
-const NEW_THREAD_DRAFT_KEY = '__new__'
-const EMPTY_MESSAGES: Message[] = []
-const EMPTY_RUNS: RunRecord[] = []
-const MAX_COMPOSER_IMAGES = 4
-const MAX_COMPOSER_FILES = 10
-const FILE_MENTION_PAGE_SIZE = 24
-const FILE_MENTION_MAX_RESULTS = 120
-/** Text stack cap; inner wrapper uses hard clip so grid min-content cannot paint into the toolbar. */
-const COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX = 160
-
-const ACCEPTED_FILE_TYPES = [
-  'application/pdf',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.ms-excel',
-  'text/plain',
-  'text/csv',
-  'text/markdown'
-]
-
-const ACCEPT_ATTRIBUTE = `image/*,${ACCEPTED_FILE_TYPES.join(',')}`
-
-const COMPOSER_TAG_HIGHLIGHT_RE = /@skills:[a-zA-Z0-9_-]+|@!?"[^"]+"|@!?[\p{L}\p{N}\p{M}._/-]+/gu
-const CONFIRMED_FILE_TAG_RE = /(^|\s)@(!?"[^"]+"|!?[\p{L}\p{N}\p{M}._/-]+)(?=\s|$)/gu
-const SKILL_TAG_PATTERN = /^@skills:([a-zA-Z0-9_-]+)(\s|$)/
-const SLASH_PATTERN = /^\/([a-zA-Z0-9-]*)$/
-const SKILL_PREFIX_PATTERN = /^\/skills:([a-zA-Z0-9_-]*)$/
-const AT_SKILL_PREFIX_PATTERN = /^@skills:([a-zA-Z0-9_-]*)$/
-const FILE_MENTION_PATTERN = /(^|\s)@(!?)(?:"([^"]*)"?|([\p{L}\p{N}\p{M}._/-]*))$/u
-
-interface PendingWorkspaceChangeConfirmation {
-  threadId: string | null
-  currentWorkspacePath: string | null
-  nextWorkspacePath: string | null
-  saveWorkspacePath?: string
-}
-
-function renderComposerTextHighlights(
-  text: string,
-  primaryColor: string,
-  accentColor: string,
-  validatedFileTags: string[]
-): React.ReactNode {
-  const validatedSet = new Set(validatedFileTags)
-  const parts: React.ReactNode[] = []
-  let last = 0
-  let m: RegExpExecArray | null
-  COMPOSER_TAG_HIGHLIGHT_RE.lastIndex = 0
-  while ((m = COMPOSER_TAG_HIGHLIGHT_RE.exec(text)) !== null) {
-    const matched = m[0]
-    const isSkillTag = matched.startsWith('@skills:')
-    // For file tags, strip the leading @ (and optional !) and surrounding quotes to check against validated set
-    let fileTagKey = isSkillTag ? null : matched.slice(matched.startsWith('@!') ? 2 : 1)
-    if (fileTagKey?.startsWith('"') && fileTagKey.endsWith('"'))
-      fileTagKey = fileTagKey.slice(1, -1)
-    const isHighlighted = isSkillTag || (fileTagKey !== null && validatedSet.has(fileTagKey))
-
-    if (m.index > last) {
-      parts.push(
-        <span key={last} style={{ color: primaryColor }}>
-          {text.slice(last, m.index)}
-        </span>
-      )
-    }
-    if (isHighlighted) {
-      parts.push(
-        <span
-          key={`h${m.index}`}
-          style={{ color: accentColor, textDecoration: 'underline', textUnderlineOffset: '2px' }}
-        >
-          {matched}
-        </span>
-      )
-    } else {
-      parts.push(
-        <span key={`h${m.index}`} style={{ color: primaryColor }}>
-          {matched}
-        </span>
-      )
-    }
-    last = m.index + matched.length
-  }
-  if (last < text.length) {
-    parts.push(
-      <span key={last} style={{ color: primaryColor }}>
-        {text.slice(last)}
-      </span>
-    )
-  }
-  return parts.length > 0 ? <>{parts}</> : null
-}
-
-const SELECTION_BG = 'rgb(75 175 201 / 0.25)'
-
-/**
- * Render a single pretext line with optional selection highlight.
- * `lineCharStart` is the character offset of this line in the full text.
- */
-function renderPretextLine(
-  lineText: string,
-  lineCharStart: number,
-  selRange: [number, number] | null,
-  primaryColor: string,
-  accentColor: string,
-  validatedFileTags: string[]
-): React.ReactNode {
-  if (!lineText) return '\u200b'
-
-  const lineEnd = lineCharStart + lineText.length
-
-  // No selection or no intersection → plain highlights
-  if (!selRange || selRange[0] >= lineEnd || selRange[1] <= lineCharStart) {
-    return (
-      renderComposerTextHighlights(lineText, primaryColor, accentColor, validatedFileTags) ||
-      '\u200b'
-    )
-  }
-
-  const localStart = Math.max(0, selRange[0] - lineCharStart)
-  const localEnd = Math.min(lineText.length, selRange[1] - lineCharStart)
-
-  // Full line selected
-  if (localStart === 0 && localEnd === lineText.length) {
-    return (
-      <span style={{ backgroundColor: SELECTION_BG }}>
-        {renderComposerTextHighlights(lineText, primaryColor, accentColor, validatedFileTags) ||
-          lineText}
-      </span>
-    )
-  }
-
-  // Partial selection — split into before / selected / after
-  const before = lineText.slice(0, localStart)
-  const selected = lineText.slice(localStart, localEnd)
-  const after = lineText.slice(localEnd)
-
-  return (
-    <>
-      {before && renderComposerTextHighlights(before, primaryColor, accentColor, validatedFileTags)}
-      <span style={{ backgroundColor: SELECTION_BG }}>
-        {renderComposerTextHighlights(selected, primaryColor, accentColor, validatedFileTags) ||
-          selected}
-      </span>
-      {after && renderComposerTextHighlights(after, primaryColor, accentColor, validatedFileTags)}
-    </>
-  )
-}
-
-function collectConfirmedFileTags(text: string): string[] {
-  const tags: string[] = []
-  const seen = new Set<string>()
-  let match: RegExpExecArray | null
-
-  CONFIRMED_FILE_TAG_RE.lastIndex = 0
-  while ((match = CONFIRMED_FILE_TAG_RE.exec(text)) !== null) {
-    let value = match[2]?.trim() ?? ''
-    // Strip leading ! and surrounding quotes for the tag key
-    if (value.startsWith('!')) value = value.slice(1)
-    if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1)
-    if (!value || value.startsWith('skills:') || seen.has(value)) {
-      continue
-    }
-
-    seen.add(value)
-    tags.push(value)
-  }
-
-  return tags
-}
-
-async function resolveValidatedFileTags(input: {
-  fileTags: string[]
-  threadId: string | null
-  workspacePath: string | null
-}): Promise<string[]> {
-  const validated: string[] = []
-
-  await Promise.all(
-    input.fileTags.map(async (fileTag) => {
-      const includeIgnored = fileTag.startsWith('!')
-      const query = includeIgnored ? fileTag.slice(1) : fileTag
-      const matches = await window.api.yachiyo.searchWorkspaceFiles({
-        query,
-        includeIgnored,
-        ...(input.threadId ? { threadId: input.threadId } : {}),
-        ...(!input.threadId && input.workspacePath ? { workspacePath: input.workspacePath } : {}),
-        limit: 1
-      })
-
-      if (
-        matches.some(
-          (match) => match.path === query && Boolean(match.includeIgnored) === includeIgnored
-        )
-      ) {
-        validated.push(fileTag)
-      }
-    })
-  )
-
-  return input.fileTags.filter((fileTag) => validated.includes(fileTag))
-}
-
-function createDraftImageId(): string {
-  return (
-    globalThis.crypto?.randomUUID?.() ??
-    `image-${Date.now()}-${Math.random().toString(16).slice(2)}`
-  )
-}
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onerror = () => reject(reader.error ?? new Error('Unable to read image file.'))
-    reader.onload = () => {
-      if (typeof reader.result !== 'string') {
-        reject(new Error('Image could not be converted into a preview.'))
-        return
-      }
-
-      resolve(reader.result)
-    }
-    reader.readAsDataURL(file)
-  })
-}
-
-function getImageStatusLabel(image: ComposerImageDraft): string {
-  if (image.status === 'loading') {
-    return 'Loading'
-  }
-
-  if (image.status === 'failed') {
-    return 'Needs attention'
-  }
-
-  return 'Ready'
-}
-
-function getFileStatusLabel(file: ComposerFileDraft): string {
-  if (file.status === 'loading') return 'Loading'
-  if (file.status === 'failed') return 'Needs attention'
-  return 'Ready'
-}
-
-function ComposerFilePreview({
-  file,
-  onRemove
-}: {
-  file: ComposerFileDraft
-  onRemove: () => void
-}): React.JSX.Element {
-  return (
-    <div className="composer-file-card">
-      <button
-        type="button"
-        className="composer-image-card__remove"
-        aria-label={`Remove ${file.filename}`}
-        onClick={onRemove}
-      >
-        <X size={12} strokeWidth={1.8} />
-      </button>
-
-      <div className="composer-file-card__icon">
-        {file.status === 'loading' ? (
-          <LoaderCircle size={18} strokeWidth={1.7} className="composer-image-card__spinner" />
-        ) : file.status === 'failed' ? (
-          <AlertCircle size={18} strokeWidth={1.7} />
-        ) : (
-          <FileText size={18} strokeWidth={1.5} />
-        )}
-      </div>
-
-      <div className="composer-image-card__meta">
-        <span className="composer-image-card__name">{file.filename}</span>
-        <span className="composer-image-card__status">{getFileStatusLabel(file)}</span>
-      </div>
-    </div>
-  )
-}
-
-function getWorkspaceLabel(workspacePath: string | null): string {
-  if (!workspacePath) {
-    return 'Temp workspace'
-  }
-
-  return workspacePath.split('/').filter(Boolean).at(-1) ?? workspacePath
-}
-
-function getWorkspaceHint(input: { isWorkspaceLocked: boolean; workspacePath: string | null }): {
-  title: string
-  detail: string
-} {
-  if (input.isWorkspaceLocked) {
-    return {
-      title: 'Workspace locked',
-      detail: input.workspacePath
-        ? `${input.workspacePath}\nSent messages already exist, so this thread can no longer switch workspaces.`
-        : 'This thread is already using the temp workspace. Sent messages already exist, so it can no longer switch workspaces.'
-    }
-  }
-
-  return input.workspacePath
-    ? {
-        title: getWorkspaceLabel(input.workspacePath),
-        detail: input.workspacePath
-      }
-    : {
-        title: 'Temp workspace',
-        detail: 'No specific workspace selected for this thread.'
-      }
-}
-
-function ComposerImagePreview({
-  image,
-  onRemove
-}: {
-  image: ComposerImageDraft
-  onRemove: () => void
-}): React.JSX.Element {
-  return (
-    <div className="composer-image-card">
-      <button
-        type="button"
-        className="composer-image-card__remove"
-        aria-label={`Remove ${image.filename ?? 'image'}`}
-        onClick={onRemove}
-      >
-        <X size={12} strokeWidth={1.8} />
-      </button>
-
-      <div className="composer-image-card__frame">
-        {image.status === 'ready' && image.dataUrl ? (
-          <img
-            className="composer-image-card__media"
-            src={image.dataUrl}
-            alt={image.filename ?? 'Selected image'}
-          />
-        ) : (
-          <div className="composer-image-card__placeholder">
-            {image.status === 'loading' ? (
-              <LoaderCircle size={16} strokeWidth={1.7} className="composer-image-card__spinner" />
-            ) : (
-              <AlertCircle size={16} strokeWidth={1.7} />
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="composer-image-card__meta">
-        <span className="composer-image-card__name">{image.filename ?? 'Image'}</span>
-        <span className="composer-image-card__status">{getImageStatusLabel(image)}</span>
-      </div>
-    </div>
-  )
-}
-
-const STAGED_RING_SIZE_PX = 30
-const STAGED_RING_RADIUS = 12
-const STAGED_RING_CIRCUMFERENCE = 2 * Math.PI * STAGED_RING_RADIUS
-
-function StagedInputBufferBubble({
-  staged,
-  progress,
-  remainingMs,
-  onSendNow,
-  onCancel
-}: {
-  staged: ChatInputBufferPayload
-  progress: number
-  remainingMs: number
-  onSendNow: () => void
-  onCancel: () => void
-}): React.JSX.Element {
-  const contentRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (contentRef.current) {
-      contentRef.current.scrollTop = contentRef.current.scrollHeight
-    }
-  }, [staged.content])
-
-  const clampedProgress = Math.max(0, Math.min(1, progress))
-  const dashOffset = STAGED_RING_CIRCUMFERENCE * clampedProgress
-  const secondsRemaining = Math.max(0, Math.ceil(remainingMs / 1000))
-  const attachmentSummary: string[] = []
-  if (staged.images.length > 0) {
-    attachmentSummary.push(`${staged.images.length} image${staged.images.length === 1 ? '' : 's'}`)
-  }
-  if (staged.attachments.length > 0) {
-    attachmentSummary.push(
-      `${staged.attachments.length} file${staged.attachments.length === 1 ? '' : 's'}`
-    )
-  }
-
-  return (
-    <div
-      className="group flex items-start gap-3 px-4 py-2.5"
-      style={{
-        background: theme.background.accentSoft,
-        borderBottom: `1px solid ${theme.border.accent}`
-      }}
-    >
-      <div
-        className="relative flex items-center justify-center shrink-0"
-        style={{ width: STAGED_RING_SIZE_PX, height: STAGED_RING_SIZE_PX }}
-        aria-label={`Merging next message in ${secondsRemaining}s`}
-      >
-        <svg
-          width={STAGED_RING_SIZE_PX}
-          height={STAGED_RING_SIZE_PX}
-          viewBox={`0 0 ${STAGED_RING_SIZE_PX} ${STAGED_RING_SIZE_PX}`}
-        >
-          <circle
-            cx={STAGED_RING_SIZE_PX / 2}
-            cy={STAGED_RING_SIZE_PX / 2}
-            r={STAGED_RING_RADIUS}
-            fill="none"
-            stroke={theme.border.panel}
-            strokeWidth={2}
-          />
-          <circle
-            cx={STAGED_RING_SIZE_PX / 2}
-            cy={STAGED_RING_SIZE_PX / 2}
-            r={STAGED_RING_RADIUS}
-            fill="none"
-            stroke={theme.text.accent}
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeDasharray={STAGED_RING_CIRCUMFERENCE}
-            strokeDashoffset={dashOffset}
-            transform={`rotate(-90 ${STAGED_RING_SIZE_PX / 2} ${STAGED_RING_SIZE_PX / 2})`}
-          />
-        </svg>
-        <Brain
-          size={14}
-          strokeWidth={1.8}
-          className="absolute animate-spin"
-          style={{
-            color: theme.text.accent,
-            animationDuration: '2.2s',
-            animationDirection: 'reverse'
-          }}
-        />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div
-          className="text-[11px] font-medium uppercase tracking-wide mb-0.5"
-          style={{ color: theme.text.accent }}
-        >
-          Merging next message · {secondsRemaining}s
-        </div>
-        {staged.content.length > 0 ? (
-          <div
-            ref={contentRef}
-            className="text-sm whitespace-pre-wrap wrap-break-word"
-            style={{
-              color: theme.text.primary,
-              maxHeight: 80,
-              overflowY: 'auto'
-            }}
-          >
-            {staged.content}
-          </div>
-        ) : (
-          <div className="text-sm italic" style={{ color: theme.text.muted }}>
-            (attachments only)
-          </div>
-        )}
-        {attachmentSummary.length > 0 ? (
-          <div className="text-xs mt-1" style={{ color: theme.text.secondary }}>
-            {attachmentSummary.join(' · ')}
-          </div>
-        ) : null}
-      </div>
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          type="button"
-          onClick={onSendNow}
-          className="text-xs px-2 py-1 rounded transition-colors"
-          style={{ color: theme.text.accent }}
-          aria-label="Send buffered message now"
-        >
-          Send now
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="text-xs px-2 py-1 rounded transition-colors"
-          style={{ color: theme.text.muted }}
-          aria-label="Cancel buffered message"
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function QueuedFollowUpBufferBubble({
-  message,
-  onEdit,
-  onRemove
-}: {
-  message: Message
-  onEdit: () => void
-  onRemove?: () => void
-}): React.JSX.Element {
-  const contentRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (contentRef.current) {
-      contentRef.current.scrollTop = contentRef.current.scrollHeight
-    }
-  }, [message.content])
-
-  const attachmentSummary: string[] = []
-  const imageCount = message.images?.length ?? 0
-  const fileCount = message.attachments?.length ?? 0
-  if (imageCount > 0) {
-    attachmentSummary.push(`${imageCount} image${imageCount === 1 ? '' : 's'}`)
-  }
-  if (fileCount > 0) {
-    attachmentSummary.push(`${fileCount} file${fileCount === 1 ? '' : 's'}`)
-  }
-
-  return (
-    <div
-      className="group flex items-start gap-3 px-4 py-2.5"
-      style={{
-        background: theme.background.accentSoft,
-        borderBottom: `1px solid ${theme.border.accent}`
-      }}
-    >
-      <div
-        className="relative flex items-center justify-center shrink-0 rounded-full"
-        style={{
-          width: STAGED_RING_SIZE_PX,
-          height: STAGED_RING_SIZE_PX,
-          border: `1px solid ${theme.border.accent}`,
-          color: theme.text.accent
-        }}
-        aria-label="Queued follow-up"
-      >
-        <Timer size={14} strokeWidth={1.8} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div
-          className="text-[11px] font-medium uppercase tracking-wide mb-0.5"
-          style={{ color: theme.text.accent }}
-        >
-          Queued follow-up
-        </div>
-        {message.content.length > 0 ? (
-          <div
-            ref={contentRef}
-            className="text-sm whitespace-pre-wrap wrap-break-word"
-            style={{
-              color: theme.text.primary,
-              maxHeight: 80,
-              overflowY: 'auto'
-            }}
-          >
-            {message.content}
-          </div>
-        ) : (
-          <div className="text-sm italic" style={{ color: theme.text.muted }}>
-            (attachments only)
-          </div>
-        )}
-        {attachmentSummary.length > 0 ? (
-          <div className="text-xs mt-1" style={{ color: theme.text.secondary }}>
-            {attachmentSummary.join(' · ')}
-          </div>
-        ) : null}
-      </div>
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          type="button"
-          onClick={onEdit}
-          className="text-xs px-2 py-1 rounded transition-colors"
-          style={{ color: theme.text.accent }}
-          aria-label="Edit queued follow-up"
-        >
-          Edit
-        </button>
-        {onRemove ? (
-          <button
-            type="button"
-            onClick={onRemove}
-            className="text-xs px-2 py-1 rounded transition-colors"
-            style={{ color: theme.text.muted }}
-            aria-label="Remove queued follow-up"
-          >
-            Remove
-          </button>
-        ) : null}
-      </div>
-    </div>
-  )
-}
+import {
+  COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX,
+  MAX_COMPOSER_FILES,
+  MAX_COMPOSER_IMAGES,
+  NEW_THREAD_DRAFT_KEY,
+  EMPTY_MESSAGES,
+  EMPTY_RUNS,
+  getWorkspaceHint,
+  type PendingWorkspaceChangeConfirmation
+} from './Composer/support.tsx'
+import { ComposerView } from './Composer/ComposerView.tsx'
+import { useComposerCompletions } from './Composer/useComposerCompletions.ts'
+import { useComposerInputHandlers } from './Composer/useComposerInputHandlers.ts'
 
 export function Composer({
   onSelectThreadOperation
@@ -818,29 +175,6 @@ export function Composer({
   const [overlayLineTexts, setOverlayLineTexts] = useState<string[] | null>(null)
   // Custom selection range for the pretext-driven overlay (native ::selection is hidden).
   const [overlaySelRange, setOverlaySelRange] = useState<[number, number] | null>(null)
-  const [dismissedSlashQuery, setDismissedSlashQuery] = useState<string | null>(null)
-  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
-  const [fileMentionMatchesState, setFileMentionMatchesState] = useState<{
-    status: 'idle' | 'ready' | 'error'
-    key: string | null
-    limit: number
-    matches: FileMentionCandidate[]
-    hasMore: boolean
-  }>({
-    status: 'idle',
-    key: null,
-    limit: 0,
-    hasMore: false,
-    matches: []
-  })
-  const [fileMentionResultLimitState, setFileMentionResultLimitState] = useState<{
-    key: string | null
-    limit: number
-  }>({
-    key: null,
-    limit: FILE_MENTION_PAGE_SIZE
-  })
-
   const composerValue = composerDraft.text
   const draftImages = composerDraft.images
   const draftFiles = composerDraft.files
@@ -952,382 +286,52 @@ export function Composer({
   const showWorkspaceHint = !workspaceSelectorOpen && (workspaceHintHovered || workspaceHintPinned)
   const threadIsBusy = threadIsSaving || isBackendSwitchPending
 
-  const slashMatch = useMemo(() => SLASH_PATTERN.exec(composerValue), [composerValue])
-  const skillPrefixMatch = useMemo(() => SKILL_PREFIX_PATTERN.exec(composerValue), [composerValue])
-  const atSkillPrefixMatch = useMemo(
-    () => AT_SKILL_PREFIX_PATTERN.exec(composerValue),
-    [composerValue]
-  )
-  const slashQuery = slashMatch ? slashMatch[1] : null
-  const skillQuery = skillPrefixMatch
-    ? skillPrefixMatch[1]
-    : atSkillPrefixMatch
-      ? atSkillPrefixMatch[1]
-      : null
-  const fileMentionMatch = useMemo(() => {
-    if (skillQuery !== null || atSkillPrefixMatch !== null) return null
-    return FILE_MENTION_PATTERN.exec(composerValue)
-  }, [composerValue, skillQuery, atSkillPrefixMatch])
-  const fileMentionRawQuery = fileMentionMatch
-    ? (fileMentionMatch[3] ?? fileMentionMatch[4] ?? '')
-    : ''
-  const fileMentionQuery =
-    fileMentionMatch && !fileMentionRawQuery.startsWith('skills:') ? fileMentionRawQuery : null
-  const fileMentionIncludeIgnored = fileMentionMatch?.[2] === '!'
-  const fileMentionQueryKey =
-    fileMentionQuery === null ? null : `${fileMentionIncludeIgnored ? '!' : ''}${fileMentionQuery}`
-  const fileMentionSearchScopeKey =
-    activeThreadId !== null ? `thread:${activeThreadId}` : `workspace:${currentWorkspacePath ?? ''}`
-  const fileMentionRequestKey =
-    fileMentionQueryKey === null ? null : `${fileMentionSearchScopeKey}\n${fileMentionQueryKey}`
-  const fileMentionResultLimit =
-    fileMentionRequestKey !== null && fileMentionResultLimitState.key === fileMentionRequestKey
-      ? fileMentionResultLimitState.limit
-      : FILE_MENTION_PAGE_SIZE
-  // Only show chip when skill tag is confirmed (has trailing space/content) and popup is not active
-  const skillTagMatch = skillQuery === null ? SKILL_TAG_PATTERN.exec(composerValue) : null
-  const activeSkillTag = skillTagMatch ? skillTagMatch[1] : null
-  const confirmedFileTags = useMemo(() => collectConfirmedFileTags(composerValue), [composerValue])
-  const [validatedFileTagsState, setValidatedFileTagsState] = useState<{
-    key: string | null
-    tags: string[]
-  }>({
-    key: null,
-    tags: []
-  })
-  const fileMentionMatches = useMemo(
-    () =>
-      fileMentionRequestKey !== null && fileMentionMatchesState.key === fileMentionRequestKey
-        ? fileMentionMatchesState.matches
-        : [],
-    [fileMentionMatchesState, fileMentionRequestKey]
-  )
-  const isFileMentionSearchPending =
-    fileMentionRequestKey !== null &&
-    (fileMentionMatchesState.key !== fileMentionRequestKey ||
-      fileMentionMatchesState.limit < fileMentionResultLimit)
-  const confirmedFileTagsKey = confirmedFileTags.join('\n')
-  const validatedFileTags = useMemo(
-    () =>
-      confirmedFileTags.length > 0 && validatedFileTagsState.key === confirmedFileTagsKey
-        ? validatedFileTagsState.tags
-        : [],
-    [confirmedFileTags.length, confirmedFileTagsKey, validatedFileTagsState]
-  )
-
-  const userPrompts = useMemo(() => config?.prompts ?? [], [config?.prompts])
-  const canRunThreadOperations = activeThreadId !== null
-  const canHandoffActiveThread =
-    canRunThreadOperations && activeThread ? canCompactThreadToAnotherThread(activeThread) : false
-
-  const commitWorkspaceSelection = useCallback(
-    async (selection: PendingWorkspaceChangeConfirmation): Promise<void> => {
-      if (selection.saveWorkspacePath && config) {
-        const nextSavedPaths = [...new Set([...savedWorkspacePaths, selection.saveWorkspacePath])]
-        await window.api.yachiyo.saveConfig({
-          ...config,
-          workspace: {
-            ...config.workspace,
-            savedPaths: nextSavedPaths
-          }
-        })
-      }
-
-      if (selection.currentWorkspacePath === selection.nextWorkspacePath) {
-        return
-      }
-
-      await setThreadWorkspace(selection.nextWorkspacePath, selection.threadId)
-    },
-    [config, savedWorkspacePaths, setThreadWorkspace]
-  )
-
-  const requestWorkspaceSelection = useCallback(
-    (selection: PendingWorkspaceChangeConfirmation): void => {
-      const workspaceChanged = selection.currentWorkspacePath !== selection.nextWorkspacePath
-
-      if (isFreshHandoffWorkspace && workspaceChanged) {
-        setPendingWorkspaceChangeConfirmation(selection)
-        return
-      }
-
-      void commitWorkspaceSelection(selection)
-    },
-    [commitWorkspaceSelection, isFreshHandoffWorkspace]
-  )
-  const allSlashCommands = useMemo<SlashCommand[]>(
-    () => [
-      ...(canHandoffActiveThread && runStatus !== 'running'
-        ? [
-            {
-              key: 'handoff',
-              label: 'Handoff',
-              description: 'Compact into a new thread',
-              type: 'action' as const
-            }
-          ]
-        : []),
-      ...(canRunThreadOperations
-        ? [
-            {
-              key: 'archive',
-              label: 'Archive',
-              description: 'Archive this thread',
-              type: 'action' as const
-            }
-          ]
-        : []),
-      ...userPrompts.map((p) => ({
-        key: p.keycode,
-        label: `/${p.keycode}`,
-        description: p.text.length > 60 ? `${p.text.slice(0, 60)}\u2026` : p.text,
-        type: 'prompt' as const
-      })),
-      ...(availableSkills.length > 0
-        ? [
-            {
-              key: 'skills',
-              label: 'Skills',
-              description: `Browse ${availableSkills.length} available skill${availableSkills.length !== 1 ? 's' : ''}`,
-              type: 'skill-prefix' as const
-            }
-          ]
-        : [])
-    ],
-    [canHandoffActiveThread, canRunThreadOperations, runStatus, userPrompts, availableSkills]
-  )
-  const matchingSlashCommands = useMemo<SlashCommand[]>(() => {
-    if (skillQuery !== null) {
-      return scoreCandidates(availableSkills, skillQuery, (s) => [s.name, s.description ?? '']).map(
-        ({ item: s }) => ({
-          key: `skills:${s.name}`,
-          label: s.name,
-          description: s.description ?? 'No description available',
-          type: 'skill' as const
-        })
-      )
-    }
-    if (fileMentionQuery !== null) {
-      return buildFileMentionCompletionCommands({
-        matches: fileMentionMatches
-      })
-    }
-    if (slashQuery !== null) {
-      return scoreCandidates(allSlashCommands, slashQuery, (cmd) => [cmd.key, cmd.label]).map(
-        ({ item }) => item
-      )
-    }
-    return []
-  }, [
+  const {
+    activeSkillTag,
+    atSkillPrefixMatch,
+    dismissSlashPopup,
+    fileMentionAnchorRect,
+    fileMentionMatch,
+    fileMentionMatchesState,
+    fileMentionQuery,
+    fileMentionRawQuery,
+    isFileMentionSearchPending,
+    loadMoreFileMentionMatches,
+    matchingSlashCommands,
+    showSlashCommandPopup,
     skillQuery,
-    fileMentionQuery,
-    fileMentionMatches,
     slashQuery,
-    allSlashCommands,
-    availableSkills
-  ])
-  const activeQuery = skillQuery ?? fileMentionQuery ?? slashQuery
-  const showSlashCommandPopup =
-    (fileMentionQuery !== null || matchingSlashCommands.length > 0) &&
-    dismissedSlashQuery !== activeQuery
-
-  anyPopupOpenRef.current =
-    modelSelectorOpen ||
-    reasoningSelectorOpen ||
-    skillsSelectorOpen ||
-    toolSelectorOpen ||
-    workspaceSelectorOpen ||
-    showSlashCommandPopup ||
-    pendingWorkspaceChangeConfirmation !== null
-
-  const [fileMentionAnchorRect, setFileMentionAnchorRect] = useState<DOMRect | null>(null)
-
-  useLayoutEffect(() => {
-    if (!fileMentionMatch || !textareaRef.current) {
-      setFileMentionAnchorRect(null)
-      return
-    }
-    const textarea = textareaRef.current
-    const textareaRect = textarea.getBoundingClientRect()
-    const lines = computePretextLines(textarea.value, textarea)
-    if (!lines) {
-      setFileMentionAnchorRect(null)
-      return
-    }
-
-    const atIndex = fileMentionMatch.index + fileMentionMatch[1].length
-    const value = textarea.value
-
-    // Find which line contains atIndex and the offset within that line
-    let charOffset = 0
-    let lineText = ''
-    let offsetInLine = 0
-    for (let i = 0; i < lines.length; i++) {
-      const lineLen = lines[i].text.length
-      if (atIndex < charOffset + lineLen) {
-        lineText = lines[i].text
-        offsetInLine = atIndex - charOffset
-        break
-      }
-      let nextOffset = charOffset + lineLen
-      if (nextOffset < value.length && value[nextOffset] === '\r') nextOffset++
-      if (nextOffset < value.length && value[nextOffset] === '\n') nextOffset++
-      charOffset = nextOffset > charOffset + lineLen ? nextOffset : charOffset + lineLen
-    }
-
-    const cs = getComputedStyle(textarea)
-    const paddingLeft = parseFloat(cs.paddingLeft)
-    const borderLeftWidth = parseFloat(cs.borderLeftWidth)
-    const ctx = getMeasureContext() as CanvasRenderingContext2D
-    ctx.font = buildFontString(cs)
-    const textWidth = ctx.measureText(lineText.slice(0, offsetInLine)).width
-    const atX = textareaRect.left + borderLeftWidth + paddingLeft + textWidth
-    const atY = textareaRect.top
-    const lineHeightPx = resolveLineHeightPx(cs)
-    setFileMentionAnchorRect(new DOMRect(atX, atY, 0, lineHeightPx))
-  }, [composerValue, fileMentionMatch])
-
-  useEffect(() => {
-    if (fileMentionQuery === null) {
-      return
-    }
-
-    let cancelled = false
-    const requestedLimit = fileMentionResultLimit
-    const requestLimit =
-      requestedLimit < FILE_MENTION_MAX_RESULTS ? requestedLimit + 1 : requestedLimit
-    const timeoutId = window.setTimeout(() => {
-      void window.api.yachiyo
-        .searchWorkspaceFiles({
-          query: fileMentionQuery,
-          includeIgnored: fileMentionIncludeIgnored,
-          ...(activeThreadId ? { threadId: activeThreadId } : {}),
-          ...(!activeThreadId && currentWorkspacePath
-            ? { workspacePath: currentWorkspacePath }
-            : {}),
-          limit: requestLimit
-        })
-        .then((matches) => {
-          if (!cancelled) {
-            const page = paginateFileMentionMatches({
-              matches,
-              visibleLimit: requestedLimit
-            })
-            setFileMentionMatchesState({
-              status: 'ready',
-              key: fileMentionRequestKey,
-              limit: requestedLimit,
-              matches: page.matches,
-              hasMore: page.hasMore
-            })
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setFileMentionMatchesState({
-              status: 'error',
-              key: fileMentionRequestKey,
-              limit: requestedLimit,
-              hasMore: false,
-              matches: []
-            })
-          }
-        })
-    }, 150)
-
-    return () => {
-      cancelled = true
-      window.clearTimeout(timeoutId)
-    }
-  }, [
+    slashSelectedIndex,
+    setSlashSelectedIndex,
+    validatedFileTags,
+    canRunThreadOperations,
+    canHandoffActiveThread,
+    commitWorkspaceSelection,
+    requestWorkspaceSelection,
+    userPrompts
+  } = useComposerCompletions({
     activeThreadId,
+    activeThread,
+    availableSkills,
+    anyPopupOpenRef,
+    composerValue,
+    config,
     currentWorkspacePath,
-    fileMentionIncludeIgnored,
-    fileMentionResultLimit,
-    fileMentionQuery,
-    fileMentionRequestKey
-  ])
-
-  const loadMoreFileMentionMatches = useCallback((): void => {
-    if (
-      fileMentionRequestKey === null ||
-      isFileMentionSearchPending ||
-      !fileMentionMatchesState.hasMore
-    ) {
-      return
-    }
-
-    setFileMentionResultLimitState((previous) => {
-      const currentLimit =
-        previous.key === fileMentionRequestKey ? previous.limit : FILE_MENTION_PAGE_SIZE
-      const nextLimit = Math.min(FILE_MENTION_MAX_RESULTS, currentLimit + FILE_MENTION_PAGE_SIZE)
-      if (nextLimit === currentLimit) {
-        return previous
-      }
-
-      return {
-        key: fileMentionRequestKey,
-        limit: nextLimit
-      }
-    })
-  }, [fileMentionMatchesState.hasMore, fileMentionRequestKey, isFileMentionSearchPending])
-
-  useEffect(() => {
-    if (confirmedFileTags.length === 0) {
-      return
-    }
-
-    let cancelled = false
-    const requestKey = confirmedFileTags.join('\n')
-    void resolveValidatedFileTags({
-      fileTags: confirmedFileTags,
-      threadId: activeThreadId,
-      workspacePath: currentWorkspacePath
-    })
-      .then((fileTags) => {
-        if (!cancelled) {
-          setValidatedFileTagsState({
-            key: requestKey,
-            tags: fileTags
-          })
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setValidatedFileTagsState({
-            key: requestKey,
-            tags: []
-          })
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [activeThreadId, confirmedFileTags, currentWorkspacePath])
-
-  useEffect(() => {
-    if (!workspaceHintPinned) {
-      return
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setWorkspaceHintPinned(false)
-    }, 1800)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [workspaceHintPinned])
-  const prevActiveQueryRef = useRef(activeQuery)
-  if (prevActiveQueryRef.current !== activeQuery) {
-    prevActiveQueryRef.current = activeQuery
-    setSlashSelectedIndex(0)
-    setDismissedSlashQuery(null)
-  }
-
-  const dismissSlashPopup = useCallback(() => {
-    setDismissedSlashQuery(activeQuery)
-  }, [activeQuery])
-
+    isFreshHandoffWorkspace,
+    modelSelectorOpen,
+    pendingWorkspaceChangeConfirmation,
+    reasoningSelectorOpen,
+    runStatus,
+    savedWorkspacePaths,
+    setPendingWorkspaceChangeConfirmation,
+    setThreadWorkspace,
+    setWorkspaceHintPinned,
+    skillsSelectorOpen,
+    textareaRef,
+    toolSelectorOpen,
+    workspaceHintPinned,
+    workspaceSelectorOpen
+  })
   const runBackendSwitch = useCallback(async (action: () => Promise<void>): Promise<void> => {
     setIsBackendSwitchPending(true)
     try {
@@ -1867,555 +871,70 @@ export function Composer({
     workspaceSelectorOpen
   ])
 
-  const queueImageFiles = useCallback(
-    async (files: File[]) => {
-      const remainingSlots = Math.max(
-        0,
-        MAX_COMPOSER_IMAGES -
-          (useAppStore.getState().composerDrafts[activeThreadId ?? NEW_THREAD_DRAFT_KEY]?.images
-            .length ?? 0)
-      )
-      const imageFiles = files
-        .filter((file) => file.type.startsWith('image/'))
-        .slice(0, remainingSlots)
-
-      for (const file of imageFiles) {
-        const imageId = createDraftImageId()
-        upsertComposerImage(
-          {
-            id: imageId,
-            status: 'loading',
-            dataUrl: '',
-            mediaType: file.type || 'image/*',
-            filename: file.name
-          },
-          activeThreadId
-        )
-
-        try {
-          const dataUrl = await readFileAsDataUrl(file)
-          upsertComposerImage(
-            {
-              id: imageId,
-              status: 'ready',
-              dataUrl,
-              mediaType: file.type || 'image/*',
-              filename: file.name
-            },
-            activeThreadId
-          )
-        } catch (error) {
-          upsertComposerImage(
-            {
-              id: imageId,
-              status: 'failed',
-              dataUrl: '',
-              mediaType: file.type || 'image/*',
-              filename: file.name,
-              error: error instanceof Error ? error.message : 'Unable to prepare this image.'
-            },
-            activeThreadId
-          )
-        }
-      }
-    },
-    [activeThreadId, upsertComposerImage]
-  )
-
-  const queueDocumentFiles = useCallback(
-    async (files: File[]) => {
-      const remainingSlots = Math.max(
-        0,
-        MAX_COMPOSER_FILES -
-          (useAppStore.getState().composerDrafts[activeThreadId ?? NEW_THREAD_DRAFT_KEY]?.files
-            .length ?? 0)
-      )
-      const docFiles = files
-        .filter((file) => !file.type.startsWith('image/'))
-        .slice(0, remainingSlots)
-
-      for (const file of docFiles) {
-        const fileId = createDraftImageId()
-        upsertComposerFile(
-          { id: fileId, filename: file.name, mediaType: file.type, dataUrl: '', status: 'loading' },
-          activeThreadId
-        )
-
-        try {
-          const dataUrl = await readFileAsDataUrl(file)
-          upsertComposerFile(
-            { id: fileId, filename: file.name, mediaType: file.type, dataUrl, status: 'ready' },
-            activeThreadId
-          )
-        } catch (error) {
-          upsertComposerFile(
-            {
-              id: fileId,
-              filename: file.name,
-              mediaType: file.type,
-              dataUrl: '',
-              status: 'failed',
-              error: error instanceof Error ? error.message : 'Unable to prepare this file.'
-            },
-            activeThreadId
-          )
-        }
-      }
-    },
-    [activeThreadId, upsertComposerFile]
-  )
-
-  const handleSlashCommandSelect = useCallback(
-    (command: SlashCommand) => {
-      if (command.type === 'action') {
-        if (!canRunThreadOperations) {
-          return
-        }
-
-        if (command.key === 'handoff' && (!canHandoffActiveThread || runStatus === 'running')) {
-          return
-        }
-
-        setComposerValue('')
-        const opKey = command.key === 'archive' ? 'archive' : 'compact-to-another-thread'
-        onSelectThreadOperation?.(opKey as ThreadContextOperationKey)
-      } else if (command.type === 'skill-prefix') {
-        setComposerValue('/skills:')
-      } else if (command.type === 'skill') {
-        const skillName = command.key.slice('skills:'.length)
-        setComposerValue(`@skills:${skillName} `)
-      } else if (command.type === 'file' || command.type === 'jotdown') {
-        const encodedPath = command.key.slice('file:'.length)
-        const filePath = encodedPath.startsWith('!') ? encodedPath.slice(1) : encodedPath
-        const needsQuotes = filePath.includes(' ')
-        setComposerValue(
-          composerValue.replace(
-            FILE_MENTION_PATTERN,
-            (_match, prefix: string, ignoreMarker: string) => {
-              const bang = encodedPath.startsWith('!') || ignoreMarker === '!' ? '!' : ''
-              return needsQuotes
-                ? `${prefix}@${bang}"${filePath}" `
-                : `${prefix}@${bang}${filePath} `
-            }
-          )
-        )
-      } else {
-        const prompt = userPrompts.find((p) => p.keycode === command.key)
-        if (prompt) setComposerValue(prompt.text)
-      }
-    },
-    [
-      canRunThreadOperations,
-      canHandoffActiveThread,
-      runStatus,
-      composerValue,
-      onSelectThreadOperation,
-      userPrompts,
-      setComposerValue
-    ]
-  )
-
-  const handleTextareaScroll = useCallback((event: React.UIEvent<HTMLTextAreaElement>) => {
-    if (!overlayRef.current) return
-    const ta = event.currentTarget
-    const o = overlayRef.current
-    // Don't pull overlay back when textarea is at max scroll but overlay can scroll further
-    // (trailing-newline sentinel gives overlay more scroll range)
-    const taMax = ta.scrollHeight - ta.clientHeight
-    if (ta.scrollTop >= taMax - 1 && o.scrollTop > ta.scrollTop) return
-    o.scrollTop = ta.scrollTop
-  }, [])
-
-  const handleInput = useCallback(
-    (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const native = event.nativeEvent as InputEvent
-      const it = native.inputType ?? ''
-      if (it === 'insertLineBreak' || it === 'insertParagraph') {
-        scrollComposerToEndAfterBreakRef.current = true
-      } else if (it === 'insertText' && native.data != null && /[\n\r]/.test(native.data)) {
-        scrollComposerToEndAfterBreakRef.current = true
-      }
-      setComposerValue(event.target.value)
-    },
-    [setComposerValue]
-  )
-
-  const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (showSlashCommandPopup) {
-        if (event.key === 'ArrowDown') {
-          event.preventDefault()
-          setSlashSelectedIndex((i) => Math.min(i + 1, matchingSlashCommands.length - 1))
-          return
-        }
-        if (event.key === 'ArrowUp') {
-          event.preventDefault()
-          setSlashSelectedIndex((i) => Math.max(i - 1, 0))
-          return
-        }
-        if (event.key === 'Tab') {
-          event.preventDefault()
-          if (event.shiftKey) {
-            setSlashSelectedIndex((i) => Math.max(i - 1, 0))
-            return
-          }
-          // Shell-style completion. First try to extend the typed token to
-          // the longest common prefix across candidates; if nothing to
-          // extend, fall through to committing the highlighted entry as
-          // text only. Tab must NEVER fire side-effectful actions like
-          // /archive or /handoff — only Enter does that.
-          let extended = false
-          if (matchingSlashCommands.length > 1) {
-            if (skillQuery !== null) {
-              const pool = matchingSlashCommands.map((c) => c.label)
-              const lcp = longestCommonPrefix(pool, true)
-              if (lcp.length > skillQuery.length) {
-                const usingAt = atSkillPrefixMatch !== null
-                setComposerValue(`${usingAt ? '@' : '/'}skills:${lcp}`)
-                extended = true
-              }
-            } else if (slashQuery !== null) {
-              const pool = matchingSlashCommands.map((c) => c.key)
-              const lcp = longestCommonPrefix(pool, true)
-              if (lcp.length > slashQuery.length) {
-                setComposerValue(`/${lcp}`)
-                extended = true
-              }
-            } else if (fileMentionQuery !== null && fileMentionMatch) {
-              // Use full paths when the user has already typed a directory
-              // prefix, otherwise fall back to basename-only extension so
-              // typing `comp` still extends to `Composer`.
-              const rawQuery = fileMentionRawQuery
-              const hasSlash = rawQuery.includes('/')
-              const lowered = rawQuery.toLowerCase()
-              const stripBang = (p: string): string => (p.startsWith('!') ? p.slice(1) : p)
-              const candidates = matchingSlashCommands
-                .map((c) => {
-                  const path = stripBang(c.label)
-                  return hasSlash ? path : path.slice(path.lastIndexOf('/') + 1)
-                })
-                .filter((s) => s.toLowerCase().startsWith(lowered))
-              if (candidates.length > 1) {
-                const lcp = longestCommonPrefix(candidates, true)
-                if (lcp.length > rawQuery.length) {
-                  // Preserve the user's quote state; group 3 of the pattern
-                  // only matches when an opening `"` is present.
-                  const isQuoted = fileMentionMatch[3] !== undefined
-                  setComposerValue(
-                    composerValue.replace(
-                      FILE_MENTION_PATTERN,
-                      (_m, prefix: string, ignoreMarker: string) =>
-                        isQuoted
-                          ? `${prefix}@${ignoreMarker}"${lcp}`
-                          : `${prefix}@${ignoreMarker}${lcp}`
-                    )
-                  )
-                  extended = true
-                }
-              }
-            }
-          }
-          if (extended) return
-          const selected = matchingSlashCommands[slashSelectedIndex]
-          if (!selected) return
-          // Text-only commit: avoid triggering action side effects. Pure
-          // text-insertion types (prompt, skill, file, jotdown, skill-prefix)
-          // are still safe to delegate to the normal selector.
-          if (selected.type === 'action') {
-            setComposerValue(`/${selected.key}`)
-            return
-          }
-          handleSlashCommandSelect(selected)
-          return
-        }
-        if (
-          shouldSelectCompletionCandidate({
-            key: event.key,
-            altKey: event.altKey,
-            shiftKey: event.shiftKey,
-            isComposing: isComposing || event.nativeEvent.isComposing,
-            keyCode: event.nativeEvent.keyCode
-          })
-        ) {
-          event.preventDefault()
-          const selected = matchingSlashCommands[slashSelectedIndex]
-          if (selected) handleSlashCommandSelect(selected)
-          return
-        }
-        if (event.key === 'Escape') {
-          event.preventDefault()
-          dismissSlashPopup()
-          return
-        }
-      }
-
-      if (event.key === 'Escape') {
-        if (isComposing || event.nativeEvent.isComposing) return
-        if (
-          modelSelectorOpen ||
-          reasoningSelectorOpen ||
-          skillsSelectorOpen ||
-          toolSelectorOpen ||
-          workspaceSelectorOpen
-        ) {
-          event.preventDefault()
-          setModelSelectorOpen(false)
-          setReasoningSelectorOpen(false)
-          setSkillsSelectorOpen(false)
-          setToolSelectorOpen(false)
-          setWorkspaceSelectorOpen(false)
-          return
-        }
-        if (inputBuffer.staged) {
-          event.preventDefault()
-          const payload = inputBuffer.staged
-          inputBuffer.cancel()
-          mergeBufferedPayloadIntoDraft(payload, payload.sourceThreadId)
-          return
-        }
-        if (editingMessage !== null) {
-          event.preventDefault()
-          cancelEditMessage()
-          return
-        }
-        event.preventDefault()
-        textareaRef.current?.blur()
-        return
-      }
-
-      // Empty-composer ArrowUp: revert all pending messages (steer + queued follow-up)
-      // back into the composer for editing. Only fires when the composer is fully
-      // empty — no text, no images, no files — to avoid surprising merges.
-      if (
-        shouldRevertPendingComposerMessagesOnArrowUp({
-          key: event.key,
-          metaKey: event.metaKey,
-          altKey: event.altKey,
-          ctrlKey: event.ctrlKey,
-          shiftKey: event.shiftKey,
-          hasPayload,
-          hasPendingSteer: Boolean(pendingSteerEntry),
-          hasQueuedFollowUp: Boolean(queuedFollowUpMessageId)
-        })
-      ) {
-        event.preventDefault()
-        void (async () => {
-          if (pendingSteerEntry) await revertPendingSteer()
-          if (queuedFollowUpMessageId) await revertQueuedFollowUp(queuedFollowUpMessageId)
-        })()
-        return
-      }
-
-      // Pretext-driven up/down navigation — override native arrow keys so cursor
-      // movement follows pretext's visual lines, not the textarea's CSS wrapping.
-      if (
-        (event.key === 'ArrowUp' || event.key === 'ArrowDown') &&
-        !event.metaKey &&
-        !event.altKey &&
-        !event.ctrlKey
-      ) {
-        if (
-          navigatePretextLine(
-            event.currentTarget,
-            event.key === 'ArrowUp' ? 'up' : 'down',
-            event.shiftKey
-          )
-        ) {
-          event.preventDefault()
-          return
-        }
-      }
-      // Any other key resets the sticky goal column for up/down navigation.
-      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') {
-        clearGoalX()
-      }
-
-      // Cmd/Ctrl+Enter forces an immediate flush of any staged buffer so the
-      // user can bypass the merge window without disabling buffering.
-      if (
-        event.key === 'Enter' &&
-        (event.metaKey || event.ctrlKey) &&
-        !event.shiftKey &&
-        inputBuffer.staged
-      ) {
-        event.preventDefault()
-        inputBuffer.flushNow()
-        return
-      }
-
-      // Plain Enter on an empty composer while a payload is staged = send now.
-      // Natural finger-memory shortcut: the user has stopped typing, looks at
-      // the staged bubble, and hits Enter again to commit it immediately.
-      if (
-        event.key === 'Enter' &&
-        !event.shiftKey &&
-        !event.altKey &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !isComposing &&
-        !event.nativeEvent.isComposing &&
-        inputBuffer.staged &&
-        !hasPayload
-      ) {
-        event.preventDefault()
-        inputBuffer.flushNow()
-        return
-      }
-
-      const action = resolveComposerEnterAction({
-        activeRunEnterBehavior,
-        event: {
-          key: event.key,
-          altKey: event.altKey,
-          shiftKey: event.shiftKey,
-          isComposing: isComposing || event.nativeEvent.isComposing,
-          keyCode: event.nativeEvent.keyCode
-        },
-        hasActiveRun
-      })
-
-      if (!action) {
-        return
-      }
-
-      event.preventDefault()
-      if (canSend) {
-        setModelSelectorOpen(false)
-        setSkillsSelectorOpen(false)
-        setToolSelectorOpen(false)
-        setWorkspaceSelectorOpen(false)
-        dispatchSend(action === 'send' ? 'normal' : action)
-      }
-    },
-    [
-      activeRunEnterBehavior,
-      cancelEditMessage,
-      canSend,
-      editingMessage,
-      handleSlashCommandSelect,
-      hasActiveRun,
-      isComposing,
-      inputBuffer,
-      mergeBufferedPayloadIntoDraft,
-      matchingSlashCommands,
-      dismissSlashPopup,
-      dispatchSend,
-      modelSelectorOpen,
-      reasoningSelectorOpen,
-      showSlashCommandPopup,
-      slashSelectedIndex,
-      skillQuery,
-      slashQuery,
-      fileMentionQuery,
-      fileMentionMatch,
-      fileMentionRawQuery,
-      atSkillPrefixMatch,
-      composerValue,
-      setComposerValue,
-      hasPayload,
-      pendingSteerEntry,
-      queuedFollowUpMessageId,
-      revertPendingSteer,
-      revertQueuedFollowUp,
-      skillsSelectorOpen,
-      toolSelectorOpen,
-      workspaceSelectorOpen
-    ]
-  )
-
-  const handlePaste = useCallback(
-    (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      // Web clipboard items — works for screenshots and images copied from browser
-      const allFiles = Array.from(event.clipboardData.items)
-        .map((item) => item.getAsFile())
-        .filter((file): file is File => file !== null)
-
-      const images = allFiles.filter((f) => f.type.startsWith('image/'))
-      const docs = allFiles.filter((f) => ACCEPTED_FILE_TYPES.includes(f.type))
-
-      if (images.length > 0 || docs.length > 0) {
-        event.preventDefault()
-        if (images.length > 0) void queueImageFiles(images)
-        if (docs.length > 0) void queueDocumentFiles(docs)
-        return
-      }
-
-      // Finder-copied files: web clipboard won't carry their data, ask main process
-      void (async () => {
-        const finderFiles = await window.api.yachiyo.readClipboardFilePaths()
-        if (finderFiles.length === 0) return
-
-        const finderImages = finderFiles.filter((f) => f.mediaType.startsWith('image/'))
-        const finderDocs = finderFiles.filter((f) => !f.mediaType.startsWith('image/'))
-
-        for (const f of finderImages) {
-          const id = createDraftImageId()
-          upsertComposerImage(
-            { id, dataUrl: f.dataUrl, mediaType: f.mediaType, status: 'ready' },
-            activeThreadId
-          )
-        }
-        for (const f of finderDocs) {
-          const id = createDraftImageId()
-          upsertComposerFile(
-            {
-              id,
-              filename: f.filename,
-              mediaType: f.mediaType,
-              dataUrl: f.dataUrl,
-              status: 'ready'
-            },
-            activeThreadId
-          )
-        }
-      })()
-    },
-    [queueImageFiles, queueDocumentFiles, upsertComposerImage, upsertComposerFile, activeThreadId]
-  )
-
-  const handleDragEnter = useCallback((event: React.DragEvent) => {
-    event.preventDefault()
-    event.stopPropagation()
-    dragCounterRef.current++
-    if (event.dataTransfer.types.includes('Files')) {
-      setIsDragOver(true)
-    }
-  }, [])
-
-  const handleDragOver = useCallback((event: React.DragEvent) => {
-    event.preventDefault()
-    event.stopPropagation()
-  }, [])
-
-  const handleDragLeave = useCallback((event: React.DragEvent) => {
-    event.preventDefault()
-    event.stopPropagation()
-    dragCounterRef.current--
-    if (dragCounterRef.current === 0) {
-      setIsDragOver(false)
-    }
-  }, [])
-
-  const handleDrop = useCallback(
-    (event: React.DragEvent) => {
-      event.preventDefault()
-      event.stopPropagation()
-      dragCounterRef.current = 0
-      setIsDragOver(false)
-
-      const files = Array.from(event.dataTransfer.files)
-      if (files.length === 0) return
-
-      const images = files.filter((f) => f.type.startsWith('image/'))
-      const docs = files.filter(
-        (f) => !f.type.startsWith('image/') && ACCEPTED_FILE_TYPES.includes(f.type)
-      )
-
-      if (images.length > 0) void queueImageFiles(images)
-      if (docs.length > 0) void queueDocumentFiles(docs)
-    },
-    [queueImageFiles, queueDocumentFiles]
-  )
+  const {
+    queueImageFiles,
+    queueDocumentFiles,
+    handleSlashCommandSelect,
+    handleTextareaScroll,
+    handleInput,
+    handleKeyDown,
+    handlePaste,
+    handleDragEnter,
+    handleDragOver,
+    handleDragLeave,
+    handleDrop
+  } = useComposerInputHandlers({
+    activeRunEnterBehavior,
+    activeThreadId,
+    atSkillPrefixMatch,
+    canHandoffActiveThread,
+    canRunThreadOperations,
+    canSend,
+    cancelEditMessage,
+    composerValue,
+    dismissSlashPopup,
+    dispatchSend,
+    dragCounterRef,
+    editingMessage,
+    fileMentionMatch,
+    fileMentionQuery,
+    fileMentionRawQuery,
+    hasActiveRun,
+    hasPayload,
+    inputBuffer,
+    isComposing,
+    matchingSlashCommands,
+    mergeBufferedPayloadIntoDraft,
+    modelSelectorOpen,
+    onSelectThreadOperation,
+    overlayRef,
+    pendingSteerEntry,
+    queuedFollowUpMessageId,
+    reasoningSelectorOpen,
+    revertPendingSteer,
+    revertQueuedFollowUp,
+    runStatus,
+    scrollComposerToEndAfterBreakRef,
+    setComposerValue,
+    setIsDragOver,
+    setModelSelectorOpen,
+    setReasoningSelectorOpen,
+    setSkillsSelectorOpen,
+    setSlashSelectedIndex,
+    setToolSelectorOpen,
+    setWorkspaceSelectorOpen,
+    showSlashCommandPopup,
+    skillQuery,
+    skillsSelectorOpen,
+    slashQuery,
+    slashSelectedIndex,
+    toolSelectorOpen,
+    textareaRef,
+    upsertComposerFile,
+    upsertComposerImage,
+    userPrompts,
+    workspaceSelectorOpen
+  })
 
   const providerLabel =
     effectiveModel.providerName || (settings.provider === 'openai' ? 'OpenAI' : 'Anthropic')
@@ -2446,971 +965,128 @@ export function Composer({
   }, [composerReasoningEffort, reasoningSelectorState.selected, setComposerReasoningEffort])
 
   return (
-    <div
-      ref={composerRootRef}
-      className="flex flex-col"
-      style={{ borderTop: `1px solid ${theme.border.panel}`, position: 'relative' }}
-      onDragEnter={handleDragEnter}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-    >
-      {isDragOver ? (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            zIndex: 50,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: `color-mix(in srgb, ${theme.background.accentPanel} 85%, transparent)`,
-            border: `2px dashed ${theme.text.accent}`,
-            borderRadius: 8,
-            pointerEvents: 'none'
-          }}
-        >
-          <span
-            style={{
-              fontSize: '0.8125rem',
-              fontWeight: 500,
-              color: theme.text.accent
-            }}
-          >
-            Drop files to attach
-          </span>
-        </div>
-      ) : null}
-      {editingMessage !== null ? (
-        <div
-          className="flex items-center justify-between px-4 py-1.5"
-          style={{
-            background: theme.background.accentPanel,
-            borderBottom: `1px solid ${theme.border.accent}`
-          }}
-        >
-          <span className="text-xs font-medium" style={{ color: theme.text.accent }}>
-            Editing message
-          </span>
-          <button
-            type="button"
-            className="text-xs px-2 py-0.5 rounded transition-opacity opacity-70 hover:opacity-100"
-            style={{ color: theme.text.accent }}
-            onClick={cancelEditMessage}
-            aria-label="Cancel editing"
-          >
-            Cancel
-          </button>
-        </div>
-      ) : null}
-      {queuedFollowUpMessage ? (
-        <QueuedFollowUpBufferBubble
-          message={queuedFollowUpMessage}
-          onEdit={handleEditQueuedFollowUp}
-          onRemove={queuedFollowUpCanRemove ? handleRemoveQueuedFollowUp : undefined}
-        />
-      ) : null}
-      {inputBuffer.staged ? (
-        <StagedInputBufferBubble
-          staged={inputBuffer.staged}
-          progress={inputBuffer.progress}
-          remainingMs={inputBuffer.remainingMs}
-          onSendNow={inputBuffer.flushNow}
-          onCancel={() => {
-            const payload = inputBuffer.staged
-            inputBuffer.cancel()
-            if (payload) {
-              mergeBufferedPayloadIntoDraft(payload, payload.sourceThreadId)
-            }
-          }}
-        />
-      ) : null}
-      {draftImages.length > 0 || draftFiles.length > 0 ? (
-        <div className="composer-image-strip">
-          {draftImages.map((image) => (
-            <ComposerImagePreview
-              key={image.id}
-              image={image}
-              onRemove={() => removeComposerImage(image.id, activeThreadId)}
-            />
-          ))}
-          {draftFiles.map((file) => (
-            <ComposerFilePreview
-              key={file.id}
-              file={file}
-              onRemove={() => removeComposerFile(file.id, activeThreadId)}
-            />
-          ))}
-        </div>
-      ) : null}
-
-      <div ref={popupContainerRef} style={{ position: 'relative' }}>
-        {showSlashCommandPopup ? (
-          <SlashCommandPopup
-            commands={matchingSlashCommands}
-            selectedIndex={slashSelectedIndex}
-            onSelect={handleSlashCommandSelect}
-            onClose={dismissSlashPopup}
-            onReachEnd={
-              fileMentionQuery !== null &&
-              fileMentionMatchesState.hasMore &&
-              !isFileMentionSearchPending
-                ? loadMoreFileMentionMatches
-                : undefined
-            }
-            leftOffset={0}
-            anchorRect={fileMentionQuery !== null ? fileMentionAnchorRect : null}
-            portal={fileMentionQuery !== null}
-            emptyState={
-              fileMentionQuery !== null
-                ? isFileMentionSearchPending
-                  ? 'Searching workspace...'
-                  : 'No files found in the current workspace.'
-                : undefined
-            }
-          />
-        ) : null}
-        {activeSkillTag || validatedFileTags.length > 0 ? (
-          <div className="px-4 pt-2 flex flex-wrap items-center gap-2">
-            {activeSkillTag ? (
-              <div
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-                style={{
-                  maxWidth: '100%',
-                  background: theme.background.accentPanel,
-                  border: `1px solid ${theme.border.accent}`,
-                  color: theme.text.accent
-                }}
-              >
-                <Sparkles size={11} strokeWidth={1.7} />
-                <span
-                  className="font-mono"
-                  style={{
-                    minWidth: 0,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  {activeSkillTag}
-                </span>
-                <button
-                  type="button"
-                  aria-label={`Remove skill ${activeSkillTag}`}
-                  onClick={() =>
-                    setComposerValue(composerValue.replace(SKILL_TAG_PATTERN, '').trimStart())
-                  }
-                  className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity"
-                >
-                  <X size={11} strokeWidth={2} />
-                </button>
-              </div>
-            ) : null}
-            {validatedFileTags.map((fileTag, index) => (
-              <div
-                key={`${fileTag}-${index}`}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-                style={{
-                  maxWidth: '100%',
-                  background: theme.background.accentPanel,
-                  border: `1px solid ${theme.border.accent}`,
-                  color: theme.text.accent
-                }}
-              >
-                <Folder size={11} strokeWidth={1.7} />
-                <span
-                  className="font-mono"
-                  style={{
-                    minWidth: 0,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  {fileTag}
-                </span>
-                <button
-                  type="button"
-                  aria-label={`Remove file ${fileTag}`}
-                  onClick={() =>
-                    setComposerValue(
-                      composerValue
-                        .replace(`@${fileTag}`, '')
-                        .replace(/\s{2,}/g, ' ')
-                        .trimStart()
-                    )
-                  }
-                  className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity"
-                >
-                  <X size={11} strokeWidth={2} />
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : null}
-        <div ref={composerInputRef} className="px-4 pt-3 pb-1">
-          {/*
-            Input stack (same grid cell):
-            - Highlight div: real text paint for @mentions etc. pointer-events:none; scrollTop synced
-              from textarea in onScroll.
-            - textarea: value controlled by composerValue; transparent text + hidden native caret;
-              overflowY auto when content taller than COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX.
-            - SmoothCaretOverlay: mirror+span measures caret in content Y; maps with textarea.scrollTop.
-            resizeTextarea() preserves scroll when toggling height:auto→fixed. When already at
-            max height and overflowing, it avoids height:auto so scrollHeight stays tied to the
-            new value (trailing newline can scroll into view) without content padding tricks.
-          */}
-          <div
-            style={{
-              display: 'grid',
-              position: 'relative',
-              maxHeight: `${COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX}px`,
-              minHeight: 0,
-              overflow: 'hidden'
-            }}
-          >
-            <div
-              aria-hidden
-              ref={overlayRef}
-              className="composer-text-overlay"
-              style={{
-                gridArea: '1 / 1',
-                position: 'relative',
-                fontSize: '0.875rem',
-                lineHeight: '1.625',
-                fontFamily: 'inherit',
-                whiteSpace: 'pre',
-                overflowY: 'auto',
-                pointerEvents: 'none',
-                minHeight: 0,
-                maxHeight: `${COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX}px`,
-                letterSpacing: '0.04em'
-              }}
-            >
-              {overlayLineTexts
-                ? (() => {
-                    const elements: React.ReactNode[] = []
-                    let charOffset = 0
-                    for (let i = 0; i < overlayLineTexts.length; i++) {
-                      const lineText = overlayLineTexts[i]
-                      elements.push(
-                        <div key={i}>
-                          {renderPretextLine(
-                            lineText,
-                            charOffset,
-                            overlaySelRange,
-                            theme.text.primary,
-                            theme.text.accent,
-                            validatedFileTags
-                          )}
-                        </div>
-                      )
-                      charOffset += lineText.length
-                      // Skip consumed hard-break chars (\r\n or \n) between lines
-                      if (charOffset < composerValue.length && composerValue[charOffset] === '\r')
-                        charOffset++
-                      if (charOffset < composerValue.length && composerValue[charOffset] === '\n')
-                        charOffset++
-                    }
-                    if (composerValue.endsWith('\n')) {
-                      elements.push(
-                        <div key="trailing-nl">
-                          {overlaySelRange && overlaySelRange[1] > charOffset ? (
-                            <span style={{ backgroundColor: SELECTION_BG }}>{'\u200b'}</span>
-                          ) : (
-                            '\u200b'
-                          )}
-                        </div>
-                      )
-                    }
-                    return elements
-                  })()
-                : renderComposerTextHighlights(
-                    composerValue,
-                    theme.text.primary,
-                    theme.text.accent,
-                    validatedFileTags
-                  )}
-            </div>
-            <SmoothCaretOverlay
-              textareaRef={textareaRef}
-              hostRef={composerInputRef}
-              highlightRef={overlayRef}
-              enabled={true}
-              trailStrength="high"
-              isFocused={isTextareaFocused}
-              color={theme.text.accent}
-              trailColor={`rgb(75 175 201 / 0.38)`}
-              text={composerValue}
-            />
-            <textarea
-              ref={textareaRef}
-              value={composerValue}
-              onChange={handleInput}
-              onCompositionStart={() => setIsComposing(true)}
-              onCompositionEnd={() => setIsComposing(false)}
-              onKeyDown={handleKeyDown}
-              onPointerUp={clearGoalX}
-              onPaste={handlePaste}
-              onScroll={handleTextareaScroll}
-              onFocus={() => setIsTextareaFocused(true)}
-              onBlur={() => setIsTextareaFocused(false)}
-              placeholder={
-                isConfigured
-                  ? 'Message Yachiyo...'
-                  : 'Open Settings and configure a provider before chatting.'
-              }
-              rows={1}
-              className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed placeholder:text-gray-400 message-selectable composer-textarea-pretext"
-              style={{
-                gridArea: '1 / 1',
-                color: 'transparent',
-                caretColor: 'transparent',
-                padding: 0,
-                minHeight: '22px',
-                maxHeight: `${COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX}px`,
-                letterSpacing: '0.04em',
-                wordBreak: 'break-word',
-                overflowWrap: 'break-word'
-              }}
-            />
-          </div>
-        </div>
-      </div>
-
-      {composerStatus ? (
-        <div className="px-4 pb-2">
-          <div className={`composer-status composer-status--${composerStatus.tone}`}>
-            {composerStatus.tone === 'error' ? (
-              <AlertCircle size={12} strokeWidth={1.8} />
-            ) : (
-              <span className="composer-status__dot" />
-            )}
-            <span>{composerStatus.text}</span>
-          </div>
-        </div>
-      ) : null}
-
-      <div className="flex items-center gap-2 px-3 pb-3 no-drag">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={ACCEPT_ATTRIBUTE}
-          multiple
-          className="hidden"
-          onChange={(event) => {
-            const files = Array.from(event.target.files ?? [])
-            const images = files.filter((f) => f.type.startsWith('image/'))
-            const docs = files.filter((f) => !f.type.startsWith('image/'))
-            if (images.length > 0) void queueImageFiles(images)
-            if (docs.length > 0) void queueDocumentFiles(docs)
-            event.currentTarget.value = ''
-          }}
-        />
-
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={!canAddImages && !canAddFiles}
-          className="p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity disabled:opacity-30"
-          aria-label="Attach"
-        >
-          <Paperclip size={16} strokeWidth={1.5} color={theme.icon.muted} />
-        </button>
-
-        {!effectiveAcpBinding && (
-          <div ref={toolSelectorRef} style={{ position: 'relative' }}>
-            <button
-              type="button"
-              onClick={() => {
-                setModelSelectorOpen(false)
-                setReasoningSelectorOpen(false)
-                setSkillsSelectorOpen(false)
-                setWorkspaceSelectorOpen(false)
-                setToolSelectorOpen((open) => !open)
-              }}
-              className="relative p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity"
-              aria-label="Tools"
-              aria-expanded={toolSelectorOpen}
-              aria-haspopup="menu"
-            >
-              <Wrench
-                size={16}
-                strokeWidth={1.5}
-                color={enabledTools.length > 0 ? theme.icon.accent : theme.icon.muted}
-              />
-              {enabledTools.length > 0 ? (
-                <span
-                  className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center"
-                  style={{ fontSize: '8px', background: theme.text.accent }}
-                >
-                  {enabledTools.length}
-                </span>
-              ) : null}
-            </button>
-
-            {toolSelectorOpen ? (
-              <ToolSelectorPopup
-                enabledTools={enabledTools}
-                hasActiveRun={hasActiveRun}
-                onToggle={(toolName) => void toggleEnabledTool(toolName)}
-                onClose={() => setToolSelectorOpen(false)}
-              />
-            ) : null}
-          </div>
-        )}
-
-        {!effectiveAcpBinding && (
-          <div ref={skillsSelectorRef} style={{ position: 'relative' }}>
-            <button
-              type="button"
-              onClick={() => {
-                setModelSelectorOpen(false)
-                setReasoningSelectorOpen(false)
-                setToolSelectorOpen(false)
-                setWorkspaceSelectorOpen(false)
-                setSkillsSelectorOpen((open) => !open)
-              }}
-              className="relative p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity"
-              aria-label="Skills"
-              aria-expanded={skillsSelectorOpen}
-              aria-haspopup="menu"
-            >
-              <Sparkles
-                size={16}
-                strokeWidth={1.5}
-                color={enabledSkillCount > 0 ? theme.icon.accent : theme.icon.muted}
-              />
-              {enabledSkillCount > 0 ? (
-                <span
-                  className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center"
-                  style={{ fontSize: '8px', background: theme.text.accent }}
-                >
-                  {enabledSkillCount}
-                </span>
-              ) : null}
-            </button>
-
-            {skillsSelectorOpen ? (
-              <SkillsSelectorPopup
-                availableSkills={availableSkills}
-                effectiveEnabledSkillNames={effectiveEnabledSkillNames}
-                hasCustomOverride={hasCustomSkillOverride}
-                onReset={() => setComposerEnabledSkillNames(null)}
-                onToggle={(skillName) => {
-                  const current = hasCustomSkillOverride
-                    ? effectiveEnabledSkillNames
-                    : defaultEnabledSkillNames
-                  const next = current.includes(skillName)
-                    ? current.filter((name) => name !== skillName)
-                    : [...current, skillName]
-                  setComposerEnabledSkillNames(next)
-                }}
-                onClose={() => setSkillsSelectorOpen(false)}
-              />
-            ) : null}
-          </div>
-        )}
-
-        {inputBufferDurable ? (
-          <Tooltip
-            content={
-              inputBufferSession
-                ? 'Buffering on · merges rapid messages before send'
-                : 'Buffering off · send immediately'
-            }
-            placement="top"
-          >
-            <button
-              type="button"
-              onClick={toggleInputBufferSession}
-              className="relative p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity"
-              aria-label="Toggle input buffering"
-              aria-pressed={inputBufferSession}
-            >
-              <Timer
-                size={16}
-                strokeWidth={1.5}
-                color={inputBufferSession ? theme.icon.accent : theme.icon.muted}
-              />
-            </button>
-          </Tooltip>
-        ) : null}
-
-        <div
-          ref={workspaceSelectorRef}
-          style={{ position: 'relative' }}
-          onMouseEnter={() => setWorkspaceHintHovered(true)}
-          onMouseLeave={() => setWorkspaceHintHovered(false)}
-        >
-          <button
-            type="button"
-            onClick={() => {
-              if (isWorkspaceLocked) {
-                setWorkspaceHintPinned(true)
-                return
-              }
-
-              setModelSelectorOpen(false)
-              setReasoningSelectorOpen(false)
-              setSkillsSelectorOpen(false)
-              setToolSelectorOpen(false)
-              setWorkspaceSelectorOpen((open) => !open)
-            }}
-            className="flex items-center gap-0.5 px-1 py-1 rounded-lg text-xs font-medium transition-opacity"
-            style={{
-              color: theme.text.primary,
-              opacity: workspaceSelectorOpen ? 1 : 0.6,
-              cursor: isWorkspaceLocked ? 'default' : 'pointer'
-            }}
-            aria-label="Workspace selection"
-            aria-expanded={workspaceSelectorOpen}
-            aria-haspopup="menu"
-            disabled={isWorkspaceLocked}
-          >
-            <Folder
-              size={12}
-              strokeWidth={1.5}
-              color={currentWorkspacePath ? theme.icon.accent : theme.icon.muted}
-            />
-            <ChevronDown
-              size={10}
-              strokeWidth={1.5}
-              color={theme.icon.muted}
-              style={{
-                transform: workspaceSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                transition: 'transform 0.15s ease'
-              }}
-            />
-          </button>
-
-          {showWorkspaceHint ? (
-            <div
-              style={{
-                position: 'absolute',
-                bottom: 'calc(100% + 8px)',
-                left: 0,
-                width: 260,
-                padding: '10px 11px',
-                borderRadius: 12,
-                background: theme.background.surfaceFrosted,
-                backdropFilter: 'blur(18px)',
-                WebkitBackdropFilter: 'blur(18px)',
-                border: `1px solid ${theme.border.strong}`,
-                boxShadow: theme.shadow.overlay,
-                zIndex: 45
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: theme.text.primary,
-                  lineHeight: 1.35
-                }}
-              >
-                {workspaceHint.title}
-              </div>
-              <div
-                style={{
-                  marginTop: 4,
-                  fontSize: 12,
-                  color: theme.text.muted,
-                  lineHeight: 1.45,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word'
-                }}
-              >
-                {workspaceHint.detail}
-              </div>
-            </div>
-          ) : null}
-
-          {workspaceSelectorOpen && !isWorkspaceLocked ? (
-            <WorkspaceSelectorPopup
-              currentWorkspacePath={currentWorkspacePath}
-              savedPaths={savedWorkspacePaths}
-              onSelectWorkspace={(workspacePath) => {
-                requestWorkspaceSelection({
-                  threadId: activeThreadId,
-                  currentWorkspacePath,
-                  nextWorkspacePath: workspacePath
-                })
-              }}
-              onChooseDirectory={() => {
-                void (async () => {
-                  const pickedPath = await window.api.yachiyo.pickWorkspaceDirectory()
-                  if (!pickedPath) {
-                    return
-                  }
-
-                  requestWorkspaceSelection({
-                    threadId: activeThreadId,
-                    currentWorkspacePath,
-                    nextWorkspacePath: pickedPath,
-                    saveWorkspacePath: pickedPath
-                  })
-                })()
-              }}
-              onClose={() => setWorkspaceSelectorOpen(false)}
-            />
-          ) : null}
-        </div>
-
-        {pendingWorkspaceChangeConfirmation ? (
-          <ConfirmDialog
-            title="Switch this handoff thread to a different workspace?"
-            description="This thread started from a handoff and inherited the previous workspace. Changing it now will detach the handoff from that inherited folder."
-            actions={[
-              { key: 'keep', label: 'Keep inherited workspace' },
-              { key: 'switch', label: 'Switch workspace', tone: 'accent' }
-            ]}
-            onClose={() => setPendingWorkspaceChangeConfirmation(null)}
-            onSelect={(key) => {
-              if (key !== 'switch') {
-                setPendingWorkspaceChangeConfirmation(null)
-                return
-              }
-
-              const selection = pendingWorkspaceChangeConfirmation
-              setPendingWorkspaceChangeConfirmation(null)
-              void commitWorkspaceSelection(selection)
-            }}
-          />
-        ) : null}
-
-        <div ref={modelSelectorRef} style={{ position: 'relative' }}>
-          <button
-            onClick={() => {
-              if (!canOpenModelPicker || isModelSelectorLocked) {
-                return
-              }
-
-              setSkillsSelectorOpen(false)
-              setToolSelectorOpen(false)
-              setWorkspaceSelectorOpen(false)
-              setReasoningSelectorOpen(false)
-              setModelSelectorOpen((open) => !open)
-            }}
-            className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity ml-0.5"
-            style={{
-              color: theme.text.primary,
-              opacity: modelSelectorOpen ? 1 : 0.6,
-              cursor: canOpenModelPicker && !isModelSelectorLocked ? 'pointer' : 'default'
-            }}
-            aria-label="Model selection"
-            type="button"
-          >
-            {activeAcpBinding ? (
-              <Cpu size={12} strokeWidth={1.5} color={theme.icon.accent} />
-            ) : (
-              <CircleCheck
-                size={12}
-                strokeWidth={1.5}
-                color={isConfigured ? theme.icon.success : theme.icon.muted}
-              />
-            )}
-            {effectiveAcpBinding
-              ? (effectiveAcpBinding.profileName ?? effectiveAcpBinding.profileId ?? 'ACP Agent')
-              : `${providerLabel} - ${modelLabel}`}
-            {canOpenModelPicker ? (
-              <ChevronDown
-                size={10}
-                strokeWidth={1.5}
-                color={theme.icon.muted}
-                style={{
-                  transform: modelSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                  transition: 'transform 0.15s ease'
-                }}
-              />
-            ) : null}
-          </button>
-
-          {modelSelectorOpen && config && !isModelSelectorLocked ? (
-            <ModelSelectorPopup
-              config={config}
-              currentProviderName={effectiveModel.providerName}
-              currentModel={effectiveModel.model}
-              currentAcpProfileId={effectiveAcpBinding?.profileId ?? null}
-              onSelect={async (providerName, model) => {
-                await runBackendSwitch(async () => {
-                  await selectModel(providerName, model)
-                  if (activeAcpBinding && activeThreadId) {
-                    await window.api.yachiyo.setThreadRuntimeBinding({
-                      threadId: activeThreadId,
-                      runtimeBinding: null
-                    })
-                  }
-                })
-                setPendingAcpBinding(null)
-              }}
-              onSelectAcpAgent={async (agent: AcpAgentEntry) => {
-                if (activeThreadId && activeThreadMessageCount > 0) {
-                  if (activeAcpBinding?.profileId !== agent.id) {
-                    notifyAcpRebindBlocked()
-                  }
-                  return
-                }
-
-                if (activeThreadId) {
-                  await runBackendSwitch(async () => {
-                    await window.api.yachiyo.setThreadRuntimeBinding({
-                      threadId: activeThreadId,
-                      runtimeBinding: {
-                        kind: 'acp',
-                        profileId: agent.id,
-                        profileName: agent.name,
-                        sessionStatus: 'new'
-                      }
-                    })
-                  })
-                } else {
-                  setPendingAcpBinding({
-                    kind: 'acp',
-                    profileId: agent.id,
-                    profileName: agent.name,
-                    sessionStatus: 'new'
-                  })
-                }
-              }}
-              onClose={() => setModelSelectorOpen(false)}
-            />
-          ) : null}
-        </div>
-
-        {!effectiveAcpBinding ? (
-          <div ref={reasoningSelectorRef} style={{ position: 'relative' }}>
-            <button
-              type="button"
-              onClick={() => {
-                setModelSelectorOpen(false)
-                setSkillsSelectorOpen(false)
-                setToolSelectorOpen(false)
-                setWorkspaceSelectorOpen(false)
-                setReasoningSelectorOpen((open) => !open)
-              }}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity"
-              style={{
-                color: theme.text.primary,
-                opacity: reasoningSelectorOpen ? 1 : 0.6
-              }}
-              aria-label="Reasoning effort"
-              aria-expanded={reasoningSelectorOpen}
-              aria-haspopup="menu"
-            >
-              <Brain
-                size={12}
-                strokeWidth={1.5}
-                color={
-                  reasoningSelectorState.selected === 'off' ? theme.icon.muted : theme.icon.accent
-                }
-              />
-              {formatReasoningSelection(reasoningSelectorState.selected)}
-              <ChevronDown
-                size={10}
-                strokeWidth={1.5}
-                color={theme.icon.muted}
-                style={{
-                  transform: reasoningSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                  transition: 'transform 0.15s ease'
-                }}
-              />
-            </button>
-
-            {reasoningSelectorOpen ? (
-              <ReasoningSelectorPopup
-                options={reasoningSelectorState.options}
-                selected={reasoningSelectorState.selected}
-                onSelect={setComposerReasoningEffort}
-                onClose={() => setReasoningSelectorOpen(false)}
-              />
-            ) : null}
-          </div>
-        ) : null}
-
-        {showRunStats ? (
-          hasRunStatsText ? (
-            <Tooltip
-              content={
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 3,
-                    width: 240,
-                    whiteSpace: 'normal'
-                  }}
-                >
-                  {displayPromptTokens != null ? (
-                    <>
-                      <div style={{ fontWeight: 600, marginBottom: 2 }}>Last run token usage</div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                        <span style={{ color: theme.text.secondary }}>Prompt</span>
-                        <span>{displayPromptTokens.toLocaleString()}</span>
-                      </div>
-                    </>
-                  ) : null}
-                  {latestRun?.completionTokens != null ? (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                      <span style={{ color: theme.text.secondary }}>Completion</span>
-                      <span>{latestRun.completionTokens.toLocaleString()}</span>
-                    </div>
-                  ) : null}
-                  {latestRun?.totalPromptTokens != null &&
-                  latestRun.totalPromptTokens !== displayPromptTokens ? (
-                    <>
-                      <div
-                        style={{
-                          height: 1,
-                          background: theme.border.default,
-                          margin: '2px 0'
-                        }}
-                      />
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                        <span style={{ color: theme.text.secondary }}>Total prompt</span>
-                        <span>{latestRun.totalPromptTokens.toLocaleString()}</span>
-                      </div>
-                      {latestRun.totalCompletionTokens != null ? (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                          <span style={{ color: theme.text.secondary }}>Total completion</span>
-                          <span>{latestRun.totalCompletionTokens.toLocaleString()}</span>
-                        </div>
-                      ) : null}
-                    </>
-                  ) : null}
-                  {estimatedDraftTokens > 0 ? (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                      <span style={{ color: theme.text.secondary }}>Draft estimate</span>
-                      <span>{estimatedDraftTokens.toLocaleString()}</span>
-                    </div>
-                  ) : null}
-                  {canHandoffActiveThread &&
-                  (displayPromptTokens ?? 0) + estimatedDraftTokens >
-                    stripCompactThresholdTokens ? (
-                    <div
-                      style={{
-                        marginTop: 4,
-                        paddingTop: 6,
-                        borderTop: `1px solid ${theme.border.default}`,
-                        color: '#f59e0b',
-                        fontSize: 11,
-                        lineHeight: 1.4
-                      }}
-                    >
-                      Context is over {formatTokenCount(stripCompactThresholdTokens)}. Consider
-                      using <span style={{ fontFamily: 'monospace' }}>/handoff</span> to compact and
-                      continue in a new thread.
-                    </div>
-                  ) : null}
-                </div>
-              }
-            >
-              <span
-                className="text-xs px-1.5 flex items-center gap-1"
-                style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
-              >
-                {(displayPromptTokens ?? 0) + estimatedDraftTokens > stripCompactThresholdTokens ? (
-                  <TriangleAlert
-                    size={11}
-                    style={{ color: '#f59e0b', flexShrink: 0, opacity: 1, display: 'block' }}
-                  />
-                ) : null}
-                {displayPromptTokens != null ? formatTokenCount(displayPromptTokens) : null}
-                {estimatedDraftTokens > 0 ? (
-                  <span style={{ opacity: 0.6 }}>
-                    {displayPromptTokens != null ? '+' : ''}
-                    {formatTokenCount(estimatedDraftTokens)}
-                  </span>
-                ) : null}
-                <RunArrowIndicator />
-              </span>
-            </Tooltip>
-          ) : (
-            <span
-              className="text-xs flex items-center"
-              style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
-            >
-              <RunArrowIndicator />
-            </span>
-          )
-        ) : null}
-
-        <div className="ml-auto flex items-center gap-2">
-          {showStopButton ? (
-            <button
-              type="button"
-              disabled={isCancelInFlight}
-              onClick={() => {
-                if (isCancelInFlight) return
-                setIsCancelInFlight(true)
-                void cancelActiveRun()
-              }}
-              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
-              style={{
-                background: theme.background.accentPanel,
-                border: `1px solid ${theme.border.accent}`,
-                opacity: isCancelInFlight ? 0.6 : 1,
-                cursor: isCancelInFlight ? 'default' : 'pointer'
-              }}
-              aria-label="Stop generation"
-              title="Stop generation"
-            >
-              {isCancelInFlight ? (
-                <LoaderCircle size={12} className="animate-spin" color={theme.text.accent} />
-              ) : (
-                <Square size={10} fill={theme.text.accent} strokeWidth={0} />
-              )}
-            </button>
-          ) : null}
-
-          <button
-            type="button"
-            onClick={() => {
-              if (!canSend) return
-              setModelSelectorOpen(false)
-              setSkillsSelectorOpen(false)
-              setToolSelectorOpen(false)
-              setWorkspaceSelectorOpen(false)
-              dispatchSend(primarySendMode)
-            }}
-            disabled={!canSend}
-            className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
-            style={{
-              background: canSend ? theme.text.accent : theme.border.panel,
-              cursor: canSend ? 'pointer' : 'default',
-              opacity: isSendInFlight ? 0.6 : 1
-            }}
-            aria-label={
-              primarySendMode === 'steer'
-                ? 'Steer reply'
-                : primarySendMode === 'follow-up'
-                  ? 'Queue follow-up'
-                  : editingMessage !== null
-                    ? 'Update message'
-                    : 'Send'
-            }
-            title={
-              primarySendMode === 'steer'
-                ? 'Steer reply'
-                : primarySendMode === 'follow-up'
-                  ? 'Queue follow-up'
-                  : editingMessage !== null
-                    ? 'Update message'
-                    : 'Send'
-            }
-          >
-            {isSendInFlight ? (
-              <LoaderCircle size={14} className="animate-spin" color={theme.text.inverse} />
-            ) : (
-              <SendHorizonal
-                size={14}
-                strokeWidth={1.8}
-                color={canSend ? theme.text.inverse : theme.icon.placeholder}
-              />
-            )}
-          </button>
-        </div>
-      </div>
-    </div>
+    <ComposerView
+      composerRootRef={composerRootRef}
+      handleDragEnter={handleDragEnter}
+      handleDragOver={handleDragOver}
+      handleDragLeave={handleDragLeave}
+      handleDrop={handleDrop}
+      isDragOver={isDragOver}
+      editingMessage={editingMessage}
+      cancelEditMessage={cancelEditMessage}
+      queuedFollowUpMessage={queuedFollowUpMessage}
+      handleEditQueuedFollowUp={handleEditQueuedFollowUp}
+      queuedFollowUpCanRemove={queuedFollowUpCanRemove}
+      handleRemoveQueuedFollowUp={handleRemoveQueuedFollowUp}
+      inputBuffer={inputBuffer}
+      mergeBufferedPayloadIntoDraft={mergeBufferedPayloadIntoDraft}
+      draftImages={draftImages}
+      draftFiles={draftFiles}
+      removeComposerImage={removeComposerImage}
+      activeThreadId={activeThreadId}
+      removeComposerFile={removeComposerFile}
+      popupContainerRef={popupContainerRef}
+      showSlashCommandPopup={showSlashCommandPopup}
+      matchingSlashCommands={matchingSlashCommands}
+      slashSelectedIndex={slashSelectedIndex}
+      handleSlashCommandSelect={handleSlashCommandSelect}
+      dismissSlashPopup={dismissSlashPopup}
+      fileMentionQuery={fileMentionQuery}
+      fileMentionMatchesState={fileMentionMatchesState}
+      isFileMentionSearchPending={isFileMentionSearchPending}
+      loadMoreFileMentionMatches={loadMoreFileMentionMatches}
+      fileMentionAnchorRect={fileMentionAnchorRect}
+      activeSkillTag={activeSkillTag}
+      validatedFileTags={validatedFileTags}
+      setComposerValue={setComposerValue}
+      composerValue={composerValue}
+      composerInputRef={composerInputRef}
+      overlayRef={overlayRef}
+      overlayLineTexts={overlayLineTexts}
+      overlaySelRange={overlaySelRange}
+      textareaRef={textareaRef}
+      isTextareaFocused={isTextareaFocused}
+      setIsTextareaFocused={setIsTextareaFocused}
+      handleInput={handleInput}
+      setIsComposing={setIsComposing}
+      handleKeyDown={handleKeyDown}
+      handlePaste={handlePaste}
+      handleTextareaScroll={handleTextareaScroll}
+      isConfigured={isConfigured}
+      composerStatus={composerStatus}
+      fileInputRef={fileInputRef}
+      queueImageFiles={queueImageFiles}
+      queueDocumentFiles={queueDocumentFiles}
+      canAddImages={canAddImages}
+      canAddFiles={canAddFiles}
+      effectiveAcpBinding={effectiveAcpBinding}
+      toolSelectorRef={toolSelectorRef}
+      setModelSelectorOpen={setModelSelectorOpen}
+      setReasoningSelectorOpen={setReasoningSelectorOpen}
+      setSkillsSelectorOpen={setSkillsSelectorOpen}
+      setWorkspaceSelectorOpen={setWorkspaceSelectorOpen}
+      setToolSelectorOpen={setToolSelectorOpen}
+      toolSelectorOpen={toolSelectorOpen}
+      enabledTools={enabledTools}
+      hasActiveRun={hasActiveRun}
+      toggleEnabledTool={toggleEnabledTool}
+      skillsSelectorRef={skillsSelectorRef}
+      skillsSelectorOpen={skillsSelectorOpen}
+      enabledSkillCount={enabledSkillCount}
+      availableSkills={availableSkills}
+      effectiveEnabledSkillNames={effectiveEnabledSkillNames}
+      hasCustomSkillOverride={hasCustomSkillOverride}
+      setComposerEnabledSkillNames={setComposerEnabledSkillNames}
+      defaultEnabledSkillNames={defaultEnabledSkillNames}
+      inputBufferDurable={inputBufferDurable}
+      inputBufferSession={inputBufferSession}
+      toggleInputBufferSession={toggleInputBufferSession}
+      workspaceSelectorRef={workspaceSelectorRef}
+      setWorkspaceHintHovered={setWorkspaceHintHovered}
+      setWorkspaceHintPinned={setWorkspaceHintPinned}
+      isWorkspaceLocked={isWorkspaceLocked}
+      workspaceSelectorOpen={workspaceSelectorOpen}
+      currentWorkspacePath={currentWorkspacePath}
+      showWorkspaceHint={showWorkspaceHint}
+      workspaceHint={workspaceHint}
+      savedWorkspacePaths={savedWorkspacePaths}
+      requestWorkspaceSelection={requestWorkspaceSelection}
+      pendingWorkspaceChangeConfirmation={pendingWorkspaceChangeConfirmation}
+      setPendingWorkspaceChangeConfirmation={setPendingWorkspaceChangeConfirmation}
+      commitWorkspaceSelection={commitWorkspaceSelection}
+      modelSelectorRef={modelSelectorRef}
+      modelSelectorOpen={modelSelectorOpen}
+      canOpenModelPicker={canOpenModelPicker}
+      isModelSelectorLocked={isModelSelectorLocked}
+      activeAcpBinding={activeAcpBinding}
+      providerLabel={providerLabel}
+      modelLabel={modelLabel}
+      config={config}
+      effectiveModel={effectiveModel}
+      runBackendSwitch={runBackendSwitch}
+      selectModel={selectModel}
+      setPendingAcpBinding={setPendingAcpBinding}
+      activeThreadMessageCount={activeThreadMessageCount}
+      notifyAcpRebindBlocked={notifyAcpRebindBlocked}
+      reasoningSelectorRef={reasoningSelectorRef}
+      reasoningSelectorOpen={reasoningSelectorOpen}
+      reasoningSelectorState={reasoningSelectorState}
+      setComposerReasoningEffort={setComposerReasoningEffort}
+      showRunStats={showRunStats}
+      hasRunStatsText={hasRunStatsText}
+      displayPromptTokens={displayPromptTokens}
+      latestRun={latestRun}
+      estimatedDraftTokens={estimatedDraftTokens}
+      canHandoffActiveThread={canHandoffActiveThread}
+      stripCompactThresholdTokens={stripCompactThresholdTokens}
+      showStopButton={showStopButton}
+      isCancelInFlight={isCancelInFlight}
+      setIsCancelInFlight={setIsCancelInFlight}
+      cancelActiveRun={cancelActiveRun}
+      canSend={canSend}
+      dispatchSend={dispatchSend}
+      primarySendMode={primarySendMode}
+      isSendInFlight={isSendInFlight}
+    />
   )
 }

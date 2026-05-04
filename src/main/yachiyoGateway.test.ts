@@ -2,7 +2,7 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert'
 import type { BrowserWindow } from 'electron'
 import type { YachiyoServerEvent } from '../shared/yachiyo/protocol'
-import { isHighFrequencyChatEvent, isAuxiliaryWindow } from './yachiyoGatewayFilter'
+import { isHighFrequencyChatEvent, isAuxiliaryWindow } from './yachiyoGateway/filter.ts'
 
 function mockWindow(url: string): BrowserWindow {
   return {

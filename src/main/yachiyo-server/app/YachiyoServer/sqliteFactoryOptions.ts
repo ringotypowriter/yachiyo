@@ -1,0 +1,42 @@
+import { randomUUID } from 'node:crypto'
+
+import { resolveYachiyoDbPath, resolveYachiyoSettingsPath } from '../../config/paths.ts'
+import { createDemoYachiyoStorage, isDevelopmentDemoModeEnabled } from '../../demo/demoMode.ts'
+import { readBuiltinMemoryTermDocument } from '../../services/memory/builtinMemoryProvider.ts'
+import { createMemoryProviderFactory } from '../../services/memory/createMemoryProvider.ts'
+import { createSettingsStore } from '../../settings/settingsStore.ts'
+import { createSqliteYachiyoStorage } from '../../storage/sqlite/database.ts'
+import type { SqliteYachiyoServerOptions, YachiyoServerOptions } from './options.ts'
+
+export function createSqliteYachiyoServerOptions(
+  options: SqliteYachiyoServerOptions
+): YachiyoServerOptions {
+  const settingsPath = options.settingsPath ?? resolveYachiyoSettingsPath()
+  const shouldUseDemoStorage = isDevelopmentDemoModeEnabled(
+    createSettingsStore(settingsPath).read(),
+    options.developmentMode === true
+  )
+  const builtinMemoryDbPath = shouldUseDemoStorage
+    ? resolveYachiyoDbPath(`demo-mode-memory-${randomUUID()}.sqlite`)
+    : options.dbPath
+
+  if (shouldUseDemoStorage) {
+    const demoMemoryStorage = createSqliteYachiyoStorage(builtinMemoryDbPath)
+    demoMemoryStorage.close()
+  }
+
+  return {
+    ...options,
+    settingsPath,
+    createMemoryProvider: createMemoryProviderFactory({
+      builtinDbPath: builtinMemoryDbPath
+    }),
+    readMemoryTermDocument: async () =>
+      readBuiltinMemoryTermDocument({
+        dbPath: builtinMemoryDbPath
+      }),
+    storage: shouldUseDemoStorage
+      ? createDemoYachiyoStorage()
+      : createSqliteYachiyoStorage(options.dbPath)
+  }
+}

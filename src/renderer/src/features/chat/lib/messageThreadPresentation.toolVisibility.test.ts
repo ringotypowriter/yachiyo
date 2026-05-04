@@ -1,0 +1,505 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+
+import {
+  buildMessageGroups,
+  getVisibleToolCallsForGroup,
+  partitionToolCallsForGroups
+} from './messageThreadPresentation.ts'
+
+const TIMESTAMP = '2026-03-15T00:00:00.000Z'
+
+test('getVisibleToolCallsForGroup keeps unresolved assistant-anchored tool calls visible', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'user-steer'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'First question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'user-steer',
+        threadId: 'thread-1',
+        role: 'user',
+        parentMessageId: 'user-1',
+        content: 'Use the screenshot instead',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:02.000Z'
+      }
+    ],
+    runPhase: 'preparing',
+    activeRequestMessageId: 'user-steer'
+  })
+
+  const toolCalls = getVisibleToolCallsForGroup({
+    group: group!,
+    toolCalls: [
+      {
+        id: 'tool-running-old-attempt',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'running',
+        inputSummary: 'sleep 15',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-superseded',
+        startedAt: '2026-03-15T00:00:01.000Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    toolCalls.map((toolCall) => toolCall.id),
+    ['tool-running-old-attempt']
+  )
+})
+
+test('getVisibleToolCallsForGroup hides unanchored tool calls from superseded runs after retry completes (idle)', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-retry'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'First question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-retry',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Retry answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:04.000Z'
+      }
+    ],
+    runPhase: 'idle',
+    activeRequestMessageId: null
+  })
+
+  const toolCalls = getVisibleToolCallsForGroup({
+    group: group!,
+    toolCalls: [
+      {
+        id: 'tool-superseded',
+        runId: 'run-old',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'failed',
+        inputSummary: 'pwd',
+        requestMessageId: 'user-1',
+        startedAt: '2026-03-15T00:00:01.100Z',
+        finishedAt: '2026-03-15T00:00:01.500Z'
+      },
+      {
+        id: 'tool-retry',
+        runId: 'run-retry',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'notes.txt',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-retry',
+        startedAt: '2026-03-15T00:00:04.100Z',
+        finishedAt: '2026-03-15T00:00:04.500Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    toolCalls.map((toolCall) => toolCall.id),
+    ['tool-retry']
+  )
+})
+
+test('getVisibleToolCallsForGroup hides unanchored tool calls from older runs while retry is streaming', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-retry'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'First question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-1',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Old answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'assistant-retry',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Streaming…',
+        status: 'streaming',
+        createdAt: '2026-03-15T00:00:04.000Z'
+      }
+    ],
+    runPhase: 'streaming',
+    activeRequestMessageId: 'user-1'
+  })
+
+  const toolCalls = getVisibleToolCallsForGroup({
+    group: group!,
+    activeRunId: 'run-retry',
+    toolCalls: [
+      {
+        id: 'tool-old-unanchored',
+        runId: 'run-old',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'failed',
+        inputSummary: 'echo hi',
+        requestMessageId: 'user-1',
+        startedAt: '2026-03-15T00:00:01.100Z',
+        finishedAt: '2026-03-15T00:00:01.400Z'
+      },
+      {
+        id: 'tool-retry-running',
+        runId: 'run-retry',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'running',
+        inputSummary: 'draft.txt',
+        requestMessageId: 'user-1',
+        startedAt: '2026-03-15T00:00:04.200Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    toolCalls.map((toolCall) => toolCall.id),
+    ['tool-retry-running']
+  )
+})
+
+test('getVisibleToolCallsForGroup hides stopped-branch tool calls from older runs while retry is streaming', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-retry'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'First question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-stopped',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: '',
+        status: 'stopped',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'assistant-retry',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Streaming…',
+        status: 'streaming',
+        createdAt: '2026-03-15T00:00:04.000Z'
+      }
+    ],
+    runPhase: 'streaming',
+    activeRequestMessageId: 'user-1'
+  })
+
+  const toolCalls = getVisibleToolCallsForGroup({
+    group: group!,
+    activeRunId: 'run-retry',
+    toolCalls: [
+      {
+        id: 'tool-stopped-anchored',
+        runId: 'run-old',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'failed',
+        inputSummary: 'sleep 5',
+        outputSummary: 'Run cancelled before the tool call finished.',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-stopped',
+        startedAt: '2026-03-15T00:00:01.100Z',
+        finishedAt: '2026-03-15T00:00:01.500Z'
+      },
+      {
+        id: 'tool-retry-running',
+        runId: 'run-retry',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'running',
+        inputSummary: 'draft.txt',
+        requestMessageId: 'user-1',
+        startedAt: '2026-03-15T00:00:04.200Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    toolCalls.map((toolCall) => toolCall.id),
+    ['tool-retry-running']
+  )
+})
+
+test('partitionToolCallsForGroups hides anchored tool calls that belong to hidden downstream requests', () => {
+  const groups = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-retry'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'First question',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-1',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'First answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'user-2',
+        threadId: 'thread-1',
+        role: 'user',
+        parentMessageId: 'assistant-1',
+        content: 'Second question',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:02.000Z'
+      },
+      {
+        id: 'assistant-2',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-2',
+        content: 'Second answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:03.000Z'
+      },
+      {
+        id: 'assistant-retry',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Retry answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:04.000Z'
+      }
+    ],
+    runPhase: 'idle',
+    activeRequestMessageId: null
+  })
+
+  const { inlineToolCalls, orphanToolCalls } = partitionToolCallsForGroups({
+    groups,
+    toolCalls: [
+      {
+        id: 'tool-visible',
+        runId: 'run-visible',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'a.txt',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-retry',
+        startedAt: '2026-03-15T00:00:04.100Z'
+      },
+      {
+        id: 'tool-hidden',
+        runId: 'run-hidden',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'completed',
+        inputSummary: 'pwd',
+        requestMessageId: 'user-2',
+        assistantMessageId: 'assistant-2',
+        startedAt: '2026-03-15T00:00:03.100Z'
+      },
+      {
+        id: 'tool-legacy',
+        runId: 'run-legacy',
+        threadId: 'thread-1',
+        toolName: 'write',
+        status: 'failed',
+        inputSummary: 'try.txt',
+        startedAt: '2026-03-15T00:00:05.000Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    inlineToolCalls.map((toolCall) => toolCall.id),
+    ['tool-visible']
+  )
+  assert.deepEqual(
+    orphanToolCalls.map((toolCall) => toolCall.id),
+    ['tool-legacy']
+  )
+})
+
+test('buildMessageGroups reuses group identities when only the streaming branch changes', () => {
+  const thread = {
+    id: 'thread-identity',
+    title: 'Thread',
+    updatedAt: TIMESTAMP,
+    headMessageId: 'user-2'
+  }
+  const userMessage1 = {
+    id: 'user-1',
+    threadId: 'thread-identity',
+    role: 'user' as const,
+    content: 'First',
+    status: 'completed' as const,
+    createdAt: TIMESTAMP
+  }
+  const assistant1 = {
+    id: 'assistant-1',
+    threadId: 'thread-identity',
+    role: 'assistant' as const,
+    parentMessageId: 'user-1',
+    content: 'Answer one',
+    status: 'completed' as const,
+    createdAt: '2026-03-15T00:00:01.000Z'
+  }
+  const userMessage2 = {
+    id: 'user-2',
+    threadId: 'thread-identity',
+    role: 'user' as const,
+    parentMessageId: 'assistant-1',
+    content: 'Second',
+    status: 'completed' as const,
+    createdAt: '2026-03-15T00:00:02.000Z'
+  }
+  const streamingAssistant = {
+    id: 'assistant-2',
+    threadId: 'thread-identity',
+    role: 'assistant' as const,
+    parentMessageId: 'user-2',
+    content: 'Par',
+    status: 'streaming' as const,
+    createdAt: '2026-03-15T00:00:03.000Z'
+  }
+
+  const first = buildMessageGroups({
+    thread,
+    messages: [userMessage1, assistant1, userMessage2, streamingAssistant],
+    runPhase: 'streaming',
+    activeRequestMessageId: 'user-2'
+  })
+
+  // Simulate a streaming delta: a new assistant-2 object (fresh reference)
+  // with extended content. Every other message keeps its original identity.
+  const streamingAssistantAfterDelta = {
+    ...streamingAssistant,
+    content: 'Partial text'
+  }
+  const second = buildMessageGroups({
+    thread,
+    messages: [userMessage1, assistant1, userMessage2, streamingAssistantAfterDelta],
+    runPhase: 'streaming',
+    activeRequestMessageId: 'user-2'
+  })
+
+  assert.equal(first.length, 2)
+  assert.equal(second.length, 2)
+  // The first group (no streaming branch changed) keeps full identity.
+  assert.strictEqual(second[0], first[0], 'unchanged group should keep object identity')
+  // The streaming group is rebuilt because its assistant message reference changed.
+  assert.notStrictEqual(second[1], first[1], 'streaming group must rebuild')
+  assert.strictEqual(
+    second[1].assistantBranches[0].message,
+    streamingAssistantAfterDelta,
+    'rebuilt group should reference the updated message'
+  )
+})
+
+test('buildMessageGroups returns the same array reference when nothing changed', () => {
+  const thread = {
+    id: 'thread-stable',
+    title: 'Thread',
+    updatedAt: TIMESTAMP,
+    headMessageId: 'assistant-1'
+  }
+  const userMessage = {
+    id: 'user-1',
+    threadId: 'thread-stable',
+    role: 'user' as const,
+    content: 'Q',
+    status: 'completed' as const,
+    createdAt: TIMESTAMP
+  }
+  const assistantMessage = {
+    id: 'assistant-1',
+    threadId: 'thread-stable',
+    role: 'assistant' as const,
+    parentMessageId: 'user-1',
+    content: 'A',
+    status: 'completed' as const,
+    createdAt: '2026-03-15T00:00:01.000Z'
+  }
+  const messages = [userMessage, assistantMessage]
+
+  const first = buildMessageGroups({
+    thread,
+    messages,
+    runPhase: 'idle',
+    activeRequestMessageId: null
+  })
+  // Fresh array with the same message references — simulates a no-op delta
+  // cycle that only changed the containing array identity.
+  const second = buildMessageGroups({
+    thread,
+    messages: [...messages],
+    runPhase: 'idle',
+    activeRequestMessageId: null
+  })
+
+  assert.strictEqual(second, first, 'result array should be reused when groups are unchanged')
+})
