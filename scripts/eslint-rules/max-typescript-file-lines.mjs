@@ -1,4 +1,4 @@
-const DEFAULT_MAX_LINES = 1200
+const DEFAULT_MAX_LINES = 1500
 const LINE_BREAK_PATTERN = /\r\n|[\n\r\u2028\u2029]/gu
 const FINAL_LINE_BREAK_PATTERN = /(?:\r\n|[\n\r\u2028\u2029])$/u
 

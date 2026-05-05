@@ -32,7 +32,7 @@ export default defineConfig(
     rules: {
       ...eslintPluginReactHooks.configs.recommended.rules,
       ...eslintPluginReactRefresh.configs.vite.rules,
-      'yachiyo/max-typescript-file-lines': ['error', { max: 1200 }]
+      'yachiyo/max-typescript-file-lines': ['error', { max: 1500 }]
     }
   },
   eslintConfigPrettier

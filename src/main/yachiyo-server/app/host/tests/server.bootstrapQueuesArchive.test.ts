@@ -406,7 +406,7 @@ function createServerEventWaiter(server: YachiyoServer): {
   }
 }
 
-test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queued tool override', async () => {
+test('YachiyoServer bootstrap clears a temporary queued follow-up draft after restart', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-queued-recover-test-'))
   const settingsPath = join(root, 'config.toml')
   await writeFile(settingsPath, '[toolModel]\nmode = "disabled"\n', 'utf8')
@@ -500,52 +500,20 @@ test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queu
         }
       })
     })
-    const resumedWaiter = createServerEventWaiter(resumedServer)
 
     try {
       const bootstrap = await resumedServer.bootstrap()
       const bootstrappedThread = bootstrap.threads.find((entry) => entry.id === thread.id)
 
-      assert.equal(bootstrappedThread?.queuedFollowUpMessageId, queuedFollowUp.userMessage.id)
-      assert.deepEqual(bootstrappedThread?.queuedFollowUpEnabledTools, ['read'])
-      assert.match(
-        bootstrap.latestRunsByThread[thread.id]?.status ?? '',
-        /^(cancelled|failed)$/,
-        'bootstrap should preserve the prior run terminal state before the queued follow-up resumes'
-      )
-
-      const replacementEvent = await resumedWaiter.waitForEvent(
-        'thread.state.replaced',
-        (event) => event.threadId === thread.id
-      )
-      const resumedRunCreated = await resumedWaiter.waitForEvent(
-        'run.created',
-        (event) =>
-          event.threadId === thread.id && event.requestMessageId === queuedFollowUp.userMessage.id
-      )
-      await resumedWaiter.waitForEvent(
-        'run.completed',
-        (event) => event.runId === resumedRunCreated.runId
-      )
-
-      assert.equal(replacementEvent.thread.headMessageId, queuedFollowUp.userMessage.id)
-      assert.equal(replacementEvent.thread.queuedFollowUpMessageId, undefined)
-      const recoveredBootstrap = await resumedServer.bootstrap()
-
+      assert.equal(bootstrappedThread?.queuedFollowUpMessageId, undefined)
+      assert.equal(bootstrappedThread?.queuedFollowUpEnabledTools, undefined)
+      assert.match(bootstrap.latestRunsByThread[thread.id]?.status ?? '', /^(cancelled|failed)$/)
       assert.deepEqual(
-        (recoveredBootstrap.messagesByThread[thread.id] ?? []).map((message) => message.content),
-        ['First question', 'Recovered queued follow-up', '', 'Recovered reply']
+        (bootstrap.messagesByThread[thread.id] ?? []).map((message) => message.content),
+        ['First question', '']
       )
-      assert.match(
-        String(resumedRequests[0]?.messages.at(-1)?.content ?? ''),
-        /Recovered queued follow-up/
-      )
-      const resumedToolKeys = Object.keys(resumedRequests[0]?.tools ?? {}).sort()
-      for (const expected of ['askUser', 'read', 'updateProfile']) {
-        assert.ok(resumedToolKeys.includes(expected), `should include ${expected}`)
-      }
+      assert.equal(resumedRequests.length, 0)
     } finally {
-      resumedWaiter.close()
       await resumedServer.close()
     }
   } finally {
@@ -557,7 +525,7 @@ test('YachiyoServer bootstrap resumes a persisted queued follow-up with its queu
   }
 })
 
-test('YachiyoServer keeps a recovered queued follow-up pending when a new run starts immediately after bootstrap', async () => {
+test('YachiyoServer does not recover a temporary queued follow-up when a new run starts after bootstrap', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-queued-race-test-'))
   const settingsPath = join(root, 'config.toml')
   await writeFile(settingsPath, '[toolModel]\nmode = "disabled"\n', 'utf8')
@@ -667,8 +635,8 @@ test('YachiyoServer keeps a recovered queued follow-up pending when a new run st
       const bootstrap = await resumedServer.bootstrap()
       const bootstrappedThread = bootstrap.threads.find((entry) => entry.id === thread.id)
 
-      assert.equal(bootstrappedThread?.queuedFollowUpMessageId, queuedFollowUp.userMessage.id)
-      assert.deepEqual(bootstrappedThread?.queuedFollowUpEnabledTools, ['read'])
+      assert.equal(bootstrappedThread?.queuedFollowUpMessageId, undefined)
+      assert.equal(bootstrappedThread?.queuedFollowUpEnabledTools, undefined)
 
       const immediateAccepted = await resumedServer.sendChat({
         threadId: thread.id,
@@ -685,28 +653,16 @@ test('YachiyoServer keeps a recovered queued follow-up pending when a new run st
         (event) => event.runId === immediateAccepted.runId
       )
 
-      const recoveredRunCreated = await resumedWaiter.waitForEvent(
-        'run.created',
-        (event) => event.requestMessageId === queuedFollowUp.userMessage.id
-      )
-      await resumedWaiter.waitForEvent(
-        'run.completed',
-        (event) => event.runId === recoveredRunCreated.runId
-      )
-
       const recoveredBootstrap = await resumedServer.bootstrap()
-      const queuedMessage = (recoveredBootstrap.messagesByThread[thread.id] ?? []).find(
-        (message) => message.id === queuedFollowUp.userMessage.id
-      )
-      const immediateAssistantMessage = (recoveredBootstrap.messagesByThread[thread.id] ?? []).find(
-        (message) => message.role === 'assistant' && message.content === 'Immediate reply'
-      )
 
       assert.equal(
         recoveredBootstrap.threads.find((entry) => entry.id === thread.id)?.queuedFollowUpMessageId,
         undefined
       )
-      assert.equal(queuedMessage?.parentMessageId, immediateAssistantMessage?.id)
+      assert.deepEqual(
+        (recoveredBootstrap.messagesByThread[thread.id] ?? []).map((message) => message.content),
+        ['First question', '', 'Immediate question', 'Immediate reply']
+      )
       assert.ok(String(resumedRequests[0]?.content).startsWith('Immediate question'))
       for (const expected of ['askUser', 'bash', 'updateProfile']) {
         assert.ok(
@@ -714,13 +670,7 @@ test('YachiyoServer keeps a recovered queued follow-up pending when a new run st
           `run 0 should include ${expected}`
         )
       }
-      assert.match(String(resumedRequests[1]?.content ?? ''), /Recovered queued follow-up/)
-      for (const expected of ['askUser', 'read', 'updateProfile']) {
-        assert.ok(
-          resumedRequests[1]?.toolNames?.includes(expected),
-          `run 1 should include ${expected}`
-        )
-      }
+      assert.equal(resumedRequests.length, 1)
     } finally {
       resumedWaiter.close()
       await resumedServer.close()

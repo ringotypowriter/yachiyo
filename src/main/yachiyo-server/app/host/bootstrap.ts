@@ -20,7 +20,7 @@ export async function bootstrapYachiyoServer(input: {
   await Promise.all([input.readSoulDocument(), input.readUserDocument()])
   const recoveredQueuedFollowUps = input.runDomain.prepareRecoveredQueuedFollowUps()
   const recoveredRuns = input.developmentMode ? [] : input.runDomain.prepareRecoveredRuns()
-  const bootstrapped = input.storage.bootstrap()
+  const bootstrapped = input.runDomain.withQueuedFollowUpDraftsBootstrap(input.storage.bootstrap())
 
   input.runDomain.scheduleRecoveredQueuedFollowUps(recoveredQueuedFollowUps)
   input.runDomain.scheduleRecoveredRuns(recoveredRuns)

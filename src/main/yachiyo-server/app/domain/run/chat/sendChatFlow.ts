@@ -28,6 +28,7 @@ import { assertSupportedImages, resolveEnabledTools } from '../../config/configD
 import { DEFAULT_THREAD_TITLE } from '../../shared/shared.ts'
 import { buildTitleQuery, deriveThreadTitleFallback } from '../../threads/threadTitle.ts'
 import type { RunDomainDeps, RunState } from '../runTypes.ts'
+import type { QueuedFollowUpDraft } from '../queue/followUpQueue.ts'
 import type { ThreadTitleGenerationRunner } from '../title/threadTitleGeneration.ts'
 import {
   createDebouncedSendChatKey,
@@ -52,6 +53,7 @@ export interface SendChatFlowContext {
   activeRuns: Map<string, RunState>
   activeRunByThread: Map<string, string>
   debouncedSendChats: Map<string, DebouncedSendChatEntry>
+  queuedFollowUpDrafts: Map<string, QueuedFollowUpDraft>
   threadTitleRunner: ThreadTitleGenerationRunner
   startActiveRun: (input: StartActiveRunInput) => void
 }
@@ -394,20 +396,18 @@ function queueFollowUp(
   }
 
   const timestamp = deps.timestamp()
-  const previousQueuedMessageId = input.thread.queuedFollowUpMessageId
-  const previousQueuedMessage = previousQueuedMessageId
-    ? deps
-        .loadThreadMessages(input.thread.id)
-        .find((message) => message.id === previousQueuedMessageId)
-    : undefined
-  const mergedContent = previousQueuedMessage
-    ? [previousQueuedMessage.content, input.content].filter((part) => part.length > 0).join('\n')
+  const previousQueuedDraft = context.queuedFollowUpDrafts.get(input.thread.id)
+  const replacedMessageId = previousQueuedDraft?.userMessage.id
+  const mergedContent = previousQueuedDraft
+    ? [previousQueuedDraft.userMessage.content, input.content]
+        .filter((part) => part.length > 0)
+        .join('\n')
     : input.content
-  const mergedImages = previousQueuedMessage
-    ? [...(previousQueuedMessage.images ?? []), ...(input.images ?? [])]
+  const mergedImages = previousQueuedDraft
+    ? [...(previousQueuedDraft.userMessage.images ?? []), ...(input.images ?? [])]
     : input.images
-  const mergedAttachments = previousQueuedMessage
-    ? [...(previousQueuedMessage.attachments ?? []), ...input.attachments]
+  const mergedAttachments = previousQueuedDraft
+    ? [...(previousQueuedDraft.userMessage.attachments ?? []), ...input.attachments]
     : input.attachments
   const userMessage = createUserMessage({
     id: input.messageId,
@@ -435,11 +435,13 @@ function queueFollowUp(
     delete updatedThread.queuedFollowUpEnabledSkillNames
   }
 
-  deps.storage.saveThreadMessage({
-    thread: input.thread,
-    updatedThread,
-    message: userMessage,
-    ...(previousQueuedMessageId ? { replacedMessageId: previousQueuedMessageId } : {})
+  context.queuedFollowUpDrafts.set(input.thread.id, {
+    enabledTools: [...input.enabledTools],
+    ...(input.enabledSkillNames !== undefined
+      ? { enabledSkillNames: [...input.enabledSkillNames] }
+      : {}),
+    ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
+    userMessage
   })
   deps.emit<ThreadUpdatedEvent>({
     type: 'thread.updated',
@@ -458,7 +460,7 @@ function queueFollowUp(
     runId: activeRunId,
     thread: updatedThread,
     userMessage,
-    ...(previousQueuedMessageId ? { replacedMessageId: previousQueuedMessageId } : {})
+    ...(replacedMessageId ? { replacedMessageId } : {})
   }
 }
 
@@ -545,12 +547,24 @@ function createDebouncedSendChatStateSignature(
   const thread = context.deps.requireThread(threadId)
   const activeRunId = context.activeRunByThread.get(threadId) ?? null
   const activeRun = activeRunId ? context.activeRuns.get(activeRunId) : null
+  const queuedFollowUpDraft = context.queuedFollowUpDrafts.get(threadId) ?? null
 
   return JSON.stringify({
     activeRunId,
     executionPhase: activeRun?.executionPhase ?? null,
     headMessageId: thread.headMessageId ?? null,
     pendingSteerMessageId: activeRun?.pendingSteerMessageId ?? null,
+    queuedFollowUpDraft: queuedFollowUpDraft
+      ? {
+          content: queuedFollowUpDraft.userMessage.content,
+          createdAt: queuedFollowUpDraft.userMessage.createdAt,
+          enabledSkillNames: queuedFollowUpDraft.enabledSkillNames ?? null,
+          enabledTools: queuedFollowUpDraft.enabledTools,
+          id: queuedFollowUpDraft.userMessage.id,
+          parentMessageId: queuedFollowUpDraft.userMessage.parentMessageId ?? null,
+          reasoningEffort: queuedFollowUpDraft.reasoningEffort ?? null
+        }
+      : null,
     queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
     queuedFollowUpReasoningEffort: thread.queuedFollowUpReasoningEffort ?? null,
     requestMessageId: activeRun?.requestMessageId ?? null

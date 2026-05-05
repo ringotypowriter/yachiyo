@@ -152,6 +152,7 @@ import { translateWithRuntime } from './translate.ts'
 import { openThreadWorkspacePath, pruneUnusedTemporaryWorkspaces } from './workspaces.ts'
 import { bootstrapYachiyoServer } from './bootstrap.ts'
 import { downloadRemoteImageAndBuildReplacementEvent } from './remoteImages.ts'
+import { projectVisibleRunEvent, type YachiyoServerEventPayload } from './runEventProjection.ts'
 import { createSqliteYachiyoServerOptions } from './sqliteFactoryOptions.ts'
 import type { SqliteYachiyoServerOptions, YachiyoServerOptions } from './options.ts'
 
@@ -771,6 +772,10 @@ export class YachiyoServer {
     threadId: string
     messageId: string
   }): Promise<ThreadSnapshot> {
+    const queuedDraftSnapshot = this.runDomain.deleteQueuedFollowUpDraft(input)
+    if (queuedDraftSnapshot) {
+      return queuedDraftSnapshot
+    }
     return this.threadDomain.deleteMessageFromHere(input)
   }
 
@@ -1176,10 +1181,12 @@ export class YachiyoServer {
   private emit<TEvent extends YachiyoServerEvent>(
     event: Omit<TEvent, 'eventId' | 'timestamp'>
   ): void {
+    const payload = event as YachiyoServerEventPayload
+    const projectedEvent = projectVisibleRunEvent({ event: payload, runDomain: this.runDomain })
     const completeEvent = {
       eventId: this.createId(),
       timestamp: this.timestamp(),
-      ...event
+      ...projectedEvent
     } as TEvent
 
     for (const listener of this.listeners) {

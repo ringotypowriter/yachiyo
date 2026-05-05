@@ -22,6 +22,16 @@ function assertAcceptedHasUserMessage(
   assert.ok('userMessage' in accepted)
 }
 
+async function upsertWorkProvider(server: YachiyoServer): Promise<void> {
+  await server.upsertProvider({
+    name: 'work',
+    type: 'openai',
+    apiKey: 'sk-test',
+    baseUrl: 'https://api.openai.com/v1',
+    modelList: { enabled: ['gpt-5'], disabled: [] }
+  })
+}
+
 async function withServer(
   fn: (input: {
     server: YachiyoServer
@@ -422,16 +432,7 @@ test('YachiyoServer does not fire a deferred steer point while a later chained t
 
   await withServer(
     async ({ server, completeRun }) => {
-      await server.upsertProvider({
-        name: 'work',
-        type: 'openai',
-        apiKey: 'sk-test',
-        baseUrl: 'https://api.openai.com/v1',
-        modelList: {
-          enabled: ['gpt-5'],
-          disabled: []
-        }
-      })
+      await upsertWorkProvider(server)
 
       const thread = await server.createThread()
       const accepted = await server.sendChat({
@@ -637,19 +638,14 @@ test('YachiyoServer cancels an active run without persisting partial assistant o
 test('YachiyoServer merges additional follow-ups into the queued follow-up for an active run', async () => {
   const requests: ModelStreamRequest[] = []
   let releaseFirstRun: (() => void) | null = null
+  let markFirstRunBlocked: (() => void) | null = null
+  const firstRunBlocked = new Promise<void>((resolve) => {
+    markFirstRunBlocked = resolve
+  })
 
   await withServer(
-    async ({ server, completeRun, waitForEvent }) => {
-      await server.upsertProvider({
-        name: 'work',
-        type: 'openai',
-        apiKey: 'sk-test',
-        baseUrl: 'https://api.openai.com/v1',
-        modelList: {
-          enabled: ['gpt-5'],
-          disabled: []
-        }
-      })
+    async ({ server, storage, completeRun, waitForEvent }) => {
+      await upsertWorkProvider(server)
 
       const thread = await server.createThread()
       const firstRun = await server.sendChat({
@@ -660,6 +656,7 @@ test('YachiyoServer merges additional follow-ups into the queued follow-up for a
 
       assert.equal(createdRun.runId, firstRun.runId)
       await waitForEvent('message.delta')
+      await firstRunBlocked
 
       const firstQueued = await server.sendChat({
         threadId: thread.id,
@@ -676,9 +673,28 @@ test('YachiyoServer merges additional follow-ups into the queued follow-up for a
       assert.equal(replacement.kind, 'active-run-follow-up')
       assert.equal(replacement.replacedMessageId, firstQueued.userMessage.id)
       assert.equal(replacement.thread.queuedFollowUpMessageId, replacement.userMessage.id)
-
-      releaseFirstRun?.()
+      try {
+        const pendingBootstrap = await server.bootstrap()
+        const persistedBootstrap = storage.bootstrap()
+        assert.equal(
+          pendingBootstrap.threads[0]?.queuedFollowUpMessageId,
+          replacement.userMessage.id
+        )
+        assert.equal(persistedBootstrap.threads[0]?.queuedFollowUpMessageId, undefined)
+        assert.deepEqual(
+          pendingBootstrap.messagesByThread[thread.id]?.map((message) => message.content),
+          ['First question', 'First queued follow-up\nSecond queued follow-up']
+        )
+        assert.deepEqual(
+          persistedBootstrap.messagesByThread[thread.id]?.map((message) => message.content),
+          ['First question']
+        )
+      } finally {
+        releaseFirstRun?.()
+      }
       await completeRun(firstRun.runId)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      assert.equal((await server.bootstrap()).threads[0]?.queuedFollowUpMessageId, undefined)
       const followUpRunCreated = (await waitForEvent('run.created')) as { runId: string }
       await completeRun(followUpRunCreated.runId)
 
@@ -689,8 +705,8 @@ test('YachiyoServer merges additional follow-ups into the queued follow-up for a
         (bootstrap.messagesByThread[thread.id] ?? []).map((message) => message.content),
         [
           'First question',
-          'First queued follow-up\nSecond queued follow-up',
           'Hello world',
+          'First queued follow-up\nSecond queued follow-up',
           'Queued follow-up reply'
         ]
       )
@@ -709,12 +725,342 @@ test('YachiyoServer merges additional follow-ups into the queued follow-up for a
             yield 'Hello'
             await new Promise<void>((resolve) => {
               releaseFirstRun = resolve
+              markFirstRunBlocked?.()
+              markFirstRunBlocked = null
             })
             yield ' world'
             return
           }
 
           yield 'Queued follow-up reply'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer appends a queued follow-up after a later steer branch completes', async () => {
+  const requests: ModelStreamRequest[] = []
+  let releaseInitialRun: (() => void) | null = null
+  let releaseSteerRun: (() => void) | null = null
+  let markSteerRunStarted: (() => void) | null = null
+  let tick = 0
+  const steerRunStarted = new Promise<void>((resolve) => {
+    markSteerRunStarted = resolve
+  })
+
+  await withServer(
+    async ({ server, completeRun, waitForEvent }) => {
+      await upsertWorkProvider(server)
+
+      const thread = await server.createThread()
+      const firstRun = await server.sendChat({
+        threadId: thread.id,
+        content: 'Initial request'
+      })
+      const initialRunCreated = (await waitForEvent('run.created')) as { runId: string }
+
+      assert.equal(initialRunCreated.runId, firstRun.runId)
+      await waitForEvent('message.delta')
+
+      const queuedFollowUp = await server.sendChat({
+        threadId: thread.id,
+        content: 'Queued follow-up',
+        mode: 'follow-up'
+      })
+      const steer = await server.sendChat({
+        threadId: thread.id,
+        content: 'Steer instruction',
+        mode: 'steer'
+      })
+
+      assert.equal(queuedFollowUp.kind, 'active-run-follow-up')
+      assert.equal(steer.kind, 'active-run-steer-pending')
+
+      releaseInitialRun?.()
+      await steerRunStarted
+      await waitForEvent('message.delta')
+
+      releaseSteerRun?.()
+      await completeRun(firstRun.runId)
+
+      const followUpRunCreated = (await waitForEvent('run.created')) as { runId: string }
+      await completeRun(followUpRunCreated.runId)
+
+      const bootstrap = await server.bootstrap()
+      const messages = bootstrap.messagesByThread[thread.id] ?? []
+      const queuedMessage = messages.find((message) => message.content === 'Queued follow-up')
+      const steerReply = messages.find((message) => message.content === 'Steer reply')
+
+      assert.deepEqual(
+        messages.map((message) => message.content),
+        [
+          'Initial request',
+          'Initial reply',
+          'Steer instruction',
+          'Steer reply',
+          'Queued follow-up',
+          'Follow-up reply'
+        ]
+      )
+      assert.equal(queuedMessage?.parentMessageId, steerReply?.id)
+      assert.equal(requests[2]?.messages.at(-1)?.role, 'user')
+      assert.ok(String(requests[2]?.messages.at(-1)?.content).startsWith('Queued follow-up'))
+    },
+    {
+      now: () => new Date(Date.UTC(2026, 0, 1, 0, 0, tick++)),
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          if (requests.length === 1) {
+            yield 'Initial reply'
+            await new Promise<void>((resolve) => {
+              releaseInitialRun = resolve
+            })
+            return
+          }
+
+          if (requests.length === 2) {
+            markSteerRunStarted?.()
+            markSteerRunStarted = null
+            yield 'Steer reply'
+            await new Promise<void>((resolve) => {
+              releaseSteerRun = resolve
+            })
+            return
+          }
+
+          yield 'Follow-up reply'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer deletes a queued follow-up draft without editing persisted history', async () => {
+  const requests: ModelStreamRequest[] = []
+  let releaseFirstRun: (() => void) | null = null
+  let markFirstRunBlocked: (() => void) | null = null
+  const firstRunBlocked = new Promise<void>((resolve) => {
+    markFirstRunBlocked = resolve
+  })
+
+  await withServer(
+    async ({ server, completeRun, waitForEvent }) => {
+      await upsertWorkProvider(server)
+
+      const thread = await server.createThread()
+      const firstRun = await server.sendChat({
+        threadId: thread.id,
+        content: 'First question'
+      })
+      const initialRunCreated = (await waitForEvent('run.created')) as { runId: string }
+      assert.equal(initialRunCreated.runId, firstRun.runId)
+      await waitForEvent('message.delta')
+      await firstRunBlocked
+
+      const queuedFollowUp = await server.sendChat({
+        threadId: thread.id,
+        content: 'Queued follow-up',
+        mode: 'follow-up'
+      })
+      assertAcceptedHasUserMessage(queuedFollowUp)
+
+      const deleted = await server.deleteMessageFromHere({
+        threadId: thread.id,
+        messageId: queuedFollowUp.userMessage.id
+      })
+      assert.equal(deleted.thread.queuedFollowUpMessageId, undefined)
+      assert.deepEqual(
+        deleted.messages.map((message) => message.content),
+        ['First question']
+      )
+
+      releaseFirstRun?.()
+      await completeRun(firstRun.runId)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      const bootstrap = await server.bootstrap()
+      assert.equal(bootstrap.threads[0]?.queuedFollowUpMessageId, undefined)
+      assert.deepEqual(
+        (bootstrap.messagesByThread[thread.id] ?? []).map((message) => message.content),
+        ['First question', 'Hello world']
+      )
+      assert.equal(requests.length, 1)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+          yield 'Hello'
+          await new Promise<void>((resolve) => {
+            releaseFirstRun = resolve
+            markFirstRunBlocked?.()
+            markFirstRunBlocked = null
+          })
+          yield ' world'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer resends the same queued follow-up after deleting its draft', async () => {
+  const requests: ModelStreamRequest[] = []
+  let releaseFirstRun: (() => void) | null = null
+  let markFirstRunBlocked: (() => void) | null = null
+  const firstRunBlocked = new Promise<void>((resolve) => {
+    markFirstRunBlocked = resolve
+  })
+
+  await withServer(
+    async ({ server, completeRun, waitForEvent }) => {
+      await upsertWorkProvider(server)
+
+      const thread = await server.createThread()
+      const firstRun = await server.sendChat({
+        threadId: thread.id,
+        content: 'First question'
+      })
+      const initialRunCreated = (await waitForEvent('run.created')) as { runId: string }
+      assert.equal(initialRunCreated.runId, firstRun.runId)
+      await waitForEvent('message.delta')
+      await firstRunBlocked
+
+      const firstQueuedFollowUp = await server.sendChat({
+        threadId: thread.id,
+        content: 'Queued follow-up',
+        mode: 'follow-up'
+      })
+      assertAcceptedHasUserMessage(firstQueuedFollowUp)
+
+      await server.deleteMessageFromHere({
+        threadId: thread.id,
+        messageId: firstQueuedFollowUp.userMessage.id
+      })
+
+      const resentQueuedFollowUp = await server.sendChat({
+        threadId: thread.id,
+        content: 'Queued follow-up',
+        mode: 'follow-up'
+      })
+      assertAcceptedHasUserMessage(resentQueuedFollowUp)
+      assert.notEqual(resentQueuedFollowUp.userMessage.id, firstQueuedFollowUp.userMessage.id)
+
+      releaseFirstRun?.()
+      await completeRun(firstRun.runId)
+      const followUpRunCreated = (await waitForEvent('run.created')) as { runId: string }
+      await completeRun(followUpRunCreated.runId)
+
+      const bootstrap = await server.bootstrap()
+      assert.deepEqual(
+        (bootstrap.messagesByThread[thread.id] ?? []).map((message) => message.content),
+        ['First question', 'Hello world', 'Queued follow-up', 'Queued follow-up reply']
+      )
+      assert.equal(requests.length, 2)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          if (requests.length === 1) {
+            yield 'Hello'
+            await new Promise<void>((resolve) => {
+              releaseFirstRun = resolve
+              markFirstRunBlocked?.()
+              markFirstRunBlocked = null
+            })
+            yield ' world'
+            return
+          }
+
+          yield 'Queued follow-up reply'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer preserves a queued follow-up draft across later thread snapshots', async () => {
+  let releaseFirstRun: (() => void) | null = null
+  let markFirstRunBlocked: (() => void) | null = null
+  let requestCount = 0
+  const firstRunBlocked = new Promise<void>((resolve) => {
+    markFirstRunBlocked = resolve
+  })
+
+  await withServer(
+    async ({ server, storage, completeRun, waitForEvent }) => {
+      await upsertWorkProvider(server)
+
+      const thread = await server.createThread()
+      const firstRun = await server.sendChat({
+        threadId: thread.id,
+        content: 'First question'
+      })
+      const initialRunCreated = (await waitForEvent('run.created')) as { runId: string }
+      assert.equal(initialRunCreated.runId, firstRun.runId)
+      await waitForEvent('message.delta')
+      await firstRunBlocked
+
+      const queuedFollowUp = await server.sendChat({
+        threadId: thread.id,
+        content: 'Queued follow-up',
+        mode: 'follow-up'
+      })
+      assertAcceptedHasUserMessage(queuedFollowUp)
+
+      const waiter = createServerEventWaiter(server)
+      const renamedEventPromise = waiter.waitForEvent(
+        'thread.updated',
+        (event) => event.threadId === thread.id && event.thread.title === 'Renamed thread'
+      )
+      await server.renameThread({ threadId: thread.id, title: 'Renamed thread' })
+      const renamedEvent = await renamedEventPromise
+      waiter.close()
+
+      const visibleBootstrap = await server.bootstrap()
+      const persistedBootstrap = storage.bootstrap()
+      const visibleThread = visibleBootstrap.threads.find((entry) => entry.id === thread.id)
+      const persistedThread = persistedBootstrap.threads.find((entry) => entry.id === thread.id)
+      const visibleMessages = visibleBootstrap.messagesByThread[thread.id] ?? []
+      const persistedMessages = persistedBootstrap.messagesByThread[thread.id] ?? []
+
+      releaseFirstRun?.()
+      await completeRun(firstRun.runId)
+      const followUpRunCreated = (await waitForEvent('run.created')) as { runId: string }
+      await completeRun(followUpRunCreated.runId)
+
+      assert.equal(renamedEvent.thread.queuedFollowUpMessageId, queuedFollowUp.userMessage.id)
+      assert.equal(visibleThread?.queuedFollowUpMessageId, queuedFollowUp.userMessage.id)
+      assert.equal(persistedThread?.queuedFollowUpMessageId, undefined)
+      assert.deepEqual(
+        visibleMessages.map((message) => message.content),
+        ['First question', 'Queued follow-up']
+      )
+      assert.deepEqual(
+        persistedMessages.map((message) => message.content),
+        ['First question']
+      )
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply() {
+          requestCount += 1
+          if (requestCount > 1) {
+            yield 'Queued follow-up reply'
+            return
+          }
+
+          yield 'Hello'
+          await new Promise<void>((resolve) => {
+            releaseFirstRun = resolve
+            markFirstRunBlocked?.()
+            markFirstRunBlocked = null
+          })
+          yield ' world'
         }
       })
     }
@@ -729,16 +1075,7 @@ test('YachiyoServer emits a replacement snapshot when a queued follow-up is repa
     async ({ server, completeRun, waitForEvent }) => {
       const waiter = createServerEventWaiter(server)
       try {
-        await server.upsertProvider({
-          name: 'work',
-          type: 'openai',
-          apiKey: 'sk-test',
-          baseUrl: 'https://api.openai.com/v1',
-          modelList: {
-            enabled: ['gpt-5'],
-            disabled: []
-          }
-        })
+        await upsertWorkProvider(server)
 
         const thread = await server.createThread()
         const firstRun = await server.sendChat({

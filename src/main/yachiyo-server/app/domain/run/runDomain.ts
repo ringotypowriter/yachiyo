@@ -1,6 +1,7 @@
 import type {
   BackgroundTaskLogAppendEvent,
   BackgroundTaskSnapshot,
+  BootstrapPayload,
   ChatAccepted,
   ComposerReasoningSelection,
   CompactThreadAccepted,
@@ -13,6 +14,7 @@ import type {
   RunFailedEvent,
   RunCreatedEvent,
   SendChatInput,
+  ThreadSnapshot,
   ThreadRecord,
   ThreadUpdatedEvent,
   ToolCallUpdatedEvent,
@@ -27,7 +29,7 @@ import {
   createMemoryDistillationScheduler,
   type MemoryDistillationScheduler
 } from '../../../services/memory/memoryDistillationScheduler.ts'
-import type { RunRecoveryCheckpoint } from '../../../storage/storage.ts'
+import type { BootstrapState, RunRecoveryCheckpoint } from '../../../storage/storage.ts'
 import { BackgroundBashManager } from '../background/backgroundBashManager.ts'
 import { resolveEnabledTools } from '../config/configDomain.ts'
 import { executeServerRun } from './execution/executeServerRun.ts'
@@ -73,11 +75,16 @@ import {
 } from './background/backgroundTaskLifecycle.ts'
 import {
   emitThreadStateReplaced,
+  deleteQueuedFollowUpDraft,
   prepareRecoveredQueuedFollowUps,
   prepareRecoveredRuns,
+  projectQueuedFollowUpDraftSnapshot,
+  projectQueuedFollowUpDraftsBootstrap,
+  projectQueuedFollowUpDraftThread,
   scheduleRecoveredQueuedFollowUps,
   scheduleRecoveredRuns,
   startQueuedFollowUpIfPresent,
+  type QueuedFollowUpDraft,
   type FollowUpQueueContext
 } from './queue/followUpQueue.ts'
 import { ThreadTitleGenerationRunner } from './title/threadTitleGeneration.ts'
@@ -88,6 +95,7 @@ export class YachiyoServerRunDomain {
   private readonly activeRunByThread = new Map<string, string>()
   private readonly activeRunTasks = new Map<string, Promise<void>>()
   private readonly debouncedSendChats = new Map<string, DebouncedSendChatEntry>()
+  private readonly queuedFollowUpDrafts = new Map<string, QueuedFollowUpDraft>()
   private readonly backgroundBashManager = new BackgroundBashManager()
   private readonly threadTitleRunner: ThreadTitleGenerationRunner
   /**
@@ -183,6 +191,7 @@ export class YachiyoServerRunDomain {
     this.activeRunByThread.clear()
     this.activeRunTasks.clear()
     this.debouncedSendChats.clear()
+    this.queuedFollowUpDrafts.clear()
     this.backgroundTaskRunContext.clear()
     this.readRecordCaches.clear()
   }
@@ -197,6 +206,7 @@ export class YachiyoServerRunDomain {
       activeRuns: this.activeRuns,
       activeRunByThread: this.activeRunByThread,
       debouncedSendChats: this.debouncedSendChats,
+      queuedFollowUpDrafts: this.queuedFollowUpDrafts,
       threadTitleRunner: this.threadTitleRunner,
       startActiveRun: (input) => {
         startActiveRun(this.createActiveRunStartContext(), input)
@@ -260,6 +270,7 @@ export class YachiyoServerRunDomain {
     return {
       deps: this.deps,
       activeRunByThread: this.activeRunByThread,
+      queuedFollowUpDrafts: this.queuedFollowUpDrafts,
       isClosing: () => this.isClosing,
       startActiveRun: (input) => {
         startActiveRun(this.createActiveRunStartContext(), input)
@@ -326,6 +337,26 @@ export class YachiyoServerRunDomain {
 
   async sendChat(input: SendChatInput): Promise<ChatAccepted> {
     return sendChatFlow(this.createSendChatFlowContext(), input)
+  }
+
+  deleteQueuedFollowUpDraft(input: { threadId: string; messageId: string }): ThreadSnapshot | null {
+    return deleteQueuedFollowUpDraft(this.createFollowUpQueueContext(), input)
+  }
+
+  withQueuedFollowUpDraft(thread: ThreadRecord): ThreadRecord {
+    return projectQueuedFollowUpDraftThread(this.queuedFollowUpDrafts, thread)
+  }
+
+  withQueuedFollowUpDraftSnapshot(snapshot: ThreadSnapshot): ThreadSnapshot {
+    return projectQueuedFollowUpDraftSnapshot(this.queuedFollowUpDrafts, snapshot)
+  }
+
+  withQueuedFollowUpDraftsBootstrap(bootstrap: BootstrapState): BootstrapState
+  withQueuedFollowUpDraftsBootstrap(bootstrap: BootstrapPayload): BootstrapPayload
+  withQueuedFollowUpDraftsBootstrap(
+    bootstrap: BootstrapState | BootstrapPayload
+  ): BootstrapState | BootstrapPayload {
+    return projectQueuedFollowUpDraftsBootstrap(this.queuedFollowUpDrafts, bootstrap)
   }
 
   async retryMessage(input: RetryInput): Promise<RetryAccepted> {

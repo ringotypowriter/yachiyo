@@ -71,6 +71,7 @@ test('withdrawPendingSteer restores the reasoning effort replaced by the steer',
       activeRuns: domainState.activeRuns as SendChatFlowContext['activeRuns'],
       activeRunByThread: domainState.activeRunByThread,
       debouncedSendChats: new Map(),
+      queuedFollowUpDrafts: new Map(),
       threadTitleRunner: {
         schedule: () => {}
       } as unknown as SendChatFlowContext['threadTitleRunner'],
