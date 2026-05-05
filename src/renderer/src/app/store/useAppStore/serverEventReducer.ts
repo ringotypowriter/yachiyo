@@ -407,6 +407,10 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       createdAt: event.timestamp
     }
     const nextThreadMessages = upsertMessage(state.messages[event.threadId] ?? [], nextMessage)
+    const retryInfoByThread =
+      state.activeRunIdsByThread[event.threadId] === event.runId
+        ? removeThreadRetryInfo(state.retryInfoByThread, event.threadId)
+        : state.retryInfoByThread
 
     return {
       messages: {
@@ -421,7 +425,8 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
           threadId: event.threadId,
           shouldStartNewTextBlock: true
         }
-      }
+      },
+      retryInfoByThread
     }
   }
 
@@ -434,9 +439,14 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         ? { ...message, reasoning: (message.reasoning ?? '') + event.delta }
         : message
     )
+    const retryInfoByThread =
+      state.activeRunIdsByThread[event.threadId] === event.runId
+        ? removeThreadRetryInfo(state.retryInfoByThread, event.threadId)
+        : state.retryInfoByThread
 
     return {
       messages: { ...state.messages, [event.threadId]: nextThreadMessages },
+      retryInfoByThread,
       receivingModelOutputByThread: {
         ...state.receivingModelOutputByThread,
         [event.threadId]: true
@@ -472,9 +482,10 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
           })()
         : message
     )
-
-    const retryInfoByThread = { ...state.retryInfoByThread }
-    delete retryInfoByThread[event.threadId]
+    const retryInfoByThread =
+      state.activeRunIdsByThread[event.threadId] === event.runId
+        ? removeThreadRetryInfo(state.retryInfoByThread, event.threadId)
+        : state.retryInfoByThread
 
     const nextState = {
       ...state,
@@ -526,6 +537,8 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
   if (event.type === 'tool.updated') {
     const eventRunId = event.runId
     const pending = eventRunId ? state.pendingAssistantMessages[eventRunId] : undefined
+    const isCurrentActiveRun =
+      eventRunId !== undefined && state.activeRunIdsByThread[event.threadId] === eventRunId
     const currentPhase = state.runPhasesByThread[event.threadId]
     const nextToolCalls = {
       ...state.toolCalls,
@@ -550,6 +563,9 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         : state.pendingAssistantMessages,
       toolCalls: nextToolCalls,
       ...nextSubagentState,
+      retryInfoByThread: isCurrentActiveRun
+        ? removeThreadRetryInfo(state.retryInfoByThread, event.threadId)
+        : state.retryInfoByThread,
       receivingModelOutputByThread:
         event.toolCall.status === 'completed' || event.toolCall.status === 'failed'
           ? { ...state.receivingModelOutputByThread, [event.threadId]: false }

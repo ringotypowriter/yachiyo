@@ -45,6 +45,7 @@ function resetStore(): void {
     externalThreads: [],
     showExternalThreads: false,
     runsByThread: {},
+    retryInfoByThread: {},
     messages: {},
     pendingAssistantMessages: {},
     pendingAcpBinding: null,
@@ -478,6 +479,51 @@ test('applyServerEvent clears pending reasoning when a run starts retrying', () 
       error: 'net::ERR_CONNECTION_CLOSED'
     }
   })
+})
+
+test('applyServerEvent clears retry info when a recovered run updates a tool', () => {
+  resetStore()
+
+  useAppStore.getState().applyServerEvent({
+    type: 'run.created',
+    eventId: 'event-run-created',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    requestMessageId: 'user-1'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'run.retrying',
+    eventId: 'event-run-retrying',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    attempt: 1,
+    maxAttempts: 10,
+    delayMs: 1000,
+    error: 'net::ERR_CONNECTION_CLOSED'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'tool.updated',
+    eventId: 'event-tool-updated',
+    timestamp: '2026-03-15T00:00:01.000Z',
+    threadId: 'thread-1',
+    runId: 'run-1',
+    toolCall: {
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'grep',
+      status: 'running',
+      inputSummary: 'pattern',
+      startedAt: '2026-03-15T00:00:01.000Z'
+    }
+  })
+
+  const state = useAppStore.getState()
+
+  assert.deepEqual(state.retryInfoByThread, {})
+  assert.equal(state.toolCalls['thread-1']?.[0]?.status, 'running')
 })
 
 test('applyServerEvent stores recalled memory on the matching run', () => {
