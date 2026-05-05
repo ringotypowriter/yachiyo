@@ -260,9 +260,10 @@ const api = {
       ipcRenderer.invoke('yachiyo:regenerate-thread-title', input),
     starThread: (input: { threadId: string; starred: boolean }): Promise<ThreadRecord> =>
       ipcRenderer.invoke('yachiyo:star-thread', input),
-    readClipboardFilePaths: (): Promise<
-      { filename: string; mediaType: string; dataUrl: string }[]
-    > => ipcRenderer.invoke('yachiyo:read-clipboard-file-paths'),
+    readClipboardFilePaths: (): Promise<{
+      files: { filename: string; mediaType: string; dataUrl: string }[]
+      rejected: import('../shared/yachiyo/attachmentFileTypes.ts').AttachmentFileRejectionRecord[]
+    }> => ipcRenderer.invoke('yachiyo:read-clipboard-file-paths'),
     readAttachmentFile: (input: { filePath: string; mediaType: string }): Promise<string> =>
       ipcRenderer.invoke('yachiyo:read-attachment-file', input),
     downloadRemoteImageForMessage: (input: {

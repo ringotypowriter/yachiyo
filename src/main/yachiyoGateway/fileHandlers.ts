@@ -1,5 +1,10 @@
 import { spawn } from 'child_process'
 
+import {
+  classifyAttachmentFileSelection,
+  toAttachmentFileRejectionRecords,
+  type AttachmentFileRejectionRecord
+} from '../../shared/yachiyo/attachmentFileTypes.ts'
 import type { ResolveFileReferencesInput } from '../../shared/yachiyo/protocol'
 import { resolveExistingFileReferences } from '../yachiyo-server/runtime/inlineCodeFileReferences.ts'
 import { IPC_CHANNELS } from './ipcChannels.ts'
@@ -12,18 +17,10 @@ type GatewayIpcHandler = <Args extends unknown[], Result>(
 export function registerGatewayFileHandlers(handle: GatewayIpcHandler): void {
   handle(IPC_CHANNELS.readClipboardFilePaths, async () => {
     const { clipboard } = await import('electron')
-    const { readFile } = await import('node:fs/promises')
+    const { readFile, stat } = await import('node:fs/promises')
     const { basename, extname } = await import('node:path')
 
-    const acceptedExtensions: Record<string, string> = {
-      '.pdf': 'application/pdf',
-      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      '.doc': 'application/msword',
-      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      '.xls': 'application/vnd.ms-excel',
-      '.txt': 'text/plain',
-      '.csv': 'text/csv',
-      '.md': 'text/markdown',
+    const acceptedImageExtensions: Record<string, string> = {
       '.png': 'image/png',
       '.jpg': 'image/jpeg',
       '.jpeg': 'image/jpeg',
@@ -33,23 +30,38 @@ export function registerGatewayFileHandlers(handle: GatewayIpcHandler): void {
 
     const readFn = (clipboard as unknown as { readFilePaths?: () => string[] }).readFilePaths
     const paths: string[] = typeof readFn === 'function' ? readFn.call(clipboard) : []
-    const results: { filename: string; mediaType: string; dataUrl: string }[] = []
+    const files: { filename: string; mediaType: string; dataUrl: string }[] = []
+    const rejected: AttachmentFileRejectionRecord[] = []
 
     for (const filePath of paths) {
       const ext = extname(filePath).toLowerCase()
-      const mediaType = acceptedExtensions[ext]
-      if (!mediaType) continue
+      const filename = basename(filePath)
+      const imageMediaType = acceptedImageExtensions[ext]
+      let mediaType = imageMediaType
+
+      if (!mediaType) {
+        const fileStat = await stat(filePath)
+        const classified = classifyAttachmentFileSelection([
+          { name: filename, size: fileStat.size }
+        ])
+        rejected.push(...toAttachmentFileRejectionRecords(classified.rejected))
+        mediaType = classified.accepted[0]?.mediaType
+      }
+
+      if (!mediaType) {
+        continue
+      }
 
       const data = await readFile(filePath)
       const base64 = data.toString('base64')
-      results.push({
-        filename: basename(filePath),
+      files.push({
+        filename,
         mediaType,
         dataUrl: `data:${mediaType};base64,${base64}`
       })
     }
 
-    return results
+    return { files, rejected }
   })
 
   handle(

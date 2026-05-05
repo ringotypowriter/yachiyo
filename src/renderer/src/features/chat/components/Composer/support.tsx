@@ -6,6 +6,10 @@ import type { ComposerFileDraft, ComposerImageDraft } from '@renderer/app/store/
 import type { Message, RunRecord } from '@renderer/app/types'
 import type { ChatInputBufferPayload } from '@renderer/features/chat/lib/chatInputBuffer'
 import { theme } from '@renderer/theme/theme'
+import {
+  ACCEPTED_ATTACHMENT_FILE_EXTENSIONS,
+  ACCEPTED_ATTACHMENT_MEDIA_TYPES
+} from '../../../../../../shared/yachiyo/attachmentFileTypes.ts'
 
 export const NEW_THREAD_DRAFT_KEY = '__new__'
 export const EMPTY_MESSAGES: Message[] = []
@@ -17,18 +21,14 @@ export const FILE_MENTION_MAX_RESULTS = 120
 /** Text stack cap; inner wrapper uses hard clip so grid min-content cannot paint into the toolbar. */
 export const COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX = 160
 
-export const ACCEPTED_FILE_TYPES = [
-  'application/pdf',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.ms-excel',
-  'text/plain',
-  'text/csv',
-  'text/markdown'
-]
+export const ACCEPTED_FILE_TYPES = [...ACCEPTED_ATTACHMENT_MEDIA_TYPES]
 
-export const ACCEPT_ATTRIBUTE = `image/*,${ACCEPTED_FILE_TYPES.join(',')}`
+export const ACCEPT_ATTRIBUTE = [
+  'image/*',
+  'text/*',
+  ...ACCEPTED_FILE_TYPES,
+  ...ACCEPTED_ATTACHMENT_FILE_EXTENSIONS
+].join(',')
 
 export const COMPOSER_TAG_HIGHLIGHT_RE =
   /@skills:[a-zA-Z0-9_-]+|@!?"[^"]+"|@!?[\p{L}\p{N}\p{M}._/-]+/gu
@@ -44,6 +44,11 @@ export interface PendingWorkspaceChangeConfirmation {
   currentWorkspacePath: string | null
   nextWorkspacePath: string | null
   saveWorkspacePath?: string
+}
+
+export interface AttachmentUploadNotice {
+  tone: 'muted' | 'error'
+  text: string
 }
 
 export function renderComposerTextHighlights(

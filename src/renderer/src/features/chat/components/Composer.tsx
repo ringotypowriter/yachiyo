@@ -37,6 +37,7 @@ import {
   EMPTY_MESSAGES,
   EMPTY_RUNS,
   getWorkspaceHint,
+  type AttachmentUploadNotice,
   type PendingWorkspaceChangeConfirmation
 } from './Composer/support.tsx'
 import { ComposerView } from './Composer/ComposerView.tsx'
@@ -156,6 +157,8 @@ export function Composer({
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false)
   const [workspaceHintHovered, setWorkspaceHintHovered] = useState(false)
   const [workspaceHintPinned, setWorkspaceHintPinned] = useState(false)
+  const [attachmentUploadNotice, setAttachmentUploadNotice] =
+    useState<AttachmentUploadNotice | null>(null)
   const [isBackendSwitchPending, setIsBackendSwitchPending] = useState(false)
   const [pendingWorkspaceChangeConfirmation, setPendingWorkspaceChangeConfirmation] =
     useState<PendingWorkspaceChangeConfirmation | null>(null)
@@ -208,6 +211,15 @@ export function Composer({
     setIsCancelInFlight(false)
     return undefined
   }, [hasActiveRun])
+
+  useEffect(() => {
+    if (!attachmentUploadNotice) {
+      return undefined
+    }
+
+    const timer = setTimeout(() => setAttachmentUploadNotice(null), 5000)
+    return () => clearTimeout(timer)
+  }, [attachmentUploadNotice])
 
   const defaultEnabledSkillNames = useMemo(() => {
     const enabledNames = normalizeSkillNames(config?.skills?.enabled)
@@ -528,6 +540,10 @@ export function Composer({
         tone: 'error' as const,
         text: 'Local server is unavailable. Reconnect before sending.'
       }
+    }
+
+    if (attachmentUploadNotice) {
+      return attachmentUploadNotice
     }
 
     if (!isConfigured) {
@@ -921,6 +937,7 @@ export function Composer({
     setReasoningSelectorOpen,
     setSkillsSelectorOpen,
     setSlashSelectedIndex,
+    setAttachmentUploadNotice,
     setToolSelectorOpen,
     setWorkspaceSelectorOpen,
     showSlashCommandPopup,

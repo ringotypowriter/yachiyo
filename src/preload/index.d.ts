@@ -206,9 +206,10 @@ declare global {
         }) => Promise<ThreadRecord>
         regenerateThreadTitle: (input: { threadId: string }) => Promise<ThreadRecord>
         starThread: (input: { threadId: string; starred: boolean }) => Promise<ThreadRecord>
-        readClipboardFilePaths: () => Promise<
-          { filename: string; mediaType: string; dataUrl: string }[]
-        >
+        readClipboardFilePaths: () => Promise<{
+          files: { filename: string; mediaType: string; dataUrl: string }[]
+          rejected: import('../shared/yachiyo/attachmentFileTypes.ts').AttachmentFileRejectionRecord[]
+        }>
         readAttachmentFile: (input: { filePath: string; mediaType: string }) => Promise<string>
         downloadRemoteImageForMessage: (input: {
           threadId: string

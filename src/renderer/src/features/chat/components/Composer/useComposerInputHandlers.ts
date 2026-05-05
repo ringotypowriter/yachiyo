@@ -17,7 +17,12 @@ import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/t
 import { longestCommonPrefix } from '../../lib/longestCommonPrefix'
 import type { SlashCommand } from '../SlashCommandPopup'
 import {
-  ACCEPTED_FILE_TYPES,
+  classifyAttachmentFileSelection,
+  toAttachmentFileRejectionRecords,
+  type AttachmentFileRejectionRecord
+} from '../../../../../../shared/yachiyo/attachmentFileTypes.ts'
+import {
+  type AttachmentUploadNotice,
   FILE_MENTION_PATTERN,
   MAX_COMPOSER_FILES,
   MAX_COMPOSER_IMAGES,
@@ -68,6 +73,7 @@ interface UseComposerInputHandlersInput {
   setSlashSelectedIndex: React.Dispatch<React.SetStateAction<number>>
   setToolSelectorOpen: React.Dispatch<React.SetStateAction<boolean>>
   setWorkspaceSelectorOpen: React.Dispatch<React.SetStateAction<boolean>>
+  setAttachmentUploadNotice: (notice: AttachmentUploadNotice | null) => void
   showSlashCommandPopup: boolean
   skillQuery: string | null
   skillsSelectorOpen: boolean
@@ -93,6 +99,55 @@ interface UseComposerInputHandlersResult {
   handleDragOver: (event: React.DragEvent) => void
   handleDragLeave: (event: React.DragEvent) => void
   handleDrop: (event: React.DragEvent) => void
+}
+
+function formatByteSize(bytes: number): string {
+  if (bytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`
+  }
+
+  return `${Math.round(bytes / (1024 * 1024))} MB`
+}
+
+function formatAttachmentRejectionReason(rejection: AttachmentFileRejectionRecord): string {
+  if (rejection.reason === 'too-large') {
+    return rejection.maxBytes === undefined
+      ? 'larger than the upload limit'
+      : `larger than ${formatByteSize(rejection.maxBytes)}`
+  }
+
+  if (rejection.reason === 'sensitive-file') {
+    return 'sensitive file'
+  }
+
+  return 'unsupported file type'
+}
+
+function createAttachmentUploadNotice(
+  rejected: AttachmentFileRejectionRecord[]
+): AttachmentUploadNotice | null {
+  if (rejected.length === 0) {
+    return null
+  }
+
+  if (rejected.length === 1) {
+    const rejection = rejected[0]!
+    return {
+      tone: 'error',
+      text: `${rejection.filename} was not added: ${formatAttachmentRejectionReason(rejection)}.`
+    }
+  }
+
+  const reasons = new Set(rejected.map((entry) => entry.reason))
+  const reasonText =
+    reasons.size === 1
+      ? formatAttachmentRejectionReason(rejected[0]!)
+      : 'some were unsupported, too large, or sensitive'
+
+  return {
+    tone: 'error',
+    text: `${rejected.length} files were not added: ${reasonText}.`
+  }
 }
 
 export function useComposerInputHandlers(
@@ -136,6 +191,7 @@ export function useComposerInputHandlers(
     setReasoningSelectorOpen,
     setSkillsSelectorOpen,
     setSlashSelectedIndex,
+    setAttachmentUploadNotice,
     setToolSelectorOpen,
     setWorkspaceSelectorOpen,
     showSlashCommandPopup,
@@ -151,6 +207,13 @@ export function useComposerInputHandlers(
     workspaceSelectorOpen
   } = input
 
+  const reportAttachmentSelection = useCallback(
+    (rejected: AttachmentFileRejectionRecord[]): void => {
+      setAttachmentUploadNotice(createAttachmentUploadNotice(rejected))
+    },
+    [setAttachmentUploadNotice]
+  )
+
   const queueImageFiles = useCallback(
     async (files: File[]) => {
       const remainingSlots = Math.max(
@@ -162,6 +225,9 @@ export function useComposerInputHandlers(
       const imageFiles = files
         .filter((file) => file.type.startsWith('image/'))
         .slice(0, remainingSlots)
+      if (imageFiles.length > 0) {
+        reportAttachmentSelection([])
+      }
 
       for (const file of imageFiles) {
         const imageId = createDraftImageId()
@@ -203,7 +269,7 @@ export function useComposerInputHandlers(
         }
       }
     },
-    [activeThreadId, upsertComposerImage]
+    [activeThreadId, reportAttachmentSelection, upsertComposerImage]
   )
 
   const queueDocumentFiles = useCallback(
@@ -214,21 +280,23 @@ export function useComposerInputHandlers(
           (useAppStore.getState().composerDrafts[activeThreadId ?? NEW_THREAD_DRAFT_KEY]?.files
             .length ?? 0)
       )
-      const docFiles = files
-        .filter((file) => !file.type.startsWith('image/'))
-        .slice(0, remainingSlots)
+      const classified = classifyAttachmentFileSelection(
+        files.filter((file) => !file.type.startsWith('image/'))
+      )
+      reportAttachmentSelection(toAttachmentFileRejectionRecords(classified.rejected))
+      const docFiles = classified.accepted.slice(0, remainingSlots)
 
-      for (const file of docFiles) {
+      for (const { file, mediaType } of docFiles) {
         const fileId = createDraftImageId()
         upsertComposerFile(
-          { id: fileId, filename: file.name, mediaType: file.type, dataUrl: '', status: 'loading' },
+          { id: fileId, filename: file.name, mediaType, dataUrl: '', status: 'loading' },
           activeThreadId
         )
 
         try {
           const dataUrl = await readFileAsDataUrl(file)
           upsertComposerFile(
-            { id: fileId, filename: file.name, mediaType: file.type, dataUrl, status: 'ready' },
+            { id: fileId, filename: file.name, mediaType, dataUrl, status: 'ready' },
             activeThreadId
           )
         } catch (error) {
@@ -236,7 +304,7 @@ export function useComposerInputHandlers(
             {
               id: fileId,
               filename: file.name,
-              mediaType: file.type,
+              mediaType,
               dataUrl: '',
               status: 'failed',
               error: error instanceof Error ? error.message : 'Unable to prepare this file.'
@@ -246,7 +314,7 @@ export function useComposerInputHandlers(
         }
       }
     },
-    [activeThreadId, upsertComposerFile]
+    [activeThreadId, reportAttachmentSelection, upsertComposerFile]
   )
 
   const handleSlashCommandSelect = useCallback(
@@ -625,9 +693,9 @@ export function useComposerInputHandlers(
         .filter((file): file is File => file !== null)
 
       const images = allFiles.filter((f) => f.type.startsWith('image/'))
-      const docs = allFiles.filter((f) => ACCEPTED_FILE_TYPES.includes(f.type))
+      const docs = allFiles.filter((f) => !f.type.startsWith('image/'))
 
-      if (images.length > 0 || docs.length > 0) {
+      if (allFiles.length > 0) {
         event.preventDefault()
         if (images.length > 0) void queueImageFiles(images)
         if (docs.length > 0) void queueDocumentFiles(docs)
@@ -636,11 +704,12 @@ export function useComposerInputHandlers(
 
       // Finder-copied files: web clipboard won't carry their data, ask main process
       void (async () => {
-        const finderFiles = await window.api.yachiyo.readClipboardFilePaths()
-        if (finderFiles.length === 0) return
+        const finderSelection = await window.api.yachiyo.readClipboardFilePaths()
+        reportAttachmentSelection(finderSelection.rejected)
+        if (finderSelection.files.length === 0) return
 
-        const finderImages = finderFiles.filter((f) => f.mediaType.startsWith('image/'))
-        const finderDocs = finderFiles.filter((f) => !f.mediaType.startsWith('image/'))
+        const finderImages = finderSelection.files.filter((f) => f.mediaType.startsWith('image/'))
+        const finderDocs = finderSelection.files.filter((f) => !f.mediaType.startsWith('image/'))
 
         for (const f of finderImages) {
           const id = createDraftImageId()
@@ -664,7 +733,14 @@ export function useComposerInputHandlers(
         }
       })()
     },
-    [queueImageFiles, queueDocumentFiles, upsertComposerImage, upsertComposerFile, activeThreadId]
+    [
+      queueImageFiles,
+      queueDocumentFiles,
+      upsertComposerImage,
+      upsertComposerFile,
+      activeThreadId,
+      reportAttachmentSelection
+    ]
   )
 
   const handleDragEnter = useCallback(
@@ -707,9 +783,7 @@ export function useComposerInputHandlers(
       if (files.length === 0) return
 
       const images = files.filter((f) => f.type.startsWith('image/'))
-      const docs = files.filter(
-        (f) => !f.type.startsWith('image/') && ACCEPTED_FILE_TYPES.includes(f.type)
-      )
+      const docs = files.filter((f) => !f.type.startsWith('image/'))
 
       if (images.length > 0) void queueImageFiles(images)
       if (docs.length > 0) void queueDocumentFiles(docs)
