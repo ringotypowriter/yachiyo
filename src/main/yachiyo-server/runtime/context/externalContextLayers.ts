@@ -10,7 +10,7 @@
  * stability. The divergence is in the system prefix and legacy summary placement.
  */
 
-import type { ToolCallName } from '../../../shared/yachiyo/protocol.ts'
+import type { ToolCallName } from '../../../../shared/yachiyo/protocol.ts'
 import {
   injectTurnContext,
   joinSystemLayers,
@@ -27,7 +27,7 @@ import {
   type SoulLayerInput,
   type UserLayerInput
 } from './contextLayers.ts'
-import type { ModelMessage } from './types.ts'
+import type { ModelMessage } from '../models/types.ts'
 
 // ---------------------------------------------------------------------------
 // External agent instructions — stripped-down variant for channel contexts

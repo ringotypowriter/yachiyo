@@ -7,7 +7,7 @@ import type {
 } from '../../../../shared/yachiyo/protocol.ts'
 import type { JotdownStore } from '../../services/jotdownStore.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
-import { searchWorkspaceFileMentionCandidates } from '../../runtime/fileMentions.ts'
+import { searchWorkspaceFileMentionCandidates } from '../../runtime/files/fileMentions.ts'
 
 export async function searchYachiyoWorkspaceFiles(input: {
   ensureThreadWorkspace: (threadId: string) => Promise<string>

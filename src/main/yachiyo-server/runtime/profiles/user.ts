@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
-import { resolveYachiyoUserPath } from '../config/paths.ts'
+import { resolveYachiyoUserPath } from '../../config/paths.ts'
 import { migrateDocumentToTables } from './profileTable.ts'
 
 const DEFAULT_USER_TEMPLATE = [

@@ -19,9 +19,9 @@ import type { BrowserWebPageSnapshotLoader } from '../../../../services/webRead/
 import type { SearchService } from '../../../../services/search/searchService.ts'
 import type { WebSearchService } from '../../../../services/webSearch/webSearchService.ts'
 import type { JotdownStore } from '../../../../services/jotdownStore.ts'
-import type { ModelRuntime, ModelUsage } from '../../../../runtime/types.ts'
-import type { SoulDocument } from '../../../../runtime/soul.ts'
-import type { UserDocument } from '../../../../runtime/user.ts'
+import type { ModelRuntime, ModelUsage } from '../../../../runtime/models/types.ts'
+import type { SoulDocument } from '../../../../runtime/profiles/soul.ts'
+import type { UserDocument } from '../../../../runtime/profiles/user.ts'
 import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../../../storage/storage.ts'
 import type {
   DelegateCodingTaskFinishedEvent,

@@ -12,8 +12,8 @@ import { createHash } from 'node:crypto'
 
 import type { ProviderSettings } from '../../../../shared/yachiyo/protocol.ts'
 import { extractBase64DataUrlPayload } from '../../../../shared/yachiyo/messageContent.ts'
-import type { AuxiliaryGenerationService } from '../../runtime/auxiliaryGeneration.ts'
-import type { ModelMessage } from '../../runtime/types.ts'
+import type { AuxiliaryGenerationService } from '../../runtime/models/auxiliaryGeneration.ts'
+import type { ModelMessage } from '../../runtime/models/types.ts'
 
 // ---------------------------------------------------------------------------
 // Types

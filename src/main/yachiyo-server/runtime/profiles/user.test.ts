@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 
-import { resolveYachiyoSoulPath, resolveYachiyoUserPath } from '../config/paths.ts'
+import { resolveYachiyoSoulPath, resolveYachiyoUserPath } from '../../config/paths.ts'
 import { patchUserDocumentSection, readUserDocument, writeUserDocument } from './user.ts'
 
 test('readUserDocument creates a default template when USER.md is missing', async () => {

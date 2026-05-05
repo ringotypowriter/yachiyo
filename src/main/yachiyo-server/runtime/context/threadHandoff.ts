@@ -1,8 +1,8 @@
 import type { ContextLayerHistoryMessage } from './contextLayers.ts'
-import { prepareModelMessages } from './messagePrepare.ts'
+import { prepareModelMessages } from '../messages/messagePrepare.ts'
 import { SYSTEM_PROMPT } from './prompt.ts'
 import type { CompileContextLayersInput } from './contextLayers.ts'
-import type { ModelMessage } from './types.ts'
+import type { ModelMessage } from '../models/types.ts'
 
 export const HANDOFF_PROMPT = `Write a visible handoff that opens a new thread continuing work from an older thread.
 

@@ -14,10 +14,10 @@ import { YACHIYO_USER_FILE_NAME } from '../../config/paths.ts'
 import {
   compileGroupProbeContextLayers,
   requiresAssistantReasoningForGroupProbeReplay
-} from '../../runtime/groupProbeContextLayers.ts'
-import { readChannelsConfig } from '../../runtime/channelsConfig.ts'
-import { EXTERNAL_GROUP_PROMPT } from '../../runtime/prompt.ts'
-import { readUserDocument } from '../../runtime/user.ts'
+} from '../../runtime/context/groupProbeContextLayers.ts'
+import { readChannelsConfig } from '../../runtime/config/channelsConfig.ts'
+import { EXTERNAL_GROUP_PROMPT } from '../../runtime/context/prompt.ts'
+import { readUserDocument } from '../../runtime/profiles/user.ts'
 import { createTool as createReadTool } from '../../tools/agentTools/readTool.ts'
 import { createTool as createUpdateProfileTool } from '../../tools/agentTools/updateProfileTool.ts'
 import { createTool as createWebReadTool } from '../../tools/agentTools/webReadTool.ts'

@@ -10,7 +10,7 @@ import type {
   ToolCallUpdatedEvent
 } from '../../../../../../shared/yachiyo/protocol.ts'
 import { resolveYachiyoUserPath } from '../../../../config/paths.ts'
-import { readChannelsConfig } from '../../../../runtime/channelsConfig.ts'
+import { readChannelsConfig } from '../../../../runtime/config/channelsConfig.ts'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 import { createFilteredMemoryService } from '../../../../services/memory/memoryService.ts'
 import { createAgentToolSet } from '../../../../tools/agentTools.ts'

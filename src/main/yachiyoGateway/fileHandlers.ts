@@ -6,7 +6,7 @@ import {
   type AttachmentFileRejectionRecord
 } from '../../shared/yachiyo/attachmentFileTypes.ts'
 import type { ResolveFileReferencesInput } from '../../shared/yachiyo/protocol'
-import { resolveExistingFileReferences } from '../yachiyo-server/runtime/inlineCodeFileReferences.ts'
+import { resolveExistingFileReferences } from '../yachiyo-server/runtime/files/inlineCodeFileReferences.ts'
 import { IPC_CHANNELS } from './ipcChannels.ts'
 
 type GatewayIpcHandler = <Args extends unknown[], Result>(

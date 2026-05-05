@@ -21,26 +21,26 @@ import { resolveYachiyoUserPath } from '../../../../config/paths.ts'
 import {
   buildExternalAgentInstructions,
   compileExternalContextLayers
-} from '../../../../runtime/externalContextLayers.ts'
+} from '../../../../runtime/context/externalContextLayers.ts'
 import {
   buildHiddenReferenceBlock,
   resolveFileMentionsForUserQuery
-} from '../../../../runtime/fileMentions.ts'
-import { prepareModelMessages } from '../../../../runtime/messagePrepare.ts'
-import { EXTERNAL_SYSTEM_PROMPT, SYSTEM_PROMPT } from '../../../../runtime/prompt.ts'
+} from '../../../../runtime/files/fileMentions.ts'
+import { prepareModelMessages } from '../../../../runtime/messages/messagePrepare.ts'
+import { EXTERNAL_SYSTEM_PROMPT, SYSTEM_PROMPT } from '../../../../runtime/context/prompt.ts'
 import {
   buildCurrentTimeSection,
   buildDisabledToolsReminderSection,
   buildSteerReminderSection,
   formatDateLine,
   formatQueryReminder
-} from '../../../../runtime/queryReminder.ts'
-import { readChannelsConfig } from '../../../../runtime/channelsConfig.ts'
-import { preprocessImagesForNonVisionModel } from '../../../../runtime/contextLayers.ts'
-import { applyStripCompact } from '../../../../runtime/contextStripCompact.ts'
-import type { ModelMessage } from '../../../../runtime/types.ts'
-import { readSoulDocument, type SoulDocument } from '../../../../runtime/soul.ts'
-import { readUserDocument, type UserDocument } from '../../../../runtime/user.ts'
+} from '../../../../runtime/context/queryReminder.ts'
+import { readChannelsConfig } from '../../../../runtime/config/channelsConfig.ts'
+import { preprocessImagesForNonVisionModel } from '../../../../runtime/context/contextLayers.ts'
+import { applyStripCompact } from '../../../../runtime/context/contextStripCompact.ts'
+import type { ModelMessage } from '../../../../runtime/models/types.ts'
+import { readSoulDocument, type SoulDocument } from '../../../../runtime/profiles/soul.ts'
+import { readUserDocument, type UserDocument } from '../../../../runtime/profiles/user.ts'
 import { rewriteRelativeMarkdownLinks } from '../../../../services/skills/skillContent.ts'
 import { resolveActiveSkills } from '../../../../services/skills/skillResolver.ts'
 import { resolveEnabledTools } from '../../config/configDomain.ts'

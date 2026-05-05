@@ -7,7 +7,7 @@ import {
   identifyRunSpans,
   STRIP_COMPACT_TOKEN_THRESHOLD
 } from './contextStripCompact.ts'
-import type { ModelMessage } from './types.ts'
+import type { ModelMessage } from '../models/types.ts'
 
 function makeUserMessage(content: string): ModelMessage {
   return { role: 'user', content }

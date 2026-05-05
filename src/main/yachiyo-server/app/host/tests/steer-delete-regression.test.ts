@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os'
 import test from 'node:test'
 
 import { YachiyoServer } from '../YachiyoServer.ts'
-import type { ModelStreamRequest } from '../../../runtime/types.ts'
+import type { ModelStreamRequest } from '../../../runtime/models/types.ts'
 import { createInMemoryYachiyoStorage } from '../../../storage/memoryStorage.ts'
-import { readUserDocument, writeUserDocument } from '../../../runtime/user.ts'
+import { readUserDocument, writeUserDocument } from '../../../runtime/profiles/user.ts'
 
 async function withServer(
   fn: (input: {

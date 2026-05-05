@@ -1,6 +1,6 @@
-import type { MessageRecord } from '../../../shared/yachiyo/protocol.ts'
+import type { MessageRecord } from '../../../../shared/yachiyo/protocol.ts'
 
-import type { PersistResponseMessagesRepairInput } from '../storage/storage.ts'
+import type { PersistResponseMessagesRepairInput } from '../../storage/storage.ts'
 import { normalizeStoredResponseMessages } from './messagePrepare.ts'
 
 export type ReplayHistoryMessage = Pick<

@@ -1,7 +1,7 @@
 import TOML from 'smol-toml'
 
-import type { ChannelsConfig } from '../../../shared/yachiyo/protocol.ts'
-import { readConfigFromTomlSlices, writeTomlDocFromSlices } from '../config/tomlSlices.ts'
+import type { ChannelsConfig } from '../../../../shared/yachiyo/protocol.ts'
+import { readConfigFromTomlSlices, writeTomlDocFromSlices } from '../../config/tomlSlices.ts'
 import { channelsTomlSlices } from './channelsTomlSlices.ts'
 
 export function parseChannelsToml(raw: string): ChannelsConfig {

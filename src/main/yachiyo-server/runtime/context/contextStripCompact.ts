@@ -1,6 +1,6 @@
-import type { ModelMessage } from './types.ts'
-import { DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD } from '../../../shared/yachiyo/protocol.ts'
-import { estimateTextTokens } from '../../../shared/yachiyo/estimateTokens.ts'
+import type { ModelMessage } from '../models/types.ts'
+import { DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD } from '../../../../shared/yachiyo/protocol.ts'
+import { estimateTextTokens } from '../../../../shared/yachiyo/estimateTokens.ts'
 
 export const STRIP_COMPACT_TOKEN_THRESHOLD = DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD
 const SUMMARY_PREVIEW_CHARS = 200

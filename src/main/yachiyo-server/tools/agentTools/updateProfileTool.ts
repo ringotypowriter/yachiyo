@@ -1,8 +1,8 @@
 import { tool, type Tool } from 'ai'
 import { z } from 'zod'
 
-import type { UserDocumentMode } from '../../runtime/user.ts'
-import { patchUserDocumentSection, readUserDocument } from '../../runtime/user.ts'
+import type { UserDocumentMode } from '../../runtime/profiles/user.ts'
+import { patchUserDocumentSection, readUserDocument } from '../../runtime/profiles/user.ts'
 import {
   buildSectionDescriptionBlock,
   enforceRowCap,
@@ -18,7 +18,7 @@ import {
   type TableRow,
   upsertRows,
   upsertRowsByIndex
-} from '../../runtime/profileTable.ts'
+} from '../../runtime/profiles/profileTable.ts'
 
 const updateProfileToolInputSchema = z.object({
   section: z.string().min(1).describe('Section name from USER.md (e.g. "Profile", "People")'),

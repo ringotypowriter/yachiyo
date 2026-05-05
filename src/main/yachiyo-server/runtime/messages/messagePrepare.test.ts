@@ -6,7 +6,7 @@ import {
   prepareAiSdkMessages,
   prepareModelMessages
 } from './messagePrepare.ts'
-import { SYSTEM_PROMPT } from './prompt.ts'
+import { SYSTEM_PROMPT } from '../context/prompt.ts'
 
 test('message prepare compiles explicit context layers and drops empty messages', () => {
   const prepared = prepareModelMessages({

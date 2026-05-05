@@ -13,8 +13,8 @@ import {
 import type {
   AuxiliaryGenerationService,
   AuxiliaryTextGenerationResult
-} from '../../runtime/auxiliaryGeneration.ts'
-import type { ModelMessage, ModelRuntime } from '../../runtime/types.ts'
+} from '../../runtime/models/auxiliaryGeneration.ts'
+import type { ModelMessage, ModelRuntime } from '../../runtime/models/types.ts'
 import {
   buildNextRecallState,
   filterRecalledMemories,

@@ -2,7 +2,7 @@ import {
   readSoulDocument as defaultReadSoulDocument,
   upsertDailySoulTrait as defaultUpsertDailySoulTrait,
   removeSoulTrait as defaultRemoveSoulTrait
-} from '../../../runtime/soul.ts'
+} from '../../../runtime/profiles/soul.ts'
 import { namespaceHelp } from '../core/help.ts'
 import { outputJson } from '../core/output.ts'
 import type { RemoveSoulTraitInput, RunYachiyoCliOptions } from '../core/types.ts'

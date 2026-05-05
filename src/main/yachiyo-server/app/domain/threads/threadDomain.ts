@@ -32,7 +32,7 @@ import {
   sortMessagesByCreatedAt
 } from '../../../../../shared/yachiyo/threadTree.ts'
 import { canChangeThreadWorkspace } from '../../../../../shared/yachiyo/threadWorkspaceRules.ts'
-import type { AuxiliaryGenerationService } from '../../../runtime/auxiliaryGeneration.ts'
+import type { AuxiliaryGenerationService } from '../../../runtime/models/auxiliaryGeneration.ts'
 import type { MemoryService } from '../../../services/memory/memoryService.ts'
 import type { YachiyoStorage } from '../../../storage/storage.ts'
 import {

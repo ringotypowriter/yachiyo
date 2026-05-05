@@ -9,16 +9,16 @@ import type {
   ToolCallName,
   ToolCallRecord
 } from '../../../../../shared/yachiyo/protocol.ts'
-import type { AuxiliaryGenerationService } from '../../../runtime/auxiliaryGeneration.ts'
+import type { AuxiliaryGenerationService } from '../../../runtime/models/auxiliaryGeneration.ts'
 import type { BrowserWebPageSnapshotLoader } from '../../../services/webRead/browserWebPageSnapshot.ts'
 import type { JotdownStore } from '../../../services/jotdownStore.ts'
 import type { MemoryService } from '../../../services/memory/memoryService.ts'
 import type { SearchService } from '../../../services/search/searchService.ts'
 import type { WebSearchService } from '../../../services/webSearch/webSearchService.ts'
-import type { ModelRuntime } from '../../../runtime/types.ts'
+import type { ModelRuntime } from '../../../runtime/models/types.ts'
 import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../../storage/storage.ts'
-import type { SoulDocument } from '../../../runtime/soul.ts'
-import type { UserDocument } from '../../../runtime/user.ts'
+import type { SoulDocument } from '../../../runtime/profiles/soul.ts'
+import type { UserDocument } from '../../../runtime/profiles/user.ts'
 import type { CreateId, EmitServerEvent, Timestamp } from '../shared/shared.ts'
 
 export interface RunState {

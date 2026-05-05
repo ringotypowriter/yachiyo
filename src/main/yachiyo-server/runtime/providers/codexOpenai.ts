@@ -1,4 +1,4 @@
-import type { ModelMessage } from '../types.ts'
+import type { ModelMessage } from '../models/types.ts'
 import type { RuntimeProviderOptions } from './shared.ts'
 
 /**

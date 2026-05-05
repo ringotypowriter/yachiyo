@@ -7,7 +7,10 @@ import type {
   ToolSet
 } from 'ai'
 
-import type { ComposerReasoningSelection, ProviderSettings } from '../../../shared/yachiyo/protocol'
+import type {
+  ComposerReasoningSelection,
+  ProviderSettings
+} from '../../../../shared/yachiyo/protocol'
 
 export type ModelMessage = AiSdkModelMessage
 

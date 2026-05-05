@@ -18,7 +18,7 @@ import {
   sanitizeProviderConfig
 } from '../../../../../shared/yachiyo/providerConfig.ts'
 import { extractBase64DataUrlPayload } from '../../../../../shared/yachiyo/messageContent.ts'
-import { fetchModels } from '../../../runtime/modelRuntime.ts'
+import { fetchModels } from '../../../runtime/models/modelRuntime.ts'
 import {
   toProviderSettings,
   toToolModelSettings,

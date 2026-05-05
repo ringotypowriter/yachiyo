@@ -2,27 +2,27 @@ import { createHash } from 'node:crypto'
 
 import { stepCountIs } from 'ai'
 
-import { applyStripCompact } from './contextStripCompact.ts'
-import { prepareAiSdkMessages } from './messagePrepare.ts'
+import { applyStripCompact } from '../context/contextStripCompact.ts'
+import { prepareAiSdkMessages } from '../messages/messagePrepare.ts'
 import type { ModelMessage, ModelRuntime } from './types.ts'
 import {
   type AiSdkRuntimeDependencies,
   type FetchModelsDependencies,
   resolveAiSdkRuntimeDependencies
-} from './providers/dependencies.ts'
-import { fetchModels as fetchModelsImpl } from './providers/fetchModels.ts'
-import { assertConfigured, createLanguageModel } from './providers/languageModel.ts'
-import { resolveReasoningSelection } from '../../../shared/yachiyo/reasoningEffort.ts'
+} from '../providers/dependencies.ts'
+import { fetchModels as fetchModelsImpl } from '../providers/fetchModels.ts'
+import { assertConfigured, createLanguageModel } from '../providers/languageModel.ts'
+import { resolveReasoningSelection } from '../../../../shared/yachiyo/reasoningEffort.ts'
 import {
   formatErrorForLog,
   logGatewayDiagnostics,
   shouldLogGatewayDiagnostics,
   toSerializableError
-} from './providers/gateway.ts'
-import { getGeminiMaxOutputTokens } from './providers/google.ts'
-import { createProviderOptions, extractThinkingBudget } from './providers/providerOptions.ts'
-import { supportsOpenAIReasoningEffort } from './providers/openai.ts'
-import type { RuntimeProviderOptions } from './providers/shared.ts'
+} from '../providers/gateway.ts'
+import { getGeminiMaxOutputTokens } from '../providers/google.ts'
+import { createProviderOptions, extractThinkingBudget } from '../providers/providerOptions.ts'
+import { supportsOpenAIReasoningEffort } from '../providers/openai.ts'
+import type { RuntimeProviderOptions } from '../providers/shared.ts'
 import {
   isContextWindowExceededError,
   isTransientTransportError,
@@ -527,7 +527,7 @@ function toToolError(error: unknown, fallbackMessage = 'Tool execution failed'):
 }
 
 export async function fetchModels(
-  provider: import('../../../shared/yachiyo/protocol').ProviderConfig,
+  provider: import('../../../../shared/yachiyo/protocol').ProviderConfig,
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
   dependencies: FetchModelsDependencies = {}
 ): Promise<string[]> {
@@ -543,7 +543,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
 
       // Resolve Codex OAuth token if using openai-codex provider
       if (settings.provider === 'openai-codex' && settings.codexSessionPath?.trim()) {
-        const { readCodexSessionAuth } = await import('./providers/codexSessionAuth.ts')
+        const { readCodexSessionAuth } = await import('../providers/codexSessionAuth.ts')
         const { accessToken, accountId } = await readCodexSessionAuth(settings.codexSessionPath)
         settings = {
           ...settings,
@@ -591,7 +591,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
 
       // Codex backend requires `instructions` field for system prompt
       if (settings.provider === 'openai-codex') {
-        const { prepareCodexMessages } = await import('./providers/codexOpenai.ts')
+        const { prepareCodexMessages } = await import('../providers/codexOpenai.ts')
         const prepared = prepareCodexMessages(preparedMessages, providerOptions)
         preparedMessages = prepared.messages
         providerOptions = prepared.options
@@ -1063,7 +1063,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             attempt < RETRY_MAX_ATTEMPTS
           ) {
             try {
-              const { readCodexSessionAuth } = await import('./providers/codexSessionAuth.ts')
+              const { readCodexSessionAuth } = await import('../providers/codexSessionAuth.ts')
               const { accessToken, accountId } = await readCodexSessionAuth(
                 settings.codexSessionPath,
                 true

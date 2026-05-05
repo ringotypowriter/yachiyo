@@ -74,17 +74,17 @@ import { FolderDomain } from '../domain/folders/folderDomain.ts'
 import { ScheduleDomain } from '../domain/schedules/scheduleDomain.ts'
 import { createTtlReaper, type TtlReaper } from '../domain/shared/ttlReaper.ts'
 import { acpProcessPool } from '../../runtime/acp/acpProcessPool.ts'
-import { createAuxiliaryGenerationService } from '../../runtime/auxiliaryGeneration.ts'
-import { createAiSdkModelRuntime } from '../../runtime/modelRuntime.ts'
+import { createAuxiliaryGenerationService } from '../../runtime/models/auxiliaryGeneration.ts'
+import { createAiSdkModelRuntime } from '../../runtime/models/modelRuntime.ts'
 import {
   readSoulDocument,
   upsertDailySoulTrait,
   removeSoulTrait,
   type SoulDocument
-} from '../../runtime/soul.ts'
-import { readUserDocument, writeUserDocument } from '../../runtime/user.ts'
-import { readChannelsConfig, writeChannelsConfig } from '../../runtime/channelsConfig.ts'
-import type { ModelRuntime } from '../../runtime/types.ts'
+} from '../../runtime/profiles/soul.ts'
+import { readUserDocument, writeUserDocument } from '../../runtime/profiles/user.ts'
+import { readChannelsConfig, writeChannelsConfig } from '../../runtime/config/channelsConfig.ts'
+import type { ModelRuntime } from '../../runtime/models/types.ts'
 import { resolveSearchBinaries } from '../../services/search/searchBinaries.ts'
 import { createSearchService, type SearchService } from '../../services/search/searchService.ts'
 import {
@@ -162,7 +162,7 @@ export class YachiyoServer {
   private readonly listeners = new Set<(event: YachiyoServerEvent) => void>()
   private readonly activeChannelGroupHistoryClears = new Set<string>()
   private readonly retiredGroupProbeThreadIdsByGroup = new Map<string, Set<string>>()
-  private readonly auxiliaryGeneration: import('../../runtime/auxiliaryGeneration.ts').AuxiliaryGenerationService
+  private readonly auxiliaryGeneration: import('../../runtime/models/auxiliaryGeneration.ts').AuxiliaryGenerationService
   private readonly createModelRuntimeFn: () => ModelRuntime
   private readonly memoryService: MemoryService
   private readonly configDomain: YachiyoServerConfigDomain
@@ -1051,7 +1051,7 @@ export class YachiyoServer {
     })
   }
 
-  getAuxiliaryGenerationService(): import('../../runtime/auxiliaryGeneration.ts').AuxiliaryGenerationService {
+  getAuxiliaryGenerationService(): import('../../runtime/models/auxiliaryGeneration.ts').AuxiliaryGenerationService {
     return this.auxiliaryGeneration
   }
 

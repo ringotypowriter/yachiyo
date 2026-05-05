@@ -3,8 +3,8 @@ import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import createIgnore, { type Ignore } from 'ignore'
 
-import type { SearchService } from '../services/search/searchService.ts'
-import { resolveYachiyoWorkspaceIndexDir } from '../config/paths.ts'
+import type { SearchService } from '../../services/search/searchService.ts'
+import { resolveYachiyoWorkspaceIndexDir } from '../../config/paths.ts'
 import { normalizeRelativePath, toUnique } from './fileMentionPathUtils.ts'
 import {
   rankWorkspaceFileMentionCandidates,

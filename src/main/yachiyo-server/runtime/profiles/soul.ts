@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
-import { resolveYachiyoSoulPath } from '../config/paths.ts'
+import { resolveYachiyoSoulPath } from '../../config/paths.ts'
 
 const EVOLVED_TRAITS_HEADING = '## Evolved Traits'
 const DEFAULT_SOUL_TITLE = '# SOUL'

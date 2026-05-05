@@ -4,7 +4,11 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 import { runYachiyoCli } from './yachiyoCli.ts'
-import { readSoulDocument, upsertDailySoulTrait, removeSoulTrait } from '../../runtime/soul.ts'
+import {
+  readSoulDocument,
+  upsertDailySoulTrait,
+  removeSoulTrait
+} from '../../runtime/profiles/soul.ts'
 
 function makeRunSoulCommand(): (args: string[]) => Promise<unknown> {
   return async (args: string[]) => {

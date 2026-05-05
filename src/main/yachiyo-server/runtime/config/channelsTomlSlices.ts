@@ -6,9 +6,9 @@ import type {
   QQChannelConfig,
   TelegramChannelConfig,
   ThreadModelOverride
-} from '../../../shared/yachiyo/protocol.ts'
-import type { TomlConfigSlice, TomlDoc } from '../config/tomlSlices.ts'
-import { readTomlTable } from '../config/tomlSlices.ts'
+} from '../../../../shared/yachiyo/protocol.ts'
+import type { TomlConfigSlice, TomlDoc } from '../../config/tomlSlices.ts'
+import { readTomlTable } from '../../config/tomlSlices.ts'
 
 function readString(value: unknown): string {
   return typeof value === 'string' ? value : ''

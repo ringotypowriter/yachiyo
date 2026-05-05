@@ -2,7 +2,7 @@ import type {
   ComposerReasoningSelection,
   ProviderSettings
 } from '../../../../shared/yachiyo/protocol'
-import type { ModelProviderOptionsMode } from '../types.ts'
+import type { ModelProviderOptionsMode } from '../models/types.ts'
 import { createAnthropicProviderOptions } from './anthropic.ts'
 import { createGatewayProviderOptions } from './gateway.ts'
 import { createGoogleProviderOptions } from './google.ts'

@@ -1,6 +1,6 @@
 import type { MessageRecord } from '../../../../../shared/yachiyo/protocol.ts'
 import { summarizeMessageInput } from '../../../../../shared/yachiyo/messageContent.ts'
-import type { ModelMessage } from '../../../runtime/types.ts'
+import type { ModelMessage } from '../../../runtime/models/types.ts'
 
 export const MAX_THREAD_TITLE_LENGTH = 32
 export const THREAD_TITLE_MAX_TOKEN = 128

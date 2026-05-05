@@ -10,7 +10,7 @@ import type {
   SoulDocument,
   RemoveSoulTraitInput,
   UpsertDailySoulTraitInput
-} from '../../../runtime/soul.ts'
+} from '../../../runtime/profiles/soul.ts'
 import type { MessageSearchHit, ThreadSummary, ThreadDump } from '../services/threadSearch.ts'
 import type { YachiyoStorage } from '../../../storage/storage.ts'
 

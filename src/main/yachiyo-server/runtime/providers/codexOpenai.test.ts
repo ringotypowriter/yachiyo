@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import type { ModelMessage } from '../types.ts'
+import type { ModelMessage } from '../models/types.ts'
 import { prepareCodexMessages } from './codexOpenai.ts'
 
 test('prepareCodexMessages moves the first text system message into instructions', () => {

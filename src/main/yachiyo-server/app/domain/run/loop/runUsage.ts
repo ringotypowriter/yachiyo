@@ -1,4 +1,4 @@
-import type { ModelUsage } from '../../../../runtime/types.ts'
+import type { ModelUsage } from '../../../../runtime/models/types.ts'
 import type { UsageFields } from '../runUsageFields.ts'
 
 /** Merge accumulated prior-leg totals with the current leg's ModelUsage for terminal persistence. */

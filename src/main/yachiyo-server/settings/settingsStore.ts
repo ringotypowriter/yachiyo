@@ -14,7 +14,7 @@ import {
   toToolModelSettings
 } from './settingsConfig.ts'
 import { parseSettingsToml, stringifySettingsToml } from './settingsTomlCodec.ts'
-import { parseChannelsToml } from '../runtime/channelsTomlCodec.ts'
+import { parseChannelsToml } from '../runtime/config/channelsTomlCodec.ts'
 
 export {
   DEFAULT_SETTINGS_CONFIG,

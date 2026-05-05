@@ -6,8 +6,8 @@ import test from 'node:test'
 
 import { YachiyoServer } from '../YachiyoServer.ts'
 import { createInMemoryYachiyoStorage } from '../../../storage/memoryStorage.ts'
-import type { ModelStreamRequest } from '../../../runtime/types.ts'
-import { RetryableRunError } from '../../../runtime/runtimeErrors.ts'
+import type { ModelStreamRequest } from '../../../runtime/models/types.ts'
+import { RetryableRunError } from '../../../runtime/models/runtimeErrors.ts'
 
 test('YachiyoServer cancels immediately while waiting to recover after partial output', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-retry-cancel-test-'))

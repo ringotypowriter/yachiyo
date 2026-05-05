@@ -6,7 +6,11 @@ import test from 'node:test'
 import { runYachiyoCli } from './yachiyoCli.ts'
 import { createInMemoryYachiyoStorage } from '../../storage/memoryStorage.ts'
 import { YachiyoServer } from '../host/YachiyoServer.ts'
-import { readSoulDocument, upsertDailySoulTrait, removeSoulTrait } from '../../runtime/soul.ts'
+import {
+  readSoulDocument,
+  upsertDailySoulTrait,
+  removeSoulTrait
+} from '../../runtime/profiles/soul.ts'
 
 function makeRunCommand(): (args: string[]) => Promise<unknown> {
   return async (args: string[]) => {

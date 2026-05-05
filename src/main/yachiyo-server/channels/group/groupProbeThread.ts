@@ -4,9 +4,9 @@ import type {
   ThreadModelOverride,
   ThreadRecord
 } from '../../../../shared/yachiyo/protocol.ts'
-import type { AuxiliaryTextGenerationResult } from '../../runtime/auxiliaryGeneration.ts'
-import type { ContextLayerHistoryMessage } from '../../runtime/contextLayers.ts'
-import { repairReplayHistoryMessages } from '../../runtime/replayHistoryRepair.ts'
+import type { AuxiliaryTextGenerationResult } from '../../runtime/models/auxiliaryGeneration.ts'
+import type { ContextLayerHistoryMessage } from '../../runtime/context/contextLayers.ts'
+import { repairReplayHistoryMessages } from '../../runtime/messages/replayHistoryRepair.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 
 export interface ResolveGroupProbeThreadOptions {

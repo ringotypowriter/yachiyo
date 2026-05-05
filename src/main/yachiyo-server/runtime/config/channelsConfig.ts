@@ -8,8 +8,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-import type { ChannelsConfig } from '../../../shared/yachiyo/protocol.ts'
-import { resolveYachiyoChannelsPath } from '../config/paths.ts'
+import type { ChannelsConfig } from '../../../../shared/yachiyo/protocol.ts'
+import { resolveYachiyoChannelsPath } from '../../config/paths.ts'
 import { parseChannelsToml, stringifyChannelsToml } from './channelsTomlCodec.ts'
 
 export type { ChannelsConfig }

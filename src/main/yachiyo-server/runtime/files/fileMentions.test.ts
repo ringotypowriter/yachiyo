@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 
-import { createSearchService } from '../services/search/searchService.ts'
+import { createSearchService } from '../../services/search/searchService.ts'
 import {
   parseFileMentions,
   resolveFileMentionsForUserQuery,

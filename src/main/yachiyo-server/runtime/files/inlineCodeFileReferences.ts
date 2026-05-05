@@ -4,11 +4,11 @@ import { isAbsolute, relative, resolve } from 'node:path'
 import type {
   ResolvedFileReference,
   ResolveFileReferencesInput
-} from '../../../shared/yachiyo/protocol.ts'
+} from '../../../../shared/yachiyo/protocol.ts'
 import {
   isAllowedInlineCodeFileReference,
   stripInlineCodeFileLocationSuffix
-} from '../../../shared/yachiyo/inlineCodeFileReferences.ts'
+} from '../../../../shared/yachiyo/inlineCodeFileReferences.ts'
 
 export async function resolveExistingFileReferences(
   input: ResolveFileReferencesInput

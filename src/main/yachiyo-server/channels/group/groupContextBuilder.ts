@@ -11,7 +11,7 @@
  */
 
 import type { GroupMessageEntry } from '../../../../shared/yachiyo/protocol.ts'
-import type { ModelMessage } from '../../runtime/types.ts'
+import type { ModelMessage } from '../../runtime/models/types.ts'
 
 // ---------------------------------------------------------------------------
 // Message formatting (migrated from groupReplyJudge.ts)

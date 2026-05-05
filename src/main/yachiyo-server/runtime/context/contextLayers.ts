@@ -2,13 +2,13 @@ import type {
   MessageFileAttachment,
   MessageImageRecord,
   MessageTurnContext
-} from '../../../shared/yachiyo/protocol.ts'
+} from '../../../../shared/yachiyo/protocol.ts'
 import {
   extractBase64DataUrlPayload,
   normalizeMessageImages
-} from '../../../shared/yachiyo/messageContent.ts'
-import type { ModelMessage } from './types.ts'
-import type { SkillSummary } from '../../../shared/yachiyo/protocol.ts'
+} from '../../../../shared/yachiyo/messageContent.ts'
+import type { ModelMessage } from '../models/types.ts'
+import type { SkillSummary } from '../../../../shared/yachiyo/protocol.ts'
 
 export interface ContextLayerHistoryMessage {
   role: 'user' | 'assistant'

@@ -7,7 +7,7 @@ import type {
   ThreadUpdatedEvent
 } from '../../../../../../shared/yachiyo/protocol.ts'
 import { wouldCreateParentCycle } from '../../../../../../shared/yachiyo/threadTree.ts'
-import type { ModelUsage } from '../../../../runtime/types.ts'
+import type { ModelUsage } from '../../../../runtime/models/types.ts'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 import type { RunPerfCollector } from '../../../../services/perfMonitor.ts'
 import { balanceRecoveryResponseMessages, type RecoveryResponseMessage } from '../runRecovery.ts'

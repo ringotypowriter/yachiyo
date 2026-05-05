@@ -1,5 +1,5 @@
-import type { ProviderSettings } from '../../../shared/yachiyo/protocol.ts'
-import type { ModelMessage } from './types.ts'
+import type { ProviderSettings } from '../../../../shared/yachiyo/protocol.ts'
+import type { ModelMessage } from '../models/types.ts'
 import { toModelHistoryMessages, type ContextLayerHistoryMessage } from './contextLayers.ts'
 
 export interface CompileGroupProbeContextLayersInput {

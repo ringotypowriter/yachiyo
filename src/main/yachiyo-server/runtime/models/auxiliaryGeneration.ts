@@ -1,7 +1,7 @@
 import type { ToolSet } from 'ai'
 
-import type { ProviderSettings } from '../../../shared/yachiyo/protocol.ts'
-import { formatErrorForLog } from './providers/gateway.ts'
+import type { ProviderSettings } from '../../../../shared/yachiyo/protocol.ts'
+import { formatErrorForLog } from '../providers/gateway.ts'
 import type { ModelMessage, ModelRuntime, ModelToolCallErrorEvent, ModelUsage } from './types.ts'
 
 export type AuxiliaryGenerationUnavailableReason =

@@ -1,7 +1,7 @@
 import type { MessageRecord } from '../../../../../../shared/yachiyo/protocol.ts'
 import { collectMessagePath } from '../../../../../../shared/yachiyo/threadTree.ts'
 import type { YachiyoStorage } from '../../../../storage/storage.ts'
-import type { ModelUsage } from '../../../../runtime/types.ts'
+import type { ModelUsage } from '../../../../runtime/models/types.ts'
 import type { UsageFields } from '../runUsageFields.ts'
 
 export type PriorRunUsage = UsageFields

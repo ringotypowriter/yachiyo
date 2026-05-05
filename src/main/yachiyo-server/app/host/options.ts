@@ -3,12 +3,12 @@ import type {
   SettingsConfig,
   UserDocument
 } from '../../../../shared/yachiyo/protocol.ts'
-import type { ModelRuntime } from '../../runtime/types.ts'
+import type { ModelRuntime } from '../../runtime/models/types.ts'
 import type { JotdownStore } from '../../services/jotdownStore.ts'
 import type { MemoryProvider, MemoryService } from '../../services/memory/memoryService.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
 import type { RemoteImageFetcher } from '../domain/images/remoteImageDomain.ts'
-import type { SoulDocument } from '../../runtime/soul.ts'
+import type { SoulDocument } from '../../runtime/profiles/soul.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 
 export interface YachiyoServerOptions {

@@ -6,9 +6,9 @@ import type {
   RunRetryingEvent,
   ThreadUpdatedEvent
 } from '../../../../../../shared/yachiyo/protocol.ts'
-import { RETRY_MAX_ATTEMPTS } from '../../../../runtime/modelRuntime.ts'
-import { isRetryableRunError } from '../../../../runtime/runtimeErrors.ts'
-import type { ModelUsage } from '../../../../runtime/types.ts'
+import { RETRY_MAX_ATTEMPTS } from '../../../../runtime/models/modelRuntime.ts'
+import { isRetryableRunError } from '../../../../runtime/models/runtimeErrors.ts'
+import type { ModelUsage } from '../../../../runtime/models/types.ts'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 import type { RunPerfCollector } from '../../../../services/perfMonitor.ts'
 import type { RunRecoveryCheckpoint } from '../../../../storage/storage.ts'

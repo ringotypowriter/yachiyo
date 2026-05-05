@@ -1,7 +1,7 @@
 import type { ModelMessage as AiSdkModelMessage } from 'ai'
 
-import { compileContextLayers, type CompileContextLayersInput } from './contextLayers.ts'
-import type { ModelMessage, ModelStreamRequest } from './types.ts'
+import { compileContextLayers, type CompileContextLayersInput } from '../context/contextLayers.ts'
+import type { ModelMessage, ModelStreamRequest } from '../models/types.ts'
 type MessagePrepareInput = CompileContextLayersInput
 
 function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {

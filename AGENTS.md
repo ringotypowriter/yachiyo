@@ -80,8 +80,8 @@ Do not commit provider secrets, local sqlite files, or machine-specific data. Ru
   - `settingsFeatureNormalization.ts` for general/chat/workspace/memory/web-search style sections
   - `settingsProviderNormalization.ts` for providers, tool-model resolution, and runtime provider snapshots
   - `settingsProfileNormalization.ts` for subagents and essentials
-- `channels.toml` now flows through `src/main/yachiyo-server/runtime/channelsTomlCodec.ts` and `src/main/yachiyo-server/runtime/channelsTomlSlices.ts`.
-- Keep the public entry points stable: `src/main/yachiyo-server/settings/settingsStore.ts` and `src/main/yachiyo-server/runtime/channelsConfig.ts` should stay thin read/write facades.
+- `channels.toml` now flows through `src/main/yachiyo-server/runtime/config/channelsTomlCodec.ts` and `src/main/yachiyo-server/runtime/config/channelsTomlSlices.ts`.
+- Keep the public entry points stable: `src/main/yachiyo-server/settings/settingsStore.ts` and `src/main/yachiyo-server/runtime/config/channelsConfig.ts` should stay thin read/write facades.
 - When adding a new setting, update the runtime type in `protocol.ts`, add the default in `settingsDefaults.ts` if needed, add one slice entry for reading and writing the TOML field, and extend the owning normalization module instead of touching unrelated slices.
 - Put legacy compatibility fixes in the codec layer, not in feature code. For `config.toml`, keep old-format rewrites near `fixLegacyJsonEnv`.
 - Preserve deterministic TOML output order by appending new slice entries in the intended section order instead of inserting ad hoc writes elsewhere.

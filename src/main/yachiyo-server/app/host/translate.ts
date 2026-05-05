@@ -3,7 +3,7 @@ import type {
   TranslateInput,
   TranslateResult
 } from '../../../../shared/yachiyo/protocol.ts'
-import type { ModelRuntime } from '../../runtime/types.ts'
+import type { ModelRuntime } from '../../runtime/models/types.ts'
 
 export async function translateWithRuntime(input: {
   createModelRuntime: () => ModelRuntime

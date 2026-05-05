@@ -3,7 +3,7 @@ import { collectMessagePath } from '../../../../../../shared/yachiyo/threadTree.
 import {
   repairReplayHistoryMessages,
   type ReplayHistoryMessage
-} from '../../../../runtime/replayHistoryRepair.ts'
+} from '../../../../runtime/messages/replayHistoryRepair.ts'
 import type { YachiyoStorage } from '../../../../storage/storage.ts'
 
 /**

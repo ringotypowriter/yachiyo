@@ -1,4 +1,4 @@
-import { USER_MANAGED_TOOL_NAMES, type ToolCallName } from '../../../shared/yachiyo/protocol.ts'
+import { USER_MANAGED_TOOL_NAMES, type ToolCallName } from '../../../../shared/yachiyo/protocol.ts'
 
 export interface QueryReminderSection {
   key: string

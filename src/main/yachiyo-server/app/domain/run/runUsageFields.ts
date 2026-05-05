@@ -1,4 +1,4 @@
-import type { ModelUsage } from '../../../runtime/types.ts'
+import type { ModelUsage } from '../../../runtime/models/types.ts'
 
 export type UsageFields = Pick<
   ModelUsage,

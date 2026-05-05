@@ -6,7 +6,7 @@ import type {
   ThreadRecord,
   ThreadUpdatedEvent
 } from '../../../../../../shared/yachiyo/protocol.ts'
-import type { ModelUsage } from '../../../../runtime/types.ts'
+import type { ModelUsage } from '../../../../runtime/models/types.ts'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 import type { RunPerfCollector } from '../../../../services/perfMonitor.ts'
 import type { RecoveryResponseMessage } from '../runRecovery.ts'

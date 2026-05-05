@@ -5,8 +5,8 @@ import type { SettingsConfig } from '../../../../shared/yachiyo/protocol.ts'
 import type {
   AuxiliaryGenerationService,
   AuxiliaryTextGenerationRequest
-} from '../../runtime/auxiliaryGeneration.ts'
-import type { ModelStreamRequest, ModelRuntime } from '../../runtime/types.ts'
+} from '../../runtime/models/auxiliaryGeneration.ts'
+import type { ModelStreamRequest, ModelRuntime } from '../../runtime/models/types.ts'
 import {
   HIDDEN_MEMORY_SEARCH_TOOL_NAME,
   createMemoryService,
