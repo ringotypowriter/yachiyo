@@ -2,7 +2,7 @@ import type {
   BashToolCallDetails,
   ToolCallRecord
 } from '../../../../../../shared/yachiyo/protocol.ts'
-import type { BackgroundBashTaskResult } from '../../backgroundBashManager.ts'
+import type { BackgroundBashTaskResult } from '../../background/backgroundBashManager.ts'
 
 function isBashToolCallDetails(details: ToolCallRecord['details']): details is BashToolCallDetails {
   return (

@@ -3,7 +3,7 @@ import type {
   ToolCallUpdatedEvent
 } from '../../../../../../shared/yachiyo/protocol.ts'
 import type { YachiyoStorage } from '../../../../storage/storage.ts'
-import type { EmitServerEvent } from '../../shared.ts'
+import type { EmitServerEvent } from '../../shared/shared.ts'
 
 export function finishPendingToolCalls(
   deps: {

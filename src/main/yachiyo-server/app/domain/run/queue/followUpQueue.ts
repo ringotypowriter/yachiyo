@@ -10,7 +10,7 @@ import {
 import { summarizeMessageInput } from '../../../../../../shared/yachiyo/messageContent.ts'
 import { wouldCreateParentCycle } from '../../../../../../shared/yachiyo/threadTree.ts'
 import type { RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
-import { resolveEnabledTools } from '../../configDomain.ts'
+import { resolveEnabledTools } from '../../config/configDomain.ts'
 import type { StartActiveRunInput } from '../active/activeRunStart.ts'
 import { withParentMessageId } from '../chat/threadMessages.ts'
 import type { RunDomainDeps } from '../runTypes.ts'

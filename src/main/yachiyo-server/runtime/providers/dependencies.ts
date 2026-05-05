@@ -4,7 +4,7 @@ import { createVertex } from '@ai-sdk/google-vertex'
 import { createGateway, streamText } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 
-import { sleep } from '../../channels/connectionRetry.ts'
+import { sleep } from '../../channels/shared/connectionRetry.ts'
 
 export type OpenAIProviderFactory = typeof createOpenAI
 export type AnthropicProviderFactory = typeof createAnthropic

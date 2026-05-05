@@ -45,7 +45,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve('src/main/index.ts'),
-          'yachiyo-cli': resolve('src/main/yachiyo-server/app/yachiyo-cli.ts')
+          'yachiyo-cli': resolve('src/main/yachiyo-server/app/cli/yachiyoCli.ts')
         },
         external: ['better-sqlite3', 'sharp', 'zlib-sync', 'bufferutil', 'utf-8-validate']
       }

@@ -43,8 +43,8 @@ import { readSoulDocument, type SoulDocument } from '../../../../runtime/soul.ts
 import { readUserDocument, type UserDocument } from '../../../../runtime/user.ts'
 import { rewriteRelativeMarkdownLinks } from '../../../../services/skills/skillContent.ts'
 import { resolveActiveSkills } from '../../../../services/skills/skillResolver.ts'
-import { resolveEnabledTools } from '../../configDomain.ts'
-import { buildRecoveryHistory } from '../../runRecovery.ts'
+import { resolveEnabledTools } from '../../config/configDomain.ts'
+import { buildRecoveryHistory } from '../runRecovery.ts'
 import {
   buildAgentInstructions,
   buildSubagentContextBlock,

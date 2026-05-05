@@ -1,5 +1,5 @@
 import type { ThreadRecord } from '../../../../../../shared/yachiyo/protocol.ts'
-import type { BackgroundBashTaskResult } from '../../backgroundBashManager.ts'
+import type { BackgroundBashTaskResult } from '../../background/backgroundBashManager.ts'
 
 export function buildBackgroundCompletionMessage(result: BackgroundBashTaskResult): string {
   return (

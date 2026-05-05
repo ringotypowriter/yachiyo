@@ -9,7 +9,7 @@ import { join } from 'node:path'
 
 import type { BashToolCallDetails } from '../../../../shared/yachiyo/protocol.ts'
 
-import { killProcessTree } from '../../app/domain/killProcessTree.ts'
+import { killProcessTree } from '../../app/domain/processes/killProcessTree.ts'
 import { validateBashCommand } from './bashSecurity.ts'
 import { getChainedSleepTimeoutBlockMessage } from './bashTimeoutGuard.ts'
 import { withInjectedEnv } from './injectedEnv.ts'

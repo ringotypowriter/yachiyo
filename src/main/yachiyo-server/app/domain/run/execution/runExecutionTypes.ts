@@ -33,8 +33,8 @@ import type {
   BackgroundBashAdoptionHandle,
   BackgroundBashTaskHandle
 } from '../../../../tools/agentTools/shared.ts'
-import type { BackgroundBashTaskResult } from '../../backgroundBashManager.ts'
-import type { CreateId, EmitServerEvent, Timestamp } from '../../shared.ts'
+import type { BackgroundBashTaskResult } from '../../background/backgroundBashManager.ts'
+import type { CreateId, EmitServerEvent, Timestamp } from '../../shared/shared.ts'
 
 export interface ExecuteRunInput {
   enabledTools: ToolCallName[]

@@ -19,7 +19,7 @@ import type { ModelRuntime } from '../../../runtime/types.ts'
 import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../../storage/storage.ts'
 import type { SoulDocument } from '../../../runtime/soul.ts'
 import type { UserDocument } from '../../../runtime/user.ts'
-import type { CreateId, EmitServerEvent, Timestamp } from '../shared.ts'
+import type { CreateId, EmitServerEvent, Timestamp } from '../shared/shared.ts'
 
 export interface RunState {
   threadId: string

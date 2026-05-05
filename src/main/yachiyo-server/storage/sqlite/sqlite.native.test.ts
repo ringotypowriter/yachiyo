@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import test from 'node:test'
 
 import { createSqliteYachiyoStorage } from './database.ts'
-import { createSqliteYachiyoServer } from '../../app/YachiyoServer.ts'
+import { createSqliteYachiyoServer } from '../../app/host/YachiyoServer.ts'
 import { createBuiltinMemoryProvider } from '../../services/memory/builtinMemoryProvider.ts'
 
 const require = createRequire(import.meta.url)

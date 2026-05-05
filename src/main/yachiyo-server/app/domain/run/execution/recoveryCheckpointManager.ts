@@ -3,7 +3,7 @@ import { performance } from 'node:perf_hooks'
 import type { MessageTextBlockRecord } from '../../../../../../shared/yachiyo/protocol.ts'
 import type { RunPerfCollector } from '../../../../services/perfMonitor.ts'
 import type { RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
-import type { RecoveryResponseMessage } from '../../runRecovery.ts'
+import type { RecoveryResponseMessage } from '../runRecovery.ts'
 import { upsertRunRecoveryCheckpoint } from './recoveryCheckpoint.ts'
 import type { ExecuteRunInput, RunExecutionDeps } from './runExecutionTypes.ts'
 

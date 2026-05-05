@@ -3,7 +3,7 @@ import {
   buildThreadTitleGenerationMessages,
   parseGeneratedTitleAndIcon,
   THREAD_TITLE_MAX_TOKEN
-} from '../../threadTitle.ts'
+} from '../../threads/threadTitle.ts'
 import type { RunDomainDeps } from '../runTypes.ts'
 import { isBackgroundAutoDeliveryEligible } from '../background/backgroundTaskDelivery.ts'
 

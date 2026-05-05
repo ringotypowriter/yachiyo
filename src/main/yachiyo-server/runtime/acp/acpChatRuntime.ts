@@ -27,7 +27,7 @@ import {
   type CreateId,
   type EmitServerEvent,
   type Timestamp
-} from '../../app/domain/shared.ts'
+} from '../../app/domain/shared/shared.ts'
 import type { ExecuteRunResult } from '../../app/domain/run/execution/runExecutionTypes.ts'
 import { launchAcpProcess } from './acpLauncher.ts'
 import { continueAcpSession, runAcpSession } from './acpSessionClient.ts'

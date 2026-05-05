@@ -7,7 +7,7 @@ import type {
 import { isModelImageCapable } from '../../../../../../shared/yachiyo/providerConfig.ts'
 import { collectMessagePath } from '../../../../../../shared/yachiyo/threadTree.ts'
 import { toEffectiveProviderSettings } from '../../../../settings/settingsStore.ts'
-import type { BackgroundBashManager } from '../../backgroundBashManager.ts'
+import type { BackgroundBashManager } from '../../background/backgroundBashManager.ts'
 import type { ActiveRunLoopInput } from '../active/activeRunStart.ts'
 import { sendActiveRunSteer, type SendChatFlowContext } from '../chat/sendChatFlow.ts'
 import type { RunExecutionDeps } from '../execution/runExecutionTypes.ts'

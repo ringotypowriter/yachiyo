@@ -4,17 +4,20 @@ import type { SettingsConfig, SettingsUpdatedEvent } from '../shared/yachiyo/pro
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { installEditableContextMenu } from './editableContextMenu'
-import { hydrateProcessEnvFromLoginShell, hydrateProxyFromSystemSettings } from './userShellEnv'
+import { installEditableContextMenu } from './electron/editableContextMenu'
+import {
+  hydrateProcessEnvFromLoginShell,
+  hydrateProxyFromSystemSettings
+} from './electron/userShellEnv'
 import { resolveYachiyoDataDir } from './yachiyo-server/config/paths'
-import { registerYachiyoGateway } from './yachiyoGateway'
-import { setupCLI } from './cliSetup'
-import { setupCoreSkills } from './coreSkillsSetup'
-import { setupAutoUpdate, isInstallingUpdate } from './autoUpdate'
+import { registerYachiyoGateway } from './yachiyoGateway/registerYachiyoGateway'
+import { setupCLI } from './cli/setup'
+import { setupCoreSkills } from './skills/coreSkillsSetup'
+import { setupAutoUpdate, isInstallingUpdate } from './electron/autoUpdate'
 import {
   installYachiyoAssetProtocolHandler,
   registerYachiyoAssetScheme
-} from './yachiyoAssetProtocol'
+} from './electron/yachiyoAssetProtocol'
 
 // Override console.log/warn/error so all existing log calls persist to file.
 // Logs go to ~/Library/Logs/Yachiyo/main.log on macOS.
@@ -287,7 +290,7 @@ app.whenReady().then(async () => {
   if (process.platform === 'darwin') {
     void server.getConfig().then((cfg) => {
       const mode = cfg.general?.activityTracking?.mode ?? 'simple'
-      void import('./activityTrackerHost.ts').then(({ installActivityTrackerHost }) => {
+      void import('./electron/activityTrackerHost.ts').then(({ installActivityTrackerHost }) => {
         installActivityTrackerHost(mode)
       })
     })

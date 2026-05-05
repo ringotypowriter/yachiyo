@@ -5,7 +5,7 @@ import { Readable, Writable } from 'node:stream'
 import { ndJsonStream } from '@agentclientprotocol/sdk'
 
 import type { SubagentProfile } from '../../../../shared/yachiyo/protocol.ts'
-import { mergeShellEnv, readLoginShellEnvSync } from '../../../userShellEnv.ts'
+import { mergeShellEnv, readLoginShellEnvSync } from '../../../electron/userShellEnv.ts'
 import { filterJsonLines } from '../../tools/agentTools/spawnUtils.ts'
 
 export interface AcpLaunchResult {

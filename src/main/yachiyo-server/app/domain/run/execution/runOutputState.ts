@@ -11,7 +11,7 @@ import {
   buildRecoveryResponseMessages,
   cloneRecoveryResponseMessages,
   type RecoveryResponseMessage
-} from '../../runRecovery.ts'
+} from '../runRecovery.ts'
 import { consumeDuplicatePrefix } from './streamDedup.ts'
 import { appendMessageDeltaToTextBlocks } from './textBlocks.ts'
 

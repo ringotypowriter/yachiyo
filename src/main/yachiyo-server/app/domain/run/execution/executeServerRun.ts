@@ -17,7 +17,7 @@ import { createRunPerfCollector } from '../../../../services/perfMonitor.ts'
 import type { ModelUsage } from '../../../../runtime/types.ts'
 import { RetryableRunError } from '../../../../runtime/runtimeErrors.ts'
 import { normalizeToolResult, summarizeToolInput } from '../../../../tools/agentTools.ts'
-import { createDeltaBatcher } from '../../shared.ts'
+import { createDeltaBatcher } from '../../shared/shared.ts'
 import { prepareServerRunContext } from '../context/prepareServerRunContext.ts'
 import {
   getCompletedBackgroundBashError,

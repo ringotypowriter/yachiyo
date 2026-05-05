@@ -23,10 +23,10 @@ import {
 import {
   saveFileAttachmentsToWorkspace,
   saveImageFilesToWorkspace
-} from '../../attachmentDomain.ts'
-import { assertSupportedImages, resolveEnabledTools } from '../../configDomain.ts'
-import { DEFAULT_THREAD_TITLE } from '../../shared.ts'
-import { buildTitleQuery, deriveThreadTitleFallback } from '../../threadTitle.ts'
+} from '../../attachments/attachmentDomain.ts'
+import { assertSupportedImages, resolveEnabledTools } from '../../config/configDomain.ts'
+import { DEFAULT_THREAD_TITLE } from '../../shared/shared.ts'
+import { buildTitleQuery, deriveThreadTitleFallback } from '../../threads/threadTitle.ts'
 import type { RunDomainDeps, RunState } from '../runTypes.ts'
 import type { ThreadTitleGenerationRunner } from '../title/threadTitleGeneration.ts'
 import {

@@ -9,7 +9,7 @@ import type {
   SubagentProfile,
   TestSubagentProfileResult
 } from '../../../../shared/yachiyo/protocol.ts'
-import { readLoginShellEnvSync, mergeShellEnv } from '../../../userShellEnv.ts'
+import { readLoginShellEnvSync, mergeShellEnv } from '../../../electron/userShellEnv.ts'
 import { filterJsonLines } from './spawnUtils.ts'
 
 const TEST_TIMEOUT_MS = 60_000

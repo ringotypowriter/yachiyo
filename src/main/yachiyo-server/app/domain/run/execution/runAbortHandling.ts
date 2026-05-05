@@ -10,7 +10,7 @@ import { wouldCreateParentCycle } from '../../../../../../shared/yachiyo/threadT
 import type { ModelUsage } from '../../../../runtime/types.ts'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 import type { RunPerfCollector } from '../../../../services/perfMonitor.ts'
-import { balanceRecoveryResponseMessages, type RecoveryResponseMessage } from '../../runRecovery.ts'
+import { balanceRecoveryResponseMessages, type RecoveryResponseMessage } from '../runRecovery.ts'
 import { usageFieldsFrom } from '../runUsageFields.ts'
 import { finishPendingToolCalls } from '../tools/toolCallLifecycle.ts'
 import { finalizeRunSnapshot } from './runSnapshotFinalize.ts'

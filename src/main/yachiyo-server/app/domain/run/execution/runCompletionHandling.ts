@@ -9,7 +9,7 @@ import type {
 import type { ModelUsage } from '../../../../runtime/types.ts'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 import type { RunPerfCollector } from '../../../../services/perfMonitor.ts'
-import type { RecoveryResponseMessage } from '../../runRecovery.ts'
+import type { RecoveryResponseMessage } from '../runRecovery.ts'
 import { balanceResponseMessages } from '../context/runHistory.ts'
 import { bindCompletedToolCallsToAssistant } from '../tools/toolCallLifecycle.ts'
 import { finalizeRunSnapshot } from './runSnapshotFinalize.ts'

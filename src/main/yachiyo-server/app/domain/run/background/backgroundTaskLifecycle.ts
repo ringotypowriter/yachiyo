@@ -7,7 +7,7 @@ import type {
   ToolCallRecord,
   ToolCallUpdatedEvent
 } from '../../../../../../shared/yachiyo/protocol.ts'
-import type { BackgroundBashTaskResult } from '../../backgroundBashManager.ts'
+import type { BackgroundBashTaskResult } from '../../background/backgroundBashManager.ts'
 import type { BackgroundTaskRunContext, RunDomainDeps } from '../runTypes.ts'
 import {
   buildBackgroundCompletionMessage,
