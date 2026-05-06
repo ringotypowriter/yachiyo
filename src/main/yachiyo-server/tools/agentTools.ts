@@ -420,8 +420,7 @@ export function normalizeToolResult(
     typedOutput.details.background === true
 
   return {
-    status:
-      phase === 'update' ? 'running' : isBackground ? 'background' : error ? 'failed' : 'completed',
+    status: phase === 'update' ? 'running' : error ? 'failed' : 'completed',
     outputSummary: isBackground
       ? `background: ${(typedOutput.details as { taskId?: string }).taskId ?? 'unknown'}`
       : summarizeToolOutput(toolName, output, { phase }),

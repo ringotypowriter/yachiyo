@@ -74,7 +74,7 @@ export function handleBackgroundBashCompleted(
     if (result.toolCallId) {
       const toolCalls = context.deps.loadThreadToolCalls(result.threadId)
       const tc = toolCalls.find((t) => t.id === result.toolCallId)
-      if (tc) {
+      if (tc?.status === 'background') {
         const baseDetails =
           tc.details && typeof tc.details === 'object'
             ? (tc.details as unknown as Record<string, unknown>)

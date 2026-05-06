@@ -1127,7 +1127,7 @@ test('runWebSearchTool maps provider-neutral search results into structured deta
   assert.match(flattenToolContent(result.content), /Snippet: Search result snippet\./)
 })
 
-test('normalizeToolResult returns background status for background bash output', () => {
+test('normalizeToolResult completes background bash launch output', () => {
   const output = {
     content: [{ type: 'text' as const, text: '{"taskId":"bg-123","logPath":"/tmp/bg.log"}' }],
     details: {
@@ -1143,7 +1143,7 @@ test('normalizeToolResult returns background status for background bash output',
   }
 
   const normalized = normalizeToolResult('bash', output)
-  assert.equal(normalized.status, 'background')
+  assert.equal(normalized.status, 'completed')
   assert.equal(normalized.outputSummary, 'background: bg-123')
   assert.equal(normalized.cwd, '/workspace')
   assert.equal(normalized.error, undefined)

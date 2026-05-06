@@ -251,7 +251,14 @@ export function createToolProgressReporter(
 
     if (toolCall.status === 'preparing' || toolCall.status === 'running') {
       allTools.set(toolCall.id, tracked)
-    } else if (toolCall.status === 'completed' || toolCall.status === 'failed') {
+    } else if (
+      toolCall.status === 'completed' ||
+      toolCall.status === 'failed' ||
+      toolCall.status === 'background'
+    ) {
+      if (toolCall.status === 'background') {
+        tracked.status = 'completed'
+      }
       const existing = allTools.get(toolCall.id)
       if (existing) {
         Object.assign(existing, tracked)
@@ -268,7 +275,7 @@ export function createToolProgressReporter(
 
   async function flush(): Promise<void> {
     const active = [...allTools.values()].filter(
-      (t) => t.status === 'preparing' || t.status === 'running' || t.status === 'background'
+      (t) => t.status === 'preparing' || t.status === 'running'
     )
     const completed = [...completedSinceLastReport.values()]
     completedSinceLastReport.clear()

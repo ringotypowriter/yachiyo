@@ -37,8 +37,7 @@ export function ToolCallRow({ toolCall, workspacePath }: ToolCallRowProps): Reac
 
   const isPreparing = toolCall.status === 'preparing'
   const isRunning = toolCall.status === 'running'
-  const isBackground = toolCall.status === 'background'
-  const isActive = isPreparing || isRunning || isBackground
+  const isActive = isPreparing || isRunning
   const isFailed = toolCall.status === 'failed'
   const dotColor = isFailed
     ? theme.status.danger

@@ -26,11 +26,9 @@ export function ToolCallGroupRow({
 }: ToolCallGroupRowProps): React.JSX.Element {
   const [isExpanded, setIsExpanded] = useState(false)
 
-  // A `background` bash call has returned its handle but the subprocess is still running,
-  // so the group should keep its in-progress affordance until that subprocess finishes.
-  const allDone = toolCalls.every(
-    (tc) => tc.status !== 'preparing' && tc.status !== 'running' && tc.status !== 'background'
-  )
+  // A `background` bash call has already returned its handle. The subprocess
+  // is tracked separately by the background-task panel.
+  const allDone = toolCalls.every((tc) => tc.status !== 'preparing' && tc.status !== 'running')
   const lastToolCall = toolCalls[toolCalls.length - 1]
   const lastFailed = lastToolCall?.status === 'failed'
 

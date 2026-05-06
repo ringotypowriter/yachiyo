@@ -245,7 +245,142 @@ test('prepareServerRunContext persists consumed activity for replay', async () =
   }
 })
 
-test('executeServerRun keeps an explicit background bash completed when completion wins the race', async () => {
+test('executeServerRun completes the launch tool call when background bash starts', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-bg-launch-'))
+  const thread: ThreadRecord = {
+    id: 'thread-bg-launch',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-bg-launch',
+    threadId: thread.id,
+    role: 'user',
+    content: 'run it in background',
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const events: unknown[] = []
+  const toolCalls = new Map<string, ToolCallRecord>()
+  const baseDeps = createRunContextDeps({
+    events,
+    messages: [requestMessage],
+    workspacePath: root
+  })
+  const logPath = join(root, '.yachiyo', 'tool-output', 'tc-bg-launch.log')
+  const backgroundOutput = {
+    content: [{ type: 'text' as const, text: JSON.stringify({ taskId: 'tc-bg-launch', logPath }) }],
+    details: {
+      command: 'sleep 10',
+      cwd: root,
+      stdout: '',
+      stderr: '',
+      background: true,
+      taskId: 'tc-bg-launch',
+      logPath
+    },
+    metadata: { cwd: root }
+  }
+  const storage: RunExecutionDeps['storage'] = {
+    ...baseDeps.storage,
+    updateMessage: () => {},
+    getChannelUser: () => undefined,
+    persistResponseMessagesRepairInBackground: () => {},
+    listThreadRuns: () => [],
+    upsertRunRecoveryCheckpoint: () => {},
+    deleteRunRecoveryCheckpoint: () => {},
+    createToolCall: (toolCall: ToolCallRecord) => {
+      toolCalls.set(toolCall.id, toolCall)
+    },
+    updateToolCall: (toolCall: ToolCallRecord) => {
+      toolCalls.set(toolCall.id, toolCall)
+    },
+    listThreadToolCalls: () => [...toolCalls.values()],
+    completeRun: () => {},
+    cancelRun: () => {},
+    failRun: () => {},
+    saveThreadMessage: () => {},
+    updateRunSnapshot: () => {}
+  }
+  const deps: RunExecutionDeps = {
+    ...baseDeps,
+    storage,
+    loadThreadToolCalls: () => [...toolCalls.values()],
+    createModelRuntime: () => ({
+      streamReply: async function* (request) {
+        const toolCall = {
+          type: 'tool-call',
+          dynamic: true,
+          toolCallId: 'tc-bg-launch',
+          toolName: 'bash',
+          input: { command: 'sleep 10', timeout: 1, background: true }
+        }
+
+        request.onToolCallStart?.({
+          abortSignal: request.signal,
+          messages: request.messages,
+          toolCall
+        } as never)
+
+        request.onToolCallFinish?.({
+          abortSignal: request.signal,
+          durationMs: 0,
+          experimental_context: undefined,
+          functionId: undefined,
+          metadata: undefined,
+          model: undefined,
+          messages: request.messages,
+          output: backgroundOutput,
+          stepNumber: undefined,
+          success: true,
+          toolCall
+        } as never)
+
+        yield 'Started.'
+        request.onFinish?.({
+          promptTokens: 1,
+          completionTokens: 1,
+          totalPromptTokens: 1,
+          totalCompletionTokens: 1
+        })
+      }
+    })
+  }
+
+  try {
+    const result = await executeServerRun(deps, {
+      enabledTools: ['bash'],
+      inactivityTimeoutMs: 30_000,
+      runTrigger: 'local',
+      runId: 'run-bg-launch',
+      thread,
+      requestMessageId: requestMessage.id,
+      abortController: new AbortController(),
+      updateHeadOnComplete: true,
+      previousEnabledTools: null
+    })
+
+    assert.equal(result.kind, 'completed')
+    const finalToolCall = toolCalls.get('tc-bg-launch')
+    assert.equal(finalToolCall?.status, 'completed')
+    assert.equal(finalToolCall?.outputSummary, 'background: tc-bg-launch')
+    assert.equal((finalToolCall?.details as { background?: boolean } | undefined)?.background, true)
+    assert.equal((finalToolCall?.details as { exitCode?: number } | undefined)?.exitCode, undefined)
+
+    const toolEvents = events.filter(
+      (event): event is { type: string; toolCall: ToolCallRecord } =>
+        typeof event === 'object' &&
+        event !== null &&
+        (event as { type?: unknown }).type === 'tool.updated'
+    )
+    assert.equal(toolEvents.at(-1)?.toolCall.status, 'completed')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('executeServerRun keeps background bash launch completion separate from task exit race', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-bg-race-'))
   const thread: ThreadRecord = {
     id: 'thread-bg-race',
@@ -374,15 +509,15 @@ test('executeServerRun keeps an explicit background bash completed when completi
     assert.equal(result.kind, 'completed')
     const finalToolCall = toolCalls.get('tc-bg')
     assert.equal(finalToolCall?.status, 'completed')
-    assert.equal(finalToolCall?.outputSummary, 'exit 0')
-    assert.equal((finalToolCall?.details as { exitCode?: number } | undefined)?.exitCode, 0)
-    assert.equal(finalToolCall?.finishedAt, '2026-04-28T00:00:01.000Z')
+    assert.equal(finalToolCall?.outputSummary, 'background: tc-bg')
+    assert.equal((finalToolCall?.details as { exitCode?: number } | undefined)?.exitCode, undefined)
+    assert.equal(finalToolCall?.finishedAt, '2026-04-28T00:00:00.000Z')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
-test('executeServerRun resolves a background bash handle from a completed task snapshot', async () => {
+test('executeServerRun ignores completed background task snapshots for launch tool calls', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-bg-snapshot-'))
   const thread: ThreadRecord = {
     id: 'thread-bg-snapshot',
@@ -516,8 +651,8 @@ test('executeServerRun resolves a background bash handle from a completed task s
     assert.equal(result.kind, 'completed')
     const finalToolCall = toolCalls.get('tc-bg-snapshot')
     assert.equal(finalToolCall?.status, 'completed')
-    assert.equal(finalToolCall?.outputSummary, 'exit 0')
-    assert.equal((finalToolCall?.details as { exitCode?: number } | undefined)?.exitCode, 0)
+    assert.equal(finalToolCall?.outputSummary, 'background: tc-bg-snapshot')
+    assert.equal((finalToolCall?.details as { exitCode?: number } | undefined)?.exitCode, undefined)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
