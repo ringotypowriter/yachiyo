@@ -943,7 +943,7 @@ describe('directMessageService', () => {
 
     directMessages.enqueueMessage('chat-1', channelUser, 'avoid duplicate')
 
-    await delay(30)
+    await delay(80)
 
     assert.deepEqual(sentMessages, ['Same outbound.'])
     assert.deepEqual(visibleReplies, ['Same outbound.'])

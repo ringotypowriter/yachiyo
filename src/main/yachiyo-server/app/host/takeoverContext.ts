@@ -15,9 +15,10 @@ import { DEFAULT_THREAD_TITLE } from '../domain/shared/shared.ts'
 
 const TAKEOVER_MESSAGE_LIMIT = 6
 
-const TAKEOVER_TOOL_LIMIT = 6
+const TAKEOVER_TOOL_LIMIT = 3
 const TAKEOVER_MESSAGE_TEXT_LIMIT = 500
 const TAKEOVER_RECAP_TEXT_LIMIT = 1_800
+const TAKEOVER_LAST_REPLY_TEXT_LIMIT = 800
 const TAKEOVER_TOOL_TEXT_LIMIT = 140
 export const TAKEOVER_SECTION_DIVIDER = '---'
 
@@ -44,6 +45,20 @@ function truncateForTakeover(text: string, limit: number): string {
     return trimmed
   }
   return `${trimmed.slice(0, Math.max(0, limit - 3)).trimEnd()}...`
+}
+
+function truncateHeadTailForTakeover(text: string, limit: number): string {
+  const trimmed = text.trim()
+  if (trimmed.length <= limit) {
+    return trimmed
+  }
+  const ellipsis = '\n…\n'
+  const budget = limit - ellipsis.length
+  const headBudget = Math.ceil(budget * 0.6)
+  const tailBudget = budget - headBudget
+  const head = trimmed.slice(0, headBudget).trimEnd()
+  const tail = trimmed.slice(-tailBudget).trimStart()
+  return `${head}${ellipsis}${tail}`
 }
 
 function compactForTakeover(text: string, limit: number): string {
@@ -189,6 +204,16 @@ export function formatOwnerDmTakeoverContext(input: {
     )
   } else if (!recap) {
     appendTakeoverSection(lines, 'Recent conversation:', ['No visible conversation yet.'])
+  }
+
+  const lastAssistantMessage = [...messages].reverse().find((m) => m.role === 'assistant')
+  if (lastAssistantMessage) {
+    const replyText = visibleTakeoverMessageText(lastAssistantMessage)
+    if (replyText) {
+      appendTakeoverSection(lines, 'Last reply:', [
+        truncateHeadTailForTakeover(replyText, TAKEOVER_LAST_REPLY_TEXT_LIMIT)
+      ])
+    }
   }
 
   if (toolCalls.length > 0) {
