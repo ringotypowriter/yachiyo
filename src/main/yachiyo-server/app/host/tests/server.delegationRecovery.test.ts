@@ -491,6 +491,7 @@ test('YachiyoServer merges stale checkpoint transcripts with completed delegated
         }
       ],
       enabledTools: ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'webRead', 'webSearch'],
+      runTrigger: 'local',
       updateHeadOnComplete: true,
       createdAt,
       updatedAt: interruptedAt,
@@ -749,6 +750,7 @@ test('YachiyoServer keeps recovered response history when the provider retries m
         }
       ],
       enabledTools: ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'webRead', 'webSearch'],
+      runTrigger: 'local',
       updateHeadOnComplete: true,
       createdAt,
       updatedAt: interruptedAt,

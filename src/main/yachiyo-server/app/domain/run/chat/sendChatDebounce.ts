@@ -4,6 +4,7 @@ import type {
   MessageRecord,
   SendChatInput,
   SendChatMode,
+  SendChatRunTrigger,
   ToolCallName
 } from '../../../../../../shared/yachiyo/protocol.ts'
 
@@ -25,6 +26,7 @@ export function createDebouncedSendChatKey(input: {
   images: MessageRecord['images']
   mode: SendChatMode
   reasoningEffort?: ComposerReasoningSelection
+  runTrigger: SendChatRunTrigger
   threadId: string
 }): string | null {
   if (input.extraTools) {
@@ -49,6 +51,7 @@ export function createDebouncedSendChatKey(input: {
     })),
     mode: input.mode,
     reasoningEffort: input.reasoningEffort ?? null,
+    runTrigger: input.runTrigger,
     threadId: input.threadId
   })
 }

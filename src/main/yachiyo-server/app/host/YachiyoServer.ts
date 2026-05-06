@@ -925,7 +925,6 @@ export class YachiyoServer {
 
     const updatedThread = withThreadCapabilities({
       ...thread,
-      source: input.channelUser.platform,
       channelUserId: input.channelUser.id,
       channelUserRole: input.channelUser.role,
       updatedAt: this.timestamp()

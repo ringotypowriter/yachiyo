@@ -349,6 +349,7 @@ describe('directMessageService', () => {
         content: string
         images?: { dataUrl: string; mediaType: string; filename?: string; workspacePath?: string }[]
         enabledTools?: string[]
+        runTrigger?: string
         channelHint?: string
         extraTools?: Record<string, unknown>
       }): Promise<ChatAcceptedWithUserMessage> {
@@ -357,6 +358,7 @@ describe('directMessageService', () => {
         assert.equal(input.content, 'hello\nagain')
         assert.deepEqual(input.images, undefined)
         assert.deepEqual(input.enabledTools, telegramPolicy.allowedTools)
+        assert.equal(input.runTrigger, 'channel')
         assert.equal(input.channelHint, telegramPolicy.replyInstruction)
         queueMicrotask(() => {
           const messageDelta: MessageDeltaEvent = {

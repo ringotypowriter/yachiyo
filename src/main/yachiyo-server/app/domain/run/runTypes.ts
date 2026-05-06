@@ -3,6 +3,7 @@ import type {
   MessageFileAttachment,
   MessageRecord,
   ProviderSettings,
+  SendChatRunTrigger,
   SkillCatalogEntry,
   SettingsConfig,
   ThreadRecord,
@@ -26,6 +27,7 @@ export interface RunState {
   requestMessageId?: string
   enabledSkillNames?: string[]
   reasoningEffort?: ComposerReasoningSelection
+  runTrigger?: SendChatRunTrigger
   channelHint?: string
   recoveryCheckpoint?: RunRecoveryCheckpoint
   abortController: AbortController
@@ -40,6 +42,7 @@ export interface RunState {
     hidden?: boolean
     previousEnabledSkillNames?: string[]
     previousReasoningEffort?: ComposerReasoningSelection
+    previousRunTrigger?: SendChatRunTrigger
   }
   executionPhase: 'generating' | 'tool-running' | 'waiting-for-user'
   updateHeadOnComplete: boolean
@@ -82,6 +85,7 @@ export interface BackgroundTaskRunContext {
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
   reasoningEffort?: ComposerReasoningSelection
+  runTrigger: SendChatRunTrigger
   channelHint?: string
   extraTools?: import('ai').ToolSet
 }

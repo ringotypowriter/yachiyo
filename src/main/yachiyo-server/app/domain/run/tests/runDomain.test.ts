@@ -5,6 +5,8 @@ import type {
   ComposerReasoningSelection,
   ThreadRecord
 } from '../../../../../../shared/yachiyo/protocol.ts'
+import type { RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
+import { startRecoveredRun } from '../active/activeRunStart.ts'
 import { sendActiveRunSteer, type SendChatFlowContext } from '../chat/sendChatFlow.ts'
 import { YachiyoServerRunDomain } from '../runDomain.ts'
 
@@ -53,6 +55,7 @@ test('withdrawPendingSteer restores the reasoning effort replaced by the steer',
     requestMessageId: 'user-1',
     enabledSkillNames: ['original-skill'],
     reasoningEffort: 'medium' as ComposerReasoningSelection,
+    runTrigger: 'channel' as const,
     abortController: new AbortController(),
     executionPhase: 'generating' as const,
     updateHeadOnComplete: true
@@ -82,6 +85,7 @@ test('withdrawPendingSteer restores the reasoning effort replaced by the steer',
       content: 'steer',
       enabledSkillNames: ['steer-skill'],
       reasoningEffort: 'high',
+      runTrigger: 'local',
       images: [],
       attachments: [],
       messageId: 'steer-1',
@@ -90,9 +94,60 @@ test('withdrawPendingSteer restores the reasoning effort replaced by the steer',
   )
 
   assert.equal(activeRun.reasoningEffort, 'high')
+  assert.equal(activeRun.runTrigger, 'local')
 
   domain.withdrawPendingSteer(thread.id)
 
   assert.deepEqual(activeRun.enabledSkillNames, ['original-skill'])
   assert.equal(activeRun.reasoningEffort, 'medium')
+  assert.equal(activeRun.runTrigger, 'channel')
+})
+
+test('startRecoveredRun restores the persisted run trigger instead of deriving from channel hint', () => {
+  const thread: ThreadRecord = {
+    id: 'thread-recovered',
+    title: 'Recovered',
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  }
+  const activeRuns = new Map()
+  const activeRunByThread = new Map<string, string>()
+  const runLoopInputs: Array<{ runTrigger?: string }> = []
+  const checkpoint = {
+    runId: 'run-recovered',
+    threadId: thread.id,
+    requestMessageId: 'user-recovered',
+    assistantMessageId: 'assistant-recovered',
+    content: 'partial',
+    enabledTools: ['read'],
+    runTrigger: 'local',
+    channelHint: '<channel_reply_instruction>reply outside local app</channel_reply_instruction>',
+    updateHeadOnComplete: true,
+    createdAt: '2026-05-02T00:00:00.000Z',
+    updatedAt: '2026-05-02T00:00:01.000Z',
+    recoveryAttempts: 1
+  } as unknown as RunRecoveryCheckpoint
+
+  startRecoveredRun(
+    {
+      deps: {
+        requireThread: () => thread,
+        loadThreadToolCalls: () => [],
+        emit: () => {}
+      } as unknown as Parameters<typeof startRecoveredRun>[0]['deps'],
+      activeRuns,
+      activeRunByThread,
+      activeRunTasks: new Map(),
+      isClosing: () => false,
+      runLoop: async (input) => {
+        runLoopInputs.push({ runTrigger: input.runTrigger })
+      },
+      threadTitleRunner: { schedule: () => {} } as unknown as Parameters<
+        typeof startRecoveredRun
+      >[0]['threadTitleRunner']
+    },
+    checkpoint
+  )
+
+  assert.equal(activeRuns.get('run-recovered')?.runTrigger, 'local')
+  assert.equal(runLoopInputs[0]?.runTrigger, 'local')
 })

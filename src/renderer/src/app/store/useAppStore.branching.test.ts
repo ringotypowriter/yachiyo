@@ -285,6 +285,50 @@ test('compactThreadToAnotherThread blocks owner DM threads before IPC', async ()
   }
 })
 
+test('compactThreadToAnotherThread allows took-over owner DM threads', async () => {
+  resetStore()
+
+  const calls: string[] = []
+  const restoreWindow = withWindowApiMock({
+    compactThreadToAnotherThread: async (input) => {
+      calls.push(input.threadId)
+      return {
+        runId: 'run-compact-owner-dm',
+        sourceThreadId: input.threadId,
+        thread: {
+          id: 'handoff-thread',
+          title: 'New Chat',
+          updatedAt: TIMESTAMP
+        }
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'owner-dm-thread',
+      threads: [
+        {
+          id: 'owner-dm-thread',
+          title: 'Owner DM',
+          updatedAt: TIMESTAMP,
+          channelUserId: 'tg-owner',
+          channelUserRole: 'owner'
+        }
+      ]
+    })
+
+    await useAppStore.getState().compactThreadToAnotherThread()
+
+    const state = useAppStore.getState()
+    assert.deepEqual(calls, ['owner-dm-thread'])
+    assert.equal(state.activeThreadId, 'handoff-thread')
+    assert.equal(state.activeRunId, 'run-compact-owner-dm')
+  } finally {
+    restoreWindow()
+  }
+})
+
 test('sendMessage keeps draft text and images when the first send fails after auto-creating a thread', async () => {
   resetStore()
 

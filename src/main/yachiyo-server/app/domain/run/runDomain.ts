@@ -419,6 +419,7 @@ export class YachiyoServerRunDomain {
       enabledTools,
       enabledSkillNames,
       reasoningEffort: input.reasoningEffort,
+      runTrigger: 'local',
       runId: accepted.runId,
       thread: accepted.thread,
       requestMessageId: requestMessage.id,
@@ -501,6 +502,7 @@ export class YachiyoServerRunDomain {
       return new Promise<string | null>((resolve) => {
         startActiveRun(this.createActiveRunStartContext(), {
           enabledTools,
+          runTrigger: 'local',
           runId,
           thread,
           requestMessageId: messageId,
@@ -623,6 +625,7 @@ export class YachiyoServerRunDomain {
             enabledTools: input.enabledTools,
             enabledSkillNames: activeRun.enabledSkillNames ?? input.enabledSkillNames,
             reasoningEffort: activeRun.reasoningEffort ?? input.reasoningEffort,
+            runTrigger: activeRun.runTrigger ?? input.runTrigger,
             inactivityTimeoutMs: this.deps.runInactivityTimeoutMs,
             channelHint: activeRun.channelHint ?? input.channelHint,
             extraTools: input.extraTools,

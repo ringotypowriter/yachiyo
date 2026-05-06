@@ -534,6 +534,7 @@ export function createDirectMessageService<TTarget>(
         content: text,
         images: images.length > 0 ? images : undefined,
         enabledTools: options.policy.allowedTools,
+        runTrigger: 'channel',
         channelHint: userLabelHint + options.policy.replyInstruction,
         extraTools: { reply: replyTool }
       })

@@ -9,6 +9,7 @@ import type {
   RecallDecisionSnapshot,
   RunContextCompiledEvent,
   RunMemoryRecalledEvent,
+  SendChatRunTrigger,
   SettingsConfig,
   SkillCatalogEntry,
   SkillSummary,
@@ -122,6 +123,7 @@ export interface PreparedServerRunContext {
   isExternalChannel: boolean
   isGuest: boolean
   isOwnerDm: boolean
+  isLocalRunTrigger: boolean
   hiddenQueryReminder?: string
   memoryEntries: string[]
   recallDecision?: RecallDecisionSnapshot
@@ -139,6 +141,7 @@ export interface PrepareServerRunContextInput {
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
   reasoningEffort?: ComposerReasoningSelection
+  runTrigger: SendChatRunTrigger
   channelHint?: string
   abortController: AbortController
   recoveryCheckpoint?: RunRecoveryCheckpoint
@@ -169,13 +172,13 @@ export async function prepareServerRunContext(
     ? await deps.readSoulDocument()
     : await readSoulDocument()
   const isExternalChannel = input.thread.source != null && input.thread.source !== 'local'
-  const channelUser =
-    isExternalChannel && input.thread.channelUserId
-      ? deps.storage.getChannelUser(input.thread.channelUserId)
-      : undefined
+  const channelUser = input.thread.channelUserId
+    ? deps.storage.getChannelUser(input.thread.channelUserId)
+    : undefined
   const isGuest = isExternalChannel && (channelUser?.role ?? 'guest') !== 'owner'
-  const isOwnerDm = isExternalChannel && !isGuest && !input.thread.channelGroupId
-  if (isExternalChannel) {
+  const isOwnerDm = channelUser?.role === 'owner' && !input.thread.channelGroupId
+  const isLocalRunTrigger = input.runTrigger === 'local'
+  if (isExternalChannel || isOwnerDm) {
     console.log(
       `[yachiyo] external channel run: user=${channelUser?.username ?? 'unknown'}, role=${channelUser?.role ?? 'guest'}, isGuest=${isGuest}, isOwnerDm=${isOwnerDm}`
     )
@@ -432,7 +435,7 @@ export async function prepareServerRunContext(
                 isUserSpecifiedWorkspace: !!input.thread.workspacePath?.trim()
               }),
               ...(isOwnerDm && input.channelHint?.trim() ? [input.channelHint.trim()] : []),
-              ...(!isExternalChannel
+              ...(isLocalRunTrigger
                 ? [
                     'Mermaid diagrams in ```mermaid code blocks are rendered as interactive diagrams in this conversation. Write Mermaid code directly — do not suggest the user open it in an external tool.'
                   ]
@@ -516,6 +519,7 @@ export async function prepareServerRunContext(
     isExternalChannel,
     isGuest,
     isOwnerDm,
+    isLocalRunTrigger,
     hiddenQueryReminder,
     memoryEntries,
     ...(recallDecision ? { recallDecision } : {}),

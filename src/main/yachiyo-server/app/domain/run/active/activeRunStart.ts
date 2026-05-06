@@ -7,6 +7,7 @@ import type {
   MessageRecord,
   MessageStartedEvent,
   RunCreatedEvent,
+  SendChatRunTrigger,
   ThreadRecord,
   ToolCallUpdatedEvent,
   ToolCallName
@@ -20,6 +21,7 @@ export interface ActiveRunLoopInput {
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
   reasoningEffort?: ComposerReasoningSelection
+  runTrigger: SendChatRunTrigger
   channelHint?: string
   extraTools?: ToolSet
   recoveryCheckpoint?: RunRecoveryCheckpoint
@@ -57,6 +59,7 @@ export function startActiveRun(context: ActiveRunStartContext, input: StartActiv
     requestMessageId: input.requestMessageId,
     ...(input.enabledSkillNames ? { enabledSkillNames: [...input.enabledSkillNames] } : {}),
     ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
+    runTrigger: input.runTrigger,
     ...(input.channelHint ? { channelHint: input.channelHint } : {}),
     ...(input.recoveryCheckpoint ? { recoveryCheckpoint: input.recoveryCheckpoint } : {}),
     abortController: new AbortController(),
@@ -70,6 +73,7 @@ export function startActiveRun(context: ActiveRunStartContext, input: StartActiv
     enabledTools: input.enabledTools,
     enabledSkillNames: input.enabledSkillNames,
     reasoningEffort: input.reasoningEffort,
+    runTrigger: input.runTrigger,
     channelHint: input.channelHint,
     extraTools: input.extraTools,
     recoveryCheckpoint: input.recoveryCheckpoint,
@@ -144,6 +148,7 @@ export function startRecoveredRun(
     ...(checkpoint.reasoningEffort !== undefined
       ? { reasoningEffort: checkpoint.reasoningEffort }
       : {}),
+    runTrigger: checkpoint.runTrigger,
     ...(checkpoint.channelHint ? { channelHint: checkpoint.channelHint } : {}),
     recoveryCheckpoint: checkpoint,
     abortController: new AbortController(),
@@ -156,6 +161,7 @@ export function startRecoveredRun(
     enabledTools: checkpoint.enabledTools,
     enabledSkillNames: checkpoint.enabledSkillNames,
     reasoningEffort: checkpoint.reasoningEffort,
+    runTrigger: checkpoint.runTrigger,
     channelHint: checkpoint.channelHint,
     recoveryCheckpoint: checkpoint,
     runId: checkpoint.runId,

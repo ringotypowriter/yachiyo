@@ -96,19 +96,24 @@ function createMockServer(): {
       title?: string
     }) => Promise<ThreadRecord>
     setThreadModelOverride: () => Promise<ThreadRecord>
-    sendChat: (input: { threadId: string; content: string }) => Promise<{ runId: string }>
+    sendChat: (input: { threadId: string; content: string; runTrigger?: string }) => Promise<{
+      runId: string
+    }>
     setThreadIcon: () => Promise<ThreadRecord>
     archiveThread: () => Promise<void>
     showNotification: (input: { title: string; body?: string }) => void
     subscribe: (listener: (event: YachiyoServerEvent) => void) => () => void
   }
   notifications: Array<{ title: string; body?: string }>
+  sentChats: Array<{ threadId: string; content: string; runTrigger?: string }>
 } {
   const listeners = new Set<(event: YachiyoServerEvent) => void>()
   const notifications: Array<{ title: string; body?: string }> = []
+  const sentChats: Array<{ threadId: string; content: string; runTrigger?: string }> = []
 
   return {
     notifications,
+    sentChats,
     server: {
       createThread: async ({ workspacePath, title }) => ({
         id: 'thread-1',
@@ -122,14 +127,15 @@ function createMockServer(): {
         title: 'Schedule: One-off',
         updatedAt: '2026-01-01T00:00:00.000Z'
       }),
-      sendChat: async ({ threadId }) => {
+      sendChat: async (input) => {
+        sentChats.push(input)
         queueMicrotask(() => {
           for (const listener of listeners) {
             listener({
               type: 'run.completed',
               eventId: 'event-1',
               timestamp: '2026-01-01T00:00:01.000Z',
-              threadId,
+              threadId: input.threadId,
               runId: 'run-1',
               promptTokens: 11,
               completionTokens: 7
@@ -236,7 +242,7 @@ describe('createScheduleService', () => {
     mock.timers.enable({ apis: ['Date', 'setTimeout'] })
 
     try {
-      const { server, notifications } = createMockServer()
+      const { server, notifications, sentChats } = createMockServer()
       const service = createScheduleService({
         server,
         storage,
@@ -268,6 +274,7 @@ describe('createScheduleService', () => {
       assert.equal(storage.schedules.get('schedule-1')?.enabled, false)
       assert.deepEqual(storage.deletedScheduleIds, [])
       assert.equal(notifications.length, 1)
+      assert.equal(sentChats[0]?.runTrigger, 'local')
     } finally {
       fetchRestore.mock.restore()
       mock.timers.reset()

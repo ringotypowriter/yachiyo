@@ -242,6 +242,7 @@ export async function executeServerRun(
         ? { enabledSkillNames: input.enabledSkillNames }
         : {}),
       ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
+      runTrigger: input.runTrigger,
       ...(input.channelHint ? { channelHint: input.channelHint } : {}),
       abortController: input.abortController,
       ...(input.recoveryCheckpoint ? { recoveryCheckpoint: input.recoveryCheckpoint } : {}),

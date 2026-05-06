@@ -84,6 +84,11 @@ export function withdrawPendingSteer(context: ActiveRunControlContext, threadId:
   } else {
     delete activeRun.reasoningEffort
   }
+  if (activeRun.pendingSteerInput.previousRunTrigger !== undefined) {
+    activeRun.runTrigger = activeRun.pendingSteerInput.previousRunTrigger
+  } else {
+    delete activeRun.runTrigger
+  }
   activeRun.pendingSteerInput = undefined
   activeRun.pendingSteerMessageId = undefined
 }

@@ -130,6 +130,7 @@ export function buildRunExecutionDeps(
         activeRunId: input.loopInput.runId,
         content: steerInput.content,
         enabledSkillNames: activeRun.enabledSkillNames,
+        runTrigger: input.loopInput.runTrigger,
         images: [],
         attachments: [],
         messageId: deps.createId(),
@@ -211,6 +212,7 @@ function buildBackgroundTaskRunContext(input: ActiveRunLoopInput): BackgroundTas
     enabledTools: input.enabledTools,
     ...(input.enabledSkillNames ? { enabledSkillNames: input.enabledSkillNames } : {}),
     ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
+    runTrigger: input.runTrigger,
     ...(input.channelHint ? { channelHint: input.channelHint } : {}),
     ...(input.extraTools ? { extraTools: input.extraTools } : {})
   }

@@ -101,6 +101,7 @@ export type ProviderKind =
 export type ActiveRunEnterBehavior = 'enter-steers' | 'enter-queues-follow-up'
 export type SidebarVisibility = 'expanded' | 'collapsed'
 export type SendChatMode = 'normal' | 'steer' | 'follow-up'
+export type SendChatRunTrigger = 'local' | 'channel'
 export type ToolModelMode = 'disabled' | 'default' | 'custom'
 export type MemoryProviderId = 'builtin-memory' | 'nowledge-mem'
 export type WebReadRequestFormat = 'markdown' | 'html'
@@ -1029,6 +1030,7 @@ export interface SendChatInput {
   enabledSkillNames?: string[]
   reasoningEffort?: ComposerReasoningSelection
   mode?: SendChatMode
+  runTrigger?: SendChatRunTrigger
   /**
    * Optional per-turn hint injected into the hint layer before the model sees
    * the user message. Used by channel integrations (e.g. Telegram) to enforce

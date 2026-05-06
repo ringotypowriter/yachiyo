@@ -7,6 +7,7 @@ import type {
   RecallDecisionSnapshot,
   SettingsConfig,
   SkillCatalogEntry,
+  SendChatRunTrigger,
   ThreadRecord,
   ToolCallName,
   ToolCallRecord
@@ -40,6 +41,7 @@ export interface ExecuteRunInput {
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
   reasoningEffort?: ComposerReasoningSelection
+  runTrigger: SendChatRunTrigger
   channelHint?: string
   extraTools?: ToolSet
   inactivityTimeoutMs: number

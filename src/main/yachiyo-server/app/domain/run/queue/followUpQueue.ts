@@ -2,6 +2,7 @@ import type {
   BootstrapPayload,
   MessageRecord,
   RunCreatedEvent,
+  SendChatRunTrigger,
   ThreadSnapshot,
   ThreadRecord,
   ThreadStateReplacedEvent
@@ -22,6 +23,7 @@ interface PreparedQueuedFollowUpStart {
   createdAt: string
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
+  runTrigger: SendChatRunTrigger
   reasoningEffort?: ThreadRecord['queuedFollowUpReasoningEffort']
   requestMessageId: string
   runId: string
@@ -33,6 +35,7 @@ interface PreparedQueuedFollowUpStart {
 export interface QueuedFollowUpDraft {
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
+  runTrigger: SendChatRunTrigger
   reasoningEffort?: ThreadRecord['queuedFollowUpReasoningEffort']
   userMessage: MessageRecord
 }
@@ -373,6 +376,7 @@ function prepareQueuedFollowUpStart(
   delete updatedThread.queuedFollowUpMessageId
 
   const reasoningEffort = draft?.reasoningEffort ?? thread.queuedFollowUpReasoningEffort
+  const runTrigger = draft?.runTrigger ?? 'local'
 
   const enabledTools = draft
     ? [...draft.enabledTools]
@@ -390,6 +394,7 @@ function prepareQueuedFollowUpStart(
     createdAt: timestamp,
     enabledTools,
     enabledSkillNames,
+    runTrigger,
     ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
     requestMessageId: queuedMessage.id,
     runId,
@@ -436,6 +441,7 @@ function activatePreparedQueuedFollowUp(
   context.startActiveRun({
     enabledTools: prepared.enabledTools,
     enabledSkillNames: prepared.enabledSkillNames,
+    runTrigger: prepared.runTrigger,
     reasoningEffort: prepared.reasoningEffort,
     runId: prepared.runId,
     thread: prepared.thread,

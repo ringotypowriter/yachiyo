@@ -188,6 +188,7 @@ export const runRecoveryCheckpointsTable = sqliteTable(
     enabledTools: text('enabled_tools').notNull(),
     enabledSkillNames: text('enabled_skill_names'),
     reasoningEffort: text('reasoning_effort'),
+    runTrigger: text('run_trigger'),
     channelHint: text('channel_hint'),
     updateHeadOnComplete: text('update_head_on_complete').notNull(),
     createdAt: text('created_at').notNull(),

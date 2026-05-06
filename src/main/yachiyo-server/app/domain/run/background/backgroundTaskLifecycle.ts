@@ -163,6 +163,7 @@ async function autoDeliverBackgroundCompletion(
     ...(ctx?.enabledTools ? { enabledTools: ctx.enabledTools } : {}),
     ...(ctx?.enabledSkillNames ? { enabledSkillNames: ctx.enabledSkillNames } : {}),
     ...(ctx?.reasoningEffort !== undefined ? { reasoningEffort: ctx.reasoningEffort } : {}),
+    ...(ctx?.runTrigger ? { runTrigger: ctx.runTrigger } : {}),
     ...(ctx?.channelHint ? { channelHint: ctx.channelHint } : {}),
     ...(ctx?.extraTools ? { extraTools: ctx.extraTools } : {})
   }

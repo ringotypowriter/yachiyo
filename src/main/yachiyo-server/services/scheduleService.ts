@@ -7,6 +7,7 @@ import { mkdir } from 'node:fs/promises'
 import type {
   ScheduleRecord,
   ScheduleResultStatus,
+  SendChatRunTrigger,
   ThreadRecord,
   YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol.ts'
@@ -28,6 +29,7 @@ export interface ScheduleServerApi {
     content: string
     enabledTools?: string[]
     extraTools?: Record<string, unknown>
+    runTrigger?: SendChatRunTrigger
     channelHint?: string
   }): Promise<{ runId: string }>
   setThreadIcon(input: { threadId: string; icon: string }): Promise<ThreadRecord>
@@ -370,6 +372,7 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
           content,
           enabledTools: schedule.enabledTools,
           extraTools: { reportScheduleResult },
+          runTrigger: 'local',
           channelHint: SCHEDULE_CHANNEL_HINT
         })
         return promise

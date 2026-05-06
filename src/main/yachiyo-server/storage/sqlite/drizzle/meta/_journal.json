@@ -379,6 +379,13 @@
       "when": 1777806815580,
       "tag": "0053_narrow_the_renegades",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "6",
+      "when": 1778063663225,
+      "tag": "0054_wise_sersi",
+      "breakpoints": true
     }
   ]
 }

@@ -153,6 +153,7 @@ export async function streamCompactThreadHandoff(
         requestMessage: handoffRequestMessage,
         historyMessages: [...input.sourceMessages, handoffRequestMessage],
         enabledTools: sourceEnabledTools,
+        runTrigger: 'local',
         ...(sourceTurnContext?.enabledSkillNames !== undefined
           ? { enabledSkillNames: sourceTurnContext.enabledSkillNames }
           : {}),
@@ -207,7 +208,7 @@ export async function streamCompactThreadHandoff(
                 }) => deps.storage.searchThreadsAndMessagesFts(searchInput)
               }
             : {}),
-          ...(!preparedContext.isExternalChannel
+          ...(preparedContext.isLocalRunTrigger
             ? {
                 askUserContext: {
                   waitForUserAnswer: async () => {

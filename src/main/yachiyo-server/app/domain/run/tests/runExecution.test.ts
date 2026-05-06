@@ -159,6 +159,7 @@ test('prepareServerRunContext injects consumed activity and reports it as a cont
         thread,
         requestMessageId: requestMessage.id,
         enabledTools: [],
+        runTrigger: 'local',
         abortController: new AbortController(),
         requestMessage,
         historyMessages: [requestMessage],
@@ -228,6 +229,7 @@ test('prepareServerRunContext persists consumed activity for replay', async () =
         thread,
         requestMessageId: requestMessage.id,
         enabledTools: [],
+        runTrigger: 'local',
         abortController: new AbortController(),
         requestMessage,
         historyMessages: [requestMessage],
@@ -360,6 +362,7 @@ test('executeServerRun keeps an explicit background bash completed when completi
     const result = await executeServerRun(deps, {
       enabledTools: ['bash'],
       inactivityTimeoutMs: 30_000,
+      runTrigger: 'local',
       runId: 'run-bg-race',
       thread,
       requestMessageId: requestMessage.id,
@@ -501,6 +504,7 @@ test('executeServerRun resolves a background bash handle from a completed task s
     const result = await executeServerRun(deps, {
       enabledTools: ['bash'],
       inactivityTimeoutMs: 30_000,
+      runTrigger: 'local',
       runId: 'run-bg-snapshot',
       thread,
       requestMessageId: requestMessage.id,
@@ -577,6 +581,8 @@ test('executeServerRun persists reasoning effort in recovery checkpoints', async
       enabledTools: ['read'],
       inactivityTimeoutMs: 30_000,
       reasoningEffort: 'high',
+      runTrigger: 'local',
+      channelHint: '<channel_reply_instruction>reply outside local app</channel_reply_instruction>',
       runId: 'run-reasoning-checkpoint',
       thread,
       requestMessageId: requestMessage.id,
@@ -587,6 +593,7 @@ test('executeServerRun persists reasoning effort in recovery checkpoints', async
 
     assert.equal(result.kind, 'recovering')
     assert.equal(checkpoints.at(-1)?.reasoningEffort, 'high')
+    assert.equal(checkpoints.at(-1)?.runTrigger, 'local')
   } finally {
     await rm(root, { recursive: true, force: true })
   }

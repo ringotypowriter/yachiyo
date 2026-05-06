@@ -20,6 +20,7 @@ import type {
   ScheduleResultStatus,
   ScheduleRunRecord,
   ScheduleRunStatus,
+  SendChatRunTrigger,
   ThreadModelOverride,
   ThreadColorTag,
   ThreadRuntimeBinding,
@@ -228,6 +229,7 @@ export interface RunRecoveryCheckpoint {
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
   reasoningEffort?: ComposerReasoningSelection
+  runTrigger: SendChatRunTrigger
   channelHint?: string
   updateHeadOnComplete: boolean
   createdAt: string
@@ -248,6 +250,7 @@ export interface StoredRunRecoveryCheckpointRow {
   enabledTools: string
   enabledSkillNames: string | null
   reasoningEffort: string | null
+  runTrigger: string | null
   channelHint: string | null
   updateHeadOnComplete: string
   createdAt: string
@@ -766,6 +769,19 @@ function parseReasoningSelection(value: string | null): ComposerReasoningSelecti
   return isComposerReasoningSelection(value) ? value : undefined
 }
 
+function parseRunTrigger(
+  value: string | null | undefined,
+  channelHint: string | null
+): SendChatRunTrigger {
+  if (value === 'local' || value === 'channel') {
+    return value
+  }
+  if (value == null) {
+    return channelHint ? 'channel' : 'local'
+  }
+  throw new Error(`Invalid run trigger in recovery checkpoint: ${value}`)
+}
+
 function parseThreadMemoryRecallState(value: string | null): ThreadMemoryRecallState | undefined {
   if (value === null) {
     return undefined
@@ -850,6 +866,7 @@ export function toRunRecoveryCheckpoint(
   const enabledTools = parseEnabledTools(row.enabledTools) ?? []
   const enabledSkillNames = parseSkillNames(row.enabledSkillNames)
   const reasoningEffort = parseReasoningSelection(row.reasoningEffort)
+  const runTrigger = parseRunTrigger(row.runTrigger, row.channelHint)
 
   return {
     runId: row.runId,
@@ -863,6 +880,7 @@ export function toRunRecoveryCheckpoint(
     enabledTools,
     ...(enabledSkillNames ? { enabledSkillNames } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
+    runTrigger,
     ...(row.channelHint ? { channelHint: row.channelHint } : {}),
     updateHeadOnComplete: row.updateHeadOnComplete === '1',
     createdAt: row.createdAt,
@@ -889,6 +907,7 @@ export function toStoredRunRecoveryCheckpointRow(
       ? JSON.stringify(checkpoint.enabledSkillNames)
       : null,
     reasoningEffort: serializeReasoningSelection(checkpoint.reasoningEffort),
+    runTrigger: checkpoint.runTrigger,
     channelHint: checkpoint.channelHint ?? null,
     updateHeadOnComplete: checkpoint.updateHeadOnComplete ? '1' : '0',
     createdAt: checkpoint.createdAt,

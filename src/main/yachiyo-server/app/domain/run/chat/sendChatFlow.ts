@@ -10,6 +10,7 @@ import type {
   RunCreatedEvent,
   SendChatInput,
   SendChatMode,
+  SendChatRunTrigger,
   ThreadRecord,
   ThreadUpdatedEvent,
   ToolCallName
@@ -42,6 +43,7 @@ interface StartActiveRunInput {
   reasoningEffort?: ComposerReasoningSelection
   channelHint?: string
   extraTools?: ToolSet
+  runTrigger: SendChatRunTrigger
   runId: string
   thread: ThreadRecord
   requestMessageId: string
@@ -76,6 +78,7 @@ export async function sendChatFlow(
   // ACP threads do not support steer; any steer is treated as follow-up instead.
   const mode: SendChatMode =
     rawMode === 'steer' && thread.runtimeBinding?.kind === 'acp' ? 'follow-up' : rawMode
+  const runTrigger = input.runTrigger ?? 'local'
   const debounceKey = createDebouncedSendChatKey({
     attachments: input.attachments,
     channelHint: input.channelHint,
@@ -86,6 +89,7 @@ export async function sendChatFlow(
     images,
     mode,
     reasoningEffort,
+    runTrigger,
     threadId: thread.id
   })
 
@@ -135,6 +139,7 @@ export async function sendChatFlow(
         enabledSkillNames,
         channelHint: input.channelHint,
         extraTools: input.extraTools as ToolSet | undefined,
+        runTrigger,
         reasoningEffort,
         images: enrichedImages,
         attachments: fileAttachments,
@@ -158,6 +163,7 @@ export async function sendChatFlow(
           content,
           enabledTools,
           enabledSkillNames,
+          runTrigger,
           reasoningEffort,
           images: enrichedImages,
           attachments: fileAttachments,
@@ -169,6 +175,7 @@ export async function sendChatFlow(
         activeRunId,
         content,
         enabledSkillNames,
+        runTrigger,
         reasoningEffort,
         images: enrichedImages,
         attachments: fileAttachments,
@@ -185,6 +192,7 @@ export async function sendChatFlow(
         content,
         enabledTools,
         enabledSkillNames,
+        runTrigger,
         reasoningEffort,
         images: enrichedImages,
         attachments: fileAttachments,
@@ -206,6 +214,7 @@ function startFreshRun(
     reasoningEffort?: ComposerReasoningSelection
     channelHint?: string
     extraTools?: ToolSet
+    runTrigger: SendChatRunTrigger
     images: MessageRecord['images']
     attachments: MessageFileAttachment[]
     messageId: string
@@ -301,6 +310,7 @@ function startFreshRun(
     enabledSkillNames: input.enabledSkillNames,
     channelHint: input.channelHint,
     extraTools: input.extraTools,
+    runTrigger: input.runTrigger,
     reasoningEffort: input.reasoningEffort,
     runId: accepted.runId,
     thread: accepted.thread,
@@ -317,6 +327,7 @@ export function sendActiveRunSteer(
     activeRunId: string
     content: string
     enabledSkillNames?: string[]
+    runTrigger: SendChatRunTrigger
     reasoningEffort?: ComposerReasoningSelection
     images: MessageRecord['images']
     attachments: MessageFileAttachment[]
@@ -335,7 +346,9 @@ export function sendActiveRunSteer(
   // Never abort the current generation for a steer.
   const previousEnabledSkillNames = activeRun.enabledSkillNames
   const previousReasoningEffort = activeRun.reasoningEffort
+  const previousRunTrigger = activeRun.runTrigger
   activeRun.enabledSkillNames = input.enabledSkillNames ? [...input.enabledSkillNames] : undefined
+  activeRun.runTrigger = input.runTrigger
   if (input.reasoningEffort !== undefined) {
     activeRun.reasoningEffort = input.reasoningEffort
   }
@@ -351,6 +364,7 @@ export function sendActiveRunSteer(
       timestamp: activeRun.pendingSteerInput.timestamp,
       previousEnabledSkillNames: activeRun.pendingSteerInput.previousEnabledSkillNames,
       previousReasoningEffort: activeRun.pendingSteerInput.previousReasoningEffort,
+      previousRunTrigger: activeRun.pendingSteerInput.previousRunTrigger,
       reasoningEffort: input.reasoningEffort ?? activeRun.pendingSteerInput.reasoningEffort,
       hidden: activeRun.pendingSteerInput.hidden
     }
@@ -364,6 +378,7 @@ export function sendActiveRunSteer(
       ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
       previousEnabledSkillNames,
       ...(previousReasoningEffort !== undefined ? { previousReasoningEffort } : {}),
+      ...(previousRunTrigger !== undefined ? { previousRunTrigger } : {}),
       hidden: input.hidden
     }
   }
@@ -381,6 +396,7 @@ function queueFollowUp(
     content: string
     enabledTools: ToolCallName[]
     enabledSkillNames?: string[]
+    runTrigger: SendChatRunTrigger
     reasoningEffort?: ComposerReasoningSelection
     images: MessageRecord['images']
     attachments: MessageFileAttachment[]
@@ -440,6 +456,7 @@ function queueFollowUp(
     ...(input.enabledSkillNames !== undefined
       ? { enabledSkillNames: [...input.enabledSkillNames] }
       : {}),
+    runTrigger: input.runTrigger,
     ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
     userMessage
   })

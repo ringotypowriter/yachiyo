@@ -453,6 +453,7 @@ test('YachiyoServer recovery-backoff cancellation preserves the existing head wh
       assistantMessageId: 'assistant-recovery-1',
       content: 'Recovered prefix. ',
       enabledTools: ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'webRead', 'webSearch'],
+      runTrigger: 'local',
       updateHeadOnComplete: false,
       createdAt,
       updatedAt: interruptedAt,
@@ -727,10 +728,66 @@ test('YachiyoServer takes over a local thread for the owner DM channel', async (
     const active = server.findActiveChannelThread(owner.id, 60_000)
 
     assert.equal(updated.id, thread.id)
-    assert.equal(updated.source, 'telegram')
+    assert.equal(updated.source, undefined)
     assert.equal(updated.channelUserId, owner.id)
     assert.equal(updated.channelUserRole, 'owner')
     assert.equal(active?.id, thread.id)
+  })
+})
+
+test('YachiyoServer gates local-only tools for took-over owner DM threads by run trigger', async () => {
+  await withServer(async ({ server, completeRun, modelRequests }) => {
+    const owner = server.createChannelUser({
+      id: 'tg-owner-1',
+      platform: 'telegram',
+      externalUserId: '123',
+      username: 'owner',
+      label: '',
+      status: 'allowed',
+      role: 'owner',
+      usageLimitKTokens: null,
+      workspacePath: '/tmp/tg-owner'
+    })
+    const thread = await server.takeOverThreadForChannelUser({
+      threadId: (await server.createThread({ title: 'Fix DM reply ordering' })).id,
+      channelUser: owner
+    })
+
+    const localAccepted = await server.sendChat({
+      threadId: thread.id,
+      content: 'Continue locally after takeover.'
+    })
+    await completeRun(localAccepted.runId)
+
+    const channelAccepted = await server.sendChat({
+      threadId: thread.id,
+      content: 'Continue from Telegram after takeover.',
+      channelHint: '<channel_reply_instruction>Use reply.</channel_reply_instruction>',
+      extraTools: { reply: {} },
+      runTrigger: 'channel'
+    })
+    await completeRun(channelAccepted.runId)
+
+    const localRequest = modelRequests.find((request) =>
+      request.messages.some(
+        (message) =>
+          message.role === 'user' &&
+          typeof message.content === 'string' &&
+          message.content.includes('Continue locally after takeover.')
+      )
+    )
+    const channelRequest = modelRequests.find((request) =>
+      request.messages.some(
+        (message) =>
+          message.role === 'user' &&
+          typeof message.content === 'string' &&
+          message.content.includes('Continue from Telegram after takeover.')
+      )
+    )
+
+    assert.equal(Boolean(localRequest?.tools?.askUser), true)
+    assert.equal(Boolean(channelRequest?.tools?.askUser), false)
+    assert.equal(Boolean(channelRequest?.tools?.reply), true)
   })
 })
 

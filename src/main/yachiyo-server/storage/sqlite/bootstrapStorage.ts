@@ -1,4 +1,4 @@
-import { asc, desc, inArray, like, eq, and } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, like } from 'drizzle-orm'
 
 import { sortToolCallsChronologically } from '../../../../shared/yachiyo/toolCallOrder.ts'
 import {
@@ -12,6 +12,7 @@ import {
   type YachiyoStorage
 } from '../storage.ts'
 import {
+  channelUsersTable,
   messagesTable,
   runsTable,
   threadFoldersTable,
@@ -37,6 +38,26 @@ export function createSqliteBootstrapStorageMethods(input: {
         .set({ source: 'telegram' })
         .where(and(like(threadsTable.title, 'Telegram:%'), eq(threadsTable.source, 'local')))
         .run()
+
+      // Backfill: took-over threads that had source wrongly set to a channel platform.
+      // Owner DM threads without a group are local; clear the stale source.
+      const ownerUserIds = db
+        .select({ id: channelUsersTable.id })
+        .from(channelUsersTable)
+        .where(eq(channelUsersTable.role, 'owner'))
+        .all()
+        .map((row) => row.id)
+      if (ownerUserIds.length > 0) {
+        db.update(threadsTable)
+          .set({ source: null })
+          .where(
+            and(
+              inArray(threadsTable.channelUserId, ownerUserIds),
+              isNull(threadsTable.channelGroupId)
+            )
+          )
+          .run()
+      }
 
       const allThreads = db
         .select({

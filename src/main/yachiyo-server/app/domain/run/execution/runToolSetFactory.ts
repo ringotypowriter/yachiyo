@@ -54,6 +54,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     gitValidatedWorkspaces,
     isExternalChannel,
     isGuest,
+    isLocalRunTrigger,
     isOwnerDm,
     modelEnabledTools,
     workspacePath
@@ -114,7 +115,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
             }) => deps.storage.searchThreadsAndMessagesFts(searchInput)
           }
         : {}),
-      ...(!isExternalChannel ? { askUserContext: createAskUserContext(input) } : {}),
+      ...(isLocalRunTrigger ? { askUserContext: createAskUserContext(input) } : {}),
       ...((gitCtx.hasGit || gitValidatedWorkspaces.length > 0) && enabledSubagentProfiles.length > 0
         ? {
             subagentProfiles: enabledSubagentProfiles,

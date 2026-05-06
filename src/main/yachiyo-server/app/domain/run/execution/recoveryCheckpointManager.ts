@@ -62,6 +62,7 @@ export function createRecoveryCheckpointManager(input: {
       ...(input.executionInput.reasoningEffort !== undefined
         ? { reasoningEffort: input.executionInput.reasoningEffort }
         : {}),
+      runTrigger: input.executionInput.runTrigger,
       ...(input.executionInput.channelHint
         ? { channelHint: input.executionInput.channelHint }
         : {}),

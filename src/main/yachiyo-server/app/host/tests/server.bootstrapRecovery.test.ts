@@ -284,6 +284,7 @@ test('YachiyoServer bootstrap resumes an interrupted run from its persisted reco
         }
       ],
       enabledTools: ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'webRead', 'webSearch'],
+      runTrigger: 'local',
       updateHeadOnComplete: true,
       createdAt,
       updatedAt: interruptedAt,
@@ -423,6 +424,7 @@ test('YachiyoServer stops recovery after the final allowed committed retry attem
       assistantMessageId: 'assistant-recovery-1',
       content: 'Checking the workspace. ',
       enabledTools: ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'webRead', 'webSearch'],
+      runTrigger: 'local',
       updateHeadOnComplete: true,
       createdAt,
       updatedAt: interruptedAt,
