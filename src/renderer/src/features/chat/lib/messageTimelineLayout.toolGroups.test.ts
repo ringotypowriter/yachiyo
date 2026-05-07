@@ -82,6 +82,97 @@ test('buildConversationGroupTimelineItems does not count unrelated reads as edit
   ])
 })
 
+test('edit group counts only mutated files, not absorbed reads', () => {
+  const toolCalls: ToolCall[] = [
+    {
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'read' as const,
+      status: 'completed' as const,
+      inputSummary: '/workspace/src/a.ts',
+      startedAt: '2026-03-22T00:00:01.000Z',
+      details: {
+        path: '/workspace/src/a.ts',
+        startLine: 1,
+        endLine: 75,
+        totalLines: 75,
+        totalBytes: 2000,
+        truncated: false
+      }
+    },
+    {
+      id: 'tool-2',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'read' as const,
+      status: 'completed' as const,
+      inputSummary: '/workspace/src/b.ts',
+      startedAt: '2026-03-22T00:00:02.000Z',
+      details: {
+        path: '/workspace/src/b.ts',
+        startLine: 1,
+        endLine: 260,
+        totalLines: 431,
+        totalBytes: 8000,
+        truncated: true
+      }
+    },
+    {
+      id: 'tool-3',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'read' as const,
+      status: 'completed' as const,
+      inputSummary: '/workspace/src/c.ts',
+      startedAt: '2026-03-22T00:00:03.000Z',
+      details: {
+        path: '/workspace/src/c.ts',
+        startLine: 1,
+        endLine: 116,
+        totalLines: 116,
+        totalBytes: 3000,
+        truncated: false
+      }
+    },
+    {
+      id: 'tool-4',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'read' as const,
+      status: 'completed' as const,
+      inputSummary: '/workspace/src/d.ts',
+      startedAt: '2026-03-22T00:00:04.000Z',
+      details: {
+        path: '/workspace/src/d.ts',
+        startLine: 1,
+        endLine: 57,
+        totalLines: 57,
+        totalBytes: 1500,
+        truncated: false
+      }
+    },
+    {
+      id: 'tool-5',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'edit' as const,
+      status: 'completed' as const,
+      inputSummary: '/workspace/src/d.ts',
+      startedAt: '2026-03-22T00:00:05.000Z',
+      details: {
+        path: '/workspace/src/d.ts',
+        mode: 'inline' as const,
+        replacements: 1,
+        firstChangedLine: 47
+      }
+    }
+  ]
+
+  assert.equal(getToolCallGroupCount('edit-files', toolCalls), 1)
+  assert.deepEqual(getToolCallGroupFilePaths('edit-files', toolCalls), ['/workspace/src/d.ts'])
+})
+
 test('getToolCallGroupCount counts unique files for editing groups', () => {
   assert.equal(
     getToolCallGroupCount('edit-files', [
@@ -510,6 +601,156 @@ test('tool call group summaries ignore failed file targets', () => {
     '/workspace/uncertainty-agent/src/agents/prompts.ts',
     '/workspace/uncertainty-agent/src/stages.ts'
   ])
+})
+
+test('mixed failed reads and bash commands preserve inspect-workspace count', () => {
+  const toolCalls: ToolCall[] = [
+    {
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'bash' as const,
+      status: 'completed' as const,
+      inputSummary: 'git status',
+      startedAt: '2026-03-22T00:00:01.000Z',
+      details: { command: 'git status', cwd: '/workspace', stdout: '', stderr: '', exitCode: 0 }
+    },
+    {
+      id: 'tool-2',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'read' as const,
+      status: 'failed' as const,
+      inputSummary: '/workspace/src/missing.ts',
+      outputSummary: 'ENOENT: no such file or directory',
+      startedAt: '2026-03-22T00:00:02.000Z',
+      finishedAt: '2026-03-22T00:00:02.100Z'
+    },
+    {
+      id: 'tool-3',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'bash' as const,
+      status: 'completed' as const,
+      inputSummary: 'git diff',
+      startedAt: '2026-03-22T00:00:03.000Z',
+      details: { command: 'git diff', cwd: '/workspace', stdout: '', stderr: '', exitCode: 0 }
+    }
+  ]
+
+  assert.equal(getToolCallGroupDisplayGroup('read-files', toolCalls), 'inspect-workspace')
+  assert.equal(getToolCallGroupCount('read-files', toolCalls), 2)
+  assert.equal(
+    getToolCallGroupLabel('inspect-workspace', 2, true),
+    'Inspected workspace · 2 commands'
+  )
+})
+
+test('all-failed reads stay as read-files instead of becoming inspect-workspace', () => {
+  const toolCalls: ToolCall[] = [
+    {
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'read' as const,
+      status: 'failed' as const,
+      inputSummary: '/workspace/src/missing-a.ts',
+      outputSummary: 'ENOENT: no such file or directory',
+      startedAt: '2026-03-22T00:00:01.000Z',
+      finishedAt: '2026-03-22T00:00:01.100Z'
+    },
+    {
+      id: 'tool-2',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'read' as const,
+      status: 'failed' as const,
+      inputSummary: '/workspace/src/missing-b.ts',
+      outputSummary: 'ENOENT: no such file or directory',
+      startedAt: '2026-03-22T00:00:02.000Z',
+      finishedAt: '2026-03-22T00:00:02.100Z'
+    },
+    {
+      id: 'tool-3',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'read' as const,
+      status: 'failed' as const,
+      inputSummary: '/workspace/src/missing-c.ts',
+      outputSummary: 'ENOENT: no such file or directory',
+      startedAt: '2026-03-22T00:00:03.000Z',
+      finishedAt: '2026-03-22T00:00:03.100Z'
+    }
+  ]
+
+  assert.equal(getToolCallGroupDisplayGroup('read-files', toolCalls), 'read-files')
+  assert.equal(getToolCallGroupCount('read-files', toolCalls), 0)
+  assert.equal(getToolCallGroupLabel('read-files', 0, true), 'Read files')
+})
+
+test('failed commands still count in inspect-workspace', () => {
+  const toolCalls: ToolCall[] = [
+    {
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'bash' as const,
+      status: 'failed' as const,
+      inputSummary: 'git status',
+      startedAt: '2026-03-22T00:00:01.000Z',
+      finishedAt: '2026-03-22T00:00:01.100Z'
+    },
+    {
+      id: 'tool-2',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'bash' as const,
+      status: 'completed' as const,
+      inputSummary: 'git diff',
+      startedAt: '2026-03-22T00:00:02.000Z',
+      details: { command: 'git diff', cwd: '/workspace', stdout: '', stderr: '', exitCode: 0 }
+    }
+  ]
+
+  assert.equal(getToolCallGroupDisplayGroup('read-files', toolCalls), 'inspect-workspace')
+  assert.equal(getToolCallGroupCount('read-files', toolCalls), 2)
+})
+
+test('failed grep and glob still count in search-files', () => {
+  const toolCalls: ToolCall[] = [
+    {
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'grep' as const,
+      status: 'failed' as const,
+      inputSummary: 'nonexistent_pattern',
+      startedAt: '2026-03-22T00:00:01.000Z',
+      finishedAt: '2026-03-22T00:00:01.100Z'
+    },
+    {
+      id: 'tool-2',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'glob' as const,
+      status: 'completed' as const,
+      inputSummary: '**/*.ts',
+      startedAt: '2026-03-22T00:00:02.000Z'
+    },
+    {
+      id: 'tool-3',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'grep' as const,
+      status: 'failed' as const,
+      inputSummary: 'another_missing',
+      startedAt: '2026-03-22T00:00:03.000Z',
+      finishedAt: '2026-03-22T00:00:03.100Z'
+    }
+  ]
+
+  assert.equal(getToolCallGroupCount('search-files', toolCalls), 3)
+  assert.equal(getToolCallGroupLabel('search-files', 3, true), 'Searched 3 patterns')
 })
 
 test('getToolCallGroupCount counts unique files for writing groups', () => {

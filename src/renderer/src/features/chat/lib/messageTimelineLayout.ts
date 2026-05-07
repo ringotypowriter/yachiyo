@@ -155,7 +155,11 @@ function isPathToolCall(toolCall: ToolCall): boolean {
   )
 }
 
-function contributesToGroupSummary(toolCall: ToolCall): boolean {
+function isMutationToolCall(toolCall: ToolCall): boolean {
+  return toolCall.toolName === 'edit' || toolCall.toolName === 'write'
+}
+
+function isSuccessfulToolCall(toolCall: ToolCall): boolean {
   return toolCall.status !== 'failed'
 }
 
@@ -274,25 +278,33 @@ export function getToolCallGroupDisplayGroup(
     return group
   }
 
-  return toolCalls.filter(contributesToGroupSummary).some(isPathToolCall)
-    ? group
-    : 'inspect-workspace'
+  if (toolCalls.some((tc) => isSuccessfulToolCall(tc) && isPathToolCall(tc))) {
+    return 'read-files'
+  }
+
+  if (toolCalls.some((tc) => !isPathToolCall(tc))) {
+    return 'inspect-workspace'
+  }
+
+  return 'read-files'
 }
 
 export function getToolCallGroupCount(group: ToolCallSemanticGroup, toolCalls: ToolCall[]): number {
-  const summaryToolCalls = toolCalls.filter(contributesToGroupSummary)
-
-  if (getToolCallGroupDisplayGroup(group, summaryToolCalls) === 'inspect-workspace') {
-    return summaryToolCalls.length
+  if (getToolCallGroupDisplayGroup(group, toolCalls) === 'inspect-workspace') {
+    return toolCalls.filter((tc) => !isPathToolCall(tc)).length
   }
 
   if (!shouldCountUniqueFilePaths(group)) {
-    return summaryToolCalls.length
+    return toolCalls.length
   }
 
+  const isMutation = isFileMutationGroup(group)
   const countedFiles = new Set<string>()
-  for (const toolCall of summaryToolCalls) {
-    if (!isPathToolCall(toolCall)) {
+  for (const toolCall of toolCalls) {
+    if (!isSuccessfulToolCall(toolCall) || !isPathToolCall(toolCall)) {
+      continue
+    }
+    if (isMutation && !isMutationToolCall(toolCall)) {
       continue
     }
     const filePath = getToolCallFilePath(toolCall)
@@ -314,8 +326,12 @@ export function getToolCallGroupFilePaths(
     return []
   }
 
+  const isMutation = isFileMutationGroup(group)
   const countedFiles = new Set<string>()
-  for (const toolCall of toolCalls.filter(contributesToGroupSummary)) {
+  for (const toolCall of toolCalls.filter(isSuccessfulToolCall)) {
+    if (isMutation && !isMutationToolCall(toolCall)) {
+      continue
+    }
     const filePath = getToolCallFilePath(toolCall)
     if (filePath) {
       countedFiles.add(filePath)
