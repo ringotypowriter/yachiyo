@@ -62,7 +62,7 @@ export function BackgroundTasksChip({
     <div
       ref={wrapperRef}
       className="absolute z-20"
-      style={{ bottom: '100%', right: 16, marginBottom: 8 }}
+      style={{ bottom: '100%', left: 16, right: 16, marginBottom: 8, pointerEvents: 'none' }}
     >
       <AnimatePresence>
         {open && (
@@ -73,7 +73,7 @@ export function BackgroundTasksChip({
             exit={{ opacity: 0, scale: 0.95, y: 4 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
             className="absolute right-0"
-            style={{ bottom: '100%', marginBottom: 8 }}
+            style={{ bottom: '100%', marginBottom: 8, maxWidth: '100%', pointerEvents: 'auto' }}
           >
             <BackgroundTasksPanel
               threadId={threadId ?? ''}
@@ -86,37 +86,40 @@ export function BackgroundTasksChip({
           </motion.div>
         )}
       </AnimatePresence>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-full cursor-pointer transition-opacity hover:opacity-90"
-        style={{
-          background: theme.background.surfaceFrosted,
-          color: theme.text.primary,
-          border: `1px solid ${theme.border.default}`,
-          boxShadow: theme.shadow.card,
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)'
-        }}
-      >
-        {runningCount > 0 ? (
-          <span
-            className="inline-block w-2 h-2 rounded-full"
-            style={{
-              background: theme.text.accent,
-              animation: 'yachiyo-preparing-pulse 1.2s ease-in-out infinite'
-            }}
-          />
-        ) : (
-          <Terminal size={12} strokeWidth={1.75} />
-        )}
-        <span>{label}</span>
-        {open ? (
-          <ChevronDown size={12} strokeWidth={1.75} />
-        ) : (
-          <ChevronUp size={12} strokeWidth={1.75} />
-        )}
-      </button>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-full cursor-pointer transition-opacity hover:opacity-90"
+          style={{
+            background: theme.background.surfaceFrosted,
+            color: theme.text.primary,
+            border: `1px solid ${theme.border.default}`,
+            boxShadow: theme.shadow.card,
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            pointerEvents: 'auto'
+          }}
+        >
+          {runningCount > 0 ? (
+            <span
+              className="inline-block w-2 h-2 rounded-full"
+              style={{
+                background: theme.text.accent,
+                animation: 'yachiyo-preparing-pulse 1.2s ease-in-out infinite'
+              }}
+            />
+          ) : (
+            <Terminal size={12} strokeWidth={1.75} />
+          )}
+          <span>{label}</span>
+          {open ? (
+            <ChevronDown size={12} strokeWidth={1.75} />
+          ) : (
+            <ChevronUp size={12} strokeWidth={1.75} />
+          )}
+        </button>
+      </div>
     </div>
   )
 }
@@ -175,7 +178,7 @@ function BackgroundTasksPanel({
       ref={ref}
       className="mb-2 rounded-xl overflow-hidden flex flex-col"
       style={{
-        width: 'min(760px, calc(100vw - 32px))',
+        width: 'min(760px, 100%)',
         maxHeight: 'min(78vh, 680px)',
         background: theme.background.surfaceFrosted,
         border: `1px solid ${theme.border.default}`,
