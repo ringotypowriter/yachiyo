@@ -60,7 +60,6 @@ export function AppMainPanelHeader({
         height: '48px',
         paddingLeft: `${headerPaddingLeft}px`,
         paddingRight: '20px',
-        borderBottom: `1px solid ${theme.border.default}`,
         position: 'relative'
       }}
     >

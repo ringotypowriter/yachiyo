@@ -802,6 +802,12 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       } else if (stickToBottomRef.current && distanceFromBottom > 200) {
         stickToBottomRef.current = false
       }
+
+      const mask = stickToBottomRef.current
+        ? 'linear-gradient(to bottom, transparent, black 24px)'
+        : 'linear-gradient(to bottom, transparent, black 24px, black calc(100% - 32px), transparent)'
+      container.style.maskImage = mask
+      container.style.webkitMaskImage = mask
     }
 
     container.addEventListener('wheel', handleWheel, { passive: true })
@@ -1125,10 +1131,8 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
         data-timeline-scroll
         className="h-full overflow-y-auto overflow-x-hidden yachiyo-thread-enter"
         style={{
-          maskImage:
-            'linear-gradient(to bottom, transparent, black 24px, black calc(100% - 32px), transparent)',
-          WebkitMaskImage:
-            'linear-gradient(to bottom, transparent, black 24px, black calc(100% - 32px), transparent)'
+          maskImage: 'linear-gradient(to bottom, transparent, black 24px)',
+          WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 24px)'
         }}
       >
         <div

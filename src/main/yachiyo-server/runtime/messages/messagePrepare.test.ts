@@ -141,6 +141,59 @@ test('message prepare keeps image input close to the user text payload', () => {
   ])
 })
 
+test('message prepare only replays image alt text when marked for text replay', () => {
+  const prepared = prepareModelMessages({
+    personality: {
+      basePersona: SYSTEM_PROMPT
+    },
+    history: [
+      {
+        role: 'user',
+        content: 'Use the image',
+        images: [
+          {
+            dataUrl: 'data:image/png;base64,AAAA',
+            mediaType: 'image/png',
+            altText: 'a cached description'
+          }
+        ]
+      },
+      { role: 'assistant', content: 'I can see it.' },
+      {
+        role: 'user',
+        content: 'Use the prior I2T description',
+        images: [
+          {
+            dataUrl: 'data:image/png;base64,BBBB',
+            mediaType: 'image/png',
+            altText: 'a cat on a keyboard',
+            replayAsText: true
+          }
+        ]
+      }
+    ]
+  })
+
+  assert.deepEqual(prepared, [
+    { role: 'system', content: SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Use the image' },
+        { type: 'image', image: 'AAAA', mediaType: 'image/png' }
+      ]
+    },
+    { role: 'assistant', content: 'I can see it.' },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Use the prior I2T description' },
+        { type: 'text', text: '[Image: a cat on a keyboard]' }
+      ]
+    }
+  ])
+})
+
 test('message prepare replays historical turn context inline on older user messages', () => {
   // Simulates a multi-turn run where turn 1 carried its own reminder + memory
   // entries; turn 2 (the current turn) brings a fresh reminder via the live

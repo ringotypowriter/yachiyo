@@ -27,7 +27,8 @@ export function normalizeMessageImages(images?: MessageImageRecord[]): MessageIm
         mediaType,
         ...(filename ? { filename } : {}),
         ...(image.workspacePath ? { workspacePath: image.workspacePath.trim() } : {}),
-        ...(image.altText ? { altText: image.altText.trim() } : {})
+        ...(image.altText ? { altText: image.altText.trim() } : {}),
+        ...(image.replayAsText ? { replayAsText: true } : {})
       }
     ]
   })

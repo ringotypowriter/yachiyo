@@ -159,6 +159,7 @@ export async function streamCompactThreadHandoff(
           : {}),
         abortController: activeRun.abortController,
         persistTurnContext: false,
+        persistImageReplayMarkers: false,
         emitContextEvents: false,
         includeMemoryRecall: false,
         applyStripCompact: false

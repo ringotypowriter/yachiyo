@@ -499,16 +499,13 @@ export function createThreadLifecycleActions(input: {
             return
           }
 
-          if (currentCapable !== targetCapable && thread.headMessageId) {
+          if (currentCapable && !targetCapable && thread.headMessageId) {
             state.pushToast({
               threadId: state.activeThreadId,
-              title: 'Cannot switch model',
-              body: currentCapable
-                ? 'This thread uses an image-capable model. Switching to a non-image-capable model is not allowed.'
-                : 'This thread uses a non-image-capable model with I2T processing. Switching to an image-capable model is not allowed.',
-              eventKey: 'model-switch-blocked-isolation'
+              title: 'Heads up',
+              body: 'Images in this thread will be converted to text descriptions for the non-vision model.',
+              eventKey: 'model-switch-vision-downgrade'
             })
-            return
           }
         }
       }

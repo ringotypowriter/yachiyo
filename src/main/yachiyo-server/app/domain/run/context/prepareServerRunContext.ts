@@ -53,7 +53,7 @@ import {
 } from './agentInstructions.ts'
 import { buildContextSources } from './contextSources.ts'
 import { detectGitContext, type GitContext } from './gitContext.ts'
-import { loadRunHistory, toRunHistoryMessages } from './runHistory.ts'
+import { loadRunHistory, toRunHistoryMessages, type RunHistoryMessage } from './runHistory.ts'
 import { DEFAULT_MAX_TOOL_STEPS } from '../execution/runExecutionConstants.ts'
 import { getPreviousRunActualPromptTokens } from '../execution/runUsage.ts'
 import type { ExecuteRunInput, RunExecutionDeps } from '../execution/runExecutionTypes.ts'
@@ -154,6 +154,7 @@ export interface PrepareServerRunContextInput {
   emitContextEvents?: boolean
   includeMemoryRecall?: boolean
   applyStripCompact?: boolean
+  persistImageReplayMarkers?: boolean
 }
 
 export async function prepareServerRunContext(
@@ -387,6 +388,9 @@ export async function prepareServerRunContext(
       contextHistory,
       deps.imageToTextService
     )
+    if (input.persistImageReplayMarkers !== false) {
+      persistI2TDescriptions(deps, input.thread.id, history, contextHistory)
+    }
   }
 
   const messages =
@@ -528,5 +532,37 @@ export async function prepareServerRunContext(
     enabledSubagentProfiles,
     gitCtx,
     gitValidatedWorkspaces
+  }
+}
+
+function persistI2TDescriptions(
+  deps: Pick<RunExecutionDeps, 'storage' | 'loadThreadMessages'>,
+  threadId: string,
+  originalHistory: RunHistoryMessage[],
+  processedHistory: { role: string; images?: { altText?: string; replayAsText?: boolean }[] }[]
+): void {
+  const storedMessages = new Map(deps.loadThreadMessages(threadId).map((m) => [m.id, m]))
+  for (let i = 0; i < originalHistory.length; i++) {
+    const original = originalHistory[i]
+    const processed = processedHistory[i]
+    if (original.role !== 'user' || !processed?.images?.length) continue
+    const stored = storedMessages.get(original.id)
+    if (!stored?.images) continue
+    let needsUpdate = false
+    const updatedImages = stored.images.map((storedImg, idx) => {
+      const procImg = processed.images?.[idx]
+      if (!procImg?.altText) return storedImg
+      if (storedImg.altText === procImg.altText && storedImg.replayAsText === true) {
+        return storedImg
+      }
+      if (procImg.replayAsText) {
+        needsUpdate = true
+        return { ...storedImg, altText: storedImg.altText ?? procImg.altText, replayAsText: true }
+      }
+      return storedImg
+    })
+    if (needsUpdate) {
+      deps.storage.updateMessage({ ...stored, images: updatedImages })
+    }
   }
 }

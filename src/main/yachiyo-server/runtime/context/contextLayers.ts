@@ -11,6 +11,7 @@ import type { ModelMessage } from '../models/types.ts'
 import type { SkillSummary } from '../../../../shared/yachiyo/protocol.ts'
 
 export interface ContextLayerHistoryMessage {
+  id?: string
   role: 'user' | 'assistant'
   content: string
   images?: MessageImageRecord[]
@@ -131,7 +132,7 @@ function buildAttachedFilesBlock(
     .filter((img) => img.workspacePath)
     .map((img) => {
       const header = `- ${img.filename ?? 'image'} (${img.mediaType}) → ${img.workspacePath}`
-      if (img.altText && !img.dataUrl) {
+      if (img.altText && (img.replayAsText || !img.dataUrl)) {
         return `${header}\n  Description: ${img.altText}`
       }
       return `${header} [sent inline]`
@@ -292,11 +293,11 @@ export async function preprocessImagesForNonVisionModel(
       if (msg.role !== 'user' || !msg.images?.length) return msg
       const processed = await Promise.all(
         msg.images.map(async (img) => {
-          if (img.altText) return { ...img, dataUrl: '' }
+          if (img.altText) return { ...img, dataUrl: '', replayAsText: true }
           if (!img.dataUrl) return img
           const result = await imageToTextService.describe(img.dataUrl, '')
           if (!result) return { ...img, dataUrl: '' }
-          return { ...img, altText: result.altText, dataUrl: '' }
+          return { ...img, altText: result.altText, dataUrl: '', replayAsText: true }
         })
       )
       return { ...msg, images: processed }
@@ -357,7 +358,7 @@ export function toModelHistoryMessages(message: ContextLayerHistoryMessage): Mod
           ): Array<
             { type: 'text'; text: string } | { type: 'image'; image: string; mediaType: string }
           > => {
-            if (!image.dataUrl) {
+            if (image.replayAsText || !image.dataUrl) {
               return image.altText ? [{ type: 'text', text: `[Image: ${image.altText}]` }] : []
             }
             return [

@@ -42,13 +42,15 @@ test('normalizeMessageImages preserves workspacePath and altText', () => {
       mediaType: 'image/png',
       filename: 'photo.png',
       workspacePath: '/tmp/photo.png',
-      altText: 'A photo'
+      altText: 'A photo',
+      replayAsText: true
     }
   ])
 
   assert.equal(images.length, 1)
   assert.equal(images[0].workspacePath, '/tmp/photo.png')
   assert.equal(images[0].altText, 'A photo')
+  assert.equal(images[0].replayAsText, true)
 })
 
 test('normalizeMessageImages omits empty optional fields', () => {

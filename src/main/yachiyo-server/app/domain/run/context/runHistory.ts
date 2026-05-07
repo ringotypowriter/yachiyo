@@ -79,7 +79,7 @@ export function balanceResponseMessages(messages: unknown[]): unknown[] {
 
 export type RunHistoryMessage = Pick<
   MessageRecord,
-  'content' | 'images' | 'attachments' | 'role' | 'responseMessages' | 'turnContext'
+  'id' | 'content' | 'images' | 'attachments' | 'role' | 'responseMessages' | 'turnContext'
 >
 
 export function toRunHistoryMessages(
@@ -102,6 +102,7 @@ export function toRunHistoryMessages(
     ({ content, id, images, attachments, role, responseMessages, turnContext }) => {
       const isCurrentRequest = id === requestMessageId
       return {
+        id,
         content: isCurrentRequest ? (requestMessageContentOverride ?? content) : content,
         ...(images ? { images } : {}),
         ...(attachments ? { attachments } : {}),

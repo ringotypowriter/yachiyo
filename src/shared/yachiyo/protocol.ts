@@ -292,6 +292,8 @@ export interface MessageImageRecord {
   workspacePath?: string
   /** Pre-generated alt text description from the image-to-text service. */
   altText?: string
+  /** Replay this image as alt text because the original turn used image-to-text. */
+  replayAsText?: boolean
 }
 
 export interface MessageFileAttachment {

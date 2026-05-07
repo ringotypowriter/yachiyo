@@ -50,6 +50,8 @@ function createRunContextDeps(input: {
   messages: MessageRecord[]
   workspacePath: string
   updatedMessages?: MessageRecord[]
+  imageToTextService?: RunExecutionDeps['imageToTextService']
+  isModelImageCapable?: boolean
 }): RunExecutionDeps {
   const config: SettingsConfig = {
     ...DEFAULT_SETTINGS_CONFIG,
@@ -122,6 +124,10 @@ function createRunContextDeps(input: {
     loadThreadToolCalls: () => [],
     listSkills: async () => [],
     onEnabledToolsUsed: () => {},
+    ...(input.imageToTextService ? { imageToTextService: input.imageToTextService } : {}),
+    ...(input.isModelImageCapable !== undefined
+      ? { isModelImageCapable: input.isModelImageCapable }
+      : {}),
     activityTracker: {
       finalizeAndConsume: () => ({
         text: 'ACTIVITY BLOCK',
@@ -240,6 +246,152 @@ test('prepareServerRunContext persists consumed activity for replay', async () =
 
     assert.equal(updatedMessages.length, 1)
     assert.equal(updatedMessages[0].turnContext?.activityText, 'ACTIVITY BLOCK')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('prepareServerRunContext persists I2T image replay markers when non-vision models consume images', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-run-context-'))
+  const thread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-1',
+    threadId: thread.id,
+    role: 'user',
+    content: 'What is in this picture?',
+    images: [
+      {
+        dataUrl: 'data:image/png;base64,AAAA',
+        mediaType: 'image/png',
+        filename: 'cat.png'
+      }
+    ],
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const events: unknown[] = []
+  const updatedMessages: MessageRecord[] = []
+
+  try {
+    const context = await prepareServerRunContext(
+      createRunContextDeps({
+        events,
+        messages: [requestMessage],
+        workspacePath: root,
+        updatedMessages,
+        isModelImageCapable: false,
+        imageToTextService: {
+          describe: async () => ({ imageHash: 'hash', altText: 'a cat on a keyboard' }),
+          inspect: async () => null
+        }
+      }),
+      {
+        runId: 'run-1',
+        thread,
+        requestMessageId: requestMessage.id,
+        enabledTools: [],
+        runTrigger: 'local',
+        abortController: new AbortController(),
+        requestMessage,
+        historyMessages: [requestMessage],
+        persistTurnContext: false,
+        includeMemoryRecall: false,
+        applyStripCompact: false
+      }
+    )
+
+    assert.equal(updatedMessages.length, 1)
+    assert.deepEqual(updatedMessages[0].images, [
+      {
+        dataUrl: 'data:image/png;base64,AAAA',
+        mediaType: 'image/png',
+        filename: 'cat.png',
+        altText: 'a cat on a keyboard',
+        replayAsText: true
+      }
+    ])
+    const userContent = context.messages.find((message) => message.role === 'user')?.content
+    assert.equal(Array.isArray(userContent), true)
+    assert.deepEqual(Array.isArray(userContent) ? userContent.slice(0, 2) : [], [
+      { type: 'text', text: 'What is in this picture?' },
+      { type: 'text', text: '[Image: a cat on a keyboard]' }
+    ])
+    assert.equal(
+      Array.isArray(userContent) && userContent.some((part) => part.type === 'image'),
+      false
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('prepareServerRunContext can use I2T without persisting replay markers', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-run-context-'))
+  const thread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-1',
+    threadId: thread.id,
+    role: 'user',
+    content: 'What is in this picture?',
+    images: [
+      {
+        dataUrl: 'data:image/png;base64,AAAA',
+        mediaType: 'image/png',
+        filename: 'cat.png'
+      }
+    ],
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const events: unknown[] = []
+  const updatedMessages: MessageRecord[] = []
+
+  try {
+    const context = await prepareServerRunContext(
+      createRunContextDeps({
+        events,
+        messages: [requestMessage],
+        workspacePath: root,
+        updatedMessages,
+        isModelImageCapable: false,
+        imageToTextService: {
+          describe: async () => ({ imageHash: 'hash', altText: 'a cat on a keyboard' }),
+          inspect: async () => null
+        }
+      }),
+      {
+        runId: 'run-1',
+        thread,
+        requestMessageId: requestMessage.id,
+        enabledTools: [],
+        runTrigger: 'local',
+        abortController: new AbortController(),
+        requestMessage,
+        historyMessages: [requestMessage],
+        persistTurnContext: false,
+        persistImageReplayMarkers: false,
+        includeMemoryRecall: false,
+        applyStripCompact: false
+      }
+    )
+
+    assert.deepEqual(updatedMessages, [])
+    const userContent = context.messages.find((message) => message.role === 'user')?.content
+    assert.equal(Array.isArray(userContent), true)
+    assert.deepEqual(Array.isArray(userContent) ? userContent.slice(0, 2) : [], [
+      { type: 'text', text: 'What is in this picture?' },
+      { type: 'text', text: '[Image: a cat on a keyboard]' }
+    ])
   } finally {
     await rm(root, { recursive: true, force: true })
   }

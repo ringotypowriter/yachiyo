@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { DEFAULT_ENABLED_TOOL_NAMES } from '../../../../shared/yachiyo/protocol.ts'
+import {
+  DEFAULT_ENABLED_TOOL_NAMES,
+  type SettingsConfig
+} from '../../../../shared/yachiyo/protocol.ts'
 import {
   DEFAULT_SIDEBAR_FILTER,
   DEFAULT_SETTINGS,
@@ -178,6 +181,72 @@ test('selectModel sets thread override when active thread exists', async () => {
     ])
     const thread = useAppStore.getState().threads.find((t) => t.id === 'thread-1')
     assert.deepEqual(thread?.modelOverride, { providerName: 'work', model: 'gpt-5' })
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('selectModel allows an existing non-vision thread to switch to a vision model', async () => {
+  resetStore()
+
+  const config: SettingsConfig = {
+    providers: [
+      {
+        name: 'work',
+        type: 'openai',
+        apiKey: '',
+        baseUrl: '',
+        modelList: {
+          enabled: ['text-model', 'vision-model'],
+          disabled: [],
+          imageIncapable: ['text-model']
+        }
+      }
+    ],
+    defaultModel: { providerName: 'work', model: 'text-model' }
+  }
+  const overrideCalls: Array<{ threadId: string; providerName: string; model: string }> = []
+  const restoreWindow = withWindowApiMock({
+    setThreadModelOverride: async (input) => {
+      if (input.modelOverride) {
+        overrideCalls.push({
+          threadId: input.threadId,
+          providerName: input.modelOverride.providerName,
+          model: input.modelOverride.model
+        })
+      }
+      return {
+        id: input.threadId,
+        title: 'Thread',
+        headMessageId: 'msg-1',
+        updatedAt: TIMESTAMP,
+        modelOverride: input.modelOverride ?? undefined
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      config,
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Thread',
+          headMessageId: 'msg-1',
+          modelOverride: { providerName: 'work', model: 'text-model' },
+          updatedAt: TIMESTAMP
+        }
+      ]
+    })
+
+    await useAppStore.getState().selectModel('work', 'vision-model')
+
+    assert.deepEqual(overrideCalls, [
+      { threadId: 'thread-1', providerName: 'work', model: 'vision-model' }
+    ])
+    const thread = useAppStore.getState().threads.find((t) => t.id === 'thread-1')
+    assert.deepEqual(thread?.modelOverride, { providerName: 'work', model: 'vision-model' })
   } finally {
     restoreWindow()
   }

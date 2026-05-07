@@ -361,10 +361,8 @@ function FolderAwareThreadList({
             overflowY: 'auto',
             overscrollBehavior: 'contain',
             scrollbarWidth: 'none',
-            maskImage:
-              'linear-gradient(to bottom, transparent, black 8px, black calc(100% - 16px), transparent)',
-            WebkitMaskImage:
-              'linear-gradient(to bottom, transparent, black 8px, black calc(100% - 16px), transparent)'
+            maskImage: 'linear-gradient(to bottom, black calc(100% - 16px), transparent)',
+            WebkitMaskImage: 'linear-gradient(to bottom, black calc(100% - 16px), transparent)'
           }}
         >
           <div className="relative" style={{ marginLeft: 15, paddingLeft: 12, paddingBottom: 4 }}>
