@@ -80,15 +80,18 @@ export function buildCurrentTimeSection(
 
 /**
  * Reminder injected when the user sends a mid-run steer message.
- * The detailed steer protocol lives in the system instructions (agent layer);
- * this marker only signals that the current message is a steer.
+ * Self-contained behavioral rules so the model sees them at the steer
+ * turn boundary without needing to recall the system-level protocol.
  */
 export function buildSteerReminderSection(): QueryReminderSection {
   return {
     key: 'steer-guidance',
     title: 'Mid-run steer',
     lines: [
-      'This message arrived while you were already working. It is a steer — follow the mid-run steer protocol in your instructions.'
+      'This message arrived while you were already working. It is a steer — an adjustment, not a new request.',
+      'Acknowledge it briefly (one sentence max), absorb the adjustment, then resume your in-progress work immediately.',
+      'The original objectives still stand. Do not abandon, shorten, or skip any part of the work you were doing.',
+      'Before ending your turn, verify every original task is complete — not just the steer. If anything remains, keep working.'
     ]
   }
 }
