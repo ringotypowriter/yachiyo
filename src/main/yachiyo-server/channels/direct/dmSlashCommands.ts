@@ -19,6 +19,7 @@ export type DmSlashCommandServer = Pick<
     channelUser: ChannelUserRecord
   }): Promise<ThreadRecord>
   buildThreadTakeoverContext(input: { threadId: string; contextTokenLimit: number }): string
+  buildConversationSummary(threadId: string): string
   getThreadWorkspaceChangeBlocker(input: { threadId: string }): string | null
   updateThreadWorkspace(input: {
     threadId: string
@@ -518,6 +519,11 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
           ? formatWorkspaceStatus(thread.workspacePath, await options.server.getConfig())
           : 'temporary'
         lines.push('', 'Workspace:', workspace)
+      }
+
+      const summary = options.server.buildConversationSummary(thread.id)
+      if (summary) {
+        lines.push('', '---', '', summary)
       }
 
       await options.sendMessage(target, lines.join('\n'))

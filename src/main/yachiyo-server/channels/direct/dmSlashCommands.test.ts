@@ -74,6 +74,7 @@ function makeOptions<TTarget>(
     buildThreadTakeoverContext: () => {
       throw new Error('buildThreadTakeoverContext should not be called')
     },
+    buildConversationSummary: () => '',
     getThreadWorkspaceChangeBlocker: () => null,
     updateThreadWorkspace: async () => {
       throw new Error('updateThreadWorkspace should not be called')

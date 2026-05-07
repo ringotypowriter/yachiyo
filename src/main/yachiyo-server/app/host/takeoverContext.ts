@@ -171,7 +171,7 @@ function selectTakeoverToolCalls(input: {
   return matchingToolCalls.slice(-TAKEOVER_TOOL_LIMIT)
 }
 
-export function formatOwnerDmTakeoverContext(input: {
+export function formatConversationSummary(input: {
   messages: MessageRecord[]
   thread: ThreadRecord
   toolCalls: ToolCallRecord[]
@@ -188,7 +188,7 @@ export function formatOwnerDmTakeoverContext(input: {
     toolCalls: input.toolCalls
   })
 
-  const lines = ['Took over:', formatTakeoverThreadTitle(input.thread)]
+  const lines: string[] = []
 
   if (recap) {
     appendTakeoverSection(lines, 'Last recap:', [
@@ -221,6 +221,19 @@ export function formatOwnerDmTakeoverContext(input: {
   }
 
   return lines.join('\n')
+}
+
+export function formatOwnerDmTakeoverContext(input: {
+  messages: MessageRecord[]
+  thread: ThreadRecord
+  toolCalls: ToolCallRecord[]
+}): string {
+  const header = `Took over:\n${formatTakeoverThreadTitle(input.thread)}`
+  const summary = formatConversationSummary(input)
+  if (!summary) {
+    return header
+  }
+  return [header, '', TAKEOVER_SECTION_DIVIDER, '', summary].join('\n')
 }
 
 function formatTakeoverTokenCount(tokens: number): string {

@@ -130,6 +130,7 @@ import {
   normalizeMessageImages
 } from '../../../../shared/yachiyo/messageContent.ts'
 import {
+  formatConversationSummary,
   formatOwnerDmTakeoverContext,
   TAKEOVER_SECTION_DIVIDER,
   formatTakeoverTokens,
@@ -964,6 +965,15 @@ export class YachiyoServer {
       'Context:',
       formatTakeoverTokens(tokens, input.contextTokenLimit)
     ].join('\n')
+  }
+
+  buildConversationSummary(threadId: string): string {
+    const thread = this.requireThread(threadId)
+    return formatConversationSummary({
+      thread,
+      messages: this.storage.listThreadMessages(thread.id),
+      toolCalls: this.storage.listThreadToolCalls(thread.id)
+    })
   }
 
   findActiveChannelThread(channelUserId: string, maxAgeMs: number): ThreadRecord | undefined {
