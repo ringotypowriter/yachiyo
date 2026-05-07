@@ -31,7 +31,7 @@ function folder(id: string, overrides: Partial<FolderRecord> = {}): FolderRecord
   }
 }
 
-test('expanded folders expose their children as virtual sidebar rows', () => {
+test('expanded folders bundle children inside the folder row', () => {
   const items = buildSidebarItems(
     [
       thread('folder-today', { folderId: 'folder-a' }),
@@ -51,14 +51,26 @@ test('expanded folders expose their children as virtual sidebar rows', () => {
     rows.map((row) => [row.kind, row.key]),
     [
       ['folder', 'folder:folder-a'],
-      ['folder-date-header', 'folder-date:folder-a:Today'],
-      ['folder-thread', 'folder-thread:folder-a:folder-today'],
-      ['folder-date-header', 'folder-date:folder-a:Yesterday'],
-      ['folder-thread', 'folder-thread:folder-a:folder-yesterday'],
       ['date-header', 'date:Today'],
       ['thread', 'thread:loose-today']
     ]
   )
+
+  const folderRow = rows[0]
+  assert.equal(folderRow.kind, 'folder')
+  if (folderRow.kind === 'folder') {
+    assert.deepEqual(
+      folderRow.children.map((c) =>
+        c.kind === 'folder-date-header' ? ['date-header', c.label] : ['thread', c.thread.id]
+      ),
+      [
+        ['date-header', 'Today'],
+        ['thread', 'folder-today'],
+        ['date-header', 'Yesterday'],
+        ['thread', 'folder-yesterday']
+      ]
+    )
+  }
 })
 
 test('collapsed folders keep child threads out of the virtual row set', () => {
@@ -105,7 +117,7 @@ test('starred loose threads stay above folders and dated loose threads', () => {
   )
 })
 
-test('expanded folder rows expose unique parent-folder drop targets', () => {
+test('folder row produces a drop target id', () => {
   const items = buildSidebarItems(
     [
       thread('folder-today', { folderId: 'folder-a' }),
@@ -118,20 +130,10 @@ test('expanded folder rows expose unique parent-folder drop targets', () => {
     NOW
   )
 
-  const folderRows = buildSidebarRows(items, new Set()).filter(
-    (row) =>
-      row.kind === 'folder' || row.kind === 'folder-date-header' || row.kind === 'folder-thread'
-  )
-  const dropIds = folderRows.map((row) => resolveSidebarFolderDropId(row))
-
-  assert.deepEqual(dropIds, [
-    'folder-folder-a',
-    'folder-folder-a-row-folder-date:folder-a:Today',
-    'folder-folder-a-row-folder-thread:folder-a:folder-today',
-    'folder-folder-a-row-folder-date:folder-a:Yesterday',
-    'folder-folder-a-row-folder-thread:folder-a:folder-yesterday'
-  ])
-  assert.equal(new Set(dropIds).size, dropIds.length)
+  const rows = buildSidebarRows(items, new Set())
+  const folderRow = rows.find((row) => row.kind === 'folder')
+  assert.ok(folderRow && folderRow.kind === 'folder')
+  assert.equal(resolveSidebarFolderDropId(folderRow), 'folder-folder-a')
 })
 
 test('running thread preview shows a thinking placeholder before current-run tool calls', () => {

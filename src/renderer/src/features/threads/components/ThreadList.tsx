@@ -30,6 +30,7 @@ import {
   buildSidebarItems,
   buildSidebarRows,
   estimateSidebarRowSize,
+  FOLDER_VIEWPORT_MAX_HEIGHT,
   resolveSidebarFolderDropId,
   type SidebarRow
 } from '@renderer/features/threads/lib/threadSidebarRows'
@@ -199,6 +200,10 @@ function FolderAwareThreadList({
     virtualizer.measure()
   }, [mode, rows.length, scrollElement, threads.length, virtualizer])
 
+  useLayoutEffect(() => {
+    virtualizer.measure()
+  }, [collapsedFolderIds, virtualizer])
+
   function handleDragEnd(event: DragEndEvent): void {
     setDraggedThread(null)
     const { active, over } = event
@@ -343,12 +348,77 @@ function FolderAwareThreadList({
           onRestoreAll={() => restoreFolder(row.folder, folderThreads)}
         />
       )
+
+      const lineColor = row.folder.colorTag
+        ? resolveThreadColor(row.folder.colorTag, theme.text.secondary)
+        : theme.border.default
+      const lineOpacity = row.folder.colorTag ? 0.4 : 1
+
+      const childrenContent = !isCollapsed && row.children.length > 0 && (
+        <div
+          style={{
+            maxHeight: FOLDER_VIEWPORT_MAX_HEIGHT,
+            overflowY: 'auto',
+            overscrollBehavior: 'contain',
+            scrollbarWidth: 'none',
+            maskImage:
+              'linear-gradient(to bottom, transparent, black 8px, black calc(100% - 16px), transparent)',
+            WebkitMaskImage:
+              'linear-gradient(to bottom, transparent, black 8px, black calc(100% - 16px), transparent)'
+          }}
+        >
+          <div className="relative" style={{ marginLeft: 15, paddingLeft: 12, paddingBottom: 4 }}>
+            <div
+              className="absolute left-0 top-0 bottom-0"
+              style={{ width: 1, background: lineColor, opacity: lineOpacity }}
+            />
+            {row.children.map((child) => {
+              if (child.kind === 'folder-date-header') {
+                return (
+                  <div
+                    key={`fdate:${child.label}`}
+                    className="px-2 pt-1.5 pb-0.5"
+                    style={{
+                      fontSize: '0.6rem',
+                      fontWeight: 500,
+                      color: theme.text.muted,
+                      letterSpacing: '0.03em'
+                    }}
+                  >
+                    {child.label}
+                  </div>
+                )
+              }
+              const threadNode = renderThreadItem(child.thread, { isInFolder: true })
+              if (mode === 'archived') {
+                return <div key={child.thread.id}>{threadNode}</div>
+              }
+              return (
+                <DroppableFolder
+                  key={child.thread.id}
+                  folderId={row.folder.id}
+                  dropId={`folder-${row.folder.id}-child-${child.thread.id}`}
+                >
+                  <DraggableThread thread={child.thread}>{threadNode}</DraggableThread>
+                </DroppableFolder>
+              )
+            })}
+          </div>
+        </div>
+      )
+
       if (mode === 'archived') {
-        return <div>{folderNode}</div>
+        return (
+          <div>
+            {folderNode}
+            {childrenContent}
+          </div>
+        )
       }
       return (
         <DroppableFolder folderId={row.folder.id} dropId={resolveSidebarFolderDropId(row)}>
           {folderNode}
+          {childrenContent}
         </DroppableFolder>
       )
     }

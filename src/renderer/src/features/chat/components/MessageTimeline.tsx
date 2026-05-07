@@ -1124,6 +1124,12 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
         ref={scrollContainerRef}
         data-timeline-scroll
         className="h-full overflow-y-auto overflow-x-hidden yachiyo-thread-enter"
+        style={{
+          maskImage:
+            'linear-gradient(to bottom, transparent, black 24px, black calc(100% - 32px), transparent)',
+          WebkitMaskImage:
+            'linear-gradient(to bottom, transparent, black 24px, black calc(100% - 32px), transparent)'
+        }}
       >
         <div
           style={{

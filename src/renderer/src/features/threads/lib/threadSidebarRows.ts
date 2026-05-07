@@ -14,10 +14,18 @@ export type SidebarItem =
 export type SidebarRow =
   | { kind: 'starred-header'; key: string }
   | { kind: 'thread'; key: string; thread: Thread }
-  | { kind: 'folder'; key: string; folder: FolderRecord; threads: Thread[] }
+  | {
+      kind: 'folder'
+      key: string
+      folder: FolderRecord
+      threads: Thread[]
+      children: FolderChild[]
+    }
   | { kind: 'folder-date-header'; key: string; folder: FolderRecord; label: string }
   | { kind: 'folder-thread'; key: string; folder: FolderRecord; thread: Thread }
   | { kind: 'date-header'; key: string; label: string }
+
+export const FOLDER_VIEWPORT_MAX_HEIGHT = 280
 
 export type SidebarFolderDropRow = Extract<
   SidebarRow,
@@ -246,33 +254,14 @@ export function buildSidebarRows(
       continue
     }
 
+    const isCollapsed = collapsedFolderIds.has(item.folder.id)
     rows.push({
       kind: 'folder',
       key: `folder:${item.folder.id}`,
       folder: item.folder,
-      threads: item.threads
+      threads: item.threads,
+      children: isCollapsed ? [] : item.children
     })
-
-    if (collapsedFolderIds.has(item.folder.id)) continue
-
-    for (const child of item.children) {
-      if (child.kind === 'folder-date-header') {
-        rows.push({
-          kind: 'folder-date-header',
-          key: `folder-date:${item.folder.id}:${child.label}`,
-          folder: item.folder,
-          label: child.label
-        })
-        continue
-      }
-
-      rows.push({
-        kind: 'folder-thread',
-        key: `folder-thread:${item.folder.id}:${child.thread.id}`,
-        folder: item.folder,
-        thread: child.thread
-      })
-    }
   }
 
   return rows
@@ -285,8 +274,14 @@ export function estimateSidebarRowSize(row: SidebarRow, showPreview: boolean): n
       return 30
     case 'folder-date-header':
       return 22
-    case 'folder':
-      return 38
+    case 'folder': {
+      if (row.children.length === 0) return 38
+      const contentHeight = row.children.reduce(
+        (h, c) => h + (c.kind === 'folder-date-header' ? 22 : showPreview ? 62 : 38),
+        0
+      )
+      return 38 + Math.min(contentHeight, FOLDER_VIEWPORT_MAX_HEIGHT)
+    }
     case 'thread':
     case 'folder-thread':
       return showPreview ? 62 : 38
