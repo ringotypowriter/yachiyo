@@ -78,6 +78,7 @@ function useTitleAnimation(title: string, skip: boolean): string {
 
 export function ThreadListItem({
   activeRunId,
+  draftText,
   isActive,
   hasActiveRun,
   hasBackgroundWork,
@@ -101,6 +102,7 @@ export function ThreadListItem({
   threadListMode
 }: {
   activeRunId: string | null
+  draftText: string | null
   isActive: boolean
   hasActiveRun: boolean
   hasBackgroundWork: boolean
@@ -347,7 +349,14 @@ export function ThreadListItem({
                     color: isHighlighted ? theme.text.secondary : theme.text.muted
                   }}
                 >
-                  {preview.text}
+                  {draftText !== null && preview.state === 'normal' ? (
+                    <>
+                      <span style={{ color: theme.text.accent }}>[Draft]</span>
+                      {draftText.length > 0 ? <> {draftText}</> : null}
+                    </>
+                  ) : (
+                    preview.text
+                  )}
                 </span>
               )}
             </div>

@@ -13,7 +13,11 @@ import {
   useDroppable,
   type DragEndEvent
 } from '@dnd-kit/core'
-import { useAppStore, hasActiveMultiFilter } from '@renderer/app/store/useAppStore'
+import {
+  useAppStore,
+  hasActiveMultiFilter,
+  type ComposerDraft
+} from '@renderer/app/store/useAppStore'
 import { isComposerDraftEmpty, NEW_THREAD_DRAFT_KEY } from '@renderer/app/store/useAppStore/helpers'
 import type { FolderRecord, RunRecord, Thread, ThreadColorTag, ToolCall } from '@renderer/app/types'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
@@ -545,6 +549,7 @@ function ThreadListContent({
   archiveThread,
   cancelRunForThread,
   compactThreadToAnotherThread,
+  composerDrafts,
   deleteThread,
   draftThreadIds,
   latestRunsByThread,
@@ -576,6 +581,7 @@ function ThreadListContent({
   archiveThread: (threadId: string) => Promise<void>
   cancelRunForThread: (threadId: string) => Promise<void>
   compactThreadToAnotherThread: () => Promise<void>
+  composerDrafts: Record<string, ComposerDraft>
   deleteThread: (threadId: string) => Promise<void>
   draftThreadIds: ReadonlySet<string>
   latestRunsByThread: Record<string, RunRecord>
@@ -873,12 +879,15 @@ function ThreadListContent({
   ): React.JSX.Element {
     const isRunActive = runStatusesByThread[thread.id] === 'running'
     const hasBackgroundWork = backgroundTaskRunningThreadIds.has(thread.id)
+    const draft = composerDrafts[thread.id]
+    const draftText = draft && !isComposerDraftEmpty(draft) ? draft.text.trim() : null
 
     return (
       <ThreadListItem
         key={thread.id}
         thread={thread}
         activeRunId={isRunActive ? (latestRunsByThread[thread.id]?.id ?? null) : null}
+        draftText={draftText}
         isActive={thread.id === activeId}
         hasActiveRun={isRunActive || hasBackgroundWork}
         hasBackgroundWork={hasBackgroundWork}
@@ -1238,6 +1247,7 @@ export function ThreadList(): React.JSX.Element {
       archiveThread={archiveThread}
       cancelRunForThread={cancelRunForThread}
       compactThreadToAnotherThread={compactThreadToAnotherThread}
+      composerDrafts={composerDrafts}
       deleteThread={deleteThread}
       draftThreadIds={draftThreadIds}
       latestRunsByThread={latestRunsByThread}
