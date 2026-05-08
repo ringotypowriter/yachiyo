@@ -34,6 +34,7 @@ export interface BackgroundBashTaskResult {
   exitCode: number
   threadId: string
   toolCallId?: string
+  pid?: number
   /** True when the task was stopped via `cancelTask` (user-initiated abort). */
   cancelledByUser?: boolean
 }
@@ -293,6 +294,7 @@ export class BackgroundBashManager {
         exitCode,
         threadId: input.threadId,
         toolCallId: input.toolCallId,
+        ...(task.process.pid != null ? { pid: task.process.pid } : {}),
         ...(cancelledByUser ? { cancelledByUser } : {})
       }
       this.tasks.delete(input.taskId)

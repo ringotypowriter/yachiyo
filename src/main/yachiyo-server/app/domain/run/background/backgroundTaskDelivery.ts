@@ -7,6 +7,7 @@ export function buildBackgroundCompletionMessage(result: BackgroundBashTaskResul
     `Task ID: ${result.taskId}\n` +
     `Command: ${result.command}\n` +
     `Exit code: ${result.exitCode}\n` +
+    (result.pid != null ? `Process PID: ${result.pid}\n` : '') +
     `Log file: ${result.logPath}\n\n` +
     `The background command has finished. You can read the log file for full output.`
   )
