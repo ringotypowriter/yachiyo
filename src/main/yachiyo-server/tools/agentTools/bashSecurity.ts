@@ -446,16 +446,24 @@ function validateBraceExpansion(ctx: ValidationContext): SecurityResult {
     if (matchingClose === -1) continue
 
     let innerDepth = 0
+    let looksLikeDict = false
     for (let k = i + 1; k < matchingClose; k++) {
       const ch = content[k]!
       if (ch === '{' && !isEscapedAtPosition(content, k)) innerDepth++
       else if (ch === '}' && !isEscapedAtPosition(content, k)) innerDepth--
       else if (innerDepth === 0) {
+        // Top-level ':' means Python/JSON dict or bash ${var:-default} — not brace expansion.
+        // Real bash brace expansions ({a,b}, {1..5}) never have a colon at top level.
+        if (ch === ':') {
+          looksLikeDict = true
+          break
+        }
         if (ch === ',' || (ch === '.' && k + 1 < matchingClose && content[k + 1] === '.')) {
           return refused('Command contains brace expansion that could alter command parsing.')
         }
       }
     }
+    if (looksLikeDict) continue
   }
 
   return ok

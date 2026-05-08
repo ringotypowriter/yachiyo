@@ -277,6 +277,14 @@ describe('bashSecurity', () => {
         // git diff {@'{'0},--output=/tmp/pwned}
         expectBlocked("git diff {@'{'0},--output=/tmp/pwned}", 'brace')
       })
+
+      it('allows Python dict literal with colon keys', () => {
+        expectAllowed(`python -c "d = {'foo': ['1.0'], 'bar': ['2.0'], }"`)
+      })
+
+      it('allows JSON-like dict passed to python -c', () => {
+        expectAllowed(`python -c "d = {'key': 'value', 'other': 42}"`)
+      })
     })
 
     // --- Huge search root (scope block) ---
