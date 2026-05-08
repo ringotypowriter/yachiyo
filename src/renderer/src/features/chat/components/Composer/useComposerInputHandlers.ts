@@ -563,8 +563,11 @@ export function useComposerInputHandlers(
 
       // Pretext-driven up/down navigation — override native arrow keys so cursor
       // movement follows pretext's visual lines, not the textarea's CSS wrapping.
+      // Skip during IME composition: arrow keys select candidates, not navigate lines.
       if (
         (event.key === 'ArrowUp' || event.key === 'ArrowDown') &&
+        !isComposing &&
+        !event.nativeEvent.isComposing &&
         !event.metaKey &&
         !event.altKey &&
         !event.ctrlKey
