@@ -880,7 +880,16 @@ function ThreadListContent({
     const isRunActive = runStatusesByThread[thread.id] === 'running'
     const hasBackgroundWork = backgroundTaskRunningThreadIds.has(thread.id)
     const draft = composerDrafts[thread.id]
-    const draftText = draft && !isComposerDraftEmpty(draft) ? draft.text.trim() : null
+    let draftText: string | null = null
+    if (draft && !isComposerDraftEmpty(draft)) {
+      const text = draft.text.trim()
+      if (text.length > 0) {
+        draftText = text
+      } else {
+        const count = (draft.images?.length ?? 0) + (draft.files?.length ?? 0)
+        draftText = count > 0 ? (count === 1 ? '1 attachment' : `${count} attachments`) : ''
+      }
+    }
 
     return (
       <ThreadListItem
