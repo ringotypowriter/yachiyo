@@ -224,17 +224,23 @@ describe('bashSecurity', () => {
     })
 
     // --- Comment-quote desync ---
-    describe('blocks comment-quote desync', () => {
-      it('blocks quote in comment', () => {
-        expectBlocked("echo test # here's a quote", 'quote characters inside a # comment')
+    // extractQuotedContent now skips # comments, so quotes inside comments
+    // can no longer desync downstream validators.
+    describe('allows quotes inside # comments', () => {
+      it('allows single quote in comment', () => {
+        expectAllowed("echo test # here's a quote")
       })
 
-      it('blocks double quote in comment', () => {
-        expectBlocked('echo test # say "hello"', 'quote characters inside a # comment')
+      it('allows double quote in comment', () => {
+        expectAllowed('echo test # say "hello"')
       })
 
       it('allows comment without quotes', () => {
         expectAllowed('echo test # safe comment')
+      })
+
+      it('still blocks huge-root scan after a comment with quotes', () => {
+        expectBlocked("echo hi # it's fine\nfind / -name evil", 'scan range is too large')
       })
     })
 

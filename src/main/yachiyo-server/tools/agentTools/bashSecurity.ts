@@ -103,6 +103,26 @@ function extractQuotedContent(command: string, isJq = false): QuoteExtraction {
       if (!isJq) continue
     }
 
+    // Unquoted word-boundary # starts a bash comment — skip to EOL.
+    // Mid-word # (e.g. `test#value`) is not a comment in bash and falls
+    // through so validateMidWordHash can still catch it.
+    if (char === '#' && !inSingleQuote && !inDoubleQuote) {
+      const prevChar = i > 0 ? command[i - 1] : undefined
+      const atWordBoundary =
+        prevChar === undefined ||
+        prevChar === ' ' ||
+        prevChar === '\t' ||
+        prevChar === '\n' ||
+        prevChar === ';' ||
+        prevChar === '|' ||
+        prevChar === '&' ||
+        prevChar === '('
+      if (atWordBoundary) {
+        while (i + 1 < command.length && command[i + 1] !== '\n') i++
+        continue
+      }
+    }
+
     if (!inSingleQuote) withDoubleQuotes += char
     if (!inSingleQuote && !inDoubleQuote) fullyUnquoted += char
     if (!inSingleQuote && !inDoubleQuote) unquotedKeepQuoteChars += char
@@ -319,67 +339,6 @@ function validateMidWordHash(ctx: ValidationContext): SecurityResult {
     return refused(
       'Command contains mid-word # which is parsed differently by different shell parsers.'
     )
-  }
-
-  return ok
-}
-
-/**
- * Block quote characters inside # comments — desync downstream quote trackers.
- */
-function validateCommentQuoteDesync(ctx: ValidationContext): SecurityResult {
-  const { originalCommand } = ctx
-  let inSingleQuote = false
-  let inDoubleQuote = false
-  let escaped = false
-
-  for (let i = 0; i < originalCommand.length; i++) {
-    const char = originalCommand[i]!
-
-    if (escaped) {
-      escaped = false
-      continue
-    }
-
-    if (inSingleQuote) {
-      if (char === "'") inSingleQuote = false
-      continue
-    }
-
-    if (char === '\\') {
-      escaped = true
-      continue
-    }
-
-    if (inDoubleQuote) {
-      if (char === '"') inDoubleQuote = false
-      continue
-    }
-
-    if (char === "'") {
-      inSingleQuote = true
-      continue
-    }
-
-    if (char === '"') {
-      inDoubleQuote = true
-      continue
-    }
-
-    if (char === '#') {
-      const lineEnd = originalCommand.indexOf('\n', i)
-      const commentText = originalCommand.slice(
-        i + 1,
-        lineEnd === -1 ? originalCommand.length : lineEnd
-      )
-      if (/['"]/.test(commentText)) {
-        return refused(
-          'Command contains quote characters inside a # comment which can desync quote tracking.'
-        )
-      }
-      if (lineEnd === -1) break
-      i = lineEnd
-    }
   }
 
   return ok
@@ -1008,7 +967,7 @@ function validateHugeSearchRoot(ctx: ValidationContext): SecurityResult {
   // guard, not a security boundary, so quoted edge cases (`find "/"`,
   // single-quoted flag values) are best-effort.
   const segments = ctx.fullyUnquotedContent
-    .split(/[;&|]+/)
+    .split(/[;&|\n]+/)
     .map((segment) => segment.trim())
     .filter(Boolean)
 
@@ -1128,7 +1087,6 @@ export function validateBashCommand(command: string): SecurityResult {
     validateBackslashEscapedWhitespace,
     validateBackslashEscapedOperators,
     validateMidWordHash,
-    validateCommentQuoteDesync,
     validateQuotedNewline,
     validateBraceExpansion
   ]
