@@ -136,6 +136,54 @@ test('folder row produces a drop target id', () => {
   assert.equal(resolveSidebarFolderDropId(folderRow), 'folder-folder-a')
 })
 
+test('loose threads with a draft float to the top under a Today header', () => {
+  const items = buildSidebarItems(
+    [thread('recent-today'), thread('draft-yesterday', { updatedAt: '2026-04-28T10:00:00.000Z' })],
+    [],
+    NOW,
+    new Set(['draft-yesterday'])
+  )
+
+  const rows = buildSidebarRows(items, new Set())
+
+  assert.deepEqual(
+    rows.map((row) =>
+      row.kind === 'date-header'
+        ? ['date-header', row.label]
+        : row.kind === 'thread'
+          ? ['thread', row.thread.id]
+          : [row.kind, '']
+    ),
+    [
+      ['date-header', 'Today'],
+      ['thread', 'draft-yesterday'],
+      ['thread', 'recent-today']
+    ]
+  )
+})
+
+test('multiple draft threads all appear before non-draft threads', () => {
+  const items = buildSidebarItems(
+    [
+      thread('today-a'),
+      thread('draft-b', { updatedAt: '2026-04-27T10:00:00.000Z' }),
+      thread('draft-c', { updatedAt: '2026-04-26T10:00:00.000Z' })
+    ],
+    [],
+    NOW,
+    new Set(['draft-b', 'draft-c'])
+  )
+
+  const rows = buildSidebarRows(items, new Set())
+  const threadIds = rows
+    .filter((r) => r.kind === 'thread')
+    .map((r) => (r as { kind: 'thread'; thread: { id: string } }).thread.id)
+
+  assert.equal(threadIds[0], 'draft-b')
+  assert.equal(threadIds[1], 'draft-c')
+  assert.equal(threadIds[2], 'today-a')
+})
+
 test('running thread preview shows a thinking placeholder before current-run tool calls', () => {
   const preview = resolveThreadSidebarPreview({
     activeRunId: 'run-1',

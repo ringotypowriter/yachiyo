@@ -14,6 +14,7 @@ import {
   type DragEndEvent
 } from '@dnd-kit/core'
 import { useAppStore, hasActiveMultiFilter } from '@renderer/app/store/useAppStore'
+import { isComposerDraftEmpty, NEW_THREAD_DRAFT_KEY } from '@renderer/app/store/useAppStore/helpers'
 import type { FolderRecord, RunRecord, Thread, ThreadColorTag, ToolCall } from '@renderer/app/types'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import {
@@ -143,6 +144,7 @@ function FolderAwareThreadList({
   threads,
   folders,
   collapsedFolderIds,
+  draftThreadIds,
   scrollElement,
   showPreview,
   mode,
@@ -159,6 +161,7 @@ function FolderAwareThreadList({
   threads: Thread[]
   folders: FolderRecord[]
   collapsedFolderIds: Set<string>
+  draftThreadIds: ReadonlySet<string>
   scrollElement: HTMLDivElement | null
   showPreview: boolean
   mode: 'active' | 'archived'
@@ -172,7 +175,10 @@ function FolderAwareThreadList({
   restoreFolder: (folder: FolderRecord, threads: Thread[]) => void
   renderThreadItem: (thread: Thread, options?: { isInFolder?: boolean }) => React.JSX.Element
 }): React.JSX.Element {
-  const items = useMemo(() => buildSidebarItems(threads, folders), [threads, folders])
+  const items = useMemo(
+    () => buildSidebarItems(threads, folders, new Date(), draftThreadIds),
+    [threads, folders, draftThreadIds]
+  )
   const rows = useMemo(
     () => buildSidebarRows(items, collapsedFolderIds),
     [items, collapsedFolderIds]
@@ -540,6 +546,7 @@ function ThreadListContent({
   cancelRunForThread,
   compactThreadToAnotherThread,
   deleteThread,
+  draftThreadIds,
   latestRunsByThread,
   memoryEnabled,
   regenerateThreadTitle,
@@ -570,6 +577,7 @@ function ThreadListContent({
   cancelRunForThread: (threadId: string) => Promise<void>
   compactThreadToAnotherThread: () => Promise<void>
   deleteThread: (threadId: string) => Promise<void>
+  draftThreadIds: ReadonlySet<string>
   latestRunsByThread: Record<string, RunRecord>
   memoryEnabled: boolean
   regenerateThreadTitle: (threadId: string) => Promise<void>
@@ -1028,6 +1036,7 @@ function ThreadListContent({
           threads={visibleThreads}
           folders={folders}
           collapsedFolderIds={collapsedFolderIds}
+          draftThreadIds={draftThreadIds}
           scrollElement={scrollElement}
           showPreview={showPreview}
           mode={threadListMode}
@@ -1136,6 +1145,7 @@ export function ThreadList(): React.JSX.Element {
   )
   const justDoneRunIdsByThread = useAppStore((s) => s.justDoneRunIdsByThread)
   const sidebarFilter = useAppStore((s) => s.sidebarFilter)
+  const composerDrafts = useAppStore((s) => s.composerDrafts)
   const config = useAppStore((s) => s.config)
   const savedWorkspacePaths = config?.workspace?.savedPaths ?? EMPTY_WORKSPACE_PATHS
   const backgroundTaskHydrationThreadIds = useMemo(
@@ -1207,6 +1217,17 @@ export function ThreadList(): React.JSX.Element {
       justDoneRunIdsByThread
     ]
   )
+  const draftThreadIds = useMemo(() => {
+    if (threadListMode !== 'active') return new Set<string>()
+    const ids = new Set<string>()
+    for (const [key, draft] of Object.entries(composerDrafts)) {
+      if (key !== NEW_THREAD_DRAFT_KEY && !isComposerDraftEmpty(draft)) {
+        ids.add(key)
+      }
+    }
+    return ids
+  }, [composerDrafts, threadListMode])
+
   const activeId = threadListMode === 'archived' ? activeArchivedThreadId : activeThreadId
   const memoryEnabled = isMemoryConfigured(config)
 
@@ -1218,6 +1239,7 @@ export function ThreadList(): React.JSX.Element {
       cancelRunForThread={cancelRunForThread}
       compactThreadToAnotherThread={compactThreadToAnotherThread}
       deleteThread={deleteThread}
+      draftThreadIds={draftThreadIds}
       latestRunsByThread={latestRunsByThread}
       memoryEnabled={memoryEnabled}
       regenerateThreadTitle={regenerateThreadTitle}

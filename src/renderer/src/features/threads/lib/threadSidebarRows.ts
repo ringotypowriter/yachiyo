@@ -152,7 +152,8 @@ const WORKING_SIDEBAR_PREVIEWS: readonly [string, ...string[]] = [
 export function buildSidebarItems(
   threads: Thread[],
   folders: FolderRecord[],
-  now = new Date()
+  now = new Date(),
+  draftThreadIds: ReadonlySet<string> = new Set()
 ): SidebarItem[] {
   const folderMap = new Map<string, FolderRecord>()
   for (const f of folders) folderMap.set(f.id, f)
@@ -218,9 +219,17 @@ export function buildSidebarItems(
     result.push({ kind: 'folder', folder: fi.folder, threads: fi.threads, children })
   }
 
+  looseThreads.sort((a, b) => {
+    const aDraft = draftThreadIds.has(a.id)
+    const bDraft = draftThreadIds.has(b.id)
+    if (aDraft !== bDraft) return aDraft ? -1 : 1
+    return b.updatedAt.localeCompare(a.updatedAt)
+  })
+
   let lastLabel = ''
   for (const t of looseThreads) {
-    const label = formatSidebarDateLabel(t.updatedAt, today)
+    const effectiveUpdatedAt = draftThreadIds.has(t.id) ? now.toISOString() : t.updatedAt
+    const label = formatSidebarDateLabel(effectiveUpdatedAt, today)
 
     if (label !== lastLabel) {
       result.push({ kind: 'date-header', label })
