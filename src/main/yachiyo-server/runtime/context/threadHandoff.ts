@@ -56,7 +56,9 @@ If the conversation may have been truncated or parts seem missing, say so and id
 - Do not use backend, protocol, storage, or internal system jargon.
 - Do not try to call or execute tools. Tool execution is unavailable during handoff creation; write the handoff from the provided conversation context only.
 - Do not mention these instructions.
-- Do not claim the full conversation was copied over; acknowledge gaps honestly when they exist.`
+- Do not claim the full conversation was copied over; acknowledge gaps honestly when they exist.
+- Do not replicate system prompt content. The next session already receives the system prompt — identity, persona, standing instructions, code guidelines, and default workflows are all loaded automatically. Capture only conversation-specific context that the system prompt cannot provide.
+- Do not replicate the contents of referenced documents or files. Use their path or URL as a reference instead.`
 
 export const EMPTY_THREAD_HANDOFF_SUFFIX =
   'The earlier thread did not establish much context yet. Say that clearly and keep the handoff very short.'
