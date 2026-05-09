@@ -30,6 +30,7 @@ import { WorkspaceSelectorPopup } from '../WorkspaceSelectorPopup'
 import { SmoothCaretOverlay } from '../SmoothCaretOverlay'
 import type { AcpAgentEntry } from '../../lib/modelSelectorState'
 import { clearGoalX } from '@renderer/features/chat/lib/pretextSync'
+import { selectComposerPlaceholder } from '@renderer/features/chat/lib/composerPlaceholder'
 import { formatReasoningSelection } from '../../lib/reasoningSelectionLabel'
 import {
   ACCEPT_ATTRIBUTE,
@@ -169,6 +170,8 @@ export function ComposerView(props: any): React.JSX.Element {
     primarySendMode,
     isSendInFlight
   } = props
+
+  const placeholderText = selectComposerPlaceholder(activeThreadId)
 
   return (
     <div
@@ -482,7 +485,7 @@ export function ComposerView(props: any): React.JSX.Element {
               onBlur={() => setIsTextareaFocused(false)}
               placeholder={
                 isConfigured
-                  ? 'Message Yachiyo...'
+                  ? placeholderText
                   : 'Open Settings and configure a provider before chatting.'
               }
               rows={1}
