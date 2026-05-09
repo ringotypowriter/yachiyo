@@ -10,9 +10,13 @@ import { startRecoveredRun } from '../active/activeRunStart.ts'
 import { sendActiveRunSteer, type SendChatFlowContext } from '../chat/sendChatFlow.ts'
 import { YachiyoServerRunDomain } from '../runDomain.ts'
 
-function createDomain(): YachiyoServerRunDomain {
+function createDomain(cancelledRunIds: string[] = []): YachiyoServerRunDomain {
   return new YachiyoServerRunDomain({
-    storage: {},
+    storage: {
+      cancelRun: (input: { runId: string }) => {
+        cancelledRunIds.push(input.runId)
+      }
+    },
     createId: () => 'id',
     timestamp: () => '2026-05-02T00:00:00.000Z',
     emit: () => {},
@@ -101,6 +105,75 @@ test('withdrawPendingSteer restores the reasoning effort replaced by the steer',
   assert.deepEqual(activeRun.enabledSkillNames, ['original-skill'])
   assert.equal(activeRun.reasoningEffort, 'medium')
   assert.equal(activeRun.runTrigger, 'channel')
+})
+
+test('listActiveRunIds returns user-visible active runs only', () => {
+  const domain = createDomain()
+  const activeRun = {
+    threadId: 'thread-1',
+    requestMessageId: 'user-1',
+    abortController: new AbortController(),
+    executionPhase: 'generating' as const,
+    updateHeadOnComplete: true
+  }
+  const recapRun = {
+    ...activeRun,
+    threadId: 'thread-2',
+    recap: true
+  }
+  const domainState = domain as unknown as {
+    activeRuns: Map<string, typeof activeRun | typeof recapRun>
+    activeRunByThread: Map<string, string>
+  }
+
+  domainState.activeRuns.set('run-1', activeRun)
+  domainState.activeRuns.set('run-recap', recapRun)
+  domainState.activeRunByThread.set('thread-1', 'run-1')
+  domainState.activeRunByThread.set('thread-2', 'run-recap')
+
+  assert.deepEqual(domain.listActiveRunIds(), ['run-1'])
+})
+
+test('cancelActiveRuns stops every user-visible active run', () => {
+  const domain = createDomain()
+  const runOneController = new AbortController()
+  const runTwoController = new AbortController()
+  const recapController = new AbortController()
+  const activeRun = {
+    threadId: 'thread-1',
+    requestMessageId: 'user-1',
+    abortController: runOneController,
+    executionPhase: 'generating' as const,
+    updateHeadOnComplete: true
+  }
+  const secondActiveRun = {
+    ...activeRun,
+    threadId: 'thread-2',
+    abortController: runTwoController
+  }
+  const recapRun = {
+    ...activeRun,
+    threadId: 'thread-3',
+    abortController: recapController,
+    recap: true
+  }
+  const domainState = domain as unknown as {
+    activeRuns: Map<string, typeof activeRun | typeof secondActiveRun | typeof recapRun>
+    activeRunByThread: Map<string, string>
+  }
+
+  domainState.activeRuns.set('run-1', activeRun)
+  domainState.activeRuns.set('run-2', secondActiveRun)
+  domainState.activeRuns.set('run-recap', recapRun)
+  domainState.activeRunByThread.set('thread-1', 'run-1')
+  domainState.activeRunByThread.set('thread-2', 'run-2')
+  domainState.activeRunByThread.set('thread-3', 'run-recap')
+
+  domain.cancelActiveRuns()
+
+  assert.equal(runOneController.signal.aborted, true)
+  assert.equal(runTwoController.signal.aborted, true)
+  assert.equal(recapController.signal.aborted, false)
 })
 
 test('startRecoveredRun restores the persisted run trigger instead of deriving from channel hint', () => {

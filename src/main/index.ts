@@ -14,10 +14,12 @@ import { registerYachiyoGateway } from './yachiyoGateway/registerYachiyoGateway'
 import { setupCLI } from './cli/setup'
 import { setupCoreSkills } from './skills/coreSkillsSetup'
 import { setupAutoUpdate, isInstallingUpdate } from './electron/autoUpdate'
+import { installActiveRunCloseGuard } from './electron/activeRunCloseGuard'
 import {
   installYachiyoAssetProtocolHandler,
   registerYachiyoAssetScheme
 } from './electron/yachiyoAssetProtocol'
+import type { YachiyoServer } from './yachiyo-server/app/host/YachiyoServer'
 
 // Override console.log/warn/error so all existing log calls persist to file.
 // Logs go to ~/Library/Logs/Yachiyo/main.log on macOS.
@@ -185,7 +187,7 @@ app.setPath('userData', resolveYachiyoDataDir())
 // Scheme registration must happen before `app.whenReady()` resolves.
 registerYachiyoAssetScheme()
 
-function createWindow(): void {
+function createWindow(server: YachiyoServer): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
     width: 1100,
@@ -217,6 +219,12 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     if (mainWindowRef === mainWindow) mainWindowRef = null
     maybeDestroyHiddenJotdown()
+  })
+  installActiveRunCloseGuard(mainWindow, {
+    cancelActiveRuns: () => server.cancelActiveRuns(),
+    isBypassed: () => isQuitting || isInstallingUpdate(),
+    listActiveRunIds: () => server.listActiveRunIds(),
+    platform: process.platform
   })
   installEditableContextMenu(mainWindow)
 
@@ -404,7 +412,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  createWindow()
+  createWindow(server)
   setupAutoUpdate()
 
   app.on('activate', function () {
@@ -417,7 +425,7 @@ app.whenReady().then(async () => {
       mainWindowRef.focus()
       return
     }
-    createWindow()
+    createWindow(server)
   })
 })
 

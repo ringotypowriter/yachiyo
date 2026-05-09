@@ -163,6 +163,20 @@ export class YachiyoServerRunDomain {
     return this.hasNonRecapActiveRun(threadId)
   }
 
+  listActiveRunIds(): string[] {
+    const runIds: string[] = []
+    for (const [runId, run] of this.activeRuns) {
+      if (!run.recap) runIds.push(runId)
+    }
+    return runIds
+  }
+
+  cancelActiveRuns(): void {
+    for (const runId of this.listActiveRunIds()) {
+      this.cancelRun({ runId })
+    }
+  }
+
   private hasNonRecapActiveRun(threadId: string): boolean {
     const runId = this.activeRunByThread.get(threadId)
     if (!runId) return false

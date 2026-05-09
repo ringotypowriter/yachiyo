@@ -844,6 +844,14 @@ export class YachiyoServer {
     return this.runDomain.hasActiveThread(threadId)
   }
 
+  listActiveRunIds(): string[] {
+    return this.runDomain.listActiveRunIds()
+  }
+
+  cancelActiveRuns(): void {
+    this.runDomain.cancelActiveRuns()
+  }
+
   answerToolQuestion(input: { runId: string; toolCallId: string; answer: string }): void {
     this.runDomain.answerToolQuestion(input)
   }
