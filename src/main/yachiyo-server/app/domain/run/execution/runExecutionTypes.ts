@@ -24,6 +24,7 @@ import type { ModelRuntime, ModelUsage } from '../../../../runtime/models/types.
 import type { SoulDocument } from '../../../../runtime/profiles/soul.ts'
 import type { UserDocument } from '../../../../runtime/profiles/user.ts'
 import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../../../storage/storage.ts'
+import type { RunExecutionPhase } from '../runTypes.ts'
 import type {
   DelegateCodingTaskFinishedEvent,
   DelegateCodingTaskProgressEvent,
@@ -147,7 +148,7 @@ export interface RunExecutionDeps {
   loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
   listSkills: (workspacePaths?: string[]) => Promise<SkillCatalogEntry[]>
   onEnabledToolsUsed: (enabledTools: ToolCallName[]) => void
-  onExecutionPhaseChange?: (phase: 'generating' | 'tool-running' | 'waiting-for-user') => void
+  onExecutionPhaseChange?: (phase: RunExecutionPhase) => void
   hasPendingSteer?: () => boolean
   /** Called by execution to inject a system steer that breaks loops or redirects the model. */
   injectPendingSteer?: (input: { content: string }) => void

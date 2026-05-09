@@ -18,6 +18,7 @@ import type { ModelUsage } from '../../../../runtime/models/types.ts'
 import { RetryableRunError } from '../../../../runtime/models/runtimeErrors.ts'
 import { normalizeToolResult, summarizeToolInput } from '../../../../tools/agentTools.ts'
 import { createDeltaBatcher } from '../../shared/shared.ts'
+import type { RunExecutionPhase } from '../runTypes.ts'
 import { prepareServerRunContext } from '../context/prepareServerRunContext.ts'
 import {
   getCompletedBackgroundBashError,
@@ -86,7 +87,7 @@ export async function executeServerRun(
     )
   }
   const subagentStartedAtByDelegationId = new Map<string, string>()
-  let executionPhase: 'generating' | 'tool-running' | 'waiting-for-user' = 'generating'
+  let executionPhase: RunExecutionPhase = 'generating'
   const markProgress = (): void => {
     // No-op retained for call sites; the inactivity watchdog that consumed
     // this signal has been removed.
@@ -195,7 +196,7 @@ export async function executeServerRun(
     reasoningDeltaBatcher.flush()
   }
 
-  const setExecutionPhase = (phase: 'generating' | 'tool-running' | 'waiting-for-user'): void => {
+  const setExecutionPhase = (phase: RunExecutionPhase): void => {
     if (executionPhase === phase) {
       return
     }

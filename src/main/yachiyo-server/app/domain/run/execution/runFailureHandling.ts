@@ -21,6 +21,7 @@ import type { PersistRecoveryCheckpointOptions } from './recoveryCheckpointManag
 import { persistTerminalAssistantMessage } from './terminalPersistence.ts'
 import type { RunToolLifecycleState } from './runToolLifecycleState.ts'
 import type { ExecuteRunInput, ExecuteRunResult, RunExecutionDeps } from './runExecutionTypes.ts'
+import type { RunExecutionPhase } from '../runTypes.ts'
 
 const FRIENDLY_ERROR_LABELS: Array<[test: RegExp | string, label: string]> = [
   ['ERR_HTTP2_PROTOCOL_ERROR', 'Connection interrupted (HTTP/2 stream reset)'],
@@ -40,8 +41,6 @@ const FRIENDLY_ERROR_LABELS: Array<[test: RegExp | string, label: string]> = [
   [/socket hang up/i, 'Connection dropped (socket hang up)'],
   [/fetch failed/i, 'Network request failed']
 ]
-
-type ExecutionPhase = 'generating' | 'tool-running' | 'waiting-for-user'
 
 interface RunFailureOutputSnapshot {
   content: string
@@ -64,7 +63,7 @@ interface HandleRunFailureInput {
     options?: PersistRecoveryCheckpointOptions
   ) => RunRecoveryCheckpoint | undefined
   recoveryAttempts: number
-  setExecutionPhase: (phase: ExecutionPhase) => void
+  setExecutionPhase: (phase: RunExecutionPhase) => void
   settings: ProviderSettings
   snapshotTracker: SnapshotTracker | null
   toolLifecycle: RunToolLifecycleState
@@ -131,6 +130,7 @@ async function failRun(input: HandleRunFailureInput, message: string): Promise<E
   }
 
   const failUsage = mergeRunUsage(input.executionInput.priorUsage, input.lastUsage)
+  input.deps.onExecutionPhaseChange?.('terminal')
   input.deps.storage.failRun({
     runId: input.executionInput.runId,
     completedAt: timestamp,

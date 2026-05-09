@@ -352,10 +352,6 @@ export async function streamCompactThreadHandoff(
           }
         : {})
     })
-    activeRuns.delete(input.runId)
-    activeRunByThread.delete(input.thread.id)
-    activeRunTasks.delete(input.runId)
-
     if (handoffUsage) {
       deps.emit<RunUsageUpdatedEvent>({
         type: 'run.usage.updated',
@@ -377,6 +373,11 @@ export async function streamCompactThreadHandoff(
       threadId: input.thread.id,
       thread: updatedThread
     })
+    activeRuns.delete(input.runId)
+    if (activeRunByThread.get(input.thread.id) === input.runId) {
+      activeRunByThread.delete(input.thread.id)
+    }
+    activeRunTasks.delete(input.runId)
     deps.emit<RunCompletedEvent>({
       type: 'run.completed',
       threadId: input.thread.id,
@@ -425,17 +426,23 @@ export async function streamCompactThreadHandoff(
         error: message
       })
     }
-    activeRuns.delete(input.runId)
-    activeRunByThread.delete(input.thread.id)
-    activeRunTasks.delete(input.runId)
-
     if (wasAborted) {
+      activeRuns.delete(input.runId)
+      if (activeRunByThread.get(input.thread.id) === input.runId) {
+        activeRunByThread.delete(input.thread.id)
+      }
+      activeRunTasks.delete(input.runId)
       deps.emit<RunCancelledEvent>({
         type: 'run.cancelled',
         threadId: input.thread.id,
         runId: input.runId
       })
     } else {
+      activeRuns.delete(input.runId)
+      if (activeRunByThread.get(input.thread.id) === input.runId) {
+        activeRunByThread.delete(input.thread.id)
+      }
+      activeRunTasks.delete(input.runId)
       deps.emit<RunFailedEvent>({
         type: 'run.failed',
         threadId: input.thread.id,

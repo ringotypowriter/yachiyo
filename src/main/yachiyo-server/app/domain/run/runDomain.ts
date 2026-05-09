@@ -580,7 +580,9 @@ export class YachiyoServerRunDomain {
               ensureThreadWorkspace: this.deps.ensureThreadWorkspace,
               onTerminalState: () => {
                 this.activeRuns.delete(input.runId)
-                this.activeRunByThread.delete(input.thread.id)
+                if (this.activeRunByThread.get(input.thread.id) === input.runId) {
+                  this.activeRunByThread.delete(input.thread.id)
+                }
                 this.activeRunTasks.delete(input.runId)
               }
             },

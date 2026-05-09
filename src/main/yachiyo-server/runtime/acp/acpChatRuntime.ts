@@ -305,7 +305,6 @@ export async function runAcpChatThread(
       finishedAt: timestamp,
       failRunningToolCalls: true
     })
-    deps.onTerminalState?.()
 
     deps.emit<MessageCompletedEvent>({
       type: 'message.completed',
@@ -318,6 +317,7 @@ export async function runAcpChatThread(
       threadId: input.thread.id,
       thread: updatedThread
     })
+    deps.onTerminalState?.()
     deps.emit<RunCompletedEvent>({
       type: 'run.completed',
       threadId: input.thread.id,
@@ -393,7 +393,6 @@ export async function runAcpChatThread(
       failRunningToolCalls: true
     })
     deps.storage.failRun({ runId: input.runId, completedAt: timestamp, error: errMsg })
-    deps.onTerminalState?.()
 
     deps.emit<MessageCompletedEvent>({
       type: 'message.completed',
@@ -408,6 +407,7 @@ export async function runAcpChatThread(
         thread: updatedThread
       })
     }
+    deps.onTerminalState?.()
     deps.emit<RunFailedEvent>({
       type: 'run.failed',
       threadId: input.thread.id,

@@ -194,6 +194,7 @@ async function handleCancelledRun(
   }
 
   const cancelUsage = mergeRunUsage(input.executionInput.priorUsage, input.lastUsage)
+  input.deps.onExecutionPhaseChange?.('terminal')
   input.deps.storage.cancelRun({
     runId: input.executionInput.runId,
     completedAt: timestamp,

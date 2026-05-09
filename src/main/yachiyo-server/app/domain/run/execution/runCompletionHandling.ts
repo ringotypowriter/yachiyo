@@ -132,6 +132,7 @@ async function persistCompletedRun(
   }
 
   const finalUsage = mergeRunUsage(input.executionInput.priorUsage, input.lastUsage)
+  input.deps.onExecutionPhaseChange?.('terminal')
   input.deps.storage.completeRun({
     runId: input.executionInput.runId,
     updatedThread,
@@ -140,7 +141,6 @@ async function persistCompletedRun(
     modelId: input.settings.model,
     providerName: input.settings.providerName
   })
-  input.deps.onTerminalState?.()
 
   input.deps.emit<MessageCompletedEvent>({
     type: 'message.completed',

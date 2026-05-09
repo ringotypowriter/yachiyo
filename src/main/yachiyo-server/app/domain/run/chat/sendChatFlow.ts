@@ -153,6 +153,19 @@ export async function sendChatFlow(
       if (!activeRun?.requestMessageId) {
         throw new Error('Wait for the handoff to finish before sending a new message.')
       }
+      if (activeRun.executionPhase === 'terminal') {
+        return queueFollowUp(context, {
+          content,
+          enabledTools,
+          enabledSkillNames,
+          runTrigger,
+          reasoningEffort,
+          images: enrichedImages,
+          attachments: fileAttachments,
+          messageId,
+          thread
+        })
+      }
       // Race guard: stop was already clicked, but the tool's long-running
       // interval hasn't observed the abort yet. Writing pendingSteerInput now
       // would attach it to a run heading down the plain-cancelled path, where
@@ -547,12 +560,18 @@ function runDebouncedSendChat(
     promise
   })
 
-  void promise.then(() => {
-    const current = context.debouncedSendChats.get(debounceKey)
-    if (current?.promise === promise) {
-      current.stateSignature = createDebouncedSendChatStateSignature(context, threadId)
+  void promise.then(
+    () => {
+      const current = context.debouncedSendChats.get(debounceKey)
+      if (current?.promise === promise) {
+        current.stateSignature = createDebouncedSendChatStateSignature(context, threadId)
+      }
+    },
+    () => {
+      // The returned promise already carries the rejection to the caller; this
+      // observer only records successful state signatures.
     }
-  })
+  )
 
   return promise
 }

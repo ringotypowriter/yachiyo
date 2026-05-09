@@ -22,6 +22,8 @@ import type { SoulDocument } from '../../../runtime/profiles/soul.ts'
 import type { UserDocument } from '../../../runtime/profiles/user.ts'
 import type { CreateId, EmitServerEvent, Timestamp } from '../shared/shared.ts'
 
+export type RunExecutionPhase = 'generating' | 'tool-running' | 'waiting-for-user' | 'terminal'
+
 export interface RunState {
   threadId: string
   requestMessageId?: string
@@ -44,7 +46,7 @@ export interface RunState {
     previousReasoningEffort?: ComposerReasoningSelection
     previousRunTrigger?: SendChatRunTrigger
   }
-  executionPhase: 'generating' | 'tool-running' | 'waiting-for-user'
+  executionPhase: RunExecutionPhase
   updateHeadOnComplete: boolean
   /** Resolves a pending askUser tool call with the user's answer. Set by execution. */
   answerToolQuestion?: (toolCallId: string, answer: string) => void

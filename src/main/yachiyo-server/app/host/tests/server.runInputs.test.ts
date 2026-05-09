@@ -821,3 +821,88 @@ test('YachiyoServer debounces duplicate sendChat requests for a fresh run', asyn
     }
   )
 })
+
+test('YachiyoServer queues a steer that lands while the prior run is terminalizing', async () => {
+  let requestCount = 0
+
+  await withServer(
+    async ({ server, waitForEvent }) => {
+      await server.upsertProvider({
+        name: 'default',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: { enabled: ['gpt-5'], disabled: [] }
+      })
+
+      const thread = await server.createThread()
+      const firstAccepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'First request'
+      })
+
+      while (true) {
+        const event = (await waitForEvent('message.completed')) as {
+          runId: string
+          message: { role: string }
+        }
+        if (event.runId === firstAccepted.runId && event.message.role === 'assistant') {
+          break
+        }
+      }
+
+      const secondAccepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Second request',
+        mode: 'steer'
+      })
+
+      assert.equal(secondAccepted.kind, 'active-run-follow-up')
+      assert.equal(secondAccepted.runId, firstAccepted.runId)
+      while (true) {
+        const event = (await waitForEvent('run.completed')) as { runId: string }
+        if (event.runId === firstAccepted.runId) {
+          break
+        }
+      }
+      while (true) {
+        const event = (await waitForEvent('run.created')) as { runId: string }
+        if (event.runId !== firstAccepted.runId) {
+          break
+        }
+      }
+
+      let rejected = false
+      try {
+        await server.sendChat({
+          threadId: thread.id,
+          content: 'Third request'
+        })
+      } catch (error) {
+        rejected = true
+        assert.match(error instanceof Error ? error.message : String(error), /active run/)
+      }
+      assert.equal(rejected, true)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request) {
+          requestCount += 1
+          if (requestCount === 1) {
+            yield 'First response'
+            return
+          }
+
+          yield 'Still running'
+          await new Promise<void>((resolve) => {
+            if (request.signal.aborted) {
+              resolve()
+              return
+            }
+            request.signal.addEventListener('abort', () => resolve(), { once: true })
+          })
+        }
+      })
+    }
+  )
+})

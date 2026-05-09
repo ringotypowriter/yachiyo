@@ -201,7 +201,9 @@ export function buildRunExecutionDeps(
       context.backgroundBashManager.getCompletedTask(taskId),
     onTerminalState: () => {
       context.activeRuns.delete(input.loopInput.runId)
-      context.activeRunByThread.delete(input.loopInput.thread.id)
+      if (context.activeRunByThread.get(input.loopInput.thread.id) === input.loopInput.runId) {
+        context.activeRunByThread.delete(input.loopInput.thread.id)
+      }
       context.activeRunTasks.delete(input.loopInput.runId)
     }
   }
