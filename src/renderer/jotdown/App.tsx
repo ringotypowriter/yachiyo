@@ -258,7 +258,7 @@ export default function JotdownApp(): React.JSX.Element {
       <div className="flex-1 min-h-0 mx-3 mb-1">
         {mode === 'edit' ? (
           <textarea
-            className="w-full h-full resize-none rounded-lg px-3 py-2 text-[13px] outline-none"
+            className="w-full h-full resize-none rounded-lg px-3 py-2 text-[14px] outline-none"
             style={{
               background: 'transparent',
               border: 'none',
@@ -273,7 +273,7 @@ export default function JotdownApp(): React.JSX.Element {
           />
         ) : (
           <div
-            className="w-full h-full overflow-y-auto rounded-lg px-3 py-2 text-[13px]"
+            className="w-full h-full overflow-y-auto rounded-lg px-3 py-2 text-[14px]"
             style={{ color: theme.text.primary }}
           >
             {content ? (

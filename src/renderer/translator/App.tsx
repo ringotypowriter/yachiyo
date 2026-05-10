@@ -305,7 +305,7 @@ export default function TranslatorApp(): React.JSX.Element {
       {/* Input — fixed half */}
       <div className="flex-1 flex flex-col min-h-0 mx-3 mt-2">
         <textarea
-          className="flex-1 resize-none rounded-lg px-3 py-2 text-[13px] outline-none"
+          className="flex-1 resize-none rounded-lg px-3 py-2 text-[14px] outline-none"
           style={{
             background: 'transparent',
             border: 'none',
@@ -330,7 +330,7 @@ export default function TranslatorApp(): React.JSX.Element {
       <div className="flex-1 flex flex-col min-h-0 mx-3 mt-1.5 relative">
         <textarea
           readOnly
-          className="flex-1 resize-none rounded-lg px-3 py-2 text-[13px] outline-none"
+          className="flex-1 resize-none rounded-lg px-3 py-2 text-[14px] outline-none"
           style={{
             background: 'transparent',
             border: 'none',
