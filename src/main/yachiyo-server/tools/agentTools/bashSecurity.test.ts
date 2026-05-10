@@ -257,6 +257,55 @@ describe('bashSecurity', () => {
       it('allows quoted newline without hash', () => {
         expectAllowed('echo "line1\nline2"')
       })
+
+      it('allows Python inline script comments in -c code', () => {
+        expectAllowed(`python3 -c "
+import sys
+# harmless script comment
+print(sys.version_info[0])
+" 2>/dev/null`)
+      })
+
+      it('allows Node inline script text that contains hash-prefixed lines', () => {
+        expectAllowed(`node -e "
+const text = \`Title
+# Section\`
+console.log(text)
+"`)
+      })
+
+      it('allows heredoc Python scripts with hash-prefixed quoted text', () => {
+        expectAllowed(`python3 - <<'PY'
+text = """
+# Section
+"""
+print(text)
+PY`)
+      })
+
+      it('allows heredoc Node scripts with hash-prefixed template lines', () => {
+        expectAllowed(`node - <<'JS'
+const text = \`Title
+# Section\`
+console.log(text)
+JS`)
+      })
+
+      it('does not let heredoc script quotes desync later shell arguments', () => {
+        expectBlocked(
+          `python3 - <<'PY'
+print("
+# script text
+PY
+echo "test
+# hidden"`,
+          'quoted newline'
+        )
+      })
+
+      it('still blocks quoted newline + hash line in non-script Python arguments', () => {
+        expectBlocked("python3 'test\n# hidden' foo", 'quoted newline')
+      })
     })
 
     // --- Brace expansion ---

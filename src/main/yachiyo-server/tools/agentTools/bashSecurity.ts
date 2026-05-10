@@ -64,6 +64,18 @@ interface QuoteExtraction {
   unquotedKeepQuoteChars: string
 }
 
+interface ShellToken {
+  text: string
+  start: number
+  end: number
+  operator?: boolean
+}
+
+interface TextRange {
+  start: number
+  end: number
+}
+
 function extractQuotedContent(command: string, isJq = false): QuoteExtraction {
   let withDoubleQuotes = ''
   let fullyUnquoted = ''
@@ -129,6 +141,358 @@ function extractQuotedContent(command: string, isJq = false): QuoteExtraction {
   }
 
   return { withDoubleQuotes, fullyUnquoted, unquotedKeepQuoteChars }
+}
+
+function tokenizeShellLike(command: string): ShellToken[] {
+  const tokens: ShellToken[] = []
+  let token: ShellToken | undefined
+  let inSingleQuote = false
+  let inDoubleQuote = false
+
+  const ensureToken = (index: number): ShellToken => {
+    if (!token) {
+      token = { text: '', start: index, end: index }
+    }
+    return token
+  }
+
+  const finishToken = (): void => {
+    if (!token) return
+    tokens.push(token)
+    token = undefined
+  }
+
+  const pushOperator = (index: number, text: string): void => {
+    tokens.push({ text, start: index, end: index + text.length, operator: true })
+  }
+
+  for (let i = 0; i < command.length; i++) {
+    const char = command[i]!
+
+    if (inSingleQuote) {
+      if (char === "'") {
+        inSingleQuote = false
+        if (token) token.end = i + 1
+        continue
+      }
+      const current = ensureToken(i)
+      current.text += char
+      current.end = i + 1
+      continue
+    }
+
+    if (inDoubleQuote) {
+      if (char === '\\') {
+        const current = ensureToken(i)
+        if (i + 1 < command.length) {
+          current.text += command[i + 1]!
+          current.end = i + 2
+          i++
+        } else {
+          current.text += char
+          current.end = i + 1
+        }
+        continue
+      }
+      if (char === '"') {
+        inDoubleQuote = false
+        if (token) token.end = i + 1
+        continue
+      }
+      const current = ensureToken(i)
+      current.text += char
+      current.end = i + 1
+      continue
+    }
+
+    if (char === "'" || char === '"') {
+      const current = ensureToken(i)
+      current.end = i + 1
+      inSingleQuote = char === "'"
+      inDoubleQuote = char === '"'
+      continue
+    }
+
+    if (char === '\\') {
+      const current = ensureToken(i)
+      if (i + 1 < command.length) {
+        current.text += command[i + 1]!
+        current.end = i + 2
+        i++
+      } else {
+        current.text += char
+        current.end = i + 1
+      }
+      continue
+    }
+
+    if (char === ' ' || char === '\t' || char === '\r') {
+      finishToken()
+      continue
+    }
+
+    if (char === '\n' || char === ';' || char === '|' || char === '&') {
+      finishToken()
+      const nextChar = command[i + 1]
+      if ((char === '|' || char === '&') && nextChar === char) {
+        pushOperator(i, `${char}${nextChar}`)
+        i++
+      } else {
+        pushOperator(i, char)
+      }
+      continue
+    }
+
+    const current = ensureToken(i)
+    current.text += char
+    current.end = i + 1
+  }
+
+  finishToken()
+  return tokens
+}
+
+function isEnvAssignmentToken(token: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*=/.test(token)
+}
+
+function skipShellCommandPrefixes(tokens: ShellToken[]): number {
+  let index = 0
+
+  for (;;) {
+    const start = index
+
+    while (index < tokens.length && isEnvAssignmentToken(tokens[index]!.text)) {
+      index++
+    }
+
+    if (index >= tokens.length) break
+    const next = tokens[index]!.text
+
+    if (next === 'sudo' || next === 'doas') {
+      index++
+      while (index < tokens.length && tokens[index]!.text.startsWith('-')) {
+        const flag = tokens[index]!.text
+        index++
+        if (flag === '--') break
+        if (
+          SUDO_VALUE_FLAGS.has(flag) &&
+          index < tokens.length &&
+          !tokens[index]!.text.startsWith('-')
+        ) {
+          index++
+        }
+      }
+      continue
+    }
+
+    if (next === 'env') {
+      index++
+      while (index < tokens.length && tokens[index]!.text.startsWith('-')) {
+        const flag = tokens[index]!.text
+        index++
+        if (flag === '--') break
+        if (
+          ENV_VALUE_FLAGS.has(flag) &&
+          index < tokens.length &&
+          !tokens[index]!.text.startsWith('-')
+        ) {
+          index++
+        }
+      }
+      continue
+    }
+
+    if (next === 'exec') {
+      index++
+      continue
+    }
+
+    if (index === start) break
+  }
+
+  return index
+}
+
+function isPythonCommand(command: string): boolean {
+  return /^python(?:\d+(?:\.\d+)*)?$/.test(normalizeBaseCommand(command))
+}
+
+function isNodeCommand(command: string): boolean {
+  return /^(?:node|nodejs)$/.test(normalizeBaseCommand(command))
+}
+
+function isInlineScriptInterpreter(command: string): boolean {
+  return isPythonCommand(command) || isNodeCommand(command)
+}
+
+function isInlineScriptFlag(command: string, token: string): boolean {
+  if (isPythonCommand(command)) {
+    return token === '-c'
+  }
+
+  if (isNodeCommand(command)) {
+    return token === '-e' || token === '--eval' || token === '-p' || token === '--print'
+  }
+
+  return false
+}
+
+function isInlineScriptFlagWithValue(command: string, token: string): boolean {
+  if (isNodeCommand(command)) {
+    return (
+      token.startsWith('--eval=') ||
+      token.startsWith('--print=') ||
+      (token.startsWith('-e') && token.length > 2) ||
+      (token.startsWith('-p') && token.length > 2)
+    )
+  }
+
+  return false
+}
+
+function findInlineScriptArgumentRanges(command: string): TextRange[] {
+  const ranges: TextRange[] = []
+  const tokens = tokenizeShellLike(command)
+  let segment: ShellToken[] = []
+
+  const flushSegment = (): void => {
+    if (segment.length === 0) return
+
+    const commandIndex = skipShellCommandPrefixes(segment)
+    const commandToken = segment[commandIndex]
+    if (!commandToken || !isInlineScriptInterpreter(commandToken.text)) {
+      segment = []
+      return
+    }
+
+    for (let i = commandIndex + 1; i < segment.length; i++) {
+      const current = segment[i]!
+      if (isInlineScriptFlag(commandToken.text, current.text)) {
+        const scriptToken = segment[i + 1]
+        if (scriptToken) {
+          ranges.push({ start: scriptToken.start, end: scriptToken.end })
+        }
+        break
+      }
+
+      if (isInlineScriptFlagWithValue(commandToken.text, current.text)) {
+        ranges.push({ start: current.start, end: current.end })
+        break
+      }
+    }
+
+    segment = []
+  }
+
+  for (const token of tokens) {
+    if (token.operator) {
+      flushSegment()
+      continue
+    }
+    segment.push(token)
+  }
+  flushSegment()
+
+  return ranges
+}
+
+interface HeredocSpec {
+  delimiter: string
+  allowLeadingTabs: boolean
+}
+
+interface HeredocEnd {
+  bodyEnd: number
+  nextStart: number
+}
+
+function parseHeredocToken(token: string, nextToken?: string): HeredocSpec | undefined {
+  const match = /^(?:\d*)<<(-?)(.+)?$/.exec(token)
+  if (!match || token.startsWith('<<<')) return undefined
+
+  const delimiter = match[2] || nextToken
+  if (!delimiter) return undefined
+
+  return {
+    delimiter,
+    allowLeadingTabs: match[1] === '-'
+  }
+}
+
+function findHeredocEnd(command: string, bodyStart: number, spec: HeredocSpec): HeredocEnd {
+  let lineStart = bodyStart
+
+  while (lineStart <= command.length) {
+    const newlineIndex = command.indexOf('\n', lineStart)
+    const lineEnd = newlineIndex === -1 ? command.length : newlineIndex
+    const line = command.slice(lineStart, lineEnd)
+    const candidate = spec.allowLeadingTabs ? line.replace(/^\t+/, '') : line
+
+    if (candidate === spec.delimiter) {
+      return {
+        bodyEnd: lineStart,
+        nextStart: newlineIndex === -1 ? command.length : newlineIndex + 1
+      }
+    }
+
+    if (newlineIndex === -1) break
+    lineStart = newlineIndex + 1
+  }
+
+  return {
+    bodyEnd: command.length,
+    nextStart: command.length
+  }
+}
+
+function findInterpreterHeredocBodyRanges(command: string): TextRange[] {
+  const ranges: TextRange[] = []
+  let lineStart = 0
+
+  while (lineStart < command.length) {
+    const newlineIndex = command.indexOf('\n', lineStart)
+    if (newlineIndex === -1) break
+
+    const line = command.slice(lineStart, newlineIndex)
+    const lineTokens = tokenizeShellLike(line).filter((token) => !token.operator)
+    const commandIndex = skipShellCommandPrefixes(lineTokens)
+    const commandToken = lineTokens[commandIndex]
+
+    if (!commandToken || !isInlineScriptInterpreter(commandToken.text)) {
+      lineStart = newlineIndex + 1
+      continue
+    }
+
+    const specs: HeredocSpec[] = []
+    for (let i = commandIndex + 1; i < lineTokens.length; i++) {
+      const spec = parseHeredocToken(lineTokens[i]!.text, lineTokens[i + 1]?.text)
+      if (spec) specs.push(spec)
+    }
+
+    if (specs.length === 0) {
+      lineStart = newlineIndex + 1
+      continue
+    }
+
+    let bodyStart = newlineIndex + 1
+    for (const spec of specs) {
+      const end = findHeredocEnd(command, bodyStart, spec)
+      ranges.push({ start: bodyStart, end: end.bodyEnd })
+      bodyStart = end.nextStart
+    }
+    lineStart = bodyStart
+  }
+
+  return ranges
+}
+
+function isInTextRange(index: number, ranges: TextRange[]): boolean {
+  return ranges.some((range) => index >= range.start && index < range.end)
+}
+
+function findContainingTextRange(index: number, ranges: TextRange[]): TextRange | undefined {
+  return ranges.find((range) => index >= range.start && index < range.end)
 }
 
 function stripSafeRedirections(content: string): string {
@@ -353,11 +717,19 @@ function validateQuotedNewline(ctx: ValidationContext): SecurityResult {
 
   if (!originalCommand.includes('\n') || !originalCommand.includes('#')) return ok
 
+  const inlineScriptRanges = findInlineScriptArgumentRanges(originalCommand)
+  const heredocBodyRanges = findInterpreterHeredocBodyRanges(originalCommand)
   let inSingleQuote = false
   let inDoubleQuote = false
   let escaped = false
 
   for (let i = 0; i < originalCommand.length; i++) {
+    const heredocBodyRange = findContainingTextRange(i, heredocBodyRanges)
+    if (heredocBodyRange) {
+      i = heredocBodyRange.end - 1
+      continue
+    }
+
     const char = originalCommand[i]!
 
     if (escaped) {
@@ -381,6 +753,10 @@ function validateQuotedNewline(ctx: ValidationContext): SecurityResult {
     }
 
     if (char === '\n' && (inSingleQuote || inDoubleQuote)) {
+      if (isInTextRange(i, inlineScriptRanges)) {
+        continue
+      }
+
       const lineStart = i + 1
       const nextNewline = originalCommand.indexOf('\n', lineStart)
       const lineEnd = nextNewline === -1 ? originalCommand.length : nextNewline
