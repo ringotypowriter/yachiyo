@@ -339,4 +339,71 @@ describe('GroupMonitor', () => {
     assert.ok(turnCalls.length > 0, 'onTurn should have been called')
     monitor.stop()
   })
+
+  it('delays probing while fresh image descriptions are pending', async () => {
+    const turnCalls: GroupMessageEntry[][] = []
+    const config = fastConfig({
+      wakeBufferMs: 10,
+      activeCheckIntervalMs: 30,
+      dormancyMissCount: 10
+    })
+    const entry = makeMessage('look', 'Alice', {
+      imageDescriptionPending: true,
+      images: [{ dataUrl: 'data:image/png;base64,abc', mediaType: 'image/png' }]
+    })
+    const monitor = createGroupMonitor(config, {
+      onTurn: async (messages) => {
+        turnCalls.push(messages)
+        return false
+      },
+      onStateChange: () => {}
+    })
+
+    monitor.onMessage(entry)
+    await new Promise((r) => setTimeout(r, 70))
+
+    assert.equal(turnCalls.length, 0)
+
+    entry.imageDescriptionPending = false
+    entry.images = [
+      { dataUrl: 'data:image/png;base64,abc', mediaType: 'image/png', altText: 'a cat' }
+    ]
+    await new Promise((r) => setTimeout(r, 50))
+
+    assert.equal(turnCalls.length, 1)
+    assert.equal(turnCalls[0][0].images?.[0]?.altText, 'a cat')
+    monitor.stop()
+  })
+
+  it('does not probe image-only messages after description failure', async () => {
+    let turnCalls = 0
+    const config = fastConfig({
+      wakeBufferMs: 10,
+      activeCheckIntervalMs: 30,
+      dormancyMissCount: 10
+    })
+    const entry = makeMessage('', 'Alice', {
+      imageDescriptionPending: true,
+      images: [{ dataUrl: 'data:image/png;base64,abc', mediaType: 'image/png' }]
+    })
+    const monitor = createGroupMonitor(config, {
+      onTurn: async () => {
+        turnCalls++
+        return false
+      },
+      onStateChange: () => {}
+    })
+
+    monitor.onMessage(entry)
+    await new Promise((r) => setTimeout(r, 70))
+
+    assert.equal(turnCalls, 0)
+
+    entry.imageDescriptionPending = false
+    entry.images = []
+    await new Promise((r) => setTimeout(r, 50))
+
+    assert.equal(turnCalls, 0)
+    monitor.stop()
+  })
 })

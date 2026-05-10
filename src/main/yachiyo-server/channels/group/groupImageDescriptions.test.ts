@@ -25,7 +25,7 @@ describe('describeGroupImages', () => {
     assert.equal(images[0].altText, 'a cat')
   })
 
-  it('keeps images intact when image-to-text fails', async () => {
+  it('removes images when image-to-text fails', async () => {
     const images: MessageImageRecord[] = [
       { dataUrl: 'data:image/png;base64,AAA', mediaType: 'image/png' }
     ]
@@ -44,10 +44,10 @@ describe('describeGroupImages', () => {
       logLabel: 'test-group'
     })
 
-    assert.equal(images[0].altText, undefined)
+    assert.deepEqual(images, [])
   })
 
-  it('skips description when image-to-text is disabled', async () => {
+  it('removes images when image-to-text is disabled', async () => {
     const images: MessageImageRecord[] = [
       { dataUrl: 'data:image/png;base64,AAA', mediaType: 'image/png' }
     ]
@@ -69,6 +69,6 @@ describe('describeGroupImages', () => {
     })
 
     assert.equal(called, false)
-    assert.equal(images[0].altText, undefined)
+    assert.deepEqual(images, [])
   })
 })

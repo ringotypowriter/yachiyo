@@ -10,6 +10,7 @@
  */
 
 import type { GroupMessageEntry } from '../../../../shared/yachiyo/protocol.ts'
+import { hasGroupProbeVisibleContent, hasPendingImageDescription } from './groupMessageReadiness.ts'
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -191,10 +192,15 @@ export function createGroupMonitor(
       pruneBuffer()
       const fresh = newMessagesSinceLastCheck()
 
+      if (fresh.some(hasPendingImageDescription)) {
+        return
+      }
+
       // Advance cursor — these messages are now "seen".
       cursor = buffer.length
+      const visibleFresh = fresh.filter(hasGroupProbeVisibleContent)
 
-      if (phase === 'active' && fresh.length === 0) {
+      if (phase === 'active' && visibleFresh.length === 0) {
         missCount++
         if (missCount >= config.dormancyMissCount) {
           clearTimers()
@@ -203,7 +209,7 @@ export function createGroupMonitor(
         return
       }
 
-      if (fresh.length === 0 && phase === 'engaged') {
+      if (visibleFresh.length === 0 && phase === 'engaged') {
         missCount++
         if (missCount >= config.disengageMissCount) {
           setPhase('active')
@@ -212,12 +218,15 @@ export function createGroupMonitor(
         return
       }
 
-      if (fresh.length === 0) return
+      if (visibleFresh.length === 0) return
 
       // Single pass: model decides + speaks (or stays silent) via onTurn.
       let replied: boolean
       try {
-        replied = await callbacks.onTurn([...buffer], fresh.length)
+        replied = await callbacks.onTurn(
+          buffer.filter(hasGroupProbeVisibleContent),
+          visibleFresh.length
+        )
       } catch (error) {
         // Connection or API failure — skip this turn without changing phase.
         // The monitor stays alive and will retry on the next check interval.

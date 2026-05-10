@@ -31,6 +31,7 @@ import {
 } from './groupContextBuilder.ts'
 import { createGroupTurnSendGuard } from './groupTurnSendGuard.ts'
 import { describeGroupImages } from './groupImageDescriptions.ts'
+import { hasGroupProbeVisibleContent, hasPendingImageDescription } from './groupMessageReadiness.ts'
 import { createGroupMonitorRegistry, type GroupMonitorPersistence } from './groupMonitorRegistry.ts'
 import {
   loadGroupProbeHistory,
@@ -295,6 +296,9 @@ export function createChannelGroupDiscussionService(
 
   return {
     routeMessage(groupId, entry) {
+      if (!hasPendingImageDescription(entry) && !hasGroupProbeVisibleContent(entry)) {
+        return
+      }
       groupRegistry.routeMessage(groupId, entry)
     },
 

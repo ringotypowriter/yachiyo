@@ -12,6 +12,7 @@
 
 import type { GroupMessageEntry } from '../../../../shared/yachiyo/protocol.ts'
 import type { ModelMessage } from '../../runtime/models/types.ts'
+import { getDescribedImages, hasGroupProbeVisibleContent } from './groupMessageReadiness.ts'
 
 // ---------------------------------------------------------------------------
 // Message formatting (migrated from groupReplyJudge.ts)
@@ -74,15 +75,16 @@ export function formatGroupMessages(
   idleGapThresholdMs?: number,
   freshCount?: number
 ): string {
+  const visibleMessages = messages.filter(hasGroupProbeVisibleContent)
   const threshold = idleGapThresholdMs ?? DEFAULT_IDLE_GAP_THRESHOLD_MS
   const lines: string[] = []
   // Index where the fresh (unseen) messages start.
   const freshStart =
-    freshCount != null && freshCount > 0 && freshCount < messages.length
-      ? messages.length - freshCount
+    freshCount != null && freshCount > 0 && freshCount < visibleMessages.length
+      ? visibleMessages.length - freshCount
       : -1
 
-  for (let i = 0; i < messages.length; i++) {
+  for (let i = 0; i < visibleMessages.length; i++) {
     // Insert <new/> separator before the first fresh message.
     if (i === freshStart) {
       lines.push('<new/>')
@@ -90,13 +92,13 @@ export function formatGroupMessages(
 
     // Insert idle gap marker when the time jump is large enough.
     if (i > 0) {
-      const gapMs = (messages[i].timestamp - messages[i - 1].timestamp) * 1_000
+      const gapMs = (visibleMessages[i].timestamp - visibleMessages[i - 1].timestamp) * 1_000
       if (gapMs >= threshold) {
         lines.push(`<gap duration="${formatGapDuration(gapMs)}"/>`)
       }
     }
 
-    const m = messages[i]
+    const m = visibleMessages[i]
     const role =
       m.senderExternalUserId === '__self__'
         ? undefined
@@ -109,8 +111,8 @@ export function formatGroupMessages(
       hour12: false
     })
     const timeAttr = ` t="${time}"`
-    const imagePlaceholder = (m.images ?? [])
-      .map((img) => (img.altText ? ` [image: ${img.altText}]` : ' [image: transcribing…]'))
+    const imagePlaceholder = getDescribedImages(m)
+      .map((img) => ` [image: ${img.altText!.trim()}]`)
       .join('')
     const safe = sanitizeMessageText(m.text)
     lines.push(
@@ -137,25 +139,27 @@ export function formatGroupProbeTurnDelta(
   idleGapThresholdMs?: number,
   freshCount?: number
 ): string {
-  if (recentMessages.length === 0) {
+  const visibleMessages = recentMessages.filter(hasGroupProbeVisibleContent)
+
+  if (visibleMessages.length === 0) {
     return ''
   }
 
   const effectiveFreshCount =
     freshCount == null
-      ? recentMessages.length
-      : Math.max(0, Math.min(freshCount, recentMessages.length))
+      ? visibleMessages.length
+      : Math.max(0, Math.min(freshCount, visibleMessages.length))
 
   if (effectiveFreshCount === 0) {
     return ''
   }
 
-  const freshMessages = recentMessages.slice(-effectiveFreshCount)
+  const freshMessages = visibleMessages.slice(-effectiveFreshCount)
   const lines: string[] = []
   const threshold = idleGapThresholdMs ?? DEFAULT_IDLE_GAP_THRESHOLD_MS
 
-  if (effectiveFreshCount < recentMessages.length) {
-    const previousMessage = recentMessages[recentMessages.length - effectiveFreshCount - 1]
+  if (effectiveFreshCount < visibleMessages.length) {
+    const previousMessage = visibleMessages[visibleMessages.length - effectiveFreshCount - 1]
     const firstFreshMessage = freshMessages[0]
     const gapMs = (firstFreshMessage.timestamp - previousMessage.timestamp) * 1_000
     if (gapMs >= threshold) {

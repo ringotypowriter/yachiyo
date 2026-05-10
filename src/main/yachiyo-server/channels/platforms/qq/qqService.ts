@@ -366,6 +366,7 @@ export function createQQService({
         senderExternalUserId: String(msg.userId),
         isMention,
         text: resolvedText,
+        ...(imagePromises.length > 0 ? { imageDescriptionPending: true } : {}),
         timestamp: msg.time
       }
       groupDiscussion.routeMessage(routedGroup.group.id, entry)
@@ -384,8 +385,9 @@ export function createQQService({
               text: entry.text,
               images
             })
-            entry.images = images
           }
+          entry.images = images.length > 0 ? images : undefined
+          entry.imageDescriptionPending = false
         })
       }
     }

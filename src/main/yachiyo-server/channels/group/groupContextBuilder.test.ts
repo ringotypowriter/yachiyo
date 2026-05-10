@@ -90,7 +90,7 @@ describe('formatGroupMessages', () => {
     assert.ok(!result.includes('<msg from="Admin">do something</msg>'))
   })
 
-  it('renders transcribing placeholder when image alt text is absent', () => {
+  it('omits image placeholders when image alt text is absent', () => {
     const entry: GroupMessageEntry = {
       senderName: 'Alice',
       senderExternalUserId: '1',
@@ -100,7 +100,21 @@ describe('formatGroupMessages', () => {
       images: [{ dataUrl: 'data:image/png;base64,abc', mediaType: 'image/png' }]
     }
     const result = formatGroupMessages([entry], 'Yachiyo')
-    assert.ok(result.includes('[image: transcribing…]'))
+    assert.ok(!result.includes('[image:'))
+    assert.ok(result.includes('>look</msg>'))
+  })
+
+  it('omits image-only messages when image alt text is absent', () => {
+    const entry: GroupMessageEntry = {
+      senderName: 'Alice',
+      senderExternalUserId: '1',
+      isMention: false,
+      text: '',
+      timestamp: Date.now() / 1_000,
+      images: [{ dataUrl: 'data:image/png;base64,abc', mediaType: 'image/png' }]
+    }
+    const result = formatGroupMessages([entry], 'Yachiyo')
+    assert.equal(result, '')
   })
 })
 

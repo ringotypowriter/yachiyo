@@ -68,6 +68,8 @@ export interface GroupMessageEntry {
   text: string
   /** Resolved images attached to this message (already vision-safe). */
   images?: MessageImageRecord[]
+  /** True while async image-to-text enrichment is still in progress. */
+  imageDescriptionPending?: boolean
   /** Unix seconds. */
   timestamp: number
 }
