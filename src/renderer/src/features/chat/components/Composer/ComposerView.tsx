@@ -66,6 +66,8 @@ export function ComposerView(props: any): React.JSX.Element {
     draftFiles,
     removeComposerImage,
     activeThreadId,
+    placeholderRunId,
+    placeholderRunIndex,
     removeComposerFile,
     popupContainerRef,
     showSlashCommandPopup,
@@ -171,7 +173,11 @@ export function ComposerView(props: any): React.JSX.Element {
     isSendInFlight
   } = props
 
-  const placeholderText = selectComposerPlaceholder(activeThreadId)
+  const placeholderText = selectComposerPlaceholder({
+    threadId: activeThreadId,
+    runId: placeholderRunId,
+    runIndex: placeholderRunIndex
+  })
 
   return (
     <div

@@ -245,6 +245,12 @@ export function Composer({
     latestRun,
     runs: activeThreadRuns
   })
+  const placeholderRunId = activeRunId ?? latestRun?.id ?? null
+  const matchedPlaceholderRunIndex =
+    placeholderRunId === null
+      ? -1
+      : activeThreadRuns.findIndex((run) => run.id === placeholderRunId)
+  const placeholderRunIndex = matchedPlaceholderRunIndex >= 0 ? matchedPlaceholderRunIndex : null
   const hasRunStatsText = displayPromptTokens != null || estimatedDraftTokens > 0
   const showRunStats = hasActiveRun || hasRunStatsText
   const stripCompactThresholdTokens =
@@ -1001,6 +1007,8 @@ export function Composer({
       draftFiles={draftFiles}
       removeComposerImage={removeComposerImage}
       activeThreadId={activeThreadId}
+      placeholderRunId={placeholderRunId}
+      placeholderRunIndex={placeholderRunIndex}
       removeComposerFile={removeComposerFile}
       popupContainerRef={popupContainerRef}
       showSlashCommandPopup={showSlashCommandPopup}

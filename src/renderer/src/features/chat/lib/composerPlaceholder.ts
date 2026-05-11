@@ -15,19 +15,31 @@ const COMPOSER_PLACEHOLDERS = [
   "Nothing's too small. I've got time."
 ] as const
 
+export interface ComposerPlaceholderSeed {
+  threadId: string | null | undefined
+  runId?: string | null | undefined
+  runIndex?: number | null | undefined
+}
+
 export function selectComposerPlaceholder(
-  seed: string | null | undefined,
+  seed: ComposerPlaceholderSeed,
   candidates: readonly string[] = COMPOSER_PLACEHOLDERS
 ): string {
   if (candidates.length === 0) {
     throw new Error('selectComposerPlaceholder requires at least one candidate')
   }
 
-  if (!seed) {
+  if (!seed.threadId) {
     return candidates[0]
   }
 
-  return candidates[hashString(seed) % candidates.length]
+  if (seed.runIndex !== null && seed.runIndex !== undefined && seed.runIndex >= 0) {
+    const threadIndex = hashString(seed.threadId) % candidates.length
+    return candidates[(threadIndex + seed.runIndex + 1) % candidates.length]
+  }
+
+  const seedValue = seed.runId ? `${seed.threadId}\0${seed.runId}` : seed.threadId
+  return candidates[hashString(seedValue) % candidates.length]
 }
 
 function hashString(value: string): number {
