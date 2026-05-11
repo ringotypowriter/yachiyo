@@ -206,14 +206,6 @@ export class BackgroundBashManager {
     earlyChunks.length = 0
 
     const onAbort = (): void => {
-      if (child.exitCode !== null || child.signalCode !== null) {
-        console.warn('[yachiyo][background-bash] onAbort: already exited', {
-          taskId: input.taskId,
-          exitCode: child.exitCode,
-          signalCode: child.signalCode
-        })
-        return
-      }
       try {
         // Walk the full pid tree and SIGKILL every descendant, not just the
         // process group — daemons (e.g. the zen-bridge connector) spawn
@@ -362,7 +354,7 @@ export class BackgroundBashManager {
       command: task.command,
       logPath: task.logPath,
       startedAt: task.startedAt,
-      status: result.exitCode === 0 ? 'completed' : 'failed',
+      status: cancelledByUser || result.exitCode !== 0 ? 'failed' : 'completed',
       exitCode: result.exitCode,
       finishedAt: new Date().toISOString(),
       ...(cancelledByUser ? { cancelledByUser: true } : {})

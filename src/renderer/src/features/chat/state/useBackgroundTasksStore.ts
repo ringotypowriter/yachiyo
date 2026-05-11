@@ -158,7 +158,7 @@ export const useBackgroundTasksStore = create<BackgroundTasksState>((set) => ({
         threadId: event.threadId,
         command: event.command,
         startedAt: prior?.startedAt ?? new Date().toISOString(),
-        status: event.exitCode === 0 ? 'completed' : 'failed',
+        status: cancelled || event.exitCode !== 0 ? 'failed' : 'completed',
         exitCode: event.exitCode,
         finishedAt: new Date().toISOString(),
         ...(cancelled ? { cancelledByUser: true } : {}),

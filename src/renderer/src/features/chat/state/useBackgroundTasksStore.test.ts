@@ -116,6 +116,36 @@ describe('useBackgroundTasksStore hydrate', () => {
     )
   })
 
+  it('marks cancelled completion events as failed even when exit code is zero', () => {
+    const store = useBackgroundTasksStore.getState()
+
+    store.onStarted({
+      type: 'background-task.started',
+      eventId: 'evt-start-cancelled',
+      timestamp: '2026-04-12T10:00:00.000Z',
+      threadId: 'thread-cancelled',
+      taskId: 'cancelled-task',
+      command: 'sleep 30 &',
+      startedAt: '2026-04-12T10:00:00.000Z'
+    })
+    store.onCompleted({
+      type: 'background-task.completed',
+      eventId: 'evt-complete-cancelled',
+      timestamp: '2026-04-12T10:00:01.000Z',
+      threadId: 'thread-cancelled',
+      taskId: 'cancelled-task',
+      command: 'sleep 30 &',
+      logPath: '/tmp/cancelled.log',
+      exitCode: 0,
+      cancelledByUser: true
+    })
+
+    const task =
+      useBackgroundTasksStore.getState().tasksByThread['thread-cancelled']?.['cancelled-task']
+    assert.equal(task?.status, 'failed')
+    assert.equal(task?.cancelledByUser, true)
+  })
+
   it('hydrates global snapshots and clears stale running tasks for known threads', () => {
     const store = useBackgroundTasksStore.getState()
 

@@ -35,6 +35,44 @@ async function createTempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'bg-bash-test-'))
 }
 
+async function readLogUntil(logPath: string, pattern: RegExp): Promise<RegExpMatchArray> {
+  const deadline = Date.now() + 2000
+  while (Date.now() < deadline) {
+    try {
+      const log = await readFile(logPath, 'utf8')
+      const match = log.match(pattern)
+      if (match) return match
+    } catch {
+      // The log file is created asynchronously after the child starts.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  throw new Error(`Timed out waiting for ${pattern} in ${logPath}`)
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`Timed out after ${ms}ms`)), ms)
+      })
+    ])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
 describe('BackgroundBashManager', () => {
   it('runs a command and calls completion handler with exit code', async () => {
     const tempDir = await createTempDir()
@@ -144,6 +182,47 @@ describe('BackgroundBashManager', () => {
       assert.notEqual(result.exitCode, 0)
       assert.equal(manager.activeCount, 0)
     } finally {
+      await rm(tempDir, { recursive: true })
+    }
+  })
+
+  it('cancelTask kills a child left alive by a shell-backgrounded command', async () => {
+    const tempDir = await createTempDir()
+    const manager = new BackgroundBashManager()
+    let childPid: number | undefined
+    try {
+      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
+        manager.setCompletionHandler(resolve)
+      })
+      const logPath = join(tempDir, 'tool-output', 'shell-backgrounded.log')
+
+      await manager.startTask({
+        taskId: 'shell-backgrounded-task',
+        command: 'sleep 30 & echo child:$!',
+        cwd: tempDir,
+        logPath,
+        threadId: 'thread-shell-backgrounded'
+      })
+
+      const match = await readLogUntil(logPath, /child:(\d+)/)
+      childPid = Number(match[1])
+      assert.equal(isProcessAlive(childPid), true)
+      assert.equal(manager.activeCount, 1)
+
+      assert.equal(manager.cancelTask('shell-backgrounded-task'), true)
+
+      const result = await withTimeout(completed, 2000)
+      assert.equal(result.cancelledByUser, true)
+      assert.equal(manager.activeCount, 0)
+      assert.equal(isProcessAlive(childPid), false)
+
+      const [snapshot] = manager.listSnapshots('thread-shell-backgrounded')
+      assert.equal(snapshot?.status, 'failed')
+      assert.equal(snapshot?.cancelledByUser, true)
+    } finally {
+      if (childPid != null && isProcessAlive(childPid)) {
+        process.kill(childPid, 'SIGKILL')
+      }
       await rm(tempDir, { recursive: true })
     }
   })
