@@ -103,6 +103,7 @@ export const IPC_CHANNELS = {
   resolveFileReferences: 'yachiyo:resolve-file-references',
   openFile: 'yachiyo:open-file',
   openFileInEditor: 'yachiyo:open-file-in-editor',
+  savePngFile: 'yachiyo:save-png-file',
   getUsageStats: 'yachiyo:get-usage-stats',
   getPerfStats: 'yachiyo:get-perf-stats',
   getSnapshotDiff: 'yachiyo:get-snapshot-diff',

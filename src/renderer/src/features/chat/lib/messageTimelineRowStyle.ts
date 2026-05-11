@@ -4,7 +4,7 @@ export interface TimelineVirtualRowStyle {
   left: 0
   width: '100%'
   transform: string
-  contain: 'content'
+  contain: 'layout style'
 }
 
 export function buildTimelineVirtualRowStyle(start: number): TimelineVirtualRowStyle {
@@ -14,6 +14,6 @@ export function buildTimelineVirtualRowStyle(start: number): TimelineVirtualRowS
     left: 0,
     width: '100%',
     transform: `translateY(${start}px)`,
-    contain: 'content'
+    contain: 'layout style'
   }
 }

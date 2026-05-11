@@ -199,6 +199,11 @@ const api = {
       ipcRenderer.invoke('yachiyo:open-file', input),
     copyImageToClipboard: (input: { src: string }): Promise<void> =>
       ipcRenderer.invoke('yachiyo:copy-image-to-clipboard', input),
+    savePngFile: (input: {
+      pngData: ArrayBuffer
+      defaultFilename?: string
+    }): Promise<{ canceled: true } | { canceled: false; filePath: string }> =>
+      ipcRenderer.invoke('yachiyo:save-png-file', input),
     openFileInEditor: (input: { path: string; editorApp: string }): Promise<void> =>
       ipcRenderer.invoke('yachiyo:open-file-in-editor', input),
     getUsageStats: (

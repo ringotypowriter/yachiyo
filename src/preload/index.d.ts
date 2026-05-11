@@ -159,6 +159,10 @@ declare global {
         ) => Promise<ResolvedFileReference[]>
         openFile: (input: { path: string }) => Promise<void>
         copyImageToClipboard: (input: { src: string }) => Promise<void>
+        savePngFile: (input: {
+          pngData: ArrayBuffer
+          defaultFilename?: string
+        }) => Promise<{ canceled: true } | { canceled: false; filePath: string }>
         openFileInEditor: (input: { path: string; editorApp: string }) => Promise<void>
         getUsageStats: (input: UsageStatsInput) => Promise<UsageStatsResponse>
         getPerfStats: () => Promise<PerfStatsResponse>

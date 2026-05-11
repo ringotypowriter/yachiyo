@@ -216,6 +216,12 @@ body > div:not(#root) {
   min-width: 0;
 }
 
+.message-timeline-row:has(
+  [data-streamdown='mermaid-block-actions'] > div > .absolute.top-full.right-0
+) {
+  z-index: 60;
+}
+
 .user-message-images {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));

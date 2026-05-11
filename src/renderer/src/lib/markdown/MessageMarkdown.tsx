@@ -1,5 +1,5 @@
 import type React from 'react'
-import { memo, useMemo } from 'react'
+import { memo, useCallback, useMemo } from 'react'
 import type { Components, LinkSafetyConfig, PluginConfig, UrlTransform } from 'streamdown'
 import { defaultRehypePlugins, Streamdown } from 'streamdown'
 import type { PluggableList, Plugin } from 'unified'
@@ -10,6 +10,11 @@ import { mermaid } from '@streamdown/mermaid'
 import { code } from '@streamdown/code'
 import { mathPlugin } from './mathPlugin'
 import { transformImageSrc } from './imageUrl'
+import {
+  findMermaidPngExportSvg,
+  renderMermaidSvgToPngBytes,
+  serializeMermaidSvgForPng
+} from './mermaidExportCapture'
 import {
   MarkdownImage,
   MarkdownImageProvider,
@@ -41,6 +46,14 @@ const rehypePlugins: PluggableList = (() => {
   }
   return [defaultRehypePlugins.raw, [sanitizeFn, extendedSchema], defaultRehypePlugins.harden]
 })()
+
+function waitForNextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => resolve())
+    })
+  })
+}
 
 interface MessageMarkdownProps {
   content: string
@@ -134,6 +147,23 @@ export function MessageMarkdown({
   }, [imagesEnabled])
 
   const plugins = useMemo<PluginConfig>(() => ({ math: mathPlugin, mermaid, code }), [])
+  const handleClickCapture = useCallback((event: React.MouseEvent<HTMLDivElement>): void => {
+    const svg = findMermaidPngExportSvg(event.target)
+    if (!svg) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+
+    void waitForNextPaint()
+      .then(async () => {
+        const pngData = await renderMermaidSvgToPngBytes(serializeMermaidSvgForPng(svg))
+        return window.api.yachiyo.savePngFile({ defaultFilename: 'diagram.png', pngData })
+      })
+      .catch((error) => {
+        console.error('[mermaid] PNG export failed', error)
+      })
+  }, [])
   const streamingSegments = useMemo(
     () => (isStreaming ? splitStreamingMarkdownSegments(content) : null),
     [content, isStreaming]
@@ -144,7 +174,7 @@ export function MessageMarkdown({
   return (
     <MarkdownErrorBoundary fallback={content}>
       <MarkdownImageProvider value={imageContext ?? null}>
-        <div className="streamdown-content message-selectable">
+        <div className="streamdown-content message-selectable" onClickCapture={handleClickCapture}>
           {shouldRenderSegments ? (
             <div className="streamdown-content__segments">
               {streamingSegments.stableSegments.map((segment, index) => (

@@ -1149,6 +1149,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
             return (
               <div
                 key={item.key}
+                className="message-timeline-row"
                 data-index={virtualRow.index}
                 ref={virtualizer.measureElement}
                 style={buildTimelineVirtualRowStyle(virtualRow.start)}

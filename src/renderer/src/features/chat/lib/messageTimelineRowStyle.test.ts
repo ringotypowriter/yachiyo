@@ -12,7 +12,7 @@ test('virtual timeline row style does not animate remounted history rows', () =>
     left: 0,
     width: '100%',
     transform: 'translateY(240px)',
-    contain: 'content'
+    contain: 'layout style'
   })
   assert.equal('animation' in style, false)
 })

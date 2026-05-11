@@ -103,6 +103,7 @@ import { listSnapshotRuns } from '../yachiyo-server/services/fileSnapshot/snapsh
 import { registerGatewayFileHandlers } from './fileHandlers.ts'
 import { broadcastYachiyoEvent, handleYachiyoIpc } from './ipc.ts'
 import { IPC_CHANNELS } from './ipcChannels.ts'
+import { normalizePngBytes, normalizePngFilename, type SavePngFileInput } from './pngFile.ts'
 
 let server: YachiyoServer | null = null
 let webExternalFetchImpl: typeof globalThis.fetch | undefined
@@ -1030,6 +1031,28 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
 
   registerGatewayFileHandlers(handleYachiyoIpc)
+
+  ipcMain.removeHandler(IPC_CHANNELS.savePngFile)
+  ipcMain.handle(IPC_CHANNELS.savePngFile, async (event, input: SavePngFileInput) => {
+    const { dialog } = await import('electron')
+    const { writeFile } = await import('node:fs/promises')
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) {
+      throw new Error('Unable to save PNG: source window is unavailable.')
+    }
+
+    const pngBytes = normalizePngBytes(input.pngData)
+    const result = await dialog.showSaveDialog(win, {
+      defaultPath: normalizePngFilename(input.defaultFilename),
+      filters: [{ name: 'PNG image', extensions: ['png'] }]
+    })
+    if (result.canceled || !result.filePath) {
+      return { canceled: true }
+    }
+
+    await writeFile(result.filePath, pngBytes)
+    return { canceled: false, filePath: result.filePath }
+  })
 
   handleYachiyoIpc(
     IPC_CHANNELS.downloadRemoteImageForMessage,
