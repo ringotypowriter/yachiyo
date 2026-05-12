@@ -30,13 +30,13 @@ test('findRunMemorySummary returns the latest recalled memory for a request', ()
         recalledMemoryEntries: ['newer'],
         recallDecision: {
           shouldRecall: true,
-          score: 0.6,
-          reasons: ['char-growth'],
+          score: 0.8,
+          reasons: ['topic-novelty'],
           messagesSinceLastRecall: 3,
           charsSinceLastRecall: 1200,
           idleMs: 0,
-          noveltyScore: 0.2,
-          novelTerms: []
+          noveltyScore: 0.8,
+          novelTerms: ['deployment']
         }
       }
     ],
@@ -48,13 +48,13 @@ test('findRunMemorySummary returns the latest recalled memory for a request', ()
     entries: ['newer'],
     recallDecision: {
       shouldRecall: true,
-      score: 0.6,
-      reasons: ['char-growth'],
+      score: 0.8,
+      reasons: ['topic-novelty'],
       messagesSinceLastRecall: 3,
       charsSinceLastRecall: 1200,
       idleMs: 0,
-      noveltyScore: 0.2,
-      novelTerms: []
+      noveltyScore: 0.8,
+      novelTerms: ['deployment']
     }
   })
 })

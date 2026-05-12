@@ -1,4 +1,4 @@
-import { resolve } from 'path'
+import { dirname, resolve } from 'path'
 import { cpSync, mkdirSync } from 'fs'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
@@ -32,6 +32,22 @@ function copyCoreSkills(): { name: string; closeBundle: () => void } {
   }
 }
 
+function copyJiebaWasm(): { name: string; closeBundle: () => void } {
+  return {
+    name: 'copy-jieba-wasm',
+    closeBundle() {
+      const src = resolve('node_modules/jieba-wasm/pkg/nodejs/jieba_rs_wasm_bg.wasm')
+      for (const dest of [
+        resolve('out/main/jieba_rs_wasm_bg.wasm'),
+        resolve('out/main/chunks/jieba_rs_wasm_bg.wasm')
+      ]) {
+        mkdirSync(dirname(dest), { recursive: true })
+        cpSync(src, dest)
+      }
+    }
+  }
+}
+
 export default defineConfig({
   main: {
     resolve: {
@@ -50,7 +66,7 @@ export default defineConfig({
         external: ['better-sqlite3', 'sharp', 'zlib-sync', 'bufferutil', 'utf-8-validate']
       }
     },
-    plugins: [copyDrizzleMigrations(), copyCoreSkills()]
+    plugins: [copyDrizzleMigrations(), copyCoreSkills(), copyJiebaWasm()]
   },
   preload: {},
   renderer: {

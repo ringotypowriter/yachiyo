@@ -791,7 +791,7 @@ test('YachiyoServer injects recalled memory into the compiled context before the
             decision: {
               shouldRecall: true,
               score: 1,
-              reasons: ['thread-cold-start'],
+              reasons: ['topic-novelty'],
               messagesSinceLastRecall: 1,
               charsSinceLastRecall: userQuery.length,
               idleMs: 0,
@@ -861,7 +861,7 @@ test('YachiyoServer skips automatic memory recall when disabled', async () => {
             decision: {
               shouldRecall: true,
               score: 1,
-              reasons: ['thread-cold-start'],
+              reasons: ['topic-novelty'],
               messagesSinceLastRecall: 1,
               charsSinceLastRecall: 24,
               idleMs: 0,

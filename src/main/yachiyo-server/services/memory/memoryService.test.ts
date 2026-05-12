@@ -239,7 +239,7 @@ test('memory service derives stricter retrieval plans and ranks recalled context
       updatedAt: '2026-03-22T00:00:00.000Z'
     },
     now: '2026-03-22T00:00:00.000Z',
-    userQuery: 'How should I handle this deployment?',
+    userQuery: 'How should I handle the deployment checklist validation?',
     history: [
       {
         id: 'user-1',
@@ -385,7 +385,7 @@ test('memory service does not advance lastRecall markers when recall is gated on
       }
     },
     now: '2026-03-23T09:00:00.000Z',
-    userQuery: '我回来继续排查这个线程',
+    userQuery: '现在排查向量索引召回策略',
     history: [
       {
         id: 'm1',
@@ -407,7 +407,7 @@ test('memory service does not advance lastRecall markers when recall is gated on
         id: 'm3',
         threadId: 'thread-1',
         role: 'user',
-        content: '我回来继续排查这个线程',
+        content: '现在排查向量索引召回策略',
         status: 'completed',
         createdAt: '2026-03-23T09:00:00.000Z'
       }

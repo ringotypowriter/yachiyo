@@ -34,237 +34,26 @@ function createThread(overrides: Partial<ThreadRecord> = {}): ThreadRecord {
   }
 }
 
-test('shouldRecallBeforeRun always recalls on a new thread cold start', () => {
+test('shouldRecallBeforeRun recalls for segmented Chinese new-topic terms', () => {
   const decision = shouldRecallBeforeRun({
     history: [
       createMessage({
         id: 'user-1',
         createdAt: '2026-03-23T00:00:00.000Z',
-        content: '帮我看一下部署流程'
+        content: '帮我分析向量索引的召回策略'
       })
     ],
     now: '2026-03-23T00:00:00.000Z',
     thread: createThread(),
-    userQuery: '帮我看一下部署流程'
+    userQuery: '帮我分析向量索引的召回策略'
   })
 
   assert.equal(decision.shouldRecall, true)
-  assert.deepEqual(decision.reasons, ['thread-cold-start'])
+  assert.deepEqual(decision.reasons, ['topic-novelty'])
+  assert.deepEqual(decision.novelTerms.slice(0, 2), ['向量索引', '召回策略'])
 })
 
-test('shouldRecallBeforeRun stays quiet for small local growth after a recent recall', () => {
-  const thread = createThread({
-    memoryRecall: {
-      lastRunAt: '2026-03-23T00:05:00.000Z',
-      lastRecallAt: '2026-03-23T00:05:00.000Z',
-      lastRecallMessageCount: 4,
-      lastRecallCharCount: 120
-    }
-  })
-  const history = [
-    createMessage({
-      id: 'm1',
-      createdAt: '2026-03-23T00:00:00.000Z',
-      content: '部署前要跑 smoke test'
-    }),
-    createMessage({
-      id: 'm2',
-      createdAt: '2026-03-23T00:01:00.000Z',
-      content: '好，我记住了',
-      role: 'assistant'
-    }),
-    createMessage({
-      id: 'm3',
-      createdAt: '2026-03-23T00:04:00.000Z',
-      content: '还有 staging checklist 吗'
-    }),
-    createMessage({
-      id: 'm4',
-      createdAt: '2026-03-23T00:05:00.000Z',
-      content: '有，不过很短',
-      role: 'assistant'
-    }),
-    createMessage({
-      id: 'm5',
-      createdAt: '2026-03-23T00:06:00.000Z',
-      content: '部署前的 smoke test 呢'
-    })
-  ]
-
-  const decision = shouldRecallBeforeRun({
-    history,
-    now: '2026-03-23T00:06:00.000Z',
-    thread,
-    userQuery: '部署前的 smoke test 呢'
-  })
-
-  assert.equal(decision.shouldRecall, false)
-  assert.deepEqual(decision.reasons, [])
-})
-
-test('shouldRecallBeforeRun stays quiet until eight new messages land after the last recall', () => {
-  const decision = shouldRecallBeforeRun({
-    history: [
-      createMessage({
-        id: 'm1',
-        createdAt: '2026-03-23T00:00:00.000Z',
-        content: '部署前要跑 smoke test'
-      }),
-      createMessage({
-        id: 'm2',
-        createdAt: '2026-03-23T00:01:00.000Z',
-        content: '收到',
-        role: 'assistant'
-      }),
-      createMessage({
-        id: 'm3',
-        createdAt: '2026-03-23T00:02:00.000Z',
-        content: '还要检查配置漂移'
-      }),
-      createMessage({
-        id: 'm4',
-        createdAt: '2026-03-23T00:03:00.000Z',
-        content: '继续',
-        role: 'assistant'
-      }),
-      createMessage({
-        id: 'm5',
-        createdAt: '2026-03-23T00:04:00.000Z',
-        content: '然后核对回滚策略'
-      }),
-      createMessage({
-        id: 'm6',
-        createdAt: '2026-03-23T00:05:00.000Z',
-        content: '最后确认值班人'
-      }),
-      createMessage({
-        id: 'm7',
-        createdAt: '2026-03-23T00:06:00.000Z',
-        content: '再看 release note'
-      })
-    ],
-    now: '2026-03-23T00:06:00.000Z',
-    thread: createThread({
-      memoryRecall: {
-        lastRunAt: '2026-03-23T00:00:00.000Z',
-        lastRecallAt: '2026-03-23T00:00:00.000Z',
-        lastRecallMessageCount: 2,
-        lastRecallCharCount: 24
-      }
-    }),
-    userQuery: '再看 release note'
-  })
-
-  assert.equal(decision.shouldRecall, false)
-  assert.equal(decision.reasons.includes('message-growth'), false)
-})
-
-test('shouldRecallBeforeRun triggers after enough growth since the last recall', () => {
-  const decision = shouldRecallBeforeRun({
-    history: [
-      createMessage({
-        id: 'm1',
-        createdAt: '2026-03-23T00:00:00.000Z',
-        content: '部署前要跑 smoke test'
-      }),
-      createMessage({
-        id: 'm2',
-        createdAt: '2026-03-23T00:01:00.000Z',
-        content: '收到',
-        role: 'assistant'
-      }),
-      createMessage({
-        id: 'm3',
-        createdAt: '2026-03-23T00:02:00.000Z',
-        content: '还要检查配置漂移'
-      }),
-      createMessage({
-        id: 'm4',
-        createdAt: '2026-03-23T00:03:00.000Z',
-        content: '还要看 feature flag',
-        role: 'assistant'
-      }),
-      createMessage({
-        id: 'm5',
-        createdAt: '2026-03-23T00:04:00.000Z',
-        content: '然后核对回滚策略'
-      }),
-      createMessage({ id: 'm6', createdAt: '2026-03-23T00:05:00.000Z', content: '最后确认值班人' }),
-      createMessage({
-        id: 'm7',
-        createdAt: '2026-03-23T00:06:00.000Z',
-        content: '补一条发布窗口安排'
-      }),
-      createMessage({
-        id: 'm8',
-        createdAt: '2026-03-23T00:07:00.000Z',
-        content: '再看 release note'
-      }),
-      createMessage({
-        id: 'm9',
-        createdAt: '2026-03-23T00:08:00.000Z',
-        content: '核对 changelog',
-        role: 'assistant'
-      }),
-      createMessage({
-        id: 'm10',
-        createdAt: '2026-03-23T00:09:00.000Z',
-        content: '发布窗口安排好了吗'
-      })
-    ],
-    now: '2026-03-23T00:09:00.000Z',
-    thread: createThread({
-      memoryRecall: {
-        lastRunAt: '2026-03-23T00:00:00.000Z',
-        lastRecallAt: '2026-03-23T00:00:00.000Z',
-        lastRecallMessageCount: 2,
-        lastRecallCharCount: 24
-      }
-    }),
-    userQuery: '最后确认值班人'
-  })
-
-  assert.equal(decision.shouldRecall, true)
-  assert.equal(decision.reasons.includes('message-growth'), true)
-})
-
-test('shouldRecallBeforeRun triggers after a long idle gap in the same thread', () => {
-  const decision = shouldRecallBeforeRun({
-    history: [
-      createMessage({
-        id: 'm1',
-        createdAt: '2026-03-22T00:00:00.000Z',
-        content: '前一天我们聊过 CI 故障'
-      }),
-      createMessage({
-        id: 'm2',
-        createdAt: '2026-03-22T00:01:00.000Z',
-        content: '嗯，继续吧',
-        role: 'assistant'
-      }),
-      createMessage({
-        id: 'm3',
-        createdAt: '2026-03-23T09:00:00.000Z',
-        content: '我回来继续排查这个线程'
-      })
-    ],
-    now: '2026-03-23T09:00:00.000Z',
-    thread: createThread({
-      memoryRecall: {
-        lastRunAt: '2026-03-22T00:30:00.000Z',
-        lastRecallAt: '2026-03-22T00:30:00.000Z',
-        lastRecallMessageCount: 2,
-        lastRecallCharCount: 20
-      }
-    }),
-    userQuery: '我回来继续排查这个线程'
-  })
-
-  assert.equal(decision.shouldRecall, true)
-  assert.equal(decision.reasons.includes('idle-gap'), true)
-})
-
-test('detectNoveltySignal boosts emphasized and syntax-heavy terms', () => {
+test('detectNoveltySignal boosts emphasized, syntax-heavy, and acronym terms', () => {
   const novelty = detectNoveltySignal({
     history: [
       createMessage({
@@ -293,7 +82,52 @@ test('detectNoveltySignal boosts emphasized and syntax-heavy terms', () => {
   assert.equal(novelty.novelTerms.includes('agent'), true)
 })
 
-test('shouldRecallBeforeRun skips topic novelty when only two strong code-switch terms appear', () => {
+test('detectNoveltySignal segments Chinese terms and ranks them ahead of loose words', () => {
+  const novelty = detectNoveltySignal({
+    history: [
+      createMessage({
+        id: 'm1',
+        createdAt: '2026-03-23T00:00:00.000Z',
+        content: '我们刚刚在聊数据库迁移'
+      }),
+      createMessage({
+        id: 'm2',
+        createdAt: '2026-03-23T00:01:00.000Z',
+        content: '继续看数据库就好',
+        role: 'assistant'
+      })
+    ],
+    userQuery: '现在改看向量索引召回策略和用户画像同步'
+  })
+
+  assert.equal(novelty.noveltyScore >= 0.7, true)
+  assert.deepEqual(novelty.novelTerms.slice(0, 4), ['向量索引', '召回策略', '用户画像', '画像同步'])
+})
+
+test('detectNoveltySignal treats repeated recent Chinese terms as known context', () => {
+  const novelty = detectNoveltySignal({
+    history: [
+      createMessage({
+        id: 'm1',
+        createdAt: '2026-03-23T00:00:00.000Z',
+        content: '我们刚刚在聊向量索引和数据库迁移'
+      }),
+      createMessage({
+        id: 'm2',
+        createdAt: '2026-03-23T00:01:00.000Z',
+        content: '向量索引先保持原方案',
+        role: 'assistant'
+      })
+    ],
+    userQuery: '向量索引先不动，新的召回策略要看用户画像同步'
+  })
+
+  assert.equal(novelty.novelTerms.includes('向量索引'), false)
+  assert.equal(novelty.novelTerms.includes('召回策略'), true)
+  assert.equal(novelty.novelTerms.includes('用户画像'), true)
+})
+
+test('shouldRecallBeforeRun recalls when one strong new topic appears', () => {
   const decision = shouldRecallBeforeRun({
     history: [
       createMessage({
@@ -310,7 +144,7 @@ test('shouldRecallBeforeRun skips topic novelty when only two strong code-switch
       createMessage({
         id: 'm3',
         createdAt: '2026-03-23T00:02:00.000Z',
-        content: '另外，帮我看 MCP 和 agent 的行为'
+        content: '另外，帮我看 MCP 的行为'
       })
     ],
     now: '2026-03-23T00:02:00.000Z',
@@ -322,16 +156,16 @@ test('shouldRecallBeforeRun skips topic novelty when only two strong code-switch
         lastRecallCharCount: 48
       }
     }),
-    userQuery: '另外，帮我看 MCP 和 agent 的行为'
+    userQuery: '另外，帮我看 MCP 的行为'
   })
 
-  assert.equal(decision.noveltyScore < 0.85, true)
-  assert.equal(decision.novelTerms.length, 2)
-  assert.equal(decision.shouldRecall, false)
-  assert.equal(decision.reasons.includes('topic-novelty'), false)
+  assert.equal(decision.noveltyScore >= 0.7, true)
+  assert.deepEqual(decision.novelTerms, ['mcp'])
+  assert.equal(decision.shouldRecall, true)
+  assert.equal(decision.reasons.includes('topic-novelty'), true)
 })
 
-test('shouldRecallBeforeRun requires three strong novel terms before topic novelty recalls', () => {
+test('shouldRecallBeforeRun uses the supplied novelty signal for recall decisions', () => {
   const decision = shouldRecallBeforeRun({
     history: [
       createMessage({
@@ -363,7 +197,7 @@ test('shouldRecallBeforeRun requires three strong novel terms before topic novel
     userQuery: '新的问题来了',
     novelty: {
       noveltyScore: 0.9,
-      novelTerms: ['vector index', 'agent scheduling', 'tool timeout']
+      novelTerms: ['vector index']
     }
   })
 
@@ -381,6 +215,22 @@ test('detectNoveltySignal suppresses unmarked pure Chinese filler', () => {
       })
     ],
     userQuery: '我觉得这个修改方案可能还要再看一下'
+  })
+
+  assert.equal(novelty.noveltyScore < 0.3, true)
+  assert.deepEqual(novelty.novelTerms, [])
+})
+
+test('detectNoveltySignal suppresses unmarked English filler', () => {
+  const novelty = detectNoveltySignal({
+    history: [
+      createMessage({
+        id: 'm1',
+        createdAt: '2026-03-23T00:00:00.000Z',
+        content: 'We were discussing the system prompt.'
+      })
+    ],
+    userQuery: 'I think this change maybe should be looked at again'
   })
 
   assert.equal(novelty.noveltyScore < 0.3, true)

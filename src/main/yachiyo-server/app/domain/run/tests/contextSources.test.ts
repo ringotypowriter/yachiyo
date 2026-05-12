@@ -120,12 +120,12 @@ test('buildContextSources memory present when shouldRecall is true', () => {
     recallDecision: {
       shouldRecall: true,
       score: 0.9,
-      reasons: ['thread-cold-start'],
+      reasons: ['topic-novelty'],
       messagesSinceLastRecall: 0,
       charsSinceLastRecall: 0,
       idleMs: 0,
       noveltyScore: 0.9,
-      novelTerms: []
+      novelTerms: ['deploy']
     }
   })
 
@@ -133,7 +133,7 @@ test('buildContextSources memory present when shouldRecall is true', () => {
   assert.ok(memory)
   assert.equal(memory.present, true)
   assert.equal(memory.count, 2)
-  assert.deepEqual(memory.reasons, ['thread-cold-start'])
+  assert.deepEqual(memory.reasons, ['topic-novelty'])
   assert.ok(memory.summary?.includes('recalled'))
 })
 

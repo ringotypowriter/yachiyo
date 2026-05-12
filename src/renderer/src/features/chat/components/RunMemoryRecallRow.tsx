@@ -12,14 +12,6 @@ interface RunMemoryRecallRowProps {
 
 function formatReason(reason: string): string {
   switch (reason) {
-    case 'thread-cold-start':
-      return 'new thread'
-    case 'message-growth':
-      return 'message growth'
-    case 'char-growth':
-      return 'context growth'
-    case 'idle-gap':
-      return 'idle gap'
     case 'topic-novelty':
       return 'new topic'
     case 'recall-failed':
@@ -105,12 +97,6 @@ export function RunMemoryRecallRow({
             style={{ color: theme.text.placeholder, lineHeight: 1.5 }}
           >
             Reason: {debugLabel}
-            {typeof recallDecision?.messagesSinceLastRecall === 'number' ? (
-              <> · +{recallDecision.messagesSinceLastRecall} msgs</>
-            ) : null}
-            {typeof recallDecision?.charsSinceLastRecall === 'number' ? (
-              <> · +{recallDecision.charsSinceLastRecall} chars</>
-            ) : null}
           </div>
           <div className="flex flex-col gap-2">
             {entries.map((entry) => (

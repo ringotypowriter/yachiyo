@@ -745,7 +745,7 @@ test('YachiyoServer does not run memory recall on a steer leg', async () => {
             decision: {
               shouldRecall: true,
               score: 1,
-              reasons: ['thread-cold-start'],
+              reasons: ['topic-novelty'],
               messagesSinceLastRecall: 1,
               charsSinceLastRecall: userQuery.length,
               idleMs: 0,

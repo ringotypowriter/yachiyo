@@ -429,7 +429,7 @@ test('YachiyoServer bases recall history on the active branch during retry', asy
             decision: {
               shouldRecall: true,
               score: 1,
-              reasons: ['thread-cold-start'],
+              reasons: ['topic-novelty'],
               messagesSinceLastRecall: history.length,
               charsSinceLastRecall: history.reduce(
                 (total, message) => total + message.content.length,
