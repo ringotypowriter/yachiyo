@@ -18,6 +18,7 @@ import { ImageDetailViewer } from './ImageDetailViewer'
 export interface MarkdownImageContextValue {
   threadId: string
   messageId: string
+  workspacePath?: string | null
   /**
    * Download `remoteUrl`, save it into the workspace attachments folder,
    * rewrite the stored message content so future renders point at the

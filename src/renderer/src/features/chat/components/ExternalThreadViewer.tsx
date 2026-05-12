@@ -41,15 +41,21 @@ function ExternalUserBubble({ message }: { message: Message }): React.JSX.Elemen
 
 function ExternalAssistantBubble({
   message,
-  toolCalls
+  toolCalls,
+  workspacePath
 }: {
   message: Message
   toolCalls: ToolCall[]
+  workspacePath?: string | null
 }): React.JSX.Element {
   const content = message.visibleReply ?? message.content
   const imageContext = useMemo<MarkdownImageContextValue>(
-    () => ({ threadId: message.threadId, messageId: message.id }),
-    [message.id, message.threadId]
+    () => ({
+      threadId: message.threadId,
+      messageId: message.id,
+      ...(workspacePath ? { workspacePath } : {})
+    }),
+    [message.id, message.threadId, workspacePath]
   )
 
   return (
@@ -79,6 +85,14 @@ export function ExternalThreadViewer({ threadId }: { threadId: string | null }):
   )
   const toolCalls = useAppStore((state) =>
     threadId ? (state.toolCalls[threadId] ?? EMPTY_TOOL_CALLS) : EMPTY_TOOL_CALLS
+  )
+  const workspacePath = useAppStore(
+    (state) =>
+      (threadId
+        ? (state.externalThreads.find((thread) => thread.id === threadId) ??
+          state.threads.find((thread) => thread.id === threadId))
+        : null
+      )?.workspacePath
   )
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -166,6 +180,7 @@ export function ExternalThreadViewer({ threadId }: { threadId: string | null }):
           <ExternalAssistantBubble
             key={message.id}
             message={message}
+            workspacePath={workspacePath}
             toolCalls={toolCallsByRequestId.get(message.parentMessageId ?? '') ?? EMPTY_TOOL_CALLS}
           />
         )

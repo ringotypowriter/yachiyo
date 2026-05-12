@@ -1,8 +1,8 @@
 import type React from 'react'
 import { memo, useCallback, useMemo } from 'react'
 import type { Components, LinkSafetyConfig, PluginConfig, UrlTransform } from 'streamdown'
-import { defaultRehypePlugins, Streamdown } from 'streamdown'
-import type { PluggableList, Plugin } from 'unified'
+import { Streamdown } from 'streamdown'
+import type { PluggableList } from 'unified'
 import { MarkdownErrorBoundary } from './MarkdownErrorBoundary'
 import { LinkSafetyModal } from './LinkSafetyModal'
 import { LinkableCode } from './LinkableCode'
@@ -10,6 +10,7 @@ import { mermaid } from '@streamdown/mermaid'
 import { code } from '@streamdown/code'
 import { mathPlugin } from './mathPlugin'
 import { transformImageSrc } from './imageUrl'
+import { createMarkdownRehypePlugins } from './markdownRehypePlugins'
 import {
   findMermaidPngExportSvg,
   renderMermaidSvgToPngBytes,
@@ -23,29 +24,6 @@ import {
 import { getMessageMarkdownAnimation } from './messageMarkdownAnimation'
 import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
 import { splitStreamingMarkdownSegments } from './streamingMarkdownSegments'
-
-/**
- * Extend Streamdown's default rehype-sanitize schema to allow `magnet:` in
- * href attributes so magnet links render as clickable links instead of
- * "[blocked]".
- */
-type SanitizerSchema = Record<string, unknown> & { protocols?: Record<string, string[]> }
-type SanitizerPlugin = Plugin<[SanitizerSchema]>
-
-const rehypePlugins: PluggableList = (() => {
-  const [sanitizeFn, sanitizeSchema] = defaultRehypePlugins.sanitize as [
-    SanitizerPlugin,
-    SanitizerSchema
-  ]
-  const extendedSchema = {
-    ...sanitizeSchema,
-    protocols: {
-      ...sanitizeSchema.protocols,
-      href: [...(sanitizeSchema.protocols?.href ?? []), 'magnet']
-    }
-  }
-  return [defaultRehypePlugins.raw, [sanitizeFn, extendedSchema], defaultRehypePlugins.harden]
-})()
 
 function waitForNextPaint(): Promise<void> {
   return new Promise((resolve) => {
@@ -74,6 +52,7 @@ interface MarkdownStreamdownProps {
   linkSafety: LinkSafetyConfig
   components: Components
   plugins: PluginConfig
+  rehypePlugins: PluggableList
   urlTransform?: UrlTransform
 }
 
@@ -83,6 +62,7 @@ const MarkdownStreamdown = memo(function MarkdownStreamdown({
   linkSafety,
   components,
   plugins,
+  rehypePlugins,
   urlTransform
 }: MarkdownStreamdownProps): React.JSX.Element {
   const animated = useMemo(() => getMessageMarkdownAnimation(isStreaming), [isStreaming])
@@ -135,6 +115,12 @@ export function MessageMarkdown({
     return base
   }, [imagesEnabled, inlineCodeFileLinks])
 
+  const rehypePlugins = useMemo(
+    () =>
+      createMarkdownRehypePlugins(imageContext ? { basePath: imageContext.workspacePath } : null),
+    [imageContext]
+  )
+
   const urlTransform = useMemo<UrlTransform | undefined>(() => {
     if (!imagesEnabled) return undefined
     return (url, key, node) => {
@@ -142,9 +128,9 @@ export function MessageMarkdown({
       // to Streamdown's default safety rules.
       const isImageSrc = key === 'src' && node.tagName === 'img'
       if (!isImageSrc) return url
-      return transformImageSrc(url) ?? undefined
+      return transformImageSrc(url, { basePath: imageContext?.workspacePath }) ?? undefined
     }
-  }, [imagesEnabled])
+  }, [imageContext?.workspacePath, imagesEnabled])
 
   const plugins = useMemo<PluginConfig>(() => ({ math: mathPlugin, mermaid, code }), [])
   const handleClickCapture = useCallback((event: React.MouseEvent<HTMLDivElement>): void => {
@@ -188,6 +174,7 @@ export function MessageMarkdown({
                     linkSafety={linkSafety}
                     components={components}
                     plugins={plugins}
+                    rehypePlugins={rehypePlugins}
                     urlTransform={urlTransform}
                   />
                 </div>
@@ -202,6 +189,7 @@ export function MessageMarkdown({
                   linkSafety={linkSafety}
                   components={components}
                   plugins={plugins}
+                  rehypePlugins={rehypePlugins}
                   urlTransform={urlTransform}
                 />
               </div>
@@ -214,6 +202,7 @@ export function MessageMarkdown({
               linkSafety={linkSafety}
               components={components}
               plugins={plugins}
+              rehypePlugins={rehypePlugins}
               urlTransform={urlTransform}
             />
           )}

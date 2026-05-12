@@ -8,12 +8,17 @@
  *   - `data:` ......................... pass through (inline base64 payloads).
  *   - `yachiyo-asset:` ............... pass through (our local-file scheme).
  *   - absolute filesystem paths ...... rewritten to `yachiyo-asset://local/?p=`.
+ *   - relative filesystem paths ....... rewritten against `basePath`, when provided.
  *   - everything else ................ dropped (returns `null`).
  *
  * This function is pure — no React, no DOM — so it can be unit-tested directly.
  */
 
 export const YACHIYO_ASSET_SCHEME = 'yachiyo-asset'
+
+export interface TransformImageSrcOptions {
+  basePath?: string | null
+}
 
 /**
  * True when `value` looks like an absolute filesystem path we can serve.
@@ -72,6 +77,102 @@ function safeDecode(input: string): string {
   }
 }
 
+function hasUrlScheme(value: string): boolean {
+  return /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(value) && !isAbsolutePathLike(value)
+}
+
+function isDirectRelativePathLike(value: string): boolean {
+  if (!value) return false
+  if (value.startsWith('/') || value.startsWith('\\')) return false
+  if (value.startsWith('#') || value.startsWith('?')) return false
+  if (hasUrlScheme(value)) return false
+  return !isAbsolutePathLike(value)
+}
+
+export function isDirectImagePathCandidate(src: string): boolean {
+  const trimmed = src.trim()
+  if (!trimmed) return false
+  if (isRemoteImageUrl(trimmed)) return false
+  if (trimmed.startsWith('data:image/')) return false
+  if (isAssetUrl(trimmed)) return false
+  if (trimmed.toLowerCase().startsWith('file:')) return true
+
+  const decoded = safeDecode(trimmed)
+  return (
+    isAbsolutePathLike(trimmed) ||
+    isAbsolutePathLike(decoded) ||
+    isDirectRelativePathLike(trimmed) ||
+    isDirectRelativePathLike(decoded)
+  )
+}
+
+function normalizePathLike(value: string): string | null {
+  const slashPath = value.replace(/\\/g, '/')
+  const driveMatch = /^[a-zA-Z]:/.exec(slashPath)
+  const drive = driveMatch?.[0] ?? ''
+  const rest = drive ? slashPath.slice(drive.length) : slashPath
+  const absolute = Boolean(drive) || rest.startsWith('/')
+  const segments: string[] = []
+
+  for (const segment of rest.split('/')) {
+    if (!segment || segment === '.') continue
+    if (segment === '..') {
+      if (segments.length > 0) {
+        segments.pop()
+      } else if (!absolute) {
+        segments.push(segment)
+      }
+      continue
+    }
+    segments.push(segment)
+  }
+
+  if (drive) return `${drive}/${segments.join('/')}`
+  if (absolute) return `/${segments.join('/')}`
+  return segments.join('/') || '.'
+}
+
+function isPathInsideBase(candidate: string, basePath: string): boolean {
+  const windows = /^[a-zA-Z]:[\\/]/.test(basePath)
+  const normalizedCandidate = windows ? candidate.toLowerCase() : candidate
+  const normalizedBase = windows ? basePath.toLowerCase() : basePath
+  const basePrefix = normalizedBase.endsWith('/') ? normalizedBase : `${normalizedBase}/`
+  return normalizedCandidate === normalizedBase || normalizedCandidate.startsWith(basePrefix)
+}
+
+function resolveRelativePath(relativePath: string, basePath?: string | null): string | null {
+  const base = basePath?.trim()
+  if (!base || !isAbsolutePathLike(base)) return null
+
+  const decoded = safeDecode(relativePath.trim())
+  if (!isDirectRelativePathLike(decoded)) return null
+
+  const normalizedBase = normalizePathLike(base)
+  if (!normalizedBase || !isAbsolutePathLike(normalizedBase)) return null
+
+  const normalizedCandidate = normalizePathLike(`${normalizedBase}/${decoded}`)
+  if (!normalizedCandidate || !isAbsolutePathLike(normalizedCandidate)) return null
+  if (!isPathInsideBase(normalizedCandidate, normalizedBase)) return null
+
+  return normalizedCandidate
+}
+
+function fileUrlToAbsolutePath(rawUrl: string): string | null {
+  let parsed: URL
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    return null
+  }
+
+  if (parsed.protocol !== 'file:') return null
+  if (parsed.hostname && parsed.hostname !== 'localhost') return null
+
+  const decodedPath = safeDecode(parsed.pathname)
+  const path = /^\/[a-zA-Z]:\//.test(decodedPath) ? decodedPath.slice(1) : decodedPath
+  return isAbsolutePathLike(path) ? path : null
+}
+
 /**
  * Transform an image `src` according to the policy above. Non-image URLs
  * (e.g. link hrefs) fall through to the caller's default transform.
@@ -81,7 +182,10 @@ function safeDecode(input: string): string {
  * function as `C:%5Cfoo%5Cbar.png`. We try the raw form first, then the
  * decoded form, so both shapes are recognized as absolute paths.
  */
-export function transformImageSrc(url: string): string | null {
+export function transformImageSrc(
+  url: string,
+  options: TransformImageSrcOptions = {}
+): string | null {
   if (!url) return null
 
   const trimmed = url.trim()
@@ -90,6 +194,10 @@ export function transformImageSrc(url: string): string | null {
   if (isRemoteImageUrl(trimmed)) return trimmed
   if (trimmed.startsWith('data:image/')) return trimmed
   if (isAssetUrl(trimmed)) return trimmed
+
+  const filePath = fileUrlToAbsolutePath(trimmed)
+  if (filePath) return buildAssetUrl(filePath)
+  if (trimmed.toLowerCase().startsWith('file:')) return null
 
   // Prefer the decoded form whenever it differs — markdown parsers
   // percent-encode backslashes and spaces in angle-bracketed destinations,
@@ -102,8 +210,8 @@ export function transformImageSrc(url: string): string | null {
     return buildAssetUrl(candidate)
   }
 
-  // `file://` is intentionally dropped — Electron blocks it from the renderer
-  // and we want images to go through our allowlisted scheme so we stay
-  // in control of what the renderer is allowed to load.
+  const relativePath = resolveRelativePath(candidate, options.basePath)
+  if (relativePath) return buildAssetUrl(relativePath)
+
   return null
 }

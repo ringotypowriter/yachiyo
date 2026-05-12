@@ -53,6 +53,7 @@ interface AssistantMessageBubbleProps {
   /** Show the streaming caret. When omitted, defaults to isStreaming state. */
   showCaret?: boolean
   inlineCodeFileLinks?: InlineCodeFileLinkSnapshot
+  workspacePath?: string | null
 }
 
 export const AssistantMessageBubble = memo(function AssistantMessageBubble({
@@ -63,7 +64,8 @@ export const AssistantMessageBubble = memo(function AssistantMessageBubble({
   pauseStreaming = false,
   compactBottomSpacing = false,
   showCaret,
-  inlineCodeFileLinks
+  inlineCodeFileLinks,
+  workspacePath
 }: AssistantMessageBubbleProps): React.JSX.Element {
   const { showContent, showBubble, footer } = buildMessagePresentation(message)
   const isStreaming = message.status === 'streaming' && !pauseStreaming
@@ -82,6 +84,7 @@ export const AssistantMessageBubble = memo(function AssistantMessageBubble({
     () => ({
       threadId: message.threadId,
       messageId: message.id,
+      ...(workspacePath ? { workspacePath } : {}),
       async downloadRemoteImage(remoteUrl: string) {
         const api = window.api?.yachiyo
         if (!api?.downloadRemoteImageForMessage) {
@@ -97,7 +100,7 @@ export const AssistantMessageBubble = memo(function AssistantMessageBubble({
         return assetUrl
       }
     }),
-    [message.id, message.threadId]
+    [message.id, message.threadId, workspacePath]
   )
 
   if (!showBubble) return <></>

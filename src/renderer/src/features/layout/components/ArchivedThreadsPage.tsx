@@ -9,7 +9,7 @@
 import { useMemo, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, XCircle } from 'lucide-react'
 import { formatTokenCount } from '@renderer/lib/formatTokenCount'
-import type { Thread, Message, ToolCall } from '@renderer/app/types'
+import type { Thread, Message, ToolCall, RunRecord } from '@renderer/app/types'
 import type { ScheduleRunRecord } from '../../../../../shared/yachiyo/protocol.ts'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { theme, alpha } from '@renderer/theme/theme'
@@ -18,6 +18,7 @@ import type { MarkdownImageContextValue } from '@renderer/lib/markdown/MarkdownI
 import { collectMessagePath } from '../../../../../shared/yachiyo/threadTree.ts'
 import { TimelineScrollbar } from '@renderer/features/chat/components/TimelineScrollbar'
 import { ToolCallRow } from '@renderer/features/chat/components/ToolCallRow'
+import { resolveArchivedWorkspacePath } from './archivedWorkspacePath'
 
 export interface ArchivedThreadsPageProps {
   activeThread: Thread | null
@@ -44,6 +45,7 @@ export function ArchivedThreadsPage({ activeThread }: ArchivedThreadsPageProps):
       key={activeThread.id}
       threadId={activeThread.id}
       headMessageId={activeThread.headMessageId}
+      workspacePath={activeThread.workspacePath}
     />
   )
 }
@@ -53,14 +55,17 @@ const EMPTY_TOOL_CALLS: ToolCall[] = []
 
 function ArchivedTimeline({
   threadId,
-  headMessageId
+  headMessageId,
+  workspacePath
 }: {
   threadId: string
   headMessageId?: string
+  workspacePath?: string | null
 }): React.JSX.Element {
   const messages = useAppStore((state) => state.messages[threadId] ?? EMPTY_MESSAGES)
   const toolCalls = useAppStore((state) => state.toolCalls[threadId] ?? EMPTY_TOOL_CALLS)
   const [scheduleRun, setScheduleRun] = useState<ScheduleRunRecord | null>(null)
+  const [runs, setRuns] = useState<RunRecord[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
@@ -71,6 +76,7 @@ function ArchivedTimeline({
     void window.api.yachiyo.loadThreadData({ threadId }).then((data) => {
       if (cancelled) return
       setScheduleRun(data.scheduleRun ?? null)
+      setRuns(data.runs)
       useAppStore.setState((state) => ({
         messages: { ...state.messages, [threadId]: data.messages },
         toolCalls: { ...state.toolCalls, [threadId]: data.toolCalls }
@@ -117,6 +123,10 @@ function ArchivedTimeline({
     }
     return messages.filter((m) => m.role === 'user' || m.role === 'assistant')
   }, [messages, headMessageId])
+  const markdownWorkspacePath = useMemo(
+    () => resolveArchivedWorkspacePath(workspacePath, runs),
+    [runs, workspacePath]
+  )
 
   // Group tool calls by the assistant message they belong to so each branch in
   // a multi-reply thread shows its own execution history. Tool calls written
@@ -170,6 +180,7 @@ function ArchivedTimeline({
             <ReadOnlyAssistantBubble
               key={message.id}
               message={message}
+              workspacePath={markdownWorkspacePath}
               toolCalls={
                 toolCallsByAssistantId.get(message.id) ??
                 toolCallsByRequestIdLegacy.get(message.parentMessageId ?? '') ??
@@ -237,18 +248,24 @@ function ReadOnlyUserBubble({ message }: { message: Message }): React.JSX.Elemen
 
 function ReadOnlyAssistantBubble({
   message,
-  toolCalls
+  toolCalls,
+  workspacePath
 }: {
   message: Message
   toolCalls: ToolCall[]
+  workspacePath?: string | null
 }): React.JSX.Element {
   const hasContent = !!message.content?.trim()
   const hasImages = message.images && message.images.length > 0
   const hasToolCalls = toolCalls.length > 0
 
   const imageContext = useMemo<MarkdownImageContextValue>(
-    () => ({ threadId: message.threadId, messageId: message.id }),
-    [message.id, message.threadId]
+    () => ({
+      threadId: message.threadId,
+      messageId: message.id,
+      ...(workspacePath ? { workspacePath } : {})
+    }),
+    [message.id, message.threadId, workspacePath]
   )
 
   if (!hasContent && !hasImages && !hasToolCalls) return <></>

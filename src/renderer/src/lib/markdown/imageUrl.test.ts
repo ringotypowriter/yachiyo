@@ -79,18 +79,58 @@ describe('imageUrl.transformImageSrc', () => {
     assert.equal(out, buildAssetUrl('C:/foo/bar.png'))
   })
 
-  it('drops file:// URLs', () => {
-    assert.equal(transformImageSrc('file:///Users/alice/pic.png'), null)
+  it('rewrites relative paths against a workspace base path', () => {
+    const out = transformImageSrc('paper-workspace/Figure%201.png', {
+      basePath: '/Users/alice/project'
+    })
+    assert.equal(out, buildAssetUrl('/Users/alice/project/paper-workspace/Figure 1.png'))
+  })
+
+  it('drops relative paths without a workspace base path', () => {
+    assert.equal(transformImageSrc('pic.png'), null)
+    assert.equal(transformImageSrc('./pic.png'), null)
+  })
+
+  it('drops relative paths that escape the workspace base path', () => {
+    assert.equal(transformImageSrc('../pic.png', { basePath: '/Users/alice/project' }), null)
+    assert.equal(
+      transformImageSrc('paper-workspace/../../pic.png', { basePath: '/Users/alice/project' }),
+      null
+    )
+  })
+
+  it('rewrites local file URLs to the asset scheme', () => {
+    assert.equal(
+      transformImageSrc('file:///Users/alice/pic.png'),
+      buildAssetUrl('/Users/alice/pic.png')
+    )
+  })
+
+  it('decodes local file URLs with spaces', () => {
+    assert.equal(
+      transformImageSrc('file:///Users/alice/Figure%201.png'),
+      buildAssetUrl('/Users/alice/Figure 1.png')
+    )
+  })
+
+  it('rewrites Windows local file URLs to the asset scheme', () => {
+    assert.equal(
+      transformImageSrc('file:///C:/Users/alice/pic.png'),
+      buildAssetUrl('C:/Users/alice/pic.png')
+    )
+  })
+
+  it('drops remote file URLs', () => {
+    assert.equal(transformImageSrc('file://server/share/pic.png'), null)
   })
 
   it('drops javascript: URLs', () => {
     assert.equal(transformImageSrc('javascript:alert(1)'), null)
   })
 
-  it('drops relative paths', () => {
-    assert.equal(transformImageSrc('pic.png'), null)
-    assert.equal(transformImageSrc('./pic.png'), null)
-    assert.equal(transformImageSrc('../pic.png'), null)
+  it('drops URL-like non-image sources', () => {
+    assert.equal(transformImageSrc('cid:figure-1'), null)
+    assert.equal(transformImageSrc('mailto:test@example.com'), null)
   })
 
   it('drops empty input', () => {

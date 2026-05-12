@@ -98,6 +98,20 @@ const EMPTY_SUBAGENT_PROGRESS_ENTRIES: Array<{
 const useIsomorphicLayoutEffect = typeof document !== 'undefined' ? useLayoutEffect : useEffect
 const useMessageTimelineVirtualizer = useTanStackVirtualizer
 
+function resolveMessageTimelineWorkspacePath(
+  threadWorkspacePath: string | null | undefined,
+  runs: readonly RunRecord[]
+): string | undefined {
+  if (threadWorkspacePath) return threadWorkspacePath
+
+  for (let i = runs.length - 1; i >= 0; i -= 1) {
+    const runWorkspacePath = runs[i]?.workspacePath
+    if (runWorkspacePath) return runWorkspacePath
+  }
+
+  return undefined
+}
+
 function confirmDelete(message: Message): boolean {
   if (message.role === 'user') {
     return window.confirm(
@@ -188,7 +202,11 @@ function renderTimelineItem(
             startedAt={item.data.createdAt}
           />
         ) : null}
-        <AssistantMessageBubble message={item.data} inlineCodeFileLinks={inlineCodeFileLinks} />
+        <AssistantMessageBubble
+          message={item.data}
+          inlineCodeFileLinks={inlineCodeFileLinks}
+          workspacePath={workspacePath}
+        />
       </div>
     )
   }
@@ -315,6 +333,7 @@ function renderTimelineItem(
           contentOverride={item.textBlock.content}
           showFooter={false}
           inlineCodeFileLinks={inlineCodeFileLinks}
+          workspacePath={workspacePath}
           suppressGeneratingLabel={
             item.hasRunningToolCall || item.assistantMessage.status === 'streaming'
           }
@@ -547,7 +566,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     [thread]
   )
   const threadHasActiveRun = activeRunId !== null
-  const workspacePath = thread?.workspacePath
+  const workspacePath = resolveMessageTimelineWorkspacePath(thread?.workspacePath, runs)
   const timelineRows = useMemo(
     () =>
       buildMessageTimelineRows({
