@@ -412,6 +412,8 @@ export function createTool(
       'Pass `reset: false` to preserve variables and imports from the previous call when you need multi-step state. ' +
       "Has access to `require()` for Node built-ins and the active cwd's project dependencies. " +
       'Has `fetch()` predefined for HTTP and data URL requests. ' +
+      "Only you, the model, can see this tool's output; " +
+      'the user cannot see it unless you include the relevant result in your response. ' +
       'Relative paths in fs operations resolve against the workspace.\n' +
       'Omit `cwd` or pass `cwd: "."` to use the thread workspace. Optional `cwd` overrides the working directory for this call only; it must be a relative path inside the workspace — ' +
       'absolute paths, `~`, and any `..` segments are rejected.\n' +
