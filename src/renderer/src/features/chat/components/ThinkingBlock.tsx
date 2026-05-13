@@ -56,7 +56,7 @@ export function ThinkingBlock({
         >
           {isActive ? (
             <span
-              className="shrink-0 w-1.5 h-1.5 rounded-full"
+              className="shrink-0 w-1.5 h-1.5 rounded-full relative top-px"
               style={{
                 background: theme.text.accent,
                 animation: 'yachiyo-generating-pulse 1s ease-in-out infinite'
