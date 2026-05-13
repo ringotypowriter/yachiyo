@@ -11,6 +11,10 @@ import {
   shouldSelectCompletionCandidate
 } from '@renderer/features/chat/lib/composerEnterBehavior'
 import { shouldRevertPendingComposerMessagesOnArrowUp } from '@renderer/features/chat/lib/composerArrowUpRevert'
+import {
+  buildPlainTextPasteValue,
+  isPastePlainTextShortcut
+} from '@renderer/features/chat/lib/composerPlainTextPaste'
 import type { UseChatInputBufferResult } from '@renderer/features/chat/hooks/useChatInputBuffer'
 import { clearGoalX, navigatePretextLine } from '@renderer/features/chat/lib/pretextSync'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
@@ -397,6 +401,37 @@ export function useComposerInputHandlers(
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (isPastePlainTextShortcut(event)) {
+        event.preventDefault()
+        const textarea = event.currentTarget
+        void (async () => {
+          const pastedText = await navigator.clipboard.readText()
+          if (pastedText.length === 0) return
+
+          const next = buildPlainTextPasteValue({
+            currentValue: textarea.value,
+            pastedText,
+            selectionEnd: textarea.selectionEnd,
+            selectionStart: textarea.selectionStart
+          })
+          setComposerValue(next.value)
+          if (/[\n\r]/.test(pastedText)) {
+            scrollComposerToEndAfterBreakRef.current = true
+          }
+          requestAnimationFrame(() => {
+            textarea.focus()
+            textarea.setSelectionRange(next.caretOffset, next.caretOffset)
+          })
+        })().catch((error) => {
+          console.warn('[yachiyo] failed to paste clipboard text', error)
+          setAttachmentUploadNotice({
+            tone: 'error',
+            text: 'Plain-text paste failed.'
+          })
+        })
+        return
+      }
+
       if (showSlashCommandPopup) {
         if (event.key === 'ArrowDown') {
           event.preventDefault()
@@ -679,9 +714,11 @@ export function useComposerInputHandlers(
       setReasoningSelectorOpen,
       setSkillsSelectorOpen,
       setSlashSelectedIndex,
+      setAttachmentUploadNotice,
       setToolSelectorOpen,
       setWorkspaceSelectorOpen,
       skillsSelectorOpen,
+      scrollComposerToEndAfterBreakRef,
       textareaRef,
       toolSelectorOpen,
       workspaceSelectorOpen
