@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.1.6
+
+### Patch Changes
+
+- [`f0279c2`](https://github.com/ringotypowriter/yachiyo/commit/f0279c2ad271d8b976b5ccd74dec9951ed13b87a) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Minor fix
+
 ## 1.1.5
 
 ### Patch Changes
