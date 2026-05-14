@@ -1,9 +1,10 @@
-import React, { createContext, useCallback, useContext, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import type { ImgHTMLAttributes } from 'react'
 import { Download, ImageOff, Loader2 } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import { isAssetUrl, isRemoteImageUrl } from './imageUrl'
 import { ImageDetailViewer } from './ImageDetailViewer'
+import { resolveMarkdownImageSrc, type ResolvedMarkdownImageSrc } from './markdownImageState.ts'
 
 /**
  * Context set up by `MessageMarkdown` when image rendering is enabled for
@@ -46,6 +47,8 @@ function useMarkdownImageContext(): MarkdownImageContextValue | null {
 
 const IMG_MAX_WIDTH = 520
 const IMG_MAX_HEIGHT = 420
+const LOCAL_IMAGE_RETRY_LIMIT = 8
+const LOCAL_IMAGE_RETRY_DELAY_MS = 1000
 
 const imageStyle: React.CSSProperties = {
   maxWidth: '100%',
@@ -157,8 +160,14 @@ function RemoteImageCard({
 }
 
 function LocalImage({ src, alt }: { src: string; alt?: string }): React.JSX.Element {
-  const [broken, setBroken] = useState(false)
+  const [loadState, setLoadState] = useState<{
+    src: string
+    failed: boolean
+    attempt: number
+  }>({ src, failed: false, attempt: 0 })
   const [viewerOpen, setViewerOpen] = useState(false)
+  const currentLoadState = loadState.src === src ? loadState : { src, failed: false, attempt: 0 }
+  const broken = currentLoadState.failed
 
   const handleClick = useCallback((e: React.MouseEvent<HTMLImageElement>) => {
     // When the image is wrapped in a link ([![alt](...)](href)), let the
@@ -167,6 +176,23 @@ function LocalImage({ src, alt }: { src: string; alt?: string }): React.JSX.Elem
     e.stopPropagation()
     setViewerOpen(true)
   }, [])
+
+  useEffect(() => {
+    if (!broken || currentLoadState.attempt >= LOCAL_IMAGE_RETRY_LIMIT) return
+
+    const timer = setTimeout(() => {
+      setLoadState((current) => (current.src === src ? { ...current, failed: false } : current))
+    }, LOCAL_IMAGE_RETRY_DELAY_MS)
+
+    return () => clearTimeout(timer)
+  }, [broken, currentLoadState.attempt, src])
+
+  const handleError = useCallback((): void => {
+    setLoadState((current) => {
+      const attempt = current.src === src ? current.attempt + 1 : 1
+      return { src, failed: true, attempt }
+    })
+  }, [src])
 
   if (broken) {
     return (
@@ -188,12 +214,13 @@ function LocalImage({ src, alt }: { src: string; alt?: string }): React.JSX.Elem
   return (
     <>
       <img
+        key={`${src}:${currentLoadState.attempt}`}
         src={src}
         alt={alt ?? ''}
         style={{ ...imageStyle, cursor: 'zoom-in' }}
         loading="lazy"
         draggable={false}
-        onError={() => setBroken(true)}
+        onError={handleError}
         onClick={handleClick}
       />
       <ImageDetailViewer
@@ -214,18 +241,25 @@ function LocalImage({ src, alt }: { src: string; alt?: string }): React.JSX.Elem
 type MarkdownImageProps = ImgHTMLAttributes<HTMLImageElement>
 
 export function MarkdownImage({ src, alt }: MarkdownImageProps): React.JSX.Element | null {
-  const [resolvedSrc, setResolvedSrc] = useState<string | null>(null)
+  const [resolvedSrc, setResolvedSrc] = useState<ResolvedMarkdownImageSrc | null>(null)
 
   if (typeof src !== 'string' || !src) return null
 
-  const effectiveSrc = resolvedSrc ?? src
+  const effectiveSrc = resolveMarkdownImageSrc(src, resolvedSrc)
 
   if (isRemoteImageUrl(effectiveSrc)) {
-    return <RemoteImageCard src={effectiveSrc} alt={alt ?? undefined} onResolved={setResolvedSrc} />
+    return (
+      <RemoteImageCard
+        key={effectiveSrc}
+        src={effectiveSrc}
+        alt={alt ?? undefined}
+        onResolved={(nextSrc) => setResolvedSrc({ sourceSrc: effectiveSrc, resolvedSrc: nextSrc })}
+      />
+    )
   }
 
   if (isAssetUrl(effectiveSrc) || effectiveSrc.startsWith('data:image/')) {
-    return <LocalImage src={effectiveSrc} alt={alt ?? undefined} />
+    return <LocalImage key={effectiveSrc} src={effectiveSrc} alt={alt ?? undefined} />
   }
 
   // Anything else should already have been filtered by urlTransform; render

@@ -16,8 +16,13 @@
 
 export const YACHIYO_ASSET_SCHEME = 'yachiyo-asset'
 
+export interface BuildAssetUrlOptions {
+  assetVersion?: string | number | null
+}
+
 export interface TransformImageSrcOptions {
   basePath?: string | null
+  assetVersion?: string | number | null
 }
 
 /**
@@ -34,9 +39,12 @@ export function isAbsolutePathLike(value: string): boolean {
  * Build a `yachiyo-asset://local/?p=...` URL for an absolute path.
  * Returns `null` if the input is not an absolute path.
  */
-export function buildAssetUrl(absPath: string): string | null {
+export function buildAssetUrl(absPath: string, options: BuildAssetUrlOptions = {}): string | null {
   if (!isAbsolutePathLike(absPath)) return null
-  return `${YACHIYO_ASSET_SCHEME}://local/?p=${encodeURIComponent(absPath)}`
+  return appendAssetVersion(
+    `${YACHIYO_ASSET_SCHEME}://local/?p=${encodeURIComponent(absPath)}`,
+    options.assetVersion
+  )
 }
 
 /**
@@ -52,6 +60,23 @@ export function isRemoteImageUrl(src: string): boolean {
  */
 export function isAssetUrl(src: string): boolean {
   return src.startsWith(`${YACHIYO_ASSET_SCHEME}://`)
+}
+
+function appendAssetVersion(
+  assetUrl: string,
+  assetVersion: string | number | null | undefined
+): string {
+  if (assetVersion == null || assetVersion === '') return assetUrl
+
+  const version = String(assetVersion)
+  try {
+    const url = new URL(assetUrl)
+    url.searchParams.set('v', version)
+    return url.toString()
+  } catch {
+    const separator = assetUrl.includes('?') ? '&' : '?'
+    return `${assetUrl}${separator}v=${encodeURIComponent(version)}`
+  }
 }
 
 /**
@@ -193,10 +218,10 @@ export function transformImageSrc(
 
   if (isRemoteImageUrl(trimmed)) return trimmed
   if (trimmed.startsWith('data:image/')) return trimmed
-  if (isAssetUrl(trimmed)) return trimmed
+  if (isAssetUrl(trimmed)) return appendAssetVersion(trimmed, options.assetVersion)
 
   const filePath = fileUrlToAbsolutePath(trimmed)
-  if (filePath) return buildAssetUrl(filePath)
+  if (filePath) return buildAssetUrl(filePath, { assetVersion: options.assetVersion })
   if (trimmed.toLowerCase().startsWith('file:')) return null
 
   // Prefer the decoded form whenever it differs — markdown parsers
@@ -207,11 +232,11 @@ export function transformImageSrc(
   const candidate = decoded !== trimmed && isAbsolutePathLike(decoded) ? decoded : trimmed
 
   if (isAbsolutePathLike(candidate)) {
-    return buildAssetUrl(candidate)
+    return buildAssetUrl(candidate, { assetVersion: options.assetVersion })
   }
 
   const relativePath = resolveRelativePath(candidate, options.basePath)
-  if (relativePath) return buildAssetUrl(relativePath)
+  if (relativePath) return buildAssetUrl(relativePath, { assetVersion: options.assetVersion })
 
   return null
 }

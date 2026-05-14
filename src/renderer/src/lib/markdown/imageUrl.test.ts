@@ -52,9 +52,19 @@ describe('imageUrl.transformImageSrc', () => {
     assert.equal(transformImageSrc(url), url)
   })
 
+  it('refreshes existing asset URLs when a render version is provided', () => {
+    const url = `${YACHIYO_ASSET_SCHEME}://local/?p=%2Ffoo.png`
+    assert.equal(transformImageSrc(url, { assetVersion: 'stream:43' }), `${url}&v=stream%3A43`)
+  })
+
   it('rewrites absolute paths to the asset scheme', () => {
     const out = transformImageSrc('/Users/alice/pic.png')
     assert.equal(out, buildAssetUrl('/Users/alice/pic.png'))
+  })
+
+  it('adds a render version to rewritten asset URLs', () => {
+    const out = transformImageSrc('/Users/alice/pic.png', { assetVersion: 'stream:42' })
+    assert.equal(out, `${buildAssetUrl('/Users/alice/pic.png')}&v=stream%3A42`)
   })
 
   it('decodes percent-escaped POSIX paths with spaces', () => {

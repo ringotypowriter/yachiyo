@@ -100,6 +100,15 @@ export function MessageMarkdown({
   )
 
   const imagesEnabled = Boolean(imageContext)
+  const imageAssetVersion =
+    imagesEnabled && isStreaming ? `stream:${Math.floor(content.length / 120)}` : undefined
+  const imageTransformOptions = useMemo(
+    () =>
+      imageContext
+        ? { basePath: imageContext.workspacePath, assetVersion: imageAssetVersion }
+        : null,
+    [imageAssetVersion, imageContext]
+  )
   const inlineCodeFileLinksKey = useMemo(() => {
     if (!inlineCodeFileLinks || inlineCodeFileLinks.size === 0) return ''
     return JSON.stringify([...inlineCodeFileLinks.entries()])
@@ -116,9 +125,8 @@ export function MessageMarkdown({
   }, [imagesEnabled, inlineCodeFileLinks])
 
   const rehypePlugins = useMemo(
-    () =>
-      createMarkdownRehypePlugins(imageContext ? { basePath: imageContext.workspacePath } : null),
-    [imageContext]
+    () => createMarkdownRehypePlugins(imageTransformOptions),
+    [imageTransformOptions]
   )
 
   const urlTransform = useMemo<UrlTransform | undefined>(() => {
@@ -128,9 +136,9 @@ export function MessageMarkdown({
       // to Streamdown's default safety rules.
       const isImageSrc = key === 'src' && node.tagName === 'img'
       if (!isImageSrc) return url
-      return transformImageSrc(url, { basePath: imageContext?.workspacePath }) ?? undefined
+      return transformImageSrc(url, imageTransformOptions ?? undefined) ?? undefined
     }
-  }, [imageContext?.workspacePath, imagesEnabled])
+  }, [imageTransformOptions, imagesEnabled])
 
   const plugins = useMemo<PluginConfig>(() => ({ math: mathPlugin, mermaid, code }), [])
   const handleClickCapture = useCallback((event: React.MouseEvent<HTMLDivElement>): void => {
