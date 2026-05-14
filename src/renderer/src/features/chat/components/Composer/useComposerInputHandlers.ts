@@ -11,6 +11,7 @@ import {
   shouldSelectCompletionCandidate
 } from '@renderer/features/chat/lib/composerEnterBehavior'
 import { shouldRevertPendingComposerMessagesOnArrowUp } from '@renderer/features/chat/lib/composerArrowUpRevert'
+import { selectComposerBackspaceAttachmentRemoval } from '@renderer/features/chat/lib/composerAttachmentBackspace'
 import {
   buildPlainTextPasteValue,
   isPastePlainTextShortcut
@@ -49,6 +50,8 @@ interface UseComposerInputHandlersInput {
   dismissSlashPopup: () => void
   dispatchSend: (mode: ComposerSendMode) => void
   dragCounterRef: React.MutableRefObject<number>
+  draftFiles: readonly { id: string }[]
+  draftImages: readonly { id: string }[]
   editingMessage: EditingMessageState | null
   fileMentionMatch: RegExpExecArray | null
   fileMentionQuery: string | null
@@ -67,6 +70,8 @@ interface UseComposerInputHandlersInput {
   reasoningSelectorOpen: boolean
   revertPendingSteer: AppState['revertPendingSteer']
   revertQueuedFollowUp: AppState['revertQueuedFollowUp']
+  removeComposerFile: AppState['removeComposerFile']
+  removeComposerImage: AppState['removeComposerImage']
   runStatus: RunStatus
   scrollComposerToEndAfterBreakRef: React.MutableRefObject<boolean>
   setComposerValue: AppState['setComposerValue']
@@ -169,6 +174,8 @@ export function useComposerInputHandlers(
     dismissSlashPopup,
     dispatchSend,
     dragCounterRef,
+    draftFiles,
+    draftImages,
     editingMessage,
     fileMentionMatch,
     fileMentionQuery,
@@ -187,6 +194,8 @@ export function useComposerInputHandlers(
     reasoningSelectorOpen,
     revertPendingSteer,
     revertQueuedFollowUp,
+    removeComposerFile,
+    removeComposerImage,
     runStatus,
     scrollComposerToEndAfterBreakRef,
     setComposerValue,
@@ -573,6 +582,32 @@ export function useComposerInputHandlers(
         return
       }
 
+      const attachmentRemoval = selectComposerBackspaceAttachmentRemoval({
+        event: {
+          key: event.key,
+          metaKey: event.metaKey,
+          altKey: event.altKey,
+          ctrlKey: event.ctrlKey,
+          shiftKey: event.shiftKey,
+          isComposing: isComposing || event.nativeEvent.isComposing,
+          keyCode: event.nativeEvent.keyCode
+        },
+        text: event.currentTarget.value,
+        selectionStart: event.currentTarget.selectionStart,
+        selectionEnd: event.currentTarget.selectionEnd,
+        images: draftImages,
+        files: draftFiles
+      })
+      if (attachmentRemoval) {
+        event.preventDefault()
+        if (attachmentRemoval.kind === 'file') {
+          removeComposerFile(attachmentRemoval.id, activeThreadId)
+        } else {
+          removeComposerImage(attachmentRemoval.id, activeThreadId)
+        }
+        return
+      }
+
       // Empty-composer ArrowUp: revert all pending messages (steer + queued follow-up)
       // back into the composer for editing. Only fires when the composer is fully
       // empty — no text, no images, no files — to avoid surprising merges.
@@ -682,8 +717,11 @@ export function useComposerInputHandlers(
     },
     [
       activeRunEnterBehavior,
+      activeThreadId,
       cancelEditMessage,
       canSend,
+      draftFiles,
+      draftImages,
       editingMessage,
       handleSlashCommandSelect,
       hasActiveRun,
@@ -708,6 +746,8 @@ export function useComposerInputHandlers(
       hasPayload,
       pendingSteerEntry,
       queuedFollowUpMessageId,
+      removeComposerFile,
+      removeComposerImage,
       revertPendingSteer,
       revertQueuedFollowUp,
       setModelSelectorOpen,
