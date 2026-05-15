@@ -170,7 +170,9 @@ export function ComposerView(props: any): React.JSX.Element {
     canSend,
     dispatchSend,
     primarySendMode,
-    isSendInFlight
+    isSendInFlight,
+    handleComposerWheel,
+    attachmentStripRef
   } = props
 
   const placeholderText = selectComposerPlaceholder({
@@ -188,6 +190,7 @@ export function ComposerView(props: any): React.JSX.Element {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      onWheel={handleComposerWheel}
     >
       {isDragOver ? (
         <div
@@ -260,7 +263,7 @@ export function ComposerView(props: any): React.JSX.Element {
         />
       ) : null}
       {draftImages.length > 0 || draftFiles.length > 0 ? (
-        <div className="composer-image-strip">
+        <div ref={attachmentStripRef} className="composer-image-strip">
           {draftImages.map((image) => (
             <ComposerImagePreview
               key={image.id}

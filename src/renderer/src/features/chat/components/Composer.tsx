@@ -14,6 +14,10 @@ import type { ChatInputBufferPayload } from '@renderer/features/chat/lib/chatInp
 import { useChatInputBuffer } from '@renderer/features/chat/hooks/useChatInputBuffer'
 import { computePretextLines } from '@renderer/features/chat/lib/pretextSync'
 import {
+  forwardComposerWheelToTimeline,
+  resolveComposerWheelDestination
+} from '@renderer/features/chat/lib/composerWheel'
+import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
   getThreadCapabilities,
@@ -144,6 +148,7 @@ export function Composer({
   const toolSelectorRef = useRef<HTMLDivElement>(null)
   const workspaceSelectorRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const attachmentStripRef = useRef<HTMLDivElement>(null)
   /** Set when the user inserts a hard/soft line break so we scroll after layout (hidden native caret). */
   const scrollComposerToEndAfterBreakRef = useRef(false)
   /** True when any composer popup is open; used by the auto-focus keydown listener. */
@@ -766,6 +771,60 @@ export function Composer({
     }
   }, [editingMessage])
 
+  const handleComposerWheel = useCallback((event: React.WheelEvent<HTMLDivElement>): void => {
+    const eventTarget = event.target
+    const targetNode = eventTarget instanceof Node ? eventTarget : null
+    const textarea = textareaRef.current
+    const attachmentStrip = attachmentStripRef.current
+    const overTextarea = Boolean(textarea && targetNode && textarea.contains(targetNode))
+    const overAttachmentStrip = Boolean(
+      attachmentStrip && targetNode && attachmentStrip.contains(targetNode)
+    )
+
+    const destination = resolveComposerWheelDestination({
+      deltaX: event.deltaX,
+      deltaY: event.deltaY,
+      overAttachmentStrip,
+      overTextarea,
+      popupOpen: anyPopupOpenRef.current,
+      textarea: textarea
+        ? {
+            scrollOffset: textarea.scrollTop,
+            viewportSize: textarea.clientHeight,
+            contentSize: textarea.scrollHeight
+          }
+        : null,
+      attachmentStrip: attachmentStrip
+        ? {
+            scrollOffset: attachmentStrip.scrollLeft,
+            viewportSize: attachmentStrip.clientWidth,
+            contentSize: attachmentStrip.scrollWidth
+          }
+        : null
+    })
+
+    if (destination === 'attachments') {
+      event.preventDefault()
+      attachmentStrip?.scrollBy({ left: event.deltaY })
+      return
+    }
+
+    if (destination === 'timeline') {
+      const timeline = document.querySelector<HTMLElement>('[data-timeline-scroll]')
+      if (!timeline) return
+      event.preventDefault()
+      forwardComposerWheelToTimeline(timeline, {
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        deltaMode: event.deltaMode,
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey
+      })
+    }
+  }, [])
+
   // Auto-focus the composer textarea when a printable key is pressed while no
   // input-like element is focused. The listener is mounted only while Composer
   // is rendered, so it is scoped to the chat panel rather than a global window
@@ -994,6 +1053,7 @@ export function Composer({
   return (
     <ComposerView
       composerRootRef={composerRootRef}
+      handleComposerWheel={handleComposerWheel}
       handleDragEnter={handleDragEnter}
       handleDragOver={handleDragOver}
       handleDragLeave={handleDragLeave}
@@ -1007,6 +1067,7 @@ export function Composer({
       handleRemoveQueuedFollowUp={handleRemoveQueuedFollowUp}
       inputBuffer={inputBuffer}
       mergeBufferedPayloadIntoDraft={mergeBufferedPayloadIntoDraft}
+      attachmentStripRef={attachmentStripRef}
       draftImages={draftImages}
       draftFiles={draftFiles}
       removeComposerImage={removeComposerImage}
