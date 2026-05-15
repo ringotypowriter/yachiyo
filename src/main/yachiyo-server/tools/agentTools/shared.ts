@@ -90,11 +90,14 @@ export function withShadowFallbacks<T extends z.ZodTypeAny>(
   return z.preprocess((val) => applyShadowFallbacks(val, mappings), schema)
 }
 
+const readToolBaseInputSchema = z.object({
+  path: z.string().min(1),
+  offset: z.number().int().min(0).default(1),
+  limit: z.number().int().min(1).max(MAX_READ_LIMIT).default(DEFAULT_READ_LIMIT)
+})
+
 export const readToolInputSchema = withShadowFallbacks(
-  z.object({
-    path: z.string().min(1),
-    offset: z.number().int().min(0).default(1),
-    limit: z.number().int().min(1).max(MAX_READ_LIMIT).default(DEFAULT_READ_LIMIT),
+  readToolBaseInputSchema.extend({
     focus: z
       .string()
       .optional()
@@ -104,6 +107,10 @@ export const readToolInputSchema = withShadowFallbacks(
   }),
   { filePath: 'path' }
 )
+
+export const readToolInputSchemaWithoutFocus = withShadowFallbacks(readToolBaseInputSchema, {
+  filePath: 'path'
+})
 
 export const writeToolInputSchema = withShadowFallbacks(
   z.object({

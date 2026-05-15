@@ -4,13 +4,26 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 
-import { runReadTool } from './readTool.ts'
+import { asSchema } from 'ai'
+
+import { createTool as createReadTool, runReadTool } from './readTool.ts'
 import { ReadRecordCache } from './readRecordCache.ts'
 import type { ReadToolInput } from './shared.ts'
 import { DEFAULT_READ_LIMIT } from './shared.ts'
 
 function readInput(partial: { path: string; offset?: number; limit?: number }): ReadToolInput {
   return { offset: 1, limit: DEFAULT_READ_LIMIT, ...partial }
+}
+
+async function readToolPropertyNames(isModelImageCapable?: boolean): Promise<string[]> {
+  const readTool = createReadTool({
+    workspacePath: '/tmp/yachiyo-read-tool',
+    ...(isModelImageCapable === undefined ? {} : { isModelImageCapable })
+  })
+  const schema = await asSchema(readTool.inputSchema).jsonSchema
+  const properties = schema.properties
+  assert.ok(properties && typeof properties === 'object' && !Array.isArray(properties))
+  return Object.keys(properties)
 }
 
 async function withWorkspace(fn: (workspacePath: string) => Promise<void>): Promise<void> {
@@ -56,6 +69,15 @@ test('runReadTool reads image file as base64 with image-data content block', asy
       assert.match(textBlock.text, /image\/png/)
     }
   })
+})
+
+test('createReadTool hides focus from image-incapable models', async () => {
+  assert.deepEqual(await readToolPropertyNames(false), ['path', 'offset', 'limit'])
+})
+
+test('createReadTool keeps focus visible for image-capable models', async () => {
+  assert.deepEqual(await readToolPropertyNames(true), ['path', 'offset', 'limit', 'focus'])
+  assert.deepEqual(await readToolPropertyNames(), ['path', 'offset', 'limit', 'focus'])
 })
 
 test('runReadTool detects .jpg, .jpeg, .webp extensions', async () => {
