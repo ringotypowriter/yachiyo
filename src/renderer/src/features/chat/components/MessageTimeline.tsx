@@ -23,7 +23,10 @@ import {
   type MessageTimelineRow
 } from '../lib/messageTimelineRows.ts'
 import { buildTimelineVirtualRowStyle } from '../lib/messageTimelineRowStyle.ts'
-import { getInitialBottomScrollDecision } from '../lib/messageTimelineScroll.ts'
+import {
+  getInitialBottomScrollDecision,
+  getNativeScrollIntoViewOptions
+} from '../lib/messageTimelineScroll.ts'
 import { UserMessageBubble } from './UserMessageBubble'
 import { AssistantMessageBubble } from './AssistantMessageBubble'
 import { GeneratingRow } from './GeneratingRow'
@@ -748,7 +751,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
         requestAnimationFrame(() => {
           const el = document.querySelector(`[data-message-id="${messageId}"]`)
           if (el) {
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            el.scrollIntoView(getNativeScrollIntoViewOptions('center'))
           }
         })
       })
@@ -759,7 +762,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
   // Track user scroll to detect manual scroll-away
   useEffect(() => {
     if (recapText && recapRef.current && stickToBottomRef.current) {
-      recapRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
+      recapRef.current.scrollIntoView(getNativeScrollIntoViewOptions('end'))
     }
   }, [recapText])
 
@@ -971,7 +974,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       requestAnimationFrame(() => {
         const el = document.querySelector(`[data-message-id="${targetMessageId}"]`)
         if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          el.scrollIntoView(getNativeScrollIntoViewOptions('center'))
         }
       })
     })

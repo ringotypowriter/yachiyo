@@ -9,6 +9,12 @@ export interface TimelineScrollMetrics {
 export const INITIAL_BOTTOM_SCROLL_MAX_ATTEMPTS = 8
 export const TIMELINE_BOTTOM_TOLERANCE_PX = 4
 
+export function getNativeScrollIntoViewOptions(
+  block: ScrollLogicalPosition
+): ScrollIntoViewOptions {
+  return { behavior: 'auto', block }
+}
+
 export function getInitialBottomScrollDecision(input: {
   attempt: number
   metrics: TimelineScrollMetrics | null

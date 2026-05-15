@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { getInitialBottomScrollDecision } from './messageTimelineScroll.ts'
+import {
+  getInitialBottomScrollDecision,
+  getNativeScrollIntoViewOptions
+} from './messageTimelineScroll.ts'
 
 test('getInitialBottomScrollDecision retries when the first startup scroll lands above the bottom', () => {
   assert.equal(
@@ -76,4 +79,15 @@ test('getInitialBottomScrollDecision stops after the retry budget is exhausted',
     }),
     'done'
   )
+})
+
+test('getNativeScrollIntoViewOptions uses direct native scrolling', () => {
+  assert.deepEqual(getNativeScrollIntoViewOptions('center'), {
+    behavior: 'auto',
+    block: 'center'
+  })
+  assert.deepEqual(getNativeScrollIntoViewOptions('end'), {
+    behavior: 'auto',
+    block: 'end'
+  })
 })

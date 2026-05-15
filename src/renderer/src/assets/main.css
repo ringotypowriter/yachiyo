@@ -45,6 +45,7 @@ body {
   color: rgb(var(--yachiyo-rgb-ink));
   -webkit-font-smoothing: antialiased;
   user-select: none;
+  -webkit-user-select: none;
 }
 
 :focus,
@@ -850,4 +851,24 @@ body > div:not(#root) {
 ::highlight(yachiyo-find-current) {
   background-color: rgb(var(--yachiyo-rgb-accent) / 0.55);
   color: inherit;
+}
+
+button,
+[role='button'],
+.cursor-pointer {
+  cursor: default !important;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+textarea,
+[contenteditable='true'] {
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.message-selectable,
+.message-selectable * {
+  user-select: text;
+  -webkit-user-select: text;
 }

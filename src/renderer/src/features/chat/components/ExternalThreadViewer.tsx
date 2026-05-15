@@ -14,6 +14,7 @@ import { theme } from '@renderer/theme/theme'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
 import type { MarkdownImageContextValue } from '@renderer/lib/markdown/MarkdownImage'
 import { ToolCallRow } from './ToolCallRow.tsx'
+import { getNativeScrollIntoViewOptions } from '../lib/messageTimelineScroll.ts'
 
 function ExternalUserBubble({ message }: { message: Message }): React.JSX.Element {
   return (
@@ -123,7 +124,7 @@ export function ExternalThreadViewer({ threadId }: { threadId: string | null }):
         const distanceFromBottom =
           container.scrollHeight - container.scrollTop - container.clientHeight
         if (distanceFromBottom < 100) {
-          bottom.scrollIntoView({ behavior: 'smooth', block: 'end' })
+          bottom.scrollIntoView(getNativeScrollIntoViewOptions('end'))
         } else {
           container.scrollTop = container.scrollHeight
         }

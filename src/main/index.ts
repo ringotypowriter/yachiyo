@@ -15,6 +15,7 @@ import { setupCLI } from './cli/setup'
 import { setupCoreSkills } from './skills/coreSkillsSetup'
 import { setupAutoUpdate, isInstallingUpdate } from './electron/autoUpdate'
 import { installActiveRunCloseGuard } from './electron/activeRunCloseGuard'
+import { installApplicationMenu } from './electron/applicationMenu'
 import {
   installYachiyoAssetProtocolHandler,
   registerYachiyoAssetScheme
@@ -182,6 +183,51 @@ function openJotdownWindow(): void {
   }
 }
 
+function openSettingsWindow(tab?: string): void {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.focus()
+    if (tab) {
+      settingsWindow.webContents.send('navigate-settings-to', tab)
+    }
+    return
+  }
+
+  settingsWindow = new BrowserWindow({
+    width: 1180,
+    height: 760,
+    resizable: false,
+    minimizable: false,
+    show: false,
+    title: 'Settings',
+    frame: false,
+    backgroundColor: '#eaf2f7',
+    icon,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: true,
+      contextIsolation: true
+    }
+  })
+  installEditableContextMenu(settingsWindow)
+  settingsWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+  settingsWindow.on('ready-to-show', () => settingsWindow?.show())
+  settingsWindow.on('closed', () => {
+    settingsWindow = null
+    maybeDestroyHiddenJotdown()
+  })
+  const hash = tab ? `#${tab}` : ''
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    settingsWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/settings/index.html${hash}`)
+  } else {
+    settingsWindow.loadFile(join(__dirname, '../renderer/settings/index.html'), {
+      hash: tab
+    })
+  }
+}
+
 app.setPath('userData', resolveYachiyoDataDir())
 
 // Scheme registration must happen before `app.whenReady()` resolves.
@@ -269,6 +315,12 @@ app.whenReady().then(async () => {
   if (process.platform === 'darwin' && app.dock) {
     app.dock.setIcon(icon)
   }
+  installApplicationMenu({
+    appName: APP_NAME,
+    isDev: is.dev,
+    openSettings: () => openSettingsWindow(),
+    platform: process.platform
+  })
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
@@ -369,48 +421,7 @@ app.whenReady().then(async () => {
     })
   })
 
-  ipcMain.on('open-settings', (_event, tab?: string) => {
-    if (settingsWindow && !settingsWindow.isDestroyed()) {
-      settingsWindow.focus()
-      if (tab) {
-        settingsWindow.webContents.send('navigate-settings-to', tab)
-      }
-      return
-    }
-    settingsWindow = new BrowserWindow({
-      width: 1000,
-      height: 660,
-      resizable: false,
-      minimizable: false,
-      show: false,
-      frame: false,
-      backgroundColor: '#eaf2f7',
-      icon,
-      webPreferences: {
-        preload: join(__dirname, '../preload/index.js'),
-        sandbox: true,
-        contextIsolation: true
-      }
-    })
-    installEditableContextMenu(settingsWindow)
-    settingsWindow.webContents.setWindowOpenHandler((details) => {
-      shell.openExternal(details.url)
-      return { action: 'deny' }
-    })
-    settingsWindow.on('ready-to-show', () => settingsWindow?.show())
-    settingsWindow.on('closed', () => {
-      settingsWindow = null
-      maybeDestroyHiddenJotdown()
-    })
-    const hash = tab ? `#${tab}` : ''
-    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-      settingsWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/settings/index.html${hash}`)
-    } else {
-      settingsWindow.loadFile(join(__dirname, '../renderer/settings/index.html'), {
-        hash: tab
-      })
-    }
-  })
+  ipcMain.on('open-settings', (_event, tab?: string) => openSettingsWindow(tab))
 
   createWindow(server)
   setupAutoUpdate()

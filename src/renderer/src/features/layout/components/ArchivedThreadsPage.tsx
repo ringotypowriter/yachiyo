@@ -18,6 +18,7 @@ import type { MarkdownImageContextValue } from '@renderer/lib/markdown/MarkdownI
 import { collectMessagePath } from '../../../../../shared/yachiyo/threadTree.ts'
 import { TimelineScrollbar } from '@renderer/features/chat/components/TimelineScrollbar'
 import { ToolCallRow } from '@renderer/features/chat/components/ToolCallRow'
+import { getNativeScrollIntoViewOptions } from '@renderer/features/chat/lib/messageTimelineScroll'
 import { resolveArchivedWorkspacePath } from './archivedWorkspacePath'
 
 export interface ArchivedThreadsPageProps {
@@ -100,7 +101,7 @@ function ArchivedTimeline({
         const distanceFromBottom =
           container.scrollHeight - container.scrollTop - container.clientHeight
         if (distanceFromBottom < 100) {
-          bottom.scrollIntoView({ behavior: 'smooth', block: 'end' })
+          bottom.scrollIntoView(getNativeScrollIntoViewOptions('end'))
         } else {
           container.scrollTop = container.scrollHeight
         }
@@ -169,7 +170,7 @@ function ArchivedTimeline({
         scrollContainerRef={scrollContainerRef}
         onScrollToMessage={(messageId) => {
           const el = document.querySelector(`[data-message-id="${messageId}"]`)
-          el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          el?.scrollIntoView(getNativeScrollIntoViewOptions('center'))
         }}
       />
       <div ref={scrollContainerRef} className="h-full overflow-y-auto overflow-x-hidden py-4">

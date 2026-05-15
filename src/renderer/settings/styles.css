@@ -32,6 +32,8 @@ body {
   color: rgb(var(--yachiyo-rgb-ink));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 :focus,
@@ -45,4 +47,18 @@ body {
 
 .no-drag {
   -webkit-app-region: no-drag;
+}
+
+button,
+[role='button'],
+.cursor-pointer {
+  cursor: default !important;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+textarea,
+[contenteditable='true'] {
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
 }
