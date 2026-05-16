@@ -654,9 +654,9 @@ test('YachiyoServer.compactThreadToAnotherThread asks for a short handoff when t
       assert.equal(lastMessage?.role, 'user')
       assert.match(
         String(lastMessage?.content),
-        /The earlier thread did not establish much context yet/
+        /No prior context was established/
       )
-      assert.match(String(lastMessage?.content), /keep the handoff very short/)
+      assert.match(String(lastMessage?.content), /keep the handoff minimal/)
     },
     {
       createModelRuntime: () => ({
