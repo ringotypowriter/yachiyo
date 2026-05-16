@@ -12,7 +12,7 @@ export interface ThreadHeaderTitleProps {
 }
 
 const workspaceButtonClass =
-  'no-drag shrink-0 rounded p-1 opacity-60 hover:opacity-100 hover:bg-black/8 transition-all'
+  'no-drag shrink-0 rounded p-1 opacity-60 hover:opacity-100 hover:bg-foreground/8 transition-all'
 const workspaceButtonStyle = { color: theme.text.secondary }
 
 export function ThreadHeaderTitle({

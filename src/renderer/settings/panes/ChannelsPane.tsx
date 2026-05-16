@@ -1005,7 +1005,10 @@ export function ChannelsPane({
         ) : channelRecordsError ? (
           <div
             className="px-7 py-5 text-sm"
-            style={{ color: '#c25151', borderTop: `1px solid ${theme.border.subtle}` }}
+            style={{
+              color: theme.text.dangerStrong,
+              borderTop: `1px solid ${theme.border.subtle}`
+            }}
           >
             {channelRecordsError}
           </div>
@@ -1041,7 +1044,10 @@ export function ChannelsPane({
         ) : channelRecordsError ? (
           <div
             className="px-7 py-5 text-sm"
-            style={{ color: '#c25151', borderTop: `1px solid ${theme.border.subtle}` }}
+            style={{
+              color: theme.text.dangerStrong,
+              borderTop: `1px solid ${theme.border.subtle}`
+            }}
           >
             {channelRecordsError}
           </div>

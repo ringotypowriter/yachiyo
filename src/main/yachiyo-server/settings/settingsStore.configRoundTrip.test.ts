@@ -121,6 +121,22 @@ notifyRunCompleted = true
   assert.deepEqual(config.general?.activityTracking, { mode: 'simple' })
 })
 
+test('general theme preferences round-trip through parse → normalize → stringify → parse', () => {
+  const toml = `[general]
+themeId = "mizu"
+themeAppearance = "dark"
+`
+
+  const config = parseSettingsToml(toml)
+  assert.equal(config.general?.themeId, 'mizu')
+  assert.equal(config.general?.themeAppearance, 'dark')
+
+  const serialized = stringifySettingsToml(config)
+  const reloaded = parseSettingsToml(serialized)
+  assert.equal(reloaded.general?.themeId, 'mizu')
+  assert.equal(reloaded.general?.themeAppearance, 'dark')
+})
+
 test('toProviderSettings uses explicit defaultModel when provider exists', () => {
   const snapshot = toProviderSettings({
     providers: [PROVIDER_WORK, PROVIDER_BACKUP],
@@ -440,7 +456,9 @@ test('normalization preserves every GeneralConfig key', () => {
     notifyCodingTaskFinished: false,
     translatorShortcut: 'Alt+T',
     jotdownShortcut: 'Alt+J',
-    activityTracking: { mode: 'full', accessibilityDenied: true }
+    activityTracking: { mode: 'full', accessibilityDenied: true },
+    themeId: 'mizu',
+    themeAppearance: 'dark'
   }
   const result = normalizeSettingsConfig({ providers: [], general: sentinel })
   assertKeysPreserved(result.general, sentinel, 'GeneralConfig')

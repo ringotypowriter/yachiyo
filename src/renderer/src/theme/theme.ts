@@ -1,3 +1,24 @@
+import {
+  DEFAULT_THEME_APPEARANCE,
+  DEFAULT_THEME_ID,
+  normalizeThemeAppearance,
+  normalizeThemeId,
+  type GeneralConfig,
+  type ThemeAppearance,
+  type ThemeId
+} from '../../../shared/yachiyo/protocol.ts'
+
+export { DEFAULT_THEME_APPEARANCE, DEFAULT_THEME_ID }
+export type { ThemeAppearance, ThemeId }
+
+export type ThemeVariant = 'light' | 'dark'
+
+export interface ThemeAttributes {
+  themeId: ThemeId
+  appearance: ThemeAppearance
+  variant: ThemeVariant
+}
+
 const rgbTokenVars = {
   ink: '--yachiyo-rgb-ink',
   textSecondary: '--yachiyo-rgb-text-secondary',
@@ -10,6 +31,8 @@ const rgbTokenVars = {
   surface: '--yachiyo-rgb-surface',
   accent: '--yachiyo-rgb-accent',
   accentStrong: '--yachiyo-rgb-accent-strong',
+  scrim: '--yachiyo-rgb-scrim',
+  onAccentOverlay: '--yachiyo-rgb-on-accent-overlay',
   success: '--yachiyo-rgb-success',
   successStrong: '--yachiyo-rgb-success-strong',
   warning: '--yachiyo-rgb-warning',
@@ -19,6 +42,28 @@ const rgbTokenVars = {
 } as const
 
 type RgbToken = keyof typeof rgbTokenVars
+
+export function resolveThemeVariant(
+  appearance: ThemeAppearance,
+  systemPrefersDark: boolean
+): ThemeVariant {
+  if (appearance === 'dark') return 'dark'
+  if (appearance === 'light') return 'light'
+  return systemPrefersDark ? 'dark' : 'light'
+}
+
+export function resolveThemeAttributes(
+  general: Pick<GeneralConfig, 'themeId' | 'themeAppearance'> | null | undefined,
+  systemPrefersDark: boolean
+): ThemeAttributes {
+  const themeId = normalizeThemeId(general?.themeId, DEFAULT_THEME_ID)
+  const appearance = normalizeThemeAppearance(general?.themeAppearance, DEFAULT_THEME_APPEARANCE)
+  return {
+    themeId,
+    appearance,
+    variant: resolveThemeVariant(appearance, systemPrefersDark)
+  }
+}
 
 function formatAlpha(alpha: number): string {
   if (!Number.isFinite(alpha) || alpha < 0 || alpha > 1) {
@@ -59,7 +104,9 @@ export const theme = {
     app: solid('app'),
     canvas: solid('canvas'),
     sidebar: solid('sidebar'),
-    sidebarVibrancy: 'rgba(150, 210, 240, 0.15)',
+    sidebarVibrancy: alpha('accent', 0.15),
+    scrim: alpha('scrim', 0.25),
+    onAccentOverlay: alpha('onAccentOverlay', 0.15),
     chatCard: alpha('canvas', 0.92),
     surface: alpha('surface', 0.94),
     surfaceSoft: alpha('surface', 0.88),

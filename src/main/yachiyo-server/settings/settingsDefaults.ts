@@ -5,6 +5,8 @@ import {
   DEFAULT_MEMORY_PROVIDER,
   DEFAULT_SIDEBAR_VISIBILITY,
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
+  DEFAULT_THEME_APPEARANCE,
+  DEFAULT_THEME_ID,
   DEFAULT_TOOL_MODEL_MODE,
   DEFAULT_WEB_SEARCH_PROVIDER,
   type SettingsConfig
@@ -16,6 +18,8 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   general: {
     sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
     sidebarPreview: true,
+    themeId: DEFAULT_THEME_ID,
+    themeAppearance: DEFAULT_THEME_APPEARANCE,
     demoMode: false,
     notifyRunCompleted: true,
     notifyCodingTaskStarted: true,

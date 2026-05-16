@@ -123,15 +123,15 @@ export function ModelSelect({
 // ─── status colors ───────────────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<ChannelUserStatus, string> = {
-  allowed: '#34c759',
-  pending: '#ff9500',
-  blocked: '#ff3b30'
+  allowed: theme.text.success,
+  pending: theme.text.warning,
+  blocked: theme.text.danger
 }
 
 const GROUP_STATUS_COLORS: Record<ChannelGroupStatus, string> = {
-  approved: '#34c759',
-  pending: '#ff9500',
-  blocked: '#ff3b30'
+  approved: theme.text.success,
+  pending: theme.text.warning,
+  blocked: theme.text.danger
 }
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -240,13 +240,13 @@ export function ChannelUserRow({
 
       <div className="flex items-center gap-1 shrink-0">
         {user.status !== 'allowed' && (
-          <ActionButton label="Approve" color="#34c759" onClick={() => onStatusChange('allowed')} />
+          <ActionButton label="Approve" tone="success" onClick={() => onStatusChange('allowed')} />
         )}
         {user.status === 'allowed' && (
-          <ActionButton label="Block" color="#ff3b30" onClick={() => onStatusChange('blocked')} />
+          <ActionButton label="Block" tone="danger" onClick={() => onStatusChange('blocked')} />
         )}
         {user.status === 'blocked' && (
-          <ActionButton label="Unblock" color="#ff9500" onClick={() => onStatusChange('pending')} />
+          <ActionButton label="Unblock" tone="warning" onClick={() => onStatusChange('pending')} />
         )}
       </div>
     </div>
@@ -305,7 +305,7 @@ export function ChannelGroupRow({
             style={{ color: theme.text.secondary }}
           />
           {clearError ? (
-            <div className="text-xs truncate" style={{ color: '#c25151' }}>
+            <div className="text-xs truncate" style={{ color: theme.text.dangerStrong }}>
               {clearError}
             </div>
           ) : null}
@@ -339,24 +339,24 @@ export function ChannelGroupRow({
           <>
             <ActionButton
               label="Approve"
-              color="#34c759"
+              tone="success"
               onClick={() => onStatusChange('approved')}
             />
-            <ActionButton label="Block" color="#ff3b30" onClick={() => onStatusChange('blocked')} />
+            <ActionButton label="Block" tone="danger" onClick={() => onStatusChange('blocked')} />
           </>
         )}
         {group.status === 'approved' && (
           <>
             <ActionButton
               label="Disable"
-              color="#ff9500"
+              tone="warning"
               onClick={() => onStatusChange('pending')}
             />
-            <ActionButton label="Block" color="#ff3b30" onClick={() => onStatusChange('blocked')} />
+            <ActionButton label="Block" tone="danger" onClick={() => onStatusChange('blocked')} />
           </>
         )}
         {group.status === 'blocked' && (
-          <ActionButton label="Unblock" color="#ff9500" onClick={() => onStatusChange('pending')} />
+          <ActionButton label="Unblock" tone="warning" onClick={() => onStatusChange('pending')} />
         )}
       </div>
     </div>
@@ -365,19 +365,25 @@ export function ChannelGroupRow({
 
 function ActionButton({
   label,
-  color,
+  tone,
   onClick
 }: {
   label: string
-  color: string
+  tone: 'success' | 'warning' | 'danger'
   onClick: () => void
 }): React.ReactNode {
+  const colors = {
+    success: { fg: theme.text.success, bg: alpha('success', 0.08) },
+    warning: { fg: theme.text.warning, bg: alpha('warning', 0.08) },
+    danger: { fg: theme.text.danger, bg: alpha('danger', 0.08) }
+  }[tone]
+
   return (
     <button
       type="button"
       onClick={onClick}
       className="text-xs font-medium px-2.5 py-1 rounded-md transition-opacity opacity-75 hover:opacity-100"
-      style={{ color, background: `${color}14`, border: 'none', cursor: 'default' }}
+      style={{ color: colors.fg, background: colors.bg, border: 'none', cursor: 'default' }}
     >
       {label}
     </button>

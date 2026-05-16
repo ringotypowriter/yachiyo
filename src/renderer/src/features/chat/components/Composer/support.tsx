@@ -106,7 +106,7 @@ export function renderComposerTextHighlights(
   return parts.length > 0 ? <>{parts}</> : null
 }
 
-export const SELECTION_BG = 'rgb(75 175 201 / 0.25)'
+export const SELECTION_BG = 'rgb(var(--yachiyo-rgb-accent) / 0.25)'
 
 /**
  * Render a single pretext line with optional selection highlight.

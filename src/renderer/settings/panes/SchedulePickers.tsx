@@ -190,7 +190,7 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
               background: theme.background.surface,
               borderRadius: 12,
               border: `1px solid ${theme.border.subtle}`,
-              boxShadow: '0 8px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06)',
+              boxShadow: theme.shadow.menu,
               padding: 10,
               width: 256
             }}
@@ -206,7 +206,7 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
                     background: mode === m.value ? theme.background.surface : 'transparent',
                     color: mode === m.value ? theme.text.primary : theme.text.tertiary,
                     border: 'none',
-                    boxShadow: mode === m.value ? '0 1px 3px rgba(0,0,0,0.08)' : 'none'
+                    boxShadow: mode === m.value ? theme.shadow.button : 'none'
                   }}
                   onClick={() => setMode(m.value)}
                 >
@@ -549,7 +549,7 @@ export function DateTimePick({
               background: theme.background.surface,
               borderRadius: 12,
               border: `1px solid ${theme.border.subtle}`,
-              boxShadow: '0 8px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06)',
+              boxShadow: theme.shadow.menu,
               padding: 10,
               width: 240
             }}

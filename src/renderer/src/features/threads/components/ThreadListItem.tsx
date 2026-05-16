@@ -266,7 +266,9 @@ export function ThreadListItem({
                     flexShrink: 0
                   }}
                 >
-                  {isSelected ? <Check size={10} strokeWidth={3} color="white" /> : null}
+                  {isSelected ? (
+                    <Check size={10} strokeWidth={3} color={theme.text.inverse} />
+                  ) : null}
                 </span>
               </span>
             ) : thread.icon ? (
@@ -418,7 +420,7 @@ export function ThreadListItem({
             }}
             className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 no-drag"
             style={{
-              color: isStarred ? '#f59e0b' : theme.text.muted,
+              color: isStarred ? theme.text.warning : theme.text.muted,
               opacity:
                 !hasActiveRun && !hasJustDoneRun && !isSaving && (isHovered || isStarred) ? 1 : 0,
               pointerEvents: hasActiveRun || hasJustDoneRun || isSaving ? 'none' : 'auto',
@@ -428,7 +430,7 @@ export function ThreadListItem({
             <Star
               size={11}
               strokeWidth={isStarred ? 0 : 1.5}
-              fill={isStarred ? '#f59e0b' : 'none'}
+              fill={isStarred ? theme.text.warning : 'none'}
             />
           </button>
         ) : null}

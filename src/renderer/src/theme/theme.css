@@ -1,4 +1,5 @@
-:root {
+:root,
+:root[data-yachiyo-theme='mizu'][data-yachiyo-theme-variant='light'] {
   --yachiyo-font-ui: 'Avenir Next', 'Helvetica Neue', 'Segoe UI', sans-serif;
   --yachiyo-font-display: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
   --yachiyo-ui-zoom: 1;
@@ -17,10 +18,62 @@
 
   --yachiyo-rgb-accent: 75 175 201;
   --yachiyo-rgb-accent-strong: 42 122 149;
+  --yachiyo-rgb-scrim: 0 0 0;
+  --yachiyo-rgb-on-accent-overlay: 255 255 255;
   --yachiyo-rgb-success: 78 131 102;
   --yachiyo-rgb-success-strong: 92 173 138;
   --yachiyo-rgb-warning: 192 86 33;
   --yachiyo-rgb-danger: 181 58 47;
   --yachiyo-rgb-danger-strong: 143 65 50;
   --yachiyo-rgb-idle: 192 189 184;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-yachiyo-theme-variant]) {
+    --yachiyo-rgb-ink: 238 241 242;
+    --yachiyo-rgb-text-secondary: 204 210 213;
+    --yachiyo-rgb-text-tertiary: 158 168 173;
+    --yachiyo-rgb-text-muted: 123 134 140;
+    --yachiyo-rgb-text-placeholder: 93 104 111;
+
+    --yachiyo-rgb-app: 24 27 30;
+    --yachiyo-rgb-canvas: 29 33 37;
+    --yachiyo-rgb-sidebar: 32 38 43;
+    --yachiyo-rgb-surface: 38 42 46;
+
+    --yachiyo-rgb-accent: 99 179 195;
+    --yachiyo-rgb-accent-strong: 130 203 214;
+    --yachiyo-rgb-scrim: 0 0 0;
+    --yachiyo-rgb-on-accent-overlay: 255 255 255;
+    --yachiyo-rgb-success: 116 160 132;
+    --yachiyo-rgb-success-strong: 139 191 158;
+    --yachiyo-rgb-warning: 218 155 95;
+    --yachiyo-rgb-danger: 218 105 94;
+    --yachiyo-rgb-danger-strong: 232 135 120;
+    --yachiyo-rgb-idle: 105 113 119;
+  }
+}
+
+:root[data-yachiyo-theme='mizu'][data-yachiyo-theme-variant='dark'] {
+  --yachiyo-rgb-ink: 238 241 242;
+  --yachiyo-rgb-text-secondary: 204 210 213;
+  --yachiyo-rgb-text-tertiary: 158 168 173;
+  --yachiyo-rgb-text-muted: 123 134 140;
+  --yachiyo-rgb-text-placeholder: 93 104 111;
+
+  --yachiyo-rgb-app: 24 27 30;
+  --yachiyo-rgb-canvas: 29 33 37;
+  --yachiyo-rgb-sidebar: 32 38 43;
+  --yachiyo-rgb-surface: 38 42 46;
+
+  --yachiyo-rgb-accent: 99 179 195;
+  --yachiyo-rgb-accent-strong: 130 203 214;
+  --yachiyo-rgb-scrim: 0 0 0;
+  --yachiyo-rgb-on-accent-overlay: 255 255 255;
+  --yachiyo-rgb-success: 116 160 132;
+  --yachiyo-rgb-success-strong: 139 191 158;
+  --yachiyo-rgb-warning: 218 155 95;
+  --yachiyo-rgb-danger: 218 105 94;
+  --yachiyo-rgb-danger-strong: 232 135 120;
+  --yachiyo-rgb-idle: 105 113 119;
 }

@@ -3,6 +3,7 @@ import { Check, Eye, List, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react
 import { Streamdown, defaultRemarkPlugins } from 'streamdown'
 import { code } from '@streamdown/code'
 import { theme, alpha } from '@renderer/theme/theme'
+import { useAuxiliaryThemeConfig } from '@renderer/theme/useThemeConfig'
 import type { JotdownFull, JotdownMeta } from '../../shared/yachiyo/protocol'
 
 type SaveStatus = 'idle' | 'saving' | 'saved'
@@ -20,6 +21,7 @@ function formatTime(iso: string): string {
 }
 
 export default function JotdownApp(): React.JSX.Element {
+  useAuxiliaryThemeConfig()
   const [notes, setNotes] = useState<JotdownMeta[]>([])
   const [activeNote, setActiveNote] = useState<JotdownFull | null>(null)
   const [content, setContent] = useState('')

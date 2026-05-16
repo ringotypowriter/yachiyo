@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowRightLeft, Check, ChevronDown, Clock, Copy, Loader2, X } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
+import { useAuxiliaryThemeConfig } from '@renderer/theme/useThemeConfig'
 import type { TranslateResult } from '../../shared/yachiyo/protocol'
 
 const STORAGE_KEY = 'yachiyo-translator-target-lang'
@@ -66,7 +67,7 @@ function LanguageCombobox({
   return (
     <div className="relative">
       <div
-        className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[13px] cursor-pointer"
+        className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[13px]"
         style={{
           background: alpha('ink', 0.04),
           border: `1px solid ${alpha('ink', 0.08)}`
@@ -163,6 +164,7 @@ function LanguageCombobox({
 }
 
 export default function TranslatorApp(): React.JSX.Element {
+  useAuxiliaryThemeConfig()
   const [sourceText, setSourceText] = useState('')
   const [translatedText, setTranslatedText] = useState('')
   const [targetLang, setTargetLang] = useState(() => localStorage.getItem(STORAGE_KEY) || 'English')

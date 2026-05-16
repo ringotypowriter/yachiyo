@@ -1,6 +1,10 @@
 import log from 'electron-log/main'
-import { app, screen, shell, BrowserWindow, globalShortcut, ipcMain } from 'electron'
-import type { SettingsConfig, SettingsUpdatedEvent } from '../shared/yachiyo/protocol'
+import { app, screen, shell, BrowserWindow, globalShortcut, ipcMain, nativeTheme } from 'electron'
+import {
+  DEFAULT_THEME_APPEARANCE,
+  type SettingsConfig,
+  type SettingsUpdatedEvent
+} from '../shared/yachiyo/protocol'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -46,6 +50,12 @@ let settingsWindow: BrowserWindow | null = null
 let translatorWindow: BrowserWindow | null = null
 let jotdownWindow: BrowserWindow | null = null
 let mainWindowRef: BrowserWindow | null = null
+
+function applyNativeTheme(config: SettingsConfig): void {
+  nativeTheme.themeSource = config.general?.themeAppearance ?? DEFAULT_THEME_APPEARANCE
+  const backgroundColor = nativeTheme.shouldUseDarkColors ? '#181b1e' : '#eaf2f7'
+  settingsWindow?.setBackgroundColor(backgroundColor)
+}
 let isQuitting = false
 
 function maybeDestroyHiddenJotdown(): void {
@@ -200,7 +210,7 @@ function openSettingsWindow(tab?: string): void {
     show: false,
     title: 'Settings',
     frame: false,
-    backgroundColor: '#eaf2f7',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#181b1e' : '#eaf2f7',
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -236,8 +246,8 @@ registerYachiyoAssetScheme()
 function createWindow(server: YachiyoServer): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 1100,
-    height: 720,
+    width: 1280,
+    height: 820,
     minWidth: 760,
     minHeight: 500,
     show: false,
@@ -341,7 +351,7 @@ app.whenReady().then(async () => {
       win.setBackgroundColor('#00000000')
     } else {
       win.setVibrancy(null)
-      win.setBackgroundColor('#f5f4f0')
+      win.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1d2125' : '#f5f4f0')
     }
   })
   const server = registerYachiyoGateway()
@@ -373,12 +383,15 @@ app.whenReady().then(async () => {
   }
 
   void server.getConfig().then((initialConfig) => {
+    applyNativeTheme(initialConfig)
     updateFloatWindowShortcuts(initialConfig)
   })
 
   server.subscribe((event) => {
     if (event.type === 'settings.updated') {
-      updateFloatWindowShortcuts((event as SettingsUpdatedEvent).config)
+      const config = (event as SettingsUpdatedEvent).config
+      applyNativeTheme(config)
+      updateFloatWindowShortcuts(config)
     }
   })
 

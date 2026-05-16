@@ -7,7 +7,7 @@
   --color-background: rgb(var(--yachiyo-rgb-surface));
   --color-sidebar: rgb(var(--yachiyo-rgb-canvas));
   --color-border: rgb(var(--yachiyo-rgb-ink) / 0.08);
-  --color-muted: rgb(232 240 246);
+  --color-muted: rgb(var(--yachiyo-rgb-sidebar));
   --color-muted-foreground: rgb(var(--yachiyo-rgb-text-tertiary));
   --color-foreground: rgb(var(--yachiyo-rgb-ink));
 }

@@ -54,7 +54,7 @@ export function FixedStepSlider({
             height: 8,
             transform: 'translateY(-50%)',
             borderRadius: 99,
-            background: 'rgba(17, 24, 39, 0.08)',
+            background: theme.border.panel,
             pointerEvents: 'none'
           }}
         />

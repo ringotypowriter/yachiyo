@@ -348,7 +348,9 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                         background: row.showInChatPicker ? 'currentColor' : 'transparent'
                       }}
                     >
-                      {row.showInChatPicker && <Check size={8} strokeWidth={3} color="white" />}
+                      {row.showInChatPicker && (
+                        <Check size={8} strokeWidth={3} color={theme.text.inverse} />
+                      )}
                     </span>
                     Picker
                   </button>
@@ -437,7 +439,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                       style={{
                         ...inputStyle(),
                         ...(parseArgs(row.argsString) === null
-                          ? { outline: '1.5px solid #e05252' }
+                          ? { outline: `1.5px solid ${theme.text.danger}` }
                           : {})
                       }}
                       onChange={(e) => updateRow(index, { argsString: e.target.value })}
@@ -445,7 +447,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                     />
                   </div>
                   {parseArgs(row.argsString) === null && (
-                    <p className="text-xs" style={{ color: '#e05252' }}>
+                    <p className="text-xs" style={{ color: theme.text.danger }}>
                       {`Invalid JSON — expected an array like ["-y", "@pkg"]`}
                     </p>
                   )}

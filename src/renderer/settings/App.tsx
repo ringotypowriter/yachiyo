@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
+import { useApplyThemeConfig } from '@renderer/theme/useThemeConfig'
 import type {
   ChannelGroupRecord,
   ChannelUserRecord,
@@ -235,6 +236,7 @@ function SettingsApp(): React.ReactNode {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const previousActiveTabRef = useRef<TabId | null>(null)
+  useApplyThemeConfig(draft ?? savedConfig, false)
 
   useEffect(() => {
     return window.api.onNavigateSettingsTo((tab) => {

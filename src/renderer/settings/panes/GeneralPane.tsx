@@ -184,7 +184,7 @@ export function GeneralPane({
           ) : null}
 
           {userDocumentError ? (
-            <div className="mt-2 px-7 text-sm" style={{ color: '#c25151' }}>
+            <div className="mt-2 px-7 text-sm" style={{ color: theme.text.dangerStrong }}>
               {userDocumentError}
             </div>
           ) : null}
@@ -311,7 +311,7 @@ export function GeneralPane({
             </div>
 
             {soulDocumentError ? (
-              <div className="px-7 pb-3 text-sm" style={{ color: '#c25151' }}>
+              <div className="px-7 pb-3 text-sm" style={{ color: theme.text.dangerStrong }}>
                 {soulDocumentError}
               </div>
             ) : null}
@@ -519,7 +519,7 @@ export function GeneralPane({
                   : 'No activity tracking.'}
             </div>
             {activityTrackingWarning ? (
-              <div className="text-xs leading-4 mt-0.5" style={{ color: '#c25151' }}>
+              <div className="text-xs leading-4 mt-0.5" style={{ color: theme.text.dangerStrong }}>
                 {activityTrackingWarning}
               </div>
             ) : null}

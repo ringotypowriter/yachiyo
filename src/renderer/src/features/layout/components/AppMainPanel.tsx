@@ -697,7 +697,7 @@ export function AppMainPanel({
           <div
             className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-auto"
             style={{
-              background: 'rgba(245, 244, 240, 0.75)',
+              background: theme.background.surfaceLight,
               backdropFilter: 'blur(4px)',
               WebkitBackdropFilter: 'blur(4px)'
             }}

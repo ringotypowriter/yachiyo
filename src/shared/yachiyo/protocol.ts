@@ -102,6 +102,8 @@ export type ProviderKind =
   | 'vercel-gateway'
 export type ActiveRunEnterBehavior = 'enter-steers' | 'enter-queues-follow-up'
 export type SidebarVisibility = 'expanded' | 'collapsed'
+export type ThemeId = 'mizu'
+export type ThemeAppearance = 'system' | 'light' | 'dark'
 export type SendChatMode = 'normal' | 'steer' | 'follow-up'
 export type SendChatRunTrigger = 'local' | 'channel'
 export type ToolModelMode = 'disabled' | 'default' | 'custom'
@@ -173,6 +175,8 @@ export const DEFAULT_ENABLED_TOOL_NAMES = USER_MANAGED_TOOL_NAMES.filter(
 ) as ToolCallName[]
 export const DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR: ActiveRunEnterBehavior = 'enter-steers'
 export const DEFAULT_SIDEBAR_VISIBILITY: SidebarVisibility = 'expanded'
+export const DEFAULT_THEME_ID: ThemeId = 'mizu'
+export const DEFAULT_THEME_APPEARANCE: ThemeAppearance = 'system'
 export const DEFAULT_TOOL_MODEL_MODE: ToolModelMode = 'default'
 
 export function normalizeMemoryProviderId(
@@ -278,6 +282,17 @@ export function normalizeSidebarVisibility(
   fallback: SidebarVisibility = DEFAULT_SIDEBAR_VISIBILITY
 ): SidebarVisibility {
   return value === 'collapsed' || value === 'expanded' ? value : fallback
+}
+
+export function normalizeThemeId(value: unknown, fallback: ThemeId = DEFAULT_THEME_ID): ThemeId {
+  return value === 'mizu' ? value : fallback
+}
+
+export function normalizeThemeAppearance(
+  value: unknown,
+  fallback: ThemeAppearance = DEFAULT_THEME_APPEARANCE
+): ThemeAppearance {
+  return value === 'system' || value === 'light' || value === 'dark' ? value : fallback
 }
 
 export function normalizeToolModelMode(
@@ -542,6 +557,8 @@ export interface ActivityTrackingConfig {
 export interface GeneralConfig {
   sidebarVisibility?: SidebarVisibility
   sidebarPreview?: boolean
+  themeId?: ThemeId
+  themeAppearance?: ThemeAppearance
   uiFontSize?: number
   chatFontSize?: number
   updateChannel?: UpdateChannel

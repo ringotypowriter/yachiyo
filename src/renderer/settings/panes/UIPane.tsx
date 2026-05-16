@@ -1,8 +1,18 @@
 import { useState } from 'react'
-import { DEFAULT_SIDEBAR_VISIBILITY } from '../../../shared/yachiyo/protocol.ts'
-import type { SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
+import {
+  DEFAULT_SIDEBAR_VISIBILITY,
+  DEFAULT_THEME_APPEARANCE,
+  DEFAULT_THEME_ID
+} from '../../../shared/yachiyo/protocol.ts'
+import type { SettingsConfig, ThemeAppearance } from '../../../shared/yachiyo/protocol.ts'
 import { theme, alpha } from '@renderer/theme/theme'
-import { SettingLabel, SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
+import {
+  SettingLabel,
+  SettingRow,
+  SettingSection,
+  SettingSwitch,
+  SimpleSelect
+} from '../components/primitives'
 import {
   DEFAULT_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
@@ -14,6 +24,11 @@ const UI_FONT_SIZES = [11, 12, 13, 14, 15, 16]
 const CHAT_FONT_SIZES = [12, 13, 14, 15, 16, 18, 20]
 const DEFAULT_UI_FONT_SIZE = 14
 const DEFAULT_CHAT_FONT_SIZE = 14
+const APPEARANCE_OPTIONS: { value: ThemeAppearance; label: string }[] = [
+  { value: 'system', label: 'System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' }
+]
 
 interface UIPaneProps {
   draft: SettingsConfig
@@ -114,6 +129,54 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
 
   return (
     <div className="flex-1 overflow-y-auto pb-6">
+      <SettingSection>
+        <SettingLabel>Appearance</SettingLabel>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Theme
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              Mizu controls the app color system.
+            </div>
+          </div>
+
+          <div className="shrink-0 text-sm font-medium" style={{ color: theme.text.primary }}>
+            Mizu
+          </div>
+        </SettingRow>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Appearance
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              System follows the current desktop appearance.
+            </div>
+          </div>
+
+          <div className="shrink-0">
+            <SimpleSelect<ThemeAppearance>
+              value={draft.general?.themeAppearance ?? DEFAULT_THEME_APPEARANCE}
+              options={APPEARANCE_OPTIONS}
+              width={132}
+              onChange={(next) =>
+                onChange({
+                  ...draft,
+                  general: {
+                    ...draft.general,
+                    themeId: draft.general?.themeId ?? DEFAULT_THEME_ID,
+                    themeAppearance: next
+                  }
+                })
+              }
+            />
+          </div>
+        </SettingRow>
+      </SettingSection>
+
       <SettingSection>
         <SettingLabel>Text size</SettingLabel>
 

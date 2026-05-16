@@ -7,6 +7,8 @@ import {
   normalizeActiveRunEnterBehavior,
   normalizeMemoryProviderId,
   normalizeSidebarVisibility,
+  normalizeThemeAppearance,
+  normalizeThemeId,
   type ActivityTrackingConfig,
   type BrowserBackedWebSearchSessionConfig,
   type ChatConfig,
@@ -43,6 +45,11 @@ export function normalizeGeneralConfig(value: unknown): GeneralConfig {
       DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility
     ),
     sidebarPreview: normalizeOptionalBool(input['sidebarPreview'], true),
+    themeId: normalizeThemeId(input['themeId'], DEFAULT_SETTINGS_CONFIG.general?.themeId),
+    themeAppearance: normalizeThemeAppearance(
+      input['themeAppearance'],
+      DEFAULT_SETTINGS_CONFIG.general?.themeAppearance
+    ),
     demoMode: normalizeOptionalBool(input['demoMode'], false),
     notifyRunCompleted: normalizeOptionalBool(input['notifyRunCompleted'], true),
     notifyCodingTaskStarted: normalizeOptionalBool(input['notifyCodingTaskStarted'], true),

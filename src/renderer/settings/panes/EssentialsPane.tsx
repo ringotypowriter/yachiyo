@@ -389,7 +389,7 @@ export function EssentialsPane({ draft, onChange }: EssentialsPaneProps): React.
           type="button"
           onClick={addEssential}
           disabled={essentials.length >= MAX_ESSENTIALS}
-          className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-30 disabled:cursor-not-allowed"
+          className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-30"
           style={{
             background: alpha('accent', 0.1),
             color: theme.text.accent,

@@ -9,6 +9,8 @@ import { isCreateNewThreadShortcut } from '@renderer/features/layout/lib/newThre
 import { isOpenSidebarSearchShortcut } from '@renderer/features/layout/lib/findBarShortcut'
 import { ToastPresenter } from '@renderer/features/notifications/components/ToastPresenter'
 import { GlobalProcessingModal } from '@renderer/components/GlobalProcessingModal'
+import { theme } from '@renderer/theme/theme'
+import { useApplyThemeConfig } from '@renderer/theme/useThemeConfig'
 
 function ConnectionOverlay({
   status,
@@ -30,7 +32,7 @@ function ConnectionOverlay({
         gap: 16,
         backdropFilter: 'blur(24px) saturate(1.4)',
         WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
-        background: 'rgba(255, 255, 255, 0.60)',
+        background: theme.background.surfaceLight,
         opacity: exiting ? 0 : 1,
         transform: exiting ? 'translateY(-16px)' : 'translateY(0)',
         transition: exiting ? 'opacity 380ms ease, transform 380ms ease' : 'none',
@@ -43,7 +45,7 @@ function ConnectionOverlay({
           height: 96,
           borderRadius: '50%',
           overflow: 'hidden',
-          boxShadow: '0 0 0 1px rgba(0,0,0,0.06), 0 4px 24px rgba(0,0,0,0.12)'
+          boxShadow: theme.shadow.overlay
         }}
       >
         <img
@@ -64,13 +66,13 @@ function ConnectionOverlay({
           style={{
             fontSize: 14,
             fontWeight: 500,
-            color: 'rgba(28,28,30,0.85)',
+            color: theme.text.primary,
             letterSpacing: '-0.2px'
           }}
         >
           {status === 'connecting' ? 'Starting up…' : 'Unable to connect'}
         </span>
-        <span style={{ fontSize: 12, color: 'rgba(28,28,30,0.40)' }}>
+        <span style={{ fontSize: 12, color: theme.text.muted }}>
           {status === 'connecting' ? 'Yachiyo is waking up' : 'Waiting for the local server'}
         </span>
       </div>
@@ -121,6 +123,7 @@ function App(): React.JSX.Element {
     }
   }, [connectionStatus])
   const config = useAppStore((s) => s.config)
+  useApplyThemeConfig(config)
   const createNewThread = useAppStore((s) => s.createNewThread)
   const setActiveArchivedThread = useAppStore((s) => s.setActiveArchivedThread)
   const [isSidebarSearchOpen, setIsSidebarSearchOpen] = useState(false)

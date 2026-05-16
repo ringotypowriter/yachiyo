@@ -477,7 +477,7 @@ export function ComposerView(props: any): React.JSX.Element {
               trailStrength="high"
               isFocused={isTextareaFocused}
               color={theme.text.accent}
-              trailColor={`rgb(75 175 201 / 0.38)`}
+              trailColor="rgb(var(--yachiyo-rgb-accent) / 0.38)"
               text={composerValue}
             />
             <textarea
@@ -498,7 +498,7 @@ export function ComposerView(props: any): React.JSX.Element {
                   : 'Open Settings and configure a provider before chatting.'
               }
               rows={1}
-              className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed placeholder:text-gray-400 message-selectable composer-textarea-pretext"
+              className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed message-selectable composer-textarea-pretext"
               style={{
                 gridArea: '1 / 1',
                 color: 'transparent',
@@ -578,8 +578,12 @@ export function ComposerView(props: any): React.JSX.Element {
               />
               {enabledTools.length > 0 ? (
                 <span
-                  className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center"
-                  style={{ fontSize: '8px', background: theme.text.accent }}
+                  className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center"
+                  style={{
+                    fontSize: '8px',
+                    background: theme.text.accent,
+                    color: theme.text.inverse
+                  }}
                 >
                   {enabledTools.length}
                 </span>
@@ -620,8 +624,12 @@ export function ComposerView(props: any): React.JSX.Element {
               />
               {enabledSkillCount > 0 ? (
                 <span
-                  className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center"
-                  style={{ fontSize: '8px', background: theme.text.accent }}
+                  className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center"
+                  style={{
+                    fontSize: '8px',
+                    background: theme.text.accent,
+                    color: theme.text.inverse
+                  }}
                 >
                   {enabledSkillCount}
                 </span>
@@ -1027,7 +1035,7 @@ export function ComposerView(props: any): React.JSX.Element {
                         marginTop: 4,
                         paddingTop: 6,
                         borderTop: `1px solid ${theme.border.default}`,
-                        color: '#f59e0b',
+                        color: theme.text.warning,
                         fontSize: 11,
                         lineHeight: 1.4
                       }}
@@ -1047,7 +1055,12 @@ export function ComposerView(props: any): React.JSX.Element {
                 {(displayPromptTokens ?? 0) + estimatedDraftTokens > stripCompactThresholdTokens ? (
                   <TriangleAlert
                     size={11}
-                    style={{ color: '#f59e0b', flexShrink: 0, opacity: 1, display: 'block' }}
+                    style={{
+                      color: theme.text.warning,
+                      flexShrink: 0,
+                      opacity: 1,
+                      display: 'block'
+                    }}
                   />
                 ) : null}
                 {displayPromptTokens != null ? formatTokenCount(displayPromptTokens) : null}

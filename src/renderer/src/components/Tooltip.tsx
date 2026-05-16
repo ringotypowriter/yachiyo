@@ -41,8 +41,8 @@ function TooltipPopup({
 
   const darkOverrides: React.CSSProperties | undefined = dark
     ? ({
-        '--yachiyo-rgb-ink': '230 230 230',
-        '--yachiyo-rgb-surface': '40 40 40'
+        '--yachiyo-rgb-ink': '238 241 242',
+        '--yachiyo-rgb-surface': '38 42 46'
       } as React.CSSProperties)
     : undefined
 

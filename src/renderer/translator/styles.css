@@ -31,3 +31,13 @@ body {
 .no-drag {
   -webkit-app-region: no-drag;
 }
+
+button,
+[role='button'] {
+  cursor: default !important;
+}
+
+button:not(:disabled):active,
+[role='button']:not([aria-disabled='true']):active {
+  filter: brightness(0.97);
+}

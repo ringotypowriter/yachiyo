@@ -283,7 +283,7 @@ export function SlashCommandPopup({
             fontSize: 10,
             lineHeight: 1.4,
             color: theme.text.muted,
-            borderTop: `1px solid rgba(0,0,0,0.06)`,
+            borderTop: `1px solid ${theme.border.subtle}`,
             fontFamily: 'monospace',
             display: 'flex',
             gap: 10

@@ -165,7 +165,7 @@ export function AppDialog({
       className="fixed inset-0 flex items-center justify-center"
       style={{
         zIndex,
-        background: 'rgba(0, 0, 0, 0.25)',
+        background: theme.background.scrim,
         padding: 16
       }}
       onMouseDown={() => {

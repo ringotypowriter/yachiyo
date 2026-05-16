@@ -1,6 +1,7 @@
 import type React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { DEFAULT_SETTINGS, useAppStore } from '@renderer/app/store/useAppStore'
+import { theme } from '@renderer/theme/theme'
 
 function useStripContent(): { key: string; color: string; text: string } | null {
   const activeThreadId = useAppStore((s) => s.activeThreadId)
@@ -13,7 +14,7 @@ function useStripContent(): { key: string; color: string; text: string } | null 
   if (connectionStatus !== 'connected') {
     return {
       key: 'disconnected',
-      color: '#b53a2f',
+      color: theme.text.danger,
       text: 'Local server is unavailable. Reload the app if this keeps happening.'
     }
   }
@@ -24,13 +25,13 @@ function useStripContent(): { key: string; color: string; text: string } | null 
   if ((needsApiKey && !settings.apiKey.trim()) || needsCodexSession || !settings.model.trim()) {
     return {
       key: 'setup',
-      color: '#8a6d3b',
+      color: theme.text.warning,
       text: 'Open Settings to configure a provider and model before chatting.'
     }
   }
 
   if (latestRun?.status === 'failed' && latestRun.error) {
-    return { key: `error-${latestRun.id}`, color: '#b53a2f', text: latestRun.error }
+    return { key: `error-${latestRun.id}`, color: theme.text.danger, text: latestRun.error }
   }
 
   return null
@@ -52,7 +53,7 @@ export function RunStatusStrip(): React.JSX.Element {
         >
           <div
             className="flex items-center gap-2 px-6 py-2 text-xs"
-            style={{ color: content.color, borderTop: '1px solid rgba(0,0,0,0.06)' }}
+            style={{ color: content.color, borderTop: `1px solid ${theme.border.subtle}` }}
           >
             <span>{content.text}</span>
           </div>

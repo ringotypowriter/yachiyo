@@ -543,7 +543,7 @@ function CheckboxRow({
           background: checked ? theme.text.accentStrong : 'transparent'
         }}
       >
-        {checked && <Check size={10} strokeWidth={3} style={{ color: '#fff' }} />}
+        {checked && <Check size={10} strokeWidth={3} style={{ color: theme.text.inverse }} />}
       </span>
       <span
         className="flex items-center justify-center shrink-0"

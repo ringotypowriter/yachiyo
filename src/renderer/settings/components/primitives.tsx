@@ -185,7 +185,7 @@ export function SimpleSelect<T extends string>({
               background: theme.background.surface,
               borderRadius: 12,
               border: `1px solid ${theme.border.subtle}`,
-              boxShadow: '0 8px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06)',
+              boxShadow: theme.shadow.menu,
               padding: '4px 0',
               maxHeight,
               overflowY: 'auto'
@@ -320,7 +320,7 @@ export function SettingSwitch({
       aria-label={ariaLabel}
       disabled={disabled}
       onClick={onChange}
-      className="relative h-5.5 w-9.5 rounded-full transition-all disabled:cursor-not-allowed disabled:opacity-40"
+      className="relative h-5.5 w-9.5 rounded-full transition-all disabled:opacity-40"
       style={{
         background: checked ? theme.text.accent : theme.border.strong
       }}

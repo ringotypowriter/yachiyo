@@ -9,6 +9,8 @@ import {
   DEFAULT_TOOL_MODEL_MODE,
   DEFAULT_SIDEBAR_VISIBILITY,
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
+  DEFAULT_THEME_APPEARANCE,
+  DEFAULT_THEME_ID,
   normalizeUserPrompts
 } from '../../../shared/yachiyo/protocol.ts'
 import {
@@ -32,6 +34,8 @@ test('settings store persists multi-provider config as TOML', async () => {
       general: {
         sidebarVisibility: 'collapsed',
         sidebarPreview: true,
+        themeId: DEFAULT_THEME_ID,
+        themeAppearance: DEFAULT_THEME_APPEARANCE,
         demoMode: true,
         notifyRunCompleted: true,
         notifyCodingTaskStarted: true,
@@ -125,6 +129,8 @@ test('settings store persists multi-provider config as TOML', async () => {
     assert.match(toml, /enabledTools = \[.*"read".*"bash".*\]/)
     assert.match(toml, /\[general\]/)
     assert.match(toml, /sidebarVisibility = "collapsed"/)
+    assert.match(toml, /themeId = "mizu"/)
+    assert.match(toml, /themeAppearance = "system"/)
     assert.match(toml, /demoMode = true/)
     assert.match(toml, /activeRunEnterBehavior = "enter-queues-follow-up"/)
     assert.match(toml, /stripCompactThresholdTokens = 250000/)
@@ -936,7 +942,9 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
     notifyCodingTaskFinished: true,
     translatorShortcut: 'CommandOrControl+Shift+T',
     jotdownShortcut: 'CommandOrControl+Shift+J',
-    activityTracking: { mode: 'simple' }
+    activityTracking: { mode: 'simple' },
+    themeId: DEFAULT_THEME_ID,
+    themeAppearance: DEFAULT_THEME_APPEARANCE
   })
 
   assert.deepEqual(
@@ -955,7 +963,32 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
       notifyCodingTaskFinished: true,
       translatorShortcut: 'CommandOrControl+Shift+T',
       jotdownShortcut: 'CommandOrControl+Shift+J',
-      activityTracking: { mode: 'simple' }
+      activityTracking: { mode: 'simple' },
+      themeId: DEFAULT_THEME_ID,
+      themeAppearance: DEFAULT_THEME_APPEARANCE
     }
   )
+})
+
+test('normalizeSettingsConfig normalizes theme preferences', () => {
+  assert.deepEqual(normalizeSettingsConfig({ providers: [] }).general, {
+    sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
+    sidebarPreview: true,
+    demoMode: false,
+    notifyRunCompleted: true,
+    notifyCodingTaskStarted: true,
+    notifyCodingTaskFinished: true,
+    translatorShortcut: 'CommandOrControl+Shift+T',
+    jotdownShortcut: 'CommandOrControl+Shift+J',
+    activityTracking: { mode: 'simple' },
+    themeId: DEFAULT_THEME_ID,
+    themeAppearance: DEFAULT_THEME_APPEARANCE
+  })
+
+  const normalized = normalizeSettingsConfig({
+    general: { themeId: 'not-a-real-theme', themeAppearance: 'neon' },
+    providers: []
+  })
+  assert.equal(normalized.general?.themeId, DEFAULT_THEME_ID)
+  assert.equal(normalized.general?.themeAppearance, DEFAULT_THEME_APPEARANCE)
 })

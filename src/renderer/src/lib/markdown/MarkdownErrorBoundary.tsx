@@ -1,4 +1,5 @@
 import React, { Component, type ReactNode } from 'react'
+import { theme } from '@renderer/theme/theme'
 
 interface Props {
   fallback: string
@@ -21,7 +22,7 @@ export class MarkdownErrorBoundary extends Component<Props, State> {
       return (
         <p
           className="text-sm leading-relaxed whitespace-pre-wrap message-selectable"
-          style={{ color: '#2D2D2B' }}
+          style={{ color: theme.text.primary }}
         >
           {this.props.fallback}
         </p>

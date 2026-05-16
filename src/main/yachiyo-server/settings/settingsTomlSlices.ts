@@ -3,6 +3,8 @@ import {
   DEFAULT_MEMORY_BASE_URL,
   DEFAULT_MEMORY_PROVIDER,
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
+  DEFAULT_THEME_APPEARANCE,
+  DEFAULT_THEME_ID,
   DEFAULT_TOOL_MODEL_MODE,
   DEFAULT_WEB_SEARCH_PROVIDER,
   type SettingsConfig
@@ -37,6 +39,8 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
           sidebarVisibility:
             config.general?.sidebarVisibility ?? DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility,
           sidebarPreview: config.general?.sidebarPreview !== false,
+          themeId: config.general?.themeId ?? DEFAULT_THEME_ID,
+          themeAppearance: config.general?.themeAppearance ?? DEFAULT_THEME_APPEARANCE,
           demoMode: config.general?.demoMode === true,
           notifyRunCompleted: config.general?.notifyRunCompleted !== false,
           notifyCodingTaskStarted: config.general?.notifyCodingTaskStarted !== false,

@@ -253,7 +253,7 @@ function AppPicker({ value, options, placeholder, onChange }: AppPickerProps): R
               background: theme.background.surface,
               borderRadius: 14,
               border: `1px solid ${theme.border.subtle}`,
-              boxShadow: '0 8px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06)',
+              boxShadow: theme.shadow.menu,
               padding: '4px 0',
               overflow: 'hidden'
             }}
